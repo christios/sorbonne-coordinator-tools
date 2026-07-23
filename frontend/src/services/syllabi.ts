@@ -3,6 +3,7 @@ export type SyllabusContent = Record<string, unknown>;
 export type SyllabusSummary = {
   id: string;
   seriesId: string;
+  folderId: string | null;
   courseTitle: string;
   courseCode: string;
   academicYear: string;
@@ -12,6 +13,13 @@ export type SyllabusSummary = {
 };
 
 export type Syllabus = SyllabusSummary & { content: SyllabusContent };
+
+export type SyllabusFolder = {
+  id: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+};
 
 export type FieldHistoryEntry = {
   previousValue: unknown;
@@ -62,6 +70,18 @@ export async function listSyllabi(): Promise<SyllabusSummary[]> {
   return (await request<{ items: SyllabusSummary[] }>("/syllabi")).items;
 }
 
+export async function listSyllabusFolders(): Promise<SyllabusFolder[]> {
+  return (await request<{ items: SyllabusFolder[] }>("/syllabi/folders")).items;
+}
+
+export function createFolder(name: string): Promise<SyllabusFolder> {
+  return request<SyllabusFolder>("/syllabi/folders", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+}
+
 export function getSyllabus(id: string): Promise<Syllabus> {
   return request<Syllabus>(`/syllabi/${id}`);
 }
@@ -83,6 +103,22 @@ export function updateSyllabus(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   });
+}
+
+export function moveSyllabusToFolder(id: string, folderId: string | null): Promise<Syllabus> {
+  return request<Syllabus>(`/syllabi/${id}/folder`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ folderId }),
+  });
+}
+
+export async function deleteSyllabus(id: string): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/syllabi/${id}`, { method: "DELETE" });
+  if (!response.ok) {
+    const body = (await response.json().catch(() => ({}))) as { detail?: string };
+    throw new Error(body.detail ?? `Request failed with status ${response.status}`);
+  }
 }
 
 export function compareSyllabi(leftId: string, rightId: string): Promise<SyllabusComparison> {

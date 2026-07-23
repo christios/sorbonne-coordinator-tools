@@ -2,7 +2,7 @@ import os
 
 import pytest
 
-from sorbonne.services.syllabus_store import RevisionConflict, SyllabusStore
+from sorbonne.services.syllabus_store import RevisionConflict, SyllabusNotFound, SyllabusStore
 
 
 TEST_DATABASE_URL = os.getenv(
@@ -59,6 +59,27 @@ def test_rejects_stale_updates() -> None:
 
     with pytest.raises(RevisionConflict):
         store.update(syllabus["id"], expected_revision=syllabus["revision"], content={"course": {"ects": "3"}})
+
+
+def test_organizes_syllabi_in_folders_and_deletes_them() -> None:
+    store = make_store()
+    first = store.create(course_title="Climate Policy", course_code="SCEN-220", academic_year="2025-2026")
+    second = store.create(course_title="Environmental Law", course_code="SCEN-240", academic_year="2025-2026")
+
+    folder = store.create_folder(f"Climate courses {first['id']}")
+    moved = store.move_to_folder(first["id"], folder["id"])
+
+    assert moved["folderId"] == folder["id"]
+    assert store.list()[0]["folderId"] in {None, folder["id"]}
+    assert folder in store.list_folders()
+
+    store.delete(first["id"])
+
+    with pytest.raises(SyllabusNotFound):
+        store.get(first["id"])
+    remaining_ids = {item["id"] for item in store.list()}
+    assert second["id"] in remaining_ids
+    assert first["id"] not in remaining_ids
 
 
 def test_coalesces_rapid_changes_to_the_same_field() -> None:

@@ -2,13 +2,20 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Any
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, Field
 from starlette.responses import FileResponse
 
 from sorbonne.config import config
 from sorbonne.services.syllabus_export import build_syllabus_docx
-from sorbonne.services.syllabus_store import ComparisonNotAllowed, RevisionConflict, SyllabusNotFound, SyllabusStore
+from sorbonne.services.syllabus_store import (
+    ComparisonNotAllowed,
+    FolderNameConflict,
+    FolderNotFound,
+    RevisionConflict,
+    SyllabusNotFound,
+    SyllabusStore,
+)
 
 router = APIRouter(prefix="/syllabi", tags=["syllabi"])
 
@@ -28,6 +35,14 @@ class UpdateSyllabusRequest(BaseModel):
     academicYear: str | None = Field(default=None, min_length=1, max_length=20)
 
 
+class CreateFolderRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+
+
+class MoveSyllabusRequest(BaseModel):
+    folderId: str | None = None
+
+
 def get_store() -> SyllabusStore:
     return SyllabusStore(config.database_url)
 
@@ -35,6 +50,19 @@ def get_store() -> SyllabusStore:
 @router.get("")
 def list_syllabi(store: SyllabusStore = Depends(get_store)) -> dict[str, list[dict[str, Any]]]:
     return {"items": store.list()}
+
+
+@router.get("/folders")
+def list_folders(store: SyllabusStore = Depends(get_store)) -> dict[str, list[dict[str, Any]]]:
+    return {"items": store.list_folders()}
+
+
+@router.post("/folders", status_code=201)
+def create_folder(request: CreateFolderRequest, store: SyllabusStore = Depends(get_store)) -> dict[str, Any]:
+    try:
+        return store.create_folder(request.name)
+    except FolderNameConflict as exc:
+        raise HTTPException(status_code=409, detail="A folder with that name already exists.") from exc
 
 
 @router.post("", status_code=201)
@@ -48,6 +76,27 @@ def create_syllabus(request: CreateSyllabusRequest, store: SyllabusStore = Depen
         )
     except SyllabusNotFound as exc:
         raise HTTPException(status_code=404, detail="The source syllabus was not found.") from exc
+
+
+@router.patch("/{syllabus_id}/folder")
+def move_syllabus_to_folder(
+    syllabus_id: str, request: MoveSyllabusRequest, store: SyllabusStore = Depends(get_store)
+) -> dict[str, Any]:
+    try:
+        return store.move_to_folder(syllabus_id, request.folderId)
+    except SyllabusNotFound as exc:
+        raise HTTPException(status_code=404, detail="Syllabus not found.") from exc
+    except FolderNotFound as exc:
+        raise HTTPException(status_code=404, detail="Folder not found.") from exc
+
+
+@router.delete("/{syllabus_id}", status_code=204)
+def delete_syllabus(syllabus_id: str, store: SyllabusStore = Depends(get_store)) -> Response:
+    try:
+        store.delete(syllabus_id)
+    except SyllabusNotFound as exc:
+        raise HTTPException(status_code=404, detail="Syllabus not found.") from exc
+    return Response(status_code=204)
 
 
 @router.get("/{syllabus_id}")

@@ -10,6 +10,7 @@ from uuid import uuid4
 
 from sqlalchemy import Engine, create_engine, text
 from sqlalchemy.engine import Connection, RowMapping
+from sqlalchemy.exc import IntegrityError
 
 
 FIELD_HISTORY_COALESCE_SECONDS = 120
@@ -24,6 +25,14 @@ class RevisionConflict(Exception):
 
 
 class ComparisonNotAllowed(Exception):
+    pass
+
+
+class FolderNotFound(Exception):
+    pass
+
+
+class FolderNameConflict(Exception):
     pass
 
 
@@ -46,6 +55,7 @@ class SyllabusStore:
         record = {
             "id": str(uuid4()),
             "seriesId": source["seriesId"] if source else str(uuid4()),
+            "folderId": source["folderId"] if source else None,
             "courseTitle": course_title,
             "courseCode": course_code or "",
             "academicYear": academic_year,
@@ -59,10 +69,10 @@ class SyllabusStore:
                 text(
                     """
                     INSERT INTO syllabi (
-                        id, series_id, course_title, course_code, academic_year, content_json,
+                        id, series_id, folder_id, course_title, course_code, academic_year, content_json,
                         revision, created_at, updated_at
                     ) VALUES (
-                        :id, :series_id, :course_title, :course_code, :academic_year,
+                        :id, :series_id, :folder_id, :course_title, :course_code, :academic_year,
                         CAST(:content_json AS JSONB), :revision, :created_at, :updated_at
                     )
                     """
@@ -70,6 +80,7 @@ class SyllabusStore:
                 {
                     "id": record["id"],
                     "series_id": record["seriesId"],
+                    "folder_id": record["folderId"],
                     "course_title": record["courseTitle"],
                     "course_code": record["courseCode"],
                     "academic_year": record["academicYear"],
@@ -87,7 +98,8 @@ class SyllabusStore:
                 connection.execute(
                     text(
                         """
-                    SELECT id, series_id, course_title, course_code, academic_year, revision, created_at, updated_at
+                    SELECT id, series_id, folder_id, course_title, course_code, academic_year,
+                           revision, created_at, updated_at
                     FROM syllabi
                     ORDER BY academic_year DESC, course_title ASC, updated_at DESC
                     """
@@ -97,6 +109,67 @@ class SyllabusStore:
                 .all()
             )
         return [_summary_from_row(row) for row in rows]
+
+    def list_folders(self) -> list[dict[str, Any]]:
+        with self.engine.connect() as connection:
+            rows = (
+                connection.execute(
+                    text(
+                        """
+                        SELECT id, name, created_at, updated_at
+                        FROM syllabus_folders
+                        ORDER BY name ASC
+                        """
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        return [_folder_from_row(row) for row in rows]
+
+    def create_folder(self, name: str) -> dict[str, Any]:
+        now = _timestamp()
+        folder = {"id": str(uuid4()), "name": name.strip(), "createdAt": now, "updatedAt": now}
+        try:
+            with self.engine.begin() as connection:
+                connection.execute(
+                    text(
+                        """
+                        INSERT INTO syllabus_folders (id, name, created_at, updated_at)
+                        VALUES (:id, :name, :created_at, :updated_at)
+                        """
+                    ),
+                    {
+                        "id": folder["id"],
+                        "name": folder["name"],
+                        "created_at": folder["createdAt"],
+                        "updated_at": folder["updatedAt"],
+                    },
+                )
+        except IntegrityError as exc:
+            raise FolderNameConflict from exc
+        return folder
+
+    def move_to_folder(self, syllabus_id: str, folder_id: str | None) -> dict[str, Any]:
+        current = self.get(syllabus_id)
+        if folder_id and not self._folder_exists(folder_id):
+            raise FolderNotFound
+        updated_at = _timestamp()
+        with self.engine.begin() as connection:
+            connection.execute(
+                text("UPDATE syllabi SET folder_id = :folder_id, updated_at = :updated_at WHERE id = :id"),
+                {"folder_id": folder_id, "updated_at": updated_at, "id": syllabus_id},
+            )
+        return {**current, "folderId": folder_id, "updatedAt": updated_at}
+
+    def delete(self, syllabus_id: str) -> None:
+        self.get(syllabus_id)
+        with self.engine.begin() as connection:
+            connection.execute(
+                text("DELETE FROM syllabus_field_history WHERE syllabus_id = :syllabus_id"),
+                {"syllabus_id": syllabus_id},
+            )
+            connection.execute(text("DELETE FROM syllabi WHERE id = :id"), {"id": syllabus_id})
 
     def get(self, syllabus_id: str | None) -> dict[str, Any]:
         if not syllabus_id:
@@ -113,6 +186,12 @@ class SyllabusStore:
         if row is None:
             raise SyllabusNotFound
         return _record_from_row(row)
+
+    def _folder_exists(self, folder_id: str) -> bool:
+        with self.engine.connect() as connection:
+            return connection.execute(
+                text("SELECT 1 FROM syllabus_folders WHERE id = :id"), {"id": folder_id}
+            ).first() is not None
 
     def update(  # noqa: PLR0913
         self,
@@ -250,6 +329,7 @@ def _summary_from_row(row: RowMapping) -> dict[str, Any]:
     return {
         "id": row["id"],
         "seriesId": row["series_id"],
+        "folderId": row["folder_id"],
         "courseTitle": row["course_title"],
         "courseCode": row["course_code"],
         "academicYear": row["academic_year"],
@@ -261,6 +341,10 @@ def _summary_from_row(row: RowMapping) -> dict[str, Any]:
 
 def _record_from_row(row: RowMapping) -> dict[str, Any]:
     return {**_summary_from_row(row), "content": json.loads(row["content_json_text"])}
+
+
+def _folder_from_row(row: RowMapping) -> dict[str, Any]:
+    return {"id": row["id"], "name": row["name"], "createdAt": row["created_at"], "updatedAt": row["updated_at"]}
 
 
 def _timestamp() -> str:

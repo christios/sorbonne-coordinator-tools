@@ -1,4 +1,4 @@
-import { createSyllabus, downloadSyllabusExport, getFieldHistory } from "./syllabi";
+import { createFolder, createSyllabus, deleteSyllabus, downloadSyllabusExport, getFieldHistory, moveSyllabusToFolder } from "./syllabi";
 import { describe, expect, it, vi } from "vitest";
 
 describe("createSyllabus", () => {
@@ -42,5 +42,22 @@ describe("createSyllabus", () => {
 
     expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/syllabus-1\/export$/));
     expect(click).toHaveBeenCalledOnce();
+  });
+
+  it("creates folders, moves syllabi, and deletes syllabi through the library API", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ id: "folder-1", name: "Climate courses" }), { status: 201 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ id: "syllabus-1", folderId: "folder-1" }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createFolder("Climate courses");
+    await moveSyllabusToFolder("syllabus-1", "folder-1");
+    await deleteSyllabus("syllabus-1");
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, expect.stringMatching(/syllabi\/folders$/), expect.objectContaining({ method: "POST" }));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, expect.stringMatching(/syllabus-1\/folder$/), expect.objectContaining({ method: "PATCH" }));
+    expect(fetchMock).toHaveBeenNthCalledWith(3, expect.stringMatching(/syllabus-1$/), expect.objectContaining({ method: "DELETE" }));
   });
 });
