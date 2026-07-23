@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 
 from sorbonne.api.rosters import router as rosters_router
 from sorbonne.api.syllabi import router as syllabi_router
@@ -17,7 +18,21 @@ app.add_middleware(
 
 app.include_router(rosters_router, prefix="/api/v1")
 app.include_router(syllabi_router, prefix="/api/v1")
-app.frontend("/", directory="frontend-dist", check_dir=False)
+app.frontend("/", directory="frontend-dist", fallback="index.html", check_dir=False)
+
+
+def frontend_entrypoint() -> FileResponse:
+    return FileResponse("frontend-dist/index.html")
+
+
+@app.get("/roster", include_in_schema=False)
+async def roster_frontend() -> FileResponse:
+    return frontend_entrypoint()
+
+
+@app.get("/syllabus", include_in_schema=False)
+async def syllabus_frontend() -> FileResponse:
+    return frontend_entrypoint()
 
 
 @app.get("/healthcheck")
