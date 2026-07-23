@@ -1,7 +1,8 @@
 import { ArrowDownUp, ArrowLeft, CheckCircle2, ChevronDown, GitCompareArrows, Loader2, Plus, Trash2, TriangleAlert } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { Syllabus, updateSyllabus } from "@/services/syllabi";
+import { AutoResizeTextarea } from "@/components/AutoResizeTextarea";
 import { FieldHistoryControl, FieldHistorySidebar, HistoryField } from "@/components/FieldHistory";
 import { SelectMenu } from "@/components/SelectMenu";
 import { AssessmentEditor, BibliographyEditor, PloEditor } from "@/components/StructuredEntryEditors";
@@ -26,6 +27,7 @@ export function SyllabusEditor({ syllabus, onBack, onSaved, onCompare }: Props) 
   const [saveState, setSaveState] = useState<"saved" | "saving" | "error">("saved");
   const [historyField, setHistoryField] = useState<HistoryField | null>(null);
   const requestId = useRef(0);
+  const editorRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { setDraft(syllabus); setDirty(false); setSaveState("saved"); }, [syllabus]);
   useEffect(() => {
@@ -46,13 +48,32 @@ export function SyllabusEditor({ syllabus, onBack, onSaved, onCompare }: Props) 
     }, 650);
     return () => window.clearTimeout(timer);
   }, [draft, dirty, onSaved]);
+  useLayoutEffect(() => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    const adjustHeight = (textarea: HTMLTextAreaElement) => {
+      textarea.style.resize = "none";
+      textarea.style.overflowY = "hidden";
+      textarea.style.height = "auto";
+      const lineHeight = Number.parseFloat(window.getComputedStyle(textarea).lineHeight) || 24;
+      const minimumHeight = lineHeight * Number(textarea.getAttribute("rows") || 3);
+      textarea.style.height = `${Math.max(textarea.scrollHeight, minimumHeight)}px`;
+    };
+    const resizeAll = () => editor.querySelectorAll<HTMLTextAreaElement>("textarea").forEach(adjustHeight);
+    const handleInput = (event: Event) => {
+      if (event.target instanceof HTMLTextAreaElement) adjustHeight(event.target);
+    };
+    resizeAll();
+    editor.addEventListener("input", handleInput);
+    return () => editor.removeEventListener("input", handleInput);
+  }, [draft, active]);
 
   function edit(updater: (current: Syllabus) => Syllabus) { setDraft((current) => updater(current)); setDirty(true); }
   function editContent(section: string, value: unknown) { edit((current) => ({ ...current, content: { ...current.content, [section]: value } })); }
   function editMetadata(field: "courseTitle" | "courseCode" | "academicYear", value: string) { edit((current) => ({ ...current, [field]: value })); }
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-5 sm:px-6 lg:px-8">
+    <div ref={editorRef} className="mx-auto max-w-7xl px-4 py-5 sm:px-6 lg:px-8">
       <div className="flex flex-col gap-4 border-b border-[#d9dee7] pb-4 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex items-start gap-3"><button onClick={onBack} className="mt-1 rounded-md p-2 text-[#344054] hover:bg-[#e8edf3]" aria-label="Back to syllabus library"><ArrowLeft size={19} /></button><div><p className="text-sm font-medium text-[#a6292f]">{draft.academicYear}</p><h2 className="text-xl font-semibold text-[#171717]">{draft.courseTitle}</h2><p className="text-sm text-[#667085]">{draft.courseCode || "Course code not set"}</p></div></div>
         <div className="flex flex-wrap items-center gap-3"><SaveStatus state={saveState} /><button onClick={onCompare} className="inline-flex items-center gap-2 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]"><GitCompareArrows size={17} /> Compare years</button></div>
@@ -94,7 +115,7 @@ function SectionForm({ active, draft, editContent, editMetadata, onOpenHistory }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) { return <><h3 className="text-lg font-semibold text-[#171717]">{title}</h3><div className="mt-5 grid gap-4">{children}</div></>; }
 function LearningOutcomesEditor({ section, onChange, syllabusId, revision, onOpenHistory }: { section: Record<string, unknown>; onChange: (value: Record<string, unknown>) => void; syllabusId: string; revision: number; onOpenHistory: (field: HistoryField) => void }) { const [tab, setTab] = useState<"plos" | "clos">("plos"); const tabs = [{ key: "plos" as const, label: "Programme learning outcomes" }, { key: "clos" as const, label: "Course learning outcomes" }]; const ploOptions = ploEntries(section.plos).map((plo, index) => { const label = plo.code ? `${plo.code}${plo.outcome ? `: ${plo.outcome}` : ""}` : plo.legacyText || `PLO ${index + 1}`; return { value: label, label }; }); return <section className="min-w-0 rounded-lg border border-[#d9dee7] bg-white p-5"><h3 className="text-lg font-semibold text-[#171717]">Learning outcomes</h3><div role="tablist" aria-label="Learning outcomes editor" className="mt-5 flex gap-1 border-b border-[#d9dee7]">{tabs.map((item) => <button key={item.key} type="button" role="tab" aria-selected={tab === item.key} onClick={() => setTab(item.key)} className={`border-b-2 px-3 py-2 text-sm font-semibold transition-colors ${tab === item.key ? "border-[#1f4e79] text-[#1f4e79]" : "border-transparent text-[#667085] hover:border-[#b7bec8] hover:text-[#344054]"}`}>{item.label}</button>)}</div><div role="tabpanel" className="mt-5 min-w-0">{tab === "plos" ? <PloEditor value={section.plos} onChange={(plos) => onChange({ ...section, plos })} syllabusId={syllabusId} revision={revision} onOpenHistory={onOpenHistory} /> : <RowsEditor title="Course learning outcomes and alignment" columns={[["clo", "Course learning outcome"], ["plo", "Aligned PLO"], ["skills", "Graduate skills"]]} rows={(section.clos as Row[]) ?? []} onChange={(clos) => onChange({ ...section, clos })} selectOptions={{ plo: ploOptions }} addLabel="Add outcome" historyPath="learningOutcomes.clos" syllabusId={syllabusId} revision={revision} onOpenHistory={onOpenHistory} />}</div></section>; }
-function Field({ label, value, onChange, multiline, isDate, inputType = "text", min, max, step, invalid, history }: { label: string; value: string; onChange: (value: string) => void; multiline?: boolean; isDate?: boolean; inputType?: "text" | "number"; min?: number; max?: number; step?: number; invalid?: boolean; history: { syllabusId: string; revision: number; field: HistoryField; onOpenSidebar: (field: HistoryField) => void } }) { const fieldValue = isDate ? dateInputValue(value) : value; const inputClass = `w-full rounded-md border px-3 py-2 pr-10 font-normal ${invalid ? "border-[#a6292f] focus:border-[#a6292f] focus:ring-[#fde2e2]" : "border-[#b7bec8] focus:border-[#1f4e79] focus:ring-[#d7e5f3]"} focus:outline-none focus:ring-2`; return <label className="grid gap-1 text-sm font-medium text-[#344054]">{label}<div className="relative">{multiline ? <textarea value={value} onChange={(event) => onChange(event.target.value)} rows={4} className="w-full resize-y rounded-md border border-[#b7bec8] px-3 py-2 pr-10 font-normal leading-6" /> : <input type={isDate ? "date" : inputType} value={fieldValue} min={min} max={max} step={step} aria-invalid={invalid || undefined} onChange={(event) => onChange(event.target.value)} className={inputClass} />}<FieldHistoryControl {...history} placement={multiline ? "top" : "center"} /></div></label>; }
+function Field({ label, value, onChange, multiline, isDate, inputType = "text", min, max, step, invalid, history }: { label: string; value: string; onChange: (value: string) => void; multiline?: boolean; isDate?: boolean; inputType?: "text" | "number"; min?: number; max?: number; step?: number; invalid?: boolean; history: { syllabusId: string; revision: number; field: HistoryField; onOpenSidebar: (field: HistoryField) => void } }) { const fieldValue = isDate ? dateInputValue(value) : value; const inputClass = `w-full rounded-md border px-3 py-2 pr-10 font-normal ${invalid ? "border-[#a6292f] focus:border-[#a6292f] focus:ring-[#fde2e2]" : "border-[#b7bec8] focus:border-[#1f4e79] focus:ring-[#d7e5f3]"} focus:outline-none focus:ring-2`; return <label className="grid gap-1 text-sm font-medium text-[#344054]">{label}<div className="relative">{multiline ? <AutoResizeTextarea value={value} onChange={(event) => onChange(event.target.value)} minRows={4} className="rounded-md border border-[#b7bec8] px-3 py-2 pr-10 font-normal leading-6" /> : <input type={isDate ? "date" : inputType} value={fieldValue} min={min} max={max} step={step} aria-invalid={invalid || undefined} onChange={(event) => onChange(event.target.value)} className={inputClass} />}<FieldHistoryControl {...history} placement={multiline ? "top" : "center"} /></div></label>; }
 function SelectField({ label, value, onChange, options, placeholder, history }: { label: string; value: string; onChange: (value: string) => void; options: string[]; placeholder?: string; history: { syllabusId: string; revision: number; field: HistoryField; onOpenSidebar: (field: HistoryField) => void } }) {
   return <label className="grid gap-1 text-sm font-medium text-[#344054]">{label}<SelectMenu label={label} value={value} onChange={onChange} placeholder={placeholder} options={options.map((option) => ({ value: option, label: option }))} trailing={<FieldHistoryControl {...history} />} /></label>;
 }

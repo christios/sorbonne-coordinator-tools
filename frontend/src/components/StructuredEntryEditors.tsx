@@ -2,6 +2,7 @@ import { ChevronDown, Plus, X } from "lucide-react";
 import { useState } from "react";
 
 import { FieldHistoryControl, HistoryField } from "@/components/FieldHistory";
+import { AutoResizeTextarea } from "@/components/AutoResizeTextarea";
 import { SelectMenu } from "@/components/SelectMenu";
 import { AssessmentEntry, PloEntry, ResourceEntry, Rubric, assessmentEntries, bibliographyEntries, ploEntries, rubricEntries } from "@/services/syllabusContent";
 
@@ -134,7 +135,7 @@ function updateCriterion(updateRubric: (id: string, updater: (rubric: Rubric) =>
 function NarrativeField({ label, value, onChange, field, ...history }: HistoryContext & { label: string; value: string; onChange: (value: string) => void; field: HistoryField }) { return <EntryInput label={label} value={value} onChange={onChange} multiline field={field} {...history} />; }
 
 function EntryInput({ label, value, onChange, field, syllabusId, revision, onOpenHistory, multiline = false, type = "text", min, max, step }: HistoryContext & { label: string; value: string; onChange: (value: string) => void; field: HistoryField; multiline?: boolean; type?: string; min?: number; max?: number; step?: number }) {
-  return <label className="grid gap-1 text-sm font-medium text-[#344054]">{label}<div className="relative">{multiline ? <textarea value={value} onChange={(event) => onChange(event.target.value)} rows={3} className="w-full resize-y rounded-md border border-[#b7bec8] px-3 py-2 pr-10 font-normal leading-6 focus:border-[#1f4e79] focus:outline-none focus:ring-2 focus:ring-[#d7e5f3]" /> : <input type={type} value={value} min={min} max={max} step={step} onChange={(event) => onChange(event.target.value)} className="w-full rounded-md border border-[#b7bec8] px-3 py-2 pr-10 font-normal focus:border-[#1f4e79] focus:outline-none focus:ring-2 focus:ring-[#d7e5f3]" />}<FieldHistoryControl syllabusId={syllabusId} revision={revision} field={field} onOpenSidebar={onOpenHistory} placement={multiline ? "top" : "center"} /></div></label>;
+  return <label className="grid gap-1 text-sm font-medium text-[#344054]">{label}<div className="relative">{multiline ? <AutoResizeTextarea value={value} onChange={(event) => onChange(event.target.value)} minRows={3} className="rounded-md border border-[#b7bec8] px-3 py-2 pr-10 font-normal leading-6 focus:border-[#1f4e79] focus:outline-none focus:ring-2 focus:ring-[#d7e5f3]" /> : <input type={type} value={value} min={min} max={max} step={step} onChange={(event) => onChange(event.target.value)} className="w-full rounded-md border border-[#b7bec8] px-3 py-2 pr-10 font-normal focus:border-[#1f4e79] focus:outline-none focus:ring-2 focus:ring-[#d7e5f3]" />}<FieldHistoryControl syllabusId={syllabusId} revision={revision} field={field} onOpenSidebar={onOpenHistory} placement={multiline ? "top" : "center"} /></div></label>;
 }
 
 function resourceSummary(entry: ResourceEntry, kind: EntryProps["kind"]) { return kind === "website" ? entry.organisation || entry.url || entry.legacyText : entry.title || entry.legacyText || entry.authors; }
