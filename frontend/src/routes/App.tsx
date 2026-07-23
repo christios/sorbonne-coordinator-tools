@@ -6,6 +6,7 @@ import { CourseSummary } from "@/components/CourseSummary";
 import { FileDropzone } from "@/components/FileDropzone";
 import { RosterTable } from "@/components/RosterTable";
 import { SyllabusBuilder } from "@/components/SyllabusBuilder";
+import { ToolId, toolFromLocation } from "@/routes/toolRoute";
 import {
   BatchRosterPreview,
   BatchRosterPreviewItem,
@@ -16,20 +17,8 @@ import {
   previewRosterBatch,
 } from "@/services/rosters";
 
-type ToolId = "roster" | "syllabus";
-
-function toolFromPath(pathname: string): ToolId | null {
-  if (pathname === "/roster") {
-    return "roster";
-  }
-  if (pathname === "/syllabus") {
-    return "syllabus";
-  }
-  return null;
-}
-
 export function App() {
-  const [activeTool, setActiveTool] = useState<ToolId | null>(() => toolFromPath(window.location.pathname));
+  const [activeTool, setActiveTool] = useState<ToolId | null>(() => toolFromLocation(window.location.pathname, window.location.hash));
   const [appSearch, setAppSearch] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [batch, setBatch] = useState<BatchRosterPreview | null>(null);
@@ -85,14 +74,17 @@ export function App() {
   const downloadLabel = files.length > 1 ? "Download ZIP" : "Download Excel";
 
   useEffect(() => {
-    const handlePopState = () => setActiveTool(toolFromPath(window.location.pathname));
-    window.addEventListener("popstate", handlePopState);
-    return () => window.removeEventListener("popstate", handlePopState);
+    const handleLocationChange = () => setActiveTool(toolFromLocation(window.location.pathname, window.location.hash));
+    window.addEventListener("popstate", handleLocationChange);
+    window.addEventListener("hashchange", handleLocationChange);
+    return () => {
+      window.removeEventListener("popstate", handleLocationChange);
+      window.removeEventListener("hashchange", handleLocationChange);
+    };
   }, []);
 
   function openTool(tool: ToolId) {
-    window.history.pushState({}, "", `/${tool}`);
-    setActiveTool(tool);
+    window.location.hash = `/${tool}`;
   }
 
   function showAllApps() {
