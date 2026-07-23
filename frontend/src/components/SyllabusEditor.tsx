@@ -1,8 +1,9 @@
-import { ArrowLeft, CheckCircle2, ChevronDown, GitCompareArrows, Loader2, TriangleAlert } from "lucide-react";
+import { ArrowLeft, CheckCircle2, GitCompareArrows, Loader2, TriangleAlert } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { Syllabus, updateSyllabus } from "@/services/syllabi";
 import { FieldHistoryControl, FieldHistorySidebar, HistoryField } from "@/components/FieldHistory";
+import { SelectMenu } from "@/components/SelectMenu";
 
 const SECTIONS = [
   ["identification", "1. Course identification"], ["contacts", "2. Academic contacts"], ["description", "3. Course description"],
@@ -94,27 +95,7 @@ function SectionForm({ active, draft, editContent, editMetadata, onOpenHistory }
 function Section({ title, children }: { title: string; children: React.ReactNode }) { return <><h3 className="text-lg font-semibold text-[#171717]">{title}</h3><div className="mt-5 grid gap-4">{children}</div></>; }
 function Field({ label, value, onChange, multiline, isDate, history }: { label: string; value: string; onChange: (value: string) => void; multiline?: boolean; isDate?: boolean; history: { syllabusId: string; revision: number; field: HistoryField; onOpenSidebar: (field: HistoryField) => void } }) { const fieldValue = isDate ? dateInputValue(value) : value; return <label className="grid gap-1 text-sm font-medium text-[#344054]">{label}<div className="relative">{multiline ? <textarea value={value} onChange={(event) => onChange(event.target.value)} rows={4} className="w-full resize-y rounded-md border border-[#b7bec8] px-3 py-2 pr-10 font-normal leading-6" /> : <input type={isDate ? "date" : "text"} value={fieldValue} onChange={(event) => onChange(event.target.value)} className="w-full rounded-md border border-[#b7bec8] px-3 py-2 pr-10 font-normal" />}<FieldHistoryControl {...history} placement={multiline ? "top" : "center"} /></div></label>; }
 function SelectField({ label, value, onChange, options, placeholder, history }: { label: string; value: string; onChange: (value: string) => void; options: string[]; placeholder?: string; history: { syllabusId: string; revision: number; field: HistoryField; onOpenSidebar: (field: HistoryField) => void } }) {
-  const [isOpen, setIsOpen] = useState(false);
-  const selectRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!isOpen) return;
-    const closeWhenOutside = (event: Event) => {
-      if (!selectRef.current?.contains(event.target as Node)) setIsOpen(false);
-    };
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setIsOpen(false);
-    };
-    document.addEventListener("mousedown", closeWhenOutside);
-    document.addEventListener("focusin", closeWhenOutside);
-    document.addEventListener("keydown", closeOnEscape);
-    return () => {
-      document.removeEventListener("mousedown", closeWhenOutside);
-      document.removeEventListener("focusin", closeWhenOutside);
-      document.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [isOpen]);
-
-  return <label className="grid gap-1 text-sm font-medium text-[#344054]">{label}<div ref={selectRef} className="relative"><button type="button" role="combobox" aria-expanded={isOpen} aria-haspopup="listbox" onClick={() => setIsOpen((open) => !open)} className="flex w-full items-center rounded-lg border border-[#b7bec8] bg-white px-3 py-2 pr-20 text-left font-normal text-[#344054] transition-colors hover:border-[#98a2b3] hover:bg-[#f8fafc] focus:border-[#1f4e79] focus:outline-none focus:ring-2 focus:ring-[#d7e5f3]"><span className={value ? "" : "text-[#667085]"}>{value || placeholder}</span></button><ChevronDown aria-hidden="true" size={17} className={`pointer-events-none absolute right-10 top-1/2 -translate-y-1/2 text-[#667085] transition-transform ${isOpen ? "rotate-180" : ""}`} /><FieldHistoryControl {...history} />{isOpen ? <div role="listbox" aria-label={label} className="absolute left-0 right-0 z-30 mt-1 overflow-hidden rounded-lg border border-[#d9dee7] bg-white p-1 shadow-lg">{options.map((option) => <button type="button" role="option" aria-selected={value === option} key={option} onClick={() => { onChange(option); setIsOpen(false); }} className={`block w-full rounded-md px-3 py-2 text-left text-sm font-normal transition-colors ${value === option ? "bg-[#e8edf3] font-semibold text-[#1f4e79]" : "text-[#344054] hover:bg-[#f7f8fa]"}`}>{option}</button>)}</div> : null}</div></label>;
+  return <label className="grid gap-1 text-sm font-medium text-[#344054]">{label}<SelectMenu label={label} value={value} onChange={onChange} placeholder={placeholder} options={options.map((option) => ({ value: option, label: option }))} trailing={<FieldHistoryControl {...history} />} /></label>;
 }
 function LockedSection({ title, text }: { title: string; text: string }) { return <><h3 className="text-lg font-semibold text-[#171717]">{title}</h3><div className="mt-5 rounded-md border border-[#cbd5e1] bg-[#f8fafc] p-4 text-sm leading-6 text-[#475467]"><p className="mb-2 font-semibold text-[#344054]">University standard text</p>{text}</div></>; }
 function RowsEditor({ title, columns, rows, onChange, historyPath, syllabusId, revision, onOpenHistory }: { title: string; columns: string[][]; rows: Row[]; onChange: (rows: Row[]) => void; historyPath: string; syllabusId: string; revision: number; onOpenHistory: (field: HistoryField) => void }) {

@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 
 import { Syllabus, SyllabusChange, SyllabusSummary, WordDiffOperation, compareSyllabi } from "@/services/syllabi";
+import { SelectMenu } from "@/components/SelectMenu";
 
 type Field = { path: string; value: unknown };
 
@@ -41,9 +42,7 @@ export function SyllabusComparison({ syllabus, candidates, onBack }: { syllabus:
         </div>
         <label className="grid gap-1 text-sm font-medium text-[#344054]">
           Compare with
-          <select value={otherId} onChange={(event) => setOtherId(event.target.value)} className="rounded-md border border-[#b7bec8] px-3 py-2 font-normal">
-            {options.map((option) => <option key={option.id} value={option.id}>{option.academicYear} — {option.courseTitle}</option>)}
-          </select>
+          <SelectMenu label="Compare with" value={otherId} onChange={setOtherId} placeholder="Choose a syllabus version" options={options.map((option) => ({ value: option.id, label: `${option.academicYear} — ${option.courseTitle}` }))} />
         </label>
       </div>
 

@@ -2,6 +2,7 @@ import { Copy, FilePlus2, FolderOpen, Loader2 } from "lucide-react";
 import { FormEvent, useState } from "react";
 
 import { CreateSyllabusInput, SyllabusSummary } from "@/services/syllabi";
+import { SelectMenu } from "@/components/SelectMenu";
 
 type Props = {
   syllabi: SyllabusSummary[];
@@ -60,10 +61,7 @@ export function SyllabusLibrary({ syllabi, isLoading, onOpen, onCreate, isCreati
           </label>
           <label className="grid gap-1 text-sm font-medium text-[#344054]">
             Starting point
-            <select value={sourceId} onChange={(event) => setSourceId(event.target.value)} className="rounded-md border border-[#b7bec8] px-3 py-2 font-normal">
-              <option value="">Blank syllabus</option>
-              {syllabi.map((syllabus) => <option key={syllabus.id} value={syllabus.id}>{syllabus.courseTitle} — {syllabus.academicYear}</option>)}
-            </select>
+            <SelectMenu label="Starting point" value={sourceId} onChange={setSourceId} placeholder="Blank syllabus" options={[{ value: "", label: "Blank syllabus" }, ...syllabi.map((syllabus) => ({ value: syllabus.id, label: `${syllabus.courseTitle} — ${syllabus.academicYear}` }))]} />
           </label>
           <div className="flex gap-3 md:col-span-2">
             <button disabled={isCreating} className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-4 py-2 text-sm font-semibold text-white disabled:bg-[#9ba8b5]">
