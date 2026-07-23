@@ -11,11 +11,9 @@ const SECTIONS = [
   ["identification", "1. Course identification"], ["contacts", "2. Academic contacts"], ["description", "3. Course description"],
   ["delivery", "4. Course delivery"], ["learningOutcomes", "5. Learning outcomes"], ["schedule", "6. Course schedule"],
   ["bibliography", "7. Bibliography"], ["teachingApproach", "8. Teaching approach"], ["assessment", "9. Course assessment"],
-  ["integrity", "10. Integrity policy"], ["etiquette", "11. Classroom etiquette"], ["documentControl", "12. Document control"],
+  ["documentControl", "10. Document control"],
 ] as const;
 
-const INTEGRITY_TEXT = "Students are expected to comply at all times with all applicable University policies and regulations. Unless expressly authorised by the instructor, the use of generative artificial intelligence tools in coursework, assessments, or examinations is prohibited.";
-const ETIQUETTE_TEXT = "The quality of a course depends on the engagement of everyone who participates. Students are expected to arrive prepared, participate constructively, communicate respectfully, and keep personal devices out of sight unless their use is authorised for learning.";
 const GRADE_EQUIVALENCE_TEXT = "Sorbonne University Abu Dhabi uses the French grading system, with marks ranging from 0 to 20. The University Student Handbook provides the applicable grade-equivalence guidance. This institutional reference is displayed here and cannot be edited in an individual course syllabus.";
 
 type Props = { syllabus: Syllabus; onBack: () => void; onSaved: (syllabus: Syllabus) => void; onCompare: () => void };
@@ -91,8 +89,6 @@ function SectionForm({ active, draft, editContent, editMetadata, onOpenHistory }
   if (active === "bibliography") return <Section title="Supplemental bibliographical resources"><BibliographyEditor value={section} onChange={(bibliography) => editContent(active, bibliography)} syllabusId={draft.id} revision={draft.revision} onOpenHistory={onOpenHistory} /></Section>;
   if (active === "teachingApproach") return <Section title="Teaching and learning approach">{text("Teaching methods and learning activities", section.methods, (value) => editContent(active, { ...section, methods: value }), true)}{text("Student engagement", section.engagement, (value) => editContent(active, { ...section, engagement: value }), true)}{text("Feedback and academic progress", section.feedback, (value) => editContent(active, { ...section, feedback: value }), true)}</Section>;
   if (active === "assessment") return <Section title="Course assessment"><AssessmentEditor value={section} outcomes={(sectionFrom(content.learningOutcomes).clos as Row[]) ?? []} onChange={(assessment) => editContent(active, assessment)} syllabusId={draft.id} revision={draft.revision} onOpenHistory={onOpenHistory} /><LockedSection title="University table of grade equivalence" text={GRADE_EQUIVALENCE_TEXT} /></Section>;
-  if (active === "integrity") return <LockedSection title="Integrity policy" text={INTEGRITY_TEXT} />;
-  if (active === "etiquette") return <LockedSection title="Classroom etiquette" text={ETIQUETTE_TEXT} />;
   return <Section title="Document control">{text("Document creation date", section.creationDate, (value) => editContent(active, { ...section, creationDate: value }))}{text("Department name", section.departmentName, (value) => editContent(active, { ...section, departmentName: value }))}{text("Syllabus approval date", section.approvalDate, (value) => editContent(active, { ...section, approvalDate: value }))}{text("Version number", section.versionNumber, (value) => editContent(active, { ...section, versionNumber: value }))}{text("Name and status of approver", section.approver, (value) => editContent(active, { ...section, approver: value }))}</Section>;
 }
 
