@@ -71,6 +71,7 @@ export function ScheduleEditor({ rows, onChange, syllabusId, revision, onOpenHis
             <div className="relative flex items-start justify-between gap-3">
               <button type="button" aria-label={`${isExpanded ? "Collapse" : "Expand"} topic: ${topicLabel(row)} (position ${index + 1})`} aria-expanded={isExpanded} onClick={() => toggleExpanded(row.id)} className="flex min-w-0 flex-1 items-start gap-2 text-left">
                 <ChevronDown size={17} className={`mt-0.5 shrink-0 text-[#667085] transition-transform ${isExpanded ? "rotate-180" : ""}`} />
+                <span aria-label={`Section ${index + 1}`} className="mt-0.5 inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-[#e8edf3] px-1.5 text-xs font-semibold text-[#1f4e79]">{index + 1}</span>
                 <span className="min-w-0"><span className="block text-sm font-semibold text-[#344054]">{topicLabel(row)}</span><span className="mt-0.5 block text-sm text-[#475467]">{row.date || "No date set"}</span></span>
               </button>
               <div data-schedule-move-menu className="flex shrink-0 items-center gap-1">

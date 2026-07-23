@@ -16,6 +16,7 @@ describe("ScheduleEditor", () => {
     /></QueryClientProvider>);
 
     expect(screen.getByText("Climate governance")).toBeTruthy();
+    expect(screen.getByLabelText("Section 1")).toBeTruthy();
     expect(screen.queryByLabelText("Pre-class learning activities")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Expand topic: Climate governance (position 1)" }));
