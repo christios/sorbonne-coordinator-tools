@@ -6,7 +6,8 @@ import { AutoResizeTextarea } from "@/components/AutoResizeTextarea";
 import { FieldHistoryControl, FieldHistorySidebar, HistoryField } from "@/components/FieldHistory";
 import { ScheduleEditor } from "@/components/ScheduleEditor";
 import { SelectMenu } from "@/components/SelectMenu";
-import { AssessmentEditor, BibliographyEditor, PloEditor } from "@/components/StructuredEntryEditors";
+import { AssessmentTabs } from "@/components/AssessmentTabs";
+import { BibliographyEditor, PloEditor } from "@/components/StructuredEntryEditors";
 import { deliveryPercentageError, ploEntries } from "@/services/syllabusContent";
 
 const SECTIONS = [
@@ -110,7 +111,7 @@ function SectionForm({ active, draft, editContent, editMetadata, onOpenHistory }
   if (active === "schedule") { const sessions = ((content.schedule as Row[]) ?? []).map((session) => session.preClass === undefined && session.activities ? { ...session, preClass: session.activities } : session); return <Section title="Course schedule"><ScheduleEditor rows={sessions} onChange={(schedule) => editContent(active, schedule)} syllabusId={draft.id} revision={draft.revision} onOpenHistory={onOpenHistory} /></Section>; }
   if (active === "bibliography") return <Section title="Supplemental bibliographical resources"><BibliographyEditor value={section} onChange={(bibliography) => editContent(active, bibliography)} syllabusId={draft.id} revision={draft.revision} onOpenHistory={onOpenHistory} /></Section>;
   if (active === "teachingApproach") return <Section title="Teaching and learning approach">{text("Teaching methods and learning activities", section.methods, (value) => editContent(active, { ...section, methods: value }), true)}{text("Student engagement", section.engagement, (value) => editContent(active, { ...section, engagement: value }), true)}{text("Feedback and academic progress", section.feedback, (value) => editContent(active, { ...section, feedback: value }), true)}</Section>;
-  if (active === "assessment") return <Section title="Course assessment"><AssessmentEditor value={section} outcomes={(sectionFrom(content.learningOutcomes).clos as Row[]) ?? []} onChange={(assessment) => editContent(active, assessment)} syllabusId={draft.id} revision={draft.revision} onOpenHistory={onOpenHistory} /><LockedSection title="University table of grade equivalence" text={GRADE_EQUIVALENCE_TEXT} /></Section>;
+  if (active === "assessment") return <Section title="Course assessment"><AssessmentTabs value={section} outcomes={(sectionFrom(content.learningOutcomes).clos as Row[]) ?? []} onChange={(assessment) => editContent(active, assessment)} syllabusId={draft.id} revision={draft.revision} onOpenHistory={onOpenHistory} /><LockedSection title="University table of grade equivalence" text={GRADE_EQUIVALENCE_TEXT} /></Section>;
   return <Section title="Document control">{text("Document creation date", section.creationDate, (value) => editContent(active, { ...section, creationDate: value }))}{text("Department name", section.departmentName, (value) => editContent(active, { ...section, departmentName: value }))}{text("Syllabus approval date", section.approvalDate, (value) => editContent(active, { ...section, approvalDate: value }))}{text("Version number", section.versionNumber, (value) => editContent(active, { ...section, versionNumber: value }))}{text("Name and status of approver", section.approver, (value) => editContent(active, { ...section, approver: value }))}</Section>;
 }
 
