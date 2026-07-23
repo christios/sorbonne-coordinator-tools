@@ -25,4 +25,20 @@ describe("SelectMenu", () => {
     expect(onChange).toHaveBeenCalledWith("PLO 1\nPLO 2");
     expect(screen.getByRole("listbox", { name: "Aligned PLOs" })).toBeTruthy();
   });
+
+  it("places the chevron at the control edge unless a trailing control occupies that space", () => {
+    const { container, rerender } = render(
+      <SelectMenu label="Move syllabus" value="unfiled" onChange={vi.fn()} options={[{ value: "unfiled", label: "Unfiled" }]} />,
+    );
+
+    expect(container.querySelector("button")?.getAttribute("class")).toContain("pr-10");
+    expect(container.querySelector("svg")?.getAttribute("class")).toContain("right-3");
+
+    rerender(
+      <SelectMenu label="Field with history" value="unfiled" onChange={vi.fn()} options={[{ value: "unfiled", label: "Unfiled" }]} trailing={<span>History</span>} />,
+    );
+
+    expect(container.querySelector("button")?.getAttribute("class")).toContain("pr-20");
+    expect(container.querySelector("svg")?.getAttribute("class")).toContain("right-10");
+  });
 });

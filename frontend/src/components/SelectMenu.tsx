@@ -61,11 +61,11 @@ export function SelectMenu({ label, value, onChange, options, placeholder, trail
         aria-expanded={isOpen}
         aria-haspopup="listbox"
         onClick={() => setIsOpen((open) => !open)}
-        className="flex w-full items-center rounded-lg border border-[#b7bec8] bg-white px-3 py-2 pr-20 text-left font-normal text-[#344054] transition-colors hover:border-[#98a2b3] hover:bg-[#f8fafc] focus:border-[#1f4e79] focus:outline-none focus:ring-2 focus:ring-[#d7e5f3]"
+        className={`flex w-full items-center rounded-lg border border-[#b7bec8] bg-white px-3 py-2 ${trailing ? "pr-20" : "pr-10"} text-left font-normal text-[#344054] transition-colors hover:border-[#98a2b3] hover:bg-[#f8fafc] focus:border-[#1f4e79] focus:outline-none focus:ring-2 focus:ring-[#d7e5f3]`}
       >
         <span className={selected.length || value ? "" : "text-[#667085]"}>{selectedLabel}</span>
       </button>
-      <ChevronDown aria-hidden="true" size={17} className={`pointer-events-none absolute right-10 top-1/2 -translate-y-1/2 text-[#667085] transition-transform ${isOpen ? "rotate-180" : ""}`} />
+      <ChevronDown aria-hidden="true" size={17} className={`pointer-events-none absolute ${trailing ? "right-10" : "right-3"} top-1/2 -translate-y-1/2 text-[#667085] transition-transform ${isOpen ? "rotate-180" : ""}`} />
       {trailing ? <span className="absolute right-2 top-1/2 -translate-y-1/2">{trailing}</span> : null}
       {isOpen ? (
         <div role="listbox" aria-label={label} className="absolute left-0 right-0 z-[90] isolate mt-1 overflow-hidden rounded-lg border border-[#d9dee7] bg-white p-1 opacity-100 shadow-lg">
