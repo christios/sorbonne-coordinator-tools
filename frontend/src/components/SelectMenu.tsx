@@ -51,7 +51,7 @@ export function SelectMenu({ label, value, onChange, options, placeholder, trail
       <ChevronDown aria-hidden="true" size={17} className={`pointer-events-none absolute right-10 top-1/2 -translate-y-1/2 text-[#667085] transition-transform ${isOpen ? "rotate-180" : ""}`} />
       {trailing ? <span className="absolute right-2 top-1/2 -translate-y-1/2">{trailing}</span> : null}
       {isOpen ? (
-        <div role="listbox" aria-label={label} className="absolute left-0 right-0 z-30 mt-1 overflow-hidden rounded-lg border border-[#d9dee7] bg-white p-1 shadow-lg">
+        <div role="listbox" aria-label={label} className="absolute left-0 right-0 z-[90] isolate mt-1 overflow-hidden rounded-lg border border-[#d9dee7] bg-white p-1 opacity-100 shadow-lg">
           {options.map((option) => (
             <button
               type="button"

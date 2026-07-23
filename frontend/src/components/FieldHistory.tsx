@@ -1,6 +1,7 @@
 import { Clock3, Loader2, PanelRightClose, X } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { FieldHistoryEntry, WordDiffOperation, getFieldHistory } from "@/services/syllabi";
 
@@ -16,7 +17,10 @@ type Props = {
 
 export function FieldHistoryControl({ syllabusId, revision, field, onOpenSidebar, placement = "center" }: Props) {
   const [isOpen, setIsOpen] = useState(false);
+  const [previewPosition, setPreviewPosition] = useState<{ top: number; left: number } | null>(null);
   const controlRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const previewRef = useRef<HTMLDivElement>(null);
   const history = useQuery({
     queryKey: ["syllabus-field-history", syllabusId, field.path, revision],
     queryFn: () => getFieldHistory(syllabusId, field.path),
@@ -24,8 +28,14 @@ export function FieldHistoryControl({ syllabusId, revision, field, onOpenSidebar
   });
   useEffect(() => {
     if (!isOpen) return;
+    const updatePreviewPosition = () => {
+      const rect = buttonRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      setPreviewPosition({ top: rect.bottom + 6, left: Math.max(12, Math.min(rect.right - 320, window.innerWidth - 332)) });
+    };
     const closeWhenOutside = (event: Event) => {
-      if (!controlRef.current?.contains(event.target as Node)) setIsOpen(false);
+      const target = event.target as Node;
+      if (!controlRef.current?.contains(target) && !previewRef.current?.contains(target)) setIsOpen(false);
     };
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") setIsOpen(false);
@@ -34,25 +44,30 @@ export function FieldHistoryControl({ syllabusId, revision, field, onOpenSidebar
     document.addEventListener("mousedown", closeWhenOutside);
     document.addEventListener("focusin", closeWhenOutside);
     document.addEventListener("keydown", closeOnEscape);
+    window.addEventListener("resize", updatePreviewPosition);
+    window.addEventListener("scroll", updatePreviewPosition, true);
+    updatePreviewPosition();
     return () => {
       document.removeEventListener("pointerdown", closeWhenOutside);
       document.removeEventListener("mousedown", closeWhenOutside);
       document.removeEventListener("focusin", closeWhenOutside);
       document.removeEventListener("keydown", closeOnEscape);
+      window.removeEventListener("resize", updatePreviewPosition);
+      window.removeEventListener("scroll", updatePreviewPosition, true);
     };
   }, [isOpen]);
 
   return (
-    <div ref={controlRef} className={`absolute right-2 flex ${placement === "top" ? "top-2" : "inset-y-0 items-center"} ${isOpen ? "z-40" : "z-10"}`}>
-      <button type="button" onClick={() => setIsOpen((open) => !open)} className="rounded p-1 text-[#667085] hover:bg-[#e8edf3] hover:text-[#1f4e79]" aria-label={`View edit history for ${field.label}`}>
+    <div ref={controlRef} className={`absolute right-2 z-10 flex ${placement === "top" ? "top-2" : "inset-y-0 items-center"}`}>
+      <button ref={buttonRef} type="button" onClick={() => setIsOpen((open) => !open)} className="rounded p-1 text-[#667085] hover:bg-[#e8edf3] hover:text-[#1f4e79]" aria-label={`View edit history for ${field.label}`}>
         <Clock3 size={16} />
       </button>
-      {isOpen ? (
-        <div className="absolute right-0 top-full z-50 mt-1 w-80 rounded-md border border-[#d9dee7] bg-white p-3 shadow-lg">
+      {isOpen && previewPosition ? createPortal(
+        <div ref={previewRef} style={previewPosition} className="fixed z-[100] isolate w-80 rounded-md border border-[#d9dee7] bg-white p-3 opacity-100 shadow-lg">
           <div className="flex items-start justify-between gap-3"><div><p className="text-sm font-semibold text-[#344054]">Latest saved change</p><p className="text-xs text-[#667085]">{field.label}</p></div><button type="button" onClick={() => setIsOpen(false)} className="rounded p-1 text-[#667085] hover:bg-[#f2f4f7]" aria-label="Close edit history preview"><X size={15} /></button></div>
           <HistoryPreview entry={history.data?.[0]} isLoading={history.isLoading} />
           <button type="button" onClick={() => { setIsOpen(false); onOpenSidebar(field); }} className="mt-3 text-sm font-semibold text-[#1f4e79] hover:underline">View all edits</button>
-        </div>
+        </div>, document.body,
       ) : null}
     </div>
   );
