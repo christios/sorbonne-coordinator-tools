@@ -20,7 +20,7 @@ export function BibliographyEditor({ value, onChange, ...history }: HistoryConte
   const websites = bibliographyEntries(value.websites);
   const articles = bibliographyEntries(value.journalArticles);
   return (
-    <div className="grid gap-7">
+    <div className="grid min-w-0 gap-7">
       <ResourceList title="Books" entries={books} kind="book" path="bibliography.books" onChange={(next) => onChange({ ...value, books: next })} {...history} />
       <ResourceList title="Websites" entries={websites} kind="website" path="bibliography.websites" onChange={(next) => onChange({ ...value, websites: next })} {...history} />
       <ResourceList title="Journal articles" entries={articles} kind="article" path="bibliography.journalArticles" onChange={(next) => onChange({ ...value, journalArticles: next })} {...history} />
@@ -34,9 +34,9 @@ function ResourceList({ title, entries, kind, path, onChange, ...history }: Entr
   const remove = (id: string) => onChange(entries.filter((entry) => entry.id !== id));
   const action = kind === "book" ? "Add book" : kind === "website" ? "Add website" : "Add article";
   return (
-    <section>
-      <div className="flex items-center justify-between gap-3">
-        <div><h4 className="text-sm font-semibold text-[#344054]">{title}</h4><p className="mt-1 text-sm text-[#667085]">Add only the details needed to identify each source.</p></div>
+    <section className="min-w-0">
+      <div className="flex min-w-0 items-start justify-between gap-3">
+        <div className="min-w-0"><h4 className="text-sm font-semibold text-[#344054]">{title}</h4><p className="mt-1 text-sm text-[#667085]">Add only the details needed to identify each source.</p></div>
         <button type="button" onClick={add} className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-3 py-1.5 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]"><Plus size={16} /> {action}</button>
       </div>
       <div className="mt-3 grid gap-3">
