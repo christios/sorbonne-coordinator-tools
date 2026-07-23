@@ -226,7 +226,7 @@ def default_content() -> dict[str, Any]:
         "delivery": {"mode": "", "faceToFacePercent": "", "onlinePercent": ""},
         "learningOutcomes": {"plos": [], "clos": []},
         "schedule": [],
-        "bibliography": {"books": "", "websites": "", "journalArticles": ""},
+        "bibliography": {"books": [], "websites": [], "journalArticles": []},
         "teachingApproach": {"methods": "", "engagement": "", "feedback": ""},
         "assessment": {
             "items": [],
