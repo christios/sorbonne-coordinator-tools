@@ -27,6 +27,8 @@ npm run start
 ```
 
 The frontend expects the API at `http://localhost:8000` unless `VITE_API_BASE_URL` is set.
+
+The handbook tile opens the local MkDocs handbook at `http://127.0.0.1:8000/` during Vite development. Set `VITE_HANDBOOK_URL` if it runs on another URL; production uses the integrated `/handbook/` route.
 ## Local development database
 
 The syllabus builder uses PostgreSQL in every environment. Start the isolated local database, apply its Alembic schema, and copy any existing prototype data once:

@@ -6,6 +6,7 @@ import { CourseSummary } from "@/components/CourseSummary";
 import { FileDropzone } from "@/components/FileDropzone";
 import { RosterTable } from "@/components/RosterTable";
 import { SyllabusBuilder } from "@/components/SyllabusBuilder";
+import { handbookUrl } from "@/routes/handbookRoute";
 import { ToolId, toolFromLocation } from "@/routes/toolRoute";
 import {
   BatchRosterPreview,
@@ -89,7 +90,7 @@ export function App() {
 
   function openApp(app: ToolId | "handbook") {
     if (app === "handbook") {
-      window.location.assign("/handbook/");
+      window.location.assign(handbookUrl(window.location.hostname));
       return;
     }
     openTool(app);
