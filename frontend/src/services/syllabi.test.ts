@@ -65,11 +65,11 @@ describe("createSyllabus", () => {
       .mockResolvedValueOnce(new Response(null, { status: 204 }));
     vi.stubGlobal("fetch", fetchMock);
 
-    await createFolder("Climate courses");
+    await createFolder({ name: "Climate courses", parentId: "folder-programme" });
     await moveSyllabusToFolder("syllabus-1", "folder-1");
     await deleteSyllabus("syllabus-1");
 
-    expect(fetchMock).toHaveBeenNthCalledWith(1, expect.stringMatching(/syllabi\/folders$/), expect.objectContaining({ method: "POST" }));
+    expect(fetchMock).toHaveBeenNthCalledWith(1, expect.stringMatching(/syllabi\/folders$/), expect.objectContaining({ method: "POST", body: JSON.stringify({ name: "Climate courses", parentId: "folder-programme" }) }));
     expect(fetchMock).toHaveBeenNthCalledWith(2, expect.stringMatching(/syllabus-1\/folder$/), expect.objectContaining({ method: "PATCH" }));
     expect(fetchMock).toHaveBeenNthCalledWith(3, expect.stringMatching(/syllabus-1$/), expect.objectContaining({ method: "DELETE" }));
   });

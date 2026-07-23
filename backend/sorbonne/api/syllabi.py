@@ -41,6 +41,7 @@ class UpdateSyllabusRequest(BaseModel):
 
 class CreateFolderRequest(BaseModel):
     name: str = Field(min_length=1, max_length=100)
+    parentId: str | None = None
 
 
 class MoveSyllabusRequest(BaseModel):
@@ -93,7 +94,9 @@ def list_folders(store: SyllabusStore = Depends(get_store)) -> dict[str, list[di
 @router.post("/folders", status_code=201)
 def create_folder(request: CreateFolderRequest, store: SyllabusStore = Depends(get_store)) -> dict[str, Any]:
     try:
-        return store.create_folder(request.name)
+        return store.create_folder(request.name, parent_id=request.parentId)
+    except FolderNotFound as exc:
+        raise HTTPException(status_code=404, detail="The parent folder was not found.") from exc
     except FolderNameConflict as exc:
         raise HTTPException(status_code=409, detail="A folder with that name already exists.") from exc
 
@@ -105,7 +108,7 @@ def delete_folder(folder_id: str, store: SyllabusStore = Depends(get_store)) -> 
     except FolderNotFound as exc:
         raise HTTPException(status_code=404, detail="Folder not found.") from exc
     except FolderNotEmpty as exc:
-        raise HTTPException(status_code=409, detail="Move all syllabi out of this folder before deleting it.") from exc
+        raise HTTPException(status_code=409, detail="Move all syllabi and subfolders out of this folder before deleting it.") from exc
     return Response(status_code=204)
 
 

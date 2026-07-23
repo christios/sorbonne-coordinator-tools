@@ -1,7 +1,7 @@
-import { Copy, FilePlus2, FileText, FolderOpen, FolderPlus, Loader2, Search, Trash2 } from "lucide-react";
+import { ChevronRight, Copy, FilePlus2, FileText, Folder, FolderOpen, FolderPlus, Loader2, Search, Trash2 } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
-import { CreateSyllabusInput, SyllabusFolder, SyllabusSummary, SyllabusTemplate, syllabusTemplateDocumentUrl } from "@/services/syllabi";
+import { CreateFolderInput, CreateSyllabusInput, SyllabusFolder, SyllabusSummary, SyllabusTemplate, syllabusTemplateDocumentUrl } from "@/services/syllabi";
 import { FolderMoveMenu } from "@/components/FolderMoveMenu";
 import { SelectMenu } from "@/components/SelectMenu";
 
@@ -20,7 +20,7 @@ type Props = {
   error?: string;
   onOpen: (id: string) => void;
   onCreate: (input: CreateSyllabusInput) => void;
-  onCreateFolder: (name: string) => void;
+  onCreateFolder: (input: CreateFolderInput) => void;
   onMove: (syllabusId: string, folderId: string | null) => void;
   onDelete: (syllabusId: string) => void;
   onDeleteFolder: (folderId: string) => void;
@@ -71,13 +71,21 @@ export function SyllabusLibrary({
     if (!query) return visibleSyllabi;
     return visibleSyllabi.filter((syllabus) => [syllabus.courseTitle, syllabus.courseCode, syllabus.academicYear].some((value) => value.toLocaleLowerCase().includes(query)));
   }, [syllabusQuery, visibleSyllabi]);
+  const folderTree = useMemo(() => flattenFolders(folders), [folders]);
+  const folderPaths = useMemo(() => new Map(folderTree.map(({ folder, path }) => [folder.id, path])), [folderTree]);
   const filteredFolders = useMemo(() => {
     const query = folderQuery.trim().toLocaleLowerCase();
-    if (!query) return folders;
-    return folders.filter((folder) => folder.name.toLocaleLowerCase().includes(query));
-  }, [folderQuery, folders]);
+    if (!query) return folderTree;
+    return folderTree.filter(({ path }) => path.some((folder) => folder.name.toLocaleLowerCase().includes(query)));
+  }, [folderQuery, folderTree]);
   const activeFolderLabel = activeFolder === "all" ? "All syllabi" : activeFolder === UNFILED ? "Unfiled" : folders.find((folder) => folder.id === activeFolder)?.name ?? "All syllabi";
   const selectedTemplate = templates.find((template) => template.id === templateId);
+  const selectedFolder = folders.find((folder) => folder.id === activeFolder);
+  const unfiledCount = syllabi.filter((syllabus) => syllabus.folderId === null).length;
+
+  useEffect(() => {
+    if (activeFolder === UNFILED && unfiledCount === 0) setActiveFolder("all");
+  }, [activeFolder, unfiledCount]);
 
   function submitSyllabus(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -88,7 +96,7 @@ export function SyllabusLibrary({
     event.preventDefault();
     const name = folderName.trim();
     if (!name) return;
-    onCreateFolder(name);
+    onCreateFolder({ name, parentId: selectedFolder?.id ?? null });
     setFolderName("");
     setShowFolderForm(false);
   }
@@ -111,7 +119,7 @@ export function SyllabusLibrary({
 
       {showFolderForm ? (
         <form onSubmit={submitFolder} className="mt-5 flex max-w-lg flex-col gap-3 rounded-lg border border-[#cbd5e1] bg-white p-4 sm:flex-row sm:items-end">
-          <label className="grid flex-1 gap-1 text-sm font-medium text-[#344054]">Folder name<input autoFocus required value={folderName} onChange={(event) => setFolderName(event.target.value)} placeholder="e.g. Bachelor in Public Affairs" className="rounded-md border border-[#b7bec8] px-3 py-2 font-normal" /></label>
+          <label className="grid flex-1 gap-1 text-sm font-medium text-[#344054]">Folder name<span className="text-xs font-normal text-[#667085]">{selectedFolder ? `Creates inside ${folderPaths.get(selectedFolder.id)?.map((folder) => folder.name).join(" › ") ?? selectedFolder.name}.` : "Creates at the top level."}</span><input autoFocus required value={folderName} onChange={(event) => setFolderName(event.target.value)} placeholder="e.g. Bachelor in Public Affairs" className="rounded-md border border-[#b7bec8] px-3 py-2 font-normal" /></label>
           <div className="flex gap-2"><button disabled={isCreatingFolder} className="rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white disabled:bg-[#9ba8b5]">{isCreatingFolder ? "Creating…" : "Create folder"}</button><button type="button" onClick={() => setShowFolderForm(false)} className="rounded-md border border-[#b7bec8] px-3 py-2 text-sm font-semibold text-[#344054]">Cancel</button></div>
         </form>
       ) : null}
@@ -136,8 +144,8 @@ export function SyllabusLibrary({
             <input type="search" aria-label="Search folders" value={folderQuery} onChange={(event) => setFolderQuery(event.target.value)} placeholder="Search folders" className="w-full rounded-md border border-[#cbd5e1] py-2 pl-9 pr-3 text-sm text-[#344054] placeholder:text-[#98a2b3] focus:border-[#1f4e79] focus:outline-none focus:ring-2 focus:ring-[#d7e5f3]" />
           </label>
           <FolderButton label="All syllabi" count={syllabi.length} active={activeFolder === "all"} onClick={() => setActiveFolder("all")} />
-          <FolderButton label="Unfiled" count={syllabi.filter((syllabus) => syllabus.folderId === null).length} active={activeFolder === UNFILED} onClick={() => setActiveFolder(UNFILED)} />
-          {filteredFolders.map((folder) => <FolderButton key={folder.id} label={folder.name} count={syllabi.filter((syllabus) => syllabus.folderId === folder.id).length} active={activeFolder === folder.id} onClick={() => setActiveFolder(folder.id)} onDelete={() => setFolderDeleteCandidate(folder)} />)}
+          {unfiledCount > 0 ? <FolderButton label="Unfiled" count={unfiledCount} active={activeFolder === UNFILED} onClick={() => setActiveFolder(UNFILED)} /> : null}
+          {filteredFolders.map(({ folder, depth }) => <FolderButton key={folder.id} label={folder.name} count={syllabi.filter((syllabus) => syllabus.folderId === folder.id).length} depth={depth} active={activeFolder === folder.id} onClick={() => setActiveFolder(folder.id)} hasChildren={folders.some((candidate) => candidate.parentId === folder.id)} onDelete={() => setFolderDeleteCandidate(folder)} />)}
           {folderQuery.trim() && filteredFolders.length === 0 ? <p className="px-3 py-2 text-sm text-[#667085]">No matching folders.</p> : null}
         </aside>
 
@@ -145,7 +153,7 @@ export function SyllabusLibrary({
           {isLoading ? <div className="flex min-h-48 items-center justify-center gap-2 text-sm text-[#667085]"><Loader2 size={18} className="animate-spin" /> Loading syllabi</div> : null}
           {!isLoading ? <div className="border-b border-[#e5e7eb] px-5 py-4"><label className="relative block"><Search size={17} aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#667085]" /><input type="search" aria-label={`Search syllabi in ${activeFolderLabel}`} value={syllabusQuery} onChange={(event) => setSyllabusQuery(event.target.value)} placeholder={`Search ${activeFolderLabel.toLocaleLowerCase()}`} className="w-full rounded-md border border-[#cbd5e1] py-2 pl-10 pr-3 text-sm text-[#344054] placeholder:text-[#98a2b3] focus:border-[#1f4e79] focus:outline-none focus:ring-2 focus:ring-[#d7e5f3]" /></label></div> : null}
           {!isLoading && filteredSyllabi.length === 0 ? <EmptyLibraryState hasSyllabi={syllabi.length > 0} hasSearch={Boolean(syllabusQuery.trim())} /> : null}
-          {!isLoading && filteredSyllabi.length > 0 ? <div className="divide-y divide-[#e5e7eb]" role="list">{filteredSyllabi.map((syllabus) => <SyllabusRow key={syllabus.id} syllabus={syllabus} folders={folders} isMoving={movingId === syllabus.id} isDeleting={deletingId === syllabus.id} onOpen={onOpen} onMove={onMove} onRequestDelete={setDeleteCandidate} />)}</div> : null}
+          {!isLoading && filteredSyllabi.length > 0 ? <div className="divide-y divide-[#e5e7eb]" role="list">{filteredSyllabi.map((syllabus) => <SyllabusRow key={syllabus.id} syllabus={syllabus} folders={folders} folderPath={syllabus.folderId ? folderPaths.get(syllabus.folderId) ?? [] : []} isMoving={movingId === syllabus.id} isDeleting={deletingId === syllabus.id} onOpen={onOpen} onMove={onMove} onRequestDelete={setDeleteCandidate} />)}</div> : null}
         </section>
       </div>
 
@@ -155,13 +163,37 @@ export function SyllabusLibrary({
   );
 }
 
-function FolderButton({ label, count, active, onClick, onDelete }: { label: string; count: number; active: boolean; onClick: () => void; onDelete?: () => void }) {
-  const canDelete = Boolean(onDelete) && count === 0;
-  return <div className={`group flex items-center rounded-md ${active ? "bg-[#e8edf3]" : "hover:bg-[#f7f8fa]"}`}><button type="button" onClick={onClick} className={`min-w-0 flex-1 px-3 py-2 text-left text-sm transition ${active ? "font-semibold text-[#1f4e79]" : "text-[#475467]"}`}><span className="flex items-center justify-between"><span className="truncate">{label}</span><span aria-hidden="true" className="ml-2 text-xs tabular-nums text-[#667085]">{count}</span></span></button>{onDelete ? <button type="button" disabled={!canDelete} onClick={onDelete} aria-label={`Delete folder ${label}`} title={canDelete ? "Delete empty folder" : "Move all syllabi before deleting this folder"} className="mr-1 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[#b4232d] hover:bg-[#fff1f2] disabled:cursor-not-allowed disabled:text-[#98a2b3] disabled:hover:bg-transparent"><Trash2 size={15} aria-hidden="true" /></button> : null}</div>;
+function FolderButton({ label, count, depth = 0, active, hasChildren = false, onClick, onDelete }: { label: string; count: number; depth?: number; active: boolean; hasChildren?: boolean; onClick: () => void; onDelete?: () => void }) {
+  const canDelete = Boolean(onDelete) && count === 0 && !hasChildren;
+  return <div style={depth ? { marginInlineStart: `${depth * 0.75}rem` } : undefined} className={`group flex items-center rounded-md ${active ? "bg-[#e8edf3]" : "hover:bg-[#f7f8fa]"}`}><button type="button" onClick={onClick} className={`min-w-0 flex-1 px-3 py-2 text-left text-sm transition ${active ? "font-semibold text-[#1f4e79]" : "text-[#475467]"}`}><span className="flex items-center justify-between"><span className="flex min-w-0 items-center gap-2"><Folder size={15} aria-hidden="true" className="shrink-0 text-[#667085]" /><span className="truncate">{label}</span></span><span aria-hidden="true" className="ml-2 text-xs tabular-nums text-[#667085]">{count}</span></span></button>{onDelete ? <button type="button" disabled={!canDelete} onClick={onDelete} aria-label={`Delete folder ${label}`} title={canDelete ? "Delete empty folder" : "Move all syllabi and subfolders before deleting this folder"} className="mr-1 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[#b4232d] hover:bg-[#fff1f2] disabled:cursor-not-allowed disabled:text-[#98a2b3] disabled:hover:bg-transparent"><Trash2 size={15} aria-hidden="true" /></button> : null}</div>;
 }
 
-function SyllabusRow({ syllabus, folders, isMoving, isDeleting, onOpen, onMove, onRequestDelete }: { syllabus: SyllabusSummary; folders: SyllabusFolder[]; isMoving: boolean; isDeleting: boolean; onOpen: (id: string) => void; onMove: (id: string, folderId: string | null) => void; onRequestDelete: (syllabus: SyllabusSummary) => void }) {
-  return <div role="listitem" className="grid gap-3 px-5 py-4 lg:grid-cols-[minmax(0,1fr)_150px_auto_auto] lg:items-center"><button type="button" onClick={() => onOpen(syllabus.id)} className="min-w-0 text-left"><span className="block truncate font-semibold text-[#171717] hover:text-[#1f4e79]">{syllabus.courseTitle}</span><span className="mt-1 block text-sm text-[#667085]">{syllabus.courseCode || "Course code not set"} · Revision {syllabus.revision}</span></button><span className="text-sm font-medium text-[#344054]">{syllabus.academicYear}</span><FolderMoveMenu compact label={`Move ${syllabus.courseTitle} to folder`} value={syllabus.folderId} folders={folders} isMoving={isMoving} onChange={(folderId) => onMove(syllabus.id, folderId)} /><button type="button" disabled={isDeleting} onClick={() => onRequestDelete(syllabus)} aria-label={`Delete ${syllabus.courseTitle}`} title="Delete syllabus" className="inline-flex h-10 w-10 items-center justify-center rounded-md text-[#b4232d] hover:bg-[#fff1f2] disabled:opacity-50"><Trash2 size={18} aria-hidden="true" /></button></div>;
+function SyllabusRow({ syllabus, folders, folderPath, isMoving, isDeleting, onOpen, onMove, onRequestDelete }: { syllabus: SyllabusSummary; folders: SyllabusFolder[]; folderPath: SyllabusFolder[]; isMoving: boolean; isDeleting: boolean; onOpen: (id: string) => void; onMove: (id: string, folderId: string | null) => void; onRequestDelete: (syllabus: SyllabusSummary) => void }) {
+  return <div role="listitem" className="grid gap-3 px-5 py-4 lg:grid-cols-[minmax(0,1fr)_150px_auto_auto] lg:items-center"><button type="button" onClick={() => onOpen(syllabus.id)} className="min-w-0 text-left"><span className="block truncate font-semibold text-[#171717] hover:text-[#1f4e79]">{syllabus.courseTitle}</span><span className="mt-1 block text-sm text-[#667085]">{syllabus.courseCode || "Course code not set"} · Revision {syllabus.revision}</span>{folderPath.length ? <FolderPath path={folderPath} syllabusTitle={syllabus.courseTitle} /> : null}</button><span className="text-sm font-medium text-[#344054]">{syllabus.academicYear}</span><FolderMoveMenu compact label={`Move ${syllabus.courseTitle} to folder`} value={syllabus.folderId} folders={folders} isMoving={isMoving} onChange={(folderId) => onMove(syllabus.id, folderId)} /><button type="button" disabled={isDeleting} onClick={() => onRequestDelete(syllabus)} aria-label={`Delete ${syllabus.courseTitle}`} title="Delete syllabus" className="inline-flex h-10 w-10 items-center justify-center rounded-md text-[#b4232d] hover:bg-[#fff1f2] disabled:opacity-50"><Trash2 size={18} aria-hidden="true" /></button></div>;
+}
+
+function FolderPath({ path, syllabusTitle }: { path: SyllabusFolder[]; syllabusTitle: string }) {
+  return <span aria-label={`Folder path for ${syllabusTitle}`} className="mt-2 inline-flex max-w-full items-center gap-1 rounded-md bg-[#eef3f8] px-2 py-1 text-xs font-medium text-[#475467]"><Folder size={14} aria-hidden="true" className="shrink-0 text-[#667085]" />{path.map((folder, index) => <span key={folder.id} className="flex min-w-0 items-center gap-1">{index > 0 ? <ChevronRight size={13} aria-hidden="true" className="shrink-0 text-[#98a2b3]" /> : null}<span className="truncate">{folder.name}</span></span>)}</span>;
+}
+
+function flattenFolders(folders: SyllabusFolder[]): Array<{ folder: SyllabusFolder; depth: number; path: SyllabusFolder[] }> {
+  const childrenByParent = new Map<string | null, SyllabusFolder[]>();
+  for (const folder of folders) {
+    const parentId = folder.parentId && folders.some((candidate) => candidate.id === folder.parentId) ? folder.parentId : null;
+    childrenByParent.set(parentId, [...(childrenByParent.get(parentId) ?? []), folder]);
+  }
+  for (const children of childrenByParent.values()) children.sort((left, right) => left.name.localeCompare(right.name));
+  const flattened: Array<{ folder: SyllabusFolder; depth: number; path: SyllabusFolder[] }> = [];
+  const visit = (parentId: string | null, depth: number, path: SyllabusFolder[], seen: Set<string>) => {
+    for (const folder of childrenByParent.get(parentId) ?? []) {
+      if (seen.has(folder.id)) continue;
+      const nextPath = [...path, folder];
+      flattened.push({ folder, depth, path: nextPath });
+      visit(folder.id, depth + 1, nextPath, new Set([...seen, folder.id]));
+    }
+  };
+  visit(null, 0, [], new Set());
+  return flattened;
 }
 
 function EmptyLibraryState({ hasSyllabi, hasSearch }: { hasSyllabi: boolean; hasSearch: boolean }) {

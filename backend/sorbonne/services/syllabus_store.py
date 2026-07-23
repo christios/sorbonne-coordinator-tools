@@ -137,7 +137,7 @@ class SyllabusStore:
                 connection.execute(
                     text(
                         """
-                        SELECT id, name, created_at, updated_at
+                        SELECT id, name, parent_id, created_at, updated_at
                         FROM syllabus_folders
                         ORDER BY name ASC
                         """
@@ -148,21 +148,30 @@ class SyllabusStore:
             )
         return [_folder_from_row(row) for row in rows]
 
-    def create_folder(self, name: str) -> dict[str, Any]:
+    def create_folder(self, name: str, parent_id: str | None = None) -> dict[str, Any]:
+        if parent_id and not self._folder_exists(parent_id):
+            raise FolderNotFound
         now = _timestamp()
-        folder = {"id": str(uuid4()), "name": name.strip(), "createdAt": now, "updatedAt": now}
+        folder = {
+            "id": str(uuid4()),
+            "name": name.strip(),
+            "parentId": parent_id,
+            "createdAt": now,
+            "updatedAt": now,
+        }
         try:
             with self.engine.begin() as connection:
                 connection.execute(
                     text(
                         """
-                        INSERT INTO syllabus_folders (id, name, created_at, updated_at)
-                        VALUES (:id, :name, :created_at, :updated_at)
+                        INSERT INTO syllabus_folders (id, name, parent_id, created_at, updated_at)
+                        VALUES (:id, :name, :parent_id, :created_at, :updated_at)
                         """
                     ),
                     {
                         "id": folder["id"],
                         "name": folder["name"],
+                        "parent_id": folder["parentId"],
                         "created_at": folder["createdAt"],
                         "updated_at": folder["updatedAt"],
                     },
@@ -179,7 +188,11 @@ class SyllabusStore:
                 text("SELECT 1 FROM syllabi WHERE folder_id = :folder_id LIMIT 1"),
                 {"folder_id": folder_id},
             ).first()
-            if has_syllabi is not None:
+            has_children = connection.execute(
+                text("SELECT 1 FROM syllabus_folders WHERE parent_id = :folder_id LIMIT 1"),
+                {"folder_id": folder_id},
+            ).first()
+            if has_syllabi is not None or has_children is not None:
                 raise FolderNotEmpty
             connection.execute(text("DELETE FROM syllabus_folders WHERE id = :id"), {"id": folder_id})
 
@@ -382,7 +395,13 @@ def _record_from_row(row: RowMapping) -> dict[str, Any]:
 
 
 def _folder_from_row(row: RowMapping) -> dict[str, Any]:
-    return {"id": row["id"], "name": row["name"], "createdAt": row["created_at"], "updatedAt": row["updated_at"]}
+    return {
+        "id": row["id"],
+        "name": row["name"],
+        "parentId": row["parent_id"],
+        "createdAt": row["created_at"],
+        "updatedAt": row["updated_at"],
+    }
 
 
 def _timestamp() -> str:

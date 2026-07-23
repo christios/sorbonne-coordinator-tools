@@ -18,8 +18,14 @@ export type Syllabus = SyllabusSummary & { content: SyllabusContent };
 export type SyllabusFolder = {
   id: string;
   name: string;
+  parentId: string | null;
   createdAt: string;
   updatedAt: string;
+};
+
+export type CreateFolderInput = {
+  name: string;
+  parentId?: string | null;
 };
 
 export type SyllabusTemplate = {
@@ -92,11 +98,11 @@ export async function listSyllabusFolders(): Promise<SyllabusFolder[]> {
   return (await request<{ items: SyllabusFolder[] }>("/syllabi/folders")).items;
 }
 
-export function createFolder(name: string): Promise<SyllabusFolder> {
+export function createFolder(input: CreateFolderInput): Promise<SyllabusFolder> {
   return request<SyllabusFolder>("/syllabi/folders", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name }),
+    body: JSON.stringify(input),
   });
 }
 

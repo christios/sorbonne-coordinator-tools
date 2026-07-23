@@ -1,7 +1,7 @@
 import { Check, ChevronDown, Folder, Loader2, Search } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-type Folder = { id: string; name: string };
+type Folder = { id: string; name: string; parentId?: string | null };
 
 type Props = {
   label: string;
@@ -18,7 +18,21 @@ export function FolderMoveMenu({ label, value, folders, isMoving = false, compac
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState("");
   const menuRef = useRef<HTMLDivElement>(null);
-  const destinations = useMemo<Destination[]>(() => [{ id: null, name: "Unfiled" }, ...folders], [folders]);
+  const destinations = useMemo<Destination[]>(() => {
+    const foldersById = new Map(folders.map((folder) => [folder.id, folder]));
+    const pathFor = (folder: Folder): string => {
+      const names = [folder.name];
+      const visited = new Set([folder.id]);
+      let parent = folder.parentId ? foldersById.get(folder.parentId) : undefined;
+      while (parent && !visited.has(parent.id)) {
+        names.unshift(parent.name);
+        visited.add(parent.id);
+        parent = parent.parentId ? foldersById.get(parent.parentId) : undefined;
+      }
+      return names.join(" › ");
+    };
+    return [{ id: null, name: "Unfiled" }, ...folders.map((folder) => ({ id: folder.id, name: pathFor(folder) }))];
+  }, [folders]);
   const filteredDestinations = destinations.filter((destination) => destination.name.toLowerCase().includes(query.trim().toLowerCase()));
   const selectedName = destinations.find((destination) => destination.id === value)?.name ?? "Unfiled";
 

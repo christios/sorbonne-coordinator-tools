@@ -104,15 +104,20 @@ def test_organizes_syllabi_in_folders_and_deletes_them() -> None:
 def test_deletes_empty_folders_but_protects_folders_that_contain_syllabi() -> None:
     store = make_store()
     empty_folder = store.create_folder(f"Empty folder {os.urandom(4).hex()}")
-    populated_folder = store.create_folder(f"Populated folder {os.urandom(4).hex()}")
+    parent_folder = store.create_folder(f"Programme {os.urandom(4).hex()}")
+    populated_folder = store.create_folder(f"Populated folder {os.urandom(4).hex()}", parent_id=parent_folder["id"])
     syllabus = store.create(course_title="Climate Policy", course_code="SCEN-220", academic_year="2025-2026")
     store.move_to_folder(syllabus["id"], populated_folder["id"])
 
     store.delete_folder(empty_folder["id"])
 
     assert empty_folder not in store.list_folders()
+    assert populated_folder["parentId"] == parent_folder["id"]
+    assert store.list_folders()[-1]["parentId"] in {None, parent_folder["id"]}
     with pytest.raises(FolderNotEmpty):
         store.delete_folder(populated_folder["id"])
+    with pytest.raises(FolderNotEmpty):
+        store.delete_folder(parent_folder["id"])
     assert populated_folder in store.list_folders()
 
 
