@@ -1,3 +1,5 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -5,8 +7,16 @@ from fastapi.responses import FileResponse
 from sorbonne.api.rosters import router as rosters_router
 from sorbonne.api.syllabi import router as syllabi_router
 from sorbonne.config import config
+from sorbonne.services.migrations import apply_schema_migrations
 
-app = FastAPI(title="Sorbonne Coordinator Tools API")
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    apply_schema_migrations(config.database_url)
+    yield
+
+
+app = FastAPI(title="Sorbonne Coordinator Tools API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
