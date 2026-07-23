@@ -7,7 +7,6 @@ class Config(BaseSettings):
     cors_origins: list[str] = [
         "http://localhost:3000",
         "http://127.0.0.1:3000",
-        "https://christios.github.io",
     ]
     database_url: str = "postgresql+psycopg://sorbonne:sorbonne@localhost:5433/sorbonne"
 

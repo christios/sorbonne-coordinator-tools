@@ -43,11 +43,20 @@ The local `DATABASE_URL` is `postgresql+psycopg://sorbonne:sorbonne@localhost:54
 
 ## FastAPI Cloud + Neon
 
-Deploy `backend/` to FastAPI Cloud and connect a standalone Neon project through FastAPI Cloud's Neon integration. It provisions `DATABASE_URL` as an encrypted secret. Before switching production traffic, run the Alembic migration against that Neon URL:
+FastAPI Cloud serves both the React frontend and the API from one deployment; Neon provides the PostgreSQL database. Store `DATABASE_URL` as an encrypted FastAPI Cloud secret. Before switching production traffic, run the Alembic migration against that Neon URL:
 
 ```bash
 DATABASE_URL='postgresql+psycopg://…' uv run alembic upgrade head
 DATABASE_URL='postgresql+psycopg://…' uv run python scripts/migrate_sqlite_syllabi.py
 ```
 
-Use a separate frontend host or configure the frontend's `VITE_API_BASE_URL` to the FastAPI Cloud URL.
+Before each FastAPI Cloud deployment, build the frontend into the backend's deployable static directory, then deploy the backend:
+
+```bash
+cd frontend
+VITE_API_BASE_URL='' VITE_BASE_PATH=/ VITE_OUT_DIR=../backend/frontend-dist npm run build
+cd ../backend
+uv run fastapi deploy
+```
+
+`backend/.fastapicloudignore` explicitly includes the generated `frontend-dist/` files in the FastAPI Cloud upload. The static frontend and `/api/v1` routes are then served from the same application URL.

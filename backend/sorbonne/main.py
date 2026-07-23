@@ -17,6 +17,7 @@ app.add_middleware(
 
 app.include_router(rosters_router, prefix="/api/v1")
 app.include_router(syllabi_router, prefix="/api/v1")
+app.frontend("/", directory="frontend-dist", check_dir=False)
 
 
 @app.get("/healthcheck")

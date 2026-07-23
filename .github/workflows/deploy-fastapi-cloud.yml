@@ -1,0 +1,40 @@
+name: Deploy unified app to FastAPI Cloud
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: frontend
+      - name: Build frontend for FastAPI
+        run: npm run build
+        working-directory: frontend
+        env:
+          VITE_API_BASE_URL: ""
+          VITE_BASE_PATH: /
+          VITE_OUT_DIR: ../backend/frontend-dist
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7
+      - name: Deploy app
+        run: uv run fastapi deploy . --no-wait
+        working-directory: backend
+        env:
+          FASTAPI_CLOUD_TOKEN: ${{ secrets.FASTAPI_CLOUD_TOKEN }}
+          FASTAPI_CLOUD_APP_ID: ${{ secrets.FASTAPI_CLOUD_APP_ID }}
