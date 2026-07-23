@@ -1,4 +1,4 @@
-import { createSyllabus, getFieldHistory } from "./syllabi";
+import { createSyllabus, downloadSyllabusExport, getFieldHistory } from "./syllabi";
 import { describe, expect, it, vi } from "vitest";
 
 describe("createSyllabus", () => {
@@ -28,5 +28,19 @@ describe("createSyllabus", () => {
       expect.stringMatching(/syllabus-1\/history\?fieldPath=description.overview$/),
       undefined,
     );
+  });
+
+  it("downloads the generated Word syllabus from the export endpoint", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(new Blob(["docx"]), { status: 200, headers: { "content-disposition": 'attachment; filename="climate-policy.docx"' } }),
+    );
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("URL", { createObjectURL: vi.fn(() => "blob:syllabus"), revokeObjectURL: vi.fn() });
+
+    await downloadSyllabusExport("syllabus-1");
+
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/syllabus-1\/export$/));
+    expect(click).toHaveBeenCalledOnce();
   });
 });

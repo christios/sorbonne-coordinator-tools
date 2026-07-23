@@ -92,3 +92,19 @@ export function compareSyllabi(leftId: string, rightId: string): Promise<Syllabu
 export function getFieldHistory(syllabusId: string, fieldPath: string): Promise<FieldHistoryEntry[]> {
   return request<{ items: FieldHistoryEntry[] }>(`/syllabi/${syllabusId}/history?fieldPath=${encodeURIComponent(fieldPath)}`).then((response) => response.items);
 }
+
+export async function downloadSyllabusExport(syllabusId: string): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/syllabi/${syllabusId}/export`);
+  if (!response.ok) {
+    const body = (await response.json().catch(() => ({}))) as { detail?: string };
+    throw new Error(body.detail ?? `Export failed with status ${response.status}`);
+  }
+  const disposition = response.headers.get("content-disposition") ?? "";
+  const filename = /filename="?([^";]+)"?/.exec(disposition)?.[1] ?? "syllabus.docx";
+  const url = URL.createObjectURL(await response.blob());
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}

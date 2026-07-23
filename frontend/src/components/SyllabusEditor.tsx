@@ -1,7 +1,7 @@
-import { ArrowDownUp, ArrowLeft, CheckCircle2, ChevronDown, GitCompareArrows, Loader2, Plus, Trash2, TriangleAlert } from "lucide-react";
+import { ArrowDownUp, ArrowLeft, CheckCircle2, ChevronDown, Download, GitCompareArrows, Loader2, Plus, Trash2, TriangleAlert } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
-import { Syllabus, updateSyllabus } from "@/services/syllabi";
+import { downloadSyllabusExport, Syllabus, updateSyllabus } from "@/services/syllabi";
 import { AcademicContactsEditor } from "@/components/AcademicContactsEditor";
 import { CourseIdentificationEditor } from "@/components/CourseIdentificationEditor";
 import { AutoResizeTextarea } from "@/components/AutoResizeTextarea";
@@ -29,6 +29,7 @@ export function SyllabusEditor({ syllabus, onBack, onSaved, onCompare }: Props) 
   const [active, setActive] = useState<(typeof SECTIONS)[number][0]>("identification");
   const [dirty, setDirty] = useState(false);
   const [saveState, setSaveState] = useState<"saved" | "saving" | "error">("saved");
+  const [exportState, setExportState] = useState<"idle" | "exporting" | "error">("idle");
   const [historyField, setHistoryField] = useState<HistoryField | null>(null);
   const requestId = useRef(0);
   const editorRef = useRef<HTMLDivElement>(null);
@@ -75,12 +76,39 @@ export function SyllabusEditor({ syllabus, onBack, onSaved, onCompare }: Props) 
   function edit(updater: (current: Syllabus) => Syllabus) { setDraft((current) => updater(current)); setDirty(true); }
   function editContent(section: string, value: unknown) { edit((current) => ({ ...current, content: { ...current.content, [section]: value } })); }
   function editMetadata(field: "courseTitle" | "courseCode" | "academicYear", value: string) { edit((current) => ({ ...current, [field]: value })); }
+  async function exportDocx() {
+    setExportState("exporting");
+    try {
+      let saved = draft;
+      if (dirty) {
+        const id = ++requestId.current;
+        setSaveState("saving");
+        saved = await updateSyllabus(draft.id, {
+          expectedRevision: draft.revision,
+          content: draft.content,
+          courseTitle: draft.courseTitle,
+          courseCode: draft.courseCode,
+          academicYear: draft.academicYear,
+        });
+        if (id === requestId.current) {
+          setDraft(saved);
+          setDirty(false);
+          setSaveState("saved");
+          onSaved(saved);
+        }
+      }
+      await downloadSyllabusExport(saved.id);
+      setExportState("idle");
+    } catch {
+      setExportState("error");
+    }
+  }
 
   return (
     <div ref={editorRef} className="mx-auto max-w-7xl px-4 py-5 sm:px-6 lg:px-8">
       <div className="flex flex-col gap-4 border-b border-[#d9dee7] pb-4 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex items-start gap-3"><button onClick={onBack} className="mt-1 rounded-md p-2 text-[#344054] hover:bg-[#e8edf3]" aria-label="Back to syllabus library"><ArrowLeft size={19} /></button><div><p className="text-sm font-medium text-[#a6292f]">{draft.academicYear}</p><h2 className="text-xl font-semibold text-[#171717]">{draft.courseTitle}</h2><p className="text-sm text-[#667085]">{draft.courseCode || "Course code not set"}</p></div></div>
-        <div className="flex flex-wrap items-center gap-3"><SaveStatus state={saveState} /><button onClick={onCompare} className="inline-flex items-center gap-2 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]"><GitCompareArrows size={17} /> Compare years</button></div>
+        <div className="flex flex-wrap items-center gap-3"><SaveStatus state={saveState} /><button type="button" onClick={() => void exportDocx()} disabled={exportState === "exporting"} className="inline-flex items-center gap-2 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb] disabled:cursor-wait disabled:opacity-60"><>{exportState === "exporting" ? <Loader2 className="animate-spin" size={17} /> : <Download size={17} />}</> {exportState === "exporting" ? "Preparing DOCX" : "Export DOCX"}</button><button onClick={onCompare} className="inline-flex items-center gap-2 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]"><GitCompareArrows size={17} /> Compare years</button>{exportState === "error" ? <span role="alert" className="text-sm font-medium text-[#a6292f]">Export failed — please try again.</span> : null}</div>
       </div>
       <div className="mt-5 grid gap-5 lg:grid-cols-[245px_minmax(0,1fr)]">
         <nav aria-label="Syllabus sections" className="rounded-lg border border-[#d9dee7] bg-white p-2 lg:h-fit">
