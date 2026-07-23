@@ -1,7 +1,7 @@
-import { Copy, FilePlus2, FolderOpen, FolderPlus, Loader2, Trash2 } from "lucide-react";
-import { FormEvent, useMemo, useState } from "react";
+import { Copy, FilePlus2, FileText, FolderOpen, FolderPlus, Loader2, Trash2 } from "lucide-react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 
-import { CreateSyllabusInput, SyllabusFolder, SyllabusSummary } from "@/services/syllabi";
+import { CreateSyllabusInput, SyllabusFolder, SyllabusSummary, SyllabusTemplate, syllabusTemplateDocumentUrl } from "@/services/syllabi";
 import { SelectMenu } from "@/components/SelectMenu";
 
 const UNFILED = "unfiled";
@@ -9,6 +9,7 @@ const UNFILED = "unfiled";
 type Props = {
   syllabi: SyllabusSummary[];
   folders: SyllabusFolder[];
+  templates: SyllabusTemplate[];
   isLoading: boolean;
   isCreating: boolean;
   isCreatingFolder: boolean;
@@ -25,6 +26,7 @@ type Props = {
 export function SyllabusLibrary({
   syllabi,
   folders,
+  templates,
   isLoading,
   isCreating,
   isCreatingFolder,
@@ -40,6 +42,7 @@ export function SyllabusLibrary({
   const [showForm, setShowForm] = useState(false);
   const [showFolderForm, setShowFolderForm] = useState(false);
   const [sourceId, setSourceId] = useState("");
+  const [templateId, setTemplateId] = useState("");
   const [title, setTitle] = useState("");
   const [code, setCode] = useState("");
   const [year, setYear] = useState("2026-2027");
@@ -47,15 +50,20 @@ export function SyllabusLibrary({
   const [activeFolder, setActiveFolder] = useState("all");
   const [deleteCandidate, setDeleteCandidate] = useState<SyllabusSummary | null>(null);
 
+  useEffect(() => {
+    if (!templateId && templates[0]) setTemplateId(templates[0].id);
+  }, [templateId, templates]);
+
   const visibleSyllabi = useMemo(
     () => syllabi.filter((syllabus) => activeFolder === "all" ? true : activeFolder === UNFILED ? syllabus.folderId === null : syllabus.folderId === activeFolder),
     [activeFolder, syllabi],
   );
   const folderOptions = [{ value: "", label: "Unfiled" }, ...folders.map((folder) => ({ value: folder.id, label: folder.name }))];
+  const selectedTemplate = templates.find((template) => template.id === templateId);
 
   function submitSyllabus(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    onCreate({ courseTitle: title.trim(), courseCode: code.trim(), academicYear: year.trim(), sourceSyllabusId: sourceId || undefined });
+    onCreate({ courseTitle: title.trim(), courseCode: code.trim(), academicYear: year.trim(), sourceSyllabusId: sourceId || undefined, templateId: templateId || undefined });
   }
 
   function submitFolder(event: FormEvent<HTMLFormElement>) {
@@ -96,7 +104,8 @@ export function SyllabusLibrary({
           <label className="grid gap-1 text-sm font-medium text-[#344054]">Course title<input required value={title} onChange={(event) => setTitle(event.target.value)} className="rounded-md border border-[#b7bec8] px-3 py-2 font-normal" /></label>
           <label className="grid gap-1 text-sm font-medium text-[#344054]">Academic year<input required value={year} onChange={(event) => setYear(event.target.value)} placeholder="2026-2027" className="rounded-md border border-[#b7bec8] px-3 py-2 font-normal" /></label>
           <label className="grid gap-1 text-sm font-medium text-[#344054]">Course code <span className="font-normal text-[#667085]">(optional)</span><input value={code} onChange={(event) => setCode(event.target.value)} className="rounded-md border border-[#b7bec8] px-3 py-2 font-normal" /></label>
-          <label className="grid gap-1 text-sm font-medium text-[#344054]">Starting point<SelectMenu label="Starting point" value={sourceId} onChange={setSourceId} placeholder="Blank syllabus" options={[{ value: "", label: "Blank syllabus" }, ...syllabi.map((syllabus) => ({ value: syllabus.id, label: `${syllabus.courseTitle} — ${syllabus.academicYear}` }))]} /></label>
+          <label className="grid gap-1 text-sm font-medium text-[#344054]">Starting point<SelectMenu label="Starting point" value={sourceId} onChange={(nextSourceId) => { setSourceId(nextSourceId); const source = syllabi.find((syllabus) => syllabus.id === nextSourceId); if (source) setTemplateId(source.templateId); }} placeholder="Blank syllabus" options={[{ value: "", label: "Blank syllabus" }, ...syllabi.map((syllabus) => ({ value: syllabus.id, label: `${syllabus.courseTitle} — ${syllabus.academicYear}` }))]} /></label>
+          <div className="grid gap-1 text-sm font-medium text-[#344054] md:col-span-2"><span>Template</span><SelectMenu label="Syllabus template" value={templateId} onChange={setTemplateId} placeholder="Choose a template" options={templates.map((template) => ({ value: template.id, label: template.name }))} />{selectedTemplate ? <a href={syllabusTemplateDocumentUrl(selectedTemplate)} className="inline-flex w-fit items-center gap-1.5 text-sm font-medium text-[#1f4e79] hover:underline"><FileText size={16} aria-hidden="true" /> View Word template</a> : null}{sourceId ? <p className="text-sm font-normal text-[#667085]">Duplicates retain their source template so yearly comparison remains reliable.</p> : null}</div>
           <div className="flex gap-3 md:col-span-2"><button disabled={isCreating} className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-4 py-2 text-sm font-semibold text-white disabled:bg-[#9ba8b5]">{isCreating ? <Loader2 className="animate-spin" size={16} /> : sourceId ? <Copy size={16} /> : <FilePlus2 size={16} />}{sourceId ? "Duplicate and edit" : "Create blank syllabus"}</button><button type="button" onClick={() => setShowForm(false)} className="rounded-md border border-[#b7bec8] px-4 py-2 text-sm font-semibold text-[#344054]">Cancel</button></div>
         </form>
       ) : null}

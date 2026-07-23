@@ -9,10 +9,11 @@ describe("SyllabusLibrary", () => {
     render(
       <SyllabusLibrary
         syllabi={[
-          { id: "syllabus-1", seriesId: "series-1", folderId: "folder-1", courseTitle: "Climate Policy", courseCode: "SCEN-220", academicYear: "2026-2027", revision: 1, createdAt: "", updatedAt: "" },
-          { id: "syllabus-2", seriesId: "series-2", folderId: null, courseTitle: "Environmental Law", courseCode: "SCEN-240", academicYear: "2026-2027", revision: 1, createdAt: "", updatedAt: "" },
+          { id: "syllabus-1", seriesId: "series-1", folderId: "folder-1", templateId: "scen-en-v1", courseTitle: "Climate Policy", courseCode: "SCEN-220", academicYear: "2026-2027", revision: 1, createdAt: "", updatedAt: "" },
+          { id: "syllabus-2", seriesId: "series-2", folderId: null, templateId: "scen-en-v1", courseTitle: "Environmental Law", courseCode: "SCEN-240", academicYear: "2026-2027", revision: 1, createdAt: "", updatedAt: "" },
         ]}
         folders={[{ id: "folder-1", name: "Climate courses", createdAt: "", updatedAt: "" }]}
+        templates={[{ id: "scen-en-v1", name: "SCEN syllabus template (English)", description: "Approved English template", documentPath: "/syllabi/templates/scen-en-v1/document", sections: [{ id: "identification", label: "1. Course identification" }] }]}
         isLoading={false}
         isCreating={false}
         isCreatingFolder={false}

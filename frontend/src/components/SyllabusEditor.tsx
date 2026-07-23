@@ -1,7 +1,7 @@
-import { ArrowDownUp, ArrowLeft, CheckCircle2, ChevronDown, Download, GitCompareArrows, Loader2, Plus, Trash2, TriangleAlert } from "lucide-react";
+import { ArrowDownUp, ArrowLeft, CheckCircle2, ChevronDown, Download, FileText, GitCompareArrows, Loader2, Plus, Trash2, TriangleAlert } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
-import { downloadSyllabusExport, Syllabus, updateSyllabus } from "@/services/syllabi";
+import { downloadSyllabusExport, Syllabus, SyllabusTemplate, syllabusTemplateDocumentUrl, updateSyllabus } from "@/services/syllabi";
 import { AcademicContactsEditor } from "@/components/AcademicContactsEditor";
 import { CourseIdentificationEditor } from "@/components/CourseIdentificationEditor";
 import { AutoResizeTextarea } from "@/components/AutoResizeTextarea";
@@ -12,21 +12,14 @@ import { AssessmentTabs } from "@/components/AssessmentTabs";
 import { BibliographyEditor, PloEditor } from "@/components/StructuredEntryEditors";
 import { deliveryPercentageError, ploEntries } from "@/services/syllabusContent";
 
-const SECTIONS = [
-  ["identification", "1. Course identification"], ["contacts", "2. Academic contacts"], ["description", "3. Course description"],
-  ["delivery", "4. Course delivery"], ["learningOutcomes", "5. Learning outcomes"], ["schedule", "6. Course schedule"],
-  ["bibliography", "7. Bibliography"], ["teachingApproach", "8. Teaching approach"], ["assessment", "9. Course assessment"],
-  ["documentControl", "10. Document control"],
-] as const;
-
 const GRADE_EQUIVALENCE_TEXT = "Sorbonne University Abu Dhabi uses the French grading system, with marks ranging from 0 to 20. The University Student Handbook provides the applicable grade-equivalence guidance. This institutional reference is displayed here and cannot be edited in an individual course syllabus.";
 
-type Props = { syllabus: Syllabus; onBack: () => void; onSaved: (syllabus: Syllabus) => void; onCompare: () => void };
+type Props = { syllabus: Syllabus; template: SyllabusTemplate; onBack: () => void; onSaved: (syllabus: Syllabus) => void; onCompare: () => void };
 type Row = Record<string, string> & { id: string };
 
-export function SyllabusEditor({ syllabus, onBack, onSaved, onCompare }: Props) {
+export function SyllabusEditor({ syllabus, template, onBack, onSaved, onCompare }: Props) {
   const [draft, setDraft] = useState(syllabus);
-  const [active, setActive] = useState<(typeof SECTIONS)[number][0]>("identification");
+  const [active, setActive] = useState(template.sections[0]?.id ?? "identification");
   const [dirty, setDirty] = useState(false);
   const [saveState, setSaveState] = useState<"saved" | "saving" | "error">("saved");
   const [exportState, setExportState] = useState<"idle" | "exporting" | "error">("idle");
@@ -35,6 +28,7 @@ export function SyllabusEditor({ syllabus, onBack, onSaved, onCompare }: Props) 
   const editorRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { setDraft(syllabus); setDirty(false); setSaveState("saved"); }, [syllabus]);
+  useEffect(() => { if (!template.sections.some((section) => section.id === active)) setActive(template.sections[0]?.id ?? "identification"); }, [active, template]);
   useEffect(() => {
     if (!dirty) return;
     const timer = window.setTimeout(async () => {
@@ -107,12 +101,12 @@ export function SyllabusEditor({ syllabus, onBack, onSaved, onCompare }: Props) 
   return (
     <div ref={editorRef} className="mx-auto max-w-7xl px-4 py-5 sm:px-6 lg:px-8">
       <div className="flex flex-col gap-4 border-b border-[#d9dee7] pb-4 lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex items-start gap-3"><button onClick={onBack} className="mt-1 rounded-md p-2 text-[#344054] hover:bg-[#e8edf3]" aria-label="Back to syllabus library"><ArrowLeft size={19} /></button><div><p className="text-sm font-medium text-[#a6292f]">{draft.academicYear}</p><h2 className="text-xl font-semibold text-[#171717]">{draft.courseTitle}</h2><p className="text-sm text-[#667085]">{draft.courseCode || "Course code not set"}</p></div></div>
+        <div className="flex items-start gap-3"><button onClick={onBack} className="mt-1 rounded-md p-2 text-[#344054] hover:bg-[#e8edf3]" aria-label="Back to syllabus library"><ArrowLeft size={19} /></button><div><p className="text-sm font-medium text-[#a6292f]">{draft.academicYear}</p><h2 className="text-xl font-semibold text-[#171717]">{draft.courseTitle}</h2><p className="text-sm text-[#667085]">{draft.courseCode || "Course code not set"}</p><a href={syllabusTemplateDocumentUrl(template)} className="mt-1 inline-flex items-center gap-1 text-sm font-medium text-[#1f4e79] hover:underline"><FileText size={15} aria-hidden="true" /> {template.name}</a></div></div>
         <div className="flex flex-wrap items-center gap-3"><SaveStatus state={saveState} /><button type="button" onClick={() => void exportDocx()} disabled={exportState === "exporting"} className="inline-flex items-center gap-2 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb] disabled:cursor-wait disabled:opacity-60"><>{exportState === "exporting" ? <Loader2 className="animate-spin" size={17} /> : <Download size={17} />}</> {exportState === "exporting" ? "Preparing DOCX" : "Export DOCX"}</button><button onClick={onCompare} className="inline-flex items-center gap-2 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]"><GitCompareArrows size={17} /> Compare years</button>{exportState === "error" ? <span role="alert" className="text-sm font-medium text-[#a6292f]">Export failed — please try again.</span> : null}</div>
       </div>
       <div className="mt-5 grid gap-5 lg:grid-cols-[245px_minmax(0,1fr)]">
         <nav aria-label="Syllabus sections" className="rounded-lg border border-[#d9dee7] bg-white p-2 lg:h-fit">
-          {SECTIONS.map(([key, label]) => <button key={key} onClick={() => setActive(key)} className={`block w-full rounded-md px-3 py-2 text-left text-sm ${active === key ? "bg-[#e8edf3] font-semibold text-[#1f4e79]" : "text-[#475467] hover:bg-[#f7f8fa]"}`}>{label}</button>)}
+          {template.sections.map((section) => <button key={section.id} onClick={() => setActive(section.id)} className={`block w-full rounded-md px-3 py-2 text-left text-sm ${active === section.id ? "bg-[#e8edf3] font-semibold text-[#1f4e79]" : "text-[#475467] hover:bg-[#f7f8fa]"}`}>{section.label}</button>)}
         </nav>
         {active === "learningOutcomes" ? <SectionForm active={active} draft={draft} editContent={editContent} editMetadata={editMetadata} onOpenHistory={setHistoryField} /> : <section className="min-w-0 rounded-lg border border-[#d9dee7] bg-white p-5"><SectionForm active={active} draft={draft} editContent={editContent} editMetadata={editMetadata} onOpenHistory={setHistoryField} /></section>}
       </div>

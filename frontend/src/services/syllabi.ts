@@ -4,6 +4,7 @@ export type SyllabusSummary = {
   id: string;
   seriesId: string;
   folderId: string | null;
+  templateId: string;
   courseTitle: string;
   courseCode: string;
   academicYear: string;
@@ -19,6 +20,14 @@ export type SyllabusFolder = {
   name: string;
   createdAt: string;
   updatedAt: string;
+};
+
+export type SyllabusTemplate = {
+  id: string;
+  name: string;
+  description: string;
+  documentPath: string;
+  sections: Array<{ id: string; label: string }>;
 };
 
 export type FieldHistoryEntry = {
@@ -47,6 +56,7 @@ export type CreateSyllabusInput = {
   courseCode: string;
   academicYear: string;
   sourceSyllabusId?: string;
+  templateId?: string;
 };
 
 export type SyllabusComparison = {
@@ -68,6 +78,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export async function listSyllabi(): Promise<SyllabusSummary[]> {
   return (await request<{ items: SyllabusSummary[] }>("/syllabi")).items;
+}
+
+export async function listSyllabusTemplates(): Promise<SyllabusTemplate[]> {
+  return (await request<{ items: SyllabusTemplate[] }>("/syllabi/templates")).items;
+}
+
+export function syllabusTemplateDocumentUrl(template: SyllabusTemplate): string {
+  return `${API_BASE_URL}/api/v1${template.documentPath}`;
 }
 
 export async function listSyllabusFolders(): Promise<SyllabusFolder[]> {

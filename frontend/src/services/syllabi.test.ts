@@ -1,4 +1,4 @@
-import { createFolder, createSyllabus, deleteSyllabus, downloadSyllabusExport, getFieldHistory, moveSyllabusToFolder } from "./syllabi";
+import { createFolder, createSyllabus, deleteSyllabus, downloadSyllabusExport, getFieldHistory, listSyllabusTemplates, moveSyllabusToFolder } from "./syllabi";
 import { describe, expect, it, vi } from "vitest";
 
 describe("createSyllabus", () => {
@@ -28,6 +28,19 @@ describe("createSyllabus", () => {
       expect.stringMatching(/syllabus-1\/history\?fieldPath=description.overview$/),
       undefined,
     );
+  });
+
+  it("lists the approved templates and their editable section structure", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ items: [{ id: "scen-en-v1", name: "SCEN syllabus template (English)", description: "Approved", documentPath: "/syllabi/templates/scen-en-v1/document", sections: [{ id: "identification", label: "1. Course identification" }] }] }), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const templates = await listSyllabusTemplates();
+
+    expect(templates[0]?.id).toBe("scen-en-v1");
+    expect(templates[0]?.sections[0]?.id).toBe("identification");
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/syllabi\/templates$/), undefined);
   });
 
   it("downloads the generated Word syllabus from the export endpoint", async () => {

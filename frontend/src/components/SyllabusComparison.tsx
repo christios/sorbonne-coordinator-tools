@@ -8,7 +8,7 @@ import { SelectMenu } from "@/components/SelectMenu";
 type Field = { path: string; value: unknown };
 
 export function SyllabusComparison({ syllabus, candidates, onBack }: { syllabus: Syllabus; candidates: SyllabusSummary[]; onBack: () => void }) {
-  const options = candidates.filter((candidate) => candidate.id !== syllabus.id && candidate.seriesId === syllabus.seriesId);
+  const options = candidates.filter((candidate) => candidate.id !== syllabus.id && candidate.seriesId === syllabus.seriesId && candidate.templateId === syllabus.templateId);
   const [otherId, setOtherId] = useState(options[0]?.id ?? "");
   const [changesOnly, setChangesOnly] = useState(true);
   const comparison = useQuery({
@@ -48,6 +48,7 @@ export function SyllabusComparison({ syllabus, candidates, onBack }: { syllabus:
 
       {options.length === 0 ? <div className="mt-6 rounded-lg border border-[#d9dee7] bg-white p-8 text-center text-sm text-[#667085]">Duplicate this syllabus into a new academic year to compare it here.</div> : null}
       {comparison.isLoading ? <div className="mt-6 flex justify-center gap-2 text-sm text-[#667085]"><Loader2 size={18} className="animate-spin" /> Loading comparison</div> : null}
+      {comparison.error instanceof Error ? <p role="alert" className="mt-6 rounded-md border border-[#efc9cb] bg-[#fff5f5] px-3 py-2 text-sm text-[#8f1f25]">{comparison.error.message}</p> : null}
       {comparison.data ? (
         <section className="mt-6 rounded-lg border border-[#d9dee7] bg-white">
           <div className="flex flex-col justify-between gap-3 border-b border-[#d9dee7] p-4 sm:flex-row sm:items-center">
