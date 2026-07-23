@@ -20,7 +20,7 @@ export function BibliographyEditor({ value, onChange, ...history }: HistoryConte
   const websites = bibliographyEntries(value.websites);
   const articles = bibliographyEntries(value.journalArticles);
   return (
-    <div className="grid min-w-0 gap-7">
+    <div className="grid w-full min-w-0 max-w-full gap-7">
       <ResourceList title="Books" entries={books} kind="book" path="bibliography.books" onChange={(next) => onChange({ ...value, books: next })} {...history} />
       <ResourceList title="Websites" entries={websites} kind="website" path="bibliography.websites" onChange={(next) => onChange({ ...value, websites: next })} {...history} />
       <ResourceList title="Journal articles" entries={articles} kind="article" path="bibliography.journalArticles" onChange={(next) => onChange({ ...value, journalArticles: next })} {...history} />
@@ -34,8 +34,8 @@ function ResourceList({ title, entries, kind, path, onChange, ...history }: Entr
   const remove = (id: string) => onChange(entries.filter((entry) => entry.id !== id));
   const action = kind === "book" ? "Add book" : kind === "website" ? "Add website" : "Add article";
   return (
-    <section className="min-w-0">
-      <div className="flex min-w-0 items-start justify-between gap-3">
+    <section className="w-full min-w-0 max-w-full">
+      <div className="flex w-full min-w-0 max-w-full items-start justify-between gap-3">
         <div className="min-w-0"><h4 className="text-sm font-semibold text-[#344054]">{title}</h4><p className="mt-1 text-sm text-[#667085]">Add only the details needed to identify each source.</p></div>
         <button type="button" onClick={add} className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-3 py-1.5 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]"><Plus size={16} /> {action}</button>
       </div>
@@ -54,12 +54,12 @@ function ResourceCard({ entry, index, kind, path, onChange, onRemove, ...history
   const set = (field: keyof ResourceEntry, value: string) => onChange(entry.id, field, value);
   const input = (label: string, field: keyof ResourceEntry, multiline = false, type = "text") => <EntryInput key={field} label={label} value={entry[field] ?? ""} onChange={(value) => set(field, value)} multiline={multiline} type={type} field={{ path: `${path}.${field}`, label: `${kindLabel(kind)} ${index + 1} · ${label}` }} {...history} />;
   return (
-    <article className="rounded-lg border border-[#d9dee7] bg-[#fdfdfd]">
-      <div className="flex items-center gap-3 p-3">
+    <article className="w-full min-w-0 max-w-full overflow-hidden rounded-lg border border-[#d9dee7] bg-[#fdfdfd]">
+      <div className="flex min-w-0 items-center gap-3 p-3">
         <button type="button" onClick={() => setOpen((current) => !current)} className="flex min-w-0 flex-1 items-center gap-2 text-left"><ChevronDown size={17} className={`shrink-0 text-[#667085] transition-transform ${open ? "rotate-180" : ""}`} /><span className="truncate text-sm font-semibold text-[#344054]">{resourceSummary(entry, kind) || `${kindLabel(kind)} ${index + 1}`}</span></button>
         <button type="button" onClick={() => onRemove(entry.id)} className="rounded p-1 text-[#a6292f] hover:bg-[#fff1f2]" aria-label={`Remove ${kindLabel(kind).toLowerCase()} ${index + 1}`}><X size={17} /></button>
       </div>
-      {open ? <div className="grid gap-4 border-t border-[#e5e7eb] p-4">
+      {open ? <div className="grid min-w-0 gap-4 border-t border-[#e5e7eb] p-4">
         {entry.legacyText !== undefined ? input("Imported reference", "legacyText", true) : <ResourceCoreFields kind={kind} input={input} />}
         {entry.legacyText === undefined ? <details className="group rounded-md border border-[#e5e7eb] bg-white px-3 py-2"><summary className="cursor-pointer text-sm font-semibold text-[#1f4e79]">Add publication details</summary><div className="mt-4 grid gap-4 sm:grid-cols-2"><ResourceDetails kind={kind} input={input} /></div></details> : null}
       </div> : null}
