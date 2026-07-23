@@ -5,7 +5,7 @@ import { AutoResizeTextarea } from "@/components/AutoResizeTextarea";
 import { FieldHistoryControl, HistoryField } from "@/components/FieldHistory";
 
 type ScheduleRow = Record<string, string> & { id: string };
-type ScheduleField = { key: "session" | "date" | "topic" | "preClass" | "assessments"; label: string; type?: "text" | "date"; multiline?: boolean };
+type ScheduleField = { key: "date" | "topic" | "preClass" | "assessments"; label: string; type?: "date"; multiline?: boolean };
 
 type Props = {
   rows: ScheduleRow[];
@@ -16,7 +16,6 @@ type Props = {
 };
 
 const fields: ScheduleField[] = [
-  { key: "session", label: "Session", type: "text" },
   { key: "date", label: "Date", type: "date" },
   { key: "topic", label: "Topic", multiline: true },
   { key: "preClass", label: "Pre-class learning activities", multiline: true },
@@ -45,8 +44,7 @@ export function ScheduleEditor({ rows, onChange, syllabusId, revision, onOpenHis
   const removeRow = (id: string) => onChange(rows.filter((row) => row.id !== id));
   const addRow = () => {
     const id = crypto.randomUUID();
-    onChange([...rows, { id, session: "", date: "", topic: "", preClass: "", assessments: "" }]);
-    setExpandedIds((current) => [...current, id]);
+    onChange([...rows, { id, date: "", topic: "", preClass: "", assessments: "" }]);
     window.requestAnimationFrame(() => document.getElementById(`schedule-${id}`)?.scrollIntoView({ behavior: "smooth", block: "center" }));
   };
   const moveRowBefore = (sourceId: string, destinationId?: string) => {
@@ -67,22 +65,22 @@ export function ScheduleEditor({ rows, onChange, syllabusId, revision, onOpenHis
       </div>
       {rows.length ? <div className="grid gap-3">{rows.map((row, index) => {
         const isExpanded = expandedIds.includes(row.id);
-        const destinations = rows.filter((item) => item.id !== row.id && scheduleSummary(item, rows.indexOf(item)).toLowerCase().includes(moveQuery.toLowerCase()));
+        const destinations = rows.filter((item) => item.id !== row.id && scheduleSummary(item).toLowerCase().includes(moveQuery.toLowerCase()));
         return (
           <fieldset id={`schedule-${row.id}`} key={row.id} className="rounded-lg border border-[#d9dee7] bg-[#fdfdfd] p-4">
             <div className="relative flex items-start justify-between gap-3">
-              <button type="button" aria-label={`${isExpanded ? "Collapse" : "Expand"} ${sessionLabel(row, index)}`} aria-expanded={isExpanded} onClick={() => toggleExpanded(row.id)} className="flex min-w-0 flex-1 items-start gap-2 text-left">
+              <button type="button" aria-label={`${isExpanded ? "Collapse" : "Expand"} topic: ${topicLabel(row)} (position ${index + 1})`} aria-expanded={isExpanded} onClick={() => toggleExpanded(row.id)} className="flex min-w-0 flex-1 items-start gap-2 text-left">
                 <ChevronDown size={17} className={`mt-0.5 shrink-0 text-[#667085] transition-transform ${isExpanded ? "rotate-180" : ""}`} />
-                <span className="min-w-0"><span className="block text-sm font-semibold text-[#344054]">{sessionLabel(row, index)}</span><span className="mt-0.5 block text-sm text-[#475467]">{row.date ? `${row.date} · ` : ""}{row.topic?.trim() || "No topic yet"}</span></span>
+                <span className="min-w-0"><span className="block text-sm font-semibold text-[#344054]">{topicLabel(row)}</span><span className="mt-0.5 block text-sm text-[#475467]">{row.date || "No date set"}</span></span>
               </button>
               <div data-schedule-move-menu className="flex shrink-0 items-center gap-1">
-                <button type="button" onClick={() => { setMovingRowId(row.id); setMoveQuery(""); }} className="rounded p-2 text-[#1f4e79] hover:bg-[#e8edf3]" aria-label={`Move ${sessionLabel(row, index)}`} title="Move session"><ArrowDownUp size={17} /></button>
-                <button type="button" onClick={() => removeRow(row.id)} className="rounded p-2 text-[#a6292f] hover:bg-[#fff1f2]" aria-label={`Remove ${sessionLabel(row, index)}`} title="Remove session"><Trash2 size={17} /></button>
+                <button type="button" onClick={() => { setMovingRowId(row.id); setMoveQuery(""); }} className="rounded p-2 text-[#1f4e79] hover:bg-[#e8edf3]" aria-label={`Move topic: ${topicLabel(row)} (position ${index + 1})`} title="Move session"><ArrowDownUp size={17} /></button>
+                <button type="button" onClick={() => removeRow(row.id)} className="rounded p-2 text-[#a6292f] hover:bg-[#fff1f2]" aria-label={`Remove topic: ${topicLabel(row)} (position ${index + 1})`} title="Remove session"><Trash2 size={17} /></button>
               </div>
               {movingRowId === row.id ? <div data-schedule-move-menu className="absolute right-0 top-full z-[90] isolate mt-2 w-80 rounded-lg border border-[#d9dee7] bg-white p-3 opacity-100 shadow-lg">
                 <p className="text-sm font-semibold text-[#344054]">Place this session before</p>
                 <input type="search" value={moveQuery} onChange={(event) => setMoveQuery(event.target.value)} placeholder="Search destination sessions" className="mt-2 w-full rounded-md border border-[#b7bec8] px-3 py-2 text-sm font-normal focus:border-[#1f4e79] focus:outline-none focus:ring-2 focus:ring-[#d7e5f3]" autoFocus />
-                <div className="mt-2 max-h-56 overflow-y-auto">{destinations.map((destination, destinationIndex) => <button type="button" key={destination.id} onClick={() => moveRowBefore(row.id, destination.id)} className="block w-full rounded-md px-3 py-2 text-left text-sm text-[#344054] hover:bg-[#f7f8fa]"><span className="text-[#667085]">{destinationIndex + 1}. </span>{scheduleSummary(destination, rows.indexOf(destination))}</button>)}</div>
+                <div className="mt-2 max-h-56 overflow-y-auto">{destinations.map((destination, destinationIndex) => <button type="button" key={destination.id} onClick={() => moveRowBefore(row.id, destination.id)} className="block w-full rounded-md px-3 py-2 text-left text-sm text-[#344054] hover:bg-[#f7f8fa]"><span className="text-[#667085]">{destinationIndex + 1}. </span>{scheduleSummary(destination)}</button>)}</div>
                 <button type="button" onClick={() => moveRowBefore(row.id)} className="mt-2 w-full rounded-md border border-[#b7bec8] px-3 py-2 text-left text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]">Move to end</button>
               </div> : null}
             </div>
@@ -98,14 +96,12 @@ export function ScheduleEditor({ rows, onChange, syllabusId, revision, onOpenHis
   );
 }
 
-function sessionLabel(row: ScheduleRow, index: number) {
-  const session = row.session?.trim();
-  if (!session) return `Session ${index + 1}`;
-  return /^\d+$/.test(session) ? `Session ${session}` : session;
+function topicLabel(row: ScheduleRow) {
+  return row.topic?.trim() || "Untitled topic";
 }
 
-function scheduleSummary(row: ScheduleRow, index: number) {
-  return `${sessionLabel(row, index)}${row.topic?.trim() ? ` · ${row.topic.trim()}` : ""}`;
+function scheduleSummary(row: ScheduleRow) {
+  return `${topicLabel(row)}${row.date ? ` · ${row.date}` : ""}`;
 }
 
 function dateInputValue(value: string) {
