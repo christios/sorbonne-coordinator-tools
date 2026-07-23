@@ -8,12 +8,13 @@ type Props = {
   value: string | null;
   folders: Folder[];
   isMoving?: boolean;
+  compact?: boolean;
   onChange: (folderId: string | null) => void;
 };
 
 type Destination = { id: string | null; name: string };
 
-export function FolderMoveMenu({ label, value, folders, isMoving = false, onChange }: Props) {
+export function FolderMoveMenu({ label, value, folders, isMoving = false, compact = false, onChange }: Props) {
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState("");
   const menuRef = useRef<HTMLDivElement>(null);
@@ -56,12 +57,12 @@ export function FolderMoveMenu({ label, value, folders, isMoving = false, onChan
         aria-busy={isMoving || undefined}
         disabled={isMoving}
         onClick={() => setIsOpen((open) => !open)}
-        className="flex w-full items-center gap-2 rounded-lg border border-[#b7bec8] bg-white px-3 py-2 pr-10 text-left font-normal text-[#344054] transition-colors hover:border-[#98a2b3] hover:bg-[#f8fafc] focus:border-[#1f4e79] focus:outline-none focus:ring-2 focus:ring-[#d7e5f3] disabled:cursor-wait disabled:opacity-70"
+        className={compact ? "inline-flex h-10 w-10 items-center justify-center rounded-md text-[#1f4e79] transition-colors hover:bg-[#f2f7fb] focus:outline-none focus:ring-2 focus:ring-[#d7e5f3] disabled:cursor-wait disabled:opacity-50" : "flex w-full items-center gap-2 rounded-lg border border-[#b7bec8] bg-white px-3 py-2 pr-10 text-left font-normal text-[#344054] transition-colors hover:border-[#98a2b3] hover:bg-[#f8fafc] focus:border-[#1f4e79] focus:outline-none focus:ring-2 focus:ring-[#d7e5f3] disabled:cursor-wait disabled:opacity-70"}
       >
-        <Folder aria-hidden="true" size={16} className="shrink-0 text-[#667085]" />
-        <span className="truncate">{selectedName}</span>
+        {isMoving ? <Loader2 aria-hidden="true" size={17} className="animate-spin" /> : <Folder aria-hidden="true" size={compact ? 18 : 16} className="shrink-0 text-[#667085]" />}
+        {!compact ? <span className="truncate">{selectedName}</span> : null}
       </button>
-      {isMoving ? <Loader2 aria-hidden="true" size={17} className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-[#667085]" /> : <ChevronDown aria-hidden="true" size={17} className={`pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[#667085] transition-transform ${isOpen ? "rotate-180" : ""}`} />}
+      {!compact ? (isMoving ? <Loader2 aria-hidden="true" size={17} className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-[#667085]" /> : <ChevronDown aria-hidden="true" size={17} className={`pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[#667085] transition-transform ${isOpen ? "rotate-180" : ""}`} />) : null}
       {isOpen ? (
         <div role="listbox" aria-label={label} className="absolute right-0 z-[90] isolate mt-2 w-80 overflow-hidden rounded-lg border border-[#d9dee7] bg-white p-2 opacity-100 shadow-lg">
           <p className="px-2 pb-2 pt-1 text-xs font-semibold uppercase tracking-wide text-[#667085]">Move to folder</p>
