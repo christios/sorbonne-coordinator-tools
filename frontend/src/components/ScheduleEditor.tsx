@@ -23,7 +23,7 @@ const fields: ScheduleField[] = [
 ] as const;
 
 export function ScheduleEditor({ rows, onChange, syllabusId, revision, onOpenHistory }: Props) {
-  const [expandedIds, setExpandedIds] = useState<string[]>([]);
+  const [expandedIds, setExpandedIds] = useState<string[]>(() => rows.filter((row) => !row.topic?.trim()).map((row) => row.id));
   const [movingRowId, setMovingRowId] = useState<string | null>(null);
   const [moveQuery, setMoveQuery] = useState("");
 
@@ -45,6 +45,7 @@ export function ScheduleEditor({ rows, onChange, syllabusId, revision, onOpenHis
   const addRow = () => {
     const id = crypto.randomUUID();
     onChange([...rows, { id, date: "", topic: "", preClass: "", assessments: "" }]);
+    setExpandedIds((current) => [...current, id]);
     window.requestAnimationFrame(() => document.getElementById(`schedule-${id}`)?.scrollIntoView({ behavior: "smooth", block: "center" }));
   };
   const moveRowBefore = (sourceId: string, destinationId?: string) => {

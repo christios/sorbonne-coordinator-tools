@@ -25,4 +25,18 @@ describe("ScheduleEditor", () => {
     expect(screen.getByLabelText("Date")).toHaveProperty("value", "2026-09-01");
     expect(screen.queryByLabelText("Session")).toBeNull();
   });
+
+  it("opens a blank session so its fields are ready to complete", () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={queryClient}><ScheduleEditor
+      rows={[{ id: "session-blank", date: "", topic: "", preClass: "", assessments: "" }]}
+      onChange={vi.fn()}
+      syllabusId="syllabus-1"
+      revision={1}
+      onOpenHistory={vi.fn()}
+    /></QueryClientProvider>);
+
+    expect(screen.getByRole("button", { name: "Collapse topic: Untitled topic (position 1)" })).toBeTruthy();
+    expect(screen.getByLabelText("Topic")).toBeTruthy();
+  });
 });
