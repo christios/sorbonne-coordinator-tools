@@ -112,7 +112,28 @@ export function AssessmentItemsEditor({ value, outcomes, onChange, ...history }:
 }
 
 export function AssessmentAiPolicyEditor({ value, onChange, ...history }: HistoryContext & { value: Record<string, unknown>; onChange: (value: Record<string, unknown>) => void }) {
-  return <AiPolicyEditor value={value} onChange={onChange} {...history} />;
+  return <AiPolicyListEditor value={value} onChange={onChange} {...history} />;
+}
+
+type OtherPermittedUse = { id: string; text: string };
+
+function AiPolicyListEditor({ value, onChange, ...history }: HistoryContext & { value: Record<string, unknown>; onChange: (value: Record<string, unknown>) => void }) {
+  const policy = stringValue(value.aiPolicy) || "AI Prohibited";
+  const allowedUses = Array.isArray(value.aiAllowedUses) ? value.aiAllowedUses.filter((item): item is string => typeof item === "string") : [];
+  const setUse = (use: string) => onChange({ ...value, aiAllowedUses: allowedUses.includes(use) ? allowedUses.filter((item) => item !== use) : [...allowedUses, use] });
+  return <section><h4 className="text-sm font-semibold text-[#344054]">AI policy</h4><div className="mt-3 grid gap-4"><label className="grid gap-1 text-sm font-medium text-[#344054]">Course-level policy<SelectMenu label="Course-level AI policy" value={policy} onChange={(aiPolicy) => onChange({ ...value, aiPolicy })} options={AI_POLICIES.map((option) => ({ value: option, label: option }))} trailing={<FieldHistoryControl syllabusId={history.syllabusId} revision={history.revision} field={{ path: "assessment.aiPolicy", label: "AI policy" }} onOpenSidebar={history.onOpenHistory} />} /></label>{policy === "AI Permitted as a Support Tool" ? <fieldset className="rounded-md border border-[#d9dee7] p-4"><legend className="px-1 text-sm font-semibold text-[#344054]">Permitted uses</legend><div className="mt-2 grid gap-2">{AI_ALLOWED_USES.map((use) => <label key={use} className="flex items-center gap-2 text-sm text-[#344054]"><input type="checkbox" checked={allowedUses.includes(use)} onChange={() => setUse(use)} />{use}</label>)}</div><OtherPermittedUsesEditor value={value} onChange={onChange} {...history} /></fieldset> : null}{policy === "AI Prohibited" ? <EntryInput label="Verification mechanism" value={stringValue(value.aiVerificationMechanism)} onChange={(aiVerificationMechanism) => onChange({ ...value, aiVerificationMechanism })} field={{ path: "assessment.aiVerificationMechanism", label: "AI verification mechanism" }} {...history} /> : null}{policy === "Other (Specify)" ? <NarrativeField label="Specify the AI policy" value={stringValue(value.aiCustomPolicy)} onChange={(aiCustomPolicy) => onChange({ ...value, aiCustomPolicy })} field={{ path: "assessment.aiCustomPolicy", label: "Custom AI policy" }} {...history} /> : null}<NarrativeField label="Additional instructions regarding AI" value={stringValue(value.aiInstructions)} onChange={(aiInstructions) => onChange({ ...value, aiInstructions })} field={{ path: "assessment.aiInstructions", label: "Additional instructions regarding AI" }} {...history} /></div></section>;
+}
+
+function OtherPermittedUsesEditor({ value, onChange, ...history }: HistoryContext & { value: Record<string, unknown>; onChange: (value: Record<string, unknown>) => void }) {
+  const uses = otherPermittedUses(value);
+  const save = (next: OtherPermittedUse[]) => onChange({ ...value, aiOtherUses: next, aiOtherUse: next.map((item) => item.text).filter(Boolean).join("\n") });
+  return <section className="mt-4"><div className="flex items-center justify-between gap-3"><h5 className="text-sm font-semibold text-[#344054]">Other permitted uses</h5><button type="button" onClick={() => save([...uses, { id: crypto.randomUUID(), text: "" }])} className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-3 py-1.5 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]"><Plus size={16} /> Add permitted use</button></div>{uses.length ? <div className="mt-3 grid gap-3">{uses.map((item, index) => <div key={item.id} className="flex items-end gap-2"><div className="min-w-0 flex-1"><EntryInput label={`Other permitted use ${index + 1}`} value={item.text} onChange={(text) => save(uses.map((entry) => entry.id === item.id ? { ...entry, text } : entry))} field={{ path: `assessment.aiOtherUses[${item.id}].text`, label: `Other permitted use ${index + 1}` }} {...history} /></div><button type="button" onClick={() => save(uses.filter((entry) => entry.id !== item.id))} className="mb-0.5 rounded p-2 text-[#a6292f] hover:bg-[#fff1f2]" aria-label={`Remove other permitted use ${index + 1}`}><X size={17} /></button></div>)}</div> : null}</section>;
+}
+
+function otherPermittedUses(value: Record<string, unknown>): OtherPermittedUse[] {
+  if (Array.isArray(value.aiOtherUses)) return value.aiOtherUses.flatMap((item, index) => item && typeof item === "object" && typeof (item as Record<string, unknown>).text === "string" ? [{ id: typeof (item as Record<string, unknown>).id === "string" ? (item as Record<string, string>).id : `legacy-other-use-${index}`, text: (item as Record<string, string>).text }] : []);
+  const legacy = stringValue(value.aiOtherUse);
+  return legacy.trim() ? [{ id: "legacy-other-use-0", text: legacy }] : [];
 }
 
 export function AssessmentGradingEditor({ value, onChange, ...history }: HistoryContext & { value: Record<string, unknown>; onChange: (value: Record<string, unknown>) => void }) {
