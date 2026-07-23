@@ -45,6 +45,9 @@ describe("SyllabusLibrary", () => {
     expect(screen.queryByText("Environmental Law")).toBeNull();
     expect(screen.getByLabelText("Folder path for Climate Policy").textContent).toContain("Public affairs");
     expect(screen.getByLabelText("Folder path for Climate Policy").textContent).toContain("Climate courses");
+    expect(screen.getByLabelText("Academic year: 2026-2027")).toBeTruthy();
+    expect(screen.getByLabelText("Course code: SCEN-220")).toBeTruthy();
+    expect(screen.getByLabelText("Revision 1")).toBeTruthy();
   });
 
   it("confirms deletion for empty folders and protects populated folders", () => {
