@@ -1,0 +1,125 @@
+import os
+
+import pytest
+
+from sorbonne.services.syllabus_store import RevisionConflict, SyllabusStore
+
+
+TEST_DATABASE_URL = os.getenv(
+    "TEST_DATABASE_URL",
+    "postgresql+psycopg://sorbonne:sorbonne@localhost:5433/sorbonne_test",
+)
+
+
+def make_store() -> SyllabusStore:
+    return SyllabusStore(TEST_DATABASE_URL)
+
+
+def test_creates_updates_duplicates_and_compares_yearly_syllabi() -> None:
+    store = make_store()
+    first = store.create(
+        course_title="Environmental Science",
+        course_code="SCEN-101",
+        academic_year="2025-2026",
+    )
+
+    updated = store.update(
+        first["id"],
+        expected_revision=first["revision"],
+        content={"description": {"overview": "An introductory course."}},
+    )
+    second = store.create(
+        course_title="Environmental Science",
+        course_code="SCEN-101",
+        academic_year="2026-2027",
+        source_syllabus_id=updated["id"],
+    )
+    current = store.update(
+        second["id"],
+        expected_revision=second["revision"],
+        content={"description": {"overview": "An applied introductory course."}},
+    )
+
+    assert second["seriesId"] == updated["seriesId"]
+    assert store.get(updated["id"])["content"]["description"]["overview"] == "An introductory course."
+
+    comparison = store.compare(updated["id"], current["id"])
+
+    assert comparison["left"]["academicYear"] == "2025-2026"
+    assert comparison["right"]["academicYear"] == "2026-2027"
+    assert comparison["changes"][0]["path"] == "description.overview"
+    assert comparison["changes"][0]["label"] == "Course description"
+    assert comparison["changes"][0]["kind"] == "changed"
+
+
+def test_rejects_stale_updates() -> None:
+    store = make_store()
+    syllabus = store.create(course_title="Chemistry", course_code="SCEN-120", academic_year="2025-2026")
+    store.update(syllabus["id"], expected_revision=syllabus["revision"], content={"course": {"ects": "6"}})
+
+    with pytest.raises(RevisionConflict):
+        store.update(syllabus["id"], expected_revision=syllabus["revision"], content={"course": {"ects": "3"}})
+
+
+def test_coalesces_rapid_changes_to_the_same_field() -> None:
+    store = make_store()
+    syllabus = store.create(course_title="Climate Policy", course_code="SCEN-220", academic_year="2025-2026")
+    first_edit = store.update(
+        syllabus["id"],
+        expected_revision=syllabus["revision"],
+        content={"description": {"overview": "An introductory course."}},
+    )
+    store.update(
+        syllabus["id"],
+        expected_revision=first_edit["revision"],
+        content={"description": {"overview": "An applied introductory course."}},
+    )
+
+    history = store.field_history(syllabus["id"], "description.overview")
+
+    assert [item["newValue"] for item in history] == ["An applied introductory course."]
+    assert history[0]["previousValue"] == ""
+    assert history[0]["revision"] == first_edit["revision"] + 1
+    assert {operation["type"] for operation in history[0]["operations"]} == {"insert"}
+
+
+def test_compares_repeatable_rows_by_their_stable_ids() -> None:
+    store = make_store()
+    first = store.create(course_title="Ecology", course_code="SCEN-210", academic_year="2025-2026")
+    first = store.update(
+        first["id"],
+        expected_revision=first["revision"],
+        content={"schedule": [{"id": "session-1", "topic": "Ecosystems"}]},
+    )
+    second = store.create(
+        course_title="Ecology", course_code="SCEN-210", academic_year="2026-2027", source_syllabus_id=first["id"]
+    )
+    second = store.update(
+        second["id"],
+        expected_revision=second["revision"],
+        content={"schedule": [{"id": "session-1", "topic": "Applied ecosystems"}]},
+    )
+
+    assert store.compare(first["id"], second["id"])["changes"][0]["path"] == "schedule[session-1].topic"
+
+
+def test_compares_text_with_word_level_insert_delete_and_substitute_operations() -> None:
+    store = make_store()
+    first = store.create(course_title="Climate Policy", course_code="SCEN-220", academic_year="2025-2026")
+    first = store.update(
+        first["id"],
+        expected_revision=first["revision"],
+        content={"description": {"overview": "Climate law follows rules removed"}},
+    )
+    second = store.create(
+        course_title="Climate Policy", course_code="SCEN-220", academic_year="2026-2027", source_syllabus_id=first["id"]
+    )
+    second = store.update(
+        second["id"],
+        expected_revision=second["revision"],
+        content={"description": {"overview": "Climate policy follows modern rules"}},
+    )
+
+    change = store.compare(first["id"], second["id"])["changes"][0]
+
+    assert {operation["type"] for operation in change["operations"]} >= {"insert", "delete", "substitute"}

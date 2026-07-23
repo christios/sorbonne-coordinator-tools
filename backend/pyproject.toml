@@ -1,0 +1,43 @@
+[project]
+name = "sorbonne-coordinator-api"
+version = "0.1.0"
+description = "Sorbonne academic coordinator automation API"
+requires-python = ">=3.11"
+dependencies = [
+    "alembic>=1.16.5",
+    "fastapi[standard]>=0.135.1",
+    "fastapi-cloud-cli>=0.22.2",
+    "openpyxl>=3.1.5",
+    "pydantic>=2.12.5",
+    "pydantic-settings>=2.9.1",
+    "pypdf>=6.4.0",
+    "python-multipart>=0.0.22",
+    "psycopg[binary]>=3.2.9",
+    "SQLAlchemy>=2.0.43",
+    "uvicorn>=0.34.0",
+]
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["sorbonne*"]
+
+[tool.fastapi]
+entrypoint = "sorbonne.main:app"
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "pytest>=8.3.4",
+    "ruff>=0.12.11",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+extend-select = ["B", "E", "W", "PL"]
+ignore = ["B008"]
