@@ -218,13 +218,6 @@ function AppWelcome({
 }) {
   const apps: Array<{ id: ToolId | "handbook"; name: string; description: string; icon: typeof FileText; keywords: string }> = [
     {
-      id: "roster",
-      name: "Course roster",
-      description: "Upload generated roster PDFs, review extracted student data, and download Excel workbooks.",
-      icon: FileText,
-      keywords: "roster pdf excel students attendance",
-    },
-    {
       id: "syllabus",
       name: "Syllabus builder",
       description: "Create, revise, compare, and maintain SCEN course syllabi across academic years.",
