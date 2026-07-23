@@ -46,6 +46,10 @@ class FolderNameConflict(Exception):
     pass
 
 
+class FolderNotEmpty(Exception):
+    pass
+
+
 class SyllabusStore:
     """PostgreSQL-backed syllabus persistence. Schema changes are managed by Alembic."""
 
@@ -166,6 +170,18 @@ class SyllabusStore:
         except IntegrityError as exc:
             raise FolderNameConflict from exc
         return folder
+
+    def delete_folder(self, folder_id: str) -> None:
+        if not self._folder_exists(folder_id):
+            raise FolderNotFound
+        with self.engine.begin() as connection:
+            has_syllabi = connection.execute(
+                text("SELECT 1 FROM syllabi WHERE folder_id = :folder_id LIMIT 1"),
+                {"folder_id": folder_id},
+            ).first()
+            if has_syllabi is not None:
+                raise FolderNotEmpty
+            connection.execute(text("DELETE FROM syllabus_folders WHERE id = :id"), {"id": folder_id})
 
     def move_to_folder(self, syllabus_id: str, folder_id: str | None) -> dict[str, Any]:
         current = self.get(syllabus_id)

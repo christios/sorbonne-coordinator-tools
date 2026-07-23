@@ -100,6 +100,14 @@ export function createFolder(name: string): Promise<SyllabusFolder> {
   });
 }
 
+export async function deleteFolder(id: string): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/syllabi/folders/${id}`, { method: "DELETE" });
+  if (!response.ok) {
+    const body = (await response.json().catch(() => ({}))) as { detail?: string };
+    throw new Error(body.detail ?? `Request failed with status ${response.status}`);
+  }
+}
+
 export function getSyllabus(id: string): Promise<Syllabus> {
   return request<Syllabus>(`/syllabi/${id}`);
 }

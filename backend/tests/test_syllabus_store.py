@@ -2,7 +2,7 @@ import os
 
 import pytest
 
-from sorbonne.services.syllabus_store import RevisionConflict, SyllabusNotFound, SyllabusStore
+from sorbonne.services.syllabus_store import FolderNotEmpty, RevisionConflict, SyllabusNotFound, SyllabusStore
 
 
 TEST_DATABASE_URL = os.getenv(
@@ -99,6 +99,21 @@ def test_organizes_syllabi_in_folders_and_deletes_them() -> None:
     remaining_ids = {item["id"] for item in store.list()}
     assert second["id"] in remaining_ids
     assert first["id"] not in remaining_ids
+
+
+def test_deletes_empty_folders_but_protects_folders_that_contain_syllabi() -> None:
+    store = make_store()
+    empty_folder = store.create_folder(f"Empty folder {os.urandom(4).hex()}")
+    populated_folder = store.create_folder(f"Populated folder {os.urandom(4).hex()}")
+    syllabus = store.create(course_title="Climate Policy", course_code="SCEN-220", academic_year="2025-2026")
+    store.move_to_folder(syllabus["id"], populated_folder["id"])
+
+    store.delete_folder(empty_folder["id"])
+
+    assert empty_folder not in store.list_folders()
+    with pytest.raises(FolderNotEmpty):
+        store.delete_folder(populated_folder["id"])
+    assert populated_folder in store.list_folders()
 
 
 def test_coalesces_rapid_changes_to_the_same_field() -> None:

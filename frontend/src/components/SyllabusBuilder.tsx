@@ -9,6 +9,7 @@ import {
   Syllabus,
   createFolder,
   createSyllabus,
+  deleteFolder,
   deleteSyllabus,
   getSyllabus,
   listSyllabusFolders,
@@ -26,13 +27,14 @@ export function SyllabusBuilder() {
   const detail = useQuery({ queryKey: ["syllabus", screen.view === "library" ? "" : screen.id], queryFn: () => getSyllabus((screen as { id: string }).id), enabled: screen.view !== "library" });
   const create = useMutation({ mutationFn: createSyllabus, onSuccess: (syllabus) => { client.setQueryData(["syllabus", syllabus.id], syllabus); client.invalidateQueries({ queryKey: ["syllabi"] }); setScreen({ view: "editor", id: syllabus.id }); } });
   const createFolderMutation = useMutation({ mutationFn: createFolder, onSuccess: () => client.invalidateQueries({ queryKey: ["syllabus-folders"] }) });
+  const removeFolder = useMutation({ mutationFn: deleteFolder, onSuccess: () => client.invalidateQueries({ queryKey: ["syllabus-folders"] }) });
   const move = useMutation({ mutationFn: ({ syllabusId, folderId }: { syllabusId: string; folderId: string | null }) => moveSyllabusToFolder(syllabusId, folderId), onSuccess: (syllabus) => { client.setQueryData(["syllabus", syllabus.id], syllabus); client.invalidateQueries({ queryKey: ["syllabi"] }); } });
   const remove = useMutation({ mutationFn: deleteSyllabus, onSuccess: (_, syllabusId) => { client.removeQueries({ queryKey: ["syllabus", syllabusId] }); client.invalidateQueries({ queryKey: ["syllabi"] }); } });
   const saved = (syllabus: Syllabus) => { client.setQueryData(["syllabus", syllabus.id], syllabus); client.invalidateQueries({ queryKey: ["syllabi"] }); };
-  const libraryError = [list.error, folders.error, templates.error, create.error, createFolderMutation.error, move.error, remove.error].find(
+  const libraryError = [list.error, folders.error, templates.error, create.error, createFolderMutation.error, removeFolder.error, move.error, remove.error].find(
     (error): error is Error => error instanceof Error,
   );
-  if (screen.view === "library") return <SyllabusLibrary syllabi={list.data ?? []} folders={folders.data ?? []} templates={templates.data ?? []} isLoading={list.isLoading || folders.isLoading || templates.isLoading} isCreating={create.isPending} isCreatingFolder={createFolderMutation.isPending} deletingId={remove.isPending ? remove.variables ?? null : null} movingId={move.isPending ? move.variables?.syllabusId ?? null : null} error={libraryError?.message} onOpen={(id) => setScreen({ view: "editor", id })} onCreate={(input: CreateSyllabusInput) => create.mutate(input)} onCreateFolder={(name) => createFolderMutation.mutate(name)} onMove={(syllabusId, folderId) => move.mutate({ syllabusId, folderId })} onDelete={(syllabusId) => remove.mutate(syllabusId)} />;
+  if (screen.view === "library") return <SyllabusLibrary syllabi={list.data ?? []} folders={folders.data ?? []} templates={templates.data ?? []} isLoading={list.isLoading || folders.isLoading || templates.isLoading} isCreating={create.isPending} isCreatingFolder={createFolderMutation.isPending} deletingId={remove.isPending ? remove.variables ?? null : null} deletingFolderId={removeFolder.isPending ? removeFolder.variables ?? null : null} movingId={move.isPending ? move.variables?.syllabusId ?? null : null} error={libraryError?.message} onOpen={(id) => setScreen({ view: "editor", id })} onCreate={(input: CreateSyllabusInput) => create.mutate(input)} onCreateFolder={(name) => createFolderMutation.mutate(name)} onMove={(syllabusId, folderId) => move.mutate({ syllabusId, folderId })} onDelete={(syllabusId) => remove.mutate(syllabusId)} onDeleteFolder={(folderId) => removeFolder.mutate(folderId)} />;
   if (detail.isLoading || templates.isLoading || !detail.data) return <div className="p-8 text-center text-sm text-[#667085]">Loading syllabus…</div>;
   const template = templates.data?.find((item) => item.id === detail.data.templateId);
   if (!template) return <div role="alert" className="p-8 text-center text-sm text-[#a6292f]">This syllabus refers to a template that is no longer available.</div>;

@@ -11,6 +11,7 @@ from sorbonne.services.syllabus_export import build_syllabus_docx
 from sorbonne.services.syllabus_store import (
     ComparisonNotAllowed,
     FolderNameConflict,
+    FolderNotEmpty,
     FolderNotFound,
     RevisionConflict,
     SyllabusNotFound,
@@ -95,6 +96,17 @@ def create_folder(request: CreateFolderRequest, store: SyllabusStore = Depends(g
         return store.create_folder(request.name)
     except FolderNameConflict as exc:
         raise HTTPException(status_code=409, detail="A folder with that name already exists.") from exc
+
+
+@router.delete("/folders/{folder_id}", status_code=204)
+def delete_folder(folder_id: str, store: SyllabusStore = Depends(get_store)) -> Response:
+    try:
+        store.delete_folder(folder_id)
+    except FolderNotFound as exc:
+        raise HTTPException(status_code=404, detail="Folder not found.") from exc
+    except FolderNotEmpty as exc:
+        raise HTTPException(status_code=409, detail="Move all syllabi out of this folder before deleting it.") from exc
+    return Response(status_code=204)
 
 
 @router.post("", status_code=201)
