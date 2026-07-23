@@ -14,4 +14,15 @@ describe("SelectMenu", () => {
     fireEvent.click(screen.getByRole("option", { name: "2025-2026 — Climate Change Law" }));
     expect(onChange).toHaveBeenCalledWith("source");
   });
+
+  it("allows several PLOs to be selected without closing the menu", () => {
+    const onChange = vi.fn();
+    render(<SelectMenu label="Aligned PLOs" value="PLO 1" onChange={onChange} options={[{ value: "PLO 1", label: "PLO 1: First outcome" }, { value: "PLO 2", label: "PLO 2: Second outcome" }]} />);
+
+    fireEvent.click(screen.getByRole("combobox", { name: "Aligned PLOs" }));
+    fireEvent.click(screen.getByRole("option", { name: "PLO 2: Second outcome" }));
+
+    expect(onChange).toHaveBeenCalledWith("PLO 1\nPLO 2");
+    expect(screen.getByRole("listbox", { name: "Aligned PLOs" })).toBeTruthy();
+  });
 });
