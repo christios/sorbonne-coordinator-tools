@@ -2,6 +2,7 @@ import { Copy, FilePlus2, FileText, FolderOpen, FolderPlus, Loader2, Trash2 } fr
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
 import { CreateSyllabusInput, SyllabusFolder, SyllabusSummary, SyllabusTemplate, syllabusTemplateDocumentUrl } from "@/services/syllabi";
+import { FolderMoveMenu } from "@/components/FolderMoveMenu";
 import { SelectMenu } from "@/components/SelectMenu";
 
 const UNFILED = "unfiled";
@@ -58,7 +59,6 @@ export function SyllabusLibrary({
     () => syllabi.filter((syllabus) => activeFolder === "all" ? true : activeFolder === UNFILED ? syllabus.folderId === null : syllabus.folderId === activeFolder),
     [activeFolder, syllabi],
   );
-  const folderOptions = [{ value: "", label: "Unfiled" }, ...folders.map((folder) => ({ value: folder.id, label: folder.name }))];
   const selectedTemplate = templates.find((template) => template.id === templateId);
 
   function submitSyllabus(event: FormEvent<HTMLFormElement>) {
@@ -121,7 +121,7 @@ export function SyllabusLibrary({
         <section className="overflow-hidden rounded-lg border border-[#d9dee7] bg-white">
           {isLoading ? <div className="flex min-h-48 items-center justify-center gap-2 text-sm text-[#667085]"><Loader2 size={18} className="animate-spin" /> Loading syllabi</div> : null}
           {!isLoading && visibleSyllabi.length === 0 ? <EmptyLibraryState hasSyllabi={syllabi.length > 0} /> : null}
-          {!isLoading && visibleSyllabi.length > 0 ? <div className="divide-y divide-[#e5e7eb]" role="list">{visibleSyllabi.map((syllabus) => <SyllabusRow key={syllabus.id} syllabus={syllabus} folderOptions={folderOptions} isMoving={movingId === syllabus.id} isDeleting={deletingId === syllabus.id} onOpen={onOpen} onMove={onMove} onRequestDelete={setDeleteCandidate} />)}</div> : null}
+          {!isLoading && visibleSyllabi.length > 0 ? <div className="divide-y divide-[#e5e7eb]" role="list">{visibleSyllabi.map((syllabus) => <SyllabusRow key={syllabus.id} syllabus={syllabus} folders={folders} isMoving={movingId === syllabus.id} isDeleting={deletingId === syllabus.id} onOpen={onOpen} onMove={onMove} onRequestDelete={setDeleteCandidate} />)}</div> : null}
         </section>
       </div>
 
@@ -134,8 +134,8 @@ function FolderButton({ label, count, active, onClick }: { label: string; count:
   return <button type="button" onClick={onClick} className={`flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-sm transition ${active ? "bg-[#e8edf3] font-semibold text-[#1f4e79]" : "text-[#475467] hover:bg-[#f7f8fa]"}`}><span className="truncate">{label}</span><span aria-hidden="true" className="ml-2 text-xs tabular-nums text-[#667085]">{count}</span></button>;
 }
 
-function SyllabusRow({ syllabus, folderOptions, isMoving, isDeleting, onOpen, onMove, onRequestDelete }: { syllabus: SyllabusSummary; folderOptions: Array<{ value: string; label: string }>; isMoving: boolean; isDeleting: boolean; onOpen: (id: string) => void; onMove: (id: string, folderId: string | null) => void; onRequestDelete: (syllabus: SyllabusSummary) => void }) {
-  return <div role="listitem" className="grid gap-4 px-5 py-4 lg:grid-cols-[minmax(0,1fr)_150px_190px_auto] lg:items-center"><button type="button" onClick={() => onOpen(syllabus.id)} className="min-w-0 text-left"><span className="block truncate font-semibold text-[#171717] hover:text-[#1f4e79]">{syllabus.courseTitle}</span><span className="mt-1 block text-sm text-[#667085]">{syllabus.courseCode || "Course code not set"} · Revision {syllabus.revision}</span></button><span className="text-sm font-medium text-[#344054]">{syllabus.academicYear}</span><SelectMenu label={`Move ${syllabus.courseTitle} to folder`} value={syllabus.folderId ?? ""} onChange={(folderId) => onMove(syllabus.id, folderId || null)} options={folderOptions} trailing={isMoving ? <Loader2 className="animate-spin text-[#667085]" size={16} /> : undefined} /><button type="button" disabled={isDeleting} onClick={() => onRequestDelete(syllabus)} aria-label={`Delete ${syllabus.courseTitle}`} title="Delete syllabus" className="inline-flex h-10 w-10 items-center justify-center rounded-md text-[#b4232d] hover:bg-[#fff1f2] disabled:opacity-50"><Trash2 size={18} aria-hidden="true" /></button></div>;
+function SyllabusRow({ syllabus, folders, isMoving, isDeleting, onOpen, onMove, onRequestDelete }: { syllabus: SyllabusSummary; folders: SyllabusFolder[]; isMoving: boolean; isDeleting: boolean; onOpen: (id: string) => void; onMove: (id: string, folderId: string | null) => void; onRequestDelete: (syllabus: SyllabusSummary) => void }) {
+  return <div role="listitem" className="grid gap-4 px-5 py-4 lg:grid-cols-[minmax(0,1fr)_150px_190px_auto] lg:items-center"><button type="button" onClick={() => onOpen(syllabus.id)} className="min-w-0 text-left"><span className="block truncate font-semibold text-[#171717] hover:text-[#1f4e79]">{syllabus.courseTitle}</span><span className="mt-1 block text-sm text-[#667085]">{syllabus.courseCode || "Course code not set"} · Revision {syllabus.revision}</span></button><span className="text-sm font-medium text-[#344054]">{syllabus.academicYear}</span><FolderMoveMenu label={`Move ${syllabus.courseTitle} to folder`} value={syllabus.folderId} folders={folders} isMoving={isMoving} onChange={(folderId) => onMove(syllabus.id, folderId)} /><button type="button" disabled={isDeleting} onClick={() => onRequestDelete(syllabus)} aria-label={`Delete ${syllabus.courseTitle}`} title="Delete syllabus" className="inline-flex h-10 w-10 items-center justify-center rounded-md text-[#b4232d] hover:bg-[#fff1f2] disabled:opacity-50"><Trash2 size={18} aria-hidden="true" /></button></div>;
 }
 
 function EmptyLibraryState({ hasSyllabi }: { hasSyllabi: boolean }) {
