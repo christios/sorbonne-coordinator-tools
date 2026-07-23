@@ -59,6 +59,17 @@ export function rubricEntries(value: unknown): Rubric[] {
   return [...grouped.values()];
 }
 
+export function deliveryPercentageError(faceToFace: string, online: string): string | null {
+  const values = [faceToFace, online].filter((value) => value.trim() !== "");
+  if (values.some((value) => !/^\d+(?:\.\d+)?$/.test(value) || Number(value) < 0 || Number(value) > 100)) {
+    return "Delivery percentages must be between 0 and 100.";
+  }
+  if (values.length === 2 && Number(faceToFace) + Number(online) !== 100) {
+    return "Face-to-face and online delivery must total 100%.";
+  }
+  return null;
+}
+
 function objectEntries<T extends { id: string; legacyText?: string }>(value: unknown, legacyPrefix: string): T[] {
   if (typeof value === "string") return value.trim() ? [{ id: `${legacyPrefix}-0`, legacyText: value } as T] : [];
   if (!Array.isArray(value)) return [];
