@@ -52,6 +52,25 @@ def test_creates_updates_duplicates_and_compares_yearly_syllabi() -> None:
     assert comparison["changes"][0]["kind"] == "changed"
 
 
+def test_assigns_the_approved_template_to_new_and_duplicated_syllabi() -> None:
+    store = make_store()
+    first = store.create(
+        course_title="Environmental Science",
+        course_code="SCEN-101",
+        academic_year="2025-2026",
+    )
+    duplicate = store.create(
+        course_title="Environmental Science",
+        course_code="SCEN-101",
+        academic_year="2026-2027",
+        source_syllabus_id=first["id"],
+    )
+
+    assert first["templateId"] == "scen-en-v1"
+    assert duplicate["templateId"] == first["templateId"]
+    assert store.list()[0]["templateId"] == "scen-en-v1"
+
+
 def test_rejects_stale_updates() -> None:
     store = make_store()
     syllabus = store.create(course_title="Chemistry", course_code="SCEN-120", academic_year="2025-2026")

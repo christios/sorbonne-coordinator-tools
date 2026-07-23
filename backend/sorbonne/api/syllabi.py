@@ -15,7 +15,9 @@ from sorbonne.services.syllabus_store import (
     RevisionConflict,
     SyllabusNotFound,
     SyllabusStore,
+    TemplateComparisonNotMapped,
 )
+from sorbonne.services.syllabus_templates import TemplateNotFound, get_template, list_templates
 
 router = APIRouter(prefix="/syllabi", tags=["syllabi"])
 
@@ -25,6 +27,7 @@ class CreateSyllabusRequest(BaseModel):
     courseCode: str = Field(default="", max_length=80)
     academicYear: str = Field(min_length=1, max_length=20)
     sourceSyllabusId: str | None = None
+    templateId: str | None = Field(default=None, min_length=1, max_length=80)
 
 
 class UpdateSyllabusRequest(BaseModel):
@@ -52,6 +55,35 @@ def list_syllabi(store: SyllabusStore = Depends(get_store)) -> dict[str, list[di
     return {"items": store.list()}
 
 
+@router.get("/templates")
+def list_syllabus_templates() -> dict[str, list[dict[str, Any]]]:
+    return {
+        "items": [
+            {
+                "id": template.id,
+                "name": template.name,
+                "description": template.description,
+                "documentPath": f"/syllabi/templates/{template.id}/document",
+                "sections": [{"id": section.id, "label": section.label} for section in template.sections],
+            }
+            for template in list_templates()
+        ]
+    }
+
+
+@router.get("/templates/{template_id}/document")
+def download_syllabus_template(template_id: str) -> FileResponse:
+    try:
+        template = get_template(template_id)
+    except TemplateNotFound as exc:
+        raise HTTPException(status_code=404, detail="Syllabus template not found.") from exc
+    return FileResponse(
+        template.document_path,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        filename=f"{template.id}.docx",
+    )
+
+
 @router.get("/folders")
 def list_folders(store: SyllabusStore = Depends(get_store)) -> dict[str, list[dict[str, Any]]]:
     return {"items": store.list_folders()}
@@ -73,9 +105,17 @@ def create_syllabus(request: CreateSyllabusRequest, store: SyllabusStore = Depen
             course_code=request.courseCode.strip(),
             academic_year=request.academicYear.strip(),
             source_syllabus_id=request.sourceSyllabusId,
+            template_id=request.templateId,
         )
     except SyllabusNotFound as exc:
         raise HTTPException(status_code=404, detail="The source syllabus was not found.") from exc
+    except TemplateNotFound as exc:
+        raise HTTPException(status_code=422, detail="The selected syllabus template is not available.") from exc
+    except TemplateComparisonNotMapped as exc:
+        raise HTTPException(
+            status_code=422,
+            detail="A duplicate must use the same template until a template mapping is approved.",
+        ) from exc
 
 
 @router.patch("/{syllabus_id}/folder")
@@ -176,6 +216,11 @@ def compare_syllabi(
         raise HTTPException(
             status_code=422,
             detail="Only academic-year versions of the same syllabus can be compared.",
+        ) from exc
+    except TemplateComparisonNotMapped as exc:
+        raise HTTPException(
+            status_code=422,
+            detail="These templates do not yet have an approved comparison mapping.",
         ) from exc
 
 

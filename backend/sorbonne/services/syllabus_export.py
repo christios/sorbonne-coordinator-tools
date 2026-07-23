@@ -10,13 +10,13 @@ from typing import Any
 from docx import Document
 from docx.table import _Cell, Table
 
-
-TEMPLATE_PATH = Path(__file__).resolve().parents[1] / "assets" / "syllabus_template_en.docx"
+from sorbonne.services.syllabus_templates import DEFAULT_TEMPLATE_ID, get_template
 
 
 def build_syllabus_docx(syllabus: dict[str, Any], output_path: Path) -> None:
-    """Write an editable DOCX populated from the approved English template."""
-    document = Document(TEMPLATE_PATH)
+    """Write an editable DOCX populated from the syllabus's approved template."""
+    template = get_template(str(syllabus.get("templateId") or DEFAULT_TEMPLATE_ID))
+    document = Document(template.document_path)
     content = _record(syllabus.get("content"))
 
     _fill_identification(document.tables[0], syllabus, _record(content.get("identification")))

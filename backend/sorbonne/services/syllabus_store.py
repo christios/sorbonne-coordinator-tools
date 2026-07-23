@@ -12,6 +12,12 @@ from sqlalchemy import Engine, create_engine, text
 from sqlalchemy.engine import Connection, RowMapping
 from sqlalchemy.exc import IntegrityError
 
+from sorbonne.services.syllabus_templates import (
+    DEFAULT_TEMPLATE_ID,
+    comparison_mapping,
+    get_template,
+)
+
 
 FIELD_HISTORY_COALESCE_SECONDS = 120
 
@@ -25,6 +31,10 @@ class RevisionConflict(Exception):
 
 
 class ComparisonNotAllowed(Exception):
+    pass
+
+
+class TemplateComparisonNotMapped(Exception):
     pass
 
 
@@ -49,8 +59,13 @@ class SyllabusStore:
         course_code: str | None,
         academic_year: str,
         source_syllabus_id: str | None = None,
+        template_id: str | None = None,
     ) -> dict[str, Any]:
         source = self.get(source_syllabus_id) if source_syllabus_id else None
+        selected_template_id = template_id or (source["templateId"] if source else DEFAULT_TEMPLATE_ID)
+        get_template(selected_template_id)
+        if source and selected_template_id != source["templateId"]:
+            raise TemplateComparisonNotMapped
         now = _timestamp()
         record = {
             "id": str(uuid4()),
@@ -59,6 +74,7 @@ class SyllabusStore:
             "courseTitle": course_title,
             "courseCode": course_code or "",
             "academicYear": academic_year,
+            "templateId": selected_template_id,
             "content": deepcopy(source["content"]) if source else default_content(),
             "revision": 1,
             "createdAt": now,
@@ -69,10 +85,10 @@ class SyllabusStore:
                 text(
                     """
                     INSERT INTO syllabi (
-                        id, series_id, folder_id, course_title, course_code, academic_year, content_json,
+                        id, series_id, folder_id, course_title, course_code, academic_year, template_id, content_json,
                         revision, created_at, updated_at
                     ) VALUES (
-                        :id, :series_id, :folder_id, :course_title, :course_code, :academic_year,
+                        :id, :series_id, :folder_id, :course_title, :course_code, :academic_year, :template_id,
                         CAST(:content_json AS JSONB), :revision, :created_at, :updated_at
                     )
                     """
@@ -84,6 +100,7 @@ class SyllabusStore:
                     "course_title": record["courseTitle"],
                     "course_code": record["courseCode"],
                     "academic_year": record["academicYear"],
+                    "template_id": record["templateId"],
                     "content_json": json.dumps(record["content"]),
                     "revision": record["revision"],
                     "created_at": record["createdAt"],
@@ -98,7 +115,7 @@ class SyllabusStore:
                 connection.execute(
                     text(
                         """
-                    SELECT id, series_id, folder_id, course_title, course_code, academic_year,
+                    SELECT id, series_id, folder_id, course_title, course_code, academic_year, template_id,
                            revision, created_at, updated_at
                     FROM syllabi
                     ORDER BY academic_year DESC, course_title ASC, updated_at DESC
@@ -282,6 +299,10 @@ class SyllabusStore:
         right = self.get(right_id)
         if left["seriesId"] != right["seriesId"]:
             raise ComparisonNotAllowed
+        if left["templateId"] != right["templateId"] and comparison_mapping(
+            left["templateId"], right["templateId"]
+        ) is None:
+            raise TemplateComparisonNotMapped
         changes = _diff(left["content"], right["content"])
         for change in changes:
             change["label"] = _display_label(change["path"], left["content"], right["content"])
@@ -333,6 +354,7 @@ def _summary_from_row(row: RowMapping) -> dict[str, Any]:
         "courseTitle": row["course_title"],
         "courseCode": row["course_code"],
         "academicYear": row["academic_year"],
+        "templateId": row["template_id"],
         "revision": row["revision"],
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],
