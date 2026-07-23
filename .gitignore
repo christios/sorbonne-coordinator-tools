@@ -21,6 +21,7 @@ frontend/node_modules/
 frontend/node_modules
 frontend/dist/
 backend/frontend-dist/
+backend/handbook-dist/
 worker/node_modules/
 worker/.wrangler/
 data/*.sqlite3

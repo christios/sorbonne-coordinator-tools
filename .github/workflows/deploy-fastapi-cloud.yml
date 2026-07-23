@@ -14,6 +14,8 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
@@ -30,8 +32,9 @@ jobs:
           VITE_API_BASE_URL: ""
           VITE_BASE_PATH: /
           VITE_OUT_DIR: ../backend/frontend-dist
-      - name: Set up uv
-        uses: astral-sh/setup-uv@v7
+      - name: Build coordinator handbook
+        run: uv run --with mkdocs-material mkdocs build --config-file ../handbook/mkdocs.yml --site-dir ../backend/handbook-dist
+        working-directory: backend
       - name: Deploy app
         run: uv run fastapi deploy . --no-wait
         working-directory: backend

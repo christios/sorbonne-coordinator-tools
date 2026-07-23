@@ -1,6 +1,6 @@
 # Sorbonne Coordinator Tools
 
-Internal tooling for Sorbonne University academic coordinators. The first service converts generated Course Class Roster PDFs into Excel workbooks.
+Internal tooling for Sorbonne University academic coordinators, including the roster converter, syllabus builder, and SCEN Coordinator Handbook.
 
 ## Stack
 
@@ -59,4 +59,11 @@ cd ../backend
 uv run fastapi deploy
 ```
 
-`backend/.fastapicloudignore` explicitly includes the generated `frontend-dist/` files in the FastAPI Cloud upload. The static frontend and `/api/v1` routes are then served from the same application URL.
+Build the handbook before deploying as well:
+
+```bash
+cd ../handbook
+uv run --with mkdocs-material mkdocs build --config-file mkdocs.yml --site-dir ../backend/handbook-dist
+```
+
+`backend/.fastapicloudignore` explicitly includes the generated static files in the FastAPI Cloud upload. The coordinator tools, `/handbook/`, and `/api/v1` routes are then served from the same application URL.

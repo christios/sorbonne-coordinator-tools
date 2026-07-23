@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from sorbonne.api.rosters import router as rosters_router
 from sorbonne.api.syllabi import router as syllabi_router
@@ -28,6 +29,7 @@ app.add_middleware(
 
 app.include_router(rosters_router, prefix="/api/v1")
 app.include_router(syllabi_router, prefix="/api/v1")
+app.mount("/handbook", StaticFiles(directory="handbook-dist", html=True, check_dir=False), name="handbook")
 app.frontend("/", directory="frontend-dist", fallback="index.html", check_dir=False)
 
 

@@ -87,6 +87,14 @@ export function App() {
     window.location.hash = `/${tool}`;
   }
 
+  function openApp(app: ToolId | "handbook") {
+    if (app === "handbook") {
+      window.location.assign("/handbook/");
+      return;
+    }
+    openTool(app);
+  }
+
   function showAllApps() {
     window.history.pushState({}, "", "/");
     setActiveTool(null);
@@ -113,7 +121,7 @@ export function App() {
       </header>
 
       {activeTool === null ? (
-        <AppWelcome search={appSearch} onSearch={setAppSearch} onOpen={openTool} />
+        <AppWelcome search={appSearch} onSearch={setAppSearch} onOpen={openApp} />
       ) : activeTool === "roster" ? <div className="mx-auto grid max-w-7xl gap-6 px-4 py-6 sm:px-6 lg:grid-cols-[360px_1fr] lg:px-8">
         <aside className="space-y-4">
           <section className="rounded-lg border border-[#d9dee7] bg-white p-4">
@@ -205,9 +213,9 @@ function AppWelcome({
 }: {
   search: string;
   onSearch: (value: string) => void;
-  onOpen: (tool: ToolId) => void;
+  onOpen: (app: ToolId | "handbook") => void;
 }) {
-  const apps: Array<{ id: ToolId; name: string; description: string; icon: typeof FileText; keywords: string }> = [
+  const apps: Array<{ id: ToolId | "handbook"; name: string; description: string; icon: typeof FileText; keywords: string }> = [
     {
       id: "roster",
       name: "Course roster",
@@ -221,6 +229,13 @@ function AppWelcome({
       description: "Create, revise, compare, and maintain SCEN course syllabi across academic years.",
       icon: BookOpen,
       keywords: "syllabus course template academic year comparison",
+    },
+    {
+      id: "handbook",
+      name: "Coordinator handbook",
+      description: "Browse SCEN procedures, onboarding guidance, reference material, and the annual academic cycle.",
+      icon: BookOpen,
+      keywords: "handbook documentation procedures onboarding grades transcripts",
     },
   ];
   const normalizedSearch = search.trim().toLowerCase();

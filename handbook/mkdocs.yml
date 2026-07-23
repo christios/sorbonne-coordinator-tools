@@ -1,0 +1,103 @@
+site_name: SCEN Coordinator Handbook
+site_description: >-
+  Reference for procedures and onboarding for Science & Engineering (SCEN)
+  academic coordinators at Sorbonne University Abu Dhabi.
+site_author: SCEN Academic Coordinators
+docs_dir: docs
+site_dir: _site
+
+theme:
+  name: material
+  language: en
+  icon:
+    logo: material/school
+    repo: fontawesome/brands/git-alt
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.sections
+    - navigation.top
+    - navigation.indexes
+    - toc.follow
+    - search.suggest
+    # - search.highlight  # disabled: highlights single-letter tokens (e.g. "a")
+    #                       on every match across the page. Semantic search does
+    #                       not highlight, so it is unaffected.
+    - content.code.copy
+    - content.tabs.link
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.keys
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+
+extra:
+  generator: false
+
+extra_css:
+  - stylesheets/semantic-search.css
+
+extra_javascript:
+  - assets/search/semantic-search.js
+
+nav:
+  - Home: index.md
+  - Getting Started:
+      - getting-started/index.md
+      - Onboarding checklist: getting-started/onboarding.md
+      - Systems & platforms: getting-started/systems.md
+      - Glossary & acronyms: getting-started/glossary.md
+      - Key contacts: getting-started/contacts.md
+  - Procedures:
+      - procedures/index.md
+      - "Grades, PVs & transcripts": procedures/grades-overview.md
+      - FYS grade workflow: procedures/grades-fys.md
+      - "Bachelor (L1–L3) grade workflow": procedures/grades-bachelor.md
+      - Grade corrections: procedures/grade-corrections.md
+      - Catch-up (resit) exams: procedures/catch-up-exams.md
+      - Communicating grades to students: procedures/grade-communication.md
+      - Disciplinary Committee: procedures/disciplinary-committee.md
+      - Refus de compensation: procedures/refus-de-compensation.md
+      - Courses & CRNs in Banner: procedures/courses-crns.md
+      - Timetables: procedures/timetables.md
+      - Staffing & contracts: procedures/staffing-contracts.md
+      - Student lists: procedures/student-lists.md
+  - Reference:
+      - Annual cycle: reference/annual-cycle.md
+      - Known issues & backlog: reference/known-issues.md
