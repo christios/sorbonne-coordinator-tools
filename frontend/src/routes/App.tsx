@@ -1,6 +1,6 @@
 import { useMutation } from "@tanstack/react-query";
 import { AlertCircle, ArrowRight, BookOpen, CheckCircle2, Download, FileText, Loader2, RotateCcw, Search } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { CourseSummary } from "@/components/CourseSummary";
 import { FileDropzone } from "@/components/FileDropzone";
@@ -18,8 +18,18 @@ import {
 
 type ToolId = "roster" | "syllabus";
 
+function toolFromPath(pathname: string): ToolId | null {
+  if (pathname === "/roster") {
+    return "roster";
+  }
+  if (pathname === "/syllabus") {
+    return "syllabus";
+  }
+  return null;
+}
+
 export function App() {
-  const [activeTool, setActiveTool] = useState<ToolId | null>(null);
+  const [activeTool, setActiveTool] = useState<ToolId | null>(() => toolFromPath(window.location.pathname));
   const [appSearch, setAppSearch] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [batch, setBatch] = useState<BatchRosterPreview | null>(null);
@@ -74,6 +84,22 @@ export function App() {
   const successCount = batch?.successCount ?? 0;
   const downloadLabel = files.length > 1 ? "Download ZIP" : "Download Excel";
 
+  useEffect(() => {
+    const handlePopState = () => setActiveTool(toolFromPath(window.location.pathname));
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+
+  function openTool(tool: ToolId) {
+    window.history.pushState({}, "", `/${tool}`);
+    setActiveTool(tool);
+  }
+
+  function showAllApps() {
+    window.history.pushState({}, "", "/");
+    setActiveTool(null);
+  }
+
   return (
     <main className="min-h-screen bg-[#f7f8fa]">
       <header className="border-b border-[#d9dee7] bg-white">
@@ -85,7 +111,7 @@ export function App() {
           {activeTool ? (
             <button
               type="button"
-              onClick={() => setActiveTool(null)}
+              onClick={showAllApps}
               className="inline-flex items-center gap-2 rounded-md border border-[#d9dee7] bg-white px-3 py-2 text-sm font-semibold text-[#1f4e79] shadow-sm hover:bg-[#f2f7fb]"
             >
               <span aria-hidden="true">←</span> All apps
@@ -95,7 +121,7 @@ export function App() {
       </header>
 
       {activeTool === null ? (
-        <AppWelcome search={appSearch} onSearch={setAppSearch} onOpen={setActiveTool} />
+        <AppWelcome search={appSearch} onSearch={setAppSearch} onOpen={openTool} />
       ) : activeTool === "roster" ? <div className="mx-auto grid max-w-7xl gap-6 px-4 py-6 sm:px-6 lg:grid-cols-[360px_1fr] lg:px-8">
         <aside className="space-y-4">
           <section className="rounded-lg border border-[#d9dee7] bg-white p-4">
