@@ -17,16 +17,12 @@ type EntryProps = HistoryContext & {
 };
 
 export function BibliographyEditor({ value, onChange, ...history }: HistoryContext & { value: Record<string, unknown>; onChange: (value: Record<string, unknown>) => void }) {
+  const [tab, setTab] = useState<"books" | "websites" | "articles">("books");
   const books = bibliographyEntries(value.books);
   const websites = bibliographyEntries(value.websites);
   const articles = bibliographyEntries(value.journalArticles);
-  return (
-    <div className="grid w-full min-w-0 max-w-full gap-7">
-      <ResourceList title="Books" entries={books} kind="book" path="bibliography.books" onChange={(next) => onChange({ ...value, books: next })} {...history} />
-      <ResourceList title="Websites" entries={websites} kind="website" path="bibliography.websites" onChange={(next) => onChange({ ...value, websites: next })} {...history} />
-      <ResourceList title="Journal articles" entries={articles} kind="article" path="bibliography.journalArticles" onChange={(next) => onChange({ ...value, journalArticles: next })} {...history} />
-    </div>
-  );
+  const tabs = [{ key: "books" as const, label: "Books" }, { key: "websites" as const, label: "Websites" }, { key: "articles" as const, label: "Journal articles" }];
+  return <div><div role="tablist" aria-label="Bibliography editor" className="flex gap-1 overflow-x-auto border-b border-[#d9dee7]">{tabs.map((item) => <button key={item.key} type="button" role="tab" aria-selected={tab === item.key} onClick={() => setTab(item.key)} className={`shrink-0 border-b-2 px-3 py-2 text-sm font-semibold transition-colors ${tab === item.key ? "border-[#1f4e79] text-[#1f4e79]" : "border-transparent text-[#667085] hover:border-[#b7bec8] hover:text-[#344054]"}`}>{item.label}</button>)}</div><div role="tabpanel" className="mt-5 min-w-0">{tab === "books" ? <ResourceList title="Books" entries={books} kind="book" path="bibliography.books" onChange={(next) => onChange({ ...value, books: next })} {...history} /> : null}{tab === "websites" ? <ResourceList title="Websites" entries={websites} kind="website" path="bibliography.websites" onChange={(next) => onChange({ ...value, websites: next })} {...history} /> : null}{tab === "articles" ? <ResourceList title="Journal articles" entries={articles} kind="article" path="bibliography.journalArticles" onChange={(next) => onChange({ ...value, journalArticles: next })} {...history} /> : null}</div></div>;
 }
 
 function ResourceList({ title, entries, kind, path, onChange, ...history }: EntryProps) {
