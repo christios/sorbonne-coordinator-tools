@@ -57,6 +57,34 @@ This document records the user-facing decisions made while shaping the SCEN Coor
 - Diff formatting is shared with comparison: red struck-through deletion, green insertion, and amber substitution shown as `old → new`.
 - Rapid sequential edits to the same field are coalesced; this is useful edit history, not a forensic audit log.
 
+## UI hardening: observed issues and their fixes
+
+These are not cosmetic preferences. They were reported while exercising the live editor and should be treated as regression cases.
+
+| Observed issue | Guardrail now in place | Preserve when changing UI |
+| --- | --- | --- |
+| History and dropdown popovers looked see-through; icons and text from fields below appeared inside the popup. | History previews render through a React portal on `document.body`, with fixed positioning, `z-[100]`, `isolate`, and an opaque white surface. Shared select and folder menus also use opaque white, `isolate`, and an elevated z-index. | Never put opacity on a popup container or rely on a translucent parent. Keep the surface opaque and isolated; use a portal for any overlay that can cross complex stacking contexts. |
+| A history or move popover stayed open after the user clicked elsewhere. | History, select, and folder controls listen for outside pointer/mouse/focus events and Escape, then close themselves. | Every newly introduced popover must have outside-click, focus-change, and Escape dismissal. Test a click into the next field. |
+| History icons appeared to be in the wrong place, but they were actually controls showing through a transparent preview. | Opaque overlay treatment removes the visual bleed. Inputs reserve trailing space; multi-line controls deliberately place their history icon at top-right. | Diagnose stacking/opacity before moving icons. Do not remove input right padding or the `placement="top"` rule for textareas. |
+| Dropdown chevrons overlapped history controls. | `SelectMenu` moves the chevron left when a trailing control exists and increases right padding for the field value. | Any trailing action added to a select must reserve space for both the action and chevron. Do not use a native select to bypass this layout. |
+| Dropdowns looked like browser-native controls and had sharp corners that did not match the product. | Custom button/listbox controls use rounded corners, white surfaces, muted borders, branded focus rings, hover states, and selected rows. | Use `SelectMenu` (or match its visual and accessibility contract) for all new selection controls. |
+| Folder destination popover was cut off by the syllabus row. | The library uses a compact folder-icon trigger next to delete, a right-aligned elevated menu, bounded scroll area, and no clipping on the row container. | Do not add `overflow-hidden` to a parent of a menu. If a new context can still clip it, render that menu via a portal. |
+| Large bibliography and outcome canvases overflowed horizontally. | Repeated-content containers use `min-w-0`, `max-w-full`, shrinkable actions, and vertical card layouts rather than wide tables. | Check card layouts with long titles and narrow widths. Long academic text should wrap or truncate intentionally, never force horizontal canvas overflow. |
+| Empty textareas consumed too much space and made the form feel unfinished. | `AutoResizeTextarea` grows to content and structured/repeatable cards start with only the fields the user asked to add. | Avoid fixed large textareas and bulk-created blank rows. Preserve auto-resize for narrative inputs. |
+| Data-entry tables were difficult to scan and edit on long forms. | Outcomes, schedule, bibliography, assessments, rubrics, and lists use collapsible cards. The comparison grid remains a review-only exception. | Do not reintroduce tables for editable repeated data without an explicit product decision. |
+| Technical field paths appeared in review UI. | Field history and comparison map fields to academic labels; paths remain an implementation detail only. | Add/update the human label mapping whenever a field is added or renamed. |
+| The left comparison column was visually noisy. | The older version is plain; all word-level insert/delete/substitute treatment appears only in the newer version. | Do not apply diff marks to the left column. Maintain substitution rendering as one amber operation. |
+
+### Overlay implementation checklist
+
+Before merging any overlay, dropdown, tooltip-like preview, or move menu:
+
+- Verify it is visually opaque over a dense form with history icons.
+- Open it near the viewport edge and inside a long scrollable list; it must remain visible and usable.
+- Click another field, click blank space, tab away, and press Escape; it must close.
+- Confirm the trigger remains keyboard-accessible and has a descriptive accessible name.
+- Confirm long option labels do not overlap icons or force an unwanted horizontal scroll.
+
 ## Repeated structured content
 
 ### General pattern
