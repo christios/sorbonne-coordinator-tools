@@ -8,10 +8,12 @@ Production: <https://sorbonne-coordinator-tools.fastapicloud.dev/>
 
 | Route | Purpose |
 | --- | --- |
-| `/` | Tool launcher (currently Syllabus Builder and Coordinator Handbook) |
+| `/` | Tool launcher (Syllabus Builder, Teaching-requisition Builder, and Coordinator Handbook) |
 | `/#/syllabus` | Create, organise, edit, compare, and export SCEN syllabi |
+| `/#/requisition` | Create, duplicate, retain, and export teaching-recruitment requisitions |
 | `/handbook/` | Static SCEN Coordinator Handbook |
 | `/api/v1/syllabi` | Syllabus API |
+| `/api/v1/requisitions` | Teaching-requisition API |
 | `/api/v1/rosters` | Retained roster-converter API |
 | `/healthcheck` | Deployment health check |
 
@@ -30,6 +32,8 @@ docs/         Architecture decision records
 - **Deployment:** GitHub Actions builds the React and MkDocs bundles, then deploys one FastAPI Cloud application from `main`.
 - **Syllabus templates:** approved template definitions live in `backend/sorbonne/services/syllabus_templates.py`; the current English SCEN DOCX source is in `backend/sorbonne/assets/`. Template IDs determine the editor structure and DOCX export. See [ADR-001](docs/decisions/ADR-001-template-aware-syllabi.md) before adding another template or enabling cross-template comparisons.
 - **Handbook ownership:** `handbook/` is the version-controlled source of the deployed handbook. It was imported from a non-versioned local MkDocs project; do not treat that old external folder as the maintained source. The original email archive was deliberately excluded and must not be added to this repository or deployment.
+
+The [UI/UX handoff](docs/handoffs/ui-ux-decisions.md) captures the product decisions that should guide future interface work.
 
 ## Prerequisites
 
