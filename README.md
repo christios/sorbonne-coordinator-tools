@@ -1,71 +1,153 @@
 # Sorbonne Coordinator Tools
 
-Internal tooling for Sorbonne University academic coordinators, including the roster converter, syllabus builder, and SCEN Coordinator Handbook.
+The SCEN academic-coordination workspace for Sorbonne University Abu Dhabi. It contains a syllabus builder with Word export, a coordinator handbook, and a retained course-roster converter. The roster converter is currently hidden from the welcome page but its API and route remain in the codebase.
 
-## Stack
+Production: <https://sorbonne-coordinator-tools.fastapicloud.dev/>
 
-- Frontend: Vite, React, TypeScript, TanStack Query, Tailwind CSS, lucide-react
-- Backend: FastAPI, Python 3.11, uv
+## What is deployed
 
-## Local Development
+| Route | Purpose |
+| --- | --- |
+| `/` | Tool launcher (currently Syllabus Builder and Coordinator Handbook) |
+| `/#/syllabus` | Create, organise, edit, compare, and export SCEN syllabi |
+| `/handbook/` | Static SCEN Coordinator Handbook |
+| `/api/v1/syllabi` | Syllabus API |
+| `/api/v1/rosters` | Retained roster-converter API |
+| `/healthcheck` | Deployment health check |
 
-Backend:
+There is currently no authentication or role-based access control. Treat the deployed site and handbook content as accessible to anyone with the URL.
+
+## Architecture
+
+```text
+frontend/     React + Vite + TypeScript user interface
+backend/      FastAPI API, Alembic migrations, PostgreSQL repository, DOCX export
+handbook/     MkDocs source for the Coordinator Handbook
+docs/         Architecture decision records
+```
+
+- **Database:** PostgreSQL in every environment. Local development uses Docker; production uses Neon.
+- **Deployment:** GitHub Actions builds the React and MkDocs bundles, then deploys one FastAPI Cloud application from `main`.
+- **Syllabus templates:** approved template definitions live in `backend/sorbonne/services/syllabus_templates.py`; the current English SCEN DOCX source is in `backend/sorbonne/assets/`. Template IDs determine the editor structure and DOCX export. See [ADR-001](docs/decisions/ADR-001-template-aware-syllabi.md) before adding another template or enabling cross-template comparisons.
+- **Handbook ownership:** `handbook/` is the version-controlled source of the deployed handbook. It was imported from a non-versioned local MkDocs project; do not treat that old external folder as the maintained source. The original email archive was deliberately excluded and must not be added to this repository or deployment.
+
+## Prerequisites
+
+- Python 3.11 or later and [uv](https://docs.astral.sh/uv/)
+- Node.js 22 and npm
+- Docker Desktop (for the local PostgreSQL database)
+
+## Local development
+
+Use four terminals when working on all parts of the application. The ports are intentional: FastAPI uses `8000`, MkDocs uses `8001`, and Vite uses `3000`.
+
+### 1. Configure and start PostgreSQL
+
+```bash
+cp backend/.env.example backend/.env
+cp frontend/.env.example frontend/.env
+docker compose up -d postgres
+
+cd backend
+uv sync --all-groups
+uv run alembic upgrade head
+```
+
+The default local database URL is `postgresql+psycopg://sorbonne:sorbonne@localhost:5433/sorbonne`.
+
+Only when migrating a pre-PostgreSQL prototype that contains syllabus data, run this one-time command after the schema migration:
+
+```bash
+uv run python scripts/migrate_sqlite_syllabi.py
+```
+
+Do not run that legacy migration against a new or production database without first confirming the source SQLite file and taking a database backup.
+
+### 2. Start the API
 
 ```bash
 cd backend
 uv run uvicorn sorbonne.main:app --reload --port 8000
 ```
 
-If port 8000 is occupied, use another port such as 8001 and set `VITE_API_BASE_URL` in `frontend/.env`.
+The application also applies Alembic migrations at startup. Keep the explicit `alembic upgrade head` step above for predictable local setup and release work.
 
-Frontend:
+### 3. Start the frontend
 
 ```bash
 cd frontend
-npm install
+npm ci
 npm run start
 ```
 
-The frontend expects the API at `http://localhost:8000` unless `VITE_API_BASE_URL` is set.
+Open <http://127.0.0.1:3000/>. The frontend calls FastAPI at `http://localhost:8000` by default.
 
-The handbook tile opens the local MkDocs handbook at `http://127.0.0.1:8000/` during Vite development. Set `VITE_HANDBOOK_URL` if it runs on another URL; production uses the integrated `/handbook/` route.
-## Local development database
-
-The syllabus builder uses PostgreSQL in every environment. Start the isolated local database, apply its Alembic schema, and copy any existing prototype data once:
+### 4. Preview the handbook
 
 ```bash
-docker compose up -d postgres
+cd handbook
+uv run --with mkdocs-material mkdocs serve --dev-addr 127.0.0.1:8001
+```
+
+The launcher opens `http://127.0.0.1:8001/` in local development. Set `VITE_HANDBOOK_URL` in `frontend/.env` only if you intentionally serve the handbook elsewhere, then restart Vite.
+
+## Verification commands
+
+Run these before committing a functional change:
+
+```bash
+# Backend
 cd backend
-uv sync --all-groups
-uv run alembic upgrade head
-uv run python scripts/migrate_sqlite_syllabi.py
-```
+uv run pytest tests -q
+uv run ruff check .
 
-The local `DATABASE_URL` is `postgresql+psycopg://sorbonne:sorbonne@localhost:5433/sorbonne` by default. It is defined in [backend/.env.example](backend/.env.example); real credentials belong only in `backend/.env` or FastAPI Cloud encrypted secrets.
+# Frontend
+cd ../frontend
+npm test
+npm run lint
+npm run build
 
-## FastAPI Cloud + Neon
-
-FastAPI Cloud serves both the React frontend and the API from one deployment; Neon provides the PostgreSQL database. Store `DATABASE_URL` as an encrypted FastAPI Cloud secret. Before switching production traffic, run the Alembic migration against that Neon URL:
-
-```bash
-DATABASE_URL='postgresql+psycopg://…' uv run alembic upgrade head
-DATABASE_URL='postgresql+psycopg://…' uv run python scripts/migrate_sqlite_syllabi.py
-```
-
-Before each FastAPI Cloud deployment, build the frontend into the backend's deployable static directory, then deploy the backend:
-
-```bash
-cd frontend
-VITE_API_BASE_URL='' VITE_BASE_PATH=/ VITE_OUT_DIR=../backend/frontend-dist npm run build
-cd ../backend
-uv run fastapi deploy
-```
-
-Build the handbook before deploying as well:
-
-```bash
+# Handbook
 cd ../handbook
 uv run --with mkdocs-material mkdocs build --config-file mkdocs.yml --site-dir ../backend/handbook-dist
 ```
 
-`backend/.fastapicloudignore` explicitly includes the generated static files in the FastAPI Cloud upload. The coordinator tools, `/handbook/`, and `/api/v1` routes are then served from the same application URL.
+`backend/frontend-dist/` and `backend/handbook-dist/` are generated deployment artifacts and are intentionally ignored by Git.
+
+## Deploying
+
+Pushing to `main` triggers [the GitHub Actions deployment workflow](.github/workflows/deploy-fastapi-cloud.yml). It:
+
+1. builds the frontend into `backend/frontend-dist/`;
+2. builds the handbook into `backend/handbook-dist/`;
+3. uploads the FastAPI app and both static bundles to FastAPI Cloud.
+
+Required GitHub Actions secrets:
+
+- `FASTAPI_CLOUD_TOKEN`
+- `FASTAPI_CLOUD_APP_ID`
+
+Required FastAPI Cloud encrypted secret:
+
+- `DATABASE_URL` — the Neon PostgreSQL connection URL.
+
+For a manual release, build both static bundles in the same order before running `uv run fastapi deploy .` from `backend/`. Prefer the GitHub workflow so the release uses the configured secrets and is recorded in Actions.
+
+After deployment, verify:
+
+```bash
+curl -fsS https://sorbonne-coordinator-tools.fastapicloud.dev/healthcheck
+curl -fsS https://sorbonne-coordinator-tools.fastapicloud.dev/handbook/ > /dev/null
+curl -fsS https://sorbonne-coordinator-tools.fastapicloud.dev/api/v1/syllabi > /dev/null
+```
+
+## Important product constraints
+
+- Syllabi are grouped in nested folders and can be deleted. A deleted syllabus or folder cannot be recovered through the app.
+- Field history coalesces rapid adjacent changes. It is not an audit trail or collaboration system.
+- New syllabus templates require: a registered template definition, supported frontend renderer, DOCX-export mapping, an Alembic-safe rollout, and an approved cross-template field mapping before comparisons can work.
+- The existing roster converter is intentionally retained but hidden from the launcher. Do not remove it unless the product owner asks.
+
+## Workspace hygiene
+
+The working tree may contain user-owned exports, temporary reports, or local automation files (for example `exports/`, `outputs/`, `tmp/`, and `transfer_suad_grades.py`). They are outside the deployed application scope. Do not stage, modify, or delete them unless the task explicitly targets them.

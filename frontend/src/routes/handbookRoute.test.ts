@@ -8,6 +8,10 @@ describe("handbookUrl", () => {
     expect(handbookUrl("localhost", "http://127.0.0.1:8000/")).toBe("http://127.0.0.1:8000/");
   });
 
+  it("keeps the default handbook port separate from the FastAPI port", () => {
+    expect(handbookUrl("localhost")).toBe("http://127.0.0.1:8001/");
+  });
+
   it("uses the integrated handbook route in deployed environments", () => {
     expect(handbookUrl("sorbonne-coordinator-tools.fastapicloud.dev")).toBe("/handbook/");
   });
