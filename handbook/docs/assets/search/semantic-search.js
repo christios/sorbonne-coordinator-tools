@@ -244,6 +244,12 @@
     var links = [].slice.call(li.querySelectorAll(":scope > a.md-search-result__link"));
     var pageLink = links[0];
 
+    // Clear marks from any previous pass over this same render.
+    li.classList.remove("ss-compact");
+    [].forEach.call(li.querySelectorAll("a.ss-promoted"), function (a) {
+      a.classList.remove("ss-promoted");
+    });
+
     // Material already promotes a section of its own choosing to a direct child.
     // Put any such section back in the toggle first, so we replace its pick
     // rather than adding a second visible section next to it.
@@ -257,11 +263,20 @@
 
     // Promote the best section — unless the page intro itself won, in which case
     // what is already visible is the right thing to show.
+    //
+    // `ss-compact` then hides the page's own teaser: with the answering section
+    // directly beneath it, that intro is a less relevant line sitting above the
+    // answer. `ss-promoted` hides Material's "Missing: …" caption on the promoted
+    // section, where it contradicts the ranking we just applied — it reports that
+    // literal query words are absent, which is exactly what a semantic match is
+    // allowed to do ("names inconsistent" vs "name spellings … not consistent").
     for (var i = 0; i < keys.length; i++) {
       var a = byKey[keys[i]];
       if (!a) continue;
       if (a === pageLink) break;          // page intro ranked highest; leave as is
       if (a.parentNode === det) li.insertBefore(a, det);
+      a.classList.add("ss-promoted");
+      li.classList.add("ss-compact");
       break;
     }
 

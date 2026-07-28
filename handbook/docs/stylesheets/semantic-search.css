@@ -8,6 +8,30 @@
  * result, the most relevant blocks in the target section flash briefly.
  */
 
+/* --- promoted section results ------------------------------------------- *
+ *
+ * Set by semantic-search.js on a result whose best-matching SECTION has been
+ * lifted out of the "N more on this page" toggle and shown directly.
+ */
+
+/* The page's own teaser is redundant once the answering section sits right below
+ * it — and it is the less relevant of the two, so it reads first for no reason.
+ * The page title stays, for context. `:first-of-type` is the page-level link;
+ * the promoted section is a later sibling and keeps its text.
+ */
+.md-search-result__item.ss-compact > a.md-search-result__link:first-of-type article > p {
+  display: none;
+}
+
+/* Material's "Missing: <del>…</del>" caption reports which literal query words
+ * are absent. That is a useful signal on keyword-ordered results, but on the
+ * section the reranker chose it contradicts the ranking — semantic matching is
+ * precisely what lets "names inconsistent" match "name spellings … consistent".
+ */
+a.md-search-result__link.ss-promoted .md-search-result__terms {
+  display: none;
+}
+
 /* Passage highlight on the destination page after a result click.
    Block-level, fades out on its own — never highlights individual words. */
 .md-typeset .ss-hl {

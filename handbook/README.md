@@ -95,6 +95,22 @@ reranker — except the retriever here is **Material's own keyword search**:
   rest are reordered inside the toggle (its count is corrected too). Material
   already promotes a section of its own choosing, so that one is put back in the
   toggle first; otherwise a result ends up showing two.
+
+When a section is promoted, two CSS classes tidy the result (see
+`stylesheets/semantic-search.css`):
+
+- `.ss-compact` on the `<li>` hides the **page's own teaser**. With the answering
+  section directly beneath it, that intro is a less relevant line sitting above
+  the answer. The page title stays, for context. When the page intro itself ranks
+  highest nothing is promoted and the teaser is left alone.
+- `.ss-promoted` on the section hides Material's **"Missing: …" caption**. It
+  reports which literal query words are absent, which is a fair signal on
+  keyword-ordered results but contradicts a semantic match — the reported case
+  was *"student names inconsistent"* matching "name spellings … not always
+  consistent", correctly, while the caption called the query words missing.
+
+Note when styling these: Material wraps **page** teasers in `<p>` but renders
+**section** teasers as bare text nodes, so `article > p` reaches only the former.
 - **Nav-only pages** (`Getting Started`, `Procedures`) are excluded from the index
   and from reranking. They are tables of contents, not answers; scoring them on
   scraped DOM text promoted a stub above the page that answered the query.
