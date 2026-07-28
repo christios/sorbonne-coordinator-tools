@@ -175,6 +175,32 @@ shape. `padding: "max_length"` with a constant pool size means it compiles once;
 padding to the longest candidate per query made it recompile constantly, which
 alone cost 1–5 s per search.
 
+### Do not enable the lunr `stemmer` — it breaks search
+
+Material's English search pipeline is `stopWordFilter` only, with **no stemmer**.
+That is deliberate on their part, and it should stay that way. Adding `stemmer` to
+`plugins.search.pipeline` looks like the obvious fix for morphological misses, and
+it makes things much worse — measured on this corpus:
+
+| Query | Default | With `stemmer` |
+| --- | --- | --- |
+| `consistent` | 4 results | **0** |
+| `consistency` | 1 result | **0** |
+| `transferring` | 0 | still 0 |
+
+It stems the **index** but not the **query**. Material's query path uses prefix /
+wildcard matching (that is what `search.suggest` needs) and bypasses the pipeline,
+so documents end up stored under `consist` while a typed `consistent*` matches
+nothing. It does not even fix the case it was enabled for.
+
+**Known, accepted limitation.** Matching is literal-prefix, so `transfer` hits but
+`transferring` returns nothing; `grade` hits `grades` but not `grading`. Note that
+no stemmer would relate `inconsistent` to `consistent` either — stemmers strip
+suffixes, not prefixes, and `in-` inverts the meaning. Ordering is unaffected: the
+reranker compensates whenever search returns anything at all, so only true
+zero-result queries suffer. Fixing those properly means our own fallback
+retrieval, which was considered and deliberately not built.
+
 ### Runtime dependencies (CDN)
 
 The widget loads transformers.js from **jsDelivr** and the reranker weights from
