@@ -1,0 +1,13 @@
+{
+  "name": "scen-handbook-search-tooling",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Build-time search-index generator for the SCEN Coordinator Handbook. Parses the built site into section chunks; text-only, loads no model.",
+  "scripts": {
+    "build-index": "node build_index.mjs"
+  },
+  "dependencies": {
+    "node-html-parser": "^7.0.1"
+  }
+}

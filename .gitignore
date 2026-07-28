@@ -25,3 +25,9 @@ backend/handbook-dist/
 worker/node_modules/
 worker/.wrangler/
 data/*.sqlite3
+
+# Handbook local build + search tooling deps
+# (the deployed artifact is backend/handbook-dist/, already ignored above)
+handbook/_site/
+handbook/handbook-dist/
+handbook/search/node_modules/
