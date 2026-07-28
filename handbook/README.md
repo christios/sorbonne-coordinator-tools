@@ -193,12 +193,28 @@ wildcard matching (that is what `search.suggest` needs) and bypasses the pipelin
 so documents end up stored under `consist` while a typed `consistent*` matches
 nothing. It does not even fix the case it was enabled for.
 
-**Known, accepted limitation.** Matching is literal-prefix, so `transfer` hits but
-`transferring` returns nothing; `grade` hits `grades` but not `grading`. Note that
-no stemmer would relate `inconsistent` to `consistent` either — stemmers strip
-suffixes, not prefixes, and `in-` inverts the meaning. Ordering is unaffected: the
-reranker compensates whenever search returns anything at all, so only true
-zero-result queries suffer. Fixing those properly means our own fallback
+**Highlighting is fixed separately, after ranking.** Retrieval and highlighting are
+different problems, and only the first one is stuck. `semantic-search.js` runs a
+Porter stemmer over the *rendered* results and marks the variants Material's prefix
+matching missed — `grading` for "grade", `rolled`/`rolls` for "rolling",
+`consistent`/`inconsistency` for "inconsistent". It cannot change which results
+appear, only what is emphasised in them, so a semantically-ranked hit now shows
+why it matched.
+
+Negation prefixes are handled explicitly (`in-`, `un-`, `non-`, `dis-`, `im-`,
+`ir-`, `il-`), because a stemmer alone never relates `inconsistent` to
+`consistent`: stemmers strip suffixes, not prefixes, so those stem to `inconsist`
+and `consist`.
+
+Do not swap the stemmer for a prefix or substring heuristic — that was tried and
+marks `example` for "exam", `listen` for "list", `market` for "mark" and
+`graduate` for "grade". The Porter version was checked against the full 1739-word
+corpus vocabulary with no false positives.
+
+**Remaining accepted limitation.** *Retrieval* is still literal-prefix, so
+`transferring` returns nothing on a page that says "transfer". Ordering is
+unaffected — the reranker compensates whenever search returns anything at all — so
+only true zero-result queries suffer. Fixing those means our own fallback
 retrieval, which was considered and deliberately not built.
 
 ### Runtime dependencies (CDN)

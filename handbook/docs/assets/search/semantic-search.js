@@ -110,6 +110,147 @@
     return idxs.map(function (i) { return s.records[i]; });
   }
 
+  // ---- morphological highlighting ----------------------------------------
+  /*
+   * Material highlights literal PREFIX matches only: "grade" marks `grades` but
+   * not `grading`, and "inconsistent" marks nothing in "not always consistent" —
+   * the passage the reranker just chose. So a result could rank first with no
+   * visible reason.
+   *
+   * Enabling lunr's stemmer is NOT the fix (see README): it stems the index but
+   * not the query, and search gets much worse. This runs after ranking, over the
+   * rendered text only, and adds marks Material missed. It cannot affect which
+   * results appear — purely what is emphasised in them.
+   *
+   * This uses a real Porter stemmer. Prefix/containment heuristics were tried
+   * first and are not viable — matching on a shared prefix marked `example` for
+   * "exam", `listen` for "list", `market` for "mark" and `graduate` for "grade".
+   */
+  var P_C = "[^aeiou]", P_V = "[aeiouy]";
+  var P_CC = P_C + "[^aeiouy]*", P_VV = P_V + "[aeiou]*";
+  var mgr0 = new RegExp("^(" + P_CC + ")?" + P_VV + P_CC);
+  var meq1 = new RegExp("^(" + P_CC + ")?" + P_VV + P_CC + "(" + P_VV + ")?$");
+  var mgr1 = new RegExp("^(" + P_CC + ")?" + P_VV + P_CC + P_VV + P_CC);
+  var s_v = new RegExp("^(" + P_CC + ")?" + P_V);
+  var step2list = { ational: "ate", tional: "tion", enci: "ence", anci: "ance", izer: "ize",
+    bli: "ble", alli: "al", entli: "ent", eli: "e", ousli: "ous", ization: "ize", ation: "ate",
+    ator: "ate", alism: "al", iveness: "ive", fulness: "ful", ousness: "ous", aliti: "al",
+    iviti: "ive", biliti: "ble", logi: "log" };
+  var step3list = { icate: "ic", ative: "", alize: "al", iciti: "ic", ical: "ic", ful: "", ness: "" };
+
+  /** Porter (1980). */
+  function porterStem(w) {
+    w = String(w).toLowerCase();
+    if (w.length < 3) return w;
+    var re, re2, re3, re4, fp, st;
+    if (w.charAt(0) === "y") w = "Y" + w.substr(1);
+
+    re = /^(.+?)(ss|i)es$/; re2 = /^(.+?)([^s])s$/;
+    if (re.test(w)) w = w.replace(re, "$1$2");
+    else if (re2.test(w)) w = w.replace(re2, "$1$2");
+
+    re = /^(.+?)eed$/; re2 = /^(.+?)(ed|ing)$/;
+    if (re.test(w)) { fp = re.exec(w); if (mgr0.test(fp[1])) w = w.replace(/.$/, ""); }
+    else if (re2.test(w)) {
+      fp = re2.exec(w); st = fp[1];
+      if (s_v.test(st)) {
+        w = st;
+        re2 = /(at|bl|iz)$/;
+        re3 = new RegExp("([^aeiouylsz])\\1$");
+        re4 = new RegExp("^" + P_CC + P_V + "[^aeiouwxy]$");
+        if (re2.test(w)) w += "e";
+        else if (re3.test(w)) w = w.replace(/.$/, "");
+        else if (re4.test(w)) w += "e";
+      }
+    }
+
+    re = /^(.+?)y$/;
+    if (re.test(w)) { fp = re.exec(w); if (s_v.test(fp[1])) w = fp[1] + "i"; }
+
+    re = /^(.+?)(ational|tional|enci|anci|izer|bli|alli|entli|eli|ousli|ization|ation|ator|alism|iveness|fulness|ousness|aliti|iviti|biliti|logi)$/;
+    if (re.test(w)) { fp = re.exec(w); if (mgr0.test(fp[1])) w = fp[1] + step2list[fp[2]]; }
+
+    re = /^(.+?)(icate|ative|alize|iciti|ical|ful|ness)$/;
+    if (re.test(w)) { fp = re.exec(w); if (mgr0.test(fp[1])) w = fp[1] + step3list[fp[2]]; }
+
+    re = /^(.+?)(al|ance|ence|er|ic|able|ible|ant|ement|ment|ent|ou|ism|ate|iti|ous|ive|ize)$/;
+    re2 = /^(.+?)(s|t)(ion)$/;
+    if (re.test(w)) { fp = re.exec(w); if (mgr1.test(fp[1])) w = fp[1]; }
+    else if (re2.test(w)) { fp = re2.exec(w); if (mgr1.test(fp[1] + fp[2])) w = fp[1] + fp[2]; }
+
+    re = /^(.+?)e$/;
+    if (re.test(w)) {
+      fp = re.exec(w); st = fp[1];
+      re3 = new RegExp("^" + P_CC + P_V + "[^aeiouwxy]$");
+      if (mgr1.test(st) || (meq1.test(st) && !re3.test(st))) w = st;
+    }
+    if (/ll$/.test(w) && mgr1.test(w)) w = w.replace(/.$/, "");
+
+    if (w.charAt(0) === "Y") w = "y" + w.substr(1);
+    return w;
+  }
+
+  var NEG = /^(in|un|non|dis|im|ir|il)/;
+  function related(term, word) {
+    if (term === word) return true;
+    var a = porterStem(term), b = porterStem(word);
+    if (a === b) return true;
+    // Negation prefixes, handled explicitly: stemmers strip suffixes only, so
+    // "inconsistent" -> "inconsist" never meets "consistent" -> "consist".
+    var sa = a.replace(NEG, ""), sb = b.replace(NEG, "");
+    if (sa.length >= 4 && sa === b) return true;
+    if (sb.length >= 4 && sb === a) return true;
+    return false;
+  }
+
+  /** Raw query words worth emphasising (Material handles its own literal hits). */
+  function markTerms(q) {
+    var m = (q || "").toLowerCase().match(/[a-z0-9]{3,}/g) || [];
+    var seen = {}, out = [];
+    for (var i = 0; i < m.length; i++) {
+      if (seen[m[i]] || STOP.has(m[i])) continue;
+      seen[m[i]] = 1;
+      out.push(m[i]);
+    }
+    return out;
+  }
+
+  function markTextNode(node, terms) {
+    var text = node.nodeValue, re = /[A-Za-z0-9]+/g, m, last = 0, frag = null;
+    while ((m = re.exec(text))) {
+      var w = m[0].toLowerCase(), hit = false;
+      for (var i = 0; i < terms.length; i++) if (related(terms[i], w)) { hit = true; break; }
+      if (!hit) continue;
+      frag = frag || document.createDocumentFragment();
+      if (m.index > last) frag.appendChild(document.createTextNode(text.slice(last, m.index)));
+      var mk = document.createElement("mark");
+      mk.appendChild(document.createTextNode(m[0]));
+      frag.appendChild(mk);
+      last = m.index + m[0].length;
+    }
+    if (!frag) return;
+    if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)));
+    node.parentNode.replaceChild(frag, node);
+  }
+
+  function markRelated(root, terms) {
+    if (!terms.length) return;
+    var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+      acceptNode: function (n) {
+        if (!n.nodeValue || !/[A-Za-z0-9]/.test(n.nodeValue)) return NodeFilter.FILTER_REJECT;
+        // Leave Material's own marks alone, and never touch the "Missing:" list.
+        for (var p = n.parentNode; p && p !== root; p = p.parentNode) {
+          if (p.nodeName === "MARK" || p.nodeName === "DEL") return NodeFilter.FILTER_REJECT;
+          if (p.classList && p.classList.contains("md-search-result__terms")) return NodeFilter.FILTER_REJECT;
+        }
+        return NodeFilter.FILTER_ACCEPT;
+      },
+    });
+    var nodes = [], n;
+    while ((n = walker.nextNode())) nodes.push(n);
+    for (var i = 0; i < nodes.length; i++) markTextNode(nodes[i], terms);
+  }
+
   /** Compare DOM hrefs and index URLs on the same footing. */
   function urlKey(u) {
     try { var x = new URL(u, window.location.href); return x.pathname + x.hash; }
@@ -223,6 +364,10 @@
     if (observer) observer.disconnect();
     list.appendChild(frag);
     byPage.forEach(function (keys, node) { orderSections(node, keys); });
+    // Emphasise morphological variants Material's prefix matching missed, so a
+    // semantically-ranked hit shows why it matched.
+    var mt = markTerms(ctx.q);
+    for (var r = 0; r < ranked.length; r++) markRelated(ranked[r], mt);
     setMetaNote("ranked by meaning");
     observe();
   }
