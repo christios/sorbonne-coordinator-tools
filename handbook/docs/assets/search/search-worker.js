@@ -49,10 +49,15 @@ const CPU_DTYPE = "q8";
  * fixed [12,256] = a flat 1.35s, first query included.
  *
  * MAX_LEN=256 truncates almost nothing: chunk lengths are median ~130 tokens,
- * p90 ~239. POOL must match RERANK_POOL in semantic-search.js; short pools are
- * padded with empty passages and their scores discarded.
+ * p90 ~239. POOL must match POOL in semantic-search.js; short pools are padded
+ * with empty passages and their scores discarded.
+ *
+ * POOL is 24 because the caller reranks several SECTIONS per candidate page and
+ * keeps each page's best, rather than pre-picking one section by keyword overlap
+ * (which chose the wrong section for paraphrased questions). Doubling the batch
+ * costs ~50ms on WebGPU and buys back the ranking quality.
  */
-const POOL = 12;
+const POOL = 24;
 const MAX_LEN = 256;
 
 let latest = 0;

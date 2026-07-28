@@ -1,14 +1,24 @@
 /*
- * Unified search for the SCEN Coordinator Handbook.
+ * Semantic reranking for the SCEN Coordinator Handbook, layered onto MkDocs
+ * Material's NATIVE search UI.
  *
- * One search box (the theme's header box) → a modal with two stages:
- *   1. INSTANT  — keyword ranking, on the MAIN thread (no model, feels instant).
- *   2. REFINED  — two-stage semantic ranking (bi-encoder retrieve → cross-encoder
- *                 rerank), run entirely in a WEB WORKER so the UI never freezes.
+ * Material owns the whole interface: the header box, the dropdown, the teasers
+ * and the <mark> term highlighting. We add one thing — the order.
  *
- * Fully client-side. The worker owns the ML models (multilingual-e5-small q8 +
- * ms-marco-MiniLM-L-6-v2 q8, ~135 MB, cached after first use). Nothing is sent
- * anywhere. Loaded as a classic script; pulls ESM deps via dynamic import().
+ *   1. Material's own keyword search retrieves and renders, instantly.
+ *   2. We take the pages it found, score them with a cross-encoder reranker in a
+ *      Web Worker, and REORDER the existing <li> nodes.
+ *
+ * Reordering rather than re-rendering is deliberate: Material's markup, icons,
+ * teasers, highlighting and "N more on this page" sections are preserved for
+ * free, and there is no second retrieval that could disagree with what is on
+ * screen. Every ranked item is by definition already in the DOM.
+ *
+ * Material emits one <li class="md-search-result__item"> per PAGE, and our index
+ * is chunked per <h2> section, so for each page we rerank its best-matching
+ * section — the chunk that actually answers the query.
+ *
+ * Fully client-side; nothing is sent anywhere.
  */
 (function () {
   "use strict";
@@ -16,9 +26,10 @@
   // ---- config -------------------------------------------------------------
   var DATA_URL = "assets/search/search-data.json";
   var WORKER_URL = "assets/search/search-worker.js";
-  var LIMIT = 8;           // results shown
-  var RERANK_POOL = 12;    // lexical candidates handed to the reranker (covers the
-                           // measured recall depth ~#10 with margin; fewer = faster)
+  var POOL = 24;              // MUST match POOL in search-worker.js (fixed batch shape)
+  var SECTIONS_PER_PAGE = 3;  // passages per candidate page; the reranker picks the winner
+  var DEBOUNCE = 90;          // ms, to coalesce Material's re-renders
+
   var STOP = new Set(
     ("the a an of to in on for and or is are be do does how what who when where which that this " +
       "these those i you it my your we our can could should would with as at by from about into " +
@@ -49,13 +60,13 @@
   function withBase(rel) {
     try { return new URL(rel, siteBase()).href; } catch (e) { return rel; }
   }
-  function escapeHtml(s) {
-    return (s || "").replace(/[&<>"']/g, function (c) {
-      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
-    });
+  function pathOf(href) {
+    try { return new URL(href, window.location.href).pathname; } catch (e) { return href; }
   }
 
-  // ---- lightweight index (main thread) — for instant keyword + highlight ---
+  // ---- index --------------------------------------------------------------
+  // Supplies the passage text the reranker reads. Material's teasers are far too
+  // short to rerank on; these are the full section chunks.
   var liteP = null;
   function initLite() {
     if (liteP) return liteP;
@@ -67,6 +78,12 @@
       var hay = records.map(function (r) {
         return (r.title + " " + r.section + " " + r.content).toLowerCase();
       });
+      // pathname -> [record index, …], so a Material result can find its chunks.
+      var byPath = {};
+      records.forEach(function (r, i) {
+        var p = pathOf(withBase(r.url));
+        (byPath[p] || (byPath[p] = [])).push(i);
+      });
       var N = records.length;
       var DF = {};
       var dfOf = function (t) {
@@ -77,287 +94,204 @@
         }
         return DF[t];
       };
-      return { records: records, hay: hay, N: N, dfOf: dfOf };
+      return { records: records, hay: hay, byPath: byPath, N: N, dfOf: dfOf };
     })();
     return liteP;
   }
 
   function queryTerms(s, q) {
     var all = tokens(q).filter(function (t) { return s.dfOf(t) > 0; });
-    var idf = {};
-    all.forEach(function (t) { idf[t] = Math.log((s.N + 1) / (s.dfOf(t) + 1)); });
-    return all.map(function (t) { return { t: t, idf: idf[t] }; });
-  }
-
-  function dedupe(scored, n) {
-    var seen = {}, out = [];
-    for (var i = 0; i < scored.length && out.length < n; i++) {
-      var page = scored[i].doc.url.split("#")[0];
-      if (seen[page]) continue;
-      seen[page] = 1;
-      out.push(scored[i]);
-    }
-    return out;
+    return all.map(function (t) { return { t: t, idf: Math.log((s.N + 1) / (s.dfOf(t) + 1)) }; });
   }
 
   /**
-   * Lexical retrieval (idf-weighted term coverage). Returns the display top-LIMIT
-   * (instant) plus a broader candidate `pool` for the reranker.
+   * The `n` sections of `path` most likely to answer the query, best first.
+   *
+   * Keyword overlap is only a shortlist here, not the decision: picking a single
+   * section this way chose the wrong one for paraphrased questions (asking about
+   * resitting a passed course selected a section that merely repeated the query's
+   * words). We hand several to the cross-encoder and let it judge.
    */
-  async function runLexical(q) {
-    var s = await initLite();
-    var terms = queryTerms(s, q);
-    if (!terms.length) return { hits: [], pool: [], terms: [] };
-    var total = terms.reduce(function (a, o) { return a + o.idf; }, 0) || 1;
-    var scored = [];
-    for (var i = 0; i < s.records.length; i++) {
-      var cov = 0;
-      for (var j = 0; j < terms.length; j++) if (hasTerm(s.hay[i], terms[j].t)) cov += terms[j].idf;
-      if (cov > 0) scored.push({ doc: s.records[i], score: cov / total });
-    }
-    scored.sort(function (a, b) { return b.score - a.score; });
-    var pool = dedupe(scored, RERANK_POOL);
-    return { hits: pool.slice(0, LIMIT), pool: pool, terms: terms };
-  }
-
-  // ---- UI -----------------------------------------------------------------
-  var openModal = null;  // set by buildUI
-  var warmSearch = null; // set by buildUI — preloads the reranker
-
-  function el(tag, attrs, html) {
-    var e = document.createElement(tag);
-    if (attrs) for (var k in attrs) e.setAttribute(k, attrs[k]);
-    if (html != null) e.innerHTML = html;
-    return e;
-  }
-
-  function buildUI() {
-    var overlay = el("div", { id: "ss-overlay", "aria-hidden": "true" });
-    overlay.innerHTML =
-      '<div id="ss-modal" role="dialog" aria-modal="true" aria-label="Search">' +
-      '  <div id="ss-head">' +
-      '    <input id="ss-input" type="text" autocomplete="off" spellcheck="false" ' +
-      '           placeholder="Search — plain words or a question, e.g. can a student resit a course they passed?" />' +
-      '    <button id="ss-close" aria-label="Close">✕</button>' +
-      "  </div>" +
-      '  <div id="ss-status"></div>' +
-      '  <div id="ss-results"></div>' +
-      '  <div id="ss-foot"><span id="ss-stage">Keyword results — refining by meaning…</span></div>' +
-      "</div>";
-    document.body.appendChild(overlay);
-
-    var input = overlay.querySelector("#ss-input");
-    var status = overlay.querySelector("#ss-status");
-    var results = overlay.querySelector("#ss-results");
-    var stageEl = overlay.querySelector("#ss-stage");
-
-    function setStage(txt, busy) {
-      stageEl.textContent = txt;
-      stageEl.className = busy ? "ss-busy" : "";
-    }
-
-    // ---- worker (created once, lazily) — reranks the lexical candidate pool ----
-    var worker = null, workerReady = false, workerFailed = false, backend = "";
-    var warmSent = false;  // the worker ignores repeat warms; don't spam it either
-    var dlPct = -1;        // model download progress, -1 until the first report
-    var lastRun = 0;
-    var pending = null; // { id, pool, terms, q } for the query awaiting a rerank
-    function getWorker() {
-      if (worker || workerFailed) return worker;
-      try {
-        worker = new Worker(withBase(WORKER_URL), { type: "module" });
-      } catch (e) { workerFailed = true; setStage("Keyword only (reranker unavailable)", false); return null; }
-      worker.onmessage = function (ev) {
-        var m = ev.data || {};
-        if (m.type === "progress") {
-          dlPct = m.pct;
-          if (pending) setLoadingMsg(waitingMsg());
-          else setStage("Downloading search model — " + m.pct + "%", true);
-        } else if (m.type === "status") {
-          if (m.text === "ready") {
-            workerReady = true;
-            // A query may have been waiting on the download — retitle its spinner.
-            if (pending) setLoadingMsg(waitingMsg()); else setStage("Ready.", false);
-          }
-          else if (m.text.indexOf("backend:") === 0) { backend = m.text.slice(8); } // diagnostic only
-          else if (pending) setLoadingMsg(waitingMsg());
-          else setStage(m.text, true);
-        } else if (m.type === "rerank") {
-          if (!pending || m.id !== pending.id || m.id !== lastRun) return; // superseded
-          clearTimeout(rerankTimer);
-          var reranked = m.order.map(function (i) { return pending.pool[i]; }).slice(0, LIMIT);
-          render({ hits: reranked.map(function (d) { return { doc: d }; }), terms: pending.terms }, pending.q);
-          setStage("Ranked by meaning", false);
-          pending = null;
-        } else if (m.type === "error") {
-          if (pending && m.id === pending.id) { fallbackToKeyword("reranker unavailable"); }
-        }
-      };
-      worker.onerror = function () {
-        workerFailed = true;
-        if (pending) fallbackToKeyword("reranker error");
-      };
-      return worker;
-    }
-
-    // Show the keyword results we already have, when reranking can't complete.
-    function fallbackToKeyword(reason) {
-      clearTimeout(rerankTimer);
-      if (!pending) return;
-      render({ hits: pending.lexHits, terms: pending.terms }, pending.q);
-      setStage("Keyword results (" + reason + ")", false);
-      pending = null;
-    }
-
-    function close() {
-      overlay.classList.remove("ss-open");
-      overlay.setAttribute("aria-hidden", "true");
-    }
-    function open(prefill) {
-      overlay.classList.add("ss-open");
-      overlay.setAttribute("aria-hidden", "false");
-      if (prefill && prefill !== input.value) { input.value = prefill; schedule(); }
-      setTimeout(function () { input.focus(); input.select(); }, 30);
-      initLite().catch(function (e) { status.textContent = "Failed to load index: " + e.message; });
-      warmSearch();
-    }
-    openModal = open;
-    // Preload the reranker in the background so it's ready before the user searches.
-    warmSearch = function () {
-      if (warmSent) return;
-      var w = getWorker();
-      if (!w) return;
-      warmSent = true;
-      setStage("Starting search…", true);
-      w.postMessage({ type: "warm" });
-    };
-
-    overlay.querySelector("#ss-close").addEventListener("click", close);
-    overlay.addEventListener("click", function (e) { if (e.target === overlay) close(); });
-    document.addEventListener("keydown", function (e) {
-      if (e.key === "Escape" && overlay.classList.contains("ss-open")) close();
-      if ((e.key === "k" || e.key === "K") && (e.metaKey || e.ctrlKey)) {
-        e.preventDefault();
-        overlay.classList.contains("ss-open") ? close() : open("");
-      }
+  function topChunks(s, path, terms, n) {
+    var idxs = s.byPath[path];
+    if (!idxs || !idxs.length) return [];
+    var scored = idxs.map(function (i) {
+      var score = 0;
+      for (var j = 0; j < terms.length; j++) if (hasTerm(s.hay[i], terms[j].t)) score += terms[j].idf;
+      return { i: i, score: score };
     });
+    scored.sort(function (a, b) { return b.score - a.score; });
+    return scored.slice(0, n).map(function (x) { return s.records[x.i]; });
+  }
 
-    var timer = null, rerankTimer = null;
-    function schedule() {
-      clearTimeout(timer);
-      var q = input.value.trim();
-      if (q.length < 2) { results.innerHTML = ""; status.textContent = "Type a word or a question."; return; }
-      timer = setTimeout(function () { doQuery(q); }, 180);
-    }
-    function showLoading(msg) {
-      status.textContent = "";
-      results.innerHTML =
-        '<div class="ss-loading"><span class="ss-spinner"></span>' +
-        '<span class="ss-loading-msg"></span></div>';
-      results.querySelector(".ss-loading-msg").textContent = msg;
-    }
-    // Update the centred loading text in place (used for download progress).
-    function setLoadingMsg(msg) {
-      var m = results.querySelector(".ss-loading-msg");
-      if (m) m.textContent = msg;
-    }
-    // What to show while we wait, given what the worker is currently doing.
-    function waitingMsg() {
-      if (workerReady) return "Ranking results by meaning…";
-      if (dlPct >= 0) return "Downloading search model — " + dlPct + "%";
-      return "Starting search…";
-    }
-    async function doQuery(q) {
-      var runId = ++lastRun;
-      try {
-        var lex = await runLexical(q); // instant, main thread
-        if (runId !== lastRun) return;
-        var w = getWorker();
-        if (w && !workerFailed && lex.pool.length) {
-          // Don't present the provisional keyword order as final — hold the view
-          // with a loading state until the reranker returns the real ranking.
-          pending = { id: runId, pool: lex.pool.map(function (h) { return h.doc; }), terms: lex.terms, q: q, lexHits: lex.hits };
-          showLoading(waitingMsg());
-          setStage("", false); // centred loading message is enough — no duplicate in the footer
-          w.postMessage({
-            type: "rerank", id: runId, q: q,
-            docs: pending.pool.map(function (d) { return d.title + ". " + d.section + ". " + d.content; }),
-          });
-          clearTimeout(rerankTimer);
-          rerankTimer = setTimeout(function () {
-            if (pending && pending.id === lastRun) fallbackToKeyword("ranking took too long");
-          }, 60000);
-        } else {
-          // No reranker (or no keyword candidates) → show what we have.
-          render(lex, q);
-          setStage(lex.hits.length ? "Keyword results" : "", false);
+  // ---- native DOM ---------------------------------------------------------
+  function resultList() { return document.querySelector(".md-search-result__list"); }
+  function metaEl() { return document.querySelector(".md-search-result__meta"); }
+  function searchInput() { return document.querySelector(".md-search__input"); }
+  function items(list) {
+    return list ? [].slice.call(list.querySelectorAll(":scope > li.md-search-result__item")) : [];
+  }
+
+  // Material rewrites the meta line on every render, so keep our note appended
+  // to its text ("20 matching documents") rather than replacing it.
+  var META_SEP = " · ";
+  function baseMeta(el) {
+    var t = el.textContent || "";
+    var i = t.indexOf(META_SEP);
+    return i === -1 ? t : t.slice(0, i);
+  }
+  function setMetaNote(note) {
+    var el = metaEl();
+    if (!el) return;
+    el.textContent = note ? baseMeta(el) + META_SEP + note : baseMeta(el);
+  }
+
+  // ---- worker -------------------------------------------------------------
+  var worker = null, workerReady = false, workerFailed = false, warmSent = false;
+  var runId = 0, pending = null;
+  var lastTerms = [];
+
+  function getWorker() {
+    if (worker || workerFailed) return worker;
+    try {
+      worker = new Worker(withBase(WORKER_URL), { type: "module" });
+    } catch (e) { workerFailed = true; return null; }
+
+    worker.onmessage = function (ev) {
+      var m = ev.data || {};
+      if (m.type === "progress") {
+        if (!workerReady) setMetaNote("loading semantic ranking " + m.pct + "%");
+      } else if (m.type === "status") {
+        if (m.text === "ready") {
+          workerReady = true;
+          setMetaNote("");
+          rerankNow(); // rank whatever is already on screen
         }
-      } catch (e) {
-        if (runId === lastRun) status.textContent = "Error: " + e.message;
+      } else if (m.type === "rerank") {
+        if (!pending || m.id !== pending.id || m.id !== runId) return; // superseded
+        applyOrder(m.order, pending);
+        pending = null;
+      } else if (m.type === "error") {
+        // Ranking failed. Material's keyword order stands — say so rather than
+        // letting it look semantically ranked.
+        pending = null;
+        setMetaNote("keyword order (ranking unavailable)");
+      }
+    };
+    worker.onerror = function () {
+      workerFailed = true; pending = null;
+      setMetaNote("keyword order (ranking unavailable)");
+    };
+    return worker;
+  }
+
+  function warmSearch() {
+    if (warmSent) return;
+    var w = getWorker();
+    if (!w) return;
+    warmSent = true;
+    w.postMessage({ type: "warm" });
+  }
+
+  // ---- rerank + reorder ---------------------------------------------------
+  var observer = null;
+
+  function applyOrder(order, ctx) {
+    var list = resultList();
+    if (!list) return;
+    var live = items(list);
+    // Material may have re-rendered since we asked; only reorder if the list we
+    // reasoned about is still the one on screen.
+    if (live.length !== ctx.liveCount) return;
+
+    // `order` ranks PASSAGES, several of which may belong to the same page. The
+    // first time a page appears is its best-scoring section, so taking first
+    // appearances ranks pages by their strongest section.
+    var ranked = [], seen = new Set();
+    for (var i = 0; i < order.length; i++) {
+      var node = ctx.owners[order[i]];
+      if (!node || seen.has(node) || node.parentNode !== list) continue;
+      seen.add(node);
+      ranked.push(node);
+    }
+    if (!ranked.length) return;
+
+    // Anything beyond POOL was not reranked; it keeps its order, below.
+    var inRanked = new Set(ranked);
+    var rest = live.filter(function (n) { return !inRanked.has(n); });
+
+    var frag = document.createDocumentFragment();
+    ranked.forEach(function (n) { frag.appendChild(n); });
+    rest.forEach(function (n) { frag.appendChild(n); });
+
+    // Our own mutation must not retrigger the observer.
+    if (observer) observer.disconnect();
+    list.appendChild(frag);
+    setMetaNote("ranked by meaning");
+    observe();
+  }
+
+  async function rerankNow() {
+    var input = searchInput();
+    var list = resultList();
+    if (!input || !list) return;
+    var q = (input.value || "").trim();
+    var live = items(list);
+    if (q.length < 2 || live.length < 2) return;
+
+    var w = getWorker();
+    if (!w || workerFailed) return;
+    // Model still downloading: Material's order stands and the meta line already
+    // shows progress. Queuing here would only produce stale work.
+    if (!workerReady) return;
+
+    var id = ++runId;
+    var s;
+    try { s = await initLite(); } catch (e) { return; }
+    if (id !== runId) return;
+
+    var terms = queryTerms(s, q);
+    lastTerms = terms;
+
+    // Build the candidate list at SECTION granularity, several per page, then let
+    // the reranker decide which section (and therefore which page) wins.
+    //
+    // Only pages we hold real content for are included. Nav-only index pages
+    // ("Getting Started", "Procedures") are deliberately absent from the index —
+    // they are tables of contents, not answers. Scoring them on scraped DOM text
+    // let the reranker promote a stub above the page that actually answered the
+    // query, so they are excluded and sink below the ranked results instead.
+    var owners = [], docs = [];
+    for (var i = 0; i < live.length && docs.length < POOL; i++) {
+      var a = live[i].querySelector("a.md-search-result__link");
+      if (!a) continue;
+      var recs = topChunks(s, pathOf(a.getAttribute("href") || ""), terms, SECTIONS_PER_PAGE);
+      for (var k = 0; k < recs.length && docs.length < POOL; k++) {
+        owners.push(live[i]); // which <li> this passage belongs to
+        docs.push(recs[k].title + ". " + recs[k].section + ". " + recs[k].content);
       }
     }
-    function render(res, q) {
-      results.innerHTML = "";
-      if (!res.hits.length) { status.textContent = "No matches."; return; }
-      status.textContent = "";
-      res.hits.forEach(function (h) {
-        var a = el("a", { class: "ss-hit", href: withBase(h.doc.url) });
-        var snip = h.doc.content.length > 220 ? h.doc.content.slice(0, 220) + "…" : h.doc.content;
-        a.innerHTML =
-          '<div class="ss-hit-title">' + escapeHtml(h.doc.title) +
-          (h.doc.section ? ' <span class="ss-hit-sec">› ' + escapeHtml(h.doc.section) + "</span>" : "") +
-          "</div>" +
-          '<div class="ss-hit-snip">' + escapeHtml(snip) + "</div>";
-        a.addEventListener("click", function () {
-          var anchor = h.doc.url.split("#")[1] || "";
-          var path = null;
-          try { path = new URL(a.href).pathname; } catch (e) {}
-          close();
-          if (path && path === window.location.pathname) {
-            setTimeout(function () { try { highlightSection(anchor, res.terms); } catch (e) {} }, 160);
-          } else {
-            try {
-              sessionStorage.setItem("ss:hl", JSON.stringify({ path: path, anchor: anchor, terms: res.terms }));
-            } catch (e) {}
-          }
-        });
-        results.appendChild(a);
-      });
+    if (docs.length < 2) return; // nothing meaningful to reorder
+
+    pending = { id: id, owners: owners, liveCount: live.length, q: q, terms: terms };
+    w.postMessage({ type: "rerank", id: id, q: q, docs: docs });
+  }
+
+  // ---- passage highlight on the destination page --------------------------
+  function rememberHighlight(a) {
+    var href = a.getAttribute("href") || "";
+    var anchor = href.split("#")[1] || "";
+    var path = pathOf(href);
+    var terms = lastTerms;
+    if (path === window.location.pathname) {
+      setTimeout(function () { try { highlightSection(anchor, terms); } catch (e) {} }, 160);
+    } else {
+      try {
+        sessionStorage.setItem("ss:hl", JSON.stringify({ path: path, anchor: anchor, terms: terms }));
+      } catch (e) {}
     }
-    input.addEventListener("input", schedule);
   }
 
-  /** Make the theme's header search box open our modal. */
-  function wireHeaderSearch() {
-    var input = document.querySelector(".md-search__input");
-    if (!input || input.getAttribute("data-ss-wired")) return !!input;
-    input.setAttribute("data-ss-wired", "1");
-    input.setAttribute("placeholder", "Search");
-    var grab = function (e) {
-      if (!openModal) return;
-      e.preventDefault();
-      var v = input.value.trim();
-      input.value = "";
-      input.blur();
-      openModal(v);
-    };
-    input.addEventListener("focus", grab);
-    input.addEventListener("click", grab);
-    return true;
-  }
-
-  /** Fallback launcher, only if the header search box isn't present. */
-  function ensureLauncher() {
-    if (document.getElementById("ss-launch")) return;
-    var b = el("button", { id: "ss-launch", title: "Search", "aria-label": "Search" });
-    b.innerHTML =
-      '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M12 2a7 7 0 0 1 5.6 11.2l4.1 4.1-1.4 1.4-4.1-4.1A7 7 0 1 1 12 2m0 2a5 5 0 1 0 0 10 5 5 0 0 0 0-10Z"/></svg>' +
-      "<span>Search</span>";
-    b.addEventListener("click", function () { openModal && openModal(""); });
-    document.body.appendChild(b);
-  }
-
-  // ---- destination-page passage highlight ---------------------------------
   function highlightSection(anchor, terms) {
     var content = document.querySelector(".md-content__inner");
     if (!content) return;
@@ -425,27 +359,48 @@
     }, 80);
   }
 
-  var warmed = false;
-  function boot() {
-    if (!document.getElementById("ss-overlay")) buildUI();
-    if (!wireHeaderSearch()) ensureLauncher();
-    applyPendingHighlight();
-    // Start fetching the model immediately. The one-time download is ~9 s, and it
-    // all happens in the worker — it cannot block the UI thread — so there is
-    // nothing to gain by waiting for requestIdleCallback (whose no-rIC fallback
-    // was a flat 1.5 s delay, and which on a page doing instant-nav + Mermaid can
-    // be several seconds away). Earlier start = more of it done before the first
-    // search. `warmSearch` is idempotent.
-    if (!warmed && warmSearch) {
-      warmed = true;
-      try { warmSearch(); } catch (e) {}
-    }
+  // ---- wiring -------------------------------------------------------------
+  var debounceTimer = null;
+  function scheduleRerank() {
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(rerankNow, DEBOUNCE);
   }
+
+  function observe() {
+    var list = resultList();
+    if (!list) return;
+    if (!observer) observer = new MutationObserver(scheduleRerank);
+    observer.observe(list, { childList: true });
+  }
+
+  var wired = false;
+  function boot() {
+    applyPendingHighlight();
+    if (wired) return;
+    var list = resultList();
+    if (!list) return; // search plugin disabled — nothing to enhance
+    wired = true;
+
+    observe();
+
+    // Remember which passage to flash on the destination page.
+    list.addEventListener("click", function (e) {
+      var a = e.target && e.target.closest ? e.target.closest("a.md-search-result__link") : null;
+      if (a) rememberHighlight(a);
+    });
+
+    // Start the model download immediately: it runs in the worker and cannot
+    // block the UI, and Material's keyword results are usable meanwhile.
+    warmSearch();
+    initLite().catch(function () {});
+  }
+
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", boot);
   } else {
     boot();
   }
+  // Material's instant navigation swaps the page but keeps this module alive.
   if (window.document$ && window.document$.subscribe) {
     window.document$.subscribe(boot);
   }

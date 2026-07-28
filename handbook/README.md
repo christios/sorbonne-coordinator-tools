@@ -54,22 +54,42 @@ uv run --with mkdocs-material mkdocs build --config-file mkdocs.yml --site-dir .
 Runs **entirely in the browser** — no backend, no API key, nothing leaves the
 user's machine. Two stages, so it always feels fast:
 
-1. **Instant keyword** — idf-weighted term ranking on the main thread, no model.
-2. **Ranked by meaning** — a cross-encoder reranks the candidates once the model
-   is loaded.
+1. **Instant keyword** — Material's own search retrieves and renders.
+2. **Ranked by meaning** — a cross-encoder reorders those results once the model
+   is loaded. The meta line says which stage you are looking at.
+
+### The UI is Material's; we only supply the order
+
+`semantic-search.js` adds **no search chrome of its own**. The header box, the
+dropdown, the teasers, the `<mark>` term highlighting and the "N more on this
+page" sections are all the theme's. When the reranker returns, we **reorder the
+existing `<li>` nodes** rather than re-rendering the list.
+
+That is deliberate. Rebuilding the markup means reimplementing highlighting and
+teasers, and it lets a second retrieval disagree with what is on screen; by
+reordering, every ranked item is by definition already in the DOM. An earlier
+version shipped a custom modal instead and had to fight the theme for both.
 
 ### Retrieve → rerank
 
 The standard two-stage design — cheap high-recall retrieval, then a small precise
-reranker — except the retriever here is **lexical, not neural**:
+reranker — except the retriever here is **Material's own keyword search**:
 
-- **Retriever:** keyword (idf term-coverage) over the text index, main thread, no
-  model → top-12 candidates. On this 111-chunk corpus, retrieving 12 of 111 covers
-  even paraphrased queries.
-- **Reranker:** `Xenova/ms-marco-MiniLM-L-6-v2` cross-encoder re-scores those
-  candidates reading `[query, passage]` **jointly**. This is what separates
-  near-duplicates like *student-name* vs *course-name* consistency, which keyword
-  and bi-encoder rankings both get wrong.
+- **Retriever:** Material returns one `<li>` per matching page (typically 14–21 of
+  21 pages), which is ample recall on a corpus this small.
+- **Reranker:** `Xenova/ms-marco-MiniLM-L-6-v2` cross-encoder re-scores candidates
+  reading `[query, passage]` **jointly**. This is what separates near-duplicates
+  like *student-name* vs *course-name* consistency, which keyword and bi-encoder
+  rankings both get wrong.
+- **Granularity:** Material ranks pages, the index is chunked per `<h2>` section,
+  so up to `SECTIONS_PER_PAGE` (3) sections per page go to the reranker and each
+  page is ranked by its **best** section. Pre-picking one section by keyword
+  overlap was measurably worse: for *"can a student resit a course they passed"*
+  it selected a section that merely repeated the query's words and pushed the
+  Catch-up exams page to #2.
+- **Nav-only pages** (`Getting Started`, `Procedures`) are excluded from the index
+  and from reranking. They are tables of contents, not answers; scoring them on
+  scraped DOM text promoted a stub above the page that answered the query.
 
 **Why the neural retriever was dropped.** Lexical recall + the cross-encoder put
 every tested query at #1, including hard paraphrases ("stop a pupil retaking a
@@ -95,6 +115,10 @@ Per query, in the worker, on real passages at a fixed `[12, 256]` batch:
 | WASM q8 (23 MB) | 5500–5900 ms |
 | WebGPU fp32 (91 MB) | 92–97 ms |
 | **WebGPU fp16 (46 MB)** | **47–48 ms** ← used |
+
+(Those are a 12-passage batch. At the 24-passage batch actually shipped, WebGPU
+fp16 measures 147–178 ms per query — still imperceptible, and it buys the
+section-level ranking described above.)
 
 transformers.js **defaults to WASM even where WebGPU works**, so the backend is
 selected explicitly via a `requestAdapter()` probe, with a try/catch fallback to
