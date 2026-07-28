@@ -1,0 +1,146 @@
+# SCEN Coordinator Handbook
+
+[MkDocs Material](https://squidfunk.github.io/mkdocs-material/) source for the
+Science & Engineering (SCEN) coordinator handbook, served by the platform at
+`/handbook/`.
+
+This directory is the maintained source. It was imported from a non-versioned
+local MkDocs project — do not treat that external folder as authoritative. The
+email archive the content was distilled from is deliberately **not** in this
+repository and must not be added.
+
+## Layout
+
+```
+handbook/
+├── mkdocs.yml              # site config + navigation
+├── docs/                   # content (Markdown)
+│   ├── index.md            # home
+│   ├── getting-started/    # onboarding, systems, glossary, contacts
+│   ├── procedures/         # step-by-step task walkthroughs
+│   ├── reference/          # annual cycle, known issues
+│   ├── assets/search/      # search widget + generated index
+│   └── stylesheets/
+├── search/                 # build-time tooling (not shipped to the site)
+│   └── build_index.mjs     # built HTML → section chunks → search-data.json
+├── build_search.sh         # mkdocs build → index
+└── _site/                  # local build output (git-ignored)
+```
+
+## Preview and build
+
+```bash
+uv run --with mkdocs-material mkdocs serve --dev-addr 127.0.0.1:8001
+```
+
+The deployment artifact is built into `backend/handbook-dist/` (git-ignored), not
+`_site/`:
+
+```bash
+uv run --with mkdocs-material mkdocs build --config-file mkdocs.yml --site-dir ../backend/handbook-dist
+```
+
+## Editing
+
+- Content is plain Markdown in `docs/`. Save and `mkdocs serve` hot-reloads.
+- To add a page, create the `.md` file and add it to `nav:` in `mkdocs.yml`.
+- Diagrams use fenced ` ```mermaid ` blocks (rendered natively by Material).
+- Callouts use `!!! note` / `!!! warning` / `!!! tip` admonitions.
+- **After editing content, run `./build_search.sh`** so the committed
+  `search-data.json` matches. One-time setup: `cd search && npm install`.
+
+## Search
+
+Runs **entirely in the browser** — no backend, no API key, nothing leaves the
+user's machine. Two stages, so it always feels fast:
+
+1. **Instant keyword** — idf-weighted term ranking on the main thread, no model.
+2. **Ranked by meaning** — a cross-encoder reranks the candidates once the model
+   is loaded.
+
+### Retrieve → rerank
+
+The standard two-stage design — cheap high-recall retrieval, then a small precise
+reranker — except the retriever here is **lexical, not neural**:
+
+- **Retriever:** keyword (idf term-coverage) over the text index, main thread, no
+  model → top-12 candidates. On this 111-chunk corpus, retrieving 12 of 111 covers
+  even paraphrased queries.
+- **Reranker:** `Xenova/ms-marco-MiniLM-L-6-v2` cross-encoder re-scores those
+  candidates reading `[query, passage]` **jointly**. This is what separates
+  near-duplicates like *student-name* vs *course-name* consistency, which keyword
+  and bi-encoder rankings both get wrong.
+
+**Why the neural retriever was dropped.** Lexical recall + the cross-encoder put
+every tested query at #1, including hard paraphrases ("stop a pupil retaking a
+module they already cleared" → Catch-up rules #1). A near-duplicate collision the
+bi-encoder couldn't resolve (0.001–0.013 cosine, and it flipped between Node and
+browser) the cross-encoder decides by whole-number logit margins. Earlier
+iterations shipped e5-base (265 MB), then e5-small+rerank (135 MB); the retriever
+never needed to be neural for a corpus this small.
+
+- **Index:** `docs/assets/search/search-data.json` — text only, no embeddings
+  (~75 KB, committed). The build loads no model, so it is instant.
+- **Passage highlight:** clicking a result deep-links to the section *and* briefly
+  highlights the most relevant blocks within it (paragraphs / list items / table
+  cells only — never per-word, which carpet-highlights single letters). Fades
+  after ~6 s. Works same-page and cross-page.
+
+### Performance — measured, not guessed
+
+Per query, in the worker, on real passages at a fixed `[12, 256]` batch:
+
+| Backend | Per query |
+| --- | --- |
+| WASM q8 (23 MB) | 5500–5900 ms |
+| WebGPU fp32 (91 MB) | 92–97 ms |
+| **WebGPU fp16 (46 MB)** | **47–48 ms** ← used |
+
+transformers.js **defaults to WASM even where WebGPU works**, so the backend is
+selected explicitly via a `requestAdapter()` probe, with a try/catch fallback to
+WASM q8. fp16 ranking is identical to q8 (and fp16 is the higher-precision of the
+two), so there is no quality cost.
+
+Two things that turned out **not** to be the bottleneck, contrary to what earlier
+versions of this file claimed:
+
+- **Cross-origin isolation (COOP/COEP).** Multi-threaded WASM would speed up a
+  path we no longer take. Not worth the hosting constraints.
+- **Worker vs main thread.** Workers run at low thread QoS, so on Apple Silicon
+  WASM inference lands on efficiency cores — the same batch took 1360 ms on the
+  main thread vs 5900 ms in the worker. WebGPU sidesteps this entirely.
+
+The remaining first-use cost is the one-time ~46 MB model download, not compute.
+
+### Two invariants worth keeping
+
+**All worker inference must be serialised.** `self.onmessage = async (…)` does
+*not* queue — every message starts its own invocation immediately. Two concurrent
+`model()` calls on one ONNX session throw `Session already started`, and the
+losing call never resolves, so the UI hangs until the timeout. The worker funnels
+every session call through a single promise chain and drops superseded queries
+*after* acquiring the lock.
+
+**Batch shapes must stay fixed.** onnxruntime compiles a graph per distinct input
+shape. `padding: "max_length"` with a constant pool size means it compiles once;
+padding to the longest candidate per query made it recompile constantly, which
+alone cost 1–5 s per search.
+
+### Runtime dependencies (CDN)
+
+The widget loads transformers.js from **jsDelivr** and the reranker weights from
+the **Hugging Face** CDN on first use (~46 MB on WebGPU, ~23 MB on the WASM
+fallback), cached afterwards. This needs outbound internet from the viewer's
+browser. For a fully offline / air-gapped host, vendor the library and point
+transformers.js `env.localModelPath` at a local copy of the model — not done.
+
+## Editorial rules
+
+- **Procedures are generalised.** Steps use roles and examples, not individual
+  student cases.
+- **Staff and partner contact names are kept** (operationally essential), but
+  **student names, disciplinary case details, and personal grievances are
+  excluded.** Keep it that way — this is shareable within the coordinator team.
+- Time-sensitive facts (partnerships, systems, deadlines) are flagged in-page —
+  especially the Université Paris Cité → Paris-Panthéon-Assas transition, which
+  will change Bachelor grade routing and contacts.
