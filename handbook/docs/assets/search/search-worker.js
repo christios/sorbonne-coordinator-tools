@@ -52,12 +52,17 @@ const CPU_DTYPE = "q8";
  * p90 ~239. POOL must match POOL in semantic-search.js; short pools are padded
  * with empty passages and their scores discarded.
  *
- * POOL is 24 because the caller reranks several SECTIONS per candidate page and
- * keeps each page's best, rather than pre-picking one section by keyword overlap
- * (which chose the wrong section for paraphrased questions). Doubling the batch
- * costs ~50ms on WebGPU and buys back the ranking quality.
+ * POOL is 64 because the caller reranks EVERY section of each candidate page,
+ * not a keyword-chosen subset. Keyword shortlisting was the problem it solves:
+ * Material scores "Identity cross-checks" at 0.35 (last of six) for "student
+ * names inconsistent", and a keyword shortlist agreed, so the section that
+ * actually answers never reached the reranker. 64 covers ~11 pages outright
+ * (19 pages, mean 5.8 sections).
+ *
+ * Measured cost of the batch on WebGPU fp16, this corpus:
+ *   24 -> 100ms   48 -> 210ms   64 -> ~265ms   80 -> 322ms   111 (all) -> 522ms
  */
-const POOL = 24;
+const POOL = 64;
 const MAX_LEN = 256;
 
 let latest = 0;

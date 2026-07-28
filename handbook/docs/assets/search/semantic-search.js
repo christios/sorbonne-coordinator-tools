@@ -26,9 +26,8 @@
   // ---- config -------------------------------------------------------------
   var DATA_URL = "assets/search/search-data.json";
   var WORKER_URL = "assets/search/search-worker.js";
-  var POOL = 24;              // MUST match POOL in search-worker.js (fixed batch shape)
-  var SECTIONS_PER_PAGE = 3;  // passages per candidate page; the reranker picks the winner
-  var DEBOUNCE = 90;          // ms, to coalesce Material's re-renders
+  var POOL = 64;      // MUST match POOL in search-worker.js (fixed batch shape)
+  var DEBOUNCE = 90;  // ms, to coalesce Material's re-renders
 
   var STOP = new Set(
     ("the a an of to in on for and or is are be do does how what who when where which that this " +
@@ -104,24 +103,17 @@
     return all.map(function (t) { return { t: t, idf: Math.log((s.N + 1) / (s.dfOf(t) + 1)) }; });
   }
 
-  /**
-   * The `n` sections of `path` most likely to answer the query, best first.
-   *
-   * Keyword overlap is only a shortlist here, not the decision: picking a single
-   * section this way chose the wrong one for paraphrased questions (asking about
-   * resitting a passed course selected a section that merely repeated the query's
-   * words). We hand several to the cross-encoder and let it judge.
-   */
-  function topChunks(s, path, terms, n) {
+  /** Every indexed section of `path`, page intro first. */
+  function chunksOf(s, path) {
     var idxs = s.byPath[path];
     if (!idxs || !idxs.length) return [];
-    var scored = idxs.map(function (i) {
-      var score = 0;
-      for (var j = 0; j < terms.length; j++) if (hasTerm(s.hay[i], terms[j].t)) score += terms[j].idf;
-      return { i: i, score: score };
-    });
-    scored.sort(function (a, b) { return b.score - a.score; });
-    return scored.slice(0, n).map(function (x) { return s.records[x.i]; });
+    return idxs.map(function (i) { return s.records[i]; });
+  }
+
+  /** Compare DOM hrefs and index URLs on the same footing. */
+  function urlKey(u) {
+    try { var x = new URL(u, window.location.href); return x.pathname + x.hash; }
+    catch (e) { return u || ""; }
   }
 
   // ---- native DOM ---------------------------------------------------------
@@ -206,13 +198,16 @@
 
     // `order` ranks PASSAGES, several of which may belong to the same page. The
     // first time a page appears is its best-scoring section, so taking first
-    // appearances ranks pages by their strongest section.
-    var ranked = [], seen = new Set();
+    // appearances ranks pages by their strongest section — and the full sequence
+    // per page gives that page's internal section order.
+    var ranked = [], seen = new Set(), byPage = new Map();
     for (var i = 0; i < order.length; i++) {
-      var node = ctx.owners[order[i]];
-      if (!node || seen.has(node) || node.parentNode !== list) continue;
-      seen.add(node);
-      ranked.push(node);
+      var idx = order[i];
+      var node = ctx.owners[idx];
+      if (!node || node.parentNode !== list) continue;
+      if (!byPage.has(node)) byPage.set(node, []);
+      byPage.get(node).push(ctx.keys[idx]);
+      if (!seen.has(node)) { seen.add(node); ranked.push(node); }
     }
     if (!ranked.length) return;
 
@@ -224,11 +219,71 @@
     ranked.forEach(function (n) { frag.appendChild(n); });
     rest.forEach(function (n) { frag.appendChild(n); });
 
-    // Our own mutation must not retrigger the observer.
+    // Our own mutations must not retrigger the observer.
     if (observer) observer.disconnect();
     list.appendChild(frag);
+    byPage.forEach(function (keys, node) { orderSections(node, keys); });
     setMetaNote("ranked by meaning");
     observe();
+  }
+
+  /**
+   * Order one result's sections, and lift its best one into view.
+   *
+   * Material shows the page link, then hides every matching section behind a
+   * "N more on this page" toggle, ordered by its own keyword score. That buries
+   * the answer whenever keyword scoring disagrees with meaning — the reported
+   * case being "student names inconsistent", where the section that answers it
+   * sat last in a collapsed list. So the best-ranked section is promoted to a
+   * direct child of the <li>, where it renders in Material's own style, and the
+   * remainder are reordered inside the toggle.
+   */
+  function orderSections(li, keys) {
+    var det = li.querySelector("details.md-search-result__more");
+    if (!det) return;
+    var links = [].slice.call(li.querySelectorAll(":scope > a.md-search-result__link"));
+    var pageLink = links[0];
+
+    // Material already promotes a section of its own choosing to a direct child.
+    // Put any such section back in the toggle first, so we replace its pick
+    // rather than adding a second visible section next to it.
+    for (var d = 1; d < links.length; d++) det.appendChild(links[d]);
+
+    var byKey = {};
+    [].forEach.call(li.querySelectorAll("a.md-search-result__link"), function (a) {
+      var k = urlKey(a.getAttribute("href"));
+      if (!byKey[k]) byKey[k] = a;
+    });
+
+    // Promote the best section — unless the page intro itself won, in which case
+    // what is already visible is the right thing to show.
+    for (var i = 0; i < keys.length; i++) {
+      var a = byKey[keys[i]];
+      if (!a) continue;
+      if (a === pageLink) break;          // page intro ranked highest; leave as is
+      if (a.parentNode === det) li.insertBefore(a, det);
+      break;
+    }
+
+    // Reorder whatever is left in the toggle; unranked links keep their order.
+    var all = [].slice.call(det.querySelectorAll("a.md-search-result__link"));
+    var seq = [];
+    keys.forEach(function (k) {
+      var a = byKey[k];
+      if (a && all.indexOf(a) !== -1 && seq.indexOf(a) === -1) seq.push(a);
+    });
+    all.forEach(function (a) { if (seq.indexOf(a) === -1) seq.push(a); });
+    var frag = document.createDocumentFragment();
+    seq.forEach(function (a) { frag.appendChild(a); });
+    det.appendChild(frag);
+
+    // Keep Material's "N more on this page" count honest after promoting one.
+    var label = det.querySelector("summary div") || det.querySelector("summary");
+    if (label) {
+      var left = det.querySelectorAll("a.md-search-result__link").length;
+      if (!left) det.hidden = true;
+      else label.textContent = label.textContent.replace(/\d+/, String(left));
+    }
   }
 
   async function rerankNow() {
@@ -253,27 +308,34 @@
     var terms = queryTerms(s, q);
     lastTerms = terms;
 
-    // Build the candidate list at SECTION granularity, several per page, then let
-    // the reranker decide which section (and therefore which page) wins.
+    // Rerank at SECTION granularity — EVERY section of each candidate page, in
+    // Material's page order, until the batch is full. Both the page order and the
+    // section order fall out of the single ranking that comes back.
+    //
+    // Shortlisting sections by keyword first was the bug this replaces: Material
+    // scores "Identity cross-checks" last of six for "student names inconsistent"
+    // and a keyword shortlist agreed, so the one section that answers the query
+    // never reached the reranker at all.
     //
     // Only pages we hold real content for are included. Nav-only index pages
     // ("Getting Started", "Procedures") are deliberately absent from the index —
     // they are tables of contents, not answers. Scoring them on scraped DOM text
     // let the reranker promote a stub above the page that actually answered the
     // query, so they are excluded and sink below the ranked results instead.
-    var owners = [], docs = [];
+    var owners = [], keys = [], docs = [];
     for (var i = 0; i < live.length && docs.length < POOL; i++) {
       var a = live[i].querySelector("a.md-search-result__link");
       if (!a) continue;
-      var recs = topChunks(s, pathOf(a.getAttribute("href") || ""), terms, SECTIONS_PER_PAGE);
+      var recs = chunksOf(s, pathOf(a.getAttribute("href") || ""));
       for (var k = 0; k < recs.length && docs.length < POOL; k++) {
-        owners.push(live[i]); // which <li> this passage belongs to
+        owners.push(live[i]);                      // which <li> this passage belongs to
+        keys.push(urlKey(withBase(recs[k].url)));  // which link within that <li>
         docs.push(recs[k].title + ". " + recs[k].section + ". " + recs[k].content);
       }
     }
     if (docs.length < 2) return; // nothing meaningful to reorder
 
-    pending = { id: id, owners: owners, liveCount: live.length, q: q, terms: terms };
+    pending = { id: id, owners: owners, keys: keys, liveCount: live.length, q: q, terms: terms };
     w.postMessage({ type: "rerank", id: id, q: q, docs: docs });
   }
 

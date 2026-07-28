@@ -81,12 +81,20 @@ reranker — except the retriever here is **Material's own keyword search**:
   reading `[query, passage]` **jointly**. This is what separates near-duplicates
   like *student-name* vs *course-name* consistency, which keyword and bi-encoder
   rankings both get wrong.
-- **Granularity:** Material ranks pages, the index is chunked per `<h2>` section,
-  so up to `SECTIONS_PER_PAGE` (3) sections per page go to the reranker and each
-  page is ranked by its **best** section. Pre-picking one section by keyword
-  overlap was measurably worse: for *"can a student resit a course they passed"*
-  it selected a section that merely repeated the query's words and pushed the
-  Catch-up exams page to #2.
+- **Granularity:** the index is chunked per `<h2>` section, and **every** section
+  of each candidate page is reranked (batch of 64, ~11 pages). Both the page order
+  and each page's internal section order come out of that single ranking.
+  Shortlisting sections by keyword first does not work — Material scores
+  *Identity cross-checks* last of six for *"student names inconsistent"*, and a
+  keyword shortlist agrees, so the one section that answers never reaches the
+  reranker.
+- **The best section is promoted into view.** Material shows the page link and
+  hides matching sections behind a "N more on this page" toggle, ordered by its
+  own keyword score — which buries the answer. The top-ranked section is moved to
+  a direct child of the `<li>`, where it renders in Material's own style, and the
+  rest are reordered inside the toggle (its count is corrected too). Material
+  already promotes a section of its own choosing, so that one is put back in the
+  toggle first; otherwise a result ends up showing two.
 - **Nav-only pages** (`Getting Started`, `Procedures`) are excluded from the index
   and from reranking. They are tables of contents, not answers; scoring them on
   scraped DOM text promoted a stub above the page that answered the query.
@@ -116,9 +124,10 @@ Per query, in the worker, on real passages at a fixed `[12, 256]` batch:
 | WebGPU fp32 (91 MB) | 92–97 ms |
 | **WebGPU fp16 (46 MB)** | **47–48 ms** ← used |
 
-(Those are a 12-passage batch. At the 24-passage batch actually shipped, WebGPU
-fp16 measures 147–178 ms per query — still imperceptible, and it buys the
-section-level ranking described above.)
+Those are a 12-passage batch. Batch size scales the cost roughly linearly on this
+corpus — 24 → 100 ms, 48 → 210 ms, **64 → ~265 ms (shipped)**, 80 → 322 ms, and
+all 111 chunks → 522 ms. 64 covers about 11 pages' sections outright, which is
+what the section-level ranking above needs.
 
 transformers.js **defaults to WASM even where WebGPU works**, so the backend is
 selected explicitly via a `requestAdapter()` probe, with a try/catch fallback to
