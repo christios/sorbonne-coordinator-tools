@@ -211,11 +211,38 @@ marks `example` for "exam", `listen` for "list", `market` for "mark" and
 `graduate` for "grade". The Porter version was checked against the full 1739-word
 corpus vocabulary with no false positives.
 
-**Remaining accepted limitation.** *Retrieval* is still literal-prefix, so
-`transferring` returns nothing on a page that says "transfer". Ordering is
-unaffected — the reranker compensates whenever search returns anything at all — so
-only true zero-result queries suffer. Fixing those means our own fallback
-retrieval, which was considered and deliberately not built.
+### Supplementary retrieval
+
+Material's under-retrieval is corrected rather than accepted. Because its matching
+is literal-prefix, it does not merely order things badly — it never considers them:
+
+| Query | Material alone | With supplement |
+| --- | --- | --- |
+| `transferring` | **0 results** | 5, top = Grade corrections ("the grade-**transfer** tool") |
+| `listing` | **0 results** | 6 |
+| `clearing` | **0 results** | 1 (Staffing & contracts — *clearance*) |
+| `grading` | 7, missing the main grade pages | 8, Grades PVs & transcripts at #3 |
+
+So `semantic-search.js` runs its own stem-aware pass over the whole index and adds
+any page Material missed to the candidate pool. Two design points worth keeping:
+
+- **It is a supplement, not a fallback.** It always runs. A "too few results"
+  trigger would not have fired on `grading` — seven results looks perfectly
+  healthy while the pages that answer the query are silently absent.
+- **Added pages must earn their place.** They are only rendered if the reranker
+  puts them in the top `ADD_RANK_CUTOFF` (8); at most `MAX_ADDED` (6) are
+  considered. Otherwise a stem-aware pass would pad every search with weak hits.
+
+Added results are built in Material's own markup, so they are indistinguishable
+from its own, and the meta line says how many were added. When Material matched
+nothing at all it also hides the result list and reports "No matching documents",
+so both are reset.
+
+!!! warning "The MutationObserver alone is not enough"
+    Reranking is triggered by observing Material's result list *and* by listening
+    to the search input. Both are needed: when Material matches nothing it renders
+    nothing, so moving from one zero-result query to the next mutates no DOM and
+    the observer never fires — exactly when the supplement matters most.
 
 ### Runtime dependencies (CDN)
 

@@ -26,8 +26,10 @@
   // ---- config -------------------------------------------------------------
   var DATA_URL = "assets/search/search-data.json";
   var WORKER_URL = "assets/search/search-worker.js";
-  var POOL = 64;      // MUST match POOL in search-worker.js (fixed batch shape)
-  var DEBOUNCE = 90;  // ms, to coalesce Material's re-renders
+  var POOL = 64;             // MUST match POOL in search-worker.js (fixed batch shape)
+  var DEBOUNCE = 90;         // ms, to coalesce Material's re-renders
+  var MAX_ADDED = 6;         // most pages we will add beyond Material's own results
+  var ADD_RANK_CUTOFF = 8;   // an added page is only shown if it ranks this high
 
   var STOP = new Set(
     ("the a an of to in on for and or is are be do does how what who when where which that this " +
@@ -84,6 +86,17 @@
         (byPath[p] || (byPath[p] = [])).push(i);
       });
       var N = records.length;
+
+      // Stemmed token sets, for the supplementary retrieval that finds pages
+      // Material's literal-prefix matching misses (see `retrievePages`).
+      var stems = records.map(function (r) {
+        var toks = (r.title + " " + r.section + " " + r.content).toLowerCase().match(/[a-z0-9]{3,}/g) || [];
+        var set = Object.create(null);
+        for (var i = 0; i < toks.length; i++) set[porterStem(toks[i])] = 1;
+        return set;
+      });
+      var sdf = Object.create(null);
+      stems.forEach(function (set) { for (var k in set) sdf[k] = (sdf[k] || 0) + 1; });
       var DF = {};
       var dfOf = function (t) {
         if (DF[t] === undefined) {
@@ -93,7 +106,8 @@
         }
         return DF[t];
       };
-      return { records: records, hay: hay, byPath: byPath, N: N, dfOf: dfOf };
+      return { records: records, hay: hay, byPath: byPath, N: N, dfOf: dfOf,
+               stems: stems, sdf: sdf };
     })();
     return liteP;
   }
@@ -101,6 +115,97 @@
   function queryTerms(s, q) {
     var all = tokens(q).filter(function (t) { return s.dfOf(t) > 0; });
     return all.map(function (t) { return { t: t, idf: Math.log((s.N + 1) / (s.dfOf(t) + 1)) }; });
+  }
+
+  /*
+   * SUPPLEMENTARY RETRIEVAL.
+   *
+   * Material's keyword stage matches literal prefixes with no stemmer, so it
+   * silently under-retrieves: "grading" returned 7 pages and simply never
+   * considered "Grades, PVs & transcripts", "Grade corrections" or "FYS grade
+   * workflow". The reranker cannot rescue those — they were never candidates.
+   *
+   * So we run our own stem-aware pass over the whole index and add any page
+   * Material missed. This is a supplement, not a fallback: it always runs, since
+   * a threshold on "too few results" would not have fired on the `grading` case
+   * (7 results looks perfectly healthy).
+   *
+   * Added pages have to earn their place — they are kept only if the reranker
+   * puts them in the top `ADD_RANK_CUTOFF`, otherwise they are dropped again.
+   */
+  function stemTerms(q) {
+    var raw = markTerms(q), out = [], seen = Object.create(null);
+    for (var i = 0; i < raw.length; i++) {
+      var s = porterStem(raw[i]);
+      if (!seen[s]) { seen[s] = 1; out.push(s); }
+      var n = s.replace(NEG, "");           // "inconsistent" should also find "consistent"
+      if (n.length >= 4 && !seen[n]) { seen[n] = 1; out.push(n); }
+    }
+    return out;
+  }
+
+  /** Pages our stem-aware scoring considers relevant, best first. */
+  function retrievePages(s, q) {
+    var terms = stemTerms(q);
+    if (!terms.length) return [];
+    var best = Object.create(null);
+    for (var i = 0; i < s.records.length; i++) {
+      var score = 0;
+      for (var j = 0; j < terms.length; j++) {
+        if (s.stems[i][terms[j]]) score += Math.log((s.N + 1) / ((s.sdf[terms[j]] || 0) + 1));
+      }
+      if (score <= 0) continue;
+      var p = pathOf(withBase(s.records[i].url));
+      if (!(p in best) || score > best[p]) best[p] = score;
+    }
+    var out = [];
+    for (var k in best) out.push({ path: k, score: best[k] });
+    out.sort(function (a, b) { return b.score - a.score; });
+    return out;
+  }
+
+  /** A result node for a page Material did not return, in its own markup. */
+  function makeResult(s, path, terms) {
+    var recs = chunksOf(s, path);
+    if (!recs.length) return null;
+    var intro = recs[0];
+    var li = document.createElement("li");
+    li.className = "md-search-result__item ss-added";
+
+    var a = document.createElement("a");
+    a.className = "md-search-result__link";
+    a.setAttribute("href", withBase(intro.url));
+    a.setAttribute("tabindex", "-1");
+    var art = document.createElement("article");
+    art.className = "md-search-result__article md-search-result__article--document md-typeset";
+    var icon = document.createElement("div");
+    icon.className = "md-search-result__icon md-icon";
+    var h1 = document.createElement("h1");
+    h1.appendChild(document.createTextNode(intro.title));
+    art.appendChild(icon);
+    art.appendChild(h1);
+    a.appendChild(art);
+    li.appendChild(a);
+    return li;
+  }
+
+  /** The section block appended to a synthesized result, matching Material's. */
+  function makeSection(rec) {
+    var a = document.createElement("a");
+    a.className = "md-search-result__link";
+    a.setAttribute("href", withBase(rec.url));
+    a.setAttribute("tabindex", "-1");
+    var art = document.createElement("article");
+    art.className = "md-search-result__article md-typeset";
+    if (rec.section) {
+      var h = document.createElement("h2");
+      h.appendChild(document.createTextNode(rec.section));
+      art.appendChild(h);
+    }
+    var text = rec.content.length > 320 ? rec.content.slice(0, 320) + "…" : rec.content;
+    art.appendChild(document.createTextNode(text));
+    a.appendChild(art);
+    return a;
   }
 
   /** Every indexed section of `path`, page intro first. */
@@ -257,6 +362,16 @@
     catch (e) { return u || ""; }
   }
 
+  /** The index record a urlKey refers to. */
+  function recordByKey(s, key) {
+    var path = key.split("#")[0];
+    var idxs = s.byPath[path] || [];
+    for (var i = 0; i < idxs.length; i++) {
+      if (urlKey(withBase(s.records[idxs[i]].url)) === key) return s.records[idxs[i]];
+    }
+    return null;
+  }
+
   // ---- native DOM ---------------------------------------------------------
   function resultList() { return document.querySelector(".md-search-result__list"); }
   function metaEl() { return document.querySelector(".md-search-result__meta"); }
@@ -332,7 +447,8 @@
   function applyOrder(order, ctx) {
     var list = resultList();
     if (!list) return;
-    var live = items(list);
+    // Count Material's own results only — anything we added is ours to rebuild.
+    var live = items(list).filter(function (n) { return !n.classList.contains("ss-added"); });
     // Material may have re-rendered since we asked; only reorder if the list we
     // reasoned about is still the one on screen.
     if (live.length !== ctx.liveCount) return;
@@ -345,12 +461,41 @@
     for (var i = 0; i < order.length; i++) {
       var idx = order[i];
       var node = ctx.owners[idx];
-      if (!node || node.parentNode !== list) continue;
+      if (!node) continue;
+      // A synthesized candidate is a plain token, not a node, until it earns a
+      // place: only build it if the reranker put it near the top.
+      if (node.added) {
+        if (!node.el) {
+          if (ranked.length >= ADD_RANK_CUTOFF) continue;   // did not earn it
+          node.el = makeResult(ctx.index, node.path, ctx.terms);
+          if (!node.el) continue;
+          node.bestKey = ctx.keys[idx];
+        }
+        node = node.el;
+      } else if (node.parentNode !== list) continue;
+
       if (!byPage.has(node)) byPage.set(node, []);
       byPage.get(node).push(ctx.keys[idx]);
       if (!seen.has(node)) { seen.add(node); ranked.push(node); }
     }
     if (!ranked.length) return;
+
+    // Give each newly built result its best section, so it reads like the rest.
+    for (var t = 0; t < ctx.added.length; t++) {
+      var tok = ctx.added[t];
+      if (!tok.el || tok.el.childNodes.length > 1) continue;
+      var keys = byPage.get(tok.el) || [];
+      for (var kk = 0; kk < keys.length; kk++) {
+        var rec = recordByKey(ctx.index, keys[kk]);
+        if (rec && rec.section) { tok.el.appendChild(makeSection(rec)); break; }
+        if (rec && !rec.section) {                     // page intro won
+          var art = tok.el.querySelector("article");
+          var txt = rec.content.length > 320 ? rec.content.slice(0, 320) + "…" : rec.content;
+          art.appendChild(document.createTextNode(txt));
+          break;
+        }
+      }
+    }
 
     // Anything beyond POOL was not reranked; it keeps its order, below.
     var inRanked = new Set(ranked);
@@ -368,7 +513,27 @@
     // semantically-ranked hit shows why it matched.
     var mt = markTerms(ctx.q);
     for (var r = 0; r < ranked.length; r++) markRelated(ranked[r], mt);
-    setMetaNote("ranked by meaning");
+
+    var shown = 0;
+    for (var c = 0; c < ctx.added.length; c++) if (ctx.added[c].el) shown++;
+
+    if (shown) {
+      // Material hides the list outright when its own pass found nothing.
+      list.removeAttribute("hidden");
+      var out = document.querySelector(".md-search-result");
+      if (out) out.removeAttribute("hidden");
+    }
+
+    if (!ctx.liveCount && shown) {
+      // Material said "No matching documents"; appending to that would contradict
+      // the results now on screen, so replace it.
+      var el = metaEl();
+      if (el) el.textContent = shown + (shown === 1 ? " result" : " results") + " found by meaning";
+    } else {
+      setMetaNote(shown
+        ? "ranked by meaning · " + shown + (shown === 1 ? " page" : " pages") + " keyword search missed"
+        : "ranked by meaning");
+    }
     observe();
   }
 
@@ -451,8 +616,22 @@
     var list = resultList();
     if (!input || !list) return;
     var q = (input.value || "").trim();
+
+    // Drop results we added on a previous pass, so `live` is Material's own and
+    // the staleness guard in applyOrder stays meaningful. Detach the observer:
+    // our own mutations must not schedule another rerank.
+    var stale = list.querySelectorAll("li.ss-added");
+    if (stale.length) {
+      if (observer) observer.disconnect();
+      for (var d = 0; d < stale.length; d++) stale[d].remove();
+      observe();
+    }
+
     var live = items(list);
-    if (q.length < 2 || live.length < 2) return;
+    // No guard on `live` being non-empty: a query Material cannot match at all
+    // ("listing" when the page says "lists") is exactly the case the
+    // supplementary retrieval exists for.
+    if (q.length < 2) return;
 
     var w = getWorker();
     if (!w || workerFailed) return;
@@ -482,20 +661,41 @@
     // they are tables of contents, not answers. Scoring them on scraped DOM text
     // let the reranker promote a stub above the page that actually answered the
     // query, so they are excluded and sink below the ranked results instead.
-    var owners = [], keys = [], docs = [];
+    var owners = [], keys = [], docs = [], havePath = Object.create(null);
     for (var i = 0; i < live.length && docs.length < POOL; i++) {
       var a = live[i].querySelector("a.md-search-result__link");
       if (!a) continue;
-      var recs = chunksOf(s, pathOf(a.getAttribute("href") || ""));
+      var path = pathOf(a.getAttribute("href") || "");
+      havePath[path] = 1;
+      var recs = chunksOf(s, path);
       for (var k = 0; k < recs.length && docs.length < POOL; k++) {
         owners.push(live[i]);                      // which <li> this passage belongs to
         keys.push(urlKey(withBase(recs[k].url)));  // which link within that <li>
         docs.push(recs[k].title + ". " + recs[k].section + ". " + recs[k].content);
       }
     }
+
+    // Pages Material missed entirely — added as candidates so the reranker can
+    // judge them. They are only rendered if they earn a top position.
+    var added = [];
+    var extra = retrievePages(s, q);
+    for (var e = 0; e < extra.length && docs.length < POOL && added.length < MAX_ADDED; e++) {
+      if (havePath[extra[e].path]) continue;
+      var erecs = chunksOf(s, extra[e].path);
+      if (!erecs.length) continue;
+      var token = { path: extra[e].path, added: true };  // stands in for a <li>
+      added.push(token);
+      for (var m = 0; m < erecs.length && docs.length < POOL; m++) {
+        owners.push(token);
+        keys.push(urlKey(withBase(erecs[m].url)));
+        docs.push(erecs[m].title + ". " + erecs[m].section + ". " + erecs[m].content);
+      }
+    }
+
     if (docs.length < 2) return; // nothing meaningful to reorder
 
-    pending = { id: id, owners: owners, keys: keys, liveCount: live.length, q: q, terms: terms };
+    pending = { id: id, owners: owners, keys: keys, liveCount: live.length,
+                q: q, terms: terms, added: added, index: s };
     w.postMessage({ type: "rerank", id: id, q: q, docs: docs });
   }
 
@@ -604,6 +804,18 @@
     wired = true;
 
     observe();
+
+    // The observer alone is not enough. It fires on Material re-rendering the
+    // list, but when Material matches nothing there is no render — so going from
+    // one zero-result query to another mutates nothing and we would never run,
+    // which is precisely when the supplementary retrieval is most needed. Watch
+    // the input directly as well; both paths share the debounce, and a superseded
+    // run is dropped by the id check.
+    var box = searchInput();
+    if (box) {
+      box.addEventListener("keyup", scheduleRerank);
+      box.addEventListener("input", scheduleRerank);
+    }
 
     // Remember which passage to flash on the destination page.
     list.addEventListener("click", function (e) {
