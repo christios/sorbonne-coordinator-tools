@@ -1,6 +1,8 @@
 export type ResourceEntry = {
   id: string;
+  entryMode?: "structured" | "freeform";
   legacyText?: string;
+  freeformText?: string;
   authors?: string;
   title?: string;
   year?: string;
@@ -30,6 +32,13 @@ export function bibliographyEntries(value: unknown): ResourceEntry[] {
 
 export function ploEntries(value: unknown): PloEntry[] {
   return objectEntries<PloEntry>(value, "legacy-plo");
+}
+
+export function ploDisplayLabel(entry: PloEntry, index: number): string {
+  const outcome = (entry.legacyText ?? entry.outcome ?? "")
+    .replace(new RegExp(`^PLO\\s*${index + 1}\\s*[:.]?\\s*`, "i"), "")
+    .trim();
+  return outcome ? `PLO ${index + 1}: ${outcome}` : `PLO ${index + 1}`;
 }
 
 export function scheduleEntries(value: unknown): ScheduleEntry[] {

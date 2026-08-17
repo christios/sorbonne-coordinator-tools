@@ -14,9 +14,11 @@ from sqlalchemy.exc import IntegrityError
 
 from sorbonne.services.syllabus_templates import (
     DEFAULT_TEMPLATE_ID,
+    FYS_TEMPLATE_ID,
     comparison_mapping,
     get_template,
 )
+from sorbonne.services.fys_syllabus import convert_scen_to_fys, cross_template_rows, default_fys_content
 
 
 FIELD_HISTORY_COALESCE_SECONDS = 120
@@ -68,7 +70,11 @@ class SyllabusStore:
         source = self.get(source_syllabus_id) if source_syllabus_id else None
         selected_template_id = template_id or (source["templateId"] if source else DEFAULT_TEMPLATE_ID)
         get_template(selected_template_id)
-        if source and selected_template_id != source["templateId"]:
+        if (
+            source
+            and selected_template_id != source["templateId"]
+            and comparison_mapping(source["templateId"], selected_template_id) is None
+        ):
             raise TemplateComparisonNotMapped
         now = _timestamp()
         record = {
@@ -79,7 +85,7 @@ class SyllabusStore:
             "courseCode": course_code or "",
             "academicYear": academic_year,
             "templateId": selected_template_id,
-            "content": deepcopy(source["content"]) if source else default_content(),
+            "content": _initial_content(selected_template_id, source),
             "revision": 1,
             "createdAt": now,
             "updatedAt": now,
@@ -235,9 +241,10 @@ class SyllabusStore:
 
     def _folder_exists(self, folder_id: str) -> bool:
         with self.engine.connect() as connection:
-            return connection.execute(
-                text("SELECT 1 FROM syllabus_folders WHERE id = :id"), {"id": folder_id}
-            ).first() is not None
+            return (
+                connection.execute(text("SELECT 1 FROM syllabus_folders WHERE id = :id"), {"id": folder_id}).first()
+                is not None
+            )
 
     def update(  # noqa: PLR0913
         self,
@@ -291,32 +298,9 @@ class SyllabusStore:
     def field_history(self, syllabus_id: str, field_path: str) -> list[dict[str, Any]]:
         self.get(syllabus_id)
         with self.engine.connect() as connection:
-            rows = (
-                connection.execute(
-                    text(
-                        """
-                    SELECT previous_value_json::text AS previous_value_json, new_value_json::text AS new_value_json,
-                           revision, changed_at
-                    FROM syllabus_field_history
-                    WHERE syllabus_id = :syllabus_id AND field_path = :field_path
-                    ORDER BY changed_at DESC, id DESC
-                    LIMIT 100
-                    """
-                    ),
-                    {"syllabus_id": syllabus_id, "field_path": field_path},
-                )
-                .mappings()
-                .all()
-            )
-        history = [
-            {
-                "previousValue": json.loads(row["previous_value_json"]),
-                "newValue": json.loads(row["new_value_json"]),
-                "revision": row["revision"],
-                "changedAt": row["changed_at"],
-            }
-            for row in rows
-        ]
+            history = _history_entries(_history_rows(connection, syllabus_id, field_path))
+            if not history:
+                history = _legacy_row_field_history(connection, syllabus_id, field_path)
         history = _coalesce_history_entries(history)
         for entry in history:
             if isinstance(entry["previousValue"], str) and isinstance(entry["newValue"], str):
@@ -328,16 +312,36 @@ class SyllabusStore:
         right = self.get(right_id)
         if left["seriesId"] != right["seriesId"]:
             raise ComparisonNotAllowed
-        if left["templateId"] != right["templateId"] and comparison_mapping(
-            left["templateId"], right["templateId"]
-        ) is None:
+        if (
+            left["templateId"] != right["templateId"]
+            and comparison_mapping(left["templateId"], right["templateId"]) is None
+        ):
             raise TemplateComparisonNotMapped
+        if left["templateId"] != right["templateId"]:
+            rows = cross_template_rows(left["templateId"], left["content"], right["templateId"], right["content"])
+            changes = [row for row in rows if row["status"] == "mapped" and row["kind"] == "changed"]
+            for change in rows:
+                if isinstance(change["left"], str) and isinstance(change["right"], str) and change["kind"] == "changed":
+                    change["operations"] = _word_operations(change["left"], change["right"])
+            return {"left": left, "right": right, "changes": changes, "rows": rows}
         changes = _diff(left["content"], right["content"])
         for change in changes:
             change["label"] = _display_label(change["path"], left["content"], right["content"])
             if isinstance(change["left"], str) and isinstance(change["right"], str):
                 change["operations"] = _word_operations(change["left"], change["right"])
-        return {"left": left, "right": right, "changes": changes}
+        rows = [
+            {
+                "id": change["path"],
+                "label": change["label"],
+                "left": change["left"],
+                "right": change["right"],
+                "status": "mapped",
+                "kind": "changed",
+                **({"operations": change["operations"]} if "operations" in change else {}),
+            }
+            for change in changes
+        ]
+        return {"left": left, "right": right, "changes": changes, "rows": rows}
 
 
 def default_content() -> dict[str, Any]:
@@ -373,6 +377,16 @@ def default_content() -> dict[str, Any]:
             "approver": "",
         },
     }
+
+
+def _initial_content(template_id: str, source: dict[str, Any] | None) -> dict[str, Any]:
+    if source is None:
+        return default_fys_content() if template_id == FYS_TEMPLATE_ID else default_content()
+    if source["templateId"] == template_id:
+        return deepcopy(source["content"])
+    if source["templateId"] == DEFAULT_TEMPLATE_ID and template_id == FYS_TEMPLATE_ID:
+        return convert_scen_to_fys(source["content"])
+    raise TemplateComparisonNotMapped
 
 
 def _summary_from_row(row: RowMapping) -> dict[str, Any]:
@@ -503,6 +517,74 @@ def _record_field_history(
             "changed_at": changed_at,
         },
     )
+
+
+def _history_rows(connection: Connection, syllabus_id: str, field_path: str) -> list[RowMapping]:
+    return (
+        connection.execute(
+            text(
+                """
+            SELECT previous_value_json::text AS previous_value_json, new_value_json::text AS new_value_json,
+                   revision, changed_at
+            FROM syllabus_field_history
+            WHERE syllabus_id = :syllabus_id AND field_path = :field_path
+            ORDER BY changed_at DESC, id DESC
+            LIMIT 100
+            """
+            ),
+            {"syllabus_id": syllabus_id, "field_path": field_path},
+        )
+        .mappings()
+        .all()
+    )
+
+
+def _history_entries(rows: list[RowMapping]) -> list[dict[str, Any]]:
+    return [
+        {
+            "previousValue": json.loads(row["previous_value_json"]),
+            "newValue": json.loads(row["new_value_json"]),
+            "revision": row["revision"],
+            "changedAt": row["changed_at"],
+        }
+        for row in rows
+    ]
+
+
+def _legacy_row_field_history(connection: Connection, syllabus_id: str, field_path: str) -> list[dict[str, Any]]:
+    match = re.fullmatch(r"(.+)\[([^\]]+)\]\.([^.[\]]+)", field_path)
+    if not match:
+        return []
+
+    collection_path, row_id, field_name = match.groups()
+    history: list[dict[str, Any]] = []
+    for entry in _history_entries(_history_rows(connection, syllabus_id, collection_path)):
+        previous_value = _legacy_row_field_value(entry["previousValue"], row_id, field_name)
+        new_value = _legacy_row_field_value(entry["newValue"], row_id, field_name)
+        if previous_value != new_value:
+            history.append(
+                {
+                    **entry,
+                    "previousValue": previous_value,
+                    "newValue": new_value,
+                }
+            )
+    return history
+
+
+def _legacy_row_field_value(value: Any, row_id: str, field_name: str) -> Any:
+    if not isinstance(value, list):
+        return None
+    for item in value:
+        if isinstance(item, dict) and item.get("id") == row_id:
+            return item.get(field_name)
+
+    legacy_match = re.fullmatch(r"legacy-[a-z-]+-(\d+)", row_id)
+    if legacy_match and field_name == "legacyText":
+        index = int(legacy_match.group(1))
+        if index < len(value) and isinstance(value[index], str):
+            return value[index]
+    return None
 
 
 def _coalesce_history_entries(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:

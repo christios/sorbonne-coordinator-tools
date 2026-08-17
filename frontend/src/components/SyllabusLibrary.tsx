@@ -1,8 +1,9 @@
-import { CalendarDays, ChevronRight, Copy, FileCode2, FilePlus2, FileText, Folder, FolderOpen, FolderPlus, History, Loader2, Search, Trash2 } from "lucide-react";
-import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
+import { CalendarDays, ChevronRight, Copy, FileCode2, FilePlus2, FileText, Folder, FolderOpen, FolderPlus, Loader2, Pencil, Settings2, Search, Trash2 } from "lucide-react";
+import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
 import { CreateFolderInput, CreateSyllabusInput, SyllabusFolder, SyllabusSummary, SyllabusTemplate, syllabusTemplateDocumentUrl } from "@/services/syllabi";
 import { FolderMoveMenu } from "@/components/FolderMoveMenu";
+import { LibraryRecordTimestamps } from "@/components/LibraryRecordTimestamps";
 import { SelectMenu } from "@/components/SelectMenu";
 
 const UNFILED = "unfiled";
@@ -17,13 +18,16 @@ type Props = {
   deletingId: string | null;
   deletingFolderId: string | null;
   movingId: string | null;
+  renamingId?: string | null;
   error?: string;
   onOpen: (id: string) => void;
   onCreate: (input: CreateSyllabusInput) => void;
   onCreateFolder: (input: CreateFolderInput) => void;
   onMove: (syllabusId: string, folderId: string | null) => void;
+  onRename?: (syllabusId: string, courseTitle: string) => Promise<unknown>;
   onDelete: (syllabusId: string) => void;
   onDeleteFolder: (folderId: string) => void;
+  onManageCatalogues?: () => void;
 };
 
 export function SyllabusLibrary({
@@ -36,13 +40,16 @@ export function SyllabusLibrary({
   deletingId,
   deletingFolderId,
   movingId,
+  renamingId = null,
   error,
   onOpen,
   onCreate,
   onCreateFolder,
   onMove,
+  onRename = async () => undefined,
   onDelete,
   onDeleteFolder,
+  onManageCatalogues = () => undefined,
 }: Props) {
   const [showForm, setShowForm] = useState(false);
   const [showFolderForm, setShowFolderForm] = useState(false);
@@ -101,6 +108,14 @@ export function SyllabusLibrary({
     setShowFolderForm(false);
   }
 
+  function startDuplicate(syllabus: SyllabusSummary) {
+    setSourceId(syllabus.id);
+    setTemplateId(syllabus.templateId);
+    setTitle(syllabus.courseTitle);
+    setCode(syllabus.courseCode);
+    setShowForm(true);
+  }
+
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
       <div className="flex flex-col justify-between gap-4 border-b border-[#d9dee7] pb-5 sm:flex-row sm:items-end">
@@ -110,6 +125,7 @@ export function SyllabusLibrary({
           <p className="mt-1 text-sm text-[#667085]">Create, organize, and compare course syllabi across academic years.</p>
         </div>
         <div className="flex flex-wrap gap-3">
+          <button type="button" onClick={onManageCatalogues} className="inline-flex items-center justify-center gap-2 rounded-md border border-[#b7bec8] bg-white px-4 py-2.5 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]"><Settings2 size={17} aria-hidden="true" /> Manage catalogues</button>
           <button type="button" onClick={() => setShowFolderForm((value) => !value)} className="inline-flex items-center justify-center gap-2 rounded-md border border-[#b7bec8] bg-white px-4 py-2.5 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]"><FolderPlus size={17} aria-hidden="true" /> New folder</button>
           <button type="button" onClick={() => setShowForm((value) => !value)} className="inline-flex items-center justify-center gap-2 rounded-md bg-[#1f4e79] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#183f63]"><FilePlus2 size={17} aria-hidden="true" /> New syllabus</button>
         </div>
@@ -130,8 +146,8 @@ export function SyllabusLibrary({
           <label className="grid gap-1 text-sm font-medium text-[#344054]">Course title<input required value={title} onChange={(event) => setTitle(event.target.value)} className="rounded-md border border-[#b7bec8] px-3 py-2 font-normal" /></label>
           <label className="grid gap-1 text-sm font-medium text-[#344054]">Academic year<input required value={year} onChange={(event) => setYear(event.target.value)} placeholder="2026-2027" className="rounded-md border border-[#b7bec8] px-3 py-2 font-normal" /></label>
           <label className="grid gap-1 text-sm font-medium text-[#344054]">Course code <span className="font-normal text-[#667085]">(optional)</span><input value={code} onChange={(event) => setCode(event.target.value)} className="rounded-md border border-[#b7bec8] px-3 py-2 font-normal" /></label>
-          <label className="grid gap-1 text-sm font-medium text-[#344054]">Starting point<SelectMenu label="Starting point" value={sourceId} onChange={(nextSourceId) => { setSourceId(nextSourceId); const source = syllabi.find((syllabus) => syllabus.id === nextSourceId); if (source) setTemplateId(source.templateId); }} placeholder="Blank syllabus" options={[{ value: "", label: "Blank syllabus" }, ...syllabi.map((syllabus) => ({ value: syllabus.id, label: `${syllabus.courseTitle} — ${syllabus.academicYear}` }))]} /></label>
-          <div className="grid gap-1 text-sm font-medium text-[#344054] md:col-span-2"><span>Template</span><SelectMenu label="Syllabus template" value={templateId} onChange={setTemplateId} placeholder="Choose a template" options={templates.map((template) => ({ value: template.id, label: template.name }))} />{selectedTemplate ? <a href={syllabusTemplateDocumentUrl(selectedTemplate)} className="inline-flex w-fit items-center gap-1.5 text-sm font-medium text-[#1f4e79] hover:underline"><FileText size={16} aria-hidden="true" /> View Word template</a> : null}{sourceId ? <p className="text-sm font-normal text-[#667085]">Duplicates retain their source template so yearly comparison remains reliable.</p> : null}</div>
+          <label className="grid gap-1 text-sm font-medium text-[#344054]">Starting point<SelectMenu label="Starting point" value={sourceId} onChange={(nextSourceId) => { setSourceId(nextSourceId); const source = syllabi.find((syllabus) => syllabus.id === nextSourceId); if (source) { setTemplateId(source.templateId); setTitle(source.courseTitle); setCode(source.courseCode); } }} placeholder="Blank syllabus" options={[{ value: "", label: "Blank syllabus" }, ...syllabi.map((syllabus) => ({ value: syllabus.id, label: `${syllabus.courseTitle} — ${syllabus.academicYear}` }))]} /></label>
+          <div className="grid gap-1 text-sm font-medium text-[#344054] md:col-span-2"><span>Template</span><SelectMenu label="Syllabus template" value={templateId} onChange={setTemplateId} placeholder="Choose a template" options={templates.map((template) => ({ value: template.id, label: template.name }))} />{selectedTemplate ? <a href={syllabusTemplateDocumentUrl(selectedTemplate)} className="inline-flex w-fit items-center gap-1.5 text-sm font-medium text-[#1f4e79] hover:underline"><FileText size={16} aria-hidden="true" /> View Word template</a> : null}{sourceId ? <p className="text-sm font-normal text-[#667085]">Choose a mapped template, such as Foundation Year, to carry comparable content into a new syllabus in the same series.</p> : null}</div>
           <div className="flex gap-3 md:col-span-2"><button disabled={isCreating} className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-4 py-2 text-sm font-semibold text-white disabled:bg-[#9ba8b5]">{isCreating ? <Loader2 className="animate-spin" size={16} /> : sourceId ? <Copy size={16} /> : <FilePlus2 size={16} />}{sourceId ? "Duplicate and edit" : "Create blank syllabus"}</button><button type="button" onClick={() => setShowForm(false)} className="rounded-md border border-[#b7bec8] px-4 py-2 text-sm font-semibold text-[#344054]">Cancel</button></div>
         </form>
       ) : null}
@@ -153,7 +169,7 @@ export function SyllabusLibrary({
           {isLoading ? <div className="flex min-h-48 items-center justify-center gap-2 text-sm text-[#667085]"><Loader2 size={18} className="animate-spin" /> Loading syllabi</div> : null}
           {!isLoading ? <div className="border-b border-[#e5e7eb] px-5 py-4"><label className="relative block"><Search size={17} aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#667085]" /><input type="search" aria-label={`Search syllabi in ${activeFolderLabel}`} value={syllabusQuery} onChange={(event) => setSyllabusQuery(event.target.value)} placeholder={`Search ${activeFolderLabel.toLocaleLowerCase()}`} className="w-full rounded-md border border-[#cbd5e1] py-2 pl-10 pr-3 text-sm text-[#344054] placeholder:text-[#98a2b3] focus:border-[#1f4e79] focus:outline-none focus:ring-2 focus:ring-[#d7e5f3]" /></label></div> : null}
           {!isLoading && filteredSyllabi.length === 0 ? <EmptyLibraryState hasSyllabi={syllabi.length > 0} hasSearch={Boolean(syllabusQuery.trim())} /> : null}
-          {!isLoading && filteredSyllabi.length > 0 ? <div className="divide-y divide-[#e5e7eb]" role="list">{filteredSyllabi.map((syllabus) => <SyllabusRow key={syllabus.id} syllabus={syllabus} folders={folders} folderPath={syllabus.folderId ? folderPaths.get(syllabus.folderId) ?? [] : []} isMoving={movingId === syllabus.id} isDeleting={deletingId === syllabus.id} onOpen={onOpen} onMove={onMove} onRequestDelete={setDeleteCandidate} />)}</div> : null}
+          {!isLoading && filteredSyllabi.length > 0 ? <div className="divide-y divide-[#e5e7eb]" role="list">{filteredSyllabi.map((syllabus) => <SyllabusRow key={syllabus.id} syllabus={syllabus} folders={folders} folderPath={syllabus.folderId ? folderPaths.get(syllabus.folderId) ?? [] : []} isMoving={movingId === syllabus.id} isRenaming={renamingId === syllabus.id} isDeleting={deletingId === syllabus.id} onOpen={onOpen} onDuplicate={startDuplicate} onMove={onMove} onRename={onRename} onRequestDelete={setDeleteCandidate} />)}</div> : null}
         </section>
       </div>
 
@@ -168,8 +184,37 @@ function FolderButton({ label, count, depth = 0, active, hasChildren = false, on
   return <div style={depth ? { marginInlineStart: `${depth * 0.75}rem` } : undefined} className={`group flex items-center rounded-md ${active ? "bg-[#e8edf3]" : "hover:bg-[#f7f8fa]"}`}><button type="button" onClick={onClick} className={`min-w-0 flex-1 px-3 py-2 text-left text-sm transition ${active ? "font-semibold text-[#1f4e79]" : "text-[#475467]"}`}><span className="flex items-center justify-between"><span className="flex min-w-0 items-center gap-2"><Folder size={15} aria-hidden="true" className="shrink-0 text-[#667085]" /><span className="truncate">{label}</span></span><span aria-hidden="true" className="ml-2 text-xs tabular-nums text-[#667085]">{count}</span></span></button>{onDelete ? <button type="button" disabled={!canDelete} onClick={onDelete} aria-label={`Delete folder ${label}`} title={canDelete ? "Delete empty folder" : "Move all syllabi and subfolders before deleting this folder"} className="mr-1 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[#b4232d] hover:bg-[#fff1f2] disabled:cursor-not-allowed disabled:text-[#98a2b3] disabled:hover:bg-transparent"><Trash2 size={15} aria-hidden="true" /></button> : null}</div>;
 }
 
-function SyllabusRow({ syllabus, folders, folderPath, isMoving, isDeleting, onOpen, onMove, onRequestDelete }: { syllabus: SyllabusSummary; folders: SyllabusFolder[]; folderPath: SyllabusFolder[]; isMoving: boolean; isDeleting: boolean; onOpen: (id: string) => void; onMove: (id: string, folderId: string | null) => void; onRequestDelete: (syllabus: SyllabusSummary) => void }) {
-  return <div role="listitem" className="grid gap-3 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center"><button type="button" onClick={() => onOpen(syllabus.id)} className="min-w-0 text-left"><span className="flex min-w-0 flex-wrap items-center gap-2"><span className="min-w-0 truncate font-semibold text-[#171717] hover:text-[#1f4e79]">{syllabus.courseTitle}</span>{folderPath.length ? <FolderPath path={folderPath} syllabusTitle={syllabus.courseTitle} /> : null}</span><span className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-[#667085]"><Metadata icon={FileCode2} label={`Course code: ${syllabus.courseCode || "Not set"}`}>{syllabus.courseCode || "Course code not set"}</Metadata><Metadata icon={CalendarDays} label={`Academic year: ${syllabus.academicYear}`}>{syllabus.academicYear}</Metadata><Metadata icon={History} label={`Revision ${syllabus.revision}`}>Revision {syllabus.revision}</Metadata></span></button><FolderMoveMenu compact label={`Move ${syllabus.courseTitle} to folder`} value={syllabus.folderId} folders={folders} isMoving={isMoving} onChange={(folderId) => onMove(syllabus.id, folderId)} /><button type="button" disabled={isDeleting} onClick={() => onRequestDelete(syllabus)} aria-label={`Delete ${syllabus.courseTitle}`} title="Delete syllabus" className="inline-flex h-10 w-10 items-center justify-center rounded-md text-[#b4232d] hover:bg-[#fff1f2] disabled:opacity-50"><Trash2 size={18} aria-hidden="true" /></button></div>;
+function SyllabusRow({ syllabus, folders, folderPath, isMoving, isRenaming, isDeleting, onOpen, onDuplicate, onMove, onRename, onRequestDelete }: { syllabus: SyllabusSummary; folders: SyllabusFolder[]; folderPath: SyllabusFolder[]; isMoving: boolean; isRenaming: boolean; isDeleting: boolean; onOpen: (id: string) => void; onDuplicate: (syllabus: SyllabusSummary) => void; onMove: (id: string, folderId: string | null) => void; onRename: (syllabusId: string, courseTitle: string) => Promise<unknown>; onRequestDelete: (syllabus: SyllabusSummary) => void }) {
+  return <div role="listitem" className="grid gap-3 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_auto_auto_auto] sm:items-center"><div className="relative min-w-0"><button type="button" onClick={() => onOpen(syllabus.id)} aria-label={`Open ${syllabus.courseTitle}`} className="absolute inset-0 rounded-md focus:outline-none focus:ring-2 focus:ring-[#d7e5f3]"><span className="sr-only">Open {syllabus.courseTitle}</span></button><div className="relative z-10 pointer-events-none"><div className="flex min-w-0 flex-wrap items-center gap-2"><div className="pointer-events-auto"><InlineTitleEditor syllabus={syllabus} isSaving={isRenaming} onSave={onRename} /></div>{folderPath.length ? <FolderPath path={folderPath} syllabusTitle={syllabus.courseTitle} /> : null}</div><div className="mt-2 min-w-0 text-left"><span className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-[#667085]"><Metadata icon={FileCode2} label={`Course code: ${syllabus.courseCode || "Not set"}`}>{syllabus.courseCode || "Course code not set"}</Metadata><Metadata icon={CalendarDays} label={`Academic year: ${syllabus.academicYear}`}>{syllabus.academicYear}</Metadata></span><LibraryRecordTimestamps createdAt={syllabus.createdAt} updatedAt={syllabus.updatedAt} /></div></div></div><button type="button" onClick={() => onDuplicate(syllabus)} aria-label={`Duplicate ${syllabus.courseTitle}`} className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-[#b7bec8] px-3 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]"><Copy size={16} aria-hidden="true" /> Duplicate</button><FolderMoveMenu compact label={`Move ${syllabus.courseTitle} to folder`} value={syllabus.folderId} folders={folders} isMoving={isMoving} onChange={(folderId) => onMove(syllabus.id, folderId)} /><button type="button" disabled={isDeleting} onClick={() => onRequestDelete(syllabus)} aria-label={`Delete ${syllabus.courseTitle}`} title="Delete syllabus" className="inline-flex h-10 w-10 items-center justify-center rounded-md text-[#b4232d] hover:bg-[#fff1f2] disabled:opacity-50"><Trash2 size={18} aria-hidden="true" /></button></div>;
+}
+
+function InlineTitleEditor({ syllabus, isSaving, onSave }: { syllabus: SyllabusSummary; isSaving: boolean; onSave: (syllabusId: string, courseTitle: string) => Promise<unknown> }) {
+  const [editing, setEditing] = useState(false);
+  const [title, setTitle] = useState(syllabus.courseTitle);
+  const [error, setError] = useState("");
+  const saveInFlight = useRef(false);
+
+  useEffect(() => { if (!editing) setTitle(syllabus.courseTitle); }, [editing, syllabus.courseTitle]);
+
+  async function save() {
+    if (saveInFlight.current) return;
+    const nextTitle = title.trim();
+    if (!nextTitle) { setTitle(syllabus.courseTitle); setEditing(false); return; }
+    if (nextTitle === syllabus.courseTitle) { setEditing(false); return; }
+    setError("");
+    saveInFlight.current = true;
+    try {
+      await onSave(syllabus.id, nextTitle);
+      setEditing(false);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Could not rename this syllabus.");
+    } finally {
+      saveInFlight.current = false;
+    }
+  }
+
+  if (!editing) return <button type="button" onClick={() => setEditing(true)} aria-label={`Rename ${syllabus.courseTitle}`} title="Rename syllabus" className="group inline-flex min-w-0 items-center gap-1 rounded-md text-left font-semibold text-[#171717] hover:text-[#1f4e79] focus:outline-none focus:ring-2 focus:ring-[#d7e5f3]"><span className="truncate">{syllabus.courseTitle}</span><Pencil size={14} aria-hidden="true" className="shrink-0 opacity-0 transition group-hover:opacity-100 group-focus-visible:opacity-100" /></button>;
+  return <div className="min-w-0"><input autoFocus aria-label={`Syllabus title for ${syllabus.courseTitle}`} value={title} disabled={isSaving} onChange={(event) => setTitle(event.target.value)} onBlur={() => { void save(); }} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void save(); } if (event.key === "Escape") { setTitle(syllabus.courseTitle); setError(""); setEditing(false); } }} className="w-full max-w-xl rounded-md border border-[#1f4e79] px-2 py-1 font-semibold text-[#171717] focus:outline-none focus:ring-2 focus:ring-[#d7e5f3]" />{error ? <p role="alert" className="mt-1 text-xs text-[#8f1f25]">{error}</p> : null}</div>;
 }
 
 function FolderPath({ path, syllabusTitle }: { path: SyllabusFolder[]; syllabusTitle: string }) {

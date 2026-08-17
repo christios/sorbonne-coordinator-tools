@@ -10,7 +10,7 @@ from typing import Any
 from docx import Document
 from docx.table import _Cell, Table
 
-from sorbonne.services.syllabus_templates import DEFAULT_TEMPLATE_ID, get_template
+from sorbonne.services.syllabus_templates import DEFAULT_TEMPLATE_ID, FYS_TEMPLATE_ID, get_template
 
 
 def build_syllabus_docx(syllabus: dict[str, Any], output_path: Path) -> None:
@@ -18,6 +18,10 @@ def build_syllabus_docx(syllabus: dict[str, Any], output_path: Path) -> None:
     template = get_template(str(syllabus.get("templateId") or DEFAULT_TEMPLATE_ID))
     document = Document(template.document_path)
     content = _record(syllabus.get("content"))
+    if template.id == FYS_TEMPLATE_ID:
+        _fill_fys(document, syllabus, content)
+        document.save(output_path)
+        return
 
     _fill_identification(document.tables[0], syllabus, _record(content.get("identification")))
     _fill_contacts(document.tables[1], document.tables[2], _record(content.get("contacts")))
@@ -32,6 +36,85 @@ def build_syllabus_docx(syllabus: dict[str, Any], output_path: Path) -> None:
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     document.save(output_path)
+
+
+def _fill_fys(document: Document, syllabus: dict[str, Any], content: dict[str, Any]) -> None:
+    details = _record(content.get("courseDetails"))
+    table = document.tables[0]
+    for row, value in (
+        (0, details.get("foundationYear")),
+        (1, syllabus.get("courseCode")),
+        (2, details.get("semester")),
+        (3, details.get("courseWeight")),
+        (4, details.get("totalContactHours")),
+        (6, details.get("prerequisites")),
+    ):
+        _set_cell_text(table.cell(row, 1), _text(value))
+    _set_cell_text(
+        table.cell(1, 1), f"{_text(syllabus.get('courseCode'))} {_text(syllabus.get('courseTitle'))}".strip()
+    )
+    hours = _record(details.get("contactHours"))
+    for row, key in ((4, "Lectures"), (5, "Tutorials / Labs"), (5, "Other")):
+        column = 2 if key == "Lectures" else 3
+        _set_cell_text(table.cell(row, column), _text(hours.get(key)))
+    faculty = _record(content.get("facultyDetails"))
+    staff = _rows(faculty.get("staff"))
+    _set_cell_text(document.tables[1].cell(0, 1), "\n".join(_text(item.get("nameAndStatus")) for item in staff))
+    _set_cell_text(document.tables[1].cell(1, 1), _text(faculty.get("institution")))
+    _set_cell_text(document.tables[1].cell(2, 1), _text(faculty.get("officeHours")))
+    _set_cell_text(document.tables[1].cell(3, 1), _text(faculty.get("officePhone")))
+    _set_cell_text(document.tables[1].cell(4, 1), "\n".join(_text(item.get("email")) for item in staff))
+    _fill_delivery(document.tables[2], _record(content.get("delivery")))
+    _set_cell_text(document.tables[3].cell(0, 0), _text(_record(content.get("description")).get("overview")))
+    clos = _rows(_record(content.get("learningOutcomes")).get("clos"))
+    for index, row in enumerate(document.tables[4].rows[1:]):
+        _set_cell_text(row.cells[1], _text(clos[index].get("outcome")) if index < len(clos) else "")
+    materials = _record(content.get("requiredMaterials"))
+    _set_cell_text(document.tables[5].cell(0, 0), _text(materials.get("textbooks")))
+    _fill_bibliography(document.tables[6], materials)
+    _set_cell_text(document.tables[7].cell(0, 0), _text(materials.get("equipment")))
+    methods = _record(_record(content.get("teachingMethodologies")).get("methods"))
+    for index, key in enumerate(
+        (
+            "Lectures",
+            "Tutorials",
+            "Labs",
+            "Discussion and Debate Forums",
+            "Project work",
+            "Presentation",
+            "Field Trips",
+            "Other",
+        ),
+        start=1,
+    ):
+        entry = _record(methods.get(key))
+        _set_cell_text(document.tables[8].cell(3, index), "X" if entry.get("selected") else "")
+        _set_cell_text(document.tables[8].cell(4, index), _text(entry.get("hours")))
+    _fill_fys_assessments(document, _record(content.get("assessment")))
+    for index, row in enumerate(document.tables[12].rows[1:]):
+        source = _rows(content.get("schedule"))[index] if index < len(_rows(content.get("schedule"))) else {}
+        for cell, key in zip(
+            row.cells, ("week", "session", "topic", "assessmentDescription", "assessmentDate"), strict=True
+        ):
+            _set_cell_text(cell, _text(source.get(key)))
+
+
+def _fill_fys_assessments(document: Document, assessment: dict[str, Any]) -> None:
+    final_assessment_table_index = 10
+    for table_index, key in ((9, "continuous"), (final_assessment_table_index, "final"), (11, "laboratory")):
+        items = _rows(assessment.get(key))
+        for index, row in enumerate(document.tables[table_index].rows[1:]):
+            source = items[index] if index < len(items) else {}
+            values = [
+                _text(source.get(name))
+                for name in (
+                    ("component", "description", "clos", "weight")
+                    if table_index != final_assessment_table_index
+                    else ("description", "clos", "weight")
+                )
+            ]
+            for cell, value in zip(row.cells, values, strict=True):
+                _set_cell_text(cell, value)
 
 
 def _fill_identification(table: Table, syllabus: dict[str, Any], identification: dict[str, Any]) -> None:
@@ -286,6 +369,8 @@ def _format_resources(resources: list[dict[str, Any]], kind: str) -> str:
 def _format_resource(entry: dict[str, Any], kind: str) -> str:
     if legacy := _text(entry.get("legacyText")):
         return legacy
+    if _text(entry.get("entryMode")) == "freeform" and (freeform := _text(entry.get("freeformText"))):
+        return freeform
     if kind == "book":
         return _sentence(
             [
@@ -365,6 +450,8 @@ def _list_or_legacy(container: dict[str, Any], list_key: str, legacy_key: str, *
 
 def _schedule_learning_details(row: dict[str, Any]) -> str:
     parts = []
+    if details := _text(row.get("details")):
+        parts.append(f"Session details:\n{details}")
     if pre_class := _text(row.get("preClass") or row.get("activities")):
         parts.append(f"Pre-class learning activities:\n{pre_class}")
     if assessments := _text(row.get("assessments")):

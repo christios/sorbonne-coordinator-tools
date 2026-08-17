@@ -1,9 +1,11 @@
 import { ChevronDown, Plus, X } from "lucide-react";
 import { useState } from "react";
 
-import { AutoResizeTextarea } from "@/components/AutoResizeTextarea";
 import { FieldHistoryControl, HistoryField } from "@/components/FieldHistory";
+import { HistoryTextField } from "@/components/HistoryTextField";
 import { SelectMenu } from "@/components/SelectMenu";
+import { TimeField } from "@/components/TimeField";
+import { CatalogueEntry } from "@/services/syllabusCatalogues";
 
 type HistoryContext = { syllabusId: string; revision: number; onOpenHistory: (field: HistoryField) => void };
 type Props = HistoryContext & { value: Record<string, unknown>; onChange: (value: Record<string, unknown>) => void };
@@ -12,14 +14,20 @@ type OfficeHour = { id: string; day?: string; startTime?: string; endTime?: stri
 
 const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
-export function AcademicContactsEditor({ value, onChange, ...history }: Props) {
+export function AcademicContactsEditor({ value, onChange, people = [], ...history }: Props & { people?: CatalogueEntry[] }) {
   const instructor = record(value.instructor);
   const administrativeContact = typeof value.administrativeContact === "string" ? { contactDetails: value.administrativeContact } : record(value.administrativeContact);
   const updateInstructor = (next: Record<string, unknown>) => onChange({ ...value, instructor: next });
   const field = (label: string, fieldPath: string) => ({ path: fieldPath, label });
+  const instructorPerson = people.find((person) => person.id === stringValue(instructor.personId));
+  const coordinatorPerson = people.find((person) => person.id === stringValue(administrativeContact.personId));
+  const instructorOptions = people.filter((person) => Array.isArray(person.payload.roles) && person.payload.roles.includes("instructor")).map((person) => ({ value: person.id, label: person.label }));
+  const coordinatorOptions = people.filter((person) => Array.isArray(person.payload.roles) && person.payload.roles.includes("coordinator")).map((person) => ({ value: person.id, label: person.label }));
 
-  return <><h3 className="text-lg font-semibold text-[#171717]">Academic contacts</h3><div className="mt-5 grid gap-4"><ContactField label="Name" value={stringValue(instructor.Name)} onChange={(Name) => updateInstructor({ ...instructor, Name })} field={field("Name", "contacts.instructor.Name")} {...history} /><ContactField label="Academic rank / status" value={stringValue(instructor["Academic rank / status"])} onChange={(rank) => updateInstructor({ ...instructor, "Academic rank / status": rank })} field={field("Academic rank / status", "contacts.instructor.Academic rank / status")} {...history} /><AffiliationsEditor instructor={instructor} onChange={updateInstructor} {...history} /><OfficeHoursEditor instructor={instructor} onChange={updateInstructor} {...history} /><ContactField label="Email" value={stringValue(instructor.Email)} onChange={(Email) => updateInstructor({ ...instructor, Email })} field={field("Email", "contacts.instructor.Email")} {...history} /><ContactField label="Academic coordinator name" value={stringValue(administrativeContact.name)} onChange={(name) => onChange({ ...value, administrativeContact: { ...administrativeContact, name } })} field={field("Academic coordinator name", "contacts.administrativeContact.name")} {...history} /><ContactField label="Academic coordinator contact details" value={stringValue(administrativeContact.contactDetails)} onChange={(contactDetails) => onChange({ ...value, administrativeContact: { ...administrativeContact, contactDetails } })} multiline field={field("Academic coordinator contact details", "contacts.administrativeContact.contactDetails")} {...history} /></div></>;
+  return <><h3 className="text-lg font-semibold text-[#171717]">Academic contacts</h3><div className="mt-5 grid gap-4">{people.length ? <label className="grid gap-1 text-sm font-medium text-[#344054]"><span>Instructor from People directory <span className="font-normal text-[#667085]">(optional)</span></span><SelectMenu label="Instructor from People directory" value={stringValue(instructor.personId)} onChange={(personId) => updateInstructor({ ...instructor, personId: personId || undefined })} placeholder="Enter contact details manually" searchable options={[{ value: "", label: "Enter contact details manually" }, ...instructorOptions]} /></label> : null}{instructorPerson ? <LivePersonCard person={instructorPerson} /> : <><ContactField label="Name" value={stringValue(instructor.Name)} onChange={(Name) => updateInstructor({ ...instructor, Name })} field={field("Name", "contacts.instructor.Name")} {...history} /><ContactField label="Academic rank / status" value={stringValue(instructor["Academic rank / status"])} onChange={(rank) => updateInstructor({ ...instructor, "Academic rank / status": rank })} field={field("Academic rank / status", "contacts.instructor.Academic rank / status")} {...history} /><AffiliationsEditor instructor={instructor} onChange={updateInstructor} {...history} /><OfficeHoursEditor instructor={instructor} onChange={updateInstructor} {...history} /><ContactField label="Email" value={stringValue(instructor.Email)} onChange={(Email) => updateInstructor({ ...instructor, Email })} field={field("Email", "contacts.instructor.Email")} {...history} /></>}{people.length ? <label className="grid gap-1 text-sm font-medium text-[#344054]"><span>Academic coordinator from People directory <span className="font-normal text-[#667085]">(optional)</span></span><SelectMenu label="Academic coordinator from People directory" value={stringValue(administrativeContact.personId)} onChange={(personId) => onChange({ ...value, administrativeContact: { ...administrativeContact, personId: personId || undefined } })} placeholder="Enter coordinator details manually" searchable options={[{ value: "", label: "Enter coordinator details manually" }, ...coordinatorOptions]} /></label> : null}{coordinatorPerson ? <LivePersonCard person={coordinatorPerson} /> : <><ContactField label="Academic coordinator name" value={stringValue(administrativeContact.name)} onChange={(name) => onChange({ ...value, administrativeContact: { ...administrativeContact, name } })} field={field("Academic coordinator name", "contacts.administrativeContact.name")} {...history} /><ContactField label="Academic coordinator contact details" value={stringValue(administrativeContact.contactDetails)} onChange={(contactDetails) => onChange({ ...value, administrativeContact: { ...administrativeContact, contactDetails } })} multiline field={field("Academic coordinator contact details", "contacts.administrativeContact.contactDetails")} {...history} /></>}</div></>;
 }
+
+function LivePersonCard({ person }: { person: CatalogueEntry }) { const payload = person.payload; return <div className="rounded-md border border-[#d9dee7] bg-[#f8fafc] p-4 text-sm text-[#475467]"><p className="font-semibold text-[#344054]">{person.label}</p><p className="mt-1">{[stringValue(payload.academicRank), stringValue(payload.affiliations), stringValue(payload.officeHours), stringValue(payload.email)].filter(Boolean).join(" · ") || "Directory details will appear here."}</p><p className="mt-2 text-xs text-[#667085]">Live directory details are read-only in the syllabus. Update them in Manage catalogues.</p></div>; }
 
 function AffiliationsEditor({ instructor, onChange, ...history }: HistoryContext & { instructor: Record<string, unknown>; onChange: (value: Record<string, unknown>) => void }) {
   const affiliations = affiliationEntries(instructor);
@@ -41,7 +49,9 @@ function OfficeHourCard({ entry, index, onChange, onRemove, ...history }: Histor
 }
 
 function ContactField({ label, value, onChange, field, syllabusId, revision, onOpenHistory, multiline = false, type = "text" }: HistoryContext & { label: string; value: string; onChange: (value: string) => void; field: HistoryField; multiline?: boolean; type?: string }) {
-  return <label className="grid gap-1 text-sm font-medium text-[#344054]">{label}<div className="relative">{multiline ? <AutoResizeTextarea value={value} onChange={(event) => onChange(event.target.value)} minRows={3} className="rounded-md border border-[#b7bec8] px-3 py-2 pr-10 font-normal leading-6 focus:border-[#1f4e79] focus:outline-none focus:ring-2 focus:ring-[#d7e5f3]" /> : <input type={type} value={value} onChange={(event) => onChange(event.target.value)} className="w-full rounded-md border border-[#b7bec8] px-3 py-2 pr-10 font-normal focus:border-[#1f4e79] focus:outline-none focus:ring-2 focus:ring-[#d7e5f3]" />}<FieldHistoryControl syllabusId={syllabusId} revision={revision} field={field} onOpenSidebar={onOpenHistory} placement={multiline ? "top" : "center"} /></div></label>;
+  const history = <FieldHistoryControl syllabusId={syllabusId} revision={revision} field={field} onOpenSidebar={onOpenHistory} placement={multiline ? "top" : "center"} />;
+  if (type === "time") return <TimeField label={label} value={value} onChange={onChange} trailing={history} />;
+  return <HistoryTextField label={label} value={value} onChange={onChange} multiline={multiline} minRows={3} type={type} history={{ field, onOpenHistory }} />;
 }
 
 function affiliationEntries(instructor: Record<string, unknown>): Affiliation[] {

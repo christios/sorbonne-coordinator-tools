@@ -6,7 +6,10 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from sorbonne.api.rosters import router as rosters_router
+from sorbonne.api.syllabus_catalogues import router as syllabus_catalogues_router
 from sorbonne.api.syllabi import router as syllabi_router
+from sorbonne.api.teachers import requisition_router as teacher_requisitions_router
+from sorbonne.api.teachers import router as teachers_router
 from sorbonne.config import config
 from sorbonne.services.migrations import apply_schema_migrations
 
@@ -28,7 +31,10 @@ app.add_middleware(
 )
 
 app.include_router(rosters_router, prefix="/api/v1")
+app.include_router(teachers_router, prefix="/api/v1")
+app.include_router(teacher_requisitions_router, prefix="/api/v1")
 app.include_router(syllabi_router, prefix="/api/v1")
+app.include_router(syllabus_catalogues_router, prefix="/api/v1")
 app.mount("/handbook", StaticFiles(directory="handbook-dist", html=True, check_dir=False), name="handbook")
 app.frontend("/", directory="frontend-dist", fallback="index.html", check_dir=False)
 
@@ -44,6 +50,11 @@ async def roster_frontend() -> FileResponse:
 
 @app.get("/syllabus", include_in_schema=False)
 async def syllabus_frontend() -> FileResponse:
+    return frontend_entrypoint()
+
+
+@app.get("/requisition", include_in_schema=False)
+async def requisition_frontend() -> FileResponse:
     return frontend_entrypoint()
 
 

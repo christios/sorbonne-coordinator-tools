@@ -17,7 +17,7 @@ describe("SelectMenu", () => {
 
   it("allows several PLOs to be selected without closing the menu", () => {
     const onChange = vi.fn();
-    render(<SelectMenu label="Aligned PLOs" value="PLO 1" onChange={onChange} options={[{ value: "PLO 1", label: "PLO 1: First outcome" }, { value: "PLO 2", label: "PLO 2: Second outcome" }]} />);
+    render(<SelectMenu label="Aligned PLOs" value="PLO 1" onChange={onChange} multiple options={[{ value: "PLO 1", label: "PLO 1: First outcome" }, { value: "PLO 2", label: "PLO 2: Second outcome" }]} />);
 
     fireEvent.click(screen.getByRole("combobox", { name: "Aligned PLOs" }));
     fireEvent.click(screen.getByRole("option", { name: "PLO 2: Second outcome" }));
@@ -40,5 +40,15 @@ describe("SelectMenu", () => {
 
     expect(container.querySelector("button")?.getAttribute("class")).toContain("pr-20");
     expect(container.querySelector("svg")?.getAttribute("class")).toContain("right-10");
+  });
+
+  it("filters a searchable shared menu instead of falling back to a native select", () => {
+    render(<SelectMenu label="Course catalogue" value="" onChange={vi.fn()} searchable options={[{ value: "1", label: "Physics — PHY-101 · CRN 21939" }, { value: "2", label: "Mathematics — MAT-101 · CRN 21940" }]} />);
+
+    fireEvent.click(screen.getByRole("combobox", { name: "Course catalogue" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Search Course catalogue" }), { target: { value: "physics" } });
+
+    expect(screen.getByRole("option", { name: "Physics — PHY-101 · CRN 21939" })).toBeTruthy();
+    expect(screen.queryByRole("option", { name: "Mathematics — MAT-101 · CRN 21940" })).toBeNull();
   });
 });

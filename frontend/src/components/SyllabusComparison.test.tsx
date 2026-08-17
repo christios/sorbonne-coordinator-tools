@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { DiffValue } from "./SyllabusComparison";
+import { ComparisonStatus, DiffValue } from "./SyllabusComparison";
 import { SyllabusChange } from "@/services/syllabi";
 
 const change: SyllabusChange = {
@@ -41,5 +41,25 @@ describe("DiffValue", () => {
     expect(substitution.textContent).toContain("uses → adopts");
     expect(newer.textContent).toContain("annual");
     expect(newer.textContent).toContain("regularly");
+  });
+
+  it("renders structured comparison values as fields instead of raw JSON", () => {
+    render(<DiffValue value={[{ id: "assessment-1", type: "Final exam", weight: "40", clos: "CLO 1, CLO 2" }]} side="left" />);
+
+    expect(screen.getByText("Final exam")).toBeTruthy();
+    expect(screen.getByText("Weight")).toBeTruthy();
+    expect(screen.getByText("40")).toBeTruthy();
+    expect(screen.queryByText(/\{"id"/)).toBeNull();
+  });
+
+  it("labels comparable fields as kept, changed, or template-specific", () => {
+    const { rerender } = render(<ComparisonStatus row={{ id: "description", label: "Course description", left: "Same", right: "Same", status: "mapped", kind: "unchanged" }} leftTemplate="SCEN" rightTemplate="Foundation Year" />);
+    expect(screen.getByText("Kept")).toBeTruthy();
+
+    rerender(<ComparisonStatus row={{ id: "description", label: "Course description", left: "Before", right: "After", status: "mapped", kind: "changed" }} leftTemplate="SCEN" rightTemplate="Foundation Year" />);
+    expect(screen.getByText("Changed")).toBeTruthy();
+
+    rerender(<ComparisonStatus row={{ id: "course-weight", label: "Course weight", left: null, right: "3", status: "right-only", kind: "changed" }} leftTemplate="SCEN" rightTemplate="Foundation Year" />);
+    expect(screen.getByText("Only in Foundation Year")).toBeTruthy();
   });
 });

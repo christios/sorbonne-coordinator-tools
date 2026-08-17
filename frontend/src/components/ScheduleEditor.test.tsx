@@ -22,7 +22,7 @@ describe("ScheduleEditor", () => {
     fireEvent.click(screen.getByRole("button", { name: "Expand topic: Climate governance (position 1)" }));
 
     expect(screen.getByLabelText("Pre-class learning activities")).toBeTruthy();
-    expect(screen.getByLabelText("Date")).toHaveProperty("value", "2026-09-01");
+    expect(screen.getByLabelText("Date").textContent).toContain("01 Sept 2026");
     expect(screen.queryByLabelText("Session")).toBeNull();
   });
 
@@ -38,5 +38,22 @@ describe("ScheduleEditor", () => {
 
     expect(screen.getByRole("button", { name: "Collapse topic: Untitled topic (position 1)" })).toBeTruthy();
     expect(screen.getByLabelText("Topic")).toBeTruthy();
+  });
+
+  it("keeps the session title concise and provides a separate details field with an end-of-list add action", () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={queryClient}><ScheduleEditor
+      rows={[{ id: "session-1", date: "", topic: "Climate governance", preClass: "", assessments: "" }]}
+      onChange={vi.fn()}
+      syllabusId="syllabus-1"
+      revision={1}
+      onOpenHistory={vi.fn()}
+    /></QueryClientProvider>);
+
+    fireEvent.click(screen.getByRole("button", { name: "Expand topic: Climate governance (position 1)" }));
+
+    expect(screen.getByLabelText("Topic").tagName).toBe("INPUT");
+    expect(screen.getByLabelText("Session details").tagName).toBe("TEXTAREA");
+    expect(screen.getByRole("button", { name: "Add session at end" })).toBeTruthy();
   });
 });

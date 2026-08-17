@@ -24,4 +24,24 @@ describe("CourseIdentificationEditor", () => {
     expect(screen.getByRole("button", { name: "Add prerequisite or co-requisite" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Add equipment item" })).toBeTruthy();
   });
+
+  it("uses direct-entry contact-hour fields without native number steppers", () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={queryClient}><CourseIdentificationEditor
+      value={{ contactHours: { Lectures: "20" } }}
+      courseTitle="Climate Change Law"
+      courseCode="PA585"
+      academicYear="2026-2027"
+      onChange={vi.fn()}
+      onMetadataChange={vi.fn()}
+      syllabusId="syllabus-1"
+      revision={1}
+      onOpenHistory={vi.fn()}
+    /></QueryClientProvider>);
+
+    const lectures = screen.getByRole("textbox", { name: "Lectures" });
+    expect(lectures.getAttribute("type")).toBe("text");
+    expect(lectures.getAttribute("inputmode")).toBe("decimal");
+    expect(lectures).toHaveProperty("value", "20");
+  });
 });

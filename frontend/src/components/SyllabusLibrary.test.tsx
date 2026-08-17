@@ -1,14 +1,25 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { SyllabusLibrary } from "./SyllabusLibrary";
 
 describe("SyllabusLibrary", () => {
-  it("filters folders and syllabi within the selected folder", () => {
+  it("opens public catalogue management from the library header", () => {
+    const onManageCatalogues = vi.fn();
+    render(<SyllabusLibrary syllabi={[]} folders={[]} templates={[]} isLoading={false} isCreating={false} isCreatingFolder={false} deletingId={null} deletingFolderId={null} movingId={null} onOpen={vi.fn()} onCreate={vi.fn()} onCreateFolder={vi.fn()} onMove={vi.fn()} onManageCatalogues={onManageCatalogues} onDelete={vi.fn()} onDeleteFolder={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Manage catalogues" }));
+
+    expect(onManageCatalogues).toHaveBeenCalledOnce();
+  });
+
+  it("filters folders and syllabi within the selected folder", async () => {
+    const onOpen = vi.fn();
+    const onRename = vi.fn().mockResolvedValue(undefined);
     render(
       <SyllabusLibrary
         syllabi={[
-          { id: "syllabus-1", seriesId: "series-1", folderId: "folder-1", templateId: "scen-en-v1", courseTitle: "Climate Policy", courseCode: "SCEN-220", academicYear: "2026-2027", revision: 1, createdAt: "", updatedAt: "" },
+          { id: "syllabus-1", seriesId: "series-1", folderId: "folder-1", templateId: "scen-en-v1", courseTitle: "Climate Policy", courseCode: "SCEN-220", academicYear: "2026-2027", revision: 1, createdAt: "2026-07-20T08:05:00", updatedAt: "2026-07-22T09:05:00" },
           { id: "syllabus-2", seriesId: "series-2", folderId: "folder-1", templateId: "scen-en-v1", courseTitle: "Climate Law", courseCode: "SCEN-221", academicYear: "2026-2027", revision: 1, createdAt: "", updatedAt: "" },
           { id: "syllabus-3", seriesId: "series-3", folderId: null, templateId: "scen-en-v1", courseTitle: "Environmental Law", courseCode: "SCEN-240", academicYear: "2026-2027", revision: 1, createdAt: "", updatedAt: "" },
         ]}
@@ -24,10 +35,11 @@ describe("SyllabusLibrary", () => {
         deletingId={null}
         deletingFolderId={null}
         movingId={null}
-        onOpen={vi.fn()}
+        onOpen={onOpen}
         onCreate={vi.fn()}
         onCreateFolder={vi.fn()}
         onMove={vi.fn()}
+        onRename={onRename}
         onDelete={vi.fn()}
         onDeleteFolder={vi.fn()}
       />,
@@ -47,7 +59,23 @@ describe("SyllabusLibrary", () => {
     expect(screen.getByLabelText("Folder path for Climate Policy").textContent).toContain("Climate courses");
     expect(screen.getByLabelText("Academic year: 2026-2027")).toBeTruthy();
     expect(screen.getByLabelText("Course code: SCEN-220")).toBeTruthy();
-    expect(screen.getByLabelText("Revision 1")).toBeTruthy();
+    expect(screen.getByText("Created: 20 Jul 2026, 08:05")).toBeTruthy();
+    expect(screen.getByText("Updated: 22 Jul 2026, 09:05")).toBeTruthy();
+    expect(screen.queryByText("Revision 1")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open Climate Policy" }));
+    expect(onOpen).toHaveBeenCalledWith("syllabus-1");
+
+    fireEvent.click(screen.getByRole("button", { name: "Rename Climate Policy" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Syllabus title for Climate Policy" }), { target: { value: "Climate Action" } });
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Syllabus title for Climate Policy" }), { key: "Enter" });
+    await waitFor(() => expect(onRename).toHaveBeenCalledWith("syllabus-1", "Climate Action"));
+    await waitFor(() => expect(screen.queryByRole("textbox", { name: "Syllabus title for Climate Policy" })).toBeNull());
+
+    fireEvent.click(screen.getByRole("button", { name: "Duplicate Climate Policy" }));
+    expect(screen.getByText("Start a syllabus")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Duplicate and edit" })).toBeTruthy();
+    expect(screen.getByText("Choose a mapped template, such as Foundation Year, to carry comparable content into a new syllabus in the same series.")).toBeTruthy();
   });
 
   it("confirms deletion for empty folders and protects populated folders", () => {

@@ -1,30 +1,45 @@
 import { Clock3, Loader2, PanelRightClose, X } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-import { FieldHistoryEntry, WordDiffOperation, getFieldHistory } from "@/services/syllabi";
+import { FieldHistoryEntry, WordDiffOperation } from "@/services/fieldHistory";
 
 export type HistoryField = { path: string; label: string };
-
-type Props = {
-  syllabusId: string;
+export type FieldHistorySource = {
+  resourceType: string;
+  resourceId: string;
   revision: number;
-  field: HistoryField;
-  onOpenSidebar: (field: HistoryField) => void;
-  placement?: "center" | "top";
+  loadHistory: (fieldPath: string) => Promise<FieldHistoryEntry[]>;
 };
 
-export function FieldHistoryControl({ syllabusId, revision, field, onOpenSidebar, placement = "center" }: Props) {
+const FieldHistoryContext = createContext<FieldHistorySource | null>(null);
+
+export function FieldHistoryProvider({ source, enabled = false, children }: { source: FieldHistorySource; enabled?: boolean; children: React.ReactNode }) {
+  return <FieldHistoryContext.Provider value={enabled ? source : null}>{children}</FieldHistoryContext.Provider>;
+}
+
+type Props = {
+  field: HistoryField;
+  onOpenSidebar: (field: HistoryField) => void;
+  placement?: "center" | "top" | "beforeEnd" | "label";
+  /** @deprecated History is enabled by the closest FieldHistoryProvider. */
+  syllabusId?: string;
+  /** @deprecated History is enabled by the closest FieldHistoryProvider. */
+  revision?: number;
+};
+
+export function FieldHistoryControl({ field, onOpenSidebar, placement = "center" }: Props) {
+  const source = useContext(FieldHistoryContext);
   const [isOpen, setIsOpen] = useState(false);
   const [previewPosition, setPreviewPosition] = useState<{ top: number; left: number } | null>(null);
   const controlRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
   const history = useQuery({
-    queryKey: ["syllabus-field-history", syllabusId, field.path, revision],
-    queryFn: () => getFieldHistory(syllabusId, field.path),
-    enabled: isOpen,
+    queryKey: ["field-history", source?.resourceType, source?.resourceId, field.path, source?.revision],
+    queryFn: () => source?.loadHistory(field.path) ?? Promise.resolve([]),
+    enabled: isOpen && Boolean(source),
   });
   useEffect(() => {
     if (!isOpen) return;
@@ -57,8 +72,10 @@ export function FieldHistoryControl({ syllabusId, revision, field, onOpenSidebar
     };
   }, [isOpen]);
 
+  if (!source) return null;
+
   return (
-    <div ref={controlRef} className={`absolute right-2 z-10 flex ${placement === "top" ? "top-2" : "inset-y-0 items-center"}`}>
+    <div ref={controlRef} className={`absolute z-10 flex ${placement === "top" ? "right-2 top-2" : placement === "label" ? "right-0 top-0" : placement === "beforeEnd" ? "inset-y-0 right-10 items-center" : "inset-y-0 right-2 items-center"}`}>
       <button ref={buttonRef} type="button" onClick={() => setIsOpen((open) => !open)} className="rounded p-1 text-[#667085] hover:bg-[#e8edf3] hover:text-[#1f4e79]" aria-label={`View edit history for ${field.label}`}>
         <Clock3 size={16} />
       </button>
@@ -73,13 +90,14 @@ export function FieldHistoryControl({ syllabusId, revision, field, onOpenSidebar
   );
 }
 
-export function FieldHistorySidebar({ syllabusId, revision, field, onClose }: { syllabusId: string; revision: number; field: HistoryField | null; onClose: () => void }) {
+export function FieldHistorySidebar({ field, onClose }: { field: HistoryField | null; onClose: () => void }) {
+  const source = useContext(FieldHistoryContext);
   const history = useQuery({
-    queryKey: ["syllabus-field-history", syllabusId, field?.path, revision],
-    queryFn: () => getFieldHistory(syllabusId, field?.path ?? ""),
-    enabled: Boolean(field),
+    queryKey: ["field-history", source?.resourceType, source?.resourceId, field?.path, source?.revision],
+    queryFn: () => source?.loadHistory(field?.path ?? "") ?? Promise.resolve([]),
+    enabled: Boolean(field && source),
   });
-  if (!field) return null;
+  if (!field || !source) return null;
 
   return (
     <aside className="fixed inset-y-0 right-0 z-40 flex w-full max-w-md flex-col border-l border-[#d9dee7] bg-white shadow-2xl" aria-label="Field edit history">

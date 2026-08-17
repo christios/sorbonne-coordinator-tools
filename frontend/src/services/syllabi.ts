@@ -1,3 +1,7 @@
+import type { FieldHistoryEntry, WordDiffOperation } from "@/services/fieldHistory";
+
+export type { FieldHistoryEntry, WordDiffOperation } from "@/services/fieldHistory";
+
 export type SyllabusContent = Record<string, unknown>;
 
 export type SyllabusSummary = {
@@ -36,24 +40,22 @@ export type SyllabusTemplate = {
   sections: Array<{ id: string; label: string }>;
 };
 
-export type FieldHistoryEntry = {
-  previousValue: unknown;
-  newValue: unknown;
-  revision: number;
-  changedAt: string;
-  operations?: WordDiffOperation[];
-};
-
-export type WordDiffOperation =
-  | { type: "equal" | "insert" | "delete"; text: string }
-  | { type: "substitute"; left: string; right: string };
-
 export type SyllabusChange = {
   path: string;
   label: string;
   left: unknown;
   right: unknown;
   kind: "added" | "removed" | "changed";
+  operations?: WordDiffOperation[];
+};
+
+export type SyllabusComparisonRow = {
+  id: string;
+  label: string;
+  left: unknown;
+  right: unknown;
+  status: "mapped" | "left-only" | "right-only";
+  kind: "changed" | "unchanged";
   operations?: WordDiffOperation[];
 };
 
@@ -69,6 +71,7 @@ export type SyllabusComparison = {
   left: Syllabus;
   right: Syllabus;
   changes: SyllabusChange[];
+  rows: SyllabusComparisonRow[];
 };
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";

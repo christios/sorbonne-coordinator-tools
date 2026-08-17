@@ -57,6 +57,7 @@ def test_builds_a_filled_template_with_repeatable_course_content(tmp_path) -> No
                     "id": "session-1",
                     "date": "2026-09-01",
                     "topic": "Climate governance",
+                    "details": "Institutions, actors, and implementation pathways.",
                     "preClass": "Read chapter 1",
                     "assessments": "Short quiz",
                 }
@@ -149,7 +150,7 @@ def test_builds_a_filled_template_with_repeatable_course_content(tmp_path) -> No
     assert document.tables[7].cell(1, 0).text == "1"
     assert (
         document.tables[7].cell(1, 3).text
-        == "Pre-class learning activities:\nRead chapter 1\n\nAssessments:\nShort quiz"
+        == "Session details:\nInstitutions, actors, and implementation pathways.\n\nPre-class learning activities:\nRead chapter 1\n\nAssessments:\nShort quiz"
     )
     assert "A. Author" in document.tables[8].cell(0, 1).text
     assert document.tables[9].cell(1, 1).text == "Policy brief"

@@ -31,6 +31,7 @@ class SyllabusTemplate:
 
 
 DEFAULT_TEMPLATE_ID = "scen-en-v1"
+FYS_TEMPLATE_ID = "fys-2025-26"
 _ASSET_DIRECTORY = Path(__file__).resolve().parents[1] / "assets"
 
 _TEMPLATES = {
@@ -51,12 +52,32 @@ _TEMPLATES = {
             TemplateSection("assessment", "9. Course assessment"),
             TemplateSection("documentControl", "10. Document control"),
         ),
-    )
+    ),
+    FYS_TEMPLATE_ID: SyllabusTemplate(
+        id=FYS_TEMPLATE_ID,
+        name="Foundation Year syllabus template (Sciences, 2025-26)",
+        description="Approved Foundation Year Sciences syllabus form for 2025-26.",
+        document_path=_ASSET_DIRECTORY / "fys_syllabus_template_2025_26.docx",
+        sections=(
+            TemplateSection("courseDetails", "1. Course details"),
+            TemplateSection("facultyDetails", "2. Faculty details"),
+            TemplateSection("delivery", "3. Course delivery"),
+            TemplateSection("description", "4. Course description"),
+            TemplateSection("learningOutcomes", "5. Course learning outcomes"),
+            TemplateSection("requiredMaterials", "6. Required materials"),
+            TemplateSection("teachingMethodologies", "7. Teaching methodologies"),
+            TemplateSection("assessment", "8. Course assessment"),
+            TemplateSection("schedule", "9. Teaching schedule"),
+        ),
+    ),
 }
 
 # Cross-template mapping is intentionally empty until a second approved template
 # and its review mapping are supplied. Same-template comparisons are implicit.
-_COMPARISON_MAPPINGS: dict[tuple[str, str], dict[str, str]] = {}
+_COMPARISON_MAPPINGS: dict[tuple[str, str], dict[str, str]] = {
+    (DEFAULT_TEMPLATE_ID, FYS_TEMPLATE_ID): {},
+    (FYS_TEMPLATE_ID, DEFAULT_TEMPLATE_ID): {},
+}
 
 
 def list_templates() -> list[SyllabusTemplate]:

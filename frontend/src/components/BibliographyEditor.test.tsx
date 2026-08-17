@@ -19,4 +19,14 @@ describe("BibliographyEditor", () => {
     expect(screen.getByRole("heading", { name: "Journal articles", level: 4 })).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "Websites", level: 4 })).toBeNull();
   });
+
+  it("opens a newly added source in paste-friendly freeform mode", () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const onChange = vi.fn();
+    render(<QueryClientProvider client={queryClient}><BibliographyEditor value={{}} onChange={onChange} syllabusId="syllabus-1" revision={1} onOpenHistory={vi.fn()} /></QueryClientProvider>);
+
+    fireEvent.click(screen.getByRole("button", { name: "Add book" }));
+
+    expect(onChange).toHaveBeenCalledWith({ books: [expect.objectContaining({ entryMode: "freeform" })] });
+  });
 });

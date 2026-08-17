@@ -8,6 +8,7 @@ from starlette.responses import FileResponse
 
 from sorbonne.config import config
 from sorbonne.services.syllabus_export import build_syllabus_docx
+from sorbonne.services.syllabus_catalogue_store import SyllabusCatalogueStore
 from sorbonne.services.syllabus_store import (
     ComparisonNotAllowed,
     FolderNameConflict,
@@ -50,6 +51,10 @@ class MoveSyllabusRequest(BaseModel):
 
 def get_store() -> SyllabusStore:
     return SyllabusStore(config.database_url)
+
+
+def get_catalogue_store() -> SyllabusCatalogueStore:
+    return SyllabusCatalogueStore(config.database_url)
 
 
 @router.get("")
@@ -108,7 +113,9 @@ def delete_folder(folder_id: str, store: SyllabusStore = Depends(get_store)) -> 
     except FolderNotFound as exc:
         raise HTTPException(status_code=404, detail="Folder not found.") from exc
     except FolderNotEmpty as exc:
-        raise HTTPException(status_code=409, detail="Move all syllabi and subfolders out of this folder before deleting it.") from exc
+        raise HTTPException(
+            status_code=409, detail="Move all syllabi and subfolders out of this folder before deleting it."
+        ) from exc
     return Response(status_code=204)
 
 
@@ -167,6 +174,7 @@ def export_syllabus(
     syllabus_id: str,
     background_tasks: BackgroundTasks,
     store: SyllabusStore = Depends(get_store),
+    catalogue_store: SyllabusCatalogueStore = Depends(get_catalogue_store),
 ) -> FileResponse:
     try:
         syllabus = store.get(syllabus_id)
@@ -175,7 +183,7 @@ def export_syllabus(
 
     with NamedTemporaryFile(prefix="scen-syllabus-", suffix=".docx", delete=False) as file:
         output_path = Path(file.name)
-    build_syllabus_docx(syllabus, output_path)
+    build_syllabus_docx({**syllabus, "content": catalogue_store.resolve_people(syllabus["content"])}, output_path)
     background_tasks.add_task(output_path.unlink, missing_ok=True)
     return FileResponse(
         output_path,
@@ -224,7 +232,22 @@ def compare_syllabi(
     syllabus_id: str, other_syllabus_id: str, store: SyllabusStore = Depends(get_store)
 ) -> dict[str, Any]:
     try:
-        return store.compare(syllabus_id, other_syllabus_id)
+        comparison = store.compare(syllabus_id, other_syllabus_id)
+        # Stable catalogue references are implementation details. The associated human
+        # text remains in the syllabus content (or is resolved live for People).
+        internal_paths = (
+            ".personId",
+            ".catalogueProgrammeId",
+            ".cataloguePloProgrammeId",
+            ".teachingPresetIds",
+            ".assessmentTypeId",
+            ".ploIds",
+        )
+        comparison["changes"] = [
+            change for change in comparison["changes"] if not change["path"].endswith(internal_paths)
+        ]
+        comparison["rows"] = [row for row in comparison["rows"] if not row["id"].endswith(internal_paths)]
+        return comparison
     except SyllabusNotFound as exc:
         raise HTTPException(status_code=404, detail="Syllabus not found.") from exc
     except ComparisonNotAllowed as exc:

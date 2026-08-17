@@ -6,6 +6,7 @@ import { CourseSummary } from "@/components/CourseSummary";
 import { FileDropzone } from "@/components/FileDropzone";
 import { RosterTable } from "@/components/RosterTable";
 import { SyllabusBuilder } from "@/components/SyllabusBuilder";
+import { TeacherDatabase } from "@/components/TeacherDatabase";
 import { handbookUrl } from "@/routes/handbookRoute";
 import { ToolId, toolFromLocation } from "@/routes/toolRoute";
 import {
@@ -75,6 +76,7 @@ export function App() {
   const downloadLabel = files.length > 1 ? "Download ZIP" : "Download Excel";
 
   useEffect(() => {
+    if (window.location.hash === "#/requisition") window.location.hash = "/teachers";
     const handleLocationChange = () => setActiveTool(toolFromLocation(window.location.pathname, window.location.hash));
     window.addEventListener("popstate", handleLocationChange);
     window.addEventListener("hashchange", handleLocationChange);
@@ -102,8 +104,8 @@ export function App() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f7f8fa]">
-      <header className="border-b border-[#d9dee7] bg-white">
+    <main className={`${activeTool === "syllabus" ? "flex h-screen min-h-0 flex-col overflow-hidden" : "min-h-screen"} bg-[#f7f8fa]`}>
+      <header className="shrink-0 border-b border-[#d9dee7] bg-white">
         <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-5 sm:px-6 lg:flex-row lg:items-center lg:justify-between lg:px-8">
           <div>
             <p className="text-xs font-semibold uppercase tracking-normal text-[#a6292f]">Sorbonne University Abu Dhabi</p>
@@ -202,7 +204,7 @@ export function App() {
             </div>
           )}
         </section>
-      </div> : <SyllabusBuilder />}
+      </div> : activeTool === "teachers" ? <TeacherDatabase /> : <div className="min-h-0 flex-1"><SyllabusBuilder /></div>}
     </main>
   );
 }
@@ -223,6 +225,13 @@ function AppWelcome({
       description: "Create, revise, compare, and maintain SCEN course syllabi across academic years.",
       icon: BookOpen,
       keywords: "syllabus course template academic year comparison",
+    },
+    {
+      id: "teachers",
+      name: "Part-time Teacher Database",
+      description: "Keep teacher profiles, contacts, notes, and teaching-recruitment requests together.",
+      icon: FileText,
+      keywords: "teacher professor lecturer requisition recruitment contract docx contacts",
     },
     {
       id: "handbook",

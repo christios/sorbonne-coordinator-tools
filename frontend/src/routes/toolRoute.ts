@@ -1,12 +1,13 @@
-export type ToolId = "roster" | "syllabus";
+export type ToolId = "roster" | "syllabus" | "teachers";
 
-const tools = new Set<ToolId>(["roster", "syllabus"]);
+const tools = new Set<ToolId>(["roster", "syllabus", "teachers"]);
 
 function asToolId(value: string): ToolId | null {
   return tools.has(value as ToolId) ? (value as ToolId) : null;
 }
 
 export function toolFromLocation(pathname: string, hash: string): ToolId | null {
+  if (pathname === "/requisition" || hash === "#/requisition") return "teachers";
   const pathTool = asToolId(pathname.replace(/^\//, ""));
   if (pathTool) return pathTool;
 

@@ -10,4 +10,9 @@ describe("toolFromLocation", () => {
   it("continues to support the existing path-style routes", () => {
     expect(toolFromLocation("/roster", "")).toBe("roster");
   });
+
+  it("opens the teacher database from its route and redirects legacy requisition links", () => {
+    expect(toolFromLocation("/", "#/teachers")).toBe("teachers");
+    expect(toolFromLocation("/", "#/requisition")).toBe("teachers");
+  });
 });
