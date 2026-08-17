@@ -1,6 +1,6 @@
 # Sorbonne Coordinator Tools
 
-The SCEN academic-coordination workspace for Sorbonne University Abu Dhabi. It contains a syllabus builder with Word export, a coordinator handbook, and a retained course-roster converter. The roster converter is currently hidden from the welcome page but its API and route remain in the codebase.
+The SCEN academic-coordination workspace for Sorbonne University Abu Dhabi. It contains a syllabus builder with Word export, a part-time teacher database with teacher-linked requisitions, a coordinator handbook, and a retained course-roster converter. The roster converter is currently hidden from the welcome page but its API and route remain in the codebase.
 
 Production: <https://sorbonne-coordinator-tools.fastapicloud.dev/>
 
@@ -8,12 +8,14 @@ Production: <https://sorbonne-coordinator-tools.fastapicloud.dev/>
 
 | Route | Purpose |
 | --- | --- |
-| `/` | Tool launcher (Syllabus Builder, Teaching-requisition Builder, and Coordinator Handbook) |
+| `/` | Tool launcher (Syllabus Builder, Part-time Teacher Database, and Coordinator Handbook) |
 | `/#/syllabus` | Create, organise, edit, compare, and export SCEN syllabi |
-| `/#/requisition` | Create, duplicate, retain, and export teaching-recruitment requisitions |
+| `/#/teachers` | Manage part-time teacher profiles, folders, teacher-linked requisitions, and the course catalogue |
+| `/#/requisition` | Legacy route that redirects to `/#/teachers` |
 | `/handbook/` | Static SCEN Coordinator Handbook |
 | `/api/v1/syllabi` | Syllabus API |
-| `/api/v1/requisitions` | Teaching-requisition API |
+| `/api/v1/teachers` | Teacher, folder, course-catalogue, and teacher-requisition API |
+| `/api/v1/teacher-requisitions` | Individual teacher-requisition API |
 | `/api/v1/rosters` | Retained roster-converter API |
 | `/healthcheck` | Deployment health check |
 
@@ -34,6 +36,8 @@ docs/         Architecture decision records
 - **Handbook ownership:** `handbook/` is the version-controlled source of the deployed handbook. It was imported from a non-versioned local MkDocs project; do not treat that old external folder as the maintained source. The original email archive was deliberately excluded and must not be added to this repository or deployment.
 
 The [UI/UX handoff](docs/handoffs/ui-ux-decisions.md) captures the product decisions that should guide future interface work.
+
+For new development sessions, start with the durable [project memory and working agreement](AGENTS.md).
 
 ## Prerequisites
 
@@ -135,7 +139,20 @@ Required FastAPI Cloud encrypted secret:
 
 - `DATABASE_URL` — the Neon PostgreSQL connection URL.
 
-For a manual release, build both static bundles in the same order before running `uv run fastapi deploy .` from `backend/`. Prefer the GitHub workflow so the release uses the configured secrets and is recorded in Actions.
+For a manual release, your shell needs `FASTAPI_CLOUD_TOKEN` and `FASTAPI_CLOUD_APP_ID`. Build the same static bundles as the workflow, then deploy from `backend/`:
+
+```bash
+cd frontend
+VITE_API_BASE_URL="" VITE_BASE_PATH=/ VITE_OUT_DIR=../backend/frontend-dist npm run build
+
+cd ../backend
+uv run --with mkdocs-material mkdocs build \
+  --config-file ../handbook/mkdocs.yml \
+  --site-dir ../backend/handbook-dist
+uv run fastapi deploy . --no-wait
+```
+
+Prefer the GitHub workflow so the release uses the configured secrets and is recorded in Actions.
 
 After deployment, verify:
 
@@ -143,6 +160,7 @@ After deployment, verify:
 curl -fsS https://sorbonne-coordinator-tools.fastapicloud.dev/healthcheck
 curl -fsS https://sorbonne-coordinator-tools.fastapicloud.dev/handbook/ > /dev/null
 curl -fsS https://sorbonne-coordinator-tools.fastapicloud.dev/api/v1/syllabi > /dev/null
+curl -fsS https://sorbonne-coordinator-tools.fastapicloud.dev/api/v1/teachers > /dev/null
 ```
 
 ## Important product constraints

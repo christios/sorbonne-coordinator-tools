@@ -11,6 +11,7 @@ This document records the user-facing decisions made while shaping the SCEN Coor
 3. **Use human language everywhere.** Labels, history entries, comparison fields, and card titles must be readable academic terms—not JSON paths such as `description.overview`.
 4. **Use one visual language.** Controls use the existing white surface, subtle blue-grey border, moderate rounded corners, dark-blue action colour, and restrained red for destructive actions. Do not reintroduce browser-native-looking selects or sharp-cornered controls.
 5. **Keep review trustworthy.** Revision history and year-over-year comparison should communicate exactly what changed without obscuring the original text.
+6. **Reuse shared interaction primitives.** New selection controls use `SelectMenu` (with its search option for long lists); semantic dates use `DateField`; destructive actions use the in-app `ConfirmDialog`. Do not introduce native `<select>` controls or `window.confirm` in product UI.
 
 ## Workspace launcher
 
@@ -140,6 +141,7 @@ Before merging any overlay, dropdown, tooltip-like preview, or move menu:
 
 - Never expose code paths or internal field keys to professors.
 - Do not reintroduce the old native dropdown appearance.
+- Do not use browser-native confirmation dialogs for destructive actions; use the shared `ConfirmDialog`.
 - Do not stack PLO and CLO editors, bibliography categories, or assessment areas into one long page when tabs give a clearer focus.
 - Do not let overlays be transparent, clipped, persistent after outside clicks, or visually interfere with underlying history icons.
 - Do not add multiple blank rows by default.
