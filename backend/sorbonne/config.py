@@ -11,6 +11,7 @@ class Config(BaseSettings):
         "http://127.0.0.1:3001",
     ]
     database_url: str = "postgresql+psycopg://sorbonne:sorbonne@localhost:5433/sorbonne"
+    google_books_api_key: str | None = None
 
 
 config = Config()

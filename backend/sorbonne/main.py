@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from sorbonne.api.bibliography_lookup import router as bibliography_lookup_router
 from sorbonne.api.rosters import router as rosters_router
 from sorbonne.api.syllabus_catalogues import router as syllabus_catalogues_router
 from sorbonne.api.syllabi import router as syllabi_router
@@ -35,6 +36,7 @@ app.include_router(teachers_router, prefix="/api/v1")
 app.include_router(teacher_requisitions_router, prefix="/api/v1")
 app.include_router(syllabi_router, prefix="/api/v1")
 app.include_router(syllabus_catalogues_router, prefix="/api/v1")
+app.include_router(bibliography_lookup_router, prefix="/api/v1")
 app.mount("/handbook", StaticFiles(directory="handbook-dist", html=True, check_dir=False), name="handbook")
 app.frontend("/", directory="frontend-dist", fallback="index.html", check_dir=False)
 

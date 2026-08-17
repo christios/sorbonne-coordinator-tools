@@ -139,6 +139,10 @@ Required FastAPI Cloud encrypted secret:
 
 - `DATABASE_URL` — the Neon PostgreSQL connection URL.
 
+Optional FastAPI Cloud encrypted secret:
+
+- `GOOGLE_BOOKS_API_KEY` — enables Google Books as the server-side fallback when Open Library has no book result. Keep this key server-side; it is never exposed to the browser.
+
 For a manual release, your shell needs `FASTAPI_CLOUD_TOKEN` and `FASTAPI_CLOUD_APP_ID`. Build the same static bundles as the workflow, then deploy from `backend/`:
 
 ```bash

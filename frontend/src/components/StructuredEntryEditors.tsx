@@ -5,8 +5,10 @@ import { FieldHistoryControl, HistoryField } from "@/components/FieldHistory";
 import { DateField } from "@/components/DateField";
 import { SelectMenu } from "@/components/SelectMenu";
 import { HistoryTextField } from "@/components/HistoryTextField";
+import { BibliographyReferenceFinder } from "@/components/BibliographyReferenceFinder";
 import { AssessmentEntry, PloEntry, ResourceEntry, Rubric, assessmentEntries, bibliographyEntries, ploEntries, rubricEntries } from "@/services/syllabusContent";
 import { CatalogueEntry } from "@/services/syllabusCatalogues";
+import { BibliographyLookupItem } from "@/services/bibliographyLookup";
 
 type HistoryContext = { syllabusId: string; revision: number; onOpenHistory: (field: HistoryField) => void };
 
@@ -29,7 +31,7 @@ export function BibliographyEditor({ value, onChange, ...history }: HistoryConte
 
 function ResourceList({ title, entries, kind, path, onChange, ...history }: EntryProps) {
   const add = () => onChange([...entries, { id: crypto.randomUUID(), entryMode: "freeform" }]);
-  const update = (id: string, field: keyof ResourceEntry, value: string) => onChange(entries.map((entry) => entry.id === id ? { ...entry, [field]: value } : entry));
+  const update = (id: string, patch: Partial<ResourceEntry>) => onChange(entries.map((entry) => entry.id === id ? { ...entry, ...patch } : entry));
   const remove = (id: string) => onChange(entries.filter((entry) => entry.id !== id));
   const action = kind === "book" ? "Add book" : kind === "website" ? "Add website" : "Add article";
   return (
@@ -48,11 +50,14 @@ function ResourceList({ title, entries, kind, path, onChange, ...history }: Entr
   );
 }
 
-function ResourceCard({ entry, index, kind, path, onChange, onRemove, ...history }: HistoryContext & { entry: ResourceEntry; index: number; kind: EntryProps["kind"]; path: string; onChange: (id: string, field: keyof ResourceEntry, value: string) => void; onRemove: (id: string) => void }) {
+function ResourceCard({ entry, index, kind, path, onChange, onRemove, ...history }: HistoryContext & { entry: ResourceEntry; index: number; kind: EntryProps["kind"]; path: string; onChange: (id: string, patch: Partial<ResourceEntry>) => void; onRemove: (id: string) => void }) {
   const [open, setOpen] = useState(Boolean(entry.legacyText) || !resourceSummary(entry, kind));
-  const set = (field: keyof ResourceEntry, value: string) => onChange(entry.id, field, value);
+  const set = (field: keyof ResourceEntry, value: string) => onChange(entry.id, { [field]: value });
   const mode = entry.legacyText !== undefined ? "freeform" : entry.entryMode ?? "structured";
-  const setMode = (next: "structured" | "freeform") => onChange(entry.id, "entryMode", next);
+  const setMode = (next: "structured" | "freeform") => onChange(entry.id, { entryMode: next });
+  const applyReference = (result: BibliographyLookupItem) => {
+    if (kind !== "website") onChange(entry.id, referencePatch(kind, result));
+  };
   const input = (label: string, field: keyof ResourceEntry, multiline = false, type = "text") => <EntryInput key={field} label={label} value={entry[field] ?? ""} onChange={(value) => set(field, value)} multiline={multiline} type={type} field={{ path: `${path}.${field}`, label: `${kindLabel(kind)} ${index + 1} · ${label}` }} {...history} />;
   return (
     <article className="w-full min-w-0 max-w-full overflow-hidden rounded-lg border border-[#d9dee7] bg-[#fdfdfd]">
@@ -61,7 +66,7 @@ function ResourceCard({ entry, index, kind, path, onChange, onRemove, ...history
         <button type="button" onClick={() => onRemove(entry.id)} className="rounded p-1 text-[#a6292f] hover:bg-[#fff1f2]" aria-label={`Remove ${kindLabel(kind).toLowerCase()} ${index + 1}`}><X size={17} /></button>
       </div>
       {open ? <div className="grid min-w-0 gap-4 border-t border-[#e5e7eb] p-4">
-        {entry.legacyText !== undefined ? input("Imported reference", "legacyText", true) : <><div className="flex w-fit rounded-md border border-[#cbd5e1] bg-white p-1"><button type="button" onClick={() => setMode("structured")} className={`rounded px-2.5 py-1 text-sm font-semibold ${mode === "structured" ? "bg-[#e8edf3] text-[#1f4e79]" : "text-[#667085]"}`}>Structured</button><button type="button" onClick={() => setMode("freeform")} className={`rounded px-2.5 py-1 text-sm font-semibold ${mode === "freeform" ? "bg-[#e8edf3] text-[#1f4e79]" : "text-[#667085]"}`}>Freeform</button></div>{mode === "freeform" ? input("Reference", "freeformText", true) : <><ResourceCoreFields kind={kind} input={input} /><details className="group rounded-md border border-[#e5e7eb] bg-white px-3 py-2"><summary className="cursor-pointer text-sm font-semibold text-[#1f4e79]">Add publication details</summary><div className="mt-4 grid gap-4 sm:grid-cols-2"><ResourceDetails kind={kind} input={input} /></div></details></>}</>}
+        {entry.legacyText !== undefined ? input("Imported reference", "legacyText", true) : <><div className="flex justify-center"><div className="flex w-fit rounded-md border border-[#cbd5e1] bg-white p-1"><button type="button" onClick={() => setMode("structured")} className={`rounded px-2.5 py-1 text-sm font-semibold ${mode === "structured" ? "bg-[#e8edf3] text-[#1f4e79]" : "text-[#667085]"}`}>Structured</button><button type="button" onClick={() => setMode("freeform")} className={`rounded px-2.5 py-1 text-sm font-semibold ${mode === "freeform" ? "bg-[#e8edf3] text-[#1f4e79]" : "text-[#667085]"}`}>Freeform</button></div></div>{kind !== "website" ? <BibliographyReferenceFinder kind={kind} onApply={applyReference} /> : null}{mode === "freeform" ? input("Reference", "freeformText", true) : <><ResourceCoreFields kind={kind} input={input} /><details className="group rounded-md border border-[#e5e7eb] bg-white px-3 py-2"><summary className="cursor-pointer text-sm font-semibold text-[#1f4e79]">Add publication details</summary><div className="mt-4 grid gap-4 sm:grid-cols-2"><ResourceDetails kind={kind} input={input} /></div></details></>}</>}
       </div> : null}
     </article>
   );
@@ -177,4 +182,10 @@ function EntryInput({ label, value, onChange, field, syllabusId, revision, onOpe
 
 function resourceSummary(entry: ResourceEntry, kind: EntryProps["kind"]) { return kind === "website" ? entry.organisation || entry.url || entry.freeformText || entry.legacyText : entry.title || entry.freeformText || entry.legacyText || entry.authors; }
 function kindLabel(kind: EntryProps["kind"]) { return kind === "book" ? "Book" : kind === "website" ? "Website" : "Journal article"; }
+function referencePatch(kind: "book" | "article", result: BibliographyLookupItem): Partial<ResourceEntry> {
+  const shared = { entryMode: "structured" as const, title: result.title, authors: result.authors.join(", "), year: result.year ?? "" };
+  return kind === "book"
+    ? { ...shared, publisher: result.publisher ?? "", isbn: result.isbn ?? result.url ?? "" }
+    : { ...shared, journal: result.journal ?? "", volume: result.volume ?? "", issue: result.issue ?? "", pages: result.pages ?? "", doi: result.doi ?? result.url ?? "" };
+}
 function stringValue(value: unknown) { return typeof value === "string" ? value : ""; }

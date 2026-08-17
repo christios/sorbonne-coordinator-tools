@@ -115,6 +115,8 @@ Before merging any overlay, dropdown, tooltip-like preview, or move menu:
 
 - Bibliography is split into **Books**, **Websites**, and **Journal articles** tabs.
 - Each resource type uses structured cards: identify the source with the essential fields first, then reveal optional publication details on demand.
+- Books and journal articles keep the **reference search panel always visible** in non-legacy cards; do not hide it behind a “Find reference” button. Centre the Structured/Freeform toggle above it. Search is submitted explicitly with a title, author, ISBN, or DOI; selecting a result copies metadata into the card's editable structured fields. Keep this provider lookup backend-mediated and copy-only—never make saved references or DOCX export depend on a live provider.
+- Book lookup first uses Open Library, then the optional server-side Google Books fallback. Normal 10- or 13-character ISBN values accept punctuation/spaces and use an ISBN-specific fallback if Open Library has no record. Google Books can temporarily fail, so the focused fallback is retried once; preserve this graceful behaviour rather than surfacing a provider outage as a permanent “no results” state.
 - Legacy imported reference text remains editable in a single imported-reference field; do not discard it during migration.
 - Affiliations, office hours/location, prerequisites/co-requisites, equipment, and “other permitted AI uses” are lists or structured entries—not a single unbounded narrative field.
 
