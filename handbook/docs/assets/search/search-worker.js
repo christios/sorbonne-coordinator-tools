@@ -49,10 +49,20 @@ const CPU_DTYPE = "q8";
  * fixed [12,256] = a flat 1.35s, first query included.
  *
  * MAX_LEN=256 truncates almost nothing: chunk lengths are median ~130 tokens,
- * p90 ~239. POOL must match RERANK_POOL in semantic-search.js; short pools are
- * padded with empty passages and their scores discarded.
+ * p90 ~239. POOL must match POOL in semantic-search.js; short pools are padded
+ * with empty passages and their scores discarded.
+ *
+ * POOL is 64 because the caller reranks EVERY section of each candidate page,
+ * not a keyword-chosen subset. Keyword shortlisting was the problem it solves:
+ * Material scores "Identity cross-checks" at 0.35 (last of six) for "student
+ * names inconsistent", and a keyword shortlist agreed, so the section that
+ * actually answers never reached the reranker. 64 covers ~11 pages outright
+ * (19 pages, mean 5.8 sections).
+ *
+ * Measured cost of the batch on WebGPU fp16, this corpus:
+ *   24 -> 100ms   48 -> 210ms   64 -> ~265ms   80 -> 322ms   111 (all) -> 522ms
  */
-const POOL = 12;
+const POOL = 64;
 const MAX_LEN = 256;
 
 let latest = 0;
