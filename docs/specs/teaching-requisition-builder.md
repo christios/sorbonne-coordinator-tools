@@ -25,7 +25,8 @@ Add a SCEN Teaching-requisition builder alongside the Syllabus Builder. Coordina
 
 - `backend/sorbonne/api/requisitions.py` — API boundary and input validation.
 - `backend/sorbonne/services/requisition_store.py` — PostgreSQL persistence.
-- `backend/sorbonne/services/requisition_export.py` — editable Word output.
+- `backend/sorbonne/services/requisition_export.py` — editable Word output filled into the approved template.
+- `backend/sorbonne/assets/teaching_requisition_template.docx` — the approved blank SUAD form.
 - `frontend/src/components/RequisitionBuilder.tsx` — library and editor.
 - `frontend/src/services/requisitions.ts` — typed API client.
 
@@ -43,9 +44,12 @@ Backend tests verify persistence, stale-update protection, computed totals, and 
 
 - The launcher presents a Teaching-requisition builder at `/#/requisition`.
 - A coordinator can create, reopen, duplicate, edit, delete, and export a requisition.
-- DOCX output includes the documented teaching-recruitment fields, employee-type indication, calculated total hours, and course table.
-- HR, finance, budget, approval, and signature fields are not generated.
+- DOCX output is the approved SUAD form itself, with its letterhead, section layout, and content controls intact.
+- The export fills the documented teaching-recruitment fields, employee-type checkbox, calculated total hours, and course table.
+- HR, finance, budget, approval, and signature fields are left blank for the approvers to complete.
 
-## Open question
+## Template filling
 
-The exact blank `.docx` template is not in this repository. The exporter is intentionally isolated so it can be switched to XML-anchor filling once that approved blank file is added.
+The approved blank form ships in `backend/sorbonne/assets/`. The exporter opens it and fills anchors found by their visible labels: table rows are matched on their first-column heading, and each row's Word content controls are set in reading order (dropdowns, dates, and the employee-type checkboxes). The course table is rebuilt from its own first sample row, so cloned rows keep the level dropdown and column widths.
+
+Word rejects a content control whose run properties sit out of schema order, so every control is normalised before the file is saved. Replacing the template file is enough to follow an HR revision as long as the row labels stay the same; changing the template is an "ask first" decision.
