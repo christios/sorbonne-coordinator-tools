@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { missingRequisitionFields } from "./requisitions";
+import { lastIncompleteRequisitionStep, missingRequisitionFields } from "./requisitions";
 
 describe("missingRequisitionFields", () => {
   it("reports incomplete request details and manual course fields before save or export", () => {
@@ -29,5 +29,41 @@ describe("missingRequisitionFields", () => {
       "Course 1 level",
       "Course 1 hours",
     ]);
+  });
+});
+
+describe("lastIncompleteRequisitionStep", () => {
+  it("sends export validation to the final incomplete workflow section and its first field", () => {
+    expect(lastIncompleteRequisitionStep({
+      label: "Semester 1",
+      academicYear: "2026-2027",
+      content: {
+        department: "Science",
+        program: "Foundation year in Sciences",
+        jobTitle: "Part Time Lecturer",
+        classType: "TD",
+        employeeType: "PT",
+        contractFrom: "2026-09-01",
+        contractTo: "2026-12-20",
+        courses: [{ id: "course-1", title: "", subjectCode: "PHY", courseNumber: "101", level: "", hours: "24" }],
+      },
+    })).toEqual({ section: "courses", focusTarget: "course:course-1:title" });
+  });
+
+  it("targets the first missing detail when the teaching load is complete", () => {
+    expect(lastIncompleteRequisitionStep({
+      label: "Semester 1",
+      academicYear: "",
+      content: {
+        department: "",
+        program: "Foundation year in Sciences",
+        jobTitle: "Part Time Lecturer",
+        classType: "TD",
+        employeeType: "PT",
+        contractFrom: "2026-09-01",
+        contractTo: "2026-12-20",
+        courses: [{ id: "course-1", title: "Physics", subjectCode: "PHY", courseNumber: "101", level: "L1", hours: "24" }],
+      },
+    })).toEqual({ section: "details", focusTarget: "academic-year" });
   });
 });

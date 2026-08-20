@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Archive, ArrowLeft, CircleUserRound, Download, FilePlus2, FileUp, Folder, FolderPlus, Pencil, RotateCcw, Search, Trash2, UserPlus } from "lucide-react";
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
 
 import { AutoSaveStatus, type AutoSaveState } from "@/components/AutoSaveStatus";
 import { AutoResizeTextarea } from "@/components/AutoResizeTextarea";
@@ -15,7 +15,7 @@ import { RequisitionCourseEditor } from "@/components/RequisitionCourseEditor";
 import { SectionEditorShell } from "@/components/SectionEditorShell";
 import { SelectMenu } from "@/components/SelectMenu";
 import { saveFailureState } from "@/components/syllabusSaveState";
-import { missingRequisitionFields, RequisitionContent } from "@/services/requisitions";
+import { lastIncompleteRequisitionStep, missingRequisitionFields, RequisitionContent } from "@/services/requisitions";
 import {
   Teacher,
   TeacherFolder,
@@ -143,6 +143,7 @@ export function TeacherRequisitionEditor({ requisitionId, teacherId, onBack }: {
   const [active, setActive] = useState<"details" | "courses" | "review">("details");
   const [editingTitle, setEditingTitle] = useState(false);
   const [validationMessage, setValidationMessage] = useState("");
+  const [focusTarget, setFocusTarget] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
   const [saveState, setSaveState] = useState<AutoSaveState>("saved");
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -221,6 +222,17 @@ export function TeacherRequisitionEditor({ requisitionId, teacherId, onBack }: {
     const timer = window.setTimeout(() => { void persistCurrentDraft(); }, 650);
     return () => window.clearTimeout(timer);
   }, [draft, dirty]);
+  useEffect(() => {
+    if (!focusTarget) return;
+    const frame = window.requestAnimationFrame(() => {
+      const anchor = Array.from(document.querySelectorAll<HTMLElement>("[data-requisition-field]")).find((element) => element.dataset.requisitionField === focusTarget);
+      const control = anchor?.querySelector<HTMLElement>("input, button, [tabindex]");
+      anchor?.scrollIntoView({ behavior: "smooth", block: "center" });
+      control?.focus({ preventScroll: true });
+      setFocusTarget(null);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [active, draft, focusTarget]);
   if (!draft) return <p className="p-8 text-center text-sm text-[#667085]">Loading requisition…</p>;
   const updateContent = (patch: Partial<RequisitionContent>) => edit((current) => ({ ...current, content: { ...current.content, ...patch } }));
   const total = draft.content.courses.reduce((sum, course) => sum + Number(/\d+/.exec(course.hours)?.[0] ?? 0), 0);
@@ -230,7 +242,12 @@ export function TeacherRequisitionEditor({ requisitionId, teacherId, onBack }: {
     const missing = missingRequisitionFields(draft);
     if (!missing.length) return true;
     setValidationMessage(`Complete all required fields before saving or exporting: ${missing.join(", ")}.`);
-    setActive(missing.some((field) => field === "At least one course" || field.startsWith("Course ")) ? "courses" : "details");
+    const lastStep = lastIncompleteRequisitionStep(draft);
+    if (lastStep) {
+      setActive(lastStep.section);
+      if (lastStep.focusTarget === "requisition-title") setEditingTitle(true);
+      setFocusTarget(lastStep.focusTarget);
+    }
     return false;
   }
   async function exportCurrentDraft() {
@@ -251,12 +268,22 @@ export function TeacherRequisitionEditor({ requisitionId, teacherId, onBack }: {
     setSaveError(null);
     saveConflict.current = false;
   }
-  const titleEditor = editingTitle ? <label className="mt-3 grid max-w-sm gap-1 text-sm font-medium text-[#344054]"><FormFieldLabel required>Requisition title</FormFieldLabel><input aria-label="Requisition title" required autoFocus value={draft.label} onChange={(event) => edit((current) => ({ ...current, label: event.target.value }))} className="rounded-md border border-[#b7bec8] px-3 py-2 font-normal" /></label> : null;
+  const titleEditor = editingTitle ? <label data-requisition-field="requisition-title" className="mt-3 grid max-w-sm gap-1 text-sm font-medium text-[#344054]"><FormFieldLabel required>Requisition title</FormFieldLabel><input aria-label="Requisition title" required autoFocus value={draft.label} onChange={(event) => edit((current) => ({ ...current, label: event.target.value }))} className="rounded-md border border-[#b7bec8] px-3 py-2 font-normal" /></label> : null;
   const teacherBadge = <div className="inline-flex items-center gap-2 rounded-md border border-[#b9d0e5] bg-[#f2f7fb] px-2.5 py-2 text-left"><TeacherAvatar fullName={teacherName} /><span><span className="block text-xs font-medium uppercase tracking-wide text-[#667085]">Teacher</span><span className="block text-sm font-semibold text-[#1f4e79]">{teacherName}</span></span></div>;
-  return <SectionEditorShell backLabel="Back to teacher profile" onBack={onBack} eyebrow={draft.academicYear} title={draft.label} subtitle="Teaching-recruitment request" titleMeta={<div className="mt-3 grid gap-2">{titleEditor}{teacherBadge}</div>} sections={[{ id: "details", label: "1. Request details" }, { id: "courses", label: "2. Teaching load" }, { id: "review", label: "3. Review and export" }]} activeSection={active} onSectionChange={(section) => setActive(section as typeof active)} notice={validationMessage ? <p role="alert" className="rounded-md border border-[#efc9cb] bg-[#fff5f5] px-3 py-2 text-sm text-[#8f1f25]">{validationMessage}</p> : undefined} actions={<><button type="button" onClick={() => setEditingTitle((value) => !value)} className="inline-flex items-center gap-2 rounded-md border border-[#b7bec8] px-3 py-2 text-sm font-semibold text-[#1f4e79]"><Pencil size={16} /> {editingTitle ? "Done editing title" : "Edit title"}</button><AutoSaveStatus state={saveState} error={saveError} resourceName="This requisition" onReload={() => { void reloadLatest(); }} /><button type="button" disabled={exportDocx.isPending} onClick={() => { void exportCurrentDraft(); }} className="inline-flex items-center gap-2 rounded-md border border-[#b7bec8] px-3 py-2 text-sm font-semibold text-[#1f4e79]"><Download size={16} /> Export DOCX</button></>}><section className="min-w-0 rounded-lg border border-[#d9dee7] bg-white p-5">{active === "details" ? <><InputField label="Academic year" value={draft.academicYear} required onChange={(academicYear) => edit((current) => ({ ...current, academicYear }))} /><RequisitionDetails content={draft.content} onChange={updateContent} /></> : null}{active === "courses" ? <><p className="rounded-md bg-[#eaf1f8] px-3 py-2 text-sm font-semibold text-[#1f4e79]">Total: {total} hours</p><div className="mt-4"><RequisitionCourseEditor courses={draft.content.courses} onChange={(courses) => updateContent({ courses })} catalogueCourses={catalogue.data ?? []} /></div></> : null}{active === "review" ? <><h3 className="text-lg font-semibold">Review and export</h3><p className="mt-1 text-sm text-[#667085]">The exported document uses the teacher profile name and this request’s academic fields.</p></> : null}</section></SectionEditorShell>;
+  return <SectionEditorShell backLabel="Back to teacher profile" onBack={onBack} eyebrow={draft.academicYear} title={draft.label} subtitle="Teaching-recruitment request" titleMeta={<div className="mt-3 grid gap-2">{titleEditor}{teacherBadge}</div>} sections={[{ id: "details", label: "1. Request details" }, { id: "courses", label: "2. Teaching load" }, { id: "review", label: "3. Review and export" }]} activeSection={active} onSectionChange={(section) => setActive(section as typeof active)} notice={validationMessage ? <p role="alert" className="rounded-md border border-[#efc9cb] bg-[#fff5f5] px-3 py-2 text-sm text-[#8f1f25]">{validationMessage}</p> : undefined} actions={<><button type="button" onClick={() => setEditingTitle((value) => !value)} className="inline-flex items-center gap-2 rounded-md border border-[#b7bec8] px-3 py-2 text-sm font-semibold text-[#1f4e79]"><Pencil size={16} /> {editingTitle ? "Done editing title" : "Edit title"}</button><AutoSaveStatus state={saveState} error={saveError} resourceName="This requisition" onReload={() => { void reloadLatest(); }} /><button type="button" disabled={exportDocx.isPending} onClick={() => { void exportCurrentDraft(); }} className="inline-flex items-center gap-2 rounded-md border border-[#b7bec8] px-3 py-2 text-sm font-semibold text-[#1f4e79]"><Download size={16} /> Export DOCX</button></>}><section className="min-w-0 rounded-lg border border-[#d9dee7] bg-white p-5">{active === "details" ? <><div data-requisition-field="academic-year"><InputField label="Academic year" value={draft.academicYear} required onChange={(academicYear) => edit((current) => ({ ...current, academicYear }))} /></div><RequisitionDetails content={draft.content} onChange={updateContent} /></> : null}{active === "courses" ? <><p className="rounded-md bg-[#eaf1f8] px-3 py-2 text-sm font-semibold text-[#1f4e79]">Total: {total} hours</p><div className="mt-4"><RequisitionCourseEditor courses={draft.content.courses} onChange={(courses) => updateContent({ courses })} catalogueCourses={catalogue.data ?? []} /></div></> : null}{active === "review" ? <RequisitionReview teacherName={teacherName} requisition={draft} totalHours={total} /> : null}</section></SectionEditorShell>;
 }
 
-export function RequisitionDetails({ content, onChange }: { content: RequisitionContent; onChange: (patch: Partial<RequisitionContent>) => void }) { return <div className="mt-5 grid gap-4 md:grid-cols-2"><InputField label="Hiring department" value={content.department} required onChange={(department) => onChange({ department })} /><SelectField label="Programme" value={content.program} options={PROGRAMS} required onChange={(program) => onChange({ program })} /><SelectField label="Job title" value={content.jobTitle} options={JOB_TITLES} required onChange={(jobTitle) => onChange({ jobTitle })} /><SelectField label="Type of class" value={content.classType} options={CLASS_TYPES} required onChange={(classType) => onChange({ classType })} /><DateField label="Contract from" value={content.contractFrom} required onChange={(contractFrom) => onChange({ contractFrom })} /><DateField label="Contract to" value={content.contractTo} required onChange={(contractTo) => onChange({ contractTo })} /></div>; }
+export function RequisitionDetails({ content, onChange }: { content: RequisitionContent; onChange: (patch: Partial<RequisitionContent>) => void }) { return <div className="mt-5 grid gap-4 md:grid-cols-2"><RequisitionFieldAnchor target="department"><InputField label="Hiring department" value={content.department} required onChange={(department) => onChange({ department })} /></RequisitionFieldAnchor><RequisitionFieldAnchor target="program"><SelectField label="Programme" value={content.program} options={PROGRAMS} required onChange={(program) => onChange({ program })} /></RequisitionFieldAnchor><RequisitionFieldAnchor target="job-title"><SelectField label="Job title" value={content.jobTitle} options={JOB_TITLES} required onChange={(jobTitle) => onChange({ jobTitle })} /></RequisitionFieldAnchor><RequisitionFieldAnchor target="class-type"><SelectField label="Type of class" value={content.classType} options={CLASS_TYPES} required onChange={(classType) => onChange({ classType })} /></RequisitionFieldAnchor><RequisitionFieldAnchor target="contract-from"><DateField label="Contract from" value={content.contractFrom} required onChange={(contractFrom) => onChange({ contractFrom })} /></RequisitionFieldAnchor><RequisitionFieldAnchor target="contract-to"><DateField label="Contract to" value={content.contractTo} required onChange={(contractTo) => onChange({ contractTo })} /></RequisitionFieldAnchor></div>; }
+
+function RequisitionFieldAnchor({ target, children }: { target: string; children: ReactNode }) { return <div data-requisition-field={target}>{children}</div>; }
+
+export function RequisitionReview({ teacherName, requisition, totalHours }: { teacherName: string; requisition: TeacherRequisition; totalHours: number }) {
+  const missing = missingRequisitionFields(requisition);
+  const courseCount = requisition.content.courses.length;
+  return <div><div><h3 className="text-lg font-semibold">Review and export</h3><p className="mt-1 text-sm text-[#667085]">Confirm the request details below before exporting the institutional form.</p></div><dl className="mt-5 grid gap-4 sm:grid-cols-2"><ReviewDetail label="Teacher" value={teacherName} /><ReviewDetail label="Requisition" value={requisition.label || "Not set"} /><ReviewDetail label="Academic year" value={requisition.academicYear || "Not set"} /><ReviewDetail label="Hiring department" value={requisition.content.department || "Not set"} /><ReviewDetail label="Programme" value={requisition.content.program || "Not set"} /><ReviewDetail label="Job title" value={requisition.content.jobTitle || "Not set"} /><ReviewDetail label="Type of class" value={requisition.content.classType || "Not set"} /><ReviewDetail label="Contract period" value={requisition.content.contractFrom && requisition.content.contractTo ? `${requisition.content.contractFrom} to ${requisition.content.contractTo}` : "Not set"} /><ReviewDetail label="Teaching load" value={`${courseCount} ${courseCount === 1 ? "course" : "courses"} · ${totalHours} hours`} /></dl>{missing.length ? <div role="alert" className="mt-5 rounded-md border border-[#efc9cb] bg-[#fff5f5] p-4 text-sm text-[#8f1f25]"><p className="font-semibold">{missing.length} required {missing.length === 1 ? "field remains" : "fields remain"} before export.</p><ul className="mt-2 list-disc space-y-1 pl-5">{missing.map((field) => <li key={field}>{field}</li>)}</ul></div> : <p role="status" className="mt-5 rounded-md border border-[#c9dfcf] bg-[#f4fbf5] px-3 py-2 text-sm font-medium text-[#256237]">Ready to export.</p>}</div>;
+}
+
+function ReviewDetail({ label, value }: { label: string; value: string }) { return <div><dt className="text-xs font-semibold uppercase tracking-wide text-[#667085]">{label}</dt><dd className="mt-1 text-sm text-[#344054]">{value}</dd></div>; }
 export function PhoneField({ value, onChange }: { value: string; onChange: (value: string) => void }) {
   const parsed = parsePhoneValue(value);
   const [countryCode, setCountryCode] = useState(parsed.countryCode);

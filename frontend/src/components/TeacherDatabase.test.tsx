@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { PhoneField, ProfileOverview, RequisitionDetails, RequisitionHistory, TeacherAvatar, TeacherRequisitionEditor } from "./TeacherDatabase";
+import { PhoneField, ProfileOverview, RequisitionDetails, RequisitionHistory, RequisitionReview, TeacherAvatar, TeacherRequisitionEditor } from "./TeacherDatabase";
 
 const teacherService = vi.hoisted(() => ({
   getTeacherRequisition: vi.fn(),
@@ -174,5 +174,30 @@ describe("TeacherRequisitionEditor", () => {
 
     await waitFor(() => expect(teacherService.updateTeacherRequisition).toHaveBeenCalledWith(expect.objectContaining({ academicYear: "2027-2028", revision: 1 })), { timeout: 1500 });
     expect(screen.getByText("Saved")).toBeTruthy();
+  });
+
+  it("takes export validation to the missing teaching-load field", async () => {
+    const requisition = { id: "request-1", teacherId: "teacher-1", label: "Semester 1", academicYear: "2026-2027", revision: 1, createdAt: "2026-07-24T08:00:00Z", updatedAt: "2026-07-24T08:00:00Z", content: { department: "Science", program: "Foundation year in Sciences", jobTitle: "Part Time Lecturer", classType: "TD", employeeType: "PT" as const, contractFrom: "2026-09-01", contractTo: "2026-12-20", courses: [{ id: "course-1", title: "", subjectCode: "PHY", courseNumber: "101", level: "", hours: "24" }] } };
+    teacherService.getTeacherRequisition.mockResolvedValue(requisition);
+    teacherService.getTeacher.mockResolvedValue({ id: "teacher-1", fullName: "Sachin Valera" });
+    teacherService.listCourseCatalogue.mockResolvedValue([]);
+
+    render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><TeacherRequisitionEditor requisitionId="request-1" teacherId="teacher-1" onBack={vi.fn()} /></QueryClientProvider>);
+
+    await screen.findByRole("button", { name: "Export DOCX" });
+    fireEvent.click(screen.getByRole("button", { name: "Export DOCX" }));
+
+    const courseTitle = await screen.findByRole("textbox", { name: "Course title as per Sorbonne Space" });
+    await waitFor(() => expect(document.activeElement).toBe(courseTitle));
+  });
+});
+
+describe("RequisitionReview", () => {
+  it("summarises the teacher, request details, load, and export readiness", () => {
+    render(<RequisitionReview teacherName="Sachin Valera" requisition={{ id: "request-1", teacherId: "teacher-1", label: "Semester 1", academicYear: "2026-2027", revision: 1, createdAt: "2026-07-24T08:00:00Z", updatedAt: "2026-07-24T08:00:00Z", content: { department: "Science", program: "Foundation year in Sciences", jobTitle: "Part Time Lecturer", classType: "TD", employeeType: "PT", contractFrom: "2026-09-01", contractTo: "2026-12-20", courses: [{ id: "course-1", title: "Physics", subjectCode: "PHY", courseNumber: "101", level: "L1", hours: "24" }] } }} totalHours={24} />);
+
+    expect(screen.getByText("Sachin Valera")).toBeTruthy();
+    expect(screen.getByText("1 course · 24 hours")).toBeTruthy();
+    expect(screen.getByRole("status").textContent).toContain("Ready to export");
   });
 });

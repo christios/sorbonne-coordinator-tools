@@ -86,22 +86,22 @@ export function RequisitionCourseEditor({ courses, onChange, catalogueCourses = 
           <div className="grid gap-4 lg:grid-cols-2">
             <div className="lg:col-span-2"><SelectMenu label="Choose from course list" value={course.catalogCourseId ?? ""} onChange={(catalogueId) => chooseFromCatalogue(course.id, catalogueId)} disabled={!catalogueCourses.length} searchable searchPlaceholder="Search by title, code, or CRN" placeholder={catalogueCourses.length ? "Choose from course list" : "No imported courses available"} options={catalogueCourses.map((item) => ({ value: item.id, label: `${item.courseTitle} — ${item.courseCode}`, searchText: item.crn }))} /></div>
             {course.crn ? <p className="rounded-md border border-[#d9dee7] bg-[#f8fafc] px-3 py-2 text-sm text-[#475467] lg:col-span-2"><span className="font-semibold text-[#344054]">Course catalogue reference</span><span className="ml-2">CRN {course.crn}{course.courseCode ? ` · ${course.courseCode}` : ""}</span></p> : null}
-            <TextField label="Course title as per Sorbonne Space" value={course.title} onChange={(title) => update(course.id, { title })} required />
-            <TextField label="Subject code" value={course.subjectCode} onChange={(subjectCode) => update(course.id, { subjectCode })} required />
-            <TextField label="Course number" value={course.courseNumber} onChange={(courseNumber) => update(course.id, { courseNumber })} required />
-            <div className="grid gap-1 text-sm font-medium text-[#344054]"><FormFieldLabel required>Level</FormFieldLabel><SelectMenu label="Level" value={course.level} onChange={(level) => update(course.id, { level })} placeholder="Select level" required options={LEVELS.map((level) => ({ value: level, label: level }))} /></div>
-            <TextField label="Hours" value={course.hours} onChange={(hours) => update(course.id, { hours })} hint="Use a number, or a number with a class-type suffix." required />
+            <TextField focusTarget={`course:${course.id}:title`} label="Course title as per Sorbonne Space" value={course.title} onChange={(title) => update(course.id, { title })} required />
+            <TextField focusTarget={`course:${course.id}:subject-code`} label="Subject code" value={course.subjectCode} onChange={(subjectCode) => update(course.id, { subjectCode })} required />
+            <TextField focusTarget={`course:${course.id}:course-number`} label="Course number" value={course.courseNumber} onChange={(courseNumber) => update(course.id, { courseNumber })} required />
+            <div data-requisition-field={`course:${course.id}:level`} className="grid gap-1 text-sm font-medium text-[#344054]"><FormFieldLabel required>Level</FormFieldLabel><SelectMenu label="Level" value={course.level} onChange={(level) => update(course.id, { level })} placeholder="Select level" required options={LEVELS.map((level) => ({ value: level, label: level }))} /></div>
+            <TextField focusTarget={`course:${course.id}:hours`} label="Hours" value={course.hours} onChange={(hours) => update(course.id, { hours })} hint="Use a number, or a number with a class-type suffix." required />
           </div>
         </CollapsibleEntryCard>;
       })}</div> : <p className="mt-4 rounded-md border border-dashed border-[#d0d5dd] px-3 py-4 text-sm text-[#667085]">No courses added yet.</p>}
-      <AddEntryButton onClick={add} label="Add course" />
+      <div data-requisition-field="add-course"><AddEntryButton onClick={add} label="Add course" /></div>
       <ConfirmDialog open={Boolean(pendingCourse)} title="Remove course?" description={`Remove ${pendingCourse?.title || "this course"} from this requisition?`} confirmLabel="Remove course" onClose={() => setCoursePendingRemoval(null)} onConfirm={() => { if (pendingCourse) onChange(courses.filter((course) => course.id !== pendingCourse.id)); setCoursePendingRemoval(null); }} />
     </section>
   );
 }
 
-function TextField({ label, value, onChange, hint, required = false }: { label: string; value: string; onChange: (value: string) => void; hint?: string; required?: boolean }) {
-  return <label className="grid gap-1 text-sm font-medium text-[#344054]"><FormFieldLabel required={required}>{label}</FormFieldLabel><input aria-label={label} required={required} value={value} onChange={(event) => onChange(event.target.value)} className="h-10 w-full rounded-md border border-[#b7bec8] px-3 py-2 font-normal focus:border-[#1f4e79] focus:outline-none focus:ring-2 focus:ring-[#d7e5f3]" />{hint ? <span className="text-xs font-normal text-[#667085]">{hint}</span> : null}</label>;
+function TextField({ focusTarget, label, value, onChange, hint, required = false }: { focusTarget?: string; label: string; value: string; onChange: (value: string) => void; hint?: string; required?: boolean }) {
+  return <label data-requisition-field={focusTarget} className="grid gap-1 text-sm font-medium text-[#344054]"><FormFieldLabel required={required}>{label}</FormFieldLabel><input aria-label={label} required={required} value={value} onChange={(event) => onChange(event.target.value)} className="h-10 w-full rounded-md border border-[#b7bec8] px-3 py-2 font-normal focus:border-[#1f4e79] focus:outline-none focus:ring-2 focus:ring-[#d7e5f3]" />{hint ? <span className="text-xs font-normal text-[#667085]">{hint}</span> : null}</label>;
 }
 
 function emptyCourse(): CourseRow {

@@ -43,3 +43,25 @@ export function missingRequisitionFields(requisition: { label: string; academicY
   });
   return missing;
 }
+
+type RequisitionCompletionInput = { label: string; academicYear: string; content: RequisitionContent };
+
+/** Identifies the furthest incomplete part of the guided requisition workflow. */
+export function lastIncompleteRequisitionStep(requisition: RequisitionCompletionInput): { section: "details" | "courses"; focusTarget: string } | null {
+  const { content } = requisition;
+  const incompleteCourse = content.courses.find((course) => !course.title.trim() || !course.subjectCode.trim() || !course.courseNumber.trim() || !course.level.trim() || !course.hours.trim());
+  if (!content.courses.length) return { section: "courses", focusTarget: "add-course" };
+  if (incompleteCourse) {
+    const field = !incompleteCourse.title.trim() ? "title" : !incompleteCourse.subjectCode.trim() ? "subject-code" : !incompleteCourse.courseNumber.trim() ? "course-number" : !incompleteCourse.level.trim() ? "level" : "hours";
+    return { section: "courses", focusTarget: `course:${incompleteCourse.id}:${field}` };
+  }
+  if (!requisition.label.trim()) return { section: "details", focusTarget: "requisition-title" };
+  if (!requisition.academicYear.trim()) return { section: "details", focusTarget: "academic-year" };
+  if (!content.department.trim()) return { section: "details", focusTarget: "department" };
+  if (!content.program.trim()) return { section: "details", focusTarget: "program" };
+  if (!content.jobTitle.trim()) return { section: "details", focusTarget: "job-title" };
+  if (!content.classType.trim()) return { section: "details", focusTarget: "class-type" };
+  if (!content.contractFrom) return { section: "details", focusTarget: "contract-from" };
+  if (!content.contractTo) return { section: "details", focusTarget: "contract-to" };
+  return null;
+}
