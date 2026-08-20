@@ -26,6 +26,7 @@ export function App() {
   const [batch, setBatch] = useState<BatchRosterPreview | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const [exportResult, setExportResult] = useState<LocalExportResult | null>(null);
+  const [syllabusHeaderCollapsed, setSyllabusHeaderCollapsed] = useState(false);
 
   const previewMutation = useMutation({
     mutationFn: previewRosterBatch,
@@ -101,15 +102,18 @@ export function App() {
   function showAllApps() {
     window.history.pushState({}, "", "/");
     setActiveTool(null);
+    setSyllabusHeaderCollapsed(false);
   }
+
+  const compactSyllabusHeader = activeTool === "syllabus" && syllabusHeaderCollapsed;
 
   return (
     <main className={`${activeTool === "syllabus" ? "flex h-screen min-h-0 flex-col overflow-hidden" : "min-h-screen"} bg-[#f7f8fa]`}>
-      <header className="shrink-0 border-b border-[#d9dee7] bg-white">
-        <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-5 sm:px-6 lg:flex-row lg:items-center lg:justify-between lg:px-8">
+      <header className={`shrink-0 border-b border-[#d9dee7] bg-white ${compactSyllabusHeader ? "hidden" : ""}`}>
+        <div data-testid="app-header" className={`mx-auto flex max-w-[98rem] flex-col items-start gap-3 px-4 transition-[padding,gap] duration-200 sm:px-6 lg:flex-row lg:items-center lg:justify-between lg:px-8 ${compactSyllabusHeader ? "py-2" : "py-5"}`}>
           <div>
-            <p className="text-xs font-semibold uppercase tracking-normal text-[#a6292f]">Sorbonne University Abu Dhabi</p>
-            <h1 className="mt-1 text-2xl font-semibold tracking-normal text-[#171717]">Academic Coordinator Tools</h1>
+            <p className={`text-xs font-semibold uppercase tracking-normal text-[#a6292f] ${compactSyllabusHeader ? "hidden" : ""}`}>Sorbonne University Abu Dhabi</p>
+            <h1 className={`font-semibold tracking-normal text-[#171717] transition-[font-size,margin] duration-200 ${compactSyllabusHeader ? "text-base" : "mt-1 text-2xl"}`}>Academic Coordinator Tools</h1>
           </div>
           {activeTool ? (
             <button
@@ -125,7 +129,7 @@ export function App() {
 
       {activeTool === null ? (
         <AppWelcome search={appSearch} onSearch={setAppSearch} onOpen={openApp} />
-      ) : activeTool === "roster" ? <div className="mx-auto grid max-w-7xl gap-6 px-4 py-6 sm:px-6 lg:grid-cols-[360px_1fr] lg:px-8">
+      ) : activeTool === "roster" ? <div className="mx-auto grid max-w-[98rem] gap-6 px-4 py-6 sm:px-6 lg:grid-cols-[360px_1fr] lg:px-8">
         <aside className="space-y-4">
           <section className="rounded-lg border border-[#d9dee7] bg-white p-4">
             <div className="mb-4 flex items-center justify-between">
@@ -204,7 +208,7 @@ export function App() {
             </div>
           )}
         </section>
-      </div> : activeTool === "teachers" ? <TeacherDatabase /> : <div className="min-h-0 flex-1"><SyllabusBuilder /></div>}
+      </div> : activeTool === "teachers" ? <TeacherDatabase /> : <div className="min-h-0 flex-1"><SyllabusBuilder onEditorHeaderCollapseChange={setSyllabusHeaderCollapsed} compactHeaderActions={<button type="button" onClick={showAllApps} className="inline-flex items-center gap-2 whitespace-nowrap rounded-md border border-[#d9dee7] bg-white px-3 py-2 text-sm font-semibold text-[#1f4e79] shadow-sm hover:bg-[#f2f7fb]"><span aria-hidden="true">←</span> All apps</button>} /></div>}
     </main>
   );
 }
@@ -245,7 +249,7 @@ function AppWelcome({
   const visibleApps = apps.filter((app) => `${app.name} ${app.description} ${app.keywords}`.toLowerCase().includes(normalizedSearch));
 
   return (
-    <section className="mx-auto max-w-5xl px-4 py-10 sm:px-6 lg:px-8">
+    <section className="mx-auto max-w-[98rem] px-4 py-10 sm:px-6 lg:px-8">
       <div className="max-w-2xl">
         <p className="text-sm font-semibold text-[#a6292f]">Workspace</p>
         <h2 className="mt-2 text-3xl font-semibold tracking-tight text-[#171717]">Choose an app</h2>

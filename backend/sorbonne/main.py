@@ -11,6 +11,7 @@ from sorbonne.api.syllabus_catalogues import router as syllabus_catalogues_route
 from sorbonne.api.syllabi import router as syllabi_router
 from sorbonne.api.teachers import requisition_router as teacher_requisitions_router
 from sorbonne.api.teachers import router as teachers_router
+from sorbonne.api.teacher_documents import router as teacher_documents_router
 from sorbonne.config import config
 from sorbonne.services.migrations import apply_schema_migrations
 
@@ -34,6 +35,7 @@ app.add_middleware(
 app.include_router(rosters_router, prefix="/api/v1")
 app.include_router(teachers_router, prefix="/api/v1")
 app.include_router(teacher_requisitions_router, prefix="/api/v1")
+app.include_router(teacher_documents_router, prefix="/api/v1")
 app.include_router(syllabi_router, prefix="/api/v1")
 app.include_router(syllabus_catalogues_router, prefix="/api/v1")
 app.include_router(bibliography_lookup_router, prefix="/api/v1")

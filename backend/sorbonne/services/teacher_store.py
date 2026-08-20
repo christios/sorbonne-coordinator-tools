@@ -108,6 +108,25 @@ class TeacherStore:
             raise TeacherNotFound
         return _teacher_from_row(row)
 
+    def find_active_teachers_by_email(self, email: str) -> list[dict[str, Any]]:
+        """Return exact, case-insensitive active profile matches for document intake."""
+        normalized_email = email.strip().casefold()
+        if not normalized_email:
+            return []
+        with self.engine.connect() as connection:
+            rows = connection.execute(
+                text(
+                    """
+                    SELECT id, folder_id, full_name, email, phone, notes, archived_at, created_at, updated_at
+                    FROM part_time_teachers
+                    WHERE archived_at IS NULL AND LOWER(email) = :email
+                    ORDER BY created_at ASC
+                    """
+                ),
+                {"email": normalized_email},
+            ).mappings().all()
+        return [_teacher_from_row(row) for row in rows]
+
     def update_teacher(self, teacher_id: str, *, full_name: str, email: str, phone: str, notes: str) -> dict[str, Any]:
         current = self.get_teacher(teacher_id)
         updated = {

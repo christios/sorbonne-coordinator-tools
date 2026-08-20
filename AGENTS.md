@@ -52,6 +52,7 @@ Important frontend boundaries:
 - Teacher folders are nested and safe to delete only when empty.
 - Course-list imports use Excel data with **CRN** as the course identifier. Superseded conflicting entries are retained as obsolete for backward compatibility.
 - The requested SharePoint document-tracking workflow (mark fixed required documents received and store a link) is not implemented yet; do not imply that files are stored in this application.
+- **2026-08-20 — Google Form document intake:** when configured, the teacher library manually syncs the latest required-email Google Form response into a fresh managed Google Drive folder per exact active teacher match. It copies rather than moves form uploads, retains only the current folder in the profile, and protects folder/ZIP/review access with a deployment allowlist and Google ID-token verification. Sync additionally uses a short-lived Drive/Sheets token that must resolve to that same verified account; never persist it in the browser or database. The service account has inherited root-reader access only for server-generated ZIP downloads. SharePoint remains out of scope.
 
 ## Working agreement
 

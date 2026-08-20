@@ -10,7 +10,7 @@ Production: <https://sorbonne-coordinator-tools.fastapicloud.dev/>
 | --- | --- |
 | `/` | Tool launcher (Syllabus Builder, Part-time Teacher Database, and Coordinator Handbook) |
 | `/#/syllabus` | Create, organise, edit, compare, and export SCEN syllabi |
-| `/#/teachers` | Manage part-time teacher profiles, folders, teacher-linked requisitions, and the course catalogue |
+| `/#/teachers` | Manage part-time teacher profiles, folders, teacher-linked requisitions, the course catalogue, and (when configured) Google Form document intake |
 | `/#/requisition` | Legacy route that redirects to `/#/teachers` |
 | `/handbook/` | Static SCEN Coordinator Handbook |
 | `/api/v1/syllabi` | Syllabus API |
@@ -142,6 +142,20 @@ Required FastAPI Cloud encrypted secret:
 Optional FastAPI Cloud encrypted secret:
 
 - `GOOGLE_BOOKS_API_KEY` — enables Google Books as the server-side fallback when Open Library has no book result. Keep this key server-side; it is never exposed to the browser.
+
+### Optional teacher-document workflow
+
+The Google Form workflow is deliberately disabled until all of the following encrypted FastAPI Cloud settings are provided:
+
+- `GOOGLE_DOCUMENTS_OAUTH_CLIENT_ID`
+- `GOOGLE_DOCUMENTS_SERVICE_ACCOUNT_JSON`
+- `GOOGLE_DOCUMENTS_RESPONSE_SHEET_ID`, `GOOGLE_DOCUMENTS_RESPONSE_SHEET_RANGE`, `GOOGLE_DOCUMENTS_RESPONSE_EMAIL_HEADER`, and `GOOGLE_DOCUMENTS_RESPONSE_TIMESTAMP_HEADER`
+- `GOOGLE_DOCUMENTS_DRIVE_ROOT_FOLDER_ID`
+- `GOOGLE_DOCUMENTS_ACCESS_EMAILS` — a comma-separated allowlist of named staff accounts
+
+The frontend build additionally needs the same non-secret OAuth client ID as `VITE_GOOGLE_DOCUMENTS_CLIENT_ID`. At sync time, the allowlisted coordinator grants a short-lived Drive and Sheets token; the backend verifies that it belongs to the same Google account as their ID token, and never persists it. Never put the service-account JSON or any access token in frontend configuration.
+
+Before enabling the workflow, create a dedicated managed Drive root in the coordinator account that will authorize syncs; it should contain only app-managed teacher folders. Share that root with the service account as a reader so the server can produce ZIP downloads. Staff sync manually from the teacher library; the latest timestamped submission for each exact email replaces the current managed folder contents. See [the teacher database specification](docs/specs/part-time-teacher-database.md#google-form-document-intake) for the operational behaviour.
 
 For a manual release, your shell needs `FASTAPI_CLOUD_TOKEN` and `FASTAPI_CLOUD_APP_ID`. Build the same static bundles as the workflow, then deploy from `backend/`:
 

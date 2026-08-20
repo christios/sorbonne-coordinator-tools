@@ -12,6 +12,15 @@ class Config(BaseSettings):
     ]
     database_url: str = "postgresql+psycopg://sorbonne:sorbonne@localhost:5433/sorbonne"
     google_books_api_key: str | None = None
+    google_documents_oauth_client_id: str | None = None
+    google_documents_service_account_json: str | None = None
+    google_documents_response_sheet_id: str | None = None
+    google_documents_response_sheet_range: str = "Form Responses 1!A:ZZ"
+    google_documents_response_email_header: str = "Email address"
+    google_documents_response_timestamp_header: str = "Timestamp"
+    google_documents_drive_root_folder_id: str | None = None
+    google_documents_access_emails: str = ""
+    google_documents_max_zip_bytes: int = 104_857_600
 
 
 config = Config()
