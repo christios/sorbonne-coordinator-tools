@@ -208,7 +208,7 @@ export function App() {
             </div>
           )}
         </section>
-      </div> : activeTool === "teachers" ? <TeacherDatabase /> : <div className="min-h-0 flex-1"><SyllabusBuilder onEditorHeaderCollapseChange={setSyllabusHeaderCollapsed} compactHeaderActions={<button type="button" onClick={showAllApps} className="inline-flex items-center gap-2 whitespace-nowrap rounded-md border border-[#d9dee7] bg-white px-3 py-2 text-sm font-semibold text-[#1f4e79] shadow-sm hover:bg-[#f2f7fb]"><span aria-hidden="true">←</span> All apps</button>} /></div>}
+      </div> : activeTool === "teachers" ? <TeacherDatabase /> : <div className="min-h-0 flex-1"><SyllabusBuilder /></div>}
     </main>
   );
 }
