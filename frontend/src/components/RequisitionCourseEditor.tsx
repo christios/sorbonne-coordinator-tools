@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 
 import { CollapsibleEntryCard } from "@/components/CollapsibleEntryCard";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { FormFieldLabel } from "@/components/FormFieldLabel";
 import { SelectMenu } from "@/components/SelectMenu";
 import { CourseRow } from "@/services/requisitions";
 import { CourseCatalogueEntry } from "@/services/teachers";
@@ -88,7 +89,7 @@ export function RequisitionCourseEditor({ courses, onChange, catalogueCourses = 
             <TextField label="Course title as per Sorbonne Space" value={course.title} onChange={(title) => update(course.id, { title })} required />
             <TextField label="Subject code" value={course.subjectCode} onChange={(subjectCode) => update(course.id, { subjectCode })} required />
             <TextField label="Course number" value={course.courseNumber} onChange={(courseNumber) => update(course.id, { courseNumber })} required />
-            <div className="grid gap-1 text-sm font-medium text-[#344054]"><span>Level</span><SelectMenu label="Level" value={course.level} onChange={(level) => update(course.id, { level })} placeholder="Select level" required options={LEVELS.map((level) => ({ value: level, label: level }))} /></div>
+            <div className="grid gap-1 text-sm font-medium text-[#344054]"><FormFieldLabel required>Level</FormFieldLabel><SelectMenu label="Level" value={course.level} onChange={(level) => update(course.id, { level })} placeholder="Select level" required options={LEVELS.map((level) => ({ value: level, label: level }))} /></div>
             <TextField label="Hours" value={course.hours} onChange={(hours) => update(course.id, { hours })} hint="Use a number, or a number with a class-type suffix." required />
           </div>
         </CollapsibleEntryCard>;
@@ -100,7 +101,7 @@ export function RequisitionCourseEditor({ courses, onChange, catalogueCourses = 
 }
 
 function TextField({ label, value, onChange, hint, required = false }: { label: string; value: string; onChange: (value: string) => void; hint?: string; required?: boolean }) {
-  return <label className="grid gap-1 text-sm font-medium text-[#344054]">{label}<input aria-label={label} required={required} value={value} onChange={(event) => onChange(event.target.value)} className="h-10 w-full rounded-md border border-[#b7bec8] px-3 py-2 font-normal focus:border-[#1f4e79] focus:outline-none focus:ring-2 focus:ring-[#d7e5f3]" />{hint ? <span className="text-xs font-normal text-[#667085]">{hint}</span> : null}</label>;
+  return <label className="grid gap-1 text-sm font-medium text-[#344054]"><FormFieldLabel required={required}>{label}</FormFieldLabel><input aria-label={label} required={required} value={value} onChange={(event) => onChange(event.target.value)} className="h-10 w-full rounded-md border border-[#b7bec8] px-3 py-2 font-normal focus:border-[#1f4e79] focus:outline-none focus:ring-2 focus:ring-[#d7e5f3]" />{hint ? <span className="text-xs font-normal text-[#667085]">{hint}</span> : null}</label>;
 }
 
 function emptyCourse(): CourseRow {

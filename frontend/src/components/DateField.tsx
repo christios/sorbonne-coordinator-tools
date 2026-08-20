@@ -2,6 +2,8 @@ import { Popover } from "radix-ui";
 import { CalendarDays, ChevronLeft, ChevronRight, X } from "lucide-react";
 import { useEffect, useId, useMemo, useState } from "react";
 
+import { FormFieldLabel } from "@/components/FormFieldLabel";
+
 type DateFieldProps = {
   label: string;
   value: string;
@@ -31,7 +33,7 @@ export function DateField({ label, value, onChange, required = false, trailing }
 
   return (
     <div className="space-y-1">
-      <label htmlFor={inputId} className="text-xs font-medium text-[#344054]">{label}</label>
+      <label htmlFor={inputId} className="text-xs font-medium text-[#344054]"><FormFieldLabel required={required}>{label}</FormFieldLabel></label>
       <div className="relative">
         <Popover.Root open={open} onOpenChange={setOpen}>
         <Popover.Trigger asChild>

@@ -1,17 +1,20 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Archive, ArrowLeft, CircleUserRound, Download, FilePlus2, FileUp, Folder, FolderPlus, Pencil, RotateCcw, Search, Trash2, UserPlus } from "lucide-react";
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 
+import { AutoSaveStatus, type AutoSaveState } from "@/components/AutoSaveStatus";
 import { AutoResizeTextarea } from "@/components/AutoResizeTextarea";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { CountryCodeCombobox, parsePhoneValue } from "@/components/CountryCodeCombobox";
 import { DateField } from "@/components/DateField";
 import { FolderMoveMenu } from "@/components/FolderMoveMenu";
+import { FormFieldLabel } from "@/components/FormFieldLabel";
 import { GoogleDocumentSignInButton, GoogleDocumentSyncButton } from "@/components/GoogleDocumentSignInButton";
 import { LibraryRecordTimestamps } from "@/components/LibraryRecordTimestamps";
 import { RequisitionCourseEditor } from "@/components/RequisitionCourseEditor";
 import { SectionEditorShell } from "@/components/SectionEditorShell";
 import { SelectMenu } from "@/components/SelectMenu";
+import { saveFailureState } from "@/components/syllabusSaveState";
 import { missingRequisitionFields, RequisitionContent } from "@/services/requisitions";
 import {
   Teacher,
@@ -102,7 +105,7 @@ export function RequisitionHistory({ requisitions, onOpen, onDelete, deleting, o
   const visibleRequisitions = requisitions.filter((requisition) => `${requisition.label} ${requisition.academicYear}`.toLowerCase().includes(normalizedQuery));
   async function submitTitle(id: string) { const label = titleDraft.trim(); if (!label) return; await onRename(id, label); setEditingId(null); }
 
-  return <div className="mt-4"><label className="relative block max-w-md"><Search size={17} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#667085]" /><input aria-label="Search requisitions" type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search requisitions" className="w-full rounded-md border border-[#cbd5e1] py-2 pl-10 pr-3 text-sm" /></label><div role="list" className="mt-4 grid gap-3">{visibleRequisitions.map((requisition) => <article key={requisition.id} role="listitem" className="flex flex-col gap-3 rounded-lg border border-[#d9dee7] bg-white p-4 sm:flex-row sm:items-center"><div className="min-w-0 flex-1">{editingId === requisition.id ? <form onSubmit={(event) => { event.preventDefault(); void submitTitle(requisition.id); }}><label className="sr-only" htmlFor={`requisition-title-${requisition.id}`}>Requisition title</label><div className="flex flex-wrap gap-2"><input id={`requisition-title-${requisition.id}`} aria-label="Requisition title" required autoFocus value={titleDraft} onChange={(event) => setTitleDraft(event.target.value)} className="min-w-0 flex-1 rounded-md border border-[#b7bec8] px-3 py-2 text-sm font-semibold" /><button disabled={renaming || !titleDraft.trim()} className="rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">Save title</button><button type="button" onClick={() => setEditingId(null)} className="rounded-md border border-[#b7bec8] px-3 py-2 text-sm font-semibold text-[#344054]">Cancel</button></div></form> : <button type="button" onClick={() => onOpen(requisition.id)} className="min-w-0 text-left"><span className="block font-semibold text-[#171717]">{requisition.label}</span><span className="mt-1 block text-sm text-[#667085]">{requisition.academicYear}</span><LibraryRecordTimestamps createdAt={requisition.createdAt} updatedAt={requisition.updatedAt} /></button>}</div><div className="flex items-center gap-2"><button type="button" onClick={() => { setEditingId(requisition.id); setTitleDraft(requisition.label); }} aria-label={`Edit title ${requisition.label}`} className="rounded p-2 text-[#1f4e79] hover:bg-[#e8edf3]"><Pencil size={16} /></button><button type="button" onClick={() => onOpen(requisition.id)} className="rounded-md border border-[#b7bec8] px-3 py-2 text-sm font-semibold text-[#1f4e79]">Open</button><button type="button" disabled={deleting} onClick={() => setPendingDeletion(requisition)} aria-label={`Delete ${requisition.label}`} className="rounded p-2 text-[#a6292f] hover:bg-[#fff1f2] disabled:opacity-50"><Trash2 size={17} /></button></div></article>)}</div>{!visibleRequisitions.length ? <p className="py-6 text-sm text-[#667085]">{requisitions.length ? "No requisitions match your search." : "No requisitions yet."}</p> : null}<ConfirmDialog open={Boolean(pendingDeletion)} title="Delete requisition?" description={`Delete ${pendingDeletion?.label ?? "this requisition"}? This cannot be undone.`} confirmLabel="Delete requisition" onClose={() => setPendingDeletion(null)} onConfirm={() => { if (pendingDeletion) onDelete(pendingDeletion.id); setPendingDeletion(null); }} /></div>;
+  return <div className="mt-4"><label className="relative block max-w-md"><Search size={17} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#667085]" /><input aria-label="Search requisitions" type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search requisitions" className="w-full rounded-md border border-[#cbd5e1] py-2 pl-10 pr-3 text-sm" /></label><div role="list" className="mt-4 grid gap-3">{visibleRequisitions.map((requisition) => <article key={requisition.id} role="listitem" className="flex flex-col gap-3 rounded-lg border border-[#d9dee7] bg-white p-4 sm:flex-row sm:items-center"><div className="min-w-0 flex-1">{editingId === requisition.id ? <form onSubmit={(event) => { event.preventDefault(); void submitTitle(requisition.id); }}><label className="sr-only" htmlFor={`requisition-title-${requisition.id}`}>Requisition title</label><div className="flex flex-wrap items-center gap-2"><input id={`requisition-title-${requisition.id}`} aria-label="Requisition title" required autoFocus value={titleDraft} onChange={(event) => setTitleDraft(event.target.value)} onBlur={() => { void submitTitle(requisition.id); }} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur(); } if (event.key === "Escape") { setTitleDraft(requisition.label); setEditingId(null); } }} className="min-w-0 flex-1 rounded-md border border-[#b7bec8] px-3 py-2 text-sm font-semibold" />{renaming ? <span className="text-sm text-[#667085]">Saving…</span> : null}<button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => setEditingId(null)} className="rounded-md border border-[#b7bec8] px-3 py-2 text-sm font-semibold text-[#344054]">Cancel</button></div></form> : <button type="button" onClick={() => onOpen(requisition.id)} className="min-w-0 text-left"><span className="block font-semibold text-[#171717]">{requisition.label}</span><span className="mt-1 block text-sm text-[#667085]">{requisition.academicYear}</span><LibraryRecordTimestamps createdAt={requisition.createdAt} updatedAt={requisition.updatedAt} /></button>}</div><div className="flex items-center gap-2"><button type="button" onClick={() => { setEditingId(requisition.id); setTitleDraft(requisition.label); }} aria-label={`Edit title ${requisition.label}`} className="rounded p-2 text-[#1f4e79] hover:bg-[#e8edf3]"><Pencil size={16} /></button><button type="button" onClick={() => onOpen(requisition.id)} className="rounded-md border border-[#b7bec8] px-3 py-2 text-sm font-semibold text-[#1f4e79]">Open</button><button type="button" disabled={deleting} onClick={() => setPendingDeletion(requisition)} aria-label={`Delete ${requisition.label}`} className="rounded p-2 text-[#a6292f] hover:bg-[#fff1f2] disabled:opacity-50"><Trash2 size={17} /></button></div></article>)}</div>{!visibleRequisitions.length ? <p className="py-6 text-sm text-[#667085]">{requisitions.length ? "No requisitions match your search." : "No requisitions yet."}</p> : null}<ConfirmDialog open={Boolean(pendingDeletion)} title="Delete requisition?" description={`Delete ${pendingDeletion?.label ?? "this requisition"}? This cannot be undone.`} confirmLabel="Delete requisition" onClose={() => setPendingDeletion(null)} onConfirm={() => { if (pendingDeletion) onDelete(pendingDeletion.id); setPendingDeletion(null); }} /></div>;
 }
 
 export function TeacherAvatar({ fullName, size = "small" }: { fullName: string; size?: "small" | "large" }) {
@@ -132,7 +135,7 @@ export function ProfileOverview({ teacher, onSave, saving = false }: { teacher: 
 
 function ProfileDetail({ label, value, emptyLabel, className = "" }: { label: string; value: string; emptyLabel: string; className?: string }) { return <div className={className}><dt className="text-sm font-medium text-[#667085]">{label}</dt><dd className={`mt-1 whitespace-pre-wrap text-sm ${value ? "text-[#171717]" : "text-[#667085]"}`}>{value || emptyLabel}</dd></div>; }
 
-function TeacherRequisitionEditor({ requisitionId, teacherId, onBack }: { requisitionId: string; teacherId: string; onBack: () => void }) {
+export function TeacherRequisitionEditor({ requisitionId, teacherId, onBack }: { requisitionId: string; teacherId: string; onBack: () => void }) {
   const requisition = useQuery({ queryKey: ["teacher-requisition", requisitionId], queryFn: () => getTeacherRequisition(requisitionId) });
   const teacher = useQuery({ queryKey: ["teacher", teacherId], queryFn: () => getTeacher(teacherId) });
   const catalogue = useQuery({ queryKey: ["course-catalogue"], queryFn: () => listCourseCatalogue() });
@@ -140,11 +143,86 @@ function TeacherRequisitionEditor({ requisitionId, teacherId, onBack }: { requis
   const [active, setActive] = useState<"details" | "courses" | "review">("details");
   const [editingTitle, setEditingTitle] = useState(false);
   const [validationMessage, setValidationMessage] = useState("");
-  useEffect(() => { setDraft(requisition.data ?? null); setValidationMessage(""); }, [requisition.data]);
-  const save = useMutation({ mutationFn: updateTeacherRequisition, onSuccess: (updated) => setDraft(updated) });
+  const [dirty, setDirty] = useState(false);
+  const [saveState, setSaveState] = useState<AutoSaveState>("saved");
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const draftRef = useRef<TeacherRequisition | null>(null);
+  const dirtyRef = useRef(false);
+  const saveInFlight = useRef(false);
+  const saveConflict = useRef(false);
+  const inFlightSave = useRef<Promise<TeacherRequisition | null> | null>(null);
+  useEffect(() => {
+    if (!requisition.data || draftRef.current?.id === requisition.data.id) return;
+    draftRef.current = requisition.data;
+    setDraft(requisition.data);
+    dirtyRef.current = false;
+    setDirty(false);
+    setSaveState("saved");
+    setSaveError(null);
+    saveConflict.current = false;
+    setValidationMessage("");
+  }, [requisition.data]);
   const exportDocx = useMutation({ mutationFn: downloadTeacherRequisitionExport });
+  function edit(updater: (current: TeacherRequisition) => TeacherRequisition) {
+    setDraft((current) => {
+      if (!current) return current;
+      const next = updater(current);
+      draftRef.current = next;
+      return next;
+    });
+    dirtyRef.current = true;
+    setDirty(true);
+    setValidationMessage("");
+    if (saveState === "error") { setSaveState("saved"); setSaveError(null); }
+  }
+  async function persistCurrentDraft(): Promise<TeacherRequisition | null> {
+    if (!dirtyRef.current) return draftRef.current;
+    if (saveInFlight.current) return inFlightSave.current ?? draftRef.current;
+    const snapshot = draftRef.current;
+    if (!snapshot) return null;
+    saveInFlight.current = true;
+    setSaveState("saving");
+    setSaveError(null);
+    const request = (async () => {
+      try {
+        const saved = await updateTeacherRequisition(snapshot);
+        if (draftRef.current === snapshot) {
+          draftRef.current = saved;
+          setDraft(saved);
+          dirtyRef.current = false;
+          setDirty(false);
+        } else {
+          setDraft((current) => {
+            if (!current) return current;
+            const rebased = { ...current, revision: saved.revision, updatedAt: saved.updatedAt };
+            draftRef.current = rebased;
+            return rebased;
+          });
+        }
+        setSaveState("saved");
+        saveConflict.current = false;
+        return saved;
+      } catch (error) {
+        const failure = saveFailureState(error);
+        saveConflict.current = failure === "conflict";
+        setSaveState(failure);
+        setSaveError(error instanceof Error ? error.message : "Save failed. Please try again.");
+        return null;
+      } finally {
+        saveInFlight.current = false;
+        inFlightSave.current = null;
+      }
+    })();
+    inFlightSave.current = request;
+    return request;
+  }
+  useEffect(() => {
+    if (!dirty || saveConflict.current) return;
+    const timer = window.setTimeout(() => { void persistCurrentDraft(); }, 650);
+    return () => window.clearTimeout(timer);
+  }, [draft, dirty]);
   if (!draft) return <p className="p-8 text-center text-sm text-[#667085]">Loading requisition…</p>;
-  const updateContent = (patch: Partial<RequisitionContent>) => { setValidationMessage(""); setDraft({ ...draft, content: { ...draft.content, ...patch } }); };
+  const updateContent = (patch: Partial<RequisitionContent>) => edit((current) => ({ ...current, content: { ...current.content, ...patch } }));
   const total = draft.content.courses.reduce((sum, course) => sum + Number(/\d+/.exec(course.hours)?.[0] ?? 0), 0);
   const teacherName = teacher.data?.fullName ?? "Loading teacher…";
   function validate() {
@@ -155,9 +233,27 @@ function TeacherRequisitionEditor({ requisitionId, teacherId, onBack }: { requis
     setActive(missing.some((field) => field === "At least one course" || field.startsWith("Course ")) ? "courses" : "details");
     return false;
   }
-  const titleEditor = editingTitle ? <label className="mt-3 grid max-w-sm gap-1 text-sm font-medium text-[#344054]"><span className="sr-only">Requisition title</span><input aria-label="Requisition title" required autoFocus value={draft.label} onChange={(event) => { setValidationMessage(""); setDraft({ ...draft, label: event.target.value }); }} className="rounded-md border border-[#b7bec8] px-3 py-2 font-normal" /></label> : null;
+  async function exportCurrentDraft() {
+    if (!validate()) return;
+    const saved = await persistCurrentDraft();
+    if (!saved) return;
+    const latest = dirtyRef.current ? await persistCurrentDraft() : saved;
+    if (latest) exportDocx.mutate(latest.id);
+  }
+  async function reloadLatest() {
+    const result = await requisition.refetch();
+    if (!result.data) return;
+    draftRef.current = result.data;
+    setDraft(result.data);
+    dirtyRef.current = false;
+    setDirty(false);
+    setSaveState("saved");
+    setSaveError(null);
+    saveConflict.current = false;
+  }
+  const titleEditor = editingTitle ? <label className="mt-3 grid max-w-sm gap-1 text-sm font-medium text-[#344054]"><FormFieldLabel required>Requisition title</FormFieldLabel><input aria-label="Requisition title" required autoFocus value={draft.label} onChange={(event) => edit((current) => ({ ...current, label: event.target.value }))} className="rounded-md border border-[#b7bec8] px-3 py-2 font-normal" /></label> : null;
   const teacherBadge = <div className="inline-flex items-center gap-2 rounded-md border border-[#b9d0e5] bg-[#f2f7fb] px-2.5 py-2 text-left"><TeacherAvatar fullName={teacherName} /><span><span className="block text-xs font-medium uppercase tracking-wide text-[#667085]">Teacher</span><span className="block text-sm font-semibold text-[#1f4e79]">{teacherName}</span></span></div>;
-  return <SectionEditorShell backLabel="Back to teacher profile" onBack={onBack} eyebrow={draft.academicYear} title={draft.label} subtitle="Teaching-recruitment request" titleMeta={<div className="mt-3 grid gap-2">{titleEditor}{teacherBadge}</div>} sections={[{ id: "details", label: "1. Request details" }, { id: "courses", label: "2. Teaching load" }, { id: "review", label: "3. Review and export" }]} activeSection={active} onSectionChange={(section) => setActive(section as typeof active)} notice={validationMessage ? <p role="alert" className="rounded-md border border-[#efc9cb] bg-[#fff5f5] px-3 py-2 text-sm text-[#8f1f25]">{validationMessage}</p> : undefined} actions={<><button type="button" onClick={() => setEditingTitle((value) => !value)} className="inline-flex items-center gap-2 rounded-md border border-[#b7bec8] px-3 py-2 text-sm font-semibold text-[#1f4e79]"><Pencil size={16} /> {editingTitle ? "Done editing title" : "Edit title"}</button><button type="button" disabled={exportDocx.isPending} onClick={() => { if (validate()) exportDocx.mutate(draft.id); }} className="inline-flex items-center gap-2 rounded-md border border-[#b7bec8] px-3 py-2 text-sm font-semibold text-[#1f4e79]"><Download size={16} /> Export DOCX</button><button type="button" disabled={save.isPending} onClick={() => { if (validate()) save.mutate(draft); }} className="rounded-md bg-[#1f4e79] px-4 py-2 text-sm font-semibold text-white">{save.isPending ? "Saving…" : "Save changes"}</button></>}><section className="min-w-0 rounded-lg border border-[#d9dee7] bg-white p-5">{active === "details" ? <><InputField label="Academic year" value={draft.academicYear} required onChange={(academicYear) => { setValidationMessage(""); setDraft({ ...draft, academicYear }); }} /><RequisitionDetails content={draft.content} onChange={updateContent} /></> : null}{active === "courses" ? <><p className="rounded-md bg-[#eaf1f8] px-3 py-2 text-sm font-semibold text-[#1f4e79]">Total: {total} hours</p><div className="mt-4"><RequisitionCourseEditor courses={draft.content.courses} onChange={(courses) => updateContent({ courses })} catalogueCourses={catalogue.data ?? []} /></div></> : null}{active === "review" ? <><h3 className="text-lg font-semibold">Review and export</h3><p className="mt-1 text-sm text-[#667085]">The exported document uses the teacher profile name and this request’s academic fields.</p></> : null}</section></SectionEditorShell>;
+  return <SectionEditorShell backLabel="Back to teacher profile" onBack={onBack} eyebrow={draft.academicYear} title={draft.label} subtitle="Teaching-recruitment request" titleMeta={<div className="mt-3 grid gap-2">{titleEditor}{teacherBadge}</div>} sections={[{ id: "details", label: "1. Request details" }, { id: "courses", label: "2. Teaching load" }, { id: "review", label: "3. Review and export" }]} activeSection={active} onSectionChange={(section) => setActive(section as typeof active)} notice={validationMessage ? <p role="alert" className="rounded-md border border-[#efc9cb] bg-[#fff5f5] px-3 py-2 text-sm text-[#8f1f25]">{validationMessage}</p> : undefined} actions={<><button type="button" onClick={() => setEditingTitle((value) => !value)} className="inline-flex items-center gap-2 rounded-md border border-[#b7bec8] px-3 py-2 text-sm font-semibold text-[#1f4e79]"><Pencil size={16} /> {editingTitle ? "Done editing title" : "Edit title"}</button><AutoSaveStatus state={saveState} error={saveError} resourceName="This requisition" onReload={() => { void reloadLatest(); }} /><button type="button" disabled={exportDocx.isPending} onClick={() => { void exportCurrentDraft(); }} className="inline-flex items-center gap-2 rounded-md border border-[#b7bec8] px-3 py-2 text-sm font-semibold text-[#1f4e79]"><Download size={16} /> Export DOCX</button></>}><section className="min-w-0 rounded-lg border border-[#d9dee7] bg-white p-5">{active === "details" ? <><InputField label="Academic year" value={draft.academicYear} required onChange={(academicYear) => edit((current) => ({ ...current, academicYear }))} /><RequisitionDetails content={draft.content} onChange={updateContent} /></> : null}{active === "courses" ? <><p className="rounded-md bg-[#eaf1f8] px-3 py-2 text-sm font-semibold text-[#1f4e79]">Total: {total} hours</p><div className="mt-4"><RequisitionCourseEditor courses={draft.content.courses} onChange={(courses) => updateContent({ courses })} catalogueCourses={catalogue.data ?? []} /></div></> : null}{active === "review" ? <><h3 className="text-lg font-semibold">Review and export</h3><p className="mt-1 text-sm text-[#667085]">The exported document uses the teacher profile name and this request’s academic fields.</p></> : null}</section></SectionEditorShell>;
 }
 
 export function RequisitionDetails({ content, onChange }: { content: RequisitionContent; onChange: (patch: Partial<RequisitionContent>) => void }) { return <div className="mt-5 grid gap-4 md:grid-cols-2"><InputField label="Hiring department" value={content.department} required onChange={(department) => onChange({ department })} /><SelectField label="Programme" value={content.program} options={PROGRAMS} required onChange={(program) => onChange({ program })} /><SelectField label="Job title" value={content.jobTitle} options={JOB_TITLES} required onChange={(jobTitle) => onChange({ jobTitle })} /><SelectField label="Type of class" value={content.classType} options={CLASS_TYPES} required onChange={(classType) => onChange({ classType })} /><DateField label="Contract from" value={content.contractFrom} required onChange={(contractFrom) => onChange({ contractFrom })} /><DateField label="Contract to" value={content.contractTo} required onChange={(contractTo) => onChange({ contractTo })} /></div>; }
@@ -175,6 +271,6 @@ export function PhoneField({ value, onChange }: { value: string; onChange: (valu
 
   return <label className="grid self-start gap-1 text-sm font-medium text-[#344054]"><span>Phone</span><span className="flex gap-2"><CountryCodeCombobox value={countryCode} onChange={(code) => { setCountryCode(code); if (parsed.localNumber.trim()) updateNumber(parsed.localNumber, code); }} /><input aria-label="Phone number" type="tel" inputMode="tel" autoComplete="tel-national" value={parsed.localNumber} onChange={(event) => updateNumber(event.target.value)} placeholder="555 123 4567" className="h-10 min-w-0 flex-1 rounded-md border border-[#b7bec8] px-3 text-sm font-normal" /></span></label>;
 }
-function InputField({ label, value, onChange, required = false, autoFocus = false, type = "text" }: { label: string; value: string; onChange: (value: string) => void; required?: boolean; autoFocus?: boolean; type?: string }) { return <label className="grid gap-1 text-sm font-medium text-[#344054]">{label}<input required={required} autoFocus={autoFocus} type={type} value={value} onChange={(event) => onChange(event.target.value)} className="rounded-md border border-[#b7bec8] px-3 py-2 font-normal" /></label>; }
-function SelectField({ label, value, options, onChange, required = false }: { label: string; value: string; options: string[]; onChange: (value: string) => void; required?: boolean }) { return <div className="grid gap-1 text-sm font-medium"><span>{label}</span><SelectMenu label={label} value={value} onChange={onChange} required={required} placeholder={`Select ${label.toLowerCase()}`} options={options.map((option) => ({ value: option, label: option }))} /></div>; }
+function InputField({ label, value, onChange, required = false, autoFocus = false, type = "text" }: { label: string; value: string; onChange: (value: string) => void; required?: boolean; autoFocus?: boolean; type?: string }) { return <label className="grid gap-1 text-sm font-medium text-[#344054]"><FormFieldLabel required={required}>{label}</FormFieldLabel><input required={required} autoFocus={autoFocus} type={type} value={value} onChange={(event) => onChange(event.target.value)} className="rounded-md border border-[#b7bec8] px-3 py-2 font-normal" /></label>; }
+function SelectField({ label, value, options, onChange, required = false }: { label: string; value: string; options: string[]; onChange: (value: string) => void; required?: boolean }) { return <div className="grid gap-1 text-sm font-medium"><FormFieldLabel required={required}>{label}</FormFieldLabel><SelectMenu label={label} value={value} onChange={onChange} required={required} placeholder={`Select ${label.toLowerCase()}`} options={options.map((option) => ({ value: option, label: option }))} /></div>; }
 function flattenFolders(folders: TeacherFolder[]): Array<{ folder: TeacherFolder; depth: number; path: TeacherFolder[] }> { const byParent = new Map<string | null, TeacherFolder[]>(); for (const folder of folders) { const parent = folder.parentId && folders.some((candidate) => candidate.id === folder.parentId) ? folder.parentId : null; byParent.set(parent, [...(byParent.get(parent) ?? []), folder]); } for (const children of byParent.values()) children.sort((a, b) => a.name.localeCompare(b.name)); const output: Array<{ folder: TeacherFolder; depth: number; path: TeacherFolder[] }> = []; const visit = (parent: string | null, depth: number, path: TeacherFolder[]) => { for (const folder of byParent.get(parent) ?? []) { const next = [...path, folder]; output.push({ folder, depth, path: next }); visit(folder.id, depth + 1, next); } }; visit(null, 0, []); return output; }
