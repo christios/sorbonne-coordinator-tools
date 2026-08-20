@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from copy import deepcopy
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -33,7 +34,7 @@ def build_requisition_docx(requisition: dict[str, Any], output_path: Path) -> No
     contract = _row_with(details, "Contract period from")
     _set_date(contract, 0, _text(content.get("contractFrom")))
     _set_date(contract, 1, _text(content.get("contractTo")))
-    _set_cell(_cells(_row_with(details, "Total number of hours"))[1], str(total_hours(content.get("courses"))))
+    _set_cell(_cells(_row_with(details, "Total number of hours"))[1], total_hours(content.get("courses")))
 
     part_time = _text(content.get("employeeType")) != "FT"
     employee_type = _row_with(details, "Employee Type")
@@ -46,8 +47,16 @@ def build_requisition_docx(requisition: dict[str, Any], output_path: Path) -> No
     document.save(output_path)
 
 
-def total_hours(courses: Any) -> int:
-    return sum(int(match.group()) for row in _rows(courses) if (match := re.search(r"\d+", _text(row.get("hours")))))
+def total_hours(courses: Any) -> str:
+    total = sum(
+        (
+            Decimal(match.group().replace(",", "."))
+            for row in _rows(courses)
+            if (match := re.search(r"\d+(?:[.,]\d+)?", _text(row.get("hours"))))
+        ),
+        Decimal(),
+    )
+    return format(total.normalize(), "f")
 
 
 def _fill_courses(table: Any, courses: list[dict[str, Any]]) -> None:

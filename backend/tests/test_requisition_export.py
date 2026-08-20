@@ -46,6 +46,23 @@ def test_fills_the_approved_template_details(tmp_path) -> None:
     assert _control_values(details, 7) == ["TD"]
 
 
+def test_writes_decimal_teaching_hours_to_the_total_in_the_export(tmp_path) -> None:
+    output = tmp_path / "decimal-requisition.docx"
+    build_requisition_docx(
+        _requisition(
+            content={
+                "courses": [
+                    {"subjectCode": "PHY", "courseNumber": "101", "level": "L1", "title": "Mechanics", "hours": "1.5"},
+                    {"subjectCode": "PHY", "courseNumber": "102", "level": "L1", "title": "Waves", "hours": "2,25 TD"},
+                ]
+            }
+        ),
+        output,
+    )
+
+    assert Document(output).tables[0].rows[6].cells[1].text == "3.75"
+
+
 def test_keeps_the_template_letterhead_and_approval_sections(tmp_path) -> None:
     output = tmp_path / "requisition.docx"
     build_requisition_docx(_requisition(), output)

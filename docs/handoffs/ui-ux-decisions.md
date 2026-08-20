@@ -102,7 +102,7 @@ Before merging any overlay, dropdown, tooltip-like preview, or move menu:
 - Their label is the displayed title, not a duplicated request-details field. It is directly editable in the editor header and from the requisition-history card; committing focus away returns it to text.
 - A requisition card is entirely clickable to open it. Explicit title editing and destructive controls retain their own interaction priority.
 - All request-detail and teaching-load fields are required, with the shared red required marker. Export must navigate to the last remaining incomplete section instead of creating a partial document.
-- The last section is named **Review** and summarizes the teacher, request details, course count, and decimal teaching-hours total before export.
+- The last section is named **Review** and summarizes the teacher, request details, course count, and decimal teaching-hours total before export. The approved DOCX must carry the same exact decimal total, never a truncated integer.
 - **Add course** first adds a single empty, expanded card. From there, coordinators either select a catalogue item or fill their own fields. Show only course title and code in catalogue results; search must tolerate harmless punctuation/format differences such as a missing dash. Keep at most one teaching-load card expanded.
 
 ### Learning outcomes
