@@ -36,7 +36,7 @@ describe("RequisitionCourseEditor", () => {
     expect(screen.queryByRole("textbox", { name: "Subject code" })).toBeNull();
   });
 
-  it("uses a compact title input first and the shared level dropdown", () => {
+  it("marks every manual course field as required and uses the shared level dropdown", () => {
     render(
       <RequisitionCourseEditor
         courses={[{ id: "draft", subjectCode: "", courseNumber: "", level: "", title: "", hours: "" }]}
@@ -45,9 +45,16 @@ describe("RequisitionCourseEditor", () => {
     );
 
     const title = screen.getByLabelText("Course title as per Sorbonne Space") as HTMLInputElement;
+    const subjectCode = screen.getByLabelText("Subject code") as HTMLInputElement;
+    const courseNumber = screen.getByLabelText("Course number") as HTMLInputElement;
+    const hours = screen.getByLabelText("Hours") as HTMLInputElement;
     const level = screen.getByRole("combobox", { name: "Level" });
     expect(title.tagName).toBe("INPUT");
-    expect(title.classList.contains("h-10")).toBe(true);
+    expect(title.required).toBe(true);
+    expect(subjectCode.required).toBe(true);
+    expect(courseNumber.required).toBe(true);
+    expect(hours.required).toBe(true);
+    expect(level.getAttribute("aria-required")).toBe("true");
     expect(level.classList.contains("h-10")).toBe(true);
   });
 
@@ -62,9 +69,25 @@ describe("RequisitionCourseEditor", () => {
     );
 
     fireEvent.click(screen.getByRole("combobox", { name: "Choose from course list" }));
-    fireEvent.click(screen.getByRole("option", { name: "Physics — PHY-101 · CRN 21939" }));
+    fireEvent.click(screen.getByRole("option", { name: "Physics — PHY-101" }));
 
     expect(onChange).toHaveBeenCalledWith([expect.objectContaining({ id: "draft", catalogCourseId: "catalogue-physics", crn: "21939", courseCode: "PHY-101", subjectCode: "PHY", courseNumber: "101", title: "Physics", hours: "30" })]);
+  });
+
+  it("shows only the course title and code in catalogue choices while still matching a code without its dash", () => {
+    render(
+      <RequisitionCourseEditor
+        courses={[{ id: "draft", subjectCode: "", courseNumber: "", level: "", title: "", hours: "" }]}
+        onChange={vi.fn()}
+        catalogueCourses={[{ id: "catalogue-history", crn: "23442", term: "262710", courseCode: "RMAS-304", courseTitle: "A Digital History Grp1", sequence: "1", credit: "4", department: "RMAS", level: "L3", college: "P4", contactHours: "5", isObsolete: false, importedAt: "2026-07-24T00:00:00Z", obsoleteAt: null }]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("combobox", { name: "Choose from course list" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Search Choose from course list" }), { target: { value: "rmas 304" } });
+
+    expect(screen.getByRole("option", { name: "A Digital History Grp1 — RMAS-304" })).toBeTruthy();
+    expect(screen.queryByText(/CRN 23442/)).toBeNull();
   });
 
   it("uses an in-app confirmation before removing a course", () => {

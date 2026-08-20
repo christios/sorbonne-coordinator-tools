@@ -1,7 +1,7 @@
 import { ChevronDown } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
-export type SelectOption = { value: string; label: string };
+export type SelectOption = { value: string; label: string; searchText?: string };
 
 type Props = {
   label: string;
@@ -14,9 +14,10 @@ type Props = {
   searchable?: boolean;
   searchPlaceholder?: string;
   disabled?: boolean;
+  required?: boolean;
 };
 
-export function SelectMenu({ label, value, onChange, options, placeholder, trailing, multiple = false, searchable = false, searchPlaceholder = "Search options", disabled = false }: Props) {
+export function SelectMenu({ label, value, onChange, options, placeholder, trailing, multiple = false, searchable = false, searchPlaceholder = "Search options", disabled = false, required = false }: Props) {
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState("");
   const menuRef = useRef<HTMLDivElement>(null);
@@ -25,9 +26,9 @@ export function SelectMenu({ label, value, onChange, options, placeholder, trail
   const selectedLabel = multiple
     ? selected.length ? `${selected.length} ${selected.length === 1 ? "PLO" : "PLOs"} selected` : placeholder
     : selected[0]?.label ?? placeholder;
-  const normalizedQuery = query.trim().toLocaleLowerCase();
+  const normalizedQuery = normalizeSearch(query);
   const visibleOptions = searchable
-    ? normalizedQuery ? options.filter((option) => option.label.toLocaleLowerCase().includes(normalizedQuery)) : options.slice(0, 50)
+    ? normalizedQuery ? options.filter((option) => normalizeSearch(`${option.label} ${option.searchText ?? ""}`).includes(normalizedQuery)) : options.slice(0, 50)
     : options;
   const hasMoreSearchResults = searchable && !normalizedQuery && options.length > visibleOptions.length;
 
@@ -70,6 +71,7 @@ export function SelectMenu({ label, value, onChange, options, placeholder, trail
         type="button"
         role="combobox"
         aria-label={label}
+        aria-required={required || undefined}
         aria-expanded={isOpen}
         aria-haspopup="listbox"
         disabled={disabled}
@@ -104,4 +106,8 @@ export function SelectMenu({ label, value, onChange, options, placeholder, trail
       ) : null}
     </div>
   );
+}
+
+function normalizeSearch(value: string) {
+  return value.toLocaleLowerCase().normalize("NFKD").replace(/[^\p{L}\p{N}]/gu, "");
 }

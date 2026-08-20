@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { PhoneField, ProfileOverview, RequisitionHistory, TeacherAvatar } from "./TeacherDatabase";
+import { PhoneField, ProfileOverview, RequisitionDetails, RequisitionHistory, TeacherAvatar } from "./TeacherDatabase";
 
 class ResizeObserverMock {
   observe() {}
@@ -84,6 +84,7 @@ describe("RequisitionHistory", () => {
           { id: "request-2", teacherId: "teacher-1", label: "Calculus tutorial", academicYear: "2027-2028", revision: 1, createdAt: "2026-07-24T08:00:00Z", updatedAt: "2026-07-24T08:00:00Z" },
         ]}
         onOpen={vi.fn()}
+        onRename={vi.fn()}
         onDelete={vi.fn()}
         deleting={false}
       />,
@@ -96,5 +97,37 @@ describe("RequisitionHistory", () => {
 
     expect(screen.queryByText("Physics lab")).toBeNull();
     expect(screen.getByText("Calculus tutorial")).toBeTruthy();
+  });
+
+  it("lets the coordinator rename a requisition directly from its history card", async () => {
+    const onRename = vi.fn();
+    render(
+      <RequisitionHistory
+        requisitions={[{ id: "request-1", teacherId: "teacher-1", label: "Semester 1", academicYear: "2026-2027", revision: 1, createdAt: "2026-07-24T08:00:00Z", updatedAt: "2026-07-24T08:00:00Z" }]}
+        onOpen={vi.fn()}
+        onRename={onRename}
+        onDelete={vi.fn()}
+        deleting={false}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit title Semester 1" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Requisition title" }), { target: { value: "Semester 1 tutorial" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save title" }));
+
+    await waitFor(() => expect(onRename).toHaveBeenCalledWith("request-1", "Semester 1 tutorial"));
+  });
+});
+
+describe("RequisitionDetails", () => {
+  it("marks every request-detail control as required", () => {
+    render(<RequisitionDetails content={{ department: "", program: "", jobTitle: "", classType: "", employeeType: "PT", contractFrom: "", contractTo: "", courses: [] }} onChange={vi.fn()} />);
+
+    expect(screen.getByRole("textbox", { name: "Hiring department" })).toHaveProperty("required", true);
+    expect(screen.getByRole("combobox", { name: "Programme" }).getAttribute("aria-required")).toBe("true");
+    expect(screen.getByRole("combobox", { name: "Job title" }).getAttribute("aria-required")).toBe("true");
+    expect(screen.getByRole("combobox", { name: "Type of class" }).getAttribute("aria-required")).toBe("true");
+    expect(screen.getByRole("button", { name: "Contract from" }).getAttribute("aria-required")).toBe("true");
+    expect(screen.getByRole("button", { name: "Contract to" }).getAttribute("aria-required")).toBe("true");
   });
 });

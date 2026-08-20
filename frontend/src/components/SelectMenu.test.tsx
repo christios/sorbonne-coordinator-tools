@@ -51,4 +51,14 @@ describe("SelectMenu", () => {
     expect(screen.getByRole("option", { name: "Physics — PHY-101 · CRN 21939" })).toBeTruthy();
     expect(screen.queryByRole("option", { name: "Mathematics — MAT-101 · CRN 21940" })).toBeNull();
   });
+
+  it("matches searchable options when punctuation in a course code is omitted", () => {
+    render(<SelectMenu label="Course catalogue" value="" onChange={vi.fn()} searchable required options={[{ value: "1", label: "A Digital History Grp1 — RMAS-304", searchText: "23442" }]} />);
+
+    fireEvent.click(screen.getByRole("combobox", { name: "Course catalogue" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Search Course catalogue" }), { target: { value: "rmas 304" } });
+
+    expect(screen.getByRole("combobox", { name: "Course catalogue" }).getAttribute("aria-required")).toBe("true");
+    expect(screen.getByRole("option", { name: "A Digital History Grp1 — RMAS-304" })).toBeTruthy();
+  });
 });

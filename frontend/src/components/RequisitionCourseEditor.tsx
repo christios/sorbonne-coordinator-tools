@@ -1,4 +1,5 @@
-import { ArrowDownUp, Plus, Trash2 } from "lucide-react";
+import { AddEntryButton } from "@/components/AddEntryButton";
+import { ArrowDownUp, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { CollapsibleEntryCard } from "@/components/CollapsibleEntryCard";
@@ -75,33 +76,31 @@ export function RequisitionCourseEditor({ courses, onChange, catalogueCourses = 
 
   return (
     <section>
-      <div className="flex items-center justify-between gap-3">
-        <h3 className="text-lg font-semibold text-[#171717]">Teaching load</h3>
-        <button type="button" onClick={add} className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-md border border-[#b7bec8] bg-white px-3 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]"><Plus size={16} /> Add course</button>
-      </div>
+      <h3 className="text-lg font-semibold text-[#171717]">Teaching load</h3>
       {courses.length ? <div className="mt-4 grid gap-3">{courses.map((course) => {
         const expanded = expandedIds.includes(course.id);
         const title = course.title.trim() || "Untitled course";
         const destinations = courses.filter((item) => item.id !== course.id && courseSummary(item).toLowerCase().includes(moveQuery.toLowerCase()));
         return <CollapsibleEntryCard key={course.id} id={`course-${course.id}`} expanded={expanded} onToggle={() => toggle(course.id)} toggleLabel={`${expanded ? "Collapse" : "Expand"} course: ${title}`} title={title} summary={courseSummary(course)} actions={<div data-course-move-menu className="contents"><button type="button" onClick={() => { setMovingCourseId(course.id); setMoveQuery(""); }} className="rounded p-2 text-[#1f4e79] hover:bg-[#e8edf3]" aria-label={`Move course: ${title}`} title="Move course"><ArrowDownUp size={17} /></button><button type="button" onClick={() => setCoursePendingRemoval(course.id)} className="rounded p-2 text-[#a6292f] hover:bg-[#fff1f2]" aria-label={`Remove course: ${title}`} title="Remove course"><Trash2 size={17} /></button></div>} overlay={movingCourseId === course.id ? <div data-course-move-menu className="absolute right-0 top-full z-[90] isolate mt-2 w-80 max-w-full rounded-lg border border-[#d9dee7] bg-white p-3 shadow-lg"><p className="text-sm font-semibold text-[#344054]">Place this course before</p><input type="search" value={moveQuery} onChange={(event) => setMoveQuery(event.target.value)} placeholder="Search destination courses" className="mt-2 w-full rounded-md border border-[#b7bec8] px-3 py-2 text-sm font-normal focus:border-[#1f4e79] focus:outline-none focus:ring-2 focus:ring-[#d7e5f3]" autoFocus /><div className="mt-2 max-h-56 overflow-y-auto">{destinations.map((destination) => <button type="button" key={destination.id} onClick={() => moveBefore(course.id, destination.id)} className="block w-full rounded-md px-3 py-2 text-left text-sm text-[#344054] hover:bg-[#f7f8fa]">{courseSummary(destination)}</button>)}</div><button type="button" onClick={() => moveBefore(course.id)} className="mt-2 w-full rounded-md border border-[#b7bec8] px-3 py-2 text-left text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]">Move to end</button></div> : null}>
           <div className="grid gap-4 lg:grid-cols-2">
-            <div className="lg:col-span-2"><SelectMenu label="Choose from course list" value={course.catalogCourseId ?? ""} onChange={(catalogueId) => chooseFromCatalogue(course.id, catalogueId)} disabled={!catalogueCourses.length} searchable searchPlaceholder="Search by title, code, or CRN" placeholder={catalogueCourses.length ? "Choose from course list" : "No imported courses available"} options={catalogueCourses.map((item) => ({ value: item.id, label: `${item.courseTitle} — ${item.courseCode} · CRN ${item.crn}` }))} /></div>
+            <div className="lg:col-span-2"><SelectMenu label="Choose from course list" value={course.catalogCourseId ?? ""} onChange={(catalogueId) => chooseFromCatalogue(course.id, catalogueId)} disabled={!catalogueCourses.length} searchable searchPlaceholder="Search by title, code, or CRN" placeholder={catalogueCourses.length ? "Choose from course list" : "No imported courses available"} options={catalogueCourses.map((item) => ({ value: item.id, label: `${item.courseTitle} — ${item.courseCode}`, searchText: item.crn }))} /></div>
             {course.crn ? <p className="rounded-md border border-[#d9dee7] bg-[#f8fafc] px-3 py-2 text-sm text-[#475467] lg:col-span-2"><span className="font-semibold text-[#344054]">Course catalogue reference</span><span className="ml-2">CRN {course.crn}{course.courseCode ? ` · ${course.courseCode}` : ""}</span></p> : null}
-            <TextField label="Course title as per Sorbonne Space" value={course.title} onChange={(title) => update(course.id, { title })} />
-            <TextField label="Subject code" value={course.subjectCode} onChange={(subjectCode) => update(course.id, { subjectCode })} />
-            <TextField label="Course number" value={course.courseNumber} onChange={(courseNumber) => update(course.id, { courseNumber })} />
-            <div className="grid gap-1 text-sm font-medium text-[#344054]"><span>Level</span><SelectMenu label="Level" value={course.level} onChange={(level) => update(course.id, { level })} placeholder="Select level" options={LEVELS.map((level) => ({ value: level, label: level }))} /></div>
-            <TextField label="Hours" value={course.hours} onChange={(hours) => update(course.id, { hours })} hint="Use a number, or a number with a class-type suffix." />
+            <TextField label="Course title as per Sorbonne Space" value={course.title} onChange={(title) => update(course.id, { title })} required />
+            <TextField label="Subject code" value={course.subjectCode} onChange={(subjectCode) => update(course.id, { subjectCode })} required />
+            <TextField label="Course number" value={course.courseNumber} onChange={(courseNumber) => update(course.id, { courseNumber })} required />
+            <div className="grid gap-1 text-sm font-medium text-[#344054]"><span>Level</span><SelectMenu label="Level" value={course.level} onChange={(level) => update(course.id, { level })} placeholder="Select level" required options={LEVELS.map((level) => ({ value: level, label: level }))} /></div>
+            <TextField label="Hours" value={course.hours} onChange={(hours) => update(course.id, { hours })} hint="Use a number, or a number with a class-type suffix." required />
           </div>
         </CollapsibleEntryCard>;
       })}</div> : <p className="mt-4 rounded-md border border-dashed border-[#d0d5dd] px-3 py-4 text-sm text-[#667085]">No courses added yet.</p>}
+      <AddEntryButton onClick={add} label="Add course" />
       <ConfirmDialog open={Boolean(pendingCourse)} title="Remove course?" description={`Remove ${pendingCourse?.title || "this course"} from this requisition?`} confirmLabel="Remove course" onClose={() => setCoursePendingRemoval(null)} onConfirm={() => { if (pendingCourse) onChange(courses.filter((course) => course.id !== pendingCourse.id)); setCoursePendingRemoval(null); }} />
     </section>
   );
 }
 
-function TextField({ label, value, onChange, hint }: { label: string; value: string; onChange: (value: string) => void; hint?: string }) {
-  return <label className="grid gap-1 text-sm font-medium text-[#344054]">{label}<input aria-label={label} value={value} onChange={(event) => onChange(event.target.value)} className="h-10 w-full rounded-md border border-[#b7bec8] px-3 py-2 font-normal focus:border-[#1f4e79] focus:outline-none focus:ring-2 focus:ring-[#d7e5f3]" />{hint ? <span className="text-xs font-normal text-[#667085]">{hint}</span> : null}</label>;
+function TextField({ label, value, onChange, hint, required = false }: { label: string; value: string; onChange: (value: string) => void; hint?: string; required?: boolean }) {
+  return <label className="grid gap-1 text-sm font-medium text-[#344054]">{label}<input aria-label={label} required={required} value={value} onChange={(event) => onChange(event.target.value)} className="h-10 w-full rounded-md border border-[#b7bec8] px-3 py-2 font-normal focus:border-[#1f4e79] focus:outline-none focus:ring-2 focus:ring-[#d7e5f3]" />{hint ? <span className="text-xs font-normal text-[#667085]">{hint}</span> : null}</label>;
 }
 
 function emptyCourse(): CourseRow {
