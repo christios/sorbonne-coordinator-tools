@@ -65,7 +65,7 @@ These are not cosmetic preferences. They were reported while exercising the live
 
 | Observed issue | Guardrail now in place | Preserve when changing UI |
 | --- | --- | --- |
-| History and dropdown popovers looked see-through; icons and text from fields below appeared inside the popup. | History previews render through a React portal on `document.body`, with fixed positioning, `z-[100]`, `isolate`, and an opaque white surface. Shared select and folder menus also use opaque white, `isolate`, and an elevated z-index. | Never put opacity on a popup container or rely on a translucent parent. Keep the surface opaque and isolated; use a portal for any overlay that can cross complex stacking contexts. |
+| History and dropdown popovers looked see-through; icons and text from fields below appeared inside the popup. | History previews and shared `SelectMenu` listboxes render through a React portal on `document.body`, with elevated z-index, `isolate`, and an opaque white surface. Folder menus also use opaque white, `isolate`, and an elevated z-index. | Never put opacity on a popup container or rely on a translucent parent. Keep the surface opaque and isolated; use a portal for any overlay that can cross complex stacking contexts. |
 | A history or move popover stayed open after the user clicked elsewhere. | History, select, and folder controls listen for outside pointer/mouse/focus events and Escape, then close themselves. | Every newly introduced popover must have outside-click, focus-change, and Escape dismissal. Test a click into the next field. |
 | History icons appeared to be in the wrong place, but they were actually controls showing through a transparent preview. | Opaque overlay treatment removes the visual bleed. Inputs reserve trailing space; multi-line controls deliberately place their history icon at top-right. | Diagnose stacking/opacity before moving icons. Do not remove input right padding or the `placement="top"` rule for textareas. |
 | Dropdown chevrons overlapped history controls. | `SelectMenu` moves the chevron left when a trailing control exists and increases right padding for the field value. | Any trailing action added to a select must reserve space for both the action and chevron. Do not use a native select to bypass this layout. |
@@ -82,6 +82,7 @@ These are not cosmetic preferences. They were reported while exercising the live
 Before merging any overlay, dropdown, tooltip-like preview, or move menu:
 
 - Verify it is visually opaque over a dense form with history icons.
+- Verify its rendered width exactly matches the field or control that opened it.
 - Open it near the viewport edge and inside a long scrollable list; it must remain visible and usable.
 - Click another field, click blank space, tab away, and press Escape; it must close.
 - Confirm the trigger remains keyboard-accessible and has a descriptive accessible name.
@@ -102,7 +103,8 @@ Before merging any overlay, dropdown, tooltip-like preview, or move menu:
 - Their label is the displayed title, not a duplicated request-details field. It is directly editable in the editor header and from the requisition-history card; committing focus away returns it to text.
 - A requisition card is entirely clickable to open it. Explicit title editing and destructive controls retain their own interaction priority.
 - All request-detail and teaching-load fields are required, with the shared red required marker. Export must navigate to the last remaining incomplete section instead of creating a partial document.
-- The last section is named **Review** and summarizes the teacher, request details, course count, and decimal teaching-hours total before export. The approved DOCX must carry the same exact decimal total, never a truncated integer.
+- Job title and Employee type are required template-backed controls: the UI must expose every Job title available in the approved DOCX, while Employee type uses the readable **Full Time Employee** and **Part Time Employee** labels and exports their corresponding form checkboxes.
+- The last section is named **Review** and summarizes the teacher, request details, course count, and decimal teaching-hours total before export. Review labels use dark blue and values near-black so the two levels remain easy to distinguish. The approved DOCX must carry the same exact decimal total, never a truncated integer.
 - **Add course** first adds a single empty, expanded card. From there, coordinators either select a catalogue item or fill their own fields. Show only course title and code in catalogue results; search must tolerate harmless punctuation/format differences such as a missing dash. Keep at most one teaching-load card expanded.
 
 ### Learning outcomes

@@ -61,4 +61,42 @@ describe("SelectMenu", () => {
     expect(screen.getByRole("combobox", { name: "Course catalogue" }).getAttribute("aria-required")).toBe("true");
     expect(screen.getByRole("option", { name: "A Digital History Grp1 — RMAS-304" })).toBeTruthy();
   });
+
+  it("ports a long request menu above a constrained editor workspace instead of clipping it", () => {
+    const { container } = render(
+      <SelectMenu label="Job title" value="" onChange={vi.fn()} options={[
+        { value: "lecturer", label: "Part Time Lecturer" },
+        { value: "researcher", label: "Researcher" },
+        { value: "assistant", label: "Research Assistant" },
+        { value: "teaching", label: "Teaching Assistant" },
+        { value: "support", label: "Research Support Assistant" },
+        { value: "administrative", label: "Administrative Role - PT" },
+      ]} />,
+    );
+    const trigger = screen.getByRole("combobox", { name: "Job title" });
+    vi.spyOn(trigger, "getBoundingClientRect").mockReturnValue({
+      bottom: 780,
+      height: 40,
+      left: 0,
+      right: 320,
+      toJSON: () => ({}),
+      top: 740,
+      width: 320,
+      x: 0,
+      y: 740,
+    });
+    const previousInnerHeight = window.innerHeight;
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 900 });
+
+    try {
+      fireEvent.click(trigger);
+      const menu = screen.getByRole("listbox", { name: "Job title" });
+
+      expect(container.contains(menu)).toBe(false);
+      expect(menu.closest("[data-select-menu-placement]")?.getAttribute("data-select-menu-placement")).toBe("top");
+      expect(menu.style.width).toBe("var(--radix-popover-trigger-width)");
+    } finally {
+      Object.defineProperty(window, "innerHeight", { configurable: true, value: previousInnerHeight });
+    }
+  });
 });

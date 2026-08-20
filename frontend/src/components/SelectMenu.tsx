@@ -1,7 +1,13 @@
+import { Popover } from "radix-ui";
 import { ChevronDown } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 export type SelectOption = { value: string; label: string; searchText?: string };
+
+type MenuPlacement = { side: "top" | "bottom"; maxHeight: number };
+
+const MENU_GAP = 6;
+const MENU_MAX_HEIGHT = 256;
 
 type Props = {
   label: string;
@@ -20,7 +26,8 @@ type Props = {
 export function SelectMenu({ label, value, onChange, options, placeholder, trailing, multiple = false, searchable = false, searchPlaceholder = "Search options", disabled = false, required = false }: Props) {
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const menuRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const [placement, setPlacement] = useState<MenuPlacement | null>(null);
   const selectedValues = multiple ? value.split("\n").filter(Boolean) : [value];
   const selected = options.filter((option) => selectedValues.includes(option.value));
   const selectedLabel = multiple
@@ -44,30 +51,27 @@ export function SelectMenu({ label, value, onChange, options, placeholder, trail
     onChange(next.join("\n"));
   };
 
-  useEffect(() => {
-    if (!isOpen) {
-      setQuery("");
+  useEffect(() => { if (!isOpen) setQuery(""); }, [isOpen]);
+
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen) {
+      setPlacement(null);
+      setIsOpen(false);
       return;
     }
-    const closeWhenOutside = (event: Event) => {
-      if (!menuRef.current?.contains(event.target as Node)) setIsOpen(false);
-    };
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setIsOpen(false);
-    };
-    document.addEventListener("mousedown", closeWhenOutside);
-    document.addEventListener("focusin", closeWhenOutside);
-    document.addEventListener("keydown", closeOnEscape);
-    return () => {
-      document.removeEventListener("mousedown", closeWhenOutside);
-      document.removeEventListener("focusin", closeWhenOutside);
-      document.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [isOpen]);
+    const trigger = triggerRef.current?.getBoundingClientRect();
+    const availableAbove = Math.max(0, (trigger?.top ?? 0) - MENU_GAP);
+    const availableBelow = Math.max(0, window.innerHeight - (trigger?.bottom ?? window.innerHeight) - MENU_GAP);
+    setPlacement(chooseMenuPlacement({ availableAbove, availableBelow }));
+    setIsOpen(true);
+  };
 
   return (
-    <div ref={menuRef} className="relative">
+    <Popover.Root open={isOpen} onOpenChange={handleOpenChange}>
+    <div className="relative">
+      <Popover.Trigger asChild>
       <button
+        ref={triggerRef}
         type="button"
         role="combobox"
         aria-label={label}
@@ -75,17 +79,17 @@ export function SelectMenu({ label, value, onChange, options, placeholder, trail
         aria-expanded={isOpen}
         aria-haspopup="listbox"
         disabled={disabled}
-        onClick={() => setIsOpen((open) => !open)}
         className={`flex h-10 w-full items-center rounded-md border border-[#b7bec8] bg-white px-3 py-2 ${trailing ? "pr-20" : "pr-10"} text-left font-normal text-[#344054] transition-colors hover:border-[#98a2b3] hover:bg-[#f8fafc] focus:border-[#1f4e79] focus:outline-none focus:ring-2 focus:ring-[#d7e5f3] disabled:cursor-not-allowed disabled:bg-[#f7f8fa] disabled:text-[#98a2b3]`}
       >
         <span className={selected.length || value ? "" : "text-[#667085]"}>{selectedLabel}</span>
       </button>
+      </Popover.Trigger>
       <ChevronDown aria-hidden="true" size={17} className={`pointer-events-none absolute ${trailing ? "right-10" : "right-3"} top-1/2 -translate-y-1/2 text-[#667085] transition-transform ${isOpen ? "rotate-180" : ""}`} />
       {trailing}
+      <Popover.Portal>
       {isOpen ? (
-        <div role="listbox" aria-label={label} className="absolute left-0 right-0 z-[90] isolate mt-1 overflow-hidden rounded-lg border border-[#d9dee7] bg-white p-1 opacity-100 shadow-lg">
+        <Popover.Content role="listbox" aria-label={label} side={placement?.side ?? "bottom"} sideOffset={MENU_GAP} avoidCollisions={false} data-select-menu-placement={placement?.side ?? "bottom"} style={{ width: "var(--radix-popover-trigger-width)", ...(placement ? { maxHeight: placement.maxHeight } : {}) }} className="z-[100] isolate overflow-y-auto rounded-lg border border-[#d9dee7] bg-white p-1 opacity-100 shadow-lg outline-none">
           {searchable ? <input aria-label={`Search ${label}`} value={query} onChange={(event) => setQuery(event.target.value)} placeholder={searchPlaceholder} className="mb-1 h-9 w-full rounded-md border border-[#b7bec8] px-3 text-sm font-normal focus:border-[#1f4e79] focus:outline-none focus:ring-2 focus:ring-[#d7e5f3]" autoFocus /> : null}
-          <div className="max-h-64 overflow-y-auto">
           {visibleOptions.map((option) => (
             <button
               type="button"
@@ -101,11 +105,17 @@ export function SelectMenu({ label, value, onChange, options, placeholder, trail
           ))}
           {!visibleOptions.length ? <p className="px-3 py-2 text-sm text-[#667085]">No options match your search.</p> : null}
           {hasMoreSearchResults ? <p className="px-3 py-2 text-sm text-[#667085]">Type to search all {options.length} options.</p> : null}
-          </div>
-        </div>
+        </Popover.Content>
       ) : null}
+      </Popover.Portal>
     </div>
+    </Popover.Root>
   );
+}
+
+function chooseMenuPlacement({ availableAbove, availableBelow }: { availableAbove: number; availableBelow: number }): MenuPlacement {
+  if (availableBelow >= MENU_MAX_HEIGHT || availableBelow >= availableAbove) return { side: "bottom", maxHeight: Math.min(MENU_MAX_HEIGHT, availableBelow) };
+  return { side: "top", maxHeight: Math.min(MENU_MAX_HEIGHT, availableAbove) };
 }
 
 function normalizeSearch(value: string) {
