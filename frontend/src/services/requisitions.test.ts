@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { lastIncompleteRequisitionStep, missingRequisitionFields } from "./requisitions";
+import { formatTeachingHours, lastIncompleteRequisitionStep, missingRequisitionFields, totalTeachingHours } from "./requisitions";
 
 describe("missingRequisitionFields", () => {
   it("reports incomplete request details and manual course fields before save or export", () => {
@@ -65,5 +65,17 @@ describe("lastIncompleteRequisitionStep", () => {
         courses: [{ id: "course-1", title: "Physics", subjectCode: "PHY", courseNumber: "101", level: "L1", hours: "24" }],
       },
     })).toEqual({ section: "details", focusTarget: "academic-year" });
+  });
+});
+
+describe("totalTeachingHours", () => {
+  it("preserves decimal teaching hours in totals and display values", () => {
+    const total = totalTeachingHours([
+      { id: "course-1", title: "Physics", subjectCode: "PHY", courseNumber: "101", level: "L1", hours: "1.5 TD" },
+      { id: "course-2", title: "Lab", subjectCode: "PHY", courseNumber: "102", level: "L1", hours: "2.25" },
+    ]);
+
+    expect(total).toBe(3.75);
+    expect(formatTeachingHours(total)).toBe("3.75");
   });
 });

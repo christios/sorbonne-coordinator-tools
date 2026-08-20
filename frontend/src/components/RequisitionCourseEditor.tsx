@@ -18,13 +18,13 @@ type Props = {
 const LEVELS = ["Foundation Year", "L1", "L2", "L3", "M1", "M2", "Option Class"];
 
 export function RequisitionCourseEditor({ courses, onChange, catalogueCourses = [] }: Props) {
-  const [expandedIds, setExpandedIds] = useState(() => courses.filter((course) => !isComplete(course)).map((course) => course.id));
+  const [expandedId, setExpandedId] = useState<string | null>(() => courses.find((course) => !isComplete(course))?.id ?? null);
   const [movingCourseId, setMovingCourseId] = useState<string | null>(null);
   const [coursePendingRemoval, setCoursePendingRemoval] = useState<string | null>(null);
   const [moveQuery, setMoveQuery] = useState("");
 
   useEffect(() => {
-    setExpandedIds((current) => [...new Set([...current, ...courses.filter((course) => !isComplete(course)).map((course) => course.id)])]);
+    setExpandedId((current) => current && courses.some((course) => course.id === current) ? current : courses.find((course) => !isComplete(course))?.id ?? null);
   }, [courses]);
 
   useEffect(() => {
@@ -51,12 +51,12 @@ export function RequisitionCourseEditor({ courses, onChange, catalogueCourses = 
     };
   }, [movingCourseId]);
 
-  const toggle = (id: string) => setExpandedIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
+  const toggle = (id: string) => setExpandedId((current) => current === id ? null : id);
   const update = (id: string, patch: Partial<CourseRow>) => onChange(courses.map((course) => course.id === id ? { ...course, ...patch } : course));
   const add = () => {
     const course = emptyCourse();
     onChange([...courses, course]);
-    setExpandedIds((current) => [...current, course.id]);
+    setExpandedId(course.id);
     window.requestAnimationFrame(() => document.getElementById(`course-${course.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" }));
   };
   const chooseFromCatalogue = (courseId: string, catalogueId: string) => {
@@ -79,7 +79,7 @@ export function RequisitionCourseEditor({ courses, onChange, catalogueCourses = 
     <section>
       <h3 className="text-lg font-semibold text-[#171717]">Teaching load</h3>
       {courses.length ? <div className="mt-4 grid gap-3">{courses.map((course) => {
-        const expanded = expandedIds.includes(course.id);
+        const expanded = expandedId === course.id;
         const title = course.title.trim() || "Untitled course";
         const destinations = courses.filter((item) => item.id !== course.id && courseSummary(item).toLowerCase().includes(moveQuery.toLowerCase()));
         return <CollapsibleEntryCard key={course.id} id={`course-${course.id}`} expanded={expanded} onToggle={() => toggle(course.id)} toggleLabel={`${expanded ? "Collapse" : "Expand"} course: ${title}`} title={title} summary={courseSummary(course)} actions={<div data-course-move-menu className="contents"><button type="button" onClick={() => { setMovingCourseId(course.id); setMoveQuery(""); }} className="rounded p-2 text-[#1f4e79] hover:bg-[#e8edf3]" aria-label={`Move course: ${title}`} title="Move course"><ArrowDownUp size={17} /></button><button type="button" onClick={() => setCoursePendingRemoval(course.id)} className="rounded p-2 text-[#a6292f] hover:bg-[#fff1f2]" aria-label={`Remove course: ${title}`} title="Remove course"><Trash2 size={17} /></button></div>} overlay={movingCourseId === course.id ? <div data-course-move-menu className="absolute right-0 top-full z-[90] isolate mt-2 w-80 max-w-full rounded-lg border border-[#d9dee7] bg-white p-3 shadow-lg"><p className="text-sm font-semibold text-[#344054]">Place this course before</p><input type="search" value={moveQuery} onChange={(event) => setMoveQuery(event.target.value)} placeholder="Search destination courses" className="mt-2 w-full rounded-md border border-[#b7bec8] px-3 py-2 text-sm font-normal focus:border-[#1f4e79] focus:outline-none focus:ring-2 focus:ring-[#d7e5f3]" autoFocus /><div className="mt-2 max-h-56 overflow-y-auto">{destinations.map((destination) => <button type="button" key={destination.id} onClick={() => moveBefore(course.id, destination.id)} className="block w-full rounded-md px-3 py-2 text-left text-sm text-[#344054] hover:bg-[#f7f8fa]">{courseSummary(destination)}</button>)}</div><button type="button" onClick={() => moveBefore(course.id)} className="mt-2 w-full rounded-md border border-[#b7bec8] px-3 py-2 text-left text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]">Move to end</button></div> : null}>

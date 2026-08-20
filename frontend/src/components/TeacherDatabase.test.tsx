@@ -97,6 +97,23 @@ describe("PhoneField", () => {
 });
 
 describe("RequisitionHistory", () => {
+  it("opens a requisition when the coordinator clicks anywhere on its card outside its controls", () => {
+    const onOpen = vi.fn();
+    render(
+      <RequisitionHistory
+        requisitions={[{ id: "request-1", teacherId: "teacher-1", label: "Semester 1", academicYear: "2026-2027", revision: 1, createdAt: "2026-07-24T08:00:00Z", updatedAt: "2026-07-24T08:00:00Z" }]}
+        onOpen={onOpen}
+        onRename={vi.fn()}
+        onDelete={vi.fn()}
+        deleting={false}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Open Semester 1" }));
+
+    expect(onOpen).toHaveBeenCalledWith("request-1");
+  });
+
   it("shows outlined requisition items and filters them by label or academic year", () => {
     render(
       <RequisitionHistory
@@ -132,7 +149,7 @@ describe("RequisitionHistory", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Edit title Semester 1" }));
+    fireEvent.click(screen.getByText("Semester 1"));
     fireEvent.change(screen.getByRole("textbox", { name: "Requisition title" }), { target: { value: "Semester 1 tutorial" } });
     fireEvent.blur(screen.getByRole("textbox", { name: "Requisition title" }));
 
@@ -158,6 +175,23 @@ describe("RequisitionDetails", () => {
 });
 
 describe("TeacherRequisitionEditor", () => {
+  it("edits the requisition title inline and returns to text when focus leaves", async () => {
+    const requisition = { id: "request-1", teacherId: "teacher-1", label: "Semester 1", academicYear: "2026-2027", revision: 1, createdAt: "2026-07-24T08:00:00Z", updatedAt: "2026-07-24T08:00:00Z", content: { department: "Science", program: "Foundation year in Sciences", jobTitle: "Part Time Lecturer", classType: "TD", employeeType: "PT" as const, contractFrom: "2026-09-01", contractTo: "2026-12-20", courses: [{ id: "course-1", title: "Physics", subjectCode: "PHY", courseNumber: "101", level: "L1", hours: "24" }] } };
+    teacherService.getTeacherRequisition.mockResolvedValue(requisition);
+    teacherService.getTeacher.mockResolvedValue({ id: "teacher-1", fullName: "Sachin Valera" });
+    teacherService.listCourseCatalogue.mockResolvedValue([]);
+
+    render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><TeacherRequisitionEditor requisitionId="request-1" teacherId="teacher-1" onBack={vi.fn()} /></QueryClientProvider>);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Semester 1" }));
+    const title = screen.getByRole("textbox", { name: "Requisition title" });
+    fireEvent.change(title, { target: { value: "Semester 1 tutorial" } });
+    fireEvent.blur(title);
+
+    expect(screen.queryByRole("textbox", { name: "Requisition title" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Semester 1 tutorial" })).toBeTruthy();
+  });
+
   it("autosaves edits and replaces the manual save action with the syllabus-style status", async () => {
     const requisition = { id: "request-1", teacherId: "teacher-1", label: "Semester 1", academicYear: "2026-2027", revision: 1, createdAt: "2026-07-24T08:00:00Z", updatedAt: "2026-07-24T08:00:00Z", content: { department: "Science", program: "Foundation year in Sciences", jobTitle: "Part Time Lecturer", classType: "TD", employeeType: "PT" as const, contractFrom: "2026-09-01", contractTo: "2026-12-20", courses: [{ id: "course-1", title: "Physics", subjectCode: "PHY", courseNumber: "101", level: "L1", hours: "24" }] } };
     teacherService.getTeacherRequisition.mockResolvedValue(requisition);
@@ -198,6 +232,7 @@ describe("RequisitionReview", () => {
 
     expect(screen.getByText("Sachin Valera")).toBeTruthy();
     expect(screen.getByText("1 course · 24 hours")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Review" })).toBeTruthy();
     expect(screen.getByRole("status").textContent).toContain("Ready to export");
   });
 });

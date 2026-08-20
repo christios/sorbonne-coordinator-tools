@@ -1,4 +1,5 @@
-import { ArrowDownUp, Plus, Trash2 } from "lucide-react";
+import { AddEntryButton } from "@/components/AddEntryButton";
+import { ArrowDownUp, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { CollapsibleEntryCard } from "@/components/CollapsibleEntryCard";
@@ -102,16 +103,7 @@ export function ScheduleEditor({
 
   return (
     <section className="mt-2">
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <h4 className="text-sm font-semibold text-[#344054]">Sessions</h4>
-        <button
-          type="button"
-          onClick={addRow}
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-3 py-1.5 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]"
-        >
-          <Plus size={16} /> Add session
-        </button>
-      </div>
+      <h4 className="mb-3 text-sm font-semibold text-[#344054]">Sessions</h4>
       {rows.length ? (
         <>
         <div className="grid gap-3">
@@ -259,21 +251,15 @@ export function ScheduleEditor({
             );
           })}
         </div>
-        <div className="flex justify-end">
-          <button
-            type="button"
-            onClick={addRow}
-            aria-label="Add session at end"
-            className="mt-1 inline-flex items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-3 py-1.5 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]"
-          >
-            <Plus size={16} /> Add session
-          </button>
-        </div>
+        <AddEntryButton onClick={addRow} label="Add session" ariaLabel="Add session at end" />
         </>
       ) : (
+        <>
         <p className="rounded-md border border-dashed border-[#d0d5dd] px-3 py-3 text-sm text-[#667085]">
           No sessions added yet.
         </p>
+        <AddEntryButton onClick={addRow} label="Add session" />
+        </>
       )}
     </section>
   );

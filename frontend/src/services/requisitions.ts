@@ -22,6 +22,19 @@ export type RequisitionContent = {
   courses: CourseRow[];
 };
 
+/** Sums the numeric portion of each course load without discarding decimal hours. */
+export function totalTeachingHours(courses: CourseRow[]): number {
+  const total = courses.reduce((sum, course) => {
+    const match = course.hours.match(/\d+(?:[.,]\d+)?/);
+    return sum + (match ? Number(match[0].replace(",", ".")) : 0);
+  }, 0);
+  return Math.round((total + Number.EPSILON) * 1_000) / 1_000;
+}
+
+export function formatTeachingHours(hours: number): string {
+  return String(hours);
+}
+
 export function missingRequisitionFields(requisition: { label: string; academicYear: string; content: RequisitionContent }): string[] {
   const missing: string[] = [];
   if (!requisition.label.trim()) missing.push("Requisition title");

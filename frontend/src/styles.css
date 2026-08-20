@@ -21,6 +21,31 @@ button:disabled {
   cursor: not-allowed;
 }
 
+button.inline-flex {
+  white-space: nowrap;
+}
+
+/* Teacher screens predate the shared page-width wrapper. Keep them aligned with it. */
+main > div.max-w-7xl,
+main > div.max-w-6xl {
+  max-width: 98rem;
+  padding-inline: 1rem;
+}
+
+@media (min-width: 40rem) {
+  main > div.max-w-7xl,
+  main > div.max-w-6xl {
+    padding-inline: 1.5rem;
+  }
+}
+
+@media (min-width: 64rem) {
+  main > div.max-w-7xl,
+  main > div.max-w-6xl {
+    padding-inline: 2rem;
+  }
+}
+
 ::selection {
   background: #c7d2fe;
 }

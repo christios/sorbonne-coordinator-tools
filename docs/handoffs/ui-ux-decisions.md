@@ -46,7 +46,8 @@ This document records the user-facing decisions made while shaping the SCEN Coor
 - Every editable field has a history icon inside the right edge. For multi-line fields, position it at the top-right.
 - Inputs reserve right-side space for trailing icons. Select arrows and history controls must never overlap.
 - Textareas grow with their content; avoid fixed tall blank textareas.
-- Semantic dates use native date inputs so a date picker is available.
+- Semantic dates use the branded shared `DateField` calendar picker. On open it chooses the fully visible side of the trigger with a viewport edge margin and remains there until closed; its six-week grid prevents month changes from moving the popup.
+- Semantic times use the shared branded 24-hour `TimeField`: direct keyboard entry keeps focus in the field, the picker has no visible open icon, and a history control belongs in the trailing position when enabled.
 - Use the shared custom `SelectMenu` for every select-like control. It exists to maintain the application’s rounded, branded UI and support searchable/multi-select behaviour where needed.
 
 ## Field history
@@ -95,6 +96,15 @@ Before merging any overlay, dropdown, tooltip-like preview, or move menu:
 - Use icon-only move and delete controls when space is constrained; provide accessible labels and tooltips.
 - Move controls open a searchable destination picker rather than requiring a user to know a row number in a long list. Newly added items scroll into view.
 
+### Teacher requisitions
+
+- Requisitions autosave through the same shared save-state mechanism as syllabi; do not add a manual Save button.
+- Their label is the displayed title, not a duplicated request-details field. It is directly editable in the editor header and from the requisition-history card; committing focus away returns it to text.
+- A requisition card is entirely clickable to open it. Explicit title editing and destructive controls retain their own interaction priority.
+- All request-detail and teaching-load fields are required, with the shared red required marker. Export must navigate to the last remaining incomplete section instead of creating a partial document.
+- The last section is named **Review** and summarizes the teacher, request details, course count, and decimal teaching-hours total before export.
+- **Add course** first adds a single empty, expanded card. From there, coordinators either select a catalogue item or fill their own fields. Show only course title and code in catalogue results; search must tolerate harmless punctuation/format differences such as a missing dash. Keep at most one teaching-load card expanded.
+
 ### Learning outcomes
 
 - PLOs and CLOs are separate tabs so long lists do not force unnecessary scrolling.
@@ -109,7 +119,7 @@ Before merging any overlay, dropdown, tooltip-like preview, or move menu:
 - Each schedule session is a collapsible card. Its card title is the **Topic**, not a duplicate “Session” field.
 - A compact section-number pill sits next to the move arrows; do not put the number in the title or as a separate editable field.
 - New blank sessions are open, so the professor can immediately enter the topic; existing populated sessions can be collapsed.
-- Session details are structured fields, including a native date picker where appropriate.
+- Session details are structured fields, including the shared `DateField` calendar picker where appropriate.
 
 ### Bibliography and lists
 

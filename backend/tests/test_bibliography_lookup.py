@@ -355,3 +355,48 @@ def test_lookup_endpoint_validates_the_query_and_exposes_only_approved_fields() 
         "url": None,
     }
     assert invalid.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+
+
+def test_lookup_omits_a_remembered_year_from_the_provider_search() -> None:
+    """Open Library ANDs a bare year, so a wrong one must not erase every result."""
+    requested_urls: list[str] = []
+
+    def fetch_json(url: str) -> object:
+        requested_urls.append(url)
+        return {
+            "docs": [
+                {
+                    "title": "Principles & Practice of Physics",
+                    "author_name": ["Eric Mazur"],
+                    "first_publish_year": 2014,
+                }
+            ]
+        }
+
+    result = BibliographyLookupService(fetch_json=fetch_json).lookup(
+        "book", "physics practices principles 2016 mazur"
+    )
+
+    assert "2016" not in requested_urls[0]
+    assert [item["title"] for item in result["items"]] == ["Principles & Practice of Physics"]
+
+
+def test_lookup_matches_a_title_the_professor_pluralised() -> None:
+    """"practices principles" must still reach "Principles & Practice of Physics"."""
+
+    def fetch_json(url: str) -> object:
+        return {
+            "docs": [
+                {
+                    "title": "Principles & Practice of Physics",
+                    "author_name": ["Eric Mazur"],
+                    "first_publish_year": 2014,
+                }
+            ]
+        }
+
+    result = BibliographyLookupService(fetch_json=fetch_json).lookup(
+        "book", "physics practices principles mazur"
+    )
+
+    assert [item["title"] for item in result["items"]] == ["Principles & Practice of Physics"]

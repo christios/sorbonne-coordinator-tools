@@ -36,6 +36,22 @@ describe("RequisitionCourseEditor", () => {
     expect(screen.queryByRole("textbox", { name: "Subject code" })).toBeNull();
   });
 
+  it("keeps only one incomplete course card expanded at a time", () => {
+    render(
+      <RequisitionCourseEditor
+        courses={[
+          { id: "first", subjectCode: "", courseNumber: "", level: "", title: "", hours: "" },
+          { id: "second", subjectCode: "", courseNumber: "", level: "", title: "", hours: "" },
+        ]}
+        onChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.getAllByRole("textbox", { name: "Course title as per Sorbonne Space" })).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Expand course: Untitled course" }));
+    expect(screen.getAllByRole("textbox", { name: "Course title as per Sorbonne Space" })).toHaveLength(1);
+  });
+
   it("marks every manual course field as required and uses the shared level dropdown", () => {
     render(
       <RequisitionCourseEditor

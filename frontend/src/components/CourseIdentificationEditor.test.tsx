@@ -44,4 +44,24 @@ describe("CourseIdentificationEditor", () => {
     expect(lectures.getAttribute("inputmode")).toBe("decimal");
     expect(lectures).toHaveProperty("value", "20");
   });
+
+  it("groups course-identification fields into named subsections", () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={queryClient}><CourseIdentificationEditor
+      value={{}}
+      courseTitle="Climate Change Law"
+      courseCode="PA585"
+      academicYear="2026-2027"
+      onChange={vi.fn()}
+      onMetadataChange={vi.fn()}
+      syllabusId="syllabus-1"
+      revision={1}
+      onOpenHistory={vi.fn()}
+    /></QueryClientProvider>);
+
+    expect(screen.getByRole("heading", { name: "Course details" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Programme and credits" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Course contact hours" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Requirements and equipment" })).toBeTruthy();
+  });
 });

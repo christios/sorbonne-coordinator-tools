@@ -49,7 +49,7 @@ export function SyllabusCatalogues({ onBack }: { onBack: () => void }) {
 }
 
 function CatalogueHeader({ title, description, action }: { title: string; description: string; action?: React.ReactNode }) {
-  return <div className="flex flex-col gap-3 border-b border-[#e5e7eb] pb-4 sm:flex-row sm:items-end sm:justify-between"><div><h3 className="text-lg font-semibold text-[#171717]">{title}</h3><p className="mt-1 max-w-2xl text-sm leading-6 text-[#667085]">{description}</p></div>{action}</div>;
+  return <div className="flex flex-col items-start gap-3 border-b border-[#e5e7eb] pb-4"><div><h3 className="text-lg font-semibold text-[#171717]">{title}</h3><p className="mt-1 max-w-2xl text-sm leading-6 text-[#667085]">{description}</p></div>{action}</div>;
 }
 
 function useCatalogue(category: CatalogueCategory, query = "", parentId?: string) {
@@ -100,7 +100,7 @@ function ProgrammesCatalogue() {
   const programmes = useCatalogue("programmes");
   const [selectedId, setSelectedId] = useState("");
   const selected = programmes.data?.find((programme) => programme.id === selectedId) ?? programmes.data?.[0];
-  return <div className="grid gap-5 xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]"><section className="rounded-lg border border-[#d9dee7] bg-white p-5"><CatalogueHeader title="Programmes" description="Programme sets can be selected by compatible SCEN syllabi. Selecting one makes its approved PLOs available for alignment." action={<button type="button" onClick={() => setShowCreate(true)} className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white"><FilePlus2 size={16} /> Add programme</button>} />{showCreate ? <SimpleEntryForm category="programmes" fieldLabel="Programme name" onCancel={() => setShowCreate(false)} onSaved={() => setShowCreate(false)} /> : null}<CatalogueEntries category="programmes" entries={programmes.data ?? []} isLoading={programmes.isLoading} selectedId={selected?.id} onSelect={setSelectedId} /></section><section className="rounded-lg border border-[#d9dee7] bg-white p-5">{selected ? <PloCatalogue programme={selected} /> : <EmptyState>Choose or add a programme to manage its programme learning outcomes.</EmptyState>}</section></div>;
+  return <div className="grid gap-5 xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]"><section className="rounded-lg border border-[#d9dee7] bg-white p-5"><CatalogueHeader title="Programmes" description="Programme sets can be selected by compatible SCEN syllabi. Selecting one makes its approved PLOs available for alignment." action={<button type="button" onClick={() => setShowCreate(true)} className="inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white"><FilePlus2 size={16} /> Add programme</button>} />{showCreate ? <SimpleEntryForm category="programmes" fieldLabel="Programme name" onCancel={() => setShowCreate(false)} onSaved={() => setShowCreate(false)} /> : null}<CatalogueEntries category="programmes" entries={programmes.data ?? []} isLoading={programmes.isLoading} selectedId={selected?.id} onSelect={setSelectedId} /></section><section className="rounded-lg border border-[#d9dee7] bg-white p-5">{selected ? <PloCatalogue programme={selected} /> : <EmptyState>Choose or add a programme to manage its programme learning outcomes.</EmptyState>}</section></div>;
 }
 
 function PloCatalogue({ programme }: { programme: CatalogueEntry }) {
@@ -111,7 +111,7 @@ function PloCatalogue({ programme }: { programme: CatalogueEntry }) {
 
 function PloForm({ programme, entry, onCancel, onSaved }: { programme: CatalogueEntry; entry?: CatalogueEntry; onCancel: () => void; onSaved: () => void }) {
   const client = useQueryClient(); const payload = entry?.payload ?? {}; const [code, setCode] = useState(stringValue(payload.code)); const [outcome, setOutcome] = useState(stringValue(payload.outcome));
-  const save = useMutation({ mutationFn: () => { const input: CatalogueEntryInput = { label: `${code.trim() || "PLO"}${outcome.trim() ? ` · ${outcome.trim().slice(0, 80)}` : ""}`, parentId: programme.id, sortOrder: entry?.sortOrder, payload: { code: code.trim(), outcome: outcome.trim() } }; return entry ? updateCatalogueEntry("plos", entry.id, { ...input, expectedRevision: entry.revision }) : createCatalogueEntry("plos", input); }, onSuccess: () => { void client.invalidateQueries({ queryKey: ["syllabus-catalogues", "plos"] }); onSaved(); } });
+  const save = useMutation({ mutationFn: () => { const input: CatalogueEntryInput = { label: code.trim() || "PLO", parentId: programme.id, sortOrder: entry?.sortOrder, payload: { code: code.trim(), outcome: outcome.trim() } }; return entry ? updateCatalogueEntry("plos", entry.id, { ...input, expectedRevision: entry.revision }) : createCatalogueEntry("plos", input); }, onSuccess: () => { void client.invalidateQueries({ queryKey: ["syllabus-catalogues", "plos"] }); onSaved(); } });
   return <form onSubmit={(event) => { event.preventDefault(); if (outcome.trim()) save.mutate(); }} className="mt-5 grid gap-4 rounded-lg border border-[#cbd5e1] bg-[#f8fafc] p-4"><Field label="PLO code"><input required value={code} onChange={(event) => setCode(event.target.value)} placeholder="e.g. PLO 1" className={inputClass} /></Field><Field label="Programme learning outcome"><AutoResizeTextarea required minRows={3} value={outcome} onChange={(event) => setOutcome(event.target.value)} className={textareaClass} /></Field><FormActions isSaving={save.isPending} error={save.error} onCancel={onCancel} submitLabel={entry ? "Save PLO" : "Add PLO"} /></form>;
 }
 
@@ -147,18 +147,38 @@ function SimpleEntryForm({ category, entry, fieldLabel, onCancel, onSaved }: { c
 }
 
 function CatalogueEntries({ category, entries, isLoading, renderDetails, selectedId, onSelect }: { category: CatalogueCategory; entries: CatalogueEntry[]; isLoading: boolean; renderDetails?: (entry: CatalogueEntry) => React.ReactNode; selectedId?: string; onSelect?: (id: string) => void }) {
-  const [retireCandidate, setRetireCandidate] = useState<CatalogueEntry | null>(null); const [editing, setEditing] = useState<CatalogueEntry | null>(null); const client = useQueryClient();
+  const [retireCandidate, setRetireCandidate] = useState<CatalogueEntry | null>(null);
+  const [editing, setEditing] = useState<CatalogueEntry | null>(null);
+  const [editingDirty, setEditingDirty] = useState(false);
+  const [pendingEditingAction, setPendingEditingAction] = useState<{ type: "close" } | { type: "open"; entry: CatalogueEntry } | null>(null);
+  const client = useQueryClient();
   const retire = useMutation({ mutationFn: (entry: CatalogueEntry) => retireCatalogueEntry(category, entry.id, entry.revision), onSuccess: () => { void client.invalidateQueries({ queryKey: ["syllabus-catalogues", category] }); setRetireCandidate(null); } });
+  const closeEditor = () => { setEditing(null); setEditingDirty(false); };
+  const openEditor = (entry: CatalogueEntry) => { onSelect?.(entry.id); setEditing(entry); setEditingDirty(false); };
+  const requestEditingAction = (action: { type: "close" } | { type: "open"; entry: CatalogueEntry }) => {
+    if (editing && editingDirty) { setPendingEditingAction(action); return; }
+    if (action.type === "close") closeEditor(); else openEditor(action.entry);
+  };
+  const confirmDiscard = () => {
+    if (!pendingEditingAction) return;
+    if (pendingEditingAction.type === "close") closeEditor(); else openEditor(pendingEditingAction.entry);
+    setPendingEditingAction(null);
+  };
   if (isLoading) return <Loading />;
   if (!entries.length) return <EmptyState>No records yet.</EmptyState>;
-  return <><div className="mt-5 grid gap-3">{entries.map((entry) => <article key={entry.id} className={`rounded-lg border p-4 ${entry.isRetired ? "border-[#e5e7eb] bg-[#f8fafc] opacity-75" : selectedId === entry.id ? "border-[#1f4e79] bg-[#f2f7fb]" : "border-[#d9dee7] bg-white"}`}><div className="flex items-start gap-3"><button type="button" onClick={() => onSelect?.(entry.id)} className={`min-w-0 flex-1 text-left ${onSelect ? "cursor-pointer" : "cursor-default"}`}><div className="flex flex-wrap items-center gap-2"><h4 className="font-semibold text-[#344054]">{entry.label}</h4>{entry.isRetired ? <span className="rounded-full bg-[#f2f4f7] px-2 py-0.5 text-xs font-semibold text-[#667085]">Retired</span> : null}</div>{renderDetails?.(entry)}</button>{!entry.isRetired ? <div className="flex shrink-0 items-center gap-1"><button type="button" onClick={() => setEditing(entry)} aria-label={`Edit ${entry.label}`} className="inline-flex h-8 w-8 items-center justify-center rounded-md text-[#1f4e79] hover:bg-[#e8edf3]"><Pencil size={16} /></button><button type="button" onClick={() => setRetireCandidate(entry)} aria-label={`Retire ${entry.label}`} className="inline-flex h-8 w-8 items-center justify-center rounded-md text-[#b4232d] hover:bg-[#fff1f2]"><Trash2 size={16} /></button></div> : null}</div></article>)}</div>{editing ? <EditEntry category={category} entry={editing} onClose={() => setEditing(null)} /> : null}<ConfirmDialog open={Boolean(retireCandidate)} title={`Retire ${retireCandidate?.label ?? "catalogue entry"}?`} description="It will no longer be available for new selections. Existing syllabus references will continue to resolve." confirmLabel={retire.isPending ? "Retiring…" : "Retire"} onClose={() => setRetireCandidate(null)} onConfirm={() => retireCandidate && retire.mutate(retireCandidate)} /></>;
+  return <><div className="mt-5 grid gap-3">{entries.map((entry) => {
+    const isEditing = editing?.id === entry.id;
+    const toggleEditing = () => requestEditingAction(isEditing ? { type: "close" } : { type: "open", entry });
+    const cardClass = entry.isRetired ? "border-[#e5e7eb] bg-[#f8fafc] opacity-75" : selectedId === entry.id || isEditing ? "border-[#1f4e79] bg-[#f2f7fb]" : "border-[#d9dee7] bg-white";
+    return <article key={entry.id} className={`relative min-w-0 max-w-full rounded-lg border p-4 ${isEditing ? "overflow-hidden" : ""} ${cardClass}`}>
+      <div className="relative z-10 flex min-w-0 items-start gap-3"><button type="button" disabled={entry.isRetired} onClick={toggleEditing} aria-label={isEditing ? `Close editor for ${entry.label}` : `Edit ${entry.label}`} className="flex min-w-0 flex-1 items-start gap-3 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1f4e79] focus-visible:ring-offset-2 disabled:cursor-default"><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h4 className="break-words font-semibold text-[#344054]">{entry.label}</h4>{entry.isRetired ? <span className="rounded-full bg-[#f2f4f7] px-2 py-0.5 text-xs font-semibold text-[#667085]">Retired</span> : null}</div>{renderDetails?.(entry)}</div></button>{!entry.isRetired ? <div className="flex shrink-0 items-center gap-1"><Pencil size={16} aria-hidden="true" className="mr-1 text-[#1f4e79]" /><button type="button" onClick={() => setRetireCandidate(entry)} aria-label={`Retire ${entry.label}`} className="inline-flex h-8 w-8 items-center justify-center rounded-md text-[#b4232d] hover:bg-[#fff1f2]"><Trash2 size={16} /></button></div> : null}</div>{isEditing ? <div className="relative z-10 mt-4 -mx-4 -mb-4 border-t border-[#d9dee7] bg-[#f8fafc] p-4 [&>form]:!mt-0 [&>form]:!rounded-none [&>form]:!border-0 [&>form]:!bg-transparent [&>form]:!p-0"><EditEntry category={category} entry={editing} onClose={closeEditor} onDirtyChange={setEditingDirty} /></div> : null}
+    </article>;
+  })}</div><ConfirmDialog open={Boolean(retireCandidate)} title={`Retire ${retireCandidate?.label ?? "catalogue entry"}?`} description="It will no longer be available for new selections. Existing syllabus references will continue to resolve." confirmLabel={retire.isPending ? "Retiring…" : "Retire"} onClose={() => setRetireCandidate(null)} onConfirm={() => retireCandidate && retire.mutate(retireCandidate)} /><ConfirmDialog open={Boolean(pendingEditingAction)} title="Discard unsaved changes?" description="This card has changes that have not been saved. Discard them and close the card?" confirmLabel="Discard changes" onClose={() => setPendingEditingAction(null)} onConfirm={confirmDiscard} /></>;
 }
 
-function EditEntry({ category, entry, onClose }: { category: CatalogueCategory; entry: CatalogueEntry; onClose: () => void }) {
-  if (category === "people") return <PersonForm entry={entry} onCancel={onClose} onSaved={onClose} />;
-  if (category === "teaching-presets") return <TeachingPresetForm entry={entry} onCancel={onClose} onSaved={onClose} />;
-  if (category === "plos") return <PloForm programme={{ ...entry, id: entry.parentId ?? "" }} entry={entry} onCancel={onClose} onSaved={onClose} />;
-  return <SimpleEntryForm category={category} entry={entry} fieldLabel={category === "programmes" ? "Programme name" : category === "rubric-presets" ? "Rubric preset name" : "Name"} onCancel={onClose} onSaved={onClose} />;
+function EditEntry({ category, entry, onClose, onDirtyChange }: { category: CatalogueCategory; entry: CatalogueEntry; onClose: () => void; onDirtyChange: (dirty: boolean) => void }) {
+  const form = category === "people" ? <PersonForm entry={entry} onCancel={onClose} onSaved={onClose} /> : category === "teaching-presets" ? <TeachingPresetForm entry={entry} onCancel={onClose} onSaved={onClose} /> : category === "plos" ? <PloForm programme={{ ...entry, id: entry.parentId ?? "" }} entry={entry} onCancel={onClose} onSaved={onClose} /> : <SimpleEntryForm category={category} entry={entry} fieldLabel={category === "programmes" ? "Programme name" : category === "rubric-presets" ? "Rubric preset name" : "Name"} onCancel={onClose} onSaved={onClose} />;
+  return <div onInputCapture={() => onDirtyChange(true)} onChangeCapture={() => onDirtyChange(true)}>{form}</div>;
 }
 
 function SearchField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) { return <label className="relative mt-5 block"><Search size={16} aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#667085]" /><input type="search" aria-label={label} value={value} onChange={(event) => onChange(event.target.value)} placeholder={label} className="w-full rounded-md border border-[#b7bec8] py-2 pl-9 pr-3 text-sm focus:border-[#1f4e79] focus:outline-none focus:ring-2 focus:ring-[#d7e5f3]" /></label>; }

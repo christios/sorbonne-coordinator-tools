@@ -46,7 +46,7 @@ export function HistoryTextField({
   const stateClass = invalid
     ? "border-[#a6292f] focus:border-[#a6292f] focus:ring-[#fde2e2]"
     : "border-[#b7bec8] focus:border-[#1f4e79] focus:ring-[#d7e5f3]";
-  const textInputClass = `block h-10 w-full rounded-md border px-3 py-2 pr-10 font-normal ${stateClass} focus:outline-none focus:ring-2 ${inputClassName}`;
+  const textInputClass = `peer block h-10 w-full rounded-md border px-3 py-2 pr-10 font-normal ${stateClass} focus:outline-none focus:ring-2 ${inputClassName}`;
   const textareaClass = `block w-full resize-y rounded-md border px-3 py-2 pr-10 font-normal leading-6 ${stateClass} focus:outline-none focus:ring-2 ${inputClassName}`;
 
   return (
@@ -73,6 +73,15 @@ export function HistoryTextField({
             className={textInputClass}
           />
         )}
+        {history && !multiline ? (
+          // An overflowing value scrolls through the input's right padding and collides
+          // with the history icon. Blur it out there instead, and step aside on focus so
+          // the caret stays sharp while typing at the end of a long value.
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-y-px right-px z-[5] w-11 rounded-r-md bg-gradient-to-l from-white via-white/70 to-transparent backdrop-blur-[3px] transition-opacity duration-150 peer-focus:opacity-0"
+          />
+        ) : null}
         {history ? (
           <FieldHistoryControl
             field={history.field}

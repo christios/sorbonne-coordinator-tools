@@ -1,8 +1,9 @@
 import { Popover } from "radix-ui";
 import { CalendarDays, ChevronLeft, ChevronRight, X } from "lucide-react";
-import { useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 
 import { FormFieldLabel } from "@/components/FormFieldLabel";
+import { chooseCalendarPlacement, type CalendarPlacement } from "@/components/dateFieldPlacement";
 
 type DateFieldProps = {
   label: string;
@@ -13,12 +14,15 @@ type DateFieldProps = {
 };
 
 const WEEKDAYS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+const CALENDAR_GAP = 6;
 
 /** Shared in-app calendar picker used by requisitions and syllabi. */
 export function DateField({ label, value, onChange, required = false, trailing }: DateFieldProps) {
   const inputId = useId();
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const selected = useMemo(() => parseDate(value), [value]);
   const [open, setOpen] = useState(false);
+  const [placement, setPlacement] = useState<CalendarPlacement | null>(null);
   const [month, setMonth] = useState(() => startOfMonth(selected ?? new Date()));
 
   useEffect(() => {
@@ -30,14 +34,30 @@ export function DateField({ label, value, onChange, required = false, trailing }
     onChange(toIsoDate(day));
     setOpen(false);
   };
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen) {
+      setPlacement(null);
+      setOpen(false);
+      return;
+    }
+
+    const trigger = triggerRef.current?.getBoundingClientRect();
+    const viewportHeight = window.innerHeight;
+    const availableAbove = Math.max(0, (trigger?.top ?? 0) - CALENDAR_GAP);
+    const availableBelow = Math.max(0, viewportHeight - (trigger?.bottom ?? viewportHeight) - CALENDAR_GAP);
+
+    setPlacement(chooseCalendarPlacement({ availableAbove, availableBelow }));
+    setOpen(true);
+  };
 
   return (
     <div className="space-y-1">
       <label htmlFor={inputId} className="text-xs font-medium text-[#344054]"><FormFieldLabel required={required}>{label}</FormFieldLabel></label>
       <div className="relative">
-        <Popover.Root open={open} onOpenChange={setOpen}>
+        <Popover.Root open={open} onOpenChange={handleOpenChange}>
         <Popover.Trigger asChild>
           <button
+            ref={triggerRef}
             id={inputId}
             type="button"
             aria-label={label}
@@ -49,7 +69,15 @@ export function DateField({ label, value, onChange, required = false, trailing }
           </button>
         </Popover.Trigger>
         <Popover.Portal>
-          <Popover.Content align="start" sideOffset={6} className="z-50 w-72 rounded-lg border border-[#d9dee7] bg-white p-3 shadow-lg outline-none">
+          <Popover.Content
+            align="start"
+            side={placement?.side ?? "bottom"}
+            sideOffset={CALENDAR_GAP}
+            avoidCollisions={false}
+            data-calendar-placement={placement?.side ?? "bottom"}
+            style={placement ? { maxHeight: placement.maxHeight } : undefined}
+            className="z-50 w-72 overflow-y-auto rounded-lg border border-[#d9dee7] bg-white p-3 shadow-lg outline-none"
+          >
             <div className="flex items-center justify-between gap-2">
               <button type="button" onClick={() => setMonth((current) => new Date(current.getFullYear(), current.getMonth() - 1, 1))} className="rounded-md p-2 text-[#1f4e79] hover:bg-[#f2f7fb]" aria-label="Previous month"><ChevronLeft size={17} /></button>
               <p className="text-sm font-semibold text-[#344054]">{formatMonth(month)}</p>
@@ -77,4 +105,4 @@ function toIsoDate(date: Date) { return `${date.getFullYear()}-${String(date.get
 function sameDate(left: Date | null, right: Date | null) { return Boolean(left && right && left.getFullYear() === right.getFullYear() && left.getMonth() === right.getMonth() && left.getDate() === right.getDate()); }
 function formatDate(date: Date) { return new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", year: "numeric" }).format(date); }
 function formatMonth(date: Date) { return new Intl.DateTimeFormat("en-GB", { month: "long", year: "numeric" }).format(date); }
-function calendarDays(month: Date) { const leading = month.getDay(); const count = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate(); return Array.from({ length: Math.ceil((leading + count) / 7) * 7 }, (_, index) => index < leading || index >= leading + count ? null : new Date(month.getFullYear(), month.getMonth(), index - leading + 1)); }
+function calendarDays(month: Date) { const leading = month.getDay(); const count = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate(); return Array.from({ length: 42 }, (_, index) => index < leading || index >= leading + count ? null : new Date(month.getFullYear(), month.getMonth(), index - leading + 1)); }

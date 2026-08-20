@@ -117,14 +117,14 @@ export function SyllabusLibrary({
   }
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
-      <div className="flex flex-col justify-between gap-4 border-b border-[#d9dee7] pb-5 sm:flex-row sm:items-end">
+    <div className="mx-auto max-w-[98rem] px-4 pb-6 pt-4 sm:px-6 lg:px-8">
+      <div className="flex flex-col justify-between gap-4 border-b border-[#d9dee7] pb-5 lg:flex-row lg:items-end">
         <div>
           <p className="text-sm font-medium text-[#a6292f]">SCEN workspace</p>
           <h2 className="mt-1 text-2xl font-semibold text-[#171717]">Syllabus library</h2>
           <p className="mt-1 text-sm text-[#667085]">Create, organize, and compare course syllabi across academic years.</p>
         </div>
-        <div className="flex flex-wrap gap-3">
+        <div className="flex flex-wrap gap-3 lg:justify-end">
           <button type="button" onClick={onManageCatalogues} className="inline-flex items-center justify-center gap-2 rounded-md border border-[#b7bec8] bg-white px-4 py-2.5 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]"><Settings2 size={17} aria-hidden="true" /> Manage catalogues</button>
           <button type="button" onClick={() => setShowFolderForm((value) => !value)} className="inline-flex items-center justify-center gap-2 rounded-md border border-[#b7bec8] bg-white px-4 py-2.5 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]"><FolderPlus size={17} aria-hidden="true" /> New folder</button>
           <button type="button" onClick={() => setShowForm((value) => !value)} className="inline-flex items-center justify-center gap-2 rounded-md bg-[#1f4e79] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#183f63]"><FilePlus2 size={17} aria-hidden="true" /> New syllabus</button>

@@ -6,7 +6,6 @@ import {
   FileText,
   GitCompareArrows,
   Loader2,
-  Plus,
   Trash2,
   TriangleAlert,
   X,
@@ -17,6 +16,7 @@ import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "re
 import {
   downloadSyllabusExport,
   getFieldHistory,
+  getSyllabus,
   Syllabus,
   SyllabusTemplate,
   syllabusTemplateDocumentUrl,
@@ -36,7 +36,10 @@ import {
 import { ScheduleEditor } from "@/components/ScheduleEditor";
 import { SelectMenu, type SelectOption } from "@/components/SelectMenu";
 import { AssessmentTabs } from "@/components/AssessmentTabs";
+import { AddEntryButton } from "@/components/AddEntryButton";
 import { SectionEditorShell } from "@/components/SectionEditorShell";
+import { SyllabusSubsection } from "@/components/SyllabusSubsection";
+import { saveFailureState, type SyllabusSaveState } from "@/components/syllabusSaveState";
 import {
   BibliographyEditor,
   PloEditor,
@@ -57,6 +60,8 @@ type Props = {
   onBack: () => void;
   onSaved: (syllabus: Syllabus) => void;
   onCompare: () => void;
+  onHeaderCollapseChange?: (collapsed: boolean) => void;
+  compactHeaderActions?: ReactNode;
 };
 type Row = Record<string, string> & { id: string };
 
@@ -66,52 +71,87 @@ export function SyllabusEditor({
   onBack,
   onSaved,
   onCompare,
+  onHeaderCollapseChange,
+  compactHeaderActions,
 }: Props) {
   const [draft, setDraft] = useState(syllabus);
   const [active, setActive] = useState(
     template.sections[0]?.id ?? "identification",
   );
   const [dirty, setDirty] = useState(false);
-  const [saveState, setSaveState] = useState<"saved" | "saving" | "error">(
-    "saved",
-  );
+  const [saveState, setSaveState] = useState<SyllabusSaveState>("saved");
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [reloadConfirmationOpen, setReloadConfirmationOpen] = useState(false);
   const [exportState, setExportState] = useState<
     "idle" | "exporting" | "error"
   >("idle");
   const [historyField, setHistoryField] = useState<HistoryField | null>(null);
   const requestId = useRef(0);
+  const draftRef = useRef(syllabus);
+  const saveInFlight = useRef(false);
+  const saveConflict = useRef(false);
   const editorRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    setDraft(syllabus);
-    setDirty(false);
-    setSaveState("saved");
-  }, [syllabus]);
+    if (draftRef.current.id !== syllabus.id || !dirty) {
+      draftRef.current = syllabus;
+      setDraft(syllabus);
+      setDirty(false);
+      setSaveState("saved");
+      setSaveError(null);
+      saveConflict.current = false;
+    }
+  }, [dirty, syllabus]);
   useEffect(() => {
     if (!template.sections.some((section) => section.id === active))
       setActive(template.sections[0]?.id ?? "identification");
   }, [active, template]);
   useEffect(() => {
-    if (!dirty) return;
+    if (!dirty || saveConflict.current) return;
     const timer = window.setTimeout(async () => {
+      // A later keystroke may run while this request is in flight. Persisting
+      // that stale snapshot would immediately create a revision conflict.
+      if (saveInFlight.current) return;
+      const snapshot = draftRef.current;
       const id = ++requestId.current;
+      saveInFlight.current = true;
       setSaveState("saving");
+      setSaveError(null);
       try {
-        const saved = await updateSyllabus(draft.id, {
-          expectedRevision: draft.revision,
-          content: draft.content,
-          courseTitle: draft.courseTitle,
-          courseCode: draft.courseCode,
-          academicYear: draft.academicYear,
+        const saved = await updateSyllabus(snapshot.id, {
+          expectedRevision: snapshot.revision,
+          content: snapshot.content,
+          courseTitle: snapshot.courseTitle,
+          courseCode: snapshot.courseCode,
+          academicYear: snapshot.academicYear,
         });
         if (id === requestId.current) {
-          setDraft(saved);
-          setDirty(false);
+          if (draftRef.current === snapshot) {
+            draftRef.current = saved;
+            setDraft(saved);
+            setDirty(false);
+          } else {
+            // Keep a later local edit, but rebase it on the revision we just
+            // saved. The effect will then persist it in a separate request.
+            setDraft((current) => {
+              const rebased = { ...current, revision: saved.revision, updatedAt: saved.updatedAt };
+              draftRef.current = rebased;
+              return rebased;
+            });
+          }
           setSaveState("saved");
+          saveConflict.current = false;
           onSaved(saved);
         }
-      } catch {
-        if (id === requestId.current) setSaveState("error");
+      } catch (error) {
+        if (id === requestId.current) {
+          const failure = saveFailureState(error);
+          saveConflict.current = failure === "conflict";
+          setSaveState(failure);
+          setSaveError(error instanceof Error ? error.message : "Save failed. Please try again.");
+        }
+      } finally {
+        saveInFlight.current = false;
       }
     }, 650);
     return () => window.clearTimeout(timer);
@@ -143,8 +183,32 @@ export function SyllabusEditor({
   }, [draft, active]);
 
   function edit(updater: (current: Syllabus) => Syllabus) {
-    setDraft((current) => updater(current));
+    setDraft((current) => {
+      const next = updater(current);
+      draftRef.current = next;
+      return next;
+    });
     setDirty(true);
+    if (saveState === "error") {
+      setSaveState("saved");
+      setSaveError(null);
+    }
+  }
+  async function reloadLatestSyllabus() {
+    try {
+      const latest = await getSyllabus(draft.id);
+      draftRef.current = latest;
+      setDraft(latest);
+      setDirty(false);
+      setSaveState("saved");
+      setSaveError(null);
+      saveConflict.current = false;
+      setReloadConfirmationOpen(false);
+      onSaved(latest);
+    } catch (error) {
+      setSaveState("error");
+      setSaveError(error instanceof Error ? error.message : "Could not reload the latest syllabus.");
+    }
   }
   function editContent(section: string, value: unknown) {
     edit((current) => ({
@@ -214,9 +278,15 @@ export function SyllabusEditor({
         sections={template.sections}
         activeSection={active}
         onSectionChange={setActive}
+        onHeaderCollapseChange={onHeaderCollapseChange}
+        compactHeaderActions={compactHeaderActions}
         actions={
           <>
-            <SaveStatus state={saveState} />
+            <SaveStatus
+              state={saveState}
+              error={saveError}
+              onReload={() => setReloadConfirmationOpen(true)}
+            />
             <button
               type="button"
               onClick={() => void exportDocx()}
@@ -247,45 +317,56 @@ export function SyllabusEditor({
           </>
         }
       >
-        {active === "learningOutcomes" ? (
-          <SectionForm
-            active={active}
-            draft={draft}
-            editContent={editContent}
-            editMetadata={editMetadata}
-            onOpenHistory={setHistoryField}
-          />
-        ) : (
-          <section className="min-w-0 rounded-lg border border-[#d9dee7] bg-white p-5">
-            <SectionForm
-              active={active}
-              draft={draft}
-              editContent={editContent}
-              editMetadata={editMetadata}
-              onOpenHistory={setHistoryField}
-            />
-          </section>
-        )}
+        <SectionForm
+          active={active}
+          draft={draft}
+          editContent={editContent}
+          editMetadata={editMetadata}
+          onOpenHistory={setHistoryField}
+        />
         <FieldHistorySidebar
           field={historyField}
           onClose={() => setHistoryField(null)}
+        />
+        <ConfirmDialog
+          open={reloadConfirmationOpen}
+          title="Reload the latest syllabus?"
+          description="This will replace the unsaved changes in this browser with the latest saved version. Copy anything you need to keep before continuing."
+          confirmLabel="Reload latest version"
+          onConfirm={() => void reloadLatestSyllabus()}
+          onClose={() => setReloadConfirmationOpen(false)}
         />
       </SectionEditorShell>
     </FieldHistoryProvider>
   );
 }
 
-function SaveStatus({ state }: { state: "saved" | "saving" | "error" }) {
+export function SaveStatus({
+  state,
+  error,
+  onReload,
+}: {
+  state: SyllabusSaveState;
+  error?: string | null;
+  onReload?: () => void;
+}) {
   if (state === "saving")
     return (
       <span className="inline-flex items-center gap-2 text-sm text-[#667085]">
         <Loader2 className="animate-spin" size={16} /> Saving
       </span>
     );
+  if (state === "conflict")
+    return (
+      <span role="alert" className="inline-flex items-center gap-2 text-sm text-[#a6292f]">
+        <TriangleAlert size={16} /> This syllabus was updated in another tab.
+        {onReload ? <button type="button" onClick={onReload} className="font-semibold underline underline-offset-2">Reload latest version</button> : null}
+      </span>
+    );
   if (state === "error")
     return (
-      <span className="inline-flex items-center gap-2 text-sm text-[#a6292f]">
-        <TriangleAlert size={16} /> Save failed — retrying on your next edit
+      <span role="alert" className="inline-flex items-center gap-2 text-sm text-[#a6292f]" title={error ?? undefined}>
+        <TriangleAlert size={16} /> {error || "Save failed. Your changes are still on this page."}
       </span>
     );
   return (
@@ -419,15 +500,16 @@ function SectionForm({
     const online = stringify(section.onlinePercent);
     const percentageError = deliveryPercentageError(faceToFace, online);
     return (
-      <Section title="Course delivery">
-        <SelectField
+      <div className="grid gap-4">
+        <SyllabusSubsection title="Delivery mode"><SelectField
           label="Delivery mode"
           value={stringify(section.mode)}
           onChange={(value) => editContent(active, { ...section, mode: value })}
           history={history("Delivery mode")}
           options={["Face-to-Face Delivery", "Blended Learning Delivery"]}
           placeholder="Select delivery mode"
-        />
+        /></SyllabusSubsection>
+        <SyllabusSubsection title="Delivery allocation">
         {numeric(
           "Face-to-face (%)",
           faceToFace,
@@ -446,7 +528,8 @@ function SectionForm({
             {percentageError}
           </p>
         ) : null}
-      </Section>
+        </SyllabusSubsection>
+      </div>
     );
   }
   if (active === "learningOutcomes")
@@ -493,31 +576,32 @@ function SectionForm({
     );
   if (active === "teachingApproach")
     return (
-      <Section title="Teaching and learning approach">
+      <div className="grid gap-4">
         <TeachingPresetPicker value={section} presets={teachingPresets.data ?? []} onApply={(next) => editContent(active, next)} />
-        {text(
+        <SyllabusSubsection title="Teaching methods and learning activities">{text(
           "Teaching methods and learning activities",
           section.methods,
           (value) => editContent(active, { ...section, methods: value }),
           true,
-        )}
-        {text(
+        )}</SyllabusSubsection>
+        <SyllabusSubsection title="Student engagement">{text(
           "Student engagement",
           section.engagement,
           (value) => editContent(active, { ...section, engagement: value }),
           true,
-        )}
-        {text(
+        )}</SyllabusSubsection>
+        <SyllabusSubsection title="Feedback and academic progress">{text(
           "Feedback and academic progress",
           section.feedback,
           (value) => editContent(active, { ...section, feedback: value }),
           true,
-        )}
-      </Section>
+        )}</SyllabusSubsection>
+      </div>
     );
   if (active === "assessment")
     return (
-      <Section title="Course assessment">
+      <div className="grid gap-4">
+        <SyllabusSubsection title="Course assessment">
         <AssessmentTabs
           value={section}
           outcomes={(sectionFrom(content.learningOutcomes).clos as Row[]) ?? []}
@@ -527,30 +611,35 @@ function SectionForm({
           onOpenHistory={onOpenHistory}
           assessmentTypes={assessmentTypes.data ?? []}
         />
+        </SyllabusSubsection>
         <LockedSection
           title="University table of grade equivalence"
           text={GRADE_EQUIVALENCE_TEXT}
         />
-      </Section>
+      </div>
     );
   return (
-    <Section title="Document control">
+    <div className="grid gap-4">
+      <SyllabusSubsection title="Document details">
       {text("Document creation date", section.creationDate, (value) =>
         editContent(active, { ...section, creationDate: value }),
       )}
       {text("Department name", section.departmentName, (value) =>
         editContent(active, { ...section, departmentName: value }),
       )}
-      {text("Syllabus approval date", section.approvalDate, (value) =>
-        editContent(active, { ...section, approvalDate: value }),
-      )}
       {text("Version number", section.versionNumber, (value) =>
         editContent(active, { ...section, versionNumber: value }),
+      )}
+      </SyllabusSubsection>
+      <SyllabusSubsection title="Approval">
+      {text("Syllabus approval date", section.approvalDate, (value) =>
+        editContent(active, { ...section, approvalDate: value }),
       )}
       {text("Name and status of approver", section.approver, (value) =>
         editContent(active, { ...section, approver: value }),
       )}
-    </Section>
+      </SyllabusSubsection>
+    </div>
   );
 }
 
@@ -562,10 +651,7 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <>
-      <h3 className="text-lg font-semibold text-[#171717]">{title}</h3>
-      <div className="mt-5 grid gap-4">{children}</div>
-    </>
+    <SyllabusSubsection title={title}>{children}</SyllabusSubsection>
   );
 }
 
@@ -772,15 +858,14 @@ function SelectField({
 }
 function LockedSection({ title, text }: { title: string; text: string }) {
   return (
-    <>
-      <h3 className="text-lg font-semibold text-[#171717]">{title}</h3>
-      <div className="mt-5 rounded-md border border-[#cbd5e1] bg-[#f8fafc] p-4 text-sm leading-6 text-[#475467]">
+    <SyllabusSubsection title={title}>
+      <div className="rounded-md border border-[#cbd5e1] bg-[#f8fafc] p-4 text-sm leading-6 text-[#475467]">
         <p className="mb-2 font-semibold text-[#344054]">
           University standard text
         </p>
         {text}
       </div>
-    </>
+    </SyllabusSubsection>
   );
 }
 function RowsEditor({
@@ -855,16 +940,7 @@ function RowsEditor({
   const outcomeRows = columns.some(([key]) => key === "clo");
   return (
     <section className="mt-2">
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <h4 className="text-sm font-semibold text-[#344054]">{title}</h4>
-        <button
-          type="button"
-          onClick={addRow}
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-3 py-1.5 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]"
-        >
-          <Plus size={16} /> {addLabel}
-        </button>
-      </div>
+      <h4 className="mb-3 text-sm font-semibold text-[#344054]">{title}</h4>
       <div className="grid gap-4">
         {normalized.map((row, index) => {
           const destinations = normalized.filter(
@@ -1092,6 +1168,7 @@ function RowsEditor({
           No rows added yet.
         </p>
       ) : null}
+      <AddEntryButton onClick={addRow} label={addLabel} />
     </section>
   );
 }

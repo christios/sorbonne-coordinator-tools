@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { ReactNode, useEffect, useState } from "react";
 
 import { SyllabusComparison } from "@/components/SyllabusComparison";
 import { SyllabusCatalogues } from "@/components/SyllabusCatalogues";
@@ -21,7 +21,12 @@ import {
   updateSyllabus,
 } from "@/services/syllabi";
 
-export function SyllabusBuilder() {
+type Props = {
+  onEditorHeaderCollapseChange?: (collapsed: boolean) => void;
+  compactHeaderActions?: ReactNode;
+};
+
+export function SyllabusBuilder({ onEditorHeaderCollapseChange, compactHeaderActions }: Props) {
   const client = useQueryClient();
   const [screen, setScreen] = useState<{ view: "library" | "catalogues" } | { view: "editor" | "comparison"; id: string }>({ view: "library" });
   const list = useQuery({ queryKey: ["syllabi"], queryFn: listSyllabi });
@@ -49,6 +54,9 @@ export function SyllabusBuilder() {
       client.invalidateQueries({ queryKey: ["syllabi"] });
     },
   });
+  useEffect(() => {
+    if (screen.view !== "editor") onEditorHeaderCollapseChange?.(false);
+  }, [onEditorHeaderCollapseChange, screen.view]);
   const saved = (syllabus: Syllabus) => { client.setQueryData(["syllabus", syllabus.id], syllabus); client.invalidateQueries({ queryKey: ["syllabi"] }); };
   const libraryError = [list.error, folders.error, templates.error, create.error, createFolderMutation.error, removeFolder.error, move.error, remove.error].find(
     (error): error is Error => error instanceof Error,
@@ -59,5 +67,5 @@ export function SyllabusBuilder() {
   const template = templates.data?.find((item) => item.id === detail.data.templateId);
   if (!template) return <div role="alert" className="p-8 text-center text-sm text-[#a6292f]">This syllabus refers to a template that is no longer available.</div>;
   if (screen.view === "comparison") return <div className="h-full overflow-y-auto"><SyllabusComparison syllabus={detail.data} candidates={list.data ?? []} onBack={() => setScreen({ view: "editor", id: detail.data.id })} /></div>;
-  return <SyllabusEditor syllabus={detail.data} template={template} onBack={() => setScreen({ view: "library" })} onSaved={saved} onCompare={() => setScreen({ view: "comparison", id: detail.data.id })} />;
+  return <SyllabusEditor syllabus={detail.data} template={template} onBack={() => setScreen({ view: "library" })} onSaved={saved} onCompare={() => setScreen({ view: "comparison", id: detail.data.id })} onHeaderCollapseChange={onEditorHeaderCollapseChange} compactHeaderActions={compactHeaderActions} />;
 }

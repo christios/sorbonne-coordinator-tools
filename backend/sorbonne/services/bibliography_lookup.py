@@ -27,6 +27,9 @@ _SEARCH_STOP_WORDS = {"a", "an", "and", "by", "for", "in", "of", "on", "the", "t
 _MIN_TITLE_QUERY_TOKENS = 2
 _MIN_TITLE_QUERY_COVERAGE = 0.75
 _MIN_FOCUSED_GOOGLE_QUERY_TOKENS = 3
+_MIN_STEM_LENGTH = 4
+_MIN_PROVIDER_QUERY_TOKENS = 2
+_YEAR_PATTERN = re.compile(r"\b(?:1[0-9]{3}|20[0-9]{2})\b")
 _GOOGLE_BOOKS_ATTEMPTS = 2
 
 
@@ -80,14 +83,15 @@ class BibliographyLookupService:
             if results := _mapped_books(list(response.values())):
                 return results
 
-        parameters = {"q": query, "limit": _PROVIDER_RESULT_LIMIT}
+        search_query = _provider_query(query)
+        parameters = {"q": search_query, "limit": _PROVIDER_RESULT_LIMIT}
         response = _record(self._get(f"https://openlibrary.org/search.json?{urlencode(parameters)}"))
         results = _relevant_book_results(_mapped_books(_records(response.get("docs"))), query)
         if results:
             return _rank_book_results(results, query)
 
         if self._google_books_api_key:
-            for google_query in _google_book_queries(query):
+            for google_query in _google_book_queries(search_query):
                 for attempt in range(_GOOGLE_BOOKS_ATTEMPTS):
                     google_parameters = {
                         "q": google_query,
@@ -103,7 +107,7 @@ class BibliographyLookupService:
                         return _rank_book_results(results, query)
                     break
 
-        crossref_parameters = {"query.bibliographic": query, "rows": _PROVIDER_RESULT_LIMIT}
+        crossref_parameters = {"query.bibliographic": search_query, "rows": _PROVIDER_RESULT_LIMIT}
         crossref = _record(self._get(f"https://api.crossref.org/works?{urlencode(crossref_parameters)}"))
         message = _record(crossref.get("message"))
         crossref_results = [
@@ -318,7 +322,7 @@ def _deduplicate(items: list[dict[str, Any] | None]) -> list[dict[str, Any]]:
 def _rank_book_results(items: list[dict[str, Any]], query: str) -> list[dict[str, Any]]:
     """Prefer the book matching the entered title, author, and year over broad matches."""
     query_tokens = set(_search_tokens(query))
-    query_years = set(re.findall(r"\b(?:1[0-9]{3}|20[0-9]{2})\b", query))
+    query_years = set(_YEAR_PATTERN.findall(query))
 
     def score(item: dict[str, Any]) -> int:
         title_matches = len(query_tokens & set(_search_tokens(item["title"])))
@@ -367,7 +371,7 @@ def _google_book_queries(query: str) -> list[str]:
 
     tokens = [
         token
-        for token in _search_tokens(query)
+        for token in _raw_tokens(query)
         if token not in _SEARCH_STOP_WORDS and not token.isdigit()
     ]
     if len(tokens) < _MIN_FOCUSED_GOOGLE_QUERY_TOKENS:
@@ -376,6 +380,19 @@ def _google_book_queries(query: str) -> list[str]:
     title_tokens, author_token = tokens[:-1], tokens[-1]
     focused_query = " ".join([*(f"intitle:{token}" for token in title_tokens), f"inauthor:{author_token}"])
     return [query, focused_query]
+
+
+def _provider_query(query: str) -> str:
+    """Strip a standalone year before searching a provider.
+
+    Open Library ANDs a bare year against the edition date, so one remembered-wrong
+    year ("2016" for a 2015 edition) silently reduces a good search to no results.
+    The year is still used to rank editions once results come back.
+    """
+    without_years = _YEAR_PATTERN.sub(" ", query)
+    if len(_raw_tokens(without_years)) < _MIN_PROVIDER_QUERY_TOKENS:
+        return query
+    return " ".join(without_years.split())
 
 
 def _isbn_from_query(query: str) -> str | None:
@@ -399,7 +416,30 @@ def _text(value: object) -> str | None:
 
 
 def _search_tokens(value: str) -> list[str]:
+    """Tokens for internal matching only; stemmed, so never send these to a provider."""
+    return [_stem(token) for token in _raw_tokens(value)]
+
+
+def _raw_tokens(value: str) -> list[str]:
     return re.findall(r"[a-z0-9]+", value.casefold())
+
+
+def _stem(token: str) -> str:
+    """Fold a plural onto its singular so "practices" matches "practice".
+
+    Both the entered query and the provider title pass through here, so the rule
+    only has to be self-consistent, not linguistically correct: "physics" folding
+    to "physic" is harmless because the stored title folds the same way.
+    """
+    if len(token) < _MIN_STEM_LENGTH or token.isdigit():
+        return token
+    if token.endswith("ies"):
+        return f"{token[:-3]}y"
+    if token.endswith(("sses", "ches", "shes", "xes")):
+        return token[:-2]
+    if token.endswith("s") and not token.endswith(("ss", "us", "is")):
+        return token[:-1]
+    return token
 
 
 def _text_list(value: object) -> list[str]:
