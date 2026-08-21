@@ -1,5 +1,5 @@
 import { useMutation } from "@tanstack/react-query";
-import { AlertCircle, ArrowRight, BookOpen, CheckCircle2, Download, FileText, Loader2, RotateCcw, Search } from "lucide-react";
+import { AlertCircle, ArrowRight, BookOpen, CalendarDays, CheckCircle2, Download, FileText, Loader2, RotateCcw, Search } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { CourseSummary } from "@/components/CourseSummary";
@@ -7,6 +7,7 @@ import { FileDropzone } from "@/components/FileDropzone";
 import { RosterTable } from "@/components/RosterTable";
 import { SyllabusBuilder } from "@/components/SyllabusBuilder";
 import { TeacherDatabase } from "@/components/TeacherDatabase";
+import { TimetableUploader } from "@/components/TimetableUploader";
 import { handbookUrl } from "@/routes/handbookRoute";
 import { ToolId, toolFromLocation } from "@/routes/toolRoute";
 import {
@@ -208,7 +209,7 @@ export function App() {
             </div>
           )}
         </section>
-      </div> : activeTool === "teachers" ? <TeacherDatabase /> : <div className="min-h-0 flex-1"><SyllabusBuilder /></div>}
+      </div> : activeTool === "teachers" ? <TeacherDatabase /> : activeTool === "timetables" ? <TimetableUploader /> : <div className="min-h-0 flex-1"><SyllabusBuilder /></div>}
     </main>
   );
 }
@@ -236,6 +237,13 @@ function AppWelcome({
       description: "Keep teacher profiles, contacts, notes, and teaching-recruitment requests together.",
       icon: FileText,
       keywords: "teacher professor lecturer requisition recruitment contract docx contacts",
+    },
+    {
+      id: "timetables",
+      name: "Student timetables",
+      description: "Upload a semester timetable, publish it to the SCEN Student Platform, and edit the student announcement strip.",
+      icon: CalendarDays,
+      keywords: "timetable schedule semester students crn upload publish scen student platform announcement notice",
     },
     {
       id: "handbook",

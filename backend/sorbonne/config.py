@@ -21,6 +21,10 @@ class Config(BaseSettings):
     google_documents_drive_root_folder_id: str | None = None
     google_documents_access_emails: str = ""
     google_documents_max_zip_bytes: int = 104_857_600
+    # SCEN Student Platform (separate deployment) — the timetable uploader is
+    # disabled until both of these are configured.
+    scen_student_platform_url: str | None = None
+    scen_student_platform_token: str | None = None
 
 
 config = Config()

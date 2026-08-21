@@ -8,8 +8,9 @@ Production: <https://sorbonne-coordinator-tools.fastapicloud.dev/>
 
 | Route | Purpose |
 | --- | --- |
-| `/` | Tool launcher (Syllabus Builder, Part-time Teacher Database, and Coordinator Handbook) |
+| `/` | Tool launcher (Syllabus Builder, Part-time Teacher Database, Student timetables, and Coordinator Handbook) |
 | `/#/syllabus` | Create, organise, edit, compare, and export SCEN syllabi |
+| `/#/timetables` | Upload SCEN semester timetables to the Student Platform and edit its announcement strip |
 | `/#/teachers` | Manage part-time teacher profiles, folders, teacher-linked requisitions, the course catalogue, and (when configured) Google Form document intake |
 | `/#/requisition` | Legacy route that redirects to `/#/teachers` |
 | `/handbook/` | Static SCEN Coordinator Handbook |
@@ -17,6 +18,7 @@ Production: <https://sorbonne-coordinator-tools.fastapicloud.dev/>
 | `/api/v1/teachers` | Teacher, folder, course-catalogue, and teacher-requisition API |
 | `/api/v1/teacher-requisitions` | Individual teacher-requisition API |
 | `/api/v1/rosters` | Retained roster-converter API |
+| `/api/v1/timetables` | Proxy to the SCEN Student Platform's coordinator API |
 | `/healthcheck` | Deployment health check |
 
 There is currently no authentication or role-based access control. Treat the deployed site and handbook content as accessible to anyone with the URL.
@@ -138,6 +140,17 @@ Required GitHub Actions secrets:
 Required FastAPI Cloud encrypted secret:
 
 - `DATABASE_URL` — the Neon PostgreSQL connection URL.
+
+Optional FastAPI Cloud settings for the **Student timetables** tool (the tool shows how to
+configure itself until both are set):
+
+- `SCEN_STUDENT_PLATFORM_URL` — e.g. `https://scen-student-platform.fastapicloud.dev`
+- `SCEN_STUDENT_PLATFORM_TOKEN` — that platform's coordinator access code
+
+Timetables and announcements are stored by the student platform, never in this database.
+The backend proxies every call so the access code stays server-side. Note that this
+application has no login, so anyone who reaches this deployment can replace or delete a
+published timetable.
 
 Optional FastAPI Cloud encrypted secret:
 

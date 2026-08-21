@@ -9,6 +9,7 @@ Sorbonne Coordinator Tools is an internal academic-coordination platform for Sor
 - **Syllabus Builder** (`/#/syllabus`) creates, organises, compares, and exports template-aware SCEN syllabi.
 - **Part-time Teacher Database** (`/#/teachers`) stores archiveable teacher profiles, nested folders, labelled teacher requisitions, and a reusable course catalogue. `/#/requisition` is a legacy redirect to this app.
 - **Coordinator Handbook** is served at `/handbook/`.
+- **Student timetables** (`/#/timetables`) uploads a semester timetable and student list to the SCEN Student Platform (a separate deployment, `~/Documents/scen-student-platform`) and edits the announcement strip students see above its header. Nothing about timetables is stored in this database; `sorbonne/services/student_timetables.py` is the only place that talks to that platform, and it holds `SCEN_STUDENT_PLATFORM_TOKEN` server-side so the code never reaches a browser. The tool disables itself when the deployment is not configured.
 - The roster converter remains implemented but deliberately hidden from the launcher. Do not remove it without explicit approval.
 
 ## Authoritative documents
