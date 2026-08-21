@@ -1,6 +1,6 @@
-export type ToolId = "roster" | "syllabus" | "teachers";
+export type ToolId = "roster" | "syllabus" | "teachers" | "timetables";
 
-const tools = new Set<ToolId>(["roster", "syllabus", "teachers"]);
+const tools = new Set<ToolId>(["roster", "syllabus", "teachers", "timetables"]);
 
 function asToolId(value: string): ToolId | null {
   return tools.has(value as ToolId) ? (value as ToolId) : null;

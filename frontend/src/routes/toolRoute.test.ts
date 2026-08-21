@@ -15,4 +15,9 @@ describe("toolFromLocation", () => {
     expect(toolFromLocation("/", "#/teachers")).toBe("teachers");
     expect(toolFromLocation("/", "#/requisition")).toBe("teachers");
   });
+
+  it("opens the timetable uploader from either route style", () => {
+    expect(toolFromLocation("/", "#/timetables")).toBe("timetables");
+    expect(toolFromLocation("/timetables", "")).toBe("timetables");
+  });
 });

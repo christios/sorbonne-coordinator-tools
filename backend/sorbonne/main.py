@@ -13,6 +13,7 @@ from sorbonne.api.syllabi import router as syllabi_router
 from sorbonne.api.teachers import requisition_router as teacher_requisitions_router
 from sorbonne.api.teachers import router as teachers_router
 from sorbonne.api.teacher_documents import router as teacher_documents_router
+from sorbonne.api.timetables import router as timetables_router
 from sorbonne.config import config
 from sorbonne.services.auth_gate import StaffAuthGate
 from sorbonne.services.migrations import apply_schema_migrations
@@ -43,6 +44,7 @@ app.include_router(teacher_documents_router, prefix="/api/v1")
 app.include_router(syllabi_router, prefix="/api/v1")
 app.include_router(syllabus_catalogues_router, prefix="/api/v1")
 app.include_router(bibliography_lookup_router, prefix="/api/v1")
+app.include_router(timetables_router, prefix="/api/v1")
 app.mount("/handbook", StaticFiles(directory="handbook-dist", html=True, check_dir=False), name="handbook")
 app.frontend("/", directory="frontend-dist", fallback="index.html", check_dir=False)
 
@@ -63,6 +65,11 @@ async def syllabus_frontend() -> FileResponse:
 
 @app.get("/requisition", include_in_schema=False)
 async def requisition_frontend() -> FileResponse:
+    return frontend_entrypoint()
+
+
+@app.get("/timetables", include_in_schema=False)
+async def timetables_frontend() -> FileResponse:
     return frontend_entrypoint()
 
 
