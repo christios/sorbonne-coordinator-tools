@@ -4,6 +4,10 @@ import pytest
 from alembic import command
 from alembic.config import Config
 
+from sorbonne.config import config
+from sorbonne.services import auth_gate
+from sorbonne.services.staff_auth import StaffUser
+
 
 TEST_DATABASE_URL = os.getenv(
     "TEST_DATABASE_URL",
@@ -34,10 +38,6 @@ def signed_in_coordinator(request: pytest.FixtureRequest, monkeypatch: pytest.Mo
     """
     if request.node.get_closest_marker("anonymous"):
         return
-
-    from sorbonne.config import config
-    from sorbonne.services import auth_gate
-    from sorbonne.services.staff_auth import StaffUser
 
     monkeypatch.setattr(config, "google_auth_client_id", "test-client.apps.googleusercontent.com")
     monkeypatch.setattr(config, "coordinator_access_emails", "coordinator@sorbonne.ae")
