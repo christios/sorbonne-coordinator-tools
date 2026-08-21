@@ -36,14 +36,14 @@ def use(client: TestClient, handler) -> TestClient:
     return client
 
 
-def upload(client: TestClient) -> httpx.Response:
+def upload(client: TestClient, student_files: list[str] | None = None) -> httpx.Response:
+    files = [("timetable", ("timetable.xls", b"timetable-bytes", "application/vnd.ms-excel"))]
+    for name in student_files or ["students.xlsx"]:
+        files.append(("enrolments", (name, f"{name}-bytes".encode(), "application/vnd.ms-excel")))
     return client.post(
         "/api/v1/timetables/terms",
         data={"name": "Physics & Maths — Semester 1", "timezone": "Asia/Dubai"},
-        files={
-            "timetable": ("timetable.xls", b"timetable-bytes", "application/vnd.ms-excel"),
-            "enrolments": ("students.xlsx", b"student-bytes", "application/vnd.ms-excel"),
-        },
+        files=files,
     )
 
 
@@ -82,7 +82,7 @@ def test_import_forwards_both_workbooks_and_returns_the_platform_summary(client:
         seen["token"] = request.headers.get("X-Admin-Token")
         body = request.content.decode("latin-1")
         seen["has_timetable"] = "timetable-bytes" in body
-        seen["has_students"] = "student-bytes" in body
+        seen["has_students"] = "students.xlsx-bytes" in body
         return httpx.Response(status.HTTP_201_CREATED, json=TERM)
 
     response = upload(use(client, handler))
@@ -137,10 +137,10 @@ def test_empty_uploads_are_rejected_before_the_platform_is_called(client: TestCl
     response = use(client, handler).post(
         "/api/v1/timetables/terms",
         data={"name": "Empty"},
-        files={
-            "timetable": ("timetable.xls", b"", "application/vnd.ms-excel"),
-            "enrolments": ("students.xlsx", b"student-bytes", "application/vnd.ms-excel"),
-        },
+        files=[
+            ("timetable", ("timetable.xls", b"", "application/vnd.ms-excel")),
+            ("enrolments", ("students.xlsx", b"student-bytes", "application/vnd.ms-excel")),
+        ],
     )
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
@@ -225,3 +225,18 @@ def test_a_rejected_announcement_keeps_the_platform_s_message(client: TestClient
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
     assert "available icons" in response.json()["detail"]
+
+
+def test_every_student_workbook_is_forwarded(client: TestClient):
+    """FYS, L1, L2 and the languages arrive as separate files."""
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = request.content.decode("latin-1")
+        seen["names"] = [name for name in ("FYS-Groups.xlsx", "L1-Groups.xlsx", "LANG-Groups.xlsx") if name in body]
+        return httpx.Response(status.HTTP_201_CREATED, json=TERM)
+
+    response = upload(use(client, handler), ["FYS-Groups.xlsx", "L1-Groups.xlsx", "LANG-Groups.xlsx"])
+
+    assert response.status_code == status.HTTP_201_CREATED
+    assert seen["names"] == ["FYS-Groups.xlsx", "L1-Groups.xlsx", "LANG-Groups.xlsx"]

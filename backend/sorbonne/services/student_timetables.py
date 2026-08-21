@@ -50,20 +50,19 @@ class StudentPlatformClient:
         name: str,
         timezone: str,
         timetable: tuple[str, bytes],
-        enrolments: tuple[str, bytes],
+        enrolments: list[tuple[str, bytes]],
     ) -> dict[str, Any]:
+        """One timetable export and one or more student workbooks."""
+        spreadsheet = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        files: list[tuple[str, tuple[str, bytes, str]]] = [
+            ("timetable", (timetable[0], timetable[1], "application/vnd.ms-excel"))
+        ]
+        files.extend(("enrolments", (name, content, spreadsheet)) for name, content in enrolments)
         return await self._request(
             "POST",
             "/api/v1/admin/terms",
             data={"name": name, "timezone": timezone},
-            files={
-                "timetable": (timetable[0], timetable[1], "application/vnd.ms-excel"),
-                "enrolments": (
-                    enrolments[0],
-                    enrolments[1],
-                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                ),
-            },
+            files=files,
             timeout=UPLOAD_TIMEOUT_SECONDS,
         )
 

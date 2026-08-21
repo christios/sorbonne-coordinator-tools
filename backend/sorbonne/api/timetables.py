@@ -85,17 +85,20 @@ async def import_term(
     name: str = Form(min_length=1, max_length=160),
     timezone: str = Form(default="Asia/Dubai", max_length=60),
     timetable: UploadFile = File(...),
-    enrolments: UploadFile = File(...),
+    enrolments: list[UploadFile] = File(...),
     client: StudentPlatformClient = Depends(require_client),
 ) -> dict[str, Any]:
     timetable_bytes = await _read_upload(timetable, "timetable")
-    enrolment_bytes = await _read_upload(enrolments, "student list")
+    student_files = [
+        (upload.filename or "students.xlsx", await _read_upload(upload, "student list"))
+        for upload in enrolments
+    ]
     try:
         return await client.import_term(
             name=name,
             timezone=timezone,
             timetable=(timetable.filename or "timetable.xls", timetable_bytes),
-            enrolments=(enrolments.filename or "students.xlsx", enrolment_bytes),
+            enrolments=student_files,
         )
     except StudentPlatformError as exc:
         raise _forward(exc) from exc

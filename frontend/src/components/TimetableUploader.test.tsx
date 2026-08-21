@@ -28,11 +28,11 @@ function renderTool() {
   );
 }
 
-function chooseFiles() {
+function chooseFiles(students = ["FYS-Groups.xlsx"]) {
   const excel = new File(["x"], "timetable.xls", { type: "application/vnd.ms-excel" });
-  const students = new File(["y"], "students.xlsx", { type: "application/vnd.ms-excel" });
+  const lists = students.map((name) => new File(["y"], name, { type: "application/vnd.ms-excel" }));
   fireEvent.change(screen.getByLabelText(/Timetable export/), { target: { files: [excel] } });
-  fireEvent.change(screen.getByLabelText(/Student list/), { target: { files: [students] } });
+  fireEvent.change(screen.getByLabelText(/Student lists/), { target: { files: lists } });
   fireEvent.change(screen.getByLabelText(/Semester name/), { target: { value: "Physics & Maths — Semester 1" } });
 }
 
@@ -88,6 +88,7 @@ describe("TimetableUploader", () => {
     expect(importTerm).toHaveBeenCalledWith(
       expect.objectContaining({ name: "Physics & Maths — Semester 1" }),
     );
+    expect(importTerm.mock.calls[0][0].enrolments).toHaveLength(1);
   });
 
   it("shows the platform's own explanation when a workbook is rejected", async () => {
@@ -139,5 +140,48 @@ describe("TimetableUploader", () => {
 
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(remove).not.toHaveBeenCalled();
+  });
+});
+
+
+describe("TimetableUploader with several student workbooks", () => {
+  it("sends every list the coordinator picked", async () => {
+    const importTerm = vi.spyOn(timetables, "importTimetableTerm").mockResolvedValue({
+      ...TERM,
+      studentLists: [
+        { filename: "FYS-Groups.xlsx", style: "groups", sheets: ["TD"], students: 24, unknownGroups: [] },
+        { filename: "LANG-Groups.xlsx", style: "groups", sheets: ["LANG"], students: 24, unknownGroups: ["LANG: LANG|B2-G9|SCEN101"] },
+      ],
+    });
+    renderTool();
+    await screen.findByRole("row", { name: /Physics & Maths/ });
+
+    chooseFiles(["FYS-Groups.xlsx", "L1-Groups.xlsx", "LANG-Groups.xlsx"]);
+    fireEvent.click(screen.getByRole("button", { name: /Upload to student platform/ }));
+
+    await waitFor(() => expect(importTerm).toHaveBeenCalled());
+    expect(importTerm.mock.calls[0][0].enrolments.map((file: File) => file.name)).toEqual([
+      "FYS-Groups.xlsx",
+      "L1-Groups.xlsx",
+      "LANG-Groups.xlsx",
+    ]);
+  });
+
+  it("reports what each workbook contributed, including groups with no CRN", async () => {
+    vi.spyOn(timetables, "importTimetableTerm").mockResolvedValue({
+      ...TERM,
+      studentLists: [
+        { filename: "FYS-Groups.xlsx", style: "groups", sheets: ["TD"], students: 24, unknownGroups: [] },
+        { filename: "LANG-Groups.xlsx", style: "groups", sheets: ["LANG"], students: 24, unknownGroups: ["LANG: LANG|B2-G9|SCEN101"] },
+      ],
+    });
+    renderTool();
+    await screen.findByRole("row", { name: /Physics & Maths/ });
+    chooseFiles(["FYS-Groups.xlsx", "LANG-Groups.xlsx"]);
+
+    fireEvent.click(screen.getByRole("button", { name: /Upload to student platform/ }));
+
+    expect(await screen.findByText(/FYS-Groups.xlsx: 24 students from TD/)).toBeTruthy();
+    expect(screen.getByText(/1 groups with no CRN/)).toBeTruthy();
   });
 });

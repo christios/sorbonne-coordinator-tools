@@ -13,6 +13,7 @@ export type TimetableTerm = {
   enrolmentFilename: string;
   updatedAt: string;
   unknownCrns?: string[];
+  studentLists?: StudentListReport[];
 };
 
 export type TimetableIntegrationStatus = {
@@ -46,16 +47,25 @@ export async function fetchTimetableTerms(): Promise<TimetableTerm[]> {
   return payload.terms;
 }
 
+export type StudentListReport = {
+  filename: string;
+  style: "groups" | "crns";
+  sheets: string[];
+  students: number;
+  unknownGroups: string[];
+};
+
 export function importTimetableTerm(input: {
   name: string;
   timetable: File;
-  enrolments: File;
+  /** One workbook per programme, plus the language groups. */
+  enrolments: File[];
 }): Promise<TimetableTerm> {
   const body = new FormData();
   body.set("name", input.name);
   body.set("timezone", "Asia/Dubai");
   body.set("timetable", input.timetable);
-  body.set("enrolments", input.enrolments);
+  input.enrolments.forEach((file) => body.append("enrolments", file));
   return request<TimetableTerm>("/api/v1/timetables/terms", { method: "POST", body });
 }
 

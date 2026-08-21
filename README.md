@@ -10,7 +10,7 @@ Production: <https://sorbonne-coordinator-tools.fastapicloud.dev/>
 | --- | --- |
 | `/` | Tool launcher (Syllabus Builder, Part-time Teacher Database, Student timetables, and Coordinator Handbook) |
 | `/#/syllabus` | Create, organise, edit, compare, and export SCEN syllabi |
-| `/#/timetables` | Upload SCEN semester timetables to the Student Platform and edit its announcement strip |
+| `/#/timetables` | Upload SCEN semester timetables and student group lists to the Student Platform, and edit its announcement strip |
 | `/#/teachers` | Manage part-time teacher profiles, folders, teacher-linked requisitions, the course catalogue, and (when configured) Google Form document intake |
 | `/#/requisition` | Legacy route that redirects to `/#/teachers` |
 | `/handbook/` | Static SCEN Coordinator Handbook |

@@ -29,7 +29,7 @@ export function TimetableUploader() {
 
   const [name, setName] = useState("");
   const [timetable, setTimetable] = useState<File | null>(null);
-  const [enrolments, setEnrolments] = useState<File | null>(null);
+  const [enrolments, setEnrolments] = useState<File[]>([]);
   const [imported, setImported] = useState<TimetableTerm | null>(null);
   const [pendingDelete, setPendingDelete] = useState<TimetableTerm | null>(null);
 
@@ -37,11 +37,11 @@ export function TimetableUploader() {
 
   const importMutation = useMutation({
     mutationFn: () =>
-      importTimetableTerm({ name: name.trim(), timetable: timetable as File, enrolments: enrolments as File }),
+      importTimetableTerm({ name: name.trim(), timetable: timetable as File, enrolments }),
     onSuccess: (term) => {
       setImported(term);
       setTimetable(null);
-      setEnrolments(null);
+      setEnrolments([]);
       refresh();
     },
   });
@@ -56,7 +56,7 @@ export function TimetableUploader() {
   });
 
   const busy = importMutation.isPending;
-  const canImport = name.trim().length > 0 && timetable !== null && enrolments !== null && !busy;
+  const canImport = name.trim().length > 0 && timetable !== null && enrolments.length > 0 && !busy;
   const error =
     importMutation.error?.message ?? publishMutation.error?.message ?? deleteMutation.error?.message ?? null;
 
@@ -130,14 +130,15 @@ export function TimetableUploader() {
             label="Timetable export"
             hint=".xls or .xlsx from the registrar"
             accept=".xls,.xlsx"
-            file={timetable}
-            onSelect={setTimetable}
+            files={timetable ? [timetable] : []}
+            onSelect={(files) => setTimetable(files[0] ?? null)}
           />
           <FilePicker
-            label="Student list"
-            hint=".xlsx with student IDs and CRNs"
+            label="Student lists"
+            hint="Group templates or CRN lists — add FYS, L1, L2 and languages together"
             accept=".xlsx"
-            file={enrolments}
+            multiple
+            files={enrolments}
             onSelect={setEnrolments}
           />
 
@@ -173,6 +174,19 @@ export function TimetableUploader() {
               {imported.courseCount} courses, {imported.sessionCount} sessions, {imported.studentCount} students.
               Students cannot see it until you publish it below.
             </p>
+            {imported.studentLists && imported.studentLists.length > 0 ? (
+              <ul className="mt-1 space-y-0.5 text-xs">
+                {imported.studentLists.map((list) => (
+                  <li key={list.filename}>
+                    {list.filename}: {list.students} students
+                    {list.sheets.length > 0 ? ` from ${list.sheets.join(", ")}` : ""}
+                    {list.unknownGroups.length > 0 ? (
+                      <span className="text-[#a6292f]"> · {list.unknownGroups.length} groups with no CRN</span>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
             {imported.unknownCrns && imported.unknownCrns.length > 0 ? (
               <p className="mt-1 text-[#a6292f]">
                 {imported.unknownCrns.length} CRN(s) in the student list are missing from the timetable and were
@@ -276,14 +290,16 @@ function FilePicker({
   label,
   hint,
   accept,
-  file,
+  files,
+  multiple = false,
   onSelect,
 }: {
   label: string;
   hint: string;
   accept: string;
-  file: File | null;
-  onSelect: (file: File | null) => void;
+  files: File[];
+  multiple?: boolean;
+  onSelect: (files: File[]) => void;
 }) {
   return (
     <label className="text-sm font-semibold text-[#344054]">
@@ -291,10 +307,13 @@ function FilePicker({
       <input
         type="file"
         accept={accept}
-        onChange={(event) => onSelect(event.target.files?.[0] ?? null)}
+        multiple={multiple}
+        onChange={(event) => onSelect([...(event.target.files ?? [])])}
         className="mt-1.5 w-full rounded-md border border-[#c8d0db] bg-white px-3 py-2 text-sm font-normal text-[#1f2937] file:mr-3 file:rounded file:border-0 file:bg-[#eaf1f8] file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-[#1f4e79]"
       />
-      <span className="mt-1 block text-xs font-normal text-[#667085]">{file ? file.name : hint}</span>
+      <span className="mt-1 block text-xs font-normal text-[#667085]">
+        {files.length > 0 ? files.map((file) => file.name).join(", ") : hint}
+      </span>
     </label>
   );
 }
