@@ -32,7 +32,9 @@ async function readError(response: Response): Promise<string> {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, init);
+  // Always send the staff session cookie: in development this app and the API sit on
+  // different ports, where a plain fetch drops it and every call comes back as 401.
+  const response = await fetch(`${API_BASE_URL}${path}`, { ...init, credentials: "include" });
   if (!response.ok) throw new Error(await readError(response));
   if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
