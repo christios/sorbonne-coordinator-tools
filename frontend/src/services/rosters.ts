@@ -1,3 +1,4 @@
+import { apiFetch } from "@/services/http";
 export type CourseInfo = {
   term: string | null;
   crn: string | null;
@@ -64,7 +65,7 @@ export async function previewRoster(file: File): Promise<RosterPreview> {
   const formData = new FormData();
   formData.append("file", file);
 
-  const response = await fetch(`${API_BASE_URL}/api/v1/rosters/preview`, {
+  const response = await apiFetch(`${API_BASE_URL}/api/v1/rosters/preview`, {
     method: "POST",
     body: formData,
   });
@@ -79,7 +80,7 @@ export async function previewRoster(file: File): Promise<RosterPreview> {
 export async function previewRosterBatch(files: File[]): Promise<BatchRosterPreview> {
   const formData = filesToFormData(files);
 
-  const response = await fetch(`${API_BASE_URL}/api/v1/rosters/preview-batch`, {
+  const response = await apiFetch(`${API_BASE_URL}/api/v1/rosters/preview-batch`, {
     method: "POST",
     body: formData,
   });
@@ -95,7 +96,7 @@ export async function downloadRosterWorkbook(file: File): Promise<void> {
   const formData = new FormData();
   formData.append("file", file);
 
-  const response = await fetch(`${API_BASE_URL}/api/v1/rosters/convert`, {
+  const response = await apiFetch(`${API_BASE_URL}/api/v1/rosters/convert`, {
     method: "POST",
     body: formData,
   });
@@ -120,7 +121,7 @@ export async function downloadRosterWorkbook(file: File): Promise<void> {
 export async function downloadRosterWorkbooks(files: File[]): Promise<void> {
   const formData = filesToFormData(files);
 
-  const response = await fetch(`${API_BASE_URL}/api/v1/rosters/convert-batch`, {
+  const response = await apiFetch(`${API_BASE_URL}/api/v1/rosters/convert-batch`, {
     method: "POST",
     body: formData,
   });
@@ -138,7 +139,7 @@ export async function downloadRosterWorkbooks(files: File[]): Promise<void> {
 export async function exportRosterWorkbooks(files: File[]): Promise<LocalExportResult> {
   const formData = filesToFormData(files);
 
-  const response = await fetch(`${API_BASE_URL}/api/v1/rosters/export-batch`, {
+  const response = await apiFetch(`${API_BASE_URL}/api/v1/rosters/export-batch`, {
     method: "POST",
     body: formData,
   });

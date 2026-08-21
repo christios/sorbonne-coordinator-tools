@@ -1,4 +1,5 @@
 import type { FieldHistoryEntry, WordDiffOperation } from "@/services/fieldHistory";
+import { apiFetch } from "@/services/http";
 
 export type { FieldHistoryEntry, WordDiffOperation } from "@/services/fieldHistory";
 
@@ -77,7 +78,7 @@ export type SyllabusComparison = {
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}/api/v1${path}`, init);
+  const response = await apiFetch(`${API_BASE_URL}/api/v1${path}`, init);
   if (!response.ok) {
     const body = (await response.json().catch(() => ({}))) as { detail?: string };
     throw new Error(body.detail ?? `Request failed with status ${response.status}`);
@@ -110,7 +111,7 @@ export function createFolder(input: CreateFolderInput): Promise<SyllabusFolder> 
 }
 
 export async function deleteFolder(id: string): Promise<void> {
-  const response = await fetch(`${API_BASE_URL}/api/v1/syllabi/folders/${id}`, { method: "DELETE" });
+  const response = await apiFetch(`${API_BASE_URL}/api/v1/syllabi/folders/${id}`, { method: "DELETE" });
   if (!response.ok) {
     const body = (await response.json().catch(() => ({}))) as { detail?: string };
     throw new Error(body.detail ?? `Request failed with status ${response.status}`);
@@ -149,7 +150,7 @@ export function moveSyllabusToFolder(id: string, folderId: string | null): Promi
 }
 
 export async function deleteSyllabus(id: string): Promise<void> {
-  const response = await fetch(`${API_BASE_URL}/api/v1/syllabi/${id}`, { method: "DELETE" });
+  const response = await apiFetch(`${API_BASE_URL}/api/v1/syllabi/${id}`, { method: "DELETE" });
   if (!response.ok) {
     const body = (await response.json().catch(() => ({}))) as { detail?: string };
     throw new Error(body.detail ?? `Request failed with status ${response.status}`);
@@ -165,7 +166,7 @@ export function getFieldHistory(syllabusId: string, fieldPath: string): Promise<
 }
 
 export async function downloadSyllabusExport(syllabusId: string): Promise<void> {
-  const response = await fetch(`${API_BASE_URL}/api/v1/syllabi/${syllabusId}/export`);
+  const response = await apiFetch(`${API_BASE_URL}/api/v1/syllabi/${syllabusId}/export`);
   if (!response.ok) {
     const body = (await response.json().catch(() => ({}))) as { detail?: string };
     throw new Error(body.detail ?? `Export failed with status ${response.status}`);

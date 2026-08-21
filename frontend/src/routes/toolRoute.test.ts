@@ -15,4 +15,17 @@ describe("toolFromLocation", () => {
     expect(toolFromLocation("/", "#/teachers")).toBe("teachers");
     expect(toolFromLocation("/", "#/requisition")).toBe("teachers");
   });
+
+  it("opens the timetable uploader from either route style", () => {
+    expect(toolFromLocation("/", "#/timetables")).toBe("timetables");
+    expect(toolFromLocation("/timetables", "")).toBe("timetables");
+  });
+
+  it("opens settings, which is reached from the user menu rather than the picker", () => {
+    expect(toolFromLocation("/", "#/settings")).toBe("settings");
+  });
+
+  it("stays on the app picker for anything it does not know", () => {
+    expect(toolFromLocation("/", "#/nonsense")).toBeNull();
+  });
 });

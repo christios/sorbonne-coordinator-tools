@@ -21,6 +21,16 @@ class Config(BaseSettings):
     google_documents_drive_root_folder_id: str | None = None
     google_documents_access_emails: str = ""
     google_documents_max_zip_bytes: int = 104_857_600
+    # Staff sign-in. Without all three the application closes rather than opening:
+    # see sorbonne/services/auth_gate.py.
+    google_auth_client_id: str | None = None
+    coordinator_access_emails: str = ""
+    session_secret: str | None = None
+    session_hours: int = 12
+    # SCEN Student Platform (separate deployment) — the timetable uploader is
+    # disabled until both of these are configured.
+    scen_student_platform_url: str | None = None
+    scen_student_platform_token: str | None = None
 
 
 config = Config()

@@ -9,6 +9,7 @@ Sorbonne Coordinator Tools is an internal academic-coordination platform for Sor
 - **Syllabus Builder** (`/#/syllabus`) creates, organises, compares, and exports template-aware SCEN syllabi.
 - **Part-time Teacher Database** (`/#/teachers`) stores archiveable teacher profiles, nested folders, labelled teacher requisitions, and a reusable course catalogue. `/#/requisition` is a legacy redirect to this app.
 - **Coordinator Handbook** is served at `/handbook/`.
+- **Student timetables** (`/#/timetables`) uploads a semester timetable and student list to the SCEN Student Platform (a separate deployment, `~/Documents/scen-student-platform`) and edits the announcement strip students see above its header. Nothing about timetables is stored in this database; `sorbonne/services/student_timetables.py` is the only place that talks to that platform, and it holds `SCEN_STUDENT_PLATFORM_TOKEN` server-side so the code never reaches a browser. The tool disables itself when the deployment is not configured.
 - The roster converter remains implemented but deliberately hidden from the launcher. Do not remove it without explicit approval.
 
 ## Authoritative documents
@@ -31,6 +32,23 @@ Important frontend boundaries:
 - Reuse shared controls before creating a new one: `SelectMenu`, `DateField`, `TimeField`, `AutoResizeTextarea`, `HistoryTextField`, `ConfirmDialog`, `CollapsibleEntryCard`, and `FolderMoveMenu`.
 - Do not use native `<select>` controls or `window.confirm` in product UI. Do not recreate a shared component locally just to make a new screen quicker.
 - The current visual system uses white surfaces, subtle blue-grey borders, restrained rounded corners, dark-blue primary actions, and red only for destructive actions.
+
+## Authentication
+
+- **The application is closed by default.** `sorbonne/services/auth_gate.py` refuses every
+  request that is not in `PUBLIC_PATHS` or the static app shell, so a router added later is
+  protected the moment it is mounted; `tests/test_auth_gate.py` sweeps the OpenAPI schema and
+  fails if any route answers anonymously. Do not widen `PUBLIC_PATHS` without a reason worth
+  writing down.
+- Sign-in is Google ID token → staff allowlist → signed session cookie
+  (`sorbonne/services/staff_auth.py`). The allowlist is re-checked on every request, so
+  removing someone ends their session immediately. Requires `GOOGLE_AUTH_CLIENT_ID`,
+  `COORDINATOR_ACCESS_EMAILS` and `SESSION_SECRET`; without them the gate answers 503.
+- Frontend calls go through `apiFetch` (`src/services/http.ts`) so the session cookie travels
+  in development, where the app and the API are on different ports. A new service that calls
+  `fetch` directly will work in production and fail locally — use `apiFetch`.
+- The gate is added before CORS in `main.py` so CORS stays outermost; otherwise a 401 reaches
+  the browser without CORS headers and looks like a network failure.
 
 ## History, revisions, and data integrity
 

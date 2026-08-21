@@ -1,12 +1,17 @@
 import { useMutation } from "@tanstack/react-query";
-import { AlertCircle, ArrowRight, BookOpen, CheckCircle2, Download, FileText, Loader2, RotateCcw, Search } from "lucide-react";
+import { AlertCircle, ArrowRight, CheckCircle2, Download, FileText, Loader2, RotateCcw, Search } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import { AppSidebar } from "@/components/AppSidebar";
 import { CourseSummary } from "@/components/CourseSummary";
 import { FileDropzone } from "@/components/FileDropzone";
 import { RosterTable } from "@/components/RosterTable";
+import { StaffMenu } from "@/components/StaffMenu";
+import { StaffSettings } from "@/components/StaffSettings";
 import { SyllabusBuilder } from "@/components/SyllabusBuilder";
 import { TeacherDatabase } from "@/components/TeacherDatabase";
+import { TimetableUploader } from "@/components/TimetableUploader";
+import { COORDINATOR_APPS } from "@/routes/apps";
 import { handbookUrl } from "@/routes/handbookRoute";
 import { ToolId, toolFromLocation } from "@/routes/toolRoute";
 import {
@@ -106,29 +111,48 @@ export function App() {
   }
 
   const compactSyllabusHeader = activeTool === "syllabus" && syllabusHeaderCollapsed;
+  const isPicker = activeTool === null;
+  const shell =
+    activeTool === "syllabus"
+      ? "flex h-screen min-h-0 flex-col overflow-hidden"
+      : isPicker
+        ? "flex min-h-screen flex-col"
+        : "min-h-screen";
 
   return (
-    <main className={`${activeTool === "syllabus" ? "flex h-screen min-h-0 flex-col overflow-hidden" : "min-h-screen"} bg-[#f7f8fa]`}>
+    <main className={`${shell} bg-[#f7f8fa]`}>
       <header className={`shrink-0 border-b border-[#d9dee7] bg-white ${compactSyllabusHeader ? "hidden" : ""}`}>
         <div data-testid="app-header" className={`mx-auto flex max-w-[98rem] flex-col items-start gap-3 px-4 transition-[padding,gap] duration-200 sm:px-6 lg:flex-row lg:items-center lg:justify-between lg:px-8 ${compactSyllabusHeader ? "py-2" : "py-5"}`}>
           <div>
             <p className={`text-xs font-semibold uppercase tracking-normal text-[#a6292f] ${compactSyllabusHeader ? "hidden" : ""}`}>Sorbonne University Abu Dhabi</p>
             <h1 className={`font-semibold tracking-normal text-[#171717] transition-[font-size,margin] duration-200 ${compactSyllabusHeader ? "text-base" : "mt-1 text-2xl"}`}>Academic Coordinator Tools</h1>
           </div>
-          {activeTool ? (
-            <button
-              type="button"
-              onClick={showAllApps}
-              className="inline-flex items-center gap-2 rounded-md border border-[#d9dee7] bg-white px-3 py-2 text-sm font-semibold text-[#1f4e79] shadow-sm hover:bg-[#f2f7fb]"
-            >
-              <span aria-hidden="true">←</span> All apps
-            </button>
-          ) : null}
+          <div className="flex items-center gap-3">
+            {activeTool ? (
+              <button
+                type="button"
+                onClick={showAllApps}
+                className="inline-flex items-center gap-2 rounded-md border border-[#d9dee7] bg-white px-3 py-2 text-sm font-semibold text-[#1f4e79] shadow-sm hover:bg-[#f2f7fb]"
+              >
+                <span aria-hidden="true">←</span> All apps
+              </button>
+            ) : null}
+            <div className={isPicker ? "lg:hidden" : ""}>
+              <StaffMenu onOpenSettings={() => openTool("settings")} />
+            </div>
+          </div>
         </div>
       </header>
 
-      {activeTool === null ? (
-        <AppWelcome search={appSearch} onSearch={setAppSearch} onOpen={openApp} />
+      {isPicker ? (
+        <div className="flex min-h-0 flex-1">
+          <AppSidebar onOpen={openApp} onOpenSettings={() => openTool("settings")} />
+          <div className="min-w-0 flex-1">
+            <AppWelcome search={appSearch} onSearch={setAppSearch} onOpen={openApp} />
+          </div>
+        </div>
+      ) : activeTool === "settings" ? (
+        <StaffSettings />
       ) : activeTool === "roster" ? <div className="mx-auto grid max-w-[98rem] gap-6 px-4 py-6 sm:px-6 lg:grid-cols-[360px_1fr] lg:px-8">
         <aside className="space-y-4">
           <section className="rounded-lg border border-[#d9dee7] bg-white p-4">
@@ -208,7 +232,7 @@ export function App() {
             </div>
           )}
         </section>
-      </div> : activeTool === "teachers" ? <TeacherDatabase /> : <div className="min-h-0 flex-1"><SyllabusBuilder /></div>}
+      </div> : activeTool === "teachers" ? <TeacherDatabase /> : activeTool === "timetables" ? <TimetableUploader /> : <div className="min-h-0 flex-1"><SyllabusBuilder /></div>}
     </main>
   );
 }
@@ -222,31 +246,8 @@ function AppWelcome({
   onSearch: (value: string) => void;
   onOpen: (app: ToolId | "handbook") => void;
 }) {
-  const apps: Array<{ id: ToolId | "handbook"; name: string; description: string; icon: typeof FileText; keywords: string }> = [
-    {
-      id: "syllabus",
-      name: "Syllabus builder",
-      description: "Create, revise, compare, and maintain SCEN course syllabi across academic years.",
-      icon: BookOpen,
-      keywords: "syllabus course template academic year comparison",
-    },
-    {
-      id: "teachers",
-      name: "Part-time Teacher Database",
-      description: "Keep teacher profiles, contacts, notes, and teaching-recruitment requests together.",
-      icon: FileText,
-      keywords: "teacher professor lecturer requisition recruitment contract docx contacts",
-    },
-    {
-      id: "handbook",
-      name: "Coordinator handbook",
-      description: "Browse SCEN procedures, onboarding guidance, reference material, and the annual academic cycle.",
-      icon: BookOpen,
-      keywords: "handbook documentation procedures onboarding grades transcripts",
-    },
-  ];
   const normalizedSearch = search.trim().toLowerCase();
-  const visibleApps = apps.filter((app) => `${app.name} ${app.description} ${app.keywords}`.toLowerCase().includes(normalizedSearch));
+  const visibleApps = COORDINATOR_APPS.filter((app) => `${app.name} ${app.description} ${app.keywords}`.toLowerCase().includes(normalizedSearch));
 
   return (
     <section className="mx-auto max-w-[98rem] px-4 py-10 sm:px-6 lg:px-8">

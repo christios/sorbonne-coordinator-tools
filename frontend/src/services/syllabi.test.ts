@@ -26,7 +26,7 @@ describe("createSyllabus", () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringMatching(/syllabus-1\/history\?fieldPath=description.overview$/),
-      undefined,
+      expect.objectContaining({ credentials: "include" }),
     );
   });
 
@@ -40,7 +40,7 @@ describe("createSyllabus", () => {
 
     expect(templates[0]?.id).toBe("scen-en-v1");
     expect(templates[0]?.sections[0]?.id).toBe("identification");
-    expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/syllabi\/templates$/), undefined);
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/syllabi\/templates$/), expect.objectContaining({ credentials: "include" }));
   });
 
   it("downloads the generated Word syllabus from the export endpoint", async () => {
@@ -53,7 +53,7 @@ describe("createSyllabus", () => {
 
     await downloadSyllabusExport("syllabus-1");
 
-    expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/syllabus-1\/export$/));
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/syllabus-1\/export$/), expect.objectContaining({ credentials: "include" }));
     expect(click).toHaveBeenCalledOnce();
   });
 
