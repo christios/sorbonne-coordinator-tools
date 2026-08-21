@@ -6,7 +6,10 @@ import ReactDOM from "react-dom/client";
 import { GatedApp } from "@/routes/GatedApp";
 import "./styles.css";
 
-const queryClient = new QueryClient();
+// Data a coordinator has just looked at is treated as fresh for half a minute, so
+// stepping between screens redraws from the cache instead of asking the server
+// again and blinking while it answers.
+const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 30_000 } } });
 const rootRoute = createRootRoute({
   component: () => <Outlet />,
 });

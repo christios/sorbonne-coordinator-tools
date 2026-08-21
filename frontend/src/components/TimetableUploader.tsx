@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import { AnnouncementEditor } from "@/components/AnnouncementEditor";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { ScreenLoading } from "@/components/ScreenLoading";
 import {
   TimetableTerm,
   deleteTimetableTerm,
@@ -61,11 +62,7 @@ export function TimetableUploader() {
     importMutation.error?.message ?? publishMutation.error?.message ?? deleteMutation.error?.message ?? null;
 
   if (status.isLoading) {
-    return (
-      <div className="mx-auto max-w-[70rem] px-4 py-10 text-sm text-[#667085] sm:px-6 lg:px-8">
-        Checking the student platform connection…
-      </div>
-    );
+    return <ScreenLoading label="Checking the student platform connection…" />;
   }
 
   if (!status.data?.configured) {

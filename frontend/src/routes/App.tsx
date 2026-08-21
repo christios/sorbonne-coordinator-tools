@@ -1,6 +1,6 @@
 import { useMutation } from "@tanstack/react-query";
 import { AlertCircle, ArrowRight, CheckCircle2, Download, FileText, Loader2, RotateCcw, Search } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 
 import { AppSidebar } from "@/components/AppSidebar";
 import { CourseSummary } from "@/components/CourseSummary";
@@ -91,6 +91,12 @@ export function App() {
       window.removeEventListener("hashchange", handleLocationChange);
     };
   }, []);
+
+  // A new screen starts at the top. Done before paint, so the page never appears
+  // at the old scroll position and then jumps.
+  useLayoutEffect(() => {
+    window.scrollTo(0, 0);
+  }, [activeTool]);
 
   function openTool(tool: ToolId) {
     window.location.hash = `/${tool}`;
