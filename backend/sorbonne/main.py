@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -18,6 +19,12 @@ from sorbonne.api.users import router as users_router
 from sorbonne.config import config
 from sorbonne.services.auth_gate import StaffAuthGate
 from sorbonne.services.migrations import apply_schema_migrations
+
+
+# Public pages the Google consent screen links to. They sit outside the sign-in
+# gate on purpose: somebody deciding whether to sign in cannot be asked to sign in
+# first.
+LEGAL_PAGES = Path(__file__).resolve().parent / "assets" / "legal"
 
 
 @asynccontextmanager
@@ -73,6 +80,16 @@ async def requisition_frontend() -> FileResponse:
 @app.get("/timetables", include_in_schema=False)
 async def timetables_frontend() -> FileResponse:
     return frontend_entrypoint()
+
+
+@app.get("/privacy", include_in_schema=False)
+async def privacy_policy() -> FileResponse:
+    return FileResponse(LEGAL_PAGES / "privacy.html")
+
+
+@app.get("/terms", include_in_schema=False)
+async def terms_of_use() -> FileResponse:
+    return FileResponse(LEGAL_PAGES / "terms.html")
 
 
 @app.get("/healthcheck")
