@@ -8,10 +8,12 @@ from fastapi import APIRouter, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
 
 from sorbonne.config import config
+from sorbonne.services import coordinator_directory
 from sorbonne.services.staff_auth import (
     SESSION_COOKIE,
     AuthNotConfigured,
     SignInRejected,
+    StaffUser,
     is_configured,
     issue_session,
     user_for_request,
@@ -23,6 +25,10 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 class SignInInput(BaseModel):
     credential: str = Field(min_length=1, max_length=4096)
+
+
+def _profile(user: StaffUser) -> dict[str, Any]:
+    return {"email": user.email, "name": user.name, "isAdmin": user.is_admin}
 
 
 @router.get("/config")
@@ -43,6 +49,7 @@ async def sign_in(body: SignInInput, response: Response) -> dict[str, Any]:
     except SignInRejected as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
 
+    coordinator_directory.directory().record_sign_in(user.email, user.name)
     response.set_cookie(
         SESSION_COOKIE,
         issue_session(user),
@@ -52,7 +59,7 @@ async def sign_in(body: SignInInput, response: Response) -> dict[str, Any]:
         samesite="lax",
         path="/",
     )
-    return {"email": user.email, "name": user.name}
+    return _profile(user)
 
 
 @router.delete("/session", status_code=status.HTTP_204_NO_CONTENT)
@@ -65,4 +72,4 @@ async def current_user(request: Request) -> dict[str, Any]:
     user = user_for_request(request.cookies.get(SESSION_COOKIE), request.headers.get("authorization"))
     if user is None:  # pragma: no cover - the gate rejects these before they arrive
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sign in to continue.")
-    return {"email": user.email, "name": user.name}
+    return _profile(user)

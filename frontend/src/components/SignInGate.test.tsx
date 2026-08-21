@@ -60,6 +60,7 @@ describe("SignInGate", () => {
     vi.spyOn(auth, "fetchCurrentUser").mockResolvedValue({
       email: "coordinator@sorbonne.ae",
       name: "Coordinator",
+      isAdmin: false,
     });
 
     renderGate();
@@ -100,7 +101,7 @@ describe("SignInGate", () => {
   });
 
   it("opens the application once the server accepts the Google credential", async () => {
-    vi.spyOn(auth, "signIn").mockResolvedValue({ email: "coordinator@sorbonne.ae", name: "Coordinator" });
+    vi.spyOn(auth, "signIn").mockResolvedValue({ email: "coordinator@sorbonne.ae", name: "Coordinator", isAdmin: false });
     const credential = stubGoogle();
     renderGate();
     await screen.findByTestId("google-sign-in");

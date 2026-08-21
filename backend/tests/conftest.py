@@ -5,7 +5,8 @@ from alembic import command
 from alembic.config import Config
 
 from sorbonne.config import config
-from sorbonne.services import auth_gate
+from sorbonne.services import auth_gate, coordinator_directory
+from sorbonne.services.coordinator_directory import Access
 from sorbonne.services.staff_auth import StaffUser
 
 
@@ -29,6 +30,23 @@ def apply_postgres_migrations() -> None:
 
 
 @pytest.fixture(autouse=True)
+def staff_directory(monkeypatch: pytest.MonkeyPatch) -> dict[str, Access]:
+    """The invited staff list, in memory: nobody is invited unless a test invites them.
+
+    Sign-in consults this list on every request, and a test should not depend on
+    whatever a shared database happens to hold.
+    """
+    invited: dict[str, Access] = {}
+    monkeypatch.setattr(
+        coordinator_directory,
+        "access_for",
+        lambda email, **_kwargs: invited.get(email.strip().casefold()),
+    )
+    coordinator_directory.forget()
+    return invited
+
+
+@pytest.fixture(autouse=True)
 def signed_in_coordinator(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
     """Run every test as a signed-in coordinator.
 
@@ -45,5 +63,5 @@ def signed_in_coordinator(request: pytest.FixtureRequest, monkeypatch: pytest.Mo
     monkeypatch.setattr(
         auth_gate,
         "user_for_request",
-        lambda *_args, **_kwargs: StaffUser(email="coordinator@sorbonne.ae", name="Coordinator"),
+        lambda *_args, **_kwargs: StaffUser(email="coordinator@sorbonne.ae", name="Coordinator", is_admin=True),
     )

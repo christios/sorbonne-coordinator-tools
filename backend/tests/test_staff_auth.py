@@ -15,7 +15,7 @@ from sorbonne.services.staff_auth import (
     verify_google_credential,
 )
 
-STAFF = StaffUser(email="coordinator@sorbonne.ae", name="Coordinator")
+STAFF = StaffUser(email="coordinator@sorbonne.ae", name="Coordinator", is_admin=True)
 pytestmark = pytest.mark.anonymous
 
 
@@ -56,7 +56,7 @@ def test_rubbish_is_not_a_session():
         assert read_session(value) is None
 
 
-def test_the_allowlist_is_checked_on_every_read(monkeypatch: pytest.MonkeyPatch):
+def test_the_staff_list_is_checked_on_every_read(monkeypatch: pytest.MonkeyPatch):
     token = issue_session(STAFF)
     monkeypatch.setattr(config, "coordinator_access_emails", "someone-else@sorbonne.ae")
 

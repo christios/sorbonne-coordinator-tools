@@ -3,7 +3,7 @@ import { apiFetch } from "@/services/http";
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 
 export type SignInConfig = { configured: boolean; clientId: string | null };
-export type StaffUser = { email: string; name: string };
+export type StaffUser = { email: string; name: string; isAdmin: boolean };
 
 async function detail(response: Response, fallback: string): Promise<string> {
   try {
