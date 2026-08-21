@@ -32,6 +32,23 @@ Important frontend boundaries:
 - Do not use native `<select>` controls or `window.confirm` in product UI. Do not recreate a shared component locally just to make a new screen quicker.
 - The current visual system uses white surfaces, subtle blue-grey borders, restrained rounded corners, dark-blue primary actions, and red only for destructive actions.
 
+## Authentication
+
+- **The application is closed by default.** `sorbonne/services/auth_gate.py` refuses every
+  request that is not in `PUBLIC_PATHS` or the static app shell, so a router added later is
+  protected the moment it is mounted; `tests/test_auth_gate.py` sweeps the OpenAPI schema and
+  fails if any route answers anonymously. Do not widen `PUBLIC_PATHS` without a reason worth
+  writing down.
+- Sign-in is Google ID token → staff allowlist → signed session cookie
+  (`sorbonne/services/staff_auth.py`). The allowlist is re-checked on every request, so
+  removing someone ends their session immediately. Requires `GOOGLE_AUTH_CLIENT_ID`,
+  `COORDINATOR_ACCESS_EMAILS` and `SESSION_SECRET`; without them the gate answers 503.
+- Frontend calls go through `apiFetch` (`src/services/http.ts`) so the session cookie travels
+  in development, where the app and the API are on different ports. A new service that calls
+  `fetch` directly will work in production and fail locally — use `apiFetch`.
+- The gate is added before CORS in `main.py` so CORS stays outermost; otherwise a 401 reaches
+  the browser without CORS headers and looks like a network failure.
+
 ## History, revisions, and data integrity
 
 - **2026-08-13 — Production-data compatibility:** the deployed Syllabus Builder is actively used. All syllabus-related releases must preserve existing production syllabi, folders, template associations, comparisons, exports, and field history. Prefer additive, backward-compatible schema and API changes; keep legacy content readable and exportable. Do not run destructive data migrations, reinterpret existing fields, or delete/overwrite production records without an explicit approved migration plan, tested backup/restore path, and user confirmation immediately before deployment.

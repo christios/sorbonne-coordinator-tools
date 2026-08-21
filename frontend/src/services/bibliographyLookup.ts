@@ -1,3 +1,4 @@
+import { apiFetch } from "@/services/http";
 export type BibliographyLookupKind = "book" | "article";
 
 export type BibliographyLookupItem = {
@@ -20,7 +21,7 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000
 
 export async function lookupBibliography(kind: BibliographyLookupKind, query: string): Promise<BibliographyLookupItem[]> {
   const parameters = new URLSearchParams({ kind, q: query.trim() });
-  const response = await fetch(`${API_BASE_URL}/api/v1/bibliography/lookup?${parameters}`);
+  const response = await apiFetch(`${API_BASE_URL}/api/v1/bibliography/lookup?${parameters}`);
   if (!response.ok) {
     const body = (await response.json().catch(() => ({}))) as { detail?: string };
     throw new Error(body.detail ?? `Request failed with status ${response.status}`);

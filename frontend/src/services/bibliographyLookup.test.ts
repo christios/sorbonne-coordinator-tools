@@ -9,6 +9,6 @@ describe("bibliography lookup service", () => {
 
     await lookupBibliography("article", "climate law");
 
-    expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/v1\/bibliography\/lookup\?kind=article&q=climate\+law$/));
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/v1\/bibliography\/lookup\?kind=article&q=climate\+law$/), expect.objectContaining({ credentials: "include" }));
   });
 });

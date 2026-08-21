@@ -3,7 +3,7 @@ import { Outlet, RouterProvider, createRootRoute, createRoute, createRouter } fr
 import { StrictMode } from "react";
 import ReactDOM from "react-dom/client";
 
-import { App } from "@/routes/App";
+import { GatedApp } from "@/routes/GatedApp";
 import "./styles.css";
 
 const queryClient = new QueryClient();
@@ -13,7 +13,7 @@ const rootRoute = createRootRoute({
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
-  component: App,
+  component: GatedApp,
 });
 const router = createRouter({
   routeTree: rootRoute.addChildren([indexRoute]),

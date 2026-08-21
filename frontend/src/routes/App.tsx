@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { CourseSummary } from "@/components/CourseSummary";
 import { FileDropzone } from "@/components/FileDropzone";
 import { RosterTable } from "@/components/RosterTable";
+import { StaffMenu } from "@/components/StaffMenu";
 import { SyllabusBuilder } from "@/components/SyllabusBuilder";
 import { TeacherDatabase } from "@/components/TeacherDatabase";
 import { handbookUrl } from "@/routes/handbookRoute";
@@ -115,15 +116,18 @@ export function App() {
             <p className={`text-xs font-semibold uppercase tracking-normal text-[#a6292f] ${compactSyllabusHeader ? "hidden" : ""}`}>Sorbonne University Abu Dhabi</p>
             <h1 className={`font-semibold tracking-normal text-[#171717] transition-[font-size,margin] duration-200 ${compactSyllabusHeader ? "text-base" : "mt-1 text-2xl"}`}>Academic Coordinator Tools</h1>
           </div>
-          {activeTool ? (
-            <button
-              type="button"
-              onClick={showAllApps}
-              className="inline-flex items-center gap-2 rounded-md border border-[#d9dee7] bg-white px-3 py-2 text-sm font-semibold text-[#1f4e79] shadow-sm hover:bg-[#f2f7fb]"
-            >
-              <span aria-hidden="true">←</span> All apps
-            </button>
-          ) : null}
+          <div className="flex items-center gap-3">
+            {activeTool ? (
+              <button
+                type="button"
+                onClick={showAllApps}
+                className="inline-flex items-center gap-2 rounded-md border border-[#d9dee7] bg-white px-3 py-2 text-sm font-semibold text-[#1f4e79] shadow-sm hover:bg-[#f2f7fb]"
+              >
+                <span aria-hidden="true">←</span> All apps
+              </button>
+            ) : null}
+            <StaffMenu />
+          </div>
         </div>
       </header>
 

@@ -1,4 +1,5 @@
 import { RequisitionContent } from "@/services/requisitions";
+import { apiFetch } from "@/services/http";
 
 export type Teacher = {
   id: string;
@@ -41,7 +42,7 @@ export type TeacherDocumentSyncResult = { updated: number; skipped: number; need
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}/api/v1${path}`, init);
+  const response = await apiFetch(`${API_BASE_URL}/api/v1${path}`, init);
   if (!response.ok) {
     const body = await response.json().catch(() => ({})) as { detail?: string };
     throw new Error(body.detail ?? `Request failed with status ${response.status}`);
@@ -67,7 +68,7 @@ export function getTeacherRequisition(id: string): Promise<TeacherRequisition> {
 export function updateTeacherRequisition(requisition: TeacherRequisition): Promise<TeacherRequisition> { return request<TeacherRequisition>(`/teacher-requisitions/${requisition.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ expectedRevision: requisition.revision, label: requisition.label, academicYear: requisition.academicYear, content: requisition.content }) }); }
 export async function deleteTeacherRequisition(id: string): Promise<void> { await emptyRequest(`/teacher-requisitions/${id}`, { method: "DELETE" }); }
 export async function downloadTeacherRequisitionExport(id: string): Promise<void> {
-  const response = await fetch(`${API_BASE_URL}/api/v1/teacher-requisitions/${id}/export`);
+  const response = await apiFetch(`${API_BASE_URL}/api/v1/teacher-requisitions/${id}/export`);
   if (!response.ok) { const body = await response.json().catch(() => ({})) as { detail?: string }; throw new Error(body.detail ?? `Export failed with status ${response.status}`); }
   const filename = /filename="?([^";]+)"?/.exec(response.headers.get("content-disposition") ?? "")?.[1] ?? "recruitment-request.docx";
   const url = URL.createObjectURL(await response.blob());
@@ -79,10 +80,10 @@ export async function getTeacherDocuments(teacherId: string, credential: string)
 export async function listTeacherDocumentIssues(credential: string): Promise<TeacherDocumentIssue[]> { return (await request<{ items: TeacherDocumentIssue[] }>("/teacher-documents/issues", { headers: documentAuth(credential) })).items; }
 export function syncTeacherDocuments(credential: string, driveAccessToken: string): Promise<TeacherDocumentSyncResult> { return request<TeacherDocumentSyncResult>("/teacher-documents/sync", { method: "POST", headers: { ...documentAuth(credential), "X-Google-Drive-Access-Token": driveAccessToken } }); }
 export async function downloadTeacherDocuments(teacherId: string, credential: string): Promise<void> {
-  const response = await fetch(`${API_BASE_URL}/api/v1/teacher-documents/teachers/${teacherId}/download`, { headers: documentAuth(credential) });
+  const response = await apiFetch(`${API_BASE_URL}/api/v1/teacher-documents/teachers/${teacherId}/download`, { headers: documentAuth(credential) });
   if (!response.ok) { const body = await response.json().catch(() => ({})) as { detail?: string }; throw new Error(body.detail ?? `Download failed with status ${response.status}`); }
   const filename = /filename="?([^";]+)"?/.exec(response.headers.get("content-disposition") ?? "")?.[1] ?? "teacher-documents.zip";
   const url = URL.createObjectURL(await response.blob()); const link = document.createElement("a"); link.href = url; link.download = filename; link.click(); URL.revokeObjectURL(url);
 }
 
-async function emptyRequest(path: string, init: RequestInit): Promise<void> { const response = await fetch(`${API_BASE_URL}/api/v1${path}`, init); if (!response.ok) { const body = await response.json().catch(() => ({})) as { detail?: string }; throw new Error(body.detail ?? `Request failed with status ${response.status}`); } }
+async function emptyRequest(path: string, init: RequestInit): Promise<void> { const response = await apiFetch(`${API_BASE_URL}/api/v1${path}`, init); if (!response.ok) { const body = await response.json().catch(() => ({})) as { detail?: string }; throw new Error(body.detail ?? `Request failed with status ${response.status}`); } }

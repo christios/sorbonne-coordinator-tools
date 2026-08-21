@@ -1,3 +1,4 @@
+import { apiFetch } from "@/services/http";
 export type CatalogueCategory =
   | "people"
   | "programmes"
@@ -32,7 +33,7 @@ export type CatalogueEntryInput = {
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}/api/v1${path}`, init);
+  const response = await apiFetch(`${API_BASE_URL}/api/v1${path}`, init);
   if (!response.ok) {
     const body = (await response.json().catch(() => ({}))) as { detail?: string };
     throw new Error(body.detail ?? `Request failed with status ${response.status}`);

@@ -17,9 +17,16 @@ Production: <https://sorbonne-coordinator-tools.fastapicloud.dev/>
 | `/api/v1/teachers` | Teacher, folder, course-catalogue, and teacher-requisition API |
 | `/api/v1/teacher-requisitions` | Individual teacher-requisition API |
 | `/api/v1/rosters` | Retained roster-converter API |
+| `/api/v1/auth/*` | Google sign-in: configuration, session, current user |
 | `/healthcheck` | Deployment health check |
 
-There is currently no authentication or role-based access control. Treat the deployed site and handbook content as accessible to anyone with the URL.
+Every request is authenticated. A coordinator signs in with Google, the ID token is checked
+against a staff allowlist, and the resulting signed session cookie is required by the whole
+application — the API and the handbook alike. Only the health check, the sign-in endpoints,
+and the static app shell answer an anonymous caller, and a deployment with no sign-in
+settings closes rather than opening.
+
+There is still no role-based access control: everyone on the allowlist can use every tool.
 
 ## Architecture
 
@@ -135,9 +142,16 @@ Required GitHub Actions secrets:
 - `FASTAPI_CLOUD_TOKEN`
 - `FASTAPI_CLOUD_APP_ID`
 
-Required FastAPI Cloud encrypted secret:
+Required FastAPI Cloud encrypted secrets:
 
-- `DATABASE_URL` — the Neon PostgreSQL connection URL.
+- `DATABASE_URL` — the Neon PostgreSQL connection URL
+- `GOOGLE_AUTH_CLIENT_ID` — the Google OAuth client ID for staff sign-in
+- `COORDINATOR_ACCESS_EMAILS` — comma-separated staff e-mail addresses
+- `SESSION_SECRET` — a long random string; changing it signs everyone out
+
+**Set all three sign-in settings before deploying this branch.** Without them the
+application answers 503 to every request rather than serving data unauthenticated. The
+Google client ID must list the deployment's origin under *Authorised JavaScript origins*..
 
 Optional FastAPI Cloud encrypted secret:
 

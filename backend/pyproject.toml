@@ -37,6 +37,9 @@ dev = [
     "ruff>=0.12.11",
 ]
 
+[tool.pytest.ini_options]
+markers = ["anonymous: run the test without a signed-in coordinator"]
+
 [tool.ruff]
 line-length = 120
 target-version = "py311"

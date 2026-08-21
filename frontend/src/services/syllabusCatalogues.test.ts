@@ -14,7 +14,7 @@ describe("syllabus catalogue service", () => {
     await createCatalogueEntry("people", { label: "Dr Amira", payload: { roles: ["instructor"] } });
     await retireCatalogueEntry("people", "person-1", 1);
 
-    expect(fetchMock).toHaveBeenNthCalledWith(1, expect.stringMatching(/syllabus-catalogues\/people\?query=Amira/), undefined);
+    expect(fetchMock).toHaveBeenNthCalledWith(1, expect.stringMatching(/syllabus-catalogues\/people\?query=Amira/), expect.objectContaining({ credentials: "include" }));
     expect(fetchMock).toHaveBeenNthCalledWith(2, expect.stringMatching(/syllabus-catalogues\/people$/), expect.objectContaining({ method: "POST" }));
     expect(fetchMock).toHaveBeenNthCalledWith(3, expect.stringMatching(/people\/person-1\/retire$/), expect.objectContaining({ method: "POST" }));
   });

@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from sorbonne.api.auth import router as auth_router
 from sorbonne.api.bibliography_lookup import router as bibliography_lookup_router
 from sorbonne.api.rosters import router as rosters_router
 from sorbonne.api.syllabus_catalogues import router as syllabus_catalogues_router
@@ -13,6 +14,7 @@ from sorbonne.api.teachers import requisition_router as teacher_requisitions_rou
 from sorbonne.api.teachers import router as teachers_router
 from sorbonne.api.teacher_documents import router as teacher_documents_router
 from sorbonne.config import config
+from sorbonne.services.auth_gate import StaffAuthGate
 from sorbonne.services.migrations import apply_schema_migrations
 
 
@@ -24,6 +26,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(title="Sorbonne Coordinator Tools API", lifespan=lifespan)
 
+app.add_middleware(StaffAuthGate)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=config.cors_origins,
@@ -32,6 +35,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth_router, prefix="/api/v1")
 app.include_router(rosters_router, prefix="/api/v1")
 app.include_router(teachers_router, prefix="/api/v1")
 app.include_router(teacher_requisitions_router, prefix="/api/v1")
