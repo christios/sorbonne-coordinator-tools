@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ReactNode, useEffect, useState } from "react";
 
+import { ScreenLoading } from "@/components/ScreenLoading";
 import { SyllabusComparison } from "@/components/SyllabusComparison";
 import { SyllabusCatalogues } from "@/components/SyllabusCatalogues";
 import { SyllabusEditor } from "@/components/SyllabusEditor";
@@ -63,7 +64,7 @@ export function SyllabusBuilder({ onEditorHeaderCollapseChange, compactHeaderAct
   );
   if (screen.view === "library") return <div className="h-full overflow-y-auto"><SyllabusLibrary syllabi={list.data ?? []} folders={folders.data ?? []} templates={templates.data ?? []} isLoading={list.isLoading || folders.isLoading || templates.isLoading} isCreating={create.isPending} isCreatingFolder={createFolderMutation.isPending} deletingId={remove.isPending ? remove.variables ?? null : null} deletingFolderId={removeFolder.isPending ? removeFolder.variables ?? null : null} movingId={move.isPending ? move.variables?.syllabusId ?? null : null} renamingId={rename.isPending ? rename.variables?.syllabusId ?? null : null} error={libraryError?.message} onOpen={(id) => setScreen({ view: "editor", id})} onCreate={(input: CreateSyllabusInput) => create.mutate(input)} onCreateFolder={(input: CreateFolderInput) => createFolderMutation.mutate(input)} onMove={(syllabusId, folderId) => move.mutate({ syllabusId, folderId })} onRename={(syllabusId, courseTitle) => rename.mutateAsync({ syllabusId, courseTitle })} onDelete={(syllabusId) => remove.mutate(syllabusId)} onDeleteFolder={(folderId) => removeFolder.mutate(folderId)} onManageCatalogues={() => setScreen({ view: "catalogues" })} /></div>;
   if (screen.view === "catalogues") return <SyllabusCatalogues onBack={() => setScreen({ view: "library" })} />;
-  if (detail.isLoading || templates.isLoading || !detail.data) return <div className="p-8 text-center text-sm text-[#667085]">Loading syllabus…</div>;
+  if (detail.isLoading || templates.isLoading || !detail.data) return <ScreenLoading label="Loading syllabus…" />;
   const template = templates.data?.find((item) => item.id === detail.data.templateId);
   if (!template) return <div role="alert" className="p-8 text-center text-sm text-[#a6292f]">This syllabus refers to a template that is no longer available.</div>;
   if (screen.view === "comparison") return <div className="h-full overflow-y-auto"><SyllabusComparison syllabus={detail.data} candidates={list.data ?? []} onBack={() => setScreen({ view: "editor", id: detail.data.id })} /></div>;
