@@ -37,7 +37,7 @@ describe("course families", () => {
   it("groups a course's sections into one choice", () => {
     const families = courseFamilies(COURSES);
 
-    expect(families.map((family) => family.label)).toEqual(["MATH-001-CM", "MATH-011-TD"]);
+    expect(families.map((family) => family.label)).toEqual(["MATH-001 CM group", "MATH-011 TD group"]);
     expect(families[0].options.map((option) => option.group)).toEqual(["Gr. A", "Gr. B"]);
   });
 
@@ -45,14 +45,44 @@ describe("course families", () => {
     const [family] = courseFamilies([course("30001", "SCEN-101", "", "")]);
 
     expect(family.options[0].group).toBe("30001");
-    // Nothing to strip, so the code is kept whole rather than losing its last segment.
-    expect(family.label).toBe("SCEN-101");
+    expect(family.label).toBe("SCEN-101 group");
   });
 
-  it("keeps a code whose last segment is not the group", () => {
-    expect(courseFamilies([course("30002", "SCEN-101-F1", "Language", "Gr. 2")])[0].label).toBe(
-      "SCEN-101-F1",
-    );
+  it("collapses the language sections into one choice", () => {
+    // SCEN-101-F1 … F5 are not five courses: they are five groups of one course, and the
+    // coordinator picks between them in a single column.
+    const families = courseFamilies([
+      course("23302", "SCEN-101-F1", "", "Group F1"),
+      course("23303", "SCEN-101-F2", "", "Group F2"),
+      course("23582", "SCEN-101-F5", "", "Group F5"),
+    ]);
+
+    expect(families).toHaveLength(1);
+    expect(families[0].label).toBe("SCEN-101 group");
+    expect(families[0].options.map((option) => option.group)).toEqual([
+      "Group F1",
+      "Group F2",
+      "Group F5",
+    ]);
+  });
+
+  it("keeps the activity apart, because a student holds a group in each", () => {
+    const families = courseFamilies(COURSES);
+
+    expect(families.map((family) => [family.course, family.scope])).toEqual([
+      ["MATH-001", "CM"],
+      ["MATH-011", "TD"],
+    ]);
+  });
+
+  it("sorts groups the way a person counts", () => {
+    const [family] = courseFamilies([
+      course("1", "SCEN-102", "", "Gr. 10"),
+      course("2", "SCEN-102", "", "Gr. 2"),
+      course("3", "SCEN-102", "", "Gr. 1"),
+    ]);
+
+    expect(family.options.map((option) => option.group)).toEqual(["Gr. 1", "Gr. 2", "Gr. 10"]);
   });
 
   it("reads back which group a student holds", () => {

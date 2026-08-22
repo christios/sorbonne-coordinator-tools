@@ -1,22 +1,32 @@
 /**
- * What changed between the registrar portal and the published term.
+ * What changed between the registrar portal and the published term, and which groups a
+ * coordinator may choose from.
  *
- * Pure functions on purpose: the reconcile rules are the part that has to be right,
- * and they are much easier to trust when they can be read and tested without a browser,
- * an extension, or a database.
+ * Pure functions on purpose: these rules are the part that has to be right, and they are
+ * much easier to trust when they can be read and tested without a browser, an extension,
+ * or a database.
  */
 
-import type { RosterCourse, RosterStudent } from "@/services/timetables";
 import { displayNameOf, studentIdOf, type RosterRow } from "@/services/scenRosters";
+import type { RosterCourse, RosterStudent } from "@/services/timetables";
 
-/** One course in as many groups as it is taught: MATH-001-TD → Gr. 1, Gr. 2, Gr. 3. */
+/**
+ * One column of the coordinator's group template: a course, an activity, and the groups
+ * it is taught in. "MATH-001 CM group" offers Gr. A and Gr. B; "SCEN-101 group" offers
+ * Group F1 … F7. The group is the only thing a coordinator fills in — everything else on
+ * the screen is read back from the term's own catalogue.
+ */
 export type CourseFamily = {
   key: string;
-  /** The section code with the group stripped off: "MATH-001-TD-GR.3" → "MATH-001-TD". */
+  /** "MATH-001" — the course, without the activity or the group. */
+  course: string;
+  /** "CM", "TD", or "" for a course taught as a single activity. */
+  scope: string;
+  /** What the template's column header says: "MATH-001 CM group". */
   label: string;
-  kind: string;
   title: string;
-  options: { crn: string; group: string; staff: string }[];
+  kind: string;
+  options: { crn: string; group: string; staff: string; code: string }[];
 };
 
 export type RowStatus = "joined" | "left" | "assigned";
@@ -38,38 +48,48 @@ export type Reconciliation = {
   counts: { assigned: number; joined: number; left: number };
 };
 
-const squash = (value: string) => value.replace(/[\s.]/g, "").toLowerCase();
+const COURSE = /^[A-Za-z]+-\d+/;
+const ACTIVITY = /^[A-Za-z]+$/;
 
 /**
- * The registrar writes the group into the section code — "MATH-001-TD-GR.3" — so the
- * column a coordinator actually wants is that code with its last segment removed. Only
- * strip it when it really is the group, so an unusual code is left alone rather than
- * silently truncated.
+ * Split a section code into the course and the activity, discarding the group.
+ *
+ * The registrar writes all three into one string, and which parts are present varies:
+ *   MATH-001-CM-GR.A → MATH-001, CM   (the group is its own column in the template)
+ *   SCEN-101-F1      → SCEN-101, ""   (F1 *is* the group, so it is not an activity)
+ *   SCEN-102         → SCEN-102, ""
+ * An activity is a segment of letters only; anything carrying a digit is a group, which
+ * is why the French sections collapse into one column instead of seven.
  */
-export function familyCodeOf(course: RosterCourse): string {
-  const segments = course.code.split("-");
-  const group = squash(course.group);
-  if (group && segments.length > 1 && squash(segments[segments.length - 1]) === group) {
-    return segments.slice(0, -1).join("-");
-  }
-  return course.code;
+export function familyOf(code: string): { course: string; scope: string } {
+  const course = COURSE.exec(code)?.[0];
+  if (!course) return { course: code, scope: "" };
+  const rest = code.slice(course.length).split("-").filter(Boolean);
+  const scope = rest[0] && ACTIVITY.test(rest[0]) ? rest[0].toUpperCase() : "";
+  return { course, scope };
 }
 
 export function courseFamilies(courses: RosterCourse[]): CourseFamily[] {
   const families = new Map<string, CourseFamily>();
-  for (const course of courses) {
-    const label = familyCodeOf(course);
-    const family = families.get(label) ?? {
-      key: label,
-      label,
-      kind: course.kind,
-      title: course.shortTitle || course.title,
+  for (const row of courses) {
+    const { course, scope } = familyOf(row.code);
+    const key = scope ? `${course}-${scope}` : course;
+    const family = families.get(key) ?? {
+      key,
+      course,
+      scope,
+      label: scope ? `${course} ${scope} group` : `${course} group`,
+      kind: row.kind,
+      title: row.shortTitle || row.title,
       options: [],
     };
-    family.options.push({ crn: course.crn, group: course.group || course.crn, staff: course.staff });
-    families.set(label, family);
+    family.options.push({ crn: row.crn, group: row.group || row.crn, staff: row.staff, code: row.code });
+    families.set(key, family);
   }
-  return [...families.values()].sort((left, right) => left.label.localeCompare(right.label));
+  for (const family of families.values()) {
+    family.options.sort((left, right) => left.group.localeCompare(right.group, undefined, { numeric: true }));
+  }
+  return [...families.values()].sort((left, right) => left.key.localeCompare(right.key));
 }
 
 /** The CRN this student holds in one family, or "" when they hold none. */
@@ -81,6 +101,13 @@ export function chosenCrn(family: CourseFamily, crns: string[]): string {
 export function withGroup(family: CourseFamily, crns: string[], crn: string): string[] {
   const others = crns.filter((held) => !family.options.some((option) => option.crn === held));
   return crn ? [...others, crn] : others;
+}
+
+/** Everything the term knows about the CRNs one student holds — read-only, for preview. */
+export function heldCourses(families: CourseFamily[], crns: string[]) {
+  return families.flatMap((family) =>
+    family.options.filter((option) => crns.includes(option.crn)).map((option) => ({ family, ...option })),
+  );
 }
 
 const ORDER: Record<RowStatus, number> = { joined: 0, left: 1, assigned: 2 };

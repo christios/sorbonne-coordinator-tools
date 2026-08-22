@@ -1,13 +1,25 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, ArrowLeft, Check, Download, Loader2, Search, UserPlus, UserX } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import {
+  AlertTriangle,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  Download,
+  Loader2,
+  Search,
+  UserPlus,
+  UserX,
+} from "lucide-react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 
 import { ScreenLoading } from "@/components/ScreenLoading";
 import {
   chosenCrn,
   courseFamilies,
+  heldCourses,
   reconcile,
   withGroup,
+  type CourseFamily,
   type ReconcileRow,
   type RowStatus,
 } from "@/services/rosterReconcile";
@@ -40,7 +52,7 @@ const FILTERS: { id: RowStatus | "all"; label: string }[] = [
  * they are held in component state, and only the student id and the CRNs they hold are
  * ever sent to our API. Reloading the page loses the names, which is the point.
  */
-export function RosterConsole({ term, onBack }: { term: TimetableTerm; onBack: () => void }) {
+export function RosterConsole({ term }: { term: TimetableTerm }) {
   const client = useQueryClient();
   const roster = useQuery({ queryKey: ["roster", term.id], queryFn: () => fetchRoster(term.id) });
 
@@ -51,6 +63,7 @@ export function RosterConsole({ term, onBack }: { term: TimetableTerm; onBack: (
   const [query, setQuery] = useState("");
   const [conflict, setConflict] = useState<{ studentId: string; message: string } | null>(null);
   const [savingId, setSavingId] = useState("");
+  const [previewing, setPreviewing] = useState("");
 
   useEffect(() => {
     // Ask once, on arrival: an absent extension is a normal state, not an error.
@@ -128,18 +141,9 @@ export function RosterConsole({ term, onBack }: { term: TimetableTerm; onBack: (
 
   return (
     <div className="mx-auto max-w-[86rem] px-4 py-6 sm:px-6">
-      <button
-        type="button"
-        onClick={onBack}
-        className="inline-flex items-center gap-2 text-sm font-semibold text-[#1f4e79]"
-      >
-        <ArrowLeft size={17} aria-hidden="true" /> Back to semesters
-      </button>
-
-      <header className="mt-4 flex flex-col justify-between gap-4 border-b border-[#d9dee7] pb-5 sm:flex-row sm:items-end">
+      <header className="flex flex-col justify-between gap-4 border-b border-[#d9dee7] pb-5 sm:flex-row sm:items-end">
         <div>
-          <p className="text-sm font-medium text-[#a6292f]">Student groups</p>
-          <h2 className="mt-1 text-2xl font-semibold text-[#171717]">{term.name}</h2>
+          <h3 className="text-lg font-semibold text-[#171717]">{term.name}</h3>
           <p className="mt-1 text-sm text-[#667085]">
             Names come from the registrar portal and stay in this tab. Only the student id and their
             groups are saved.
@@ -203,6 +207,7 @@ export function RosterConsole({ term, onBack }: { term: TimetableTerm; onBack: (
                   {family.label}
                   <span className="mt-0.5 block text-[11px] font-normal normal-case text-[#98a2b3]">
                     {family.title}
+                    {family.kind ? ` · ${family.kind}` : ""}
                   </span>
                 </th>
               ))}
@@ -211,12 +216,25 @@ export function RosterConsole({ term, onBack }: { term: TimetableTerm; onBack: (
           </thead>
           <tbody>
             {visible.map((row) => (
-              <tr key={row.studentId} className="border-t border-[#e4e8ef] align-top">
+              <Fragment key={row.studentId}>
+              <tr className="border-t border-[#e4e8ef] align-top">
                 <td className="px-5 py-3">
                   <StatusBadge status={row.status} />
-                  <span className="mt-1 block font-semibold text-[#171717]">
+                  <button
+                    type="button"
+                    aria-expanded={previewing === row.studentId}
+                    onClick={() =>
+                      setPreviewing((current) => (current === row.studentId ? "" : row.studentId))
+                    }
+                    className="mt-1 flex items-center gap-1 text-left font-semibold text-[#171717] hover:text-[#1f4e79]"
+                  >
+                    {previewing === row.studentId ? (
+                      <ChevronDown size={14} aria-hidden="true" />
+                    ) : (
+                      <ChevronRight size={14} aria-hidden="true" />
+                    )}
                     {row.name || row.studentId}
-                  </span>
+                  </button>
                   <span className="block text-xs text-[#667085]">
                     {row.name ? row.studentId : "no name until you pull the roster"}
                     {row.yearLevel ? ` · ${row.yearLevel}` : ""}
@@ -232,25 +250,32 @@ export function RosterConsole({ term, onBack }: { term: TimetableTerm; onBack: (
                     </span>
                   ) : null}
                 </td>
-                {families.map((family) => (
-                  <td key={family.key} className="px-3 py-3">
-                    <select
-                      aria-label={`${family.label} for ${row.name || row.studentId}`}
-                      value={chosenCrn(family, row.crns)}
-                      disabled={savingId === row.studentId}
-                      onChange={(event) => setGroup(row, family.key, event.target.value)}
-                      className="w-full rounded-md border border-[#cbd5e1] px-2 py-1.5 text-sm disabled:opacity-50"
-                    >
-                      <option value="">—</option>
-                      {family.options.map((option) => (
-                        <option key={option.crn} value={option.crn}>
-                          {option.group}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
-                ))}
-                <td className="px-5 py-3 text-right">
+                {families.map((family) => {
+                  const crn = chosenCrn(family, row.crns);
+                  return (
+                    <td key={family.key} className="px-3 py-3">
+                      <select
+                        aria-label={`${family.label} for ${row.name || row.studentId}`}
+                        value={crn}
+                        disabled={savingId === row.studentId}
+                        onChange={(event) => setGroup(row, family.key, event.target.value)}
+                        className="w-full rounded-md border border-[#cbd5e1] px-2 py-1.5 text-sm disabled:opacity-50"
+                      >
+                        <option value="">—</option>
+                        {family.options.map((option) => (
+                          <option key={option.crn} value={option.crn}>
+                            {option.group}
+                          </option>
+                        ))}
+                      </select>
+                      {/* Read back from the catalogue, never typed: the group decides the CRN. */}
+                      <span className="mt-1 block text-[11px] tabular-nums text-[#98a2b3]">
+                        {crn ? `CRN ${crn}` : "\u00a0"}
+                      </span>
+                    </td>
+                  );
+                })}
+                <td className="px-5 py-3 text-right align-top">
                   {savingId === row.studentId ? (
                     <Loader2 size={16} className="ml-auto animate-spin text-[#667085]" aria-label="Saving" />
                   ) : row.crns.length ? (
@@ -266,6 +291,14 @@ export function RosterConsole({ term, onBack }: { term: TimetableTerm; onBack: (
                   ) : null}
                 </td>
               </tr>
+              {previewing === row.studentId ? (
+                <tr className="bg-[#f8fafc]">
+                  <td colSpan={families.length + 2} className="px-5 pb-4">
+                    <SchedulePreview families={families} crns={row.crns} />
+                  </td>
+                </tr>
+              ) : null}
+              </Fragment>
             ))}
             {visible.length === 0 ? (
               <tr>
@@ -277,6 +310,33 @@ export function RosterConsole({ term, onBack }: { term: TimetableTerm; onBack: (
           </tbody>
         </table>
       </section>
+    </div>
+  );
+}
+
+/** What this student's groups resolve to. Read from the term's catalogue, never typed. */
+function SchedulePreview({ families, crns }: { families: CourseFamily[]; crns: string[] }) {
+  const held = heldCourses(families, crns);
+  if (!held.length) {
+    return <p className="text-sm text-[#667085]">No groups yet, so this student sees nothing.</p>;
+  }
+  return (
+    <div className="flex flex-wrap gap-2">
+      {held.map((course) => (
+        <span
+          key={course.crn}
+          className="rounded-md border border-[#dfe5ee] bg-white px-3 py-2 text-xs text-[#344054]"
+        >
+          <span className="font-semibold text-[#171717]">{course.family.title}</span>
+          <span className="text-[#667085]">
+            {course.family.scope ? ` · ${course.family.scope}` : ""} · {course.group}
+          </span>
+          <span className="mt-0.5 block tabular-nums text-[#98a2b3]">
+            {course.code} · CRN {course.crn}
+            {course.staff ? ` · ${course.staff}` : ""}
+          </span>
+        </span>
+      ))}
     </div>
   );
 }

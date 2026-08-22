@@ -45,7 +45,7 @@ function renderConsole() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <RosterConsole term={TERM} onBack={() => undefined} />
+      <RosterConsole term={TERM} />
     </QueryClientProvider>,
   );
 }
@@ -105,7 +105,7 @@ describe("RosterConsole", () => {
     renderConsole();
     await pull();
 
-    fireEvent.change(screen.getByLabelText("MATH-001-CM for Amira Example"), { target: { value: "22152" } });
+    fireEvent.change(screen.getByLabelText("MATH-001 CM group for Amira Example"), { target: { value: "22152" } });
 
     await waitFor(() => expect(save).toHaveBeenCalled());
     const sent = save.mock.calls[0][0];
@@ -125,7 +125,7 @@ describe("RosterConsole", () => {
     renderConsole();
     await pull();
 
-    fireEvent.change(screen.getByLabelText("MATH-001-CM for Nadia Newcomer"), { target: { value: "22151" } });
+    fireEvent.change(screen.getByLabelText("MATH-001 CM group for Nadia Newcomer"), { target: { value: "22151" } });
 
     await waitFor(() => expect(save).toHaveBeenCalled());
     expect(save.mock.calls[0][0]).toMatchObject({ studentId: "A00099999", crns: ["22151"], version: 0 });
@@ -138,7 +138,7 @@ describe("RosterConsole", () => {
     renderConsole();
     await pull();
 
-    fireEvent.change(screen.getByLabelText("MATH-001-CM for Amira Example"), { target: { value: "22152" } });
+    fireEvent.change(screen.getByLabelText("MATH-001 CM group for Amira Example"), { target: { value: "22152" } });
 
     const warning = await screen.findByRole("alert");
     expect(warning.textContent).toContain("patricia@sorbonne.ae");
