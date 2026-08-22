@@ -162,30 +162,102 @@
  "fields": [
   {
    "key": "YEARLEVEL_CODE",
-   "label": "Year level",
+   "label": "Year",
    "options": [
     {
+     "value": "ADI",
+     "label": "ADI"
+    },
+    {
+     "value": "AL",
+     "label": "AL"
+    },
+    {
+     "value": "B2",
+     "label": "B2"
+    },
+    {
+     "value": "C1",
+     "label": "C1"
+    },
+    {
+     "value": "CEC",
+     "label": "CEC"
+    },
+    {
+     "value": "DR1",
+     "label": "DR1"
+    },
+    {
+     "value": "DR2",
+     "label": "DR2"
+    },
+    {
+     "value": "DU",
+     "label": "DU"
+    },
+    {
+     "value": "DU1",
+     "label": "DU1"
+    },
+    {
+     "value": "DU2",
+     "label": "DU2"
+    },
+    {
+     "value": "DU3",
+     "label": "DU3"
+    },
+    {
+     "value": "DUE",
+     "label": "DUE"
+    },
+    {
+     "value": "DUS",
+     "label": "DUS"
+    },
+    {
      "value": "FY",
-     "label": "Foundation Year"
+     "label": "FY"
     },
     {
      "value": "L1",
-     "label": "Licence 1"
+     "label": "L1"
+    },
+    {
+     "value": "L1A",
+     "label": "L1A"
     },
     {
      "value": "L2",
-     "label": "Licence 2"
+     "label": "L2"
     },
     {
      "value": "L3",
-     "label": "Licence 3"
+     "label": "L3"
+    },
+    {
+     "value": "M1",
+     "label": "M1"
+    },
+    {
+     "value": "M2",
+     "label": "M2"
+    },
+    {
+     "value": "MS2",
+     "label": "MS2"
+    },
+    {
+     "value": "MS3",
+     "label": "MS3"
     }
    ],
    "verified": true
   },
   {
    "key": "STST_CODE",
-   "label": "Student status",
+   "label": "Status Code",
    "options": [
     {
      "value": "AS",
@@ -193,7 +265,7 @@
     },
     {
      "value": "ME",
-     "label": "Make-up exam"
+     "label": "Make-up Exam"
     },
     {
      "value": "IS",
@@ -201,51 +273,106 @@
     },
     {
      "value": "DA",
-     "label": "Declined"
+     "label": "Declined by Applicant"
+    },
+    {
+     "value": "DF",
+     "label": "Deferred Enrolment"
+    },
+    {
+     "value": "DI",
+     "label": "Dismissed"
     },
     {
      "value": "WD",
      "label": "Withdrawal"
     },
     {
-     "value": "DF",
-     "label": "Deferred"
+     "value": "RA",
+     "label": "Revoked Admission"
     },
     {
-     "value": "DI",
-     "label": "Dismissed"
-    }
-   ],
-   "verified": false
-  },
-  {
-   "key": "ESTS_CODE",
-   "label": "Enrolment status",
-   "options": [],
-   "verified": false
-  },
-  {
-   "key": "MAJOR_CODE",
-   "label": "Major",
-   "options": [
-    {
-     "value": "MATH",
-     "label": "Mathematics"
+     "value": "TR",
+     "label": "Transfer"
     },
     {
-     "value": "PHYS",
-     "label": "Physics"
+     "value": "NS",
+     "label": "No Show"
     }
    ],
    "verified": true
   },
   {
-   "key": "DEPT_CODE",
-   "label": "Department",
+   "key": "ESTS_CODE",
+   "label": "Enrollment Status",
    "options": [
     {
-     "value": "SCEN",
-     "label": "Sciences & Engineering"
+     "value": "EL",
+     "label": "Eligible to Register"
+    },
+    {
+     "value": "DD",
+     "label": "Add Drop / Delete"
+    },
+    {
+     "value": "AW",
+     "label": "Administrative Withdrawal"
+    },
+    {
+     "value": "DI",
+     "label": "Dismissed"
+    },
+    {
+     "value": "DF",
+     "label": "Dismissed for FLE"
+    },
+    {
+     "value": "DL",
+     "label": "Dismissed for Licence"
+    },
+    {
+     "value": "DM",
+     "label": "Dismissed for Master"
+    },
+    {
+     "value": "EP",
+     "label": "Missing English Proficency"
+    },
+    {
+     "value": "NS",
+     "label": "No Show"
+    },
+    {
+     "value": "NA",
+     "label": "Not Available"
+    },
+    {
+     "value": "RI",
+     "label": "Reinstated"
+    },
+    {
+     "value": "TR",
+     "label": "Transfert"
+    },
+    {
+     "value": "WF",
+     "label": "Withdrawal for FLE"
+    },
+    {
+     "value": "WL",
+     "label": "Withdrawal for Licence"
+    },
+    {
+     "value": "WM",
+     "label": "Withdrawal for Master"
+    },
+    {
+     "value": "WS",
+     "label": "Withdrawal for Sports"
+    },
+    {
+     "value": "WD",
+     "label": "Withdrawn"
     }
    ],
    "verified": true
@@ -255,11 +382,39 @@
    "label": "Level",
    "options": [
     {
+     "value": "AL",
+     "label": "AL"
+    },
+    {
+     "value": "CE",
+     "label": "CE"
+    },
+    {
+     "value": "DU",
+     "label": "DU"
+    },
+    {
+     "value": "FI",
+     "label": "FI"
+    },
+    {
+     "value": "FP",
+     "label": "FP"
+    },
+    {
+     "value": "GR",
+     "label": "GR"
+    },
+    {
+     "value": "PH",
+     "label": "PH"
+    },
+    {
      "value": "UG",
-     "label": "Undergraduate"
+     "label": "UG"
     }
    ],
-   "verified": false
+   "verified": true
   },
   {
    "key": "CAMPUS_CODE",
@@ -267,38 +422,55 @@
    "options": [
     {
      "value": "AD",
-     "label": "Abu Dhabi"
+     "label": "AD"
+    },
+    {
+     "value": "CE",
+     "label": "CE"
+    },
+    {
+     "value": "ZMU",
+     "label": "ZMU"
     }
    ],
+   "verified": true
+  },
+  {
+   "key": "MAJOR_CODE",
+   "label": "Major Code",
+   "options": [],
    "verified": false
   },
   {
-   "key": "STYP_CODE",
-   "label": "Student type",
-   "options": [
-    {
-     "value": "N",
-     "label": "New"
-    },
-    {
-     "value": "C",
-     "label": "Continuing"
-    },
-    {
-     "value": "H",
-     "label": "FY Mathematics"
-    },
-    {
-     "value": "P",
-     "label": "FY Physics"
-    },
-    {
-     "value": "R",
-     "label": "Re-admission"
-    }
-   ],
+   "key": "DEPT_CODE",
+   "label": "Department Code",
+   "options": [],
+   "verified": false
+  },
+  {
+   "key": "COLLEGE_CODE",
+   "label": "College",
+   "options": [],
+   "verified": false
+  },
+  {
+   "key": "PROGRAM_CODE",
+   "label": "Program",
+   "options": [],
+   "verified": false
+  },
+  {
+   "key": "STYP_DESC",
+   "label": "Type",
+   "options": [],
+   "verified": false
+  },
+  {
+   "key": "TERM_CODE",
+   "label": "Term",
+   "options": [],
    "verified": false
   }
  ],
- "_fields_comment": "The fallback schema, used until portal-fields.js has learned the real one from the portal. Only verified: true fields have had their values confirmed against live counts; the rest are suggestions and are not enforced."
+ "_fields_comment": "Fallback only: the extension reads the real list from the portal's quick filters and prefers that. Read from the portal on 2026-08-22. Fields left without values are the long code tables \u2014 majors, departments, programmes, terms \u2014 which belong in the harvest. STYP_CODE was wrong: the portal's filter is STYP_DESC."
 }
