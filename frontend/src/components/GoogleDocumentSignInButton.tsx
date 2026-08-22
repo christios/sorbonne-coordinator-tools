@@ -40,7 +40,11 @@ export function GoogleDocumentSignInButton({ onCredential }: { onCredential: (cr
   }, [onCredential]);
 
   if (!CLIENT_ID) return <p className="text-sm text-[#667085]">Document sign-in is not configured for this deployment.</p>;
-  return <><div ref={mount} aria-label="Sign in with Google" />{error ? <p role="alert" className="mt-2 text-sm text-[#8f1f25]">{error}</p> : null}</>;
+  // Google paints a plain "Sign in with Google" button first and swaps in the personalised
+  // "Sign in as …" one a frame later, and until that swap its wrapper is twice the button's
+  // height. Pinning the mount to the button's own height (40px, the "large" size) keeps the
+  // swap from yanking the rest of the page up — the visible glitch on every screen change.
+  return <><div ref={mount} aria-label="Sign in with Google" className="h-10 overflow-hidden" />{error ? <p role="alert" className="mt-2 text-sm text-[#8f1f25]">{error}</p> : null}</>;
 }
 
 export function GoogleDocumentSyncButton({ disabled = false, onAccessToken }: { disabled?: boolean; onAccessToken: (accessToken: string) => void }) {
