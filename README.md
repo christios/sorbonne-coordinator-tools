@@ -97,7 +97,32 @@ npm ci
 npm run start
 ```
 
-Open <http://127.0.0.1:3000/>. The frontend calls FastAPI at `http://localhost:8000` by default.
+Open <http://localhost:3000/>. The frontend calls FastAPI at `http://localhost:8000` by default.
+Use `localhost` rather than `127.0.0.1`: the session cookie belongs to whichever hostname you
+open, and the two are different hosts as far as the browser is concerned, so a cookie set on
+one is never sent to the other.
+
+### Signing in locally
+
+You do not. The dev server mints a session for you, so `npm run start` opens the tools already
+signed in — no Google account, no client ID, nothing to click.
+
+It is not a bypass: `frontend/vite-plugins/dev-session.js` runs `backend/scripts/dev_session.py`,
+which signs a real cookie with your local `SESSION_SECRET` for the first address in
+`COORDINATOR_ACCESS_EMAILS`, and the API checks it exactly as it checks one that came from
+Google. The plugin only exists while Vite is serving, so no deployment can inherit it.
+
+| Setting | Effect |
+| --- | --- |
+| `DEV_SESSION=off` | leaves the sign-in screen up — for testing the Google flow or the gate itself |
+| `DEV_SESSION_EMAIL=someone@sorbonne.ae` | browse as that member of staff, e.g. to see what a non-administrator sees |
+
+Both are read from the environment, so `DEV_SESSION=off npm run start` is enough for one run.
+If the script cannot mint a session — no `SESSION_SECRET`, empty `COORDINATOR_ACCESS_EMAILS` —
+Vite says so and leaves the sign-in screen in place.
+
+To sign in from the command line instead, `cd backend && uv run python scripts/dev_session.py`
+prints the cookie for `curl -b`.
 
 ### 4. Preview the handbook
 

@@ -2,6 +2,7 @@ import { defineConfig } from "vite";
 import viteReact from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { dirname, resolve } from "path";
+import { devSession } from "./vite-plugins/dev-session.js";
 import { fileURLToPath } from "url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -12,7 +13,7 @@ export default defineConfig({
     outDir: process.env.VITE_OUT_DIR ?? "dist",
     emptyOutDir: true,
   },
-  plugins: [viteReact(), tailwindcss()],
+  plugins: [viteReact(), tailwindcss(), devSession()],
   test: {
     globals: true,
     environment: "jsdom",
