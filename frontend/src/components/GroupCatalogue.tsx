@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, Loader2, Plus, Trash2, Upload } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { ScreenLoading } from "@/components/ScreenLoading";
@@ -236,23 +236,12 @@ function ScopeMatrix({
                 </td>
                 {scope.courses.map((course) => (
                   <td key={course.id} className="px-3 py-2">
-                    <input
-                      aria-label={`CRN for ${scope.code} group ${group.label}, ${course.code}`}
-                      defaultValue={group.crns[course.id]?.crn ?? ""}
-                      inputMode="numeric"
-                      placeholder="—"
-                      onBlur={(event) => {
-                        const crn = event.target.value.trim();
-                        if (crn === (group.crns[course.id]?.crn ?? "")) return;
-                        saveCell.mutate({ groupId: group.id, courseId: course.id, crn });
-                      }}
-                      className="w-24 rounded-md border border-[#cbd5e1] px-2 py-1.5 text-sm tabular-nums"
+                    <CrnCell
+                      label={`CRN for ${scope.code} group ${group.label}, ${course.code}`}
+                      crn={group.crns[course.id]?.crn ?? ""}
+                      teacher={group.crns[course.id]?.teacher ?? ""}
+                      onSave={(crn) => saveCell.mutate({ groupId: group.id, courseId: course.id, crn })}
                     />
-                    {group.crns[course.id]?.teacher ? (
-                      <span className="mt-0.5 block text-[11px] text-[#98a2b3]">
-                        {group.crns[course.id].teacher}
-                      </span>
-                    ) : null}
                   </td>
                 ))}
                 <td className="px-5 py-2 text-right">
@@ -313,6 +302,49 @@ function ScopeMatrix({
         onClose={() => setPendingGroup(null)}
       />
     </section>
+  );
+}
+
+/**
+ * One cell of the matrix.
+ *
+ * Controlled, deliberately. An uncontrolled input keeps whatever the DOM holds, so after
+ * the catalogue refetches — or if focus lands here and leaves again — a blur would save
+ * stale text, and an empty field would silently delete the CRN. Comparing the draft with
+ * the stored value means a blur that changed nothing saves nothing.
+ */
+function CrnCell({
+  label,
+  crn,
+  teacher,
+  onSave,
+}: {
+  label: string;
+  crn: string;
+  teacher: string;
+  onSave: (crn: string) => void;
+}) {
+  const [draft, setDraft] = useState(crn);
+
+  useEffect(() => setDraft(crn), [crn]);
+
+  return (
+    <>
+      <input
+        aria-label={label}
+        value={draft}
+        inputMode="numeric"
+        placeholder="—"
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={() => {
+          const next = draft.trim();
+          if (next === crn) return;
+          onSave(next);
+        }}
+        className="w-24 rounded-md border border-[#cbd5e1] px-2 py-1.5 text-sm tabular-nums"
+      />
+      {teacher ? <span className="mt-0.5 block text-[11px] text-[#98a2b3]">{teacher}</span> : null}
+    </>
   );
 }
 
