@@ -143,7 +143,9 @@ function GoogleButton({
       </p>
     );
   }
-  return <div ref={target} className="mt-6 flex justify-center" data-testid="google-sign-in" />;
+  // Same reservation as the documents button: Google's wrapper is taller until it swaps in
+  // the personalised button, and an unpinned mount moves everything under it a frame later.
+  return <div ref={target} className="mt-6 flex h-10 justify-center overflow-hidden" data-testid="google-sign-in" />;
 }
 
 function Screen({ title, children }: { title?: string; children: ReactNode }) {

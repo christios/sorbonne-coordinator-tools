@@ -56,6 +56,14 @@ describe("SignInGate", () => {
     expect(screen.getByTestId("google-sign-in")).toBeTruthy();
   });
 
+  it("reserves the Google button's height so its personalised swap moves nothing", async () => {
+    renderGate();
+
+    // Google renders a plain button first and a taller wrapper with it; without a fixed
+    // height the swap to "Sign in as …" shifts the page a frame after it appears.
+    expect((await screen.findByTestId("google-sign-in")).className).toContain("h-10");
+  });
+
   it("shows the application to a coordinator with a live session", async () => {
     vi.spyOn(auth, "fetchCurrentUser").mockResolvedValue({
       email: "coordinator@sorbonne.ae",
