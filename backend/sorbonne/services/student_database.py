@@ -116,6 +116,85 @@ class StudentDatabase:
         if deleted.rowcount == 0:
             raise CohortNotFound(cohort_id)
 
+    # --------------------------------------------------------------- members
+
+    def list_members(self, cohort_id: str) -> list[dict[str, Any]]:
+        """The cohort's students, as ids and the group they hold in each block."""
+        self.get_cohort(cohort_id)
+        with self.engine.connect() as connection:
+            members = (
+                connection.execute(
+                    text("""SELECT student_id, added_at, added_by FROM cohort_members
+                            WHERE cohort_id = :id ORDER BY student_id"""),
+                    {"id": cohort_id},
+                )
+                .mappings()
+                .all()
+            )
+            assignments = (
+                connection.execute(
+                    text("SELECT student_id, scope_id, group_id FROM group_assignments WHERE cohort_id = :id"),
+                    {"id": cohort_id},
+                )
+                .mappings()
+                .all()
+            )
+        held: dict[str, dict[str, str]] = {}
+        for row in assignments:
+            held.setdefault(row["student_id"], {})[row["scope_id"]] = row["group_id"]
+        return [
+            {
+                "studentId": row["student_id"],
+                "addedAt": row["added_at"],
+                "addedBy": row["added_by"],
+                "groups": held.get(row["student_id"], {}),
+            }
+            for row in members
+        ]
+
+    def add_members(self, cohort_id: str, student_ids: list[str], *, actor: str = "") -> int:
+        """Add ids to a cohort. Already-members are left alone, so re-adding is harmless."""
+        self.get_cohort(cohort_id)
+        wanted = _clean_ids(student_ids)
+        if not wanted:
+            return 0
+        now = _now()
+        with self.engine.begin() as connection:
+            before = connection.execute(
+                text("SELECT count(*) FROM cohort_members WHERE cohort_id = :id"), {"id": cohort_id}
+            ).scalar_one()
+            connection.execute(
+                text("""INSERT INTO cohort_members (cohort_id, student_id, added_at, added_by)
+                        VALUES (:cohort_id, :student_id, :added_at, :added_by)
+                        ON CONFLICT (cohort_id, student_id) DO NOTHING"""),
+                [
+                    {"cohort_id": cohort_id, "student_id": student, "added_at": now, "added_by": actor}
+                    for student in wanted
+                ],
+            )
+            after = connection.execute(
+                text("SELECT count(*) FROM cohort_members WHERE cohort_id = :id"), {"id": cohort_id}
+            ).scalar_one()
+            self._touch(connection, cohort_id)
+        return after - before
+
+    def remove_members(self, cohort_id: str, student_ids: list[str]) -> int:
+        """Remove ids from a cohort, and with them any group they were holding."""
+        wanted = _clean_ids(student_ids)
+        if not wanted:
+            return 0
+        with self.engine.begin() as connection:
+            removed = connection.execute(
+                text("DELETE FROM cohort_members WHERE cohort_id = :id AND student_id = ANY(:ids)"),
+                {"id": cohort_id, "ids": wanted},
+            )
+            connection.execute(
+                text("DELETE FROM group_assignments WHERE cohort_id = :id AND student_id = ANY(:ids)"),
+                {"id": cohort_id, "ids": wanted},
+            )
+            self._touch(connection, cohort_id)
+        return removed.rowcount
+
     # ------------------------------------------------------------- catalogue
 
     def read_catalogue(self, cohort_id: str) -> dict[str, Any]:
@@ -446,6 +525,16 @@ class StudentDatabase:
 
     def _touch_by_scope(self, connection: Connection, scope_id: str) -> None:
         self._touch(connection, self._cohort_of_scope(connection, scope_id))
+
+
+def _clean_ids(student_ids: list[str]) -> list[str]:
+    """Ids as the registrar writes them, without duplicates or stray spacing."""
+    seen: dict[str, None] = {}
+    for value in student_ids:
+        cleaned = _text(value).upper()
+        if cleaned:
+            seen.setdefault(cleaned, None)
+    return list(seen)
 
 
 def _cohort(row) -> dict[str, Any]:

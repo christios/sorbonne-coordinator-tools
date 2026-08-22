@@ -8,8 +8,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
+from pydantic import BaseModel, ConfigDict, Field
 
 from sorbonne.config import config
 from sorbonne.services.group_reference_import import ReferenceImportError, parse_group_reference
@@ -34,6 +34,14 @@ class CohortInput(BaseModel):
     name: str = Field(min_length=1, max_length=160)
     term: str = Field(default="", max_length=80)
     notes: str = Field(default="", max_length=2000)
+
+
+class MembersInput(BaseModel):
+    """Student ids and nothing else — this API has no field for a name."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    student_ids: list[str] = Field(default_factory=list, max_length=2000, alias="studentIds")
 
 
 class ScopeInput(BaseModel):
@@ -102,6 +110,40 @@ async def delete_cohort(cohort_id: str, database: StudentDatabase = Depends(get_
         database.delete_cohort(cohort_id)
     except CohortNotFound as exc:
         raise _missing(exc, "cohort") from exc
+
+
+# ----------------------------------------------------------------- members
+
+
+@router.get("/cohorts/{cohort_id}/members")
+async def list_members(cohort_id: str, database: StudentDatabase = Depends(get_database)) -> dict[str, Any]:
+    try:
+        return {"members": database.list_members(cohort_id)}
+    except CohortNotFound as exc:
+        raise _missing(exc, "cohort") from exc
+
+
+@router.post("/cohorts/{cohort_id}/members")
+async def add_members(
+    cohort_id: str,
+    body: MembersInput,
+    request: Request,
+    database: StudentDatabase = Depends(get_database),
+) -> dict[str, int]:
+    staff = getattr(request.state, "staff_user", None)
+    try:
+        added = database.add_members(cohort_id, body.student_ids, actor=getattr(staff, "email", "") or "")
+    except CohortNotFound as exc:
+        raise _missing(exc, "cohort") from exc
+    return {"added": added}
+
+
+# A body of ids, so this is a POST rather than a DELETE.
+@router.post("/cohorts/{cohort_id}/members/remove")
+async def remove_members(
+    cohort_id: str, body: MembersInput, database: StudentDatabase = Depends(get_database)
+) -> dict[str, int]:
+    return {"removed": database.remove_members(cohort_id, body.student_ids)}
 
 
 # --------------------------------------------------------------- catalogue

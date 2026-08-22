@@ -148,3 +148,72 @@ def test_an_unknown_cohort_answers_404(client: TestClient):
         client.get("/api/v1/student-database/cohorts/nope/catalogue").status_code
         == status.HTTP_404_NOT_FOUND
     )
+
+
+# ------------------------------------------------------------------- members
+
+STUDENTS = ["A00021503", "A00021505", "A00021509"]
+
+
+def members_of(client: TestClient, cohort_id: str) -> list[str]:
+    body = client.get(f"/api/v1/student-database/cohorts/{cohort_id}/members").json()
+    return [member["studentId"] for member in body["members"]]
+
+
+def test_students_are_added_in_bulk_and_counted(client: TestClient, cohort_id: str):
+    response = client.post(
+        f"/api/v1/student-database/cohorts/{cohort_id}/members", json={"studentIds": STUDENTS}
+    )
+
+    assert response.json() == {"added": len(STUDENTS)}
+    assert members_of(client, cohort_id) == STUDENTS
+
+
+def test_adding_the_same_students_again_adds_nobody(client: TestClient, cohort_id: str):
+    client.post(f"/api/v1/student-database/cohorts/{cohort_id}/members", json={"studentIds": STUDENTS})
+
+    again = client.post(
+        f"/api/v1/student-database/cohorts/{cohort_id}/members",
+        json={"studentIds": [*STUDENTS, "A00021511"]},
+    )
+
+    assert again.json() == {"added": 1}
+    assert len(members_of(client, cohort_id)) == len(STUDENTS) + 1
+
+
+def test_ids_are_tidied_and_deduplicated_on_the_way_in(client: TestClient, cohort_id: str):
+    response = client.post(
+        f"/api/v1/student-database/cohorts/{cohort_id}/members",
+        json={"studentIds": [" a00021503 ", "A00021503", "", "A00021505"]},
+    )
+
+    assert response.json() == {"added": 2}
+    assert members_of(client, cohort_id) == ["A00021503", "A00021505"]
+
+
+def test_students_are_removed_in_bulk(client: TestClient, cohort_id: str):
+    client.post(f"/api/v1/student-database/cohorts/{cohort_id}/members", json={"studentIds": STUDENTS})
+
+    removed = client.post(
+        f"/api/v1/student-database/cohorts/{cohort_id}/members/remove",
+        json={"studentIds": STUDENTS[:2]},
+    )
+
+    assert removed.json() == {"removed": 2}
+    assert members_of(client, cohort_id) == STUDENTS[2:]
+
+
+def test_the_member_list_carries_no_name(client: TestClient, cohort_id: str):
+    client.post(f"/api/v1/student-database/cohorts/{cohort_id}/members", json={"studentIds": STUDENTS[:1]})
+
+    member = client.get(f"/api/v1/student-database/cohorts/{cohort_id}/members").json()["members"][0]
+
+    assert set(member) == {"studentId", "addedAt", "addedBy", "groups"}
+
+
+def test_the_cohort_list_counts_its_members(client: TestClient, cohort_id: str):
+    client.post(f"/api/v1/student-database/cohorts/{cohort_id}/members", json={"studentIds": STUDENTS})
+
+    cohorts = client.get("/api/v1/student-database/cohorts").json()["cohorts"]
+
+    assert next(row for row in cohorts if row["id"] == cohort_id)["memberCount"] == len(STUDENTS)

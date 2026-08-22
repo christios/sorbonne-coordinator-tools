@@ -177,3 +177,29 @@ export function setGroupCrn(
 ): Promise<void> {
   return send<void>(`${BASE}/groups/${groupId}/courses/${courseId}`, "PUT", { teacher: "", ...input });
 }
+
+export type CohortMember = {
+  studentId: string;
+  addedAt: string;
+  addedBy: string;
+  /** scope id -> group id, for the blocks this student has been placed in. */
+  groups: Record<string, string>;
+};
+
+export async function fetchMembers(cohortId: string): Promise<CohortMember[]> {
+  return (await request<{ members: CohortMember[] }>(`${BASE}/cohorts/${cohortId}/members`)).members;
+}
+
+export async function addMembers(cohortId: string, studentIds: string[]): Promise<number> {
+  const body = await send<{ added: number }>(`${BASE}/cohorts/${cohortId}/members`, "POST", { studentIds });
+  return body.added;
+}
+
+export async function removeMembers(cohortId: string, studentIds: string[]): Promise<number> {
+  const body = await send<{ removed: number }>(
+    `${BASE}/cohorts/${cohortId}/members/remove`,
+    "POST",
+    { studentIds },
+  );
+  return body.removed;
+}

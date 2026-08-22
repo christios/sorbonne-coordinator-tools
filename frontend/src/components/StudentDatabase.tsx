@@ -5,6 +5,7 @@ import { useState } from "react";
 import { CohortList } from "@/components/CohortList";
 import { GroupCatalogue } from "@/components/GroupCatalogue";
 import { ScreenLoading } from "@/components/ScreenLoading";
+import { StudentRoster } from "@/components/StudentRoster";
 import { SidePane } from "@/components/SidePane";
 import { fetchCohorts, type Cohort } from "@/services/studentDatabase";
 
@@ -89,7 +90,8 @@ export function StudentDatabase() {
             ) : null}
           </header>
 
-          {page === "students" ? <StudentsComingNext /> : null}
+          {page === "students" && !cohorts.isLoading ? <StudentRoster cohorts={available} /> : null}
+          {page === "students" && cohorts.isLoading ? <ScreenLoading label="Loading cohorts…" /> : null}
           {page === "cohorts" ? <CohortList onOpen={openGroups} /> : null}
           {needsCohort && cohorts.isLoading ? <ScreenLoading label="Loading cohorts…" /> : null}
           {needsCohort && !cohorts.isLoading && !cohort ? (
@@ -99,23 +101,5 @@ export function StudentDatabase() {
         </div>
       </div>
     </div>
-  );
-}
-
-/** The portal pull and its diff are the next slice; this says so rather than pretending. */
-function StudentsComingNext() {
-  return (
-    <section className="rounded-lg border border-dashed border-[#cbd5e1] bg-white p-6">
-      <h3 className="text-base font-semibold text-[#171717]">Not built yet</h3>
-      <p className="mt-2 max-w-2xl text-sm leading-6 text-[#667085]">
-        This page will pull the roster from the registrar portal through the SCEN Rosters
-        extension and show who stayed, who left and who changed since the last pull. The
-        extension bridge is already in place; the diff and the browser-held snapshot are next.
-      </p>
-      <p className="mt-3 max-w-2xl text-sm leading-6 text-[#667085]">
-        Cohorts and Groups &amp; CRNs work now — create a cohort, then fill its groups from a
-        group-assignment workbook.
-      </p>
-    </section>
   );
 }
