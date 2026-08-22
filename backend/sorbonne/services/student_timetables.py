@@ -89,20 +89,6 @@ class StudentPlatformClient:
     async def delete_term(self, term_id: str) -> None:
         await self._request("DELETE", f"/api/v1/admin/terms/{term_id}")
 
-    async def read_roster(self, term_id: str) -> dict[str, Any]:
-        """The term's catalogue plus which CRNs each student id holds."""
-        payload = await self._request("GET", f"/api/v1/admin/terms/{term_id}/roster")
-        return payload if isinstance(payload, dict) else {"courses": [], "students": []}
-
-    async def set_student_assignment(
-        self, *, term_id: str, student_id: str, crns: list[str], version: int, actor: str
-    ) -> dict[str, Any]:
-        return await self._request(
-            "PUT",
-            f"/api/v1/admin/terms/{term_id}/roster/{student_id}",
-            json={"crns": crns, "version": version, "actor": actor},
-        )
-
     async def _request(
         self, method: str, path: str, *, timeout: float = REQUEST_TIMEOUT_SECONDS, **kwargs: Any
     ) -> Any:

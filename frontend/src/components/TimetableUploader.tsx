@@ -1,20 +1,16 @@
 import { useQuery } from "@tanstack/react-query";
-import { AlertCircle, CalendarDays, ListTree, Megaphone, Upload, Users } from "lucide-react";
+import { AlertCircle, CalendarDays, Megaphone, Upload } from "lucide-react";
 import { useState } from "react";
 
 import { AnnouncementEditor } from "@/components/AnnouncementEditor";
-import { CourseReference } from "@/components/CourseReference";
-import { RosterConsole } from "@/components/RosterConsole";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { SemesterImport } from "@/components/SemesterImport";
 import { SemesterList } from "@/components/SemesterList";
 import { SidePane } from "@/components/SidePane";
-import { fetchTimetableStatus, fetchTimetableTerms, type TimetableTerm } from "@/services/timetables";
+import { fetchTimetableStatus } from "@/services/timetables";
 
 const PAGES = [
   { id: "semesters", name: "Semesters", icon: CalendarDays },
-  { id: "students", name: "Students", icon: Users },
-  { id: "reference", name: "Groups & CRNs", icon: ListTree },
   { id: "import", name: "Import a semester", icon: Upload },
   { id: "announcements", name: "Announcements", icon: Megaphone },
 ] as const;
@@ -25,14 +21,6 @@ const TITLES: Record<PageId, { title: string; blurb: string }> = {
   semesters: {
     title: "Semesters",
     blurb: "What the student platform holds, and whether students can see it yet.",
-  },
-  students: {
-    title: "Students",
-    blurb: "Reconcile against the registrar portal, and set each student's groups.",
-  },
-  reference: {
-    title: "Groups & CRNs",
-    blurb: "The semester's own reference: which group is which CRN.",
   },
   import: {
     title: "Import a semester",
@@ -52,14 +40,7 @@ const TITLES: Record<PageId, { title: string; blurb: string }> = {
  */
 export function TimetableUploader() {
   const status = useQuery({ queryKey: ["timetable-status"], queryFn: fetchTimetableStatus });
-  const terms = useQuery({
-    queryKey: ["timetable-terms"],
-    queryFn: fetchTimetableTerms,
-    enabled: status.data?.configured === true,
-  });
-
   const [page, setPage] = useState<PageId>("semesters");
-  const [termId, setTermId] = useState("");
 
   if (status.isLoading) {
     return <ScreenLoading label="Checking the student platform connection…" />;
@@ -84,21 +65,6 @@ export function TimetableUploader() {
     );
   }
 
-  const available = terms.data ?? [];
-  // Default to what students are actually looking at, then to the most recent import.
-  const term =
-    available.find((candidate) => candidate.id === termId) ??
-    available.find((candidate) => candidate.isPublished) ??
-    available[0] ??
-    null;
-
-  const openStudents = (chosen: TimetableTerm) => {
-    setTermId(chosen.id);
-    setPage("students");
-  };
-
-  const needsTerm = page === "students" || page === "reference";
-
   return (
     <div className="flex min-h-[calc(100vh-4.5rem)]">
       <SidePane
@@ -116,35 +82,11 @@ export function TimetableUploader() {
               <h2 className="text-2xl font-semibold text-[#171717]">{TITLES[page].title}</h2>
               <p className="mt-1 text-sm text-[#667085]">{TITLES[page].blurb}</p>
             </div>
-            {needsTerm && available.length > 1 ? (
-              <label className="text-sm font-semibold text-[#344054]">
-                Semester
-                <select
-                  value={term?.id ?? ""}
-                  onChange={(event) => setTermId(event.target.value)}
-                  className="ml-2 rounded-md border border-[#cbd5e1] px-3 py-2 text-sm font-normal"
-                >
-                  {available.map((candidate) => (
-                    <option key={candidate.id} value={candidate.id}>
-                      {candidate.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            ) : null}
           </header>
 
-          {page === "semesters" ? <SemesterList onOpenStudents={openStudents} /> : null}
+          {page === "semesters" ? <SemesterList /> : null}
           {page === "import" ? <SemesterImport host={status.data.host} /> : null}
           {page === "announcements" ? <AnnouncementEditor /> : null}
-          {needsTerm && terms.isLoading ? <ScreenLoading label="Loading semesters…" /> : null}
-          {needsTerm && !terms.isLoading && !term ? (
-            <p className="text-sm text-[#667085]">
-              Nothing has been uploaded yet. Import a semester first.
-            </p>
-          ) : null}
-          {page === "students" && term ? <RosterConsole key={term.id} term={term} /> : null}
-          {page === "reference" && term ? <CourseReference key={term.id} term={term} /> : null}
         </div>
       </div>
     </div>

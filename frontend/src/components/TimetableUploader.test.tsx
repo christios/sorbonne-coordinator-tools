@@ -3,7 +3,6 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TimetableUploader } from "@/components/TimetableUploader";
-import * as rosters from "@/services/scenRosters";
 import * as timetables from "@/services/timetables";
 
 const TERM: timetables.TimetableTerm = {
@@ -47,15 +46,6 @@ beforeEach(() => {
   vi.spyOn(timetables, "fetchTimetableTerms").mockResolvedValue([TERM]);
   // The announcement page has a request of its own; keep it out of the way.
   vi.spyOn(timetables, "fetchAnnouncements").mockResolvedValue({ announcements: [], icons: ["info"] });
-  vi.spyOn(timetables, "fetchRoster").mockResolvedValue({
-    courses: [
-      { crn: "23223", code: "MATH-001-TD-GR.1", title: "Pre-Calculus", shortTitle: "Pre-Calculus", kind: "Tutorial", group: "Gr. 1", staff: "Dr Maaz" },
-      { crn: "23224", code: "MATH-001-TD-GR.2", title: "Pre-Calculus", shortTitle: "Pre-Calculus", kind: "Tutorial", group: "Gr. 2", staff: "" },
-    ],
-    students: [{ studentId: "A00021503", crns: ["23223"], version: 0, updatedAt: "", updatedBy: "" }],
-  });
-  vi.spyOn(rosters, "isExtensionInstalled").mockResolvedValue(false);
-  vi.spyOn(rosters, "listPresets").mockResolvedValue([]);
 });
 
 afterEach(() => vi.restoreAllMocks());
@@ -118,37 +108,6 @@ describe("TimetableUploader", () => {
 
     const alerts = await screen.findAllByRole("alert");
     expect(alerts.map((alert) => alert.textContent).join(" ")).toContain("could not be read as an Excel workbook");
-  });
-
-  it("moves between pages from the side pane", async () => {
-    renderTool();
-
-    await openPage(/Groups & CRNs/);
-
-    // The reference is the semester's own: a group, and the CRN it resolves to.
-    expect(await screen.findByText("MATH-001 TD group")).toBeTruthy();
-    expect(screen.getByText("23223")).toBeTruthy();
-    expect(screen.getByText("Dr Maaz")).toBeTruthy();
-  });
-
-  it("opens a semester's students straight from the list", async () => {
-    renderTool();
-    await screen.findByRole("row", { name: /Physics & Maths/ });
-
-    const row = screen.getByRole("row", { name: /Physics & Maths/ });
-    fireEvent.click(within(row).getByRole("button", { name: /^Students$/ }));
-
-    expect(await screen.findByText("A00021503")).toBeTruthy();
-    expect(screen.getByLabelText("MATH-001 TD group for A00021503")).toBeTruthy();
-  });
-
-  it("says so when there is nothing to reconcile yet", async () => {
-    vi.spyOn(timetables, "fetchTimetableTerms").mockResolvedValue([]);
-    renderTool();
-
-    await openPage(/^Students$/);
-
-    expect(await screen.findByText(/Nothing has been uploaded yet/)).toBeTruthy();
   });
 
   it("publishes a hidden semester", async () => {

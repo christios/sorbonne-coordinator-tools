@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from pydantic import BaseModel, Field
 
 from sorbonne.config import config
@@ -47,13 +47,6 @@ class AnnouncementInput(BaseModel):
 
 class AnnouncementsInput(BaseModel):
     announcements: list[AnnouncementInput]
-
-
-class AssignmentInput(BaseModel):
-    """The CRNs this student should hold, and the version the screen was showing."""
-
-    crns: list[str] = Field(default_factory=list, max_length=40)
-    version: int = Field(ge=0)
 
 
 async def _read_upload(file: UploadFile, label: str) -> bytes:
@@ -127,39 +120,6 @@ async def delete_term(term_id: str, client: StudentPlatformClient = Depends(requ
         await client.delete_term(term_id)
     except StudentPlatformError as exc:
         raise _forward(exc) from exc
-
-
-@router.get("/terms/{term_id}/roster")
-async def read_roster(
-    term_id: str, client: StudentPlatformClient = Depends(require_client)
-) -> dict[str, Any]:
-    """Student ids and their CRNs. Names never pass through here — see the roster screen."""
-    try:
-        return await client.read_roster(term_id)
-    except StudentPlatformError as error:
-        raise _forward(error) from error
-
-
-@router.put("/terms/{term_id}/roster/{student_id}")
-async def set_student_assignment(
-    term_id: str,
-    student_id: str,
-    body: AssignmentInput,
-    request: Request,
-    client: StudentPlatformClient = Depends(require_client),
-) -> dict[str, Any]:
-    """Place, move, or drop one student. The signed-in coordinator is recorded as the editor."""
-    staff = getattr(request.state, "staff_user", None)
-    try:
-        return await client.set_student_assignment(
-            term_id=term_id,
-            student_id=student_id,
-            crns=body.crns,
-            version=body.version,
-            actor=getattr(staff, "email", "") or "",
-        )
-    except StudentPlatformError as error:
-        raise _forward(error) from error
 
 
 @router.get("/announcements")

@@ -10,6 +10,7 @@ import { StaffMenu } from "@/components/StaffMenu";
 import { StaffSettings } from "@/components/StaffSettings";
 import { SyllabusBuilder } from "@/components/SyllabusBuilder";
 import { TeacherDatabase } from "@/components/TeacherDatabase";
+import { StudentDatabase } from "@/components/StudentDatabase";
 import { TimetableUploader } from "@/components/TimetableUploader";
 import { COORDINATOR_APPS } from "@/routes/apps";
 import { handbookUrl } from "@/routes/handbookRoute";
@@ -238,7 +239,7 @@ export function App() {
             </div>
           )}
         </section>
-      </div> : activeTool === "teachers" ? <TeacherDatabase /> : activeTool === "timetables" ? <TimetableUploader /> : <div className="min-h-0 flex-1"><SyllabusBuilder /></div>}
+      </div> : activeTool === "teachers" ? <TeacherDatabase /> : activeTool === "database" ? <StudentDatabase /> : activeTool === "timetables" ? <TimetableUploader /> : <div className="min-h-0 flex-1"><SyllabusBuilder /></div>}
     </main>
   );
 }

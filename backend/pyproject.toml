@@ -40,6 +40,8 @@ dev = [
 
 [tool.pytest.ini_options]
 markers = ["anonymous: run the test without a signed-in coordinator"]
+# So one test module can import another's workbook fixtures.
+pythonpath = ["."]
 
 [tool.ruff]
 line-length = 120

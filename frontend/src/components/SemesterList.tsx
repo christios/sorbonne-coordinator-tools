@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CalendarDays, Users } from "lucide-react";
+import { CalendarDays } from "lucide-react";
 import { useState } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -11,7 +11,7 @@ import {
 } from "@/services/timetables";
 
 /** Every semester the student platform holds, and whether students can see it yet. */
-export function SemesterList({ onOpenStudents }: { onOpenStudents: (term: TimetableTerm) => void }) {
+export function SemesterList() {
   const queryClient = useQueryClient();
   const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms });
   const [pendingDelete, setPendingDelete] = useState<TimetableTerm | null>(null);
@@ -89,13 +89,6 @@ export function SemesterList({ onOpenStudents }: { onOpenStudents: (term: Timeta
                             </button>
                           </td>
                           <td className="px-6 py-4 text-right">
-                            <button
-                              type="button"
-                              onClick={() => onOpenStudents(term)}
-                              className="mr-2 inline-flex items-center gap-2 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#1f4e79] hover:bg-[#f8fafc]"
-                            >
-                              <Users size={16} aria-hidden="true" /> Students
-                            </button>
                             <button
                               type="button"
                               onClick={() => setPendingDelete(term)}
