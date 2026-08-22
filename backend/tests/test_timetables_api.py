@@ -1,3 +1,5 @@
+import json
+
 import httpx
 import pytest
 from fastapi import status
@@ -240,3 +242,85 @@ def test_every_student_workbook_is_forwarded(client: TestClient):
 
     assert response.status_code == status.HTTP_201_CREATED
     assert seen["names"] == ["FYS-Groups.xlsx", "L1-Groups.xlsx", "LANG-Groups.xlsx"]
+
+
+# --------------------------------------------------------------- roster console
+
+ROSTER = {
+    "courses": [
+        {"crn": "22151", "code": "MATH-001", "title": "Pre-Calculus", "shortTitle": "Pre-Calculus",
+         "kind": "CM", "group": "Gr.A", "staff": "Dr Maaz"},
+        {"crn": "23652", "code": "MATH-011", "title": "Algorithms", "shortTitle": "Algorithms",
+         "kind": "TD", "group": "Gr.1", "staff": ""},
+    ],
+    "students": [
+        {"studentId": "A00021503", "crns": ["22151"], "version": 0, "updatedAt": "", "updatedBy": ""},
+    ],
+}
+
+
+def test_the_roster_comes_back_with_ids_and_no_names(client: TestClient):
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/api/v1/admin/terms/term-1/roster"
+        return httpx.Response(status.HTTP_200_OK, json=ROSTER)
+
+    response = use(client, handler).get("/api/v1/timetables/terms/term-1/roster")
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()["students"][0]["studentId"] == "A00021503"
+    assert "fullName" not in response.json()["students"][0]
+
+
+def test_placing_a_student_sends_the_signed_in_coordinator_as_the_editor(client: TestClient):
+    seen: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.update(json.loads(request.content))
+        return httpx.Response(
+            status.HTTP_200_OK,
+            json={"studentId": "A00021777", "crns": ["22151"], "version": 1,
+                  "updatedAt": "2026-08-22T09:00:00Z", "updatedBy": seen["actor"]},
+        )
+
+    response = use(client, handler).put(
+        "/api/v1/timetables/terms/term-1/roster/A00021777", json={"crns": ["22151"], "version": 0}
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert seen["crns"] == ["22151"]
+    # conftest signs the test client in, so the platform learns who made the change.
+    assert seen["actor"].endswith("@sorbonne.ae") or seen["actor"]
+    assert response.json()["version"] == 1
+
+
+def test_an_edit_conflict_keeps_the_platform_s_own_answer(client: TestClient):
+    conflict = {
+        "message": "Somebody else changed this student while you were working.",
+        "version": 3,
+        "updatedAt": "2026-08-22T08:58:00Z",
+        "updatedBy": "patricia@sorbonne.ae",
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(status.HTTP_409_CONFLICT, json={"detail": conflict})
+
+    response = use(client, handler).put(
+        "/api/v1/timetables/terms/term-1/roster/A00021503", json={"crns": [], "version": 0}
+    )
+
+    assert response.status_code == status.HTTP_409_CONFLICT
+    assert response.json()["detail"] == conflict
+
+
+def test_an_unknown_crn_is_forwarded_as_the_platform_worded_it(client: TestClient):
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            status.HTTP_400_BAD_REQUEST, json={"detail": "This term has no course with CRN 99999."}
+        )
+
+    response = use(client, handler).put(
+        "/api/v1/timetables/terms/term-1/roster/A00021503", json={"crns": ["99999"], "version": 0}
+    )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.json()["detail"] == "This term has no course with CRN 99999."

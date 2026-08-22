@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertCircle, CalendarDays, CheckCircle2, ExternalLink, Loader2, Upload } from "lucide-react";
+import { AlertCircle, CalendarDays, CheckCircle2, ExternalLink, Loader2, Upload, Users } from "lucide-react";
 import { useState } from "react";
 
 import { AnnouncementEditor } from "@/components/AnnouncementEditor";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { RosterConsole } from "@/components/RosterConsole";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import {
   TimetableTerm,
@@ -33,6 +34,7 @@ export function TimetableUploader() {
   const [enrolments, setEnrolments] = useState<File[]>([]);
   const [imported, setImported] = useState<TimetableTerm | null>(null);
   const [pendingDelete, setPendingDelete] = useState<TimetableTerm | null>(null);
+  const [reconciling, setReconciling] = useState<TimetableTerm | null>(null);
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["timetable-terms"] });
 
@@ -60,6 +62,11 @@ export function TimetableUploader() {
   const canImport = name.trim().length > 0 && timetable !== null && enrolments.length > 0 && !busy;
   const error =
     importMutation.error?.message ?? publishMutation.error?.message ?? deleteMutation.error?.message ?? null;
+
+  if (reconciling) {
+    const current = (terms.data ?? []).find((term) => term.id === reconciling.id) ?? reconciling;
+    return <RosterConsole term={current} onBack={() => setReconciling(null)} />;
+  }
 
   if (status.isLoading) {
     return <ScreenLoading label="Checking the student platform connection…" />;
@@ -246,6 +253,13 @@ export function TimetableUploader() {
                       </button>
                     </td>
                     <td className="px-6 py-4 text-right">
+                      <button
+                        type="button"
+                        onClick={() => setReconciling(term)}
+                        className="mr-2 inline-flex items-center gap-2 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#1f4e79] hover:bg-[#f8fafc]"
+                      >
+                        <Users size={16} aria-hidden="true" /> Students
+                      </button>
                       <button
                         type="button"
                         onClick={() => setPendingDelete(term)}
