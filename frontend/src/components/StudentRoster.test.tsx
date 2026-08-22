@@ -70,7 +70,7 @@ async function pull() {
   await screen.findByRole("option", { name: SAVED.name });
   fireEvent.change(screen.getByLabelText("Search"), { target: { value: SAVED.id } });
   fireEvent.click(screen.getByRole("button", { name: /pull from portal/i }));
-  await screen.findByText(/3 students pulled/i);
+  await screen.findByText(/3 pulled/i);
 }
 
 function rowFor(name: string): HTMLElement {
@@ -227,6 +227,23 @@ describe("StudentRoster", () => {
 
     expect(screen.queryByText("Amira Haddad")).toBeNull();
     expect(screen.getByText(/nothing pulled yet on this machine/i)).toBeTruthy();
+  });
+
+  it("keeps a filter composed in the dialog when it is closed", async () => {
+    // The dialog is an editor, not a form: closing it must not discard the work.
+    renderRoster();
+    fireEvent.click(await screen.findByRole("button", { name: /filters/i }));
+    fireEvent.change(await screen.findByLabelText("Year level"), { target: { value: "FY" } });
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByText(/Year level FY/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /pull from portal/i }));
+
+    await waitFor(() => expect(rosters.pullFilter).toHaveBeenCalled());
+    expect((rosters.pullFilter as ReturnType<typeof vi.fn>).mock.calls[0][0]).toEqual({
+      YEARLEVEL_CODE: ["FY"],
+    });
   });
 
   it("sends the saved search's own codes to the extension", async () => {

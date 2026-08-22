@@ -3,7 +3,6 @@ import { ArrowDown, ArrowUp, Search, UserMinus, UserPlus } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import type { Filter } from "@/services/filterSummary";
-import { PortalFilterFields } from "@/components/PortalFilterFields";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { SearchBar } from "@/components/SearchBar";
 import { PortalError, pullFilter } from "@/services/scenRosters";
@@ -148,16 +147,16 @@ export function StudentRoster({ cohorts }: { cohorts: Cohort[] }) {
 
   return (
     <>
-      <div className="flex flex-wrap items-end justify-between gap-4 pb-4">
-        <label className="text-sm font-semibold text-[#344054]">
-          Against cohort
+      <div className="rounded-lg border border-[#d9dee7] bg-white px-4 py-3">
+        <div className="flex flex-wrap items-center gap-2">
           <select
+            aria-label="Cohort"
             value={cohort?.id ?? ""}
             onChange={(event) => {
               setCohortId(event.target.value);
               setSelected(new Set());
             }}
-            className="ml-2 rounded-md border border-[#cbd5e1] px-3 py-2 text-sm font-normal"
+            className="rounded-md border border-[#cbd5e1] bg-white px-3 py-2 text-sm font-semibold text-[#344054]"
           >
             {cohorts.map((candidate) => (
               <option key={candidate.id} value={candidate.id}>
@@ -166,42 +165,45 @@ export function StudentRoster({ cohorts }: { cohorts: Cohort[] }) {
               </option>
             ))}
           </select>
-        </label>
 
+          <span className="text-[#d9dee7]">|</span>
+
+          <SearchBar
+            stored={stored}
+            pulling={pull.isPending}
+            onPull={(filter, meta) => pull.mutate({ filter, meta })}
+            onForget={() => {
+              forgetRosters();
+              setStored({});
+            }}
+          />
+        </div>
       </div>
 
-      <SearchBar
-        stored={stored}
-        pulling={pull.isPending}
-        onPull={(filter, meta) => pull.mutate({ filter, meta })}
-        onForget={() => {
-          forgetRosters();
-          setStored({});
-        }}
-      />
-
       {error ? (
-        <p role="alert" className="mb-4 rounded-md border border-[#e5b7b9] bg-[#fdf3f3] px-4 py-3 text-sm text-[#a6292f]">
+        <p role="alert" className="mt-3 rounded-md border border-[#e5b7b9] bg-[#fdf3f3] px-4 py-3 text-sm text-[#a6292f]">
           {error instanceof PortalError ? error.message : (error as Error).message}
         </p>
       ) : null}
 
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="mt-4 flex flex-wrap items-center gap-x-1 gap-y-2">
         {MEMBERSHIPS.map((option) => (
           <button
             key={option.id}
             type="button"
             onClick={() => setFilters({ ...filters, membership: option.id })}
-            className={`rounded-md px-3 py-2 text-sm font-semibold ${
+            className={`rounded-md px-2.5 py-1.5 text-sm ${
               filters.membership === option.id
-                ? "bg-[#e8edf3] text-[#1f4e79]"
-                : "border border-[#d9dee7] bg-white text-[#344054] hover:bg-[#f8fafc]"
+                ? "bg-[#e8edf3] font-semibold text-[#1f4e79]"
+                : "text-[#667085] hover:bg-[#f2f7fb]"
             }`}
           >
             {option.label}
-            <span className="ml-2 tabular-nums text-xs text-[#667085]">{counts[option.id]}</span>
+            <span className="ml-1.5 tabular-nums text-xs text-[#98a2b3]">{counts[option.id]}</span>
           </button>
         ))}
+
+        <span className="mx-1 text-[#e4e8ef]">|</span>
 
         <Choice
           label="Year"
@@ -230,7 +232,7 @@ export function StudentRoster({ cohorts }: { cohorts: Cohort[] }) {
       </div>
 
       {chosen.length ? (
-        <div className="mt-4 flex flex-wrap items-center gap-3 rounded-md border border-[#cfe0ef] bg-[#f2f7fb] px-4 py-3 text-sm">
+        <div className="mt-3 flex flex-wrap items-center gap-3 rounded-md border border-[#cfe0ef] bg-[#f2f7fb] px-4 py-2.5 text-sm">
           <span className="font-semibold text-[#1f4e79]">{chosen.length} selected</span>
           <button
             type="button"
@@ -254,7 +256,7 @@ export function StudentRoster({ cohorts }: { cohorts: Cohort[] }) {
         </div>
       ) : null}
 
-      <section className="mt-4 overflow-x-auto rounded-lg border border-[#d9dee7] bg-white">
+      <section className="mt-3 overflow-x-auto rounded-lg border border-[#d9dee7] bg-white">
         <table className="w-full min-w-[48rem] text-left text-sm">
           <thead className="text-xs uppercase tracking-wide text-[#667085]">
             <tr>
@@ -319,8 +321,6 @@ export function StudentRoster({ cohorts }: { cohorts: Cohort[] }) {
           </tbody>
         </table>
       </section>
-
-      <PortalFilterFields />
     </>
   );
 }

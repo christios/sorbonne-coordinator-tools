@@ -1,4 +1,4 @@
-import { Check, Plus, X } from "lucide-react";
+import { X } from "lucide-react";
 import { useState } from "react";
 
 import type { Filter } from "@/services/filterSummary";
@@ -7,10 +7,10 @@ import type { PortalField } from "@/services/scenRosters";
 /**
  * Compose a registrar search from the fields the portal offers.
  *
- * Every control here is generated from the extension's schema, so the day the extension
- * reads a new field from the portal it appears in this panel without a code change. A
- * field with a fixed list of codes becomes a set of toggles; one without becomes a text
- * box, because that is what the portal does with it.
+ * Every row is generated from the extension's schema, so a field the portal gains appears
+ * here without a code change. Each field is a dropdown: pick a value and it joins the
+ * chosen ones underneath, which is the only shape that copes with the long code tables —
+ * the portal's nationality list alone runs to 139 entries.
  */
 export function FilterBuilder({
   fields,
@@ -27,8 +27,8 @@ export function FilterBuilder({
   if (fields.length === 0) {
     return (
       <p className="text-sm text-[#667085]">
-        The extension has not told us what the portal can be filtered by, so there is nothing to
-        build a search from yet.
+        The extension has not said what the portal can be filtered by, so there is nothing to build
+        a search from yet.
       </p>
     );
   }
@@ -41,29 +41,21 @@ export function FilterBuilder({
   };
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2">
+    <div className="divide-y divide-[#eef1f5]">
       {fields.map((field) => (
-        <fieldset key={field.key} className="rounded-md border border-[#e4e8ef] px-3 py-2">
-          <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-[#667085]">
-            {field.label || field.key}
-          </legend>
-          {field.options.length ? (
-            <Choices
-              field={field}
-              trusted={trusted || field.verified === true}
-              chosen={filter[field.key] ?? []}
-              onChange={(values) => set(field.key, values)}
-            />
-          ) : (
-            <FreeText values={filter[field.key] ?? []} onChange={(values) => set(field.key, values)} />
-          )}
-        </fieldset>
+        <FilterRow
+          key={field.key}
+          field={field}
+          trusted={trusted || field.verified === true}
+          chosen={filter[field.key] ?? []}
+          onChange={(values) => set(field.key, values)}
+        />
       ))}
     </div>
   );
 }
 
-function Choices({
+function FilterRow({
   field,
   trusted,
   chosen,
@@ -74,137 +66,107 @@ function Choices({
   chosen: string[];
   onChange: (values: string[]) => void;
 }) {
-  const extra = chosen.filter((value) => !field.options.some((option) => option.value === value));
+  const label = field.label || field.key;
+  const known = new Map(field.options.map((option) => [option.value, option.label]));
+  const available = field.options.filter((option) => !chosen.includes(option.value));
 
-  return (
-    <div className="flex flex-wrap gap-1.5 py-1">
-      {field.options.map((option) => {
-        const on = chosen.includes(option.value);
-        return (
-          <button
-            key={option.value}
-            type="button"
-            aria-pressed={on}
-            aria-label={`${field.label || field.key}: ${option.label || option.value}`}
-            onClick={() =>
-              onChange(on ? chosen.filter((value) => value !== option.value) : [...chosen, option.value])
-            }
-            title={option.label}
-            className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${
-              on
-                ? "bg-[#1f4e79] text-white"
-                : "border border-[#d9dee7] bg-white text-[#344054] hover:bg-[#f2f7fb]"
-            }`}
-          >
-            {on ? <Check size={11} aria-hidden="true" /> : null}
-            {option.value}
-          </button>
-        );
-      })}
-
-      {extra.map((value) => (
-        <span
-          key={value}
-          className="inline-flex items-center gap-1 rounded-full bg-[#1f4e79] px-2.5 py-1 text-xs font-semibold text-white"
-        >
-          {value}
-          <button
-            type="button"
-            aria-label={`Remove ${value}`}
-            onClick={() => onChange(chosen.filter((kept) => kept !== value))}
-          >
-            <X size={11} aria-hidden="true" />
-          </button>
-        </span>
-      ))}
-
-      {trusted ? null : (
-        // These values were written by hand and never confirmed, so the list is a
-        // suggestion: the code you need may simply not be on it.
-        <AddValue
-          label={`Another ${field.label || field.key} code`}
-          onAdd={(value) => (chosen.includes(value) ? undefined : onChange([...chosen, value]))}
-        />
-      )}
-    </div>
-  );
-}
-
-/** Type a code the offered list does not have. */
-function AddValue({ label, onAdd }: { label: string; onAdd: (value: string) => void }) {
-  const [draft, setDraft] = useState("");
-
-  return (
-    <span className="inline-flex items-center gap-1">
-      <input
-        aria-label={label}
-        value={draft}
-        onChange={(event) => setDraft(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key !== "Enter") return;
-          event.preventDefault();
-          if (draft.trim()) onAdd(draft.trim());
-          setDraft("");
-        }}
-        placeholder="other…"
-        className="w-20 rounded-full border border-dashed border-[#b7bec8] px-2 py-1 text-xs"
-      />
-    </span>
-  );
-}
-
-/** A field the portal takes free text for — a surname, an id fragment. */
-function FreeText({ values, onChange }: { values: string[]; onChange: (values: string[]) => void }) {
-  const [draft, setDraft] = useState("");
-
-  const add = () => {
-    const value = draft.trim();
-    if (!value || values.includes(value)) return;
-    onChange([...values, value]);
-    setDraft("");
+  const add = (value: string) => {
+    const trimmed = value.trim();
+    if (trimmed && !chosen.includes(trimmed)) onChange([...chosen, trimmed]);
   };
 
   return (
-    <div className="py-1">
-      <div className="flex flex-wrap gap-1.5">
-        {values.map((value) => (
-          <span
-            key={value}
-            className="inline-flex items-center gap-1 rounded-full bg-[#1f4e79] px-2.5 py-1 text-xs font-semibold text-white"
-          >
-            {value}
-            <button
-              type="button"
-              aria-label={`Remove ${value}`}
-              onClick={() => onChange(values.filter((kept) => kept !== value))}
-            >
-              <X size={11} aria-hidden="true" />
-            </button>
-          </span>
-        ))}
+    <div className="grid gap-2 py-3 sm:grid-cols-[12rem_minmax(0,1fr)] sm:items-start sm:gap-4">
+      <div className="pt-1">
+        <span className="block text-sm font-semibold text-[#344054]">{label}</span>
+        <span className="block text-xs tabular-nums text-[#98a2b3]">{field.key}</span>
       </div>
-      <div className="mt-1.5 flex gap-1.5">
-        <input
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key !== "Enter") return;
-            event.preventDefault();
-            add();
-          }}
-          placeholder="Add a value"
-          className="w-full rounded-md border border-[#cbd5e1] px-2 py-1 text-sm"
-        />
-        <button
-          type="button"
-          onClick={add}
-          disabled={!draft.trim()}
-          aria-label="Add value"
-          className="rounded-md border border-[#b7bec8] px-2 text-[#1f4e79] disabled:opacity-40"
-        >
-          <Plus size={14} aria-hidden="true" />
-        </button>
+
+      <div>
+        {field.options.length ? (
+          <select
+            aria-label={label}
+            value=""
+            onChange={(event) => add(event.target.value)}
+            className="w-full max-w-sm rounded-md border border-[#cbd5e1] px-3 py-2 text-sm"
+          >
+            <option value="">{available.length ? `Add ${label.toLowerCase()}…` : "All added"}</option>
+            {available.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label && option.label !== option.value
+                  ? `${option.value} — ${option.label}`
+                  : option.value}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <TypeCode label={label} placeholder="Type a code, then Enter" onAdd={add} />
+        )}
+
+        {chosen.length ? (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {chosen.map((value) => (
+              <span
+                key={value}
+                className="inline-flex items-center gap-1 rounded-full bg-[#e8edf3] px-2.5 py-1 text-xs font-semibold text-[#1f4e79]"
+                title={known.get(value) || value}
+              >
+                {value}
+                <button
+                  type="button"
+                  aria-label={`Remove ${value} from ${label}`}
+                  onClick={() => onChange(chosen.filter((kept) => kept !== value))}
+                >
+                  <X size={11} aria-hidden="true" />
+                </button>
+              </span>
+            ))}
+          </div>
+        ) : null}
+
+        {field.options.length && !trusted ? (
+          // The list was written by hand and never confirmed, so it may be missing the code
+          // you need — which is exactly what went wrong with the enrolment statuses.
+          <TypeCode
+            label={`Another ${label.toLowerCase()} code`}
+            placeholder="or type a code the list is missing"
+            dashed
+            onAdd={add}
+          />
+        ) : null}
       </div>
     </div>
+  );
+}
+
+function TypeCode({
+  label,
+  placeholder,
+  dashed = false,
+  onAdd,
+}: {
+  label: string;
+  placeholder: string;
+  dashed?: boolean;
+  onAdd: (value: string) => void;
+}) {
+  const [typed, setTyped] = useState("");
+
+  return (
+    <input
+      aria-label={label}
+      value={typed}
+      onChange={(event) => setTyped(event.target.value)}
+      onKeyDown={(event) => {
+        if (event.key !== "Enter") return;
+        event.preventDefault();
+        onAdd(typed);
+        setTyped("");
+      }}
+      placeholder={placeholder}
+      className={`w-full max-w-sm rounded-md border px-3 text-sm ${
+        dashed ? "mt-2 border-dashed border-[#cbd5e1] py-1.5 text-xs" : "border-[#cbd5e1] py-2"
+      }`}
+    />
   );
 }

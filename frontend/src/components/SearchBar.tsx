@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Check, Download, Loader2, Pencil, Save, Trash2 } from "lucide-react";
+import { Download, Loader2, Save, SlidersHorizontal, Trash2 } from "lucide-react";
 import { useState } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { FilterBuilder } from "@/components/FilterBuilder";
+import { Modal } from "@/components/Modal";
 import { describeFilter, type Filter } from "@/services/filterSummary";
 import { describeAge, type StoredPreset } from "@/services/rosterStore";
 import { fetchSchema, listPresets } from "@/services/scenRosters";
@@ -18,9 +19,9 @@ import {
 /**
  * Choosing, composing and saving a registrar search.
  *
- * A search is a set of portal codes. Saved ones live in our database and are shared, so
- * a search written once is everybody's; the extension checks whatever is composed here
- * against the portal's own schema before it asks for anything.
+ * The toolbar stays one line: which search, edit it, pull it. Composing a search needs
+ * room — nineteen fields, some with long code tables — so it happens in a dialog rather
+ * than pushing the roster down the page.
  */
 export function SearchBar({
   stored,
@@ -38,14 +39,17 @@ export function SearchBar({
   const searches = useQuery({ queryKey: ["saved-searches"], queryFn: fetchSavedSearches });
 
   const [chosenId, setChosenId] = useState("");
+  // What is being edited, and what is in use. Closing the dialog keeps the work: it is a
+  // filter editor, not a form, and there is nothing destructive to undo.
   const [draft, setDraft] = useState<Filter | null>(null);
+  const [applied, setApplied] = useState<Filter | null>(null);
   const [name, setName] = useState("");
   const [pendingDelete, setPendingDelete] = useState<SavedSearch | null>(null);
 
   const saved = searches.data ?? [];
   const chosen = saved.find((search) => search.id === chosenId) ?? null;
   const fields = schema.data?.fields ?? [];
-  const filter = draft ?? chosen?.filter ?? {};
+  const filter = draft ?? applied ?? chosen?.filter ?? {};
   const editing = draft !== null;
 
   const refresh = () => client.invalidateQueries({ queryKey: ["saved-searches"] });
@@ -57,6 +61,7 @@ export function SearchBar({
     onSuccess: (search) => {
       setChosenId(search.id);
       setDraft(null);
+      setApplied(null);
       setName("");
       refresh();
     },
@@ -70,63 +75,72 @@ export function SearchBar({
   });
   const importPresets = useMutation({
     mutationFn: async () => {
-      const presets = await listPresets();
-      const importable = presets.filter((preset) => preset.filter);
       const existing = new Set(saved.map((search) => search.name));
-      let added = 0;
-      for (const preset of importable) {
-        if (existing.has(preset.name)) continue;
+      const presets = (await listPresets()).filter(
+        (preset) => preset.filter && !existing.has(preset.name),
+      );
+      for (const preset of presets) {
         await createSavedSearch({
           name: preset.name,
           filter: preset.filter as Filter,
           expectedCount: preset.expect ?? 0,
         });
-        added += 1;
       }
-      return added;
+      return presets.length;
     },
     onSuccess: refresh,
   });
+
+  /** Take the composed filter into use and close the dialog. */
+  const keep = () => {
+    setApplied(draft);
+    setDraft(null);
+  };
 
   const current = stored.current;
   const empty = Object.keys(filter).length === 0;
   const error = save.error ?? remove.error ?? importPresets.error ?? searches.error;
 
   return (
-    <section className="rounded-lg border border-[#d9dee7] bg-white p-4">
-      <div className="flex flex-wrap items-end gap-3">
-        <label className="text-sm font-semibold text-[#344054]">
-          Search
-          <select
-            value={chosenId}
-            onChange={(event) => {
-              setChosenId(event.target.value);
-              setDraft(null);
-            }}
-            className="ml-2 rounded-md border border-[#cbd5e1] px-3 py-2 text-sm font-normal"
-          >
-            <option value="">Choose a saved search…</option>
-            {saved.map((search) => (
-              <option key={search.id} value={search.id}>
-                {search.name}
-              </option>
-            ))}
-          </select>
-        </label>
+    <>
+      <div className="flex flex-wrap items-center gap-2">
+        <select
+          aria-label="Search"
+          value={chosenId}
+          onChange={(event) => {
+            setChosenId(event.target.value);
+            setDraft(null);
+            setApplied(null);
+          }}
+          className="rounded-md border border-[#cbd5e1] bg-white px-3 py-2 text-sm"
+        >
+          <option value="">{saved.length ? "Choose a saved search…" : "No saved searches yet"}</option>
+          {saved.map((search) => (
+            <option key={search.id} value={search.id}>
+              {search.name}
+            </option>
+          ))}
+        </select>
 
         <button
           type="button"
-          onClick={() => setDraft(editing ? null : { ...filter })}
-          className="inline-flex items-center gap-2 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#1f4e79] hover:bg-[#f8fafc]"
+          onClick={() => {
+            setDraft({ ...filter });
+            setName(chosen?.name ?? "");
+          }}
+          className="inline-flex items-center gap-2 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc]"
         >
-          <Pencil size={15} aria-hidden="true" /> {editing ? "Done editing" : "Edit filters"}
+          <SlidersHorizontal size={15} aria-hidden="true" /> Filters
         </button>
 
         <button
           type="button"
           disabled={pulling || empty}
           onClick={() =>
-            onPull(filter, { name: chosen?.name ?? describeFilter(filter, fields), expect: chosen?.expectedCount ?? null })
+            onPull(filter, {
+              name: chosen?.name ?? describeFilter(filter, fields),
+              expect: chosen?.expectedCount ?? null,
+            })
           }
           className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
         >
@@ -142,30 +156,20 @@ export function SearchBar({
           <button
             type="button"
             aria-label={`Delete ${chosen.name}`}
+            title={`Delete ${chosen.name}`}
             onClick={() => setPendingDelete(chosen)}
-            className="rounded-md p-2 text-[#a6292f] hover:bg-[#fdf3f3]"
+            className="rounded-md p-2 text-[#98a2b3] hover:bg-[#fdf3f3] hover:text-[#a6292f]"
           >
             <Trash2 size={15} aria-hidden="true" />
           </button>
         ) : null}
-
-        {saved.length === 0 ? (
-          <button
-            type="button"
-            onClick={() => importPresets.mutate()}
-            disabled={importPresets.isPending}
-            className="ml-auto text-sm text-[#1f4e79] underline"
-          >
-            {importPresets.isPending ? "Importing…" : "Import the extension's presets"}
-          </button>
-        ) : null}
       </div>
 
-      <p className="mt-2 text-sm text-[#667085]">
-        <span className="font-medium text-[#344054]">{describeFilter(filter, fields)}</span>
+      <p className="mt-2 text-xs text-[#98a2b3]">
+        {describeFilter(filter, fields)}
         {current ? (
           <>
-            {` · ${current.count} students pulled ${describeAge(current.fetchedAt)}${
+            {` · ${current.count} pulled ${describeAge(current.fetchedAt)}${
               stored.previous ? `, compared with ${describeAge(stored.previous.fetchedAt)}` : ""
             }. `}
             <button type="button" onClick={onForget} className="underline">
@@ -178,62 +182,72 @@ export function SearchBar({
       </p>
 
       {error ? (
-        <p role="alert" className="mt-3 rounded-md border border-[#e5b7b9] bg-[#fdf3f3] px-3 py-2 text-sm text-[#a6292f]">
+        <p role="alert" className="mt-2 text-sm text-[#a6292f]">
           {(error as Error).message}
         </p>
       ) : null}
 
-      {editing ? (
-        <div className="mt-4 border-t border-[#eef1f5] pt-4">
-          <FilterBuilder
-            fields={fields}
-            filter={filter}
-            trusted={schema.data?.source === "portal"}
-            onChange={setDraft}
-          />
-
-          <div className="mt-4 flex flex-wrap items-end gap-2">
-            <label className="text-sm font-semibold text-[#344054]">
-              Save as
-              <input
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                placeholder={chosen?.name ?? "SCEN — First Year (active)"}
-                className="ml-2 w-64 rounded-md border border-[#cbd5e1] px-3 py-2 text-sm font-normal"
-              />
-            </label>
+      <Modal
+        open={editing}
+        title="Filters"
+        description="Pick the students the portal should return. A saved search is shared with every coordinator."
+        onClose={keep}
+        footer={
+          <>
+            {saved.length === 0 ? (
+              <button
+                type="button"
+                onClick={() => importPresets.mutate()}
+                disabled={importPresets.isPending}
+                className="mr-auto text-sm text-[#1f4e79] underline"
+              >
+                {importPresets.isPending ? "Importing…" : "Import the extension's presets"}
+              </button>
+            ) : null}
+            <input
+              aria-label="Name"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              placeholder="Name this search"
+              className="w-56 rounded-md border border-[#cbd5e1] px-3 py-2 text-sm"
+            />
+            <button
+              type="button"
+              onClick={keep}
+              className="rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#344054]"
+            >
+              Done
+            </button>
             <button
               type="button"
               disabled={!name.trim() || empty || save.isPending}
               onClick={() => save.mutate()}
               className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
             >
-              <Save size={15} aria-hidden="true" /> Save for everyone
+              <Save size={15} aria-hidden="true" />
+              {chosen && chosen.name === name.trim() ? "Save changes" : "Save for everyone"}
             </button>
-            {chosen ? (
-              <button
-                type="button"
-                onClick={() => setName(chosen.name)}
-                className="text-sm text-[#667085] underline"
-              >
-                Overwrite {chosen.name}
-              </button>
-            ) : null}
-          </div>
-        </div>
-      ) : null}
+          </>
+        }
+      >
+        {schema.data && !schema.data.ok ? (
+          <p role="alert" className="mb-3 rounded-md border border-[#e5b7b9] bg-[#fdf3f3] px-3 py-2 text-sm text-[#a6292f]">
+            {schema.data.error}
+          </p>
+        ) : schema.data?.source === "built-in" ? (
+          <p className="mb-3 rounded-md border border-[#f0e0b8] bg-[#fffaf0] px-3 py-2 text-sm text-[#8a6d00]">
+            These codes are the extension's built-in list. Open the portal's Student Search page once
+            and they are replaced by the portal's own.
+          </p>
+        ) : null}
 
-      {schema.data && schema.data.source === "built-in" ? (
-        <p className="mt-3 inline-flex items-center gap-1 text-xs text-[#8a6d00]">
-          <AlertTriangle size={12} aria-hidden="true" />
-          These codes were written by hand and only partly confirmed — type any the list is
-          missing. Visiting the portal once replaces them with its own.
-        </p>
-      ) : schema.data?.source === "portal" ? (
-        <p className="mt-3 inline-flex items-center gap-1 text-xs text-[#98a2b3]">
-          <Check size={12} aria-hidden="true" /> Filters read from the portal itself.
-        </p>
-      ) : null}
+        <FilterBuilder
+          fields={fields}
+          filter={filter}
+          trusted={schema.data?.source === "portal"}
+          onChange={setDraft}
+        />
+      </Modal>
 
       <ConfirmDialog
         open={pendingDelete !== null}
@@ -250,6 +264,6 @@ export function SearchBar({
         }}
         onClose={() => setPendingDelete(null)}
       />
-    </section>
+    </>
   );
 }
