@@ -122,7 +122,11 @@ describe("the extension's service worker", () => {
   it("refuses a filter the schema does not allow, without calling the portal", async () => {
     const reply = await send({ type: "fetch", filter: { PASSPORT_ID: ["X"] } });
 
-    expect(reply).toMatchObject({ ok: false, error: "filter_refused", detail: "unknown_field:PASSPORT_ID" });
+    expect(reply).toMatchObject({
+      ok: false,
+      error: "filter_refused",
+      detail: "sensitive_field:PASSPORT_ID",
+    });
     expect(requests).toHaveLength(0);
   });
 

@@ -203,3 +203,40 @@ export async function removeMembers(cohortId: string, studentIds: string[]): Pro
   );
   return body.removed;
 }
+
+// ------------------------------------------------------------- saved searches
+
+/** A named registrar search: portal codes, shared with every coordinator. */
+export type SavedSearch = {
+  id: string;
+  name: string;
+  description: string;
+  filter: Record<string, string[]>;
+  expectedCount: number;
+  createdAt: string;
+  updatedAt: string;
+  updatedBy: string;
+};
+
+export type SavedSearchInput = {
+  name: string;
+  description?: string;
+  filter: Record<string, string[]>;
+  expectedCount?: number;
+};
+
+export async function fetchSavedSearches(): Promise<SavedSearch[]> {
+  return (await request<{ filters: SavedSearch[] }>(`${BASE}/filters`)).filters;
+}
+
+export function createSavedSearch(input: SavedSearchInput): Promise<SavedSearch> {
+  return send<SavedSearch>(`${BASE}/filters`, "POST", { description: "", expectedCount: 0, ...input });
+}
+
+export function updateSavedSearch(id: string, input: SavedSearchInput): Promise<SavedSearch> {
+  return send<SavedSearch>(`${BASE}/filters/${id}`, "PUT", { description: "", expectedCount: 0, ...input });
+}
+
+export function deleteSavedSearch(id: string): Promise<void> {
+  return request<void>(`${BASE}/filters/${id}`, { method: "DELETE" });
+}

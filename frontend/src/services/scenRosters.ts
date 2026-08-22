@@ -28,7 +28,13 @@ export type RosterRow = {
   [column: string]: string | number | null | undefined;
 };
 
-export type RosterPreset = { id: string; name: string; expect: number | null };
+export type RosterPreset = {
+  id: string;
+  name: string;
+  expect: number | null;
+  /** The codes the preset stands for, so it can be imported as a saved search. */
+  filter?: Record<string, string[]>;
+};
 
 export type PortalRoster = {
   presetId: string;
@@ -86,6 +92,8 @@ export type PortalField = {
   key: string;
   label: string;
   options: { value: string; label: string }[];
+  /** True only where the values have been confirmed — see filter-schema.js. */
+  verified?: boolean;
   source?: string;
 };
 
@@ -147,12 +155,29 @@ function messageFor(code: string, detail = ""): string {
   }
 }
 
-/** Pull one saved search. Only a preset id crosses to the extension — never a raw filter. */
+/** Pull one of the extension's own presets, by name. */
 export async function pullRoster(presetId: string): Promise<PortalRoster> {
-  const reply = await ask("fetch", { presetId });
+  return run({ presetId }, presetId);
+}
+
+/**
+ * Pull a filter composed here.
+ *
+ * The extension checks every field and value against the schema before it asks the
+ * portal anything, so this can only ask for combinations the portal itself offers.
+ */
+export async function pullFilter(
+  filter: Record<string, string[]>,
+  meta: { name?: string; expect?: number | null } = {},
+): Promise<PortalRoster> {
+  return run({ filter, meta }, "");
+}
+
+async function run(request: Record<string, unknown>, presetId: string): Promise<PortalRoster> {
+  const reply = await ask("fetch", request);
   if (!reply.ok) throw new PortalError(String(reply.error ?? "unknown"), String(reply.message ?? ""));
   return {
-    presetId,
+    presetId: String(reply.presetId ?? presetId),
     name: String(reply.name ?? presetId),
     count: Number(reply.count ?? 0),
     expect: (reply.expect as number | null) ?? null,

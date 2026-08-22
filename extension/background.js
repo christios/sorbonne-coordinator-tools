@@ -64,8 +64,8 @@ async function fetchPreset(presetId) {
 /** Run one composed filter, once it has been checked against the schema. */
 async function fetchFilter(filter, meta = {}) {
   const cfg = await config();
-  const { fields } = await schema();
-  const refusal = checkFilter(filter, fields);
+  const { fields, source } = await schema();
+  const refusal = checkFilter(filter, fields, { trustValues: source === 'portal' });
   if (refusal) return { ok: false, error: 'filter_refused', detail: refusal };
 
   const body = {
@@ -130,7 +130,9 @@ async function handle(msg) {
       return {
         ok: true,
         term: cfg.term,
-        presets: cfg.presets.map(p => ({ id: p.id, name: p.name, expect: p.expect || null }))
+        presets: cfg.presets.map(p => ({
+          id: p.id, name: p.name, expect: p.expect || null, filter: p.filter
+        }))
       };
     }
     case 'schema':

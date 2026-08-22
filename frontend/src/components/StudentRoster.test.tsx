@@ -20,6 +20,28 @@ const COHORTS: database.Cohort[] = [
   },
 ];
 
+const SAVED: database.SavedSearch = {
+  id: "search-1",
+  name: "SCEN — First Year",
+  description: "",
+  filter: { YEARLEVEL_CODE: ["FY"] },
+  expectedCount: 3,
+  createdAt: "",
+  updatedAt: "",
+  updatedBy: "coordinator@sorbonne.ae",
+};
+
+const SCHEMA: rosters.PortalSchema = {
+  ok: true,
+  source: "built-in",
+  fields: [
+    { key: "YEARLEVEL_CODE", label: "Year level", options: [{ value: "FY", label: "FY" }], verified: true },
+  ],
+  term: { code: "262710", label: "First Semester 2026-2027" },
+  harvestedAt: null,
+  error: "",
+};
+
 const PORTAL: rosters.PortalRoster = {
   presetId: "scen-fy",
   name: "SCEN — First Year",
@@ -44,8 +66,11 @@ function renderRoster() {
 }
 
 async function pull() {
-  fireEvent.click(await screen.findByRole("button", { name: /pull from portal/i }));
-  await screen.findByText(/3 students from/i);
+  // The saved searches arrive asynchronously; selecting one before it exists does nothing.
+  await screen.findByRole("option", { name: SAVED.name });
+  fireEvent.change(screen.getByLabelText("Search"), { target: { value: SAVED.id } });
+  fireEvent.click(screen.getByRole("button", { name: /pull from portal/i }));
+  await screen.findByText(/3 students pulled/i);
 }
 
 function rowFor(name: string): HTMLElement {
@@ -59,11 +84,9 @@ beforeEach(() => {
     { studentId: "A001", addedAt: "", addedBy: "", groups: {} },
     { studentId: "A999", addedAt: "", addedBy: "", groups: {} },
   ]);
-  vi.spyOn(rosters, "isExtensionInstalled").mockResolvedValue(true);
-  vi.spyOn(rosters, "listPresets").mockResolvedValue([
-    { id: "scen-fy", name: "SCEN — First Year", expect: 3 },
-  ]);
-  vi.spyOn(rosters, "pullRoster").mockResolvedValue(PORTAL);
+  vi.spyOn(database, "fetchSavedSearches").mockResolvedValue([SAVED]);
+  vi.spyOn(rosters, "fetchSchema").mockResolvedValue(SCHEMA);
+  vi.spyOn(rosters, "pullFilter").mockResolvedValue(PORTAL);
 });
 
 afterEach(() => {
@@ -173,14 +196,14 @@ describe("StudentRoster", () => {
     expect(await screen.findByText("Amira Haddad")).toBeTruthy();
     expect(screen.getByText(/pulled just now/)).toBeTruthy();
     // And without pulling again — one round trip to the portal, not one per page change.
-    expect(rosters.pullRoster).toHaveBeenCalledTimes(1);
+    expect(rosters.pullFilter).toHaveBeenCalledTimes(1);
   });
 
   it("marks what the portal now says differently, against the previous pull", async () => {
     renderRoster();
     await pull();
 
-    vi.spyOn(rosters, "pullRoster").mockResolvedValue({
+    vi.spyOn(rosters, "pullFilter").mockResolvedValue({
       ...PORTAL,
       fetchedAt: Date.now() + 60_000,
       rows: [
@@ -203,15 +226,28 @@ describe("StudentRoster", () => {
     fireEvent.click(screen.getByRole("button", { name: /forget stored rosters/i }));
 
     expect(screen.queryByText("Amira Haddad")).toBeNull();
-    expect(screen.getByText(/Nothing pulled yet on this machine/)).toBeTruthy();
+    expect(screen.getByText(/nothing pulled yet on this machine/i)).toBeTruthy();
   });
 
-  it("still works with no extension, and says so", async () => {
-    vi.spyOn(rosters, "isExtensionInstalled").mockResolvedValue(false);
-    vi.spyOn(rosters, "listPresets").mockResolvedValue([]);
+  it("sends the saved search's own codes to the extension", async () => {
+    renderRoster();
+    await pull();
+
+    expect(rosters.pullFilter).toHaveBeenCalledWith(
+      { YEARLEVEL_CODE: ["FY"] },
+      { name: SAVED.name, expect: SAVED.expectedCount },
+    );
+  });
+
+  it("still shows the cohort's ids when the extension cannot be reached", async () => {
+    vi.spyOn(rosters, "fetchSchema").mockResolvedValue({
+      ...SCHEMA,
+      ok: false,
+      fields: [],
+      error: "The SCEN Rosters extension did not answer.",
+    });
     renderRoster();
 
-    expect(await screen.findByText(/extension is not answering/i)).toBeTruthy();
-    expect(screen.getByText("A001")).toBeTruthy();
+    expect(await screen.findByText("A001")).toBeTruthy();
   });
 });

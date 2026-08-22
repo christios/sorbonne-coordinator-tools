@@ -180,7 +180,8 @@
      "value": "L3",
      "label": "Licence 3"
     }
-   ]
+   ],
+   "verified": true
   },
   {
    "key": "STST_CODE",
@@ -214,21 +215,14 @@
      "value": "DI",
      "label": "Dismissed"
     }
-   ]
+   ],
+   "verified": false
   },
   {
    "key": "ESTS_CODE",
    "label": "Enrolment status",
-   "options": [
-    {
-     "value": "NA",
-     "label": "Not available"
-    },
-    {
-     "value": "NS",
-     "label": "No show"
-    }
-   ]
+   "options": [],
+   "verified": false
   },
   {
    "key": "MAJOR_CODE",
@@ -242,7 +236,8 @@
      "value": "PHYS",
      "label": "Physics"
     }
-   ]
+   ],
+   "verified": true
   },
   {
    "key": "DEPT_CODE",
@@ -252,7 +247,8 @@
      "value": "SCEN",
      "label": "Sciences & Engineering"
     }
-   ]
+   ],
+   "verified": true
   },
   {
    "key": "LEVEL_CODE",
@@ -262,7 +258,8 @@
      "value": "UG",
      "label": "Undergraduate"
     }
-   ]
+   ],
+   "verified": false
   },
   {
    "key": "CAMPUS_CODE",
@@ -272,7 +269,8 @@
      "value": "AD",
      "label": "Abu Dhabi"
     }
-   ]
+   ],
+   "verified": false
   },
   {
    "key": "STYP_CODE",
@@ -298,8 +296,9 @@
      "value": "R",
      "label": "Re-admission"
     }
-   ]
+   ],
+   "verified": false
   }
  ],
- "_fields_comment": "The fallback schema, used until portal-fields.js has learned the real one from the portal. Verified 2026-08-21."
+ "_fields_comment": "The fallback schema, used until portal-fields.js has learned the real one from the portal. Only verified: true fields have had their values confirmed against live counts; the rest are suggestions and are not enforced."
 }

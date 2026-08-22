@@ -1,26 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  ArrowDown,
-  ArrowUp,
-  Check,
-  Download,
-  Loader2,
-  Search,
-  Trash2,
-  UserMinus,
-  UserPlus,
-} from "lucide-react";
+import { ArrowDown, ArrowUp, Search, UserMinus, UserPlus } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
+import type { Filter } from "@/services/filterSummary";
 import { PortalFilterFields } from "@/components/PortalFilterFields";
 import { ScreenLoading } from "@/components/ScreenLoading";
-import {
-  PortalError,
-  isExtensionInstalled,
-  listPresets,
-  pullRoster,
-  type RosterPreset,
-} from "@/services/scenRosters";
+import { SearchBar } from "@/components/SearchBar";
+import { PortalError, pullFilter } from "@/services/scenRosters";
 import {
   changesSince,
   choices,
@@ -32,8 +18,19 @@ import {
   type Membership,
   type SortKey,
 } from "@/services/rosterView";
-import { describeAge, forgetRosters, loadPull, rememberPull, type StoredPreset } from "@/services/rosterStore";
+import {
+  forgetRosters,
+  lastPulled,
+  loadPull,
+  rememberPull,
+  type StoredPreset,
+} from "@/services/rosterStore";
 import { addMembers, fetchMembers, removeMembers, type Cohort } from "@/services/studentDatabase";
+
+/** A saved search's name is its store key; two searches keep two rosters. */
+function keyFor(name: string): string {
+  return name.trim().toLowerCase().replace(/\s+/g, "-").slice(0, 60) || "last-pull";
+}
 
 const MEMBERSHIPS: { id: Membership | "all" | "changed"; label: string }[] = [
   { id: "all", label: "Everyone" },
@@ -57,8 +54,8 @@ export function StudentRoster({ cohorts }: { cohorts: Cohort[] }) {
   const cohort = cohorts.find((candidate) => candidate.id === cohortId) ?? cohorts[0] ?? null;
 
   const [stored, setStored] = useState<StoredPreset>({});
-  const [presets, setPresets] = useState<RosterPreset[] | null>(null);
-  const [preset, setPreset] = useState("");
+  // One store per saved search, so switching search does not lose either roster.
+  const [storeKey, setStoreKey] = useState("");
   const [filters, setFilters] = useState(NO_FILTERS);
   const [sort, setSort] = useState<{ key: SortKey; ascending: boolean }>({
     key: "membership",
@@ -72,28 +69,18 @@ export function StudentRoster({ cohorts }: { cohorts: Cohort[] }) {
     enabled: Boolean(cohort),
   });
 
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      const installed = await isExtensionInstalled();
-      if (cancelled) return;
-      const available = installed ? await listPresets() : [];
-      if (cancelled) return;
-      setPresets(available);
-      setPreset((current) => current || available[0]?.id || "");
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
   // Reading the store on mount is what makes the roster survive changing page, and
   // keeping the pull before it is what makes "changed" answerable tomorrow.
-  useEffect(() => setStored(preset ? loadPull(preset) : {}), [preset]);
+  useEffect(() => setStored(loadPull(storeKey || lastPulled())), [storeKey]);
 
   const pull = useMutation({
-    mutationFn: () => pullRoster(preset),
-    onSuccess: (roster) => setStored(rememberPull(roster)),
+    mutationFn: ({ filter, meta }: { filter: Filter; meta: { name: string; expect: number | null } }) =>
+      pullFilter(filter, meta),
+    onSuccess: (roster) => {
+      const key = keyFor(roster.name);
+      setStoreKey(key);
+      setStored(rememberPull({ ...roster, presetId: key }));
+    },
   });
   const refreshMembers = () => client.invalidateQueries({ queryKey: ["cohort-members", cohort?.id] });
   const add = useMutation({
@@ -181,19 +168,17 @@ export function StudentRoster({ cohorts }: { cohorts: Cohort[] }) {
           </select>
         </label>
 
-        <PortalControls
-          presets={presets}
-          preset={preset}
-          onPreset={setPreset}
-          onPull={() => pull.mutate()}
-          pulling={pull.isPending}
-          stored={stored}
-          onForget={() => {
-            forgetRosters();
-            setStored({});
-          }}
-        />
       </div>
+
+      <SearchBar
+        stored={stored}
+        pulling={pull.isPending}
+        onPull={(filter, meta) => pull.mutate({ filter, meta })}
+        onForget={() => {
+          forgetRosters();
+          setStored({});
+        }}
+      />
 
       {error ? (
         <p role="alert" className="mb-4 rounded-md border border-[#e5b7b9] bg-[#fdf3f3] px-4 py-3 text-sm text-[#a6292f]">
@@ -421,94 +406,4 @@ function MembershipBadge({ membership }: { membership: Membership }) {
     );
   }
   return <span className="text-xs text-[#667085]">In the cohort</span>;
-}
-
-function PortalControls({
-  presets,
-  preset,
-  onPreset,
-  onPull,
-  pulling,
-  stored,
-  onForget,
-}: {
-  presets: RosterPreset[] | null;
-  preset: string;
-  onPreset: (id: string) => void;
-  onPull: () => void;
-  pulling: boolean;
-  stored: StoredPreset;
-  onForget: () => void;
-}) {
-  if (presets === null) return <p className="text-sm text-[#667085]">Looking for the SCEN Rosters extension…</p>;
-  if (presets.length === 0) {
-    return (
-      <p className="max-w-sm text-sm text-[#667085]">
-        The SCEN Rosters extension is not answering, so only the cohort's own ids are shown. Install or
-        enable it, then reload.
-      </p>
-    );
-  }
-
-  const current = stored.current;
-
-  return (
-    <div>
-      <div className="flex flex-wrap items-center gap-2">
-        <select
-          aria-label="Saved portal search"
-          value={preset}
-          onChange={(event) => onPreset(event.target.value)}
-          className="rounded-md border border-[#cbd5e1] px-3 py-2 text-sm"
-        >
-          {presets.map((option) => (
-            <option key={option.id} value={option.id}>
-              {option.name}
-            </option>
-          ))}
-        </select>
-        <button
-          type="button"
-          onClick={onPull}
-          disabled={pulling || !preset}
-          className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
-        >
-          {pulling ? (
-            <Loader2 size={16} className="animate-spin" aria-hidden="true" />
-          ) : (
-            <Download size={16} aria-hidden="true" />
-          )}
-          {pulling ? "Pulling…" : current ? "Pull again" : "Pull from portal"}
-        </button>
-      </div>
-
-      {current ? (
-        <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-[#667085]">
-          <span className="inline-flex items-center gap-1">
-            <Check size={14} className="text-[#256237]" aria-hidden="true" /> {current.count} students from{" "}
-            {current.name}, pulled {describeAge(current.fetchedAt)}.
-          </span>
-          {stored.previous ? (
-            <span className="text-[#98a2b3]">
-              Compared with the pull {describeAge(stored.previous.fetchedAt)}.
-            </span>
-          ) : (
-            <span className="text-[#98a2b3]">Pull again later to see what has changed.</span>
-          )}
-          <button
-            type="button"
-            onClick={onForget}
-            title="Remove the stored rosters from this browser"
-            className="inline-flex items-center gap-1 text-[#667085] underline"
-          >
-            <Trash2 size={13} aria-hidden="true" /> Forget stored rosters
-          </button>
-        </p>
-      ) : (
-        <p className="mt-2 text-sm text-[#98a2b3]">
-          Nothing pulled yet on this machine. Names stay in this browser and are never sent to us.
-        </p>
-      )}
-    </div>
-  );
 }

@@ -14,6 +14,8 @@
 import type { PortalRoster, RosterRow } from "@/services/scenRosters";
 
 const KEY = "scen-rosters:v1";
+// Which search was last pulled, so coming back to the page shows what you were looking at.
+const LAST = "scen-rosters:last";
 
 export type StoredPull = {
   presetId: string;
@@ -50,6 +52,15 @@ export function loadPull(presetId: string): StoredPreset {
   return read()[presetId] ?? {};
 }
 
+/** The search whose roster is currently on screen, remembered across page changes. */
+export function lastPulled(): string {
+  try {
+    return window.localStorage.getItem(LAST) ?? "";
+  } catch {
+    return "";
+  }
+}
+
 /** Keep this pull, and demote the one it replaces to "previous". */
 export function rememberPull(roster: PortalRoster): StoredPreset {
   const store = read();
@@ -67,12 +78,18 @@ export function rememberPull(roster: PortalRoster): StoredPreset {
     : existing.previous;
   store[roster.presetId] = { current: kept, previous };
   write(store);
+  try {
+    window.localStorage.setItem(LAST, roster.presetId);
+  } catch {
+    // Same as write(): storage being unavailable must not break the page.
+  }
   return store[roster.presetId];
 }
 
 export function forgetRosters(): void {
   try {
     window.localStorage.removeItem(KEY);
+    window.localStorage.removeItem(LAST);
   } catch {
     // Nothing to do: if it cannot be removed it could not have been written either.
   }
