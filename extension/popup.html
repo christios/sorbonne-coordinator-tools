@@ -1,0 +1,33 @@
+<!doctype html>
+<meta charset="utf-8">
+<style>
+  :root { color-scheme: light dark; }
+  body { width: 320px; margin: 0; padding: 12px;
+         font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  h1 { font-size: 13px; margin: 0 0 2px; }
+  .term { color: #888; font-size: 11px; margin-bottom: 10px; }
+  button.preset { display: block; width: 100%; text-align: left; margin: 0 0 4px;
+                  padding: 7px 9px; border: 1px solid rgba(128,128,128,.35);
+                  border-radius: 6px; background: transparent; cursor: pointer;
+                  font: inherit; color: inherit; }
+  button.preset:hover { background: rgba(128,128,128,.14); }
+  button.preset:disabled { opacity: .5; cursor: default; }
+  .status { margin-top: 10px; padding: 8px 9px; border-radius: 6px;
+            background: rgba(128,128,128,.14); font-size: 12px; }
+  .status.err { background: rgba(220,60,60,.16); }
+  .status.warn { background: rgba(220,160,40,.18); }
+  .row { display: flex; gap: 6px; margin-top: 8px; }
+  .row button { flex: 1; padding: 6px; border-radius: 6px; font: inherit;
+                border: 1px solid rgba(128,128,128,.35); background: transparent;
+                color: inherit; cursor: pointer; }
+  .hide { display: none; }
+</style>
+<h1>SCEN Rosters</h1>
+<div class="term" id="term"></div>
+<div id="list"></div>
+<div class="status hide" id="status"></div>
+<div class="row hide" id="actions">
+  <button id="csv">Download CSV</button>
+  <button id="copy">Copy JSON</button>
+</div>
+<script src="popup.js"></script>

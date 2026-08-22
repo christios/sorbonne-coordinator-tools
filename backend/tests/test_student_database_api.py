@@ -3,6 +3,7 @@
 import pytest
 from fastapi import status
 from fastapi.testclient import TestClient
+from sqlalchemy import text
 
 from sorbonne.api import student_database as api
 from sorbonne.main import app
@@ -24,6 +25,13 @@ def client() -> TestClient:
         yield TestClient(app)
     finally:
         app.dependency_overrides.pop(api.get_database, None)
+
+
+@pytest.fixture(autouse=True)
+def empty_saved_searches() -> None:
+    """Saved searches are shared and their names are unique, so each test starts clean."""
+    with StudentDatabase(TEST_DATABASE_URL).engine.begin() as connection:
+        connection.execute(text("DELETE FROM roster_filters"))
 
 
 @pytest.fixture
@@ -217,3 +225,85 @@ def test_the_cohort_list_counts_its_members(client: TestClient, cohort_id: str):
     cohorts = client.get("/api/v1/student-database/cohorts").json()["cohorts"]
 
     assert next(row for row in cohorts if row["id"] == cohort_id)["memberCount"] == len(STUDENTS)
+
+
+# ------------------------------------------------------------- saved searches
+
+FY_ACTIVE = {"YEARLEVEL_CODE": ["FY"], "STST_CODE": ["AS"]}
+# What the portal returned for that search when it was last verified.
+FY_COUNT = 245
+
+
+def test_a_search_is_saved_listed_and_removed(client: TestClient):
+    created = client.post(
+        "/api/v1/student-database/filters",
+        json={"name": "SCEN — First Year (active)", "filter": FY_ACTIVE, "expectedCount": FY_COUNT},
+    )
+
+    assert created.status_code == status.HTTP_201_CREATED, created.text
+    body = created.json()
+    assert body["filter"] == FY_ACTIVE
+    assert body["expectedCount"] == FY_COUNT
+    assert body["updatedBy"]  # the coordinator who wrote it
+
+    listed = client.get("/api/v1/student-database/filters").json()["filters"]
+    assert body["id"] in {row["id"] for row in listed}
+
+    assert (
+        client.delete(f"/api/v1/student-database/filters/{body['id']}").status_code
+        == status.HTTP_204_NO_CONTENT
+    )
+
+
+def test_a_search_can_be_edited_in_place(client: TestClient):
+    created = client.post(
+        "/api/v1/student-database/filters", json={"name": "L1", "filter": {"YEARLEVEL_CODE": ["L1"]}}
+    ).json()
+
+    updated = client.put(
+        f"/api/v1/student-database/filters/{created['id']}",
+        json={"name": "L1 — Physics", "filter": {"YEARLEVEL_CODE": ["L1"], "MAJOR_CODE": ["PHYS"]}},
+    )
+
+    assert updated.status_code == status.HTTP_200_OK
+    assert updated.json()["filter"]["MAJOR_CODE"] == ["PHYS"]
+
+
+def test_only_portal_codes_are_accepted(client: TestClient):
+    # Nothing about a student may be stored, and nothing that is not a code may be sent on.
+    for bad in (
+        {"FULL_NAME": ["Amira Haddad"]},
+        {"YEARLEVEL_CODE": ["'; DROP TABLE students; --"]},
+        {"bad key": ["FY"]},
+        {"YEARLEVEL_CODE": []},
+        {},
+    ):
+        response = client.post("/api/v1/student-database/filters", json={"name": "bad", "filter": bad})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, bad
+
+
+def test_a_name_is_kept_when_it_is_a_field_name(client: TestClient):
+    # FULL_NAME is a portal field, so the *field* is fine — it is the value that is not.
+    response = client.post(
+        "/api/v1/student-database/filters",
+        json={"name": "By surname", "filter": {"FULL_NAME": ["Haddad"]}},
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+
+
+def test_two_searches_cannot_share_a_name(client: TestClient):
+    client.post("/api/v1/student-database/filters", json={"name": "First Year", "filter": FY_ACTIVE})
+
+    repeated = client.post(
+        "/api/v1/student-database/filters", json={"name": "First Year", "filter": FY_ACTIVE}
+    )
+
+    assert repeated.status_code == status.HTTP_409_CONFLICT
+    assert "already a saved search called First Year" in repeated.json()["detail"]
+
+
+def test_an_unknown_search_is_a_404(client: TestClient):
+    assert (
+        client.delete("/api/v1/student-database/filters/nope").status_code == status.HTTP_404_NOT_FOUND
+    )

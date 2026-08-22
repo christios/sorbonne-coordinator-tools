@@ -15,8 +15,12 @@ from sorbonne.config import config
 from sorbonne.services.group_reference_import import ReferenceImportError, parse_group_reference
 from sorbonne.services.student_database import (
     CohortNotFound,
+    DuplicateFilterName,
     DuplicateLabel,
+    FilterNotFound,
     GroupNotFound,
+    InvalidFilter,
+    SavedSearch,
     ScopeNotFound,
     StudentDatabase,
 )
@@ -42,6 +46,17 @@ class MembersInput(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     student_ids: list[str] = Field(default_factory=list, max_length=2000, alias="studentIds")
+
+
+class FilterInput(BaseModel):
+    """A named registrar search: portal codes only, never anything about a student."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    name: str = Field(min_length=1, max_length=120)
+    description: str = Field(default="", max_length=400)
+    filter: dict[str, list[str]] = Field(default_factory=dict)
+    expected_count: int = Field(default=0, ge=0, le=100_000, alias="expectedCount")
 
 
 class ScopeInput(BaseModel):
@@ -110,6 +125,64 @@ async def delete_cohort(cohort_id: str, database: StudentDatabase = Depends(get_
         database.delete_cohort(cohort_id)
     except CohortNotFound as exc:
         raise _missing(exc, "cohort") from exc
+
+
+# ---------------------------------------------------------- saved searches
+
+
+@router.get("/filters")
+async def list_filters(database: StudentDatabase = Depends(get_database)) -> dict[str, Any]:
+    return {"filters": database.list_filters()}
+
+
+@router.post("/filters", status_code=status.HTTP_201_CREATED)
+async def create_filter(
+    body: FilterInput, request: Request, database: StudentDatabase = Depends(get_database)
+) -> dict[str, Any]:
+    return _save(database, body, None, request)
+
+
+@router.put("/filters/{filter_id}")
+async def update_filter(
+    filter_id: str,
+    body: FilterInput,
+    request: Request,
+    database: StudentDatabase = Depends(get_database),
+) -> dict[str, Any]:
+    return _save(database, body, filter_id, request)
+
+
+@router.delete("/filters/{filter_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_filter(filter_id: str, database: StudentDatabase = Depends(get_database)) -> None:
+    try:
+        database.delete_filter(filter_id)
+    except FilterNotFound as exc:
+        raise _missing(exc, "saved search") from exc
+
+
+def _save(
+    database: StudentDatabase, body: FilterInput, filter_id: str | None, request: Request
+) -> dict[str, Any]:
+    staff = getattr(request.state, "staff_user", None)
+    search = SavedSearch(
+        name=body.name,
+        description=body.description,
+        criteria=body.filter,
+        expected_count=body.expected_count,
+    )
+    try:
+        return database.save_filter(
+            search, filter_id=filter_id, actor=getattr(staff, "email", "") or ""
+        )
+    except InvalidFilter as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except DuplicateFilterName as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"There is already a saved search called {exc}.",
+        ) from exc
+    except FilterNotFound as exc:
+        raise _missing(exc, "saved search") from exc
 
 
 # ----------------------------------------------------------------- members

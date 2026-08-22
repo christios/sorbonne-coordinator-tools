@@ -1,0 +1,305 @@
+{
+ "term": {
+  "code": "262710",
+  "label": "First Semester 2026-2027"
+ },
+ "_comment": "Verified codes: YEARLEVEL_CODE FY|L1|L2|L3 - STST_CODE AS,ME,IS,DA,WD,DF,DI - MAJOR_CODE MATH|PHYS",
+ "presets": [
+  {
+   "id": "scen-fy",
+   "name": "SCEN \u2014 First Year (active)",
+   "expect": 245,
+   "filter": {
+    "DEPT_CODE": [
+     "SCEN"
+    ],
+    "STST_CODE": [
+     "AS"
+    ],
+    "YEARLEVEL_CODE": [
+     "FY"
+    ]
+   }
+  },
+  {
+   "id": "scen-all",
+   "name": "SCEN \u2014 all years (active)",
+   "expect": 415,
+   "filter": {
+    "DEPT_CODE": [
+     "SCEN"
+    ],
+    "STST_CODE": [
+     "AS"
+    ]
+   }
+  },
+  {
+   "id": "scen-l1",
+   "name": "SCEN \u2014 L1 (active)",
+   "filter": {
+    "DEPT_CODE": [
+     "SCEN"
+    ],
+    "STST_CODE": [
+     "AS"
+    ],
+    "YEARLEVEL_CODE": [
+     "L1"
+    ]
+   },
+   "expect": 119
+  },
+  {
+   "id": "scen-l2",
+   "name": "SCEN \u2014 L2 (active)",
+   "filter": {
+    "DEPT_CODE": [
+     "SCEN"
+    ],
+    "STST_CODE": [
+     "AS"
+    ],
+    "YEARLEVEL_CODE": [
+     "L2"
+    ]
+   },
+   "expect": 37
+  },
+  {
+   "id": "scen-l3",
+   "name": "SCEN \u2014 L3 (active)",
+   "filter": {
+    "DEPT_CODE": [
+     "SCEN"
+    ],
+    "STST_CODE": [
+     "AS"
+    ],
+    "YEARLEVEL_CODE": [
+     "L3"
+    ]
+   },
+   "expect": 14
+  },
+  {
+   "id": "scen-math",
+   "name": "SCEN \u2014 Mathematics (active)",
+   "filter": {
+    "DEPT_CODE": [
+     "SCEN"
+    ],
+    "STST_CODE": [
+     "AS"
+    ],
+    "MAJOR_CODE": [
+     "MATH"
+    ]
+   },
+   "expect": 359
+  },
+  {
+   "id": "scen-phys",
+   "name": "SCEN \u2014 Physics (active)",
+   "filter": {
+    "DEPT_CODE": [
+     "SCEN"
+    ],
+    "STST_CODE": [
+     "AS"
+    ],
+    "MAJOR_CODE": [
+     "PHYS"
+    ]
+   },
+   "expect": 56
+  },
+  {
+   "id": "scen-makeup",
+   "name": "SCEN \u2014 Make-up exam",
+   "filter": {
+    "DEPT_CODE": [
+     "SCEN"
+    ],
+    "STST_CODE": [
+     "ME"
+    ]
+   },
+   "expect": 45
+  },
+  {
+   "id": "scen-noshow",
+   "name": "SCEN \u2014 No show",
+   "filter": {
+    "DEPT_CODE": [
+     "SCEN"
+    ],
+    "ESTS_CODE": [
+     "NS"
+    ]
+   },
+   "expect": 31
+  }
+ ],
+ "columns": [
+  "TERM_CODE",
+  "SPRIDEN_ID",
+  "FIRST_NAME",
+  "LAST_NAME",
+  "FULL_NAME",
+  "PSUAD_EMAIL",
+  "STST_CODE",
+  "ESTS_CODE",
+  "COLLEGE_CODE",
+  "DEPT_DESC",
+  "LEVEL_CODE",
+  "YEARLEVEL_CODE",
+  "MAJOR_CODE_DESC",
+  "RE_COURSES_COUNT",
+  "ABSENCE_PER"
+ ],
+ "verified": "2026-08-21 - counts checked live; FY+L1+L2+L3 = all years = 415; MATH+PHYS = 415",
+ "fields": [
+  {
+   "key": "YEARLEVEL_CODE",
+   "label": "Year level",
+   "options": [
+    {
+     "value": "FY",
+     "label": "Foundation Year"
+    },
+    {
+     "value": "L1",
+     "label": "Licence 1"
+    },
+    {
+     "value": "L2",
+     "label": "Licence 2"
+    },
+    {
+     "value": "L3",
+     "label": "Licence 3"
+    }
+   ]
+  },
+  {
+   "key": "STST_CODE",
+   "label": "Student status",
+   "options": [
+    {
+     "value": "AS",
+     "label": "Active"
+    },
+    {
+     "value": "ME",
+     "label": "Make-up exam"
+    },
+    {
+     "value": "IS",
+     "label": "Inactive"
+    },
+    {
+     "value": "DA",
+     "label": "Declined"
+    },
+    {
+     "value": "WD",
+     "label": "Withdrawal"
+    },
+    {
+     "value": "DF",
+     "label": "Deferred"
+    },
+    {
+     "value": "DI",
+     "label": "Dismissed"
+    }
+   ]
+  },
+  {
+   "key": "ESTS_CODE",
+   "label": "Enrolment status",
+   "options": [
+    {
+     "value": "NA",
+     "label": "Not available"
+    },
+    {
+     "value": "NS",
+     "label": "No show"
+    }
+   ]
+  },
+  {
+   "key": "MAJOR_CODE",
+   "label": "Major",
+   "options": [
+    {
+     "value": "MATH",
+     "label": "Mathematics"
+    },
+    {
+     "value": "PHYS",
+     "label": "Physics"
+    }
+   ]
+  },
+  {
+   "key": "DEPT_CODE",
+   "label": "Department",
+   "options": [
+    {
+     "value": "SCEN",
+     "label": "Sciences & Engineering"
+    }
+   ]
+  },
+  {
+   "key": "LEVEL_CODE",
+   "label": "Level",
+   "options": [
+    {
+     "value": "UG",
+     "label": "Undergraduate"
+    }
+   ]
+  },
+  {
+   "key": "CAMPUS_CODE",
+   "label": "Campus",
+   "options": [
+    {
+     "value": "AD",
+     "label": "Abu Dhabi"
+    }
+   ]
+  },
+  {
+   "key": "STYP_CODE",
+   "label": "Student type",
+   "options": [
+    {
+     "value": "N",
+     "label": "New"
+    },
+    {
+     "value": "C",
+     "label": "Continuing"
+    },
+    {
+     "value": "H",
+     "label": "FY Mathematics"
+    },
+    {
+     "value": "P",
+     "label": "FY Physics"
+    },
+    {
+     "value": "R",
+     "label": "Re-admission"
+    }
+   ]
+  }
+ ],
+ "_fields_comment": "The fallback schema, used until portal-fields.js has learned the real one from the portal. Verified 2026-08-21."
+}

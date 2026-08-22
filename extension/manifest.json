@@ -1,0 +1,44 @@
+{
+  "manifest_version": 3,
+  "name": "SCEN Rosters",
+  "version": "1.2.0",
+  "description": "One-click student rosters from the PSUAD registrar portal, using your own login.",
+  "permissions": [
+    "storage",
+    "downloads"
+  ],
+  "host_permissions": [
+    "https://reg.psuad.ac.ae/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "SCEN Rosters"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://sorbonne-coordinator-tools.fastapicloud.dev/*",
+        "http://localhost/*",
+        "http://localhost:*/*",
+        "http://127.0.0.1:*/*"
+      ],
+      "js": [
+        "bridge.js"
+      ],
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "https://reg.psuad.ac.ae/*"
+      ],
+      "js": [
+        "portal-fields.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}

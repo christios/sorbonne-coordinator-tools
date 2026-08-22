@@ -11,11 +11,15 @@ browser, where the registrar extension puts them.
 
 from __future__ import annotations
 
+import json
+import re
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
 from sqlalchemy import Connection, Engine, create_engine, text
+from sqlalchemy.exc import IntegrityError
 
 from sorbonne.services.group_reference_import import ReferenceImport
 
@@ -34,6 +38,28 @@ class GroupNotFound(Exception):
 
 class DuplicateLabel(Exception):
     """Two groups in one scope, or two scopes in one cohort, cannot share a name."""
+
+
+class FilterNotFound(Exception):
+    pass
+
+
+class DuplicateFilterName(Exception):
+    """Saved searches are shared, so their names are how people refer to them."""
+
+
+@dataclass(frozen=True)
+class SavedSearch:
+    """One named registrar search: portal codes, and what it returned last time."""
+
+    name: str
+    description: str = ""
+    criteria: dict[str, list[str]] = field(default_factory=dict)
+    expected_count: int = 0
+
+
+class InvalidFilter(Exception):
+    """A saved search must be portal codes and nothing else."""
 
 
 def _now() -> str:
@@ -115,6 +141,81 @@ class StudentDatabase:
             )
         if deleted.rowcount == 0:
             raise CohortNotFound(cohort_id)
+
+    # -------------------------------------------------------- saved searches
+
+    def list_filters(self) -> list[dict[str, Any]]:
+        with self.engine.connect() as connection:
+            rows = connection.execute(text("SELECT * FROM roster_filters ORDER BY name")).mappings().all()
+        return [_filter(row) for row in rows]
+
+    def save_filter(
+        self, search: SavedSearch, *, filter_id: str | None = None, actor: str = ""
+    ) -> dict[str, Any]:
+        """Create or update one saved search. The name is how coordinators refer to it."""
+        checked = _check_criteria(search.criteria)
+        now = _now()
+        identifier = filter_id or str(uuid4())
+        try:
+            self._write_filter(identifier, search, checked, now, filter_id, actor)
+        except IntegrityError as exc:
+            raise DuplicateFilterName(search.name) from exc
+        return self.get_filter(identifier)
+
+    def _write_filter(self, identifier, search, checked, now, filter_id, actor) -> None:  # noqa: PLR0913
+        with self.engine.begin() as connection:
+            if filter_id:
+                updated = connection.execute(
+                    text("""UPDATE roster_filters SET name = :name, description = :description,
+                                filter = :filter, expected_count = :expected_count,
+                                updated_at = :now, updated_by = :actor
+                            WHERE id = :id"""),
+                    {
+                        "id": filter_id,
+                        "name": _text(search.name),
+                        "description": _text(search.description),
+                        "filter": json.dumps(checked),
+                        "expected_count": max(0, search.expected_count),
+                        "now": now,
+                        "actor": actor,
+                    },
+                )
+                if updated.rowcount == 0:
+                    raise FilterNotFound(filter_id)
+            else:
+                connection.execute(
+                    text("""INSERT INTO roster_filters
+                                (id, name, description, filter, expected_count, created_at, updated_at, updated_by)
+                            VALUES (:id, :name, :description, :filter, :expected_count, :now, :now, :actor)"""),
+                    {
+                        "id": identifier,
+                        "name": _text(search.name),
+                        "description": _text(search.description),
+                        "filter": json.dumps(checked),
+                        "expected_count": max(0, search.expected_count),
+                        "now": now,
+                        "actor": actor,
+                    },
+                )
+
+    def get_filter(self, filter_id: str) -> dict[str, Any]:
+        with self.engine.connect() as connection:
+            row = (
+                connection.execute(text("SELECT * FROM roster_filters WHERE id = :id"), {"id": filter_id})
+                .mappings()
+                .first()
+            )
+        if row is None:
+            raise FilterNotFound(filter_id)
+        return _filter(row)
+
+    def delete_filter(self, filter_id: str) -> None:
+        with self.engine.begin() as connection:
+            deleted = connection.execute(
+                text("DELETE FROM roster_filters WHERE id = :id"), {"id": filter_id}
+            )
+        if deleted.rowcount == 0:
+            raise FilterNotFound(filter_id)
 
     # --------------------------------------------------------------- members
 
@@ -525,6 +626,51 @@ class StudentDatabase:
 
     def _touch_by_scope(self, connection: Connection, scope_id: str) -> None:
         self._touch(connection, self._cohort_of_scope(connection, scope_id))
+
+
+FIELD_KEY = re.compile(r"^[A-Z][A-Z0-9_]{1,39}$")
+VALUE = re.compile(r"^[A-Za-z0-9._-]{1,40}$")
+MAX_FIELDS = 12
+MAX_VALUES = 40
+
+
+def _check_criteria(criteria: dict[str, list[str]]) -> dict[str, list[str]]:
+    """Portal codes only.
+
+    The extension checks this again before it asks the portal anything — this copy is so
+    that nothing shaped like a student, a name or an injection is ever stored.
+    """
+    if not isinstance(criteria, dict) or not criteria:
+        raise InvalidFilter("A saved search needs at least one filter.")
+    if len(criteria) > MAX_FIELDS:
+        raise InvalidFilter("That is more filters than the portal accepts.")
+
+    checked: dict[str, list[str]] = {}
+    for key, values in criteria.items():
+        if not FIELD_KEY.match(str(key)):
+            raise InvalidFilter(f"{key} is not a portal field name.")
+        if not isinstance(values, list) or not values:
+            raise InvalidFilter(f"{key} has no values.")
+        if len(values) > MAX_VALUES:
+            raise InvalidFilter(f"{key} has more values than the portal accepts.")
+        for value in values:
+            if not isinstance(value, str) or not VALUE.match(value):
+                raise InvalidFilter(f"{value!r} is not a portal code.")
+        checked[str(key)] = list(dict.fromkeys(values))
+    return checked
+
+
+def _filter(row) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "name": row["name"],
+        "description": row["description"],
+        "filter": row["filter"],
+        "expectedCount": row["expected_count"],
+        "createdAt": row["created_at"],
+        "updatedAt": row["updated_at"],
+        "updatedBy": row["updated_by"],
+    }
 
 
 def _clean_ids(student_ids: list[str]) -> list[str]:
