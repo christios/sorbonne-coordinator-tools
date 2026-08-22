@@ -81,17 +81,61 @@ export async function listPresets(): Promise<RosterPreset[]> {
   return reply.ok ? ((reply.presets as RosterPreset[]) ?? []) : [];
 }
 
+/** One filter the portal accepts, and the values it offers for it. */
+export type PortalField = {
+  key: string;
+  label: string;
+  options: { value: string; label: string }[];
+  source?: string;
+};
+
+export type PortalSchema = {
+  ok: boolean;
+  /** "portal" once the extension has read the real thing; "built-in" until then. */
+  source: "portal" | "built-in" | "unknown";
+  fields: PortalField[];
+  term: { code: string; label: string } | null;
+  harvestedAt: number | null;
+  error: string;
+};
+
+/**
+ * What the extension will let us filter by.
+ *
+ * The list is learned from the portal's own Student Search grid, so it stays true when
+ * the portal changes. Until somebody visits the portal it falls back to the codes
+ * verified by hand, which is worth showing plainly rather than hiding.
+ */
+export async function fetchSchema(): Promise<PortalSchema> {
+  const reply = await ask("schema", {}, 5_000);
+  return {
+    ok: Boolean(reply.ok),
+    source: (reply.source as PortalSchema["source"]) ?? "unknown",
+    fields: (reply.fields as PortalField[]) ?? [],
+    term: (reply.term as PortalSchema["term"]) ?? null,
+    harvestedAt: (reply.harvestedAt as number | null) ?? null,
+    error: reply.ok ? "" : messageFor(String(reply.error ?? "unknown"), String(reply.message ?? "")),
+  };
+}
+
 export class PortalError extends Error {
-  constructor(readonly code: string) {
-    super(messageFor(code));
+  constructor(
+    readonly code: string,
+    detail = "",
+  ) {
+    super(messageFor(code, detail));
     this.name = "PortalError";
   }
 }
 
-function messageFor(code: string): string {
+function messageFor(code: string, detail = ""): string {
   switch (code) {
     case "extension_unavailable":
-      return "The SCEN Rosters extension did not answer. Install it, or reload this page after enabling it.";
+      // Chrome says this when the extension has been updated under an open page: the
+      // injected script belongs to the old instance and can no longer reach it.
+      return /context invalidated/i.test(detail)
+        ? "The SCEN Rosters extension was updated. Reload this page to reconnect to it."
+        : "The SCEN Rosters extension did not answer. Install it, or reload this page after enabling it.";
     case "auth":
       return "Your registrar portal session has expired. Open the portal, sign in, then pull again.";
     case "network":
@@ -106,7 +150,7 @@ function messageFor(code: string): string {
 /** Pull one saved search. Only a preset id crosses to the extension — never a raw filter. */
 export async function pullRoster(presetId: string): Promise<PortalRoster> {
   const reply = await ask("fetch", { presetId });
-  if (!reply.ok) throw new PortalError(String(reply.error ?? "unknown"));
+  if (!reply.ok) throw new PortalError(String(reply.error ?? "unknown"), String(reply.message ?? ""));
   return {
     presetId,
     name: String(reply.name ?? presetId),

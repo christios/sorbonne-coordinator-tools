@@ -12,22 +12,6 @@ export const VALUE = /^[A-Za-z0-9._\-]{1,40}$/;
 export const MAX_FIELDS = 12;
 export const MAX_VALUES = 40;
 
-async function storedFields() {
-  const { portalFields } = await chrome.storage.local.get('portalFields');
-  return portalFields || null;
-}
-
-async function schema() {
-  const cfg = await config();
-  const learned = await storedFields();
-  return {
-    term: cfg.term,
-    fields: learned?.fields || cfg.fields || [],
-    source: learned ? 'portal' : 'built-in',
-    harvestedAt: learned?.harvestedAt || null,
-  };
-}
-
 /** Refuse anything the schema does not recognise, and say which part was wrong. */
 export function checkFilter(filter, fields) {
   if (!filter || typeof filter !== 'object' || Array.isArray(filter)) return 'filter_not_an_object';

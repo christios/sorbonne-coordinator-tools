@@ -1,13 +1,13 @@
 /**
  * The extension's filter check, tested from here because this repository is where the
- * test runner lives. It is the boundary that decides what the platform may ask the
+ * test runner lives. Outside src/ because it exercises the extension's plain JavaScript
+ * rather than the application's own code. It is the boundary that decides what the platform may ask the
  * registrar portal, so it is worth pinning precisely.
  */
 
 import { describe, expect, it } from "vitest";
 
-// @ts-expect-error - plain JavaScript shipped in the extension, no types alongside it.
-import { checkFilter } from "../../../extension/filter-schema.js";
+import { checkFilter } from "../../extension/filter-schema.js";
 
 const FIELDS = [
   { key: "YEARLEVEL_CODE", label: "Year level", options: [{ value: "FY" }, { value: "L1" }] },

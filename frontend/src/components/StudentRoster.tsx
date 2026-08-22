@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
+import { PortalFilterFields } from "@/components/PortalFilterFields";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import {
   PortalError,
@@ -333,6 +334,8 @@ export function StudentRoster({ cohorts }: { cohorts: Cohort[] }) {
           </tbody>
         </table>
       </section>
+
+      <PortalFilterFields />
     </>
   );
 }

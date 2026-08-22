@@ -33,6 +33,22 @@ function trim(rows, columns) {
   });
 }
 
+async function storedFields() {
+  const { portalFields } = await chrome.storage.local.get('portalFields');
+  return portalFields || null;
+}
+
+async function schema() {
+  const cfg = await config();
+  const learned = await storedFields();
+  return {
+    term: cfg.term,
+    fields: learned?.fields || cfg.fields || [],
+    source: learned ? 'portal' : 'built-in',
+    harvestedAt: learned?.harvestedAt || null,
+  };
+}
+
 async function fetchPreset(presetId) {
   const cfg = await config();
   const preset = cfg.presets.find(p => p.id === presetId);
