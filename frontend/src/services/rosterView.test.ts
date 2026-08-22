@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import { choices, countBy, filterRows, sortRows, studentRows, NO_FILTERS } from "@/services/rosterView";
+import {
+  changesSince,
+  choices,
+  countBy,
+  filterRows,
+  sortRows,
+  studentRows,
+  NO_FILTERS,
+} from "@/services/rosterView";
 import type { RosterRow } from "@/services/scenRosters";
 
 const portalRow = (id: string, name: string, year = "FY", major = "Mathematics"): RosterRow => ({
@@ -57,7 +65,53 @@ describe("reading a pull against a cohort", () => {
       stayed: 1,
       new: 2,
       left: 1,
+      changed: 0,
     });
+  });
+});
+
+describe("what changed since the last pull", () => {
+  it("names each field that moved, old value first", () => {
+    const before = [portalRow("A001", "Amira Haddad", "FY", "Mathematics")];
+    const after = [portalRow("A001", "Amira Haddad", "L1", "Physics")];
+
+    expect(changesSince(before, after).get("A001")).toEqual([
+      "year FY → L1",
+      "major Mathematics → Physics",
+    ]);
+  });
+
+  it("notices a change of name", () => {
+    const changes = changesSince([portalRow("A001", "Amira Haddad")], [portalRow("A001", "Amira Nasser")]);
+
+    expect(changes.get("A001")).toEqual(["name Amira Haddad → Amira Nasser"]);
+  });
+
+  it("says nothing about a student who has not moved", () => {
+    expect(changesSince(PULL, PULL).size).toBe(0);
+  });
+
+  it("treats an arrival as new rather than changed", () => {
+    expect(changesSince([portalRow("A001", "Amira Haddad")], PULL).has("A003")).toBe(false);
+  });
+
+  it("ignores a field that has become blank, which is a gap not a change", () => {
+    const before = [portalRow("A001", "Amira Haddad", "FY")];
+    const after = [{ SPRIDEN_ID: "A001", FULL_NAME: "Amira Haddad", YEARLEVEL_CODE: "" }];
+
+    expect(changesSince(before, after).size).toBe(0);
+  });
+
+  it("shows on the row, and can be filtered and counted", () => {
+    const changes = changesSince(
+      [portalRow("A001", "Amira Haddad", "FY")],
+      [portalRow("A001", "Amira Haddad", "L1")],
+    );
+    const rows = studentRows(PULL, ["A001"], changes);
+
+    expect(rows.find((row) => row.studentId === "A001")?.changes).toEqual(["year FY → L1"]);
+    expect(countBy(rows).changed).toBe(1);
+    expect(filterRows(rows, { ...NO_FILTERS, membership: "changed" })).toHaveLength(1);
   });
 });
 

@@ -1,5 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, ArrowDown, ArrowUp, Check, Download, Loader2, Search, UserMinus, UserPlus } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  Check,
+  Download,
+  Loader2,
+  Search,
+  Trash2,
+  UserMinus,
+  UserPlus,
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { ScreenLoading } from "@/components/ScreenLoading";
@@ -8,10 +18,10 @@ import {
   isExtensionInstalled,
   listPresets,
   pullRoster,
-  type PortalRoster,
   type RosterPreset,
 } from "@/services/scenRosters";
 import {
+  changesSince,
   choices,
   countBy,
   filterRows,
@@ -21,28 +31,31 @@ import {
   type Membership,
   type SortKey,
 } from "@/services/rosterView";
+import { describeAge, forgetRosters, loadPull, rememberPull, type StoredPreset } from "@/services/rosterStore";
 import { addMembers, fetchMembers, removeMembers, type Cohort } from "@/services/studentDatabase";
 
-const MEMBERSHIPS: { id: Membership | "all"; label: string }[] = [
+const MEMBERSHIPS: { id: Membership | "all" | "changed"; label: string }[] = [
   { id: "all", label: "Everyone" },
   { id: "new", label: "New" },
   { id: "left", label: "Left" },
+  { id: "changed", label: "Changed" },
   { id: "stayed", label: "In the cohort" },
 ];
 
 /**
  * The registrar's roster, and what it says about one cohort.
  *
- * Names, e-mail addresses and year levels come from the SCEN Rosters extension and live
- * in this component's state for as long as the tab is open. What is saved is a list of
- * student ids against a cohort — nothing else, ever.
+ * Names, e-mail addresses and year levels come from the SCEN Rosters extension and are
+ * kept in this browser's own storage — see services/rosterStore.ts, which is also what
+ * makes "changed" answerable. What is sent to us is a list of student ids against a
+ * cohort: nothing else, ever.
  */
 export function StudentRoster({ cohorts }: { cohorts: Cohort[] }) {
   const client = useQueryClient();
   const [cohortId, setCohortId] = useState(cohorts[0]?.id ?? "");
   const cohort = cohorts.find((candidate) => candidate.id === cohortId) ?? cohorts[0] ?? null;
 
-  const [portal, setPortal] = useState<PortalRoster | null>(null);
+  const [stored, setStored] = useState<StoredPreset>({});
   const [presets, setPresets] = useState<RosterPreset[] | null>(null);
   const [preset, setPreset] = useState("");
   const [filters, setFilters] = useState(NO_FILTERS);
@@ -73,7 +86,14 @@ export function StudentRoster({ cohorts }: { cohorts: Cohort[] }) {
     };
   }, []);
 
-  const pull = useMutation({ mutationFn: () => pullRoster(preset), onSuccess: setPortal });
+  // Reading the store on mount is what makes the roster survive changing page, and
+  // keeping the pull before it is what makes "changed" answerable tomorrow.
+  useEffect(() => setStored(preset ? loadPull(preset) : {}), [preset]);
+
+  const pull = useMutation({
+    mutationFn: () => pullRoster(preset),
+    onSuccess: (roster) => setStored(rememberPull(roster)),
+  });
   const refreshMembers = () => client.invalidateQueries({ queryKey: ["cohort-members", cohort?.id] });
   const add = useMutation({
     mutationFn: (ids: string[]) => addMembers(cohort?.id ?? "", ids),
@@ -92,9 +112,18 @@ export function StudentRoster({ cohorts }: { cohorts: Cohort[] }) {
     },
   });
 
+  const changes = useMemo(
+    () => changesSince(stored.previous?.rows ?? [], stored.current?.rows ?? []),
+    [stored],
+  );
   const rows = useMemo(
-    () => studentRows(portal?.rows ?? [], (members.data ?? []).map((member) => member.studentId)),
-    [portal, members.data],
+    () =>
+      studentRows(
+        stored.current?.rows ?? [],
+        (members.data ?? []).map((member) => member.studentId),
+        changes,
+      ),
+    [stored, members.data, changes],
   );
   const counts = useMemo(() => countBy(rows), [rows]);
   const visible = useMemo(
@@ -157,7 +186,11 @@ export function StudentRoster({ cohorts }: { cohorts: Cohort[] }) {
           onPreset={setPreset}
           onPull={() => pull.mutate()}
           pulling={pull.isPending}
-          portal={portal}
+          stored={stored}
+          onForget={() => {
+            forgetRosters();
+            setStored({});
+          }}
         />
       </div>
 
@@ -269,9 +302,19 @@ export function StudentRoster({ cohorts }: { cohorts: Cohort[] }) {
                 </td>
                 <td className="px-4 py-2">
                   <MembershipBadge membership={row.membership} />
+                  {row.changes.length ? (
+                    <span className="mt-1 block rounded-full bg-[#fff6e5] px-2 py-0.5 text-xs font-semibold text-[#8a6d00]">
+                      Changed
+                    </span>
+                  ) : null}
                 </td>
                 <td className="px-4 py-2 font-semibold text-[#171717]">
                   {row.name || <span className="font-normal text-[#98a2b3]">not in today's pull</span>}
+                  {row.changes.length ? (
+                    <span className="mt-0.5 block text-xs font-normal text-[#8a6d00]">
+                      {row.changes.join(" · ")}
+                    </span>
+                  ) : null}
                 </td>
                 <td className="px-4 py-2 tabular-nums text-[#344054]">{row.studentId}</td>
                 <td className="px-4 py-2 text-[#667085]">{row.yearLevel || "—"}</td>
@@ -383,14 +426,16 @@ function PortalControls({
   onPreset,
   onPull,
   pulling,
-  portal,
+  stored,
+  onForget,
 }: {
   presets: RosterPreset[] | null;
   preset: string;
   onPreset: (id: string) => void;
   onPull: () => void;
   pulling: boolean;
-  portal: PortalRoster | null;
+  stored: StoredPreset;
+  onForget: () => void;
 }) {
   if (presets === null) return <p className="text-sm text-[#667085]">Looking for the SCEN Rosters extension…</p>;
   if (presets.length === 0) {
@@ -401,6 +446,8 @@ function PortalControls({
       </p>
     );
   }
+
+  const current = stored.current;
 
   return (
     <div>
@@ -428,27 +475,37 @@ function PortalControls({
           ) : (
             <Download size={16} aria-hidden="true" />
           )}
-          {pulling ? "Pulling…" : "Pull from portal"}
+          {pulling ? "Pulling…" : current ? "Pull again" : "Pull from portal"}
         </button>
       </div>
-      {portal ? (
-        <p className="mt-2 text-sm text-[#667085]">
-          {portal.warning === "zero_rows" ? (
-            <span className="inline-flex items-center gap-1 font-semibold text-[#a6292f]">
-              <AlertTriangle size={14} aria-hidden="true" /> The portal returned nobody — check the saved search.
-            </span>
-          ) : portal.warning === "count_drift" ? (
-            <span className="inline-flex items-center gap-1 font-semibold text-[#8a6d00]">
-              <AlertTriangle size={14} aria-hidden="true" /> {portal.count} students, expected about {portal.expect}.
+
+      {current ? (
+        <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-[#667085]">
+          <span className="inline-flex items-center gap-1">
+            <Check size={14} className="text-[#256237]" aria-hidden="true" /> {current.count} students from{" "}
+            {current.name}, pulled {describeAge(current.fetchedAt)}.
+          </span>
+          {stored.previous ? (
+            <span className="text-[#98a2b3]">
+              Compared with the pull {describeAge(stored.previous.fetchedAt)}.
             </span>
           ) : (
-            <span className="inline-flex items-center gap-1">
-              <Check size={14} className="text-[#256237]" aria-hidden="true" /> {portal.count} students from{" "}
-              {portal.name}.
-            </span>
+            <span className="text-[#98a2b3]">Pull again later to see what has changed.</span>
           )}
+          <button
+            type="button"
+            onClick={onForget}
+            title="Remove the stored rosters from this browser"
+            className="inline-flex items-center gap-1 text-[#667085] underline"
+          >
+            <Trash2 size={13} aria-hidden="true" /> Forget stored rosters
+          </button>
         </p>
-      ) : null}
+      ) : (
+        <p className="mt-2 text-sm text-[#98a2b3]">
+          Nothing pulled yet on this machine. Names stay in this browser and are never sent to us.
+        </p>
+      )}
     </div>
   );
 }

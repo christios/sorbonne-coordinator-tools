@@ -19,11 +19,47 @@ export type StudentRow = {
   status: string;
   email: string;
   membership: Membership;
+  /** What the portal says differently from the previous pull: "year FY → L1". */
+  changes: string[];
 };
 
 export type SortKey = "name" | "studentId" | "yearLevel" | "major" | "membership";
 
 const MEMBERSHIP_ORDER: Record<Membership, number> = { new: 0, left: 1, stayed: 2 };
+
+/** The fields worth noticing a change in, and what to call each one. */
+const WATCHED: { column: keyof RosterRow; label: string }[] = [
+  { column: "YEARLEVEL_CODE", label: "year" },
+  { column: "MAJOR_CODE_DESC", label: "major" },
+  { column: "ESTS_CODE", label: "status" },
+  { column: "STST_CODE", label: "student status" },
+  { column: "FULL_NAME", label: "name" },
+  { column: "PSUAD_EMAIL", label: "e-mail" },
+];
+
+/**
+ * What the portal now says differently for each student, against the previous pull.
+ *
+ * Only students present in both are compared: somebody who has just appeared is new
+ * rather than changed, and somebody who has gone has left.
+ */
+export function changesSince(previous: RosterRow[], current: RosterRow[]): Map<string, string[]> {
+  const before = new Map(previous.map((row) => [studentIdOf(row), row]));
+  const changes = new Map<string, string[]>();
+
+  for (const row of current) {
+    const id = studentIdOf(row);
+    const earlier = before.get(id);
+    if (!id || !earlier) continue;
+    const moved = WATCHED.flatMap(({ column, label }) => {
+      const was = String(earlier[column] ?? "").trim();
+      const now = String(row[column] ?? "").trim();
+      return was && now && was !== now ? [`${label} ${was} → ${now}`] : [];
+    });
+    if (moved.length) changes.set(id, moved);
+  }
+  return changes;
+}
 
 /**
  * Merge today's pull with a cohort's membership.
@@ -31,7 +67,11 @@ const MEMBERSHIP_ORDER: Record<Membership, number> = { new: 0, left: 1, stayed: 
  * A student the cohort holds but the portal no longer returns is shown too — that is the
  * whole point of "left", and their name is unknown because nothing about them was stored.
  */
-export function studentRows(portal: RosterRow[], memberIds: string[]): StudentRow[] {
+export function studentRows(
+  portal: RosterRow[],
+  memberIds: string[],
+  changes: Map<string, string[]> = new Map(),
+): StudentRow[] {
   const members = new Set(memberIds.map((id) => id.toUpperCase()));
   const seen = new Set<string>();
   const rows: StudentRow[] = [];
@@ -48,6 +88,7 @@ export function studentRows(portal: RosterRow[], memberIds: string[]): StudentRo
       status: String(row.ESTS_CODE ?? ""),
       email: String(row.PSUAD_EMAIL ?? ""),
       membership: members.has(studentId) ? "stayed" : "new",
+      changes: changes.get(studentId) ?? [],
     });
   }
 
@@ -61,6 +102,7 @@ export function studentRows(portal: RosterRow[], memberIds: string[]): StudentRo
       status: "",
       email: "",
       membership: "left",
+      changes: [],
     });
   }
 
@@ -69,7 +111,7 @@ export function studentRows(portal: RosterRow[], memberIds: string[]): StudentRo
 
 export type Filters = {
   query: string;
-  membership: Membership | "all";
+  membership: Membership | "all" | "changed";
   yearLevel: string;
   major: string;
 };
@@ -80,7 +122,8 @@ export function filterRows(rows: StudentRow[], filters: Filters): StudentRow[] {
   const needle = filters.query.trim().toLowerCase();
   return rows.filter(
     (row) =>
-      (filters.membership === "all" || row.membership === filters.membership) &&
+      (filters.membership === "all" ||
+        (filters.membership === "changed" ? row.changes.length > 0 : row.membership === filters.membership)) &&
       (!filters.yearLevel || row.yearLevel === filters.yearLevel) &&
       (!filters.major || row.major === filters.major) &&
       (!needle ||
@@ -108,11 +151,12 @@ export function choices(rows: StudentRow[], key: "yearLevel" | "major"): string[
   return [...new Set(rows.map((row) => row[key]).filter(Boolean))].sort();
 }
 
-export function countBy(rows: StudentRow[]): Record<Membership | "all", number> {
+export function countBy(rows: StudentRow[]): Record<Membership | "all" | "changed", number> {
   return {
     all: rows.length,
     stayed: rows.filter((row) => row.membership === "stayed").length,
     left: rows.filter((row) => row.membership === "left").length,
     new: rows.filter((row) => row.membership === "new").length,
+    changed: rows.filter((row) => row.changes.length > 0).length,
   };
 }

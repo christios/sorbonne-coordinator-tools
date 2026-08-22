@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { StudentRoster } from "@/components/StudentRoster";
 import * as rosters from "@/services/scenRosters";
+import { forgetRosters } from "@/services/rosterStore";
 import * as database from "@/services/studentDatabase";
 
 const COHORTS: database.Cohort[] = [
@@ -52,6 +53,8 @@ function rowFor(name: string): HTMLElement {
 }
 
 beforeEach(() => {
+  // The roster lives in this browser now, so each test starts with an empty store.
+  forgetRosters();
   vi.spyOn(database, "fetchMembers").mockResolvedValue([
     { studentId: "A001", addedAt: "", addedBy: "", groups: {} },
     { studentId: "A999", addedAt: "", addedBy: "", groups: {} },
@@ -63,7 +66,10 @@ beforeEach(() => {
   vi.spyOn(rosters, "pullRoster").mockResolvedValue(PORTAL);
 });
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  forgetRosters();
+});
 
 describe("StudentRoster", () => {
   it("shows the cohort's own ids before anything is pulled", async () => {
@@ -154,6 +160,50 @@ describe("StudentRoster", () => {
 
     const names = screen.getAllByRole("row").slice(1).map((row) => row.textContent ?? "");
     expect(names[names.length - 1]).toContain("Nadia Newcomer");
+  });
+
+  it("still shows the roster after the page has been left and come back to", async () => {
+    // The bug this pins: the pull lived in component state, so changing page lost it.
+    const { unmount } = renderRoster();
+    await pull();
+    unmount();
+
+    renderRoster();
+
+    expect(await screen.findByText("Amira Haddad")).toBeTruthy();
+    expect(screen.getByText(/pulled just now/)).toBeTruthy();
+    // And without pulling again — one round trip to the portal, not one per page change.
+    expect(rosters.pullRoster).toHaveBeenCalledTimes(1);
+  });
+
+  it("marks what the portal now says differently, against the previous pull", async () => {
+    renderRoster();
+    await pull();
+
+    vi.spyOn(rosters, "pullRoster").mockResolvedValue({
+      ...PORTAL,
+      fetchedAt: Date.now() + 60_000,
+      rows: [
+        { ...PORTAL.rows[0], YEARLEVEL_CODE: "L1" },
+        PORTAL.rows[1],
+        PORTAL.rows[2],
+      ],
+    });
+    fireEvent.click(screen.getByRole("button", { name: /pull again/i }));
+
+    const row = await waitFor(() => rowFor("Amira Haddad"));
+    expect(within(row).getByText("Changed")).toBeTruthy();
+    expect(within(row).getByText("year FY → L1")).toBeTruthy();
+  });
+
+  it("forgets the stored rosters when asked", async () => {
+    renderRoster();
+    await pull();
+
+    fireEvent.click(screen.getByRole("button", { name: /forget stored rosters/i }));
+
+    expect(screen.queryByText("Amira Haddad")).toBeNull();
+    expect(screen.getByText(/Nothing pulled yet on this machine/)).toBeTruthy();
   });
 
   it("still works with no extension, and says so", async () => {
