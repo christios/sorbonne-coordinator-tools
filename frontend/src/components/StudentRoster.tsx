@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { Filter } from "@/services/filterSummary";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { SearchBar } from "@/components/SearchBar";
+import { SelectMenu } from "@/components/SelectMenu";
 import { PortalError, pullFilter } from "@/services/scenRosters";
 import {
   changesSince,
@@ -147,37 +148,18 @@ export function StudentRoster({ cohorts }: { cohorts: Cohort[] }) {
 
   return (
     <>
+      {/* SearchBar lays out its own row and summary; wrapping it in a flex row would
+          drag the summary up beside the buttons. */}
       <div className="rounded-lg border border-[#d9dee7] bg-white px-4 py-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <select
-            aria-label="Cohort"
-            value={cohort?.id ?? ""}
-            onChange={(event) => {
-              setCohortId(event.target.value);
-              setSelected(new Set());
-            }}
-            className="rounded-md border border-[#cbd5e1] bg-white px-3 py-2 text-sm font-semibold text-[#344054]"
-          >
-            {cohorts.map((candidate) => (
-              <option key={candidate.id} value={candidate.id}>
-                {candidate.name}
-                {candidate.term ? ` — ${candidate.term}` : ""}
-              </option>
-            ))}
-          </select>
-
-          <span className="text-[#d9dee7]">|</span>
-
-          <SearchBar
-            stored={stored}
-            pulling={pull.isPending}
-            onPull={(filter, meta) => pull.mutate({ filter, meta })}
-            onForget={() => {
-              forgetRosters();
-              setStored({});
-            }}
-          />
-        </div>
+        <SearchBar
+          stored={stored}
+          pulling={pull.isPending}
+          onPull={(filter, meta) => pull.mutate({ filter, meta })}
+          onForget={() => {
+            forgetRosters();
+            setStored({});
+          }}
+        />
       </div>
 
       {error ? (
@@ -186,7 +168,26 @@ export function StudentRoster({ cohorts }: { cohorts: Cohort[] }) {
         </p>
       ) : null}
 
-      <div className="mt-4 flex flex-wrap items-center gap-x-1 gap-y-2">
+      <div className="mt-4 flex flex-wrap items-center gap-2 text-sm text-[#667085]">
+        <span>Compared against</span>
+        <div className="w-64">
+          <SelectMenu
+            label="Cohort"
+            value={cohort?.id ?? ""}
+            searchable={cohorts.length > 12}
+            options={cohorts.map((candidate) => ({
+              value: candidate.id,
+              label: candidate.term ? `${candidate.name} — ${candidate.term}` : candidate.name,
+            }))}
+            onChange={(id) => {
+              setCohortId(id);
+              setSelected(new Set());
+            }}
+          />
+        </div>
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center gap-x-1 gap-y-2">
         {MEMBERSHIPS.map((option) => (
           <button
             key={option.id}
@@ -371,22 +372,16 @@ function Choice({
 }) {
   if (options.length === 0) return null;
   return (
-    <label className="text-sm text-[#344054]">
-      <span className="sr-only">{label}</span>
-      <select
-        aria-label={label}
+    <div className="w-36">
+      <SelectMenu
+        label={label}
         value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="rounded-md border border-[#d9dee7] bg-white px-3 py-2 text-sm"
-      >
-        <option value="">{label}: any</option>
-        {options.map((option) => (
-          <option key={option} value={option}>
-            {option}
-          </option>
-        ))}
-      </select>
-    </label>
+        placeholder={`${label}: any`}
+        searchable={options.length > 12}
+        options={[{ value: "", label: `${label}: any` }, ...options.map((option) => ({ value: option, label: option }))]}
+        onChange={onChange}
+      />
+    </div>
   );
 }
 

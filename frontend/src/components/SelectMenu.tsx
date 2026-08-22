@@ -17,13 +17,15 @@ type Props = {
   placeholder?: string;
   trailing?: React.ReactNode;
   multiple?: boolean;
+  /** What one selected thing is called, for the "3 codes selected" summary. */
+  itemNoun?: string;
   searchable?: boolean;
   searchPlaceholder?: string;
   disabled?: boolean;
   required?: boolean;
 };
 
-export function SelectMenu({ label, value, onChange, options, placeholder, trailing, multiple = false, searchable = false, searchPlaceholder = "Search options", disabled = false, required = false }: Props) {
+export function SelectMenu({ label, value, onChange, options, placeholder, trailing, multiple = false, itemNoun = "item", searchable = false, searchPlaceholder = "Search options", disabled = false, required = false }: Props) {
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState("");
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -31,7 +33,7 @@ export function SelectMenu({ label, value, onChange, options, placeholder, trail
   const selectedValues = multiple ? value.split("\n").filter(Boolean) : [value];
   const selected = options.filter((option) => selectedValues.includes(option.value));
   const selectedLabel = multiple
-    ? selected.length ? `${selected.length} ${selected.length === 1 ? "PLO" : "PLOs"} selected` : placeholder
+    ? selected.length ? `${selected.length} ${itemNoun}${selected.length === 1 ? "" : "s"} selected` : placeholder
     : selected[0]?.label ?? placeholder;
   const normalizedQuery = normalizeSearch(query);
   const visibleOptions = searchable

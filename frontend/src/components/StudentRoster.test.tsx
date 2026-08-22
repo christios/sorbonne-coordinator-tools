@@ -65,10 +65,16 @@ function renderRoster() {
   );
 }
 
+/** SelectMenu is a button and a listbox, not a native select — see the UI decisions doc. */
+async function choose(label: string, option: string | RegExp) {
+  fireEvent.click(await screen.findByRole("combobox", { name: label }));
+  fireEvent.click(await screen.findByRole("option", { name: option }));
+}
+
 async function pull() {
-  // The saved searches arrive asynchronously; selecting one before it exists does nothing.
-  await screen.findByRole("option", { name: SAVED.name });
-  fireEvent.change(screen.getByLabelText("Search"), { target: { value: SAVED.id } });
+  // The saved searches arrive asynchronously; the menu has nothing to offer before then.
+  await waitFor(() => expect(screen.getByRole("combobox", { name: "Search" })).toBeTruthy());
+  await choose("Search", SAVED.name);
   fireEvent.click(screen.getByRole("button", { name: /pull from portal/i }));
   await screen.findByText(/3 pulled/i);
 }
@@ -127,7 +133,7 @@ describe("StudentRoster", () => {
     expect(screen.queryByText("Amira Haddad")).toBeNull();
 
     fireEvent.change(screen.getByLabelText("Search students"), { target: { value: "" } });
-    fireEvent.change(screen.getByLabelText("Year"), { target: { value: "L1" } });
+    await choose("Year", "L1");
     expect(screen.getByText("Karim Nasser")).toBeTruthy();
     expect(screen.queryByText("Nadia Newcomer")).toBeNull();
   });
@@ -153,7 +159,7 @@ describe("StudentRoster", () => {
     const add = vi.spyOn(database, "addMembers").mockResolvedValue(1);
     renderRoster();
     await pull();
-    fireEvent.change(screen.getByLabelText("Year"), { target: { value: "L1" } });
+    await choose("Year", "L1");
 
     fireEvent.click(screen.getByLabelText("Select everyone shown"));
     fireEvent.click(screen.getByRole("button", { name: /Add 1 to Foundation Year/ }));
@@ -233,7 +239,7 @@ describe("StudentRoster", () => {
     // The dialog is an editor, not a form: closing it must not discard the work.
     renderRoster();
     fireEvent.click(await screen.findByRole("button", { name: /filters/i }));
-    fireEvent.change(await screen.findByLabelText("Year level"), { target: { value: "FY" } });
+    await choose("Year level", /^FY/);
     fireEvent.click(screen.getByRole("button", { name: "Done" }));
 
     expect(screen.queryByRole("dialog")).toBeNull();
@@ -254,6 +260,15 @@ describe("StudentRoster", () => {
       { YEARLEVEL_CODE: ["FY"] },
       { name: SAVED.name, expect: SAVED.expectedCount },
     );
+  });
+
+  it("uses the shared select control, not a native one", async () => {
+    // docs/handoffs/ui-ux-decisions.md: no native <select> in product UI.
+    renderRoster();
+    await screen.findByText("A001");
+
+    expect(document.querySelector("select")).toBeNull();
+    expect(screen.getByRole("combobox", { name: "Cohort" }).tagName).toBe("BUTTON");
   });
 
   it("still shows the cohort's ids when the extension cannot be reached", async () => {

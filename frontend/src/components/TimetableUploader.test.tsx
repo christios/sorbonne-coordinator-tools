@@ -110,6 +110,14 @@ describe("TimetableUploader", () => {
     expect(alerts.map((alert) => alert.textContent).join(" ")).toContain("could not be read as an Excel workbook");
   });
 
+  it("uses the shared select control, not a native one", async () => {
+    // docs/handoffs/ui-ux-decisions.md: no native <select> in product UI.
+    renderTool();
+    await screen.findByRole("row", { name: /Physics & Maths/ });
+
+    expect(document.querySelector("select")).toBeNull();
+  });
+
   it("publishes a hidden semester", async () => {
     const publish = vi
       .spyOn(timetables, "setTimetableTermPublished")

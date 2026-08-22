@@ -5,6 +5,7 @@ import { useState } from "react";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { FilterBuilder } from "@/components/FilterBuilder";
 import { Modal } from "@/components/Modal";
+import { SelectMenu } from "@/components/SelectMenu";
 import { describeFilter, type Filter } from "@/services/filterSummary";
 import { describeAge, type StoredPreset } from "@/services/rosterStore";
 import { fetchSchema, listPresets } from "@/services/scenRosters";
@@ -104,23 +105,20 @@ export function SearchBar({
   return (
     <>
       <div className="flex flex-wrap items-center gap-2">
-        <select
-          aria-label="Search"
-          value={chosenId}
-          onChange={(event) => {
-            setChosenId(event.target.value);
-            setDraft(null);
-            setApplied(null);
-          }}
-          className="rounded-md border border-[#cbd5e1] bg-white px-3 py-2 text-sm"
-        >
-          <option value="">{saved.length ? "Choose a saved search…" : "No saved searches yet"}</option>
-          {saved.map((search) => (
-            <option key={search.id} value={search.id}>
-              {search.name}
-            </option>
-          ))}
-        </select>
+        <div className="w-64">
+          <SelectMenu
+            label="Search"
+            value={chosenId}
+            placeholder={saved.length ? "Choose a saved search…" : "No saved searches yet"}
+            searchable={saved.length > 12}
+            options={saved.map((search) => ({ value: search.id, label: search.name }))}
+            onChange={(id) => {
+              setChosenId(id);
+              setDraft(null);
+              setApplied(null);
+            }}
+          />
+        </div>
 
         <button
           type="button"

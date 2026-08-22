@@ -36,7 +36,9 @@ export function Modal({
   if (!open) return null;
   return createPortal(
     <div
-      className="fixed inset-0 z-[110] grid place-items-center bg-[#101828]/35 p-4"
+      // Below SelectMenu's popovers (z-100) so a dropdown inside the dialog is not buried
+      // by it, and below ConfirmDialog (z-110) so a confirmation still lands on top.
+      className="fixed inset-0 z-[90] grid place-items-center bg-[#101828]/35 p-4"
       onMouseDown={onClose}
     >
       <section

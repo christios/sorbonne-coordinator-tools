@@ -1,16 +1,20 @@
 import { X } from "lucide-react";
 import { useState } from "react";
 
+import { SelectMenu } from "@/components/SelectMenu";
 import type { Filter } from "@/services/filterSummary";
 import type { PortalField } from "@/services/scenRosters";
+
+/** Past this many codes a list needs searching rather than scrolling. */
+const SEARCHABLE_FROM = 12;
 
 /**
  * Compose a registrar search from the fields the portal offers.
  *
  * Every row is generated from the extension's schema, so a field the portal gains appears
- * here without a code change. Each field is a dropdown: pick a value and it joins the
- * chosen ones underneath, which is the only shape that copes with the long code tables —
- * the portal's nationality list alone runs to 139 entries.
+ * here without a code change. Each field is a multi-select from the shared SelectMenu,
+ * searchable once its code table is long — the portal's nationality list runs to 139
+ * entries — with the chosen codes shown underneath so they can be read at a glance.
  */
 export function FilterBuilder({
   fields,
@@ -68,7 +72,6 @@ function FilterRow({
 }) {
   const label = field.label || field.key;
   const known = new Map(field.options.map((option) => [option.value, option.label]));
-  const available = field.options.filter((option) => !chosen.includes(option.value));
 
   const add = (value: string) => {
     const trimmed = value.trim();
@@ -77,28 +80,31 @@ function FilterRow({
 
   return (
     <div className="grid gap-2 py-3 sm:grid-cols-[12rem_minmax(0,1fr)] sm:items-start sm:gap-4">
-      <div className="pt-1">
+      <div className="pt-2">
         <span className="block text-sm font-semibold text-[#344054]">{label}</span>
         <span className="block text-xs tabular-nums text-[#98a2b3]">{field.key}</span>
       </div>
 
-      <div>
+      <div className="max-w-sm">
         {field.options.length ? (
-          <select
-            aria-label={label}
-            value=""
-            onChange={(event) => add(event.target.value)}
-            className="w-full max-w-sm rounded-md border border-[#cbd5e1] px-3 py-2 text-sm"
-          >
-            <option value="">{available.length ? `Add ${label.toLowerCase()}…` : "All added"}</option>
-            {available.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label && option.label !== option.value
+          <SelectMenu
+            label={label}
+            multiple
+            itemNoun="code"
+            searchable={field.options.length > SEARCHABLE_FROM}
+            searchPlaceholder={`Search ${label.toLowerCase()}`}
+            placeholder={`Any ${label.toLowerCase()}`}
+            value={chosen.join("\n")}
+            onChange={(next) => onChange(next.split("\n").filter(Boolean))}
+            options={field.options.map((option) => ({
+              value: option.value,
+              label:
+                option.label && option.label !== option.value
                   ? `${option.value} — ${option.label}`
-                  : option.value}
-              </option>
-            ))}
-          </select>
+                  : option.value,
+              searchText: option.label,
+            }))}
+          />
         ) : (
           <TypeCode label={label} placeholder="Type a code, then Enter" onAdd={add} />
         )}
@@ -164,8 +170,10 @@ function TypeCode({
         setTyped("");
       }}
       placeholder={placeholder}
-      className={`w-full max-w-sm rounded-md border px-3 text-sm ${
-        dashed ? "mt-2 border-dashed border-[#cbd5e1] py-1.5 text-xs" : "border-[#cbd5e1] py-2"
+      className={`w-full rounded-md border px-3 text-sm ${
+        dashed
+          ? "mt-2 border-dashed border-[#cbd5e1] py-1.5 text-xs"
+          : "h-10 border-[#b7bec8] py-2"
       }`}
     />
   );

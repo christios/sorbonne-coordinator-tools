@@ -5,6 +5,7 @@ import { useState } from "react";
 import { CohortList } from "@/components/CohortList";
 import { GroupCatalogue } from "@/components/GroupCatalogue";
 import { ScreenLoading } from "@/components/ScreenLoading";
+import { SelectMenu } from "@/components/SelectMenu";
 import { StudentRoster } from "@/components/StudentRoster";
 import { SidePane } from "@/components/SidePane";
 import { fetchCohorts, type Cohort } from "@/services/studentDatabase";
@@ -72,21 +73,17 @@ export function StudentDatabase() {
               <p className="mt-1 text-sm text-[#667085]">{TITLES[page].blurb}</p>
             </div>
             {needsCohort && available.length > 1 ? (
-              <label className="text-sm font-semibold text-[#344054]">
-                Cohort
-                <select
+              <div className="w-72">
+                <SelectMenu
+                  label="Cohort"
                   value={cohort?.id ?? ""}
-                  onChange={(event) => setCohortId(event.target.value)}
-                  className="ml-2 rounded-md border border-[#cbd5e1] px-3 py-2 text-sm font-normal"
-                >
-                  {available.map((candidate) => (
-                    <option key={candidate.id} value={candidate.id}>
-                      {candidate.name}
-                      {candidate.term ? ` — ${candidate.term}` : ""}
-                    </option>
-                  ))}
-                </select>
-              </label>
+                  onChange={setCohortId}
+                  options={available.map((candidate) => ({
+                    value: candidate.id,
+                    label: candidate.term ? `${candidate.name} — ${candidate.term}` : candidate.name,
+                  }))}
+                />
+              </div>
             ) : null}
           </header>
 
