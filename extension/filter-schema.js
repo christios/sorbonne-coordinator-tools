@@ -43,7 +43,8 @@ export const NEVER_FILTERABLE = new Set([
 export function checkFilter(filter, fields, { trustValues = false } = {}) {
   if (!filter || typeof filter !== 'object' || Array.isArray(filter)) return 'filter_not_an_object';
   const keys = Object.keys(filter);
-  if (!keys.length) return 'filter_empty';
+  // No filter means every student the term holds — the platform's sync asks for exactly
+  // that, and background.js always adds TERM_CODE, so it is still a bounded question.
   if (keys.length > MAX_FIELDS) return 'too_many_fields';
 
   const known = new Map(fields.map(f => [f.key, f]));

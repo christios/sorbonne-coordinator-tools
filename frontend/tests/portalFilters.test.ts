@@ -73,8 +73,13 @@ describe("what the extension will ask the portal", () => {
     expect(checkFilter({ "../../etc": ["x"] }, FIELDS)).toMatch(/^bad_field/);
   });
 
-  it("refuses an empty or malformed filter", () => {
-    expect(checkFilter({}, FIELDS)).toBe("filter_empty");
+  it("allows a filter with nothing in it, which is how the sync asks for everybody", () => {
+    // background.js still pins TERM_CODE, so this is "every student this term", not
+    // "every student ever". Refusing it made the platform's own sync impossible.
+    expect(checkFilter({}, FIELDS)).toBeNull();
+  });
+
+  it("refuses a malformed filter", () => {
     expect(checkFilter(null, FIELDS)).toBe("filter_not_an_object");
     expect(checkFilter([["YEARLEVEL_CODE", "FY"]], FIELDS)).toBe("filter_not_an_object");
     expect(checkFilter({ YEARLEVEL_CODE: "FY" }, FIELDS)).toBe("bad_values:YEARLEVEL_CODE");

@@ -150,8 +150,15 @@ function messageFor(code: string, detail = ""): string {
       return "The registrar portal could not be reached from your browser.";
     case "unknown_preset":
       return "That saved search is no longer in the extension.";
+    case "filter_refused":
+      // The extension decides what may be asked, so its refusal is the whole answer.
+      return `The extension would not ask the portal that: ${detail || "the filter was refused"}.`;
+    case "http":
+      return `The registrar portal answered with an error${detail ? ` (${detail})` : ""}.`;
+    case "internal":
+      return `The SCEN Rosters extension failed${detail ? `: ${detail}` : ""}.`;
     default:
-      return "The registrar portal returned an unexpected error.";
+      return `The registrar portal returned an unexpected error${detail ? `: ${detail}` : ""}.`;
   }
 }
 
@@ -175,7 +182,11 @@ export async function pullFilter(
 
 async function run(request: Record<string, unknown>, presetId: string): Promise<PortalRoster> {
   const reply = await ask("fetch", request);
-  if (!reply.ok) throw new PortalError(String(reply.error ?? "unknown"), String(reply.message ?? ""));
+  if (!reply.ok) {
+    // A refusal explains itself in `detail`; a failure further out uses `message`.
+    const detail = String(reply.message ?? reply.detail ?? reply.status ?? "");
+    throw new PortalError(String(reply.error ?? "unknown"), detail);
+  }
   return {
     presetId: String(reply.presetId ?? presetId),
     name: String(reply.name ?? presetId),

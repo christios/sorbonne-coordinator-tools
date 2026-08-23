@@ -66,7 +66,7 @@ async function fetchFilter(filter, meta = {}) {
   const cfg = await config();
   const { fields, source } = await schema();
   const refusal = checkFilter(filter, fields, { trustValues: source === 'portal' });
-  if (refusal) return { ok: false, error: 'filter_refused', detail: refusal };
+  if (refusal) return { ok: false, error: 'filter_refused', detail: refusal, message: refusal };
 
   const body = {
     EqualityFilter: Object.assign({ TERM_CODE: cfg.term.code }, filter),
@@ -95,7 +95,7 @@ async function fetchFilter(filter, meta = {}) {
   if (res.status === 401 || res.status === 403 || !isJson) {
     return { ok: false, error: 'auth', loginUrl: cfg.loginUrl || ENDPOINT.replace(/\/Services\/.*$/, '/StudentSearch/Enrollment') };
   }
-  if (!res.ok) return { ok: false, error: 'http', status: res.status };
+  if (!res.ok) return { ok: false, error: 'http', status: res.status, message: String(res.status) };
 
   const data = await res.json();
   const rows = trim(data.Entities || [], cfg.columns);
