@@ -6,6 +6,7 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { useStaffUser } from "@/components/useStaffUser";
 import {
   CoordinatorAccount,
+  type Owner,
   fetchStaffList,
   inviteCoordinator,
   removeCoordinator,
@@ -167,13 +168,22 @@ function StaffDirectory() {
           <h3 className="text-sm font-semibold text-[#344054]">Owners</h3>
           <p className="mt-1 text-sm leading-6 text-[#667085]">
             Always administrators, set with{" "}
-            <code className="rounded bg-white px-1 py-0.5 text-[13px]">COORDINATOR_ACCESS_EMAILS</code> and changed
-            there rather than here.
+            <code className="rounded bg-white px-1 py-0.5 text-[13px]">COORDINATOR_ACCESS_EMAILS</code>. Their access
+            is changed there rather than here — their name can be set here.
           </p>
-          <ul className="mt-2 flex flex-wrap gap-2">
+          <ul className="mt-2 space-y-1">
             {staff.data.owners.map((owner) => (
-              <li key={owner} className="rounded-full border border-[#d9dee7] bg-white px-3 py-1 text-xs text-[#344054]">
-                {owner}
+              <li key={owner.email}>
+                <OwnerRow
+                  owner={owner}
+                  busy={update.isPending}
+                  onRename={(displayName) =>
+                    update.mutate({
+                      account: { email: owner.email } as CoordinatorAccount,
+                      patch: { displayName },
+                    })
+                  }
+                />
               </li>
             ))}
           </ul>
@@ -189,6 +199,80 @@ function StaffDirectory() {
         onClose={() => setPendingRemoval(null)}
       />
     </section>
+  );
+}
+
+/**
+ * An owner: named here, admitted elsewhere.
+ *
+ * Deliberately not an AccountRow — there is nothing to promote, suspend or remove, and
+ * offering those controls would suggest this screen governs their access when it does not.
+ */
+function OwnerRow({
+  owner,
+  busy,
+  onRename,
+}: {
+  owner: Owner;
+  busy: boolean;
+  onRename: (displayName: string) => void;
+}) {
+  const [renaming, setRenaming] = useState(false);
+  const named = owner.name && owner.name !== owner.email;
+  const [draft, setDraft] = useState(named ? owner.name : "");
+
+  if (renaming) {
+    return (
+      <form
+        className="flex flex-wrap items-center gap-2 rounded-md border border-[#d9dee7] bg-white px-3 py-2"
+        onSubmit={(event) => {
+          event.preventDefault();
+          onRename(draft.trim());
+          setRenaming(false);
+        }}
+      >
+        <input
+          autoFocus
+          aria-label={`Name for ${owner.email}`}
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          placeholder={owner.email}
+          className="w-56 rounded-md border border-[#cbd5e1] px-2.5 py-1.5 text-sm"
+        />
+        <button
+          type="submit"
+          disabled={busy}
+          className="rounded-md border border-[#d9dee7] bg-white px-2.5 py-1.5 text-xs font-semibold text-[#344054] hover:bg-[#f2f7fb] disabled:opacity-50"
+        >
+          Save name
+        </button>
+        <button type="button" onClick={() => setRenaming(false)} className="text-xs text-[#667085] underline">
+          Cancel
+        </button>
+      </form>
+    );
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-md border border-[#d9dee7] bg-white px-3 py-2">
+      <span className="min-w-0 flex-1 truncate text-sm text-[#344054]">
+        {named ? <span className="font-semibold text-[#171717]">{owner.name}</span> : null}
+        {named ? <span className="ml-2 text-xs text-[#667085]">{owner.email}</span> : owner.email}
+      </span>
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => {
+          setDraft(named ? owner.name : "");
+          setRenaming(true);
+        }}
+        className="rounded-md border border-[#d9dee7] bg-white px-2.5 py-1.5 text-xs font-semibold text-[#344054] hover:bg-[#f2f7fb] disabled:opacity-50"
+      >
+        <span className="inline-flex items-center gap-1.5">
+          <Pencil size={14} aria-hidden="true" /> Name
+        </span>
+      </button>
+    </div>
   );
 }
 

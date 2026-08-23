@@ -119,8 +119,11 @@ export function App() {
 
   const compactSyllabusHeader = activeTool === "syllabus" && syllabusHeaderCollapsed;
   const isPicker = activeTool === null;
+  // Tools with their own left pane need the pane to end where the window does, so the
+  // menu at its foot is reachable. Guessing the header's height got that wrong; letting
+  // the column flex around it cannot.
   const shell =
-    activeTool === "syllabus"
+    activeTool === "syllabus" || activeTool === "database"
       ? "flex h-screen min-h-0 flex-col overflow-hidden"
       : isPicker
         ? "flex min-h-screen flex-col"

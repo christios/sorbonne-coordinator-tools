@@ -15,10 +15,13 @@ export type CoordinatorAccount = {
   lastSeenAt: string | null;
 };
 
+/** An owner is admitted by the environment; only their name can be set here. */
+export type Owner = { email: string; name: string };
+
 /** Invited accounts, plus the owners the deployment's environment lets in. */
 export type StaffList = {
   accounts: CoordinatorAccount[];
-  owners: string[];
+  owners: Owner[];
 };
 
 async function readError(response: Response): Promise<string> {

@@ -73,7 +73,7 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
   };
 
   return (
-    <div className="flex min-h-[calc(100vh-4.5rem)]">
+    <div className="flex min-h-0 flex-1">
       <SidePane
         label="Student database pages"
         heading="Student database"
@@ -85,7 +85,7 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
         footer={<StaffMenu variant="sidebar" onOpenSettings={onOpenSettings} />}
       />
 
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0 flex-1 overflow-y-auto">
         <div className="mx-auto max-w-[86rem] px-4 py-6 sm:px-6">
           <header className="flex flex-wrap items-end justify-between gap-4 pb-5">
             <div>
