@@ -1,7 +1,20 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { createPortal } from "react-dom";
 import { describe, expect, it, vi } from "vitest";
 
 import { SelectMenu } from "./SelectMenu";
+
+/** The menu arms its outside-click listener on the next tick, so tests wait for it. */
+async function armed() {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve));
+  });
+}
+
+/** A pointerdown that carries a target, which jsdom's PointerEvent does not. */
+function pointerDownOn(target: Node) {
+  fireEvent(target, new MouseEvent("pointerdown", { bubbles: true, cancelable: true }));
+}
 
 describe("SelectMenu", () => {
   it("shows its options in the branded menu and returns the selected value", () => {
@@ -24,6 +37,76 @@ describe("SelectMenu", () => {
 
     expect(onChange).toHaveBeenCalledWith("PLO 1\nPLO 2");
     expect(screen.getByRole("listbox", { name: "Aligned PLOs" })).toBeTruthy();
+  });
+
+  it("closes when the pointer goes down somewhere else", async () => {
+    render(
+      <div>
+        <p>elsewhere</p>
+        <SelectMenu label="Year level" value="" onChange={vi.fn()} options={[{ value: "FY", label: "FY" }]} />
+      </div>,
+    );
+    fireEvent.click(screen.getByRole("combobox", { name: "Year level" }));
+    expect(screen.getByRole("listbox", { name: "Year level" })).toBeTruthy();
+    await armed();
+
+    pointerDownOn(screen.getByText("elsewhere"));
+
+    expect(screen.queryByRole("listbox", { name: "Year level" })).toBeNull();
+  });
+
+  it("closes on an outside click even when it was opened from inside a portal", async () => {
+    // The bug this pins: in the sync-settings dialog — itself a portal — Radix's own
+    // dismissal never fired, and the menu stayed open however far away you clicked.
+    function InADialog() {
+      return createPortal(
+        <div>
+          <p>dialog body</p>
+          <SelectMenu label="Year level" value="" onChange={vi.fn()} options={[{ value: "FY", label: "FY" }]} />
+        </div>,
+        document.body,
+      );
+    }
+    render(<InADialog />);
+    fireEvent.click(screen.getByRole("combobox", { name: "Year level" }));
+    await armed();
+
+    pointerDownOn(screen.getByText("dialog body"));
+
+    expect(screen.queryByRole("listbox", { name: "Year level" })).toBeNull();
+  });
+
+  it("stays open when the pointer goes down on one of its own options", async () => {
+    const onChange = vi.fn();
+    render(
+      <SelectMenu
+        label="Aligned PLOs"
+        value=""
+        onChange={onChange}
+        multiple
+        options={[{ value: "PLO 1", label: "PLO 1" }, { value: "PLO 2", label: "PLO 2" }]}
+      />,
+    );
+    fireEvent.click(screen.getByRole("combobox", { name: "Aligned PLOs" }));
+    await armed();
+
+    const option = screen.getByRole("option", { name: "PLO 2" });
+    pointerDownOn(option);
+    fireEvent.click(option);
+
+    expect(onChange).toHaveBeenCalledWith("PLO 2");
+    expect(screen.getByRole("listbox", { name: "Aligned PLOs" })).toBeTruthy();
+  });
+
+  it("does not close itself on the very press that opened it", async () => {
+    render(<SelectMenu label="Year level" value="" onChange={vi.fn()} options={[{ value: "FY", label: "FY" }]} />);
+
+    const trigger = screen.getByRole("combobox", { name: "Year level" });
+    pointerDownOn(trigger);
+    fireEvent.click(trigger);
+    await armed();
+
+    expect(screen.getByRole("listbox", { name: "Year level" })).toBeTruthy();
   });
 
   it("places the chevron at the control edge unless a trailing control occupies that space", () => {

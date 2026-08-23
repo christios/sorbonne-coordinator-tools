@@ -29,6 +29,7 @@ export function SelectMenu({ label, value, onChange, options, placeholder, trail
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState("");
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   const [placement, setPlacement] = useState<MenuPlacement | null>(null);
   const selectedValues = multiple ? value.split("\n").filter(Boolean) : [value];
   const selected = options.filter((option) => selectedValues.includes(option.value));
@@ -54,6 +55,32 @@ export function SelectMenu({ label, value, onChange, options, placeholder, trail
   };
 
   useEffect(() => { if (!isOpen) setQuery(""); }, [isOpen]);
+
+  /*
+   * Close when the pointer goes down anywhere else.
+   *
+   * Radix's own dismissal does this, but it stops working once the menu is opened from
+   * inside another portal — the dialogs that hold the sync settings and a new portal view
+   * are both portals, and there the menu stayed open however far away you clicked. Rather
+   * than depend on how two portals interact, the menu watches for itself.
+   */
+  useEffect(() => {
+    if (!isOpen) return;
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      // The trigger toggles itself, and a click on an option is a choice, not a dismissal.
+      if (triggerRef.current?.contains(target) || contentRef.current?.contains(target)) return;
+      setPlacement(null);
+      setIsOpen(false);
+    };
+    // On the next tick, so the press that opened the menu does not also close it.
+    const armed = setTimeout(() => document.addEventListener("pointerdown", closeOnOutsidePointer));
+    return () => {
+      clearTimeout(armed);
+      document.removeEventListener("pointerdown", closeOnOutsidePointer);
+    };
+  }, [isOpen]);
 
   const handleOpenChange = (nextOpen: boolean) => {
     if (!nextOpen) {
@@ -90,7 +117,7 @@ export function SelectMenu({ label, value, onChange, options, placeholder, trail
       {trailing}
       <Popover.Portal>
       {isOpen ? (
-        <Popover.Content role="listbox" aria-label={label} side={placement?.side ?? "bottom"} sideOffset={MENU_GAP} avoidCollisions={false} data-select-menu-placement={placement?.side ?? "bottom"} style={{ width: "var(--radix-popover-trigger-width)", ...(placement ? { maxHeight: placement.maxHeight } : {}) }} className="z-[100] isolate overflow-y-auto rounded-lg border border-[#d9dee7] bg-white p-1 opacity-100 shadow-lg outline-none">
+        <Popover.Content ref={contentRef} role="listbox" aria-label={label} side={placement?.side ?? "bottom"} sideOffset={MENU_GAP} avoidCollisions={false} data-select-menu-placement={placement?.side ?? "bottom"} style={{ width: "var(--radix-popover-trigger-width)", ...(placement ? { maxHeight: placement.maxHeight } : {}) }} className="z-[100] isolate overflow-y-auto rounded-lg border border-[#d9dee7] bg-white p-1 opacity-100 shadow-lg outline-none">
           {searchable ? <input aria-label={`Search ${label}`} value={query} onChange={(event) => setQuery(event.target.value)} placeholder={searchPlaceholder} className="mb-1 h-9 w-full rounded-md border border-[#b7bec8] px-3 text-sm font-normal focus:border-[#1f4e79] focus:outline-none focus:ring-2 focus:ring-[#d7e5f3]" autoFocus /> : null}
           {visibleOptions.map((option) => (
             <button
