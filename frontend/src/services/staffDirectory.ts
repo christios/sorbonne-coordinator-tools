@@ -4,7 +4,10 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000
 
 export type CoordinatorAccount = {
   email: string;
+  /** What to call them: the name an administrator set, else Google's, else the address. */
   name: string;
+  /** Only the name an administrator set, so the field can be edited without Google's in it. */
+  displayName: string;
   isAdmin: boolean;
   isActive: boolean;
   invitedBy: string;
@@ -49,7 +52,7 @@ export function inviteCoordinator(input: { email: string; isAdmin: boolean }): P
 
 export function updateCoordinator(
   email: string,
-  patch: { isAdmin?: boolean; isActive?: boolean },
+  patch: { isAdmin?: boolean; isActive?: boolean; displayName?: string },
 ): Promise<CoordinatorAccount> {
   return request<CoordinatorAccount>(`/api/v1/users/${encodeURIComponent(email)}`, {
     method: "PATCH",

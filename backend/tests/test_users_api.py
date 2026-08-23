@@ -39,7 +39,14 @@ class FakeDirectory:
         }
         return self.accounts[email]
 
-    def update(self, email: str, *, is_admin: bool | None = None, is_active: bool | None = None):
+    def update(
+        self,
+        email: str,
+        *,
+        is_admin: bool | None = None,
+        is_active: bool | None = None,
+        display_name: str | None = None,
+    ):
         account = self.accounts.get(email)
         if account is None:
             raise AccountNotFound(f"{email} is not on the staff list.")
@@ -47,6 +54,9 @@ class FakeDirectory:
             account["isAdmin"] = is_admin
         if is_active is not None:
             account["isActive"] = is_active
+        if display_name is not None:
+            account["name"] = display_name
+            account["displayName"] = display_name
         return account
 
     def remove(self, email: str) -> None:
@@ -158,3 +168,33 @@ def test_an_account_that_was_never_invited_cannot_be_edited(client: TestClient, 
         status.HTTP_404_NOT_FOUND
     )
     assert client.delete("/api/v1/users/stranger@sorbonne.ae").status_code == status.HTTP_404_NOT_FOUND
+
+
+def test_an_administrator_names_a_colleague(client: TestClient, directory: FakeDirectory):
+    client.post("/api/v1/users", json={"email": "new.colleague@sorbonne.ae"})
+
+    named = client.patch(
+        "/api/v1/users/new.colleague@sorbonne.ae", json={"displayName": "Patricia Duval"}
+    )
+
+    assert named.status_code == status.HTTP_200_OK, named.text
+    assert named.json()["name"] == "Patricia Duval"
+
+
+def test_an_administrator_may_rename_themselves_but_not_demote_themselves(
+    client: TestClient, directory: FakeDirectory
+):
+    # Renaming is harmless; changing your own access could lock everyone out.
+    directory.accounts[OWNER] = {
+        "email": OWNER,
+        "name": OWNER,
+        "isAdmin": True,
+        "isActive": True,
+        "invitedBy": "",
+        "createdAt": "",
+        "lastSeenAt": None,
+    }
+
+    assert client.patch(f"/api/v1/users/{OWNER}", json={"isAdmin": False}).status_code == (
+        status.HTTP_409_CONFLICT
+    )

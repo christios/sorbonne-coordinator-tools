@@ -7,9 +7,11 @@ import { GroupCatalogue } from "@/components/GroupCatalogue";
 import { PortalViews } from "@/components/PortalViews";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { SelectMenu } from "@/components/SelectMenu";
+import { StaffMenu } from "@/components/StaffMenu";
 import { StudentRoster } from "@/components/StudentRoster";
 import { SidePane } from "@/components/SidePane";
 import { SyncSettings } from "@/components/SyncSettings";
+import { recordPull } from "@/services/pullHistory";
 import { rememberPull, rememberSync } from "@/services/rosterStore";
 import { PortalError, pullFilter, studentIdOf } from "@/services/scenRosters";
 import type { Filter } from "@/services/filterSummary";
@@ -56,7 +58,7 @@ const TITLES: Record<PageId, { title: string; blurb: string }> = {
  * extension and stay in the browser, and the student-facing timetable is a separate
  * application with its own upload.
  */
-export function StudentDatabase() {
+export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => void } = {}) {
   const cohorts = useQuery({ queryKey: ["cohorts"], queryFn: fetchCohorts });
   const [page, setPage] = useState<PageId>("students");
   const [cohortId, setCohortId] = useState("");
@@ -78,6 +80,9 @@ export function StudentDatabase() {
         items={PAGES.map(({ id, name, icon }) => ({ id, name, icon }))}
         activeId={page}
         onSelect={(id) => setPage(id as PageId)}
+        // Who is signed in, and their settings, belong at the foot of whichever pane is
+        // on screen — inside a tool that is this one, not the launcher's.
+        footer={<StaffMenu variant="sidebar" onOpenSettings={onOpenSettings} />}
       />
 
       <div className="min-w-0 flex-1">
@@ -141,6 +146,9 @@ function SyncControl() {
       const report = await syncStudents(roster.rows.map(studentIdOf).filter(Boolean));
       rememberPull({ ...roster, presetId: "sync" });
       rememberSync(report.syncedAt);
+      // What the portal said this time, kept as a delta against last time, so the panel
+      // can answer "what has changed about this student" months from now.
+      recordPull(roster.rows, roster.fetchedAt);
       return report;
     },
     onSuccess: () => {

@@ -28,7 +28,13 @@ class SignInInput(BaseModel):
 
 
 def _profile(user: StaffUser) -> dict[str, Any]:
-    return {"email": user.email, "name": user.name, "isAdmin": user.is_admin}
+    """The session carries Google's name; a name an administrator set overrides it."""
+    name = user.name
+    try:
+        name = coordinator_directory.directory().get(user.email)["name"] or name
+    except Exception:  # noqa: BLE001 - a directory hiccup must not break signing in
+        pass
+    return {"email": user.email, "name": name, "isAdmin": user.is_admin}
 
 
 @router.get("/config")

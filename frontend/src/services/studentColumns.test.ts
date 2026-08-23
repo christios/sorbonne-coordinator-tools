@@ -1,19 +1,33 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 import {
-  DEFAULT_LAYOUT,
+  buildColumns,
+  defaultLayout,
   loadLayout,
   moveColumn,
   optionsFor,
   reconcileLayout,
+  reorderColumn,
   resizeColumn,
   saveLayout,
   toggleColumn,
   visibleColumns,
   widthOf,
-  STUDENT_COLUMNS,
 } from "@/services/studentColumns";
 import type { StudentRow } from "@/services/rosterView";
+import type { PortalField } from "@/services/scenRosters";
+
+const FIELDS: PortalField[] = [
+  { key: "FULL_NAME", label: "Student", options: [] },
+  { key: "SPRIDEN_ID", label: "Id", options: [] },
+  { key: "YEARLEVEL_CODE", label: "Year", options: [{ value: "FY", label: "FY" }] },
+  { key: "MAJOR_CODE_DESC", label: "Major", options: [] },
+  { key: "PSUAD_EMAIL", label: "E-mail", options: [] },
+  { key: "NATION_DESC", label: "Nationality", options: [] },
+];
+
+const COLUMNS = buildColumns(FIELDS);
+const LAYOUT = defaultLayout(COLUMNS);
 
 const row = (over: Partial<StudentRow> = {}): StudentRow => ({
   studentId: "A001",
@@ -26,6 +40,7 @@ const row = (over: Partial<StudentRow> = {}): StudentRow => ({
   cohortName: "",
   firstSeenAt: "2026-08-01T09:00:00+00:00",
   lastSeenAt: "2026-08-22T09:00:00+00:00",
+  portal: { FULL_NAME: "Amira Haddad", YEARLEVEL_CODE: "FY", MAJOR_CODE_DESC: "Mathematics" },
   isNew: false,
   changes: [],
   ...over,
@@ -33,80 +48,144 @@ const row = (over: Partial<StudentRow> = {}): StudentRow => ({
 
 beforeEach(() => window.localStorage.clear());
 
+describe("the columns the portal offers", () => {
+  it("makes a column of every portal field, alongside our own", () => {
+    const ids = COLUMNS.map((column) => column.id);
+
+    expect(ids).toContain("portal:NATION_DESC");
+    expect(ids).toContain("status");
+    expect(ids).toContain("cohortName");
+  });
+
+  it("does not offer the portal's id twice — we already have that column", () => {
+    expect(COLUMNS.filter((column) => /id$/i.test(column.id))).toHaveLength(1);
+    expect(COLUMNS.map((column) => column.id)).not.toContain("portal:SPRIDEN_ID");
+  });
+
+  it("filters a field with a short code table as options, and a bare one as text", () => {
+    expect(COLUMNS.find((column) => column.id === "portal:YEARLEVEL_CODE")?.type).toBe("option");
+    expect(COLUMNS.find((column) => column.id === "portal:FULL_NAME")?.type).toBe("text");
+  });
+
+  it("still has usable columns before the extension has described the portal", () => {
+    const ids = buildColumns([]).map((column) => column.id);
+
+    expect(ids).toContain("portal:FULL_NAME");
+    expect(ids).toContain("portal:YEARLEVEL_CODE");
+  });
+
+  it("reads a portal column off the row the pull produced", () => {
+    const column = COLUMNS.find((candidate) => candidate.id === "portal:MAJOR_CODE_DESC")!;
+
+    expect(column.accessor(row())).toBe("Mathematics");
+    expect(column.accessor(row({ portal: {} }))).toBe("");
+  });
+});
+
 describe("the stored arrangement", () => {
   it("starts with the everyday columns shown and the rest put away", () => {
-    expect(visibleColumns(DEFAULT_LAYOUT).map((column) => column.id)).toEqual([
+    expect(visibleColumns(LAYOUT, COLUMNS).map((column) => column.id)).toEqual([
       "status",
-      "name",
+      "portal:FULL_NAME",
       "studentId",
-      "yearLevel",
-      "major",
+      "portal:YEARLEVEL_CODE",
+      "portal:MAJOR_CODE_DESC",
       "cohortName",
     ]);
   });
 
   it("survives a round trip through storage", () => {
-    saveLayout(toggleColumn(DEFAULT_LAYOUT, "email"));
+    saveLayout(toggleColumn(LAYOUT, "portal:PSUAD_EMAIL", COLUMNS));
 
-    expect(visibleColumns(loadLayout()).map((column) => column.id)).toContain("email");
+    expect(visibleColumns(loadLayout(COLUMNS), COLUMNS).map((column) => column.id)).toContain(
+      "portal:PSUAD_EMAIL",
+    );
   });
 
-  it("keeps a column added since the layout was written", () => {
-    // An old layout naming only three columns must not hide everything added later.
-    const repaired = reconcileLayout({ order: ["studentId", "name", "status"], hidden: [], widths: {} });
+  it("keeps a column added since the layout was written, but does not show it unasked", () => {
+    // The portal gaining a field must not rearrange a table somebody has set up.
+    const older = { order: ["status", "studentId", "portal:FULL_NAME"], hidden: [], widths: {} };
 
-    expect(repaired.order).toHaveLength(STUDENT_COLUMNS.length);
-    expect(repaired.order.slice(0, 3)).toEqual(["studentId", "name", "status"]);
+    const repaired = reconcileLayout(older, COLUMNS);
+
+    expect(repaired.order).toHaveLength(COLUMNS.length);
+    expect(repaired.order.slice(0, 3)).toEqual(["status", "studentId", "portal:FULL_NAME"]);
+    expect(repaired.hidden).toContain("portal:NATION_DESC");
   });
 
-  it("drops a column the code no longer has", () => {
-    const repaired = reconcileLayout({ order: ["studentId", "vanished"], hidden: ["vanished"], widths: { vanished: 90 } });
+  it("drops a column the portal no longer offers", () => {
+    const repaired = reconcileLayout(
+      { order: ["studentId", "portal:GONE"], hidden: ["portal:GONE"], widths: { "portal:GONE": 90 } },
+      COLUMNS,
+    );
 
-    expect(repaired.order).not.toContain("vanished");
-    expect(repaired.hidden).not.toContain("vanished");
-    expect(repaired.widths.vanished).toBeUndefined();
+    expect(repaired.order).not.toContain("portal:GONE");
+    expect(repaired.hidden).not.toContain("portal:GONE");
+    expect(repaired.widths["portal:GONE"]).toBeUndefined();
   });
 
   it("refuses to hide a column the row cannot be read without", () => {
-    expect(toggleColumn(DEFAULT_LAYOUT, "studentId").hidden).not.toContain("studentId");
-    expect(reconcileLayout({ hidden: ["studentId"] }).hidden).not.toContain("studentId");
+    expect(toggleColumn(LAYOUT, "studentId", COLUMNS).hidden).not.toContain("studentId");
+    expect(reconcileLayout({ hidden: ["studentId"] }, COLUMNS).hidden).not.toContain("studentId");
   });
 
   it("ignores a stored width narrower than the column can be", () => {
-    const column = STUDENT_COLUMNS.find((candidate) => candidate.id === "major")!;
+    const column = COLUMNS.find((candidate) => candidate.id === "portal:MAJOR_CODE_DESC")!;
 
-    expect(reconcileLayout({ widths: { major: 10 } }).widths.major).toBe(column.minWidth);
-    expect(widthOf(resizeColumn(DEFAULT_LAYOUT, "major", 5), column)).toBe(column.minWidth);
+    expect(reconcileLayout({ widths: { "portal:MAJOR_CODE_DESC": 10 } }, COLUMNS).widths["portal:MAJOR_CODE_DESC"]).toBe(
+      column.minWidth,
+    );
+    expect(widthOf(resizeColumn(LAYOUT, "portal:MAJOR_CODE_DESC", 5, COLUMNS), column)).toBe(column.minWidth);
   });
 
   it("falls back to the default when storage holds nonsense", () => {
     window.localStorage.setItem("scen-student-columns:v1", "not json");
 
-    expect(visibleColumns(loadLayout())).toHaveLength(6);
+    expect(visibleColumns(loadLayout(COLUMNS), COLUMNS)).toHaveLength(6);
   });
 });
 
 describe("moving a column", () => {
   it("shifts it one place, in either direction", () => {
-    const moved = moveColumn(DEFAULT_LAYOUT, "name", -1);
+    const moved = moveColumn(LAYOUT, "portal:FULL_NAME", -1);
 
-    expect(moved.order.slice(0, 2)).toEqual(["name", "status"]);
-    expect(moveColumn(moved, "name", 1).order.slice(0, 2)).toEqual(["status", "name"]);
+    expect(moved.order.slice(0, 2)).toEqual(["portal:FULL_NAME", "status"]);
+    expect(moveColumn(moved, "portal:FULL_NAME", 1).order.slice(0, 2)).toEqual([
+      "status",
+      "portal:FULL_NAME",
+    ]);
   });
 
   it("does nothing at either end rather than wrapping around", () => {
-    const first = DEFAULT_LAYOUT.order[0];
-    const last = DEFAULT_LAYOUT.order[DEFAULT_LAYOUT.order.length - 1];
+    const first = LAYOUT.order[0];
+    const last = LAYOUT.order[LAYOUT.order.length - 1];
 
-    expect(moveColumn(DEFAULT_LAYOUT, first, -1)).toBe(DEFAULT_LAYOUT);
-    expect(moveColumn(DEFAULT_LAYOUT, last, 1)).toBe(DEFAULT_LAYOUT);
+    expect(moveColumn(LAYOUT, first, -1)).toBe(LAYOUT);
+    expect(moveColumn(LAYOUT, last, 1)).toBe(LAYOUT);
+  });
+
+  it("drops a dragged column in front of the one it was dropped on", () => {
+    const dropped = reorderColumn(LAYOUT, "cohortName", "status");
+
+    expect(dropped.order[0]).toBe("cohortName");
+    expect(dropped.order).toHaveLength(LAYOUT.order.length);
+  });
+
+  it("drags rightwards as well as leftwards", () => {
+    const dropped = reorderColumn(LAYOUT, "status", "portal:MAJOR_CODE_DESC");
+
+    expect(dropped.order.indexOf("status")).toBe(dropped.order.indexOf("portal:MAJOR_CODE_DESC") - 1);
+  });
+
+  it("leaves the order alone when a column is dropped on itself", () => {
+    expect(reorderColumn(LAYOUT, "status", "status")).toBe(LAYOUT);
   });
 });
 
 describe("the values a column offers to the filter bar", () => {
   it("lists each distinct value once, labelled the way the cell reads", () => {
     const rows = [row(), row({ studentId: "A002", status: "not_in_portal" }), row({ studentId: "A003" })];
-    const status = STUDENT_COLUMNS.find((column) => column.id === "status")!;
+    const status = COLUMNS.find((column) => column.id === "status")!;
 
     expect(optionsFor(rows, status)).toEqual([
       { value: "in_portal", label: "In portal" },
@@ -115,8 +194,10 @@ describe("the values a column offers to the filter bar", () => {
   });
 
   it("leaves out the blanks, which are not a value anybody filters for", () => {
-    const cohort = STUDENT_COLUMNS.find((column) => column.id === "cohortName")!;
+    const cohort = COLUMNS.find((column) => column.id === "cohortName")!;
 
-    expect(optionsFor([row(), row({ cohortName: "L1" })], cohort)).toEqual([{ value: "L1", label: "L1" }]);
+    expect(optionsFor([row(), row({ cohortName: "L1" })], cohort)).toEqual([
+      { value: "L1", label: "L1" },
+    ]);
   });
 });

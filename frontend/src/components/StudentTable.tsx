@@ -1,8 +1,18 @@
-import { ArrowDown, ArrowUp } from "lucide-react";
+import { ArrowDown, ArrowUp, Clock3, GripVertical } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { CopyButton } from "@/components/CopyButton";
+import { columnText, rowText } from "@/services/copyCells";
 import type { StudentRow } from "@/services/rosterView";
 import { widthOf, type ColumnLayout, type StudentColumn } from "@/services/studentColumns";
+
+/** What a cell says, which is what a copy of it should say too. */
+export function cellText(row: StudentRow, column: StudentColumn): string {
+  if (column.id === "status") {
+    return row.status === "not_in_portal" ? "Not in portal" : "In portal";
+  }
+  return column.display ? column.display(row) : String(column.accessor(row) ?? "");
+}
 
 export type Sort = { key: string; ascending: boolean };
 
@@ -22,8 +32,10 @@ export function StudentTable({
   selected,
   onSort,
   onResize,
+  onReorder,
   onToggle,
   onToggleAll,
+  onOpenHistory,
   empty,
 }: {
   rows: StudentRow[];
@@ -33,11 +45,14 @@ export function StudentTable({
   selected: Set<string>;
   onSort: (key: string) => void;
   onResize: (id: string, width: number) => void;
+  onReorder: (id: string, beforeId: string) => void;
   onToggle: (studentId: string) => void;
   onToggleAll: () => void;
+  onOpenHistory: (row: StudentRow) => void;
   empty: string;
 }) {
   const allShown = rows.length > 0 && rows.every((row) => selected.has(row.studentId));
+  const [dragging, setDragging] = useState("");
 
   return (
     <section className="mt-3 overflow-x-auto rounded-lg border border-[#d9dee7] bg-white">
@@ -60,8 +75,13 @@ export function StudentTable({
                 sort={sort}
                 onSort={onSort}
                 onResize={onResize}
+                dragging={dragging}
+                onDragging={setDragging}
+                onReorder={onReorder}
+                copy={() => columnText(rows.map((row) => cellText(row, column)))}
               />
             ))}
+            <th scope="col" className="w-10 px-2 py-3" />
           </tr>
         </thead>
         <tbody>
@@ -84,11 +104,26 @@ export function StudentTable({
                   <Cell row={row} column={column} />
                 </td>
               ))}
+              <td className="w-10 whitespace-nowrap px-2 py-2 text-right">
+                <button
+                  type="button"
+                  aria-label={`History for ${row.name || row.studentId}`}
+                  title="What the portal has said about this student"
+                  onClick={() => onOpenHistory(row)}
+                  className="rounded p-1 text-[#98a2b3] hover:bg-[#f2f7fb] hover:text-[#1f4e79]"
+                >
+                  <Clock3 size={13} aria-hidden="true" />
+                </button>
+                <CopyButton
+                  label={`Copy the row for ${row.name || row.studentId}`}
+                  text={() => rowText(columns.map((column) => cellText(row, column)))}
+                />
+              </td>
             </tr>
           ))}
           {rows.length === 0 ? (
             <tr>
-              <td colSpan={columns.length + 1} className="px-5 py-10 text-center text-sm text-[#667085]">
+              <td colSpan={columns.length + 2} className="px-5 py-10 text-center text-sm text-[#667085]">
                 {empty}
               </td>
             </tr>
@@ -124,7 +159,7 @@ function Cell({ row, column }: { row: StudentRow; column: StudentColumn }) {
     );
   }
 
-  if (column.id === "name") {
+  if (column.id === "portal:FULL_NAME") {
     return (
       <>
         <span className="font-semibold text-[#171717]">
@@ -149,36 +184,83 @@ function HeaderCell({
   sort,
   onSort,
   onResize,
+  dragging,
+  onDragging,
+  onReorder,
+  copy,
 }: {
   column: StudentColumn;
   width: number;
   sort: Sort;
   onSort: (key: string) => void;
   onResize: (id: string, width: number) => void;
+  dragging: string;
+  onDragging: (id: string) => void;
+  onReorder: (id: string, beforeId: string) => void;
+  copy: () => string;
 }) {
   const active = sort.key === column.id;
+  const [over, setOver] = useState(false);
 
   return (
     <th
       scope="col"
-      className="relative px-4 py-3 font-semibold"
+      className={`group relative px-4 py-3 font-semibold ${
+        over && dragging && dragging !== column.id ? "bg-[#e8edf3]" : ""
+      } ${dragging === column.id ? "opacity-50" : ""}`}
       style={{ width }}
+      onDragOver={(event) => {
+        if (!dragging || dragging === column.id) return;
+        // Without this the drop is refused and the cursor shows the "no" sign.
+        event.preventDefault();
+        setOver(true);
+      }}
+      onDragLeave={() => setOver(false)}
+      onDrop={(event) => {
+        event.preventDefault();
+        setOver(false);
+        if (dragging && dragging !== column.id) onReorder(dragging, column.id);
+        onDragging("");
+      }}
     >
-      <button
-        type="button"
-        onClick={() => onSort(column.id)}
-        aria-label={`Sort by ${column.displayName}`}
-        className={`inline-flex max-w-full items-center gap-1 truncate ${active ? "text-[#1f4e79]" : ""}`}
-      >
-        {column.displayName}
-        {active ? (
-          sort.ascending ? (
-            <ArrowUp size={12} aria-hidden="true" />
-          ) : (
-            <ArrowDown size={12} aria-hidden="true" />
-          )
-        ) : null}
-      </button>
+      <span className="flex items-center gap-1">
+        <span
+          draggable
+          role="button"
+          tabIndex={-1}
+          aria-label={`Drag ${column.displayName} to reorder`}
+          onDragStart={(event) => {
+            onDragging(column.id);
+            event.dataTransfer.effectAllowed = "move";
+            // Firefox starts no drag at all unless something is set here.
+            event.dataTransfer.setData("text/plain", column.id);
+          }}
+          onDragEnd={() => onDragging("")}
+          className="cursor-grab text-[#cbd5e1] opacity-0 transition-opacity group-hover:opacity-100"
+        >
+          <GripVertical size={12} aria-hidden="true" />
+        </span>
+        <button
+          type="button"
+          onClick={() => onSort(column.id)}
+          aria-label={`Sort by ${column.displayName}`}
+          className={`inline-flex min-w-0 flex-1 items-center gap-1 truncate ${active ? "text-[#1f4e79]" : ""}`}
+        >
+          <span className="truncate">{column.displayName}</span>
+          {active ? (
+            sort.ascending ? (
+              <ArrowUp size={12} aria-hidden="true" />
+            ) : (
+              <ArrowDown size={12} aria-hidden="true" />
+            )
+          ) : null}
+        </button>
+        <CopyButton
+          label={`Copy the ${column.displayName} column`}
+          text={copy}
+          className="opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100"
+        />
+      </span>
       <ResizeHandle column={column} width={width} onResize={onResize} />
     </th>
   );

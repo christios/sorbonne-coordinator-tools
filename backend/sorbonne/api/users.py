@@ -28,6 +28,8 @@ class InviteInput(BaseModel):
 class AccountUpdate(BaseModel):
     isAdmin: bool | None = None
     isActive: bool | None = None
+    # What to call this person in the application, instead of whatever Google says.
+    displayName: str | None = Field(default=None, max_length=120)
 
 
 def require_directory() -> CoordinatorDirectory:
@@ -94,13 +96,16 @@ async def update_account(
 ) -> dict[str, Any]:
     address = _address(email)
     _refuse_owners(address)
-    if address == admin.email:
+    # Renaming yourself is harmless; changing your own access is not.
+    if address == admin.email and (body.isAdmin is not None or body.isActive is not None):
         # Nobody may quietly demote or suspend themselves and lock the door behind them.
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="You cannot change your own access here."
         )
     try:
-        return directory.update(address, is_admin=body.isAdmin, is_active=body.isActive)
+        return directory.update(
+            address, is_admin=body.isAdmin, is_active=body.isActive, display_name=body.displayName
+        )
     except AccountNotFound as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 

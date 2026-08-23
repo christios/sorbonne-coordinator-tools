@@ -3,11 +3,11 @@ import { Popover } from "radix-ui";
 import { useState } from "react";
 
 import {
-  DEFAULT_LAYOUT,
+  defaultLayout,
   moveColumn,
   toggleColumn,
-  STUDENT_COLUMNS,
   type ColumnLayout,
+  type StudentColumn,
 } from "@/services/studentColumns";
 
 /**
@@ -19,15 +19,22 @@ import {
  */
 export function ColumnMenu({
   layout,
+  columns,
   onChange,
 }: {
   layout: ColumnLayout;
+  columns: StudentColumn[];
   onChange: (layout: ColumnLayout) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
   const ordered = layout.order
-    .map((id) => STUDENT_COLUMNS.find((column) => column.id === id))
-    .filter((column): column is (typeof STUDENT_COLUMNS)[number] => Boolean(column));
+    .map((id) => columns.find((column) => column.id === id))
+    .filter((column): column is StudentColumn => Boolean(column));
+  const needle = search.trim().toLowerCase();
+  const listed = needle
+    ? ordered.filter((column) => column.displayName.toLowerCase().includes(needle))
+    : ordered;
   const shown = ordered.filter((column) => !layout.hidden.includes(column.id)).length;
 
   return (
@@ -47,8 +54,17 @@ export function ColumnMenu({
           sideOffset={6}
           className="z-[100] w-72 rounded-md border border-[#d9dee7] bg-white p-2 shadow-lg"
         >
+          {/* The portal offers nineteen fields, so the list needs searching. */}
+          <input
+            aria-label="Search columns"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search columns"
+            className="mb-1 w-full rounded border border-[#cbd5e1] px-2 py-1.5 text-sm"
+          />
           <ul className="max-h-80 overflow-y-auto">
-            {ordered.map((column, index) => {
+            {listed.map((column) => {
+              const index = ordered.indexOf(column);
               const visible = !layout.hidden.includes(column.id);
               return (
                 <li key={column.id} className="flex items-center gap-2 rounded px-1 py-1 hover:bg-[#f8fafc]">
@@ -57,7 +73,7 @@ export function ColumnMenu({
                     id={`column-${column.id}`}
                     checked={visible}
                     disabled={column.required}
-                    onChange={() => onChange(toggleColumn(layout, column.id))}
+                    onChange={() => onChange(toggleColumn(layout, column.id, columns))}
                   />
                   <label
                     htmlFor={`column-${column.id}`}
@@ -91,7 +107,7 @@ export function ColumnMenu({
 
           <button
             type="button"
-            onClick={() => onChange(DEFAULT_LAYOUT)}
+            onClick={() => onChange(defaultLayout(columns))}
             className="mt-1 inline-flex w-full items-center gap-1.5 rounded px-2 py-1.5 text-sm text-[#667085] hover:bg-[#f2f7fb]"
           >
             <RotateCcw size={13} aria-hidden="true" /> Reset to the default arrangement

@@ -10,6 +10,7 @@ const ADMIN = { email: "coordinator@sorbonne.ae", name: "Coordinator", isAdmin: 
 const COLLEAGUE: directory.CoordinatorAccount = {
   email: "colleague@sorbonne.ae",
   name: "Dr Colleague",
+  displayName: "",
   isAdmin: false,
   isActive: true,
   invitedBy: ADMIN.email,
@@ -108,5 +109,27 @@ describe("StaffSettings", () => {
 
     expect(await screen.findByText(/Only an administrator can manage who may sign in/)).toBeTruthy();
     expect(directory.fetchStaffList).not.toHaveBeenCalled();
+  });
+});
+
+
+describe("naming a colleague", () => {
+  it("sends the name an administrator typed, and nothing else", async () => {
+    const update = vi.spyOn(directory, "updateCoordinator").mockResolvedValue({
+      ...COLLEAGUE,
+      name: "Patricia Duval",
+      displayName: "Patricia Duval",
+    });
+    renderSettings();
+    await screen.findByText("Dr Colleague");
+
+    fireEvent.click(screen.getByRole("button", { name: /Name/ }));
+    fireEvent.change(await screen.findByLabelText(`Name for ${COLLEAGUE.email}`), {
+      target: { value: "Patricia Duval" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save name" }));
+
+    await waitFor(() => expect(update).toHaveBeenCalled());
+    expect(update.mock.calls[0][1]).toEqual({ displayName: "Patricia Duval" });
   });
 });

@@ -1,5 +1,7 @@
 """The Student Database's routes, as the screens use them."""
 
+import json
+
 import pytest
 from fastapi import status
 from fastapi.testclient import TestClient
@@ -37,7 +39,7 @@ def empty_shared_tables() -> None:
     with StudentDatabase(TEST_DATABASE_URL).engine.begin() as connection:
         connection.execute(text("DELETE FROM roster_filters"))
         connection.execute(text("DELETE FROM students"))
-        connection.execute(text("UPDATE sync_settings SET filter = '{}'::jsonb"))
+        connection.execute(text("UPDATE sync_settings SET filter = '{}'::jsonb, passphrase = ''"))
 
 
 @pytest.fixture
@@ -214,6 +216,20 @@ def settings_of(client: TestClient) -> dict:
     return client.get("/api/v1/student-database/sync-settings").json()
 
 
+def _as_ordinary_coordinator(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Sign the rest of the test in as somebody who is not an administrator."""
+    from sorbonne.services import auth_gate
+    from sorbonne.services.staff_auth import StaffUser
+
+    monkeypatch.setattr(
+        auth_gate,
+        "user_for_request",
+        lambda *_args, **_kwargs: StaffUser(
+            email="colleague@sorbonne.ae", name="Colleague", is_admin=False
+        ),
+    )
+
+
 def test_the_sync_population_starts_as_everyone(client: TestClient):
     assert settings_of(client)["filter"] == {}
 
@@ -225,6 +241,77 @@ def test_the_sync_population_is_saved_and_shared(client: TestClient):
 
     assert response.status_code == status.HTTP_200_OK, response.text
     assert settings_of(client)["filter"] == {"YEARLEVEL_CODE": ["FY", "L1"]}
+
+
+def test_the_sync_population_is_unlocked_until_somebody_locks_it(client: TestClient):
+    assert settings_of(client)["locked"] is False
+
+
+def test_a_locked_population_refuses_the_wrong_passphrase(client: TestClient, monkeypatch):
+    client.put("/api/v1/student-database/sync-settings/passphrase", json={"passphrase": "term-2026"})
+    _as_ordinary_coordinator(monkeypatch)
+
+    refused = client.put(
+        "/api/v1/student-database/sync-settings",
+        json={"filter": {"YEARLEVEL_CODE": ["FY"]}, "passphrase": "wrong"},
+    )
+
+    assert refused.status_code == status.HTTP_403_FORBIDDEN
+    assert settings_of(client)["filter"] == {}
+
+
+def test_a_locked_population_accepts_the_right_passphrase(client: TestClient, monkeypatch):
+    client.put("/api/v1/student-database/sync-settings/passphrase", json={"passphrase": "term-2026"})
+    _as_ordinary_coordinator(monkeypatch)
+
+    saved = client.put(
+        "/api/v1/student-database/sync-settings",
+        json={"filter": {"YEARLEVEL_CODE": ["FY"]}, "passphrase": "term-2026"},
+    )
+
+    assert saved.status_code == status.HTTP_200_OK, saved.text
+    assert saved.json()["locked"] is True
+
+
+def test_an_administrator_never_needs_the_passphrase(client: TestClient):
+    client.put("/api/v1/student-database/sync-settings/passphrase", json={"passphrase": "term-2026"})
+
+    saved = client.put(
+        "/api/v1/student-database/sync-settings", json={"filter": {"YEARLEVEL_CODE": ["FY"]}}
+    )
+
+    assert saved.status_code == status.HTTP_200_OK, saved.text
+
+
+def test_only_an_administrator_can_change_the_lock(client: TestClient, monkeypatch):
+    _as_ordinary_coordinator(monkeypatch)
+
+    refused = client.put(
+        "/api/v1/student-database/sync-settings/passphrase", json={"passphrase": "mine"}
+    )
+
+    assert refused.status_code == status.HTTP_403_FORBIDDEN
+
+
+def test_the_passphrase_itself_is_never_returned(client: TestClient):
+    client.put("/api/v1/student-database/sync-settings/passphrase", json={"passphrase": "term-2026"})
+
+    body = settings_of(client)
+
+    assert body["locked"] is True
+    assert "term-2026" not in json.dumps(body)
+    assert "passphrase" not in body
+
+
+def test_an_empty_passphrase_unlocks_it_again(client: TestClient, monkeypatch):
+    client.put("/api/v1/student-database/sync-settings/passphrase", json={"passphrase": "term-2026"})
+    client.put("/api/v1/student-database/sync-settings/passphrase", json={"passphrase": ""})
+    _as_ordinary_coordinator(monkeypatch)
+
+    saved = client.put("/api/v1/student-database/sync-settings", json={"filter": {}})
+
+    assert saved.status_code == status.HTTP_200_OK, saved.text
+    assert settings_of(client)["locked"] is False
 
 
 def test_the_sync_population_takes_portal_codes_only(client: TestClient):

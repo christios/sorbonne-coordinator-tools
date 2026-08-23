@@ -4,10 +4,15 @@ import { useEffect, useMemo, useState } from "react";
 
 import { ColumnMenu } from "@/components/ColumnMenu";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { CopyButton } from "@/components/CopyButton";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { SelectMenu } from "@/components/SelectMenu";
-import { StudentTable, type Sort } from "@/components/StudentTable";
+import { StudentHistoryPane } from "@/components/StudentHistoryPane";
+import { StudentTable, cellText, type Sort } from "@/components/StudentTable";
 import { TableFilterBar } from "@/components/TableFilterBar";
+import { tableText } from "@/services/copyCells";
+import { forgetHistory, loadHistory, type PullHistory } from "@/services/pullHistory";
+import { fetchSchema } from "@/services/scenRosters";
 import { changesSince, studentRows, type StudentRow } from "@/services/rosterView";
 import { PortalError } from "@/services/scenRosters";
 import {
@@ -18,8 +23,10 @@ import {
   type StoredPreset,
 } from "@/services/rosterStore";
 import {
+  buildColumns,
   loadLayout,
   optionsFor,
+  reorderColumn,
   resizeColumn,
   saveLayout,
   visibleColumns,
@@ -45,10 +52,16 @@ const NO_COHORT = "__none__";
 export function StudentRoster({ cohorts }: { cohorts: Cohort[] }) {
   const client = useQueryClient();
   const students = useQuery({ queryKey: ["students"], queryFn: fetchStudents });
+  const schema = useQuery({ queryKey: ["portal-schema"], queryFn: fetchSchema, staleTime: 60_000 });
+
+  // The table offers the portal's own fields, so the columns follow the harvested schema.
+  const allColumns = useMemo(() => buildColumns(schema.data?.fields ?? []), [schema.data]);
 
   const [stored, setStored] = useState<StoredPreset>({});
   const [syncedAt, setSyncedAt] = useState("");
-  const [layout, setLayout] = useState<ColumnLayout>(loadLayout);
+  const [history, setHistory] = useState<PullHistory>(loadHistory);
+  const [historyOf, setHistoryOf] = useState<StudentRow | null>(null);
+  const [layout, setLayout] = useState<ColumnLayout | null>(null);
   const [filters, setFilters] = useState<FilterModel[]>([]);
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<Sort>({ key: "studentId", ascending: true });
@@ -56,11 +69,16 @@ export function StudentRoster({ cohorts }: { cohorts: Cohort[] }) {
   const [moveTo, setMoveTo] = useState("");
   const [confirmForget, setConfirmForget] = useState(false);
 
-  // The names live in this browser, so they are read back on mount rather than fetched.
+  // The names and the history live in this browser, so they are read back on mount
+  // rather than fetched — and again after a sync, which is what changes them.
   useEffect(() => {
     setStored(loadPull(lastPulled()));
     setSyncedAt(lastSync());
+    setHistory(loadHistory());
   }, [students.dataUpdatedAt]);
+
+  // The arrangement can only be reconciled once the columns are known.
+  useEffect(() => setLayout(loadLayout(allColumns)), [allColumns]);
 
   const arrange = (next: ColumnLayout) => {
     setLayout(next);
@@ -87,21 +105,23 @@ export function StudentRoster({ cohorts }: { cohorts: Cohort[] }) {
     [students.data, stored, changes, syncedAt],
   );
 
-  const columns = useMemo(() => visibleColumns(layout), [layout]);
+  const columns = useMemo(
+    () => (layout ? visibleColumns(layout, allColumns) : []),
+    [layout, allColumns],
+  );
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
+    // Across every column on screen, not a chosen few: if you can see a value, searching
+    // for it should find it.
     const searched = needle
-      ? rows.filter(
-          (row) =>
-            row.studentId.toLowerCase().includes(needle) ||
-            row.name.toLowerCase().includes(needle) ||
-            row.email.toLowerCase().includes(needle),
+      ? rows.filter((row) =>
+          columns.some((column) => cellText(row, column).toLowerCase().includes(needle)),
         )
       : rows;
     return sortRows(applyFilters(searched, columns, filters), sort);
   }, [rows, columns, filters, sort, query]);
 
-  if (students.isLoading) return <ScreenLoading label="Loading the students…" />;
+  if (students.isLoading || !layout) return <ScreenLoading label="Loading the students…" />;
 
   const chosen = [...selected];
   const error = move.error ?? students.error;
@@ -139,12 +159,23 @@ export function StudentRoster({ cohorts }: { cohorts: Cohort[] }) {
             type="search"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search id, name or e-mail"
+            placeholder="Search every column"
             className="w-full rounded-md border border-[#cbd5e1] py-2 pl-9 pr-3 text-sm"
           />
         </label>
 
-        <ColumnMenu layout={layout} onChange={arrange} />
+        <ColumnMenu layout={layout} columns={allColumns} onChange={arrange} />
+
+        <CopyButton
+          label="Copy the whole table"
+          text={() =>
+            tableText(
+              columns.map((column) => column.displayName),
+              visible.map((row) => columns.map((column) => cellText(row, column))),
+            )
+          }
+          className="border border-[#b7bec8] bg-white p-2 hover:bg-[#f8fafc]"
+        />
       </div>
 
       <p className="mt-2 text-xs text-[#98a2b3]">
@@ -201,7 +232,9 @@ export function StudentRoster({ cohorts }: { cohorts: Cohort[] }) {
         onSort={(key) =>
           setSort((current) => ({ key, ascending: current.key === key ? !current.ascending : true }))
         }
-        onResize={(id, width) => arrange(resizeColumn(layout, id, width))}
+        onResize={(id, width) => arrange(resizeColumn(layout, id, width, allColumns))}
+        onReorder={(id, beforeId) => arrange(reorderColumn(layout, id, beforeId))}
+        onOpenHistory={setHistoryOf}
         onToggle={toggle}
         onToggleAll={() =>
           setSelected(allShown ? new Set() : new Set(visible.map((row) => row.studentId)))
@@ -218,17 +251,27 @@ export function StudentRoster({ cohorts }: { cohorts: Cohort[] }) {
         title="Forget the rosters stored in this browser?"
         description={
           "The names, e-mail addresses and year levels pulled from the portal are held in this " +
-          "browser and will be cleared. No student leaves the list and no cohort changes — the " +
-          "ids we keep are on the server and are not touched. Sync again and the names come back."
+          "browser and will be cleared, along with the history of what the portal has said. No " +
+          "student leaves the list and no cohort changes — the ids we keep are on the server and " +
+          "are not touched. Sync again and the names come back."
         }
         confirmLabel="Forget rosters"
         onConfirm={() => {
           forgetRosters();
+          forgetHistory();
           setStored({});
+          setHistory(loadHistory());
           setSyncedAt("");
           setConfirmForget(false);
         }}
         onClose={() => setConfirmForget(false)}
+      />
+
+      <StudentHistoryPane
+        row={historyOf}
+        history={history}
+        columns={allColumns}
+        onClose={() => setHistoryOf(null)}
       />
     </>
   );

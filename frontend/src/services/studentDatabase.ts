@@ -203,14 +203,29 @@ export type SyncSettings = {
   filter: Record<string, string[]>;
   updatedAt: string;
   updatedBy: string;
+  /** Whether an administrator has put a passphrase on these settings. */
+  locked: boolean;
 };
 
 export function fetchSyncSettings(): Promise<SyncSettings> {
   return request<SyncSettings>(`${BASE}/sync-settings`);
 }
 
-export function saveSyncSettings(filter: Record<string, string[]>): Promise<SyncSettings> {
-  return send<SyncSettings>(`${BASE}/sync-settings`, "PUT", { filter });
+export function saveSyncSettings(
+  filter: Record<string, string[]>,
+  passphrase = "",
+): Promise<SyncSettings> {
+  return send<SyncSettings>(`${BASE}/sync-settings`, "PUT", { filter, passphrase });
+}
+
+/** Check a passphrase without changing anything, so the dialog knows whether to open. */
+export function unlockSyncSettings(passphrase: string): Promise<{ ok: boolean }> {
+  return send<{ ok: boolean }>(`${BASE}/sync-settings/unlock`, "POST", { passphrase });
+}
+
+/** Administrators only: set the passphrase, or clear it with an empty one. */
+export function setSyncPassphrase(passphrase: string): Promise<{ locked: boolean }> {
+  return send<{ locked: boolean }>(`${BASE}/sync-settings/passphrase`, "PUT", { passphrase });
 }
 
 export async function fetchStudents(): Promise<Student[]> {

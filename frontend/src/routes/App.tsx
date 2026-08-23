@@ -239,7 +239,7 @@ export function App() {
             </div>
           )}
         </section>
-      </div> : activeTool === "teachers" ? <TeacherDatabase /> : activeTool === "database" ? <StudentDatabase /> : activeTool === "timetables" ? <TimetableUploader /> : <div className="min-h-0 flex-1"><SyllabusBuilder /></div>}
+      </div> : activeTool === "teachers" ? <TeacherDatabase /> : activeTool === "database" ? <StudentDatabase onOpenSettings={() => openTool("settings")} /> : activeTool === "timetables" ? <TimetableUploader /> : <div className="min-h-0 flex-1"><SyllabusBuilder /></div>}
     </main>
   );
 }

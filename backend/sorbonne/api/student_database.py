@@ -23,6 +23,7 @@ from sorbonne.services.student_database import (
     SavedSearch,
     ScopeNotFound,
     StudentDatabase,
+    SyncSettingsLocked,
 )
 
 router = APIRouter(prefix="/student-database", tags=["student-database"])
@@ -52,6 +53,14 @@ class SyncSettingsInput(BaseModel):
     """Which population the roster's sync asks the portal for. Codes only."""
 
     filter: dict[str, list[str]] = Field(default_factory=dict)
+    # Ignored for an administrator, who never needs it.
+    passphrase: str = Field(default="", max_length=200)
+
+
+class PassphraseInput(BaseModel):
+    """An empty passphrase unlocks the sync settings again."""
+
+    passphrase: str = Field(default="", max_length=200)
 
 
 class CohortAssignment(BaseModel):
@@ -224,9 +233,50 @@ async def save_sync_settings(
 ) -> dict[str, Any]:
     staff = getattr(request.state, "staff_user", None)
     try:
-        return database.save_sync_settings(body.filter, actor=getattr(staff, "email", "") or "")
+        return database.save_sync_settings(
+            body.filter,
+            actor=getattr(staff, "email", "") or "",
+            is_admin=bool(getattr(staff, "is_admin", False)),
+            passphrase=body.passphrase,
+        )
     except InvalidFilter as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except SyncSettingsLocked as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="That passphrase does not open the sync settings.",
+        ) from exc
+
+
+@router.post("/sync-settings/unlock")
+async def unlock_sync_settings(
+    body: PassphraseInput, request: Request, database: StudentDatabase = Depends(get_database)
+) -> dict[str, bool]:
+    """Check a passphrase without changing anything, so the dialog can open."""
+    staff = getattr(request.state, "staff_user", None)
+    if getattr(staff, "is_admin", False):
+        return {"ok": True}
+    if not database.check_sync_passphrase(body.passphrase):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="That passphrase does not open the sync settings.",
+        )
+    return {"ok": True}
+
+
+@router.put("/sync-settings/passphrase")
+async def set_sync_passphrase(
+    body: PassphraseInput, request: Request, database: StudentDatabase = Depends(get_database)
+) -> dict[str, bool]:
+    """Set or clear the lock. Administrators only — this is what "only admin" means."""
+    staff = getattr(request.state, "staff_user", None)
+    if not getattr(staff, "is_admin", False):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only an administrator can change the sync passphrase.",
+        )
+    database.set_sync_passphrase(body.passphrase)
+    return {"locked": bool(body.passphrase.strip())}
 
 
 @router.post("/students/cohort")

@@ -28,6 +28,8 @@ export type StudentRow = {
   /** When we first held this student, and when the portal last returned them. */
   firstSeenAt: string;
   lastSeenAt: string;
+  /** Every field the portal returned for them, by its own field name. */
+  portal: Record<string, string>;
   /** First seen by the most recent sync, so worth a coordinator's attention. */
   isNew: boolean;
   /** What the portal says differently from the previous pull: "year FY → L1". */
@@ -91,6 +93,11 @@ export function studentRows(
 
   return students.map((student) => {
     const row = pulled.get(student.studentId);
+    const portal: Record<string, string> = {};
+    for (const [field, value] of Object.entries(row ?? {})) {
+      const text = String(value ?? "").trim();
+      if (text) portal[field] = text;
+    }
     return {
       studentId: student.studentId,
       name: row ? displayNameOf(row) : "",
@@ -102,6 +109,7 @@ export function studentRows(
       cohortName: student.cohortName,
       firstSeenAt: student.firstSeenAt,
       lastSeenAt: student.lastSeenAt,
+      portal,
       isNew: Boolean(syncedAt) && student.firstSeenAt >= syncedAt,
       changes: changes.get(student.studentId) ?? [],
     };

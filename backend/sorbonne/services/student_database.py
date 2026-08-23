@@ -14,8 +14,11 @@ browser, where the registrar extension puts them.
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import re
+import secrets
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -63,6 +66,10 @@ class SavedSearch:
 
 class InvalidFilter(Exception):
     """A saved search must be portal codes and nothing else."""
+
+
+class SyncSettingsLocked(Exception):
+    """The sync population is passphrase-protected, and the passphrase was wrong."""
 
 
 
@@ -232,15 +239,33 @@ class StudentDatabase:
                 .first()
             )
         if row is None:
-            return {"filter": {}, "updatedAt": "", "updatedBy": ""}
+            return {"filter": {}, "updatedAt": "", "updatedBy": "", "locked": False}
         return {
             "filter": row["filter"] or {},
             "updatedAt": row["updated_at"],
             "updatedBy": row["updated_by"],
+            # Whether a passphrase is set, never the passphrase or its hash.
+            "locked": bool(row["passphrase"]),
         }
 
-    def save_sync_settings(self, criteria: dict[str, list[str]], *, actor: str = "") -> dict[str, Any]:
+    def save_sync_settings(
+        self,
+        criteria: dict[str, list[str]],
+        *,
+        actor: str = "",
+        is_admin: bool = False,
+        passphrase: str = "",
+    ) -> dict[str, Any]:
+        """Change which population the sync asks for.
+
+        An administrator may always do this. Anybody else needs the passphrase, if one has
+        been set — the check is here rather than in the dialog, because a dialog is only a
+        suggestion to anybody holding a terminal.
+        """
         checked = _check_criteria(criteria, allow_empty=True)
+        stored = self._passphrase()
+        if stored and not is_admin and not _passphrase_matches(stored, passphrase):
+            raise SyncSettingsLocked()
         now = _now()
         with self.engine.begin() as connection:
             connection.execute(
@@ -251,6 +276,28 @@ class StudentDatabase:
                 {"filter": json.dumps(checked), "now": now, "actor": actor},
             )
         return self.read_sync_settings()
+
+    def _passphrase(self) -> str:
+        with self.engine.connect() as connection:
+            row = connection.execute(
+                text("SELECT passphrase FROM sync_settings WHERE id = 'default'")
+            ).first()
+        return (row[0] if row else "") or ""
+
+    def set_sync_passphrase(self, passphrase: str) -> None:
+        """Lock the sync settings, or unlock them again with an empty passphrase."""
+        stored = _hash_passphrase(passphrase) if passphrase.strip() else ""
+        with self.engine.begin() as connection:
+            connection.execute(
+                text("""INSERT INTO sync_settings (id, filter, passphrase, updated_at, updated_by)
+                        VALUES ('default', '{}'::jsonb, :passphrase, :now, '')
+                        ON CONFLICT (id) DO UPDATE SET passphrase = :passphrase"""),
+                {"passphrase": stored, "now": _now()},
+            )
+
+    def check_sync_passphrase(self, passphrase: str) -> bool:
+        stored = self._passphrase()
+        return not stored or _passphrase_matches(stored, passphrase)
 
     # -------------------------------------------------------------- students
 
@@ -699,6 +746,25 @@ NEVER_FILTERABLE = frozenset(
         "PASSPORT_NUMBER",
     }
 )
+
+
+PBKDF2_ROUNDS = 240_000
+
+
+def _hash_passphrase(passphrase: str) -> str:
+    """salt:digest, so the stored value carries everything needed to check it again."""
+    salt = secrets.token_hex(16)
+    digest = hashlib.pbkdf2_hmac("sha256", passphrase.encode(), bytes.fromhex(salt), PBKDF2_ROUNDS)
+    return f"{salt}:{digest.hex()}"
+
+
+def _passphrase_matches(stored: str, offered: str) -> bool:
+    salt, _, digest = stored.partition(":")
+    if not salt or not digest:
+        return False
+    candidate = hashlib.pbkdf2_hmac("sha256", offered.encode(), bytes.fromhex(salt), PBKDF2_ROUNDS)
+    # Constant time, so a wrong guess cannot be narrowed down by how long it took.
+    return hmac.compare_digest(candidate.hex(), digest)
 
 
 def _check_criteria(criteria: dict[str, list[str]], *, allow_empty: bool = False) -> dict[str, list[str]]:

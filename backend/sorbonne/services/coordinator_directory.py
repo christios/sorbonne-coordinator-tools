@@ -59,10 +59,22 @@ def _timestamp() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
 
+def display_name_of(row: Any) -> str:
+    """What to call somebody: the name we were given, else Google's, else their address.
+
+    `name` is overwritten from Google on every sign-in, so a name an administrator has
+    chosen lives in `display_name` and wins.
+    """
+    chosen = str(getattr(row, "display_name", "") or "").strip()
+    return chosen or str(row.name or "").strip() or str(row.email)
+
+
 def _account(row: Any) -> dict[str, Any]:
     return {
         "email": row.email,
-        "name": row.name,
+        "name": display_name_of(row),
+        "displayName": str(getattr(row, "display_name", "") or ""),
+        "signInName": row.name,
         "isAdmin": row.is_admin,
         "isActive": row.is_active,
         "invitedBy": row.invited_by,
@@ -108,9 +120,16 @@ class CoordinatorDirectory:
         forget(address)
         return _account(row)
 
-    def update(self, email: str, *, is_admin: bool | None = None, is_active: bool | None = None) -> dict[str, Any]:
+    def update(
+        self,
+        email: str,
+        *,
+        is_admin: bool | None = None,
+        is_active: bool | None = None,
+        display_name: str | None = None,
+    ) -> dict[str, Any]:
         address = normalize_email(email)
-        assignments = {"is_admin": is_admin, "is_active": is_active}
+        assignments = {"is_admin": is_admin, "is_active": is_active, "display_name": display_name}
         changes = {column: value for column, value in assignments.items() if value is not None}
         if not changes:
             return self.get(address)

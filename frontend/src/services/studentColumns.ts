@@ -1,14 +1,20 @@
 /**
  * The columns of the student table: what they are, and how this browser has arranged them.
  *
+ * Most of them are the portal's own fields, read from the schema the extension harvested,
+ * so the table offers exactly what the registrar offers rather than a list somebody typed
+ * out once. A handful are ours — the status, the cohort, when we first held them — and
+ * those are the ones the portal knows nothing about.
+ *
  * A column knows its kind, so the filter bar can offer the right operators (see
- * services/tableFilter.ts) and the table can render it sensibly. The arrangement — which
- * columns are shown, in what order, and how wide — is a personal preference rather than a
- * shared decision, so it is kept in this browser rather than on the server.
+ * services/tableFilter.ts). The arrangement — which columns are shown, in what order, and
+ * how wide — is a personal preference rather than a shared decision, so it is kept in this
+ * browser rather than on the server.
  */
 
 import type { ColumnDataType, FilterColumn } from "@/services/tableFilter";
 import type { StudentRow } from "@/services/rosterView";
+import type { PortalField } from "@/services/scenRosters";
 
 const KEY = "scen-student-columns:v1";
 
@@ -22,7 +28,18 @@ export type StudentColumn = FilterColumn<StudentRow> & {
   minWidth: number;
 };
 
-export const STUDENT_COLUMNS: StudentColumn[] = [
+/** The columns a coordinator sees before they have arranged anything. */
+const DEFAULT_SHOWN = [
+  "status",
+  "portal:FULL_NAME",
+  "studentId",
+  "portal:YEARLEVEL_CODE",
+  "portal:MAJOR_CODE_DESC",
+  "cohortName",
+];
+
+/** The columns that are ours rather than the portal's. */
+const OWN_COLUMNS: StudentColumn[] = [
   {
     id: "status",
     displayName: "Status",
@@ -34,14 +51,6 @@ export const STUDENT_COLUMNS: StudentColumn[] = [
     minWidth: 110,
   },
   {
-    id: "name",
-    displayName: "Student",
-    type: "text",
-    accessor: (row) => row.name,
-    defaultWidth: 240,
-    minWidth: 140,
-  },
-  {
     id: "studentId",
     displayName: "Id",
     type: "text",
@@ -51,22 +60,6 @@ export const STUDENT_COLUMNS: StudentColumn[] = [
     minWidth: 100,
   },
   {
-    id: "yearLevel",
-    displayName: "Year",
-    type: "option",
-    accessor: (row) => row.yearLevel,
-    defaultWidth: 110,
-    minWidth: 80,
-  },
-  {
-    id: "major",
-    displayName: "Major",
-    type: "option",
-    accessor: (row) => row.major,
-    defaultWidth: 200,
-    minWidth: 120,
-  },
-  {
     id: "cohortName",
     displayName: "Cohort",
     type: "option",
@@ -74,14 +67,6 @@ export const STUDENT_COLUMNS: StudentColumn[] = [
     display: (row) => row.cohortName || "—",
     defaultWidth: 180,
     minWidth: 120,
-  },
-  {
-    id: "email",
-    displayName: "E-mail",
-    type: "text",
-    accessor: (row) => row.email,
-    defaultWidth: 240,
-    minWidth: 140,
   },
   {
     id: "firstSeenAt",
@@ -103,8 +88,62 @@ export const STUDENT_COLUMNS: StudentColumn[] = [
   },
 ];
 
-/** The columns a coordinator sees before they have arranged anything. */
-const DEFAULT_SHOWN = ["status", "name", "studentId", "yearLevel", "major", "cohortName"];
+/** Portal fields we already have a column of our own for, or that say nothing useful. */
+const SKIP_PORTAL_FIELDS = new Set(["SPRIDEN_ID", "ROWNUM", "ROW_NUM"]);
+
+/**
+ * A portal field with a short code table is worth filtering as an option; one with a long
+ * one, or none at all, reads better as free text.
+ */
+const OPTION_LIMIT = 60;
+
+function portalColumn(field: PortalField): StudentColumn {
+  const optionish = field.options.length > 0 && field.options.length <= OPTION_LIMIT;
+  return {
+    id: `portal:${field.key}`,
+    displayName: field.label || field.key,
+    type: optionish ? "option" : "text",
+    accessor: (row) => row.portal[field.key] ?? "",
+    defaultWidth: 180,
+    minWidth: 110,
+  };
+}
+
+/**
+ * Every column the table can show, given what the extension says the portal has.
+ *
+ * Before the extension has answered there are no portal fields, so the table falls back to
+ * our own columns plus the handful the roster always carries — otherwise the first visit
+ * would show nothing but ids.
+ */
+export function buildColumns(fields: PortalField[]): StudentColumn[] {
+  const portal = fields.length ? fields : FALLBACK_FIELDS;
+  const columns = [...OWN_COLUMNS];
+  for (const field of portal) {
+    if (SKIP_PORTAL_FIELDS.has(field.key.toUpperCase())) continue;
+    columns.push(portalColumn(field));
+  }
+  // The everyday columns lead, in the order they read best; the rest follow as the portal
+  // lists them. This is only the starting arrangement — it is the first thing a
+  // coordinator changes, and their change outlives it.
+  const rank = (column: StudentColumn) => {
+    const place = DEFAULT_SHOWN.indexOf(column.id);
+    return place < 0 ? DEFAULT_SHOWN.length : place;
+  };
+  return columns
+    .map((column, index) => ({ column, index }))
+    .sort((left, right) => rank(left.column) - rank(right.column) || left.index - right.index)
+    .map((entry) => entry.column);
+}
+
+/** What the roster carries even before the extension has described the portal. */
+const FALLBACK_FIELDS: PortalField[] = [
+  { key: "FULL_NAME", label: "Student", options: [] },
+  { key: "YEARLEVEL_CODE", label: "Year", options: [] },
+  { key: "MAJOR_CODE_DESC", label: "Major", options: [] },
+  { key: "PSUAD_EMAIL", label: "E-mail", options: [] },
+];
+
 
 /** Which columns are shown, in which order, and how wide each one is. */
 export type ColumnLayout = {
@@ -113,13 +152,15 @@ export type ColumnLayout = {
   widths: Record<string, number>;
 };
 
-export const DEFAULT_LAYOUT: ColumnLayout = {
-  order: STUDENT_COLUMNS.map((column) => column.id),
-  hidden: STUDENT_COLUMNS.filter((column) => !DEFAULT_SHOWN.includes(column.id)).map(
-    (column) => column.id,
-  ),
-  widths: {},
-};
+export function defaultLayout(columns: StudentColumn[]): ColumnLayout {
+  return {
+    order: columns.map((column) => column.id),
+    hidden: columns
+      .filter((column) => !column.required && !DEFAULT_SHOWN.includes(column.id))
+      .map((column) => column.id),
+    widths: {},
+  };
+}
 
 /**
  * The layout, repaired against the columns that actually exist.
@@ -128,15 +169,29 @@ export const DEFAULT_LAYOUT: ColumnLayout = {
  * than lost, one removed since is dropped, and a required column cannot stay hidden even
  * if an older layout says it is.
  */
-export function reconcileLayout(stored: Partial<ColumnLayout> | null): ColumnLayout {
-  const known = new Map(STUDENT_COLUMNS.map((column) => [column.id, column]));
+export function reconcileLayout(
+  stored: Partial<ColumnLayout> | null,
+  columns: StudentColumn[],
+): ColumnLayout {
+  const known = new Map(columns.map((column) => [column.id, column]));
+  const fallback = defaultLayout(columns);
   const order = (stored?.order ?? []).filter((id) => known.has(id));
-  for (const column of STUDENT_COLUMNS) {
+  for (const column of columns) {
     if (!order.includes(column.id)) order.push(column.id);
   }
-  const hidden = (stored?.hidden ?? DEFAULT_LAYOUT.hidden).filter(
+  // A column the portal has only just started offering starts hidden, like the rest of
+  // the ones nobody asked for — appearing unannounced would rearrange the table.
+  const carriedOver = stored?.order ?? [];
+  const hidden = (stored ? [...(stored.hidden ?? [])] : fallback.hidden).filter(
     (id) => known.has(id) && !known.get(id)?.required,
   );
+  if (stored) {
+    for (const column of columns) {
+      if (!carriedOver.includes(column.id) && !hidden.includes(column.id) && !column.required) {
+        if (!DEFAULT_SHOWN.includes(column.id)) hidden.push(column.id);
+      }
+    }
+  }
   const widths: Record<string, number> = {};
   for (const [id, width] of Object.entries(stored?.widths ?? {})) {
     const column = known.get(id);
@@ -145,13 +200,13 @@ export function reconcileLayout(stored: Partial<ColumnLayout> | null): ColumnLay
   return { order, hidden, widths };
 }
 
-export function loadLayout(): ColumnLayout {
+export function loadLayout(columns: StudentColumn[]): ColumnLayout {
   try {
     const raw = window.localStorage.getItem(KEY);
-    return reconcileLayout(raw ? (JSON.parse(raw) as ColumnLayout) : null);
+    return reconcileLayout(raw ? (JSON.parse(raw) as ColumnLayout) : null, columns);
   } catch {
     // Private browsing, or something that is not ours: fall back to the default.
-    return reconcileLayout(null);
+    return reconcileLayout(null, columns);
   }
 }
 
@@ -164,8 +219,8 @@ export function saveLayout(layout: ColumnLayout): void {
 }
 
 /** The columns on screen, in the order they are shown. */
-export function visibleColumns(layout: ColumnLayout): StudentColumn[] {
-  const known = new Map(STUDENT_COLUMNS.map((column) => [column.id, column]));
+export function visibleColumns(layout: ColumnLayout, columns: StudentColumn[]): StudentColumn[] {
+  const known = new Map(columns.map((column) => [column.id, column]));
   return layout.order
     .filter((id) => !layout.hidden.includes(id))
     .map((id) => known.get(id))
@@ -186,8 +241,20 @@ export function moveColumn(layout: ColumnLayout, id: string, by: -1 | 1): Column
   return { ...layout, order };
 }
 
-export function toggleColumn(layout: ColumnLayout, id: string): ColumnLayout {
-  const column = STUDENT_COLUMNS.find((candidate) => candidate.id === id);
+/** Drop one column in front of another, which is what a drag between headers means. */
+export function reorderColumn(layout: ColumnLayout, id: string, beforeId: string): ColumnLayout {
+  if (id === beforeId) return layout;
+  const order = [...layout.order];
+  const from = order.indexOf(id);
+  if (from < 0) return layout;
+  order.splice(from, 1);
+  const to = beforeId ? order.indexOf(beforeId) : order.length;
+  order.splice(to < 0 ? order.length : to, 0, id);
+  return { ...layout, order };
+}
+
+export function toggleColumn(layout: ColumnLayout, id: string, columns: StudentColumn[]): ColumnLayout {
+  const column = columns.find((candidate) => candidate.id === id);
   if (!column || column.required) return layout;
   const hidden = layout.hidden.includes(id)
     ? layout.hidden.filter((kept) => kept !== id)
@@ -195,8 +262,8 @@ export function toggleColumn(layout: ColumnLayout, id: string): ColumnLayout {
   return { ...layout, hidden };
 }
 
-export function resizeColumn(layout: ColumnLayout, id: string, width: number): ColumnLayout {
-  const column = STUDENT_COLUMNS.find((candidate) => candidate.id === id);
+export function resizeColumn(layout: ColumnLayout, id: string, width: number, columns: StudentColumn[]): ColumnLayout {
+  const column = columns.find((candidate) => candidate.id === id);
   if (!column) return layout;
   return { ...layout, widths: { ...layout.widths, [id]: Math.max(column.minWidth, Math.round(width)) } };
 }
