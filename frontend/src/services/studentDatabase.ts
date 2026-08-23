@@ -198,19 +198,35 @@ export type SyncReport = {
   syncedAt: string;
 };
 
+/** Which population the roster's sync asks the portal for. Shared by every coordinator. */
+export type SyncSettings = {
+  filter: Record<string, string[]>;
+  updatedAt: string;
+  updatedBy: string;
+};
+
+export function fetchSyncSettings(): Promise<SyncSettings> {
+  return request<SyncSettings>(`${BASE}/sync-settings`);
+}
+
+export function saveSyncSettings(filter: Record<string, string[]>): Promise<SyncSettings> {
+  return send<SyncSettings>(`${BASE}/sync-settings`, "PUT", { filter });
+}
+
 export async function fetchStudents(): Promise<Student[]> {
   return (await request<{ students: Student[] }>(`${BASE}/students`)).students;
 }
 
 /**
- * Tell the server which ids the portal just returned.
+ * Tell the server which ids the portal returned for the configured population.
  *
- * `full` means the pull was the whole population rather than a filtered search, and it is
- * the only thing that lets a student be marked as no longer in the portal. Sending it for
- * a filtered pull would turn a narrow search into a mass exodus.
+ * A sync is a census — the settings say which population to ask for — so an id we hold
+ * that the pull did not return is one the portal no longer places there. Saved searches
+ * never come through here: they are for looking at portal data, not for deciding who is
+ * a student.
  */
-export async function syncStudents(studentIds: string[], full: boolean): Promise<SyncReport> {
-  return send<SyncReport>(`${BASE}/students/sync`, "POST", { studentIds, full });
+export async function syncStudents(studentIds: string[]): Promise<SyncReport> {
+  return send<SyncReport>(`${BASE}/students/sync`, "POST", { studentIds });
 }
 
 /** Put students in a cohort, or take them out of whichever one they are in with null. */

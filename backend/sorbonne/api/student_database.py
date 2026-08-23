@@ -41,16 +41,17 @@ class CohortInput(BaseModel):
 
 
 class SyncInput(BaseModel):
-    """What the portal just returned, as ids.
-
-    `full` says the pull was the whole population rather than a filtered search. Only a
-    full sync may mark anybody as no longer in the portal.
-    """
+    """What the portal returned for the configured population, as ids."""
 
     model_config = ConfigDict(populate_by_name=True)
 
     student_ids: list[str] = Field(default_factory=list, max_length=20_000, alias="studentIds")
-    full: bool = False
+
+
+class SyncSettingsInput(BaseModel):
+    """Which population the roster's sync asks the portal for. Codes only."""
+
+    filter: dict[str, list[str]] = Field(default_factory=dict)
 
 
 class CohortAssignment(BaseModel):
@@ -209,7 +210,23 @@ async def list_students(database: StudentDatabase = Depends(get_database)) -> di
 
 @router.post("/students/sync")
 async def sync_students(body: SyncInput, database: StudentDatabase = Depends(get_database)) -> dict[str, Any]:
-    return database.sync_students(body.student_ids, full=body.full)
+    return database.sync_students(body.student_ids)
+
+
+@router.get("/sync-settings")
+async def read_sync_settings(database: StudentDatabase = Depends(get_database)) -> dict[str, Any]:
+    return database.read_sync_settings()
+
+
+@router.put("/sync-settings")
+async def save_sync_settings(
+    body: SyncSettingsInput, request: Request, database: StudentDatabase = Depends(get_database)
+) -> dict[str, Any]:
+    staff = getattr(request.state, "staff_user", None)
+    try:
+        return database.save_sync_settings(body.filter, actor=getattr(staff, "email", "") or "")
+    except InvalidFilter as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
 @router.post("/students/cohort")

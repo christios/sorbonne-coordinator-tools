@@ -25,6 +25,9 @@ export type StudentRow = {
   status: StudentStatus;
   cohortId: string | null;
   cohortName: string;
+  /** When we first held this student, and when the portal last returned them. */
+  firstSeenAt: string;
+  lastSeenAt: string;
   /** First seen by the most recent sync, so worth a coordinator's attention. */
   isNew: boolean;
   /** What the portal says differently from the previous pull: "year FY → L1". */
@@ -97,6 +100,8 @@ export function studentRows(
       status: student.status,
       cohortId: student.cohortId,
       cohortName: student.cohortName,
+      firstSeenAt: student.firstSeenAt,
+      lastSeenAt: student.lastSeenAt,
       isNew: Boolean(syncedAt) && student.firstSeenAt >= syncedAt,
       changes: changes.get(student.studentId) ?? [],
     };

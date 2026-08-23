@@ -65,6 +65,7 @@ class InvalidFilter(Exception):
     """A saved search must be portal codes and nothing else."""
 
 
+
 def _now() -> str:
     return datetime.now(UTC).isoformat()
 
@@ -220,6 +221,37 @@ class StudentDatabase:
         if deleted.rowcount == 0:
             raise FilterNotFound(filter_id)
 
+    # --------------------------------------------------------- sync settings
+
+    def read_sync_settings(self) -> dict[str, Any]:
+        """Which population the roster's sync asks the portal for."""
+        with self.engine.connect() as connection:
+            row = (
+                connection.execute(text("SELECT * FROM sync_settings WHERE id = 'default'"))
+                .mappings()
+                .first()
+            )
+        if row is None:
+            return {"filter": {}, "updatedAt": "", "updatedBy": ""}
+        return {
+            "filter": row["filter"] or {},
+            "updatedAt": row["updated_at"],
+            "updatedBy": row["updated_by"],
+        }
+
+    def save_sync_settings(self, criteria: dict[str, list[str]], *, actor: str = "") -> dict[str, Any]:
+        checked = _check_criteria(criteria, allow_empty=True)
+        now = _now()
+        with self.engine.begin() as connection:
+            connection.execute(
+                text("""INSERT INTO sync_settings (id, filter, updated_at, updated_by)
+                        VALUES ('default', :filter, :now, :actor)
+                        ON CONFLICT (id) DO UPDATE
+                            SET filter = :filter, updated_at = :now, updated_by = :actor"""),
+                {"filter": json.dumps(checked), "now": now, "actor": actor},
+            )
+        return self.read_sync_settings()
+
     # -------------------------------------------------------------- students
 
     def list_students(self) -> list[dict[str, Any]]:
@@ -244,21 +276,18 @@ class StudentDatabase:
             held.setdefault(row["student_id"], {})[row["scope_id"]] = row["group_id"]
         return [_student(row, held.get(row["student_id"], {})) for row in rows]
 
-    def sync_students(self, student_ids: list[str], *, full: bool) -> dict[str, int]:
-        """Reconcile the record with what the portal just returned.
+    def sync_students(self, student_ids: list[str]) -> dict[str, Any]:
+        """Reconcile the record with what the portal returned for the configured population.
 
-        Ids in the pull are added if new and marked as found; ids we hold that the pull did
-        not return are marked as no longer in the portal — but only when `full` says the
-        pull was the whole population. A filtered search can add and refresh, never demote,
-        because "absent from this search" and "no longer a student" are different facts and
-        confusing them is what made the old page unreadable.
+        A sync is a census: the settings say which population to ask for, so an id the pull
+        did not return really is one the portal no longer places in that population. This
+        is the only thing that writes to the record — a saved search is for looking at
+        portal data, never for deciding who is a student.
         """
         found = _clean_ids(student_ids)
         now = _now()
         with self.engine.begin() as connection:
-            known = set(
-                connection.execute(text("SELECT student_id FROM students")).scalars().all()
-            )
+            known = set(connection.execute(text("SELECT student_id FROM students")).scalars().all())
             if found:
                 connection.execute(
                     text("""INSERT INTO students
@@ -268,15 +297,14 @@ class StudentDatabase:
                                 SET status = 'in_portal', last_seen_at = :now, updated_at = :now"""),
                     [{"student_id": student, "now": now} for student in found],
                 )
+            gone = [student for student in known if student not in set(found)]
             missing = 0
-            if full:
-                gone = [student for student in known if student not in set(found)]
-                if gone:
-                    missing = connection.execute(
-                        text("""UPDATE students SET status = 'not_in_portal', updated_at = :now
-                                WHERE student_id = ANY(:ids) AND status <> 'not_in_portal'"""),
-                        {"ids": gone, "now": now},
-                    ).rowcount
+            if gone:
+                missing = connection.execute(
+                    text("""UPDATE students SET status = 'not_in_portal', updated_at = :now
+                            WHERE student_id = ANY(:ids) AND status <> 'not_in_portal'"""),
+                    {"ids": gone, "now": now},
+                ).rowcount
         return {
             "seen": len(found),
             "added": len([student for student in found if student not in known]),
@@ -655,13 +683,37 @@ MAX_FIELDS = 12
 MAX_VALUES = 40
 
 
-def _check_criteria(criteria: dict[str, list[str]]) -> dict[str, list[str]]:
+# Fields that identify a person rather than describe a population. Filtering by one turns
+# the portal into an oracle — ask for a passport number and the answer names its holder —
+# so they are refused however the request arrives. The extension keeps the same list.
+NEVER_FILTERABLE = frozenset(
+    {
+        "PASSPORT_ID",
+        "DOB_CHAR",
+        "BIRTH_DATE",
+        "MOBILE_NO",
+        "PHONE_NO",
+        "PERS_EMAIL",
+        "BALANCE",
+        "NATIONAL_ID",
+        "PASSPORT_NUMBER",
+    }
+)
+
+
+def _check_criteria(criteria: dict[str, list[str]], *, allow_empty: bool = False) -> dict[str, list[str]]:
     """Portal codes only.
 
     The extension checks this again before it asks the portal anything — this copy is so
     that nothing shaped like a student, a name or an injection is ever stored.
+
+    `allow_empty` is for the sync population, where filtering by nothing means everyone.
+    A saved search filtering by nothing would just be a slower way of saying the same, so
+    it still has to narrow something.
     """
-    if not isinstance(criteria, dict) or not criteria:
+    if not isinstance(criteria, dict):
+        raise InvalidFilter("That is not a set of filters.")
+    if not criteria and not allow_empty:
         raise InvalidFilter("A saved search needs at least one filter.")
     if len(criteria) > MAX_FIELDS:
         raise InvalidFilter("That is more filters than the portal accepts.")
@@ -670,6 +722,8 @@ def _check_criteria(criteria: dict[str, list[str]]) -> dict[str, list[str]]:
     for key, values in criteria.items():
         if not FIELD_KEY.match(str(key)):
             raise InvalidFilter(f"{key} is not a portal field name.")
+        if str(key).upper() in NEVER_FILTERABLE:
+            raise InvalidFilter(f"{key} identifies a person and cannot be filtered on.")
         if not isinstance(values, list) or not values:
             raise InvalidFilter(f"{key} has no values.")
         if len(values) > MAX_VALUES:

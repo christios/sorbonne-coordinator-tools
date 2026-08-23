@@ -1,17 +1,28 @@
-import { useQuery } from "@tanstack/react-query";
-import { Layers, ListTree, Users } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Download, Eye, Layers, ListTree, Loader2, Settings, Users } from "lucide-react";
 import { useState } from "react";
 
 import { CohortList } from "@/components/CohortList";
 import { GroupCatalogue } from "@/components/GroupCatalogue";
+import { PortalViews } from "@/components/PortalViews";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { SelectMenu } from "@/components/SelectMenu";
 import { StudentRoster } from "@/components/StudentRoster";
 import { SidePane } from "@/components/SidePane";
-import { fetchCohorts, type Cohort } from "@/services/studentDatabase";
+import { SyncSettings } from "@/components/SyncSettings";
+import { rememberPull, rememberSync } from "@/services/rosterStore";
+import { PortalError, pullFilter, studentIdOf } from "@/services/scenRosters";
+import type { Filter } from "@/services/filterSummary";
+import {
+  fetchCohorts,
+  fetchSyncSettings,
+  syncStudents,
+  type Cohort,
+} from "@/services/studentDatabase";
 
 const PAGES = [
   { id: "students", name: "Students", icon: Users },
+  { id: "views", name: "Portal views", icon: Eye },
   { id: "cohorts", name: "Cohorts", icon: Layers },
   { id: "groups", name: "Groups & CRNs", icon: ListTree },
 ] as const;
@@ -21,7 +32,11 @@ type PageId = (typeof PAGES)[number]["id"];
 const TITLES: Record<PageId, { title: string; blurb: string }> = {
   students: {
     title: "Students",
-    blurb: "Every student we hold. Sync with the registrar portal to see who is still there, and build cohorts from the list.",
+    blurb: "Every student we hold. The list is built by the sync, and cohorts are assembled from it.",
+  },
+  views: {
+    title: "Portal views",
+    blurb: "Look at slices of the portal without changing anything. Views never feed the student list.",
   },
   cohorts: {
     title: "Cohorts",
@@ -72,6 +87,9 @@ export function StudentDatabase() {
               <h2 className="text-2xl font-semibold text-[#171717]">{TITLES[page].title}</h2>
               <p className="mt-1 text-sm text-[#667085]">{TITLES[page].blurb}</p>
             </div>
+
+            {page === "students" ? <SyncControl /> : null}
+
             {needsCohort && available.length > 1 ? (
               <div className="w-72">
                 <SelectMenu
@@ -89,6 +107,7 @@ export function StudentDatabase() {
 
           {page === "students" && !cohorts.isLoading ? <StudentRoster cohorts={available} /> : null}
           {page === "students" && cohorts.isLoading ? <ScreenLoading label="Loading cohorts…" /> : null}
+          {page === "views" ? <PortalViews /> : null}
           {page === "cohorts" ? <CohortList onOpen={openGroups} /> : null}
           {needsCohort && cohorts.isLoading ? <ScreenLoading label="Loading cohorts…" /> : null}
           {needsCohort && !cohorts.isLoading && !cohort ? (
@@ -97,6 +116,79 @@ export function StudentDatabase() {
           {page === "groups" && cohort ? <GroupCatalogue key={cohort.id} cohort={cohort} /> : null}
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * The one action that changes who is a student, and the settings that define it.
+ *
+ * It sits in the header rather than in the table's toolbar because it is not a way of
+ * looking at the table — it is what the table is made of.
+ */
+function SyncControl() {
+  const client = useQueryClient();
+  const settings = useQuery({ queryKey: ["sync-settings"], queryFn: fetchSyncSettings });
+  const [open, setOpen] = useState(false);
+
+  const sync = useMutation({
+    mutationFn: async () => {
+      const filter = (settings.data?.filter ?? {}) as Filter;
+      const roster = await pullFilter(filter, {
+        name: "Sync",
+        expect: null,
+      });
+      const report = await syncStudents(roster.rows.map(studentIdOf).filter(Boolean));
+      rememberPull({ ...roster, presetId: "sync" });
+      rememberSync(report.syncedAt);
+      return report;
+    },
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ["students"] });
+      client.invalidateQueries({ queryKey: ["cohorts"] });
+    },
+  });
+
+  const report = sync.data;
+
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          disabled={sync.isPending || settings.isLoading}
+          onClick={() => sync.mutate()}
+          className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-3.5 py-2 text-sm font-semibold text-white disabled:opacity-50"
+        >
+          {sync.isPending ? (
+            <Loader2 size={16} className="animate-spin" aria-hidden="true" />
+          ) : (
+            <Download size={16} aria-hidden="true" />
+          )}
+          {sync.isPending ? "Syncing…" : "Sync with portal"}
+        </button>
+        <button
+          type="button"
+          aria-label="Sync settings"
+          title="Sync settings"
+          onClick={() => setOpen(true)}
+          className="rounded-md border border-[#b7bec8] bg-white p-2 text-[#667085] hover:bg-[#f8fafc] hover:text-[#344054]"
+        >
+          <Settings size={16} aria-hidden="true" />
+        </button>
+      </div>
+
+      {sync.error ? (
+        <p role="alert" className="max-w-sm text-right text-xs text-[#a6292f]">
+          {sync.error instanceof PortalError ? sync.error.message : (sync.error as Error).message}
+        </p>
+      ) : report ? (
+        <p className="text-xs text-[#98a2b3]">
+          {report.seen} returned · {report.added} added · {report.missing} no longer in the portal
+        </p>
+      ) : null}
+
+      <SyncSettings open={open} onClose={() => setOpen(false)} />
     </div>
   );
 }

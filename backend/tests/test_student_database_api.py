@@ -37,6 +37,7 @@ def empty_shared_tables() -> None:
     with StudentDatabase(TEST_DATABASE_URL).engine.begin() as connection:
         connection.execute(text("DELETE FROM roster_filters"))
         connection.execute(text("DELETE FROM students"))
+        connection.execute(text("UPDATE sync_settings SET filter = '{}'::jsonb"))
 
 
 @pytest.fixture
@@ -168,10 +169,8 @@ def test_an_unknown_cohort_answers_404(client: TestClient):
 STUDENTS = ["A00021503", "A00021505", "A00021509"]
 
 
-def sync(client: TestClient, ids: list[str], *, full: bool = True) -> dict:
-    return client.post(
-        "/api/v1/student-database/students/sync", json={"studentIds": ids, "full": full}
-    ).json()
+def sync(client: TestClient, ids: list[str]) -> dict:
+    return client.post("/api/v1/student-database/students/sync", json={"studentIds": ids}).json()
 
 
 def students_of(client: TestClient) -> list[dict]:
@@ -197,7 +196,7 @@ def test_syncing_again_adds_nobody_and_keeps_the_first_sighting(client: TestClie
     assert students_of(client)[0]["firstSeenAt"] == first_seen
 
 
-def test_a_full_sync_marks_the_students_it_no_longer_returns(client: TestClient):
+def test_a_sync_marks_the_students_it_no_longer_returns(client: TestClient):
     sync(client, STUDENTS)
 
     report = sync(client, STUDENTS[:1])
@@ -211,15 +210,30 @@ def test_a_full_sync_marks_the_students_it_no_longer_returns(client: TestClient)
     }
 
 
-def test_a_filtered_sync_never_marks_anybody_missing(client: TestClient):
-    # The bug this pins: a narrow search used to read as a mass exodus. Absent from one
-    # filtered search is not the same fact as absent from the portal.
-    sync(client, STUDENTS)
+def settings_of(client: TestClient) -> dict:
+    return client.get("/api/v1/student-database/sync-settings").json()
 
-    report = sync(client, STUDENTS[:1], full=False)
 
-    assert report["missing"] == 0
-    assert {row["status"] for row in students_of(client)} == {"in_portal"}
+def test_the_sync_population_starts_as_everyone(client: TestClient):
+    assert settings_of(client)["filter"] == {}
+
+
+def test_the_sync_population_is_saved_and_shared(client: TestClient):
+    response = client.put(
+        "/api/v1/student-database/sync-settings", json={"filter": {"YEARLEVEL_CODE": ["FY", "L1"]}}
+    )
+
+    assert response.status_code == status.HTTP_200_OK, response.text
+    assert settings_of(client)["filter"] == {"YEARLEVEL_CODE": ["FY", "L1"]}
+
+
+def test_the_sync_population_takes_portal_codes_only(client: TestClient):
+    # The same rule as a saved search: nothing about a student may be stored here.
+    response = client.put(
+        "/api/v1/student-database/sync-settings", json={"filter": {"PASSPORT_NUMBER": ["X1"]}}
+    )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
 
 
 def test_a_student_the_portal_returns_again_comes_back(client: TestClient):
