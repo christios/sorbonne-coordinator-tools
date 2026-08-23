@@ -14,11 +14,19 @@
  *
  * All of it lives in this browser: these are the portal's own values — names, e-mail
  * addresses, majors — and our side is never told them.
+ *
+ * One history per view. A view is a question with a fixed filter, so "changed" and "no
+ * longer returned" only mean anything against the same question: syncing the L1 view says
+ * nothing about whether an FY student has left, and pooling the two made every sync look
+ * like a mass departure from whichever view you were looking at.
  */
 
 import { studentIdOf, type RosterRow } from "@/services/scenRosters";
 
-const KEY = "scen-pull-history:v1";
+// v1 was a single shared history. It cannot be split after the fact — a pull did not
+// record which view asked — so the new key starts clean and the old one is cleared.
+const KEY = "scen-pull-history:v2";
+const OLD_KEY = "scen-pull-history:v1";
 
 /** Beyond this the oldest pulls are dropped; a term of daily pulls fits comfortably. */
 const MAX_PULLS = 400;
@@ -45,33 +53,57 @@ export type PullHistory = {
   pulls: PullRecord[];
   /** The values the last pull left behind, which the next one is compared against. */
   latest: Record<string, Record<string, string>>;
+  /**
+   * The ids the last pull actually returned.
+   *
+   * Not the same as the keys of `latest`, which keeps a departed student's values so
+   * their history still reads. Leaving is a transition — present last time, absent now —
+   * and deriving it from `latest` reported the same departure again at every pull.
+   */
+  present: string[];
 };
 
-const EMPTY: PullHistory = { pulls: [], latest: {} };
+type HistoryStore = Record<string, PullHistory>;
 
-export function loadHistory(): PullHistory {
+const EMPTY: PullHistory = { pulls: [], latest: {}, present: [] };
+
+function read(): HistoryStore {
   try {
     const raw = window.localStorage.getItem(KEY);
-    if (!raw) return EMPTY;
-    const parsed = JSON.parse(raw) as PullHistory;
-    return Array.isArray(parsed.pulls) && parsed.latest ? parsed : EMPTY;
+    return raw ? (JSON.parse(raw) as HistoryStore) : {};
   } catch {
     // Private browsing, a full disk, or something that is not ours.
-    return EMPTY;
+    return {};
   }
 }
 
-function write(history: PullHistory): void {
+export function loadHistory(viewId: string): PullHistory {
+  const held = read()[viewId];
+  if (!held || !Array.isArray(held.pulls) || !held.latest) return EMPTY;
+  return { ...held, present: Array.isArray(held.present) ? held.present : Object.keys(held.latest) };
+}
+
+function write(viewId: string, history: PullHistory): void {
   try {
-    window.localStorage.setItem(KEY, JSON.stringify(history));
+    const store = read();
+    store[viewId] = history;
+    window.localStorage.setItem(KEY, JSON.stringify(store));
   } catch {
     // A history that cannot be written must never break the sync it was recording.
   }
 }
 
-export function forgetHistory(): void {
+/** Every view's history, or one view's when it is named. */
+export function forgetHistory(viewId?: string): void {
   try {
-    window.localStorage.removeItem(KEY);
+    window.localStorage.removeItem(OLD_KEY);
+    if (viewId === undefined) {
+      window.localStorage.removeItem(KEY);
+      return;
+    }
+    const store = read();
+    delete store[viewId];
+    window.localStorage.setItem(KEY, JSON.stringify(store));
   } catch {
     // If it cannot be removed it could not have been written either.
   }
@@ -100,20 +132,21 @@ function valuesOf(rows: RosterRow[]): Record<string, Record<string, string>> {
  * The first pull is the baseline: everybody has arrived, and nobody has changed, because
  * there is nothing yet to have changed from.
  */
-export function recordPull(rows: RosterRow[], at: number = Date.now()): PullHistory {
-  const history = loadHistory();
+export function recordPull(viewId: string, rows: RosterRow[], at: number = Date.now()): PullHistory {
+  const history = loadHistory(viewId);
   const now = valuesOf(rows);
   const before = history.latest;
   const first = history.pulls.length === 0;
 
   const changed: Record<string, FieldChange[]> = {};
   const arrived: string[] = [];
+  const held = new Set(history.present);
   for (const [id, fields] of Object.entries(now)) {
+    // New to this view — which includes somebody it stopped returning and now returns
+    // again, because for this view that is an arrival.
+    if (!held.has(id)) arrived.push(id);
     const earlier = before[id];
-    if (!earlier) {
-      arrived.push(id);
-      continue;
-    }
+    if (!earlier) continue;
     const moved: FieldChange[] = [];
     for (const field of new Set([...Object.keys(fields), ...Object.keys(earlier)])) {
       const from = earlier[field] ?? "";
@@ -123,7 +156,9 @@ export function recordPull(rows: RosterRow[], at: number = Date.now()): PullHist
     if (moved.length) changed[id] = moved.sort((a, b) => a.field.localeCompare(b.field));
   }
 
-  const departed = Object.keys(before).filter((id) => !now[id]);
+  // Whoever this view returned last time and does not return now. A student who was
+  // already gone has not left again.
+  const departed = history.present.filter((id) => !now[id]);
 
   const record: PullRecord = {
     id: `${at}`,
@@ -136,11 +171,12 @@ export function recordPull(rows: RosterRow[], at: number = Date.now()): PullHist
 
   const next: PullHistory = {
     // A student the portal has dropped keeps their last known values, so their history
-    // still reads after they have gone.
+    // still reads after they have gone — but they are no longer present.
     latest: { ...before, ...now },
+    present: Object.keys(now),
     pulls: [...history.pulls, record].slice(-MAX_PULLS),
   };
-  write(next);
+  write(viewId, next);
   return next;
 }
 
