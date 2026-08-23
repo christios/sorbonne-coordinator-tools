@@ -40,27 +40,51 @@ async function storedFields() {
   return portalFields || null;
 }
 
+/** FIRST_NAME -> "First name": a readable label for a column nobody has labelled. */
+function titleOf(key) {
+  const words = String(key).toLowerCase().replace(/_/g, ' ').trim();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
 /**
- * The columns a pull may return: what the portal's own column picker lists, refused
- * column by column, falling back to the hand-written list until a portal visit teaches
- * us better.
+ * Every column a pull may return.
+ *
+ * The portal's own column picker, *and* the columns the service has always been known to
+ * answer with. The two are not the same and neither contains the other: the grid shows
+ * CURRENT_AVERAGE, which the service does not return, and the service returns FIRST_NAME
+ * and LAST_NAME, which the grid folds into one FULL_NAME column. Offering only what the
+ * grid displays would lose columns that have been arriving all along.
+ *
+ * NEVER_RETURNED still decides what may leave, and the student id is always kept: every
+ * answer is keyed by it.
  */
-async function allowedColumns() {
+async function offeredColumns() {
   const cfg = await config();
   const learned = await storedFields();
-  const harvested = (learned?.columns || []).map(column => column.key);
-  const offered = harvested.length ? harvested : (cfg.columns || []);
-  const allowed = offered.filter(mayReturn);
-  // The id is what every answer is keyed by; a picker that somehow omits it would leave
-  // rows that cannot be matched to a student at all.
-  if (!allowed.includes('SPRIDEN_ID')) allowed.unshift('SPRIDEN_ID');
-  return allowed;
+  const columns = [];
+  const seen = new Set();
+  const add = (key, label) => {
+    const name = String(key || '').toUpperCase();
+    if (seen.has(name) || !mayReturn(name)) return;
+    seen.add(name);
+    columns.push({ key: name, label: label || titleOf(name) });
+  };
+
+  add('SPRIDEN_ID', 'Id');
+  // The harvest leads: those labels are the portal's own words for its columns.
+  for (const column of learned?.columns || []) add(column.key, column.label);
+  for (const key of cfg.columns || []) add(key);
+  return columns;
+}
+
+async function allowedColumns() {
+  return (await offeredColumns()).map(column => column.key);
 }
 
 async function schema() {
   const cfg = await config();
   const learned = await storedFields();
-  const columns = (learned?.columns || []).filter(column => mayReturn(column.key));
+  const columns = await offeredColumns();
   // An empty list is not an answer: a page that showed the grid but no filter panel
   // teaches us columns and no fields, and falling back beats offering nothing. (`[]` is
   // truthy, so this cannot be an `||`.)

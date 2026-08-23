@@ -73,15 +73,20 @@ Something has to trim that before anything is written to disk or the clipboard.
 
 Since v1.5 the list of columns is **read from the grid**, the same list its
 Column Picker offers, so the platform's table can show what the registrar
-shows. Two things bound it:
+shows — *plus* the columns in `presets.json`, which the service has always
+answered with. Neither list contains the other: the grid shows
+`CURRENT_AVERAGE`, which the service does not return, and the service returns
+`FIRST_NAME` and `LAST_NAME`, which the grid folds into one `FULL_NAME` column.
+
+Two things bound the result:
 
 * `NEVER_RETURNED` in `filter-schema.js` — passport, national/Emirates ID,
   date of birth, mobile, phone, personal e-mail and balance, matched as
   substrings of the column key so a name nobody here has seen is caught too. A
   cohort table has no use for any of them, and pulling one would put it in a
   coordinator's `localStorage` for the rest of the term.
-* The `columns` list in `presets.json`, still the fallback until somebody
-  visits the portal and the harvest lands.
+* The `columns` list in `presets.json` — no longer a fallback but a floor: it
+  is offered whether or not anybody has visited the portal.
 
 `SPRIDEN_ID` is always kept: every answer is keyed by it.
 

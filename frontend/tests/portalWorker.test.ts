@@ -157,12 +157,28 @@ describe("the extension's service worker", () => {
 
     // Neither offered to the table nor asked of the portal — and the row the portal sent
     // back carries a passport, which is stripped before anything sees it.
-    expect((schema.columns as { key: string }[]).map((column) => column.key)).toEqual([
-      "SPRIDEN_ID",
-      "FULL_NAME",
-    ]);
-    expect(reply.columns).toEqual(["SPRIDEN_ID", "FULL_NAME"]);
+    const offered = (schema.columns as { key: string }[]).map((column) => column.key);
+
+    expect(offered).toContain("FULL_NAME");
+    for (const refused of ["PASSPORT_ID", "STUDENT_DOB", "MOBILE_NO"]) {
+      expect(offered).not.toContain(refused);
+      expect(reply.columns).not.toContain(refused);
+    }
     expect(reply.rows).toEqual([{ SPRIDEN_ID: "A001", FULL_NAME: "Amira" }]);
+  });
+
+  it("offers what the service has always returned, not only what the grid shows", async () => {
+    await send({
+      type: "fields:harvest",
+      fields: [],
+      columns: [{ key: "FULL_NAME", label: "Student" }],
+    });
+
+    const offered = ((await send({ type: "schema" })).columns as { key: string }[]).map((c) => c.key);
+
+    // The grid folds a student's name into one column; the service answers with both
+    // halves, and they have been arriving in every pull all along.
+    expect(offered).toEqual(expect.arrayContaining(["FIRST_NAME", "LAST_NAME", "ABSENCE_PER"]));
   });
 
   it("keeps the student id even if the picker somehow leaves it out", async () => {
