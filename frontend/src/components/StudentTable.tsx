@@ -1,5 +1,5 @@
 import { ArrowDown, ArrowUp, Clock3, GripVertical } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 
 import { CopyButton } from "@/components/CopyButton";
 import { columnText, rowText } from "@/services/copyCells";
@@ -24,7 +24,7 @@ export type Sort = { key: string; ascending: boolean };
  * columns are wider than the page the table scrolls inside its own box, so the rest of
  * the screen stays where it is.
  */
-export function StudentTable({
+export const StudentTable = memo(function StudentTable({
   rows,
   columns,
   layout,
@@ -86,40 +86,15 @@ export function StudentTable({
         </thead>
         <tbody>
           {rows.map((row) => (
-            <tr key={row.studentId} className="border-t border-[#eef1f5]">
-              <td className="px-3 py-2">
-                <input
-                  type="checkbox"
-                  aria-label={`Select ${row.name || row.studentId}`}
-                  checked={selected.has(row.studentId)}
-                  onChange={() => onToggle(row.studentId)}
-                />
-              </td>
-              {columns.map((column) => (
-                <td
-                  key={column.id}
-                  className="truncate px-4 py-2 text-[#344054]"
-                  style={{ width: widthOf(layout, column) }}
-                >
-                  <Cell row={row} column={column} />
-                </td>
-              ))}
-              <td className="w-10 whitespace-nowrap px-2 py-2 text-right">
-                <button
-                  type="button"
-                  aria-label={`History for ${row.name || row.studentId}`}
-                  title="What the portal has said about this student"
-                  onClick={() => onOpenHistory(row)}
-                  className="rounded p-1 text-[#98a2b3] hover:bg-[#f2f7fb] hover:text-[#1f4e79]"
-                >
-                  <Clock3 size={13} aria-hidden="true" />
-                </button>
-                <CopyButton
-                  label={`Copy the row for ${row.name || row.studentId}`}
-                  text={() => rowText(columns.map((column) => cellText(row, column)))}
-                />
-              </td>
-            </tr>
+            <StudentTableRow
+              key={row.studentId}
+              row={row}
+              columns={columns}
+              layout={layout}
+              selected={selected.has(row.studentId)}
+              onToggle={onToggle}
+              onOpenHistory={onOpenHistory}
+            />
           ))}
           {rows.length === 0 ? (
             <tr>
@@ -132,7 +107,67 @@ export function StudentTable({
       </table>
     </section>
   );
-}
+});
+
+/**
+ * One row, and only re-rendered when that row changes.
+ *
+ * The table is thousands of rows long, so anything that re-renders all of them — opening
+ * the history panel, say — is felt as a pause. Selection arrives as a boolean rather than
+ * the set it came from, so choosing one student does not invalidate every other row.
+ */
+const StudentTableRow = memo(function StudentTableRow({
+  row,
+  columns,
+  layout,
+  selected,
+  onToggle,
+  onOpenHistory,
+}: {
+  row: StudentRow;
+  columns: StudentColumn[];
+  layout: ColumnLayout;
+  selected: boolean;
+  onToggle: (studentId: string) => void;
+  onOpenHistory: (row: StudentRow) => void;
+}) {
+  return (
+    <tr className="border-t border-[#eef1f5]">
+      <td className="px-3 py-2">
+        <input
+          type="checkbox"
+          aria-label={`Select ${row.name || row.studentId}`}
+          checked={selected}
+          onChange={() => onToggle(row.studentId)}
+        />
+      </td>
+      {columns.map((column) => (
+        <td
+          key={column.id}
+          className="truncate px-4 py-2 text-[#344054]"
+          style={{ width: widthOf(layout, column) }}
+        >
+          <Cell row={row} column={column} />
+        </td>
+      ))}
+      <td className="w-10 whitespace-nowrap px-2 py-2 text-right">
+        <button
+          type="button"
+          aria-label={`History for ${row.name || row.studentId}`}
+          title="What the portal has said about this student"
+          onClick={() => onOpenHistory(row)}
+          className="rounded p-1 text-[#98a2b3] hover:bg-[#f2f7fb] hover:text-[#1f4e79]"
+        >
+          <Clock3 size={13} aria-hidden="true" />
+        </button>
+        <CopyButton
+          label={`Copy the row for ${row.name || row.studentId}`}
+          text={() => rowText(columns.map((column) => cellText(row, column)))}
+        />
+      </td>
+    </tr>
+  );
+});
 
 function Cell({ row, column }: { row: StudentRow; column: StudentColumn }) {
   if (column.id === "status") {

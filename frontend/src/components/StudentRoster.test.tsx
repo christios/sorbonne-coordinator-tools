@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { StudentRoster } from "@/components/StudentRoster";
@@ -482,6 +482,56 @@ describe("StudentRoster", () => {
 
       const panel = await screen.findByRole("complementary", { name: "Student history" });
       expect(within(panel).getByText(/Nothing about this student has changed across 2 pulls/)).toBeTruthy();
+    });
+
+    it("closes when the pointer goes down on the table behind it", async () => {
+      withNames();
+      renderRoster();
+      await screen.findByText("Amira Haddad");
+      fireEvent.click(screen.getByRole("button", { name: "History for Amira Haddad" }));
+      await screen.findByRole("complementary", { name: "Student history" });
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve));
+      });
+
+      fireEvent(
+        screen.getByText("Karim Nasser"),
+        new MouseEvent("pointerdown", { bubbles: true, cancelable: true }),
+      );
+
+      expect(screen.queryByRole("complementary", { name: "Student history" })).toBeNull();
+    });
+
+    it("stays open when the pointer goes down inside it", async () => {
+      withNames();
+      renderRoster();
+      await screen.findByText("Amira Haddad");
+      fireEvent.click(screen.getByRole("button", { name: "History for Amira Haddad" }));
+      const panel = await screen.findByRole("complementary", { name: "Student history" });
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve));
+      });
+
+      fireEvent(panel, new MouseEvent("pointerdown", { bubbles: true, cancelable: true }));
+
+      expect(screen.getByRole("complementary", { name: "Student history" })).toBeTruthy();
+    });
+
+    it("swaps to another student rather than closing when their history is asked for", async () => {
+      withNames();
+      renderRoster();
+      await screen.findByText("Amira Haddad");
+      fireEvent.click(screen.getByRole("button", { name: "History for Amira Haddad" }));
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve));
+      });
+
+      const other = screen.getByRole("button", { name: "History for Karim Nasser" });
+      fireEvent(other, new MouseEvent("pointerdown", { bubbles: true, cancelable: true }));
+      fireEvent.click(other);
+
+      const panel = await screen.findByRole("complementary", { name: "Student history" });
+      expect(within(panel).getByText("Karim Nasser")).toBeTruthy();
     });
 
     it("closes again", async () => {

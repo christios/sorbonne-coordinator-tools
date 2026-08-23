@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FolderInput, Search } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ColumnMenu } from "@/components/ColumnMenu";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -80,10 +80,18 @@ export function StudentRoster({ cohorts }: { cohorts: Cohort[] }) {
   // The arrangement can only be reconciled once the columns are known.
   useEffect(() => setLayout(loadLayout(allColumns)), [allColumns]);
 
-  const arrange = (next: ColumnLayout) => {
+  const layoutRef = useRef<ColumnLayout | null>(null);
+  layoutRef.current = layout;
+
+  /*
+   * The table is thousands of rows long, so it is memoised — which only helps while the
+   * handlers it is given stay the same between renders. Reading the layout from a ref
+   * keeps them stable without making each one depend on it.
+   */
+  const arrange = useCallback((next: ColumnLayout) => {
     setLayout(next);
     saveLayout(next);
-  };
+  }, []);
 
   const move = useMutation({
     mutationFn: ({ ids, cohortId }: { ids: string[]; cohortId: string | null }) =>
@@ -109,6 +117,7 @@ export function StudentRoster({ cohorts }: { cohorts: Cohort[] }) {
     () => (layout ? visibleColumns(layout, allColumns) : []),
     [layout, allColumns],
   );
+  const visibleRef = useRef<StudentRow[]>([]);
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
     // Across every column on screen, not a chosen few: if you can see a value, searching
@@ -121,19 +130,44 @@ export function StudentRoster({ cohorts }: { cohorts: Cohort[] }) {
     return sortRows(applyFilters(searched, columns, filters), sort);
   }, [rows, columns, filters, sort, query]);
 
-  if (students.isLoading || !layout) return <ScreenLoading label="Loading the students…" />;
+  visibleRef.current = visible;
 
-  const chosen = [...selected];
-  const error = move.error ?? students.error;
-
-  const toggle = (studentId: string) =>
+  const toggle = useCallback((studentId: string) => {
     setSelected((current) => {
       const next = new Set(current);
       if (next.has(studentId)) next.delete(studentId);
       else next.add(studentId);
       return next;
     });
+  }, []);
 
+  const sortBy = useCallback((key: string) => {
+    setSort((current) => ({ key, ascending: current.key === key ? !current.ascending : true }));
+  }, []);
+  const resize = useCallback(
+    (id: string, width: number) => {
+      if (layoutRef.current) arrange(resizeColumn(layoutRef.current, id, width, allColumns));
+    },
+    [arrange, allColumns],
+  );
+  const reorder = useCallback(
+    (id: string, beforeId: string) => {
+      if (layoutRef.current) arrange(reorderColumn(layoutRef.current, id, beforeId));
+    },
+    [arrange],
+  );
+  const toggleAll = useCallback(() => {
+    setSelected((current) => {
+      const shownIds = visibleRef.current.map((row) => row.studentId);
+      const everyShown = shownIds.length > 0 && shownIds.every((id) => current.has(id));
+      return everyShown ? new Set<string>() : new Set(shownIds);
+    });
+  }, []);
+
+  if (students.isLoading || !layout) return <ScreenLoading label="Loading the students…" />;
+
+  const chosen = [...selected];
+  const error = move.error ?? students.error;
   const allShown = visible.length > 0 && visible.every((row) => selected.has(row.studentId));
 
   return (
@@ -229,16 +263,12 @@ export function StudentRoster({ cohorts }: { cohorts: Cohort[] }) {
         layout={layout}
         sort={sort}
         selected={selected}
-        onSort={(key) =>
-          setSort((current) => ({ key, ascending: current.key === key ? !current.ascending : true }))
-        }
-        onResize={(id, width) => arrange(resizeColumn(layout, id, width, allColumns))}
-        onReorder={(id, beforeId) => arrange(reorderColumn(layout, id, beforeId))}
+        onSort={sortBy}
+        onResize={resize}
+        onReorder={reorder}
         onOpenHistory={setHistoryOf}
         onToggle={toggle}
-        onToggleAll={() =>
-          setSelected(allShown ? new Set() : new Set(visible.map((row) => row.studentId)))
-        }
+        onToggleAll={toggleAll}
         empty={
           rows.length
             ? "Nobody matches those filters."

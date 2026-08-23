@@ -1,5 +1,5 @@
 import { PanelRightClose } from "lucide-react";
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 
 import { CopyButton } from "@/components/CopyButton";
 import { tableText } from "@/services/copyCells";
@@ -41,6 +41,36 @@ export function StudentHistoryPane({
     () => (row ? historySummary(history, row.studentId) : { shown: 0, total: 0, quiet: 0 }),
     [history, row],
   );
+  const pane = useRef<HTMLElement>(null);
+
+  /*
+   * Close when the pointer goes down anywhere else, and on Escape.
+   *
+   * The panel sits over the table it describes, so the natural way to dismiss it is to go
+   * back to the table — which should not also mean clicking a row's checkbox by accident,
+   * hence pointerdown rather than click.
+   */
+  useEffect(() => {
+    if (!row) return;
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (!target || pane.current?.contains(target)) return;
+      // A press on another row's history button should open that one, not just close this.
+      if ((target as Element).closest?.('[aria-label^="History for"]')) return;
+      onClose();
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    // On the next tick, so the press that opened the panel does not close it again.
+    const armed = setTimeout(() => document.addEventListener("pointerdown", closeOnOutsidePointer));
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      clearTimeout(armed);
+      document.removeEventListener("pointerdown", closeOnOutsidePointer);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [row, onClose]);
 
   if (!row) return null;
 
@@ -50,6 +80,7 @@ export function StudentHistoryPane({
 
   return (
     <aside
+      ref={pane}
       className="fixed inset-y-0 right-0 z-40 flex w-full max-w-md flex-col border-l border-[#d9dee7] bg-white shadow-2xl"
       aria-label="Student history"
     >
