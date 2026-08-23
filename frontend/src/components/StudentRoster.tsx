@@ -171,7 +171,6 @@ export function StudentRoster({ cohorts, viewId }: { cohorts: Cohort[]; viewId: 
 
   const chosen = [...selected];
   const error = move.error ?? students.error;
-  const allShown = visible.length > 0 && visible.every((row) => selected.has(row.studentId));
 
   return (
     <>
