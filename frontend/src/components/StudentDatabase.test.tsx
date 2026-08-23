@@ -12,6 +12,7 @@ import * as database from "@/services/studentDatabase";
 const SCHEMA: rosters.PortalSchema = {
   ok: true,
   source: "portal",
+  columns: [{ key: "YEARLEVEL_CODE", label: "Year level" }],
   fields: [
     { key: "YEARLEVEL_CODE", label: "Year level", options: [{ value: "FY", label: "FY" }], verified: true },
   ],

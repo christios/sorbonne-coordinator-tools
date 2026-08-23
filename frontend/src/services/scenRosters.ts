@@ -97,11 +97,23 @@ export type PortalField = {
   source?: string;
 };
 
+/** One column the portal's grid has, as its own column picker lists it. */
+export type PortalColumn = {
+  key: string;
+  label: string;
+  source?: string;
+};
+
 export type PortalSchema = {
   ok: boolean;
   /** "portal" once the extension has read the real thing; "built-in" until then. */
   source: "portal" | "built-in" | "unknown";
   fields: PortalField[];
+  /**
+   * What the table may show, which is not what it may filter by: a field can be
+   * filterable and never shown, and a column shown and never filterable.
+   */
+  columns: PortalColumn[];
   term: { code: string; label: string } | null;
   harvestedAt: number | null;
   error: string;
@@ -120,6 +132,7 @@ export async function fetchSchema(): Promise<PortalSchema> {
     ok: Boolean(reply.ok),
     source: (reply.source as PortalSchema["source"]) ?? "unknown",
     fields: (reply.fields as PortalField[]) ?? [],
+    columns: (reply.columns as PortalColumn[]) ?? [],
     term: (reply.term as PortalSchema["term"]) ?? null,
     harvestedAt: (reply.harvestedAt as number | null) ?? null,
     error: reply.ok ? "" : messageFor(String(reply.error ?? "unknown"), String(reply.message ?? "")),

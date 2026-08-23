@@ -69,8 +69,21 @@ FY 245 + L1 119 + L2 37 + L3 14 = 415 = all years; MATH 359 + PHYS 56 = 415.
 
 The server **ignores `IncludeColumns`** and always returns all 45 fields,
 including `PASSPORT_ID`, `DOB_CHAR`, `MOBILE_NO`, `PERS_EMAIL` and `BALANCE`.
-The `columns` allowlist in `presets.json` trims this before anything is written
-to disk or the clipboard. Keep it tight; widen it only for a specific need.
+Something has to trim that before anything is written to disk or the clipboard.
+
+Since v1.5 the list of columns is **read from the grid**, the same list its
+Column Picker offers, so the platform's table can show what the registrar
+shows. Two things bound it:
+
+* `NEVER_RETURNED` in `filter-schema.js` — passport, national/Emirates ID,
+  date of birth, mobile, phone, personal e-mail and balance, matched as
+  substrings of the column key so a name nobody here has seen is caught too. A
+  cohort table has no use for any of them, and pulling one would put it in a
+  coordinator's `localStorage` for the rest of the term.
+* The `columns` list in `presets.json`, still the fallback until somebody
+  visits the portal and the harvest lands.
+
+`SPRIDEN_ID` is always kept: every answer is keyed by it.
 
 ## Limits
 
@@ -79,7 +92,10 @@ to disk or the clipboard. Keep it tight; widen it only for a specific need.
   don't. If unattended/scheduled extraction is ever needed, ask IT for a
   service account or a scheduled export instead.
 * `CURRENT_AVERAGE` and `ACTIVITY_CODE` are grid columns but are not in the
-  service response, so they cannot be exported here.
+  service response, so they cannot be exported here. They are harvested from
+  the Column Picker like the rest, so the platform will offer them and their
+  cells will be empty — the grid and the service disagree, and the grid is what
+  the picker describes.
 * Private, undocumented endpoint: a portal upgrade may change the contract.
   The `expect` counts are the early-warning system.
 * Two coordinators running the same preset may legitimately get different

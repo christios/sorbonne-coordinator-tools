@@ -15,18 +15,28 @@ import {
   widthOf,
 } from "@/services/studentColumns";
 import type { StudentRow } from "@/services/rosterView";
-import type { PortalField } from "@/services/scenRosters";
+import type { PortalColumn, PortalField } from "@/services/scenRosters";
 
-const FIELDS: PortalField[] = [
-  { key: "FULL_NAME", label: "Student", options: [] },
-  { key: "SPRIDEN_ID", label: "Id", options: [] },
-  { key: "YEARLEVEL_CODE", label: "Year", options: [{ value: "FY", label: "FY" }] },
-  { key: "MAJOR_CODE_DESC", label: "Major", options: [] },
-  { key: "PSUAD_EMAIL", label: "E-mail", options: [] },
-  { key: "NATION_DESC", label: "Nationality", options: [] },
+/** What the portal's grid shows — its column picker's list. */
+const PORTAL_COLUMNS: PortalColumn[] = [
+  { key: "FULL_NAME", label: "Student" },
+  { key: "SPRIDEN_ID", label: "Id" },
+  { key: "YEARLEVEL_CODE", label: "Year" },
+  { key: "MAJOR_CODE_DESC", label: "Major" },
+  { key: "PSUAD_EMAIL", label: "E-mail" },
+  { key: "ABSENCE_PER", label: "Absence %" },
 ];
 
-const COLUMNS = buildColumns(FIELDS);
+/**
+ * What the portal filters by, which is a different list: CAMPUS_CODE is filterable and
+ * never shown, and ABSENCE_PER is shown and cannot be filtered.
+ */
+const FIELDS: PortalField[] = [
+  { key: "YEARLEVEL_CODE", label: "Year", options: [{ value: "FY", label: "FY" }] },
+  { key: "CAMPUS_CODE", label: "Campus", options: [{ value: "AD", label: "Abu Dhabi" }] },
+];
+
+const COLUMNS = buildColumns(PORTAL_COLUMNS, FIELDS);
 const LAYOUT = defaultLayout(COLUMNS);
 
 const row = (over: Partial<StudentRow> = {}): StudentRow => ({
@@ -49,12 +59,21 @@ const row = (over: Partial<StudentRow> = {}): StudentRow => ({
 beforeEach(() => window.localStorage.clear());
 
 describe("the columns the portal offers", () => {
-  it("makes a column of every portal field, alongside our own", () => {
+  it("makes a column of every column the portal shows, alongside our own", () => {
     const ids = COLUMNS.map((column) => column.id);
 
-    expect(ids).toContain("portal:NATION_DESC");
+    expect(ids).toContain("portal:ABSENCE_PER");
     expect(ids).toContain("status");
     expect(ids).toContain("cohortName");
+  });
+
+  it("offers a column the portal cannot filter by, and not a filter it never shows", () => {
+    const ids = COLUMNS.map((column) => column.id);
+
+    // The old list came from the filters, so it offered columns that were always empty
+    // and hid ones the pull had carried all along.
+    expect(ids).toContain("portal:ABSENCE_PER");
+    expect(ids).not.toContain("portal:CAMPUS_CODE");
   });
 
   it("does not offer the portal's id twice — we already have that column", () => {
@@ -62,7 +81,9 @@ describe("the columns the portal offers", () => {
     expect(COLUMNS.map((column) => column.id)).not.toContain("portal:SPRIDEN_ID");
   });
 
-  it("filters a field with a short code table as options, and a bare one as text", () => {
+  it("filters a column with a short code table as options, and a bare one as text", () => {
+    // A column filters as a set of choices only where the portal offers those choices,
+    // which is knowledge that lives in the filters rather than in the column picker.
     expect(COLUMNS.find((column) => column.id === "portal:YEARLEVEL_CODE")?.type).toBe("option");
     expect(COLUMNS.find((column) => column.id === "portal:FULL_NAME")?.type).toBe("text");
   });
@@ -110,7 +131,7 @@ describe("the stored arrangement", () => {
 
     expect(repaired.order).toHaveLength(COLUMNS.length);
     expect(repaired.order.slice(0, 3)).toEqual(["status", "studentId", "portal:FULL_NAME"]);
-    expect(repaired.hidden).toContain("portal:NATION_DESC");
+    expect(repaired.hidden).toContain("portal:ABSENCE_PER");
   });
 
   it("drops a column the portal no longer offers", () => {

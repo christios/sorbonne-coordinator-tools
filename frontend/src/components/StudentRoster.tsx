@@ -58,7 +58,10 @@ export function StudentRoster({ cohorts, viewId }: { cohorts: Cohort[]; viewId: 
   const schema = useQuery({ queryKey: ["portal-schema"], queryFn: fetchSchema, staleTime: 60_000 });
 
   // The table offers the portal's own fields, so the columns follow the harvested schema.
-  const allColumns = useMemo(() => buildColumns(schema.data?.fields ?? []), [schema.data]);
+  const allColumns = useMemo(
+    () => buildColumns(schema.data?.columns ?? [], schema.data?.fields ?? []),
+    [schema.data],
+  );
 
   const [stored, setStored] = useState<StoredPreset>({});
   const [syncedAt, setSyncedAt] = useState("");

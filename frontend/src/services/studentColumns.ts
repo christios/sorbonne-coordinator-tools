@@ -1,10 +1,15 @@
 /**
  * The columns of the student table: what they are, and how this browser has arranged them.
  *
- * Most of them are the portal's own fields, read from the schema the extension harvested,
- * so the table offers exactly what the registrar offers rather than a list somebody typed
- * out once. A handful are ours — the status, the cohort, when we first held them — and
- * those are the ones the portal knows nothing about.
+ * Most of them are the portal's own columns, read from the grid's column picker by the
+ * extension, so the table offers exactly what the registrar shows rather than a list
+ * somebody typed out once. A handful are ours — the status, the cohort, when we first
+ * held them — and those are the ones the portal knows nothing about.
+ *
+ * Columns are not filters. The portal filters by fields it never displays and displays
+ * columns it cannot filter by, so the two lists come from two places: the column picker
+ * decides what the table can show, and the quick filters only say which of those columns
+ * have a code table worth offering as a set of choices rather than as free text.
  *
  * A column knows its kind, so the filter bar can offer the right operators (see
  * services/tableFilter.ts). The arrangement — which columns are shown, in what order, and
@@ -14,7 +19,7 @@
 
 import type { ColumnDataType, FilterColumn } from "@/services/tableFilter";
 import type { StudentRow } from "@/services/rosterView";
-import type { PortalField } from "@/services/scenRosters";
+import type { PortalColumn, PortalField } from "@/services/scenRosters";
 
 const KEY = "scen-student-columns:v1";
 
@@ -97,13 +102,16 @@ const SKIP_PORTAL_FIELDS = new Set(["SPRIDEN_ID", "ROWNUM", "ROW_NUM"]);
  */
 const OPTION_LIMIT = 60;
 
-function portalColumn(field: PortalField): StudentColumn {
-  const optionish = field.options.length > 0 && field.options.length <= OPTION_LIMIT;
+function portalColumn(column: PortalColumn, filterable: Map<string, PortalField>): StudentColumn {
+  // Whether a column reads as a set of choices is a question about its values, and the
+  // only place values are known is the filter it shares a key with — if it has one.
+  const field = filterable.get(column.key.toUpperCase());
+  const options = field?.options.length ?? 0;
   return {
-    id: `portal:${field.key}`,
-    displayName: field.label || field.key,
-    type: optionish ? "option" : "text",
-    accessor: (row) => row.portal[field.key] ?? "",
+    id: `portal:${column.key}`,
+    displayName: column.label || column.key,
+    type: options > 0 && options <= OPTION_LIMIT ? "option" : "text",
+    accessor: (row) => row.portal[column.key] ?? "",
     defaultWidth: 180,
     minWidth: 110,
   };
@@ -112,16 +120,17 @@ function portalColumn(field: PortalField): StudentColumn {
 /**
  * Every column the table can show, given what the extension says the portal has.
  *
- * Before the extension has answered there are no portal fields, so the table falls back to
- * our own columns plus the handful the roster always carries — otherwise the first visit
- * would show nothing but ids.
+ * Before the extension has answered there are no portal columns, so the table falls back
+ * to our own plus the handful the roster always carries — otherwise the first visit would
+ * show nothing but ids.
  */
-export function buildColumns(fields: PortalField[]): StudentColumn[] {
-  const portal = fields.length ? fields : FALLBACK_FIELDS;
+export function buildColumns(portalColumns: PortalColumn[], fields: PortalField[] = []): StudentColumn[] {
+  const filterable = new Map(fields.map((field) => [field.key.toUpperCase(), field]));
+  const portal = portalColumns.length ? portalColumns : FALLBACK_COLUMNS;
   const columns = [...OWN_COLUMNS];
-  for (const field of portal) {
-    if (SKIP_PORTAL_FIELDS.has(field.key.toUpperCase())) continue;
-    columns.push(portalColumn(field));
+  for (const column of portal) {
+    if (SKIP_PORTAL_FIELDS.has(column.key.toUpperCase())) continue;
+    columns.push(portalColumn(column, filterable));
   }
   // The everyday columns lead, in the order they read best; the rest follow as the portal
   // lists them. This is only the starting arrangement — it is the first thing a
@@ -137,11 +146,11 @@ export function buildColumns(fields: PortalField[]): StudentColumn[] {
 }
 
 /** What the roster carries even before the extension has described the portal. */
-const FALLBACK_FIELDS: PortalField[] = [
-  { key: "FULL_NAME", label: "Student", options: [] },
-  { key: "YEARLEVEL_CODE", label: "Year", options: [] },
-  { key: "MAJOR_CODE_DESC", label: "Major", options: [] },
-  { key: "PSUAD_EMAIL", label: "E-mail", options: [] },
+const FALLBACK_COLUMNS: PortalColumn[] = [
+  { key: "FULL_NAME", label: "Student" },
+  { key: "YEARLEVEL_CODE", label: "Year" },
+  { key: "MAJOR_CODE_DESC", label: "Major" },
+  { key: "PSUAD_EMAIL", label: "E-mail" },
 ];
 
 

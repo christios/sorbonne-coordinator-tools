@@ -32,6 +32,39 @@ export const NEVER_FILTERABLE = new Set([
 ]);
 
 /**
+ * Never returned either, whatever the portal's column picker offers.
+ *
+ * The columns a coordinator can show are the portal's own now, which means this list is
+ * what stands between the picker and a passport number sitting in a browser's local
+ * storage for the rest of the term. A cohort table has no use for one.
+ *
+ * Matched as substrings of the column key, not as exact names: the picker is read from a
+ * portal nobody here can see, so a column called PASSPORT_NUMBER or STUDENT_DOB has to be
+ * caught as surely as the names already known. Refusing a harmless column by accident is
+ * the safe way to be wrong — say so and it can be named explicitly.
+ */
+export const NEVER_RETURNED = [
+  'PASSPORT',
+  'NATIONAL_ID',
+  'EMIRATES_ID',
+  'DOB',
+  'BIRTH',
+  'MOBILE',
+  'PHONE',
+  'PERS_EMAIL',
+  'PERSONAL_EMAIL',
+  'HOME_EMAIL',
+  'BALANCE',
+];
+
+/** Whether this column may leave the portal at all. */
+export function mayReturn(key) {
+  const name = String(key || '').toUpperCase();
+  if (!FIELD_KEY.test(name)) return false;
+  return !NEVER_RETURNED.some(banned => name.includes(banned));
+}
+
+/**
  * Refuse anything the schema does not recognise, and say which part was wrong.
  *
  * Values are enforced only where the list can be trusted: what the extension read from

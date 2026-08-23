@@ -8,10 +8,18 @@ import { forgetRosters, rememberPull, rememberSync } from "@/services/rosterStor
 import * as rosters from "@/services/scenRosters";
 import * as database from "@/services/studentDatabase";
 
-/** The columns come from the portal's own schema, so the tests describe one. */
+/** The columns come from the portal's own grid, so the tests describe one. */
 const SCHEMA: rosters.PortalSchema = {
   ok: true,
   source: "portal",
+  // What the grid shows, which is what the table may show.
+  columns: [
+    { key: "FULL_NAME", label: "Student" },
+    { key: "YEARLEVEL_CODE", label: "Year" },
+    { key: "MAJOR_CODE_DESC", label: "Major" },
+    { key: "PSUAD_EMAIL", label: "E-mail" },
+  ],
+  // What the grid filters by, which only decides how a column filters.
   fields: [
     { key: "FULL_NAME", label: "Student", options: [] },
     { key: "YEARLEVEL_CODE", label: "Year", options: [
