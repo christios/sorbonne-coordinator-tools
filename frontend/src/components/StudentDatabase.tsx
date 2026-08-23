@@ -20,10 +20,10 @@ const PAGES = [
 
 type PageId = (typeof PAGES)[number]["id"];
 
-const TITLES: Record<PageId, { title: string; blurb: string }> = {
+// A blurb is optional: the Students page explains itself through the view picker.
+const TITLES: Record<PageId, { title: string; blurb?: string }> = {
   students: {
     title: "Students",
-    blurb: "A view is a population the portal is asked for. Syncing one keeps it accurate, and cohorts are assembled from what it holds.",
   },
   cohorts: {
     title: "Cohorts",
@@ -84,7 +84,9 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
           <header className="flex flex-wrap items-end justify-between gap-4 pb-5">
             <div>
               <h2 className="text-2xl font-semibold text-[#171717]">{TITLES[page].title}</h2>
-              <p className="mt-1 text-sm text-[#667085]">{TITLES[page].blurb}</p>
+              {TITLES[page].blurb ? (
+                <p className="mt-1 text-sm text-[#667085]">{TITLES[page].blurb}</p>
+              ) : null}
             </div>
 
             {page === "students" ? (
