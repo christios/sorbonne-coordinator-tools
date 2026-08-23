@@ -28,6 +28,8 @@ class InviteInput(BaseModel):
 class AccountUpdate(BaseModel):
     isAdmin: bool | None = None
     isActive: bool | None = None
+    # What to call this person in the application, instead of whatever Google says.
+    displayName: str | None = Field(default=None, max_length=120)
 
 
 def require_directory() -> CoordinatorDirectory:
@@ -67,8 +69,19 @@ async def list_accounts(
     _admin: StaffUser = Depends(require_admin),
     directory: CoordinatorDirectory = Depends(require_directory),
 ) -> dict[str, Any]:
-    """Invited accounts, plus the owners the environment grants access to."""
-    return {"accounts": directory.list_accounts(), "owners": sorted(owner_emails())}
+    """Invited accounts, plus the owners the environment grants access to.
+
+    An owner may have a row here too — one is created when somebody gives them a name —
+    so those rows are reported as owners rather than as invitations, and never twice.
+    """
+    owners = sorted(owner_emails())
+    known = {account["email"]: account for account in directory.list_accounts()}
+    return {
+        "accounts": [account for email, account in known.items() if email not in owners],
+        "owners": [
+            {"email": email, "name": known.get(email, {}).get("name") or email} for email in owners
+        ],
+    }
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -93,14 +106,22 @@ async def update_account(
     directory: CoordinatorDirectory = Depends(require_directory),
 ) -> dict[str, Any]:
     address = _address(email)
-    _refuse_owners(address)
-    if address == admin.email:
+    changes_access = body.isAdmin is not None or body.isActive is not None
+    # An owner's access comes from the environment, but their name does not have to.
+    if changes_access:
+        _refuse_owners(address)
+    if body.displayName is not None and address in owner_emails():
+        return directory.set_display_name(address, body.displayName)
+    # Renaming yourself is harmless; changing your own access is not.
+    if address == admin.email and changes_access:
         # Nobody may quietly demote or suspend themselves and lock the door behind them.
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="You cannot change your own access here."
         )
     try:
-        return directory.update(address, is_admin=body.isAdmin, is_active=body.isActive)
+        return directory.update(
+            address, is_admin=body.isAdmin, is_active=body.isActive, display_name=body.displayName
+        )
     except AccountNotFound as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 

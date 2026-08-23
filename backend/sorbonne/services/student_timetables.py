@@ -22,9 +22,14 @@ class StudentPlatformNotConfigured(Exception):
 class StudentPlatformError(Exception):
     """An error the coordinator should see, usually forwarded from the platform."""
 
-    def __init__(self, message: str, status_code: int = 502) -> None:
+    def __init__(
+        self, message: str, status_code: int = 502, detail: dict[str, Any] | None = None
+    ) -> None:
         super().__init__(message)
         self.status_code = status_code
+        # A structured body when the platform sent one — an edit conflict names the
+        # coordinator who got there first, and the screen has to show that.
+        self.detail = detail
 
 
 class StudentPlatformClient:
@@ -105,7 +110,11 @@ class StudentPlatformClient:
                 status_code=502,
             )
         if response.is_error:
-            raise StudentPlatformError(_detail_of(response), status_code=_client_safe_status(response))
+            raise StudentPlatformError(
+                _detail_of(response),
+                status_code=_client_safe_status(response),
+                detail=_structured_detail(response),
+            )
         if response.status_code == httpx.codes.NO_CONTENT or not response.content:
             return None
         return response.json()
@@ -119,7 +128,19 @@ def _detail_of(response: httpx.Response) -> str:
     detail = body.get("detail") if isinstance(body, dict) else None
     if isinstance(detail, str) and detail.strip():
         return detail
+    if isinstance(detail, dict) and isinstance(detail.get("message"), str):
+        return detail["message"]
     return f"The student platform returned an unexpected error ({response.status_code})."
+
+
+def _structured_detail(response: httpx.Response) -> dict[str, Any] | None:
+    """An edit conflict answers with an object, not a sentence. Keep it intact."""
+    try:
+        body = response.json()
+    except ValueError:
+        return None
+    detail = body.get("detail") if isinstance(body, dict) else None
+    return detail if isinstance(detail, dict) else None
 
 
 def _client_safe_status(response: httpx.Response) -> int:

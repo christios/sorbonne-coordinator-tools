@@ -10,6 +10,7 @@ import { StaffMenu } from "@/components/StaffMenu";
 import { StaffSettings } from "@/components/StaffSettings";
 import { SyllabusBuilder } from "@/components/SyllabusBuilder";
 import { TeacherDatabase } from "@/components/TeacherDatabase";
+import { StudentDatabase } from "@/components/StudentDatabase";
 import { TimetableUploader } from "@/components/TimetableUploader";
 import { COORDINATOR_APPS } from "@/routes/apps";
 import { handbookUrl } from "@/routes/handbookRoute";
@@ -118,8 +119,11 @@ export function App() {
 
   const compactSyllabusHeader = activeTool === "syllabus" && syllabusHeaderCollapsed;
   const isPicker = activeTool === null;
+  // Tools with their own left pane need the pane to end where the window does, so the
+  // menu at its foot is reachable. Guessing the header's height got that wrong; letting
+  // the column flex around it cannot.
   const shell =
-    activeTool === "syllabus"
+    activeTool === "syllabus" || activeTool === "database"
       ? "flex h-screen min-h-0 flex-col overflow-hidden"
       : isPicker
         ? "flex min-h-screen flex-col"
@@ -238,7 +242,7 @@ export function App() {
             </div>
           )}
         </section>
-      </div> : activeTool === "teachers" ? <TeacherDatabase /> : activeTool === "timetables" ? <TimetableUploader /> : <div className="min-h-0 flex-1"><SyllabusBuilder /></div>}
+      </div> : activeTool === "teachers" ? <TeacherDatabase /> : activeTool === "database" ? <StudentDatabase onOpenSettings={() => openTool("settings")} /> : activeTool === "timetables" ? <TimetableUploader /> : <div className="min-h-0 flex-1"><SyllabusBuilder /></div>}
     </main>
   );
 }

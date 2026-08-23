@@ -1,4 +1,5 @@
 import { apiFetch } from "@/services/http";
+import { forgetRosters } from "@/services/rosterStore";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 
@@ -41,4 +42,7 @@ export async function signIn(credential: string): Promise<StaffUser> {
 
 export async function signOut(): Promise<void> {
   await apiFetch(`${API_BASE_URL}/api/v1/auth/session`, { method: "DELETE" });
+  // The rosters pulled from the registrar live in this browser, so signing out has to
+  // take them with it. Anything else would leave student names on a shared machine.
+  forgetRosters();
 }

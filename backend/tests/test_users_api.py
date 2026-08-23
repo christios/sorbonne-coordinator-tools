@@ -39,7 +39,14 @@ class FakeDirectory:
         }
         return self.accounts[email]
 
-    def update(self, email: str, *, is_admin: bool | None = None, is_active: bool | None = None):
+    def update(
+        self,
+        email: str,
+        *,
+        is_admin: bool | None = None,
+        is_active: bool | None = None,
+        display_name: str | None = None,
+    ):
         account = self.accounts.get(email)
         if account is None:
             raise AccountNotFound(f"{email} is not on the staff list.")
@@ -47,6 +54,27 @@ class FakeDirectory:
             account["isAdmin"] = is_admin
         if is_active is not None:
             account["isActive"] = is_active
+        if display_name is not None:
+            account["name"] = display_name
+            account["displayName"] = display_name
+        return account
+
+    def set_display_name(self, email: str, display_name: str):
+        account = self.accounts.setdefault(
+            email,
+            {
+                "email": email,
+                "name": "",
+                "displayName": "",
+                "isAdmin": False,
+                "isActive": True,
+                "invitedBy": "",
+                "createdAt": "",
+                "lastSeenAt": None,
+            },
+        )
+        account["displayName"] = display_name
+        account["name"] = display_name or email
         return account
 
     def remove(self, email: str) -> None:
@@ -89,7 +117,7 @@ def test_an_administrator_invites_promotes_suspends_and_removes(
     listed = client.get("/api/v1/users").json()
 
     assert [account["email"] for account in listed["accounts"]] == ["new.colleague@sorbonne.ae"]
-    assert listed["owners"] == [OWNER]
+    assert listed["owners"] == [{"email": OWNER, "name": OWNER}]
 
     promoted = client.patch("/api/v1/users/new.colleague@sorbonne.ae", json={"isAdmin": True})
     assert promoted.json()["isAdmin"] is True
@@ -158,3 +186,49 @@ def test_an_account_that_was_never_invited_cannot_be_edited(client: TestClient, 
         status.HTTP_404_NOT_FOUND
     )
     assert client.delete("/api/v1/users/stranger@sorbonne.ae").status_code == status.HTTP_404_NOT_FOUND
+
+
+def test_an_administrator_names_a_colleague(client: TestClient, directory: FakeDirectory):
+    client.post("/api/v1/users", json={"email": "new.colleague@sorbonne.ae"})
+
+    named = client.patch(
+        "/api/v1/users/new.colleague@sorbonne.ae", json={"displayName": "Patricia Duval"}
+    )
+
+    assert named.status_code == status.HTTP_200_OK, named.text
+    assert named.json()["name"] == "Patricia Duval"
+
+
+def test_an_administrator_may_rename_themselves_but_not_demote_themselves(
+    client: TestClient, directory: FakeDirectory
+):
+    # Renaming is harmless; changing your own access could lock everyone out.
+    directory.accounts[OWNER] = {
+        "email": OWNER,
+        "name": OWNER,
+        "isAdmin": True,
+        "isActive": True,
+        "invitedBy": "",
+        "createdAt": "",
+        "lastSeenAt": None,
+    }
+
+    assert client.patch(f"/api/v1/users/{OWNER}", json={"isAdmin": False}).status_code == (
+        status.HTTP_409_CONFLICT
+    )
+
+
+def test_an_owner_can_be_given_a_name_without_being_invited(client: TestClient, directory: FakeDirectory):
+    named = client.patch(f"/api/v1/users/{OWNER}", json={"displayName": "Christian Cayralat"})
+
+    assert named.status_code == status.HTTP_200_OK, named.text
+    listed = client.get("/api/v1/users").json()
+    assert listed["owners"] == [{"email": OWNER, "name": "Christian Cayralat"}]
+    # Naming them must not turn them into an invitation.
+    assert [account["email"] for account in listed["accounts"]] == []
+
+
+def test_an_owner_still_cannot_have_their_access_changed_here(client: TestClient):
+    refused = client.patch(f"/api/v1/users/{OWNER}", json={"isActive": False})
+
+    assert refused.status_code == status.HTTP_409_CONFLICT

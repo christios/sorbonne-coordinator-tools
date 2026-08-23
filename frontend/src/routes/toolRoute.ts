@@ -1,7 +1,7 @@
 // "settings" is not an app: it is reached from the user menu, not from the picker.
-export type ToolId = "roster" | "syllabus" | "teachers" | "timetables" | "settings";
+export type ToolId = "roster" | "syllabus" | "teachers" | "timetables" | "database" | "settings";
 
-const tools = new Set<ToolId>(["roster", "syllabus", "teachers", "timetables", "settings"]);
+const tools = new Set<ToolId>(["roster", "syllabus", "teachers", "timetables", "database", "settings"]);
 
 function asToolId(value: string): ToolId | null {
   return tools.has(value as ToolId) ? (value as ToolId) : null;

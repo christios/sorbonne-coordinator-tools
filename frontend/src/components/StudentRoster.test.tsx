@@ -1,0 +1,603 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { StudentRoster } from "@/components/StudentRoster";
+import { forgetHistory, recordPull } from "@/services/pullHistory";
+import { forgetRosters, rememberPull, rememberSync } from "@/services/rosterStore";
+import * as rosters from "@/services/scenRosters";
+import * as database from "@/services/studentDatabase";
+
+/** The columns come from the portal's own schema, so the tests describe one. */
+const SCHEMA: rosters.PortalSchema = {
+  ok: true,
+  source: "portal",
+  fields: [
+    { key: "FULL_NAME", label: "Student", options: [] },
+    { key: "YEARLEVEL_CODE", label: "Year", options: [
+      { value: "FY", label: "FY" },
+      { value: "L1", label: "L1" },
+    ] },
+    { key: "MAJOR_CODE_DESC", label: "Major", options: [
+      { value: "Mathematics", label: "Mathematics" },
+      { value: "Physics", label: "Physics" },
+    ] },
+    { key: "PSUAD_EMAIL", label: "E-mail", options: [] },
+    { key: "NATION_DESC", label: "Nationality", options: [] },
+  ],
+  term: null,
+  harvestedAt: null,
+  error: "",
+};
+
+const COHORTS: database.Cohort[] = [
+  {
+    id: "cohort-1",
+    name: "Foundation Year",
+    term: "S1 2026-27",
+    notes: "",
+    memberCount: 1,
+    scopeCount: 3,
+    createdAt: "",
+    updatedAt: "",
+  },
+  {
+    id: "cohort-2",
+    name: "L1",
+    term: "S1 2026-27",
+    notes: "",
+    memberCount: 0,
+    scopeCount: 0,
+    createdAt: "",
+    updatedAt: "",
+  },
+];
+
+const SYNCED = "2026-08-22T09:00:00+00:00";
+const EARLIER = "2026-08-01T09:00:00+00:00";
+
+/** What our side holds: ids, a status and a cohort. Never a name. */
+const HELD: database.Student[] = [
+  {
+    studentId: "A001",
+    status: "in_portal",
+    cohortId: "cohort-1",
+    cohortName: "Foundation Year",
+    firstSeenAt: EARLIER,
+    lastSeenAt: SYNCED,
+    groups: {},
+  },
+  {
+    studentId: "A002",
+    status: "in_portal",
+    cohortId: null,
+    cohortName: "",
+    firstSeenAt: EARLIER,
+    lastSeenAt: SYNCED,
+    groups: {},
+  },
+  {
+    studentId: "A003",
+    status: "in_portal",
+    cohortId: null,
+    cohortName: "",
+    firstSeenAt: SYNCED,
+    lastSeenAt: SYNCED,
+    groups: {},
+  },
+  {
+    studentId: "A999",
+    status: "not_in_portal",
+    cohortId: "cohort-1",
+    cohortName: "Foundation Year",
+    firstSeenAt: EARLIER,
+    lastSeenAt: EARLIER,
+    groups: {},
+  },
+];
+
+/** The names, as the extension left them in this browser. */
+const PULLED = [
+  { SPRIDEN_ID: "A001", FULL_NAME: "Amira Haddad", YEARLEVEL_CODE: "FY", MAJOR_CODE_DESC: "Mathematics" },
+  { SPRIDEN_ID: "A002", FULL_NAME: "Karim Nasser", YEARLEVEL_CODE: "L1", MAJOR_CODE_DESC: "Physics" },
+  { SPRIDEN_ID: "A003", FULL_NAME: "Nadia Newcomer", YEARLEVEL_CODE: "FY", MAJOR_CODE_DESC: "Mathematics" },
+];
+
+function withNames() {
+  rememberPull({
+    presetId: "sync",
+    name: "Sync",
+    count: PULLED.length,
+    expect: null,
+    warning: null,
+    fetchedAt: Date.now(),
+    rows: PULLED,
+  });
+  rememberSync(SYNCED);
+}
+
+function renderRoster() {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <StudentRoster cohorts={COHORTS} viewId="view-1" />
+    </QueryClientProvider>,
+  );
+}
+
+/** SelectMenu is a button and a listbox, not a native select — see the UI decisions doc.
+ *  A multi-select stays open between picks, so only open it when it is not already. */
+async function choose(label: string, option: string | RegExp) {
+  const trigger = await screen.findByRole("combobox", { name: label });
+  if (trigger.getAttribute("aria-expanded") !== "true") fireEvent.click(trigger);
+  fireEvent.click(await screen.findByRole("option", { name: option }));
+}
+
+function rowFor(name: string): HTMLElement {
+  return screen.getByText(name).closest("tr") as HTMLElement;
+}
+
+/** Compose a column filter the way a coordinator does: pick the column, then the value. */
+async function addFilter(column: string) {
+  fireEvent.click(screen.getByRole("button", { name: /^(Filter|Add filter)$/ }));
+  fireEvent.click(await screen.findByRole("button", { name: column }));
+}
+
+beforeEach(() => {
+  window.localStorage.clear();
+  vi.spyOn(database, "fetchStudents").mockResolvedValue(HELD);
+  vi.spyOn(rosters, "fetchSchema").mockResolvedValue(SCHEMA);
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  forgetRosters();
+  forgetHistory();
+  window.localStorage.clear();
+});
+
+describe("StudentRoster", () => {
+  it("shows every held student, with the ids the server keeps", async () => {
+    renderRoster();
+
+    expect(await screen.findByText("A001")).toBeTruthy();
+    expect(screen.getByText("A999")).toBeTruthy();
+    expect(screen.getByText(/4 students held/)).toBeTruthy();
+  });
+
+  it("names them from the pull this browser is holding", async () => {
+    withNames();
+    renderRoster();
+
+    expect(await screen.findByText("Amira Haddad")).toBeTruthy();
+    expect(within(rowFor("Amira Haddad")).getByText("Foundation Year")).toBeTruthy();
+  });
+
+  it("marks a student the last sync brought in as new", async () => {
+    withNames();
+    renderRoster();
+
+    expect(within(await waitFor(() => rowFor("Nadia Newcomer"))).getByText("New")).toBeTruthy();
+    expect(within(rowFor("Amira Haddad")).queryByText("New")).toBeNull();
+  });
+
+  it("shows a student the portal stopped returning without pretending to know their name", async () => {
+    withNames();
+    renderRoster();
+
+    const gone = (await screen.findByText("A999")).closest("tr") as HTMLElement;
+    expect(within(gone).getByText("Not in portal")).toBeTruthy();
+    expect(within(gone).getByText(/name not pulled yet/)).toBeTruthy();
+  });
+
+  it("has no sync control of its own — the roster is not where the list is built", async () => {
+    renderRoster();
+    await screen.findByText("A001");
+
+    expect(screen.queryByRole("button", { name: /sync/i })).toBeNull();
+  });
+
+  describe("column filters", () => {
+    it("narrows by a column's own values", async () => {
+      withNames();
+      renderRoster();
+      await screen.findByText("Amira Haddad");
+
+      await addFilter("Year");
+      await choose("Year value", "L1");
+
+      expect(screen.getByText("Karim Nasser")).toBeTruthy();
+      expect(screen.queryByText("Amira Haddad")).toBeNull();
+    });
+
+    it("turns the operator plural on its own when a second value is chosen", async () => {
+      withNames();
+      renderRoster();
+      await screen.findByText("Amira Haddad");
+
+      await addFilter("Year");
+      await choose("Year value", "L1");
+      expect(screen.getByRole("button", { name: "Year operator" }).textContent).toBe("is");
+
+      await choose("Year value", "FY");
+
+      expect(screen.getByRole("button", { name: "Year operator" }).textContent).toBe("is any of");
+      expect(screen.getByText("Amira Haddad")).toBeTruthy();
+    });
+
+    it("inverts when the operator is changed, keeping the values", async () => {
+      withNames();
+      renderRoster();
+      await screen.findByText("Amira Haddad");
+
+      await addFilter("Year");
+      await choose("Year value", "L1");
+      fireEvent.click(screen.getByRole("button", { name: "Year operator" }));
+      fireEvent.click(await screen.findByRole("button", { name: "is not" }));
+
+      expect(screen.queryByText("Karim Nasser")).toBeNull();
+      expect(screen.getByText("Amira Haddad")).toBeTruthy();
+    });
+
+    it("removes one chip without disturbing the others", async () => {
+      withNames();
+      renderRoster();
+      await screen.findByText("Amira Haddad");
+
+      await addFilter("Year");
+      await choose("Year value", "FY");
+      await addFilter("Student");
+      fireEvent.change(screen.getByLabelText("Student value"), { target: { value: "nadia" } });
+      expect(screen.queryByText("Amira Haddad")).toBeNull();
+
+      fireEvent.click(screen.getByRole("button", { name: "Remove the Student filter" }));
+
+      expect(screen.getByText("Amira Haddad")).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Year operator" })).toBeTruthy();
+    });
+
+    it("clears every filter at once", async () => {
+      withNames();
+      renderRoster();
+      await screen.findByText("Amira Haddad");
+
+      await addFilter("Year");
+      await choose("Year value", "L1");
+      fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
+
+      expect(screen.getByText("Amira Haddad")).toBeTruthy();
+    });
+  });
+
+  describe("columns", () => {
+    it("adds a column that was put away, and remembers it", async () => {
+      withNames();
+      const { unmount } = renderRoster();
+      await screen.findByText("Amira Haddad");
+      expect(screen.queryByRole("button", { name: "Sort by E-mail" })).toBeNull();
+
+      fireEvent.click(screen.getByRole("button", { name: /Columns/ }));
+      fireEvent.click(screen.getByLabelText("E-mail"));
+
+      expect(await screen.findByRole("button", { name: "Sort by E-mail" })).toBeTruthy();
+
+      // The arrangement is a preference, so it survives leaving the page.
+      unmount();
+      renderRoster();
+      expect(await screen.findByRole("button", { name: "Sort by E-mail" })).toBeTruthy();
+    });
+
+    it("moves a column along, and will not move it off either end", async () => {
+      renderRoster();
+      await screen.findByText("A001");
+      fireEvent.click(screen.getByRole("button", { name: /Columns/ }));
+
+      fireEvent.click(screen.getByRole("button", { name: "Move Student left" }));
+
+      const headers = screen.getAllByRole("columnheader").map((cell) => cell.textContent ?? "");
+      expect(headers[1]).toContain("Student");
+      // Student is first now, so there is nowhere further left for it to go.
+      expect(screen.getByRole("button", { name: "Move Student left" })).toHaveProperty("disabled", true);
+    });
+
+    it("will not let go of the columns that carry the row's identity", async () => {
+      renderRoster();
+      await screen.findByText("A001");
+      fireEvent.click(screen.getByRole("button", { name: /Columns/ }));
+
+      expect(screen.getByLabelText(/^Id/)).toHaveProperty("disabled", true);
+      expect(screen.getByLabelText(/^Status/)).toHaveProperty("disabled", true);
+    });
+
+    it("tracks the pointer when the edge is dragged", async () => {
+      renderRoster();
+      await screen.findByText("A001");
+      const handle = screen.getByRole("separator", { name: "Resize Student" });
+      const started = Number.parseInt(
+        screen.getByRole("columnheader", { name: /Student/ }).style.width,
+        10,
+      );
+
+      // jsdom's PointerEvent carries no coordinates, so these are MouseEvents of the
+      // pointer types — which is what the component reads clientX from anyway.
+      const at = (type: string, clientX: number) =>
+        new MouseEvent(type, { clientX, bubbles: true, cancelable: true });
+
+      fireEvent(handle, at("pointerdown", 700));
+      // A stray second press must not re-anchor the drag to the width reached so far.
+      fireEvent(handle, at("pointerdown", 760));
+      fireEvent(window, at("pointermove", 800));
+
+      // 100px of pointer travel from the anchor, and the stray press changed nothing.
+      expect(screen.getByRole("columnheader", { name: /Student/ }).style.width).toBe(
+        `${started + 100}px`,
+      );
+    });
+
+    it("reorders when a header is dragged onto another", async () => {
+      renderRoster();
+      await screen.findByText("A001");
+      const before = screen.getAllByRole("columnheader").map((cell) => cell.textContent ?? "");
+      expect(before[1]).toContain("Status");
+
+      const handle = screen.getByRole("button", { name: "Drag Cohort to reorder" });
+      const target = screen.getByRole("columnheader", { name: /Status/ });
+      const transfer = { effectAllowed: "", setData: () => {}, getData: () => "" };
+      fireEvent.dragStart(handle, { dataTransfer: transfer });
+      fireEvent.dragOver(target, { dataTransfer: transfer });
+      fireEvent.drop(target, { dataTransfer: transfer });
+
+      const after = screen.getAllByRole("columnheader").map((cell) => cell.textContent ?? "");
+      expect(after[1]).toContain("Cohort");
+    });
+
+    it("resizes a column from the keyboard, and remembers the width", async () => {
+      const { unmount } = renderRoster();
+      await screen.findByText("A001");
+      const header = screen.getByRole("columnheader", { name: /Student/ });
+      const before = header.style.width;
+
+      fireEvent.keyDown(screen.getByRole("separator", { name: "Resize Student" }), { key: "ArrowRight" });
+
+      expect(screen.getByRole("columnheader", { name: /Student/ }).style.width).not.toBe(before);
+      unmount();
+      renderRoster();
+      expect((await screen.findByRole("columnheader", { name: /Student/ })).style.width).not.toBe(before);
+    });
+  });
+
+  it("moves the selected students into a cohort, sending ids and nothing else", async () => {
+    const move = vi.spyOn(database, "setCohort").mockResolvedValue(2);
+    withNames();
+    renderRoster();
+    await screen.findByText("Amira Haddad");
+
+    fireEvent.click(screen.getByLabelText("Select Karim Nasser"));
+    fireEvent.click(screen.getByLabelText("Select Nadia Newcomer"));
+    await choose("Move to cohort", "L1");
+    fireEvent.click(screen.getByRole("button", { name: /Move 2/ }));
+
+    await waitFor(() => expect(move).toHaveBeenCalled());
+    const [ids, cohortId] = move.mock.calls[0];
+    expect([...ids].sort()).toEqual(["A002", "A003"]);
+    expect(cohortId).toBe("cohort-2");
+    // The privacy rule, pinned: no name may cross to our API.
+    expect(JSON.stringify(ids)).not.toContain("Karim");
+  });
+
+  it("takes students out of a cohort with a null, not a delete", async () => {
+    const move = vi.spyOn(database, "setCohort").mockResolvedValue(1);
+    withNames();
+    renderRoster();
+    await screen.findByText("Amira Haddad");
+
+    fireEvent.click(screen.getByLabelText("Select Amira Haddad"));
+    await choose("Move to cohort", "Take out of their cohort");
+    fireEvent.click(screen.getByRole("button", { name: /Move 1/ }));
+
+    await waitFor(() => expect(move).toHaveBeenCalled());
+    expect(move.mock.calls[0]).toEqual([["A001"], null]);
+  });
+
+  it("selects everyone shown, respecting the filter", async () => {
+    const move = vi.spyOn(database, "setCohort").mockResolvedValue(1);
+    withNames();
+    renderRoster();
+    await screen.findByText("Amira Haddad");
+    await addFilter("Year");
+    await choose("Year value", "L1");
+
+    fireEvent.click(screen.getByLabelText("Select everyone shown"));
+    await choose("Move to cohort", "L1");
+    fireEvent.click(screen.getByRole("button", { name: /Move 1/ }));
+
+    await waitFor(() => expect(move).toHaveBeenCalled());
+    expect(move.mock.calls[0][0]).toEqual(["A002"]);
+  });
+
+  describe("searching", () => {
+    it("looks in every column on screen, not a chosen few", async () => {
+      withNames();
+      renderRoster();
+      await screen.findByText("Amira Haddad");
+
+      // Major is a column, so its values are searchable without naming the field.
+      fireEvent.change(screen.getByLabelText("Search students"), { target: { value: "physics" } });
+
+      expect(screen.getByText("Karim Nasser")).toBeTruthy();
+      expect(screen.queryByText("Amira Haddad")).toBeNull();
+    });
+
+    it("finds a student by the cohort they are in", async () => {
+      withNames();
+      renderRoster();
+      await screen.findByText("Amira Haddad");
+
+      fireEvent.change(screen.getByLabelText("Search students"), { target: { value: "foundation" } });
+
+      expect(screen.getByText("Amira Haddad")).toBeTruthy();
+      expect(screen.queryByText("Karim Nasser")).toBeNull();
+    });
+
+    it("still finds by id and by name", async () => {
+      withNames();
+      renderRoster();
+      await screen.findByText("Amira Haddad");
+
+      fireEvent.change(screen.getByLabelText("Search students"), { target: { value: "karim" } });
+      expect(screen.queryByText("Amira Haddad")).toBeNull();
+
+      fireEvent.change(screen.getByLabelText("Search students"), { target: { value: "A999" } });
+      expect(screen.getByText("A999")).toBeTruthy();
+    });
+  });
+
+  describe("the history panel", () => {
+    it("lists only the pulls something changed in, and says how many were quiet", async () => {
+      const at = (n: number) => 1_700_000_000_000 + n * 86_400_000;
+      recordPull([{ SPRIDEN_ID: "A001", FULL_NAME: "Amira Haddad", YEARLEVEL_CODE: "FY" }], at(1));
+      recordPull([{ SPRIDEN_ID: "A001", FULL_NAME: "Amira Haddad", YEARLEVEL_CODE: "FY" }], at(2));
+      recordPull([{ SPRIDEN_ID: "A001", FULL_NAME: "Amira Haddad", YEARLEVEL_CODE: "L1" }], at(3));
+      withNames();
+      renderRoster();
+      await screen.findByText("Amira Haddad");
+
+      fireEvent.click(screen.getByRole("button", { name: "History for Amira Haddad" }));
+
+      const panel = await screen.findByRole("complementary", { name: "Student history" });
+      expect(within(panel).getByText("FY")).toBeTruthy();
+      expect(within(panel).getByText("L1")).toBeTruthy();
+      expect(within(panel).getByText(/1 of 3 pulls changed something/)).toBeTruthy();
+      expect(within(panel).getByText(/2 pulls with no change/)).toBeTruthy();
+    });
+
+    it("says so plainly when a student has never changed", async () => {
+      recordPull([{ SPRIDEN_ID: "A001", FULL_NAME: "Amira Haddad" }], 1_000);
+      recordPull([{ SPRIDEN_ID: "A001", FULL_NAME: "Amira Haddad" }], 2_000);
+      withNames();
+      renderRoster();
+      await screen.findByText("Amira Haddad");
+
+      fireEvent.click(screen.getByRole("button", { name: "History for Amira Haddad" }));
+
+      const panel = await screen.findByRole("complementary", { name: "Student history" });
+      expect(within(panel).getByText(/Nothing about this student has changed across 2 pulls/)).toBeTruthy();
+    });
+
+    it("closes when the pointer goes down on the table behind it", async () => {
+      withNames();
+      renderRoster();
+      await screen.findByText("Amira Haddad");
+      fireEvent.click(screen.getByRole("button", { name: "History for Amira Haddad" }));
+      await screen.findByRole("complementary", { name: "Student history" });
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve));
+      });
+
+      fireEvent(
+        screen.getByText("Karim Nasser"),
+        new MouseEvent("pointerdown", { bubbles: true, cancelable: true }),
+      );
+
+      expect(screen.queryByRole("complementary", { name: "Student history" })).toBeNull();
+    });
+
+    it("stays open when the pointer goes down inside it", async () => {
+      withNames();
+      renderRoster();
+      await screen.findByText("Amira Haddad");
+      fireEvent.click(screen.getByRole("button", { name: "History for Amira Haddad" }));
+      const panel = await screen.findByRole("complementary", { name: "Student history" });
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve));
+      });
+
+      fireEvent(panel, new MouseEvent("pointerdown", { bubbles: true, cancelable: true }));
+
+      expect(screen.getByRole("complementary", { name: "Student history" })).toBeTruthy();
+    });
+
+    it("swaps to another student rather than closing when their history is asked for", async () => {
+      withNames();
+      renderRoster();
+      await screen.findByText("Amira Haddad");
+      fireEvent.click(screen.getByRole("button", { name: "History for Amira Haddad" }));
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve));
+      });
+
+      const other = screen.getByRole("button", { name: "History for Karim Nasser" });
+      fireEvent(other, new MouseEvent("pointerdown", { bubbles: true, cancelable: true }));
+      fireEvent.click(other);
+
+      const panel = await screen.findByRole("complementary", { name: "Student history" });
+      expect(within(panel).getByText("Karim Nasser")).toBeTruthy();
+    });
+
+    it("closes again", async () => {
+      withNames();
+      renderRoster();
+      await screen.findByText("Amira Haddad");
+      fireEvent.click(screen.getByRole("button", { name: "History for Amira Haddad" }));
+
+      fireEvent.click(await screen.findByRole("button", { name: "Close student history" }));
+
+      expect(screen.queryByRole("complementary", { name: "Student history" })).toBeNull();
+    });
+  });
+
+  describe("copying", () => {
+    it("copies a column as a spreadsheet reads one", async () => {
+      const written: string[] = [];
+      Object.assign(navigator, {
+        clipboard: { writeText: (text: string) => (written.push(text), Promise.resolve()) },
+      });
+      withNames();
+      renderRoster();
+      await screen.findByText("Amira Haddad");
+
+      fireEvent.click(screen.getByRole("button", { name: "Copy the Student column" }));
+
+      await waitFor(() => expect(written).toHaveLength(1));
+      expect(written[0].split("\n")).toContain("Karim Nasser");
+    });
+
+    it("copies a row tab-separated, so each value lands in its own cell", async () => {
+      const written: string[] = [];
+      Object.assign(navigator, {
+        clipboard: { writeText: (text: string) => (written.push(text), Promise.resolve()) },
+      });
+      withNames();
+      renderRoster();
+      await screen.findByText("Amira Haddad");
+
+      fireEvent.click(screen.getByRole("button", { name: "Copy the row for Amira Haddad" }));
+
+      await waitFor(() => expect(written).toHaveLength(1));
+      expect(written[0].split("\t")).toContain("Amira Haddad");
+      expect(written[0]).not.toContain("\n");
+    });
+  });
+
+  it("keeps every student when the stored rosters are forgotten", async () => {
+    withNames();
+    renderRoster();
+    await screen.findByText("Amira Haddad");
+
+    fireEvent.click(screen.getByRole("button", { name: /forget stored rosters/i }));
+    expect(await screen.findByText(/No student leaves the list/i)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Forget rosters" }));
+
+    await waitFor(() => expect(screen.queryByText("Amira Haddad")).toBeNull());
+    expect(screen.getByText("A001")).toBeTruthy();
+    expect(screen.getByText(/4 students held/)).toBeTruthy();
+  });
+
+  it("uses the shared select control, not a native one", async () => {
+    // docs/handoffs/ui-ux-decisions.md: no native <select> in product UI.
+    renderRoster();
+    await screen.findByText("A001");
+
+    expect(document.querySelector("select")).toBeNull();
+  });
+});

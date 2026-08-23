@@ -28,6 +28,11 @@ function renderTool() {
   );
 }
 
+/** The pages are reached from the side pane, exactly as a coordinator reaches them. */
+async function openPage(name: RegExp) {
+  fireEvent.click(await screen.findByRole("button", { name }));
+}
+
 function chooseFiles(students = ["FYS-Groups.xlsx"]) {
   const excel = new File(["x"], "timetable.xls", { type: "application/vnd.ms-excel" });
   const lists = students.map((name) => new File(["y"], name, { type: "application/vnd.ms-excel" }));
@@ -39,7 +44,7 @@ function chooseFiles(students = ["FYS-Groups.xlsx"]) {
 beforeEach(() => {
   vi.spyOn(timetables, "fetchTimetableStatus").mockResolvedValue({ configured: true, host: "scen.example.dev" });
   vi.spyOn(timetables, "fetchTimetableTerms").mockResolvedValue([TERM]);
-  // The announcement editor shares this screen; keep its own request out of the way.
+  // The announcement page has a request of its own; keep it out of the way.
   vi.spyOn(timetables, "fetchAnnouncements").mockResolvedValue({ announcements: [], icons: ["info"] });
 });
 
@@ -66,7 +71,7 @@ describe("TimetableUploader", () => {
 
   it("keeps the upload button disabled until the name and both files are chosen", async () => {
     renderTool();
-    await screen.findByRole("row", { name: /Physics & Maths/ });
+    await openPage(/Import a semester/);
     const upload = screen.getByRole("button", { name: /Upload to student platform/ });
 
     expect((upload as HTMLButtonElement).disabled).toBe(true);
@@ -78,7 +83,7 @@ describe("TimetableUploader", () => {
   it("reports what the platform stored after an upload", async () => {
     const importTerm = vi.spyOn(timetables, "importTimetableTerm").mockResolvedValue(TERM);
     renderTool();
-    await screen.findByRole("row", { name: /Physics & Maths/ });
+    await openPage(/Import a semester/);
     chooseFiles();
 
     fireEvent.click(screen.getByRole("button", { name: /Upload to student platform/ }));
@@ -96,13 +101,21 @@ describe("TimetableUploader", () => {
       new Error("That file could not be read as an Excel workbook."),
     );
     renderTool();
-    await screen.findByRole("row", { name: /Physics & Maths/ });
+    await openPage(/Import a semester/);
     chooseFiles();
 
     fireEvent.click(screen.getByRole("button", { name: /Upload to student platform/ }));
 
     const alerts = await screen.findAllByRole("alert");
     expect(alerts.map((alert) => alert.textContent).join(" ")).toContain("could not be read as an Excel workbook");
+  });
+
+  it("uses the shared select control, not a native one", async () => {
+    // docs/handoffs/ui-ux-decisions.md: no native <select> in product UI.
+    renderTool();
+    await screen.findByRole("row", { name: /Physics & Maths/ });
+
+    expect(document.querySelector("select")).toBeNull();
   });
 
   it("publishes a hidden semester", async () => {
@@ -154,7 +167,7 @@ describe("TimetableUploader with several student workbooks", () => {
       ],
     });
     renderTool();
-    await screen.findByRole("row", { name: /Physics & Maths/ });
+    await openPage(/Import a semester/);
 
     chooseFiles(["FYS-Groups.xlsx", "L1-Groups.xlsx", "LANG-Groups.xlsx"]);
     fireEvent.click(screen.getByRole("button", { name: /Upload to student platform/ }));
@@ -176,7 +189,7 @@ describe("TimetableUploader with several student workbooks", () => {
       ],
     });
     renderTool();
-    await screen.findByRole("row", { name: /Physics & Maths/ });
+    await openPage(/Import a semester/);
     chooseFiles(["FYS-Groups.xlsx", "LANG-Groups.xlsx"]);
 
     fireEvent.click(screen.getByRole("button", { name: /Upload to student platform/ }));

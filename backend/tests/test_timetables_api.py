@@ -240,3 +240,4 @@ def test_every_student_workbook_is_forwarded(client: TestClient):
 
     assert response.status_code == status.HTTP_201_CREATED
     assert seen["names"] == ["FYS-Groups.xlsx", "L1-Groups.xlsx", "LANG-Groups.xlsx"]
+

@@ -59,7 +59,7 @@ async def _read_upload(file: UploadFile, label: str) -> bytes:
 
 
 def _forward(error: StudentPlatformError) -> HTTPException:
-    return HTTPException(status_code=error.status_code, detail=str(error))
+    return HTTPException(status_code=error.status_code, detail=error.detail or str(error))
 
 
 @router.get("/status")

@@ -10,6 +10,7 @@ const ADMIN = { email: "coordinator@sorbonne.ae", name: "Coordinator", isAdmin: 
 const COLLEAGUE: directory.CoordinatorAccount = {
   email: "colleague@sorbonne.ae",
   name: "Dr Colleague",
+  displayName: "",
   isAdmin: false,
   isActive: true,
   invitedBy: ADMIN.email,
@@ -31,7 +32,7 @@ function renderSettings(user = ADMIN) {
 beforeEach(() => {
   vi.spyOn(directory, "fetchStaffList").mockResolvedValue({
     accounts: [COLLEAGUE],
-    owners: [ADMIN.email],
+    owners: [{ email: ADMIN.email, name: ADMIN.email }],
   });
 });
 
@@ -108,5 +109,62 @@ describe("StaffSettings", () => {
 
     expect(await screen.findByText(/Only an administrator can manage who may sign in/)).toBeTruthy();
     expect(directory.fetchStaffList).not.toHaveBeenCalled();
+  });
+});
+
+
+describe("naming a colleague", () => {
+  it("sends the name an administrator typed, and nothing else", async () => {
+    const update = vi.spyOn(directory, "updateCoordinator").mockResolvedValue({
+      ...COLLEAGUE,
+      name: "Patricia Duval",
+      displayName: "Patricia Duval",
+    });
+    renderSettings();
+    await screen.findByText("Dr Colleague");
+
+    // Two rows offer a name now — the colleague's and the owner's.
+    fireEvent.click(screen.getAllByRole("button", { name: /Name/ })[0]);
+    fireEvent.change(await screen.findByLabelText(`Name for ${COLLEAGUE.email}`), {
+      target: { value: "Patricia Duval" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save name" }));
+
+    await waitFor(() => expect(update).toHaveBeenCalled());
+    expect(update.mock.calls[0][1]).toEqual({ displayName: "Patricia Duval" });
+  });
+});
+
+
+describe("naming an owner", () => {
+  it("offers a name for somebody the environment admits", async () => {
+    const update = vi.spyOn(directory, "updateCoordinator").mockResolvedValue({
+      ...COLLEAGUE,
+      email: ADMIN.email,
+      name: "Christian Cayralat",
+      displayName: "Christian Cayralat",
+    });
+    renderSettings();
+    await screen.findByText("Owners");
+
+    // The owner's row is the last one that offers a name.
+    const nameButtons = screen.getAllByRole("button", { name: /Name/ });
+    fireEvent.click(nameButtons[nameButtons.length - 1]);
+    fireEvent.change(await screen.findByLabelText(`Name for ${ADMIN.email}`), {
+      target: { value: "Christian Cayralat" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save name" }));
+
+    await waitFor(() => expect(update).toHaveBeenCalled());
+    expect(update.mock.calls[0][0]).toBe(ADMIN.email);
+    expect(update.mock.calls[0][1]).toEqual({ displayName: "Christian Cayralat" });
+  });
+
+  it("does not offer to suspend or remove an owner", async () => {
+    renderSettings();
+    await screen.findByText("Owners");
+
+    // Their access comes from the environment; offering the controls would imply otherwise.
+    expect(screen.queryByRole("button", { name: `Remove ${ADMIN.email}` })).toBeNull();
   });
 });

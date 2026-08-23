@@ -59,10 +59,22 @@ def _timestamp() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
 
+def display_name_of(row: Any) -> str:
+    """What to call somebody: the name we were given, else Google's, else their address.
+
+    `name` is overwritten from Google on every sign-in, so a name an administrator has
+    chosen lives in `display_name` and wins.
+    """
+    chosen = str(getattr(row, "display_name", "") or "").strip()
+    return chosen or str(row.name or "").strip() or str(row.email)
+
+
 def _account(row: Any) -> dict[str, Any]:
     return {
         "email": row.email,
-        "name": row.name,
+        "name": display_name_of(row),
+        "displayName": str(getattr(row, "display_name", "") or ""),
+        "signInName": row.name,
         "isAdmin": row.is_admin,
         "isActive": row.is_active,
         "invitedBy": row.invited_by,
@@ -83,6 +95,27 @@ class CoordinatorDirectory:
                 text("SELECT * FROM coordinator_accounts ORDER BY is_active DESC, email")
             ).all()
         return [_account(row) for row in rows]
+
+    def set_display_name(self, email: str, display_name: str) -> dict[str, Any]:
+        """Name somebody, inventing a row for them if there is not one yet.
+
+        An owner is admitted by the environment rather than by an invitation, so there may
+        be no row to hold their name. One is created here that carries nothing but the
+        name — their access still comes from COORDINATOR_ACCESS_EMAILS, and this row does
+        not grant it.
+        """
+        address = normalize_email(email)
+        with self.engine.begin() as connection:
+            row = connection.execute(
+                text("""INSERT INTO coordinator_accounts
+                            (email, name, display_name, is_admin, is_active, invited_by, created_at)
+                        VALUES (:email, '', :display_name, FALSE, TRUE, '', :created_at)
+                        ON CONFLICT (email) DO UPDATE SET display_name = :display_name
+                        RETURNING *"""),
+                {"email": address, "display_name": display_name.strip(), "created_at": _timestamp()},
+            ).one()
+        forget(address)
+        return _account(row)
 
     def invite(self, email: str, *, is_admin: bool = False, invited_by: str = "") -> dict[str, Any]:
         address = normalize_email(email)
@@ -108,9 +141,16 @@ class CoordinatorDirectory:
         forget(address)
         return _account(row)
 
-    def update(self, email: str, *, is_admin: bool | None = None, is_active: bool | None = None) -> dict[str, Any]:
+    def update(
+        self,
+        email: str,
+        *,
+        is_admin: bool | None = None,
+        is_active: bool | None = None,
+        display_name: str | None = None,
+    ) -> dict[str, Any]:
         address = normalize_email(email)
-        assignments = {"is_admin": is_admin, "is_active": is_active}
+        assignments = {"is_admin": is_admin, "is_active": is_active, "display_name": display_name}
         changes = {column: value for column, value in assignments.items() if value is not None}
         if not changes:
             return self.get(address)
