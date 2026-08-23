@@ -14,11 +14,8 @@ browser, where the registrar extension puts them.
 
 from __future__ import annotations
 
-import hashlib
-import hmac
 import json
 import re
-import secrets
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -313,33 +310,6 @@ class StudentDatabase:
             "missing": missing,
             "syncedAt": now,
         }
-
-    # ------------------------------------------------------------- the lock
-
-    def _passphrase(self) -> str:
-        with self.engine.connect() as connection:
-            row = connection.execute(
-                text("SELECT passphrase FROM sync_settings WHERE id = 'default'")
-            ).first()
-        return (row[0] if row else "") or ""
-
-    def is_locked(self) -> bool:
-        return bool(self._passphrase())
-
-    def set_sync_passphrase(self, passphrase: str) -> None:
-        """Lock who may define a view, or unlock it again with an empty passphrase."""
-        stored = _hash_passphrase(passphrase) if passphrase.strip() else ""
-        with self.engine.begin() as connection:
-            connection.execute(
-                text("""INSERT INTO sync_settings (id, passphrase, updated_at, updated_by)
-                        VALUES ('default', :passphrase, :now, '')
-                        ON CONFLICT (id) DO UPDATE SET passphrase = :passphrase"""),
-                {"passphrase": stored, "now": _now()},
-            )
-
-    def check_sync_passphrase(self, passphrase: str) -> bool:
-        stored = self._passphrase()
-        return not stored or _passphrase_matches(stored, passphrase)
 
     # -------------------------------------------------------------- students
 
@@ -762,25 +732,6 @@ NEVER_FILTERABLE = frozenset(
         "PASSPORT_NUMBER",
     }
 )
-
-
-PBKDF2_ROUNDS = 240_000
-
-
-def _hash_passphrase(passphrase: str) -> str:
-    """salt:digest, so the stored value carries everything needed to check it again."""
-    salt = secrets.token_hex(16)
-    digest = hashlib.pbkdf2_hmac("sha256", passphrase.encode(), bytes.fromhex(salt), PBKDF2_ROUNDS)
-    return f"{salt}:{digest.hex()}"
-
-
-def _passphrase_matches(stored: str, offered: str) -> bool:
-    salt, _, digest = stored.partition(":")
-    if not salt or not digest:
-        return False
-    candidate = hashlib.pbkdf2_hmac("sha256", offered.encode(), bytes.fromhex(salt), PBKDF2_ROUNDS)
-    # Constant time, so a wrong guess cannot be narrowed down by how long it took.
-    return hmac.compare_digest(candidate.hex(), digest)
 
 
 def _check_criteria(criteria: dict[str, list[str]], *, allow_empty: bool = False) -> dict[str, list[str]]:

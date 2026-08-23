@@ -56,14 +56,6 @@ class ViewInput(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     description: str = Field(default="", max_length=400)
     filter: dict[str, list[str]] = Field(default_factory=dict)
-    # Ignored for an administrator, who never needs it.
-    passphrase: str = Field(default="", max_length=200)
-
-
-class PassphraseInput(BaseModel):
-    """An empty passphrase unlocks the sync settings again."""
-
-    passphrase: str = Field(default="", max_length=200)
 
 
 class CohortAssignment(BaseModel):
@@ -168,19 +160,18 @@ async def list_students(
 # -------------------------------------------------------------------- views
 
 
-def _may_define_views(request: Request, database: StudentDatabase, passphrase: str) -> None:
+def _may_define_views(request: Request) -> None:
     """A view's filter is fixed at creation, so creating one is what decides a population.
 
-    That is the moment worth guarding: re-syncing an existing view asks the same question
-    it has always asked, and is open to any coordinator.
+    That is the moment worth guarding, and an administrator is who may decide it: deleting
+    one throws away the record of who it returned. Re-syncing an existing view asks the
+    same question it has always asked, and is open to any coordinator.
     """
     staff = getattr(request.state, "staff_user", None)
-    if getattr(staff, "is_admin", False):
-        return
-    if not database.check_sync_passphrase(passphrase):
+    if not getattr(staff, "is_admin", False):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="That passphrase does not allow views to be changed.",
+            detail="Only an administrator can create or delete a view.",
         )
 
 
@@ -193,7 +184,7 @@ async def list_views(database: StudentDatabase = Depends(get_database)) -> dict[
 async def create_view(
     body: ViewInput, request: Request, database: StudentDatabase = Depends(get_database)
 ) -> dict[str, Any]:
-    _may_define_views(request, database, body.passphrase)
+    _may_define_views(request)
     staff = getattr(request.state, "staff_user", None)
     search = SavedSearch(name=body.name, description=body.description, criteria=body.filter)
     try:
@@ -206,15 +197,11 @@ async def create_view(
         ) from exc
 
 
-@router.post("/views/{view_id}/delete", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/views/{view_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_view(
-    view_id: str,
-    body: PassphraseInput,
-    request: Request,
-    database: StudentDatabase = Depends(get_database),
+    view_id: str, request: Request, database: StudentDatabase = Depends(get_database)
 ) -> None:
-    # A body carries the passphrase, so this is a POST rather than a DELETE.
-    _may_define_views(request, database, body.passphrase)
+    _may_define_views(request)
     try:
         database.delete_filter(view_id)
     except FilterNotFound as exc:
@@ -229,43 +216,6 @@ async def sync_view(
         return database.sync_view(view_id, body.student_ids)
     except FilterNotFound as exc:
         raise _missing(exc, "view") from exc
-
-
-@router.get("/view-lock")
-async def read_view_lock(database: StudentDatabase = Depends(get_database)) -> dict[str, bool]:
-    """Whether a passphrase stands between a coordinator and defining a view."""
-    return {"locked": database.is_locked()}
-
-
-@router.post("/sync-settings/unlock")
-async def unlock_sync_settings(
-    body: PassphraseInput, request: Request, database: StudentDatabase = Depends(get_database)
-) -> dict[str, bool]:
-    """Check a passphrase without changing anything, so the dialog can open."""
-    staff = getattr(request.state, "staff_user", None)
-    if getattr(staff, "is_admin", False):
-        return {"ok": True}
-    if not database.check_sync_passphrase(body.passphrase):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="That passphrase does not open the sync settings.",
-        )
-    return {"ok": True}
-
-
-@router.put("/sync-settings/passphrase")
-async def set_sync_passphrase(
-    body: PassphraseInput, request: Request, database: StudentDatabase = Depends(get_database)
-) -> dict[str, bool]:
-    """Set or clear the lock. Administrators only — this is what "only admin" means."""
-    staff = getattr(request.state, "staff_user", None)
-    if not getattr(staff, "is_admin", False):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only an administrator can change the sync passphrase.",
-        )
-    database.set_sync_passphrase(body.passphrase)
-    return {"locked": bool(body.passphrase.strip())}
 
 
 @router.post("/students/cohort")

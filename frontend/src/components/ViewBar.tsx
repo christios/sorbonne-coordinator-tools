@@ -11,14 +11,7 @@ import { describeFilter, type Filter } from "@/services/filterSummary";
 import { recordPull } from "@/services/pullHistory";
 import { rememberPull, rememberSync } from "@/services/rosterStore";
 import { PortalError, fetchSchema, pullFilter, studentIdOf } from "@/services/scenRosters";
-import {
-  createView,
-  deleteView,
-  fetchViewLock,
-  setViewPassphrase,
-  syncView,
-  type StudentView,
-} from "@/services/studentDatabase";
+import { createView, deleteView, syncView, type StudentView } from "@/services/studentDatabase";
 
 /**
  * Which population the Students page is showing, and the one button that refreshes it.
@@ -26,6 +19,9 @@ import {
  * A view's filter was fixed when the view was made, so syncing asks the same question it
  * has always asked — which is the only reason "no longer in the portal" can be trusted.
  * There is deliberately no way to edit a filter: a different question is a different view.
+ *
+ * Making one and throwing one away are an administrator's, because both settle what a
+ * population is. Syncing is everybody's: it re-asks a question already settled.
  */
 export function ViewBar({
   views,
@@ -39,19 +35,14 @@ export function ViewBar({
   const client = useQueryClient();
   const user = useStaffUser();
   const schema = useQuery({ queryKey: ["portal-schema"], queryFn: fetchSchema, staleTime: 60_000 });
-  const lock = useQuery({ queryKey: ["view-lock"], queryFn: fetchViewLock });
 
   const [composing, setComposing] = useState<Filter | null>(null);
   const [name, setName] = useState("");
-  const [passphrase, setPassphrase] = useState("");
   const [pendingDelete, setPendingDelete] = useState<StudentView | null>(null);
-  const [managingLock, setManagingLock] = useState(false);
-  const [newPassphrase, setNewPassphrase] = useState("");
 
   const fields = schema.data?.fields ?? [];
   const view = views.find((candidate) => candidate.id === viewId) ?? null;
   const isAdmin = Boolean(user?.isAdmin);
-  const needsPassphrase = Boolean(lock.data?.locked) && !isAdmin;
 
   const refresh = () => {
     client.invalidateQueries({ queryKey: ["views"] });
@@ -73,31 +64,20 @@ export function ViewBar({
   });
 
   const make = useMutation({
-    mutationFn: () =>
-      createView({ name: name.trim(), filter: composing ?? {}, passphrase }),
+    mutationFn: () => createView({ name: name.trim(), filter: composing ?? {} }),
     onSuccess: (created) => {
       setComposing(null);
       setName("");
-      setPassphrase("");
       onChoose(created.id);
       refresh();
     },
   });
 
   const remove = useMutation({
-    mutationFn: (target: StudentView) => deleteView(target.id, passphrase),
+    mutationFn: (target: StudentView) => deleteView(target.id),
     onSuccess: () => {
       onChoose("");
       refresh();
-    },
-  });
-
-  const relock = useMutation({
-    mutationFn: () => setViewPassphrase(newPassphrase),
-    onSuccess: () => {
-      setManagingLock(false);
-      setNewPassphrase("");
-      client.invalidateQueries({ queryKey: ["view-lock"] });
     },
   });
 
@@ -134,29 +114,27 @@ export function ViewBar({
           {sync.isPending ? "Syncing…" : view?.lastSyncedAt ? "Sync this view" : "Seed this view"}
         </button>
 
-        <button
-          type="button"
-          aria-label="New view"
-          title="New view"
-          onClick={() => {
-            setComposing({});
-            setName("");
-            setPassphrase("");
-          }}
-          className="rounded-md border border-[#b7bec8] bg-white p-2 text-[#667085] hover:bg-[#f8fafc] hover:text-[#344054]"
-        >
-          <Plus size={16} aria-hidden="true" />
-        </button>
+        {isAdmin ? (
+          <button
+            type="button"
+            aria-label="New view"
+            title="New view"
+            onClick={() => {
+              setComposing({});
+              setName("");
+            }}
+            className="rounded-md border border-[#b7bec8] bg-white p-2 text-[#667085] hover:bg-[#f8fafc] hover:text-[#344054]"
+          >
+            <Plus size={16} aria-hidden="true" />
+          </button>
+        ) : null}
 
-        {view ? (
+        {isAdmin && view ? (
           <button
             type="button"
             aria-label={`Delete ${view.name}`}
             title={`Delete ${view.name}`}
-            onClick={() => {
-              setPassphrase("");
-              setPendingDelete(view);
-            }}
+            onClick={() => setPendingDelete(view)}
             className="rounded-md border border-[#b7bec8] bg-white p-2 text-[#98a2b3] hover:bg-[#fdf3f3] hover:text-[#a6292f]"
           >
             <Trash2 size={16} aria-hidden="true" />
@@ -179,37 +157,6 @@ export function ViewBar({
         </p>
       ) : null}
 
-      {isAdmin ? (
-        <button
-          type="button"
-          onClick={() => setManagingLock((current) => !current)}
-          className="text-xs text-[#1f4e79] underline"
-        >
-          {lock.data?.locked ? "Views are locked" : "Views are open to everyone"}
-        </button>
-      ) : null}
-
-      {managingLock ? (
-        <div className="flex items-center gap-2">
-          <input
-            type="password"
-            aria-label="New view passphrase"
-            value={newPassphrase}
-            onChange={(event) => setNewPassphrase(event.target.value)}
-            placeholder="Blank to remove the lock"
-            className="w-56 rounded-md border border-[#cbd5e1] px-2.5 py-1.5 text-sm"
-          />
-          <button
-            type="button"
-            disabled={relock.isPending}
-            onClick={() => relock.mutate()}
-            className="rounded-md border border-[#b7bec8] bg-white px-2.5 py-1.5 text-sm font-semibold text-[#344054] disabled:opacity-50"
-          >
-            {newPassphrase.trim() ? "Lock views" : "Unlock views"}
-          </button>
-        </div>
-      ) : null}
-
       <Modal
         open={composing !== null}
         title="New view"
@@ -224,16 +171,6 @@ export function ViewBar({
               placeholder="Name this view"
               className="w-56 rounded-md border border-[#cbd5e1] px-3 py-2 text-sm"
             />
-            {needsPassphrase ? (
-              <input
-                type="password"
-                aria-label="Passphrase"
-                value={passphrase}
-                onChange={(event) => setPassphrase(event.target.value)}
-                placeholder="Passphrase"
-                className="w-40 rounded-md border border-[#cbd5e1] px-3 py-2 text-sm"
-              />
-            ) : null}
             <button
               type="button"
               onClick={() => setComposing(null)}

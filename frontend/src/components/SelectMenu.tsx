@@ -60,9 +60,9 @@ export function SelectMenu({ label, value, onChange, options, placeholder, trail
    * Close when the pointer goes down anywhere else.
    *
    * Radix's own dismissal does this, but it stops working once the menu is opened from
-   * inside another portal — the dialogs that hold the sync settings and a new portal view
-   * are both portals, and there the menu stayed open however far away you clicked. Rather
-   * than depend on how two portals interact, the menu watches for itself.
+   * inside another portal — the dialog that composes a new view is one, and there the menu
+   * stayed open however far away you clicked. Rather than depend on how two portals
+   * interact, the menu watches for itself.
    */
   useEffect(() => {
     if (!isOpen) return;

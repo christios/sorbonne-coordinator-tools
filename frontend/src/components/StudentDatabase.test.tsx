@@ -71,7 +71,6 @@ beforeEach(() => {
   vi.spyOn(database, "fetchCohorts").mockResolvedValue([]);
   vi.spyOn(database, "fetchStudents").mockResolvedValue([]);
   vi.spyOn(database, "fetchViews").mockResolvedValue([VIEW]);
-  vi.spyOn(database, "fetchViewLock").mockResolvedValue({ locked: false });
   vi.spyOn(database, "syncView").mockResolvedValue({
     seen: 2,
     added: 2,
@@ -147,45 +146,27 @@ describe("syncing a view", () => {
   });
 });
 
-describe("the lock on defining views", () => {
-  it("asks a coordinator for the passphrase when views are locked", async () => {
-    vi.spyOn(database, "fetchViewLock").mockResolvedValue({ locked: true });
-    const create = vi.spyOn(database, "createView").mockResolvedValue(VIEW);
-    renderApp(COLLEAGUE);
-
-    fireEvent.click(await screen.findByRole("button", { name: "New view" }));
-    fireEvent.change(await screen.findByLabelText("View name"), { target: { value: "L1" } });
-    fireEvent.change(screen.getByLabelText("Passphrase"), { target: { value: "term-2026" } });
-    fireEvent.click(screen.getByRole("button", { name: "Create view" }));
-
-    await waitFor(() => expect(create).toHaveBeenCalled());
-    expect(create.mock.calls[0][0].passphrase).toBe("term-2026");
-  });
-
-  it("never asks an administrator for it", async () => {
-    vi.spyOn(database, "fetchViewLock").mockResolvedValue({ locked: true });
+describe("who may define a view", () => {
+  it("offers making and deleting one to an administrator", async () => {
     renderApp(ADMIN);
 
-    fireEvent.click(await screen.findByRole("button", { name: "New view" }));
-
-    expect(await screen.findByLabelText("View name")).toBeTruthy();
-    expect(screen.queryByLabelText("Passphrase")).toBeNull();
+    expect(await screen.findByRole("button", { name: "New view" })).toBeTruthy();
+    // The delete button waits for a view to be chosen, which happens once they load.
+    expect(await screen.findByRole("button", { name: `Delete ${VIEW.name}` })).toBeTruthy();
   });
 
-  it("does not ask for it at all when views are open", async () => {
-    renderApp(COLLEAGUE);
-
-    fireEvent.click(await screen.findByRole("button", { name: "New view" }));
-
-    expect(await screen.findByLabelText("View name")).toBeTruthy();
-    expect(screen.queryByLabelText("Passphrase")).toBeNull();
-  });
-
-  it("offers the lock itself only to an administrator", async () => {
+  it("offers neither to a coordinator who is not one", async () => {
     renderApp(COLLEAGUE);
     await screen.findByRole("combobox", { name: "View" });
 
-    expect(screen.queryByText(/Views are (locked|open)/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "New view" })).toBeNull();
+    expect(screen.queryByRole("button", { name: `Delete ${VIEW.name}` })).toBeNull();
+  });
+
+  it("still lets them sync the view they are looking at", async () => {
+    renderApp(COLLEAGUE);
+
+    expect(await screen.findByRole("button", { name: /Sync this view/ })).toBeTruthy();
   });
 });
 

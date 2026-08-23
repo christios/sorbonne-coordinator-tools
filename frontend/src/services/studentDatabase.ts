@@ -222,28 +222,18 @@ export async function fetchViews(): Promise<StudentView[]> {
   return (await request<{ views: StudentView[] }>(`${BASE}/views`)).views;
 }
 
+/** Administrators only: a new view fixes a population, and its filter cannot change. */
 export function createView(input: {
   name: string;
   description?: string;
   filter: Record<string, string[]>;
-  passphrase?: string;
 }): Promise<StudentView> {
-  return send<StudentView>(`${BASE}/views`, "POST", { description: "", passphrase: "", ...input });
+  return send<StudentView>(`${BASE}/views`, "POST", { description: "", ...input });
 }
 
-/** A body carries the passphrase, so deleting is a POST. */
-export function deleteView(viewId: string, passphrase = ""): Promise<void> {
-  return send<void>(`${BASE}/views/${viewId}/delete`, "POST", { passphrase });
-}
-
-/** Whether a passphrase stands between a coordinator and defining a view. */
-export function fetchViewLock(): Promise<{ locked: boolean }> {
-  return request<{ locked: boolean }>(`${BASE}/view-lock`);
-}
-
-/** Administrators only: set the passphrase for defining views, or clear it. */
-export function setViewPassphrase(passphrase: string): Promise<{ locked: boolean }> {
-  return send<{ locked: boolean }>(`${BASE}/sync-settings/passphrase`, "PUT", { passphrase });
+/** Administrators only: this takes the record of who the view returned with it. */
+export function deleteView(viewId: string): Promise<void> {
+  return request<void>(`${BASE}/views/${viewId}`, { method: "DELETE" });
 }
 
 export async function fetchStudents(viewId = ""): Promise<Student[]> {

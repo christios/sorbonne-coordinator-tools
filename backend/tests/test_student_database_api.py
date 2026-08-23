@@ -1,6 +1,5 @@
 """The Student Database's routes, as the screens use them."""
 
-import json
 
 import pytest
 from fastapi import status
@@ -39,7 +38,6 @@ def empty_shared_tables() -> None:
     with StudentDatabase(TEST_DATABASE_URL).engine.begin() as connection:
         connection.execute(text("DELETE FROM student_views"))
         connection.execute(text("DELETE FROM students"))
-        connection.execute(text("UPDATE sync_settings SET passphrase = ''"))
 
 
 @pytest.fixture
@@ -201,8 +199,9 @@ def test_a_view_fixes_its_filter_when_it_is_made(client: TestClient, view_id: st
 
     assert view["filter"] == {"YEARLEVEL_CODE": ["FY"]}
     # There is no route that would change it: a different question means a different view.
-    paths = client.app.openapi()["paths"]
-    assert "/api/v1/student-database/views/{view_id}" not in paths
+    # Deleting one lives on this path, so it is editing in particular that has to be absent.
+    methods = client.app.openapi()["paths"].get("/api/v1/student-database/views/{view_id}", {})
+    assert set(methods) == {"delete"}
 
 
 def test_two_views_cannot_share_a_name(client: TestClient, view_id: str):
@@ -363,7 +362,7 @@ def test_a_view_takes_portal_codes_only(client: TestClient):
 def test_deleting_a_view_takes_its_membership_with_it(client: TestClient, view_id: str):
     sync(client, view_id, STUDENTS)
 
-    removed = client.post(f"/api/v1/student-database/views/{view_id}/delete", json={})
+    removed = client.delete(f"/api/v1/student-database/views/{view_id}")
 
     assert removed.status_code == status.HTTP_204_NO_CONTENT
     assert views_of(client) == []
@@ -371,37 +370,32 @@ def test_deleting_a_view_takes_its_membership_with_it(client: TestClient, view_i
     assert len(students_of(client)) == len(STUDENTS)
 
 
-def test_only_an_administrator_or_the_passphrase_may_define_a_view(client: TestClient, monkeypatch):
-    client.put("/api/v1/student-database/sync-settings/passphrase", json={"passphrase": "term-2026"})
+def test_only_an_administrator_may_define_a_view(client: TestClient, monkeypatch):
     _as_ordinary_coordinator(monkeypatch)
 
     refused = client.post("/api/v1/student-database/views", json={"name": "Mine", "filter": {}})
-    allowed = client.post(
-        "/api/v1/student-database/views",
-        json={"name": "Mine", "filter": {}, "passphrase": "term-2026"},
-    )
 
     assert refused.status_code == status.HTTP_403_FORBIDDEN
-    assert allowed.status_code == status.HTTP_201_CREATED
+    assert views_of(client) == []
 
 
-def test_syncing_a_view_never_needs_the_passphrase(client: TestClient, view_id: str, monkeypatch):
+def test_only_an_administrator_may_delete_a_view(client: TestClient, view_id: str, monkeypatch):
+    sync(client, view_id, STUDENTS)
+    _as_ordinary_coordinator(monkeypatch)
+
+    refused = client.delete(f"/api/v1/student-database/views/{view_id}")
+
+    assert refused.status_code == status.HTTP_403_FORBIDDEN
+    assert len(views_of(client)) == 1
+
+
+def test_syncing_a_view_is_open_to_any_coordinator(client: TestClient, view_id: str, monkeypatch):
     # A sync asks the question the view already fixed, so it is not a decision to guard.
-    client.put("/api/v1/student-database/sync-settings/passphrase", json={"passphrase": "term-2026"})
     _as_ordinary_coordinator(monkeypatch)
 
     assert (
         client.post(f"/api/v1/student-database/views/{view_id}/sync", json={"studentIds": STUDENTS})
     ).status_code == status.HTTP_200_OK
-
-
-def test_the_passphrase_itself_is_never_returned(client: TestClient):
-    client.put("/api/v1/student-database/sync-settings/passphrase", json={"passphrase": "term-2026"})
-
-    body = client.get("/api/v1/student-database/view-lock").json()
-
-    assert body == {"locked": True}
-    assert "term-2026" not in json.dumps(body)
 
 
 def _as_ordinary_coordinator(monkeypatch: pytest.MonkeyPatch) -> None:
