@@ -65,7 +65,7 @@ async function offeredColumns() {
   const seen = new Set();
   const add = (key, label) => {
     const name = String(key || '').toUpperCase();
-    if (seen.has(name) || !mayReturn(name)) return;
+    if (seen.has(name) || !mayReturn(name, label)) return;
     seen.add(name);
     columns.push({ key: name, label: label || titleOf(name) });
   };
@@ -194,7 +194,7 @@ async function handle(msg) {
       // where no filter panel was open knows the field names but not their values, and a
       // grid read before it finished rendering knows fewer columns than one read after.
       const learned = await storedFields();
-      const columns = (msg.columns || []).filter(column => mayReturn(column.key));
+      const columns = (msg.columns || []).filter(column => mayReturn(column.key, column.label));
       const held = (learned && learned.columns) || [];
       // Fields and columns are learned from different parts of the page and arrive
       // apart, so neither may erase the other by turning up empty.

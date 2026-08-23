@@ -38,10 +38,10 @@ export const NEVER_FILTERABLE = new Set([
  * what stands between the picker and a passport number sitting in a browser's local
  * storage for the rest of the term. A cohort table has no use for one.
  *
- * Matched as substrings of the column key, not as exact names: the picker is read from a
- * portal nobody here can see, so a column called PASSPORT_NUMBER or STUDENT_DOB has to be
- * caught as surely as the names already known. Refusing a harmless column by accident is
- * the safe way to be wrong — say so and it can be named explicitly.
+ * Matched as substrings, and against the label as well as the key: the portal calls a
+ * column "Passport Expiry" and nobody here knows what its field is called, so matching
+ * only keys would be guessing. Refusing a harmless column by accident is the safe way to
+ * be wrong — say so and it can be named explicitly.
  */
 export const NEVER_RETURNED = [
   'PASSPORT',
@@ -57,11 +57,23 @@ export const NEVER_RETURNED = [
   'BALANCE',
 ];
 
-/** Whether this column may leave the portal at all. */
-export function mayReturn(key) {
+/** "Date Of Birth" -> "DATE_OF_BIRTH", so a label can be read the way a key is. */
+function asKey(text) {
+  return String(text || '').toUpperCase().replace(/[^A-Z0-9]+/g, '_');
+}
+
+/**
+ * Whether this column may leave the portal at all.
+ *
+ * The label is checked too, because the key is the portal's private business: "Personal
+ * Email" may be PERS_EMAIL, EMAIL_2 or anything else, and only one of those spellings
+ * would have been caught by a key alone.
+ */
+export function mayReturn(key, label = '') {
   const name = String(key || '').toUpperCase();
   if (!FIELD_KEY.test(name)) return false;
-  return !NEVER_RETURNED.some(banned => name.includes(banned));
+  const named = asKey(label);
+  return !NEVER_RETURNED.some(banned => name.includes(banned) || named.includes(banned));
 }
 
 /**

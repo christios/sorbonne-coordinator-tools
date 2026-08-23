@@ -181,6 +181,37 @@ describe("the extension's service worker", () => {
     expect(offered).toEqual(expect.arrayContaining(["FIRST_NAME", "LAST_NAME", "ABSENCE_PER"]));
   });
 
+  it("refuses the sensitive columns by their label, whatever the field is called", async () => {
+    // The labels are the registrar's own, read off the portal's Column Picker. The field
+    // keys behind them are unknown here, which is exactly why the label is checked.
+    await send({
+      type: "fields:harvest",
+      fields: [],
+      columns: [
+        { key: "COL_1", label: "Personal Email" },
+        { key: "COL_2", label: "Date Of Birth" },
+        { key: "COL_3", label: "Mobile" },
+        { key: "COL_4", label: "Passport ID" },
+        { key: "COL_5", label: "Passport Expiry" },
+        { key: "COL_6", label: "City of Birth" },
+        { key: "COL_7", label: "Balance" },
+        { key: "COL_8", label: "Nationality" },
+      ],
+    });
+
+    const offered = ((await send({ type: "schema" })).columns as { label: string }[]).map((c) => c.label);
+
+    expect(offered).not.toContain("Personal Email");
+    expect(offered).not.toContain("Date Of Birth");
+    expect(offered).not.toContain("Mobile");
+    expect(offered).not.toContain("Passport ID");
+    expect(offered).not.toContain("Passport Expiry");
+    expect(offered).not.toContain("City of Birth");
+    expect(offered).not.toContain("Balance");
+    // Not on the list you chose, so it comes through — say the word and it moves.
+    expect(offered).toContain("Nationality");
+  });
+
   it("keeps the student id even if the picker somehow leaves it out", async () => {
     await send({
       type: "fields:harvest",
