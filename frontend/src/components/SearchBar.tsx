@@ -18,11 +18,14 @@ import {
 } from "@/services/studentDatabase";
 
 /**
- * Choosing, composing and saving a registrar search.
+ * Syncing the student record with the portal.
  *
- * The toolbar stays one line: which search, edit it, pull it. Composing a search needs
- * room — nineteen fields, some with long code tables — so it happens in a dialog rather
- * than pushing the roster down the page.
+ * The ordinary act is one button: pull everyone and reconcile. A saved search narrows the
+ * pull when that is what you want, and because a narrow pull is not a census it can add
+ * and refresh students but never mark anybody as gone.
+ *
+ * Composing a search needs room — nineteen fields, some with long code tables — so it
+ * happens in a dialog rather than pushing the table down the page.
  */
 export function SearchBar({
   stored,
@@ -31,7 +34,7 @@ export function SearchBar({
   onForget,
 }: {
   stored: StoredPreset;
-  onPull: (filter: Filter, meta: { name: string; expect: number | null }) => void;
+  onPull: (filter: Filter, meta: { name: string; expect: number | null; full: boolean }) => void;
   pulling: boolean;
   onForget: () => void;
 }) {
@@ -133,11 +136,14 @@ export function SearchBar({
 
         <button
           type="button"
-          disabled={pulling || empty}
+          disabled={pulling}
           onClick={() =>
             onPull(filter, {
-              name: chosen?.name ?? describeFilter(filter, fields),
+              name: empty ? "Everyone" : (chosen?.name ?? describeFilter(filter, fields)),
               expect: chosen?.expectedCount ?? null,
+              // Only a pull with nothing filtering it is a census of the whole population,
+              // and only a census may decide that somebody is no longer in the portal.
+              full: empty,
             })
           }
           className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
@@ -147,7 +153,7 @@ export function SearchBar({
           ) : (
             <Download size={16} aria-hidden="true" />
           )}
-          {pulling ? "Pulling…" : current ? "Pull again" : "Pull from portal"}
+          {pulling ? "Syncing…" : empty ? "Sync all students" : "Sync this search"}
         </button>
 
         {chosen ? (
@@ -164,7 +170,9 @@ export function SearchBar({
       </div>
 
       <p className="mt-2 text-xs text-[#98a2b3]">
-        {describeFilter(filter, fields)}
+        {empty
+          ? "Everyone the portal returns. A full sync is what decides who has left."
+          : `${describeFilter(filter, fields)} · a narrowed sync adds and refreshes, but marks nobody as gone`}
         {current ? (
           <>
             {` · ${current.count} pulled ${describeAge(current.fetchedAt)}${
@@ -175,7 +183,7 @@ export function SearchBar({
             </button>
           </>
         ) : (
-          " · nothing pulled yet on this machine"
+          " · no names held in this browser yet"
         )}
       </p>
 

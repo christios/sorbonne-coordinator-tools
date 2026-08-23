@@ -1,4 +1,4 @@
-"""Cohorts, and the catalogue of groups and CRNs they assign students into.
+"""Student records, the cohorts they belong to, and the CRNs a cohort assigns.
 
 Everything here sits behind the staff gate, like the rest of the API. No route accepts a
 student's name: a cohort member is an id, and that is all this application keeps.
@@ -40,12 +40,26 @@ class CohortInput(BaseModel):
     notes: str = Field(default="", max_length=2000)
 
 
-class MembersInput(BaseModel):
-    """Student ids and nothing else — this API has no field for a name."""
+class SyncInput(BaseModel):
+    """What the portal just returned, as ids.
+
+    `full` says the pull was the whole population rather than a filtered search. Only a
+    full sync may mark anybody as no longer in the portal.
+    """
 
     model_config = ConfigDict(populate_by_name=True)
 
-    student_ids: list[str] = Field(default_factory=list, max_length=2000, alias="studentIds")
+    student_ids: list[str] = Field(default_factory=list, max_length=20_000, alias="studentIds")
+    full: bool = False
+
+
+class CohortAssignment(BaseModel):
+    """Move students into a cohort, or out of one when cohortId is null."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    student_ids: list[str] = Field(default_factory=list, max_length=20_000, alias="studentIds")
+    cohort_id: str | None = Field(default=None, alias="cohortId")
 
 
 class FilterInput(BaseModel):
@@ -185,7 +199,27 @@ def _save(
         raise _missing(exc, "saved search") from exc
 
 
-# ----------------------------------------------------------------- members
+# ---------------------------------------------------------------- students
+
+
+@router.get("/students")
+async def list_students(database: StudentDatabase = Depends(get_database)) -> dict[str, Any]:
+    return {"students": database.list_students()}
+
+
+@router.post("/students/sync")
+async def sync_students(body: SyncInput, database: StudentDatabase = Depends(get_database)) -> dict[str, Any]:
+    return database.sync_students(body.student_ids, full=body.full)
+
+
+@router.post("/students/cohort")
+async def set_cohort(
+    body: CohortAssignment, database: StudentDatabase = Depends(get_database)
+) -> dict[str, int]:
+    try:
+        return {"moved": database.set_cohort(body.student_ids, body.cohort_id)}
+    except CohortNotFound as exc:
+        raise _missing(exc, "cohort") from exc
 
 
 @router.get("/cohorts/{cohort_id}/members")
@@ -194,29 +228,6 @@ async def list_members(cohort_id: str, database: StudentDatabase = Depends(get_d
         return {"members": database.list_members(cohort_id)}
     except CohortNotFound as exc:
         raise _missing(exc, "cohort") from exc
-
-
-@router.post("/cohorts/{cohort_id}/members")
-async def add_members(
-    cohort_id: str,
-    body: MembersInput,
-    request: Request,
-    database: StudentDatabase = Depends(get_database),
-) -> dict[str, int]:
-    staff = getattr(request.state, "staff_user", None)
-    try:
-        added = database.add_members(cohort_id, body.student_ids, actor=getattr(staff, "email", "") or "")
-    except CohortNotFound as exc:
-        raise _missing(exc, "cohort") from exc
-    return {"added": added}
-
-
-# A body of ids, so this is a POST rather than a DELETE.
-@router.post("/cohorts/{cohort_id}/members/remove")
-async def remove_members(
-    cohort_id: str, body: MembersInput, database: StudentDatabase = Depends(get_database)
-) -> dict[str, int]:
-    return {"removed": database.remove_members(cohort_id, body.student_ids)}
 
 
 # --------------------------------------------------------------- catalogue

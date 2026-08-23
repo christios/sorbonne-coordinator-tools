@@ -21,7 +21,7 @@ type PageId = (typeof PAGES)[number]["id"];
 const TITLES: Record<PageId, { title: string; blurb: string }> = {
   students: {
     title: "Students",
-    blurb: "Pull the roster from the registrar portal, and see who stayed, left or changed.",
+    blurb: "Every student we hold. Sync with the registrar portal to see who is still there, and build cohorts from the list.",
   },
   cohorts: {
     title: "Cohorts",

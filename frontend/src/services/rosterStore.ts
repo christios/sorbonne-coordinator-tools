@@ -5,6 +5,9 @@
  * "who changed since last time" cannot be answered without something to compare against.
  * Neither can be solved on our side, because the server is never told a student's name.
  *
+ * The student list itself is the server's and is not affected by any of this: clearing
+ * only takes away the names, not the students.
+ *
  * What this means, plainly: names, university e-mail addresses and year levels sit in
  * this browser's local storage until they are cleared. They are cleared on sign-out, and
  * by the "Forget stored rosters" button on the Students page. They are not sent anywhere,
@@ -16,6 +19,8 @@ import type { PortalRoster, RosterRow } from "@/services/scenRosters";
 const KEY = "scen-rosters:v1";
 // Which search was last pulled, so coming back to the page shows what you were looking at.
 const LAST = "scen-rosters:last";
+// When the record was last reconciled with the portal, which is what "new" is measured from.
+const SYNCED = "scen-rosters:synced";
 
 export type StoredPull = {
   presetId: string;
@@ -86,10 +91,28 @@ export function rememberPull(roster: PortalRoster): StoredPreset {
   return store[roster.presetId];
 }
 
+/** When the last sync ran, so a student first seen then can be shown as newly arrived. */
+export function lastSync(): string {
+  try {
+    return window.localStorage.getItem(SYNCED) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+export function rememberSync(syncedAt: string): void {
+  try {
+    window.localStorage.setItem(SYNCED, syncedAt);
+  } catch {
+    // Same as write(): storage being unavailable must not break the page.
+  }
+}
+
 export function forgetRosters(): void {
   try {
     window.localStorage.removeItem(KEY);
     window.localStorage.removeItem(LAST);
+    window.localStorage.removeItem(SYNCED);
   } catch {
     // Nothing to do: if it cannot be removed it could not have been written either.
   }

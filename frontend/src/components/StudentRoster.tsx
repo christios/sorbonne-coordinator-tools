@@ -1,12 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp, Search, UserMinus, UserPlus } from "lucide-react";
+import { ArrowDown, ArrowUp, FolderInput, Search } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import type { Filter } from "@/services/filterSummary";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { SearchBar } from "@/components/SearchBar";
 import { SelectMenu } from "@/components/SelectMenu";
-import { PortalError, pullFilter } from "@/services/scenRosters";
+import { PortalError, pullFilter, studentIdOf } from "@/services/scenRosters";
 import {
   changesSince,
   choices,
@@ -15,87 +16,98 @@ import {
   sortRows,
   studentRows,
   NO_FILTERS,
-  type Membership,
   type SortKey,
+  type StatusFilter,
+  type StudentRow,
 } from "@/services/rosterView";
 import {
   forgetRosters,
   lastPulled,
+  lastSync,
   loadPull,
   rememberPull,
+  rememberSync,
   type StoredPreset,
 } from "@/services/rosterStore";
-import { addMembers, fetchMembers, removeMembers, type Cohort } from "@/services/studentDatabase";
+import { fetchStudents, setCohort, syncStudents, type Cohort } from "@/services/studentDatabase";
 
 /** A saved search's name is its store key; two searches keep two rosters. */
 function keyFor(name: string): string {
   return name.trim().toLowerCase().replace(/\s+/g, "-").slice(0, 60) || "last-pull";
 }
 
-const MEMBERSHIPS: { id: Membership | "all" | "changed"; label: string }[] = [
+const STATUSES: { id: StatusFilter; label: string }[] = [
   { id: "all", label: "Everyone" },
+  { id: "in_portal", label: "In portal" },
+  { id: "not_in_portal", label: "Not in portal" },
   { id: "new", label: "New" },
-  { id: "left", label: "Left" },
   { id: "changed", label: "Changed" },
-  { id: "stayed", label: "In the cohort" },
 ];
 
+/** Where a student goes when the picker is used, with "no cohort" as a real choice. */
+const NO_COHORT = "__none__";
+
 /**
- * The registrar's roster, and what it says about one cohort.
+ * Every student we hold, and what the portal last said about them.
  *
- * Names, e-mail addresses and year levels come from the SCEN Rosters extension and are
- * kept in this browser's own storage — see services/rosterStore.ts, which is also what
- * makes "changed" answerable. What is sent to us is a list of student ids against a
- * cohort: nothing else, ever.
+ * The list is persistent and lives on our side as ids: syncing sets each student's status
+ * to found or no-longer-found, and a cohort is a column on the student rather than a
+ * separate membership to reconcile. Names, e-mail addresses and year levels come from the
+ * SCEN Rosters extension and are kept in this browser alone — see services/rosterStore.ts.
  */
 export function StudentRoster({ cohorts }: { cohorts: Cohort[] }) {
   const client = useQueryClient();
-  const [cohortId, setCohortId] = useState(cohorts[0]?.id ?? "");
-  const cohort = cohorts.find((candidate) => candidate.id === cohortId) ?? cohorts[0] ?? null;
+  const students = useQuery({ queryKey: ["students"], queryFn: fetchStudents });
 
   const [stored, setStored] = useState<StoredPreset>({});
   // One store per saved search, so switching search does not lose either roster.
   const [storeKey, setStoreKey] = useState("");
+  const [syncedAt, setSyncedAt] = useState("");
   const [filters, setFilters] = useState(NO_FILTERS);
   const [sort, setSort] = useState<{ key: SortKey; ascending: boolean }>({
-    key: "membership",
+    key: "studentId",
     ascending: true,
   });
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [moveTo, setMoveTo] = useState("");
+  const [confirmForget, setConfirmForget] = useState(false);
 
-  const members = useQuery({
-    queryKey: ["cohort-members", cohort?.id],
-    queryFn: () => fetchMembers(cohort?.id ?? ""),
-    enabled: Boolean(cohort),
-  });
-
-  // Reading the store on mount is what makes the roster survive changing page, and
-  // keeping the pull before it is what makes "changed" answerable tomorrow.
+  // Reading the store on mount is what makes the names survive changing page, and keeping
+  // the pull before it is what makes "changed" answerable tomorrow.
   useEffect(() => setStored(loadPull(storeKey || lastPulled())), [storeKey]);
+  useEffect(() => setSyncedAt(lastSync()), []);
 
-  const pull = useMutation({
-    mutationFn: ({ filter, meta }: { filter: Filter; meta: { name: string; expect: number | null } }) =>
-      pullFilter(filter, meta),
-    onSuccess: (roster) => {
+  const sync = useMutation({
+    mutationFn: async ({
+      filter,
+      meta,
+    }: {
+      filter: Filter;
+      meta: { name: string; expect: number | null; full: boolean };
+    }) => {
+      const roster = await pullFilter(filter, meta);
+      const ids = roster.rows.map(studentIdOf).filter(Boolean);
+      const report = await syncStudents(ids, meta.full);
+      return { roster, report };
+    },
+    onSuccess: ({ roster, report }) => {
       const key = keyFor(roster.name);
       setStoreKey(key);
       setStored(rememberPull({ ...roster, presetId: key }));
-    },
-  });
-  const refreshMembers = () => client.invalidateQueries({ queryKey: ["cohort-members", cohort?.id] });
-  const add = useMutation({
-    mutationFn: (ids: string[]) => addMembers(cohort?.id ?? "", ids),
-    onSuccess: () => {
-      setSelected(new Set());
-      refreshMembers();
+      rememberSync(report.syncedAt);
+      setSyncedAt(report.syncedAt);
+      client.invalidateQueries({ queryKey: ["students"] });
       client.invalidateQueries({ queryKey: ["cohorts"] });
     },
   });
-  const remove = useMutation({
-    mutationFn: (ids: string[]) => removeMembers(cohort?.id ?? "", ids),
+
+  const move = useMutation({
+    mutationFn: ({ ids, cohortId }: { ids: string[]; cohortId: string | null }) =>
+      setCohort(ids, cohortId),
     onSuccess: () => {
       setSelected(new Set());
-      refreshMembers();
+      setMoveTo("");
+      client.invalidateQueries({ queryKey: ["students"] });
       client.invalidateQueries({ queryKey: ["cohorts"] });
     },
   });
@@ -105,13 +117,8 @@ export function StudentRoster({ cohorts }: { cohorts: Cohort[] }) {
     [stored],
   );
   const rows = useMemo(
-    () =>
-      studentRows(
-        stored.current?.rows ?? [],
-        (members.data ?? []).map((member) => member.studentId),
-        changes,
-      ),
-    [stored, members.data, changes],
+    () => studentRows(students.data ?? [], stored.current?.rows ?? [], changes, syncedAt),
+    [students.data, stored, changes, syncedAt],
   );
   const counts = useMemo(() => countBy(rows), [rows]);
   const visible = useMemo(
@@ -119,19 +126,10 @@ export function StudentRoster({ cohorts }: { cohorts: Cohort[] }) {
     [rows, filters, sort],
   );
 
-  if (cohorts.length === 0) {
-    return (
-      <p className="text-sm text-[#667085]">
-        Create a cohort first — the roster is always read against one.
-      </p>
-    );
-  }
-  if (members.isLoading) return <ScreenLoading label="Loading the cohort…" />;
+  if (students.isLoading) return <ScreenLoading label="Loading the students…" />;
 
   const chosen = [...selected];
-  const toAdd = chosen.filter((id) => rows.find((row) => row.studentId === id)?.membership !== "stayed");
-  const toRemove = chosen.filter((id) => rows.find((row) => row.studentId === id)?.membership !== "new");
-  const error = pull.error ?? add.error ?? remove.error ?? members.error;
+  const error = sync.error ?? move.error ?? students.error;
 
   const toggle = (studentId: string) =>
     setSelected((current) => {
@@ -153,12 +151,9 @@ export function StudentRoster({ cohorts }: { cohorts: Cohort[] }) {
       <div className="rounded-lg border border-[#d9dee7] bg-white px-4 py-3">
         <SearchBar
           stored={stored}
-          pulling={pull.isPending}
-          onPull={(filter, meta) => pull.mutate({ filter, meta })}
-          onForget={() => {
-            forgetRosters();
-            setStored({});
-          }}
+          pulling={sync.isPending}
+          onPull={(filter, meta) => sync.mutate({ filter, meta })}
+          onForget={() => setConfirmForget(true)}
         />
       </div>
 
@@ -168,33 +163,14 @@ export function StudentRoster({ cohorts }: { cohorts: Cohort[] }) {
         </p>
       ) : null}
 
-      <div className="mt-4 flex flex-wrap items-center gap-2 text-sm text-[#667085]">
-        <span>Compared against</span>
-        <div className="w-64">
-          <SelectMenu
-            label="Cohort"
-            value={cohort?.id ?? ""}
-            searchable={cohorts.length > 12}
-            options={cohorts.map((candidate) => ({
-              value: candidate.id,
-              label: candidate.term ? `${candidate.name} — ${candidate.term}` : candidate.name,
-            }))}
-            onChange={(id) => {
-              setCohortId(id);
-              setSelected(new Set());
-            }}
-          />
-        </div>
-      </div>
-
-      <div className="mt-3 flex flex-wrap items-center gap-x-1 gap-y-2">
-        {MEMBERSHIPS.map((option) => (
+      <div className="mt-4 flex flex-wrap items-center gap-x-1 gap-y-2">
+        {STATUSES.map((option) => (
           <button
             key={option.id}
             type="button"
-            onClick={() => setFilters({ ...filters, membership: option.id })}
+            onClick={() => setFilters({ ...filters, status: option.id })}
             className={`rounded-md px-2.5 py-1.5 text-sm ${
-              filters.membership === option.id
+              filters.status === option.id
                 ? "bg-[#e8edf3] font-semibold text-[#1f4e79]"
                 : "text-[#667085] hover:bg-[#f2f7fb]"
             }`}
@@ -206,6 +182,20 @@ export function StudentRoster({ cohorts }: { cohorts: Cohort[] }) {
 
         <span className="mx-1 text-[#e4e8ef]">|</span>
 
+        <div className="w-44">
+          <SelectMenu
+            label="Cohort"
+            value={filters.cohort}
+            placeholder="Cohort: any"
+            searchable={cohorts.length > 12}
+            options={[
+              { value: "", label: "Cohort: any" },
+              { value: "none", label: "No cohort yet" },
+              ...cohorts.map((cohort) => ({ value: cohort.id, label: cohort.name })),
+            ]}
+            onChange={(cohort) => setFilters({ ...filters, cohort })}
+          />
+        </div>
         <Choice
           label="Year"
           value={filters.yearLevel}
@@ -235,21 +225,26 @@ export function StudentRoster({ cohorts }: { cohorts: Cohort[] }) {
       {chosen.length ? (
         <div className="mt-3 flex flex-wrap items-center gap-3 rounded-md border border-[#cfe0ef] bg-[#f2f7fb] px-4 py-2.5 text-sm">
           <span className="font-semibold text-[#1f4e79]">{chosen.length} selected</span>
+          <div className="w-56">
+            <SelectMenu
+              label="Move to cohort"
+              value={moveTo}
+              placeholder="Move to cohort…"
+              searchable={cohorts.length > 12}
+              options={[
+                ...cohorts.map((cohort) => ({ value: cohort.id, label: cohort.name })),
+                { value: NO_COHORT, label: "Take out of their cohort" },
+              ]}
+              onChange={setMoveTo}
+            />
+          </div>
           <button
             type="button"
-            disabled={!toAdd.length || add.isPending}
-            onClick={() => add.mutate(toAdd)}
+            disabled={!moveTo || move.isPending}
+            onClick={() => move.mutate({ ids: chosen, cohortId: moveTo === NO_COHORT ? null : moveTo })}
             className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-3 py-1.5 font-semibold text-white disabled:opacity-50"
           >
-            <UserPlus size={15} aria-hidden="true" /> Add {toAdd.length} to {cohort?.name}
-          </button>
-          <button
-            type="button"
-            disabled={!toRemove.length || remove.isPending}
-            onClick={() => remove.mutate(toRemove)}
-            className="inline-flex items-center gap-2 rounded-md border border-[#e5b7b9] bg-white px-3 py-1.5 font-semibold text-[#a6292f] disabled:opacity-50"
-          >
-            <UserMinus size={15} aria-hidden="true" /> Remove {toRemove.length}
+            <FolderInput size={15} aria-hidden="true" /> Move {chosen.length}
           </button>
           <button type="button" onClick={() => setSelected(new Set())} className="text-[#667085] underline">
             Clear
@@ -258,7 +253,7 @@ export function StudentRoster({ cohorts }: { cohorts: Cohort[] }) {
       ) : null}
 
       <section className="mt-3 overflow-x-auto rounded-lg border border-[#d9dee7] bg-white">
-        <table className="w-full min-w-[48rem] text-left text-sm">
+        <table className="w-full min-w-[52rem] text-left text-sm">
           <thead className="text-xs uppercase tracking-wide text-[#667085]">
             <tr>
               <th scope="col" className="px-4 py-3">
@@ -271,11 +266,12 @@ export function StudentRoster({ cohorts }: { cohorts: Cohort[] }) {
                   }
                 />
               </th>
-              <SortHeader label="Status" column="membership" sort={sort} onSort={sortBy} />
+              <SortHeader label="Status" column="status" sort={sort} onSort={sortBy} />
               <SortHeader label="Student" column="name" sort={sort} onSort={sortBy} />
               <SortHeader label="Id" column="studentId" sort={sort} onSort={sortBy} />
               <SortHeader label="Year" column="yearLevel" sort={sort} onSort={sortBy} />
               <SortHeader label="Major" column="major" sort={sort} onSort={sortBy} />
+              <SortHeader label="Cohort" column="cohortName" sort={sort} onSort={sortBy} />
             </tr>
           </thead>
           <tbody>
@@ -290,15 +286,10 @@ export function StudentRoster({ cohorts }: { cohorts: Cohort[] }) {
                   />
                 </td>
                 <td className="px-4 py-2">
-                  <MembershipBadge membership={row.membership} />
-                  {row.changes.length ? (
-                    <span className="mt-1 block rounded-full bg-[#fff6e5] px-2 py-0.5 text-xs font-semibold text-[#8a6d00]">
-                      Changed
-                    </span>
-                  ) : null}
+                  <StatusBadge row={row} />
                 </td>
                 <td className="px-4 py-2 font-semibold text-[#171717]">
-                  {row.name || <span className="font-normal text-[#98a2b3]">not in today's pull</span>}
+                  {row.name || <span className="font-normal text-[#98a2b3]">name not pulled yet</span>}
                   {row.changes.length ? (
                     <span className="mt-0.5 block text-xs font-normal text-[#8a6d00]">
                       {row.changes.join(" · ")}
@@ -308,20 +299,41 @@ export function StudentRoster({ cohorts }: { cohorts: Cohort[] }) {
                 <td className="px-4 py-2 tabular-nums text-[#344054]">{row.studentId}</td>
                 <td className="px-4 py-2 text-[#667085]">{row.yearLevel || "—"}</td>
                 <td className="px-4 py-2 text-[#667085]">{row.major || "—"}</td>
+                <td className="px-4 py-2 text-[#667085]">
+                  {row.cohortName || <span className="text-[#98a2b3]">—</span>}
+                </td>
               </tr>
             ))}
             {visible.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-5 py-10 text-center text-sm text-[#667085]">
+                <td colSpan={7} className="px-5 py-10 text-center text-sm text-[#667085]">
                   {rows.length
                     ? "Nobody matches those filters."
-                    : "Pull the roster to see students, or add the cohort's members first."}
+                    : "No students yet. Sync with the portal to build the list."}
                 </td>
               </tr>
             ) : null}
           </tbody>
         </table>
       </section>
+
+      <ConfirmDialog
+        open={confirmForget}
+        title="Forget the rosters stored in this browser?"
+        description={
+          "The names, e-mail addresses and year levels pulled from the portal are held in this " +
+          "browser and will be cleared. No student leaves the list and no cohort changes — the " +
+          "ids we keep are on the server and are not touched. Sync again and the names come back."
+        }
+        confirmLabel="Forget rosters"
+        onConfirm={() => {
+          forgetRosters();
+          setStored({});
+          setSyncedAt("");
+          setConfirmForget(false);
+        }}
+        onClose={() => setConfirmForget(false)}
+      />
     </>
   );
 }
@@ -385,20 +397,26 @@ function Choice({
   );
 }
 
-function MembershipBadge({ membership }: { membership: Membership }) {
-  if (membership === "new") {
-    return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-[#eaf4ec] px-2 py-0.5 text-xs font-semibold text-[#256237]">
-        New
-      </span>
-    );
-  }
-  if (membership === "left") {
-    return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-[#fdf3f3] px-2 py-0.5 text-xs font-semibold text-[#a6292f]">
-        Left
-      </span>
-    );
-  }
-  return <span className="text-xs text-[#667085]">In the cohort</span>;
+function StatusBadge({ row }: { row: StudentRow }) {
+  return (
+    <>
+      {row.status === "not_in_portal" ? (
+        <span className="inline-flex items-center gap-1 rounded-full bg-[#fdf3f3] px-2 py-0.5 text-xs font-semibold text-[#a6292f]">
+          Not in portal
+        </span>
+      ) : (
+        <span className="text-xs text-[#667085]">In portal</span>
+      )}
+      {row.isNew ? (
+        <span className="mt-1 block rounded-full bg-[#eaf4ec] px-2 py-0.5 text-xs font-semibold text-[#256237]">
+          New
+        </span>
+      ) : null}
+      {row.changes.length ? (
+        <span className="mt-1 block rounded-full bg-[#fff6e5] px-2 py-0.5 text-xs font-semibold text-[#8a6d00]">
+          Changed
+        </span>
+      ) : null}
+    </>
+  );
 }

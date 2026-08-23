@@ -1,9 +1,12 @@
-"""Cohorts, and the catalogue of groups and CRNs they assign students into.
+"""The student record, the cohorts it can belong to, and the CRNs a cohort assigns.
 
 The shape comes from the group-assignment workbooks. A cohort owns *scopes* — blocks of
 components taught in parallel groups — and each scope is a matrix: its courses across the
 top, its groups down the side, a CRN in every cell. A student in the cohort holds one
 group per scope, so their CRNs are read off the matrix rather than stored against them.
+
+A student is a row of their own, kept between syncs: the portal either returns them or it
+does not, and that is their status. A cohort is one column on that row.
 
 The only thing recorded about a student is their id. Names stay in the coordinator's
 browser, where the registrar extension puts them.
@@ -81,7 +84,7 @@ class StudentDatabase:
             rows = (
                 connection.execute(
                     text("""SELECT c.*,
-                                (SELECT count(*) FROM cohort_members m WHERE m.cohort_id = c.id) AS member_count,
+                                (SELECT count(*) FROM students m WHERE m.cohort_id = c.id) AS member_count,
                                 (SELECT count(*) FROM cohort_scopes s WHERE s.cohort_id = c.id) AS scope_count
                             FROM student_cohorts c ORDER BY c.name""")
                 )
@@ -95,7 +98,7 @@ class StudentDatabase:
             row = (
                 connection.execute(
                     text("""SELECT c.*,
-                                (SELECT count(*) FROM cohort_members m WHERE m.cohort_id = c.id) AS member_count,
+                                (SELECT count(*) FROM students m WHERE m.cohort_id = c.id) AS member_count,
                                 (SELECT count(*) FROM cohort_scopes s WHERE s.cohort_id = c.id) AS scope_count
                             FROM student_cohorts c WHERE c.id = :id"""),
                     {"id": cohort_id},
@@ -217,84 +220,102 @@ class StudentDatabase:
         if deleted.rowcount == 0:
             raise FilterNotFound(filter_id)
 
-    # --------------------------------------------------------------- members
+    # -------------------------------------------------------------- students
 
-    def list_members(self, cohort_id: str) -> list[dict[str, Any]]:
-        """The cohort's students, as ids and the group they hold in each block."""
-        self.get_cohort(cohort_id)
+    def list_students(self) -> list[dict[str, Any]]:
+        """Every student we hold, with their status and the cohort they belong to."""
         with self.engine.connect() as connection:
-            members = (
+            rows = (
                 connection.execute(
-                    text("""SELECT student_id, added_at, added_by FROM cohort_members
-                            WHERE cohort_id = :id ORDER BY student_id"""),
-                    {"id": cohort_id},
+                    text("""SELECT s.*, c.name AS cohort_name
+                            FROM students s LEFT JOIN student_cohorts c ON c.id = s.cohort_id
+                            ORDER BY s.student_id""")
                 )
                 .mappings()
                 .all()
             )
             assignments = (
-                connection.execute(
-                    text("SELECT student_id, scope_id, group_id FROM group_assignments WHERE cohort_id = :id"),
-                    {"id": cohort_id},
-                )
+                connection.execute(text("SELECT student_id, scope_id, group_id FROM group_assignments"))
                 .mappings()
                 .all()
             )
         held: dict[str, dict[str, str]] = {}
         for row in assignments:
             held.setdefault(row["student_id"], {})[row["scope_id"]] = row["group_id"]
-        return [
-            {
-                "studentId": row["student_id"],
-                "addedAt": row["added_at"],
-                "addedBy": row["added_by"],
-                "groups": held.get(row["student_id"], {}),
-            }
-            for row in members
-        ]
+        return [_student(row, held.get(row["student_id"], {})) for row in rows]
 
-    def add_members(self, cohort_id: str, student_ids: list[str], *, actor: str = "") -> int:
-        """Add ids to a cohort. Already-members are left alone, so re-adding is harmless."""
-        self.get_cohort(cohort_id)
-        wanted = _clean_ids(student_ids)
-        if not wanted:
-            return 0
+    def sync_students(self, student_ids: list[str], *, full: bool) -> dict[str, int]:
+        """Reconcile the record with what the portal just returned.
+
+        Ids in the pull are added if new and marked as found; ids we hold that the pull did
+        not return are marked as no longer in the portal — but only when `full` says the
+        pull was the whole population. A filtered search can add and refresh, never demote,
+        because "absent from this search" and "no longer a student" are different facts and
+        confusing them is what made the old page unreadable.
+        """
+        found = _clean_ids(student_ids)
         now = _now()
         with self.engine.begin() as connection:
-            before = connection.execute(
-                text("SELECT count(*) FROM cohort_members WHERE cohort_id = :id"), {"id": cohort_id}
-            ).scalar_one()
-            connection.execute(
-                text("""INSERT INTO cohort_members (cohort_id, student_id, added_at, added_by)
-                        VALUES (:cohort_id, :student_id, :added_at, :added_by)
-                        ON CONFLICT (cohort_id, student_id) DO NOTHING"""),
-                [
-                    {"cohort_id": cohort_id, "student_id": student, "added_at": now, "added_by": actor}
-                    for student in wanted
-                ],
+            known = set(
+                connection.execute(text("SELECT student_id FROM students")).scalars().all()
             )
-            after = connection.execute(
-                text("SELECT count(*) FROM cohort_members WHERE cohort_id = :id"), {"id": cohort_id}
-            ).scalar_one()
-            self._touch(connection, cohort_id)
-        return after - before
+            if found:
+                connection.execute(
+                    text("""INSERT INTO students
+                                (student_id, status, cohort_id, first_seen_at, last_seen_at, updated_at)
+                            VALUES (:student_id, 'in_portal', NULL, :now, :now, :now)
+                            ON CONFLICT (student_id) DO UPDATE
+                                SET status = 'in_portal', last_seen_at = :now, updated_at = :now"""),
+                    [{"student_id": student, "now": now} for student in found],
+                )
+            missing = 0
+            if full:
+                gone = [student for student in known if student not in set(found)]
+                if gone:
+                    missing = connection.execute(
+                        text("""UPDATE students SET status = 'not_in_portal', updated_at = :now
+                                WHERE student_id = ANY(:ids) AND status <> 'not_in_portal'"""),
+                        {"ids": gone, "now": now},
+                    ).rowcount
+        return {
+            "seen": len(found),
+            "added": len([student for student in found if student not in known]),
+            "missing": missing,
+            "syncedAt": now,
+        }
 
-    def remove_members(self, cohort_id: str, student_ids: list[str]) -> int:
-        """Remove ids from a cohort, and with them any group they were holding."""
+    def set_cohort(self, student_ids: list[str], cohort_id: str | None) -> int:
+        """Put students in a cohort, or take them out of one when `cohort_id` is None.
+
+        Leaving a cohort drops any group the student held in it: those groups belong to
+        that cohort's blocks, so keeping the assignment would place them in a matrix they
+        are no longer part of.
+        """
         wanted = _clean_ids(student_ids)
         if not wanted:
             return 0
+        if cohort_id is not None:
+            self.get_cohort(cohort_id)
+        now = _now()
         with self.engine.begin() as connection:
-            removed = connection.execute(
-                text("DELETE FROM cohort_members WHERE cohort_id = :id AND student_id = ANY(:ids)"),
-                {"id": cohort_id, "ids": wanted},
-            )
             connection.execute(
-                text("DELETE FROM group_assignments WHERE cohort_id = :id AND student_id = ANY(:ids)"),
-                {"id": cohort_id, "ids": wanted},
+                text("""DELETE FROM group_assignments WHERE student_id = ANY(:ids)
+                        AND cohort_id <> COALESCE(:cohort_id, '')"""),
+                {"ids": wanted, "cohort_id": cohort_id},
             )
-            self._touch(connection, cohort_id)
-        return removed.rowcount
+            moved = connection.execute(
+                text("""UPDATE students SET cohort_id = :cohort_id, updated_at = :now
+                        WHERE student_id = ANY(:ids)"""),
+                {"ids": wanted, "cohort_id": cohort_id, "now": now},
+            ).rowcount
+            if cohort_id is not None:
+                self._touch(connection, cohort_id)
+        return moved
+
+    def list_members(self, cohort_id: str) -> list[dict[str, Any]]:
+        """One cohort's students — the same records, narrowed to that cohort."""
+        self.get_cohort(cohort_id)
+        return [student for student in self.list_students() if student["cohortId"] == cohort_id]
 
     # ------------------------------------------------------------- catalogue
 
@@ -681,6 +702,18 @@ def _clean_ids(student_ids: list[str]) -> list[str]:
         if cleaned:
             seen.setdefault(cleaned, None)
     return list(seen)
+
+
+def _student(row, groups: dict[str, str]) -> dict[str, Any]:
+    return {
+        "studentId": row["student_id"],
+        "status": row["status"],
+        "cohortId": row["cohort_id"],
+        "cohortName": row["cohort_name"] or "",
+        "firstSeenAt": row["first_seen_at"],
+        "lastSeenAt": row["last_seen_at"],
+        "groups": groups,
+    }
 
 
 def _cohort(row) -> dict[str, Any]:

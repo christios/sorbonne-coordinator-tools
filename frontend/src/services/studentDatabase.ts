@@ -1,8 +1,8 @@
 /**
- * Cohorts and their catalogue of groups and CRNs.
+ * The student record, the cohorts it can be put in, and a cohort's groups and CRNs.
  *
- * A cohort holds student ids and nothing else. Names belong to the registrar extension
- * and stay in the browser, so nothing in this module ever sends one.
+ * Our side holds a student id, a status and a cohort — nothing else. Names belong to the
+ * registrar extension and stay in the browser, so nothing here ever sends one.
  */
 
 import { apiFetch } from "@/services/http";
@@ -178,35 +178,47 @@ export function setGroupCrn(
   return send<void>(`${BASE}/groups/${groupId}/courses/${courseId}`, "PUT", { teacher: "", ...input });
 }
 
-export type CohortMember = {
+/** One student, as our side knows them: an id, a status, and the cohort they are in. */
+export type Student = {
   studentId: string;
-  addedAt: string;
-  addedBy: string;
+  /** What the last full sync found. */
+  status: "in_portal" | "not_in_portal";
+  cohortId: string | null;
+  cohortName: string;
+  firstSeenAt: string;
+  lastSeenAt: string;
   /** scope id -> group id, for the blocks this student has been placed in. */
   groups: Record<string, string>;
 };
 
-export async function fetchMembers(cohortId: string): Promise<CohortMember[]> {
-  return (await request<{ members: CohortMember[] }>(`${BASE}/cohorts/${cohortId}/members`)).members;
+export type SyncReport = {
+  seen: number;
+  added: number;
+  missing: number;
+  syncedAt: string;
+};
+
+export async function fetchStudents(): Promise<Student[]> {
+  return (await request<{ students: Student[] }>(`${BASE}/students`)).students;
 }
 
-export async function addMembers(cohortId: string, studentIds: string[]): Promise<number> {
-  const body = await send<{ added: number }>(`${BASE}/cohorts/${cohortId}/members`, "POST", { studentIds });
-  return body.added;
+/**
+ * Tell the server which ids the portal just returned.
+ *
+ * `full` means the pull was the whole population rather than a filtered search, and it is
+ * the only thing that lets a student be marked as no longer in the portal. Sending it for
+ * a filtered pull would turn a narrow search into a mass exodus.
+ */
+export async function syncStudents(studentIds: string[], full: boolean): Promise<SyncReport> {
+  return send<SyncReport>(`${BASE}/students/sync`, "POST", { studentIds, full });
 }
 
-export async function removeMembers(cohortId: string, studentIds: string[]): Promise<number> {
-  const body = await send<{ removed: number }>(
-    `${BASE}/cohorts/${cohortId}/members/remove`,
-    "POST",
-    { studentIds },
-  );
-  return body.removed;
+/** Put students in a cohort, or take them out of whichever one they are in with null. */
+export async function setCohort(studentIds: string[], cohortId: string | null): Promise<number> {
+  const body = await send<{ moved: number }>(`${BASE}/students/cohort`, "POST", { studentIds, cohortId });
+  return body.moved;
 }
 
-// ------------------------------------------------------------- saved searches
-
-/** A named registrar search: portal codes, shared with every coordinator. */
 export type SavedSearch = {
   id: string;
   name: string;

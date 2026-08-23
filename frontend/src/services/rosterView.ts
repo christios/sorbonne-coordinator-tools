@@ -1,31 +1,37 @@
 /**
- * Turning a portal pull into the rows the Students page shows.
+ * Turning the student record and the latest portal pull into the rows the page shows.
  *
- * Pure functions, because these are the rules that have to be right: which students are
- * new, which have gone, and what a coordinator is looking at after filtering and sorting.
- * None of it touches the network, and none of it leaves the browser.
+ * Pure functions, because these are the rules that have to be right: who the portal still
+ * returns, who it has stopped returning, and what a coordinator is looking at after
+ * filtering and sorting. None of it touches the network.
+ *
+ * The list itself is the server's: one row per student, kept between syncs. All this adds
+ * is the name, year and major from the pull held in this browser, which is the only place
+ * they live.
  */
 
 import { displayNameOf, studentIdOf, type RosterRow } from "@/services/scenRosters";
+import type { Student } from "@/services/studentDatabase";
 
-/** Against the chosen cohort: in both, in the cohort only, or in the pull only. */
-export type Membership = "stayed" | "left" | "new";
+/** What the last sync found: the portal returned them, or it did not. */
+export type StudentStatus = "in_portal" | "not_in_portal";
 
 export type StudentRow = {
   studentId: string;
   name: string;
   yearLevel: string;
   major: string;
-  status: string;
   email: string;
-  membership: Membership;
+  status: StudentStatus;
+  cohortId: string | null;
+  cohortName: string;
+  /** First seen by the most recent sync, so worth a coordinator's attention. */
+  isNew: boolean;
   /** What the portal says differently from the previous pull: "year FY → L1". */
   changes: string[];
 };
 
-export type SortKey = "name" | "studentId" | "yearLevel" | "major" | "membership";
-
-const MEMBERSHIP_ORDER: Record<Membership, number> = { new: 0, left: 1, stayed: 2 };
+export type SortKey = "name" | "studentId" | "yearLevel" | "major" | "status" | "cohortName";
 
 /** The fields worth noticing a change in, and what to call each one. */
 const WATCHED: { column: keyof RosterRow; label: string }[] = [
@@ -41,7 +47,7 @@ const WATCHED: { column: keyof RosterRow; label: string }[] = [
  * What the portal now says differently for each student, against the previous pull.
  *
  * Only students present in both are compared: somebody who has just appeared is new
- * rather than changed, and somebody who has gone has left.
+ * rather than changed, and somebody the portal has dropped is answered by their status.
  */
 export function changesSince(previous: RosterRow[], current: RosterRow[]): Map<string, string[]> {
   const before = new Map(previous.map((row) => [studentIdOf(row), row]));
@@ -62,68 +68,74 @@ export function changesSince(previous: RosterRow[], current: RosterRow[]): Map<s
 }
 
 /**
- * Merge today's pull with a cohort's membership.
+ * Every student we hold, with whatever this browser can say about them.
  *
- * A student the cohort holds but the portal no longer returns is shown too — that is the
- * whole point of "left", and their name is unknown because nothing about them was stored.
+ * `syncedAt` is when the last sync ran: a student first seen at that moment is one it
+ * brought in. Nobody is invented here — a portal row for somebody the server has never
+ * heard of does not appear, because syncing is what puts them on the list.
  */
 export function studentRows(
+  students: Student[],
   portal: RosterRow[],
-  memberIds: string[],
   changes: Map<string, string[]> = new Map(),
+  syncedAt = "",
 ): StudentRow[] {
-  const members = new Set(memberIds.map((id) => id.toUpperCase()));
-  const seen = new Set<string>();
-  const rows: StudentRow[] = [];
-
+  const pulled = new Map<string, RosterRow>();
   for (const row of portal) {
-    const studentId = studentIdOf(row);
-    if (!studentId || seen.has(studentId)) continue;
-    seen.add(studentId);
-    rows.push({
-      studentId,
-      name: displayNameOf(row),
-      yearLevel: String(row.YEARLEVEL_CODE ?? ""),
-      major: String(row.MAJOR_CODE_DESC ?? ""),
-      status: String(row.ESTS_CODE ?? ""),
-      email: String(row.PSUAD_EMAIL ?? ""),
-      membership: members.has(studentId) ? "stayed" : "new",
-      changes: changes.get(studentId) ?? [],
-    });
+    const id = studentIdOf(row);
+    if (id && !pulled.has(id)) pulled.set(id, row);
   }
 
-  for (const id of members) {
-    if (seen.has(id)) continue;
-    rows.push({
-      studentId: id,
-      name: "",
-      yearLevel: "",
-      major: "",
-      status: "",
-      email: "",
-      membership: "left",
-      changes: [],
-    });
-  }
-
-  return rows;
+  return students.map((student) => {
+    const row = pulled.get(student.studentId);
+    return {
+      studentId: student.studentId,
+      name: row ? displayNameOf(row) : "",
+      yearLevel: row ? String(row.YEARLEVEL_CODE ?? "") : "",
+      major: row ? String(row.MAJOR_CODE_DESC ?? "") : "",
+      email: row ? String(row.PSUAD_EMAIL ?? "") : "",
+      status: student.status,
+      cohortId: student.cohortId,
+      cohortName: student.cohortName,
+      isNew: Boolean(syncedAt) && student.firstSeenAt >= syncedAt,
+      changes: changes.get(student.studentId) ?? [],
+    };
+  });
 }
+
+/** What the chips above the table can narrow to. */
+export type StatusFilter = StudentStatus | "all" | "new" | "changed";
 
 export type Filters = {
   query: string;
-  membership: Membership | "all" | "changed";
+  status: StatusFilter;
+  /** A cohort id, "" for any, or "none" for the students not in one yet. */
+  cohort: string;
   yearLevel: string;
   major: string;
 };
 
-export const NO_FILTERS: Filters = { query: "", membership: "all", yearLevel: "", major: "" };
+export const NO_FILTERS: Filters = { query: "", status: "all", cohort: "", yearLevel: "", major: "" };
+
+function matchesStatus(row: StudentRow, status: StatusFilter): boolean {
+  if (status === "all") return true;
+  if (status === "new") return row.isNew;
+  if (status === "changed") return row.changes.length > 0;
+  return row.status === status;
+}
+
+function matchesCohort(row: StudentRow, cohort: string): boolean {
+  if (!cohort) return true;
+  if (cohort === "none") return row.cohortId === null;
+  return row.cohortId === cohort;
+}
 
 export function filterRows(rows: StudentRow[], filters: Filters): StudentRow[] {
   const needle = filters.query.trim().toLowerCase();
   return rows.filter(
     (row) =>
-      (filters.membership === "all" ||
-        (filters.membership === "changed" ? row.changes.length > 0 : row.membership === filters.membership)) &&
+      matchesStatus(row, filters.status) &&
+      matchesCohort(row, filters.cohort) &&
       (!filters.yearLevel || row.yearLevel === filters.yearLevel) &&
       (!filters.major || row.major === filters.major) &&
       (!needle ||
@@ -136,11 +148,6 @@ export function filterRows(rows: StudentRow[], filters: Filters): StudentRow[] {
 export function sortRows(rows: StudentRow[], key: SortKey, ascending: boolean): StudentRow[] {
   const direction = ascending ? 1 : -1;
   return [...rows].sort((left, right) => {
-    if (key === "membership") {
-      const difference = MEMBERSHIP_ORDER[left.membership] - MEMBERSHIP_ORDER[right.membership];
-      if (difference) return difference * direction;
-      return left.studentId.localeCompare(right.studentId);
-    }
     const compared = String(left[key]).localeCompare(String(right[key]), undefined, { numeric: true });
     return (compared || left.studentId.localeCompare(right.studentId)) * direction;
   });
@@ -151,12 +158,12 @@ export function choices(rows: StudentRow[], key: "yearLevel" | "major"): string[
   return [...new Set(rows.map((row) => row[key]).filter(Boolean))].sort();
 }
 
-export function countBy(rows: StudentRow[]): Record<Membership | "all" | "changed", number> {
+export function countBy(rows: StudentRow[]): Record<StatusFilter, number> {
   return {
     all: rows.length,
-    stayed: rows.filter((row) => row.membership === "stayed").length,
-    left: rows.filter((row) => row.membership === "left").length,
-    new: rows.filter((row) => row.membership === "new").length,
+    in_portal: rows.filter((row) => row.status === "in_portal").length,
+    not_in_portal: rows.filter((row) => row.status === "not_in_portal").length,
+    new: rows.filter((row) => row.isNew).length,
     changed: rows.filter((row) => row.changes.length > 0).length,
   };
 }

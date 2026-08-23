@@ -10,6 +10,7 @@ import {
   NO_FILTERS,
 } from "@/services/rosterView";
 import type { RosterRow } from "@/services/scenRosters";
+import type { Student } from "@/services/studentDatabase";
 
 const portalRow = (id: string, name: string, year = "FY", major = "Mathematics"): RosterRow => ({
   SPRIDEN_ID: id,
@@ -19,52 +20,92 @@ const portalRow = (id: string, name: string, year = "FY", major = "Mathematics")
   PSUAD_EMAIL: `${id.toLowerCase()}@psuad.ac.ae`,
 });
 
+const SYNCED = "2026-08-22T09:00:00+00:00";
+const EARLIER = "2026-08-01T09:00:00+00:00";
+
+const student = (studentId: string, over: Partial<Student> = {}): Student => ({
+  studentId,
+  status: "in_portal",
+  cohortId: null,
+  cohortName: "",
+  firstSeenAt: EARLIER,
+  lastSeenAt: SYNCED,
+  groups: {},
+  ...over,
+});
+
 const PULL = [
   portalRow("A001", "Amira Haddad"),
   portalRow("A002", "Karim Nasser", "L1", "Physics"),
   portalRow("A003", "Nadia Newcomer"),
 ];
 
-describe("reading a pull against a cohort", () => {
-  it("marks a student the cohort holds and the portal still returns as staying", () => {
-    const rows = studentRows(PULL, ["A001"]);
+const HELD: Student[] = [
+  student("A001", { cohortId: "fy", cohortName: "Foundation Year" }),
+  student("A002"),
+  student("A003", { firstSeenAt: SYNCED }),
+];
+
+describe("reading the record against the latest pull", () => {
+  it("names a student the pull returned, and leaves the rest of the row to the server", () => {
+    const rows = studentRows(HELD, PULL, new Map(), SYNCED);
 
     expect(rows.find((row) => row.studentId === "A001")).toMatchObject({
       name: "Amira Haddad",
-      membership: "stayed",
+      yearLevel: "FY",
+      status: "in_portal",
+      cohortName: "Foundation Year",
     });
   });
 
-  it("marks a student the portal returns but the cohort does not hold as new", () => {
-    expect(studentRows(PULL, ["A001"]).find((row) => row.studentId === "A003")?.membership).toBe("new");
-  });
+  it("keeps a student the pull did not return, with no name to show", () => {
+    const rows = studentRows([...HELD, student("A999", { status: "not_in_portal" })], PULL);
 
-  it("keeps a member the portal has dropped, with no name to show", () => {
-    const rows = studentRows(PULL, ["A001", "A999"]);
-
-    // Nothing was ever stored about them beyond the id, so there is no name to display.
+    // Nothing about them was ever stored beyond the id, so there is no name to display.
     expect(rows.find((row) => row.studentId === "A999")).toMatchObject({
-      membership: "left",
+      status: "not_in_portal",
       name: "",
     });
   });
 
-  it("matches ids case-insensitively, the way the portal writes them", () => {
-    expect(studentRows(PULL, ["a001"]).find((row) => row.studentId === "A001")?.membership).toBe("stayed");
+  it("shows every held student when nothing has been pulled in this browser", () => {
+    // Clearing the browser drops the names, not the students: the list is the server's.
+    const rows = studentRows(HELD, []);
+
+    expect(rows).toHaveLength(3);
+    expect(rows.every((row) => row.name === "")).toBe(true);
+    expect(rows.every((row) => row.status === "in_portal")).toBe(true);
   });
 
-  it("ignores a row with no id and never lists anybody twice", () => {
-    const rows = studentRows([portalRow("", "No id"), portalRow("A001", "Once"), portalRow("A001", "Twice")], []);
+  it("never invents a student the server has not been told about", () => {
+    // Syncing is what puts somebody on the list; a pull on its own must not.
+    expect(studentRows([], PULL)).toEqual([]);
+  });
 
-    expect(rows.map((row) => row.studentId)).toEqual(["A001"]);
+  it("marks a student first seen by the latest sync as new", () => {
+    const rows = studentRows(HELD, PULL, new Map(), SYNCED);
+
+    expect(rows.filter((row) => row.isNew).map((row) => row.studentId)).toEqual(["A003"]);
+  });
+
+  it("marks nobody as new when this browser has never synced", () => {
+    expect(studentRows(HELD, PULL).some((row) => row.isNew)).toBe(false);
+  });
+
+  it("ignores a pulled row with no id, and reads a duplicate only once", () => {
+    const rows = studentRows([student("A001")], [portalRow("", "No id"), portalRow("A001", "Once"), portalRow("A001", "Twice")]);
+
+    expect(rows.map((row) => row.name)).toEqual(["Once"]);
   });
 
   it("counts each kind for the filter buttons", () => {
-    expect(countBy(studentRows(PULL, ["A001", "A999"]))).toEqual({
+    const held = [...HELD, student("A999", { status: "not_in_portal" })];
+
+    expect(countBy(studentRows(held, PULL, new Map(), SYNCED))).toEqual({
       all: 4,
-      stayed: 1,
-      new: 2,
-      left: 1,
+      in_portal: 3,
+      not_in_portal: 1,
+      new: 1,
       changed: 0,
     });
   });
@@ -107,16 +148,16 @@ describe("what changed since the last pull", () => {
       [portalRow("A001", "Amira Haddad", "FY")],
       [portalRow("A001", "Amira Haddad", "L1")],
     );
-    const rows = studentRows(PULL, ["A001"], changes);
+    const rows = studentRows(HELD, PULL, changes);
 
     expect(rows.find((row) => row.studentId === "A001")?.changes).toEqual(["year FY → L1"]);
     expect(countBy(rows).changed).toBe(1);
-    expect(filterRows(rows, { ...NO_FILTERS, membership: "changed" })).toHaveLength(1);
+    expect(filterRows(rows, { ...NO_FILTERS, status: "changed" })).toHaveLength(1);
   });
 });
 
 describe("filtering", () => {
-  const rows = studentRows(PULL, ["A001"]);
+  const rows = studentRows([...HELD, student("A999", { status: "not_in_portal" })], PULL, new Map(), SYNCED);
 
   it("searches id, name and e-mail", () => {
     expect(filterRows(rows, { ...NO_FILTERS, query: "karim" }).map((row) => row.studentId)).toEqual(["A002"]);
@@ -129,10 +170,19 @@ describe("filtering", () => {
     expect(filterRows(rows, { ...NO_FILTERS, major: "Physics" }).map((row) => row.studentId)).toEqual(["A002"]);
   });
 
-  it("narrows by what the pull says about the cohort", () => {
-    expect(filterRows(rows, { ...NO_FILTERS, membership: "new" }).map((row) => row.studentId)).toEqual([
+  it("narrows by what the last sync found", () => {
+    expect(filterRows(rows, { ...NO_FILTERS, status: "not_in_portal" }).map((row) => row.studentId)).toEqual([
+      "A999",
+    ]);
+    expect(filterRows(rows, { ...NO_FILTERS, status: "new" }).map((row) => row.studentId)).toEqual(["A003"]);
+  });
+
+  it("narrows by cohort, and to the students not in one yet", () => {
+    expect(filterRows(rows, { ...NO_FILTERS, cohort: "fy" }).map((row) => row.studentId)).toEqual(["A001"]);
+    expect(filterRows(rows, { ...NO_FILTERS, cohort: "none" }).map((row) => row.studentId)).toEqual([
       "A002",
       "A003",
+      "A999",
     ]);
   });
 
@@ -143,20 +193,24 @@ describe("filtering", () => {
 });
 
 describe("sorting", () => {
-  const rows = studentRows(PULL, ["A001", "A999"]);
+  const rows = studentRows([...HELD, student("A999", { status: "not_in_portal" })], PULL);
 
-  it("puts the work first when sorting by status", () => {
-    expect(sortRows(rows, "membership", true).map((row) => row.membership)).toEqual([
-      "new",
-      "new",
-      "left",
-      "stayed",
+  it("groups by what the last sync found", () => {
+    expect(sortRows(rows, "status", true).map((row) => row.status)).toEqual([
+      "in_portal",
+      "in_portal",
+      "in_portal",
+      "not_in_portal",
     ]);
   });
 
   it("sorts by name, and reverses", () => {
     expect(sortRows(rows, "name", true).map((row) => row.name)[3]).toBe("Nadia Newcomer");
     expect(sortRows(rows, "name", false).map((row) => row.name)[0]).toBe("Nadia Newcomer");
+  });
+
+  it("sorts by cohort, keeping the students without one together", () => {
+    expect(sortRows(rows, "cohortName", false).map((row) => row.cohortName)[0]).toBe("Foundation Year");
   });
 
   it("sorts ids the way a person reads them", () => {

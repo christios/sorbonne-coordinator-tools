@@ -28,10 +28,15 @@ def client() -> TestClient:
 
 
 @pytest.fixture(autouse=True)
-def empty_saved_searches() -> None:
-    """Saved searches are shared and their names are unique, so each test starts clean."""
+def empty_shared_tables() -> None:
+    """Saved searches and student records are shared, so each test starts from nothing.
+
+    A student record outlives every cohort by design — that is the point of the rewrite —
+    so unlike a cohort's rows it will not disappear when the test's cohort does.
+    """
     with StudentDatabase(TEST_DATABASE_URL).engine.begin() as connection:
         connection.execute(text("DELETE FROM roster_filters"))
+        connection.execute(text("DELETE FROM students"))
 
 
 @pytest.fixture
@@ -158,69 +163,144 @@ def test_an_unknown_cohort_answers_404(client: TestClient):
     )
 
 
-# ------------------------------------------------------------------- members
+# ------------------------------------------------------------------ students
 
 STUDENTS = ["A00021503", "A00021505", "A00021509"]
 
 
-def members_of(client: TestClient, cohort_id: str) -> list[str]:
-    body = client.get(f"/api/v1/student-database/cohorts/{cohort_id}/members").json()
-    return [member["studentId"] for member in body["members"]]
+def sync(client: TestClient, ids: list[str], *, full: bool = True) -> dict:
+    return client.post(
+        "/api/v1/student-database/students/sync", json={"studentIds": ids, "full": full}
+    ).json()
 
 
-def test_students_are_added_in_bulk_and_counted(client: TestClient, cohort_id: str):
+def students_of(client: TestClient) -> list[dict]:
+    return client.get("/api/v1/student-database/students").json()["students"]
+
+
+def test_a_sync_records_every_id_the_portal_returned(client: TestClient):
+    report = sync(client, STUDENTS)
+
+    assert report["seen"] == len(STUDENTS)
+    assert report["added"] == len(STUDENTS)
+    assert [row["studentId"] for row in students_of(client)] == STUDENTS
+    assert {row["status"] for row in students_of(client)} == {"in_portal"}
+
+
+def test_syncing_again_adds_nobody_and_keeps_the_first_sighting(client: TestClient):
+    sync(client, STUDENTS)
+    first_seen = students_of(client)[0]["firstSeenAt"]
+
+    again = sync(client, STUDENTS)
+
+    assert again["added"] == 0
+    assert students_of(client)[0]["firstSeenAt"] == first_seen
+
+
+def test_a_full_sync_marks_the_students_it_no_longer_returns(client: TestClient):
+    sync(client, STUDENTS)
+
+    report = sync(client, STUDENTS[:1])
+
+    assert report["missing"] == 2
+    statuses = {row["studentId"]: row["status"] for row in students_of(client)}
+    assert statuses == {
+        "A00021503": "in_portal",
+        "A00021505": "not_in_portal",
+        "A00021509": "not_in_portal",
+    }
+
+
+def test_a_filtered_sync_never_marks_anybody_missing(client: TestClient):
+    # The bug this pins: a narrow search used to read as a mass exodus. Absent from one
+    # filtered search is not the same fact as absent from the portal.
+    sync(client, STUDENTS)
+
+    report = sync(client, STUDENTS[:1], full=False)
+
+    assert report["missing"] == 0
+    assert {row["status"] for row in students_of(client)} == {"in_portal"}
+
+
+def test_a_student_the_portal_returns_again_comes_back(client: TestClient):
+    sync(client, STUDENTS)
+    sync(client, [])
+
+    sync(client, STUDENTS)
+
+    assert {row["status"] for row in students_of(client)} == {"in_portal"}
+
+
+def test_ids_are_tidied_and_deduplicated_on_the_way_in(client: TestClient):
+    report = sync(client, [" a00021503 ", "A00021503", "", "A00021505"])
+
+    assert report["seen"] == 2
+    assert [row["studentId"] for row in students_of(client)] == ["A00021503", "A00021505"]
+
+
+def test_students_are_moved_into_a_cohort_in_bulk(client: TestClient, cohort_id: str):
+    sync(client, STUDENTS)
+
+    moved = client.post(
+        "/api/v1/student-database/students/cohort",
+        json={"studentIds": STUDENTS[:2], "cohortId": cohort_id},
+    )
+
+    assert moved.json() == {"moved": 2}
+    holding = {row["studentId"]: row["cohortId"] for row in students_of(client)}
+    assert holding == {"A00021503": cohort_id, "A00021505": cohort_id, "A00021509": None}
+
+
+def test_a_null_cohort_takes_students_out_of_the_one_they_are_in(client: TestClient, cohort_id: str):
+    sync(client, STUDENTS)
+    client.post(
+        "/api/v1/student-database/students/cohort",
+        json={"studentIds": STUDENTS, "cohortId": cohort_id},
+    )
+
+    client.post(
+        "/api/v1/student-database/students/cohort",
+        json={"studentIds": STUDENTS[:1], "cohortId": None},
+    )
+
+    holding = {row["studentId"]: row["cohortId"] for row in students_of(client)}
+    assert holding["A00021503"] is None
+    assert holding["A00021505"] == cohort_id
+
+
+def test_moving_into_a_cohort_that_is_gone_is_a_404(client: TestClient):
+    sync(client, STUDENTS)
+
     response = client.post(
-        f"/api/v1/student-database/cohorts/{cohort_id}/members", json={"studentIds": STUDENTS}
+        "/api/v1/student-database/students/cohort",
+        json={"studentIds": STUDENTS, "cohortId": "nope"},
     )
 
-    assert response.json() == {"added": len(STUDENTS)}
-    assert members_of(client, cohort_id) == STUDENTS
+    assert response.status_code == status.HTTP_404_NOT_FOUND
 
 
-def test_adding_the_same_students_again_adds_nobody(client: TestClient, cohort_id: str):
-    client.post(f"/api/v1/student-database/cohorts/{cohort_id}/members", json={"studentIds": STUDENTS})
+def test_the_student_record_carries_no_name(client: TestClient):
+    sync(client, STUDENTS[:1])
 
-    again = client.post(
-        f"/api/v1/student-database/cohorts/{cohort_id}/members",
-        json={"studentIds": [*STUDENTS, "A00021511"]},
+    row = students_of(client)[0]
+
+    assert set(row) == {
+        "studentId",
+        "status",
+        "cohortId",
+        "cohortName",
+        "firstSeenAt",
+        "lastSeenAt",
+        "groups",
+    }
+
+
+def test_the_cohort_list_counts_the_students_in_it(client: TestClient, cohort_id: str):
+    sync(client, STUDENTS)
+    client.post(
+        "/api/v1/student-database/students/cohort",
+        json={"studentIds": STUDENTS, "cohortId": cohort_id},
     )
-
-    assert again.json() == {"added": 1}
-    assert len(members_of(client, cohort_id)) == len(STUDENTS) + 1
-
-
-def test_ids_are_tidied_and_deduplicated_on_the_way_in(client: TestClient, cohort_id: str):
-    response = client.post(
-        f"/api/v1/student-database/cohorts/{cohort_id}/members",
-        json={"studentIds": [" a00021503 ", "A00021503", "", "A00021505"]},
-    )
-
-    assert response.json() == {"added": 2}
-    assert members_of(client, cohort_id) == ["A00021503", "A00021505"]
-
-
-def test_students_are_removed_in_bulk(client: TestClient, cohort_id: str):
-    client.post(f"/api/v1/student-database/cohorts/{cohort_id}/members", json={"studentIds": STUDENTS})
-
-    removed = client.post(
-        f"/api/v1/student-database/cohorts/{cohort_id}/members/remove",
-        json={"studentIds": STUDENTS[:2]},
-    )
-
-    assert removed.json() == {"removed": 2}
-    assert members_of(client, cohort_id) == STUDENTS[2:]
-
-
-def test_the_member_list_carries_no_name(client: TestClient, cohort_id: str):
-    client.post(f"/api/v1/student-database/cohorts/{cohort_id}/members", json={"studentIds": STUDENTS[:1]})
-
-    member = client.get(f"/api/v1/student-database/cohorts/{cohort_id}/members").json()["members"][0]
-
-    assert set(member) == {"studentId", "addedAt", "addedBy", "groups"}
-
-
-def test_the_cohort_list_counts_its_members(client: TestClient, cohort_id: str):
-    client.post(f"/api/v1/student-database/cohorts/{cohort_id}/members", json={"studentIds": STUDENTS})
 
     cohorts = client.get("/api/v1/student-database/cohorts").json()["cohorts"]
 
