@@ -17,7 +17,6 @@ import { changesSince, studentRows, type StudentRow } from "@/services/rosterVie
 import { PortalError } from "@/services/scenRosters";
 import {
   forgetRosters,
-  lastPulled,
   lastSync,
   loadPull,
   type StoredPreset,
@@ -58,11 +57,14 @@ export function StudentRoster({ cohorts, viewId }: { cohorts: Cohort[]; viewId: 
   const schema = useQuery({ queryKey: ["portal-schema"], queryFn: fetchSchema, staleTime: 60_000 });
 
   // The table offers the portal's own fields, so the columns follow the harvested schema.
-  const allColumns = useMemo(() => buildColumns(schema.data?.fields ?? []), [schema.data]);
+  const allColumns = useMemo(
+    () => buildColumns(schema.data?.columns ?? [], schema.data?.fields ?? []),
+    [schema.data],
+  );
 
   const [stored, setStored] = useState<StoredPreset>({});
   const [syncedAt, setSyncedAt] = useState("");
-  const [history, setHistory] = useState<PullHistory>(loadHistory);
+  const [history, setHistory] = useState<PullHistory>(() => loadHistory(viewId));
   const [historyOf, setHistoryOf] = useState<StudentRow | null>(null);
   const [layout, setLayout] = useState<ColumnLayout | null>(null);
   const [filters, setFilters] = useState<FilterModel[]>([]);
@@ -73,12 +75,13 @@ export function StudentRoster({ cohorts, viewId }: { cohorts: Cohort[]; viewId: 
   const [confirmForget, setConfirmForget] = useState(false);
 
   // The names and the history live in this browser, so they are read back on mount
-  // rather than fetched — and again after a sync, which is what changes them.
+  // rather than fetched — and again after a sync, which is what changes them. All three
+  // are this view's: another view's pull answered a different question.
   useEffect(() => {
-    setStored(loadPull(lastPulled()));
-    setSyncedAt(lastSync());
-    setHistory(loadHistory());
-  }, [students.dataUpdatedAt]);
+    setStored(loadPull(viewId));
+    setSyncedAt(lastSync(viewId));
+    setHistory(loadHistory(viewId));
+  }, [students.dataUpdatedAt, viewId]);
 
   // The arrangement can only be reconciled once the columns are known.
   useEffect(() => setLayout(loadLayout(allColumns)), [allColumns]);
@@ -292,7 +295,7 @@ export function StudentRoster({ cohorts, viewId }: { cohorts: Cohort[]; viewId: 
           forgetRosters();
           forgetHistory();
           setStored({});
-          setHistory(loadHistory());
+          setHistory(loadHistory(viewId));
           setSyncedAt("");
           setConfirmForget(false);
         }}

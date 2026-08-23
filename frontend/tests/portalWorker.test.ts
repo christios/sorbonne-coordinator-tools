@@ -119,6 +119,94 @@ describe("the extension's service worker", () => {
     expect(reply.rows).toEqual([{ SPRIDEN_ID: "A001", FULL_NAME: "Amira" }]);
   });
 
+  it("returns the columns the portal's own picker lists, once it has read them", async () => {
+    await send({
+      type: "fields:harvest",
+      fields: [],
+      columns: [
+        { key: "SPRIDEN_ID", label: "Id" },
+        { key: "FULL_NAME", label: "Student" },
+        { key: "ABSENCE_PER", label: "Absence %" },
+      ],
+    });
+
+    const schema = await send({ type: "schema" });
+    const reply = await send({ type: "fetch", filter: { YEARLEVEL_CODE: ["FY"] } });
+
+    // ABSENCE_PER is shown by the grid and cannot be filtered by, so the old list — which
+    // came from the filters — could never offer it.
+    expect((schema.columns as { key: string }[]).map((column) => column.key)).toContain("ABSENCE_PER");
+    expect(reply.columns).toContain("ABSENCE_PER");
+  });
+
+  it("refuses to return a column the picker offers but no cohort table needs", async () => {
+    await send({
+      type: "fields:harvest",
+      fields: [],
+      columns: [
+        { key: "SPRIDEN_ID", label: "Id" },
+        { key: "FULL_NAME", label: "Student" },
+        { key: "PASSPORT_ID", label: "Passport" },
+        { key: "STUDENT_DOB", label: "Date of birth" },
+        { key: "MOBILE_NO", label: "Mobile" },
+      ],
+    });
+
+    const schema = await send({ type: "schema" });
+    const reply = await send({ type: "fetch", filter: { YEARLEVEL_CODE: ["FY"] } });
+
+    // Neither offered to the table nor asked of the portal — and the row the portal sent
+    // back carries a passport, which is stripped before anything sees it.
+    const offered = (schema.columns as { key: string }[]).map((column) => column.key);
+
+    expect(offered).toContain("FULL_NAME");
+    for (const refused of ["PASSPORT_ID", "STUDENT_DOB", "MOBILE_NO"]) {
+      expect(offered).not.toContain(refused);
+      expect(reply.columns).not.toContain(refused);
+    }
+    expect(reply.rows).toEqual([{ SPRIDEN_ID: "A001", FULL_NAME: "Amira" }]);
+  });
+
+  it("offers what the service has always returned, not only what the grid shows", async () => {
+    await send({
+      type: "fields:harvest",
+      fields: [],
+      columns: [{ key: "FULL_NAME", label: "Student" }],
+    });
+
+    const offered = ((await send({ type: "schema" })).columns as { key: string }[]).map((c) => c.key);
+
+    // The grid folds a student's name into one column; the service answers with both
+    // halves, and they have been arriving in every pull all along.
+    expect(offered).toEqual(expect.arrayContaining(["FIRST_NAME", "LAST_NAME", "ABSENCE_PER"]));
+  });
+
+  it("keeps the student id even if the picker somehow leaves it out", async () => {
+    await send({
+      type: "fields:harvest",
+      fields: [],
+      columns: [{ key: "FULL_NAME", label: "Student" }],
+    });
+
+    // Every answer is keyed by the id; rows without one could not be matched to a student.
+    expect((await send({ type: "fetch", filter: {} })).columns).toContain("SPRIDEN_ID");
+  });
+
+  it("does not forget the filters when a page teaches it only columns", async () => {
+    await send({
+      type: "fields:harvest",
+      fields: [{ key: "YEARLEVEL_CODE", label: "Year", options: [{ value: "FY" }] }],
+    });
+
+    // The columns and the filters are read from different parts of the page and arrive
+    // apart. Learning one must not erase the other.
+    await send({ type: "fields:harvest", fields: [], columns: [{ key: "FULL_NAME", label: "Student" }] });
+    const schema = await send({ type: "schema" });
+
+    expect((schema.fields as { key: string }[]).map((field) => field.key)).toContain("YEARLEVEL_CODE");
+    expect((schema.columns as { key: string }[]).map((column) => column.key)).toContain("FULL_NAME");
+  });
+
   it("refuses a filter the schema does not allow, without calling the portal", async () => {
     const reply = await send({ type: "fetch", filter: { PASSPORT_ID: ["X"] } });
 

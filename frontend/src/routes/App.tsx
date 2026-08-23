@@ -119,15 +119,17 @@ export function App() {
 
   const compactSyllabusHeader = activeTool === "syllabus" && syllabusHeaderCollapsed;
   const isPicker = activeTool === null;
-  // Tools with their own left pane need the pane to end where the window does, so the
-  // menu at its foot is reachable. Guessing the header's height got that wrong; letting
-  // the column flex around it cannot.
+  // Any screen with a left pane needs the pane to end where the window does, so the
+  // account menu at its foot is reachable. Guessing the header's height got that wrong;
+  // letting the column flex around it cannot.
+  //
+  // The picker belongs here too: it has the same pane, and on a wide window its header
+  // copy of the menu is hidden, so a page that scrolls put the only way to reach the
+  // menu below the fold.
   const shell =
-    activeTool === "syllabus" || activeTool === "database"
+    activeTool === "syllabus" || activeTool === "database" || isPicker
       ? "flex h-screen min-h-0 flex-col overflow-hidden"
-      : isPicker
-        ? "flex min-h-screen flex-col"
-        : "min-h-screen";
+      : "min-h-screen";
 
   return (
     <main className={`${shell} bg-[#f7f8fa]`}>
@@ -157,7 +159,7 @@ export function App() {
       {isPicker ? (
         <div className="flex min-h-0 flex-1">
           <AppSidebar onOpen={openApp} onOpenSettings={() => openTool("settings")} />
-          <div className="min-w-0 flex-1">
+          <div className="min-w-0 flex-1 overflow-y-auto">
             <AppWelcome search={appSearch} onSearch={setAppSearch} onOpen={openApp} />
           </div>
         </div>

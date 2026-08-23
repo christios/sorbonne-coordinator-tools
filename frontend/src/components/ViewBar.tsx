@@ -55,9 +55,9 @@ export function ViewBar({
       const roster = await pullFilter(target.filter as Filter, { name: target.name, expect: null });
       const report = await syncView(target.id, roster.rows.map(studentIdOf).filter(Boolean));
       rememberPull({ ...roster, presetId: target.id });
-      rememberSync(report.syncedAt);
+      rememberSync(target.id, report.syncedAt);
       // One history per view, so a student's changes read against the same question.
-      recordPull(roster.rows, roster.fetchedAt);
+      recordPull(target.id, roster.rows, roster.fetchedAt);
       return report;
     },
     onSuccess: refresh,

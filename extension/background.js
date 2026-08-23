@@ -8,11 +8,13 @@
  * is decided here rather than by the caller. The schema is learned from the portal by
  * portal-fields.js, and falls back to the verified codes in presets.json.
  *
- * The endpoint, the column allowlist and `Take: 0` are fixed here too, so the caller can
- * choose *which* students to ask about but never *what* is returned about them.
+ * The endpoint and `Take: 0` are fixed here too, and so is what may come back: the caller
+ * chooses *which* students to ask about, never *what* is returned about them. The columns
+ * are the portal's own, learned from the grid the same way the filters are, minus the
+ * identity and contact fields that no cohort table has a use for (see NEVER_RETURNED).
  */
 
-import { checkFilter } from './filter-schema.js';
+import { checkFilter, mayReturn } from './filter-schema.js';
 
 const ENDPOINT = 'https://reg.psuad.ac.ae/PSUADPortal/Services/StudentSearch/Enrollment/List';
 
@@ -38,12 +40,61 @@ async function storedFields() {
   return portalFields || null;
 }
 
+/** FIRST_NAME -> "First name": a readable label for a column nobody has labelled. */
+function titleOf(key) {
+  const words = String(key).toLowerCase().replace(/_/g, ' ').trim();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/**
+ * Every column a pull may return.
+ *
+ * The portal's own column picker, *and* the columns the service has always been known to
+ * answer with. The two are not the same and neither contains the other: the grid shows
+ * CURRENT_AVERAGE, which the service does not return, and the service returns FIRST_NAME
+ * and LAST_NAME, which the grid folds into one FULL_NAME column. Offering only what the
+ * grid displays would lose columns that have been arriving all along.
+ *
+ * NEVER_RETURNED still decides what may leave, and the student id is always kept: every
+ * answer is keyed by it.
+ */
+async function offeredColumns() {
+  const cfg = await config();
+  const learned = await storedFields();
+  const columns = [];
+  const seen = new Set();
+  const add = (key, label) => {
+    const name = String(key || '').toUpperCase();
+    if (seen.has(name) || !mayReturn(name)) return;
+    seen.add(name);
+    columns.push({ key: name, label: label || titleOf(name) });
+  };
+
+  add('SPRIDEN_ID', 'Id');
+  // The harvest leads: those labels are the portal's own words for its columns.
+  for (const column of learned?.columns || []) add(column.key, column.label);
+  for (const key of cfg.columns || []) add(key);
+  return columns;
+}
+
+async function allowedColumns() {
+  return (await offeredColumns()).map(column => column.key);
+}
+
 async function schema() {
   const cfg = await config();
   const learned = await storedFields();
+  const columns = await offeredColumns();
+  // An empty list is not an answer: a page that showed the grid but no filter panel
+  // teaches us columns and no fields, and falling back beats offering nothing. (`[]` is
+  // truthy, so this cannot be an `||`.)
+  const learnedFields = learned?.fields?.length ? learned.fields : null;
   return {
     term: cfg.term,
-    fields: learned?.fields || cfg.fields || [],
+    fields: learnedFields || cfg.fields || [],
+    // What the table may show. Empty until somebody visits the portal, and the platform
+    // falls back to the columns a pull has always carried.
+    columns,
     source: learned ? 'portal' : 'built-in',
     harvestedAt: learned?.harvestedAt || null,
   };
@@ -98,7 +149,8 @@ async function fetchFilter(filter, meta = {}) {
   if (!res.ok) return { ok: false, error: 'http', status: res.status, message: String(res.status) };
 
   const data = await res.json();
-  const rows = trim(data.Entities || [], cfg.columns);
+  const columns = await allowedColumns();
+  const rows = trim(data.Entities || [], columns);
 
   return {
     ok: true,
@@ -106,7 +158,7 @@ async function fetchFilter(filter, meta = {}) {
     name: meta.name || 'Filtered search',
     filter,
     term: cfg.term,
-    columns: cfg.columns,
+    columns,
     count: rows.length,
     expect: meta.expect || null,
     // Loud rather than silent: an unrecognised filter code returns 0 with HTTP 200.
@@ -139,15 +191,29 @@ async function handle(msg) {
       return Object.assign({ ok: true }, await schema());
     case 'fields:harvest': {
       // Sent by the portal content script. Keep the richest harvest we have seen: a page
-      // where no filter panel was open knows the field names but not their values.
+      // where no filter panel was open knows the field names but not their values, and a
+      // grid read before it finished rendering knows fewer columns than one read after.
       const learned = await storedFields();
-      const richer = !learned || withValues(msg.fields) >= withValues(learned.fields);
-      if (richer) {
+      const columns = (msg.columns || []).filter(column => mayReturn(column.key));
+      const held = (learned && learned.columns) || [];
+      // Fields and columns are learned from different parts of the page and arrive
+      // apart, so neither may erase the other by turning up empty.
+      const fields = msg.fields || [];
+      const richer = fields.length > 0 && (!learned || withValues(fields) >= withValues(learned.fields));
+      // Wider, or the same width but different: a grid read before it finished rendering
+      // knows fewer columns, and a renamed column is news even when the count is not.
+      const wider = columns.length > held.length
+        || (columns.length === held.length && columns.length > 0 && keys(columns) !== keys(held));
+      if (richer || wider) {
         await chrome.storage.local.set({
-          portalFields: { fields: msg.fields, harvestedAt: Date.now() }
+          portalFields: {
+            fields: richer ? fields : ((learned && learned.fields) || []),
+            columns: wider ? columns : held,
+            harvestedAt: Date.now(),
+          }
         });
       }
-      return { ok: true, kept: richer };
+      return { ok: true, kept: richer || wider, columns: columns.length };
     }
     case 'fetch':
       return msg.filter ? fetchFilter(msg.filter, msg.meta || {}) : fetchPreset(msg.presetId);
@@ -158,6 +224,10 @@ async function handle(msg) {
 
 function withValues(fields) {
   return (fields || []).filter(field => (field.options || []).length).length;
+}
+
+function keys(columns) {
+  return (columns || []).map(column => column.key).join(',');
 }
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {

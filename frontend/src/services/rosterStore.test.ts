@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { describeAge, forgetRosters, loadPull, rememberPull } from "@/services/rosterStore";
+import { describeAge, forgetRosters, lastSync, loadPull, rememberPull, rememberSync } from "@/services/rosterStore";
 import type { PortalRoster } from "@/services/scenRosters";
 
 const pull = (fetchedAt: number, rows: { SPRIDEN_ID: string; YEARLEVEL_CODE?: string }[]): PortalRoster => ({
@@ -75,5 +75,18 @@ describe("the browser's roster store", () => {
     expect(describeAge(now - 5 * 60_000, now)).toBe("5 minutes ago");
     expect(describeAge(now - 3 * 3_600_000, now)).toBe("3 hours ago");
     expect(describeAge(now - 2 * 86_400_000, now)).toBe("2 days ago");
+  });
+});
+
+describe("when each view last synced", () => {
+  it("keeps a moment per view, so one sync does not claim the others", () => {
+    // A single shared moment meant only the view synced last ever showed a new student:
+    // everyone else's arrivals were measured against a sync that was not theirs.
+    rememberSync("fy", "2026-08-23T10:00:00+00:00");
+    rememberSync("l1", "2026-08-23T11:00:00+00:00");
+
+    expect(lastSync("fy")).toBe("2026-08-23T10:00:00+00:00");
+    expect(lastSync("l1")).toBe("2026-08-23T11:00:00+00:00");
+    expect(lastSync("never-synced")).toBe("");
   });
 });

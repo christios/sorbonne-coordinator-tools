@@ -17,10 +17,14 @@
 import type { PortalRoster, RosterRow } from "@/services/scenRosters";
 
 const KEY = "scen-rosters:v1";
-// Which search was last pulled, so coming back to the page shows what you were looking at.
+// Which view was last pulled. Nothing reads it any more — the view on screen decides
+// which pull to show — but it is still written, and still cleared, so an upgrade back and
+// forth does not strand it.
 const LAST = "scen-rosters:last";
-// When the record was last reconciled with the portal, which is what "new" is measured from.
-const SYNCED = "scen-rosters:synced";
+// When each view was last reconciled with the portal, which is what "new" is measured
+// from. Per view: syncing one view says nothing about who is new to another, and a single
+// shared moment meant only the view synced last ever showed a new student.
+const SYNCED = "scen-rosters:synced:v2";
 
 export type StoredPull = {
   presetId: string;
@@ -57,15 +61,6 @@ export function loadPull(presetId: string): StoredPreset {
   return read()[presetId] ?? {};
 }
 
-/** The search whose roster is currently on screen, remembered across page changes. */
-export function lastPulled(): string {
-  try {
-    return window.localStorage.getItem(LAST) ?? "";
-  } catch {
-    return "";
-  }
-}
-
 /** Keep this pull, and demote the one it replaces to "previous". */
 export function rememberPull(roster: PortalRoster): StoredPreset {
   const store = read();
@@ -91,18 +86,23 @@ export function rememberPull(roster: PortalRoster): StoredPreset {
   return store[roster.presetId];
 }
 
-/** When the last sync ran, so a student first seen then can be shown as newly arrived. */
-export function lastSync(): string {
+function syncTimes(): Record<string, string> {
   try {
-    return window.localStorage.getItem(SYNCED) ?? "";
+    const raw = window.localStorage.getItem(SYNCED);
+    return raw ? (JSON.parse(raw) as Record<string, string>) : {};
   } catch {
-    return "";
+    return {};
   }
 }
 
-export function rememberSync(syncedAt: string): void {
+/** When this view last synced, so a student first seen then shows as newly arrived. */
+export function lastSync(viewId: string): string {
+  return syncTimes()[viewId] ?? "";
+}
+
+export function rememberSync(viewId: string, syncedAt: string): void {
   try {
-    window.localStorage.setItem(SYNCED, syncedAt);
+    window.localStorage.setItem(SYNCED, JSON.stringify({ ...syncTimes(), [viewId]: syncedAt }));
   } catch {
     // Same as write(): storage being unavailable must not break the page.
   }
@@ -113,6 +113,7 @@ export function forgetRosters(): void {
     window.localStorage.removeItem(KEY);
     window.localStorage.removeItem(LAST);
     window.localStorage.removeItem(SYNCED);
+    window.localStorage.removeItem("scen-rosters:synced");
   } catch {
     // Nothing to do: if it cannot be removed it could not have been written either.
   }

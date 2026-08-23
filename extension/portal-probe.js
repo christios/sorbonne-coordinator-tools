@@ -2,10 +2,16 @@
 /*
  * Runs on the registrar portal, in the page's own world.
  *
- * Its one job is to learn what the Student Search grid can be filtered by, so the
- * platform's filter builder offers the portal's own fields and the portal's own values
- * rather than a list somebody typed out once and got wrong. A portal upgrade that adds or
- * renames a filter shows up here on the next visit instead of failing silently.
+ * It learns two things about the Student Search grid, so the platform describes the
+ * portal rather than a list somebody typed out once and got wrong:
+ *
+ *   - what the grid can be filtered by, for the filter builder;
+ *   - what columns the grid has, for the table's column picker.
+ *
+ * Those are not the same list, which is the whole reason this reads both. A field can be
+ * filterable and never shown (CAMPUS_CODE), and a column can be shown and never
+ * filterable (FULL_NAME, ABSENCE_PER). A portal upgrade that adds or renames either shows
+ * up here on the next visit instead of failing silently.
  *
  * It reads *definitions* — field names, labels, and the code tables the dropdowns offer.
  * No student row is read, and the harvest goes only to this extension's own service
@@ -57,10 +63,56 @@ function harvest() {
   return [...found.values()].sort((left, right) => left.key.localeCompare(right.key));
 }
 
+/**
+ * Every column the grid knows about — the same list its Column Picker offers.
+ *
+ * Serenity keeps the full set on the grid widget as `allColumns`, and only the shown
+ * subset in `slickGrid.getColumns()`; the Column Picker button is a view onto the former.
+ * The widget is in jQuery data under its own class name, which varies by deployment, so
+ * rather than guess the name this looks for the shape: any widget carrying an allColumns
+ * array. Failing that, the header cells are read — those are the shown columns only, which
+ * is worse than the real list but better than nothing.
+ */
+function harvestColumns() {
+  const jq = window.jQuery;
+  if (!jq) return [];
+
+  const seen = new Map();
+  const take = (column, source) => {
+    const key = String(column.field ?? column.id ?? '').toUpperCase();
+    if (!FIELD_KEY.test(key) || seen.has(key)) return;
+    const label = String(column.name ?? column.title ?? '').replace(/<[^>]*>/g, '').trim();
+    seen.set(key, { key, label: label || key, source });
+  };
+
+  for (const element of document.querySelectorAll('div, table')) {
+    let data;
+    try {
+      data = jq(element).data();
+    } catch {
+      continue;
+    }
+    for (const value of Object.values(data || {})) {
+      const all = value && typeof value === 'object' ? value.allColumns : null;
+      if (Array.isArray(all) && all.length) all.forEach(column => take(column, 'column-picker'));
+    }
+  }
+
+  if (!seen.size) {
+    for (const cell of document.querySelectorAll('.slick-header-column')) {
+      const id = cell.getAttribute('data-column-id') || '';
+      const label = (cell.querySelector('.slick-column-name') || cell).textContent.trim();
+      take({ field: id, name: label }, 'header');
+    }
+  }
+  return [...seen.values()].sort((left, right) => left.key.localeCompare(right.key));
+}
+
 function report() {
   const fields = harvest();
-  if (!fields.length) return;
-  window.postMessage({ channel: CHANNEL, fields, url: location.href }, window.location.origin);
+  const columns = harvestColumns();
+  if (!fields.length && !columns.length) return;
+  window.postMessage({ channel: CHANNEL, fields, columns, url: location.href }, window.location.origin);
 }
 
 // The grid renders after the page settles, and the lookups fill in after that, so look

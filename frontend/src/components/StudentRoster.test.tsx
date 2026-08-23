@@ -8,10 +8,21 @@ import { forgetRosters, rememberPull, rememberSync } from "@/services/rosterStor
 import * as rosters from "@/services/scenRosters";
 import * as database from "@/services/studentDatabase";
 
-/** The columns come from the portal's own schema, so the tests describe one. */
+/** The columns come from the portal's own grid, so the tests describe one. */
+/** The roster is always showing one view, and everything stored is that view's. */
+const VIEW_ID = "view-1";
+
 const SCHEMA: rosters.PortalSchema = {
   ok: true,
   source: "portal",
+  // What the grid shows, which is what the table may show.
+  columns: [
+    { key: "FULL_NAME", label: "Student" },
+    { key: "YEARLEVEL_CODE", label: "Year" },
+    { key: "MAJOR_CODE_DESC", label: "Major" },
+    { key: "PSUAD_EMAIL", label: "E-mail" },
+  ],
+  // What the grid filters by, which only decides how a column filters.
   fields: [
     { key: "FULL_NAME", label: "Student", options: [] },
     { key: "YEARLEVEL_CODE", label: "Year", options: [
@@ -105,7 +116,8 @@ const PULLED = [
 
 function withNames() {
   rememberPull({
-    presetId: "sync",
+    // Stored under the view that pulled it: another view's pull answered another question.
+    presetId: VIEW_ID,
     name: "Sync",
     count: PULLED.length,
     expect: null,
@@ -113,14 +125,14 @@ function withNames() {
     fetchedAt: Date.now(),
     rows: PULLED,
   });
-  rememberSync(SYNCED);
+  rememberSync(VIEW_ID, SYNCED);
 }
 
 function renderRoster() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <StudentRoster cohorts={COHORTS} viewId="view-1" />
+      <StudentRoster cohorts={COHORTS} viewId={VIEW_ID} />
     </QueryClientProvider>,
   );
 }
@@ -455,9 +467,9 @@ describe("StudentRoster", () => {
   describe("the history panel", () => {
     it("lists only the pulls something changed in, and says how many were quiet", async () => {
       const at = (n: number) => 1_700_000_000_000 + n * 86_400_000;
-      recordPull([{ SPRIDEN_ID: "A001", FULL_NAME: "Amira Haddad", YEARLEVEL_CODE: "FY" }], at(1));
-      recordPull([{ SPRIDEN_ID: "A001", FULL_NAME: "Amira Haddad", YEARLEVEL_CODE: "FY" }], at(2));
-      recordPull([{ SPRIDEN_ID: "A001", FULL_NAME: "Amira Haddad", YEARLEVEL_CODE: "L1" }], at(3));
+      recordPull(VIEW_ID, [{ SPRIDEN_ID: "A001", FULL_NAME: "Amira Haddad", YEARLEVEL_CODE: "FY" }], at(1));
+      recordPull(VIEW_ID, [{ SPRIDEN_ID: "A001", FULL_NAME: "Amira Haddad", YEARLEVEL_CODE: "FY" }], at(2));
+      recordPull(VIEW_ID, [{ SPRIDEN_ID: "A001", FULL_NAME: "Amira Haddad", YEARLEVEL_CODE: "L1" }], at(3));
       withNames();
       renderRoster();
       await screen.findByText("Amira Haddad");
@@ -472,8 +484,8 @@ describe("StudentRoster", () => {
     });
 
     it("says so plainly when a student has never changed", async () => {
-      recordPull([{ SPRIDEN_ID: "A001", FULL_NAME: "Amira Haddad" }], 1_000);
-      recordPull([{ SPRIDEN_ID: "A001", FULL_NAME: "Amira Haddad" }], 2_000);
+      recordPull(VIEW_ID, [{ SPRIDEN_ID: "A001", FULL_NAME: "Amira Haddad" }], 1_000);
+      recordPull(VIEW_ID, [{ SPRIDEN_ID: "A001", FULL_NAME: "Amira Haddad" }], 2_000);
       withNames();
       renderRoster();
       await screen.findByText("Amira Haddad");
