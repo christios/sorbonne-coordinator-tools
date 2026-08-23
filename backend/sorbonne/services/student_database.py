@@ -47,7 +47,7 @@ class DuplicateLabel(Exception):
 
 
 class FilterNotFound(Exception):
-    pass
+    """Also raised for a view, which is what a saved filter became."""
 
 
 class DuplicateFilterName(Exception):
@@ -66,10 +66,6 @@ class SavedSearch:
 
 class InvalidFilter(Exception):
     """A saved search must be portal codes and nothing else."""
-
-
-class SyncSettingsLocked(Exception):
-    """The sync population is passphrase-protected, and the passphrase was wrong."""
 
 
 
@@ -157,14 +153,19 @@ class StudentDatabase:
 
     def list_filters(self) -> list[dict[str, Any]]:
         with self.engine.connect() as connection:
-            rows = connection.execute(text("SELECT * FROM roster_filters ORDER BY name")).mappings().all()
+            rows = connection.execute(text("SELECT * FROM student_views ORDER BY name")).mappings().all()
         return [_filter(row) for row in rows]
 
     def save_filter(
         self, search: SavedSearch, *, filter_id: str | None = None, actor: str = ""
     ) -> dict[str, Any]:
-        """Create or update one saved search. The name is how coordinators refer to it."""
-        checked = _check_criteria(search.criteria)
+        """Create one view. The name is how coordinators refer to it.
+
+        A view with no filter is every student the term holds, which is a population like
+        any other — the default view is exactly that — so an empty filter is allowed here
+        even though an empty *search* never was.
+        """
+        checked = _check_criteria(search.criteria, allow_empty=True)
         now = _now()
         identifier = filter_id or str(uuid4())
         try:
@@ -177,7 +178,7 @@ class StudentDatabase:
         with self.engine.begin() as connection:
             if filter_id:
                 updated = connection.execute(
-                    text("""UPDATE roster_filters SET name = :name, description = :description,
+                    text("""UPDATE student_views SET name = :name, description = :description,
                                 filter = :filter, expected_count = :expected_count,
                                 updated_at = :now, updated_by = :actor
                             WHERE id = :id"""),
@@ -195,7 +196,7 @@ class StudentDatabase:
                     raise FilterNotFound(filter_id)
             else:
                 connection.execute(
-                    text("""INSERT INTO roster_filters
+                    text("""INSERT INTO student_views
                                 (id, name, description, filter, expected_count, created_at, updated_at, updated_by)
                             VALUES (:id, :name, :description, :filter, :expected_count, :now, :now, :actor)"""),
                     {
@@ -212,7 +213,7 @@ class StudentDatabase:
     def get_filter(self, filter_id: str) -> dict[str, Any]:
         with self.engine.connect() as connection:
             row = (
-                connection.execute(text("SELECT * FROM roster_filters WHERE id = :id"), {"id": filter_id})
+                connection.execute(text("SELECT * FROM student_views WHERE id = :id"), {"id": filter_id})
                 .mappings()
                 .first()
             )
@@ -223,59 +224,97 @@ class StudentDatabase:
     def delete_filter(self, filter_id: str) -> None:
         with self.engine.begin() as connection:
             deleted = connection.execute(
-                text("DELETE FROM roster_filters WHERE id = :id"), {"id": filter_id}
+                text("DELETE FROM student_views WHERE id = :id"), {"id": filter_id}
             )
         if deleted.rowcount == 0:
             raise FilterNotFound(filter_id)
 
-    # --------------------------------------------------------- sync settings
+    # ----------------------------------------------------------------- views
 
-    def read_sync_settings(self) -> dict[str, Any]:
-        """Which population the roster's sync asks the portal for."""
+    def list_views(self) -> list[dict[str, Any]]:
+        """Every view, with how many students it holds and how many it has lost."""
         with self.engine.connect() as connection:
-            row = (
-                connection.execute(text("SELECT * FROM sync_settings WHERE id = 'default'"))
+            rows = (
+                connection.execute(
+                    text("""SELECT v.*,
+                                (SELECT count(*) FROM view_members m
+                                  WHERE m.view_id = v.id AND m.status = 'in_portal') AS held,
+                                (SELECT count(*) FROM view_members m
+                                  WHERE m.view_id = v.id AND m.status <> 'in_portal') AS gone
+                            FROM student_views v ORDER BY v.name""")
+                )
                 .mappings()
-                .first()
+                .all()
             )
-        if row is None:
-            return {"filter": {}, "updatedAt": "", "updatedBy": "", "locked": False}
-        return {
-            "filter": row["filter"] or {},
-            "updatedAt": row["updated_at"],
-            "updatedBy": row["updated_by"],
-            # Whether a passphrase is set, never the passphrase or its hash.
-            "locked": bool(row["passphrase"]),
-        }
+        return [_view(row) for row in rows]
 
-    def save_sync_settings(
-        self,
-        criteria: dict[str, list[str]],
-        *,
-        actor: str = "",
-        is_admin: bool = False,
-        passphrase: str = "",
-    ) -> dict[str, Any]:
-        """Change which population the sync asks for.
+    def sync_view(self, view_id: str, student_ids: list[str]) -> dict[str, Any]:
+        """Reconcile one view with what its own filter just returned.
 
-        An administrator may always do this. Anybody else needs the passphrase, if one has
-        been set — the check is here rather than in the dialog, because a dialog is only a
-        suggestion to anybody holding a terminal.
+        The filter cannot have changed since the view was made, so an id this view held and
+        the portal did not return really has left *this* population — which is the whole
+        reason a view's filter is fixed.
         """
-        checked = _check_criteria(criteria, allow_empty=True)
-        stored = self._passphrase()
-        if stored and not is_admin and not _passphrase_matches(stored, passphrase):
-            raise SyncSettingsLocked()
+        self.get_filter(view_id)
+        found = _clean_ids(student_ids)
         now = _now()
         with self.engine.begin() as connection:
-            connection.execute(
-                text("""INSERT INTO sync_settings (id, filter, updated_at, updated_by)
-                        VALUES ('default', :filter, :now, :actor)
-                        ON CONFLICT (id) DO UPDATE
-                            SET filter = :filter, updated_at = :now, updated_by = :actor"""),
-                {"filter": json.dumps(checked), "now": now, "actor": actor},
+            held = set(
+                connection.execute(
+                    text("SELECT student_id FROM view_members WHERE view_id = :view"),
+                    {"view": view_id},
+                )
+                .scalars()
+                .all()
             )
-        return self.read_sync_settings()
+            if found:
+                # The student record is global: one row per id, however many views hold them.
+                connection.execute(
+                    text("""INSERT INTO students
+                                (student_id, status, cohort_id, first_seen_at, last_seen_at, updated_at)
+                            VALUES (:student_id, 'in_portal', NULL, :now, :now, :now)
+                            ON CONFLICT (student_id) DO UPDATE
+                                SET status = 'in_portal', last_seen_at = :now, updated_at = :now"""),
+                    [{"student_id": student, "now": now} for student in found],
+                )
+                connection.execute(
+                    text("""INSERT INTO view_members
+                                (view_id, student_id, status, first_seen_at, last_seen_at)
+                            VALUES (:view, :student_id, 'in_portal', :now, :now)
+                            ON CONFLICT (view_id, student_id) DO UPDATE
+                                SET status = 'in_portal', last_seen_at = :now"""),
+                    [{"view": view_id, "student_id": student, "now": now} for student in found],
+                )
+            gone = [student for student in held if student not in set(found)]
+            missing = 0
+            if gone:
+                missing = connection.execute(
+                    text("""UPDATE view_members SET status = 'not_in_portal'
+                            WHERE view_id = :view AND student_id = ANY(:ids)
+                              AND status <> 'not_in_portal'"""),
+                    {"view": view_id, "ids": gone},
+                ).rowcount
+                # Globally they are gone only when no view still returns them.
+                connection.execute(
+                    text("""UPDATE students SET status = 'not_in_portal', updated_at = :now
+                            WHERE student_id = ANY(:ids)
+                              AND NOT EXISTS (
+                                SELECT 1 FROM view_members m
+                                 WHERE m.student_id = students.student_id AND m.status = 'in_portal')"""),
+                    {"ids": gone, "now": now},
+                )
+            connection.execute(
+                text("UPDATE student_views SET last_synced_at = :now WHERE id = :view"),
+                {"now": now, "view": view_id},
+            )
+        return {
+            "seen": len(found),
+            "added": len([student for student in found if student not in held]),
+            "missing": missing,
+            "syncedAt": now,
+        }
+
+    # ------------------------------------------------------------- the lock
 
     def _passphrase(self) -> str:
         with self.engine.connect() as connection:
@@ -284,13 +323,16 @@ class StudentDatabase:
             ).first()
         return (row[0] if row else "") or ""
 
+    def is_locked(self) -> bool:
+        return bool(self._passphrase())
+
     def set_sync_passphrase(self, passphrase: str) -> None:
-        """Lock the sync settings, or unlock them again with an empty passphrase."""
+        """Lock who may define a view, or unlock it again with an empty passphrase."""
         stored = _hash_passphrase(passphrase) if passphrase.strip() else ""
         with self.engine.begin() as connection:
             connection.execute(
-                text("""INSERT INTO sync_settings (id, filter, passphrase, updated_at, updated_by)
-                        VALUES ('default', '{}'::jsonb, :passphrase, :now, '')
+                text("""INSERT INTO sync_settings (id, passphrase, updated_at, updated_by)
+                        VALUES ('default', :passphrase, :now, '')
                         ON CONFLICT (id) DO UPDATE SET passphrase = :passphrase"""),
                 {"passphrase": stored, "now": _now()},
             )
@@ -301,18 +343,28 @@ class StudentDatabase:
 
     # -------------------------------------------------------------- students
 
-    def list_students(self) -> list[dict[str, Any]]:
-        """Every student we hold, with their status and the cohort they belong to."""
+    def list_students(self, view_id: str = "") -> list[dict[str, Any]]:
+        """The students of one view, or every student we hold when no view is named.
+
+        A view's own status wins: whether *this* population still returns them is what the
+        page is about, and it is not always what another view would say.
+        """
+        query = """SELECT s.*, c.name AS cohort_name
+                   FROM students s LEFT JOIN student_cohorts c ON c.id = s.cohort_id
+                   ORDER BY s.student_id"""
+        parameters: dict[str, Any] = {}
+        if view_id:
+            query = """SELECT s.student_id, s.cohort_id, s.first_seen_at AS held_since,
+                              c.name AS cohort_name,
+                              m.status, m.first_seen_at, m.last_seen_at
+                       FROM view_members m
+                       JOIN students s ON s.student_id = m.student_id
+                       LEFT JOIN student_cohorts c ON c.id = s.cohort_id
+                       WHERE m.view_id = :view
+                       ORDER BY s.student_id"""
+            parameters = {"view": view_id}
         with self.engine.connect() as connection:
-            rows = (
-                connection.execute(
-                    text("""SELECT s.*, c.name AS cohort_name
-                            FROM students s LEFT JOIN student_cohorts c ON c.id = s.cohort_id
-                            ORDER BY s.student_id""")
-                )
-                .mappings()
-                .all()
-            )
+            rows = connection.execute(text(query), parameters).mappings().all()
             assignments = (
                 connection.execute(text("SELECT student_id, scope_id, group_id FROM group_assignments"))
                 .mappings()
@@ -322,42 +374,6 @@ class StudentDatabase:
         for row in assignments:
             held.setdefault(row["student_id"], {})[row["scope_id"]] = row["group_id"]
         return [_student(row, held.get(row["student_id"], {})) for row in rows]
-
-    def sync_students(self, student_ids: list[str]) -> dict[str, Any]:
-        """Reconcile the record with what the portal returned for the configured population.
-
-        A sync is a census: the settings say which population to ask for, so an id the pull
-        did not return really is one the portal no longer places in that population. This
-        is the only thing that writes to the record — a saved search is for looking at
-        portal data, never for deciding who is a student.
-        """
-        found = _clean_ids(student_ids)
-        now = _now()
-        with self.engine.begin() as connection:
-            known = set(connection.execute(text("SELECT student_id FROM students")).scalars().all())
-            if found:
-                connection.execute(
-                    text("""INSERT INTO students
-                                (student_id, status, cohort_id, first_seen_at, last_seen_at, updated_at)
-                            VALUES (:student_id, 'in_portal', NULL, :now, :now, :now)
-                            ON CONFLICT (student_id) DO UPDATE
-                                SET status = 'in_portal', last_seen_at = :now, updated_at = :now"""),
-                    [{"student_id": student, "now": now} for student in found],
-                )
-            gone = [student for student in known if student not in set(found)]
-            missing = 0
-            if gone:
-                missing = connection.execute(
-                    text("""UPDATE students SET status = 'not_in_portal', updated_at = :now
-                            WHERE student_id = ANY(:ids) AND status <> 'not_in_portal'"""),
-                    {"ids": gone, "now": now},
-                ).rowcount
-        return {
-            "seen": len(found),
-            "added": len([student for student in found if student not in known]),
-            "missing": missing,
-            "syncedAt": now,
-        }
 
     def set_cohort(self, student_ids: list[str], cohort_id: str | None) -> int:
         """Put students in a cohort, or take them out of one when `cohort_id` is None.
@@ -822,6 +838,20 @@ def _clean_ids(student_ids: list[str]) -> list[str]:
         if cleaned:
             seen.setdefault(cleaned, None)
     return list(seen)
+
+
+def _view(row) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "name": row["name"],
+        "description": row["description"],
+        "filter": row["filter"] or {},
+        "held": row["held"],
+        "gone": row["gone"],
+        "lastSyncedAt": row["last_synced_at"],
+        "createdAt": row["created_at"],
+        "updatedBy": row["updated_by"],
+    }
 
 
 def _student(row, groups: dict[str, str]) -> dict[str, Any]:

@@ -198,88 +198,71 @@ export type SyncReport = {
   syncedAt: string;
 };
 
-/** Which population the roster's sync asks the portal for. Shared by every coordinator. */
-export type SyncSettings = {
+/**
+ * A view: a named population, and the filter that fixes what it asks the portal.
+ *
+ * The filter is set when the view is made and never afterwards — that is what makes "no
+ * longer in the portal" mean something, because the question has not changed underneath
+ * the answer. A different question is a different view.
+ */
+export type StudentView = {
+  id: string;
+  name: string;
+  description: string;
   filter: Record<string, string[]>;
-  updatedAt: string;
+  /** How many students this view still returns, and how many it has stopped returning. */
+  held: number;
+  gone: number;
+  lastSyncedAt: string;
+  createdAt: string;
   updatedBy: string;
-  /** Whether an administrator has put a passphrase on these settings. */
-  locked: boolean;
 };
 
-export function fetchSyncSettings(): Promise<SyncSettings> {
-  return request<SyncSettings>(`${BASE}/sync-settings`);
+export async function fetchViews(): Promise<StudentView[]> {
+  return (await request<{ views: StudentView[] }>(`${BASE}/views`)).views;
 }
 
-export function saveSyncSettings(
-  filter: Record<string, string[]>,
-  passphrase = "",
-): Promise<SyncSettings> {
-  return send<SyncSettings>(`${BASE}/sync-settings`, "PUT", { filter, passphrase });
+export function createView(input: {
+  name: string;
+  description?: string;
+  filter: Record<string, string[]>;
+  passphrase?: string;
+}): Promise<StudentView> {
+  return send<StudentView>(`${BASE}/views`, "POST", { description: "", passphrase: "", ...input });
 }
 
-/** Check a passphrase without changing anything, so the dialog knows whether to open. */
-export function unlockSyncSettings(passphrase: string): Promise<{ ok: boolean }> {
-  return send<{ ok: boolean }>(`${BASE}/sync-settings/unlock`, "POST", { passphrase });
+/** A body carries the passphrase, so deleting is a POST. */
+export function deleteView(viewId: string, passphrase = ""): Promise<void> {
+  return send<void>(`${BASE}/views/${viewId}/delete`, "POST", { passphrase });
 }
 
-/** Administrators only: set the passphrase, or clear it with an empty one. */
-export function setSyncPassphrase(passphrase: string): Promise<{ locked: boolean }> {
+/** Whether a passphrase stands between a coordinator and defining a view. */
+export function fetchViewLock(): Promise<{ locked: boolean }> {
+  return request<{ locked: boolean }>(`${BASE}/view-lock`);
+}
+
+/** Administrators only: set the passphrase for defining views, or clear it. */
+export function setViewPassphrase(passphrase: string): Promise<{ locked: boolean }> {
   return send<{ locked: boolean }>(`${BASE}/sync-settings/passphrase`, "PUT", { passphrase });
 }
 
-export async function fetchStudents(): Promise<Student[]> {
-  return (await request<{ students: Student[] }>(`${BASE}/students`)).students;
+export async function fetchStudents(viewId = ""): Promise<Student[]> {
+  const path = viewId ? `${BASE}/students?view=${encodeURIComponent(viewId)}` : `${BASE}/students`;
+  return (await request<{ students: Student[] }>(path)).students;
 }
 
 /**
- * Tell the server which ids the portal returned for the configured population.
+ * Tell the server which ids this view's filter just returned.
  *
- * A sync is a census — the settings say which population to ask for — so an id we hold
- * that the pull did not return is one the portal no longer places there. Saved searches
- * never come through here: they are for looking at portal data, not for deciding who is
- * a student.
+ * A sync is a census of that view's population, so an id the view held and the pull did
+ * not return has left it. Nothing else writes to a view's membership.
  */
-export async function syncStudents(studentIds: string[]): Promise<SyncReport> {
-  return send<SyncReport>(`${BASE}/students/sync`, "POST", { studentIds });
+export async function syncView(viewId: string, studentIds: string[]): Promise<SyncReport> {
+  return send<SyncReport>(`${BASE}/views/${viewId}/sync`, "POST", { studentIds });
 }
 
 /** Put students in a cohort, or take them out of whichever one they are in with null. */
 export async function setCohort(studentIds: string[], cohortId: string | null): Promise<number> {
   const body = await send<{ moved: number }>(`${BASE}/students/cohort`, "POST", { studentIds, cohortId });
   return body.moved;
-}
-
-export type SavedSearch = {
-  id: string;
-  name: string;
-  description: string;
-  filter: Record<string, string[]>;
-  expectedCount: number;
-  createdAt: string;
-  updatedAt: string;
-  updatedBy: string;
-};
-
-export type SavedSearchInput = {
-  name: string;
-  description?: string;
-  filter: Record<string, string[]>;
-  expectedCount?: number;
-};
-
-export async function fetchSavedSearches(): Promise<SavedSearch[]> {
-  return (await request<{ filters: SavedSearch[] }>(`${BASE}/filters`)).filters;
-}
-
-export function createSavedSearch(input: SavedSearchInput): Promise<SavedSearch> {
-  return send<SavedSearch>(`${BASE}/filters`, "POST", { description: "", expectedCount: 0, ...input });
-}
-
-export function updateSavedSearch(id: string, input: SavedSearchInput): Promise<SavedSearch> {
-  return send<SavedSearch>(`${BASE}/filters/${id}`, "PUT", { description: "", expectedCount: 0, ...input });
-}
-
-export function deleteSavedSearch(id: string): Promise<void> {
-  return request<void>(`${BASE}/filters/${id}`, { method: "DELETE" });
 }

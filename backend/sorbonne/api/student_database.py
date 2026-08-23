@@ -23,7 +23,6 @@ from sorbonne.services.student_database import (
     SavedSearch,
     ScopeNotFound,
     StudentDatabase,
-    SyncSettingsLocked,
 )
 
 router = APIRouter(prefix="/student-database", tags=["student-database"])
@@ -42,16 +41,20 @@ class CohortInput(BaseModel):
 
 
 class SyncInput(BaseModel):
-    """What the portal returned for the configured population, as ids."""
+    """What the portal returned for this view's population, as ids."""
 
     model_config = ConfigDict(populate_by_name=True)
 
     student_ids: list[str] = Field(default_factory=list, max_length=20_000, alias="studentIds")
 
 
-class SyncSettingsInput(BaseModel):
-    """Which population the roster's sync asks the portal for. Codes only."""
+class ViewInput(BaseModel):
+    """A new view: a name, and the filter that fixes what it asks for ever after."""
 
+    model_config = ConfigDict(populate_by_name=True)
+
+    name: str = Field(min_length=1, max_length=120)
+    description: str = Field(default="", max_length=400)
     filter: dict[str, list[str]] = Field(default_factory=dict)
     # Ignored for an administrator, who never needs it.
     passphrase: str = Field(default="", max_length=200)
@@ -151,101 +154,87 @@ async def delete_cohort(cohort_id: str, database: StudentDatabase = Depends(get_
         raise _missing(exc, "cohort") from exc
 
 
-# ---------------------------------------------------------- saved searches
-
-
-@router.get("/filters")
-async def list_filters(database: StudentDatabase = Depends(get_database)) -> dict[str, Any]:
-    return {"filters": database.list_filters()}
-
-
-@router.post("/filters", status_code=status.HTTP_201_CREATED)
-async def create_filter(
-    body: FilterInput, request: Request, database: StudentDatabase = Depends(get_database)
-) -> dict[str, Any]:
-    return _save(database, body, None, request)
-
-
-@router.put("/filters/{filter_id}")
-async def update_filter(
-    filter_id: str,
-    body: FilterInput,
-    request: Request,
-    database: StudentDatabase = Depends(get_database),
-) -> dict[str, Any]:
-    return _save(database, body, filter_id, request)
-
-
-@router.delete("/filters/{filter_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_filter(filter_id: str, database: StudentDatabase = Depends(get_database)) -> None:
-    try:
-        database.delete_filter(filter_id)
-    except FilterNotFound as exc:
-        raise _missing(exc, "saved search") from exc
-
-
-def _save(
-    database: StudentDatabase, body: FilterInput, filter_id: str | None, request: Request
-) -> dict[str, Any]:
-    staff = getattr(request.state, "staff_user", None)
-    search = SavedSearch(
-        name=body.name,
-        description=body.description,
-        criteria=body.filter,
-        expected_count=body.expected_count,
-    )
-    try:
-        return database.save_filter(
-            search, filter_id=filter_id, actor=getattr(staff, "email", "") or ""
-        )
-    except InvalidFilter as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-    except DuplicateFilterName as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"There is already a saved search called {exc}.",
-        ) from exc
-    except FilterNotFound as exc:
-        raise _missing(exc, "saved search") from exc
-
-
 # ---------------------------------------------------------------- students
 
 
 @router.get("/students")
-async def list_students(database: StudentDatabase = Depends(get_database)) -> dict[str, Any]:
-    return {"students": database.list_students()}
-
-
-@router.post("/students/sync")
-async def sync_students(body: SyncInput, database: StudentDatabase = Depends(get_database)) -> dict[str, Any]:
-    return database.sync_students(body.student_ids)
-
-
-@router.get("/sync-settings")
-async def read_sync_settings(database: StudentDatabase = Depends(get_database)) -> dict[str, Any]:
-    return database.read_sync_settings()
-
-
-@router.put("/sync-settings")
-async def save_sync_settings(
-    body: SyncSettingsInput, request: Request, database: StudentDatabase = Depends(get_database)
+async def list_students(
+    view: str = "", database: StudentDatabase = Depends(get_database)
 ) -> dict[str, Any]:
+    """One view's students, or everyone we hold when no view is named."""
+    return {"students": database.list_students(view)}
+
+
+# -------------------------------------------------------------------- views
+
+
+def _may_define_views(request: Request, database: StudentDatabase, passphrase: str) -> None:
+    """A view's filter is fixed at creation, so creating one is what decides a population.
+
+    That is the moment worth guarding: re-syncing an existing view asks the same question
+    it has always asked, and is open to any coordinator.
+    """
     staff = getattr(request.state, "staff_user", None)
-    try:
-        return database.save_sync_settings(
-            body.filter,
-            actor=getattr(staff, "email", "") or "",
-            is_admin=bool(getattr(staff, "is_admin", False)),
-            passphrase=body.passphrase,
-        )
-    except InvalidFilter as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-    except SyncSettingsLocked as exc:
+    if getattr(staff, "is_admin", False):
+        return
+    if not database.check_sync_passphrase(passphrase):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="That passphrase does not open the sync settings.",
+            detail="That passphrase does not allow views to be changed.",
+        )
+
+
+@router.get("/views")
+async def list_views(database: StudentDatabase = Depends(get_database)) -> dict[str, Any]:
+    return {"views": database.list_views()}
+
+
+@router.post("/views", status_code=status.HTTP_201_CREATED)
+async def create_view(
+    body: ViewInput, request: Request, database: StudentDatabase = Depends(get_database)
+) -> dict[str, Any]:
+    _may_define_views(request, database, body.passphrase)
+    staff = getattr(request.state, "staff_user", None)
+    search = SavedSearch(name=body.name, description=body.description, criteria=body.filter)
+    try:
+        return database.save_filter(search, filter_id=None, actor=getattr(staff, "email", "") or "")
+    except InvalidFilter as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except DuplicateFilterName as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=f"There is already a view called {exc}."
         ) from exc
+
+
+@router.post("/views/{view_id}/delete", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_view(
+    view_id: str,
+    body: PassphraseInput,
+    request: Request,
+    database: StudentDatabase = Depends(get_database),
+) -> None:
+    # A body carries the passphrase, so this is a POST rather than a DELETE.
+    _may_define_views(request, database, body.passphrase)
+    try:
+        database.delete_filter(view_id)
+    except FilterNotFound as exc:
+        raise _missing(exc, "view") from exc
+
+
+@router.post("/views/{view_id}/sync")
+async def sync_view(
+    view_id: str, body: SyncInput, database: StudentDatabase = Depends(get_database)
+) -> dict[str, Any]:
+    try:
+        return database.sync_view(view_id, body.student_ids)
+    except FilterNotFound as exc:
+        raise _missing(exc, "view") from exc
+
+
+@router.get("/view-lock")
+async def read_view_lock(database: StudentDatabase = Depends(get_database)) -> dict[str, bool]:
+    """Whether a passphrase stands between a coordinator and defining a view."""
+    return {"locked": database.is_locked()}
 
 
 @router.post("/sync-settings/unlock")

@@ -39,19 +39,22 @@ import { fetchStudents, setCohort, type Cohort } from "@/services/studentDatabas
 const NO_COHORT = "__none__";
 
 /**
- * Every student we hold, and what the portal last said about them.
+ * One view's students, and what the portal last said about them.
  *
- * The list comes from one place — the sync, whose population is set in Sync settings.
- * Nothing on this page changes who is a student: the filters here narrow what is *shown*,
- * and saved searches live on the Portal views tab, where they look at portal data without
- * touching the record.
+ * The list comes from one place — syncing this view, which asks the fixed question the
+ * view was created with. Nothing on this page changes who is in the view: the filters
+ * here narrow what is *shown*, and the status beside each student is what this view's
+ * last sync found, which another view is free to disagree with.
  *
  * Names, e-mail addresses and year levels come from the SCEN Rosters extension and are
  * kept in this browser alone — see services/rosterStore.ts.
  */
-export function StudentRoster({ cohorts }: { cohorts: Cohort[] }) {
+export function StudentRoster({ cohorts, viewId }: { cohorts: Cohort[]; viewId: string }) {
   const client = useQueryClient();
-  const students = useQuery({ queryKey: ["students"], queryFn: fetchStudents });
+  const students = useQuery({
+    queryKey: ["students", viewId],
+    queryFn: () => fetchStudents(viewId),
+  });
   const schema = useQuery({ queryKey: ["portal-schema"], queryFn: fetchSchema, staleTime: 60_000 });
 
   // The table offers the portal's own fields, so the columns follow the harvested schema.

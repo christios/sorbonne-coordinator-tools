@@ -37,9 +37,9 @@ def empty_shared_tables() -> None:
     so unlike a cohort's rows it will not disappear when the test's cohort does.
     """
     with StudentDatabase(TEST_DATABASE_URL).engine.begin() as connection:
-        connection.execute(text("DELETE FROM roster_filters"))
+        connection.execute(text("DELETE FROM student_views"))
         connection.execute(text("DELETE FROM students"))
-        connection.execute(text("UPDATE sync_settings SET filter = '{}'::jsonb, passphrase = ''"))
+        connection.execute(text("UPDATE sync_settings SET passphrase = ''"))
 
 
 @pytest.fixture
@@ -171,40 +171,64 @@ def test_an_unknown_cohort_answers_404(client: TestClient):
 STUDENTS = ["A00021503", "A00021505", "A00021509"]
 
 
-def sync(client: TestClient, ids: list[str]) -> dict:
-    return client.post("/api/v1/student-database/students/sync", json={"studentIds": ids}).json()
+@pytest.fixture
+def view_id(client: TestClient) -> str:
+    response = client.post(
+        "/api/v1/student-database/views",
+        json={"name": "Foundation Year", "filter": {"YEARLEVEL_CODE": ["FY"]}},
+    )
+    assert response.status_code == status.HTTP_201_CREATED, response.text
+    return response.json()["id"]
 
 
-def students_of(client: TestClient) -> list[dict]:
-    return client.get("/api/v1/student-database/students").json()["students"]
+def sync(client: TestClient, view: str, ids: list[str]) -> dict:
+    response = client.post(f"/api/v1/student-database/views/{view}/sync", json={"studentIds": ids})
+    assert response.status_code == status.HTTP_200_OK, response.text
+    return response.json()
 
 
-def test_a_sync_records_every_id_the_portal_returned(client: TestClient):
-    report = sync(client, STUDENTS)
+def students_of(client: TestClient, view: str = "") -> list[dict]:
+    path = f"/api/v1/student-database/students{f'?view={view}' if view else ''}"
+    return client.get(path).json()["students"]
+
+
+def views_of(client: TestClient) -> list[dict]:
+    return client.get("/api/v1/student-database/views").json()["views"]
+
+
+def test_a_view_fixes_its_filter_when_it_is_made(client: TestClient, view_id: str):
+    view = next(row for row in views_of(client) if row["id"] == view_id)
+
+    assert view["filter"] == {"YEARLEVEL_CODE": ["FY"]}
+    # There is no route that would change it: a different question means a different view.
+    paths = client.app.openapi()["paths"]
+    assert "/api/v1/student-database/views/{view_id}" not in paths
+
+
+def test_two_views_cannot_share_a_name(client: TestClient, view_id: str):
+    again = client.post(
+        "/api/v1/student-database/views", json={"name": "Foundation Year", "filter": {"YEARLEVEL_CODE": ["L1"]}}
+    )
+
+    assert again.status_code == status.HTTP_409_CONFLICT
+
+
+def test_a_seed_sync_brings_the_view_its_students(client: TestClient, view_id: str):
+    report = sync(client, view_id, STUDENTS)
 
     assert report["seen"] == len(STUDENTS)
     assert report["added"] == len(STUDENTS)
-    assert [row["studentId"] for row in students_of(client)] == STUDENTS
-    assert {row["status"] for row in students_of(client)} == {"in_portal"}
+    assert [row["studentId"] for row in students_of(client, view_id)] == STUDENTS
+    assert next(row for row in views_of(client) if row["id"] == view_id)["held"] == len(STUDENTS)
 
 
-def test_syncing_again_adds_nobody_and_keeps_the_first_sighting(client: TestClient):
-    sync(client, STUDENTS)
-    first_seen = students_of(client)[0]["firstSeenAt"]
+def test_a_later_sync_marks_who_the_view_stopped_returning(client: TestClient, view_id: str):
+    sync(client, view_id, STUDENTS)
 
-    again = sync(client, STUDENTS)
-
-    assert again["added"] == 0
-    assert students_of(client)[0]["firstSeenAt"] == first_seen
-
-
-def test_a_sync_marks_the_students_it_no_longer_returns(client: TestClient):
-    sync(client, STUDENTS)
-
-    report = sync(client, STUDENTS[:1])
+    report = sync(client, view_id, STUDENTS[:1])
 
     assert report["missing"] == 2
-    statuses = {row["studentId"]: row["status"] for row in students_of(client)}
+    statuses = {row["studentId"]: row["status"] for row in students_of(client, view_id)}
     assert statuses == {
         "A00021503": "in_portal",
         "A00021505": "not_in_portal",
@@ -212,8 +236,172 @@ def test_a_sync_marks_the_students_it_no_longer_returns(client: TestClient):
     }
 
 
-def settings_of(client: TestClient) -> dict:
-    return client.get("/api/v1/student-database/sync-settings").json()
+def test_two_views_may_disagree_about_a_student(client: TestClient, view_id: str):
+    # The reason a view owns its membership: leaving one population is not leaving them all.
+    other = client.post(
+        "/api/v1/student-database/views", json={"name": "Everyone", "filter": {}}
+    ).json()["id"]
+    sync(client, view_id, STUDENTS)
+    sync(client, other, STUDENTS)
+
+    sync(client, view_id, STUDENTS[:1])
+
+    here = {row["studentId"]: row["status"] for row in students_of(client, view_id)}
+    there = {row["studentId"]: row["status"] for row in students_of(client, other)}
+    assert here["A00021505"] == "not_in_portal"
+    assert there["A00021505"] == "in_portal"
+    # Globally they are still a student, because a view still returns them.
+    assert {row["studentId"]: row["status"] for row in students_of(client)}["A00021505"] == "in_portal"
+
+
+def test_a_student_no_view_returns_is_gone_from_the_record(client: TestClient, view_id: str):
+    sync(client, view_id, STUDENTS)
+
+    sync(client, view_id, STUDENTS[:1])
+
+    assert {row["studentId"]: row["status"] for row in students_of(client)}["A00021505"] == (
+        "not_in_portal"
+    )
+
+
+def test_the_student_record_is_shared_between_views(client: TestClient, view_id: str):
+    other = client.post("/api/v1/student-database/views", json={"name": "Everyone", "filter": {}}).json()["id"]
+    sync(client, view_id, STUDENTS)
+
+    sync(client, other, STUDENTS)
+
+    # One row per id however many views hold them.
+    assert len(students_of(client)) == len(STUDENTS)
+
+
+def test_ids_are_tidied_and_deduplicated_on_the_way_in(client: TestClient, view_id: str):
+    report = sync(client, view_id, [" a00021503 ", "A00021503", "", "A00021505"])
+
+    assert report["seen"] == 2
+    assert [row["studentId"] for row in students_of(client, view_id)] == ["A00021503", "A00021505"]
+
+
+def test_students_are_moved_into_a_cohort_in_bulk(client: TestClient, cohort_id: str, view_id: str):
+    sync(client, view_id, STUDENTS)
+
+    moved = client.post(
+        "/api/v1/student-database/students/cohort",
+        json={"studentIds": STUDENTS[:2], "cohortId": cohort_id},
+    )
+
+    assert moved.json() == {"moved": 2}
+    holding = {row["studentId"]: row["cohortId"] for row in students_of(client, view_id)}
+    assert holding == {"A00021503": cohort_id, "A00021505": cohort_id, "A00021509": None}
+
+
+def test_a_null_cohort_takes_students_out_of_the_one_they_are_in(
+    client: TestClient, cohort_id: str, view_id: str
+):
+    sync(client, view_id, STUDENTS)
+    client.post(
+        "/api/v1/student-database/students/cohort",
+        json={"studentIds": STUDENTS, "cohortId": cohort_id},
+    )
+
+    client.post(
+        "/api/v1/student-database/students/cohort",
+        json={"studentIds": STUDENTS[:1], "cohortId": None},
+    )
+
+    holding = {row["studentId"]: row["cohortId"] for row in students_of(client, view_id)}
+    assert holding["A00021503"] is None
+    assert holding["A00021505"] == cohort_id
+
+
+def test_moving_into_a_cohort_that_is_gone_is_a_404(client: TestClient, view_id: str):
+    sync(client, view_id, STUDENTS)
+
+    response = client.post(
+        "/api/v1/student-database/students/cohort",
+        json={"studentIds": STUDENTS, "cohortId": "nope"},
+    )
+
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+def test_the_student_record_carries_no_name(client: TestClient, view_id: str):
+    sync(client, view_id, STUDENTS[:1])
+
+    row = students_of(client, view_id)[0]
+
+    assert set(row) == {
+        "studentId",
+        "status",
+        "cohortId",
+        "cohortName",
+        "firstSeenAt",
+        "lastSeenAt",
+        "groups",
+    }
+
+
+def test_the_cohort_list_counts_the_students_in_it(client: TestClient, cohort_id: str, view_id: str):
+    sync(client, view_id, STUDENTS)
+    client.post(
+        "/api/v1/student-database/students/cohort",
+        json={"studentIds": STUDENTS, "cohortId": cohort_id},
+    )
+
+    cohorts = client.get("/api/v1/student-database/cohorts").json()["cohorts"]
+
+    assert next(row for row in cohorts if row["id"] == cohort_id)["memberCount"] == len(STUDENTS)
+
+
+def test_a_view_takes_portal_codes_only(client: TestClient):
+    refused = client.post(
+        "/api/v1/student-database/views", json={"name": "Bad", "filter": {"PASSPORT_NUMBER": ["X1"]}}
+    )
+
+    assert refused.status_code == status.HTTP_400_BAD_REQUEST
+
+
+def test_deleting_a_view_takes_its_membership_with_it(client: TestClient, view_id: str):
+    sync(client, view_id, STUDENTS)
+
+    removed = client.post(f"/api/v1/student-database/views/{view_id}/delete", json={})
+
+    assert removed.status_code == status.HTTP_204_NO_CONTENT
+    assert views_of(client) == []
+    # The students themselves are a record of their own and stay.
+    assert len(students_of(client)) == len(STUDENTS)
+
+
+def test_only_an_administrator_or_the_passphrase_may_define_a_view(client: TestClient, monkeypatch):
+    client.put("/api/v1/student-database/sync-settings/passphrase", json={"passphrase": "term-2026"})
+    _as_ordinary_coordinator(monkeypatch)
+
+    refused = client.post("/api/v1/student-database/views", json={"name": "Mine", "filter": {}})
+    allowed = client.post(
+        "/api/v1/student-database/views",
+        json={"name": "Mine", "filter": {}, "passphrase": "term-2026"},
+    )
+
+    assert refused.status_code == status.HTTP_403_FORBIDDEN
+    assert allowed.status_code == status.HTTP_201_CREATED
+
+
+def test_syncing_a_view_never_needs_the_passphrase(client: TestClient, view_id: str, monkeypatch):
+    # A sync asks the question the view already fixed, so it is not a decision to guard.
+    client.put("/api/v1/student-database/sync-settings/passphrase", json={"passphrase": "term-2026"})
+    _as_ordinary_coordinator(monkeypatch)
+
+    assert (
+        client.post(f"/api/v1/student-database/views/{view_id}/sync", json={"studentIds": STUDENTS})
+    ).status_code == status.HTTP_200_OK
+
+
+def test_the_passphrase_itself_is_never_returned(client: TestClient):
+    client.put("/api/v1/student-database/sync-settings/passphrase", json={"passphrase": "term-2026"})
+
+    body = client.get("/api/v1/student-database/view-lock").json()
+
+    assert body == {"locked": True}
+    assert "term-2026" not in json.dumps(body)
 
 
 def _as_ordinary_coordinator(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -230,261 +418,3 @@ def _as_ordinary_coordinator(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-def test_the_sync_population_starts_as_everyone(client: TestClient):
-    assert settings_of(client)["filter"] == {}
-
-
-def test_the_sync_population_is_saved_and_shared(client: TestClient):
-    response = client.put(
-        "/api/v1/student-database/sync-settings", json={"filter": {"YEARLEVEL_CODE": ["FY", "L1"]}}
-    )
-
-    assert response.status_code == status.HTTP_200_OK, response.text
-    assert settings_of(client)["filter"] == {"YEARLEVEL_CODE": ["FY", "L1"]}
-
-
-def test_the_sync_population_is_unlocked_until_somebody_locks_it(client: TestClient):
-    assert settings_of(client)["locked"] is False
-
-
-def test_a_locked_population_refuses_the_wrong_passphrase(client: TestClient, monkeypatch):
-    client.put("/api/v1/student-database/sync-settings/passphrase", json={"passphrase": "term-2026"})
-    _as_ordinary_coordinator(monkeypatch)
-
-    refused = client.put(
-        "/api/v1/student-database/sync-settings",
-        json={"filter": {"YEARLEVEL_CODE": ["FY"]}, "passphrase": "wrong"},
-    )
-
-    assert refused.status_code == status.HTTP_403_FORBIDDEN
-    assert settings_of(client)["filter"] == {}
-
-
-def test_a_locked_population_accepts_the_right_passphrase(client: TestClient, monkeypatch):
-    client.put("/api/v1/student-database/sync-settings/passphrase", json={"passphrase": "term-2026"})
-    _as_ordinary_coordinator(monkeypatch)
-
-    saved = client.put(
-        "/api/v1/student-database/sync-settings",
-        json={"filter": {"YEARLEVEL_CODE": ["FY"]}, "passphrase": "term-2026"},
-    )
-
-    assert saved.status_code == status.HTTP_200_OK, saved.text
-    assert saved.json()["locked"] is True
-
-
-def test_an_administrator_never_needs_the_passphrase(client: TestClient):
-    client.put("/api/v1/student-database/sync-settings/passphrase", json={"passphrase": "term-2026"})
-
-    saved = client.put(
-        "/api/v1/student-database/sync-settings", json={"filter": {"YEARLEVEL_CODE": ["FY"]}}
-    )
-
-    assert saved.status_code == status.HTTP_200_OK, saved.text
-
-
-def test_only_an_administrator_can_change_the_lock(client: TestClient, monkeypatch):
-    _as_ordinary_coordinator(monkeypatch)
-
-    refused = client.put(
-        "/api/v1/student-database/sync-settings/passphrase", json={"passphrase": "mine"}
-    )
-
-    assert refused.status_code == status.HTTP_403_FORBIDDEN
-
-
-def test_the_passphrase_itself_is_never_returned(client: TestClient):
-    client.put("/api/v1/student-database/sync-settings/passphrase", json={"passphrase": "term-2026"})
-
-    body = settings_of(client)
-
-    assert body["locked"] is True
-    assert "term-2026" not in json.dumps(body)
-    assert "passphrase" not in body
-
-
-def test_an_empty_passphrase_unlocks_it_again(client: TestClient, monkeypatch):
-    client.put("/api/v1/student-database/sync-settings/passphrase", json={"passphrase": "term-2026"})
-    client.put("/api/v1/student-database/sync-settings/passphrase", json={"passphrase": ""})
-    _as_ordinary_coordinator(monkeypatch)
-
-    saved = client.put("/api/v1/student-database/sync-settings", json={"filter": {}})
-
-    assert saved.status_code == status.HTTP_200_OK, saved.text
-    assert settings_of(client)["locked"] is False
-
-
-def test_the_sync_population_takes_portal_codes_only(client: TestClient):
-    # The same rule as a saved search: nothing about a student may be stored here.
-    response = client.put(
-        "/api/v1/student-database/sync-settings", json={"filter": {"PASSPORT_NUMBER": ["X1"]}}
-    )
-
-    assert response.status_code == status.HTTP_400_BAD_REQUEST
-
-
-def test_a_student_the_portal_returns_again_comes_back(client: TestClient):
-    sync(client, STUDENTS)
-    sync(client, [])
-
-    sync(client, STUDENTS)
-
-    assert {row["status"] for row in students_of(client)} == {"in_portal"}
-
-
-def test_ids_are_tidied_and_deduplicated_on_the_way_in(client: TestClient):
-    report = sync(client, [" a00021503 ", "A00021503", "", "A00021505"])
-
-    assert report["seen"] == 2
-    assert [row["studentId"] for row in students_of(client)] == ["A00021503", "A00021505"]
-
-
-def test_students_are_moved_into_a_cohort_in_bulk(client: TestClient, cohort_id: str):
-    sync(client, STUDENTS)
-
-    moved = client.post(
-        "/api/v1/student-database/students/cohort",
-        json={"studentIds": STUDENTS[:2], "cohortId": cohort_id},
-    )
-
-    assert moved.json() == {"moved": 2}
-    holding = {row["studentId"]: row["cohortId"] for row in students_of(client)}
-    assert holding == {"A00021503": cohort_id, "A00021505": cohort_id, "A00021509": None}
-
-
-def test_a_null_cohort_takes_students_out_of_the_one_they_are_in(client: TestClient, cohort_id: str):
-    sync(client, STUDENTS)
-    client.post(
-        "/api/v1/student-database/students/cohort",
-        json={"studentIds": STUDENTS, "cohortId": cohort_id},
-    )
-
-    client.post(
-        "/api/v1/student-database/students/cohort",
-        json={"studentIds": STUDENTS[:1], "cohortId": None},
-    )
-
-    holding = {row["studentId"]: row["cohortId"] for row in students_of(client)}
-    assert holding["A00021503"] is None
-    assert holding["A00021505"] == cohort_id
-
-
-def test_moving_into_a_cohort_that_is_gone_is_a_404(client: TestClient):
-    sync(client, STUDENTS)
-
-    response = client.post(
-        "/api/v1/student-database/students/cohort",
-        json={"studentIds": STUDENTS, "cohortId": "nope"},
-    )
-
-    assert response.status_code == status.HTTP_404_NOT_FOUND
-
-
-def test_the_student_record_carries_no_name(client: TestClient):
-    sync(client, STUDENTS[:1])
-
-    row = students_of(client)[0]
-
-    assert set(row) == {
-        "studentId",
-        "status",
-        "cohortId",
-        "cohortName",
-        "firstSeenAt",
-        "lastSeenAt",
-        "groups",
-    }
-
-
-def test_the_cohort_list_counts_the_students_in_it(client: TestClient, cohort_id: str):
-    sync(client, STUDENTS)
-    client.post(
-        "/api/v1/student-database/students/cohort",
-        json={"studentIds": STUDENTS, "cohortId": cohort_id},
-    )
-
-    cohorts = client.get("/api/v1/student-database/cohorts").json()["cohorts"]
-
-    assert next(row for row in cohorts if row["id"] == cohort_id)["memberCount"] == len(STUDENTS)
-
-
-# ------------------------------------------------------------- saved searches
-
-FY_ACTIVE = {"YEARLEVEL_CODE": ["FY"], "STST_CODE": ["AS"]}
-# What the portal returned for that search when it was last verified.
-FY_COUNT = 245
-
-
-def test_a_search_is_saved_listed_and_removed(client: TestClient):
-    created = client.post(
-        "/api/v1/student-database/filters",
-        json={"name": "SCEN — First Year (active)", "filter": FY_ACTIVE, "expectedCount": FY_COUNT},
-    )
-
-    assert created.status_code == status.HTTP_201_CREATED, created.text
-    body = created.json()
-    assert body["filter"] == FY_ACTIVE
-    assert body["expectedCount"] == FY_COUNT
-    assert body["updatedBy"]  # the coordinator who wrote it
-
-    listed = client.get("/api/v1/student-database/filters").json()["filters"]
-    assert body["id"] in {row["id"] for row in listed}
-
-    assert (
-        client.delete(f"/api/v1/student-database/filters/{body['id']}").status_code
-        == status.HTTP_204_NO_CONTENT
-    )
-
-
-def test_a_search_can_be_edited_in_place(client: TestClient):
-    created = client.post(
-        "/api/v1/student-database/filters", json={"name": "L1", "filter": {"YEARLEVEL_CODE": ["L1"]}}
-    ).json()
-
-    updated = client.put(
-        f"/api/v1/student-database/filters/{created['id']}",
-        json={"name": "L1 — Physics", "filter": {"YEARLEVEL_CODE": ["L1"], "MAJOR_CODE": ["PHYS"]}},
-    )
-
-    assert updated.status_code == status.HTTP_200_OK
-    assert updated.json()["filter"]["MAJOR_CODE"] == ["PHYS"]
-
-
-def test_only_portal_codes_are_accepted(client: TestClient):
-    # Nothing about a student may be stored, and nothing that is not a code may be sent on.
-    for bad in (
-        {"FULL_NAME": ["Amira Haddad"]},
-        {"YEARLEVEL_CODE": ["'; DROP TABLE students; --"]},
-        {"bad key": ["FY"]},
-        {"YEARLEVEL_CODE": []},
-        {},
-    ):
-        response = client.post("/api/v1/student-database/filters", json={"name": "bad", "filter": bad})
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, bad
-
-
-def test_a_name_is_kept_when_it_is_a_field_name(client: TestClient):
-    # FULL_NAME is a portal field, so the *field* is fine — it is the value that is not.
-    response = client.post(
-        "/api/v1/student-database/filters",
-        json={"name": "By surname", "filter": {"FULL_NAME": ["Haddad"]}},
-    )
-
-    assert response.status_code == status.HTTP_201_CREATED
-
-
-def test_two_searches_cannot_share_a_name(client: TestClient):
-    client.post("/api/v1/student-database/filters", json={"name": "First Year", "filter": FY_ACTIVE})
-
-    repeated = client.post(
-        "/api/v1/student-database/filters", json={"name": "First Year", "filter": FY_ACTIVE}
-    )
-
-    assert repeated.status_code == status.HTTP_409_CONFLICT
-    assert "already a saved search called First Year" in repeated.json()["detail"]
-
-
-def test_an_unknown_search_is_a_404(client: TestClient):
-    assert (
-        client.delete("/api/v1/student-database/filters/nope").status_code == status.HTTP_404_NOT_FOUND
-    )

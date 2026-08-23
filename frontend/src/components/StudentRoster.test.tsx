@@ -120,7 +120,7 @@ function renderRoster() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <StudentRoster cohorts={COHORTS} />
+      <StudentRoster cohorts={COHORTS} viewId="view-1" />
     </QueryClientProvider>,
   );
 }
