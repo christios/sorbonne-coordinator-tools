@@ -30,6 +30,7 @@ import {
   saveLayout,
   visibleColumns,
   type ColumnLayout,
+  type StudentColumn,
 } from "@/services/studentColumns";
 import { applyFilters, type FilterModel } from "@/services/tableFilter";
 import { fetchStudents, setCohort, type Cohort } from "@/services/studentDatabase";
@@ -133,7 +134,7 @@ export function StudentRoster({ cohorts, viewId }: { cohorts: Cohort[]; viewId: 
           columns.some((column) => cellText(row, column).toLowerCase().includes(needle)),
         )
       : rows;
-    return sortRows(applyFilters(searched, columns, filters), sort);
+    return sortRows(applyFilters(searched, columns, filters), sort, allColumns);
   }, [rows, columns, filters, sort, query]);
 
   visibleRef.current = visible;
@@ -312,11 +313,27 @@ export function StudentRoster({ cohorts, viewId }: { cohorts: Cohort[]; viewId: 
   );
 }
 
-function sortRows(rows: StudentRow[], sort: Sort): StudentRow[] {
+/**
+ * Sort by what the column reads, whatever the column is.
+ *
+ * A column is not a property of the row: the portal's are reached through `portal`, under
+ * ids like `portal:FULL_NAME`. Indexing the row by the column id worked for the handful
+ * that happen to be properties and silently did nothing for the rest, which sorted every
+ * portal column into id order.
+ *
+ * The accessor rather than the displayed text, because a date displays as "23 Aug 2026"
+ * and that sorts alphabetically by month.
+ */
+function sortRows(rows: StudentRow[], sort: Sort, columns: StudentColumn[]): StudentRow[] {
   const direction = sort.ascending ? 1 : -1;
+  const column = columns.find((candidate) => candidate.id === sort.key);
+  const valueOf = (row: StudentRow) => String(column?.accessor(row) ?? "");
   return [...rows].sort((left, right) => {
-    const a = String(left[sort.key as keyof StudentRow] ?? "");
-    const b = String(right[sort.key as keyof StudentRow] ?? "");
+    // Numeric so "10" follows "9", and blanks last however the sort runs: a student with
+    // no major is not the first thing you want to see when sorting by major.
+    const a = valueOf(left);
+    const b = valueOf(right);
+    if (!a !== !b) return a ? -1 : 1;
     const compared = a.localeCompare(b, undefined, { numeric: true });
     return (compared || left.studentId.localeCompare(right.studentId)) * direction;
   });

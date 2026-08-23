@@ -613,3 +613,51 @@ describe("StudentRoster", () => {
     expect(document.querySelector("select")).toBeNull();
   });
 });
+
+describe("sorting", () => {
+  /** Who is on screen, in the order the table has them. */
+  const shown = () =>
+    screen
+      .getAllByRole("checkbox")
+      .map((box) => box.getAttribute("aria-label") ?? "")
+      .filter((label) => label.startsWith("Select ") && label !== "Select everyone shown")
+      .map((label) => label.replace("Select ", ""));
+
+  it("sorts by a portal column, not just by our own", async () => {
+    // The bug: sorting read the column id off the row, so anything reached through
+    // `portal` compared as blank and the table stayed in id order however you clicked.
+    withNames();
+    renderRoster();
+    await screen.findByText("Amira Haddad");
+
+    fireEvent.click(screen.getByRole("button", { name: "Sort by Year" }));
+
+    // FY, FY, L1 — which is not the order the ids are in. A999 is the student the portal
+    // no longer returns, so this browser knows no year for them: blanks last, either way.
+    expect(shown()).toEqual(["Amira Haddad", "Nadia Newcomer", "Karim Nasser", "A999"]);
+  });
+
+  it("turns the sort around when the same column is clicked again", async () => {
+    withNames();
+    renderRoster();
+    await screen.findByText("Amira Haddad");
+
+    fireEvent.click(screen.getByRole("button", { name: "Sort by Year" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sort by Year" }));
+
+    expect(shown()).toEqual(["Karim Nasser", "Nadia Newcomer", "Amira Haddad", "A999"]);
+  });
+
+  it("sorts by our own columns too", async () => {
+    withNames();
+    renderRoster();
+    await screen.findByText("Amira Haddad");
+
+    // The table opens sorted by id, so the first click on that column reverses it.
+    expect(shown()).toEqual(["Amira Haddad", "Karim Nasser", "Nadia Newcomer", "A999"]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Sort by Id" }));
+
+    expect(shown()).toEqual(["A999", "Nadia Newcomer", "Karim Nasser", "Amira Haddad"]);
+  });
+});
