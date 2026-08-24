@@ -1,12 +1,49 @@
 import { ArrowDown, ArrowUp, Clock3, GripVertical } from "lucide-react";
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { CopyButton } from "@/components/CopyButton";
 import { columnText, rowText } from "@/services/copyCells";
 import type { StudentRow } from "@/services/rosterView";
-import { widthOf, type ColumnLayout, type StudentColumn } from "@/services/studentColumns";
+import { MIN_WIDTH, widthOf, type ColumnLayout, type StudentColumn } from "@/services/studentColumns";
 
 /** What a cell says, which is what a copy of it should say too. */
+/** A gap under the table, so it does not sit flush against the bottom of the window. */
+const BOTTOM_GAP = 16;
+
+/**
+ * Bound an element by whatever height is left below it.
+ *
+ * Measured rather than guessed: the toolbar above wraps at narrow widths and grows a row
+ * when filters are added, so any fixed `100vh - something` is wrong as soon as the page
+ * is not the shape it was written for — and being wrong the generous way puts the
+ * sideways scrollbar below the fold, which is the whole thing this is here to prevent.
+ */
+function useFillHeight() {
+  const ref = useRef<HTMLElement>(null);
+
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    const fit = () => {
+      const top = element.getBoundingClientRect().top;
+      element.style.maxHeight = `${Math.max(240, window.innerHeight - top - BOTTOM_GAP)}px`;
+    };
+    fit();
+    window.addEventListener("resize", fit);
+    // The toolbar above can change height without the window changing at all. Guarded
+    // because not every environment this renders in has ResizeObserver — jsdom does not,
+    // and an exception here would take the whole table down with it.
+    const watcher = typeof ResizeObserver === "function" ? new ResizeObserver(fit) : null;
+    if (watcher && element.parentElement) watcher.observe(element.parentElement);
+    return () => {
+      window.removeEventListener("resize", fit);
+      watcher?.disconnect();
+    };
+  }, []);
+
+  return ref;
+}
+
 export function cellText(row: StudentRow, column: StudentColumn): string {
   if (column.id === "status") {
     return row.status === "not_in_portal" ? "Not in portal" : "In portal";
@@ -53,13 +90,22 @@ export const StudentTable = memo(function StudentTable({
 }) {
   const allShown = rows.length > 0 && rows.every((row) => selected.has(row.studentId));
   const [dragging, setDragging] = useState("");
+  const box = useFillHeight();
 
   return (
-    <section className="mt-3 overflow-x-auto rounded-lg border border-[#d9dee7] bg-white">
+    /*
+     * One scrolling box, tall enough to fill what is left of the window and no taller.
+     *
+     * The rows are thousands long, so a table that grows with them puts the sideways
+     * scrollbar thousands of rows below the screen. Bounding the box keeps that scrollbar
+     * where the mouse is, and the header sticks to the top so a column can still be told
+     * apart after scrolling.
+     */
+    <section ref={box} className="always-scrollbar mt-3 min-h-[16rem] overflow-auto rounded-lg border border-[#d9dee7] bg-white">
       <table className="text-left text-sm" style={{ tableLayout: "fixed", width: "max-content", minWidth: "100%" }}>
-        <thead className="text-xs uppercase tracking-wide text-[#667085]">
+        <thead className="sticky top-0 z-10 bg-white text-xs uppercase tracking-wide text-[#667085] shadow-[inset_0_-1px_0_#d9dee7]">
           <tr>
-            <th scope="col" className="w-10 px-3 py-3">
+            <th scope="col" className="w-10 bg-white px-3 py-3">
               <input
                 type="checkbox"
                 aria-label="Select everyone shown"
@@ -81,7 +127,7 @@ export const StudentTable = memo(function StudentTable({
                 copy={() => columnText(rows.map((row) => cellText(row, column)))}
               />
             ))}
-            <th scope="col" className="w-10 px-2 py-3" />
+            <th scope="col" className="w-10 bg-white px-2 py-3" />
           </tr>
         </thead>
         <tbody>
@@ -240,7 +286,7 @@ function HeaderCell({
   return (
     <th
       scope="col"
-      className={`group relative px-4 py-3 font-semibold ${
+      className={`group relative border-r border-[#e4e8ee] bg-white px-4 py-3 font-semibold last:border-r-0 ${
         over && dragging && dragging !== column.id ? "bg-[#e8edf3]" : ""
       } ${dragging === column.id ? "opacity-50" : ""}`}
       style={{ width }}
@@ -331,9 +377,9 @@ function ResizeHandle({
   const move = useCallback(
     (event: PointerEvent) => {
       const next = from.current.width + (event.clientX - from.current.x);
-      onResize(column.id, Math.max(column.minWidth, next));
+      onResize(column.id, Math.max(MIN_WIDTH, next));
     },
-    [column.id, column.minWidth, onResize],
+    [column.id, onResize],
   );
 
   useEffect(() => {
@@ -351,7 +397,7 @@ function ResizeHandle({
   const nudge = (event: React.KeyboardEvent) => {
     const step = event.shiftKey ? 40 : 10;
     if (event.key === "ArrowRight") onResize(column.id, width + step);
-    else if (event.key === "ArrowLeft") onResize(column.id, Math.max(column.minWidth, width - step));
+    else if (event.key === "ArrowLeft") onResize(column.id, Math.max(MIN_WIDTH, width - step));
     else return;
     event.preventDefault();
   };

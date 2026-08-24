@@ -661,3 +661,36 @@ describe("sorting", () => {
     expect(shown()).toEqual(["A999", "Nadia Newcomer", "Karim Nasser", "Amira Haddad"]);
   });
 });
+
+describe("the toolbar", () => {
+  it("keeps the cohort control on screen, disabled until something is selected", async () => {
+    withNames();
+    renderRoster();
+    await screen.findByText("Amira Haddad");
+
+    // It used to appear only once a row was ticked, which moved the table down under the
+    // cursor at the moment of clicking.
+    expect(screen.getByText("None selected")).toBeTruthy();
+    expect(screen.getByRole("combobox", { name: "Move to cohort" })).toHaveProperty("disabled", true);
+    expect(screen.getByRole("button", { name: /^Move$/ })).toHaveProperty("disabled", true);
+
+    fireEvent.click(screen.getByLabelText("Select Karim Nasser"));
+
+    expect(screen.getByText("1 selected")).toBeTruthy();
+    expect(screen.getByRole("combobox", { name: "Move to cohort" })).toHaveProperty("disabled", false);
+  });
+
+  it("searches every student we hold when told to, not only this view", async () => {
+    const fetched = vi.spyOn(database, "fetchStudents").mockResolvedValue(HELD);
+    withNames();
+    renderRoster();
+    await screen.findByText("Amira Haddad");
+
+    fireEvent.click(screen.getByRole("button", { name: /This view/ }));
+
+    // No view named: the whole record, so a student can be found without knowing which
+    // population holds them.
+    await waitFor(() => expect(fetched).toHaveBeenCalledWith(""));
+    expect(await screen.findByRole("button", { name: /All students/ })).toBeTruthy();
+  });
+});

@@ -94,7 +94,12 @@ export function ViewBar({
             searchable={views.length > 12}
             options={views.map((candidate) => ({
               value: candidate.id,
-              label: `${candidate.name} · ${candidate.held}`,
+              label: candidate.name,
+              // How many students the view holds. Muted at nothing, which is what a view
+              // that has never been seeded looks like.
+              badge: String(candidate.held),
+              badgeTone: candidate.held ? ("accent" as const) : ("muted" as const),
+              searchText: String(candidate.held),
             }))}
             onChange={onChoose}
           />

@@ -1,5 +1,5 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FolderInput, Search } from "lucide-react";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { FolderInput, Globe, Search } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ColumnMenu } from "@/components/ColumnMenu";
@@ -51,9 +51,21 @@ const NO_COHORT = "__none__";
  */
 export function StudentRoster({ cohorts, viewId }: { cohorts: Cohort[]; viewId: string }) {
   const client = useQueryClient();
+  const [everywhere, setEverywhere] = useState(false);
+  // Searching everywhere asks for the whole record rather than this view's population.
+  const asked = everywhere ? "" : viewId;
   const students = useQuery({
-    queryKey: ["students", viewId],
-    queryFn: () => fetchStudents(viewId),
+    queryKey: ["students", asked],
+    queryFn: () => fetchStudents(asked),
+    /*
+     * A view's students are worth keeping. Switching views refetched thousands of rows
+     * behind a full-screen loader every time, including views visited a moment ago; now
+     * a recent answer is reused, and while a genuinely new one is in flight the table
+     * that is already on screen stays there rather than being replaced by a spinner.
+     */
+    staleTime: 5 * 60_000,
+    gcTime: 30 * 60_000,
+    placeholderData: keepPreviousData,
   });
   const schema = useQuery({ queryKey: ["portal-schema"], queryFn: fetchSchema, staleTime: 60_000 });
 
@@ -184,7 +196,51 @@ export function StudentRoster({ cohorts, viewId }: { cohorts: Cohort[]; viewId: 
         </p>
       ) : null}
 
-      <div className="flex flex-wrap items-center gap-2">
+      {/*
+        * Always here, dimmed until there is something to move. A control that appears on
+        * selection moves everything below it down at the moment you click a row, and it
+        * does not answer "what can I do with these?" until after you have chosen.
+        */}
+      <div
+        className={`flex flex-wrap items-center gap-3 rounded-md border px-4 py-2.5 text-sm transition-opacity ${
+          chosen.length
+            ? "border-[#cfe0ef] bg-[#f2f7fb]"
+            : "border-[#e4e8ee] bg-[#fafbfc] opacity-60"
+        }`}
+      >
+          <span className={chosen.length ? "font-semibold text-[#1f4e79]" : "font-semibold text-[#98a2b3]"}>
+            {chosen.length ? `${chosen.length} selected` : "None selected"}
+          </span>
+          <div className="w-56">
+            <SelectMenu
+              label="Move to cohort"
+              value={moveTo}
+              placeholder="Move to cohort…"
+              searchable={cohorts.length > 12}
+              options={[
+                ...cohorts.map((cohort) => ({ value: cohort.id, label: cohort.name })),
+                { value: NO_COHORT, label: "Take out of their cohort" },
+              ]}
+              onChange={setMoveTo}
+              disabled={!chosen.length}
+            />
+          </div>
+          <button
+            type="button"
+            disabled={!chosen.length || !moveTo || move.isPending}
+            onClick={() => move.mutate({ ids: chosen, cohortId: moveTo === NO_COHORT ? null : moveTo })}
+            className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-3 py-1.5 font-semibold text-white disabled:opacity-50"
+          >
+            <FolderInput size={15} aria-hidden="true" /> {chosen.length ? `Move ${chosen.length}` : "Move"}
+          </button>
+          {chosen.length ? (
+            <button type="button" onClick={() => setSelected(new Set())} className="text-[#667085] underline">
+              Clear
+            </button>
+          ) : null}
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center gap-2">
         <TableFilterBar
           columns={columns}
           filters={filters}
@@ -203,6 +259,25 @@ export function StudentRoster({ cohorts, viewId }: { cohorts: Cohort[]; viewId: 
             className="w-full rounded-md border border-[#cbd5e1] py-2 pl-9 pr-3 text-sm"
           />
         </label>
+
+        <button
+          type="button"
+          aria-pressed={everywhere}
+          onClick={() => setEverywhere((current) => !current)}
+          title={
+            everywhere
+              ? "Searching every student we hold. Click to go back to this view."
+              : "Search every student we hold, not only this view"
+          }
+          className={`inline-flex shrink-0 items-center gap-2 rounded-md border px-3 py-2 text-sm font-semibold ${
+            everywhere
+              ? "border-[#1f4e79] bg-[#1f4e79] text-white"
+              : "border-[#b7bec8] bg-white text-[#344054] hover:bg-[#f8fafc]"
+          }`}
+        >
+          <Globe size={15} aria-hidden="true" />
+          {everywhere ? "All students" : "This view"}
+        </button>
 
         <ColumnMenu layout={layout} columns={allColumns} onChange={arrange} />
 
@@ -232,36 +307,6 @@ export function StudentRoster({ cohorts, viewId }: { cohorts: Cohort[]; viewId: 
           ". No names held in this browser yet — sync to fill them in."
         )}
       </p>
-
-      {chosen.length ? (
-        <div className="mt-3 flex flex-wrap items-center gap-3 rounded-md border border-[#cfe0ef] bg-[#f2f7fb] px-4 py-2.5 text-sm">
-          <span className="font-semibold text-[#1f4e79]">{chosen.length} selected</span>
-          <div className="w-56">
-            <SelectMenu
-              label="Move to cohort"
-              value={moveTo}
-              placeholder="Move to cohort…"
-              searchable={cohorts.length > 12}
-              options={[
-                ...cohorts.map((cohort) => ({ value: cohort.id, label: cohort.name })),
-                { value: NO_COHORT, label: "Take out of their cohort" },
-              ]}
-              onChange={setMoveTo}
-            />
-          </div>
-          <button
-            type="button"
-            disabled={!moveTo || move.isPending}
-            onClick={() => move.mutate({ ids: chosen, cohortId: moveTo === NO_COHORT ? null : moveTo })}
-            className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-3 py-1.5 font-semibold text-white disabled:opacity-50"
-          >
-            <FolderInput size={15} aria-hidden="true" /> Move {chosen.length}
-          </button>
-          <button type="button" onClick={() => setSelected(new Set())} className="text-[#667085] underline">
-            Clear
-          </button>
-        </div>
-      ) : null}
 
       <StudentTable
         rows={visible}

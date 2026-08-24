@@ -2,7 +2,27 @@ import { Popover } from "radix-ui";
 import { ChevronDown } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
-export type SelectOption = { value: string; label: string; searchText?: string };
+export type SelectOption = {
+  value: string;
+  label: string;
+  searchText?: string;
+  /** A count or short status, shown as a pill beside the label. */
+  badge?: string;
+  /** "muted" for a badge that means nothing yet — a view nobody has synced. */
+  badgeTone?: "accent" | "muted";
+};
+
+function Badge({ text, tone }: { text: string; tone: SelectOption["badgeTone"] }) {
+  return (
+    <span
+      className={`ml-2 shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums ${
+        tone === "muted" ? "bg-[#eef1f5] text-[#667085]" : "bg-[#e8edf3] text-[#1f4e79]"
+      }`}
+    >
+      {text}
+    </span>
+  );
+}
 
 type MenuPlacement = { side: "top" | "bottom"; maxHeight: number };
 
@@ -110,7 +130,12 @@ export function SelectMenu({ label, value, onChange, options, placeholder, trail
         disabled={disabled}
         className={`flex h-10 w-full items-center rounded-md border border-[#b7bec8] bg-white px-3 py-2 ${trailing ? "pr-20" : "pr-10"} text-left font-normal text-[#344054] transition-colors hover:border-[#98a2b3] hover:bg-[#f8fafc] focus:border-[#1f4e79] focus:outline-none focus:ring-2 focus:ring-[#d7e5f3] disabled:cursor-not-allowed disabled:bg-[#f7f8fa] disabled:text-[#98a2b3]`}
       >
-        <span className={selected.length || value ? "" : "text-[#667085]"}>{selectedLabel}</span>
+        <span className={`flex min-w-0 flex-1 items-center ${selected.length || value ? "" : "text-[#667085]"}`}>
+          <span className="truncate">{selectedLabel}</span>
+          {selected.length === 1 && selected[0].badge !== undefined ? (
+            <Badge text={selected[0].badge} tone={selected[0].badgeTone} />
+          ) : null}
+        </span>
       </button>
       </Popover.Trigger>
       <ChevronDown aria-hidden="true" size={17} className={`pointer-events-none absolute ${trailing ? "right-10" : "right-3"} top-1/2 -translate-y-1/2 text-[#667085] transition-transform ${isOpen ? "rotate-180" : ""}`} />
@@ -126,10 +151,11 @@ export function SelectMenu({ label, value, onChange, options, placeholder, trail
               aria-selected={selectedValues.includes(option.value)}
               key={option.value || "blank"}
               onClick={() => toggleOption(option)}
-              className={`flex w-full items-start gap-2 rounded-md px-3 py-2 text-left text-sm font-normal transition-colors ${selectedValues.includes(option.value) ? "bg-[#e8edf3] font-semibold text-[#1f4e79]" : "text-[#344054] hover:bg-[#f7f8fa]"}`}
+              className={`flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm font-normal transition-colors ${selectedValues.includes(option.value) ? "bg-[#e8edf3] font-semibold text-[#1f4e79]" : "text-[#344054] hover:bg-[#f7f8fa]"}`}
             >
               {multiple ? <span aria-hidden="true" className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border ${selectedValues.includes(option.value) ? "border-[#1f4e79] bg-[#1f4e79] text-white" : "border-[#98a2b3] bg-white"}`}>{selectedValues.includes(option.value) ? "✓" : ""}</span> : null}
-              <span>{option.label}</span>
+              <span className="min-w-0 flex-1 truncate">{option.label}</span>
+              {option.badge !== undefined ? <Badge text={option.badge} tone={option.badgeTone} /> : null}
             </button>
           ))}
           {!visibleOptions.length ? <p className="px-3 py-2 text-sm text-[#667085]">No options match your search.</p> : null}

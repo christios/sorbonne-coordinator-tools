@@ -30,8 +30,16 @@ export type StudentColumn = FilterColumn<StudentRow> & {
   /** Columns that carry the row's identity and would make the table unreadable if hidden. */
   required?: boolean;
   defaultWidth: number;
-  minWidth: number;
 };
+
+/**
+ * The narrowest a column may be dragged.
+ *
+ * Not a judgement about how wide a column ought to be — a coordinator can squeeze any of
+ * them down to a sliver — only enough that the resize handle stays catchable. At zero the
+ * column vanishes and there is nothing left to grab to bring it back.
+ */
+export const MIN_WIDTH = 28;
 
 /** The columns a coordinator sees before they have arranged anything. */
 const DEFAULT_SHOWN = [
@@ -53,7 +61,6 @@ const OWN_COLUMNS: StudentColumn[] = [
     display: (row) => (row.status === "not_in_portal" ? "Not in portal" : "In portal"),
     required: true,
     defaultWidth: 150,
-    minWidth: 110,
   },
   {
     id: "studentId",
@@ -62,7 +69,6 @@ const OWN_COLUMNS: StudentColumn[] = [
     accessor: (row) => row.studentId,
     required: true,
     defaultWidth: 140,
-    minWidth: 100,
   },
   {
     id: "cohortName",
@@ -71,7 +77,6 @@ const OWN_COLUMNS: StudentColumn[] = [
     accessor: (row) => row.cohortName,
     display: (row) => row.cohortName || "—",
     defaultWidth: 180,
-    minWidth: 120,
   },
   {
     id: "firstSeenAt",
@@ -80,7 +85,6 @@ const OWN_COLUMNS: StudentColumn[] = [
     accessor: (row) => row.firstSeenAt,
     display: (row) => asDay(row.firstSeenAt),
     defaultWidth: 150,
-    minWidth: 110,
   },
   {
     id: "lastSeenAt",
@@ -89,7 +93,6 @@ const OWN_COLUMNS: StudentColumn[] = [
     accessor: (row) => row.lastSeenAt,
     display: (row) => asDay(row.lastSeenAt),
     defaultWidth: 150,
-    minWidth: 110,
   },
 ];
 
@@ -113,7 +116,6 @@ function portalColumn(column: PortalColumn, filterable: Map<string, PortalField>
     type: options > 0 && options <= OPTION_LIMIT ? "option" : "text",
     accessor: (row) => row.portal[column.key] ?? "",
     defaultWidth: 180,
-    minWidth: 110,
   };
 }
 
@@ -204,7 +206,7 @@ export function reconcileLayout(
   const widths: Record<string, number> = {};
   for (const [id, width] of Object.entries(stored?.widths ?? {})) {
     const column = known.get(id);
-    if (column && Number.isFinite(width)) widths[id] = Math.max(column.minWidth, Number(width));
+    if (column && Number.isFinite(width)) widths[id] = Math.max(MIN_WIDTH, Number(width));
   }
   return { order, hidden, widths };
 }
@@ -237,7 +239,7 @@ export function visibleColumns(layout: ColumnLayout, columns: StudentColumn[]): 
 }
 
 export function widthOf(layout: ColumnLayout, column: StudentColumn): number {
-  return Math.max(column.minWidth, layout.widths[column.id] ?? column.defaultWidth);
+  return Math.max(MIN_WIDTH, layout.widths[column.id] ?? column.defaultWidth);
 }
 
 /** Move a column one place along the order, skipping over nothing. */
@@ -274,7 +276,7 @@ export function toggleColumn(layout: ColumnLayout, id: string, columns: StudentC
 export function resizeColumn(layout: ColumnLayout, id: string, width: number, columns: StudentColumn[]): ColumnLayout {
   const column = columns.find((candidate) => candidate.id === id);
   if (!column) return layout;
-  return { ...layout, widths: { ...layout.widths, [id]: Math.max(column.minWidth, Math.round(width)) } };
+  return { ...layout, widths: { ...layout.widths, [id]: Math.max(MIN_WIDTH, Math.round(width)) } };
 }
 
 /** A day, written the way a coordinator reads one. */
