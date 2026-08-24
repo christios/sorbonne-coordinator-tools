@@ -5,6 +5,8 @@ export type SidePaneItem = {
   id: string;
   name: string;
   icon: LucideIcon;
+  /** Pages that belong together. A new one starts a fresh sub-heading in the pane. */
+  group?: string;
 };
 
 /**
@@ -39,13 +41,19 @@ export function SidePane({
         <p className="px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-[#8a94a4]">
           {heading}
         </p>
-        {items.map((item) => {
+        {items.map((item, index) => {
           const Icon = item.icon;
           const active = item.id === activeId;
+          const startsGroup = Boolean(item.group) && item.group !== items[index - 1]?.group;
           return (
+            <div key={item.id} className="contents">
+            {startsGroup ? (
+              <p className="px-3 pb-1 pt-4 text-[11px] font-semibold uppercase tracking-wide text-[#8a94a4]">
+                {item.group}
+              </p>
+            ) : null}
             <button
               type="button"
-              key={item.id}
               onClick={() => onSelect(item.id)}
               title={item.name}
               aria-current={active ? "page" : undefined}
@@ -58,6 +66,7 @@ export function SidePane({
               <Icon size={16} className="shrink-0 text-[#1f4e79]" aria-hidden="true" />
               <span className="truncate">{item.name}</span>
             </button>
+            </div>
           );
         })}
       </nav>

@@ -1,21 +1,30 @@
 import { useQuery } from "@tanstack/react-query";
-import { Layers, ListTree, Users } from "lucide-react";
+import { CalendarDays, Layers, ListTree, Megaphone, Users } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import { AnnouncementEditor } from "@/components/AnnouncementEditor";
 import { CohortList } from "@/components/CohortList";
 import { GroupCatalogue } from "@/components/GroupCatalogue";
+import { PlatformNotConfigured } from "@/components/PlatformNotConfigured";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { SelectMenu } from "@/components/SelectMenu";
+import { SemesterList } from "@/components/SemesterList";
 import { StaffMenu } from "@/components/StaffMenu";
 import { StudentRoster } from "@/components/StudentRoster";
 import { SidePane } from "@/components/SidePane";
 import { ViewBar } from "@/components/ViewBar";
 import { fetchCohorts, fetchViews, type Cohort } from "@/services/studentDatabase";
+import { fetchTimetableStatus } from "@/services/timetables";
 
+// Two families of page in one pane: what this application knows about students, and what
+// the student platform shows them. They belong together because they are the same job —
+// the CRNs a cohort is taught in are the CRNs its timetable is built from.
 const PAGES = [
-  { id: "students", name: "Students", icon: Users },
-  { id: "cohorts", name: "Cohorts", icon: Layers },
-  { id: "groups", name: "Groups & CRNs", icon: ListTree },
+  { id: "students", name: "Students", icon: Users, group: "Students" },
+  { id: "cohorts", name: "Cohorts", icon: Layers, group: "Students" },
+  { id: "groups", name: "Groups & CRNs", icon: ListTree, group: "Students" },
+  { id: "semesters", name: "Semesters", icon: CalendarDays, group: "Time-tables" },
+  { id: "announcements", name: "Announcements", icon: Megaphone, group: "Time-tables" },
 ] as const;
 
 type PageId = (typeof PAGES)[number]["id"];
@@ -33,20 +42,37 @@ const TITLES: Record<PageId, { title: string; blurb?: string }> = {
     title: "Groups & CRNs",
     blurb: "What each group stands for: one CRN per course in the block.",
   },
+  semesters: {
+    title: "Semesters",
+    blurb: "What the student platform holds, and whether students can see it yet.",
+  },
+  announcements: {
+    title: "Announcements",
+    blurb: "The notice strip above the students' timetable.",
+  },
 };
 
 /**
- * The coordinator's Student Database.
+ * Students and their time-tables — one application, because they are one job.
  *
  * It keeps student ids, the cohorts they belong to, and the groups those cohorts assign
- * them into. It holds no names and no timetable: names arrive from the registrar
- * extension and stay in the browser, and the student-facing timetable is a separate
- * application with its own upload.
+ * them into; and it uploads and publishes the semester timetables students look up. It
+ * holds no names: those arrive from the registrar extension and stay in the browser.
+ *
+ * The timetables themselves are not stored here either. They live in the SCEN Student
+ * Platform, so the semester pages need that connection configured and say so when it is
+ * missing — while the roster pages, which are this application's own, carry on regardless.
  */
 export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => void } = {}) {
   const cohorts = useQuery({ queryKey: ["cohorts"], queryFn: fetchCohorts });
   const views = useQuery({ queryKey: ["views"], queryFn: fetchViews });
   const [page, setPage] = useState<PageId>("students");
+  const onPlatform = page === "semesters" || page === "announcements";
+  const status = useQuery({
+    queryKey: ["timetable-status"],
+    queryFn: fetchTimetableStatus,
+    enabled: onPlatform,
+  });
   const [cohortId, setCohortId] = useState("");
   const [viewId, setViewId] = useState("");
 
@@ -69,9 +95,9 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
   return (
     <div className="flex min-h-0 flex-1">
       <SidePane
-        label="Student database pages"
-        heading="Student database"
-        items={PAGES.map(({ id, name, icon }) => ({ id, name, icon }))}
+        label="Students and time-tables pages"
+        heading="Students and time-tables"
+        items={PAGES.map(({ id, name, icon, group }) => ({ id, name, icon, group }))}
         activeId={page}
         onSelect={(id) => setPage(id as PageId)}
         // Who is signed in, and their settings, belong at the foot of whichever pane is
@@ -126,6 +152,13 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
             <p className="text-sm text-[#667085]">Create a cohort first, then fill its groups.</p>
           ) : null}
           {page === "groups" && cohort ? <GroupCatalogue key={cohort.id} cohort={cohort} /> : null}
+
+          {onPlatform && status.isLoading ? (
+            <ScreenLoading label="Checking the student platform connection…" />
+          ) : null}
+          {onPlatform && !status.isLoading && !status.data?.configured ? <PlatformNotConfigured /> : null}
+          {page === "semesters" && status.data?.configured ? <SemesterList host={status.data.host} /> : null}
+          {page === "announcements" && status.data?.configured ? <AnnouncementEditor /> : null}
         </div>
       </div>
     </div>

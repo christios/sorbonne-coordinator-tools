@@ -1,9 +1,12 @@
 // "settings" is not an app: it is reached from the user menu, not from the picker.
-export type ToolId = "roster" | "syllabus" | "teachers" | "timetables" | "database" | "settings";
+export type ToolId = "roster" | "syllabus" | "teachers" | "database" | "settings";
 
-const tools = new Set<ToolId>(["roster", "syllabus", "teachers", "timetables", "database", "settings"]);
+const tools = new Set<ToolId>(["roster", "syllabus", "teachers", "database", "settings"]);
 
 function asToolId(value: string): ToolId | null {
+  // Timetables used to be an application of its own; its pages now live in the student
+  // one, so a link somebody kept still opens something rather than nothing.
+  if (value === "timetables") return "database";
   return tools.has(value as ToolId) ? (value as ToolId) : null;
 }
 

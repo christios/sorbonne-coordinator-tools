@@ -56,8 +56,8 @@ confirmed opening dates:
 
 Students read the timetable from the SCEN Student Platform, so a change agreed with
 the timetabling office is not visible to them until it is uploaded. In **Coordinator
-Tools → Student timetables → Semesters**, a semester carries an **Update timetable**
-action:
+Tools → Students and Time-tables → Semesters**, a semester carries an **Update
+timetable** action:
 
 1. Upload the registrar's latest activity-list export.
 2. The screen compares it against what students currently see and lists only what
@@ -77,8 +77,8 @@ Points worth knowing:
   never pre-ticked.
 - A course new to the export starts with nobody enrolled. Attach the filled group
   templates in the same step if students should be on it straight away.
-- This is the mid-semester path. The term-start load is **Import a semester**, which
-  replaces the whole semester rather than reviewing it.
+- This is the mid-semester path. The term-start load is **Import a semester**, the button
+  at the top of the same page, which replaces the whole semester rather than reviewing it.
 
 ## Practical friction to expect
 

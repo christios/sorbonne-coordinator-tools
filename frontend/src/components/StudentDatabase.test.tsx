@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { StudentDatabase } from "@/components/StudentDatabase";
@@ -8,6 +8,7 @@ import { forgetHistory } from "@/services/pullHistory";
 import { forgetRosters } from "@/services/rosterStore";
 import * as rosters from "@/services/scenRosters";
 import * as database from "@/services/studentDatabase";
+import * as timetables from "@/services/timetables";
 
 const SCHEMA: rosters.PortalSchema = {
   ok: true,
@@ -80,6 +81,9 @@ beforeEach(() => {
   });
   vi.spyOn(rosters, "fetchSchema").mockResolvedValue(SCHEMA);
   vi.spyOn(rosters, "pullFilter").mockResolvedValue(PORTAL);
+  vi.spyOn(timetables, "fetchTimetableStatus").mockResolvedValue({ configured: true, host: "scen.example.dev" });
+  vi.spyOn(timetables, "fetchTimetableTerms").mockResolvedValue([]);
+  vi.spyOn(timetables, "fetchAnnouncements").mockResolvedValue({ announcements: [], icons: ["info"] });
 });
 
 afterEach(() => {
@@ -187,5 +191,40 @@ describe("the account menu", () => {
     fireEvent.click(await screen.findByRole("menuitem", { name: /Users/ }));
 
     expect(openSettings).toHaveBeenCalled();
+  });
+});
+
+describe("students and their time-tables in one place", () => {
+  /** The pages are reached from the side pane, exactly as a coordinator reaches them. */
+  const open = async (name: RegExp) => fireEvent.click(await screen.findByRole("button", { name }));
+
+  it("offers the roster pages and the timetable pages in one pane", async () => {
+    renderApp();
+    const pane = await screen.findByRole("complementary", { name: /students and time-tables/i });
+
+    for (const name of ["Students", "Cohorts", "Groups & CRNs", "Semesters", "Announcements"]) {
+      expect(within(pane).getByRole("button", { name })).toBeTruthy();
+    }
+  });
+
+  it("reaches the semesters the student platform holds", async () => {
+    renderApp();
+
+    await open(/^Semesters$/);
+
+    expect(await screen.findByText(/Semesters on the student platform/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Import a semester/ })).toBeTruthy();
+  });
+
+  it("says the timetable pages need a platform, and leaves the roster pages alone", async () => {
+    vi.spyOn(timetables, "fetchTimetableStatus").mockResolvedValue({ configured: false, host: null });
+    renderApp();
+
+    await open(/^Semesters$/);
+    expect(await screen.findByText("Timetable uploads are not configured")).toBeTruthy();
+
+    // The roster is this application's own, so a missing platform must not close it.
+    await open(/^Students$/);
+    expect(await screen.findByRole("button", { name: /sync this view/i })).toBeTruthy();
   });
 });
