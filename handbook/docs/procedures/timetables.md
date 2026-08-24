@@ -52,6 +52,34 @@ confirmed opening dates:
 - **MIAI:** Jan–Jun 2027 = M1-S2; Sep–Dec 2027 = M1-S1 **and** M2-S1.
 - **Maths (Stats/AI):** Sep–Dec 2027 = M1-S1.
 
+## Publishing a change to students
+
+Students read the timetable from the SCEN Student Platform, so a change agreed with
+the timetabling office is not visible to them until it is uploaded. In **Coordinator
+Tools → Student timetables → Semesters**, a semester carries an **Update timetable**
+action:
+
+1. Upload the registrar's latest activity-list export.
+2. The screen compares it against what students currently see and lists only what
+   differs — rooms moved, sessions retimed, classes cancelled, make-ups added, plus
+   any change to a course's lecturer, title or group.
+3. **Nothing is applied until you tick it.** Anything left unticked keeps the value
+   students see today, and is offered again the next time you upload.
+4. Apply. Students with the page open are offered a refresh.
+
+Points worth knowing:
+
+- The export has no row identifier, so "the same session, moved" is worked out by
+  comparison. Where that is an inference rather than a certainty the row says so —
+  check those before approving them.
+- A course missing from the export is flagged in red with the number of students who
+  would lose it, because approving that removal also removes their enrolments. It is
+  never pre-ticked.
+- A course new to the export starts with nobody enrolled. Attach the filled group
+  templates in the same step if students should be on it straight away.
+- This is the mid-semester path. The term-start load is **Import a semester**, which
+  replaces the whole semester rather than reviewing it.
+
 ## Practical friction to expect
 
 - Teachers don't always **inform** when they'll be away (conferences), which forces

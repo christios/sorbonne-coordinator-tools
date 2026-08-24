@@ -3,6 +3,7 @@ import { CalendarDays } from "lucide-react";
 import { useState } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { SemesterUpdate } from "@/components/SemesterUpdate";
 import {
   TimetableTerm,
   deleteTimetableTerm,
@@ -15,6 +16,7 @@ export function SemesterList() {
   const queryClient = useQueryClient();
   const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms });
   const [pendingDelete, setPendingDelete] = useState<TimetableTerm | null>(null);
+  const [updating, setUpdating] = useState<TimetableTerm | null>(null);
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["timetable-terms"] });
   const publishMutation = useMutation({
@@ -28,6 +30,11 @@ export function SemesterList() {
   });
 
   const error = publishMutation.error?.message ?? deleteMutation.error?.message ?? null;
+
+  if (updating) {
+    const current = (terms.data ?? []).find((term) => term.id === updating.id) ?? updating;
+    return <SemesterUpdate term={current} onBack={() => setUpdating(null)} />;
+  }
 
   return (
     <>
@@ -88,14 +95,23 @@ export function SemesterList() {
                               {term.isPublished ? "Published" : "Hidden"}
                             </button>
                           </td>
-                          <td className="px-6 py-4 text-right">
-                            <button
-                              type="button"
-                              onClick={() => setPendingDelete(term)}
-                              className="rounded-md border border-[#e5b7b9] bg-white px-3 py-2 text-sm font-semibold text-[#a6292f] hover:bg-[#fdf3f3]"
-                            >
-                              Delete
-                            </button>
+                          <td className="px-6 py-4">
+                            <div className="flex justify-end gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setUpdating(term)}
+                                className="rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc]"
+                              >
+                                Update timetable
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setPendingDelete(term)}
+                                className="rounded-md border border-[#e5b7b9] bg-white px-3 py-2 text-sm font-semibold text-[#a6292f] hover:bg-[#fdf3f3]"
+                              >
+                                Delete
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}
