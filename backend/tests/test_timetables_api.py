@@ -1,3 +1,5 @@
+from urllib.parse import parse_qs
+
 import httpx
 import pytest
 from fastapi import status
@@ -241,3 +243,136 @@ def test_every_student_workbook_is_forwarded(client: TestClient):
     assert response.status_code == status.HTTP_201_CREATED
     assert seen["names"] == ["FYS-Groups.xlsx", "L1-Groups.xlsx", "LANG-Groups.xlsx"]
 
+
+
+PREVIEW = {
+    "term": TERM,
+    "baseUpdatedAt": "2026-08-24T09:00:00+00:00",
+    "filename": "revised.xls",
+    "summary": {"unchanged": 970, "changed": 4, "added": 1, "removed": 0},
+    "courses": [
+        {
+            "crn": "22151",
+            "code": "MATH-001-CM-GR.A",
+            "title": "Pre-Calculus",
+            "status": "present",
+            "sessions": [
+                {
+                    "status": "changed",
+                    "sessionId": "s1",
+                    "changes": ["room 7.113 → 9.001"],
+                    "matchedOn": "same day, same start time",
+                    "isCertain": True,
+                }
+            ],
+        }
+    ],
+}
+
+
+def test_previewing_forwards_the_export_and_returns_the_diff(client: TestClient):
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["path"] = request.url.path
+        seen["token"] = request.headers.get("X-Admin-Token")
+        seen["has_timetable"] = "revised-bytes" in request.content.decode("latin-1")
+        return httpx.Response(status.HTTP_200_OK, json=PREVIEW)
+
+    response = use(client, handler).post(
+        "/api/v1/timetables/terms/term-1/timetable/preview",
+        files={"timetable": ("revised.xls", b"revised-bytes", "application/vnd.ms-excel")},
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()["courses"][0]["sessions"][0]["changes"] == ["room 7.113 → 9.001"]
+    assert seen == {
+        "path": "/api/v1/admin/terms/term-1/timetable/preview",
+        "token": "secret",
+        "has_timetable": True,
+    }
+
+
+def test_an_empty_export_is_refused_before_the_platform_is_called(client: TestClient):
+    def handler(request: httpx.Request) -> httpx.Response:  # pragma: no cover - must not run
+        raise AssertionError("the platform should not be called")
+
+    response = use(client, handler).post(
+        "/api/v1/timetables/terms/term-1/timetable/preview",
+        files={"timetable": ("revised.xls", b"", "application/vnd.ms-excel")},
+    )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
+def test_applying_forwards_the_version_and_the_approved_rows(client: TestClient):
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["path"] = request.url.path
+        # No files attached, so httpx sends a urlencoded form and the timestamp arrives escaped.
+        form = parse_qs(request.content.decode())
+        seen["has_version"] = form["base_updated_at"] == [PREVIEW["baseUpdatedAt"]]
+        seen["has_operations"] = "updateSession" in form["operations"][0]
+        return httpx.Response(status.HTTP_200_OK, json={**TERM, "applied": {"updateSession": 1}})
+
+    response = use(client, handler).post(
+        "/api/v1/timetables/terms/term-1/timetable/apply",
+        data={
+            "base_updated_at": PREVIEW["baseUpdatedAt"],
+            "filename": "revised.xls",
+            "operations": '[{"op":"updateSession","sessionId":"s1","room":"9.001"}]',
+        },
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()["applied"]["updateSession"] == 1
+    assert seen == {
+        "path": "/api/v1/admin/terms/term-1/timetable/apply",
+        "has_version": True,
+        "has_operations": True,
+    }
+
+
+def test_attached_student_workbooks_travel_with_the_approved_rows(client: TestClient):
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = request.content.decode("latin-1")
+        seen["has_students"] = "L1-Groups.xlsx" in body
+        return httpx.Response(status.HTTP_200_OK, json=TERM)
+
+    response = use(client, handler).post(
+        "/api/v1/timetables/terms/term-1/timetable/apply",
+        data={
+            "base_updated_at": PREVIEW["baseUpdatedAt"],
+            "filename": "revised.xls",
+            "operations": '[{"op":"addCourse","crn":"24999"}]',
+        },
+        files=[("enrolments", ("L1-Groups.xlsx", b"student-bytes", "application/vnd.ms-excel"))],
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert seen["has_students"] is True
+
+
+def test_a_review_the_platform_calls_stale_is_forwarded_as_a_conflict(client: TestClient):
+    """The coordinator has to see their colleague's changes, not overwrite them."""
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            status.HTTP_409_CONFLICT,
+            json={"detail": "This semester was changed by somebody else since you uploaded the file."},
+        )
+
+    response = use(client, handler).post(
+        "/api/v1/timetables/terms/term-1/timetable/apply",
+        data={
+            "base_updated_at": "stale",
+            "filename": "revised.xls",
+            "operations": '[{"op":"updateSession","sessionId":"s1"}]',
+        },
+    )
+
+    assert response.status_code == status.HTTP_409_CONFLICT
+    assert "changed by somebody else" in response.json()["detail"]

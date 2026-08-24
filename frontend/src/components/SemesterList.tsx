@@ -1,8 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CalendarDays } from "lucide-react";
+import { ArrowLeft, CalendarDays, Upload } from "lucide-react";
 import { useState } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { SemesterImport } from "@/components/SemesterImport";
+import { SemesterUpdate } from "@/components/SemesterUpdate";
 import {
   TimetableTerm,
   deleteTimetableTerm,
@@ -10,11 +12,20 @@ import {
   setTimetableTermPublished,
 } from "@/services/timetables";
 
-/** Every semester the student platform holds, and whether students can see it yet. */
-export function SemesterList() {
+/**
+ * Every semester the student platform holds, and whether students can see it yet.
+ *
+ * The two ways a semester gets its timetable both start here, because both are things you
+ * do *to* the list: importing one at the start of term, and updating one when the
+ * registrar re-issues the export. Each opens a screen of its own rather than crowding the
+ * table, since neither is an everyday action.
+ */
+export function SemesterList({ host }: { host: string | null }) {
   const queryClient = useQueryClient();
   const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms });
   const [pendingDelete, setPendingDelete] = useState<TimetableTerm | null>(null);
+  const [updating, setUpdating] = useState<TimetableTerm | null>(null);
+  const [importing, setImporting] = useState(false);
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["timetable-terms"] });
   const publishMutation = useMutation({
@@ -29,6 +40,20 @@ export function SemesterList() {
 
   const error = publishMutation.error?.message ?? deleteMutation.error?.message ?? null;
 
+  if (importing) {
+    return (
+      <section>
+        <BackLink onClick={() => setImporting(false)} />
+        <SemesterImport host={host} />
+      </section>
+    );
+  }
+
+  if (updating) {
+    const current = (terms.data ?? []).find((term) => term.id === updating.id) ?? updating;
+    return <SemesterUpdate term={current} onBack={() => setUpdating(null)} />;
+  }
+
   return (
     <>
       {error ? (
@@ -38,9 +63,19 @@ export function SemesterList() {
       ) : null}
 
             <section className="rounded-lg border border-[#d9dee7] bg-white">
-              <header className="flex items-center gap-2 border-b border-[#e4e8ef] px-6 py-4">
-                <CalendarDays size={18} className="text-[#1f4e79]" aria-hidden="true" />
-                <h2 className="text-base font-semibold text-[#171717]">Semesters on the student platform</h2>
+              <header className="flex flex-wrap items-center justify-between gap-3 border-b border-[#e4e8ef] px-6 py-4">
+                <div className="flex items-center gap-2">
+                  <CalendarDays size={18} className="text-[#1f4e79]" aria-hidden="true" />
+                  <h2 className="text-base font-semibold text-[#171717]">Semesters on the student platform</h2>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setImporting(true)}
+                  className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white hover:bg-[#183f63]"
+                >
+                  <Upload size={16} aria-hidden="true" />
+                  Import a semester
+                </button>
               </header>
 
               {terms.isLoading ? (
@@ -50,7 +85,9 @@ export function SemesterList() {
                   {(terms.error as Error).message}
                 </p>
               ) : (terms.data ?? []).length === 0 ? (
-                <p className="px-6 py-8 text-sm text-[#667085]">Nothing uploaded yet.</p>
+                <p className="px-6 py-8 text-sm text-[#667085]">
+                  Nothing uploaded yet. Import a semester to give students a timetable.
+                </p>
               ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full min-w-[46rem] text-left text-sm">
@@ -88,14 +125,23 @@ export function SemesterList() {
                               {term.isPublished ? "Published" : "Hidden"}
                             </button>
                           </td>
-                          <td className="px-6 py-4 text-right">
-                            <button
-                              type="button"
-                              onClick={() => setPendingDelete(term)}
-                              className="rounded-md border border-[#e5b7b9] bg-white px-3 py-2 text-sm font-semibold text-[#a6292f] hover:bg-[#fdf3f3]"
-                            >
-                              Delete
-                            </button>
+                          <td className="px-6 py-4">
+                            <div className="flex justify-end gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setUpdating(term)}
+                                className="rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc]"
+                              >
+                                Update timetable
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setPendingDelete(term)}
+                                className="rounded-md border border-[#e5b7b9] bg-white px-3 py-2 text-sm font-semibold text-[#a6292f] hover:bg-[#fdf3f3]"
+                              >
+                                Delete
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -121,5 +167,17 @@ export function SemesterList() {
         onClose={() => setPendingDelete(null)}
       />
     </>
+  );
+}
+
+function BackLink({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="mb-4 inline-flex items-center gap-1.5 text-sm font-semibold text-[#1f4e79] hover:underline"
+    >
+      <ArrowLeft size={16} aria-hidden="true" /> All semesters
+    </button>
   );
 }

@@ -16,9 +16,9 @@ describe("toolFromLocation", () => {
     expect(toolFromLocation("/", "#/requisition")).toBe("teachers");
   });
 
-  it("opens the timetable uploader from either route style", () => {
-    expect(toolFromLocation("/", "#/timetables")).toBe("timetables");
-    expect(toolFromLocation("/timetables", "")).toBe("timetables");
+  it("still opens a kept timetables link, now that those pages live in the student app", () => {
+    expect(toolFromLocation("/", "#/timetables")).toBe("database");
+    expect(toolFromLocation("/timetables", "")).toBe("database");
   });
 
   it("opens settings, which is reached from the user menu rather than the picker", () => {
