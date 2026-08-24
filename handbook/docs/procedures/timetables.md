@@ -56,7 +56,7 @@ confirmed opening dates:
 
 Students read the timetable from the SCEN Student Platform, so a change agreed with
 the timetabling office is not visible to them until it is uploaded. In **Coordinator
-Tools → Students and Time-tables → Semesters**, a semester carries an **Update
+Tools → Students and Timetables → Semesters**, a semester carries an **Update
 timetable** action:
 
 1. Upload the registrar's latest activity-list export.

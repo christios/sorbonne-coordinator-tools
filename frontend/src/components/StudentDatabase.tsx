@@ -23,8 +23,8 @@ const PAGES = [
   { id: "students", name: "Students", icon: Users, group: "Students" },
   { id: "cohorts", name: "Cohorts", icon: Layers, group: "Students" },
   { id: "groups", name: "Groups & CRNs", icon: ListTree, group: "Students" },
-  { id: "semesters", name: "Semesters", icon: CalendarDays, group: "Time-tables" },
-  { id: "announcements", name: "Announcements", icon: Megaphone, group: "Time-tables" },
+  { id: "semesters", name: "Semesters", icon: CalendarDays, group: "Timetables" },
+  { id: "announcements", name: "Announcements", icon: Megaphone, group: "Timetables" },
 ] as const;
 
 type PageId = (typeof PAGES)[number]["id"];
@@ -53,7 +53,7 @@ const TITLES: Record<PageId, { title: string; blurb?: string }> = {
 };
 
 /**
- * Students and their time-tables — one application, because they are one job.
+ * Students and their timetables — one application, because they are one job.
  *
  * It keeps student ids, the cohorts they belong to, and the groups those cohorts assign
  * them into; and it uploads and publishes the semester timetables students look up. It
@@ -95,8 +95,8 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
   return (
     <div className="flex min-h-0 flex-1">
       <SidePane
-        label="Students and time-tables pages"
-        heading="Students and time-tables"
+        label="Students and timetables pages"
+        heading="Students and timetables"
         items={PAGES.map(({ id, name, icon, group }) => ({ id, name, icon, group }))}
         activeId={page}
         onSelect={(id) => setPage(id as PageId)}

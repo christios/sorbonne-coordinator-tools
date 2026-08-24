@@ -194,13 +194,13 @@ describe("the account menu", () => {
   });
 });
 
-describe("students and their time-tables in one place", () => {
+describe("students and their timetables in one place", () => {
   /** The pages are reached from the side pane, exactly as a coordinator reaches them. */
   const open = async (name: RegExp) => fireEvent.click(await screen.findByRole("button", { name }));
 
   it("offers the roster pages and the timetable pages in one pane", async () => {
     renderApp();
-    const pane = await screen.findByRole("complementary", { name: /students and time-tables/i });
+    const pane = await screen.findByRole("complementary", { name: /students and timetables/i });
 
     for (const name of ["Students", "Cohorts", "Groups & CRNs", "Semesters", "Announcements"]) {
       expect(within(pane).getByRole("button", { name })).toBeTruthy();

@@ -28,7 +28,7 @@ export const COORDINATOR_APPS: CoordinatorApp[] = [
   },
   {
     id: "database",
-    name: "Students and Time-tables",
+    name: "Students and Timetables",
     description:
       "The student roster and the cohorts, groups and CRNs they are taught in, and the semester timetables students see.",
     icon: Users,
