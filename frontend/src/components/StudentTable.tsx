@@ -113,10 +113,13 @@ export const StudentTable = memo(function StudentTable({
                 onChange={onToggleAll}
               />
             </th>
-            {columns.map((column) => (
+            {columns.map((column, index) => (
               <HeaderCell
                 key={column.id}
                 column={column}
+                // Dropping on the right half means "after me", which is "before whoever
+                // comes next" — and nothing, at the end.
+                nextId={columns[index + 1]?.id ?? ""}
                 width={widthOf(layout, column)}
                 sort={sort}
                 onSort={onSort}
@@ -269,6 +272,7 @@ function HeaderCell({
   onDragging,
   onReorder,
   copy,
+  nextId,
 }: {
   column: StudentColumn;
   width: number;
@@ -279,31 +283,60 @@ function HeaderCell({
   onDragging: (id: string) => void;
   onReorder: (id: string, beforeId: string) => void;
   copy: () => string;
+  nextId: string;
 }) {
   const active = sort.key === column.id;
-  const [over, setOver] = useState(false);
+  /*
+   * Which edge the column would land on, or "" when it is not over this one.
+   *
+   * Tinting the whole header said only "something is happening here"; it did not say
+   * whether the column would end up to the left or the right of it, which is the only
+   * thing a person dragging actually wants to know.
+   */
+  const [edge, setEdge] = useState<"" | "left" | "right">("");
+  const cell = useRef<HTMLTableCellElement>(null);
+  const lifted = dragging === column.id;
+
+  const sideOf = (event: React.DragEvent) => {
+    const box = event.currentTarget.getBoundingClientRect();
+    // No geometry to read — a headless renderer, or a drop event carrying no position.
+    // "Before the column you dropped on" is the older, unsurprising answer.
+    if (!box.width) return "left";
+    return event.clientX < box.left + box.width / 2 ? "left" : "right";
+  };
 
   return (
     <th
+      ref={cell}
       scope="col"
       className={`group relative border-r border-[#e4e8ee] bg-white px-4 py-3 font-semibold last:border-r-0 ${
-        over && dragging && dragging !== column.id ? "bg-[#e8edf3]" : ""
-      } ${dragging === column.id ? "opacity-50" : ""}`}
+        lifted ? "opacity-40" : ""
+      }`}
       style={{ width }}
       onDragOver={(event) => {
-        if (!dragging || dragging === column.id) return;
+        if (!dragging || lifted) return;
         // Without this the drop is refused and the cursor shows the "no" sign.
         event.preventDefault();
-        setOver(true);
+        setEdge(sideOf(event));
       }}
-      onDragLeave={() => setOver(false)}
+      onDragLeave={() => setEdge("")}
       onDrop={(event) => {
         event.preventDefault();
-        setOver(false);
-        if (dragging && dragging !== column.id) onReorder(dragging, column.id);
+        const side = sideOf(event);
+        setEdge("");
+        if (dragging && !lifted) onReorder(dragging, side === "left" ? column.id : nextId);
         onDragging("");
       }}
     >
+      {/* Where it will land: a line on the edge it would be dropped against. */}
+      {edge && dragging && !lifted ? (
+        <span
+          aria-hidden="true"
+          className={`pointer-events-none absolute inset-y-0 z-20 w-0.5 bg-[#1f4e79] ${
+            edge === "left" ? "left-0" : "right-0"
+          }`}
+        />
+      ) : null}
       <span className="flex items-center gap-1">
         <span
           draggable
@@ -315,9 +348,11 @@ function HeaderCell({
             event.dataTransfer.effectAllowed = "move";
             // Firefox starts no drag at all unless something is set here.
             event.dataTransfer.setData("text/plain", column.id);
+            // Drag the whole header, not the grip: what moves should look like what moves.
+            if (cell.current) event.dataTransfer.setDragImage(cell.current, 24, 18);
           }}
           onDragEnd={() => onDragging("")}
-          className="cursor-grab text-[#cbd5e1] opacity-0 transition-opacity group-hover:opacity-100"
+          className="cursor-grab text-[#cbd5e1] opacity-40 transition-opacity hover:text-[#667085] group-hover:opacity-100"
         >
           <GripVertical size={12} aria-hidden="true" />
         </span>

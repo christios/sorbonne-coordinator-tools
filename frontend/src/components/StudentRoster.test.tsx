@@ -363,6 +363,26 @@ describe("StudentRoster", () => {
       expect(after[1]).toContain("Cohort");
     });
 
+    it("drops a column after the one it was dragged past the middle of", async () => {
+      renderRoster();
+      await screen.findByText("A001");
+
+      const handle = screen.getByRole("button", { name: "Drag Cohort to reorder" });
+      const target = screen.getByRole("columnheader", { name: /Status/ });
+      // jsdom measures nothing, so the header is given a width to have a middle.
+      target.getBoundingClientRect = () => ({ left: 0, width: 100, right: 100, top: 0, bottom: 40, height: 40, x: 0, y: 0, toJSON: () => ({}) });
+      const transfer = { effectAllowed: "", setData: () => {}, getData: () => "", setDragImage: () => {} };
+
+      fireEvent.dragStart(handle, { dataTransfer: transfer });
+      fireEvent.dragOver(target, { dataTransfer: transfer, clientX: 80 });
+      fireEvent.drop(target, { dataTransfer: transfer, clientX: 80 });
+
+      // Dropped on Status's right half, so it lands after Status rather than before it.
+      const after = screen.getAllByRole("columnheader").map((cell) => cell.textContent ?? "");
+      expect(after[1]).toContain("Status");
+      expect(after[2]).toContain("Cohort");
+    });
+
     it("resizes a column from the keyboard, and remembers the width", async () => {
       const { unmount } = renderRoster();
       await screen.findByText("A001");
