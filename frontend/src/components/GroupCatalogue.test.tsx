@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { GroupCatalogue } from "@/components/GroupCatalogue";
@@ -264,5 +264,22 @@ describe("the term-start load of who is in which group", () => {
     fireEvent.change(input as HTMLInputElement, { target: { files: [new File(["x"], "w.xlsx")] } });
 
     expect(await screen.findByText(/2 id\(s\) in the workbook are not students/)).toBeTruthy();
+  });
+});
+
+describe("adding a block", () => {
+  it("gives it the semester the page is showing, or it would vanish on save", async () => {
+    // Blocks are per semester. One added without one is filtered straight back out, so the
+    // coordinator types a code, presses Add, and watches nothing happen.
+    const create = vi.spyOn(database, "addScope").mockResolvedValue({ id: "scope-new" });
+    renderCatalogue("term-1");
+    await screen.findByLabelText(/CRN for TD group 5, MATH001/);
+
+    const form = screen.getByPlaceholderText(/TD, CM/).closest("form") as HTMLFormElement;
+    fireEvent.change(screen.getByPlaceholderText(/TD, CM/), { target: { value: "LANG" } });
+    fireEvent.click(within(form).getByRole("button", { name: /Add/ }));
+
+    await waitFor(() => expect(create).toHaveBeenCalled());
+    expect(create).toHaveBeenCalledWith("cohort-1", { code: "LANG", termId: "term-1" });
   });
 });

@@ -144,9 +144,15 @@ export function importReferenceWorkbook(cohortId: string, file: File): Promise<I
 
 export function addScope(
   cohortId: string,
-  input: { code: string; name?: string; note?: string },
+  input: { code: string; name?: string; note?: string; termId?: string },
 ): Promise<{ id: string }> {
-  return send<{ id: string }>(`${BASE}/cohorts/${cohortId}/scopes`, "POST", { name: "", note: "", ...input });
+  // The semester matters: a block added without one is invisible to the page that made it.
+  return send<{ id: string }>(`${BASE}/cohorts/${cohortId}/scopes`, "POST", {
+    name: "",
+    note: "",
+    termId: "",
+    ...input,
+  });
 }
 
 export function updateScope(

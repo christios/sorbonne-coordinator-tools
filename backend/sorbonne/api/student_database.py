@@ -83,6 +83,9 @@ class ScopeInput(BaseModel):
     code: str = Field(min_length=1, max_length=40)
     name: str = Field(default="", max_length=160)
     note: str = Field(default="", max_length=400)
+    # Which semester the block belongs to. Blank means "not said yet", which is what the
+    # rows migrated from before blocks had semesters carry.
+    term_id: str = Field(default="", alias="termId", max_length=80)
 
 
 class CourseInput(BaseModel):
@@ -285,7 +288,11 @@ async def add_scope(
     cohort_id: str, body: ScopeInput, database: StudentDatabase = Depends(get_database)
 ) -> dict[str, str]:
     try:
-        return {"id": database.add_scope(cohort_id, code=body.code, name=body.name, note=body.note)}
+        return {
+            "id": database.add_scope(
+                cohort_id, code=body.code, name=body.name, note=body.note, term_id=body.term_id
+            )
+        }
     except CohortNotFound as exc:
         raise _missing(exc, "cohort") from exc
     except DuplicateLabel as exc:

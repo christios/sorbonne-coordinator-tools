@@ -68,7 +68,7 @@ export function GroupCatalogue({ cohort, termId = "" }: { cohort: Cohort; termId
     },
   });
   const createScope = useMutation({
-    mutationFn: (code: string) => addScope(cohort.id, { code }),
+    mutationFn: (code: string) => addScope(cohort.id, { code, termId }),
     onSuccess: refresh,
   });
   const removeScope = useMutation({ mutationFn: deleteScope, onSuccess: refresh });
