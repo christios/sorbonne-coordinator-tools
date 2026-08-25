@@ -143,6 +143,24 @@ describe("GroupCatalogue", () => {
     await waitFor(() => expect(cell().value).toBe("24000"));
   });
 
+  it("sends the semester with the workbook, or the blocks land beside the ones already there", async () => {
+    const upload = vi.spyOn(database, "importReferenceWorkbook").mockResolvedValue({
+      filename: "FYS.xlsx",
+      sheet: "Reference",
+      style: "cohort",
+      read: { scopes: 1, groups: 2, crns: 6 },
+      added: { scopes: 0, courses: 0, groups: 0, crns: 6 },
+    });
+    renderCatalogue("term-1");
+    await screen.findByLabelText(/CRN for TD group 5, MATH001/);
+
+    const input = screen.getByText(/^Upload groups$/).closest("label")?.querySelector("input");
+    fireEvent.change(input as HTMLInputElement, { target: { files: [new File(["x"], "FYS.xlsx")] } });
+
+    await waitFor(() => expect(upload).toHaveBeenCalled());
+    expect(upload).toHaveBeenCalledWith("cohort-1", "term-1", expect.any(File));
+  });
+
   it("reports what a workbook upload read", async () => {
     vi.spyOn(database, "importReferenceWorkbook").mockResolvedValue({
       filename: "FYS.xlsx",
@@ -232,9 +250,12 @@ describe("the term-start load of who is in which group", () => {
     renderCatalogue();
     await screen.findByLabelText(/CRN for TD group 5, MATH001/);
 
-    const input = screen.getByText(/Upload student groups/).closest("label")?.querySelector("input");
-    expect((input as HTMLInputElement).disabled).toBe(true);
-    expect(screen.getByText(/Choose a semester first/)).toBeTruthy();
+    const students = screen.getByText(/Upload student groups/).closest("label")?.querySelector("input");
+    const groups = screen.getByText(/^Upload groups$/).closest("label")?.querySelector("input");
+    // Both uploads create blocks, and a block without a semester is invisible to this page.
+    expect((students as HTMLInputElement).disabled).toBe(true);
+    expect((groups as HTMLInputElement).disabled).toBe(true);
+    expect(screen.getAllByText(/Choose a semester first/).length).toBe(2);
   });
 
   it("says how many placements it made", async () => {

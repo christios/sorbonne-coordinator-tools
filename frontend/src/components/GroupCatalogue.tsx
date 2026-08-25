@@ -53,7 +53,7 @@ export function GroupCatalogue({ cohort, termId = "" }: { cohort: Cohort; termId
   const refresh = () => client.invalidateQueries({ queryKey: ["catalogue", cohort.id, termId] });
 
   const importWorkbook = useMutation({
-    mutationFn: (file: File) => importReferenceWorkbook(cohort.id, file),
+    mutationFn: (file: File) => importReferenceWorkbook(cohort.id, termId, file),
     onSuccess: (result) => {
       setReport(result);
       refresh();
@@ -98,11 +98,18 @@ export function GroupCatalogue({ cohort, termId = "" }: { cohort: Cohort; termId
             <h3 className="text-base font-semibold text-[#171717]">Fill this from a workbook</h3>
             <p className="mt-1 text-sm leading-6 text-[#667085]">
               Upload a group-assignment workbook and its Reference sheet becomes the blocks, groups
-              and CRNs below. Re-uploading a corrected workbook updates the CRNs in place and leaves
-              anything added here alone.
+              and CRNs below, for the semester chosen above. Re-uploading a corrected workbook updates
+              the CRNs in place and leaves anything added here alone.
+              {termId ? "" : " Choose a semester first."}
             </p>
           </div>
-          <label className="inline-flex shrink-0 cursor-pointer items-center gap-2 rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white hover:bg-[#183f63]">
+          <label
+            className={`inline-flex shrink-0 items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold ${
+              termId
+                ? "cursor-pointer bg-[#1f4e79] text-white hover:bg-[#183f63]"
+                : "cursor-not-allowed bg-[#e4e8ef] text-[#98a2b3]"
+            }`}
+          >
             {importWorkbook.isPending ? (
               <Loader2 size={16} className="animate-spin" aria-hidden="true" />
             ) : (
@@ -113,6 +120,7 @@ export function GroupCatalogue({ cohort, termId = "" }: { cohort: Cohort; termId
               type="file"
               accept=".xlsx"
               className="sr-only"
+              disabled={!termId}
               onChange={(event) => {
                 const file = event.target.files?.[0];
                 event.target.value = "";

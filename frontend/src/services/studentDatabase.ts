@@ -136,8 +136,14 @@ export function importAssignmentWorkbook(
   });
 }
 
-export function importReferenceWorkbook(cohortId: string, file: File): Promise<ImportReport> {
+export function importReferenceWorkbook(
+  cohortId: string,
+  termId: string,
+  file: File,
+): Promise<ImportReport> {
+  // Without the semester the blocks land beside the existing ones instead of merging in.
   const body = new FormData();
+  body.set("term_id", termId);
   body.set("workbook", file);
   return request<ImportReport>(`${BASE}/cohorts/${cohortId}/catalogue/import`, { method: "POST", body });
 }
