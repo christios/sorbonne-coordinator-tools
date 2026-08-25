@@ -136,6 +136,14 @@ export function importAssignmentWorkbook(
   });
 }
 
+/** Who is in which group, as `{student id: {scope id: group id}}`. */
+export async function fetchAssignments(cohortId: string): Promise<Record<string, Record<string, string>>> {
+  const payload = await request<{ assignments: Record<string, Record<string, string>> }>(
+    `${BASE}/cohorts/${cohortId}/assignments`,
+  );
+  return payload.assignments;
+}
+
 export function importReferenceWorkbook(
   cohortId: string,
   termId: string,

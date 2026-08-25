@@ -1,13 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Check, CheckCircle2, Loader2, Plus, Trash2, Upload, Users } from "lucide-react";
+import { AlertTriangle, Check, CheckCircle2, Download, Loader2, Plus, Trash2, Upload, Users } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { type CrnVerdict, fetchPublication } from "@/services/publication";
 import { verdictFor } from "@/services/publicationView";
+import { namesHeld } from "@/services/rosterStore";
+import { downloadWorkbook, prefixOf } from "@/services/workbookExport";
 import {
   type AssignmentReport,
+  fetchAssignments,
   importAssignmentWorkbook,
   addCourse,
   addGroup,
@@ -48,6 +51,7 @@ export function GroupCatalogue({ cohort, termId = "" }: { cohort: Cohort; termId
   });
   const [report, setReport] = useState<ImportReport | null>(null);
   const [assignments, setAssignments] = useState<AssignmentReport | null>(null);
+  const [exporting, setExporting] = useState(false);
   const [pendingScope, setPendingScope] = useState<CatalogueScope | null>(null);
 
   const refresh = () => client.invalidateQueries({ queryKey: ["catalogue", cohort.id, termId] });
@@ -72,6 +76,55 @@ export function GroupCatalogue({ cohort, termId = "" }: { cohort: Cohort; termId
     onSuccess: refresh,
   });
   const removeScope = useMutation({ mutationFn: deleteScope, onSuccess: refresh });
+
+  /**
+   * Write the semester back out as the workbook it came from.
+   *
+   * Assembled here rather than on the server because it carries names, and names live in
+   * this browser only. Everything else it needs is already on screen.
+   */
+  const exportWorkbook = async () => {
+    setExporting(true);
+    try {
+      const held = namesHeld();
+      const placements = await fetchAssignments(cohort.id);
+      const byScope = new Map(scopes.map((scope) => [scope.id, scope.code]));
+      const labelOf = new Map(
+        scopes.flatMap((scope) => scope.groups.map((group) => [group.id, group.label] as const)),
+      );
+
+      const students = Object.entries(placements)
+        .map(([studentId, byScopeId]) => ({
+          studentId,
+          name: held[studentId] ?? "",
+          groups: Object.fromEntries(
+            Object.entries(byScopeId).flatMap(([scopeId, groupId]) => {
+              const code = byScope.get(scopeId);
+              const label = labelOf.get(groupId);
+              return code && label ? [[code, label] as const] : [];
+            }),
+          ),
+        }))
+        .sort((left, right) => left.studentId.localeCompare(right.studentId));
+
+      await downloadWorkbook(
+        {
+          cohortName: cohort.name,
+          prefix: prefixOf(cohort.name),
+          blocks: scopes.map((scope) => ({
+            code: scope.code,
+            name: scope.name,
+            courses: scope.courses,
+            groups: scope.groups,
+          })),
+          students,
+        },
+        `${cohort.name.replace(/[^A-Za-z0-9]+/g, "-")}-groups.xlsx`,
+      );
+    } finally {
+      setExporting(false);
+    }
+  };
 
   if (catalogue.isLoading) return <ScreenLoading label="Loading the groups…" />;
   if (catalogue.error) {
@@ -128,6 +181,29 @@ export function GroupCatalogue({ cohort, termId = "" }: { cohort: Cohort; termId
               }}
             />
           </label>
+        </div>
+
+        <div className="mt-4 flex flex-wrap items-start justify-between gap-3 border-t border-[#eef1f5] pt-4">
+          <div>
+            <h3 className="text-base font-semibold text-[#171717]">Take it back out</h3>
+            <p className="mt-1 max-w-2xl text-sm leading-6 text-[#667085]">
+              Download this semester as the same workbook, ready to edit and upload again. Student
+              names come from this browser&rsquo;s last portal pull, because they are held nowhere else.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={exportWorkbook}
+            disabled={exporting || scopes.length === 0}
+            className="inline-flex shrink-0 items-center gap-2 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc] disabled:opacity-50"
+          >
+            {exporting ? (
+              <Loader2 size={16} className="animate-spin" aria-hidden="true" />
+            ) : (
+              <Download size={16} aria-hidden="true" />
+            )}
+            {exporting ? "Building…" : "Export workbook"}
+          </button>
         </div>
 
         <div className="mt-4 flex flex-wrap items-start justify-between gap-3 border-t border-[#eef1f5] pt-4">
