@@ -338,6 +338,7 @@ async def preview_workbook(
         held = database.catalogue_for_diff(cohort_id, term_id)
         groups = database.group_ids_by_label(cohort_id, term_id)
         assigned = database.assignments_of(cohort_id)
+        known_students = database.student_ids_of(cohort_id)
     except CohortNotFound as exc:
         raise _missing(exc, "cohort") from exc
 
@@ -353,7 +354,9 @@ async def preview_workbook(
                 held_placements.setdefault(student, {})[code] = _label_of(groups, code, group_id)
 
     blocks = diff_reference(held=held, incoming=reference)
-    placement_diff = diff_assignments(held=held_placements, incoming=placements, groups=groups)
+    placement_diff = diff_assignments(
+        held=held_placements, incoming=placements, groups=groups, known_students=known_students
+    )
     return {
         "filename": workbook.filename or "",
         "sheet": reference.sheet,

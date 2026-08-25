@@ -151,6 +151,11 @@ def test_a_corrected_crn_shows_both_values_and_is_not_applied_until_ticked(
     still = database.catalogue_for_diff(cohort["id"], TERM)["CM"]["groups"][group["label"]]
     assert still["crns"][course_code] == "99999"
 
+    # Ticked, the workbook's value lands — the whole value, not an empty cell.
+    apply(client, cohort["id"], changed)
+    landed = database.catalogue_for_diff(cohort["id"], TERM)["CM"]["groups"][group["label"]]
+    assert landed["crns"][course_code] == original
+
 
 def test_approving_nothing_is_refused(client: TestClient, database, content):
     cohort = database.create_cohort(name="Foundation Year")
@@ -176,9 +181,9 @@ def seed_students(database: StudentDatabase, cohort_id: str, ids: list[str]) -> 
 def test_placements_are_offered_once_the_blocks_they_need_exist(client: TestClient, database, content):
     cohort = database.create_cohort(name="Foundation Year")
     first = preview(client, cohort["id"], content).json()
-    # No blocks yet, so the workbook's groups cannot be matched.
+    # Nobody is in the cohort yet, so there is nobody the workbook could be placing.
     assert first["placements"]["summary"]["decisions"] == 0
-    assert first["placements"]["unknownGroups"]
+    assert first["placements"]["unknownStudents"]
 
     apply(client, cohort["id"], rows_of(first))
     seed_students(database, cohort["id"], ["A00021503", "A00021506"])
@@ -227,3 +232,17 @@ def test_a_student_the_workbook_would_move_says_where_from(client: TestClient, d
     )
     assert moved["status"] == "moved"
     assert moved["before"]
+
+
+def test_the_workbook_cannot_place_somebody_the_cohort_does_not_hold(client, database, content):
+    """Only two of the workbook's students are in this cohort, so only two are offered."""
+    cohort = database.create_cohort(name="Foundation Year")
+    first = preview(client, cohort["id"], content).json()
+    apply(client, cohort["id"], rows_of(first))
+    seed_students(database, cohort["id"], ["A00021503", "A00021506"])
+
+    payload = preview(client, cohort["id"], content).json()["placements"]
+
+    assert {row["studentId"] for row in payload["rows"]} == {"A00021503", "A00021506"}
+    assert payload["summary"]["unknownStudents"] > 0
+    assert "A00021503" not in payload["unknownStudents"]

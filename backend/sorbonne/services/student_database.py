@@ -713,6 +713,16 @@ class StudentDatabase:
         report["unknownGroups"] = sorted(set(report["unknownGroups"]))
         return report
 
+    def student_ids_of(self, cohort_id: str) -> set[str]:
+        """Who this cohort holds. The roster is the registrar's, never a spreadsheet's."""
+        with self.engine.connect() as connection:
+            return {
+                row[0]
+                for row in connection.execute(
+                    text("SELECT student_id FROM students WHERE cohort_id = :id"), {"id": cohort_id}
+                )
+            }
+
     def assignments_of(self, cohort_id: str) -> dict[str, dict[str, str]]:
         """`student id -> {scope id: group id}` for one cohort, for the screens."""
         with self.engine.connect() as connection:

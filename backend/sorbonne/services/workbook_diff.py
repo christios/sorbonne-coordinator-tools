@@ -102,6 +102,11 @@ def diff_reference(*, held: Catalogue, incoming) -> list[dict[str, Any]]:
                         "scopeCode": scope.code,
                         "groupLabel": group.label,
                         "courseCode": course_code,
+                        # The value to write, under the name `apply` reads it by. `after` is
+                        # what the screen shows; this is what the row *does*, and a row that
+                        # shows one thing and does another is the failure this file exists
+                        # to prevent.
+                        "crn": crn,
                         "teacher": teacher,
                     }
                 )
@@ -120,19 +125,32 @@ def diff_reference(*, held: Catalogue, incoming) -> list[dict[str, Any]]:
 
 
 def diff_assignments(
-    *, held: dict[str, dict[str, str]], incoming: dict[str, dict[str, str]], groups: dict[str, dict[str, str]]
+    *,
+    held: dict[str, dict[str, str]],
+    incoming: dict[str, dict[str, str]],
+    groups: dict[str, dict[str, str]],
+    known_students: set[str],
 ) -> dict[str, Any]:
     """What the student sheets would do to who is in which group.
 
     `held` is `{student: {scope code: group label}}` as it stands, `incoming` the same from
     the workbook, and `groups` is `{scope code: {group label upper: group id}}` so a label
     the catalogue does not have can be named rather than skipped in silence.
+
+    `known_students` is who the cohort actually holds. The roster comes from the registrar,
+    never from a spreadsheet, so an id this application does not know is reported rather
+    than offered: placing it would write an assignment for somebody who does not exist here,
+    and nothing downstream would ever notice.
     """
     rows: list[dict[str, Any]] = []
     unchanged = 0
     unknown_groups: set[str] = set()
+    unknown_students: set[str] = set()
 
     for student in sorted(incoming):
+        if student not in known_students:
+            unknown_students.add(student)
+            continue
         for scope_code, label in sorted(incoming[student].items()):
             available = groups.get(scope_code.upper(), {})
             group_id = available.get(label.upper())
@@ -163,6 +181,7 @@ def diff_assignments(
         "rows": rows,
         "unchanged": unchanged,
         "unknownGroups": sorted(unknown_groups),
+        "unknownStudents": sorted(unknown_students),
     }
 
 
@@ -185,5 +204,6 @@ def summarize_assignments(report: dict[str, Any]) -> dict[str, int]:
         "moved": len([row for row in report["rows"] if row["status"] == "moved"]),
         "unchanged": report["unchanged"],
         "unknownGroups": len(report["unknownGroups"]),
+        "unknownStudents": len(report["unknownStudents"]),
         "decisions": len(report["rows"]),
     }
