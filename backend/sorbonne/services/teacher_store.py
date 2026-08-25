@@ -9,6 +9,7 @@ from uuid import uuid4
 from sqlalchemy import Engine, create_engine, text
 from sqlalchemy.exc import IntegrityError
 
+
 class TeacherNotFound(Exception):
     pass
 
@@ -40,7 +41,13 @@ class TeacherStore:
         self.engine: Engine = create_engine(database_url, pool_pre_ping=True)
 
     def create_teacher(
-        self, *, full_name: str, email: str | None = None, phone: str | None = None, notes: str = ""
+        self,
+        *,
+        full_name: str,
+        email: str | None = None,
+        phone: str | None = None,
+        notes: str = "",
+        task_template_ids: list[str] | None = None,
     ) -> dict[str, Any]:
         now = _timestamp()
         teacher = {
@@ -67,7 +74,44 @@ class TeacherStore:
                 ),
                 _teacher_params(teacher),
             )
+            self._create_template_tasks(connection, teacher["id"], task_template_ids or [], now)
         return teacher
+
+    @staticmethod
+    def _create_template_tasks(connection: Any, teacher_id: str, template_ids: list[str], now: str) -> None:
+        if not template_ids:
+            return
+        distinct_ids = list(dict.fromkeys(template_ids))
+        rows = (
+            connection.execute(
+                text("""SELECT items.id, items.template_id, items.title FROM task_template_items AS items
+                     JOIN task_templates AS templates ON templates.id = items.template_id
+                     WHERE templates.resource_type = 'teacher' AND items.template_id = ANY(:template_ids)
+                     ORDER BY items.template_id, items.position"""),
+                {"template_ids": distinct_ids},
+            )
+            .mappings()
+            .all()
+        )
+        if not rows or len({row["template_id"] for row in rows}) < len(distinct_ids):
+            raise ValueError("One or more selected task templates are not available for teachers.")
+        for item in rows:
+            connection.execute(
+                text("""INSERT INTO tasks (
+                             id, resource_type, resource_id, template_item_id, title, due_date,
+                             status, completed_at, revision, created_at, updated_at
+                         ) VALUES (
+                             :id, 'teacher', :resource_id, :template_item_id, :title, NULL,
+                             'NOT_STARTED', NULL, 1, :now, :now
+                         )"""),
+                {
+                    "id": str(uuid4()),
+                    "resource_id": teacher_id,
+                    "template_item_id": item["id"],
+                    "title": item["title"],
+                    "now": now,
+                },
+            )
 
     def list_teachers(self, *, include_archived: bool = False) -> list[dict[str, Any]]:
         where = "" if include_archived else "WHERE archived_at IS NULL"
@@ -114,17 +158,21 @@ class TeacherStore:
         if not normalized_email:
             return []
         with self.engine.connect() as connection:
-            rows = connection.execute(
-                text(
-                    """
+            rows = (
+                connection.execute(
+                    text(
+                        """
                     SELECT id, folder_id, full_name, email, phone, notes, archived_at, created_at, updated_at
                     FROM part_time_teachers
                     WHERE archived_at IS NULL AND LOWER(email) = :email
                     ORDER BY created_at ASC
                     """
-                ),
-                {"email": normalized_email},
-            ).mappings().all()
+                    ),
+                    {"email": normalized_email},
+                )
+                .mappings()
+                .all()
+            )
         return [_teacher_from_row(row) for row in rows]
 
     def update_teacher(self, teacher_id: str, *, full_name: str, email: str, phone: str, notes: str) -> dict[str, Any]:
@@ -355,16 +403,20 @@ class TeacherStore:
         now = _timestamp()
         imported = retained = obsoleted = 0
         with self.engine.begin() as connection:
-            active_rows = connection.execute(
-                text(
-                    """
+            active_rows = (
+                connection.execute(
+                    text(
+                        """
                     SELECT id, crn, term, course_code, course_title, sequence, credit,
                            department, level, college, contact_hours, is_obsolete, imported_at, obsolete_at
                     FROM course_catalogue_entries
                     WHERE is_obsolete = FALSE
                     """
+                    )
                 )
-            ).mappings().all()
+                .mappings()
+                .all()
+            )
             active_by_crn = {row["crn"]: row for row in active_rows}
 
             for record in catalogue_rows:
@@ -435,18 +487,22 @@ class TeacherStore:
             params["query"] = f"%{query.strip()}%"
         where = f"WHERE {' AND '.join(filters)}" if filters else ""
         with self.engine.connect() as connection:
-            rows = connection.execute(
-                text(
-                    f"""
+            rows = (
+                connection.execute(
+                    text(
+                        f"""
                     SELECT id, crn, term, course_code, course_title, sequence, credit,
                            department, level, college, contact_hours, is_obsolete, imported_at, obsolete_at
                     FROM course_catalogue_entries
                     {where}
                     ORDER BY is_obsolete ASC, course_title ASC, course_code ASC, crn ASC
                     """
-                ),
-                params,
-            ).mappings().all()  # noqa: S608
+                    ),
+                    params,
+                )
+                .mappings()
+                .all()
+            )  # noqa: S608
         return [_catalogue_from_row(row) for row in rows]
 
     def _folder_exists(self, folder_id: str) -> bool:

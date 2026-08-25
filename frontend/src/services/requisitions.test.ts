@@ -28,6 +28,7 @@ describe("missingRequisitionFields", () => {
       "Course 1 number",
       "Course 1 level",
       "Course 1 hours",
+      "Course 1 class type",
     ]);
   });
 });
@@ -62,7 +63,7 @@ describe("lastIncompleteRequisitionStep", () => {
         employeeType: "PT",
         contractFrom: "2026-09-01",
         contractTo: "2026-12-20",
-        courses: [{ id: "course-1", title: "Physics", subjectCode: "PHY", courseNumber: "101", level: "L1", hours: "24" }],
+        courses: [{ id: "course-1", title: "Physics", subjectCode: "PHY", courseNumber: "101", level: "L1", hours: "24", classType: "TD" }],
       },
     })).toEqual({ section: "details", focusTarget: "academic-year" });
   });

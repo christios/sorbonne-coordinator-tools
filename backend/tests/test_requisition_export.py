@@ -88,6 +88,29 @@ def test_writes_one_course_row_per_course_with_the_level_control(tmp_path) -> No
     assert identifiers != [element.get(qn("w:val")) for element in courses.rows[2]._tr.iter(qn("w:id"))]
 
 
+def test_appends_a_course_specific_class_type_to_numeric_hours(tmp_path) -> None:
+    output = tmp_path / "course-class-type.docx"
+    build_requisition_docx(
+        _requisition(
+            content={
+                "courses": [
+                    {
+                        "subjectCode": "PHY",
+                        "courseNumber": "101",
+                        "level": "L1",
+                        "title": "Mechanics",
+                        "hours": "15",
+                        "classType": "TD",
+                    }
+                ]
+            }
+        ),
+        output,
+    )
+
+    assert Document(output).tables[1].rows[1].cells[3].text == "15 TD"
+
+
 def test_ticks_the_employee_type_matching_the_requisition(tmp_path) -> None:
     part_time = tmp_path / "part-time.docx"
     full_time = tmp_path / "full-time.docx"

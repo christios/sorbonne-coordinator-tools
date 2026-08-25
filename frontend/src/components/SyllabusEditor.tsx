@@ -11,7 +11,13 @@ import {
   X,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
-import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  type ReactNode,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 
 import {
   downloadSyllabusExport,
@@ -26,6 +32,7 @@ import { AcademicContactsEditor } from "@/components/AcademicContactsEditor";
 import { CourseIdentificationEditor } from "@/components/CourseIdentificationEditor";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { DateField } from "@/components/DateField";
+import { FieldInfoProvider } from "@/components/FieldInfo";
 import { HistoryTextField } from "@/components/HistoryTextField";
 import {
   FieldHistoryControl,
@@ -39,7 +46,10 @@ import { AssessmentTabs } from "@/components/AssessmentTabs";
 import { AddEntryButton } from "@/components/AddEntryButton";
 import { SectionEditorShell } from "@/components/SectionEditorShell";
 import { SyllabusSubsection } from "@/components/SyllabusSubsection";
-import { saveFailureState, type SyllabusSaveState } from "@/components/syllabusSaveState";
+import {
+  saveFailureState,
+  type SyllabusSaveState,
+} from "@/components/syllabusSaveState";
 import {
   BibliographyEditor,
   PloEditor,
@@ -49,7 +59,10 @@ import {
   ploDisplayLabel,
   ploEntries,
 } from "@/services/syllabusContent";
-import { CatalogueEntry, listCatalogueEntries } from "@/services/syllabusCatalogues";
+import {
+  CatalogueEntry,
+  listCatalogueEntries,
+} from "@/services/syllabusCatalogues";
 
 const GRADE_EQUIVALENCE_TEXT =
   "Sorbonne University Abu Dhabi uses the French grading system, with marks ranging from 0 to 20. The University Student Handbook provides the applicable grade-equivalence guidance. This institutional reference is displayed here and cannot be edited in an individual course syllabus.";
@@ -134,7 +147,11 @@ export function SyllabusEditor({
             // Keep a later local edit, but rebase it on the revision we just
             // saved. The effect will then persist it in a separate request.
             setDraft((current) => {
-              const rebased = { ...current, revision: saved.revision, updatedAt: saved.updatedAt };
+              const rebased = {
+                ...current,
+                revision: saved.revision,
+                updatedAt: saved.updatedAt,
+              };
               draftRef.current = rebased;
               return rebased;
             });
@@ -148,7 +165,11 @@ export function SyllabusEditor({
           const failure = saveFailureState(error);
           saveConflict.current = failure === "conflict";
           setSaveState(failure);
-          setSaveError(error instanceof Error ? error.message : "Save failed. Please try again.");
+          setSaveError(
+            error instanceof Error
+              ? error.message
+              : "Save failed. Please try again.",
+          );
         }
       } finally {
         saveInFlight.current = false;
@@ -207,7 +228,11 @@ export function SyllabusEditor({
       onSaved(latest);
     } catch (error) {
       setSaveState("error");
-      setSaveError(error instanceof Error ? error.message : "Could not reload the latest syllabus.");
+      setSaveError(
+        error instanceof Error
+          ? error.message
+          : "Could not reload the latest syllabus.",
+      );
     }
   }
   function editContent(section: string, value: unknown) {
@@ -251,93 +276,100 @@ export function SyllabusEditor({
   }
 
   return (
-    <FieldHistoryProvider
-      enabled
-      source={{
-        resourceType: "syllabus",
-        resourceId: draft.id,
-        revision: draft.revision,
-        loadHistory: (fieldPath) => getFieldHistory(draft.id, fieldPath),
-      }}
+    <FieldInfoProvider
+      source={{ resourceType: "syllabus", resourceId: draft.id }}
     >
-      <SectionEditorShell
-        containerRef={editorRef}
-        backLabel="Back to syllabus library"
-        onBack={onBack}
-        eyebrow={draft.academicYear}
-        title={draft.courseTitle}
-        subtitle={draft.courseCode || "Course code not set"}
-        titleMeta={
-          <a
-            href={syllabusTemplateDocumentUrl(template)}
-            className="mt-1 inline-flex items-center gap-1 text-sm font-medium text-[#1f4e79] hover:underline"
-          >
-            <FileText size={15} aria-hidden="true" /> {template.name}
-          </a>
-        }
-        sections={template.sections}
-        activeSection={active}
-        onSectionChange={setActive}
-        onHeaderCollapseChange={onHeaderCollapseChange}
-        compactHeaderActions={compactHeaderActions}
-        actions={
-          <>
-            <SaveStatus
-              state={saveState}
-              error={saveError}
-              onReload={() => setReloadConfirmationOpen(true)}
-            />
-            <button
-              type="button"
-              onClick={() => void exportDocx()}
-              disabled={exportState === "exporting"}
-              className="inline-flex items-center gap-2 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb] disabled:cursor-wait disabled:opacity-60"
-            >
-              <>
-                {exportState === "exporting" ? (
-                  <Loader2 className="animate-spin" size={17} />
-                ) : (
-                  <Download size={17} />
-                )}
-              </>{" "}
-              {exportState === "exporting" ? "Preparing DOCX" : "Export DOCX"}
-            </button>
-            <button
-              type="button"
-              onClick={onCompare}
-              className="inline-flex items-center gap-2 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]"
-            >
-              <GitCompareArrows size={17} /> Compare years
-            </button>
-            {exportState === "error" ? (
-              <span role="alert" className="text-sm font-medium text-[#a6292f]">
-                Export failed — please try again.
-              </span>
-            ) : null}
-          </>
-        }
+      <FieldHistoryProvider
+        enabled
+        source={{
+          resourceType: "syllabus",
+          resourceId: draft.id,
+          revision: draft.revision,
+          loadHistory: (fieldPath) => getFieldHistory(draft.id, fieldPath),
+        }}
       >
-        <SectionForm
-          active={active}
-          draft={draft}
-          editContent={editContent}
-          editMetadata={editMetadata}
-          onOpenHistory={setHistoryField}
-        />
-        <FieldHistorySidebar
-          field={historyField}
-          onClose={() => setHistoryField(null)}
-        />
-        <ConfirmDialog
-          open={reloadConfirmationOpen}
-          title="Reload the latest syllabus?"
-          description="This will replace the unsaved changes in this browser with the latest saved version. Copy anything you need to keep before continuing."
-          confirmLabel="Reload latest version"
-          onConfirm={() => void reloadLatestSyllabus()}
-          onClose={() => setReloadConfirmationOpen(false)}
-        />
-      </SectionEditorShell>
-    </FieldHistoryProvider>
+        <SectionEditorShell
+          containerRef={editorRef}
+          backLabel="Back to syllabus library"
+          onBack={onBack}
+          eyebrow={draft.academicYear}
+          title={draft.courseTitle}
+          subtitle={draft.courseCode || "Course code not set"}
+          titleMeta={
+            <a
+              href={syllabusTemplateDocumentUrl(template)}
+              className="mt-1 inline-flex items-center gap-1 text-sm font-medium text-[#1f4e79] hover:underline"
+            >
+              <FileText size={15} aria-hidden="true" /> {template.name}
+            </a>
+          }
+          sections={template.sections}
+          activeSection={active}
+          onSectionChange={setActive}
+          onHeaderCollapseChange={onHeaderCollapseChange}
+          compactHeaderActions={compactHeaderActions}
+          actions={
+            <>
+              <SaveStatus
+                state={saveState}
+                error={saveError}
+                onReload={() => setReloadConfirmationOpen(true)}
+              />
+              <button
+                type="button"
+                onClick={() => void exportDocx()}
+                disabled={exportState === "exporting"}
+                className="inline-flex items-center gap-2 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb] disabled:cursor-wait disabled:opacity-60"
+              >
+                <>
+                  {exportState === "exporting" ? (
+                    <Loader2 className="animate-spin" size={17} />
+                  ) : (
+                    <Download size={17} />
+                  )}
+                </>{" "}
+                {exportState === "exporting" ? "Preparing DOCX" : "Export DOCX"}
+              </button>
+              <button
+                type="button"
+                onClick={onCompare}
+                className="inline-flex items-center gap-2 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]"
+              >
+                <GitCompareArrows size={17} /> Compare years
+              </button>
+              {exportState === "error" ? (
+                <span
+                  role="alert"
+                  className="text-sm font-medium text-[#a6292f]"
+                >
+                  Export failed — please try again.
+                </span>
+              ) : null}
+            </>
+          }
+        >
+          <SectionForm
+            active={active}
+            draft={draft}
+            editContent={editContent}
+            editMetadata={editMetadata}
+            onOpenHistory={setHistoryField}
+          />
+          <FieldHistorySidebar
+            field={historyField}
+            onClose={() => setHistoryField(null)}
+          />
+          <ConfirmDialog
+            open={reloadConfirmationOpen}
+            title="Reload the latest syllabus?"
+            description="This will replace the unsaved changes in this browser with the latest saved version. Copy anything you need to keep before continuing."
+            confirmLabel="Reload latest version"
+            onConfirm={() => void reloadLatestSyllabus()}
+            onClose={() => setReloadConfirmationOpen(false)}
+          />
+        </SectionEditorShell>
+      </FieldHistoryProvider>
+    </FieldInfoProvider>
   );
 }
 
@@ -358,15 +390,31 @@ export function SaveStatus({
     );
   if (state === "conflict")
     return (
-      <span role="alert" className="inline-flex items-center gap-2 text-sm text-[#a6292f]">
+      <span
+        role="alert"
+        className="inline-flex items-center gap-2 text-sm text-[#a6292f]"
+      >
         <TriangleAlert size={16} /> This syllabus was updated in another tab.
-        {onReload ? <button type="button" onClick={onReload} className="font-semibold underline underline-offset-2">Reload latest version</button> : null}
+        {onReload ? (
+          <button
+            type="button"
+            onClick={onReload}
+            className="font-semibold underline underline-offset-2"
+          >
+            Reload latest version
+          </button>
+        ) : null}
       </span>
     );
   if (state === "error")
     return (
-      <span role="alert" className="inline-flex items-center gap-2 text-sm text-[#a6292f]" title={error ?? undefined}>
-        <TriangleAlert size={16} /> {error || "Save failed. Your changes are still on this page."}
+      <span
+        role="alert"
+        className="inline-flex items-center gap-2 text-sm text-[#a6292f]"
+        title={error ?? undefined}
+      >
+        <TriangleAlert size={16} />{" "}
+        {error || "Save failed. Your changes are still on this page."}
       </span>
     );
   return (
@@ -393,13 +441,36 @@ function SectionForm({
   onOpenHistory: (field: HistoryField) => void;
 }) {
   const content = draft.content as Record<string, unknown>;
-  const people = useQuery({ queryKey: ["syllabus-catalogues", "people", "editor"], queryFn: () => listCatalogueEntries("people", { includeRetired: true }) });
-  const programmes = useQuery({ queryKey: ["syllabus-catalogues", "programmes", "editor"], queryFn: () => listCatalogueEntries("programmes") });
+  const people = useQuery({
+    queryKey: ["syllabus-catalogues", "people", "editor"],
+    queryFn: () => listCatalogueEntries("people", { includeRetired: true }),
+  });
+  const programmes = useQuery({
+    queryKey: ["syllabus-catalogues", "programmes", "editor"],
+    queryFn: () => listCatalogueEntries("programmes"),
+  });
   const identification = sectionFrom(content.identification);
-  const catalogueProgrammeId = stringify(identification.cataloguePloProgrammeId || identification.catalogueProgrammeId);
-  const cataloguePlos = useQuery({ queryKey: ["syllabus-catalogues", "plos", catalogueProgrammeId], queryFn: () => listCatalogueEntries("plos", { parentId: catalogueProgrammeId, includeRetired: true }), enabled: Boolean(catalogueProgrammeId) });
-  const teachingPresets = useQuery({ queryKey: ["syllabus-catalogues", "teaching-presets", "editor"], queryFn: () => listCatalogueEntries("teaching-presets") });
-  const assessmentTypes = useQuery({ queryKey: ["syllabus-catalogues", "assessment-types", "editor"], queryFn: () => listCatalogueEntries("assessment-types") });
+  const catalogueProgrammeId = stringify(
+    identification.cataloguePloProgrammeId ||
+      identification.catalogueProgrammeId,
+  );
+  const cataloguePlos = useQuery({
+    queryKey: ["syllabus-catalogues", "plos", catalogueProgrammeId],
+    queryFn: () =>
+      listCatalogueEntries("plos", {
+        parentId: catalogueProgrammeId,
+        includeRetired: true,
+      }),
+    enabled: Boolean(catalogueProgrammeId),
+  });
+  const teachingPresets = useQuery({
+    queryKey: ["syllabus-catalogues", "teaching-presets", "editor"],
+    queryFn: () => listCatalogueEntries("teaching-presets"),
+  });
+  const assessmentTypes = useQuery({
+    queryKey: ["syllabus-catalogues", "assessment-types", "editor"],
+    queryFn: () => listCatalogueEntries("assessment-types"),
+  });
   const section = (
     Array.isArray(content[active]) ? {} : (content[active] ?? {})
   ) as Record<string, unknown>;
@@ -449,14 +520,172 @@ function SectionForm({
   );
   if (draft.templateId === "fys-2025-26") {
     const save = (next: Record<string, unknown>) => editContent(active, next);
-    if (active === "courseDetails") return <Section title="Course details">{text("Foundation Year in", section.foundationYear, (foundationYear) => save({ ...section, foundationYear }))}{text("Semester", section.semester, (semester) => save({ ...section, semester }))}{text("Weight of the course in the semester’s grade", section.courseWeight, (courseWeight) => save({ ...section, courseWeight }))}{numeric("Course contact hours", section.totalContactHours, (totalContactHours) => save({ ...section, totalContactHours }))}{text("Prerequisites and co-requisites", section.prerequisites, (prerequisites) => save({ ...section, prerequisites }), true)}</Section>;
-    if (active === "facultyDetails") return <Section title="Faculty details"><FysFacultyDirectoryPicker value={section} people={people.data ?? []} onChange={save} />{!stringify(section.personId) ? <>{text("Name and status", section.staffText, (staffText) => save({ ...section, staffText }), true)}{text("Institution", section.institution, (institution) => save({ ...section, institution }))}{text("Office hours", section.officeHours, (officeHours) => save({ ...section, officeHours }), true)}{text("Office phone", section.officePhone, (officePhone) => save({ ...section, officePhone }))}{text("Email", section.email, (email) => save({ ...section, email }), true)}</> : null}</Section>;
-    if (active === "description") return <Section title="Course description">{text("Course description", section.overview, (overview) => save({ overview }), true)}</Section>;
-    if (active === "learningOutcomes") return <Section title="Course learning outcomes"><p className="text-sm text-[#667085]">Enter one CLO per line.</p>{text("Course learning outcomes", section.closText, (closText) => save({ ...section, closText }), true)}</Section>;
-    if (active === "requiredMaterials") return <Section title="Required materials"><BibliographyEditor value={section} onChange={save} syllabusId={draft.id} revision={draft.revision} onOpenHistory={onOpenHistory} />{text("Course textbooks and recommended reading", section.textbooks, (textbooks) => save({ ...section, textbooks }), true)}{text("Supplemental resources", section.supplementalResources, (supplementalResources) => save({ ...section, supplementalResources }), true)}{text("Equipment students may require", section.equipment, (equipment) => save({ ...section, equipment }), true)}</Section>;
-    if (active === "teachingMethodologies") return <Section title="Teaching methodologies">{text("Teaching methods and hours", section.notes, (notes) => save({ ...section, notes }), true)}</Section>;
-    if (active === "assessment") return <Section title="Course assessment">{text("Continuous assessment", section.continuousText, (continuousText) => save({ ...section, continuousText }), true)}{text("Final assessment", section.finalText, (finalText) => save({ ...section, finalText }), true)}{text("Laboratory assessment", section.laboratoryText, (laboratoryText) => save({ ...section, laboratoryText }), true)}</Section>;
-    if (active === "schedule") return <Section title="Teaching schedule">{text("Week, session, topic, and assessment details", section.scheduleText, (scheduleText) => editContent(active, { scheduleText }), true)}</Section>;
+    if (active === "courseDetails")
+      return (
+        <Section title="Course details">
+          {text(
+            "Foundation Year in",
+            section.foundationYear,
+            (foundationYear) => save({ ...section, foundationYear }),
+          )}
+          {text("Semester", section.semester, (semester) =>
+            save({ ...section, semester }),
+          )}
+          {text(
+            "Weight of the course in the semester’s grade",
+            section.courseWeight,
+            (courseWeight) => save({ ...section, courseWeight }),
+          )}
+          {numeric(
+            "Course contact hours",
+            section.totalContactHours,
+            (totalContactHours) => save({ ...section, totalContactHours }),
+          )}
+          {text(
+            "Prerequisites and co-requisites",
+            section.prerequisites,
+            (prerequisites) => save({ ...section, prerequisites }),
+            true,
+          )}
+        </Section>
+      );
+    if (active === "facultyDetails")
+      return (
+        <Section title="Faculty details">
+          <FysFacultyDirectoryPicker
+            value={section}
+            people={people.data ?? []}
+            onChange={save}
+          />
+          {!stringify(section.personId) ? (
+            <>
+              {text(
+                "Name and status",
+                section.staffText,
+                (staffText) => save({ ...section, staffText }),
+                true,
+              )}
+              {text("Institution", section.institution, (institution) =>
+                save({ ...section, institution }),
+              )}
+              {text(
+                "Office hours",
+                section.officeHours,
+                (officeHours) => save({ ...section, officeHours }),
+                true,
+              )}
+              {text("Office phone", section.officePhone, (officePhone) =>
+                save({ ...section, officePhone }),
+              )}
+              {text(
+                "Email",
+                section.email,
+                (email) => save({ ...section, email }),
+                true,
+              )}
+            </>
+          ) : null}
+        </Section>
+      );
+    if (active === "description")
+      return (
+        <Section title="Course description">
+          {text(
+            "Course description",
+            section.overview,
+            (overview) => save({ overview }),
+            true,
+          )}
+        </Section>
+      );
+    if (active === "learningOutcomes")
+      return (
+        <Section title="Course learning outcomes">
+          <p className="text-sm text-[#667085]">Enter one CLO per line.</p>
+          {text(
+            "Course learning outcomes",
+            section.closText,
+            (closText) => save({ ...section, closText }),
+            true,
+          )}
+        </Section>
+      );
+    if (active === "requiredMaterials")
+      return (
+        <Section title="Required materials">
+          <BibliographyEditor
+            value={section}
+            onChange={save}
+            syllabusId={draft.id}
+            revision={draft.revision}
+            onOpenHistory={onOpenHistory}
+          />
+          {text(
+            "Course textbooks and recommended reading",
+            section.textbooks,
+            (textbooks) => save({ ...section, textbooks }),
+            true,
+          )}
+          {text(
+            "Supplemental resources",
+            section.supplementalResources,
+            (supplementalResources) =>
+              save({ ...section, supplementalResources }),
+            true,
+          )}
+          {text(
+            "Equipment students may require",
+            section.equipment,
+            (equipment) => save({ ...section, equipment }),
+            true,
+          )}
+        </Section>
+      );
+    if (active === "teachingMethodologies")
+      return (
+        <Section title="Teaching methodologies">
+          {text(
+            "Teaching methods and hours",
+            section.notes,
+            (notes) => save({ ...section, notes }),
+            true,
+          )}
+        </Section>
+      );
+    if (active === "assessment")
+      return (
+        <Section title="Course assessment">
+          {text(
+            "Continuous assessment",
+            section.continuousText,
+            (continuousText) => save({ ...section, continuousText }),
+            true,
+          )}
+          {text(
+            "Final assessment",
+            section.finalText,
+            (finalText) => save({ ...section, finalText }),
+            true,
+          )}
+          {text(
+            "Laboratory assessment",
+            section.laboratoryText,
+            (laboratoryText) => save({ ...section, laboratoryText }),
+            true,
+          )}
+        </Section>
+      );
+    if (active === "schedule")
+      return (
+        <Section title="Teaching schedule">
+          {text(
+            "Week, session, topic, and assessment details",
+            section.scheduleText,
+            (scheduleText) => editContent(active, { scheduleText }),
+            true,
+          )}
+        </Section>
+      );
   }
   if (active === "identification")
     return (
@@ -470,7 +699,10 @@ function SectionForm({
         syllabusId={draft.id}
         revision={draft.revision}
         onOpenHistory={onOpenHistory}
-        programmes={(programmes.data ?? []).map((programme) => ({ value: programme.id, label: programme.label }))}
+        programmes={(programmes.data ?? []).map((programme) => ({
+          value: programme.id,
+          label: programme.label,
+        }))}
       />
     );
   if (active === "contacts")
@@ -501,33 +733,38 @@ function SectionForm({
     const percentageError = deliveryPercentageError(faceToFace, online);
     return (
       <div className="grid gap-4">
-        <SyllabusSubsection title="Delivery mode"><SelectField
-          label="Delivery mode"
-          value={stringify(section.mode)}
-          onChange={(value) => editContent(active, { ...section, mode: value })}
-          history={history("Delivery mode")}
-          options={["Face-to-Face Delivery", "Blended Learning Delivery"]}
-          placeholder="Select delivery mode"
-        /></SyllabusSubsection>
+        <SyllabusSubsection title="Delivery mode">
+          <SelectField
+            label="Delivery mode"
+            value={stringify(section.mode)}
+            onChange={(value) =>
+              editContent(active, { ...section, mode: value })
+            }
+            history={history("Delivery mode")}
+            options={["Face-to-Face Delivery", "Blended Learning Delivery"]}
+            placeholder="Select delivery mode"
+          />
+        </SyllabusSubsection>
         <SyllabusSubsection title="Delivery allocation">
-        {numeric(
-          "Face-to-face (%)",
-          faceToFace,
-          (value) =>
-            editContent(active, { ...section, faceToFacePercent: value }),
-          { min: 0, max: 100, step: 1, invalid: Boolean(percentageError) },
-        )}
-        {numeric(
-          "Online (%)",
-          online,
-          (value) => editContent(active, { ...section, onlinePercent: value }),
-          { min: 0, max: 100, step: 1, invalid: Boolean(percentageError) },
-        )}
-        {percentageError ? (
-          <p role="alert" className="text-sm font-medium text-[#a6292f]">
-            {percentageError}
-          </p>
-        ) : null}
+          {numeric(
+            "Face-to-face (%)",
+            faceToFace,
+            (value) =>
+              editContent(active, { ...section, faceToFacePercent: value }),
+            { min: 0, max: 100, step: 1, invalid: Boolean(percentageError) },
+          )}
+          {numeric(
+            "Online (%)",
+            online,
+            (value) =>
+              editContent(active, { ...section, onlinePercent: value }),
+            { min: 0, max: 100, step: 1, invalid: Boolean(percentageError) },
+          )}
+          {percentageError ? (
+            <p role="alert" className="text-sm font-medium text-[#a6292f]">
+              {percentageError}
+            </p>
+          ) : null}
         </SyllabusSubsection>
       </div>
     );
@@ -577,40 +814,52 @@ function SectionForm({
   if (active === "teachingApproach")
     return (
       <div className="grid gap-4">
-        <TeachingPresetPicker value={section} presets={teachingPresets.data ?? []} onApply={(next) => editContent(active, next)} />
-        <SyllabusSubsection title="Teaching methods and learning activities">{text(
-          "Teaching methods and learning activities",
-          section.methods,
-          (value) => editContent(active, { ...section, methods: value }),
-          true,
-        )}</SyllabusSubsection>
-        <SyllabusSubsection title="Student engagement">{text(
-          "Student engagement",
-          section.engagement,
-          (value) => editContent(active, { ...section, engagement: value }),
-          true,
-        )}</SyllabusSubsection>
-        <SyllabusSubsection title="Feedback and academic progress">{text(
-          "Feedback and academic progress",
-          section.feedback,
-          (value) => editContent(active, { ...section, feedback: value }),
-          true,
-        )}</SyllabusSubsection>
+        <TeachingPresetPicker
+          value={section}
+          presets={teachingPresets.data ?? []}
+          onApply={(next) => editContent(active, next)}
+        />
+        <SyllabusSubsection title="Teaching methods and learning activities">
+          {text(
+            "Teaching methods and learning activities",
+            section.methods,
+            (value) => editContent(active, { ...section, methods: value }),
+            true,
+          )}
+        </SyllabusSubsection>
+        <SyllabusSubsection title="Student engagement">
+          {text(
+            "Student engagement",
+            section.engagement,
+            (value) => editContent(active, { ...section, engagement: value }),
+            true,
+          )}
+        </SyllabusSubsection>
+        <SyllabusSubsection title="Feedback and academic progress">
+          {text(
+            "Feedback and academic progress",
+            section.feedback,
+            (value) => editContent(active, { ...section, feedback: value }),
+            true,
+          )}
+        </SyllabusSubsection>
       </div>
     );
   if (active === "assessment")
     return (
       <div className="grid gap-4">
         <SyllabusSubsection title="Course assessment">
-        <AssessmentTabs
-          value={section}
-          outcomes={(sectionFrom(content.learningOutcomes).clos as Row[]) ?? []}
-          onChange={(assessment) => editContent(active, assessment)}
-          syllabusId={draft.id}
-          revision={draft.revision}
-          onOpenHistory={onOpenHistory}
-          assessmentTypes={assessmentTypes.data ?? []}
-        />
+          <AssessmentTabs
+            value={section}
+            outcomes={
+              (sectionFrom(content.learningOutcomes).clos as Row[]) ?? []
+            }
+            onChange={(assessment) => editContent(active, assessment)}
+            syllabusId={draft.id}
+            revision={draft.revision}
+            onOpenHistory={onOpenHistory}
+            assessmentTypes={assessmentTypes.data ?? []}
+          />
         </SyllabusSubsection>
         <LockedSection
           title="University table of grade equivalence"
@@ -621,23 +870,23 @@ function SectionForm({
   return (
     <div className="grid gap-4">
       <SyllabusSubsection title="Document details">
-      {text("Document creation date", section.creationDate, (value) =>
-        editContent(active, { ...section, creationDate: value }),
-      )}
-      {text("Department name", section.departmentName, (value) =>
-        editContent(active, { ...section, departmentName: value }),
-      )}
-      {text("Version number", section.versionNumber, (value) =>
-        editContent(active, { ...section, versionNumber: value }),
-      )}
+        {text("Document creation date", section.creationDate, (value) =>
+          editContent(active, { ...section, creationDate: value }),
+        )}
+        {text("Department name", section.departmentName, (value) =>
+          editContent(active, { ...section, departmentName: value }),
+        )}
+        {text("Version number", section.versionNumber, (value) =>
+          editContent(active, { ...section, versionNumber: value }),
+        )}
       </SyllabusSubsection>
       <SyllabusSubsection title="Approval">
-      {text("Syllabus approval date", section.approvalDate, (value) =>
-        editContent(active, { ...section, approvalDate: value }),
-      )}
-      {text("Name and status of approver", section.approver, (value) =>
-        editContent(active, { ...section, approver: value }),
-      )}
+        {text("Syllabus approval date", section.approvalDate, (value) =>
+          editContent(active, { ...section, approvalDate: value }),
+        )}
+        {text("Name and status of approver", section.approver, (value) =>
+          editContent(active, { ...section, approver: value }),
+        )}
       </SyllabusSubsection>
     </div>
   );
@@ -650,29 +899,194 @@ function Section({
   title: string;
   children: React.ReactNode;
 }) {
-  return (
-    <SyllabusSubsection title={title}>{children}</SyllabusSubsection>
-  );
+  return <SyllabusSubsection title={title}>{children}</SyllabusSubsection>;
 }
 
-function TeachingPresetPicker({ value, presets, onApply }: { value: Record<string, unknown>; presets: CatalogueEntry[]; onApply: (value: Record<string, unknown>) => void }) {
-  const [selected, setSelected] = useState<string[]>(Array.isArray(value.teachingPresetIds) ? value.teachingPresetIds.filter((item): item is string => typeof item === "string") : []);
+function TeachingPresetPicker({
+  value,
+  presets,
+  onApply,
+}: {
+  value: Record<string, unknown>;
+  presets: CatalogueEntry[];
+  onApply: (value: Record<string, unknown>) => void;
+}) {
+  const [selected, setSelected] = useState<string[]>(
+    Array.isArray(value.teachingPresetIds)
+      ? value.teachingPresetIds.filter(
+          (item): item is string => typeof item === "string",
+        )
+      : [],
+  );
   const [showPreview, setShowPreview] = useState(false);
   const [confirmApply, setConfirmApply] = useState(false);
   const chosen = presets.filter((preset) => selected.includes(preset.id));
-  const compiled = (key: "methods" | "engagement" | "feedback") => chosen.map((preset) => stringify(preset.payload[key]).trim()).filter(Boolean).join("\n\n");
-  const apply = () => { onApply({ ...value, teachingPresetIds: selected, methods: compiled("methods"), engagement: compiled("engagement"), feedback: compiled("feedback") }); setConfirmApply(false); };
-  const hasExistingContent = [value.methods, value.engagement, value.feedback].some((item) => stringify(item).trim());
+  const compiled = (key: "methods" | "engagement" | "feedback") =>
+    chosen
+      .map((preset) => stringify(preset.payload[key]).trim())
+      .filter(Boolean)
+      .join("\n\n");
+  const apply = () => {
+    onApply({
+      ...value,
+      teachingPresetIds: selected,
+      methods: compiled("methods"),
+      engagement: compiled("engagement"),
+      feedback: compiled("feedback"),
+    });
+    setConfirmApply(false);
+  };
+  const hasExistingContent = [
+    value.methods,
+    value.engagement,
+    value.feedback,
+  ].some((item) => stringify(item).trim());
   if (!presets.length) return null;
-  return <section className="rounded-md border border-[#d9dee7] bg-[#f8fafc] p-4"><div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"><div><h4 className="text-sm font-semibold text-[#344054]">Teaching approach presets</h4><p className="mt-1 text-sm text-[#667085]">Select one or more approved approaches, review the combined text, then apply it deliberately.</p></div><button type="button" onClick={() => setShowPreview((current) => !current)} className="w-fit rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#1f4e79]">{showPreview ? "Hide preview" : "Preview"}</button></div><div className="mt-3 grid gap-2">{presets.map((preset) => <label key={preset.id} className="flex items-start gap-2 rounded-md bg-white px-3 py-2 text-sm text-[#344054]"><input type="checkbox" checked={selected.includes(preset.id)} onChange={() => setSelected((current) => current.includes(preset.id) ? current.filter((id) => id !== preset.id) : [...current, preset.id])} /><span>{preset.label}</span></label>)}</div>{showPreview ? <div className="mt-4 rounded-md border border-[#d9dee7] bg-white p-4"><p className="text-sm font-semibold text-[#344054]">Combined preview</p>{(["methods", "engagement", "feedback"] as const).map((key) => <div key={key} className="mt-3"><p className="text-sm font-semibold capitalize text-[#475467]">{key === "methods" ? "Teaching methods" : key === "engagement" ? "Student engagement" : "Feedback and academic progress"}</p><p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-[#667085]">{compiled(key) || "No text is supplied by the selected presets."}</p></div>)}<button type="button" disabled={!chosen.length} onClick={() => hasExistingContent ? setConfirmApply(true) : apply()} className="mt-4 rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white disabled:bg-[#9ba8b5]">Apply to this syllabus</button></div> : null}<ConfirmDialog open={confirmApply} title="Replace teaching-approach text?" description="Applying this preview will replace the three existing teaching-approach fields. Your current text will not be changed unless you confirm." confirmLabel="Replace and apply" onConfirm={apply} onClose={() => setConfirmApply(false)} /></section>;
+  return (
+    <section className="rounded-md border border-[#d9dee7] bg-[#f8fafc] p-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h4 className="text-sm font-semibold text-[#344054]">
+            Teaching approach presets
+          </h4>
+          <p className="mt-1 text-sm text-[#667085]">
+            Select one or more approved approaches, review the combined text,
+            then apply it deliberately.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setShowPreview((current) => !current)}
+          className="w-fit rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#1f4e79]"
+        >
+          {showPreview ? "Hide preview" : "Preview"}
+        </button>
+      </div>
+      <div className="mt-3 grid gap-2">
+        {presets.map((preset) => (
+          <label
+            key={preset.id}
+            className="flex items-start gap-2 rounded-md bg-white px-3 py-2 text-sm text-[#344054]"
+          >
+            <input
+              type="checkbox"
+              checked={selected.includes(preset.id)}
+              onChange={() =>
+                setSelected((current) =>
+                  current.includes(preset.id)
+                    ? current.filter((id) => id !== preset.id)
+                    : [...current, preset.id],
+                )
+              }
+            />
+            <span>{preset.label}</span>
+          </label>
+        ))}
+      </div>
+      {showPreview ? (
+        <div className="mt-4 rounded-md border border-[#d9dee7] bg-white p-4">
+          <p className="text-sm font-semibold text-[#344054]">
+            Combined preview
+          </p>
+          {(["methods", "engagement", "feedback"] as const).map((key) => (
+            <div key={key} className="mt-3">
+              <p className="text-sm font-semibold capitalize text-[#475467]">
+                {key === "methods"
+                  ? "Teaching methods"
+                  : key === "engagement"
+                    ? "Student engagement"
+                    : "Feedback and academic progress"}
+              </p>
+              <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-[#667085]">
+                {compiled(key) ||
+                  "No text is supplied by the selected presets."}
+              </p>
+            </div>
+          ))}
+          <button
+            type="button"
+            disabled={!chosen.length}
+            onClick={() =>
+              hasExistingContent ? setConfirmApply(true) : apply()
+            }
+            className="mt-4 rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white disabled:bg-[#9ba8b5]"
+          >
+            Apply to this syllabus
+          </button>
+        </div>
+      ) : null}
+      <ConfirmDialog
+        open={confirmApply}
+        title="Replace teaching-approach text?"
+        description="Applying this preview will replace the three existing teaching-approach fields. Your current text will not be changed unless you confirm."
+        confirmLabel="Replace and apply"
+        onConfirm={apply}
+        onClose={() => setConfirmApply(false)}
+      />
+    </section>
+  );
 }
 
-function FysFacultyDirectoryPicker({ value, people, onChange }: { value: Record<string, unknown>; people: CatalogueEntry[]; onChange: (value: Record<string, unknown>) => void }) {
+function FysFacultyDirectoryPicker({
+  value,
+  people,
+  onChange,
+}: {
+  value: Record<string, unknown>;
+  people: CatalogueEntry[];
+  onChange: (value: Record<string, unknown>) => void;
+}) {
   const personId = stringify(value.personId);
   const selected = people.find((person) => person.id === personId);
-  const options = people.filter((person) => Array.isArray(person.payload.roles) && person.payload.roles.includes("instructor")).map((person) => ({ value: person.id, label: person.label }));
+  const options = people
+    .filter(
+      (person) =>
+        Array.isArray(person.payload.roles) &&
+        person.payload.roles.includes("instructor"),
+    )
+    .map((person) => ({ value: person.id, label: person.label }));
   if (!options.length) return null;
-  return <div className="grid gap-3"><label className="grid gap-1 text-sm font-medium text-[#344054]"><span>Faculty member from People directory <span className="font-normal text-[#667085]">(optional)</span></span><SelectMenu label="Faculty member from People directory" value={personId} onChange={(nextId) => onChange({ ...value, personId: nextId || undefined })} placeholder="Enter faculty details manually" searchable options={[{ value: "", label: "Enter faculty details manually" }, ...options]} /></label>{selected ? <div className="rounded-md border border-[#d9dee7] bg-[#f8fafc] p-4 text-sm text-[#475467]"><p className="font-semibold text-[#344054]">{selected.label}</p><p className="mt-1">{[stringify(selected.payload.academicRank), stringify(selected.payload.affiliations), stringify(selected.payload.officeHours), stringify(selected.payload.email)].filter(Boolean).join(" · ") || "Directory details will appear in exports."}</p><p className="mt-2 text-xs text-[#667085]">Live directory details are read-only in the syllabus.</p></div> : null}</div>;
+  return (
+    <div className="grid gap-3">
+      <label className="grid gap-1 text-sm font-medium text-[#344054]">
+        <span>
+          Faculty member from People directory{" "}
+          <span className="font-normal text-[#667085]">(optional)</span>
+        </span>
+        <SelectMenu
+          label="Faculty member from People directory"
+          value={personId}
+          onChange={(nextId) =>
+            onChange({ ...value, personId: nextId || undefined })
+          }
+          placeholder="Enter faculty details manually"
+          searchable
+          options={[
+            { value: "", label: "Enter faculty details manually" },
+            ...options,
+          ]}
+        />
+      </label>
+      {selected ? (
+        <div className="rounded-md border border-[#d9dee7] bg-[#f8fafc] p-4 text-sm text-[#475467]">
+          <p className="font-semibold text-[#344054]">{selected.label}</p>
+          <p className="mt-1">
+            {[
+              stringify(selected.payload.academicRank),
+              stringify(selected.payload.affiliations),
+              stringify(selected.payload.officeHours),
+              stringify(selected.payload.email),
+            ]
+              .filter(Boolean)
+              .join(" · ") || "Directory details will appear in exports."}
+          </p>
+          <p className="mt-2 text-xs text-[#667085]">
+            Live directory details are read-only in the syllabus.
+          </p>
+        </div>
+      ) : null}
+    </div>
+  );
 }
 function LearningOutcomesEditor({
   section,
@@ -732,13 +1146,17 @@ function LearningOutcomesEditor({
       </div>
       <div role="tabpanel" className="mt-5 min-w-0">
         {tab === "plos" ? (
-          catalogueMode ? <CataloguePloList entries={cataloguePlos} /> : <PloEditor
-            value={section.plos}
-            onChange={(plos) => onChange({ ...section, plos })}
-            syllabusId={syllabusId}
-            revision={revision}
-            onOpenHistory={onOpenHistory}
-          />
+          catalogueMode ? (
+            <CataloguePloList entries={cataloguePlos} />
+          ) : (
+            <PloEditor
+              value={section.plos}
+              onChange={(plos) => onChange({ ...section, plos })}
+              syllabusId={syllabusId}
+              revision={revision}
+              onOpenHistory={onOpenHistory}
+            />
+          )
         ) : (
           <RowsEditor
             title="Course learning outcomes and alignment"
@@ -749,8 +1167,27 @@ function LearningOutcomesEditor({
             ]}
             rows={(section.clos as Row[]) ?? []}
             onChange={(clos) => onChange({ ...section, clos })}
-            selectOptions={{ plo: catalogueMode ? cataloguePloOptions : localPloOptions }}
-            onPloChange={catalogueMode ? (row, labels) => ({ ...row, plo: labels, ploIds: labels.split("\n").map((label) => cataloguePloOptions.find((option) => option.value === label)?.catalogueId).filter(Boolean).join("\n") }) : undefined}
+            selectOptions={{
+              plo: catalogueMode ? cataloguePloOptions : localPloOptions,
+            }}
+            onPloChange={
+              catalogueMode
+                ? (row, labels) => ({
+                    ...row,
+                    plo: labels,
+                    ploIds: labels
+                      .split("\n")
+                      .map(
+                        (label) =>
+                          cataloguePloOptions.find(
+                            (option) => option.value === label,
+                          )?.catalogueId,
+                      )
+                      .filter(Boolean)
+                      .join("\n"),
+                  })
+                : undefined
+            }
             addLabel="Add outcome"
             historyPath="learningOutcomes.clos"
             syllabusId={syllabusId}
@@ -764,8 +1201,36 @@ function LearningOutcomesEditor({
 }
 
 function CataloguePloList({ entries }: { entries: CatalogueEntry[] }) {
-  if (!entries.length) return <p className="rounded-md border border-dashed border-[#d0d5dd] px-3 py-3 text-sm text-[#667085]">This programme has no approved PLOs yet. Manage them in the catalogue workspace.</p>;
-  return <section><p className="mb-3 text-sm text-[#667085]">Approved PLOs are managed centrally and are read-only here. Choose one or more of them when aligning a CLO.</p><div className="grid gap-3">{entries.map((entry) => <article key={entry.id} className="rounded-lg border border-[#d9dee7] bg-[#f8fafc] p-4"><p className="text-sm font-semibold text-[#344054]">{stringify(entry.payload.code) || entry.label}</p><p className="mt-1 text-sm leading-6 text-[#475467]">{stringify(entry.payload.outcome)}</p></article>)}</div></section>;
+  if (!entries.length)
+    return (
+      <p className="rounded-md border border-dashed border-[#d0d5dd] px-3 py-3 text-sm text-[#667085]">
+        This programme has no approved PLOs yet. Manage them in the catalogue
+        workspace.
+      </p>
+    );
+  return (
+    <section>
+      <p className="mb-3 text-sm text-[#667085]">
+        Approved PLOs are managed centrally and are read-only here. Choose one
+        or more of them when aligning a CLO.
+      </p>
+      <div className="grid gap-3">
+        {entries.map((entry) => (
+          <article
+            key={entry.id}
+            className="rounded-lg border border-[#d9dee7] bg-[#f8fafc] p-4"
+          >
+            <p className="text-sm font-semibold text-[#344054]">
+              {stringify(entry.payload.code) || entry.label}
+            </p>
+            <p className="mt-1 text-sm leading-6 text-[#475467]">
+              {stringify(entry.payload.outcome)}
+            </p>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
 }
 function Field({
   label,
@@ -954,7 +1419,11 @@ function RowsEditor({
           const updateRow = (key: string, value: string) =>
             onChange(
               normalized.map((item, itemIndex) =>
-                itemIndex === index ? key === "plo" && onPloChange ? onPloChange(item, value) : { ...item, [key]: value } : item,
+                itemIndex === index
+                  ? key === "plo" && onPloChange
+                    ? onPloChange(item, value)
+                    : { ...item, [key]: value }
+                  : item,
               ),
             );
           return (
@@ -1117,7 +1586,7 @@ function RowsEditor({
                           value={value}
                           onChange={(next) => updateRow(key, next)}
                           options={options}
-                          history={(
+                          history={
                             <FieldHistoryControl
                               syllabusId={syllabusId}
                               revision={revision}
@@ -1125,7 +1594,7 @@ function RowsEditor({
                               onOpenSidebar={onOpenHistory}
                               placement="label"
                             />
-                          )}
+                          }
                         />
                       );
                     }
@@ -1193,7 +1662,11 @@ export function PloAlignmentField({
       value
         .split("\n")
         .filter(Boolean)
-        .map((selectedValue) => findMatchingPloOption(selectedValue, options)?.value ?? selectedValue),
+        .map(
+          (selectedValue) =>
+            findMatchingPloOption(selectedValue, options)?.value ??
+            selectedValue,
+        ),
     ),
   );
   const selected = selectedValues.map(
@@ -1203,28 +1676,46 @@ export function PloAlignmentField({
         label: selectedValue,
       },
   );
-  const availableOptions = options.filter((option) => !selectedValues.includes(option.value));
+  const availableOptions = options.filter(
+    (option) => !selectedValues.includes(option.value),
+  );
 
-  const add = (selectedValue: string) => onChange([...selectedValues, selectedValue].join("\n"));
-  const remove = (selectedValue: string) => onChange(selectedValues.filter((value) => value !== selectedValue).join("\n"));
+  const add = (selectedValue: string) =>
+    onChange([...selectedValues, selectedValue].join("\n"));
+  const remove = (selectedValue: string) =>
+    onChange(
+      selectedValues.filter((value) => value !== selectedValue).join("\n"),
+    );
 
   return (
     <div role="group" aria-label={label} className="relative grid gap-2">
-      <div className="min-h-5 pr-8 text-sm font-medium text-[#344054]">{label}</div>
+      <div className="min-h-5 pr-8 text-sm font-medium text-[#344054]">
+        {label}
+      </div>
       {history}
       {selected.length ? (
         <ul aria-label={`Selected ${label}`} className="grid gap-2">
           {selected.map((option) => (
-            <li key={option.value} className="flex min-w-0 items-center justify-between gap-2 rounded-md border border-[#d9dee7] bg-[#f8fafc] px-3 py-2 text-sm text-[#344054]">
+            <li
+              key={option.value}
+              className="flex min-w-0 items-center justify-between gap-2 rounded-md border border-[#d9dee7] bg-[#f8fafc] px-3 py-2 text-sm text-[#344054]"
+            >
               <span className="min-w-0 truncate">{option.label}</span>
-              <button type="button" onClick={() => remove(option.value)} className="shrink-0 rounded p-1 text-[#667085] hover:bg-[#e8edf3] hover:text-[#a6292f]" aria-label={`Remove ${option.label} from ${label}`}>
+              <button
+                type="button"
+                onClick={() => remove(option.value)}
+                className="shrink-0 rounded p-1 text-[#667085] hover:bg-[#e8edf3] hover:text-[#a6292f]"
+                aria-label={`Remove ${option.label} from ${label}`}
+              >
                 <X size={16} aria-hidden="true" />
               </button>
             </li>
           ))}
         </ul>
       ) : (
-        <p className="rounded-md border border-dashed border-[#d0d5dd] px-3 py-2 text-sm text-[#667085]">No PLOs aligned yet.</p>
+        <p className="rounded-md border border-dashed border-[#d0d5dd] px-3 py-2 text-sm text-[#667085]">
+          No PLOs aligned yet.
+        </p>
       )}
       <SelectMenu
         label={pickerLabel}

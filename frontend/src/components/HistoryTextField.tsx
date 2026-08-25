@@ -1,7 +1,15 @@
-import { type ChangeEventHandler, type HTMLAttributes, type HTMLInputTypeAttribute } from "react";
+import {
+  type ChangeEventHandler,
+  type HTMLAttributes,
+  type HTMLInputTypeAttribute,
+} from "react";
 
 import { AutoResizeTextarea } from "@/components/AutoResizeTextarea";
-import { FieldHistoryControl, type HistoryField } from "@/components/FieldHistory";
+import {
+  FieldHistoryControl,
+  type HistoryField,
+} from "@/components/FieldHistory";
+import { FormFieldLabel } from "@/components/FormFieldLabel";
 
 type HistoryConfig = {
   field: HistoryField;
@@ -41,8 +49,9 @@ export function HistoryTextField({
   className = "",
   inputClassName = "",
 }: Props) {
-  const handleChange: ChangeEventHandler<HTMLInputElement | HTMLTextAreaElement> = (event) =>
-    onChange(event.target.value);
+  const handleChange: ChangeEventHandler<
+    HTMLInputElement | HTMLTextAreaElement
+  > = (event) => onChange(event.target.value);
   const stateClass = invalid
     ? "border-[#a6292f] focus:border-[#a6292f] focus:ring-[#fde2e2]"
     : "border-[#b7bec8] focus:border-[#1f4e79] focus:ring-[#d7e5f3]";
@@ -50,8 +59,10 @@ export function HistoryTextField({
   const textareaClass = `block w-full resize-y rounded-md border px-3 py-2 pr-10 font-normal leading-6 ${stateClass} focus:outline-none focus:ring-2 ${inputClassName}`;
 
   return (
-    <label className={`grid content-start gap-1 text-sm font-medium text-[#344054] ${className}`}>
-      {label}
+    <label
+      className={`grid content-start gap-1 text-sm font-medium text-[#344054] ${className}`}
+    >
+      <FormFieldLabel fieldKey={history?.field.path}>{label}</FormFieldLabel>
       <div className={`relative leading-none ${multiline ? "" : "h-10"}`}>
         {multiline ? (
           <AutoResizeTextarea

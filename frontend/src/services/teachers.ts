@@ -16,7 +16,7 @@ export type Teacher = {
 export type TeacherFolder = { id: string; name: string; parentId: string | null; createdAt: string; updatedAt: string };
 export type TeacherRequisitionSummary = { id: string; teacherId: string; label: string; academicYear: string; revision: number; createdAt: string; updatedAt: string };
 export type TeacherRequisition = TeacherRequisitionSummary & { content: RequisitionContent };
-export type TeacherInput = Pick<Teacher, "fullName" | "email" | "phone" | "notes">;
+export type TeacherInput = Pick<Teacher, "fullName" | "email" | "phone" | "notes"> & { taskTemplateIds?: string[] };
 export type RequisitionInput = { label: string; academicYear: string; sourceRequisitionId?: string };
 export type CourseCatalogueEntry = {
   id: string;

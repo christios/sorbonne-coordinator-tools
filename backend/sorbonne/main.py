@@ -17,6 +17,7 @@ from sorbonne.api.teachers import router as teachers_router
 from sorbonne.api.teacher_documents import router as teacher_documents_router
 from sorbonne.api.timetables import router as timetables_router
 from sorbonne.api.users import router as users_router
+from sorbonne.api.workflow import router as workflow_router
 from sorbonne.config import config
 from sorbonne.services.auth_gate import StaffAuthGate
 from sorbonne.services.migrations import apply_schema_migrations
@@ -50,6 +51,7 @@ app.include_router(rosters_router, prefix="/api/v1")
 app.include_router(teachers_router, prefix="/api/v1")
 app.include_router(teacher_requisitions_router, prefix="/api/v1")
 app.include_router(teacher_documents_router, prefix="/api/v1")
+app.include_router(workflow_router, prefix="/api/v1")
 app.include_router(syllabi_router, prefix="/api/v1")
 app.include_router(syllabus_catalogues_router, prefix="/api/v1")
 app.include_router(bibliography_lookup_router, prefix="/api/v1")
