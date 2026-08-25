@@ -165,6 +165,19 @@ def test_a_crn_the_timetable_lacks_is_reported_rather_than_published_silently(
     assert payload["validation"][f"{built['groupA']}|MATH-001"]["status"] == "unknown"
 
 
+def test_a_bad_crn_stops_the_semester_being_ready_even_with_everybody_assigned(
+    client: TestClient, database: StudentDatabase
+):
+    """Found in the real catalogue: a whole group pointing at sections that do not exist."""
+    built = build_cohort(database)
+    database.set_cell(group_id=built["groupA"], course_id=_course_of(database, built["cm"]), crn="99999")
+
+    payload = use(client, sections_then({})).get(f"/api/v1/publication/terms/{TERM}").json()
+    assert payload["cohorts"][0]["isReady"] is True  # every student has a group
+    assert payload["unmatchedCrns"] == 1
+    assert payload["isReady"] is False  # but the semester is not publishable
+
+
 def _course_of(database: StudentDatabase, scope_id: str) -> str:
     with database.engine.connect() as connection:
         return connection.execute(

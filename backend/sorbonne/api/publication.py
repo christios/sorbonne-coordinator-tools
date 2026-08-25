@@ -115,12 +115,16 @@ async def read_publication(
         verdicts.update(validate(groups=groups, sections=sections))
 
     resolved = _resolve_term(cohorts)
+    # A CRN the timetable does not have enrols nobody, so a cohort whose every student is
+    # assigned is still not ready if one of its groups points at a section that is not there.
+    unmatched = [key for key, verdict in verdicts.items() if verdict["status"] != "matched"]
     return {
         "cohorts": reports,
         "validation": verdicts,
+        "unmatchedCrns": len(unmatched),
         "sections": len(sections),
         "resolved": {"students": len(resolved), "enrolments": sum(len(crns) for crns in resolved.values())},
-        "isReady": bool(cohorts) and all(report["isReady"] for report in reports),
+        "isReady": bool(cohorts) and all(report["isReady"] for report in reports) and not unmatched,
     }
 
 
