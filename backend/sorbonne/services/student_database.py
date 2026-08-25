@@ -506,6 +506,87 @@ class StudentDatabase:
                 )
             self._touch(connection, cohort_id)
 
+    def import_assignments(
+        self, cohort_id: str, term_id: str, students: dict[str, dict[str, str]], *, actor: str = ""
+    ) -> dict[str, Any]:
+        """Land a workbook's typed groups as assignments for one semester of one cohort.
+
+        Only students this database already holds are assigned: the roster comes from the
+        registrar, not from a spreadsheet, so a row for somebody unknown is reported rather
+        than inventing them. A group or block the catalogue does not have is reported too —
+        it usually means the Reference sheet and the student sheet have drifted apart.
+        """
+        self.get_cohort(cohort_id)
+        report = {"assigned": 0, "unknownStudents": [], "unknownGroups": [], "unknownScopes": []}
+
+        with self.engine.begin() as connection:
+            scopes = {
+                row["code"].upper(): row["id"]
+                for row in connection.execute(
+                    text("SELECT id, code FROM cohort_scopes WHERE cohort_id = :id AND term_id = :term"),
+                    {"id": cohort_id, "term": term_id},
+                ).mappings()
+            }
+            groups = {
+                (row["scope_id"], row["label"].upper()): row["id"]
+                for row in connection.execute(
+                    text("""SELECT g.id, g.scope_id, g.label FROM scope_groups g
+                            JOIN cohort_scopes s ON s.id = g.scope_id
+                            WHERE s.cohort_id = :id AND s.term_id = :term"""),
+                    {"id": cohort_id, "term": term_id},
+                ).mappings()
+            }
+            held = {
+                row[0]
+                for row in connection.execute(
+                    text("SELECT student_id FROM students WHERE cohort_id = :id"), {"id": cohort_id}
+                )
+            }
+
+            rows = []
+            now = _now()
+            for student, typed in sorted(students.items()):
+                if student not in held:
+                    report["unknownStudents"].append(student)
+                    continue
+                for scope_code, label in sorted(typed.items()):
+                    scope_id = scopes.get(scope_code.upper())
+                    if scope_id is None:
+                        report["unknownScopes"].append(scope_code)
+                        continue
+                    group_id = groups.get((scope_id, label.upper()))
+                    if group_id is None:
+                        report["unknownGroups"].append(f"{scope_code} {label}")
+                        continue
+                    rows.append(
+                        {
+                            "cohort": cohort_id,
+                            "student": student,
+                            "scope": scope_id,
+                            "group": group_id,
+                            "updated_at": now,
+                            "actor": _text(actor),
+                        }
+                    )
+
+            if rows:
+                connection.execute(
+                    text("""INSERT INTO group_assignments
+                                (cohort_id, student_id, scope_id, group_id, updated_at, updated_by)
+                            VALUES (:cohort, :student, :scope, :group, :updated_at, :actor)
+                            ON CONFLICT (cohort_id, student_id, scope_id)
+                            DO UPDATE SET group_id = excluded.group_id,
+                                          updated_at = excluded.updated_at,
+                                          updated_by = excluded.updated_by"""),
+                    rows,
+                )
+            self._touch(connection, cohort_id)
+
+        report["assigned"] = len(rows)
+        report["unknownScopes"] = sorted(set(report["unknownScopes"]))
+        report["unknownGroups"] = sorted(set(report["unknownGroups"]))
+        return report
+
     def assignments_of(self, cohort_id: str) -> dict[str, dict[str, str]]:
         """`student id -> {scope id: group id}` for one cohort, for the screens."""
         with self.engine.connect() as connection:

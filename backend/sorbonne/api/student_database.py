@@ -8,10 +8,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from sorbonne.config import config
+from sorbonne.services.group_assignment_import import AssignmentImportError, parse_group_assignments
 from sorbonne.services.group_reference_import import ReferenceImportError, parse_group_reference
 from sorbonne.services.student_database import (
     CohortNotFound,
@@ -329,6 +330,45 @@ class AssignmentInput(BaseModel):
 
     student_ids: list[str] = Field(default_factory=list, max_length=20_000, alias="studentIds")
     group_id: str | None = Field(default=None, alias="groupId")
+
+
+@router.post("/cohorts/{cohort_id}/assignments/import")
+async def import_assignments(
+    cohort_id: str,
+    request: Request,
+    term_id: str = Form(...),
+    workbook: UploadFile = File(...),
+    database: StudentDatabase = Depends(get_database),
+) -> dict[str, Any]:
+    """Seed a semester's assignments from the group workbook a coordinator already fills.
+
+    The term-start bulk load. Everything after it — a student joining, a group changing —
+    belongs on the Students page, which moves one student without touching the rest.
+    """
+    content = await workbook.read()
+    if not content:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="That file is empty.")
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="That file is larger than 20 MB.")
+    try:
+        report = parse_group_assignments(content, workbook.filename or "")
+    except AssignmentImportError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    staff = getattr(request.state, "staff_user", None)
+    try:
+        landed = database.import_assignments(
+            cohort_id, term_id, report.students, actor=getattr(staff, "email", "") or ""
+        )
+    except CohortNotFound as exc:
+        raise _missing(exc, "cohort") from exc
+
+    return {
+        "filename": workbook.filename or "",
+        "sheets": report.sheets_read,
+        "read": {"students": len(report.students), "assignments": report.assignment_count},
+        **landed,
+    }
 
 
 @router.put("/scopes/{scope_id}/assignments")
