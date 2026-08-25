@@ -71,6 +71,39 @@ class StudentPlatformClient:
             timeout=UPLOAD_TIMEOUT_SECONDS,
         )
 
+    async def preview_timetable(self, term_id: str, timetable: tuple[str, bytes]) -> dict[str, Any]:
+        """Ask what a fresh export would change. Stages nothing on either side."""
+        return await self._request(
+            "POST",
+            f"/api/v1/admin/terms/{term_id}/timetable/preview",
+            files=[("timetable", (timetable[0], timetable[1], "application/vnd.ms-excel"))],
+            timeout=UPLOAD_TIMEOUT_SECONDS,
+        )
+
+    async def apply_timetable(
+        self,
+        term_id: str,
+        *,
+        base_updated_at: str,
+        filename: str,
+        operations: str,
+        enrolments: list[tuple[str, bytes]] | None = None,
+    ) -> dict[str, Any]:
+        """Land the changes the coordinator ticked, with any student workbooks they attached."""
+        spreadsheet = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        files = [("enrolments", (name, content, spreadsheet)) for name, content in enrolments or []]
+        return await self._request(
+            "POST",
+            f"/api/v1/admin/terms/{term_id}/timetable/apply",
+            data={
+                "base_updated_at": base_updated_at,
+                "filename": filename,
+                "operations": operations,
+            },
+            files=files or None,
+            timeout=UPLOAD_TIMEOUT_SECONDS,
+        )
+
     async def list_announcements(self) -> dict[str, Any]:
         payload = await self._request("GET", "/api/v1/admin/announcements")
         return payload if isinstance(payload, dict) else {"announcements": [], "icons": []}

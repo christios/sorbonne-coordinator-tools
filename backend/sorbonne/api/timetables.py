@@ -104,6 +104,47 @@ async def import_term(
         raise _forward(exc) from exc
 
 
+@router.post("/terms/{term_id}/timetable/preview")
+async def preview_timetable(
+    term_id: str,
+    timetable: UploadFile = File(...),
+    client: StudentPlatformClient = Depends(require_client),
+) -> dict[str, Any]:
+    """What a fresh registrar export would change about a semester already uploaded."""
+    content = await _read_upload(timetable, "timetable")
+    try:
+        return await client.preview_timetable(term_id, (timetable.filename or "timetable.xls", content))
+    except StudentPlatformError as exc:
+        raise _forward(exc) from exc
+
+
+@router.post("/terms/{term_id}/timetable/apply")
+async def apply_timetable(  # noqa: PLR0913 - one form field per part of the multipart body
+    term_id: str,
+    base_updated_at: str = Form(...),
+    filename: str = Form(default="timetable.xls", max_length=260),
+    operations: str = Form(...),
+    enrolments: list[UploadFile] = File(default=[]),
+    client: StudentPlatformClient = Depends(require_client),
+) -> dict[str, Any]:
+    """Land only the changes the coordinator ticked on the review screen."""
+    student_files = [
+        (upload.filename or "students.xlsx", await _read_upload(upload, "student list"))
+        for upload in enrolments
+        if upload.filename
+    ]
+    try:
+        return await client.apply_timetable(
+            term_id,
+            base_updated_at=base_updated_at,
+            filename=filename,
+            operations=operations,
+            enrolments=student_files or None,
+        )
+    except StudentPlatformError as exc:
+        raise _forward(exc) from exc
+
+
 @router.post("/terms/{term_id}/publish")
 async def publish_term(
     term_id: str, body: PublishInput, client: StudentPlatformClient = Depends(require_client)

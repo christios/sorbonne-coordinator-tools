@@ -1,3 +1,5 @@
+import type { Operation, TimetablePreview } from "@/services/timetableDiff";
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 
 export type TimetableTerm = {
@@ -69,6 +71,34 @@ export function importTimetableTerm(input: {
   body.set("timetable", input.timetable);
   input.enrolments.forEach((file) => body.append("enrolments", file));
   return request<TimetableTerm>("/api/v1/timetables/terms", { method: "POST", body });
+}
+
+export function previewTimetableUpdate(termId: string, timetable: File): Promise<TimetablePreview> {
+  const body = new FormData();
+  body.set("timetable", timetable);
+  return request<TimetablePreview>(`/api/v1/timetables/terms/${termId}/timetable/preview`, {
+    method: "POST",
+    body,
+  });
+}
+
+export function applyTimetableUpdate(input: {
+  termId: string;
+  baseUpdatedAt: string;
+  filename: string;
+  operations: Operation[];
+  /** Optional: the group templates, when the export brought in a section nobody is on yet. */
+  enrolments?: File[];
+}): Promise<TimetableTerm> {
+  const body = new FormData();
+  body.set("base_updated_at", input.baseUpdatedAt);
+  body.set("filename", input.filename);
+  body.set("operations", JSON.stringify(input.operations));
+  (input.enrolments ?? []).forEach((file) => body.append("enrolments", file));
+  return request<TimetableTerm>(`/api/v1/timetables/terms/${input.termId}/timetable/apply`, {
+    method: "POST",
+    body,
+  });
 }
 
 export function setTimetableTermPublished(termId: string, published: boolean): Promise<TimetableTerm> {

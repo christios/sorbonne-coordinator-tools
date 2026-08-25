@@ -1,4 +1,4 @@
-import { BookOpen, CalendarDays, FileText, Users, type LucideIcon } from "lucide-react";
+import { BookOpen, FileText, Users, type LucideIcon } from "lucide-react";
 
 import { ToolId } from "@/routes/toolRoute";
 
@@ -28,19 +28,13 @@ export const COORDINATOR_APPS: CoordinatorApp[] = [
   },
   {
     id: "database",
-    name: "Student Database",
+    name: "Students and Timetables",
     description:
-      "Keep the student roster, the cohorts they belong to, and the groups and CRNs those cohorts are taught in.",
+      "The student roster and the cohorts, groups and CRNs they are taught in, and the semester timetables students see.",
     icon: Users,
-    keywords: "student database cohort group crn roster portal registrar assignment scope block",
-  },
-  {
-    id: "timetables",
-    name: "Student timetables",
-    description:
-      "Upload a semester timetable to the SCEN Student Platform, publish it, and edit the student announcement strip.",
-    icon: CalendarDays,
-    keywords: "timetable schedule semester students crn upload publish scen student platform announcement notice",
+    keywords:
+      "student database cohort group crn roster portal registrar assignment scope block " +
+      "timetable schedule semester upload publish scen student platform announcement notice",
   },
   {
     id: "handbook",

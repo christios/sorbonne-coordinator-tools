@@ -11,7 +11,6 @@ import { StaffSettings } from "@/components/StaffSettings";
 import { SyllabusBuilder } from "@/components/SyllabusBuilder";
 import { TeacherDatabase } from "@/components/TeacherDatabase";
 import { StudentDatabase } from "@/components/StudentDatabase";
-import { TimetableUploader } from "@/components/TimetableUploader";
 import { COORDINATOR_APPS } from "@/routes/apps";
 import { handbookUrl } from "@/routes/handbookRoute";
 import { ToolId, toolFromLocation } from "@/routes/toolRoute";
@@ -244,7 +243,7 @@ export function App() {
             </div>
           )}
         </section>
-      </div> : activeTool === "teachers" ? <TeacherDatabase /> : activeTool === "database" ? <StudentDatabase onOpenSettings={() => openTool("settings")} /> : activeTool === "timetables" ? <TimetableUploader /> : <div className="min-h-0 flex-1"><SyllabusBuilder /></div>}
+      </div> : activeTool === "teachers" ? <TeacherDatabase /> : activeTool === "database" ? <StudentDatabase onOpenSettings={() => openTool("settings")} /> : <div className="min-h-0 flex-1"><SyllabusBuilder /></div>}
     </main>
   );
 }
