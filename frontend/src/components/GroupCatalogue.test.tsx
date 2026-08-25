@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { GroupCatalogue } from "@/components/GroupCatalogue";
+import * as publication from "@/services/publication";
 import * as database from "@/services/studentDatabase";
 
 const COHORT: database.Cohort = {
@@ -44,11 +45,11 @@ const CATALOGUE: database.Catalogue = {
   ],
 };
 
-function renderCatalogue() {
+function renderCatalogue(termId = "") {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <GroupCatalogue cohort={COHORT} />
+      <GroupCatalogue cohort={COHORT} termId={termId} />
     </QueryClientProvider>,
   );
 }
@@ -157,5 +158,61 @@ describe("GroupCatalogue", () => {
     fireEvent.change(screen.getByLabelText(/Upload workbook/i), { target: { files: [file] } });
 
     expect(await screen.findByText(/39 CRNs/)).toBeTruthy();
+  });
+});
+
+describe("checking the CRNs against the timetable", () => {
+  const verdicts = (validation: Record<string, publication.CrnVerdict>) =>
+    vi.spyOn(publication, "fetchPublication").mockResolvedValue({
+      cohorts: [],
+      validation,
+      unmatchedCrns: Object.values(validation).filter((v) => v.status !== "matched").length,
+      sections: 43,
+      resolved: { students: 0, enrolments: 0 },
+      isReady: true,
+    });
+
+  it("ticks a CRN the timetable holds", async () => {
+    verdicts({
+      "group-5|MATH001": {
+        status: "matched",
+        detail: "",
+        section: { crn: "23563", code: "MATH-001-TD-Gr.5", kind: "Tutorial", groupLabel: "Gr. 5" },
+      },
+    });
+    renderCatalogue("term-1");
+
+    expect(await screen.findByLabelText("In the timetable")).toBeTruthy();
+  });
+
+  it("marks a CRN the timetable has never held, and says why", async () => {
+    // The real case: a group carrying CRNs the export no longer contains.
+    verdicts({
+      "group-5|MATH001": { status: "unknown", detail: "CRN 23563 is not in this semester's timetable." },
+    });
+    renderCatalogue("term-1");
+
+    expect(await screen.findByLabelText(/not in this semester's timetable/)).toBeTruthy();
+  });
+
+  it("marks a CRN that is real but belongs to another course", async () => {
+    verdicts({
+      "group-5|MATH001": {
+        status: "mismatched",
+        detail: "CRN 23563 is MATH-011 in the timetable, not MATH001.",
+      },
+    });
+    renderCatalogue("term-1");
+
+    expect(await screen.findByLabelText(/is MATH-011 in the timetable/)).toBeTruthy();
+  });
+
+  it("says nothing at all when there is no semester to check against", async () => {
+    const asked = verdicts({});
+    renderCatalogue();
+
+    await screen.findByLabelText(/CRN for TD group 5, MATH001/);
+    expect(asked).not.toHaveBeenCalled();
+    expect(screen.queryByLabelText("In the timetable")).toBeNull();
   });
 });

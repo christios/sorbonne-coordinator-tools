@@ -1,9 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, Loader2, Plus, Trash2, Upload } from "lucide-react";
+import { AlertTriangle, Check, CheckCircle2, Loader2, Plus, Trash2, Upload } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { ScreenLoading } from "@/components/ScreenLoading";
+import { type CrnVerdict, fetchPublication } from "@/services/publication";
+import { verdictFor } from "@/services/publicationView";
 import {
   addCourse,
   addGroup,
@@ -28,16 +30,24 @@ import {
  * A workbook's Reference sheet fills it in one go; after that the workbook is finished
  * with, and the catalogue is maintained here.
  */
-export function GroupCatalogue({ cohort }: { cohort: Cohort }) {
+export function GroupCatalogue({ cohort, termId = "" }: { cohort: Cohort; termId?: string }) {
   const client = useQueryClient();
   const catalogue = useQuery({
-    queryKey: ["catalogue", cohort.id],
-    queryFn: () => fetchCatalogue(cohort.id),
+    queryKey: ["catalogue", cohort.id, termId],
+    queryFn: () => fetchCatalogue(cohort.id, termId),
+  });
+  // What the timetable says about each CRN. Best effort: the catalogue is still editable
+  // when the student platform cannot be reached, it just cannot be checked.
+  const publication = useQuery({
+    queryKey: ["publication", termId],
+    queryFn: () => fetchPublication(termId),
+    enabled: Boolean(termId),
+    retry: false,
   });
   const [report, setReport] = useState<ImportReport | null>(null);
   const [pendingScope, setPendingScope] = useState<CatalogueScope | null>(null);
 
-  const refresh = () => client.invalidateQueries({ queryKey: ["catalogue", cohort.id] });
+  const refresh = () => client.invalidateQueries({ queryKey: ["catalogue", cohort.id, termId] });
 
   const importWorkbook = useMutation({
     mutationFn: (file: File) => importReferenceWorkbook(cohort.id, file),
@@ -117,6 +127,7 @@ export function GroupCatalogue({ cohort }: { cohort: Cohort }) {
       <div className="mt-5 space-y-5">
         {scopes.map((scope) => (
           <ScopeMatrix
+            validation={publication.data?.validation ?? {}}
             key={scope.id}
             scope={scope}
             onChanged={refresh}
@@ -153,10 +164,13 @@ export function GroupCatalogue({ cohort }: { cohort: Cohort }) {
 
 function ScopeMatrix({
   scope,
+  validation,
   onChanged,
   onRemove,
 }: {
   scope: CatalogueScope;
+  /** What the timetable says about each CRN, keyed "groupId|courseCode". */
+  validation: Record<string, CrnVerdict>;
   onChanged: () => void;
   onRemove: () => void;
 }) {
@@ -240,6 +254,7 @@ function ScopeMatrix({
                       label={`CRN for ${scope.code} group ${group.label}, ${course.code}`}
                       crn={group.crns[course.id]?.crn ?? ""}
                       teacher={group.crns[course.id]?.teacher ?? ""}
+                      verdict={verdictFor(validation, group.id, course.code)}
                       onSave={(crn) => saveCell.mutate({ groupId: group.id, courseId: course.id, crn })}
                     />
                   </td>
@@ -317,11 +332,14 @@ function CrnCell({
   label,
   crn,
   teacher,
+  verdict,
   onSave,
 }: {
   label: string;
   crn: string;
   teacher: string;
+  /** Undefined when the timetable could not be reached, which is not the same as wrong. */
+  verdict?: CrnVerdict;
   onSave: (crn: string) => void;
 }) {
   const [draft, setDraft] = useState(crn);
@@ -341,8 +359,11 @@ function CrnCell({
           if (next === crn) return;
           onSave(next);
         }}
-        className="w-24 rounded-md border border-[#cbd5e1] px-2 py-1.5 text-sm tabular-nums"
+        className={`w-24 rounded-md border px-2 py-1.5 text-sm tabular-nums ${
+          verdict && verdict.status !== "matched" && crn ? "border-[#e5b7b9] bg-[#fdf3f3]" : "border-[#cbd5e1]"
+        }`}
       />
+      <Verdict verdict={verdict} crn={crn} />
       {teacher ? <span className="mt-0.5 block text-[11px] text-[#98a2b3]">{teacher}</span> : null}
     </>
   );
@@ -389,5 +410,41 @@ function AddRow({
         <Plus size={15} aria-hidden="true" /> Add
       </button>
     </form>
+  );
+}
+
+/**
+ * Whether the timetable agrees that this CRN exists, and is this course.
+ *
+ * A tick is worth little on its own; what earns its place is the two ways it can fail. A
+ * CRN the timetable has never held enrols nobody — the group looks filled and teaches
+ * nothing. A CRN that exists but belongs to another course is the one nobody catches by
+ * reading: it is a real section, of the wrong subject.
+ *
+ * Nothing is shown when the timetable could not be reached. Silence is not a verdict, and
+ * a red mark that only means "we could not ask" would be worse than no mark at all.
+ */
+function Verdict({ verdict, crn }: { verdict?: CrnVerdict; crn: string }) {
+  if (!crn || !verdict) return null;
+
+  if (verdict.status === "matched") {
+    const section = verdict.section;
+    return (
+      <span
+        title={section ? `${section.code} · ${section.groupLabel || section.kind}` : "In the timetable"}
+        className="ml-1.5 inline-flex items-center align-middle text-[#2f6b3d]"
+      >
+        <Check size={15} aria-label="In the timetable" />
+      </span>
+    );
+  }
+
+  return (
+    <span
+      title={verdict.detail}
+      className="ml-1.5 inline-flex items-center align-middle text-[#a6292f]"
+    >
+      <AlertTriangle size={15} aria-label={verdict.detail} />
+    </span>
   );
 }

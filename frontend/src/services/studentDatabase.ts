@@ -104,8 +104,11 @@ export function deleteCohort(cohortId: string): Promise<void> {
   return request<void>(`${BASE}/cohorts/${cohortId}`, { method: "DELETE" });
 }
 
-export function fetchCatalogue(cohortId: string): Promise<Catalogue> {
-  return request<Catalogue>(`${BASE}/cohorts/${cohortId}/catalogue`);
+export function fetchCatalogue(cohortId: string, termId?: string): Promise<Catalogue> {
+  // A cohort's blocks are defined per semester, so asking without one would show both
+  // semesters' "TD" at once, meaning different things.
+  const query = termId ? `?term_id=${encodeURIComponent(termId)}` : "";
+  return request<Catalogue>(`${BASE}/cohorts/${cohortId}/catalogue${query}`);
 }
 
 export function importReferenceWorkbook(cohortId: string, file: File): Promise<ImportReport> {

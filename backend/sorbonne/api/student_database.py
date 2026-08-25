@@ -242,10 +242,11 @@ async def list_members(cohort_id: str, database: StudentDatabase = Depends(get_d
 
 @router.get("/cohorts/{cohort_id}/catalogue")
 async def read_catalogue(
-    cohort_id: str, database: StudentDatabase = Depends(get_database)
+    cohort_id: str, term_id: str | None = None, database: StudentDatabase = Depends(get_database)
 ) -> dict[str, Any]:
+    """One cohort's blocks, for one semester when asked — they differ between them."""
     try:
-        return database.read_catalogue(cohort_id)
+        return database.read_catalogue(cohort_id, term_id)
     except CohortNotFound as exc:
         raise _missing(exc, "cohort") from exc
 

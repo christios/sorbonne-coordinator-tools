@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { CalendarDays, Layers, ListTree, Megaphone, Users } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { AnnouncementEditor } from "@/components/AnnouncementEditor";
 import { CohortList } from "@/components/CohortList";
@@ -14,7 +14,7 @@ import { StudentRoster } from "@/components/StudentRoster";
 import { SidePane } from "@/components/SidePane";
 import { ViewBar } from "@/components/ViewBar";
 import { fetchCohorts, fetchViews, type Cohort } from "@/services/studentDatabase";
-import { fetchTimetableStatus } from "@/services/timetables";
+import { fetchTimetableStatus, fetchTimetableTerms } from "@/services/timetables";
 
 // Two families of page in one pane: what this application knows about students, and what
 // the student platform shows them. They belong together because they are the same job —
@@ -67,12 +67,24 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
   const cohorts = useQuery({ queryKey: ["cohorts"], queryFn: fetchCohorts });
   const views = useQuery({ queryKey: ["views"], queryFn: fetchViews });
   const [page, setPage] = useState<PageId>("students");
+  const [termId, setTermId] = useState("");
   const onPlatform = page === "semesters" || page === "announcements";
   const status = useQuery({
     queryKey: ["timetable-status"],
     queryFn: fetchTimetableStatus,
-    enabled: onPlatform,
+    enabled: onPlatform || page === "groups",
   });
+  const terms = useQuery({
+    queryKey: ["timetable-terms"],
+    queryFn: fetchTimetableTerms,
+    enabled: status.data?.configured === true,
+  });
+
+  const semesters = useMemo(() => terms.data ?? [], [terms.data]);
+  // Land on a semester rather than on nothing, the way the view picker does.
+  useEffect(() => {
+    if (semesters.length && !semesters.some((term) => term.id === termId)) setTermId(semesters[0].id);
+  }, [semesters, termId]);
   const [cohortId, setCohortId] = useState("");
   const [viewId, setViewId] = useState("");
 
@@ -119,17 +131,33 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
               <ViewBar views={available} viewId={viewId} onChoose={setViewId} />
             ) : null}
 
-            {needsCohort && knownCohorts.length > 1 ? (
-              <div className="w-72">
-                <SelectMenu
-                  label="Cohort"
-                  value={cohort?.id ?? ""}
-                  onChange={setCohortId}
-                  options={knownCohorts.map((candidate) => ({
-                    value: candidate.id,
-                    label: candidate.term ? `${candidate.name} — ${candidate.term}` : candidate.name,
-                  }))}
-                />
+            {needsCohort ? (
+              <div className="flex flex-wrap items-end gap-4">
+                <LabelledPicker label="Cohort" hint={knownCohorts.length > 1 ? "" : "the only one"}>
+                  <SelectMenu
+                    label="Cohort"
+                    value={cohort?.id ?? ""}
+                    onChange={setCohortId}
+                    disabled={knownCohorts.length < 2}
+                    options={knownCohorts.map((candidate) => ({
+                      value: candidate.id,
+                      label: candidate.term ? `${candidate.name} — ${candidate.term}` : candidate.name,
+                    }))}
+                  />
+                </LabelledPicker>
+                <LabelledPicker
+                  label="Semester"
+                  hint={semesters.length ? "" : "none uploaded yet"}
+                >
+                  <SelectMenu
+                    label="Semester"
+                    value={termId}
+                    onChange={setTermId}
+                    disabled={!semesters.length}
+                    placeholder="No semester"
+                    options={semesters.map((term) => ({ value: term.id, label: term.name }))}
+                  />
+                </LabelledPicker>
               </div>
             ) : null}
           </header>
@@ -151,7 +179,9 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
           {needsCohort && !cohorts.isLoading && !cohort ? (
             <p className="text-sm text-[#667085]">Create a cohort first, then fill its groups.</p>
           ) : null}
-          {page === "groups" && cohort ? <GroupCatalogue key={cohort.id} cohort={cohort} /> : null}
+          {page === "groups" && cohort ? (
+            <GroupCatalogue key={`${cohort.id}:${termId}`} cohort={cohort} termId={termId} />
+          ) : null}
 
           {onPlatform && status.isLoading ? (
             <ScreenLoading label="Checking the student platform connection…" />
@@ -161,6 +191,33 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
           {page === "announcements" && status.data?.configured ? <AnnouncementEditor /> : null}
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * A dropdown with its name beside it.
+ *
+ * Two pickers sit together on the groups page — the cohort and the semester — and a bare
+ * control gives no clue which is which. The label is not decoration here; it is the
+ * difference between reading the page and guessing at it.
+ */
+function LabelledPicker({
+  label,
+  hint,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="w-64">
+      <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[#667085]">
+        {label}
+        {hint ? <span className="ml-1.5 font-normal normal-case text-[#98a2b3]">{hint}</span> : null}
+      </p>
+      {children}
     </div>
   );
 }
