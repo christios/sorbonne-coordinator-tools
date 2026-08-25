@@ -81,25 +81,41 @@ def test_a_cohort_is_created_listed_and_deleted(client: TestClient):
     )
 
 
-def test_uploading_a_workbook_reports_what_it_read(client: TestClient, cohort_id: str):
-    response = client.post(
-        f"/api/v1/student-database/cohorts/{cohort_id}/catalogue/import",
-        files={"workbook": ("FYS.xlsx", workbook(COHORT_HEADERS, COHORT_ROWS), SPREADSHEET)},
+def preview_workbook(client: TestClient, cohort_id: str, content: bytes, name: str = "FYS.xlsx"):
+    return client.post(
+        f"/api/v1/student-database/cohorts/{cohort_id}/workbook/preview",
+        data={"term_id": ""},
+        files={"workbook": (name, content, SPREADSHEET)},
     )
+
+
+def test_a_workbook_says_what_it_would_add_before_adding_it(client: TestClient, cohort_id: str):
+    response = preview_workbook(client, cohort_id, workbook(COHORT_HEADERS, COHORT_ROWS))
 
     assert response.status_code == status.HTTP_200_OK, response.text
     body = response.json()
     assert body["style"] == "cohort"
-    assert body["read"] == {"scopes": 2, "groups": 5, "crns": 6}
-    assert body["added"]["groups"] == FIXTURE_GROUPS
+    assert body["reference"]["summary"]["groupsAdded"] == FIXTURE_GROUPS
+    # A preview writes nothing, so the catalogue is still empty.
+    assert catalogue(client, cohort_id)["scopes"] == []
+
+
+def test_the_approved_rows_become_the_catalogue(client: TestClient, cohort_id: str):
+    body = preview_workbook(client, cohort_id, workbook(COHORT_HEADERS, COHORT_ROWS)).json()
+    rows = [row for block in body["reference"]["blocks"] for row in block["rows"]]
+
+    applied = client.post(
+        f"/api/v1/student-database/cohorts/{cohort_id}/workbook/apply",
+        json={"termId": "", "operations": rows},
+    )
+
+    assert applied.status_code == status.HTTP_200_OK, applied.text
+    assert applied.json()["groups"] == FIXTURE_GROUPS
     assert [scope["code"] for scope in catalogue(client, cohort_id)["scopes"]] == ["CM", "TD"]
 
 
 def test_a_file_that_is_not_a_reference_sheet_is_explained(client: TestClient, cohort_id: str):
-    response = client.post(
-        f"/api/v1/student-database/cohorts/{cohort_id}/catalogue/import",
-        files={"workbook": ("notes.txt", b"not a workbook", "text/plain")},
-    )
+    response = preview_workbook(client, cohort_id, b"not a workbook", name="notes.txt")
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
     assert "could not be read as an Excel workbook" in response.json()["detail"]

@@ -76,7 +76,7 @@ Ordered by what blocks running S1, not by what is most interesting.
 | Phase | What | Why here |
 |---|---|---|
 | 1 | Data model and publish: derived sections, blocks per (cohort, semester), CRN validation, push to the platform, then rebuild the live semester and retire the workbook | Nothing else works without it, and it is the only phase that blocks running S1 |
-| 2 | The block table: one table per block, rows and columns addable, per-entry validation ticks, "Upload groups", reachable from the semester row and the side pane | The interface for what phase 1 makes possible |
+| 2 | The block table: one table per block, rows and columns addable, per-entry validation ticks, "Upload workbook", reachable from the semester row and the side pane | The interface for what phase 1 makes possible |
 | 3 | Navigation: modals, "Import a timetable", the Cohorts page removed, cohort create and manage from the dropdown, unassigned-students count | Real improvements, but S1 can run without them |
 | 4 | Per-course overrides, the editing view, and teaching the diff its new row type | The most complex platform change, and it can follow term start |
 
