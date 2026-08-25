@@ -295,5 +295,8 @@ export function optionsFor(rows: StudentRow[], column: StudentColumn): { value: 
     if (!value) continue;
     if (!seen.has(value)) seen.set(value, column.display ? column.display(row) : value);
   }
-  return [...seen].map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label));
+  // Same collation as the table: case ignored, accents kept, "10" after "9".
+  return [...seen]
+    .map(([value, label]) => ({ value, label }))
+    .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: "accent" }));
 }

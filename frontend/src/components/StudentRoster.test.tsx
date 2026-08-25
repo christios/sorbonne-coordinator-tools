@@ -668,6 +668,81 @@ describe("sorting", () => {
     expect(shown()).toEqual(["Karim Nasser", "Nadia Newcomer", "Amira Haddad", "A999"]);
   });
 
+  it("ignores case, because the registrar's is not a decision about order", async () => {
+    // The portal hands back whatever case it holds. Sorted case-sensitively, "nasser"
+    // lands after every capitalised name instead of beside them.
+    rememberPull({
+      presetId: VIEW_ID,
+      name: "Sync",
+      count: 3,
+      expect: null,
+      warning: null,
+      fetchedAt: Date.now(),
+      rows: [
+        { SPRIDEN_ID: "A001", FULL_NAME: "amira haddad", YEARLEVEL_CODE: "FY", MAJOR_CODE_DESC: "Mathematics" },
+        { SPRIDEN_ID: "A002", FULL_NAME: "KARIM NASSER", YEARLEVEL_CODE: "L1", MAJOR_CODE_DESC: "Physics" },
+        { SPRIDEN_ID: "A003", FULL_NAME: "Nadia Newcomer", YEARLEVEL_CODE: "FY", MAJOR_CODE_DESC: "Mathematics" },
+      ],
+    });
+    rememberSync(VIEW_ID, SYNCED);
+    renderRoster();
+    await screen.findByText("amira haddad");
+
+    fireEvent.click(screen.getByRole("button", { name: "Sort by Student" }));
+
+    expect(shown()).toEqual(["amira haddad", "KARIM NASSER", "Nadia Newcomer", "A999"]);
+  });
+
+  it("treats names that differ only in case as the same name", async () => {
+    // Default collation ranks case, so "martin" and "MARTIN" land in an order decided by
+    // capitalisation. They are one name: order them by id instead, so the list is stable.
+    rememberPull({
+      presetId: VIEW_ID,
+      name: "Sync",
+      count: 3,
+      expect: null,
+      warning: null,
+      fetchedAt: Date.now(),
+      rows: [
+        { SPRIDEN_ID: "A001", FULL_NAME: "MARTIN", YEARLEVEL_CODE: "FY", MAJOR_CODE_DESC: "Mathematics" },
+        { SPRIDEN_ID: "A002", FULL_NAME: "martin", YEARLEVEL_CODE: "L1", MAJOR_CODE_DESC: "Physics" },
+        { SPRIDEN_ID: "A003", FULL_NAME: "Zoe", YEARLEVEL_CODE: "FY", MAJOR_CODE_DESC: "Mathematics" },
+      ],
+    });
+    rememberSync(VIEW_ID, SYNCED);
+    renderRoster();
+    await screen.findByText("Zoe");
+
+    fireEvent.click(screen.getByRole("button", { name: "Sort by Student" }));
+
+    expect(shown()).toEqual(["MARTIN", "martin", "Zoe", "A999"]);
+  });
+
+  it("keeps accents apart, which case-folding must not flatten", async () => {
+    // Case is noise; an accent is a different letter. Léa and Lea are two people.
+    rememberPull({
+      presetId: VIEW_ID,
+      name: "Sync",
+      count: 3,
+      expect: null,
+      warning: null,
+      fetchedAt: Date.now(),
+      rows: [
+        { SPRIDEN_ID: "A001", FULL_NAME: "LÉA", YEARLEVEL_CODE: "FY", MAJOR_CODE_DESC: "Mathematics" },
+        { SPRIDEN_ID: "A002", FULL_NAME: "lea", YEARLEVEL_CODE: "L1", MAJOR_CODE_DESC: "Physics" },
+        { SPRIDEN_ID: "A003", FULL_NAME: "Leb", YEARLEVEL_CODE: "FY", MAJOR_CODE_DESC: "Mathematics" },
+      ],
+    });
+    rememberSync(VIEW_ID, SYNCED);
+    renderRoster();
+    await screen.findByText("Leb");
+
+    fireEvent.click(screen.getByRole("button", { name: "Sort by Student" }));
+
+    // lea before LÉA before Leb: the accent still decides, the case does not.
+    expect(shown()).toEqual(["lea", "LÉA", "Leb", "A999"]);
+  });
+
   it("sorts by our own columns too", async () => {
     withNames();
     renderRoster();

@@ -359,6 +359,18 @@ export function StudentRoster({ cohorts, viewId }: { cohorts: Cohort[]; viewId: 
 }
 
 /**
+ * How every sorted list of text in this table compares.
+ *
+ * `numeric` so "10" follows "9" rather than "1". `sensitivity: "accent"` so case is
+ * ignored — the registrar returns names and codes in whatever case it happens to hold,
+ * and "MARTIN", "Martin" and "martin" are one name to a coordinator reading the list.
+ * Accents still count: at Sorbonne, é is not e, and collapsing them would put French
+ * names somewhere nobody expects. Values that differ only by case tie-break on the
+ * student id, so the order never wobbles between renders.
+ */
+const COLLATION: Intl.CollatorOptions = { numeric: true, sensitivity: "accent" };
+
+/**
  * Sort by what the column reads, whatever the column is.
  *
  * A column is not a property of the row: the portal's are reached through `portal`, under
@@ -374,12 +386,12 @@ function sortRows(rows: StudentRow[], sort: Sort, columns: StudentColumn[]): Stu
   const column = columns.find((candidate) => candidate.id === sort.key);
   const valueOf = (row: StudentRow) => String(column?.accessor(row) ?? "");
   return [...rows].sort((left, right) => {
-    // Numeric so "10" follows "9", and blanks last however the sort runs: a student with
-    // no major is not the first thing you want to see when sorting by major.
+    // Blanks last however the sort runs: a student with no major is not the first thing
+    // you want to see when sorting by major.
     const a = valueOf(left);
     const b = valueOf(right);
     if (!a !== !b) return a ? -1 : 1;
-    const compared = a.localeCompare(b, undefined, { numeric: true });
+    const compared = a.localeCompare(b, undefined, COLLATION);
     return (compared || left.studentId.localeCompare(right.studentId)) * direction;
   });
 }
