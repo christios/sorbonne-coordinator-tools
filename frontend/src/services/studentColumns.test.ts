@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 import {
+  MIN_WIDTH,
   buildColumns,
   defaultLayout,
   loadLayout,
@@ -150,13 +151,16 @@ describe("the stored arrangement", () => {
     expect(reconcileLayout({ hidden: ["studentId"] }, COLUMNS).hidden).not.toContain("studentId");
   });
 
-  it("ignores a stored width narrower than the column can be", () => {
+  it("lets a column be squeezed to a sliver, but not to nothing", () => {
     const column = COLUMNS.find((candidate) => candidate.id === "portal:MAJOR_CODE_DESC")!;
 
+    // No column has a width of its own to defend any more — the only floor is the one
+    // that keeps the resize handle catchable.
+    expect(widthOf(resizeColumn(LAYOUT, "portal:MAJOR_CODE_DESC", 40, COLUMNS), column)).toBe(40);
+    expect(widthOf(resizeColumn(LAYOUT, "portal:MAJOR_CODE_DESC", 5, COLUMNS), column)).toBe(MIN_WIDTH);
     expect(reconcileLayout({ widths: { "portal:MAJOR_CODE_DESC": 10 } }, COLUMNS).widths["portal:MAJOR_CODE_DESC"]).toBe(
-      column.minWidth,
+      MIN_WIDTH,
     );
-    expect(widthOf(resizeColumn(LAYOUT, "portal:MAJOR_CODE_DESC", 5, COLUMNS), column)).toBe(column.minWidth);
   });
 
   it("falls back to the default when storage holds nonsense", () => {

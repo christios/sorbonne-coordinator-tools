@@ -1,12 +1,49 @@
 import { ArrowDown, ArrowUp, Clock3, GripVertical } from "lucide-react";
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { CopyButton } from "@/components/CopyButton";
 import { columnText, rowText } from "@/services/copyCells";
 import type { StudentRow } from "@/services/rosterView";
-import { widthOf, type ColumnLayout, type StudentColumn } from "@/services/studentColumns";
+import { MIN_WIDTH, widthOf, type ColumnLayout, type StudentColumn } from "@/services/studentColumns";
 
 /** What a cell says, which is what a copy of it should say too. */
+/** A gap under the table, so it does not sit flush against the bottom of the window. */
+const BOTTOM_GAP = 16;
+
+/**
+ * Bound an element by whatever height is left below it.
+ *
+ * Measured rather than guessed: the toolbar above wraps at narrow widths and grows a row
+ * when filters are added, so any fixed `100vh - something` is wrong as soon as the page
+ * is not the shape it was written for — and being wrong the generous way puts the
+ * sideways scrollbar below the fold, which is the whole thing this is here to prevent.
+ */
+function useFillHeight() {
+  const ref = useRef<HTMLElement>(null);
+
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    const fit = () => {
+      const top = element.getBoundingClientRect().top;
+      element.style.maxHeight = `${Math.max(240, window.innerHeight - top - BOTTOM_GAP)}px`;
+    };
+    fit();
+    window.addEventListener("resize", fit);
+    // The toolbar above can change height without the window changing at all. Guarded
+    // because not every environment this renders in has ResizeObserver — jsdom does not,
+    // and an exception here would take the whole table down with it.
+    const watcher = typeof ResizeObserver === "function" ? new ResizeObserver(fit) : null;
+    if (watcher && element.parentElement) watcher.observe(element.parentElement);
+    return () => {
+      window.removeEventListener("resize", fit);
+      watcher?.disconnect();
+    };
+  }, []);
+
+  return ref;
+}
+
 export function cellText(row: StudentRow, column: StudentColumn): string {
   if (column.id === "status") {
     return row.status === "not_in_portal" ? "Not in portal" : "In portal";
@@ -53,13 +90,22 @@ export const StudentTable = memo(function StudentTable({
 }) {
   const allShown = rows.length > 0 && rows.every((row) => selected.has(row.studentId));
   const [dragging, setDragging] = useState("");
+  const box = useFillHeight();
 
   return (
-    <section className="mt-3 overflow-x-auto rounded-lg border border-[#d9dee7] bg-white">
+    /*
+     * One scrolling box, tall enough to fill what is left of the window and no taller.
+     *
+     * The rows are thousands long, so a table that grows with them puts the sideways
+     * scrollbar thousands of rows below the screen. Bounding the box keeps that scrollbar
+     * where the mouse is, and the header sticks to the top so a column can still be told
+     * apart after scrolling.
+     */
+    <section ref={box} className="always-scrollbar mt-3 min-h-[16rem] overflow-auto rounded-lg border border-[#d9dee7] bg-white">
       <table className="text-left text-sm" style={{ tableLayout: "fixed", width: "max-content", minWidth: "100%" }}>
-        <thead className="text-xs uppercase tracking-wide text-[#667085]">
+        <thead className="sticky top-0 z-10 bg-white text-xs uppercase tracking-wide text-[#667085] shadow-[inset_0_-1px_0_#d9dee7]">
           <tr>
-            <th scope="col" className="w-10 px-3 py-3">
+            <th scope="col" className="w-10 bg-white px-3 py-3">
               <input
                 type="checkbox"
                 aria-label="Select everyone shown"
@@ -67,10 +113,13 @@ export const StudentTable = memo(function StudentTable({
                 onChange={onToggleAll}
               />
             </th>
-            {columns.map((column) => (
+            {columns.map((column, index) => (
               <HeaderCell
                 key={column.id}
                 column={column}
+                // Dropping on the right half means "after me", which is "before whoever
+                // comes next" — and nothing, at the end.
+                nextId={columns[index + 1]?.id ?? ""}
                 width={widthOf(layout, column)}
                 sort={sort}
                 onSort={onSort}
@@ -81,7 +130,7 @@ export const StudentTable = memo(function StudentTable({
                 copy={() => columnText(rows.map((row) => cellText(row, column)))}
               />
             ))}
-            <th scope="col" className="w-10 px-2 py-3" />
+            <th scope="col" className="w-10 bg-white px-2 py-3" />
           </tr>
         </thead>
         <tbody>
@@ -223,6 +272,7 @@ function HeaderCell({
   onDragging,
   onReorder,
   copy,
+  nextId,
 }: {
   column: StudentColumn;
   width: number;
@@ -233,31 +283,60 @@ function HeaderCell({
   onDragging: (id: string) => void;
   onReorder: (id: string, beforeId: string) => void;
   copy: () => string;
+  nextId: string;
 }) {
   const active = sort.key === column.id;
-  const [over, setOver] = useState(false);
+  /*
+   * Which edge the column would land on, or "" when it is not over this one.
+   *
+   * Tinting the whole header said only "something is happening here"; it did not say
+   * whether the column would end up to the left or the right of it, which is the only
+   * thing a person dragging actually wants to know.
+   */
+  const [edge, setEdge] = useState<"" | "left" | "right">("");
+  const cell = useRef<HTMLTableCellElement>(null);
+  const lifted = dragging === column.id;
+
+  const sideOf = (event: React.DragEvent) => {
+    const box = event.currentTarget.getBoundingClientRect();
+    // No geometry to read — a headless renderer, or a drop event carrying no position.
+    // "Before the column you dropped on" is the older, unsurprising answer.
+    if (!box.width) return "left";
+    return event.clientX < box.left + box.width / 2 ? "left" : "right";
+  };
 
   return (
     <th
+      ref={cell}
       scope="col"
-      className={`group relative px-4 py-3 font-semibold ${
-        over && dragging && dragging !== column.id ? "bg-[#e8edf3]" : ""
-      } ${dragging === column.id ? "opacity-50" : ""}`}
+      className={`group relative border-r border-[#e4e8ee] bg-white px-4 py-3 font-semibold last:border-r-0 ${
+        lifted ? "opacity-40" : ""
+      }`}
       style={{ width }}
       onDragOver={(event) => {
-        if (!dragging || dragging === column.id) return;
+        if (!dragging || lifted) return;
         // Without this the drop is refused and the cursor shows the "no" sign.
         event.preventDefault();
-        setOver(true);
+        setEdge(sideOf(event));
       }}
-      onDragLeave={() => setOver(false)}
+      onDragLeave={() => setEdge("")}
       onDrop={(event) => {
         event.preventDefault();
-        setOver(false);
-        if (dragging && dragging !== column.id) onReorder(dragging, column.id);
+        const side = sideOf(event);
+        setEdge("");
+        if (dragging && !lifted) onReorder(dragging, side === "left" ? column.id : nextId);
         onDragging("");
       }}
     >
+      {/* Where it will land: a line on the edge it would be dropped against. */}
+      {edge && dragging && !lifted ? (
+        <span
+          aria-hidden="true"
+          className={`pointer-events-none absolute inset-y-0 z-20 w-0.5 bg-[#1f4e79] ${
+            edge === "left" ? "left-0" : "right-0"
+          }`}
+        />
+      ) : null}
       <span className="flex items-center gap-1">
         <span
           draggable
@@ -269,9 +348,11 @@ function HeaderCell({
             event.dataTransfer.effectAllowed = "move";
             // Firefox starts no drag at all unless something is set here.
             event.dataTransfer.setData("text/plain", column.id);
+            // Drag the whole header, not the grip: what moves should look like what moves.
+            if (cell.current) event.dataTransfer.setDragImage(cell.current, 24, 18);
           }}
           onDragEnd={() => onDragging("")}
-          className="cursor-grab text-[#cbd5e1] opacity-0 transition-opacity group-hover:opacity-100"
+          className="cursor-grab text-[#cbd5e1] opacity-40 transition-opacity hover:text-[#667085] group-hover:opacity-100"
         >
           <GripVertical size={12} aria-hidden="true" />
         </span>
@@ -331,9 +412,9 @@ function ResizeHandle({
   const move = useCallback(
     (event: PointerEvent) => {
       const next = from.current.width + (event.clientX - from.current.x);
-      onResize(column.id, Math.max(column.minWidth, next));
+      onResize(column.id, Math.max(MIN_WIDTH, next));
     },
-    [column.id, column.minWidth, onResize],
+    [column.id, onResize],
   );
 
   useEffect(() => {
@@ -351,7 +432,7 @@ function ResizeHandle({
   const nudge = (event: React.KeyboardEvent) => {
     const step = event.shiftKey ? 40 : 10;
     if (event.key === "ArrowRight") onResize(column.id, width + step);
-    else if (event.key === "ArrowLeft") onResize(column.id, Math.max(column.minWidth, width - step));
+    else if (event.key === "ArrowLeft") onResize(column.id, Math.max(MIN_WIDTH, width - step));
     else return;
     event.preventDefault();
   };

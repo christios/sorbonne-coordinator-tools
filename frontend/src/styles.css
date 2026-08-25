@@ -49,3 +49,45 @@ main > div.max-w-6xl {
 ::selection {
   background: #c7d2fe;
 }
+
+/*
+ * A scrollbar you can always see, on the table that scrolls sideways.
+ *
+ * macOS hides overlay scrollbars until something moves, so the only hint that a table
+ * continues past the right edge was the cut-off column itself. Styling the scrollbar at
+ * all opts out of the overlay kind, and it then stays on screen at any window size.
+ */
+.always-scrollbar {
+  scrollbar-gutter: stable;
+}
+
+.always-scrollbar::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+.always-scrollbar::-webkit-scrollbar-track {
+  background: #f2f4f7;
+}
+
+.always-scrollbar::-webkit-scrollbar-thumb {
+  background: #c3cbd6;
+  border: 3px solid #f2f4f7;
+  border-radius: 999px;
+}
+
+.always-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #a7b1bf;
+}
+
+.always-scrollbar::-webkit-scrollbar-corner {
+  background: #f2f4f7;
+}
+
+/* Firefox has no ::-webkit rules, but does have this. */
+@supports (scrollbar-color: auto) {
+  .always-scrollbar {
+    scrollbar-color: #c3cbd6 #f2f4f7;
+    scrollbar-width: auto;
+  }
+}

@@ -363,6 +363,26 @@ describe("StudentRoster", () => {
       expect(after[1]).toContain("Cohort");
     });
 
+    it("drops a column after the one it was dragged past the middle of", async () => {
+      renderRoster();
+      await screen.findByText("A001");
+
+      const handle = screen.getByRole("button", { name: "Drag Cohort to reorder" });
+      const target = screen.getByRole("columnheader", { name: /Status/ });
+      // jsdom measures nothing, so the header is given a width to have a middle.
+      target.getBoundingClientRect = () => ({ left: 0, width: 100, right: 100, top: 0, bottom: 40, height: 40, x: 0, y: 0, toJSON: () => ({}) });
+      const transfer = { effectAllowed: "", setData: () => {}, getData: () => "", setDragImage: () => {} };
+
+      fireEvent.dragStart(handle, { dataTransfer: transfer });
+      fireEvent.dragOver(target, { dataTransfer: transfer, clientX: 80 });
+      fireEvent.drop(target, { dataTransfer: transfer, clientX: 80 });
+
+      // Dropped on Status's right half, so it lands after Status rather than before it.
+      const after = screen.getAllByRole("columnheader").map((cell) => cell.textContent ?? "");
+      expect(after[1]).toContain("Status");
+      expect(after[2]).toContain("Cohort");
+    });
+
     it("resizes a column from the keyboard, and remembers the width", async () => {
       const { unmount } = renderRoster();
       await screen.findByText("A001");
@@ -611,5 +631,161 @@ describe("StudentRoster", () => {
     await screen.findByText("A001");
 
     expect(document.querySelector("select")).toBeNull();
+  });
+});
+
+describe("sorting", () => {
+  /** Who is on screen, in the order the table has them. */
+  const shown = () =>
+    screen
+      .getAllByRole("checkbox")
+      .map((box) => box.getAttribute("aria-label") ?? "")
+      .filter((label) => label.startsWith("Select ") && label !== "Select everyone shown")
+      .map((label) => label.replace("Select ", ""));
+
+  it("sorts by a portal column, not just by our own", async () => {
+    // The bug: sorting read the column id off the row, so anything reached through
+    // `portal` compared as blank and the table stayed in id order however you clicked.
+    withNames();
+    renderRoster();
+    await screen.findByText("Amira Haddad");
+
+    fireEvent.click(screen.getByRole("button", { name: "Sort by Year" }));
+
+    // FY, FY, L1 — which is not the order the ids are in. A999 is the student the portal
+    // no longer returns, so this browser knows no year for them: blanks last, either way.
+    expect(shown()).toEqual(["Amira Haddad", "Nadia Newcomer", "Karim Nasser", "A999"]);
+  });
+
+  it("turns the sort around when the same column is clicked again", async () => {
+    withNames();
+    renderRoster();
+    await screen.findByText("Amira Haddad");
+
+    fireEvent.click(screen.getByRole("button", { name: "Sort by Year" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sort by Year" }));
+
+    expect(shown()).toEqual(["Karim Nasser", "Nadia Newcomer", "Amira Haddad", "A999"]);
+  });
+
+  it("ignores case, because the registrar's is not a decision about order", async () => {
+    // The portal hands back whatever case it holds. Sorted case-sensitively, "nasser"
+    // lands after every capitalised name instead of beside them.
+    rememberPull({
+      presetId: VIEW_ID,
+      name: "Sync",
+      count: 3,
+      expect: null,
+      warning: null,
+      fetchedAt: Date.now(),
+      rows: [
+        { SPRIDEN_ID: "A001", FULL_NAME: "amira haddad", YEARLEVEL_CODE: "FY", MAJOR_CODE_DESC: "Mathematics" },
+        { SPRIDEN_ID: "A002", FULL_NAME: "KARIM NASSER", YEARLEVEL_CODE: "L1", MAJOR_CODE_DESC: "Physics" },
+        { SPRIDEN_ID: "A003", FULL_NAME: "Nadia Newcomer", YEARLEVEL_CODE: "FY", MAJOR_CODE_DESC: "Mathematics" },
+      ],
+    });
+    rememberSync(VIEW_ID, SYNCED);
+    renderRoster();
+    await screen.findByText("amira haddad");
+
+    fireEvent.click(screen.getByRole("button", { name: "Sort by Student" }));
+
+    expect(shown()).toEqual(["amira haddad", "KARIM NASSER", "Nadia Newcomer", "A999"]);
+  });
+
+  it("treats names that differ only in case as the same name", async () => {
+    // Default collation ranks case, so "martin" and "MARTIN" land in an order decided by
+    // capitalisation. They are one name: order them by id instead, so the list is stable.
+    rememberPull({
+      presetId: VIEW_ID,
+      name: "Sync",
+      count: 3,
+      expect: null,
+      warning: null,
+      fetchedAt: Date.now(),
+      rows: [
+        { SPRIDEN_ID: "A001", FULL_NAME: "MARTIN", YEARLEVEL_CODE: "FY", MAJOR_CODE_DESC: "Mathematics" },
+        { SPRIDEN_ID: "A002", FULL_NAME: "martin", YEARLEVEL_CODE: "L1", MAJOR_CODE_DESC: "Physics" },
+        { SPRIDEN_ID: "A003", FULL_NAME: "Zoe", YEARLEVEL_CODE: "FY", MAJOR_CODE_DESC: "Mathematics" },
+      ],
+    });
+    rememberSync(VIEW_ID, SYNCED);
+    renderRoster();
+    await screen.findByText("Zoe");
+
+    fireEvent.click(screen.getByRole("button", { name: "Sort by Student" }));
+
+    expect(shown()).toEqual(["MARTIN", "martin", "Zoe", "A999"]);
+  });
+
+  it("keeps accents apart, which case-folding must not flatten", async () => {
+    // Case is noise; an accent is a different letter. Léa and Lea are two people.
+    rememberPull({
+      presetId: VIEW_ID,
+      name: "Sync",
+      count: 3,
+      expect: null,
+      warning: null,
+      fetchedAt: Date.now(),
+      rows: [
+        { SPRIDEN_ID: "A001", FULL_NAME: "LÉA", YEARLEVEL_CODE: "FY", MAJOR_CODE_DESC: "Mathematics" },
+        { SPRIDEN_ID: "A002", FULL_NAME: "lea", YEARLEVEL_CODE: "L1", MAJOR_CODE_DESC: "Physics" },
+        { SPRIDEN_ID: "A003", FULL_NAME: "Leb", YEARLEVEL_CODE: "FY", MAJOR_CODE_DESC: "Mathematics" },
+      ],
+    });
+    rememberSync(VIEW_ID, SYNCED);
+    renderRoster();
+    await screen.findByText("Leb");
+
+    fireEvent.click(screen.getByRole("button", { name: "Sort by Student" }));
+
+    // lea before LÉA before Leb: the accent still decides, the case does not.
+    expect(shown()).toEqual(["lea", "LÉA", "Leb", "A999"]);
+  });
+
+  it("sorts by our own columns too", async () => {
+    withNames();
+    renderRoster();
+    await screen.findByText("Amira Haddad");
+
+    // The table opens sorted by id, so the first click on that column reverses it.
+    expect(shown()).toEqual(["Amira Haddad", "Karim Nasser", "Nadia Newcomer", "A999"]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Sort by Id" }));
+
+    expect(shown()).toEqual(["A999", "Nadia Newcomer", "Karim Nasser", "Amira Haddad"]);
+  });
+});
+
+describe("the toolbar", () => {
+  it("keeps the cohort control on screen, disabled until something is selected", async () => {
+    withNames();
+    renderRoster();
+    await screen.findByText("Amira Haddad");
+
+    // It used to appear only once a row was ticked, which moved the table down under the
+    // cursor at the moment of clicking.
+    expect(screen.getByText("None selected")).toBeTruthy();
+    expect(screen.getByRole("combobox", { name: "Move to cohort" })).toHaveProperty("disabled", true);
+    expect(screen.getByRole("button", { name: /^Move$/ })).toHaveProperty("disabled", true);
+
+    fireEvent.click(screen.getByLabelText("Select Karim Nasser"));
+
+    expect(screen.getByText("1 selected")).toBeTruthy();
+    expect(screen.getByRole("combobox", { name: "Move to cohort" })).toHaveProperty("disabled", false);
+  });
+
+  it("searches every student we hold when told to, not only this view", async () => {
+    const fetched = vi.spyOn(database, "fetchStudents").mockResolvedValue(HELD);
+    withNames();
+    renderRoster();
+    await screen.findByText("Amira Haddad");
+
+    fireEvent.click(screen.getByRole("button", { name: /This view/ }));
+
+    // No view named: the whole record, so a student can be found without knowing which
+    // population holds them.
+    await waitFor(() => expect(fetched).toHaveBeenCalledWith(""));
+    expect(await screen.findByRole("button", { name: /All students/ })).toBeTruthy();
   });
 });
