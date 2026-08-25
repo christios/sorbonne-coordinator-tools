@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { SemesterImport } from "@/components/SemesterImport";
+import { SemesterPublish } from "@/components/SemesterPublish";
 import { SemesterUpdate } from "@/components/SemesterUpdate";
 import {
   TimetableTerm,
@@ -26,6 +27,7 @@ export function SemesterList({ host }: { host: string | null }) {
   const [pendingDelete, setPendingDelete] = useState<TimetableTerm | null>(null);
   const [updating, setUpdating] = useState<TimetableTerm | null>(null);
   const [importing, setImporting] = useState(false);
+  const [publishing, setPublishing] = useState<TimetableTerm | null>(null);
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["timetable-terms"] });
   const publishMutation = useMutation({
@@ -47,6 +49,11 @@ export function SemesterList({ host }: { host: string | null }) {
         <SemesterImport host={host} />
       </section>
     );
+  }
+
+  if (publishing) {
+    const current = (terms.data ?? []).find((term) => term.id === publishing.id) ?? publishing;
+    return <SemesterPublish term={current} onBack={() => setPublishing(null)} />;
   }
 
   if (updating) {
@@ -127,6 +134,13 @@ export function SemesterList({ host }: { host: string | null }) {
                           </td>
                           <td className="px-6 py-4">
                             <div className="flex justify-end gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setPublishing(term)}
+                                className="rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc]"
+                              >
+                                Publish
+                              </button>
                               <button
                                 type="button"
                                 onClick={() => setUpdating(term)}
