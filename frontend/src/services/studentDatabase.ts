@@ -6,6 +6,7 @@
  */
 
 import { apiFetch } from "@/services/http";
+import type { Operation, WorkbookPreview } from "@/services/workbookReview";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 
@@ -49,14 +50,6 @@ export type CatalogueScope = {
 };
 
 export type Catalogue = { scopes: CatalogueScope[] };
-
-export type ImportReport = {
-  filename: string;
-  sheet: string;
-  style: "cohort" | "language";
-  read: { scopes: number; groups: number; crns: number };
-  added: { scopes: number; courses: number; groups: number; crns: number };
-};
 
 const BASE = "/api/v1/student-database";
 
@@ -111,31 +104,6 @@ export function fetchCatalogue(cohortId: string, termId?: string): Promise<Catal
   return request<Catalogue>(`${BASE}/cohorts/${cohortId}/catalogue${query}`);
 }
 
-export type AssignmentReport = {
-  filename: string;
-  sheets: string[];
-  read: { students: number; assignments: number };
-  assigned: number;
-  unknownStudents: string[];
-  unknownGroups: string[];
-  unknownScopes: string[];
-};
-
-/** The term-start bulk load: who the workbook puts in which group, for one semester. */
-export function importAssignmentWorkbook(
-  cohortId: string,
-  termId: string,
-  file: File,
-): Promise<AssignmentReport> {
-  const body = new FormData();
-  body.set("term_id", termId);
-  body.set("workbook", file);
-  return request<AssignmentReport>(`${BASE}/cohorts/${cohortId}/assignments/import`, {
-    method: "POST",
-    body,
-  });
-}
-
 /** Who is in which group, as `{student id: {scope id: group id}}`. */
 export async function fetchAssignments(cohortId: string): Promise<Record<string, Record<string, string>>> {
   const payload = await request<{ assignments: Record<string, Record<string, string>> }>(
@@ -144,16 +112,43 @@ export async function fetchAssignments(cohortId: string): Promise<Record<string,
   return payload.assignments;
 }
 
-export function importReferenceWorkbook(
+/**
+ * What one workbook would change, without changing any of it.
+ *
+ * One file, both halves: the Reference sheet says what the blocks are, the student tabs say
+ * who is in them. They were two uploads and are one, because they were always one document.
+ */
+export function previewWorkbook(
   cohortId: string,
   termId: string,
   file: File,
-): Promise<ImportReport> {
-  // Without the semester the blocks land beside the existing ones instead of merging in.
+): Promise<WorkbookPreview> {
   const body = new FormData();
   body.set("term_id", termId);
   body.set("workbook", file);
-  return request<ImportReport>(`${BASE}/cohorts/${cohortId}/catalogue/import`, { method: "POST", body });
+  return request<WorkbookPreview>(`${BASE}/cohorts/${cohortId}/workbook/preview`, {
+    method: "POST",
+    body,
+  });
+}
+
+export type WorkbookApplied = {
+  courses: number;
+  groups: number;
+  cells: number;
+  placements: number;
+};
+
+/** Carry out the rows that were ticked, and only those. */
+export function applyWorkbook(
+  cohortId: string,
+  termId: string,
+  operations: Operation[],
+): Promise<WorkbookApplied> {
+  return send<WorkbookApplied>(`${BASE}/cohorts/${cohortId}/workbook/apply`, "POST", {
+    termId,
+    operations,
+  });
 }
 
 export function addScope(

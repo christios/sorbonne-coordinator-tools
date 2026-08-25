@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GroupCatalogue } from "@/components/GroupCatalogue";
 import * as publication from "@/services/publication";
 import * as database from "@/services/studentDatabase";
+import type { WorkbookPreview } from "@/services/workbookReview";
 
 const COHORT: database.Cohort = {
   id: "cohort-1",
@@ -44,6 +45,73 @@ const CATALOGUE: database.Catalogue = {
     },
   ],
 };
+
+const PREVIEW: WorkbookPreview = {
+  filename: "FYS-Groups-26-27-S1.xlsx",
+  sheet: "Reference",
+  style: "cohort",
+  reference: {
+    blocks: [
+      {
+        scopeCode: "TD",
+        scopeName: "Tutorials",
+        isNew: false,
+        unchanged: 5,
+        rows: [
+          {
+            kind: "cell",
+            op: "setCell",
+            key: "cell|TD|5|MATH001",
+            status: "changed",
+            label: "Group 5 · MATH001",
+            detail: "CRN 23563 → 29999",
+            scopeCode: "TD",
+            groupLabel: "5",
+            courseCode: "MATH001",
+            before: "23563",
+            after: "29999",
+          },
+        ],
+      },
+    ],
+    summary: {
+      blocksNew: 0,
+      groupsAdded: 0,
+      coursesAdded: 0,
+      crnsChanged: 1,
+      crnsAdded: 0,
+      unchanged: 5,
+      decisions: 1,
+    },
+  },
+  placements: {
+    rows: [
+      {
+        key: "place|A00021503|TD",
+        op: "place",
+        status: "placed",
+        studentId: "A00021503",
+        scopeCode: "TD",
+        before: "",
+        after: "5",
+        groupId: "group-5",
+        detail: "TD 5",
+      },
+    ],
+    unchanged: 23,
+    unknownGroups: [],
+    unknownStudents: [],
+    summary: { placed: 1, moved: 0, unchanged: 23, unknownGroups: 0, unknownStudents: 0, decisions: 1 },
+    note: "",
+  },
+};
+
+function upload_workbook() {
+  const input = screen.getByText(/^Upload workbook$/).closest("label")?.querySelector("input");
+  fireEvent.change(input as HTMLInputElement, {
+    target: { files: [new File(["x"], "FYS-Groups-26-27-S1.xlsx")] },
+  });
+}
 
 function renderCatalogue(termId = "") {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -144,38 +212,87 @@ describe("GroupCatalogue", () => {
   });
 
   it("sends the semester with the workbook, or the blocks land beside the ones already there", async () => {
-    const upload = vi.spyOn(database, "importReferenceWorkbook").mockResolvedValue({
-      filename: "FYS.xlsx",
-      sheet: "Reference",
-      style: "cohort",
-      read: { scopes: 1, groups: 2, crns: 6 },
-      added: { scopes: 0, courses: 0, groups: 0, crns: 6 },
-    });
+    const upload = vi.spyOn(database, "previewWorkbook").mockResolvedValue(PREVIEW);
     renderCatalogue("term-1");
     await screen.findByLabelText(/CRN for TD group 5, MATH001/);
 
-    const input = screen.getByText(/^Upload groups$/).closest("label")?.querySelector("input");
-    fireEvent.change(input as HTMLInputElement, { target: { files: [new File(["x"], "FYS.xlsx")] } });
+    upload_workbook();
 
     await waitFor(() => expect(upload).toHaveBeenCalled());
     expect(upload).toHaveBeenCalledWith("cohort-1", "term-1", expect.any(File));
   });
 
-  it("reports what a workbook upload read", async () => {
-    vi.spyOn(database, "importReferenceWorkbook").mockResolvedValue({
-      filename: "FYS.xlsx",
-      sheet: "Reference",
-      style: "cohort",
-      read: { scopes: 3, groups: 21, crns: 39 },
-      added: { scopes: 3, courses: 7, groups: 21, crns: 39 },
+  it("writes nothing on upload — it shows what the workbook would change", async () => {
+    // Both halves used to land on drop, which silently rewrote corrected CRNs.
+    const apply = vi.spyOn(database, "applyWorkbook");
+    vi.spyOn(database, "previewWorkbook").mockResolvedValue(PREVIEW);
+    renderCatalogue("term-1");
+    await screen.findByLabelText(/CRN for TD group 5, MATH001/);
+
+    upload_workbook();
+
+    expect(await screen.findByText(/against this semester/)).toBeTruthy();
+    expect(screen.getByText(/CRN 23563 → 29999/)).toBeTruthy();
+    expect(apply).not.toHaveBeenCalled();
+  });
+
+  it("applies only the rows that were ticked", async () => {
+    vi.spyOn(database, "previewWorkbook").mockResolvedValue(PREVIEW);
+    const apply = vi.spyOn(database, "applyWorkbook").mockResolvedValue({
+      courses: 0,
+      groups: 0,
+      cells: 1,
+      placements: 0,
     });
+    renderCatalogue("term-1");
+    await screen.findByLabelText(/CRN for TD group 5, MATH001/);
+
+    upload_workbook();
+    fireEvent.click(await screen.findByLabelText(/Approve Group 5 · MATH001/));
+    fireEvent.click(screen.getByRole("button", { name: /Apply 1 change/ }));
+
+    await waitFor(() => expect(apply).toHaveBeenCalled());
+    const [, term, operations] = apply.mock.calls[0];
+    expect(term).toBe("term-1");
+    // The placement row was left unticked, so it is not among what was sent.
+    expect(operations.map((operation) => operation.op)).toEqual(["setCell"]);
+  });
+
+  it("says what landed, and that the rest is as it was", async () => {
+    vi.spyOn(database, "previewWorkbook").mockResolvedValue(PREVIEW);
+    vi.spyOn(database, "applyWorkbook").mockResolvedValue({
+      courses: 0,
+      groups: 2,
+      cells: 6,
+      placements: 24,
+    });
+    renderCatalogue("term-1");
+    await screen.findByLabelText(/CRN for TD group 5, MATH001/);
+
+    upload_workbook();
+    fireEvent.click(await screen.findByRole("button", { name: /Tick everything/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Apply 2 change/ }));
+
+    expect(await screen.findByText(/2 approved change\(s\) applied/)).toBeTruthy();
+    expect(screen.getByText(/24 student placement\(s\)/)).toBeTruthy();
+  });
+
+  it("is one upload, because the workbook is one document", async () => {
+    // The Reference sheet and the student tabs were two buttons and are one.
+    renderCatalogue("term-1");
+    await screen.findByLabelText(/CRN for TD group 5, MATH001/);
+
+    expect(screen.getByText(/^Upload workbook$/)).toBeTruthy();
+    expect(screen.queryByText(/Upload student groups/)).toBeNull();
+  });
+
+  it("cannot be used until a semester is chosen, because blocks belong to one", async () => {
     renderCatalogue();
-    await screen.findByText("TD");
+    await screen.findByLabelText(/CRN for TD group 5, MATH001/);
 
-    const file = new File(["x"], "FYS.xlsx", { type: "application/vnd.ms-excel" });
-    fireEvent.change(screen.getByLabelText(/Upload groups/i), { target: { files: [file] } });
-
-    expect(await screen.findByText(/39 CRNs/)).toBeTruthy();
+    const input = screen.getByText(/^Upload workbook$/).closest("label")?.querySelector("input");
+    expect((input as HTMLInputElement).disabled).toBe(true);
+    expect(screen.getByText(/Choose a semester first/)).toBeTruthy();
   });
 });
 
@@ -232,59 +349,6 @@ describe("checking the CRNs against the timetable", () => {
     await screen.findByLabelText(/CRN for TD group 5, MATH001/);
     expect(asked).not.toHaveBeenCalled();
     expect(screen.queryByLabelText("In the timetable")).toBeNull();
-  });
-});
-
-describe("the term-start load of who is in which group", () => {
-  const REPORT: database.AssignmentReport = {
-    filename: "FYS-Groups-26-27-S1_filled.xlsx",
-    sheets: ["MATH& PHYS CM", "TD"],
-    read: { students: 24, assignments: 72 },
-    assigned: 72,
-    unknownStudents: [],
-    unknownGroups: [],
-    unknownScopes: [],
-  };
-
-  it("cannot be used until a semester is chosen, because blocks belong to one", async () => {
-    renderCatalogue();
-    await screen.findByLabelText(/CRN for TD group 5, MATH001/);
-
-    const students = screen.getByText(/Upload student groups/).closest("label")?.querySelector("input");
-    const groups = screen.getByText(/^Upload groups$/).closest("label")?.querySelector("input");
-    // Both uploads create blocks, and a block without a semester is invisible to this page.
-    expect((students as HTMLInputElement).disabled).toBe(true);
-    expect((groups as HTMLInputElement).disabled).toBe(true);
-    expect(screen.getAllByText(/Choose a semester first/).length).toBe(2);
-  });
-
-  it("says how many placements it made", async () => {
-    const upload = vi.spyOn(database, "importAssignmentWorkbook").mockResolvedValue(REPORT);
-    renderCatalogue("term-1");
-    await screen.findByLabelText(/CRN for TD group 5, MATH001/);
-
-    const input = screen.getByText(/Upload student groups/).closest("label")?.querySelector("input");
-    fireEvent.change(input as HTMLInputElement, {
-      target: { files: [new File(["x"], "FYS-Groups-26-27-S1_filled.xlsx")] },
-    });
-
-    await waitFor(() => expect(upload).toHaveBeenCalledWith("cohort-1", "term-1", expect.any(File)));
-    expect(await screen.findByText(/72 student placement\(s\)/)).toBeTruthy();
-  });
-
-  it("says which ids it skipped rather than inventing those students", async () => {
-    vi.spyOn(database, "importAssignmentWorkbook").mockResolvedValue({
-      ...REPORT,
-      assigned: 66,
-      unknownStudents: ["A00099998", "A00099999"],
-    });
-    renderCatalogue("term-1");
-    await screen.findByLabelText(/CRN for TD group 5, MATH001/);
-
-    const input = screen.getByText(/Upload student groups/).closest("label")?.querySelector("input");
-    fireEvent.change(input as HTMLInputElement, { target: { files: [new File(["x"], "w.xlsx")] } });
-
-    expect(await screen.findByText(/2 id\(s\) in the workbook are not students/)).toBeTruthy();
   });
 });
 

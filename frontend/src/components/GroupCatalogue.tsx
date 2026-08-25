@@ -1,30 +1,31 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Check, CheckCircle2, Download, Loader2, Plus, Trash2, Upload, Users } from "lucide-react";
+import { AlertTriangle, Check, CheckCircle2, Download, Loader2, Plus, Trash2, Upload } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { WorkbookReview } from "@/components/WorkbookReview";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { type CrnVerdict, fetchPublication } from "@/services/publication";
 import { verdictFor } from "@/services/publicationView";
 import { namesHeld } from "@/services/rosterStore";
 import { downloadWorkbook, prefixOf } from "@/services/workbookExport";
 import {
-  type AssignmentReport,
-  fetchAssignments,
-  importAssignmentWorkbook,
+  type WorkbookApplied,
   addCourse,
   addGroup,
   addScope,
+  applyWorkbook,
   deleteGroup,
   deleteScope,
+  fetchAssignments,
   fetchCatalogue,
-  importReferenceWorkbook,
+  previewWorkbook,
   setGroupCrn,
   type CatalogueGroup,
   type CatalogueScope,
   type Cohort,
-  type ImportReport,
 } from "@/services/studentDatabase";
+import type { Operation, WorkbookPreview } from "@/services/workbookReview";
 
 /**
  * The groups a cohort assigns students into, as a matrix per block: the block's courses
@@ -32,8 +33,10 @@ import {
  * of the group-assignment workbooks, made editable — and it is the only place CRNs are
  * entered, because everywhere else a group stands for the bundle of CRNs it holds.
  *
- * A workbook's Reference sheet fills it in one go; after that the workbook is finished
- * with, and the catalogue is maintained here.
+ * A workbook fills it in one go — its Reference sheet the blocks and CRNs, its student tabs
+ * who sits in which group — but only through a review: the upload writes nothing until each
+ * difference has been ticked. After that the workbook is finished with, and the catalogue is
+ * maintained here.
  */
 export function GroupCatalogue({ cohort, termId = "" }: { cohort: Cohort; termId?: string }) {
   const client = useQueryClient();
@@ -49,24 +52,27 @@ export function GroupCatalogue({ cohort, termId = "" }: { cohort: Cohort; termId
     enabled: Boolean(termId),
     retry: false,
   });
-  const [report, setReport] = useState<ImportReport | null>(null);
-  const [assignments, setAssignments] = useState<AssignmentReport | null>(null);
+  const [preview, setPreview] = useState<WorkbookPreview | null>(null);
+  const [applied, setApplied] = useState<(WorkbookApplied & { approved: number }) | null>(null);
   const [exporting, setExporting] = useState(false);
   const [pendingScope, setPendingScope] = useState<CatalogueScope | null>(null);
 
   const refresh = () => client.invalidateQueries({ queryKey: ["catalogue", cohort.id, termId] });
 
-  const importWorkbook = useMutation({
-    mutationFn: (file: File) => importReferenceWorkbook(cohort.id, termId, file),
-    onSuccess: (result) => {
-      setReport(result);
-      refresh();
+  // One workbook, both halves, and nothing written until it has been looked at.
+  const check = useMutation({
+    mutationFn: (file: File) => previewWorkbook(cohort.id, termId, file),
+    onSuccess: (payload) => {
+      setPreview(payload);
+      setApplied(null);
     },
   });
-  const importStudents = useMutation({
-    mutationFn: (file: File) => importAssignmentWorkbook(cohort.id, termId, file),
-    onSuccess: (result) => {
-      setAssignments(result);
+  const apply = useMutation({
+    mutationFn: ({ operations }: { operations: Operation[]; approved: number }) =>
+      applyWorkbook(cohort.id, termId, operations),
+    onSuccess: (result, variables) => {
+      setApplied({ ...result, approved: variables.approved });
+      setPreview(null);
       client.invalidateQueries({ queryKey: ["publication", termId] });
       refresh();
     },
@@ -136,12 +142,19 @@ export function GroupCatalogue({ cohort, termId = "" }: { cohort: Cohort; termId
   }
 
   const scopes = catalogue.data?.scopes ?? [];
-  const error =
-    importWorkbook.error?.message ??
-    importStudents.error?.message ??
-    createScope.error?.message ??
-    removeScope.error?.message ??
-    null;
+  const error = check.error?.message ?? createScope.error?.message ?? removeScope.error?.message ?? null;
+
+  if (preview) {
+    return (
+      <WorkbookReview
+        preview={preview}
+        busy={apply.isPending}
+        error={apply.error?.message ?? null}
+        onApply={(operations, approved) => apply.mutate({ operations, approved })}
+        onCancel={() => setPreview(null)}
+      />
+    );
+  }
 
   return (
     <>
@@ -150,9 +163,9 @@ export function GroupCatalogue({ cohort, termId = "" }: { cohort: Cohort; termId
           <div className="max-w-2xl">
             <h3 className="text-base font-semibold text-[#171717]">Fill this from a workbook</h3>
             <p className="mt-1 text-sm leading-6 text-[#667085]">
-              Upload a group-assignment workbook and its Reference sheet becomes the blocks, groups
-              and CRNs below, for the semester chosen above. Re-uploading a corrected workbook updates
-              the CRNs in place and leaves anything added here alone.
+              One file says both things: its Reference sheet is the blocks, groups and CRNs, and its
+              student tabs are who sits in which group. Nothing is written on upload — you are shown
+              what it would change and approve it row by row.
               {termId ? "" : " Choose a semester first."}
             </p>
           </div>
@@ -163,12 +176,12 @@ export function GroupCatalogue({ cohort, termId = "" }: { cohort: Cohort; termId
                 : "cursor-not-allowed bg-[#e4e8ef] text-[#98a2b3]"
             }`}
           >
-            {importWorkbook.isPending ? (
+            {check.isPending ? (
               <Loader2 size={16} className="animate-spin" aria-hidden="true" />
             ) : (
               <Upload size={16} aria-hidden="true" />
             )}
-            {importWorkbook.isPending ? "Reading…" : "Upload groups"}
+            {check.isPending ? "Reading…" : "Upload workbook"}
             <input
               type="file"
               accept=".xlsx"
@@ -177,7 +190,7 @@ export function GroupCatalogue({ cohort, termId = "" }: { cohort: Cohort; termId
               onChange={(event) => {
                 const file = event.target.files?.[0];
                 event.target.value = "";
-                if (file) importWorkbook.mutate(file);
+                if (file) check.mutate(file);
               }}
             />
           </label>
@@ -206,72 +219,17 @@ export function GroupCatalogue({ cohort, termId = "" }: { cohort: Cohort; termId
           </button>
         </div>
 
-        <div className="mt-4 flex flex-wrap items-start justify-between gap-3 border-t border-[#eef1f5] pt-4">
-          <div>
-            <h3 className="text-base font-semibold text-[#171717]">Put students in their groups</h3>
-            <p className="mt-1 max-w-2xl text-sm leading-6 text-[#667085]">
-              The same workbook says who is in which group. This is the term-start load; after it,
-              move one student at a time from the Students page rather than re-uploading everybody.
-              {termId ? "" : " Choose a semester first."}
-            </p>
-          </div>
-          <label
-            className={`inline-flex shrink-0 items-center gap-2 rounded-md border px-3 py-2 text-sm font-semibold ${
-              termId
-                ? "cursor-pointer border-[#b7bec8] bg-white text-[#344054] hover:bg-[#f8fafc]"
-                : "cursor-not-allowed border-[#e4e8ef] bg-[#f8fafc] text-[#98a2b3]"
-            }`}
-          >
-            {importStudents.isPending ? (
-              <Loader2 size={16} className="animate-spin" aria-hidden="true" />
-            ) : (
-              <Users size={16} aria-hidden="true" />
-            )}
-            {importStudents.isPending ? "Reading…" : "Upload student groups"}
-            <input
-              type="file"
-              accept=".xlsx"
-              className="sr-only"
-              disabled={!termId}
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                event.target.value = "";
-                if (file) importStudents.mutate(file);
-              }}
-            />
-          </label>
-        </div>
-
-        {assignments ? (
-          <div className="mt-3 rounded-md border border-[#bfdcc6] bg-[#f4faf5] px-4 py-3 text-sm text-[#2f6b3d]">
+        {applied ? (
+          <div className="mt-4 rounded-md border border-[#bfdcc6] bg-[#f4faf5] px-4 py-3 text-sm text-[#2f6b3d]">
             <p className="flex items-center gap-2 font-semibold">
               <CheckCircle2 size={16} aria-hidden="true" />
-              {assignments.assigned} student placement(s) from {assignments.filename}
+              {applied.approved} approved change(s) applied
             </p>
-            {assignments.unknownStudents.length > 0 ? (
-              <p className="mt-1 text-[#8a6116]">
-                {assignments.unknownStudents.length} id(s) in the workbook are not students this
-                application holds, so they were skipped — sync the roster first if they should be.
-              </p>
-            ) : null}
-            {assignments.unknownGroups.length > 0 ? (
-              <p className="mt-1 text-[#a6292f]">
-                No such group here: {assignments.unknownGroups.slice(0, 6).join(", ")}. The Reference
-                sheet and the student sheet have drifted apart.
-              </p>
-            ) : null}
+            <p className="mt-1 leading-6">
+              {applied.groups} group(s), {applied.courses} course(s) and {applied.cells} CRN(s) written,
+              and {applied.placements} student placement(s). Everything you left unticked is as it was.
+            </p>
           </div>
-        ) : null}
-
-        {report ? (
-          <p className="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-[#bfdcc6] bg-[#f4faf5] px-4 py-3 text-sm text-[#2f6b3d]">
-            <CheckCircle2 size={16} aria-hidden="true" />
-            <span>
-              {report.filename} · {report.sheet}: {report.read.scopes} block
-              {report.read.scopes === 1 ? "" : "s"}, {report.read.groups} groups, {report.read.crns} CRNs.
-              Added {report.added.scopes} blocks and {report.added.groups} groups.
-            </span>
-          </p>
         ) : null}
         {error ? (
           <p role="alert" className="mt-3 rounded-md border border-[#e5b7b9] bg-[#fdf3f3] px-4 py-3 text-sm text-[#a6292f]">
