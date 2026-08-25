@@ -70,6 +70,10 @@ def _now() -> str:
     return datetime.now(UTC).isoformat()
 
 
+# Blocks first, then what hangs off them, then the people placed in it.
+_WORKBOOK_ORDER = {"addCourse": 0, "addGroup": 1, "setCell": 2, "place": 3}
+
+
 def _ids_of(scopes, cohort_id: str) -> set[str]:
     return {row["id"] for row in scopes if row["cohort_id"] == cohort_id}
 
@@ -506,6 +510,128 @@ class StudentDatabase:
                 )
             self._touch(connection, cohort_id)
 
+    def catalogue_for_diff(self, cohort_id: str, term_id: str) -> dict[str, Any]:
+        """One semester's blocks in the shape `workbook_diff` compares against."""
+        held: dict[str, Any] = {}
+        with self.engine.connect() as connection:
+            scopes = (
+                connection.execute(
+                    text("SELECT * FROM cohort_scopes WHERE cohort_id = :id AND term_id = :term"),
+                    {"id": cohort_id, "term": term_id},
+                )
+                .mappings()
+                .all()
+            )
+            scope_ids = [row["id"] for row in scopes]
+            courses = self._rows(connection, "scope_courses", scope_ids, "position, code")
+            groups = self._rows(connection, "scope_groups", scope_ids, "position, label")
+            cells = (
+                connection.execute(
+                    text("""SELECT gc.* FROM group_crns gc
+                            JOIN scope_groups g ON g.id = gc.group_id
+                            WHERE g.scope_id = ANY(:ids)"""),
+                    {"ids": scope_ids or [""]},
+                )
+                .mappings()
+                .all()
+            )
+
+        code_of = {row["id"]: row["code"] for row in courses}
+        crns: dict[str, dict[str, str]] = {}
+        for cell in cells:
+            course_code = code_of.get(cell["course_id"])
+            if course_code:
+                crns.setdefault(cell["group_id"], {})[course_code] = cell["crn"]
+
+        for scope in scopes:
+            held[scope["code"].upper()] = {
+                "id": scope["id"],
+                "name": scope["name"],
+                "courses": {row["code"]: row["name"] for row in courses if row["scope_id"] == scope["id"]},
+                "groups": {
+                    group["label"]: {
+                        "id": group["id"],
+                        "label": group["label"],
+                        "capacity": group["capacity"],
+                        "note": group["note"],
+                        "crns": crns.get(group["id"], {}),
+                    }
+                    for group in groups
+                    if group["scope_id"] == scope["id"]
+                },
+            }
+        return held
+
+    def group_ids_by_label(self, cohort_id: str, term_id: str) -> dict[str, dict[str, str]]:
+        """`{scope code: {group label upper: group id}}`, for naming what a sheet cannot match."""
+        with self.engine.connect() as connection:
+            rows = (
+                connection.execute(
+                    text("""SELECT s.code AS scope_code, g.label, g.id FROM scope_groups g
+                            JOIN cohort_scopes s ON s.id = g.scope_id
+                            WHERE s.cohort_id = :id AND s.term_id = :term"""),
+                    {"id": cohort_id, "term": term_id},
+                )
+                .mappings()
+                .all()
+            )
+        found: dict[str, dict[str, str]] = {}
+        for row in rows:
+            found.setdefault(row["scope_code"].upper(), {})[row["label"].upper()] = row["id"]
+        return found
+
+    def apply_workbook_changes(
+        self, cohort_id: str, term_id: str, operations: list[dict[str, Any]], *, actor: str = ""
+    ) -> dict[str, int]:
+        """Carry out only the rows a coordinator ticked, in one transaction.
+
+        Blocks are created on demand, because a row that adds a group to a block the
+        catalogue has never held is meaningless without it — but only when that row is
+        actually approved, so an unticked block is never quietly conjured up.
+        """
+        applied = {"courses": 0, "groups": 0, "cells": 0, "placements": 0}
+        now = _now()
+
+        with self.engine.begin() as connection:
+            for operation in sorted(operations, key=lambda item: _WORKBOOK_ORDER.get(item.get("op", ""), 9)):
+                kind = operation.get("op")
+                if kind == "place":
+                    connection.execute(
+                        text("""INSERT INTO group_assignments
+                                    (cohort_id, student_id, scope_id, group_id, updated_at, updated_by)
+                                VALUES (:cohort, :student, :scope, :group, :at, :actor)
+                                ON CONFLICT (cohort_id, student_id, scope_id)
+                                DO UPDATE SET group_id = excluded.group_id,
+                                              updated_at = excluded.updated_at,
+                                              updated_by = excluded.updated_by"""),
+                        {
+                            "cohort": cohort_id,
+                            "student": operation["studentId"],
+                            "scope": self._scope_of_group(connection, operation["groupId"]),
+                            "group": operation["groupId"],
+                            "at": now,
+                            "actor": _text(actor),
+                        },
+                    )
+                    applied["placements"] += 1
+                    continue
+
+                scope_id = self._ensure_scope(
+                    connection, cohort_id, term_id, operation["scopeCode"], operation.get("scopeName", "")
+                )
+                if kind == "addCourse":
+                    self._ensure_course(connection, scope_id, operation)
+                    applied["courses"] += 1
+                elif kind == "addGroup":
+                    self._add_group_with_crns(connection, scope_id, operation)
+                    applied["groups"] += 1
+                elif kind == "setCell":
+                    self._set_cell_by_label(connection, scope_id, operation)
+                    applied["cells"] += 1
+
+            self._touch(connection, cohort_id)
+        return applied
+
     def import_assignments(
         self, cohort_id: str, term_id: str, students: dict[str, dict[str, str]], *, actor: str = ""
     ) -> dict[str, Any]:
@@ -931,6 +1057,107 @@ class StudentDatabase:
         return group_id, 1
 
     # --------------------------------------------------------------- helpers
+
+    def _ensure_scope(
+        self, connection: Connection, cohort_id: str, term_id: str, code: str, name: str
+    ) -> str:
+        existing = self._scope_id(connection, cohort_id, _text(code), _text(term_id))
+        if existing:
+            return existing
+        scope_id = str(uuid4())
+        connection.execute(
+            text("""INSERT INTO cohort_scopes (id, cohort_id, code, name, note, term_id, position)
+                    VALUES (:id, :cohort_id, :code, :name, '', :term_id,
+                            (SELECT coalesce(max(position), 0) + 1 FROM cohort_scopes
+                             WHERE cohort_id = :cohort_id))"""),
+            {
+                "id": scope_id,
+                "cohort_id": cohort_id,
+                "code": _text(code),
+                "name": _text(name),
+                "term_id": _text(term_id),
+            },
+        )
+        return scope_id
+
+    def _ensure_course(self, connection: Connection, scope_id: str, operation: dict[str, Any]) -> str:
+        code = _text(operation["courseCode"])
+        row = connection.execute(
+            text("SELECT id FROM scope_courses WHERE scope_id = :scope AND code = :code"),
+            {"scope": scope_id, "code": code},
+        ).first()
+        if row:
+            return row[0]
+        course_id = str(uuid4())
+        connection.execute(
+            text("""INSERT INTO scope_courses (id, scope_id, code, name, component, position)
+                    VALUES (:id, :scope, :code, :name, :component,
+                            (SELECT coalesce(max(position), 0) + 1 FROM scope_courses
+                             WHERE scope_id = :scope))"""),
+            {
+                "id": course_id,
+                "scope": scope_id,
+                "code": code,
+                "name": _text(operation.get("courseName", "")),
+                "component": _text(operation.get("component", "")),
+            },
+        )
+        return course_id
+
+    def _add_group_with_crns(self, connection: Connection, scope_id: str, operation: dict[str, Any]) -> None:
+        label = _text(operation["groupLabel"])
+        row = connection.execute(
+            text("SELECT id FROM scope_groups WHERE scope_id = :scope AND label = :label"),
+            {"scope": scope_id, "label": label},
+        ).first()
+        group_id = row[0] if row else str(uuid4())
+        if not row:
+            connection.execute(
+                text("""INSERT INTO scope_groups (id, scope_id, label, capacity, note, position)
+                        VALUES (:id, :scope, :label, :capacity, :note,
+                                (SELECT coalesce(max(position), 0) + 1 FROM scope_groups
+                                 WHERE scope_id = :scope))"""),
+                {
+                    "id": group_id,
+                    "scope": scope_id,
+                    "label": label,
+                    "capacity": int(operation.get("capacity", 0) or 0),
+                    "note": _text(operation.get("note", "")),
+                },
+            )
+        teachers = operation.get("teachers", {}) or {}
+        for course_code, crn in (operation.get("crns", {}) or {}).items():
+            course_id = self._ensure_course(connection, scope_id, {"courseCode": course_code})
+            self._write_cell(connection, group_id, course_id, crn, teachers.get(course_code, ""))
+
+    def _set_cell_by_label(self, connection: Connection, scope_id: str, operation: dict[str, Any]) -> None:
+        group_id = connection.execute(
+            text("SELECT id FROM scope_groups WHERE scope_id = :scope AND label = :label"),
+            {"scope": scope_id, "label": _text(operation["groupLabel"])},
+        ).scalar()
+        if group_id is None:
+            raise GroupNotFound(operation["groupLabel"])
+        course_id = self._ensure_course(connection, scope_id, operation)
+        self._write_cell(connection, group_id, course_id, operation.get("crn", ""), operation.get("teacher", ""))
+
+    def _write_cell(
+        self, connection: Connection, group_id: str, course_id: str, crn: str, teacher: str
+    ) -> None:
+        connection.execute(
+            text("""INSERT INTO group_crns (group_id, course_id, crn, teacher)
+                    VALUES (:group, :course, :crn, :teacher)
+                    ON CONFLICT (group_id, course_id)
+                    DO UPDATE SET crn = excluded.crn, teacher = excluded.teacher"""),
+            {"group": group_id, "course": course_id, "crn": _text(crn), "teacher": _text(teacher)},
+        )
+
+    def _scope_of_group(self, connection: Connection, group_id: str) -> str:
+        scope_id = connection.execute(
+            text("SELECT scope_id FROM scope_groups WHERE id = :id"), {"id": group_id}
+        ).scalar()
+        if scope_id is None:
+            raise GroupNotFound(group_id)
+        return scope_id
 
     def _scope_id(
         self, connection: Connection, cohort_id: str, code: str, term_id: str = ""

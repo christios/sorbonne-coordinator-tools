@@ -13,6 +13,12 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from sorbonne.config import config
 from sorbonne.services.group_assignment_import import AssignmentImportError, parse_group_assignments
+from sorbonne.services.workbook_diff import (
+    diff_assignments,
+    diff_reference,
+    summarize_assignments,
+    summarize_reference,
+)
 from sorbonne.services.group_reference_import import ReferenceImportError, parse_group_reference
 from sorbonne.services.student_database import (
     CohortNotFound,
@@ -286,6 +292,110 @@ async def import_reference(
         "read": {"scopes": len(report.scopes), "groups": report.group_count, "crns": report.crn_count},
         "added": added,
     }
+
+
+class WorkbookApplyInput(BaseModel):
+    term_id: str = Field(default="", alias="termId", max_length=80)
+    operations: list[dict[str, Any]] = Field(default_factory=list)
+
+
+async def _read_workbook(workbook: UploadFile) -> bytes:
+    content = await workbook.read()
+    if not content:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="That file is empty.")
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="That file is larger than 20 MB.")
+    return content
+
+
+@router.post("/cohorts/{cohort_id}/workbook/preview")
+async def preview_workbook(
+    cohort_id: str,
+    term_id: str = Form(default=""),
+    workbook: UploadFile = File(...),
+    database: StudentDatabase = Depends(get_database),
+) -> dict[str, Any]:
+    """What one workbook would change, in both halves, without writing any of it.
+
+    One file carries both: the Reference sheet says what the blocks are, the student tabs
+    say who is in them. They were two uploads and are one, because they were always one
+    document and asking for it twice only invited the two halves to disagree.
+    """
+    content = await _read_workbook(workbook)
+    try:
+        reference = parse_group_reference(content, workbook.filename or "")
+    except ReferenceImportError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    # Placements are optional: an unfilled template is a perfectly good source of blocks.
+    try:
+        placements = parse_group_assignments(content, workbook.filename or "").students
+        placement_note = ""
+    except AssignmentImportError as exc:
+        placements, placement_note = {}, str(exc)
+
+    try:
+        held = database.catalogue_for_diff(cohort_id, term_id)
+        groups = database.group_ids_by_label(cohort_id, term_id)
+        assigned = database.assignments_of(cohort_id)
+    except CohortNotFound as exc:
+        raise _missing(exc, "cohort") from exc
+
+    # Placements are compared by block code, which is how the workbook names them.
+    scope_code_of = {
+        group_id: code for code, labels in groups.items() for group_id in labels.values()
+    }
+    held_placements: dict[str, dict[str, str]] = {}
+    for student, by_scope in assigned.items():
+        for _, group_id in by_scope.items():
+            code = scope_code_of.get(group_id)
+            if code:
+                held_placements.setdefault(student, {})[code] = _label_of(groups, code, group_id)
+
+    blocks = diff_reference(held=held, incoming=reference)
+    placement_diff = diff_assignments(held=held_placements, incoming=placements, groups=groups)
+    return {
+        "filename": workbook.filename or "",
+        "sheet": reference.sheet,
+        "style": reference.style,
+        "reference": {"blocks": blocks, "summary": summarize_reference(blocks)},
+        "placements": {
+            **placement_diff,
+            "summary": summarize_assignments(placement_diff),
+            "note": placement_note,
+        },
+    }
+
+
+def _label_of(groups: dict[str, dict[str, str]], scope_code: str, group_id: str) -> str:
+    for label, identifier in groups.get(scope_code, {}).items():
+        if identifier == group_id:
+            return label
+    return ""
+
+
+@router.post("/cohorts/{cohort_id}/workbook/apply")
+async def apply_workbook(
+    cohort_id: str,
+    body: WorkbookApplyInput,
+    request: Request,
+    database: StudentDatabase = Depends(get_database),
+) -> dict[str, Any]:
+    """Carry out only the rows the coordinator ticked."""
+    if not body.operations:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Nothing was approved, so nothing was applied.",
+        )
+    staff = getattr(request.state, "staff_user", None)
+    try:
+        return database.apply_workbook_changes(
+            cohort_id, body.term_id, body.operations, actor=getattr(staff, "email", "") or ""
+        )
+    except CohortNotFound as exc:
+        raise _missing(exc, "cohort") from exc
+    except GroupNotFound as exc:
+        raise _missing(exc, "group") from exc
 
 
 @router.post("/cohorts/{cohort_id}/scopes", status_code=status.HTTP_201_CREATED)
