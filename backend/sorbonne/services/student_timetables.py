@@ -104,6 +104,31 @@ class StudentPlatformClient:
             timeout=UPLOAD_TIMEOUT_SECONDS,
         )
 
+    async def list_sections(self, term_id: str) -> list[dict[str, Any]]:
+        """The timetable's own course/kind/group/CRN reference for a semester."""
+        payload = await self._request("GET", f"/api/v1/admin/terms/{term_id}/sections")
+        return payload.get("sections", []) if isinstance(payload, dict) else []
+
+    async def preview_enrolments(self, term_id: str, enrolments: dict[str, list[str]]) -> dict[str, Any]:
+        """What publishing these would change over there. Writes nothing."""
+        return await self._request(
+            "POST",
+            f"/api/v1/admin/terms/{term_id}/enrolments/preview",
+            json={"enrolments": enrolments},
+            timeout=UPLOAD_TIMEOUT_SECONDS,
+        )
+
+    async def replace_enrolments(
+        self, term_id: str, enrolments: dict[str, list[str]], *, base_updated_at: str | None = None
+    ) -> dict[str, Any]:
+        """Make the semester's enrolments exactly what this application resolved."""
+        return await self._request(
+            "PUT",
+            f"/api/v1/admin/terms/{term_id}/enrolments",
+            json={"enrolments": enrolments, "base_updated_at": base_updated_at},
+            timeout=UPLOAD_TIMEOUT_SECONDS,
+        )
+
     async def list_announcements(self) -> dict[str, Any]:
         payload = await self._request("GET", "/api/v1/admin/announcements")
         return payload if isinstance(payload, dict) else {"announcements": [], "icons": []}

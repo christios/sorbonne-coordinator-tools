@@ -70,6 +70,10 @@ def _now() -> str:
     return datetime.now(UTC).isoformat()
 
 
+def _ids_of(scopes, cohort_id: str) -> set[str]:
+    return {row["id"] for row in scopes if row["cohort_id"] == cohort_id}
+
+
 def _text(value: object) -> str:
     return " ".join(str(value or "").split())
 
@@ -380,14 +384,19 @@ class StudentDatabase:
 
     # ------------------------------------------------------------- catalogue
 
-    def read_catalogue(self, cohort_id: str) -> dict[str, Any]:
-        """Every scope of one cohort as a matrix, with how many students sit in each group."""
+    def read_catalogue(self, cohort_id: str, term_id: str | None = None) -> dict[str, Any]:
+        """One cohort's scopes as a matrix, with how many students sit in each group.
+
+        Scoped to a semester when one is given, because a cohort's groups reshuffle between
+        them and showing both at once would offer two "TD" that mean different things.
+        """
         self.get_cohort(cohort_id)
+        clause = "" if term_id is None else " AND term_id = :term_id"
         with self.engine.connect() as connection:
             scopes = (
                 connection.execute(
-                    text("SELECT * FROM cohort_scopes WHERE cohort_id = :id ORDER BY position, code"),
-                    {"id": cohort_id},
+                    text(f"SELECT * FROM cohort_scopes WHERE cohort_id = :id{clause} ORDER BY position, code"),  # noqa: S608
+                    {"id": cohort_id, "term_id": term_id} if term_id is not None else {"id": cohort_id},
                 )
                 .mappings()
                 .all()
@@ -427,6 +436,7 @@ class StudentDatabase:
                     "code": scope["code"],
                     "name": scope["name"],
                     "note": scope["note"],
+                    "termId": scope["term_id"],
                     "courses": [_course(row) for row in courses if row["scope_id"] == scope["id"]],
                     "groups": [
                         {
@@ -455,17 +465,170 @@ class StudentDatabase:
             .all()
         )
 
+    def assign(self, *, student_id: str, scope_id: str, group_id: str | None, actor: str = "") -> None:
+        """Put one student in one group of one scope, or take them out of it.
+
+        A student holds at most one group per scope — that is what makes their enrolment a
+        union rather than a choice — so this replaces rather than adds. `group_id=None`
+        removes the assignment, which is different from assigning them to nothing: it says
+        the coordinator has not decided yet, and readiness will keep saying so.
+        """
+        with self.engine.begin() as connection:
+            cohort_id = self._cohort_of_scope(connection, scope_id)
+            if group_id is None:
+                connection.execute(
+                    text("""DELETE FROM group_assignments
+                            WHERE student_id = :student AND scope_id = :scope"""),
+                    {"student": student_id, "scope": scope_id},
+                )
+            else:
+                owner = connection.execute(
+                    text("SELECT scope_id FROM scope_groups WHERE id = :id"), {"id": group_id}
+                ).scalar()
+                if owner != scope_id:
+                    raise GroupNotFound(group_id)
+                connection.execute(
+                    text("""INSERT INTO group_assignments
+                                (cohort_id, student_id, scope_id, group_id, updated_at, updated_by)
+                            VALUES (:cohort, :student, :scope, :group, :updated_at, :actor)
+                            ON CONFLICT (cohort_id, student_id, scope_id)
+                            DO UPDATE SET group_id = excluded.group_id,
+                                          updated_at = excluded.updated_at,
+                                          updated_by = excluded.updated_by"""),
+                    {
+                        "cohort": cohort_id,
+                        "student": student_id,
+                        "scope": scope_id,
+                        "group": group_id,
+                        "updated_at": _now(),
+                        "actor": _text(actor),
+                    },
+                )
+            self._touch(connection, cohort_id)
+
+    def assignments_of(self, cohort_id: str) -> dict[str, dict[str, str]]:
+        """`student id -> {scope id: group id}` for one cohort, for the screens."""
+        with self.engine.connect() as connection:
+            rows = (
+                connection.execute(
+                    text("""SELECT student_id, scope_id, group_id FROM group_assignments
+                            WHERE cohort_id = :id"""),
+                    {"id": cohort_id},
+                )
+                .mappings()
+                .all()
+            )
+        held: dict[str, dict[str, str]] = {}
+        for row in rows:
+            held.setdefault(row["student_id"], {})[row["scope_id"]] = row["group_id"]
+        return held
+
+    def term_publication(self, term_id: str) -> list[dict[str, Any]]:
+        """Everything a semester needs to be resolved and judged, one entry per cohort.
+
+        Shaped for `enrolment_resolution`: the store's job is the translation, including
+        turning `group_crns`' course *ids* into the course *codes* the timetable speaks.
+        Only cohorts with scopes on this semester appear — a cohort nobody has set up for it
+        has nothing to publish and nothing to warn about.
+        """
+        with self.engine.connect() as connection:
+            scopes = (
+                connection.execute(
+                    text("""SELECT s.*, c.name AS cohort_name FROM cohort_scopes s
+                            JOIN student_cohorts c ON c.id = s.cohort_id
+                            WHERE s.term_id = :term_id
+                            ORDER BY c.name, s.position, s.code"""),
+                    {"term_id": term_id},
+                )
+                .mappings()
+                .all()
+            )
+            if not scopes:
+                return []
+
+            scope_ids = [row["id"] for row in scopes]
+            cohort_ids = sorted({row["cohort_id"] for row in scopes})
+            courses = self._rows(connection, "scope_courses", scope_ids, "position, code")
+            groups = self._rows(connection, "scope_groups", scope_ids, "position, label")
+            cells = (
+                connection.execute(
+                    text("""SELECT gc.* FROM group_crns gc
+                            JOIN scope_groups g ON g.id = gc.group_id
+                            WHERE g.scope_id = ANY(:ids)"""),
+                    {"ids": scope_ids},
+                )
+                .mappings()
+                .all()
+            )
+            members = (
+                connection.execute(
+                    text("SELECT student_id, cohort_id FROM students WHERE cohort_id = ANY(:ids)"),
+                    {"ids": cohort_ids},
+                )
+                .mappings()
+                .all()
+            )
+            assigned = (
+                connection.execute(
+                    text("""SELECT student_id, scope_id, group_id FROM group_assignments
+                            WHERE scope_id = ANY(:ids)"""),
+                    {"ids": scope_ids},
+                )
+                .mappings()
+                .all()
+            )
+
+        code_of = {row["id"]: row["code"] for row in courses}
+        crns: dict[str, dict[str, str]] = {}
+        for cell in cells:
+            course_code = code_of.get(cell["course_id"])
+            if course_code:
+                crns.setdefault(cell["group_id"], {})[course_code] = cell["crn"]
+
+        return [
+            {
+                "cohortId": cohort_id,
+                "cohortName": next(row["cohort_name"] for row in scopes if row["cohort_id"] == cohort_id),
+                "students": sorted(row["student_id"] for row in members if row["cohort_id"] == cohort_id),
+                "scopes": [
+                    {"id": row["id"], "code": row["code"], "name": row["name"]}
+                    for row in scopes
+                    if row["cohort_id"] == cohort_id
+                ],
+                "groups": [
+                    {
+                        "id": group["id"],
+                        "scopeId": group["scope_id"],
+                        "label": group["label"],
+                        "crns": crns.get(group["id"], {}),
+                    }
+                    for group in groups
+                    if group["scope_id"] in _ids_of(scopes, cohort_id)
+                ],
+                "courseCodes": {
+                    scope_id: [row["code"] for row in courses if row["scope_id"] == scope_id]
+                    for scope_id in _ids_of(scopes, cohort_id)
+                },
+                "assignments": [
+                    {"studentId": row["student_id"], "scopeId": row["scope_id"], "groupId": row["group_id"]}
+                    for row in assigned
+                    if row["scope_id"] in _ids_of(scopes, cohort_id)
+                ],
+            }
+            for cohort_id in cohort_ids
+        ]
+
     # ------------------------------------------------------- editing a scope
 
-    def add_scope(self, cohort_id: str, *, code: str, name: str = "", note: str = "") -> str:
+    def add_scope(self, cohort_id: str, *, code: str, name: str = "", note: str = "", term_id: str = "") -> str:
         self.get_cohort(cohort_id)
         scope_id = str(uuid4())
         with self.engine.begin() as connection:
-            if self._scope_id(connection, cohort_id, _text(code)):
+            if self._scope_id(connection, cohort_id, _text(code), _text(term_id)):
                 raise DuplicateLabel(code)
             connection.execute(
-                text("""INSERT INTO cohort_scopes (id, cohort_id, code, name, note, position)
-                        VALUES (:id, :cohort_id, :code, :name, :note,
+                text("""INSERT INTO cohort_scopes (id, cohort_id, code, name, note, term_id, position)
+                        VALUES (:id, :cohort_id, :code, :name, :note, :term_id,
                                 (SELECT coalesce(max(position), 0) + 1 FROM cohort_scopes
                                  WHERE cohort_id = :cohort_id))"""),
                 {
@@ -474,6 +637,7 @@ class StudentDatabase:
                     "code": _text(code),
                     "name": _text(name),
                     "note": _text(note),
+                    "term_id": _text(term_id),
                 },
             )
             self._touch(connection, cohort_id)
@@ -580,8 +744,8 @@ class StudentDatabase:
 
     # ---------------------------------------------------------------- import
 
-    def import_reference(self, cohort_id: str, report: ReferenceImport) -> dict[str, int]:
-        """Merge a workbook's Reference sheet into a cohort, leaving assignments alone.
+    def import_reference(self, cohort_id: str, report: ReferenceImport, term_id: str = "") -> dict[str, int]:
+        """Merge a workbook's Reference sheet into one semester of a cohort, leaving assignments alone.
 
         Re-importing is safe and is the point: a corrected workbook updates the CRNs in
         place, and any group a coordinator added by hand in the meantime survives.
@@ -591,17 +755,19 @@ class StudentDatabase:
 
         with self.engine.begin() as connection:
             for position, imported in enumerate(report.scopes, start=1):
-                scope_id = self._scope_id(connection, cohort_id, imported.code)
+                scope_id = self._scope_id(connection, cohort_id, imported.code, term_id)
                 if scope_id is None:
                     scope_id = str(uuid4())
                     connection.execute(
-                        text("""INSERT INTO cohort_scopes (id, cohort_id, code, name, note, position)
-                                VALUES (:id, :cohort_id, :code, :name, '', :position)"""),
+                        text("""INSERT INTO cohort_scopes
+                                    (id, cohort_id, code, name, note, term_id, position)
+                                VALUES (:id, :cohort_id, :code, :name, '', :term_id, :position)"""),
                         {
                             "id": scope_id,
                             "cohort_id": cohort_id,
                             "code": imported.code,
                             "name": imported.name,
+                            "term_id": _text(term_id),
                             "position": position,
                         },
                     )
@@ -685,10 +851,13 @@ class StudentDatabase:
 
     # --------------------------------------------------------------- helpers
 
-    def _scope_id(self, connection: Connection, cohort_id: str, code: str) -> str | None:
+    def _scope_id(
+        self, connection: Connection, cohort_id: str, code: str, term_id: str = ""
+    ) -> str | None:
         row = connection.execute(
-            text("SELECT id FROM cohort_scopes WHERE cohort_id = :cohort_id AND code = :code"),
-            {"cohort_id": cohort_id, "code": code},
+            text("""SELECT id FROM cohort_scopes
+                    WHERE cohort_id = :cohort_id AND code = :code AND term_id = :term_id"""),
+            {"cohort_id": cohort_id, "code": code, "term_id": term_id},
         ).first()
         return row[0] if row else None
 

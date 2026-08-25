@@ -324,6 +324,49 @@ async def delete_course(course_id: str, database: StudentDatabase = Depends(get_
     database.delete_course(course_id)
 
 
+class AssignmentInput(BaseModel):
+    """`groupId: null` means "not decided yet", which readiness keeps reporting."""
+
+    student_ids: list[str] = Field(default_factory=list, max_length=20_000, alias="studentIds")
+    group_id: str | None = Field(default=None, alias="groupId")
+
+
+@router.put("/scopes/{scope_id}/assignments")
+async def assign_students(
+    scope_id: str,
+    body: AssignmentInput,
+    request: Request,
+    database: StudentDatabase = Depends(get_database),
+) -> dict[str, int]:
+    """Put students in a group of this scope, or take them out of it.
+
+    One group per student per scope: their enrolment is the union of the groups they hold,
+    so assigning replaces whatever they had for this scope rather than adding to it.
+    """
+    staff = getattr(request.state, "staff_user", None)
+    actor = getattr(staff, "email", "") or ""
+    try:
+        for student_id in body.student_ids:
+            database.assign(
+                student_id=student_id, scope_id=scope_id, group_id=body.group_id, actor=actor
+            )
+    except ScopeNotFound as exc:
+        raise _missing(exc, "block") from exc
+    except GroupNotFound as exc:
+        raise _missing(exc, "group") from exc
+    return {"assigned": len(body.student_ids)}
+
+
+@router.get("/cohorts/{cohort_id}/assignments")
+async def read_assignments(
+    cohort_id: str, database: StudentDatabase = Depends(get_database)
+) -> dict[str, Any]:
+    try:
+        return {"assignments": database.assignments_of(cohort_id)}
+    except CohortNotFound as exc:
+        raise _missing(exc, "cohort") from exc
+
+
 @router.post("/scopes/{scope_id}/groups", status_code=status.HTTP_201_CREATED)
 async def add_group(
     scope_id: str, body: GroupInput, database: StudentDatabase = Depends(get_database)
