@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Check, CheckCircle2, Loader2, Plus, Trash2, Upload } from "lucide-react";
+import { AlertTriangle, Check, CheckCircle2, Loader2, Plus, Trash2, Upload, Users } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -7,6 +7,8 @@ import { ScreenLoading } from "@/components/ScreenLoading";
 import { type CrnVerdict, fetchPublication } from "@/services/publication";
 import { verdictFor } from "@/services/publicationView";
 import {
+  type AssignmentReport,
+  importAssignmentWorkbook,
   addCourse,
   addGroup,
   addScope,
@@ -45,6 +47,7 @@ export function GroupCatalogue({ cohort, termId = "" }: { cohort: Cohort; termId
     retry: false,
   });
   const [report, setReport] = useState<ImportReport | null>(null);
+  const [assignments, setAssignments] = useState<AssignmentReport | null>(null);
   const [pendingScope, setPendingScope] = useState<CatalogueScope | null>(null);
 
   const refresh = () => client.invalidateQueries({ queryKey: ["catalogue", cohort.id, termId] });
@@ -53,6 +56,14 @@ export function GroupCatalogue({ cohort, termId = "" }: { cohort: Cohort; termId
     mutationFn: (file: File) => importReferenceWorkbook(cohort.id, file),
     onSuccess: (result) => {
       setReport(result);
+      refresh();
+    },
+  });
+  const importStudents = useMutation({
+    mutationFn: (file: File) => importAssignmentWorkbook(cohort.id, termId, file),
+    onSuccess: (result) => {
+      setAssignments(result);
+      client.invalidateQueries({ queryKey: ["publication", termId] });
       refresh();
     },
   });
@@ -73,7 +84,11 @@ export function GroupCatalogue({ cohort, termId = "" }: { cohort: Cohort; termId
 
   const scopes = catalogue.data?.scopes ?? [];
   const error =
-    importWorkbook.error?.message ?? createScope.error?.message ?? removeScope.error?.message ?? null;
+    importWorkbook.error?.message ??
+    importStudents.error?.message ??
+    createScope.error?.message ??
+    removeScope.error?.message ??
+    null;
 
   return (
     <>
@@ -93,7 +108,7 @@ export function GroupCatalogue({ cohort, termId = "" }: { cohort: Cohort; termId
             ) : (
               <Upload size={16} aria-hidden="true" />
             )}
-            {importWorkbook.isPending ? "Reading…" : "Upload workbook"}
+            {importWorkbook.isPending ? "Reading…" : "Upload groups"}
             <input
               type="file"
               accept=".xlsx"
@@ -106,6 +121,63 @@ export function GroupCatalogue({ cohort, termId = "" }: { cohort: Cohort; termId
             />
           </label>
         </div>
+
+        <div className="mt-4 flex flex-wrap items-start justify-between gap-3 border-t border-[#eef1f5] pt-4">
+          <div>
+            <h3 className="text-base font-semibold text-[#171717]">Put students in their groups</h3>
+            <p className="mt-1 max-w-2xl text-sm leading-6 text-[#667085]">
+              The same workbook says who is in which group. This is the term-start load; after it,
+              move one student at a time from the Students page rather than re-uploading everybody.
+              {termId ? "" : " Choose a semester first."}
+            </p>
+          </div>
+          <label
+            className={`inline-flex shrink-0 items-center gap-2 rounded-md border px-3 py-2 text-sm font-semibold ${
+              termId
+                ? "cursor-pointer border-[#b7bec8] bg-white text-[#344054] hover:bg-[#f8fafc]"
+                : "cursor-not-allowed border-[#e4e8ef] bg-[#f8fafc] text-[#98a2b3]"
+            }`}
+          >
+            {importStudents.isPending ? (
+              <Loader2 size={16} className="animate-spin" aria-hidden="true" />
+            ) : (
+              <Users size={16} aria-hidden="true" />
+            )}
+            {importStudents.isPending ? "Reading…" : "Upload student groups"}
+            <input
+              type="file"
+              accept=".xlsx"
+              className="sr-only"
+              disabled={!termId}
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.target.value = "";
+                if (file) importStudents.mutate(file);
+              }}
+            />
+          </label>
+        </div>
+
+        {assignments ? (
+          <div className="mt-3 rounded-md border border-[#bfdcc6] bg-[#f4faf5] px-4 py-3 text-sm text-[#2f6b3d]">
+            <p className="flex items-center gap-2 font-semibold">
+              <CheckCircle2 size={16} aria-hidden="true" />
+              {assignments.assigned} student placement(s) from {assignments.filename}
+            </p>
+            {assignments.unknownStudents.length > 0 ? (
+              <p className="mt-1 text-[#8a6116]">
+                {assignments.unknownStudents.length} id(s) in the workbook are not students this
+                application holds, so they were skipped — sync the roster first if they should be.
+              </p>
+            ) : null}
+            {assignments.unknownGroups.length > 0 ? (
+              <p className="mt-1 text-[#a6292f]">
+                No such group here: {assignments.unknownGroups.slice(0, 6).join(", ")}. The Reference
+                sheet and the student sheet have drifted apart.
+              </p>
+            ) : null}
+          </div>
+        ) : null}
 
         {report ? (
           <p className="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-[#bfdcc6] bg-[#f4faf5] px-4 py-3 text-sm text-[#2f6b3d]">

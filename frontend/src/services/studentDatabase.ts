@@ -111,6 +111,31 @@ export function fetchCatalogue(cohortId: string, termId?: string): Promise<Catal
   return request<Catalogue>(`${BASE}/cohorts/${cohortId}/catalogue${query}`);
 }
 
+export type AssignmentReport = {
+  filename: string;
+  sheets: string[];
+  read: { students: number; assignments: number };
+  assigned: number;
+  unknownStudents: string[];
+  unknownGroups: string[];
+  unknownScopes: string[];
+};
+
+/** The term-start bulk load: who the workbook puts in which group, for one semester. */
+export function importAssignmentWorkbook(
+  cohortId: string,
+  termId: string,
+  file: File,
+): Promise<AssignmentReport> {
+  const body = new FormData();
+  body.set("term_id", termId);
+  body.set("workbook", file);
+  return request<AssignmentReport>(`${BASE}/cohorts/${cohortId}/assignments/import`, {
+    method: "POST",
+    body,
+  });
+}
+
 export function importReferenceWorkbook(cohortId: string, file: File): Promise<ImportReport> {
   const body = new FormData();
   body.set("workbook", file);
