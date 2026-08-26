@@ -1,5 +1,5 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FolderInput, Globe, LayoutGrid, Search } from "lucide-react";
+import { Filter, FolderInput, Globe, LayoutGrid, Search } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ColumnMenu } from "@/components/ColumnMenu";
@@ -131,14 +131,20 @@ export function StudentRoster({
   const [placed, setPlaced] = useState<(PlacementReport & { removed: boolean }) | null>(null);
 
   /*
-   * A preselection arrives from the Groups page naming students who are in no block. They
-   * need not be in the view that happens to be open, so the search widens to everybody —
-   * otherwise the ticks would land on rows that are not on screen and nothing would happen.
+   * A handful of students sent here from the Groups page, who are in no block.
+   *
+   * The table is narrowed to exactly them, not merely ticked: nine ticks among 2803 rows
+   * are nine rows you cannot see, and a page that looks unchanged has not answered "show
+   * them to me". The search also widens to everybody first, because somebody with no group
+   * need not be in whichever view happens to be open.
    */
+  const [focus, setFocus] = useState<string[]>([]);
   const sent = preselect.join(",");
   useEffect(() => {
     if (!sent) return;
-    setSelected(new Set(sent.split(",")));
+    const ids = sent.split(",");
+    setFocus(ids);
+    setSelected(new Set(ids));
     setEverywhere(true);
   }, [sent]);
 
@@ -157,10 +163,15 @@ export function StudentRoster({
     () => changesSince(stored.previous?.rows ?? [], stored.current?.rows ?? []),
     [stored],
   );
-  const rows = useMemo(
+  const everyRow = useMemo(
     () => studentRows(students.data ?? [], stored.current?.rows ?? [], changes, syncedAt),
     [students.data, stored, changes, syncedAt],
   );
+  const rows = useMemo(() => {
+    if (focus.length === 0) return everyRow;
+    const wanted = new Set(focus);
+    return everyRow.filter((row) => wanted.has(row.studentId));
+  }, [everyRow, focus]);
 
   const columns = useMemo(
     () => (layout ? visibleColumns(layout, allColumns) : []),
@@ -370,6 +381,24 @@ export function StudentRoster({
           className="border border-[#b7bec8] bg-white p-2 hover:bg-[#f8fafc]"
         />
       </div>
+
+      {focus.length > 0 ? (
+        <p className="mt-2 flex flex-wrap items-center gap-2 rounded-md border border-[#cfe0ef] bg-[#f2f7fb] px-4 py-2.5 text-sm text-[#1f4e79]">
+          <Filter size={15} aria-hidden="true" />
+          <span>
+            Showing the <b className="tabular-nums">{focus.length}</b> student
+            {focus.length === 1 ? "" : "s"} sent from Groups &amp; CRNs
+            {rows.length !== focus.length ? ` — ${rows.length} of them are in this record` : ""}.
+          </span>
+          <button
+            type="button"
+            onClick={() => setFocus([])}
+            className="font-semibold underline"
+          >
+            Show everyone again
+          </button>
+        </p>
+      ) : null}
 
       <p className="mt-2 text-xs text-[#98a2b3]">
         {rows.length} student{rows.length === 1 ? "" : "s"} held

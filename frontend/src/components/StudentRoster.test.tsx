@@ -128,11 +128,11 @@ function withNames() {
   rememberSync(VIEW_ID, SYNCED);
 }
 
-function renderRoster() {
+function renderRoster(preselect: string[] = []) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <StudentRoster cohorts={COHORTS} viewId={VIEW_ID} />
+      <StudentRoster cohorts={COHORTS} viewId={VIEW_ID} preselect={preselect} />
     </QueryClientProvider>,
   );
 }
@@ -787,5 +787,46 @@ describe("the toolbar", () => {
     // population holds them.
     await waitFor(() => expect(fetched).toHaveBeenCalledWith(""));
     expect(await screen.findByRole("button", { name: /All students/ })).toBeTruthy();
+  });
+});
+
+describe("students sent here from Groups & CRNs", () => {
+  it("narrows the table to them, rather than ticking rows you cannot see", async () => {
+    // Nine ticks among 2803 rows are nine rows nobody can find. "Show them" has to show them.
+    renderRoster(["A001", "A003"]);
+
+    expect(await screen.findByText("A001")).toBeTruthy();
+    expect(screen.getByText("A003")).toBeTruthy();
+    expect(screen.queryByText("A002")).toBeNull();
+    expect(screen.queryByText("A999")).toBeNull();
+  });
+
+  it("says why the table is short, and offers the way back", async () => {
+    renderRoster(["A001", "A003"]);
+
+    const banner = await screen.findByText(/sent from Groups & CRNs/);
+    expect(banner.textContent).toContain("2 students");
+
+    fireEvent.click(screen.getByRole("button", { name: /Show everyone again/ }));
+
+    expect(await screen.findByText("A002")).toBeTruthy();
+    expect(screen.queryByText(/sent from Groups & CRNs/)).toBeNull();
+  });
+
+  it("ticks them too, so they can be placed straight away", async () => {
+    renderRoster(["A001", "A003"]);
+
+    await screen.findByText("A001");
+    expect(screen.getByText(/2 selected/)).toBeTruthy();
+    const place = screen.getByRole("button", { name: /Place in a block/ }) as HTMLButtonElement;
+    // A001 is in a cohort and A003 is not, so this selection has no single block list.
+    expect(place.disabled).toBe(true);
+  });
+
+  it("says when somebody sent here is not in the record at all", async () => {
+    renderRoster(["A001", "A00099999"]);
+
+    const banner = await screen.findByText(/sent from Groups & CRNs/);
+    expect(banner.textContent).toContain("1 of them are in this record");
   });
 });
