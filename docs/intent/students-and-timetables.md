@@ -83,3 +83,33 @@ Ordered by what blocks running S1, not by what is most interesting.
 **The workbook path stays alive until a push has demonstrably produced the right
 enrolments.** Retiring it is the last step of phase 1, not the first — otherwise there is a
 window in which S1 cannot be published at all.
+
+## Revisions — 2026-08-26
+
+Taken after phase 1 was built and demonstrated. Two of these contradict what is above;
+they are recorded here rather than edited into place, so the change is visible.
+
+1. **Per-course overrides are dropped.** The constraint at the top of this document said they
+   must survive re-import. They are not being built at all. What the coordinator actually
+   wanted from that constraint was not to *hold* corrections against the registrar but to be
+   able to *read* what the registrar changed — "looking at individual slots is a pain". A
+   re-import review that summarises per course answers that, and taking the registrar's
+   values as they come is then no hardship. If polish starts being redone by hand every
+   re-issue, this is the decision to revisit.
+2. **No second door onto Groups & CRNs.** "One screen, two doors" is dropped: the sidebar,
+   with its cohort and semester dropdowns, is enough. The semester row keeps Publish, Update
+   timetable and Delete.
+3. **The student-list upload goes now**, not after the first clean push. Imports will produce
+   a semester with no enrolments until publish is working — accepted knowingly, with the live
+   semester's rebuild as the thing that proves publish.
+4. **Cohort management is rehomed, not lost.** The Cohorts page goes; create moves into "Move
+   to cohort", rename and delete into the cohort dropdown on Groups & CRNs, and "who is in
+   it" is the Students table filtered by cohort.
+5. **Students are assigned from the Students table**, in bulk, beside "Move to cohort".
+6. **Unassigned students surface on Groups & CRNs**, while blocks are being filled, rather
+   than only in the publish readiness check.
+7. **Modals start a flow, not review one.** Choosing a file happens in a modal; a diff with
+   hundreds of rows takes the full screen.
+8. **Moving or copying a block between semesters is deferred.**
+
+Order of work: rebuild the live semester and get one clean push before anything else ships.
