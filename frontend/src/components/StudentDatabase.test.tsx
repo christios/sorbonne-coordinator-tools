@@ -202,7 +202,7 @@ describe("students and their timetables in one place", () => {
     renderApp();
     const pane = await screen.findByRole("complementary", { name: /students and timetables/i });
 
-    for (const name of ["Students", "Cohorts", "Groups & CRNs", "Semesters", "Announcements"]) {
+    for (const name of ["Students", "Groups & CRNs", "Semesters", "Announcements"]) {
       expect(within(pane).getByRole("button", { name })).toBeTruthy();
     }
   });

@@ -250,8 +250,8 @@ export type Student = {
   cohortName: string;
   firstSeenAt: string;
   lastSeenAt: string;
-  /** scope id -> group id, for the blocks this student has been placed in. */
-  groups: Record<string, string>;
+  /** The blocks this student sits in, labelled — one entry per (semester, block). */
+  groups: { termId: string; scopeCode: string; groupLabel: string }[];
 };
 
 export type SyncReport = {

@@ -76,7 +76,7 @@ const HELD: database.Student[] = [
     cohortName: "Foundation Year",
     firstSeenAt: EARLIER,
     lastSeenAt: SYNCED,
-    groups: {},
+    groups: [],
   },
   {
     studentId: "A002",
@@ -85,7 +85,7 @@ const HELD: database.Student[] = [
     cohortName: "",
     firstSeenAt: EARLIER,
     lastSeenAt: SYNCED,
-    groups: {},
+    groups: [],
   },
   {
     studentId: "A003",
@@ -94,7 +94,7 @@ const HELD: database.Student[] = [
     cohortName: "",
     firstSeenAt: SYNCED,
     lastSeenAt: SYNCED,
-    groups: {},
+    groups: [],
   },
   {
     studentId: "A999",
@@ -103,7 +103,7 @@ const HELD: database.Student[] = [
     cohortName: "Foundation Year",
     firstSeenAt: EARLIER,
     lastSeenAt: EARLIER,
-    groups: {},
+    groups: [],
   },
 ];
 

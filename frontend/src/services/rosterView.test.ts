@@ -5,7 +5,9 @@ import {
   choices,
   countBy,
   filterRows,
+  groupLabels,
   sharedCohort,
+  shortTerm,
   sortRows,
   studentRows,
   NO_FILTERS,
@@ -32,7 +34,7 @@ const student = (studentId: string, over: Partial<Student> = {}): Student => ({
   cohortName: "",
   firstSeenAt: EARLIER,
   lastSeenAt: SYNCED,
-  groups: {},
+  groups: [],
   ...over,
 });
 
@@ -248,5 +250,36 @@ describe("the cohort a selection shares", () => {
 
   it("is nothing when nothing is selected", () => {
     expect(sharedCohort([row("A1", "c1")], new Set())).toBeNull();
+  });
+});
+
+describe("the blocks a student sits in", () => {
+  const at = (termId: string, scopeCode: string, groupLabel: string) => ({ termId, scopeCode, groupLabel });
+
+  it("says the block and the group, the way a coordinator says them", () => {
+    expect(groupLabels([at("t1", "TD", "1"), at("t1", "CM", "2")])).toEqual(["TD 1", "CM 2"]);
+  });
+
+  it("names the semester once a student is in more than one", () => {
+    // "TD 1" and "TD 3" side by side read as a contradiction until the semester is said.
+    const labels = groupLabels([at("t1", "TD", "1"), at("t2", "TD", "3")], {
+      t1: "Physics & Maths — First Year, Semester 1",
+      t2: "Physics & Maths — First Year, Semester 2",
+    });
+    expect(labels).toEqual(["Semester 1 · TD 1", "Semester 2 · TD 3"]);
+  });
+
+  it("leaves the semester out when there is only one, because it adds nothing", () => {
+    const labels = groupLabels([at("t1", "TD", "1")], { t1: "Physics & Maths — Semester 1" });
+    expect(labels).toEqual(["TD 1"]);
+  });
+
+  it("falls back to the block alone when the semester has no name here", () => {
+    expect(groupLabels([at("t1", "TD", "1"), at("t2", "CM", "2")], {})).toEqual(["TD 1", "CM 2"]);
+  });
+
+  it("shortens the registrar's title to the part that fits a cell", () => {
+    expect(shortTerm("Physics & Maths — First Year, Semester 2")).toBe("Semester 2");
+    expect(shortTerm("Languages")).toBe("Languages");
   });
 });

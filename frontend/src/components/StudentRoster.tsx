@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ColumnMenu } from "@/components/ColumnMenu";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { Modal } from "@/components/Modal";
 import { CopyButton } from "@/components/CopyButton";
 import { PlaceInBlock } from "@/components/PlaceInBlock";
 import { ScreenLoading } from "@/components/ScreenLoading";
@@ -14,6 +15,7 @@ import { TableFilterBar } from "@/components/TableFilterBar";
 import { tableText } from "@/services/copyCells";
 import { forgetHistory, loadHistory, type PullHistory } from "@/services/pullHistory";
 import { fetchSchema } from "@/services/scenRosters";
+import { fetchTimetableTerms } from "@/services/timetables";
 import { changesSince, sharedCohort, studentRows, type StudentRow } from "@/services/rosterView";
 import { PortalError } from "@/services/scenRosters";
 import {
@@ -35,6 +37,7 @@ import {
 } from "@/services/studentColumns";
 import { applyFilters, type FilterModel } from "@/services/tableFilter";
 import {
+  createCohort,
   fetchStudents,
   setCohort,
   type Cohort,
@@ -43,6 +46,8 @@ import {
 
 /** Where a student goes when the picker is used, with "no cohort" as a real choice. */
 const NO_COHORT = "__none__";
+/** Making one is a way of moving into one, so it lives in the same picker. */
+const NEW_COHORT = "__new__";
 
 /**
  * One view's students, and what the portal last said about them.
@@ -59,11 +64,14 @@ export function StudentRoster({
   cohorts,
   viewId,
   preselect = [],
+  filterCohort = "",
 }: {
   cohorts: Cohort[];
   viewId: string;
   /** Ids another page sent here — the table opens showing everybody, with these ticked. */
   preselect?: string[];
+  /** A cohort whose members to show — arrives as an ordinary filter chip, clearable. */
+  filterCohort?: string;
 }) {
   const client = useQueryClient();
   const [everywhere, setEverywhere] = useState(false);
@@ -83,6 +91,12 @@ export function StudentRoster({
     placeholderData: keepPreviousData,
   });
   const schema = useQuery({ queryKey: ["portal-schema"], queryFn: fetchSchema, staleTime: 60_000 });
+  // Only so the Groups column can name a semester when a student is in more than one.
+  const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, retry: false });
+  const termNames = useMemo(
+    () => Object.fromEntries((terms.data ?? []).map((term) => [term.id, term.name])),
+    [terms.data],
+  );
 
   // The table offers the portal's own fields, so the columns follow the harvested schema.
   const allColumns = useMemo(
@@ -127,6 +141,8 @@ export function StudentRoster({
     saveLayout(next);
   }, []);
 
+  const [naming, setNaming] = useState(false);
+  const [newName, setNewName] = useState("");
   const [placing, setPlacing] = useState(false);
   const [placed, setPlaced] = useState<(PlacementReport & { removed: boolean }) | null>(null);
 
@@ -148,6 +164,34 @@ export function StudentRoster({
     setEverywhere(true);
   }, [sent]);
 
+  /*
+   * "Who is in this cohort" is the table filtered by cohort, which it could always do.
+   * It arrives as an ordinary filter chip rather than a special mode, so it shows in the
+   * filter bar and comes off the way every other filter does.
+   */
+  useEffect(() => {
+    if (!filterCohort) return;
+    setEverywhere(true);
+    setFilters([{ columnId: "cohortName", type: "option", operator: "is", values: [filterCohort] }]);
+  }, [filterCohort]);
+
+  /** Create a cohort and put the selection in it, which is the only reason to make one here. */
+  const createAndMove = useMutation({
+    mutationFn: async () => {
+      const created = await createCohort({ name: newName.trim() });
+      await setCohort([...selected], created.id);
+      return created;
+    },
+    onSuccess: (created) => {
+      setNaming(false);
+      setNewName("");
+      setMoveTo(created.id);
+      setSelected(new Set());
+      client.invalidateQueries({ queryKey: ["students"] });
+      client.invalidateQueries({ queryKey: ["cohorts"] });
+    },
+  });
+
   const move = useMutation({
     mutationFn: ({ ids, cohortId }: { ids: string[]; cohortId: string | null }) =>
       setCohort(ids, cohortId),
@@ -164,8 +208,8 @@ export function StudentRoster({
     [stored],
   );
   const everyRow = useMemo(
-    () => studentRows(students.data ?? [], stored.current?.rows ?? [], changes, syncedAt),
-    [students.data, stored, changes, syncedAt],
+    () => studentRows(students.data ?? [], stored.current?.rows ?? [], changes, syncedAt, termNames),
+    [students.data, stored, changes, syncedAt, termNames],
   );
   const rows = useMemo(() => {
     if (focus.length === 0) return everyRow;
@@ -263,9 +307,17 @@ export function StudentRoster({
               searchable={cohorts.length > 12}
               options={[
                 ...cohorts.map((cohort) => ({ value: cohort.id, label: cohort.name })),
+                { value: NEW_COHORT, label: "New cohort…" },
                 { value: NO_COHORT, label: "Take out of their cohort" },
               ]}
-              onChange={setMoveTo}
+              onChange={(value) => {
+                if (value === NEW_COHORT) {
+                  setNewName("");
+                  setNaming(true);
+                  return;
+                }
+                setMoveTo(value);
+              }}
               disabled={!chosen.length}
             />
           </div>
@@ -381,6 +433,44 @@ export function StudentRoster({
           className="border border-[#b7bec8] bg-white p-2 hover:bg-[#f8fafc]"
         />
       </div>
+
+      <Modal
+        open={naming}
+        title={`New cohort for ${chosen.length} student${chosen.length === 1 ? "" : "s"}`}
+        description="A cohort is a population for a year, not a semester — its blocks are defined per semester."
+        onClose={() => setNaming(false)}
+        footer={
+          <div className="flex items-center justify-end gap-3">
+            <button type="button" onClick={() => setNaming(false)} className="text-sm font-semibold text-[#667085]">
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={!newName.trim() || !chosen.length || createAndMove.isPending}
+              onClick={() => createAndMove.mutate()}
+              className="rounded-md bg-[#1f4e79] px-4 py-2 text-sm font-semibold text-white disabled:bg-[#9ba8b5]"
+            >
+              Create and move {chosen.length}
+            </button>
+          </div>
+        }
+      >
+        <label className="block text-sm font-semibold text-[#344054]">
+          Name
+          <input
+            value={newName}
+            autoFocus
+            onChange={(event) => setNewName(event.target.value)}
+            placeholder="Foundation Year"
+            className="mt-1.5 block w-full rounded-md border border-[#cbd5e1] px-3 py-2 text-sm font-normal"
+          />
+        </label>
+        {createAndMove.error ? (
+          <p role="alert" className="mt-3 rounded-md border border-[#e5b7b9] bg-[#fdf3f3] px-4 py-3 text-sm text-[#a6292f]">
+            {(createAndMove.error as Error).message}
+          </p>
+        ) : null}
+      </Modal>
 
       {focus.length > 0 ? (
         <p className="mt-2 flex flex-wrap items-center gap-2 rounded-md border border-[#cfe0ef] bg-[#f2f7fb] px-4 py-2.5 text-sm text-[#1f4e79]">

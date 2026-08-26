@@ -49,6 +49,7 @@ const DEFAULT_SHOWN = [
   "portal:YEARLEVEL_CODE",
   "portal:MAJOR_CODE_DESC",
   "cohortName",
+  "groups",
 ];
 
 /** The columns that are ours rather than the portal's. */
@@ -77,6 +78,15 @@ const OWN_COLUMNS: StudentColumn[] = [
     accessor: (row) => row.cohortName,
     display: (row) => row.cohortName || "—",
     defaultWidth: 180,
+  },
+  {
+    id: "groups",
+    displayName: "Groups",
+    // Several per student, so it filters as "include any of": "show me everyone in TD 1".
+    type: "multiOption",
+    accessor: (row) => row.groups,
+    display: (row) => (row.groups.length ? row.groups.join(" · ") : "—"),
+    defaultWidth: 200,
   },
   {
     id: "firstSeenAt",
@@ -291,9 +301,14 @@ function asDay(value: string): string {
 export function optionsFor(rows: StudentRow[], column: StudentColumn): { value: string; label: string }[] {
   const seen = new Map<string, string>();
   for (const row of rows) {
-    const value = String(column.accessor(row) ?? "");
-    if (!value) continue;
-    if (!seen.has(value)) seen.set(value, column.display ? column.display(row) : value);
+    // A multiOption column holds several values per row, and each is an option of its own:
+    // stringifying the array would offer "CM 1 · TD 1" as a single thing to filter by.
+    const held = column.accessor(row);
+    const values = Array.isArray(held) ? held.map(String) : [String(held ?? "")];
+    for (const value of values) {
+      if (!value) continue;
+      if (!seen.has(value)) seen.set(value, Array.isArray(held) ? value : column.display ? column.display(row) : value);
+    }
   }
   // Same collation as the table: case ignored, accents kept, "10" after "9".
   return [...seen]

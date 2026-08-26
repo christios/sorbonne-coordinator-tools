@@ -513,3 +513,15 @@ def test_a_group_from_another_block_is_refused(client: TestClient, cohort_id: st
     )
 
     assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+def test_a_student_carries_the_groups_they_are_in_by_name(client: TestClient, cohort_id: str, view_id: str):
+    """Ids are no use to a table. "TD 1" is what a coordinator recognises."""
+    scope_id, group_id = block_with_a_group(client, cohort_id)
+    in_cohort(client, view_id, cohort_id, STUDENTS)
+    place(client, scope_id, STUDENTS[:1], group_id)
+
+    held = {row["studentId"]: row["groups"] for row in students_of(client)}
+
+    assert held[STUDENTS[0]] == [{"termId": "", "scopeCode": "TD", "groupLabel": "1"}]
+    assert held[STUDENTS[1]] == []

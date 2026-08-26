@@ -341,15 +341,25 @@ class StudentDatabase:
             parameters = {"view": view_id}
         with self.engine.connect() as connection:
             rows = connection.execute(text(query), parameters).mappings().all()
+            # Labelled, not as ids: "TD 1" is what a coordinator recognises, and the table
+            # cannot look a group id up for itself without loading every cohort's catalogue.
             assignments = (
-                connection.execute(text("SELECT student_id, scope_id, group_id FROM group_assignments"))
+                connection.execute(
+                    text("""SELECT a.student_id, s.term_id, s.code AS scope_code, g.label
+                            FROM group_assignments a
+                            JOIN scope_groups g ON g.id = a.group_id
+                            JOIN cohort_scopes s ON s.id = a.scope_id
+                            ORDER BY s.code, g.label""")
+                )
                 .mappings()
                 .all()
             )
-        held: dict[str, dict[str, str]] = {}
+        held: dict[str, list[dict[str, str]]] = {}
         for row in assignments:
-            held.setdefault(row["student_id"], {})[row["scope_id"]] = row["group_id"]
-        return [_student(row, held.get(row["student_id"], {})) for row in rows]
+            held.setdefault(row["student_id"], []).append(
+                {"termId": row["term_id"], "scopeCode": row["scope_code"], "groupLabel": row["label"]}
+            )
+        return [_student(row, held.get(row["student_id"], [])) for row in rows]
 
     def set_cohort(self, student_ids: list[str], cohort_id: str | None) -> int:
         """Put students in a cohort, or take them out of one when `cohort_id` is None.
@@ -1163,7 +1173,7 @@ def _view(row) -> dict[str, Any]:
     }
 
 
-def _student(row, groups: dict[str, str]) -> dict[str, Any]:
+def _student(row, groups: list[dict[str, str]]) -> dict[str, Any]:
     return {
         "studentId": row["student_id"],
         "status": row["status"],

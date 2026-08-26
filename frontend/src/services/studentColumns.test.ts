@@ -54,6 +54,7 @@ const row = (over: Partial<StudentRow> = {}): StudentRow => ({
   portal: { FULL_NAME: "Amira Haddad", YEARLEVEL_CODE: "FY", MAJOR_CODE_DESC: "Mathematics" },
   isNew: false,
   changes: [],
+  groups: [],
   ...over,
 });
 
@@ -113,6 +114,7 @@ describe("the stored arrangement", () => {
       "portal:YEARLEVEL_CODE",
       "portal:MAJOR_CODE_DESC",
       "cohortName",
+      "groups",
     ]);
   });
 
@@ -166,7 +168,7 @@ describe("the stored arrangement", () => {
   it("falls back to the default when storage holds nonsense", () => {
     window.localStorage.setItem("scen-student-columns:v1", "not json");
 
-    expect(visibleColumns(loadLayout(COLUMNS), COLUMNS)).toHaveLength(6);
+    expect(visibleColumns(loadLayout(COLUMNS), COLUMNS)).toHaveLength(7);
   });
 });
 

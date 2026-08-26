@@ -1,9 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
-import { CalendarDays, Layers, ListTree, Megaphone, Users } from "lucide-react";
+import { CalendarDays, ListTree, Megaphone, Users } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { AnnouncementEditor } from "@/components/AnnouncementEditor";
-import { CohortList } from "@/components/CohortList";
+import { CohortActions } from "@/components/CohortActions";
 import { GroupCatalogue } from "@/components/GroupCatalogue";
 import { PlatformNotConfigured } from "@/components/PlatformNotConfigured";
 import { ScreenLoading } from "@/components/ScreenLoading";
@@ -13,7 +13,7 @@ import { StaffMenu } from "@/components/StaffMenu";
 import { StudentRoster } from "@/components/StudentRoster";
 import { SidePane } from "@/components/SidePane";
 import { ViewBar } from "@/components/ViewBar";
-import { fetchCohorts, fetchViews, type Cohort } from "@/services/studentDatabase";
+import { fetchCohorts, fetchViews } from "@/services/studentDatabase";
 import { fetchTimetableStatus, fetchTimetableTerms } from "@/services/timetables";
 
 // Two families of page in one pane: what this application knows about students, and what
@@ -21,7 +21,6 @@ import { fetchTimetableStatus, fetchTimetableTerms } from "@/services/timetables
 // the CRNs a cohort is taught in are the CRNs its timetable is built from.
 const PAGES = [
   { id: "students", name: "Students", icon: Users, group: "Students" },
-  { id: "cohorts", name: "Cohorts", icon: Layers, group: "Students" },
   { id: "groups", name: "Groups & CRNs", icon: ListTree, group: "Students" },
   { id: "semesters", name: "Semesters", icon: CalendarDays, group: "Timetables" },
   { id: "announcements", name: "Announcements", icon: Megaphone, group: "Timetables" },
@@ -33,10 +32,6 @@ type PageId = (typeof PAGES)[number]["id"];
 const TITLES: Record<PageId, { title: string; blurb?: string }> = {
   students: {
     title: "Students",
-  },
-  cohorts: {
-    title: "Cohorts",
-    blurb: "Assemble students into the groups they will be taught in.",
   },
   groups: {
     title: "Groups & CRNs",
@@ -70,6 +65,8 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
   const [termId, setTermId] = useState("");
   // Set when the Groups page sends somebody here: the Students table opens on exactly them.
   const [preselect, setPreselect] = useState<string[]>([]);
+  // Set when a cohort's member count is pressed: the Students table filters to that cohort.
+  const [filterCohort, setFilterCohort] = useState("");
   const onPlatform = page === "semesters" || page === "announcements";
   const status = useQuery({
     queryKey: ["timetable-status"],
@@ -100,11 +97,6 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
   const knownCohorts = cohorts.data ?? [];
   const cohort = knownCohorts.find((candidate) => candidate.id === cohortId) ?? knownCohorts[0] ?? null;
   const needsCohort = page === "groups";
-
-  const openGroups = (chosen: Cohort) => {
-    setCohortId(chosen.id);
-    setPage("groups");
-  };
 
   return (
     <div className="flex min-h-0 flex-1">
@@ -147,6 +139,15 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
                     }))}
                   />
                 </LabelledPicker>
+                {cohort ? (
+                  <CohortActions
+                    cohort={cohort}
+                    onShowMembers={(chosen) => {
+                      setFilterCohort(chosen.name);
+                      setPage("students");
+                    }}
+                  />
+                ) : null}
                 <LabelledPicker
                   label="Semester"
                   hint={semesters.length ? "" : "none uploaded yet"}
@@ -166,7 +167,13 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
 
           {page === "students" && !cohorts.isLoading && !views.isLoading ? (
             available.length ? (
-              <StudentRoster key={viewId} cohorts={knownCohorts} viewId={viewId} preselect={preselect} />
+              <StudentRoster
+                key={viewId}
+                cohorts={knownCohorts}
+                viewId={viewId}
+                preselect={preselect}
+                filterCohort={filterCohort}
+              />
             ) : (
               <p className="text-sm text-[#667085]">
                 No views yet. Make one to say which students the portal should be asked for.
@@ -176,7 +183,6 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
           {page === "students" && (cohorts.isLoading || views.isLoading) ? (
             <ScreenLoading label="Loading…" />
           ) : null}
-          {page === "cohorts" ? <CohortList onOpen={openGroups} /> : null}
           {needsCohort && cohorts.isLoading ? <ScreenLoading label="Loading cohorts…" /> : null}
           {needsCohort && !cohorts.isLoading && !cohort ? (
             <p className="text-sm text-[#667085]">Create a cohort first, then fill its groups.</p>
