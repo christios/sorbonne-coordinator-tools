@@ -417,6 +417,80 @@ describe("StudentRoster", () => {
     expect(JSON.stringify(ids)).not.toContain("Karim");
   });
 
+  it("moves without a word when the students hold no groups, which is most moves", async () => {
+    // The confirmation is only worth reading if it is rare. Nobody in HELD is placed.
+    const move = vi.spyOn(database, "setCohort").mockResolvedValue(1);
+    withNames();
+    renderRoster();
+    await screen.findByText("Amira Haddad");
+
+    fireEvent.click(screen.getByLabelText("Select Karim Nasser"));
+    await choose("Move to cohort", "L1");
+    fireEvent.click(screen.getByRole("button", { name: /Move 1/ }));
+
+    await waitFor(() => expect(move).toHaveBeenCalled());
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("stops first when the move would drop placements, and names every semester", async () => {
+    // Leaving a cohort deletes the groups held in it — in every semester, not the one
+    // being looked at. That is the deletion nobody can see coming.
+    vi.spyOn(database, "fetchStudents").mockResolvedValue(
+      HELD.map((student) =>
+        student.studentId === "A001"
+          ? {
+              ...student,
+              groups: [
+                { termId: "term-1", scopeCode: "TD", groupLabel: "1" },
+                { termId: "term-2", scopeCode: "TD", groupLabel: "3" },
+              ],
+            }
+          : student,
+      ),
+    );
+    const move = vi.spyOn(database, "setCohort").mockResolvedValue(1);
+    withNames();
+    renderRoster();
+    await screen.findByText("Amira Haddad");
+
+    fireEvent.click(screen.getByLabelText("Select Amira Haddad"));
+    await choose("Move to cohort", "L1");
+    fireEvent.click(screen.getByRole("button", { name: /Move 1/ }));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText(/1 student would lose 2 group placements/)).toBeTruthy();
+    expect(within(dialog).getByText(/across 2 semesters/)).toBeTruthy();
+    expect(move).not.toHaveBeenCalled();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Move anyway" }));
+    await waitFor(() => expect(move).toHaveBeenCalled());
+    expect(move.mock.calls[0]).toEqual([["A001"], "cohort-2"]);
+  });
+
+  it("lets the move be called off, and nothing is written", async () => {
+    vi.spyOn(database, "fetchStudents").mockResolvedValue(
+      HELD.map((student) =>
+        student.studentId === "A001"
+          ? { ...student, groups: [{ termId: "term-1", scopeCode: "TD", groupLabel: "1" }] }
+          : student,
+      ),
+    );
+    const move = vi.spyOn(database, "setCohort").mockResolvedValue(1);
+    withNames();
+    renderRoster();
+    await screen.findByText("Amira Haddad");
+
+    fireEvent.click(screen.getByLabelText("Select Amira Haddad"));
+    await choose("Move to cohort", "L1");
+    fireEvent.click(screen.getByRole("button", { name: /Move 1/ }));
+
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(move).not.toHaveBeenCalled();
+  });
+
   it("takes students out of a cohort with a null, not a delete", async () => {
     const move = vi.spyOn(database, "setCohort").mockResolvedValue(1);
     withNames();

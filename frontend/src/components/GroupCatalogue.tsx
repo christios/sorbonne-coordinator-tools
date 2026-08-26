@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Check, CheckCircle2, Download, Loader2, Plus, Trash2, Upload } from "lucide-react";
+import { AlertTriangle, Check, CheckCircle2, Download, FileSpreadsheet, Loader2, Plus, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -200,7 +200,7 @@ export function GroupCatalogue({
               {check.isPending ? (
                 <Loader2 size={16} className="animate-spin" aria-hidden="true" />
               ) : (
-                <Upload size={16} aria-hidden="true" />
+                <FileSpreadsheet size={16} aria-hidden="true" />
               )}
               {check.isPending ? "Reading…" : "Upload workbook"}
               <input

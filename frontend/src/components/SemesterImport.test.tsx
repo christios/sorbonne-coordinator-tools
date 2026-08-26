@@ -23,7 +23,7 @@ function renderImport() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <SemesterImport host="scen.example.dev" />
+      <SemesterImport host="scen.example.dev" open onClose={() => {}} />
     </QueryClientProvider>,
   );
 }
@@ -46,7 +46,7 @@ describe("importing a timetable", () => {
     // knowledge now, and it reaches students through Publish.
     renderImport();
 
-    expect(screen.getByText("Import a timetable")).toBeTruthy();
+    expect(screen.getByRole("dialog", { name: "Import a timetable" })).toBeTruthy();
     expect(screen.queryByLabelText(/Student lists/)).toBeNull();
   });
 

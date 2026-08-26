@@ -12,6 +12,7 @@ import { SelectMenu } from "@/components/SelectMenu";
 import { StudentHistoryPane } from "@/components/StudentHistoryPane";
 import { StudentTable, cellText, type Sort } from "@/components/StudentTable";
 import { TableFilterBar } from "@/components/TableFilterBar";
+import { costOfMove, describeCost } from "@/services/cohortMove";
 import { tableText } from "@/services/copyCells";
 import { forgetHistory, loadHistory, type PullHistory } from "@/services/pullHistory";
 import { fetchSchema } from "@/services/scenRosters";
@@ -192,12 +193,18 @@ export function StudentRoster({
     },
   });
 
+  // Set only when a move would throw placements away, which is the only time it is asked about.
+  const [confirmMove, setConfirmMove] = useState<{ ids: string[]; cohortId: string | null } | null>(
+    null,
+  );
+
   const move = useMutation({
     mutationFn: ({ ids, cohortId }: { ids: string[]; cohortId: string | null }) =>
       setCohort(ids, cohortId),
     onSuccess: () => {
       setSelected(new Set());
       setMoveTo("");
+      setConfirmMove(null);
       client.invalidateQueries({ queryKey: ["students"] });
       client.invalidateQueries({ queryKey: ["cohorts"] });
     },
@@ -292,6 +299,25 @@ export function StudentRoster({
   if (students.isLoading || !layout) return <ScreenLoading label="Loading the students…" />;
 
   const chosen = [...selected];
+  /*
+   * A move only interrupts when it would destroy something.
+   *
+   * Most moves are a student joining the cohort they should always have been in, and
+   * costing them a confirmation each time is how a confirmation stops being read. What
+   * is worth stopping for is the delete nobody can see coming: leaving a cohort drops
+   * every group held in it, in every semester, not the one on screen.
+   */
+  const moveCost = (cohortId: string | null) =>
+    costOfMove(students.data ?? [], chosen, cohortId, termNames);
+  const newCohortCost = describeCost(moveCost(NEW_COHORT));
+  const requestMove = (cohortId: string | null) => {
+    if (moveCost(cohortId).placements === 0) {
+      move.mutate({ ids: chosen, cohortId });
+      return;
+    }
+    setConfirmMove({ ids: chosen, cohortId });
+  };
+
   // A block belongs to one cohort, so placing is only offered for a selection that is in one.
   const placeInto = sharedCohort(rows, selected);
   const cohortOfSelection = cohorts.find((candidate) => candidate.id === placeInto) ?? null;
@@ -345,7 +371,7 @@ export function StudentRoster({
           <button
             type="button"
             disabled={!chosen.length || !moveTo || move.isPending}
-            onClick={() => move.mutate({ ids: chosen, cohortId: moveTo === NO_COHORT ? null : moveTo })}
+            onClick={() => requestMove(moveTo === NO_COHORT ? null : moveTo)}
             className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-3 py-1.5 font-semibold text-white disabled:opacity-50"
           >
             <FolderInput size={15} aria-hidden="true" /> {chosen.length ? `Move ${chosen.length}` : "Move"}
@@ -486,6 +512,12 @@ export function StudentRoster({
             className="mt-1.5 block w-full rounded-md border border-[#cbd5e1] px-3 py-2 text-sm font-normal"
           />
         </label>
+        {/* A cohort that does not exist yet holds nobody, so everyone placed loses their groups. */}
+        {newCohortCost ? (
+          <p className="mt-3 rounded-md border border-[#e8d9ac] bg-[#fdf9ee] px-4 py-3 text-sm leading-6 text-[#8a6116]">
+            {newCohortCost}
+          </p>
+        ) : null}
         {createAndMove.error ? (
           <p role="alert" className="mt-3 rounded-md border border-[#e5b7b9] bg-[#fdf3f3] px-4 py-3 text-sm text-[#a6292f]">
             {(createAndMove.error as Error).message}
@@ -543,6 +575,25 @@ export function StudentRoster({
             ? "Nobody matches those filters."
             : "No students yet. Sync with the portal to build the list."
         }
+      />
+
+      <ConfirmDialog
+        open={confirmMove !== null}
+        title={
+          confirmMove?.cohortId
+            ? `Move ${confirmMove.ids.length} student${confirmMove.ids.length === 1 ? "" : "s"} to ${
+                cohorts.find((candidate) => candidate.id === confirmMove.cohortId)?.name ?? "another cohort"
+              }?`
+            : `Take ${confirmMove?.ids.length ?? 0} student${
+                (confirmMove?.ids.length ?? 0) === 1 ? "" : "s"
+              } out of their cohort?`
+        }
+        description={confirmMove ? describeCost(moveCost(confirmMove.cohortId)) : ""}
+        confirmLabel="Move anyway"
+        onConfirm={() => {
+          if (confirmMove) move.mutate(confirmMove);
+        }}
+        onClose={() => setConfirmMove(null)}
       />
 
       <ConfirmDialog

@@ -5,11 +5,13 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronUp,
+  FileSpreadsheet,
   HelpCircle,
   Loader2,
-  Upload,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+
+import { Modal } from "@/components/Modal";
 
 import {
   type DiffCourse,
@@ -60,7 +62,20 @@ const LABELS: Record<string, string> = {
  * the same session, and lands nothing that has not been ticked — an update is a series of
  * decisions, not a replacement.
  */
-export function SemesterUpdate({ term, onBack }: { term: TimetableTerm; onBack: () => void }) {
+export function SemesterUpdate({
+  term,
+  onBack,
+  onStage,
+}: {
+  term: TimetableTerm;
+  onBack: () => void;
+  /**
+   * "pick" while this is a dialog over the list, "review" once it has taken the screen.
+   * The list hides itself for the second, because a long review inside a scrolling box
+   * is worse than the full-screen page it replaced.
+   */
+  onStage?: (stage: "pick" | "review") => void;
+}) {
   const queryClient = useQueryClient();
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<TimetablePreview | null>(null);
@@ -93,6 +108,10 @@ export function SemesterUpdate({ term, onBack }: { term: TimetableTerm; onBack: 
     },
   });
 
+  // Picking a file is a dialog; a diff, or the result of applying one, is the whole screen.
+  const stage = preview || applied ? "review" : "pick";
+  useEffect(() => onStage?.(stage), [onStage, stage]);
+
   const courses = useMemo(() => preview?.courses ?? [], [preview]);
   const decisions = useMemo(() => allKeys(courses), [courses]);
   const shown = useMemo(() => visibleCourses(courses, filter), [courses, filter]);
@@ -113,6 +132,67 @@ export function SemesterUpdate({ term, onBack }: { term: TimetableTerm; onBack: 
       return next;
     });
 
+  const picker = (
+    <label className="block text-sm font-semibold text-[#344054]">
+      New timetable export
+      <input
+        type="file"
+        accept=".xls,.xlsx"
+        autoFocus
+        onChange={(event) => {
+          setFile(event.target.files?.[0] ?? null);
+          setPreview(null);
+          setApplied(null);
+        }}
+        className="mt-1.5 block w-full rounded-md border border-[#c8d0db] bg-white px-3 py-2 text-sm font-normal text-[#1f2937] file:mr-3 file:rounded file:border-0 file:bg-[#eaf1f8] file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-[#1f4e79]"
+      />
+      <span className="mt-1 block text-xs font-normal text-[#667085]">
+        {file ? file.name : ".xls or .xlsx — the registrar's latest activity list"}
+      </span>
+    </label>
+  );
+
+  if (stage === "pick") {
+    return (
+      <Modal
+        open
+        title={`Update ${term.name}`}
+        description="Nothing changes until you have looked at what differs and ticked it — anything you leave unticked keeps the value students see today."
+        onClose={onBack}
+        footer={
+          <>
+            <button type="button" onClick={onBack} className="text-sm font-semibold text-[#667085]">
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => check.mutate()}
+              disabled={!file || check.isPending}
+              className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-4 py-2 text-sm font-semibold text-white hover:bg-[#183f63] disabled:bg-[#9ba8b5]"
+            >
+              {check.isPending ? (
+                <Loader2 size={16} className="animate-spin" aria-hidden="true" />
+              ) : (
+                <FileSpreadsheet size={16} aria-hidden="true" />
+              )}
+              See what would change
+            </button>
+          </>
+        }
+      >
+        {picker}
+        {error ? (
+          <p
+            role="alert"
+            className="mt-4 rounded-md border border-[#e5b7b9] bg-[#fdf3f3] px-4 py-3 text-sm text-[#a6292f]"
+          >
+            {error}
+          </p>
+        ) : null}
+      </Modal>
+    );
+  }
+
   return (
     <section className="pb-28">
       <button
@@ -126,38 +206,25 @@ export function SemesterUpdate({ term, onBack }: { term: TimetableTerm; onBack: 
       <div className="rounded-lg border border-[#d9dee7] bg-white p-6">
         <h3 className="text-lg font-semibold text-[#171717]">Update {term.name}</h3>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-[#667085]">
-          Upload the registrar&rsquo;s latest activity-list export. Nothing changes until you have looked at what
-          differs and ticked it — anything you leave unticked keeps the value students see today.
+          Nothing changes until you have looked at what differs and ticked it — anything you leave
+          unticked keeps the value students see today.
         </p>
 
-        <div className="mt-4 flex flex-wrap items-end gap-3">
-          <label className="text-sm font-semibold text-[#344054]">
-            New timetable export
-            <input
-              type="file"
-              accept=".xls,.xlsx"
-              onChange={(event) => {
-                setFile(event.target.files?.[0] ?? null);
-                setPreview(null);
-                setApplied(null);
-              }}
-              className="mt-1.5 block w-full max-w-md rounded-md border border-[#c8d0db] bg-white px-3 py-2 text-sm font-normal text-[#1f2937] file:mr-3 file:rounded file:border-0 file:bg-[#eaf1f8] file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-[#1f4e79]"
-            />
-          </label>
+        <p className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-[#667085]">
+          <FileSpreadsheet size={15} className="text-[#1f4e79]" aria-hidden="true" />
+          <b className="font-semibold text-[#344054]">{preview?.filename ?? file?.name ?? ""}</b>
           <button
             type="button"
-            onClick={() => check.mutate()}
-            disabled={!file || check.isPending}
-            className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#183f63] disabled:bg-[#9ba8b5]"
+            onClick={() => {
+              setFile(null);
+              setPreview(null);
+              setApplied(null);
+            }}
+            className="font-semibold text-[#1f4e79] underline"
           >
-            {check.isPending ? (
-              <Loader2 size={17} className="animate-spin" aria-hidden="true" />
-            ) : (
-              <Upload size={17} aria-hidden="true" />
-            )}
-            See what would change
+            Choose a different file
           </button>
-        </div>
+        </p>
 
         {error ? (
           <p
