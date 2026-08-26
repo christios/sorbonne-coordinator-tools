@@ -81,7 +81,7 @@ export function SemesterList({ host }: { host: string | null }) {
                   className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white hover:bg-[#183f63]"
                 >
                   <Upload size={16} aria-hidden="true" />
-                  Import a semester
+                  Import a timetable
                 </button>
               </header>
 
@@ -93,7 +93,7 @@ export function SemesterList({ host }: { host: string | null }) {
                 </p>
               ) : (terms.data ?? []).length === 0 ? (
                 <p className="px-6 py-8 text-sm text-[#667085]">
-                  Nothing uploaded yet. Import a semester to give students a timetable.
+                  Nothing uploaded yet. Import a timetable to give students a semester.
                 </p>
               ) : (
                 <div className="overflow-x-auto">

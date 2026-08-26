@@ -213,7 +213,7 @@ describe("students and their timetables in one place", () => {
     await open(/^Semesters$/);
 
     expect(await screen.findByText(/Semesters on the student platform/)).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Import a semester/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Import a timetable/ })).toBeTruthy();
   });
 
   it("says the timetable pages need a platform, and leaves the roster pages alone", async () => {

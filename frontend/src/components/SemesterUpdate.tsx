@@ -56,7 +56,6 @@ export function SemesterUpdate({ term, onBack }: { term: TimetableTerm; onBack: 
   const [preview, setPreview] = useState<TimetablePreview | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState<DiffFilter>("all");
-  const [enrolments, setEnrolments] = useState<File[]>([]);
   const [applied, setApplied] = useState<TimetableTerm | null>(null);
 
   const check = useMutation({
@@ -75,13 +74,11 @@ export function SemesterUpdate({ term, onBack }: { term: TimetableTerm; onBack: 
         baseUpdatedAt: (preview as TimetablePreview).baseUpdatedAt,
         filename: (preview as TimetablePreview).filename,
         operations: operationsFrom((preview as TimetablePreview).courses, selected),
-        enrolments,
       }),
     onSuccess: (updated) => {
       setApplied(updated);
       setPreview(null);
       setSelected(new Set());
-      setEnrolments([]);
       queryClient.invalidateQueries({ queryKey: ["timetable-terms"] });
     },
   });
@@ -220,9 +217,6 @@ export function SemesterUpdate({ term, onBack }: { term: TimetableTerm; onBack: 
             selectedCount={selected.size}
             total={decisions.length}
             losing={losing}
-            needsRoster={preview.summary.coursesAdded > 0}
-            enrolments={enrolments}
-            onEnrolments={setEnrolments}
             onSelectAll={() => setMany(decisions, true)}
             onClear={() => setSelected(new Set())}
             onApply={() => apply.mutate()}
@@ -270,8 +264,8 @@ function Summary({ preview }: { preview: TimetablePreview }) {
           ) : null}
           {summary.coursesAdded > 0 ? (
             <Note tone="warn" icon={AlertTriangle}>
-              {summary.coursesAdded} new course(s) have nobody enrolled yet. Attach the group templates below if
-              you want students on them straight away.
+              {summary.coursesAdded} new course(s) have nobody enrolled yet. They stay empty until a block
+              carries their CRN and the semester is published again.
             </Note>
           ) : null}
         </div>
@@ -472,9 +466,6 @@ function Footer({
   selectedCount,
   total,
   losing,
-  needsRoster,
-  enrolments,
-  onEnrolments,
   onSelectAll,
   onClear,
   onApply,
@@ -483,9 +474,6 @@ function Footer({
   selectedCount: number;
   total: number;
   losing: number;
-  needsRoster: boolean;
-  enrolments: File[];
-  onEnrolments: (files: File[]) => void;
   onSelectAll: () => void;
   onClear: () => void;
   onApply: () => void;
@@ -512,21 +500,6 @@ function Footer({
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          {needsRoster ? (
-            <label className="text-xs font-semibold text-[#344054]">
-              Student lists (optional)
-              <input
-                type="file"
-                accept=".xlsx"
-                multiple
-                onChange={(event) => onEnrolments([...(event.target.files ?? [])])}
-                className="ml-2 max-w-[18rem] rounded-md border border-[#c8d0db] bg-white px-2 py-1.5 text-xs font-normal"
-              />
-              {enrolments.length > 0 ? (
-                <span className="ml-2 font-normal text-[#667085]">{enrolments.length} file(s)</span>
-              ) : null}
-            </label>
-          ) : null}
           <button
             type="button"
             onClick={onApply}

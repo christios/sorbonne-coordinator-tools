@@ -94,8 +94,8 @@ describe("the two ways a semester gets its timetable", () => {
   it("opens the term-start import from the list, and comes back to it", async () => {
     renderList();
 
-    fireEvent.click(await screen.findByRole("button", { name: /Import a semester/ }));
-    expect(await screen.findByRole("button", { name: /Upload to student platform/ })).toBeTruthy();
+    fireEvent.click(await screen.findByRole("button", { name: /Import a timetable/ }));
+    expect(await screen.findByRole("button", { name: /Import to student platform/ })).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: /All semesters/ }));
     expect(await screen.findByRole("row", { name: /Physics & Maths/ })).toBeTruthy();
@@ -125,6 +125,6 @@ describe("the two ways a semester gets its timetable", () => {
     vi.spyOn(timetables, "fetchTimetableTerms").mockResolvedValue([]);
     renderList();
 
-    expect(await screen.findByText(/Import a semester to give students a timetable/)).toBeTruthy();
+    expect(await screen.findByText(/Import a timetable to give students a semester/)).toBeTruthy();
   });
 });

@@ -59,17 +59,18 @@ export type StudentListReport = {
   unknownGroups: string[];
 };
 
-export function importTimetableTerm(input: {
-  name: string;
-  timetable: File;
-  /** One workbook per programme, plus the language groups. */
-  enrolments: File[];
-}): Promise<TimetableTerm> {
+/**
+ * Create a semester from the registrar's export alone.
+ *
+ * No student lists: who is in which group is this application's own knowledge now, and it
+ * reaches the platform through the publish step. A semester therefore arrives with nobody
+ * on it, which is the normal state of one that has not been published to yet.
+ */
+export function importTimetableTerm(input: { name: string; timetable: File }): Promise<TimetableTerm> {
   const body = new FormData();
   body.set("name", input.name);
   body.set("timezone", "Asia/Dubai");
   body.set("timetable", input.timetable);
-  input.enrolments.forEach((file) => body.append("enrolments", file));
   return request<TimetableTerm>("/api/v1/timetables/terms", { method: "POST", body });
 }
 
@@ -87,14 +88,11 @@ export function applyTimetableUpdate(input: {
   baseUpdatedAt: string;
   filename: string;
   operations: Operation[];
-  /** Optional: the group templates, when the export brought in a section nobody is on yet. */
-  enrolments?: File[];
 }): Promise<TimetableTerm> {
   const body = new FormData();
   body.set("base_updated_at", input.baseUpdatedAt);
   body.set("filename", input.filename);
   body.set("operations", JSON.stringify(input.operations));
-  (input.enrolments ?? []).forEach((file) => body.append("enrolments", file));
   return request<TimetableTerm>(`/api/v1/timetables/terms/${input.termId}/timetable/apply`, {
     method: "POST",
     body,

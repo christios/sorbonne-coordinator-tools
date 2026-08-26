@@ -5,39 +5,41 @@ import { useState } from "react";
 import { TimetableTerm, importTimetableTerm } from "@/services/timetables";
 
 /**
- * The term-start bulk load: the registrar's activity-list export plus the coordinator's
- * filled group templates. Everything after this — a student joining, a group changing —
- * belongs on the Students page, which edits one student without touching the rest.
+ * Creating a semester from the registrar's activity-list export.
+ *
+ * The export alone: the student lists that used to come with it are gone, because who is
+ * in which group is this application's own knowledge and reaches students through Publish.
+ * A semester therefore arrives with nobody on it — define its blocks in Groups & CRNs,
+ * place the cohort, then publish.
  */
 export function SemesterImport({ host }: { host: string | null }) {
   const queryClient = useQueryClient();
   const [name, setName] = useState("");
   const [timetable, setTimetable] = useState<File | null>(null);
-  const [enrolments, setEnrolments] = useState<File[]>([]);
   const [imported, setImported] = useState<TimetableTerm | null>(null);
 
   const importMutation = useMutation({
-    mutationFn: () => importTimetableTerm({ name: name.trim(), timetable: timetable as File, enrolments }),
+    mutationFn: () => importTimetableTerm({ name: name.trim(), timetable: timetable as File }),
     onSuccess: (term) => {
       setImported(term);
       setTimetable(null);
-      setEnrolments([]);
       queryClient.invalidateQueries({ queryKey: ["timetable-terms"] });
     },
   });
 
   const busy = importMutation.isPending;
-  const canImport = name.trim().length > 0 && timetable !== null && enrolments.length > 0 && !busy;
+  const canImport = name.trim().length > 0 && timetable !== null && !busy;
   const error = importMutation.error?.message ?? null;
 
   return (
           <section className="rounded-lg border border-[#d9dee7] bg-white p-6">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <h2 className="text-lg font-semibold text-[#171717]">Upload a semester timetable</h2>
+                <h2 className="text-lg font-semibold text-[#171717]">Import a timetable</h2>
                 <p className="mt-2 max-w-2xl text-sm leading-6 text-[#667085]">
-                  Send the registrar activity-list export and the student list to the student platform. Uploading a
-                  semester name that already exists replaces its timetable and enrolments.
+                  Send the registrar&rsquo;s activity-list export to the student platform. It arrives with
+                  nobody on it: define the blocks in Groups &amp; CRNs, place the cohort, then publish.
+                  Importing a semester name that already exists replaces its timetable.
                 </p>
               </div>
               <a
@@ -69,21 +71,13 @@ export function SemesterImport({ host }: { host: string | null }) {
               </label>
 
               <FilePicker
+                className="md:col-span-2"
                 label="Timetable export"
                 hint=".xls or .xlsx from the registrar"
                 accept=".xls,.xlsx"
                 files={timetable ? [timetable] : []}
                 onSelect={(files) => setTimetable(files[0] ?? null)}
               />
-              <FilePicker
-                label="Student lists"
-                hint="Group templates or CRN lists — add FYS, L1, L2 and languages together"
-                accept=".xlsx"
-                multiple
-                files={enrolments}
-                onSelect={setEnrolments}
-              />
-
               <div className="md:col-span-2">
                 <button
                   type="submit"
@@ -95,7 +89,7 @@ export function SemesterImport({ host }: { host: string | null }) {
                   ) : (
                     <Upload size={17} aria-hidden="true" />
                   )}
-                  Upload to student platform
+                  Import to student platform
                 </button>
               </div>
             </form>
@@ -113,28 +107,10 @@ export function SemesterImport({ host }: { host: string | null }) {
                   {imported.name} uploaded
                 </p>
                 <p className="mt-1 leading-6">
-                  {imported.courseCount} courses, {imported.sessionCount} sessions, {imported.studentCount} students.
-                  Students cannot see it until you publish it below.
+                  {imported.courseCount} courses and {imported.sessionCount} sessions, with{" "}
+                  {imported.studentCount} student(s) on it. Give its blocks their groups in Groups &amp;
+                  CRNs, place the cohort, then publish — students see nothing until you do.
                 </p>
-                {imported.studentLists && imported.studentLists.length > 0 ? (
-                  <ul className="mt-1 space-y-0.5 text-xs">
-                    {imported.studentLists.map((list) => (
-                      <li key={list.filename}>
-                        {list.filename}: {list.students} students
-                        {list.sheets.length > 0 ? ` from ${list.sheets.join(", ")}` : ""}
-                        {list.unknownGroups.length > 0 ? (
-                          <span className="text-[#a6292f]"> · {list.unknownGroups.length} groups with no CRN</span>
-                        ) : null}
-                      </li>
-                    ))}
-                  </ul>
-                ) : null}
-                {imported.unknownCrns && imported.unknownCrns.length > 0 ? (
-                  <p className="mt-1 text-[#a6292f]">
-                    {imported.unknownCrns.length} CRN(s) in the student list are missing from the timetable and were
-                    skipped: {imported.unknownCrns.slice(0, 8).join(", ")}
-                  </p>
-                ) : null}
               </div>
             ) : null}
           </section>
@@ -147,6 +123,7 @@ function FilePicker({
   accept,
   files,
   multiple = false,
+  className = "",
   onSelect,
 }: {
   label: string;
@@ -154,10 +131,11 @@ function FilePicker({
   accept: string;
   files: File[];
   multiple?: boolean;
+  className?: string;
   onSelect: (files: File[]) => void;
 }) {
   return (
-    <label className="text-sm font-semibold text-[#344054]">
+    <label className={`text-sm font-semibold text-[#344054] ${className}`}>
       {label}
       <input
         type="file"

@@ -85,13 +85,20 @@ async def import_term(
     name: str = Form(min_length=1, max_length=160),
     timezone: str = Form(default="Asia/Dubai", max_length=60),
     timetable: UploadFile = File(...),
-    enrolments: list[UploadFile] = File(...),
+    enrolments: list[UploadFile] = File(default=[]),
     client: StudentPlatformClient = Depends(require_client),
 ) -> dict[str, Any]:
+    """Create a semester from the registrar's export.
+
+    Student lists are no longer sent: this application owns who is in which group and
+    publishes it. The parameter stays so an existing workbook still works, but a semester
+    that arrives with nobody on it is the ordinary case now, not a mistake.
+    """
     timetable_bytes = await _read_upload(timetable, "timetable")
     student_files = [
         (upload.filename or "students.xlsx", await _read_upload(upload, "student list"))
         for upload in enrolments
+        if upload.filename
     ]
     try:
         return await client.import_term(

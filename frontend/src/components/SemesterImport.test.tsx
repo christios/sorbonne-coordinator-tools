@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { SemesterImport } from "@/components/SemesterImport";
 import * as timetables from "@/services/timetables";
@@ -13,22 +13,11 @@ const TERM: timetables.TimetableTerm = {
   isPublished: false,
   courseCount: 43,
   sessionCount: 975,
-  studentCount: 180,
+  studentCount: 0,
   timetableFilename: "PHYS-MATHS-FY-SEM.1-Revised.xls",
-  enrolmentFilename: "students.xlsx",
+  enrolmentFilename: "",
   updatedAt: "2026-08-21T18:00:00Z",
 };
-
-const LISTS: timetables.StudentListReport[] = [
-  { filename: "FYS-Groups.xlsx", style: "groups", sheets: ["TD"], students: 24, unknownGroups: [] },
-  {
-    filename: "LANG-Groups.xlsx",
-    style: "groups",
-    sheets: ["LANG"],
-    students: 24,
-    unknownGroups: ["LANG: LANG|B2-G9|SCEN101"],
-  },
-];
 
 function renderImport() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -39,83 +28,75 @@ function renderImport() {
   );
 }
 
-function chooseFiles(students = ["FYS-Groups.xlsx"]) {
+function fillIn() {
   const excel = new File(["x"], "timetable.xls", { type: "application/vnd.ms-excel" });
-  const lists = students.map((name) => new File(["y"], name, { type: "application/vnd.ms-excel" }));
   fireEvent.change(screen.getByLabelText(/Timetable export/), { target: { files: [excel] } });
-  fireEvent.change(screen.getByLabelText(/Student lists/), { target: { files: lists } });
-  fireEvent.change(screen.getByLabelText(/Semester name/), { target: { value: "Physics & Maths — Semester 1" } });
+  fireEvent.change(screen.getByLabelText(/Semester name/), {
+    target: { value: "Physics & Maths — Semester 1" },
+  });
 }
+
+const importButton = () => screen.getByRole("button", { name: /Import to student platform/ }) as HTMLButtonElement;
 
 afterEach(() => vi.restoreAllMocks());
 
-describe("the term-start load", () => {
-  it("keeps the upload button disabled until the name and both files are chosen", () => {
+describe("importing a timetable", () => {
+  it("asks for the registrar export and nothing else", () => {
+    // The student lists are gone: who is in which group is this application's own
+    // knowledge now, and it reaches students through Publish.
     renderImport();
-    const upload = screen.getByRole("button", { name: /Upload to student platform/ });
 
-    expect((upload as HTMLButtonElement).disabled).toBe(true);
-    chooseFiles();
-
-    expect((upload as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.getByText("Import a timetable")).toBeTruthy();
+    expect(screen.queryByLabelText(/Student lists/)).toBeNull();
   });
 
-  it("reports what the platform stored after an upload", async () => {
+  it("waits for a name and the export, then allows the import", () => {
+    renderImport();
+    expect(importButton().disabled).toBe(true);
+
+    fillIn();
+
+    expect(importButton().disabled).toBe(false);
+  });
+
+  it("sends the export alone", async () => {
     const importTerm = vi.spyOn(timetables, "importTimetableTerm").mockResolvedValue(TERM);
     renderImport();
-    chooseFiles();
+    fillIn();
 
-    fireEvent.click(screen.getByRole("button", { name: /Upload to student platform/ }));
+    fireEvent.click(importButton());
 
     expect(await screen.findByText(/uploaded/)).toBeTruthy();
-    expect(screen.getByText(/43 courses, 975 sessions, 180 students/)).toBeTruthy();
-    expect(importTerm).toHaveBeenCalledWith(
-      expect.objectContaining({ name: "Physics & Maths — Semester 1" }),
-    );
-    expect(importTerm.mock.calls[0][0].enrolments).toHaveLength(1);
+    expect(importTerm).toHaveBeenCalledWith({
+      name: "Physics & Maths — Semester 1",
+      timetable: expect.any(File),
+    });
   });
 
-  it("shows the platform's own explanation when a workbook is rejected", async () => {
+  it("says a semester with nobody on it is waiting to be published to, not broken", async () => {
+    vi.spyOn(timetables, "importTimetableTerm").mockResolvedValue(TERM);
+    renderImport();
+    fillIn();
+
+    fireEvent.click(importButton());
+
+    const banner = (await screen.findByText(/uploaded/)).closest("div") as HTMLElement;
+    expect(banner.textContent).toContain("0 student(s) on it");
+    expect(banner.textContent).toContain("place the cohort, then publish");
+  });
+
+  it("shows the platform's own explanation when the export is rejected", async () => {
     vi.spyOn(timetables, "importTimetableTerm").mockRejectedValue(
       new Error("That file could not be read as an Excel workbook."),
     );
     renderImport();
-    chooseFiles();
+    fillIn();
 
-    fireEvent.click(screen.getByRole("button", { name: /Upload to student platform/ }));
+    fireEvent.click(importButton());
 
     const alerts = await screen.findAllByRole("alert");
-    expect(alerts.map((alert) => alert.textContent).join(" ")).toContain("could not be read as an Excel workbook");
-  });
-});
-
-describe("several student workbooks", () => {
-  beforeEach(() => {
-    vi.spyOn(timetables, "importTimetableTerm").mockResolvedValue({ ...TERM, studentLists: LISTS });
-  });
-
-  it("sends every list the coordinator picked", async () => {
-    renderImport();
-
-    chooseFiles(["FYS-Groups.xlsx", "L1-Groups.xlsx", "LANG-Groups.xlsx"]);
-    fireEvent.click(screen.getByRole("button", { name: /Upload to student platform/ }));
-
-    await waitFor(() => expect(timetables.importTimetableTerm).toHaveBeenCalled());
-    const sent = vi.mocked(timetables.importTimetableTerm).mock.calls[0][0];
-    expect(sent.enrolments.map((file: File) => file.name)).toEqual([
-      "FYS-Groups.xlsx",
-      "L1-Groups.xlsx",
-      "LANG-Groups.xlsx",
-    ]);
-  });
-
-  it("reports what each workbook contributed, including groups with no CRN", async () => {
-    renderImport();
-    chooseFiles(["FYS-Groups.xlsx", "LANG-Groups.xlsx"]);
-
-    fireEvent.click(screen.getByRole("button", { name: /Upload to student platform/ }));
-
-    expect(await screen.findByText(/FYS-Groups.xlsx: 24 students from TD/)).toBeTruthy();
-    expect(screen.getByText(/1 groups with no CRN/)).toBeTruthy();
+    expect(alerts.map((alert) => alert.textContent).join(" ")).toContain(
+      "could not be read as an Excel workbook",
+    );
   });
 });
