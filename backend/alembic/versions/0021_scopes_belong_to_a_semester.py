@@ -13,8 +13,8 @@ cannot satisfy.
 Existing scopes arrive with no semester. That is honest — nobody has said which one they
 belong to — and the interface asks before they can be published.
 
-Revision ID: 0019
-Revises: 0018
+Revision ID: 0021
+Revises: 0020
 Create Date: 2026-08-25
 """
 
@@ -22,8 +22,8 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision = "0019"
-down_revision = "0018"
+revision = "0021"
+down_revision = "0020"
 branch_labels = None
 depends_on = None
 

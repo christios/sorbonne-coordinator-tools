@@ -4,8 +4,8 @@ A Reference sheet says where each block's group column lives: Readiness is a col
 tutorials tab, not a tab of its own. Nothing here kept that, so a workbook written back out
 had one sheet per block and no longer matched the one it came from.
 
-Revision ID: 0020
-Revises: 0019
+Revision ID: 0022
+Revises: 0021
 """
 
 from __future__ import annotations
@@ -13,8 +13,8 @@ from __future__ import annotations
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0020"
-down_revision = "0019"
+revision = "0022"
+down_revision = "0021"
 branch_labels = None
 depends_on = None
 
