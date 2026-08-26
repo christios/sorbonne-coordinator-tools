@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, CalendarDays, Upload } from "lucide-react";
+import { CalendarDays, FileSpreadsheet } from "lucide-react";
 import { useState } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { SemesterImport } from "@/components/SemesterImport";
+import { SemesterPublish } from "@/components/SemesterPublish";
 import { SemesterUpdate } from "@/components/SemesterUpdate";
 import {
   TimetableTerm,
@@ -26,6 +27,9 @@ export function SemesterList({ host }: { host: string | null }) {
   const [pendingDelete, setPendingDelete] = useState<TimetableTerm | null>(null);
   const [updating, setUpdating] = useState<TimetableTerm | null>(null);
   const [importing, setImporting] = useState(false);
+  const [publishing, setPublishing] = useState<TimetableTerm | null>(null);
+  // An update starts as a dialog over this list and takes the screen once it has a diff.
+  const [updateStage, setUpdateStage] = useState<"pick" | "review">("pick");
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["timetable-terms"] });
   const publishMutation = useMutation({
@@ -40,19 +44,23 @@ export function SemesterList({ host }: { host: string | null }) {
 
   const error = publishMutation.error?.message ?? deleteMutation.error?.message ?? null;
 
-  if (importing) {
-    return (
-      <section>
-        <BackLink onClick={() => setImporting(false)} />
-        <SemesterImport host={host} />
-      </section>
-    );
+  if (publishing) {
+    const current = (terms.data ?? []).find((term) => term.id === publishing.id) ?? publishing;
+    return <SemesterPublish term={current} onBack={() => setPublishing(null)} />;
   }
 
-  if (updating) {
-    const current = (terms.data ?? []).find((term) => term.id === updating.id) ?? updating;
-    return <SemesterUpdate term={current} onBack={() => setUpdating(null)} />;
-  }
+  const underUpdate = updating
+    ? (terms.data ?? []).find((term) => term.id === updating.id) ?? updating
+    : null;
+
+  /*
+   * The list stays put while a file is being picked, and stands aside for a diff.
+   *
+   * It hides rather than the update being returned early, because an early return would
+   * mount a second SemesterUpdate the moment the stage changed — and the first one, the
+   * one holding the diff, would be thrown away in the same breath.
+   */
+  const reviewing = underUpdate !== null && updateStage === "review";
 
   return (
     <>
@@ -62,6 +70,7 @@ export function SemesterList({ host }: { host: string | null }) {
         </p>
       ) : null}
 
+            {reviewing ? null : (
             <section className="rounded-lg border border-[#d9dee7] bg-white">
               <header className="flex flex-wrap items-center justify-between gap-3 border-b border-[#e4e8ef] px-6 py-4">
                 <div className="flex items-center gap-2">
@@ -73,8 +82,8 @@ export function SemesterList({ host }: { host: string | null }) {
                   onClick={() => setImporting(true)}
                   className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white hover:bg-[#183f63]"
                 >
-                  <Upload size={16} aria-hidden="true" />
-                  Import a semester
+                  <FileSpreadsheet size={16} aria-hidden="true" />
+                  Import a timetable
                 </button>
               </header>
 
@@ -86,7 +95,7 @@ export function SemesterList({ host }: { host: string | null }) {
                 </p>
               ) : (terms.data ?? []).length === 0 ? (
                 <p className="px-6 py-8 text-sm text-[#667085]">
-                  Nothing uploaded yet. Import a semester to give students a timetable.
+                  Nothing uploaded yet. Import a timetable to give students a semester.
                 </p>
               ) : (
                 <div className="overflow-x-auto">
@@ -129,7 +138,17 @@ export function SemesterList({ host }: { host: string | null }) {
                             <div className="flex justify-end gap-2">
                               <button
                                 type="button"
-                                onClick={() => setUpdating(term)}
+                                onClick={() => setPublishing(term)}
+                                className="rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc]"
+                              >
+                                Publish
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setUpdateStage("pick");
+                                  setUpdating(term);
+                                }}
                                 className="rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc]"
                               >
                                 Update timetable
@@ -150,6 +169,17 @@ export function SemesterList({ host }: { host: string | null }) {
                 </div>
               )}
             </section>
+            )}
+
+      <SemesterImport host={host} open={importing} onClose={() => setImporting(false)} />
+
+      {underUpdate ? (
+        <SemesterUpdate
+          term={underUpdate}
+          onBack={() => setUpdating(null)}
+          onStage={setUpdateStage}
+        />
+      ) : null}
 
       <ConfirmDialog
         open={pendingDelete !== null}
@@ -167,17 +197,5 @@ export function SemesterList({ host }: { host: string | null }) {
         onClose={() => setPendingDelete(null)}
       />
     </>
-  );
-}
-
-function BackLink({ onClick }: { onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="mb-4 inline-flex items-center gap-1.5 text-sm font-semibold text-[#1f4e79] hover:underline"
-    >
-      <ArrowLeft size={16} aria-hidden="true" /> All semesters
-    </button>
   );
 }

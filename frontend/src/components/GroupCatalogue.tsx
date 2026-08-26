@@ -1,23 +1,33 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, Loader2, Plus, Trash2, Upload } from "lucide-react";
+import { AlertTriangle, Check, CheckCircle2, Download, FileSpreadsheet, Loader2, Plus, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { InfoHint } from "@/components/InfoHint";
+import { WorkbookReview } from "@/components/WorkbookReview";
 import { ScreenLoading } from "@/components/ScreenLoading";
+import { type CrnVerdict, fetchPublication } from "@/services/publication";
+import { countsLine, summariseCatalogue } from "@/services/catalogueSummary";
+import { unplacedIn, verdictFor } from "@/services/publicationView";
+import { fieldHeld, namesHeld } from "@/services/rosterStore";
+import { downloadWorkbook, prefixOf } from "@/services/workbookExport";
 import {
+  type WorkbookApplied,
   addCourse,
   addGroup,
   addScope,
+  applyWorkbook,
   deleteGroup,
   deleteScope,
+  fetchAssignments,
   fetchCatalogue,
-  importReferenceWorkbook,
+  previewWorkbook,
   setGroupCrn,
   type CatalogueGroup,
   type CatalogueScope,
   type Cohort,
-  type ImportReport,
 } from "@/services/studentDatabase";
+import type { Operation, WorkbookPreview } from "@/services/workbookReview";
 
 /**
  * The groups a cohort assigns students into, as a matrix per block: the block's courses
@@ -25,32 +35,119 @@ import {
  * of the group-assignment workbooks, made editable — and it is the only place CRNs are
  * entered, because everywhere else a group stands for the bundle of CRNs it holds.
  *
- * A workbook's Reference sheet fills it in one go; after that the workbook is finished
- * with, and the catalogue is maintained here.
+ * A workbook fills it in one go — its Reference sheet the blocks and CRNs, its student tabs
+ * who sits in which group — but only through a review: the upload writes nothing until each
+ * difference has been ticked. After that the workbook is finished with, and the catalogue is
+ * maintained here.
  */
-export function GroupCatalogue({ cohort }: { cohort: Cohort }) {
+export function GroupCatalogue({
+  cohort,
+  termId = "",
+  onShowStudents,
+}: {
+  cohort: Cohort;
+  termId?: string;
+  /** Opens the Students table on exactly these ids, for the "nobody has placed them" warning. */
+  onShowStudents?: (studentIds: string[]) => void;
+}) {
   const client = useQueryClient();
   const catalogue = useQuery({
-    queryKey: ["catalogue", cohort.id],
-    queryFn: () => fetchCatalogue(cohort.id),
+    queryKey: ["catalogue", cohort.id, termId],
+    queryFn: () => fetchCatalogue(cohort.id, termId),
   });
-  const [report, setReport] = useState<ImportReport | null>(null);
+  // What the timetable says about each CRN. Best effort: the catalogue is still editable
+  // when the student platform cannot be reached, it just cannot be checked.
+  const publication = useQuery({
+    queryKey: ["publication", termId],
+    queryFn: () => fetchPublication(termId),
+    enabled: Boolean(termId),
+    retry: false,
+  });
+  const [preview, setPreview] = useState<WorkbookPreview | null>(null);
+  const [applied, setApplied] = useState<(WorkbookApplied & { approved: number }) | null>(null);
+  const [exporting, setExporting] = useState(false);
   const [pendingScope, setPendingScope] = useState<CatalogueScope | null>(null);
 
-  const refresh = () => client.invalidateQueries({ queryKey: ["catalogue", cohort.id] });
+  const refresh = () => client.invalidateQueries({ queryKey: ["catalogue", cohort.id, termId] });
 
-  const importWorkbook = useMutation({
-    mutationFn: (file: File) => importReferenceWorkbook(cohort.id, file),
-    onSuccess: (result) => {
-      setReport(result);
+  // One workbook, both halves, and nothing written until it has been looked at.
+  const check = useMutation({
+    mutationFn: (file: File) => previewWorkbook(cohort.id, termId, file),
+    onSuccess: (payload) => {
+      setPreview(payload);
+      setApplied(null);
+    },
+  });
+  const apply = useMutation({
+    mutationFn: ({ operations }: { operations: Operation[]; approved: number }) =>
+      applyWorkbook(cohort.id, termId, operations),
+    onSuccess: (result, variables) => {
+      setApplied({ ...result, approved: variables.approved });
+      setPreview(null);
+      client.invalidateQueries({ queryKey: ["publication", termId] });
       refresh();
     },
   });
   const createScope = useMutation({
-    mutationFn: (code: string) => addScope(cohort.id, { code }),
+    mutationFn: (code: string) => addScope(cohort.id, { code, termId }),
     onSuccess: refresh,
   });
   const removeScope = useMutation({ mutationFn: deleteScope, onSuccess: refresh });
+
+  /**
+   * Write the semester back out as the workbook it came from.
+   *
+   * Assembled here rather than on the server because it carries names, and names live in
+   * this browser only. Everything else it needs is already on screen.
+   */
+  const exportWorkbook = async () => {
+    setExporting(true);
+    try {
+      const held = namesHeld();
+      // The registrar's word for what they are on, which the workbook has a column for.
+      const programs = fieldHeld("MAJOR_CODE_DESC");
+      const placements = await fetchAssignments(cohort.id);
+      const byScope = new Map(scopes.map((scope) => [scope.id, scope.code]));
+      const labelOf = new Map(
+        scopes.flatMap((scope) => scope.groups.map((group) => [group.id, group.label] as const)),
+      );
+
+      const students = Object.entries(placements)
+        .map(([studentId, byScopeId]) => ({
+          studentId,
+          name: held[studentId] ?? "",
+          program: programs[studentId] ?? "",
+          groups: Object.fromEntries(
+            Object.entries(byScopeId).flatMap(([scopeId, groupId]) => {
+              const code = byScope.get(scopeId);
+              const label = labelOf.get(groupId);
+              return code && label ? [[code, label] as const] : [];
+            }),
+          ),
+        }))
+        .sort((left, right) => left.studentId.localeCompare(right.studentId));
+
+      await downloadWorkbook(
+        {
+          cohortName: cohort.name,
+          prefix: prefixOf(cohort.name),
+          blocks: scopes.map((scope) => ({
+            code: scope.code,
+            name: scope.name,
+            tab: scope.tab ?? "",
+            groupColumn: scope.groupColumn ?? "",
+            columnIndex: scope.columnIndex ?? 0,
+            courses: scope.courses,
+            groups: scope.groups,
+          })),
+          students,
+        },
+        `${cohort.name.replace(/[^A-Za-z0-9]+/g, "-")}-groups.xlsx`,
+      );
+    } finally {
+      setExporting(false);
+    }
+  };
 
   if (catalogue.isLoading) return <ScreenLoading label="Loading the groups…" />;
   if (catalogue.error) {
@@ -62,50 +159,121 @@ export function GroupCatalogue({ cohort }: { cohort: Cohort }) {
   }
 
   const scopes = catalogue.data?.scopes ?? [];
-  const error =
-    importWorkbook.error?.message ?? createScope.error?.message ?? removeScope.error?.message ?? null;
+  const error = check.error?.message ?? createScope.error?.message ?? removeScope.error?.message ?? null;
+
+  if (preview) {
+    return (
+      <WorkbookReview
+        preview={preview}
+        busy={apply.isPending}
+        error={apply.error?.message ?? null}
+        onApply={(operations, approved) => apply.mutate({ operations, approved })}
+        onCancel={() => setPreview(null)}
+      />
+    );
+  }
+
+  const counts = summariseCatalogue(scopes);
+  const heldNames = Object.keys(namesHeld()).length;
 
   return (
     <>
-      <section className="rounded-lg border border-[#d9dee7] bg-white p-5">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="max-w-2xl">
-            <h3 className="text-base font-semibold text-[#171717]">Fill this from a workbook</h3>
-            <p className="mt-1 text-sm leading-6 text-[#667085]">
-              Upload a group-assignment workbook and its Reference sheet becomes the blocks, groups
-              and CRNs below. Re-uploading a corrected workbook updates the CRNs in place and leaves
-              anything added here alone.
-            </p>
+      <section className="rounded-lg border border-[#d9dee7] bg-white px-5 py-3">
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
+          <p className="text-sm text-[#667085]">
+            {scopes.length
+              ? countsLine(counts)
+              : termId
+                ? "No blocks yet — add one below, or fill them all from a workbook."
+                : "Choose a semester to see its blocks."}
+          </p>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <label
+              title={termId ? undefined : "Choose a semester first — a workbook fills one semester."}
+              className={`inline-flex shrink-0 items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold ${
+                termId
+                  ? "cursor-pointer bg-[#1f4e79] text-white hover:bg-[#183f63]"
+                  : "cursor-not-allowed bg-[#e4e8ef] text-[#98a2b3]"
+              }`}
+            >
+              {check.isPending ? (
+                <Loader2 size={16} className="animate-spin" aria-hidden="true" />
+              ) : (
+                <FileSpreadsheet size={16} aria-hidden="true" />
+              )}
+              {check.isPending ? "Reading…" : "Upload workbook"}
+              <input
+                type="file"
+                accept=".xlsx"
+                className="sr-only"
+                disabled={!termId}
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  event.target.value = "";
+                  if (file) check.mutate(file);
+                }}
+              />
+            </label>
+            <InfoHint label="What an uploaded workbook must contain" title="Upload workbook">
+              <p>
+                One file says both things: its <b>Reference</b> sheet is the blocks, their groups
+                and a CRN for every course; its <b>student tabs</b> are who sits in which group.
+              </p>
+              <p>
+                Nothing is written on upload. Every difference is shown and you tick the ones to
+                keep — whatever you leave unticked stays exactly as it is.
+              </p>
+              <p>
+                Only students this cohort holds can be placed. Any other id in the file is
+                reported and skipped.
+              </p>
+              {termId ? null : <p>Choose a semester first — a workbook fills one semester.</p>}
+            </InfoHint>
+
+            <span aria-hidden="true" className="mx-1 hidden h-6 w-px bg-[#e4e8ef] sm:block" />
+
+            <button
+              type="button"
+              onClick={exportWorkbook}
+              disabled={exporting || scopes.length === 0}
+              className="inline-flex shrink-0 items-center gap-2 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc] disabled:opacity-50"
+            >
+              {exporting ? (
+                <Loader2 size={16} className="animate-spin" aria-hidden="true" />
+              ) : (
+                <Download size={16} aria-hidden="true" />
+              )}
+              {exporting ? "Building…" : "Export workbook"}
+            </button>
+            <InfoHint label="What the exported workbook contains" title="Export workbook">
+              <p>
+                The same workbook this page was filled from — same tabs, same columns, in the same
+                order — ready to edit and upload again.
+              </p>
+              <p>
+                It would carry {countsLine(counts)}.
+              </p>
+              <p>
+                {heldNames
+                  ? `Student names come from this browser's last portal pull, ${heldNames} held. They are kept nowhere else, which is why the file is built here rather than on the server.`
+                  : "This browser is holding no student names, so the name column would come out blank. Sync a view on the Students page first."}
+              </p>
+            </InfoHint>
           </div>
-          <label className="inline-flex shrink-0 cursor-pointer items-center gap-2 rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white hover:bg-[#183f63]">
-            {importWorkbook.isPending ? (
-              <Loader2 size={16} className="animate-spin" aria-hidden="true" />
-            ) : (
-              <Upload size={16} aria-hidden="true" />
-            )}
-            {importWorkbook.isPending ? "Reading…" : "Upload workbook"}
-            <input
-              type="file"
-              accept=".xlsx"
-              className="sr-only"
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                event.target.value = "";
-                if (file) importWorkbook.mutate(file);
-              }}
-            />
-          </label>
         </div>
 
-        {report ? (
-          <p className="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-[#bfdcc6] bg-[#f4faf5] px-4 py-3 text-sm text-[#2f6b3d]">
-            <CheckCircle2 size={16} aria-hidden="true" />
-            <span>
-              {report.filename} · {report.sheet}: {report.read.scopes} block
-              {report.read.scopes === 1 ? "" : "s"}, {report.read.groups} groups, {report.read.crns} CRNs.
-              Added {report.added.scopes} blocks and {report.added.groups} groups.
-            </span>
-          </p>
+        {applied ? (
+          <div className="mt-3 rounded-md border border-[#bfdcc6] bg-[#f4faf5] px-4 py-3 text-sm text-[#2f6b3d]">
+            <p className="flex items-center gap-2 font-semibold">
+              <CheckCircle2 size={16} aria-hidden="true" />
+              {applied.approved} approved change(s) applied
+            </p>
+            <p className="mt-1 leading-6">
+              {applied.groups} group(s), {applied.courses} course(s) and {applied.cells} CRN(s) written,
+              and {applied.placements} student placement(s). Everything you left unticked is as it was.
+            </p>
+          </div>
         ) : null}
         {error ? (
           <p role="alert" className="mt-3 rounded-md border border-[#e5b7b9] bg-[#fdf3f3] px-4 py-3 text-sm text-[#a6292f]">
@@ -114,9 +282,15 @@ export function GroupCatalogue({ cohort }: { cohort: Cohort }) {
         ) : null}
       </section>
 
+      <Unplaced
+        report={publication.data ? unplacedIn(publication.data, cohort.id) : null}
+        onShow={onShowStudents}
+      />
+
       <div className="mt-5 space-y-5">
         {scopes.map((scope) => (
           <ScopeMatrix
+            validation={publication.data?.validation ?? {}}
             key={scope.id}
             scope={scope}
             onChanged={refresh}
@@ -125,12 +299,14 @@ export function GroupCatalogue({ cohort }: { cohort: Cohort }) {
         ))}
       </div>
 
-      <AddRow
-        label="Add a block"
-        placeholder="TD, CM, Readiness…"
-        busy={createScope.isPending}
-        onAdd={(code) => createScope.mutate(code)}
-      />
+      <section className="mt-5 rounded-lg border border-dashed border-[#c8d0da] bg-white px-5 py-4">
+        <AddRow
+          label="Add a block"
+          placeholder="TD, CM, Readiness…"
+          busy={createScope.isPending}
+          onAdd={(code) => createScope.mutate(code)}
+        />
+      </section>
 
       <ConfirmDialog
         open={pendingScope !== null}
@@ -151,12 +327,53 @@ export function GroupCatalogue({ cohort }: { cohort: Cohort }) {
   );
 }
 
+/**
+ * The students this cohort has not put in a block yet.
+ *
+ * It is the publish screen's blocker, said here instead — where the placing happens, while
+ * there is still time to do something about it, rather than at the moment the semester is
+ * supposed to be finished.
+ */
+function Unplaced({
+  report,
+  onShow,
+}: {
+  report: ReturnType<typeof unplacedIn> | null;
+  onShow?: (studentIds: string[]) => void;
+}) {
+  if (!report || report.total === 0) return null;
+
+  return (
+    <p className="mt-5 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-[#e8d9ac] bg-[#fdf9ee] px-4 py-3 text-sm leading-6 text-[#8a6116]">
+      <AlertTriangle size={16} className="shrink-0" aria-hidden="true" />
+      <span>
+        <b className="tabular-nums">{report.total}</b> student{report.total === 1 ? "" : "s"} in this
+        cohort {report.total === 1 ? "is" : "are"} in no group for{" "}
+        {report.byBlock.map((entry) => `${entry.scopeCode} (${entry.count})`).join(", ")}. Publishing
+        gives them a blank timetable.
+      </span>
+      {onShow ? (
+        <button
+          type="button"
+          onClick={() => onShow(report.ids)}
+          className="font-semibold text-[#1f4e79] underline"
+        >
+          Show them in Students
+        </button>
+      ) : null}
+    </p>
+  );
+}
+
 function ScopeMatrix({
   scope,
+  validation,
   onChanged,
   onRemove,
 }: {
   scope: CatalogueScope;
+  /** What the timetable says about each CRN, keyed "groupId|courseCode". */
+  validation: Record<string, CrnVerdict>;
   onChanged: () => void;
   onRemove: () => void;
 }) {
@@ -240,6 +457,7 @@ function ScopeMatrix({
                       label={`CRN for ${scope.code} group ${group.label}, ${course.code}`}
                       crn={group.crns[course.id]?.crn ?? ""}
                       teacher={group.crns[course.id]?.teacher ?? ""}
+                      verdict={verdictFor(validation, group.id, course.code)}
                       onSave={(crn) => saveCell.mutate({ groupId: group.id, courseId: course.id, crn })}
                     />
                   </td>
@@ -317,11 +535,14 @@ function CrnCell({
   label,
   crn,
   teacher,
+  verdict,
   onSave,
 }: {
   label: string;
   crn: string;
   teacher: string;
+  /** Undefined when the timetable could not be reached, which is not the same as wrong. */
+  verdict?: CrnVerdict;
   onSave: (crn: string) => void;
 }) {
   const [draft, setDraft] = useState(crn);
@@ -341,8 +562,11 @@ function CrnCell({
           if (next === crn) return;
           onSave(next);
         }}
-        className="w-24 rounded-md border border-[#cbd5e1] px-2 py-1.5 text-sm tabular-nums"
+        className={`w-24 rounded-md border px-2 py-1.5 text-sm tabular-nums ${
+          verdict && verdict.status !== "matched" && crn ? "border-[#e5b7b9] bg-[#fdf3f3]" : "border-[#cbd5e1]"
+        }`}
       />
+      <Verdict verdict={verdict} crn={crn} />
       {teacher ? <span className="mt-0.5 block text-[11px] text-[#98a2b3]">{teacher}</span> : null}
     </>
   );
@@ -363,7 +587,7 @@ function AddRow({
 
   return (
     <form
-      className="mt-4 flex items-end gap-2"
+      className="flex items-end gap-2"
       onSubmit={(event) => {
         event.preventDefault();
         const trimmed = value.trim();
@@ -389,5 +613,41 @@ function AddRow({
         <Plus size={15} aria-hidden="true" /> Add
       </button>
     </form>
+  );
+}
+
+/**
+ * Whether the timetable agrees that this CRN exists, and is this course.
+ *
+ * A tick is worth little on its own; what earns its place is the two ways it can fail. A
+ * CRN the timetable has never held enrols nobody — the group looks filled and teaches
+ * nothing. A CRN that exists but belongs to another course is the one nobody catches by
+ * reading: it is a real section, of the wrong subject.
+ *
+ * Nothing is shown when the timetable could not be reached. Silence is not a verdict, and
+ * a red mark that only means "we could not ask" would be worse than no mark at all.
+ */
+function Verdict({ verdict, crn }: { verdict?: CrnVerdict; crn: string }) {
+  if (!crn || !verdict) return null;
+
+  if (verdict.status === "matched") {
+    const section = verdict.section;
+    return (
+      <span
+        title={section ? `${section.code} · ${section.groupLabel || section.kind}` : "In the timetable"}
+        className="ml-1.5 inline-flex items-center align-middle text-[#2f6b3d]"
+      >
+        <Check size={15} aria-label="In the timetable" />
+      </span>
+    );
+  }
+
+  return (
+    <span
+      title={verdict.detail}
+      className="ml-1.5 inline-flex items-center align-middle text-[#a6292f]"
+    >
+      <AlertTriangle size={15} aria-label={verdict.detail} />
+    </span>
   );
 }

@@ -3,6 +3,7 @@
 import pytest
 
 from sorbonne.services.group_reference_import import parse_group_reference
+from sorbonne.services.workbook_diff import diff_reference
 from sorbonne.services.student_database import (
     CohortNotFound,
     DuplicateLabel,
@@ -63,56 +64,25 @@ class TestCohorts:
             database.read_catalogue("no-such-cohort")
 
 
-class TestImportingAWorkbook:
-    def test_a_reference_sheet_becomes_scopes_groups_and_crns(self, database: StudentDatabase, cohort: dict):
-        report = parse_group_reference(workbook(COHORT_HEADERS, COHORT_ROWS), "FYS.xlsx")
+class TestSeedingFromAWorkbook:
+    """What lands when a workbook's rows are approved.
 
-        added = database.import_reference(cohort["id"], report)
-
-        assert added == {"scopes": 2, "courses": 3, "groups": 5, "crns": 6}
-        catalogue = database.read_catalogue(cohort["id"])
-        assert [scope["code"] for scope in catalogue["scopes"]] == ["CM", "TD"]
-
-    def test_a_group_arrives_as_the_bundle_it_is(self, database: StudentDatabase, cohort: dict):
-        database.import_reference(
-            cohort["id"], parse_group_reference(workbook(COHORT_HEADERS, COHORT_ROWS), "FYS.xlsx")
-        )
-
-        catalogue = database.read_catalogue(cohort["id"])
-        scope = scope_of(catalogue, "CM")
-        courses = {course["id"]: course["code"] for course in scope["courses"]}
-        held = {courses[course_id]: cell["crn"] for course_id, cell in group_of(scope, "1")["crns"].items()}
-
-        assert held == {"MATH001": "22151", "MATH009": "23364"}
+    The bulk import that wrote on drop is gone; a workbook now reaches the catalogue only
+    through the reviewed path, so what it carries has to survive that trip. The cohort
+    style is exercised end to end in `test_workbook_api`; what is here is the language
+    workbook, whose groups carry seats and a timetable note that nothing else would notice
+    the loss of.
+    """
 
     def test_the_language_workbook_keeps_its_seats(self, database: StudentDatabase, cohort: dict):
         report = parse_group_reference(workbook(LANGUAGE_HEADERS, LANGUAGE_ROWS), "LANG.xlsx")
+        blocks = diff_reference(held={}, incoming=report)
 
-        database.import_reference(cohort["id"], report)
+        database.apply_workbook_changes(cohort["id"], "", [row for block in blocks for row in block["rows"]])
 
         group = group_of(scope_of(database.read_catalogue(cohort["id"]), "A0"), "A0-F1")
         assert group["capacity"] == A0_SEATS
         assert group["note"].startswith("Tuesday")
-
-    def test_reimporting_updates_crns_and_keeps_hand_added_groups(
-        self, database: StudentDatabase, cohort: dict
-    ):
-        database.import_reference(
-            cohort["id"], parse_group_reference(workbook(COHORT_HEADERS, COHORT_ROWS), "FYS.xlsx")
-        )
-        scope_id = scope_of(database.read_catalogue(cohort["id"]), "TD")["id"]
-        database.add_group(scope_id, label="8")
-
-        corrected = [list(row) for row in COHORT_ROWS]
-        corrected[0][0] = 29999  # the registrar moved CM group 1's Pre-calculus CRN
-        database.import_reference(
-            cohort["id"], parse_group_reference(workbook(COHORT_HEADERS, corrected), "FYS.xlsx")
-        )
-
-        catalogue = database.read_catalogue(cohort["id"])
-        crns = {cell["crn"] for cell in group_of(scope_of(catalogue, "CM"), "1")["crns"].values()}
-        assert "29999" in crns
-        assert "8" in {group["label"] for group in scope_of(catalogue, "TD")["groups"]}
 
 
 class TestEditingTheCatalogue:
@@ -186,9 +156,9 @@ class TestEditingTheCatalogue:
 
 
 def test_the_catalogue_carries_no_student_identity(database: StudentDatabase, cohort: dict):
-    database.import_reference(
-        cohort["id"], parse_group_reference(workbook(COHORT_HEADERS, COHORT_ROWS), "FYS.xlsx")
-    )
+    report = parse_group_reference(workbook(COHORT_HEADERS, COHORT_ROWS), "FYS.xlsx")
+    blocks = diff_reference(held={}, incoming=report)
+    database.apply_workbook_changes(cohort["id"], "", [row for block in blocks for row in block["rows"]])
 
     catalogue = database.read_catalogue(cohort["id"])
 

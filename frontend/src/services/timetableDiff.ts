@@ -235,3 +235,70 @@ export function describeSession(values: SessionValues): string {
   const room = values.room ? ` · ${values.room}` : "";
   return `${formatDate(values.date)} · ${values.start}–${values.end}${room}${values.isExam ? " · exam" : ""}`;
 }
+
+/** How many sessions of this course would change at all, however they change. */
+export function decisionCount(course: DiffCourse): number {
+  return keysOf(course).length;
+}
+
+function plural(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? "" : "s"}`;
+}
+
+/**
+ * One sentence saying what happened to a course, so the sessions need not be read.
+ *
+ * A re-issued export moves whole courses at a time — a room reassigned for a term, a
+ * lecturer swapped — and reading that as forty near-identical rows is how a real change
+ * hides among them. The rows are still there to open; this is what makes opening them a
+ * choice rather than the only way to find out.
+ *
+ * Phrased from the values rather than the platform's per-row wording, because the useful
+ * sentence is the one that aggregates: "6 sessions moved to 9.001", not the same room
+ * change said six times.
+ */
+export function summariseCourse(course: DiffCourse): string {
+  if (course.status === "removed") {
+    const students = course.enrolledStudents
+      ? `, and ${plural(course.enrolledStudents, "student")} lose it`
+      : "";
+    return `Missing from this export — ${plural(course.sessions.length, "session")} would go${students}`;
+  }
+  if (course.status === "added") {
+    return `A course this semester has never held — ${plural(course.sessions.length, "session")}, nobody enrolled yet`;
+  }
+
+  const parts: string[] = [...course.courseChanges];
+  const changed = course.sessions.filter((session) => session.status === "changed");
+
+  const rooms = changed.filter((session) => session.before?.room !== session.after?.room);
+  if (rooms.length > 0) {
+    const targets = new Set(rooms.map((session) => session.after?.room || "—"));
+    parts.push(
+      targets.size === 1
+        ? `${plural(rooms.length, "session")} moved to ${[...targets][0]}`
+        : `${plural(rooms.length, "session")} changed room`,
+    );
+  }
+
+  const days = changed.filter((session) => session.before?.date !== session.after?.date);
+  if (days.length > 0) parts.push(`${plural(days.length, "session")} moved to another day`);
+
+  const times = changed.filter(
+    (session) =>
+      session.before?.date === session.after?.date &&
+      (session.before?.start !== session.after?.start || session.before?.end !== session.after?.end),
+  );
+  if (times.length > 0) parts.push(`${plural(times.length, "session")} rescheduled`);
+
+  const exams = changed.filter((session) => session.before?.isExam !== session.after?.isExam);
+  if (exams.length > 0) parts.push(`${plural(exams.length, "session")} changed to or from an exam`);
+
+  const cancelled = course.sessions.filter((session) => session.status === "removed").length;
+  if (cancelled > 0) parts.push(`${plural(cancelled, "session")} cancelled`);
+
+  const added = course.sessions.filter((session) => session.status === "added").length;
+  if (added > 0) parts.push(`${plural(added, "session")} added`);
+
+  return parts.join(", ") || "Nothing to apply";
+}

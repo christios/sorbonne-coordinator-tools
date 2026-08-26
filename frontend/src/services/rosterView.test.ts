@@ -5,9 +5,13 @@ import {
   choices,
   countBy,
   filterRows,
+  groupLabels,
+  sharedCohort,
+  shortTerm,
   sortRows,
   studentRows,
   NO_FILTERS,
+  type StudentRow,
 } from "@/services/rosterView";
 import type { RosterRow } from "@/services/scenRosters";
 import type { Student } from "@/services/studentDatabase";
@@ -30,7 +34,7 @@ const student = (studentId: string, over: Partial<Student> = {}): Student => ({
   cohortName: "",
   firstSeenAt: EARLIER,
   lastSeenAt: SYNCED,
-  groups: {},
+  groups: [],
   ...over,
 });
 
@@ -220,5 +224,62 @@ describe("sorting", () => {
       "A003",
       "A999",
     ]);
+  });
+});
+
+describe("the cohort a selection shares", () => {
+  const row = (studentId: string, cohortId: string | null) =>
+    ({ studentId, cohortId }) as StudentRow;
+
+  it("is the cohort when every selected student is in it", () => {
+    const rows = [row("A1", "c1"), row("A2", "c1"), row("A3", "c2")];
+    expect(sharedCohort(rows, new Set(["A1", "A2"]))).toBe("c1");
+  });
+
+  it("is nothing when the selection spans two cohorts", () => {
+    // There is no block list that answers for both, so the control has to decline.
+    const rows = [row("A1", "c1"), row("A2", "c2")];
+    expect(sharedCohort(rows, new Set(["A1", "A2"]))).toBeNull();
+  });
+
+  it("is nothing when a selected student is in no cohort at all", () => {
+    const rows = [row("A1", "c1"), row("A2", null)];
+    expect(sharedCohort(rows, new Set(["A1", "A2"]))).toBeNull();
+    expect(sharedCohort(rows, new Set(["A2"]))).toBeNull();
+  });
+
+  it("is nothing when nothing is selected", () => {
+    expect(sharedCohort([row("A1", "c1")], new Set())).toBeNull();
+  });
+});
+
+describe("the blocks a student sits in", () => {
+  const at = (termId: string, scopeCode: string, groupLabel: string) => ({ termId, scopeCode, groupLabel });
+
+  it("says the block and the group, the way a coordinator says them", () => {
+    expect(groupLabels([at("t1", "TD", "1"), at("t1", "CM", "2")])).toEqual(["TD 1", "CM 2"]);
+  });
+
+  it("names the semester once a student is in more than one", () => {
+    // "TD 1" and "TD 3" side by side read as a contradiction until the semester is said.
+    const labels = groupLabels([at("t1", "TD", "1"), at("t2", "TD", "3")], {
+      t1: "Physics & Maths — First Year, Semester 1",
+      t2: "Physics & Maths — First Year, Semester 2",
+    });
+    expect(labels).toEqual(["Semester 1 · TD 1", "Semester 2 · TD 3"]);
+  });
+
+  it("leaves the semester out when there is only one, because it adds nothing", () => {
+    const labels = groupLabels([at("t1", "TD", "1")], { t1: "Physics & Maths — Semester 1" });
+    expect(labels).toEqual(["TD 1"]);
+  });
+
+  it("falls back to the block alone when the semester has no name here", () => {
+    expect(groupLabels([at("t1", "TD", "1"), at("t2", "CM", "2")], {})).toEqual(["TD 1", "CM 2"]);
+  });
+
+  it("shortens the registrar's title to the part that fits a cell", () => {
+    expect(shortTerm("Physics & Maths — First Year, Semester 2")).toBe("Semester 2");
+    expect(shortTerm("Languages")).toBe("Languages");
   });
 });

@@ -1,19 +1,23 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FolderInput, Globe, Search } from "lucide-react";
+import { Filter, FolderInput, Globe, LayoutGrid, Search } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ColumnMenu } from "@/components/ColumnMenu";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { Modal } from "@/components/Modal";
 import { CopyButton } from "@/components/CopyButton";
+import { PlaceInBlock } from "@/components/PlaceInBlock";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { SelectMenu } from "@/components/SelectMenu";
 import { StudentHistoryPane } from "@/components/StudentHistoryPane";
 import { StudentTable, cellText, type Sort } from "@/components/StudentTable";
 import { TableFilterBar } from "@/components/TableFilterBar";
+import { costOfMove, describeCost } from "@/services/cohortMove";
 import { tableText } from "@/services/copyCells";
 import { forgetHistory, loadHistory, type PullHistory } from "@/services/pullHistory";
 import { fetchSchema } from "@/services/scenRosters";
-import { changesSince, studentRows, type StudentRow } from "@/services/rosterView";
+import { fetchTimetableTerms } from "@/services/timetables";
+import { changesSince, sharedCohort, studentRows, type StudentRow } from "@/services/rosterView";
 import { PortalError } from "@/services/scenRosters";
 import {
   forgetRosters,
@@ -33,10 +37,18 @@ import {
   type StudentColumn,
 } from "@/services/studentColumns";
 import { applyFilters, type FilterModel } from "@/services/tableFilter";
-import { fetchStudents, setCohort, type Cohort } from "@/services/studentDatabase";
+import {
+  createCohort,
+  fetchStudents,
+  setCohort,
+  type Cohort,
+  type PlacementReport,
+} from "@/services/studentDatabase";
 
 /** Where a student goes when the picker is used, with "no cohort" as a real choice. */
 const NO_COHORT = "__none__";
+/** Making one is a way of moving into one, so it lives in the same picker. */
+const NEW_COHORT = "__new__";
 
 /**
  * One view's students, and what the portal last said about them.
@@ -49,7 +61,19 @@ const NO_COHORT = "__none__";
  * Names, e-mail addresses and year levels come from the SCEN Rosters extension and are
  * kept in this browser alone — see services/rosterStore.ts.
  */
-export function StudentRoster({ cohorts, viewId }: { cohorts: Cohort[]; viewId: string }) {
+export function StudentRoster({
+  cohorts,
+  viewId,
+  preselect = [],
+  filterCohort = "",
+}: {
+  cohorts: Cohort[];
+  viewId: string;
+  /** Ids another page sent here — the table opens showing everybody, with these ticked. */
+  preselect?: string[];
+  /** A cohort whose members to show — arrives as an ordinary filter chip, clearable. */
+  filterCohort?: string;
+}) {
   const client = useQueryClient();
   const [everywhere, setEverywhere] = useState(false);
   // Searching everywhere asks for the whole record rather than this view's population.
@@ -68,6 +92,12 @@ export function StudentRoster({ cohorts, viewId }: { cohorts: Cohort[]; viewId: 
     placeholderData: keepPreviousData,
   });
   const schema = useQuery({ queryKey: ["portal-schema"], queryFn: fetchSchema, staleTime: 60_000 });
+  // Only so the Groups column can name a semester when a student is in more than one.
+  const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, retry: false });
+  const termNames = useMemo(
+    () => Object.fromEntries((terms.data ?? []).map((term) => [term.id, term.name])),
+    [terms.data],
+  );
 
   // The table offers the portal's own fields, so the columns follow the harvested schema.
   const allColumns = useMemo(
@@ -112,12 +142,69 @@ export function StudentRoster({ cohorts, viewId }: { cohorts: Cohort[]; viewId: 
     saveLayout(next);
   }, []);
 
+  const [naming, setNaming] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [placing, setPlacing] = useState(false);
+  const [placed, setPlaced] = useState<(PlacementReport & { removed: boolean }) | null>(null);
+
+  /*
+   * A handful of students sent here from the Groups page, who are in no block.
+   *
+   * The table is narrowed to exactly them, not merely ticked: nine ticks among 2803 rows
+   * are nine rows you cannot see, and a page that looks unchanged has not answered "show
+   * them to me". The search also widens to everybody first, because somebody with no group
+   * need not be in whichever view happens to be open.
+   */
+  const [focus, setFocus] = useState<string[]>([]);
+  const sent = preselect.join(",");
+  useEffect(() => {
+    if (!sent) return;
+    const ids = sent.split(",");
+    setFocus(ids);
+    setSelected(new Set(ids));
+    setEverywhere(true);
+  }, [sent]);
+
+  /*
+   * "Who is in this cohort" is the table filtered by cohort, which it could always do.
+   * It arrives as an ordinary filter chip rather than a special mode, so it shows in the
+   * filter bar and comes off the way every other filter does.
+   */
+  useEffect(() => {
+    if (!filterCohort) return;
+    setEverywhere(true);
+    setFilters([{ columnId: "cohortName", type: "option", operator: "is", values: [filterCohort] }]);
+  }, [filterCohort]);
+
+  /** Create a cohort and put the selection in it, which is the only reason to make one here. */
+  const createAndMove = useMutation({
+    mutationFn: async () => {
+      const created = await createCohort({ name: newName.trim() });
+      await setCohort([...selected], created.id);
+      return created;
+    },
+    onSuccess: (created) => {
+      setNaming(false);
+      setNewName("");
+      setMoveTo(created.id);
+      setSelected(new Set());
+      client.invalidateQueries({ queryKey: ["students"] });
+      client.invalidateQueries({ queryKey: ["cohorts"] });
+    },
+  });
+
+  // Set only when a move would throw placements away, which is the only time it is asked about.
+  const [confirmMove, setConfirmMove] = useState<{ ids: string[]; cohortId: string | null } | null>(
+    null,
+  );
+
   const move = useMutation({
     mutationFn: ({ ids, cohortId }: { ids: string[]; cohortId: string | null }) =>
       setCohort(ids, cohortId),
     onSuccess: () => {
       setSelected(new Set());
       setMoveTo("");
+      setConfirmMove(null);
       client.invalidateQueries({ queryKey: ["students"] });
       client.invalidateQueries({ queryKey: ["cohorts"] });
     },
@@ -127,10 +214,15 @@ export function StudentRoster({ cohorts, viewId }: { cohorts: Cohort[]; viewId: 
     () => changesSince(stored.previous?.rows ?? [], stored.current?.rows ?? []),
     [stored],
   );
-  const rows = useMemo(
-    () => studentRows(students.data ?? [], stored.current?.rows ?? [], changes, syncedAt),
-    [students.data, stored, changes, syncedAt],
+  const everyRow = useMemo(
+    () => studentRows(students.data ?? [], stored.current?.rows ?? [], changes, syncedAt, termNames),
+    [students.data, stored, changes, syncedAt, termNames],
   );
+  const rows = useMemo(() => {
+    if (focus.length === 0) return everyRow;
+    const wanted = new Set(focus);
+    return everyRow.filter((row) => wanted.has(row.studentId));
+  }, [everyRow, focus]);
 
   const columns = useMemo(
     () => (layout ? visibleColumns(layout, allColumns) : []),
@@ -151,7 +243,28 @@ export function StudentRoster({ cohorts, viewId }: { cohorts: Cohort[]; viewId: 
 
   visibleRef.current = visible;
 
-  const toggle = useCallback((studentId: string) => {
+  /*
+   * Ticking one row, or every row between the last one and this one.
+   *
+   * The anchor is whichever row was ticked last, and it follows the order on screen rather
+   * than the order in the data — a range picked after sorting by cohort has to be the rows
+   * the coordinator can see between their two clicks, not whatever lies between those two
+   * ids in the record.
+   */
+  const anchor = useRef("");
+  const toggle = useCallback((studentId: string, extend = false) => {
+    const shown = visibleRef.current.map((row) => row.studentId);
+    const from = shown.indexOf(anchor.current);
+    const to = shown.indexOf(studentId);
+
+    if (extend && from !== -1 && to !== -1) {
+      const [start, end] = from < to ? [from, to] : [to, from];
+      const range = shown.slice(start, end + 1);
+      setSelected((current) => new Set([...current, ...range]));
+      return;
+    }
+
+    anchor.current = studentId;
     setSelected((current) => {
       const next = new Set(current);
       if (next.has(studentId)) next.delete(studentId);
@@ -186,6 +299,28 @@ export function StudentRoster({ cohorts, viewId }: { cohorts: Cohort[]; viewId: 
   if (students.isLoading || !layout) return <ScreenLoading label="Loading the students…" />;
 
   const chosen = [...selected];
+  /*
+   * A move only interrupts when it would destroy something.
+   *
+   * Most moves are a student joining the cohort they should always have been in, and
+   * costing them a confirmation each time is how a confirmation stops being read. What
+   * is worth stopping for is the delete nobody can see coming: leaving a cohort drops
+   * every group held in it, in every semester, not the one on screen.
+   */
+  const moveCost = (cohortId: string | null) =>
+    costOfMove(students.data ?? [], chosen, cohortId, termNames);
+  const newCohortCost = describeCost(moveCost(NEW_COHORT));
+  const requestMove = (cohortId: string | null) => {
+    if (moveCost(cohortId).placements === 0) {
+      move.mutate({ ids: chosen, cohortId });
+      return;
+    }
+    setConfirmMove({ ids: chosen, cohortId });
+  };
+
+  // A block belongs to one cohort, so placing is only offered for a selection that is in one.
+  const placeInto = sharedCohort(rows, selected);
+  const cohortOfSelection = cohorts.find((candidate) => candidate.id === placeInto) ?? null;
   const error = move.error ?? students.error;
 
   return (
@@ -219,19 +354,43 @@ export function StudentRoster({ cohorts, viewId }: { cohorts: Cohort[]; viewId: 
               searchable={cohorts.length > 12}
               options={[
                 ...cohorts.map((cohort) => ({ value: cohort.id, label: cohort.name })),
+                { value: NEW_COHORT, label: "New cohort…" },
                 { value: NO_COHORT, label: "Take out of their cohort" },
               ]}
-              onChange={setMoveTo}
+              onChange={(value) => {
+                if (value === NEW_COHORT) {
+                  setNewName("");
+                  setNaming(true);
+                  return;
+                }
+                setMoveTo(value);
+              }}
               disabled={!chosen.length}
             />
           </div>
           <button
             type="button"
             disabled={!chosen.length || !moveTo || move.isPending}
-            onClick={() => move.mutate({ ids: chosen, cohortId: moveTo === NO_COHORT ? null : moveTo })}
+            onClick={() => requestMove(moveTo === NO_COHORT ? null : moveTo)}
             className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-3 py-1.5 font-semibold text-white disabled:opacity-50"
           >
             <FolderInput size={15} aria-hidden="true" /> {chosen.length ? `Move ${chosen.length}` : "Move"}
+          </button>
+          <button
+            type="button"
+            disabled={!cohortOfSelection}
+            title={
+              chosen.length && !cohortOfSelection
+                ? "Blocks belong to one cohort — select students who share one"
+                : undefined
+            }
+            onClick={() => {
+              setPlaced(null);
+              setPlacing(true);
+            }}
+            className="inline-flex items-center gap-2 rounded-md border border-[#b7bec8] bg-white px-3 py-1.5 font-semibold text-[#344054] disabled:opacity-50"
+          >
+            <LayoutGrid size={15} aria-hidden="true" /> Place in a block…
           </button>
           {chosen.length ? (
             <button type="button" onClick={() => setSelected(new Set())} className="text-[#667085] underline">
@@ -239,6 +398,35 @@ export function StudentRoster({ cohorts, viewId }: { cohorts: Cohort[]; viewId: 
             </button>
           ) : null}
       </div>
+
+      {placed ? (
+        <p className="mt-2 rounded-md border border-[#bfdcc6] bg-[#f4faf5] px-4 py-2.5 text-sm text-[#2f6b3d]">
+          {placed.assigned} student(s) {placed.removed ? "taken out of the block" : "placed"}.
+          {placed.skipped.length > 0 ? (
+            <span className="ml-1 text-[#8a6116]">
+              {placed.skipped.length} id(s) were not in that block&rsquo;s cohort and were left alone:{" "}
+              {placed.skipped.slice(0, 5).join(", ")}
+              {placed.skipped.length > 5 ? "…" : ""}
+            </span>
+          ) : null}
+        </p>
+      ) : null}
+
+      {cohortOfSelection ? (
+        <PlaceInBlock
+          open={placing}
+          cohort={cohortOfSelection}
+          studentIds={chosen}
+          onClose={() => setPlacing(false)}
+          onPlaced={(report) => {
+            setPlaced(report);
+            setPlacing(false);
+            setSelected(new Set());
+            client.invalidateQueries({ queryKey: ["students"] });
+            client.invalidateQueries({ queryKey: ["catalogue"] });
+          }}
+        />
+      ) : null}
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <TableFilterBar
@@ -293,6 +481,68 @@ export function StudentRoster({ cohorts, viewId }: { cohorts: Cohort[]; viewId: 
         />
       </div>
 
+      <Modal
+        open={naming}
+        title={`New cohort for ${chosen.length} student${chosen.length === 1 ? "" : "s"}`}
+        description="A cohort is a population for a year, not a semester — its blocks are defined per semester."
+        onClose={() => setNaming(false)}
+        footer={
+          <div className="flex items-center justify-end gap-3">
+            <button type="button" onClick={() => setNaming(false)} className="text-sm font-semibold text-[#667085]">
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={!newName.trim() || !chosen.length || createAndMove.isPending}
+              onClick={() => createAndMove.mutate()}
+              className="rounded-md bg-[#1f4e79] px-4 py-2 text-sm font-semibold text-white disabled:bg-[#9ba8b5]"
+            >
+              Create and move {chosen.length}
+            </button>
+          </div>
+        }
+      >
+        <label className="block text-sm font-semibold text-[#344054]">
+          Name
+          <input
+            value={newName}
+            autoFocus
+            onChange={(event) => setNewName(event.target.value)}
+            placeholder="Foundation Year"
+            className="mt-1.5 block w-full rounded-md border border-[#cbd5e1] px-3 py-2 text-sm font-normal"
+          />
+        </label>
+        {/* A cohort that does not exist yet holds nobody, so everyone placed loses their groups. */}
+        {newCohortCost ? (
+          <p className="mt-3 rounded-md border border-[#e8d9ac] bg-[#fdf9ee] px-4 py-3 text-sm leading-6 text-[#8a6116]">
+            {newCohortCost}
+          </p>
+        ) : null}
+        {createAndMove.error ? (
+          <p role="alert" className="mt-3 rounded-md border border-[#e5b7b9] bg-[#fdf3f3] px-4 py-3 text-sm text-[#a6292f]">
+            {(createAndMove.error as Error).message}
+          </p>
+        ) : null}
+      </Modal>
+
+      {focus.length > 0 ? (
+        <p className="mt-2 flex flex-wrap items-center gap-2 rounded-md border border-[#cfe0ef] bg-[#f2f7fb] px-4 py-2.5 text-sm text-[#1f4e79]">
+          <Filter size={15} aria-hidden="true" />
+          <span>
+            Showing the <b className="tabular-nums">{focus.length}</b> student
+            {focus.length === 1 ? "" : "s"} sent from Groups &amp; CRNs
+            {rows.length !== focus.length ? ` — ${rows.length} of them are in this record` : ""}.
+          </span>
+          <button
+            type="button"
+            onClick={() => setFocus([])}
+            className="font-semibold underline"
+          >
+            Show everyone again
+          </button>
+        </p>
+      ) : null}
+
       <p className="mt-2 text-xs text-[#98a2b3]">
         {rows.length} student{rows.length === 1 ? "" : "s"} held
         {visible.length !== rows.length ? `, ${visible.length} shown` : ""}
@@ -325,6 +575,25 @@ export function StudentRoster({ cohorts, viewId }: { cohorts: Cohort[]; viewId: 
             ? "Nobody matches those filters."
             : "No students yet. Sync with the portal to build the list."
         }
+      />
+
+      <ConfirmDialog
+        open={confirmMove !== null}
+        title={
+          confirmMove?.cohortId
+            ? `Move ${confirmMove.ids.length} student${confirmMove.ids.length === 1 ? "" : "s"} to ${
+                cohorts.find((candidate) => candidate.id === confirmMove.cohortId)?.name ?? "another cohort"
+              }?`
+            : `Take ${confirmMove?.ids.length ?? 0} student${
+                (confirmMove?.ids.length ?? 0) === 1 ? "" : "s"
+              } out of their cohort?`
+        }
+        description={confirmMove ? describeCost(moveCost(confirmMove.cohortId)) : ""}
+        confirmLabel="Move anyway"
+        onConfirm={() => {
+          if (confirmMove) move.mutate(confirmMove);
+        }}
+        onClose={() => setConfirmMove(null)}
       />
 
       <ConfirmDialog
@@ -384,7 +653,23 @@ const COLLATION: Intl.CollatorOptions = { numeric: true, sensitivity: "accent" }
 function sortRows(rows: StudentRow[], sort: Sort, columns: StudentColumn[]): StudentRow[] {
   const direction = sort.ascending ? 1 : -1;
   const column = columns.find((candidate) => candidate.id === sort.key);
-  const valueOf = (row: StudentRow) => String(column?.accessor(row) ?? "");
+
+  // A column may rank differently from how it reads — Status shows three signals and none
+  // of them is the value it filters by — so its own ranking wins where it has one.
+  if (column?.sortValue) {
+    const rank = column.sortValue;
+    return [...rows].sort((left, right) => {
+      const a = rank(left);
+      const b = rank(right);
+      const compared = typeof a === "number" && typeof b === "number" ? a - b : String(a).localeCompare(String(b), undefined, COLLATION);
+      return (compared || left.studentId.localeCompare(right.studentId)) * direction;
+    });
+  }
+
+  const valueOf = (row: StudentRow) => {
+    const held = column?.accessor(row);
+    return Array.isArray(held) ? held.join(" ") : String(held ?? "");
+  };
   return [...rows].sort((left, right) => {
     // Blanks last however the sort runs: a student with no major is not the first thing
     // you want to see when sorting by major.

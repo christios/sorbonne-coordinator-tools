@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, Loader2, Plus, Trash2 } from "lucide-react";
+import { Download, Loader2, Plus, Settings2, Trash2 } from "lucide-react";
 import { useState } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -7,10 +7,10 @@ import { FilterBuilder } from "@/components/FilterBuilder";
 import { Modal } from "@/components/Modal";
 import { SelectMenu } from "@/components/SelectMenu";
 import { useStaffUser } from "@/components/useStaffUser";
-import { describeFilter, type Filter } from "@/services/filterSummary";
+import { describeFilter, filterLines, type Filter } from "@/services/filterSummary";
 import { recordPull } from "@/services/pullHistory";
 import { rememberPull, rememberSync } from "@/services/rosterStore";
-import { PortalError, fetchSchema, pullFilter, studentIdOf } from "@/services/scenRosters";
+import { PortalError, fetchSchema, pullFilter, studentIdOf, type PortalField } from "@/services/scenRosters";
 import { createView, deleteView, syncView, type StudentView } from "@/services/studentDatabase";
 
 /**
@@ -39,6 +39,7 @@ export function ViewBar({
   const [composing, setComposing] = useState<Filter | null>(null);
   const [name, setName] = useState("");
   const [pendingDelete, setPendingDelete] = useState<StudentView | null>(null);
+  const [showingFilter, setShowingFilter] = useState(false);
 
   const fields = schema.data?.fields ?? [];
   const view = views.find((candidate) => candidate.id === viewId) ?? null;
@@ -119,6 +120,18 @@ export function ViewBar({
           {sync.isPending ? "Syncing…" : view?.lastSyncedAt ? "Sync this view" : "Seed this view"}
         </button>
 
+        {view ? (
+          <button
+            type="button"
+            aria-label={`The filter behind ${view.name}`}
+            title={`The filter behind ${view.name}`}
+            onClick={() => setShowingFilter(true)}
+            className="rounded-md border border-[#b7bec8] bg-white p-2 text-[#667085] hover:bg-[#f8fafc] hover:text-[#344054]"
+          >
+            <Settings2 size={16} aria-hidden="true" />
+          </button>
+        ) : null}
+
         {isAdmin ? (
           <button
             type="button"
@@ -161,6 +174,15 @@ export function ViewBar({
           {view.gone ? ` · ${view.gone} no longer returned` : ""}
         </p>
       ) : null}
+
+      <Modal
+        open={showingFilter && view !== null}
+        title={view ? `What ${view.name} asks the portal` : ""}
+        description="Fixed when the view was made and never edited since, which is what lets it tell you who has left. A different question would be a different view."
+        onClose={() => setShowingFilter(false)}
+      >
+        {view ? <FilterReading filter={view.filter as Filter} fields={fields} /> : null}
+      </Modal>
 
       <Modal
         open={composing !== null}
@@ -230,5 +252,52 @@ export function ViewBar({
         onClose={() => setPendingDelete(null)}
       />
     </div>
+  );
+}
+
+/**
+ * A view's filter, laid out field by field.
+ *
+ * Both the portal's word and the portal's code, because they answer different questions:
+ * the label says what the view means, the code is what a registrar would have to type to
+ * ask the same thing anywhere else.
+ */
+function FilterReading({ filter, fields }: { filter: Filter; fields: PortalField[] }) {
+  const lines = filterLines(filter, fields);
+
+  if (lines.length === 0) {
+    return (
+      <p className="text-sm leading-6 text-[#667085]">
+        No filters — this view asks for every student the portal will return.
+      </p>
+    );
+  }
+
+  return (
+    <dl className="divide-y divide-[#eef1f5]">
+      {lines.map((line) => (
+        <div key={line.key} className="flex flex-wrap items-baseline gap-x-4 gap-y-1 py-3">
+          <dt className="w-44 shrink-0">
+            <span className="text-sm font-semibold text-[#344054]">{line.field}</span>
+            {line.unknownField ? null : (
+              <span className="mt-0.5 block font-mono text-[11px] text-[#98a2b3]">{line.key}</span>
+            )}
+          </dt>
+          <dd className="flex min-w-0 flex-wrap gap-1.5">
+            {line.values.map((value) => (
+              <span
+                key={value.value}
+                className="inline-flex items-baseline gap-1.5 rounded-full bg-[#eef2f7] px-2.5 py-1 text-sm text-[#344054]"
+              >
+                {value.label}
+                {value.label === value.value ? null : (
+                  <span className="font-mono text-[11px] text-[#98a2b3]">{value.value}</span>
+                )}
+              </span>
+            ))}
+          </dd>
+        </div>
+      ))}
+    </dl>
   );
 }

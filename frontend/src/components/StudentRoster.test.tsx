@@ -76,7 +76,7 @@ const HELD: database.Student[] = [
     cohortName: "Foundation Year",
     firstSeenAt: EARLIER,
     lastSeenAt: SYNCED,
-    groups: {},
+    groups: [],
   },
   {
     studentId: "A002",
@@ -85,7 +85,7 @@ const HELD: database.Student[] = [
     cohortName: "",
     firstSeenAt: EARLIER,
     lastSeenAt: SYNCED,
-    groups: {},
+    groups: [],
   },
   {
     studentId: "A003",
@@ -94,7 +94,7 @@ const HELD: database.Student[] = [
     cohortName: "",
     firstSeenAt: SYNCED,
     lastSeenAt: SYNCED,
-    groups: {},
+    groups: [],
   },
   {
     studentId: "A999",
@@ -103,7 +103,7 @@ const HELD: database.Student[] = [
     cohortName: "Foundation Year",
     firstSeenAt: EARLIER,
     lastSeenAt: EARLIER,
-    groups: {},
+    groups: [],
   },
 ];
 
@@ -128,11 +128,11 @@ function withNames() {
   rememberSync(VIEW_ID, SYNCED);
 }
 
-function renderRoster() {
+function renderRoster(preselect: string[] = []) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <StudentRoster cohorts={COHORTS} viewId={VIEW_ID} />
+      <StudentRoster cohorts={COHORTS} viewId={VIEW_ID} preselect={preselect} />
     </QueryClientProvider>,
   );
 }
@@ -415,6 +415,80 @@ describe("StudentRoster", () => {
     expect(cohortId).toBe("cohort-2");
     // The privacy rule, pinned: no name may cross to our API.
     expect(JSON.stringify(ids)).not.toContain("Karim");
+  });
+
+  it("moves without a word when the students hold no groups, which is most moves", async () => {
+    // The confirmation is only worth reading if it is rare. Nobody in HELD is placed.
+    const move = vi.spyOn(database, "setCohort").mockResolvedValue(1);
+    withNames();
+    renderRoster();
+    await screen.findByText("Amira Haddad");
+
+    fireEvent.click(screen.getByLabelText("Select Karim Nasser"));
+    await choose("Move to cohort", "L1");
+    fireEvent.click(screen.getByRole("button", { name: /Move 1/ }));
+
+    await waitFor(() => expect(move).toHaveBeenCalled());
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("stops first when the move would drop placements, and names every semester", async () => {
+    // Leaving a cohort deletes the groups held in it — in every semester, not the one
+    // being looked at. That is the deletion nobody can see coming.
+    vi.spyOn(database, "fetchStudents").mockResolvedValue(
+      HELD.map((student) =>
+        student.studentId === "A001"
+          ? {
+              ...student,
+              groups: [
+                { termId: "term-1", scopeCode: "TD", groupLabel: "1" },
+                { termId: "term-2", scopeCode: "TD", groupLabel: "3" },
+              ],
+            }
+          : student,
+      ),
+    );
+    const move = vi.spyOn(database, "setCohort").mockResolvedValue(1);
+    withNames();
+    renderRoster();
+    await screen.findByText("Amira Haddad");
+
+    fireEvent.click(screen.getByLabelText("Select Amira Haddad"));
+    await choose("Move to cohort", "L1");
+    fireEvent.click(screen.getByRole("button", { name: /Move 1/ }));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText(/1 student would lose 2 group placements/)).toBeTruthy();
+    expect(within(dialog).getByText(/across 2 semesters/)).toBeTruthy();
+    expect(move).not.toHaveBeenCalled();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Move anyway" }));
+    await waitFor(() => expect(move).toHaveBeenCalled());
+    expect(move.mock.calls[0]).toEqual([["A001"], "cohort-2"]);
+  });
+
+  it("lets the move be called off, and nothing is written", async () => {
+    vi.spyOn(database, "fetchStudents").mockResolvedValue(
+      HELD.map((student) =>
+        student.studentId === "A001"
+          ? { ...student, groups: [{ termId: "term-1", scopeCode: "TD", groupLabel: "1" }] }
+          : student,
+      ),
+    );
+    const move = vi.spyOn(database, "setCohort").mockResolvedValue(1);
+    withNames();
+    renderRoster();
+    await screen.findByText("Amira Haddad");
+
+    fireEvent.click(screen.getByLabelText("Select Amira Haddad"));
+    await choose("Move to cohort", "L1");
+    fireEvent.click(screen.getByRole("button", { name: /Move 1/ }));
+
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(move).not.toHaveBeenCalled();
   });
 
   it("takes students out of a cohort with a null, not a delete", async () => {
@@ -787,5 +861,126 @@ describe("the toolbar", () => {
     // population holds them.
     await waitFor(() => expect(fetched).toHaveBeenCalledWith(""));
     expect(await screen.findByRole("button", { name: /All students/ })).toBeTruthy();
+  });
+});
+
+describe("students sent here from Groups & CRNs", () => {
+  it("narrows the table to them, rather than ticking rows you cannot see", async () => {
+    // Nine ticks among 2803 rows are nine rows nobody can find. "Show them" has to show them.
+    renderRoster(["A001", "A003"]);
+
+    expect(await screen.findByText("A001")).toBeTruthy();
+    expect(screen.getByText("A003")).toBeTruthy();
+    expect(screen.queryByText("A002")).toBeNull();
+    expect(screen.queryByText("A999")).toBeNull();
+  });
+
+  it("says why the table is short, and offers the way back", async () => {
+    renderRoster(["A001", "A003"]);
+
+    const banner = await screen.findByText(/sent from Groups & CRNs/);
+    expect(banner.textContent).toContain("2 students");
+
+    fireEvent.click(screen.getByRole("button", { name: /Show everyone again/ }));
+
+    expect(await screen.findByText("A002")).toBeTruthy();
+    expect(screen.queryByText(/sent from Groups & CRNs/)).toBeNull();
+  });
+
+  it("ticks them too, so they can be placed straight away", async () => {
+    renderRoster(["A001", "A003"]);
+
+    await screen.findByText("A001");
+    expect(screen.getByText(/2 selected/)).toBeTruthy();
+    const place = screen.getByRole("button", { name: /Place in a block/ }) as HTMLButtonElement;
+    // A001 is in a cohort and A003 is not, so this selection has no single block list.
+    expect(place.disabled).toBe(true);
+  });
+
+  it("says when somebody sent here is not in the record at all", async () => {
+    renderRoster(["A001", "A00099999"]);
+
+    const banner = await screen.findByText(/sent from Groups & CRNs/);
+    expect(banner.textContent).toContain("1 of them are in this record");
+  });
+});
+
+describe("selecting a run of students", () => {
+  /** The ids in the order the table is showing them, which is the order a range follows. */
+  const shownIds = () =>
+    [...screen.getAllByRole("row")]
+      .slice(1)
+      .map((row) => row.textContent?.match(/A\d+/)?.[0])
+      .filter(Boolean) as string[];
+
+  const tick = (id: string, shift = false) =>
+    fireEvent.click(screen.getByLabelText(new RegExp(`^Select ${id}$`)), shift ? { shiftKey: true } : {});
+
+  it("takes everything between the last tick and a shift-click", async () => {
+    renderRoster();
+    await screen.findByText("A001");
+    const ids = shownIds();
+
+    tick(ids[0]);
+    tick(ids[ids.length - 1], true);
+
+    expect(screen.getByText(`${ids.length} selected`)).toBeTruthy();
+  });
+
+  it("works upwards as well as downwards", async () => {
+    renderRoster();
+    await screen.findByText("A001");
+    const ids = shownIds();
+
+    tick(ids[2]);
+    tick(ids[0], true);
+
+    expect(screen.getByText("3 selected")).toBeTruthy();
+  });
+
+  it("follows the rows on screen, not the order they are held in", async () => {
+    // Sorted the other way, a range between the same two clicks covers different students.
+    renderRoster();
+    await screen.findByText("A001");
+    fireEvent.click(screen.getByRole("button", { name: /Sort by Id/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Sort by Id/ }));
+    const reversed = shownIds();
+
+    tick(reversed[0]);
+    tick(reversed[1], true);
+
+    expect(screen.getByText("2 selected")).toBeTruthy();
+  });
+
+  it("a plain click after a range starts a new anchor rather than extending", async () => {
+    renderRoster();
+    await screen.findByText("A001");
+    const ids = shownIds();
+
+    tick(ids[0]);
+    tick(ids[1], true);
+    tick(ids[3]);
+
+    expect(screen.getByText("3 selected")).toBeTruthy();
+  });
+});
+
+describe("sorting by status", () => {
+  it("ranks by the pills the cell shows, not by the portal state alone", async () => {
+    // The bug: three signals in one cell, and only one of them reached the sort. Two rows
+    // both "In portal", one of them flagged New, sorted into id order as if identical.
+    withNames();
+    renderRoster();
+    await screen.findByText("A001");
+
+    fireEvent.click(screen.getByRole("button", { name: /Sort by Status/ }));
+
+    const shown = [...screen.getAllByRole("row")].slice(1).map((row) => row.textContent ?? "");
+    const notInPortal = shown.findIndex((text) => text.includes("Not in portal"));
+    const isNew = shown.findIndex((text) => text.includes("New"));
+    const quiet = shown.map((text) => !/Not in portal|New|Changed/.test(text)).lastIndexOf(true);
+
+    expect(notInPortal).toBeLessThan(isNew);
+    expect(isNew).toBeLessThan(quiet);
   });
 });

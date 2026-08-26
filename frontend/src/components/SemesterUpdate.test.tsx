@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SemesterUpdate } from "@/components/SemesterUpdate";
 import type { TimetablePreview } from "@/services/timetableDiff";
@@ -106,6 +106,13 @@ async function review() {
   await screen.findByText(/revised.xls against/);
 }
 
+/** Open a course to reach its session rows, which are folded away until asked for. */
+function expand(crn: string) {
+  const card = screen.getByText(new RegExp(`CRN ${crn}`)).closest("article") as HTMLElement;
+  fireEvent.click(within(card).getByRole("button", { name: /^Show \d+$/ }));
+  return card;
+}
+
 beforeEach(() => {
   vi.spyOn(timetables, "previewTimetableUpdate").mockResolvedValue(PREVIEW);
   vi.spyOn(timetables, "applyTimetableUpdate").mockResolvedValue({ ...TERM, sessionCount: 974 });
@@ -122,8 +129,13 @@ it("shows what moved, in the coordinator's words", async () => {
   renderScreen();
   await review();
 
-  expect(screen.getByText("room 7.113 → 9.001")).toBeTruthy();
   expect(screen.getByText(/CRN 22151/)).toBeTruthy();
+  // Folded away until asked for: the summary is what the header shows.
+  expect(screen.queryByText("room 7.113 → 9.001")).toBeNull();
+
+  expand("22151");
+
+  expect(screen.getByText("room 7.113 → 9.001")).toBeTruthy();
 });
 
 it("approves nothing until it is ticked", async () => {
@@ -138,6 +150,7 @@ it("sends only the ticked row", async () => {
   renderScreen();
   await review();
 
+  expand("22151");
   fireEvent.click(screen.getByRole("checkbox", { name: /Approve Changed on/ }));
   fireEvent.click(screen.getByRole("button", { name: /Apply 1 change/ }));
 
@@ -153,6 +166,7 @@ it("warns before a dropped course takes its students with it", async () => {
 
   expect(screen.getByText(/34 student\(s\) would lose the course/)).toBeTruthy();
 
+  expand("23302");
   fireEvent.click(screen.getByRole("checkbox", { name: /Approve the course change for CRN 23302/ }));
   expect(screen.getByText(/34 student\(s\) would be unenrolled/)).toBeTruthy();
 });
@@ -161,6 +175,7 @@ it("makes a dropped course one decision rather than one per session", async () =
   renderScreen();
   await review();
 
+  expand("23302");
   // The French session is listed so it can be seen, but it carries no tick of its own.
   expect(screen.queryByRole("checkbox", { name: /Approve Cancelled on/ })).toBeNull();
 
@@ -180,6 +195,7 @@ it("reports what the platform says when the review has gone stale", async () => 
   renderScreen();
   await review();
 
+  expand("22151");
   fireEvent.click(screen.getByRole("checkbox", { name: /Approve Changed on/ }));
   fireEvent.click(screen.getByRole("button", { name: /Apply 1 change/ }));
 
@@ -190,9 +206,53 @@ it("confirms what landed once the changes are applied", async () => {
   renderScreen();
   await review();
 
+  expand("22151");
   fireEvent.click(screen.getByRole("checkbox", { name: /Approve Changed on/ }));
   fireEvent.click(screen.getByRole("button", { name: /Apply 1 change/ }));
 
   expect(await screen.findByText(/Physics & Maths — Semester 1 updated/)).toBeTruthy();
   expect(screen.getByText(/974 sessions/)).toBeTruthy();
+});
+
+describe("a course as one decision", () => {
+  it("says what happened without the rows being opened", async () => {
+    renderScreen();
+    await review();
+
+    const card = screen.getByText(/CRN 22151/).closest("article") as HTMLElement;
+    expect(within(card).getByText(/moved to 9.001/)).toBeTruthy();
+  });
+
+  it("approves the whole course from the header", async () => {
+    renderScreen();
+    await review();
+
+    fireEvent.click(screen.getByRole("checkbox", { name: /Approve every change to Pre-Calculus/ }));
+
+    expect(screen.getByRole("button", { name: /Apply 1 change/ })).toBeTruthy();
+  });
+
+  it("shows a part-approved course as neither on nor off", async () => {
+    // Saying "off" would invite a click that unticks rows already approved.
+    renderScreen();
+    await review();
+
+    const dropped = screen.getByText(/CRN 23302/).closest("article") as HTMLElement;
+    expand("23302");
+    fireEvent.click(screen.getByRole("checkbox", { name: /Approve the course change for CRN 23302/ }));
+
+    const header = within(dropped).getByRole("checkbox", { name: /Approve every change to/ }) as HTMLInputElement;
+    expect(header.checked).toBe(true);
+  });
+
+  it("opens and closes the sessions on request", async () => {
+    renderScreen();
+    await review();
+
+    const card = expand("22151");
+    expect(screen.getByText("room 7.113 → 9.001")).toBeTruthy();
+
+    fireEvent.click(within(card).getByRole("button", { name: /^Hide$/ }));
+    expect(screen.queryByText("room 7.113 → 9.001")).toBeNull();
+  });
 });

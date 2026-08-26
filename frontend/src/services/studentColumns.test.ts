@@ -54,6 +54,7 @@ const row = (over: Partial<StudentRow> = {}): StudentRow => ({
   portal: { FULL_NAME: "Amira Haddad", YEARLEVEL_CODE: "FY", MAJOR_CODE_DESC: "Mathematics" },
   isNew: false,
   changes: [],
+  groups: [],
   ...over,
 });
 
@@ -113,6 +114,7 @@ describe("the stored arrangement", () => {
       "portal:YEARLEVEL_CODE",
       "portal:MAJOR_CODE_DESC",
       "cohortName",
+      "groups",
     ]);
   });
 
@@ -166,7 +168,7 @@ describe("the stored arrangement", () => {
   it("falls back to the default when storage holds nonsense", () => {
     window.localStorage.setItem("scen-student-columns:v1", "not json");
 
-    expect(visibleColumns(loadLayout(COLUMNS), COLUMNS)).toHaveLength(6);
+    expect(visibleColumns(loadLayout(COLUMNS), COLUMNS)).toHaveLength(7);
   });
 });
 
@@ -213,8 +215,21 @@ describe("the values a column offers to the filter bar", () => {
     const status = COLUMNS.find((column) => column.id === "status")!;
 
     expect(optionsFor(rows, status)).toEqual([
-      { value: "in_portal", label: "In portal" },
-      { value: "not_in_portal", label: "Not in portal" },
+      { value: "In portal", label: "In portal" },
+      { value: "Not in portal", label: "Not in portal" },
+    ]);
+  });
+
+  it("offers every signal the status cell shows, not just the portal state", () => {
+    // "Show me everyone the last sync brought in" was not askable while this column
+    // filtered on in_portal / not_in_portal alone.
+    const rows = [row(), row({ studentId: "A002", isNew: true }), row({ studentId: "A003", changes: ["year FY → L1"] })];
+    const status = COLUMNS.find((column) => column.id === "status")!;
+
+    expect(optionsFor(rows, status).map((option) => option.value)).toEqual([
+      "Changed",
+      "In portal",
+      "New",
     ]);
   });
 

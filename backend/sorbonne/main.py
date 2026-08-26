@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from sorbonne.api.auth import router as auth_router
 from sorbonne.api.bibliography_lookup import router as bibliography_lookup_router
 from sorbonne.api.rosters import router as rosters_router
+from sorbonne.api.publication import router as publication_router
 from sorbonne.api.student_database import router as student_database_router
 from sorbonne.api.syllabus_catalogues import router as syllabus_catalogues_router
 from sorbonne.api.syllabi import router as syllabi_router
@@ -58,6 +59,7 @@ app.include_router(bibliography_lookup_router, prefix="/api/v1")
 app.include_router(timetables_router, prefix="/api/v1")
 app.include_router(users_router, prefix="/api/v1")
 app.include_router(student_database_router, prefix="/api/v1")
+app.include_router(publication_router, prefix="/api/v1")
 app.mount("/handbook", StaticFiles(directory="handbook-dist", html=True, check_dir=False), name="handbook")
 app.frontend("/", directory="frontend-dist", fallback="index.html", check_dir=False)
 

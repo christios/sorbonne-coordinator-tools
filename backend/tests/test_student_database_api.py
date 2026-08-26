@@ -81,25 +81,41 @@ def test_a_cohort_is_created_listed_and_deleted(client: TestClient):
     )
 
 
-def test_uploading_a_workbook_reports_what_it_read(client: TestClient, cohort_id: str):
-    response = client.post(
-        f"/api/v1/student-database/cohorts/{cohort_id}/catalogue/import",
-        files={"workbook": ("FYS.xlsx", workbook(COHORT_HEADERS, COHORT_ROWS), SPREADSHEET)},
+def preview_workbook(client: TestClient, cohort_id: str, content: bytes, name: str = "FYS.xlsx"):
+    return client.post(
+        f"/api/v1/student-database/cohorts/{cohort_id}/workbook/preview",
+        data={"term_id": ""},
+        files={"workbook": (name, content, SPREADSHEET)},
     )
+
+
+def test_a_workbook_says_what_it_would_add_before_adding_it(client: TestClient, cohort_id: str):
+    response = preview_workbook(client, cohort_id, workbook(COHORT_HEADERS, COHORT_ROWS))
 
     assert response.status_code == status.HTTP_200_OK, response.text
     body = response.json()
     assert body["style"] == "cohort"
-    assert body["read"] == {"scopes": 2, "groups": 5, "crns": 6}
-    assert body["added"]["groups"] == FIXTURE_GROUPS
+    assert body["reference"]["summary"]["groupsAdded"] == FIXTURE_GROUPS
+    # A preview writes nothing, so the catalogue is still empty.
+    assert catalogue(client, cohort_id)["scopes"] == []
+
+
+def test_the_approved_rows_become_the_catalogue(client: TestClient, cohort_id: str):
+    body = preview_workbook(client, cohort_id, workbook(COHORT_HEADERS, COHORT_ROWS)).json()
+    rows = [row for block in body["reference"]["blocks"] for row in block["rows"]]
+
+    applied = client.post(
+        f"/api/v1/student-database/cohorts/{cohort_id}/workbook/apply",
+        json={"termId": "", "operations": rows},
+    )
+
+    assert applied.status_code == status.HTTP_200_OK, applied.text
+    assert applied.json()["groups"] == FIXTURE_GROUPS
     assert [scope["code"] for scope in catalogue(client, cohort_id)["scopes"]] == ["CM", "TD"]
 
 
 def test_a_file_that_is_not_a_reference_sheet_is_explained(client: TestClient, cohort_id: str):
-    response = client.post(
-        f"/api/v1/student-database/cohorts/{cohort_id}/catalogue/import",
-        files={"workbook": ("notes.txt", b"not a workbook", "text/plain")},
-    )
+    response = preview_workbook(client, cohort_id, b"not a workbook", name="notes.txt")
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
     assert "could not be read as an Excel workbook" in response.json()["detail"]
@@ -412,3 +428,100 @@ def _as_ordinary_coordinator(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
+
+
+# ------------------------------------------------- placing students in a block
+
+
+def block_with_a_group(client: TestClient, cohort_id: str, code: str = "TD") -> tuple[str, str]:
+    scope = client.post(
+        f"/api/v1/student-database/cohorts/{cohort_id}/scopes", json={"code": code}
+    ).json()
+    group = client.post(
+        f"/api/v1/student-database/scopes/{scope['id']}/groups", json={"label": "1"}
+    ).json()
+    return scope["id"], group["id"]
+
+
+def place(client: TestClient, scope_id: str, student_ids: list[str], group_id: str | None) -> dict:
+    response = client.put(
+        f"/api/v1/student-database/scopes/{scope_id}/assignments",
+        json={"studentIds": student_ids, "groupId": group_id},
+    )
+    assert response.status_code == status.HTTP_200_OK, response.text
+    return response.json()
+
+
+def in_cohort(client: TestClient, view_id: str, cohort_id: str, ids: list[str]) -> None:
+    sync(client, view_id, ids)
+    client.post("/api/v1/student-database/students/cohort", json={"studentIds": ids, "cohortId": cohort_id})
+
+
+def test_students_are_placed_in_a_group_in_one_go(client: TestClient, cohort_id: str, view_id: str):
+    scope_id, group_id = block_with_a_group(client, cohort_id)
+    in_cohort(client, view_id, cohort_id, STUDENTS)
+
+    report = place(client, scope_id, STUDENTS, group_id)
+
+    assert report["assigned"] == len(STUDENTS)
+    assert report["skipped"] == []
+    held = client.get(f"/api/v1/student-database/cohorts/{cohort_id}/assignments").json()["assignments"]
+    assert {student: by_scope[scope_id] for student, by_scope in held.items()} == {
+        student: group_id for student in STUDENTS
+    }
+
+
+def test_a_student_this_cohort_does_not_hold_is_skipped_and_named(
+    client: TestClient, cohort_id: str, view_id: str
+):
+    """A block belongs to one cohort, so its groups are not open to everybody.
+
+    Placing an outsider would write a row saying they are in a cohort they are not in, and
+    their enrolment would follow. The same rule the workbook upload follows.
+    """
+    scope_id, group_id = block_with_a_group(client, cohort_id)
+    in_cohort(client, view_id, cohort_id, STUDENTS[:1])
+    sync(client, view_id, [*STUDENTS[:1], "A00099999"])
+
+    report = place(client, scope_id, [STUDENTS[0], "A00099999"], group_id)
+
+    assert report["assigned"] == 1
+    assert report["skipped"] == ["A00099999"]
+
+
+def test_placing_nobody_in_a_group_takes_them_out_of_the_block(
+    client: TestClient, cohort_id: str, view_id: str
+):
+    scope_id, group_id = block_with_a_group(client, cohort_id)
+    in_cohort(client, view_id, cohort_id, STUDENTS)
+    place(client, scope_id, STUDENTS, group_id)
+
+    place(client, scope_id, STUDENTS, None)
+
+    held = client.get(f"/api/v1/student-database/cohorts/{cohort_id}/assignments").json()["assignments"]
+    assert held == {}
+
+
+def test_a_group_from_another_block_is_refused(client: TestClient, cohort_id: str, view_id: str):
+    scope_id, _ = block_with_a_group(client, cohort_id)
+    _, elsewhere = block_with_a_group(client, cohort_id, code="CM")
+    in_cohort(client, view_id, cohort_id, STUDENTS)
+
+    response = client.put(
+        f"/api/v1/student-database/scopes/{scope_id}/assignments",
+        json={"studentIds": STUDENTS, "groupId": elsewhere},
+    )
+
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+def test_a_student_carries_the_groups_they_are_in_by_name(client: TestClient, cohort_id: str, view_id: str):
+    """Ids are no use to a table. "TD 1" is what a coordinator recognises."""
+    scope_id, group_id = block_with_a_group(client, cohort_id)
+    in_cohort(client, view_id, cohort_id, STUDENTS)
+    place(client, scope_id, STUDENTS[:1], group_id)
+
+    held = {row["studentId"]: row["groups"] for row in students_of(client)}
+
+    assert held[STUDENTS[0]] == [{"termId": "", "scopeCode": "TD", "groupLabel": "1"}]
+    assert held[STUDENTS[1]] == []

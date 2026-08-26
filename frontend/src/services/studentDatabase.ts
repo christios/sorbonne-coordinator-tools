@@ -6,6 +6,7 @@
  */
 
 import { apiFetch } from "@/services/http";
+import type { Operation, WorkbookPreview } from "@/services/workbookReview";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 
@@ -44,19 +45,17 @@ export type CatalogueScope = {
   code: string;
   name: string;
   note: string;
+  /** The student tab this block's column lives on in the workbook it came from. */
+  tab?: string;
+  /** What that column is called there: "TD group", "Readiness group". */
+  groupColumn?: string;
+  /** Which column it was, so blocks sharing a tab come back in the order they were in. */
+  columnIndex?: number;
   courses: CatalogueCourse[];
   groups: CatalogueGroup[];
 };
 
 export type Catalogue = { scopes: CatalogueScope[] };
-
-export type ImportReport = {
-  filename: string;
-  sheet: string;
-  style: "cohort" | "language";
-  read: { scopes: number; groups: number; crns: number };
-  added: { scopes: number; courses: number; groups: number; crns: number };
-};
 
 const BASE = "/api/v1/student-database";
 
@@ -104,21 +103,91 @@ export function deleteCohort(cohortId: string): Promise<void> {
   return request<void>(`${BASE}/cohorts/${cohortId}`, { method: "DELETE" });
 }
 
-export function fetchCatalogue(cohortId: string): Promise<Catalogue> {
-  return request<Catalogue>(`${BASE}/cohorts/${cohortId}/catalogue`);
+export function fetchCatalogue(cohortId: string, termId?: string): Promise<Catalogue> {
+  // A cohort's blocks are defined per semester, so asking without one would show both
+  // semesters' "TD" at once, meaning different things.
+  const query = termId ? `?term_id=${encodeURIComponent(termId)}` : "";
+  return request<Catalogue>(`${BASE}/cohorts/${cohortId}/catalogue${query}`);
 }
 
-export function importReferenceWorkbook(cohortId: string, file: File): Promise<ImportReport> {
+export type PlacementReport = {
+  assigned: number;
+  /** Ids the block's cohort does not hold. They were not placed. */
+  skipped: string[];
+};
+
+/**
+ * Put students in one group of one block, or take them out of it with a null group.
+ *
+ * A student holds at most one group per block, so this replaces rather than adds — which
+ * is what makes their enrolment the union of their blocks rather than a pile of history.
+ */
+export function assignStudents(
+  scopeId: string,
+  studentIds: string[],
+  groupId: string | null,
+): Promise<PlacementReport> {
+  return send<PlacementReport>(`${BASE}/scopes/${scopeId}/assignments`, "PUT", { studentIds, groupId });
+}
+
+/** Who is in which group, as `{student id: {scope id: group id}}`. */
+export async function fetchAssignments(cohortId: string): Promise<Record<string, Record<string, string>>> {
+  const payload = await request<{ assignments: Record<string, Record<string, string>> }>(
+    `${BASE}/cohorts/${cohortId}/assignments`,
+  );
+  return payload.assignments;
+}
+
+/**
+ * What one workbook would change, without changing any of it.
+ *
+ * One file, both halves: the Reference sheet says what the blocks are, the student tabs say
+ * who is in them. They were two uploads and are one, because they were always one document.
+ */
+export function previewWorkbook(
+  cohortId: string,
+  termId: string,
+  file: File,
+): Promise<WorkbookPreview> {
   const body = new FormData();
+  body.set("term_id", termId);
   body.set("workbook", file);
-  return request<ImportReport>(`${BASE}/cohorts/${cohortId}/catalogue/import`, { method: "POST", body });
+  return request<WorkbookPreview>(`${BASE}/cohorts/${cohortId}/workbook/preview`, {
+    method: "POST",
+    body,
+  });
+}
+
+export type WorkbookApplied = {
+  courses: number;
+  groups: number;
+  cells: number;
+  placements: number;
+};
+
+/** Carry out the rows that were ticked, and only those. */
+export function applyWorkbook(
+  cohortId: string,
+  termId: string,
+  operations: Operation[],
+): Promise<WorkbookApplied> {
+  return send<WorkbookApplied>(`${BASE}/cohorts/${cohortId}/workbook/apply`, "POST", {
+    termId,
+    operations,
+  });
 }
 
 export function addScope(
   cohortId: string,
-  input: { code: string; name?: string; note?: string },
+  input: { code: string; name?: string; note?: string; termId?: string },
 ): Promise<{ id: string }> {
-  return send<{ id: string }>(`${BASE}/cohorts/${cohortId}/scopes`, "POST", { name: "", note: "", ...input });
+  // The semester matters: a block added without one is invisible to the page that made it.
+  return send<{ id: string }>(`${BASE}/cohorts/${cohortId}/scopes`, "POST", {
+    name: "",
+    note: "",
+    termId: "",
+    ...input,
+  });
 }
 
 export function updateScope(
@@ -187,8 +256,8 @@ export type Student = {
   cohortName: string;
   firstSeenAt: string;
   lastSeenAt: string;
-  /** scope id -> group id, for the blocks this student has been placed in. */
-  groups: Record<string, string>;
+  /** The blocks this student sits in, labelled — one entry per (semester, block). */
+  groups: { termId: string; scopeCode: string; groupLabel: string }[];
 };
 
 export type SyncReport = {

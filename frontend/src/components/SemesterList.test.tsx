@@ -90,41 +90,91 @@ describe("the semesters the platform holds", () => {
   });
 });
 
+const EMPTY_PREVIEW = {
+  term: { id: TERM.id, name: TERM.name },
+  baseUpdatedAt: TERM.updatedAt,
+  filename: "revised.xls",
+  summary: {
+    unchanged: 0, changed: 0, added: 0, removed: 0, courseChanges: 0,
+    coursesAdded: 0, coursesRemoved: 0, uncertainMatches: 0, studentsLosingCourses: 0,
+  },
+  courses: [],
+};
+
 describe("the two ways a semester gets its timetable", () => {
-  it("opens the term-start import from the list, and comes back to it", async () => {
+  it("asks for the import file without taking the list away", async () => {
+    // Picking a file is two questions. It used to cost the whole screen, including the
+    // list you were adding to.
     renderList();
 
-    fireEvent.click(await screen.findByRole("button", { name: /Import a semester/ }));
-    expect(await screen.findByRole("button", { name: /Upload to student platform/ })).toBeTruthy();
+    fireEvent.click(await screen.findByRole("button", { name: /Import a timetable/ }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Import a timetable" });
+    expect(within(dialog).getByRole("button", { name: /Import to student platform/ })).toBeTruthy();
+    expect(screen.getByRole("row", { name: /Physics & Maths/ })).toBeTruthy();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(screen.getByRole("row", { name: /Physics & Maths/ })).toBeTruthy();
+  });
+
+  it("asks for the update file over the list too, and can be called off", async () => {
+    renderList();
+
+    fireEvent.click(await screen.findByRole("button", { name: /Update timetable/ }));
+
+    const dialog = await screen.findByRole("dialog", { name: /Update Physics & Maths/ });
+    expect(screen.getByRole("row", { name: /Physics & Maths/ })).toBeTruthy();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(screen.getByRole("row", { name: /Physics & Maths/ })).toBeTruthy();
+  });
+
+  it("gives the diff the whole screen, because a long review does not belong in a box", async () => {
+    vi.spyOn(timetables, "previewTimetableUpdate").mockResolvedValue(EMPTY_PREVIEW);
+    renderList();
+    fireEvent.click(await screen.findByRole("button", { name: /Update timetable/ }));
+    const dialog = await screen.findByRole("dialog", { name: /Update Physics & Maths/ });
+
+    fireEvent.change(within(dialog).getByLabelText(/New timetable export/), {
+      target: { files: [new File(["x"], "revised.xls")] },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: /See what would change/ }));
+
+    // The dialog goes, the list stands aside, and the review keeps the diff it just fetched.
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(await screen.findByText(/Update Physics & Maths/)).toBeTruthy();
+    expect(screen.getByText("revised.xls")).toBeTruthy();
+    expect(screen.queryByRole("row", { name: /Physics & Maths/ })).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: /All semesters/ }));
     expect(await screen.findByRole("row", { name: /Physics & Maths/ })).toBeTruthy();
   });
 
-  it("opens the reviewed update for one semester, and comes back to it", async () => {
-    vi.spyOn(timetables, "previewTimetableUpdate").mockResolvedValue({
-      term: { id: TERM.id, name: TERM.name },
-      baseUpdatedAt: TERM.updatedAt,
-      filename: "revised.xls",
-      summary: {
-        unchanged: 0, changed: 0, added: 0, removed: 0, courseChanges: 0,
-        coursesAdded: 0, coursesRemoved: 0, uncertainMatches: 0, studentsLosingCourses: 0,
-      },
-      courses: [],
-    });
+  it("goes back to the dialog when a different file is wanted", async () => {
+    vi.spyOn(timetables, "previewTimetableUpdate").mockResolvedValue(EMPTY_PREVIEW);
     renderList();
-
     fireEvent.click(await screen.findByRole("button", { name: /Update timetable/ }));
-    expect(await screen.findByText(/Update Physics & Maths/)).toBeTruthy();
+    const dialog = await screen.findByRole("dialog", { name: /Update Physics & Maths/ });
+    fireEvent.change(within(dialog).getByLabelText(/New timetable export/), {
+      target: { files: [new File(["x"], "revised.xls")] },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: /See what would change/ }));
+    await screen.findByText("revised.xls");
 
-    fireEvent.click(screen.getByRole("button", { name: /All semesters/ }));
-    expect(await screen.findByRole("row", { name: /Physics & Maths/ })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Choose a different file/ }));
+
+    expect(await screen.findByRole("dialog", { name: /Update Physics & Maths/ })).toBeTruthy();
+    expect(screen.getByRole("row", { name: /Physics & Maths/ })).toBeTruthy();
   });
 
   it("says what to do when the platform holds nothing yet", async () => {
     vi.spyOn(timetables, "fetchTimetableTerms").mockResolvedValue([]);
     renderList();
 
-    expect(await screen.findByText(/Import a semester to give students a timetable/)).toBeTruthy();
+    expect(await screen.findByText(/Import a timetable to give students a semester/)).toBeTruthy();
   });
 });

@@ -27,6 +27,13 @@ export type StudentColumn = FilterColumn<StudentRow> & {
   type: ColumnDataType;
   /** How the cell reads on screen, which is not always how it filters. */
   display?: (row: StudentRow) => string;
+  /**
+   * How the column ranks when sorted, when that is not how it filters or displays.
+   *
+   * Status is the case: it shows three separate signals in one cell, and none of them is
+   * the value it filters by.
+   */
+  sortValue?: (row: StudentRow) => string | number;
   /** Columns that carry the row's identity and would make the table unreadable if hidden. */
   required?: boolean;
   defaultWidth: number;
@@ -41,6 +48,22 @@ export type StudentColumn = FilterColumn<StudentRow> & {
  */
 export const MIN_WIDTH = 28;
 
+/** Exactly what the Status cell shows, in the order it shows them. */
+export function statusPills(row: StudentRow): string[] {
+  const pills = [row.status === "not_in_portal" ? "Not in portal" : "In portal"];
+  if (row.isNew) pills.push("New");
+  if (row.changes.length > 0) pills.push("Changed");
+  return pills;
+}
+
+/** Worth attention first: gone from the portal, then newly arrived, then altered. */
+const STATUS_RANK: ((row: StudentRow) => boolean)[] = [
+  (row) => row.status === "not_in_portal",
+  (row) => row.isNew,
+  (row) => row.changes.length > 0,
+  () => true,
+];
+
 /** The columns a coordinator sees before they have arranged anything. */
 const DEFAULT_SHOWN = [
   "status",
@@ -49,6 +72,7 @@ const DEFAULT_SHOWN = [
   "portal:YEARLEVEL_CODE",
   "portal:MAJOR_CODE_DESC",
   "cohortName",
+  "groups",
 ];
 
 /** The columns that are ours rather than the portal's. */
@@ -56,9 +80,15 @@ const OWN_COLUMNS: StudentColumn[] = [
   {
     id: "status",
     displayName: "Status",
-    type: "option",
-    accessor: (row) => row.status,
-    display: (row) => (row.status === "not_in_portal" ? "Not in portal" : "In portal"),
+    // Three signals in one cell, so each is an option of its own: "show me everyone the
+    // last sync brought in" was not askable while this filtered on portal state alone.
+    type: "multiOption",
+    accessor: (row) => statusPills(row),
+    display: (row) => statusPills(row).join(" · "),
+    // Sorted by how much it wants looking at, not alphabetically. A coordinator who clicks
+    // Status is asking what needs attention, and "Changed" before "In portal" is only an
+    // accident of the alphabet.
+    sortValue: (row) => STATUS_RANK.findIndex((test) => test(row)),
     required: true,
     defaultWidth: 150,
   },
@@ -77,6 +107,15 @@ const OWN_COLUMNS: StudentColumn[] = [
     accessor: (row) => row.cohortName,
     display: (row) => row.cohortName || "—",
     defaultWidth: 180,
+  },
+  {
+    id: "groups",
+    displayName: "Groups",
+    // Several per student, so it filters as "include any of": "show me everyone in TD 1".
+    type: "multiOption",
+    accessor: (row) => row.groups,
+    display: (row) => (row.groups.length ? row.groups.join(" · ") : "—"),
+    defaultWidth: 200,
   },
   {
     id: "firstSeenAt",
@@ -291,9 +330,14 @@ function asDay(value: string): string {
 export function optionsFor(rows: StudentRow[], column: StudentColumn): { value: string; label: string }[] {
   const seen = new Map<string, string>();
   for (const row of rows) {
-    const value = String(column.accessor(row) ?? "");
-    if (!value) continue;
-    if (!seen.has(value)) seen.set(value, column.display ? column.display(row) : value);
+    // A multiOption column holds several values per row, and each is an option of its own:
+    // stringifying the array would offer "CM 1 · TD 1" as a single thing to filter by.
+    const held = column.accessor(row);
+    const values = Array.isArray(held) ? held.map(String) : [String(held ?? "")];
+    for (const value of values) {
+      if (!value) continue;
+      if (!seen.has(value)) seen.set(value, Array.isArray(held) ? value : column.display ? column.display(row) : value);
+    }
   }
   // Same collation as the table: case ignored, accents kept, "10" after "9".
   return [...seen]

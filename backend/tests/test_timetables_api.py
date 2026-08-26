@@ -376,3 +376,22 @@ def test_a_review_the_platform_calls_stale_is_forwarded_as_a_conflict(client: Te
 
     assert response.status_code == status.HTTP_409_CONFLICT
     assert "changed by somebody else" in response.json()["detail"]
+
+
+def test_a_semester_is_imported_from_the_export_alone(client: TestClient):
+    """No student lists. Enrolments are this application's own and reach the platform by publish."""
+    sent: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent["body"] = request.content
+        return httpx.Response(201, json={"id": "term-1", "name": "S1", "studentCount": 0})
+
+    response = use(client, handler).post(
+        "/api/v1/timetables/terms",
+        data={"name": "Physics & Maths — Semester 1", "timezone": "Asia/Dubai"},
+        files=[("timetable", ("timetable.xls", b"timetable-bytes", "application/vnd.ms-excel"))],
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED, response.text
+    assert response.json()["studentCount"] == 0
+    assert b"students.xlsx" not in sent["body"]

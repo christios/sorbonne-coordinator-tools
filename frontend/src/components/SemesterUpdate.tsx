@@ -1,6 +1,17 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, ArrowLeft, CheckCircle2, HelpCircle, Loader2, Upload } from "lucide-react";
-import { useMemo, useState } from "react";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
+  FileSpreadsheet,
+  HelpCircle,
+  Loader2,
+} from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+
+import { Modal } from "@/components/Modal";
 
 import {
   type DiffCourse,
@@ -15,6 +26,7 @@ import {
   operationsFrom,
   rowKey,
   studentsAffected,
+  summariseCourse,
   visibleCourses,
 } from "@/services/timetableDiff";
 import { type TimetableTerm, applyTimetableUpdate, previewTimetableUpdate } from "@/services/timetables";
@@ -50,13 +62,25 @@ const LABELS: Record<string, string> = {
  * the same session, and lands nothing that has not been ticked — an update is a series of
  * decisions, not a replacement.
  */
-export function SemesterUpdate({ term, onBack }: { term: TimetableTerm; onBack: () => void }) {
+export function SemesterUpdate({
+  term,
+  onBack,
+  onStage,
+}: {
+  term: TimetableTerm;
+  onBack: () => void;
+  /**
+   * "pick" while this is a dialog over the list, "review" once it has taken the screen.
+   * The list hides itself for the second, because a long review inside a scrolling box
+   * is worse than the full-screen page it replaced.
+   */
+  onStage?: (stage: "pick" | "review") => void;
+}) {
   const queryClient = useQueryClient();
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<TimetablePreview | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState<DiffFilter>("all");
-  const [enrolments, setEnrolments] = useState<File[]>([]);
   const [applied, setApplied] = useState<TimetableTerm | null>(null);
 
   const check = useMutation({
@@ -75,16 +99,18 @@ export function SemesterUpdate({ term, onBack }: { term: TimetableTerm; onBack: 
         baseUpdatedAt: (preview as TimetablePreview).baseUpdatedAt,
         filename: (preview as TimetablePreview).filename,
         operations: operationsFrom((preview as TimetablePreview).courses, selected),
-        enrolments,
       }),
     onSuccess: (updated) => {
       setApplied(updated);
       setPreview(null);
       setSelected(new Set());
-      setEnrolments([]);
       queryClient.invalidateQueries({ queryKey: ["timetable-terms"] });
     },
   });
+
+  // Picking a file is a dialog; a diff, or the result of applying one, is the whole screen.
+  const stage = preview || applied ? "review" : "pick";
+  useEffect(() => onStage?.(stage), [onStage, stage]);
 
   const courses = useMemo(() => preview?.courses ?? [], [preview]);
   const decisions = useMemo(() => allKeys(courses), [courses]);
@@ -106,6 +132,67 @@ export function SemesterUpdate({ term, onBack }: { term: TimetableTerm; onBack: 
       return next;
     });
 
+  const picker = (
+    <label className="block text-sm font-semibold text-[#344054]">
+      New timetable export
+      <input
+        type="file"
+        accept=".xls,.xlsx"
+        autoFocus
+        onChange={(event) => {
+          setFile(event.target.files?.[0] ?? null);
+          setPreview(null);
+          setApplied(null);
+        }}
+        className="mt-1.5 block w-full rounded-md border border-[#c8d0db] bg-white px-3 py-2 text-sm font-normal text-[#1f2937] file:mr-3 file:rounded file:border-0 file:bg-[#eaf1f8] file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-[#1f4e79]"
+      />
+      <span className="mt-1 block text-xs font-normal text-[#667085]">
+        {file ? file.name : ".xls or .xlsx — the registrar's latest activity list"}
+      </span>
+    </label>
+  );
+
+  if (stage === "pick") {
+    return (
+      <Modal
+        open
+        title={`Update ${term.name}`}
+        description="Nothing changes until you have looked at what differs and ticked it — anything you leave unticked keeps the value students see today."
+        onClose={onBack}
+        footer={
+          <>
+            <button type="button" onClick={onBack} className="text-sm font-semibold text-[#667085]">
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => check.mutate()}
+              disabled={!file || check.isPending}
+              className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-4 py-2 text-sm font-semibold text-white hover:bg-[#183f63] disabled:bg-[#9ba8b5]"
+            >
+              {check.isPending ? (
+                <Loader2 size={16} className="animate-spin" aria-hidden="true" />
+              ) : (
+                <FileSpreadsheet size={16} aria-hidden="true" />
+              )}
+              See what would change
+            </button>
+          </>
+        }
+      >
+        {picker}
+        {error ? (
+          <p
+            role="alert"
+            className="mt-4 rounded-md border border-[#e5b7b9] bg-[#fdf3f3] px-4 py-3 text-sm text-[#a6292f]"
+          >
+            {error}
+          </p>
+        ) : null}
+      </Modal>
+    );
+  }
+
   return (
     <section className="pb-28">
       <button
@@ -119,38 +206,25 @@ export function SemesterUpdate({ term, onBack }: { term: TimetableTerm; onBack: 
       <div className="rounded-lg border border-[#d9dee7] bg-white p-6">
         <h3 className="text-lg font-semibold text-[#171717]">Update {term.name}</h3>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-[#667085]">
-          Upload the registrar&rsquo;s latest activity-list export. Nothing changes until you have looked at what
-          differs and ticked it — anything you leave unticked keeps the value students see today.
+          Nothing changes until you have looked at what differs and ticked it — anything you leave
+          unticked keeps the value students see today.
         </p>
 
-        <div className="mt-4 flex flex-wrap items-end gap-3">
-          <label className="text-sm font-semibold text-[#344054]">
-            New timetable export
-            <input
-              type="file"
-              accept=".xls,.xlsx"
-              onChange={(event) => {
-                setFile(event.target.files?.[0] ?? null);
-                setPreview(null);
-                setApplied(null);
-              }}
-              className="mt-1.5 block w-full max-w-md rounded-md border border-[#c8d0db] bg-white px-3 py-2 text-sm font-normal text-[#1f2937] file:mr-3 file:rounded file:border-0 file:bg-[#eaf1f8] file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-[#1f4e79]"
-            />
-          </label>
+        <p className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-[#667085]">
+          <FileSpreadsheet size={15} className="text-[#1f4e79]" aria-hidden="true" />
+          <b className="font-semibold text-[#344054]">{preview?.filename ?? file?.name ?? ""}</b>
           <button
             type="button"
-            onClick={() => check.mutate()}
-            disabled={!file || check.isPending}
-            className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#183f63] disabled:bg-[#9ba8b5]"
+            onClick={() => {
+              setFile(null);
+              setPreview(null);
+              setApplied(null);
+            }}
+            className="font-semibold text-[#1f4e79] underline"
           >
-            {check.isPending ? (
-              <Loader2 size={17} className="animate-spin" aria-hidden="true" />
-            ) : (
-              <Upload size={17} aria-hidden="true" />
-            )}
-            See what would change
+            Choose a different file
           </button>
-        </div>
+        </p>
 
         {error ? (
           <p
@@ -220,9 +294,6 @@ export function SemesterUpdate({ term, onBack }: { term: TimetableTerm; onBack: 
             selectedCount={selected.size}
             total={decisions.length}
             losing={losing}
-            needsRoster={preview.summary.coursesAdded > 0}
-            enrolments={enrolments}
-            onEnrolments={setEnrolments}
             onSelectAll={() => setMany(decisions, true)}
             onClear={() => setSelected(new Set())}
             onApply={() => apply.mutate()}
@@ -270,8 +341,8 @@ function Summary({ preview }: { preview: TimetablePreview }) {
           ) : null}
           {summary.coursesAdded > 0 ? (
             <Note tone="warn" icon={AlertTriangle}>
-              {summary.coursesAdded} new course(s) have nobody enrolled yet. Attach the group templates below if
-              you want students on them straight away.
+              {summary.coursesAdded} new course(s) have nobody enrolled yet. They stay empty until a block
+              carries their CRN and the semester is published again.
             </Note>
           ) : null}
         </div>
@@ -327,34 +398,61 @@ function CourseCard({
 }) {
   const keys = keysOf(course);
   const allOn = keys.length > 0 && keys.every((key) => selected.has(key));
+  const someOn = keys.some((key) => selected.has(key));
   const dropped = course.status === "removed";
+  /*
+   * Closed until asked. The registrar re-issues a term at a time, so a course's rows are
+   * mostly the same change said forty times; the sentence in the header is what a
+   * coordinator actually decides on, and the rows are there for when it is not enough.
+   */
+  const [open, setOpen] = useState(false);
 
   return (
     <article
       className={`rounded-lg border bg-white ${dropped ? "border-[#e5b7b9]" : "border-[#d9dee7]"}`}
     >
-      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-[#e4e8ef] px-5 py-3.5">
-        <div className="min-w-0">
-          <h4 className="truncate text-sm font-semibold text-[#171717]">
-            {course.title}
-            {course.groupLabel ? <span className="text-[#667085]"> · {course.groupLabel}</span> : null}
-          </h4>
-          <p className="mt-0.5 text-xs text-[#667085]">
-            CRN {course.crn} · {course.code}
-            {course.kind ? ` · ${course.kind}` : ""}
-          </p>
+      <header className="flex flex-wrap items-start justify-between gap-3 border-b border-[#e4e8ef] px-5 py-3.5">
+        <div className="flex min-w-0 flex-1 items-start gap-3">
+          {keys.length > 0 ? (
+            <input
+              type="checkbox"
+              checked={allOn}
+              ref={(box) => {
+                // Part of a course ticked is neither on nor off, and saying "off" would be
+                // a lie that costs somebody the rows they already approved.
+                if (box) box.indeterminate = !allOn && someOn;
+              }}
+              onChange={() => onToggleMany(keys, !allOn)}
+              aria-label={`Approve every change to ${course.title}, CRN ${course.crn}`}
+              className="mt-1 size-4 shrink-0 accent-[#1f4e79]"
+            />
+          ) : null}
+          <div className="min-w-0">
+            <h4 className="truncate text-sm font-semibold text-[#171717]">
+              {course.title}
+              {course.groupLabel ? <span className="text-[#667085]"> · {course.groupLabel}</span> : null}
+            </h4>
+            <p className="mt-0.5 text-sm text-[#344054]">{summariseCourse(course)}</p>
+            <p className="mt-0.5 text-xs text-[#667085]">
+              CRN {course.crn} · {course.code}
+              {course.kind ? ` · ${course.kind}` : ""}
+            </p>
+          </div>
         </div>
-        {keys.length > 0 ? (
+        {course.sessions.length > 0 ? (
           <button
             type="button"
-            onClick={() => onToggleMany(keys, !allOn)}
-            className="rounded-md border border-[#b7bec8] bg-white px-3 py-1.5 text-xs font-semibold text-[#344054] hover:bg-[#f8fafc]"
+            onClick={() => setOpen((current) => !current)}
+            aria-expanded={open}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-3 py-1.5 text-xs font-semibold text-[#344054] hover:bg-[#f8fafc]"
           >
-            {allOn ? "Untick this course" : `Tick all ${keys.length}`}
+            {open ? <ChevronUp size={14} aria-hidden="true" /> : <ChevronDown size={14} aria-hidden="true" />}
+            {open ? "Hide" : `Show ${course.sessions.length}`}
           </button>
         ) : null}
       </header>
 
+      {open ? (
       <ul className="divide-y divide-[#eef1f5]">
         {courseRowMatches(course, filter) ? (
           <CourseRow course={course} checked={selected.has(courseKey(course.crn))} onToggle={onToggle} />
@@ -371,6 +469,7 @@ function CourseCard({
           />
         ))}
       </ul>
+      ) : null}
     </article>
   );
 }
@@ -472,9 +571,6 @@ function Footer({
   selectedCount,
   total,
   losing,
-  needsRoster,
-  enrolments,
-  onEnrolments,
   onSelectAll,
   onClear,
   onApply,
@@ -483,9 +579,6 @@ function Footer({
   selectedCount: number;
   total: number;
   losing: number;
-  needsRoster: boolean;
-  enrolments: File[];
-  onEnrolments: (files: File[]) => void;
   onSelectAll: () => void;
   onClear: () => void;
   onApply: () => void;
@@ -512,21 +605,6 @@ function Footer({
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          {needsRoster ? (
-            <label className="text-xs font-semibold text-[#344054]">
-              Student lists (optional)
-              <input
-                type="file"
-                accept=".xlsx"
-                multiple
-                onChange={(event) => onEnrolments([...(event.target.files ?? [])])}
-                className="ml-2 max-w-[18rem] rounded-md border border-[#c8d0db] bg-white px-2 py-1.5 text-xs font-normal"
-              />
-              {enrolments.length > 0 ? (
-                <span className="ml-2 font-normal text-[#667085]">{enrolments.length} file(s)</span>
-              ) : null}
-            </label>
-          ) : null}
           <button
             type="button"
             onClick={onApply}

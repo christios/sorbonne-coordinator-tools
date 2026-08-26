@@ -14,7 +14,7 @@
  * they are per-machine, and a colleague's browser knows nothing about them.
  */
 
-import type { PortalRoster, RosterRow } from "@/services/scenRosters";
+import { displayNameOf, studentIdOf, type PortalRoster, type RosterRow } from "@/services/scenRosters";
 
 const KEY = "scen-rosters:v1";
 // Which view was last pulled. Nothing reads it any more — the view on screen decides
@@ -96,6 +96,55 @@ function syncTimes(): Record<string, string> {
 }
 
 /** When this view last synced, so a student first seen then shows as newly arrived. */
+/**
+ * Every name this browser holds, across every view it has pulled.
+ *
+ * The export needs names and the server has none — by design, they arrive from the
+ * extension and go no further than this tab. A student may appear in more than one view;
+ * the most recent pull wins, since that is the one whose spelling the registrar last used.
+ */
+export function namesHeld(): Record<string, string> {
+  const store = read();
+  const names: Record<string, string> = {};
+  const pulls = Object.values(store)
+    .flatMap((preset) => [preset.previous, preset.current])
+    .filter((pull): pull is StoredPull => Boolean(pull))
+    .sort((left, right) => left.fetchedAt - right.fetchedAt);
+
+  for (const pull of pulls) {
+    for (const row of pull.rows) {
+      const id = studentIdOf(row);
+      const name = displayNameOf(row);
+      if (id && name) names[id] = name;
+    }
+  }
+  return names;
+}
+
+/**
+ * One portal field per student, from the pulls this browser is holding.
+ *
+ * The same rule as the names: most recent pull wins, and nothing leaves the browser. Used
+ * for the workbook's Program column, which is the registrar's word rather than ours.
+ */
+export function fieldHeld(field: string): Record<string, string> {
+  const store = read();
+  const values: Record<string, string> = {};
+  const pulls = Object.values(store)
+    .flatMap((preset) => [preset.previous, preset.current])
+    .filter((pull): pull is StoredPull => Boolean(pull))
+    .sort((left, right) => left.fetchedAt - right.fetchedAt);
+
+  for (const pull of pulls) {
+    for (const row of pull.rows) {
+      const id = studentIdOf(row);
+      const value = String(row[field] ?? "").trim();
+      if (id && value) values[id] = value;
+    }
+  }
+  return values;
+}
+
 export function lastSync(viewId: string): string {
   return syncTimes()[viewId] ?? "";
 }

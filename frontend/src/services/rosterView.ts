@@ -34,6 +34,8 @@ export type StudentRow = {
   isNew: boolean;
   /** What the portal says differently from the previous pull: "year FY → L1". */
   changes: string[];
+  /** The blocks they sit in, as a coordinator says them: "TD 1", or "S2 · TD 3". */
+  groups: string[];
 };
 
 export type SortKey = "name" | "studentId" | "yearLevel" | "major" | "status" | "cohortName";
@@ -79,11 +81,41 @@ export function changesSince(previous: RosterRow[], current: RosterRow[]): Map<s
  * brought in. Nobody is invented here — a portal row for somebody the server has never
  * heard of does not appear, because syncing is what puts them on the list.
  */
+/**
+ * "Semester 2" out of "Physics & Maths — First Year, Semester 2".
+ *
+ * A cell has room for a group, not for the registrar's full title of the semester it is in.
+ */
+export function shortTerm(name: string): string {
+  return /semester\s*\d+/i.exec(name)?.[0] ?? name;
+}
+
+/**
+ * The blocks a student sits in, said the way a coordinator says them.
+ *
+ * The semester is named only when the student is in more than one, because that is the
+ * only time it disambiguates: "TD 1" and "TD 3" are the same block in different semesters
+ * and would otherwise read as a contradiction.
+ */
+export function groupLabels(
+  groups: { termId: string; scopeCode: string; groupLabel: string }[],
+  termNames: Record<string, string> = {},
+): string[] {
+  const terms = new Set(groups.map((group) => group.termId));
+  return groups.map((group) => {
+    const label = `${group.scopeCode} ${group.groupLabel}`;
+    if (terms.size < 2) return label;
+    const term = termNames[group.termId];
+    return term ? `${shortTerm(term)} · ${label}` : label;
+  });
+}
+
 export function studentRows(
   students: Student[],
   portal: RosterRow[],
   changes: Map<string, string[]> = new Map(),
   syncedAt = "",
+  termNames: Record<string, string> = {},
 ): StudentRow[] {
   const pulled = new Map<string, RosterRow>();
   for (const row of portal) {
@@ -107,6 +139,7 @@ export function studentRows(
       status: student.status,
       cohortId: student.cohortId,
       cohortName: student.cohortName,
+      groups: groupLabels(student.groups ?? [], termNames),
       firstSeenAt: student.firstSeenAt,
       lastSeenAt: student.lastSeenAt,
       portal,
@@ -179,4 +212,20 @@ export function countBy(rows: StudentRow[]): Record<StatusFilter, number> {
     new: rows.filter((row) => row.isNew).length,
     changed: rows.filter((row) => row.changes.length > 0).length,
   };
+}
+
+/**
+ * The one cohort a selection belongs to, or null when there isn't one.
+ *
+ * Blocks belong to a cohort, so a selection spanning two of them has no single block list
+ * to choose from — and a student in no cohort has none at all. Rather than place what it
+ * can and quietly drop the rest, the control asks for a selection it can answer for.
+ */
+export function sharedCohort(rows: StudentRow[], selected: Set<string>): string | null {
+  const cohorts = new Set(
+    rows.filter((row) => selected.has(row.studentId)).map((row) => row.cohortId ?? ""),
+  );
+  if (cohorts.size !== 1) return null;
+  const [only] = [...cohorts];
+  return only || null;
 }
