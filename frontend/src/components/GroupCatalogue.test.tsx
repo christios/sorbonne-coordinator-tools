@@ -368,3 +368,65 @@ describe("adding a block", () => {
     expect(create).toHaveBeenCalledWith("cohort-1", { code: "LANG", termId: "term-1" });
   });
 });
+
+describe("students nobody has placed", () => {
+  const withUnassigned = (unassigned: Record<string, string[]>) =>
+    vi.spyOn(publication, "fetchPublication").mockResolvedValue({
+      cohorts: [
+        {
+          cohortId: "cohort-1",
+          cohort: "Foundation Year",
+          students: 24,
+          studentsResolved: 20,
+          unassigned,
+          warnings: [],
+          isReady: false,
+        },
+      ],
+      validation: {},
+      unmatchedCrns: 0,
+      sections: 43,
+      resolved: { students: 20, enrolments: 140 },
+      isReady: false,
+    });
+
+  it("warns while the blocks are being filled, not only when publishing", async () => {
+    withUnassigned({ TD: ["A1", "A2", "A3"], CM: ["A1"] });
+    renderCatalogue("term-1");
+
+    const warning = await screen.findByText(/in no group for/);
+    expect(warning.textContent).toContain("TD (3), CM (1)");
+    expect(warning.textContent).toContain("blank timetable");
+  });
+
+  it("counts people, not gaps — somebody missing from two blocks is one student to find", async () => {
+    withUnassigned({ TD: ["A1"], CM: ["A1"] });
+    renderCatalogue("term-1");
+
+    const warning = await screen.findByText(/in no group for/);
+    expect(warning.textContent).toContain("1 student in this cohort is in no group");
+  });
+
+  it("hands the ids to the Students table rather than describing them", async () => {
+    withUnassigned({ TD: ["A2", "A1"] });
+    const onShow = vi.fn();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <GroupCatalogue cohort={COHORT} termId="term-1" onShowStudents={onShow} />
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: /Show them in Students/ }));
+
+    expect(onShow).toHaveBeenCalledWith(["A1", "A2"]);
+  });
+
+  it("says nothing when everybody has a group", async () => {
+    withUnassigned({});
+    renderCatalogue("term-1");
+
+    await screen.findByLabelText(/CRN for TD group 5, MATH001/);
+    expect(screen.queryByText(/in no group for/)).toBeNull();
+  });
+});

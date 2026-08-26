@@ -109,3 +109,36 @@ export function sortCohorts(cohorts: CohortReadiness[]): CohortReadiness[] {
     return left.cohort.localeCompare(right.cohort, undefined, { numeric: true, sensitivity: "accent" });
   });
 }
+
+/** Who this cohort has not placed in a block yet, for the semester being looked at. */
+export type Unplaced = {
+  /** Distinct students missing from at least one block. */
+  total: number;
+  /** One entry per block that is missing somebody, worst first. */
+  byBlock: { scopeCode: string; count: number }[];
+  /** Every id involved, so the Students table can be opened on exactly them. */
+  ids: string[];
+};
+
+/**
+ * A student in no block gets a blank timetable, and nothing else says so.
+ *
+ * The publish screen already refuses to go out with them, but that is the last possible
+ * moment to find out — by then the semester is meant to be finished. This is the same fact
+ * carried back to where the placing happens.
+ *
+ * Counted per block and then de-duplicated: somebody missing from both CM and TD is two
+ * gaps to fill and one person to find, and the sentence has to be able to say both.
+ */
+export function unplacedIn(publication: Publication, cohortId: string): Unplaced {
+  const cohort = publication.cohorts.find((candidate) => candidate.cohortId === cohortId);
+  if (!cohort) return { total: 0, byBlock: [], ids: [] };
+
+  const byBlock = Object.entries(cohort.unassigned)
+    .map(([scopeCode, students]) => ({ scopeCode, count: students.length }))
+    .filter((entry) => entry.count > 0)
+    .sort((left, right) => right.count - left.count || left.scopeCode.localeCompare(right.scopeCode));
+
+  const ids = [...new Set(Object.values(cohort.unassigned).flat())].sort();
+  return { total: ids.length, byBlock, ids };
+}

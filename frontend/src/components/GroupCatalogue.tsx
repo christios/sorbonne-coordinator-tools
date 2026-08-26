@@ -6,7 +6,7 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { WorkbookReview } from "@/components/WorkbookReview";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { type CrnVerdict, fetchPublication } from "@/services/publication";
-import { verdictFor } from "@/services/publicationView";
+import { unplacedIn, verdictFor } from "@/services/publicationView";
 import { namesHeld } from "@/services/rosterStore";
 import { downloadWorkbook, prefixOf } from "@/services/workbookExport";
 import {
@@ -38,7 +38,16 @@ import type { Operation, WorkbookPreview } from "@/services/workbookReview";
  * difference has been ticked. After that the workbook is finished with, and the catalogue is
  * maintained here.
  */
-export function GroupCatalogue({ cohort, termId = "" }: { cohort: Cohort; termId?: string }) {
+export function GroupCatalogue({
+  cohort,
+  termId = "",
+  onShowStudents,
+}: {
+  cohort: Cohort;
+  termId?: string;
+  /** Opens the Students table on exactly these ids, for the "nobody has placed them" warning. */
+  onShowStudents?: (studentIds: string[]) => void;
+}) {
   const client = useQueryClient();
   const catalogue = useQuery({
     queryKey: ["catalogue", cohort.id, termId],
@@ -238,6 +247,11 @@ export function GroupCatalogue({ cohort, termId = "" }: { cohort: Cohort; termId
         ) : null}
       </section>
 
+      <Unplaced
+        report={publication.data ? unplacedIn(publication.data, cohort.id) : null}
+        onShow={onShowStudents}
+      />
+
       <div className="mt-5 space-y-5">
         {scopes.map((scope) => (
           <ScopeMatrix
@@ -273,6 +287,44 @@ export function GroupCatalogue({ cohort, termId = "" }: { cohort: Cohort; termId
         onClose={() => setPendingScope(null)}
       />
     </>
+  );
+}
+
+/**
+ * The students this cohort has not put in a block yet.
+ *
+ * It is the publish screen's blocker, said here instead — where the placing happens, while
+ * there is still time to do something about it, rather than at the moment the semester is
+ * supposed to be finished.
+ */
+function Unplaced({
+  report,
+  onShow,
+}: {
+  report: ReturnType<typeof unplacedIn> | null;
+  onShow?: (studentIds: string[]) => void;
+}) {
+  if (!report || report.total === 0) return null;
+
+  return (
+    <p className="mt-5 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-[#e8d9ac] bg-[#fdf9ee] px-4 py-3 text-sm leading-6 text-[#8a6116]">
+      <AlertTriangle size={16} className="shrink-0" aria-hidden="true" />
+      <span>
+        <b className="tabular-nums">{report.total}</b> student{report.total === 1 ? "" : "s"} in this
+        cohort {report.total === 1 ? "is" : "are"} in no group for{" "}
+        {report.byBlock.map((entry) => `${entry.scopeCode} (${entry.count})`).join(", ")}. Publishing
+        gives them a blank timetable.
+      </span>
+      {onShow ? (
+        <button
+          type="button"
+          onClick={() => onShow(report.ids)}
+          className="font-semibold text-[#1f4e79] underline"
+        >
+          Show them in Students
+        </button>
+      ) : null}
+    </p>
   );
 }
 

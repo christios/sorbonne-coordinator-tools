@@ -68,6 +68,8 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
   const views = useQuery({ queryKey: ["views"], queryFn: fetchViews });
   const [page, setPage] = useState<PageId>("students");
   const [termId, setTermId] = useState("");
+  // Set when the Groups page sends somebody here: the Students table opens on exactly them.
+  const [preselect, setPreselect] = useState<string[]>([]);
   const onPlatform = page === "semesters" || page === "announcements";
   const status = useQuery({
     queryKey: ["timetable-status"],
@@ -164,7 +166,7 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
 
           {page === "students" && !cohorts.isLoading && !views.isLoading ? (
             available.length ? (
-              <StudentRoster key={viewId} cohorts={knownCohorts} viewId={viewId} />
+              <StudentRoster key={viewId} cohorts={knownCohorts} viewId={viewId} preselect={preselect} />
             ) : (
               <p className="text-sm text-[#667085]">
                 No views yet. Make one to say which students the portal should be asked for.
@@ -180,7 +182,15 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
             <p className="text-sm text-[#667085]">Create a cohort first, then fill its groups.</p>
           ) : null}
           {page === "groups" && cohort ? (
-            <GroupCatalogue key={`${cohort.id}:${termId}`} cohort={cohort} termId={termId} />
+            <GroupCatalogue
+              key={`${cohort.id}:${termId}`}
+              cohort={cohort}
+              termId={termId}
+              onShowStudents={(ids) => {
+                setPreselect(ids);
+                setPage("students");
+              }}
+            />
           ) : null}
 
           {onPlatform && status.isLoading ? (

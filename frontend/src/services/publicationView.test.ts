@@ -6,6 +6,7 @@ import {
   describeChange,
   isDestructive,
   sortCohorts,
+  unplacedIn,
   verdictFor,
 } from "@/services/publicationView";
 
@@ -149,5 +150,35 @@ describe("which cohort to look at first", () => {
   it("orders the rest by name, ignoring case", () => {
     const rows = sortCohorts([cohort({ cohort: "l2" }), cohort({ cohort: "L1" })]);
     expect(rows.map((row) => row.cohort)).toEqual(["L1", "l2"]);
+  });
+});
+
+describe("the students nobody has placed", () => {
+  const held = (unassigned: Record<string, string[]>): Publication =>
+    publication({ cohorts: [cohort({ cohortId: "c1", unassigned })] });
+
+  it("counts each block's gap and the people behind them", () => {
+    const report = unplacedIn(held({ CM: ["A1", "A2"], TD: ["A2"] }), "c1");
+
+    expect(report.byBlock).toEqual([
+      { scopeCode: "CM", count: 2 },
+      { scopeCode: "TD", count: 1 },
+    ]);
+    // Three gaps, two people: A2 is missing from both.
+    expect(report.total).toBe(2);
+    expect(report.ids).toEqual(["A1", "A2"]);
+  });
+
+  it("puts the worst block first, so the sentence starts with the real problem", () => {
+    const report = unplacedIn(held({ TD: ["A1"], RDNS: ["A1", "A2", "A3"] }), "c1");
+    expect(report.byBlock.map((entry) => entry.scopeCode)).toEqual(["RDNS", "TD"]);
+  });
+
+  it("says nothing about a cohort that is fully placed", () => {
+    expect(unplacedIn(held({}), "c1")).toEqual({ total: 0, byBlock: [], ids: [] });
+  });
+
+  it("says nothing about a cohort this semester has no blocks for", () => {
+    expect(unplacedIn(held({ CM: ["A1"] }), "another-cohort").total).toBe(0);
   });
 });

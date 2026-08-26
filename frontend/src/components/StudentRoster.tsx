@@ -55,7 +55,16 @@ const NO_COHORT = "__none__";
  * Names, e-mail addresses and year levels come from the SCEN Rosters extension and are
  * kept in this browser alone — see services/rosterStore.ts.
  */
-export function StudentRoster({ cohorts, viewId }: { cohorts: Cohort[]; viewId: string }) {
+export function StudentRoster({
+  cohorts,
+  viewId,
+  preselect = [],
+}: {
+  cohorts: Cohort[];
+  viewId: string;
+  /** Ids another page sent here — the table opens showing everybody, with these ticked. */
+  preselect?: string[];
+}) {
   const client = useQueryClient();
   const [everywhere, setEverywhere] = useState(false);
   // Searching everywhere asks for the whole record rather than this view's population.
@@ -120,6 +129,18 @@ export function StudentRoster({ cohorts, viewId }: { cohorts: Cohort[]; viewId: 
 
   const [placing, setPlacing] = useState(false);
   const [placed, setPlaced] = useState<(PlacementReport & { removed: boolean }) | null>(null);
+
+  /*
+   * A preselection arrives from the Groups page naming students who are in no block. They
+   * need not be in the view that happens to be open, so the search widens to everybody —
+   * otherwise the ticks would land on rows that are not on screen and nothing would happen.
+   */
+  const sent = preselect.join(",");
+  useEffect(() => {
+    if (!sent) return;
+    setSelected(new Set(sent.split(",")));
+    setEverywhere(true);
+  }, [sent]);
 
   const move = useMutation({
     mutationFn: ({ ids, cohortId }: { ids: string[]; cohortId: string | null }) =>
