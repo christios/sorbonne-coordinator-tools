@@ -1,5 +1,14 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, ArrowLeft, CheckCircle2, HelpCircle, Loader2, Upload } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
+  HelpCircle,
+  Loader2,
+  Upload,
+} from "lucide-react";
 import { useMemo, useState } from "react";
 
 import {
@@ -15,6 +24,7 @@ import {
   operationsFrom,
   rowKey,
   studentsAffected,
+  summariseCourse,
   visibleCourses,
 } from "@/services/timetableDiff";
 import { type TimetableTerm, applyTimetableUpdate, previewTimetableUpdate } from "@/services/timetables";
@@ -321,34 +331,61 @@ function CourseCard({
 }) {
   const keys = keysOf(course);
   const allOn = keys.length > 0 && keys.every((key) => selected.has(key));
+  const someOn = keys.some((key) => selected.has(key));
   const dropped = course.status === "removed";
+  /*
+   * Closed until asked. The registrar re-issues a term at a time, so a course's rows are
+   * mostly the same change said forty times; the sentence in the header is what a
+   * coordinator actually decides on, and the rows are there for when it is not enough.
+   */
+  const [open, setOpen] = useState(false);
 
   return (
     <article
       className={`rounded-lg border bg-white ${dropped ? "border-[#e5b7b9]" : "border-[#d9dee7]"}`}
     >
-      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-[#e4e8ef] px-5 py-3.5">
-        <div className="min-w-0">
-          <h4 className="truncate text-sm font-semibold text-[#171717]">
-            {course.title}
-            {course.groupLabel ? <span className="text-[#667085]"> · {course.groupLabel}</span> : null}
-          </h4>
-          <p className="mt-0.5 text-xs text-[#667085]">
-            CRN {course.crn} · {course.code}
-            {course.kind ? ` · ${course.kind}` : ""}
-          </p>
+      <header className="flex flex-wrap items-start justify-between gap-3 border-b border-[#e4e8ef] px-5 py-3.5">
+        <div className="flex min-w-0 flex-1 items-start gap-3">
+          {keys.length > 0 ? (
+            <input
+              type="checkbox"
+              checked={allOn}
+              ref={(box) => {
+                // Part of a course ticked is neither on nor off, and saying "off" would be
+                // a lie that costs somebody the rows they already approved.
+                if (box) box.indeterminate = !allOn && someOn;
+              }}
+              onChange={() => onToggleMany(keys, !allOn)}
+              aria-label={`Approve every change to ${course.title}, CRN ${course.crn}`}
+              className="mt-1 size-4 shrink-0 accent-[#1f4e79]"
+            />
+          ) : null}
+          <div className="min-w-0">
+            <h4 className="truncate text-sm font-semibold text-[#171717]">
+              {course.title}
+              {course.groupLabel ? <span className="text-[#667085]"> · {course.groupLabel}</span> : null}
+            </h4>
+            <p className="mt-0.5 text-sm text-[#344054]">{summariseCourse(course)}</p>
+            <p className="mt-0.5 text-xs text-[#667085]">
+              CRN {course.crn} · {course.code}
+              {course.kind ? ` · ${course.kind}` : ""}
+            </p>
+          </div>
         </div>
-        {keys.length > 0 ? (
+        {course.sessions.length > 0 ? (
           <button
             type="button"
-            onClick={() => onToggleMany(keys, !allOn)}
-            className="rounded-md border border-[#b7bec8] bg-white px-3 py-1.5 text-xs font-semibold text-[#344054] hover:bg-[#f8fafc]"
+            onClick={() => setOpen((current) => !current)}
+            aria-expanded={open}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-3 py-1.5 text-xs font-semibold text-[#344054] hover:bg-[#f8fafc]"
           >
-            {allOn ? "Untick this course" : `Tick all ${keys.length}`}
+            {open ? <ChevronUp size={14} aria-hidden="true" /> : <ChevronDown size={14} aria-hidden="true" />}
+            {open ? "Hide" : `Show ${course.sessions.length}`}
           </button>
         ) : null}
       </header>
 
+      {open ? (
       <ul className="divide-y divide-[#eef1f5]">
         {courseRowMatches(course, filter) ? (
           <CourseRow course={course} checked={selected.has(courseKey(course.crn))} onToggle={onToggle} />
@@ -365,6 +402,7 @@ function CourseCard({
           />
         ))}
       </ul>
+      ) : null}
     </article>
   );
 }

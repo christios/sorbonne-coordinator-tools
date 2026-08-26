@@ -12,6 +12,7 @@ import {
   operationsFrom,
   rowKey,
   studentsAffected,
+  summariseCourse,
   visibleCourses,
 } from "@/services/timetableDiff";
 
@@ -180,5 +181,77 @@ describe("how a row reads", () => {
 
   it("says when a session is an exam", () => {
     expect(describeSession({ ...AFTER, isExam: true })).toContain("exam");
+  });
+});
+
+describe("what happened to a course, in one sentence", () => {
+  it("aggregates a room change instead of saying it once per session", () => {
+    // The point of the summary: a term's worth of rows for one decision.
+    const moved = course({
+      sessions: [
+        session({ sessionId: "s1" }),
+        session({ sessionId: "s2" }),
+        session({ sessionId: "s3" }),
+      ],
+    });
+
+    expect(summariseCourse(moved)).toBe("3 sessions moved to 9.001");
+  });
+
+  it("stops naming the room when they do not all go to the same one", () => {
+    const scattered = course({
+      sessions: [session({ sessionId: "s1" }), session({ sessionId: "s2", after: { ...AFTER, room: "9.002" } })],
+    });
+
+    expect(summariseCourse(scattered)).toBe("2 sessions changed room");
+  });
+
+  it("carries the course's own changes, which are already worded", () => {
+    const relabelled = course({ courseChanges: ["lecturer Dupont → Martin"], sessions: [] });
+
+    expect(summariseCourse(relabelled)).toBe("lecturer Dupont → Martin");
+  });
+
+  it("counts a session that moved in two ways under both", () => {
+    const both = course({
+      sessions: [session({ after: { ...AFTER, room: "9.002", start: "09:00" } })],
+    });
+
+    expect(summariseCourse(both)).toBe("1 session moved to 9.002, 1 session rescheduled");
+  });
+
+  it("separates a day move from a rescheduling", () => {
+    const nextDay = course({ sessions: [session({ after: { ...BEFORE, date: "2026-09-01" } })] });
+
+    expect(summariseCourse(nextDay)).toBe("1 session moved to another day");
+  });
+
+  it("says what a dropped course takes with it, students included", () => {
+    const dropped = course({
+      status: "removed",
+      enrolledStudents: 24,
+      sessions: [session({ status: "removed" }), session({ status: "removed", sessionId: "s2" })],
+    });
+
+    expect(summariseCourse(dropped)).toBe(
+      "Missing from this export — 2 sessions would go, and 24 students lose it",
+    );
+  });
+
+  it("says a new course has nobody on it, which is the thing to notice", () => {
+    const fresh = course({ status: "added", sessions: [session({ status: "added" })] });
+
+    expect(summariseCourse(fresh)).toContain("nobody enrolled yet");
+  });
+
+  it("counts cancellations and additions apart", () => {
+    const mixed = course({
+      sessions: [
+        session({ status: "removed", sessionId: "s1" }),
+        session({ status: "added", sessionId: null, before: null }),
+      ],
+    });
+
+    expect(summariseCourse(mixed)).toBe("1 session cancelled, 1 session added");
   });
 });
