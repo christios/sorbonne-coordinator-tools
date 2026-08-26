@@ -215,8 +215,21 @@ describe("the values a column offers to the filter bar", () => {
     const status = COLUMNS.find((column) => column.id === "status")!;
 
     expect(optionsFor(rows, status)).toEqual([
-      { value: "in_portal", label: "In portal" },
-      { value: "not_in_portal", label: "Not in portal" },
+      { value: "In portal", label: "In portal" },
+      { value: "Not in portal", label: "Not in portal" },
+    ]);
+  });
+
+  it("offers every signal the status cell shows, not just the portal state", () => {
+    // "Show me everyone the last sync brought in" was not askable while this column
+    // filtered on in_portal / not_in_portal alone.
+    const rows = [row(), row({ studentId: "A002", isNew: true }), row({ studentId: "A003", changes: ["year FY → L1"] })];
+    const status = COLUMNS.find((column) => column.id === "status")!;
+
+    expect(optionsFor(rows, status).map((option) => option.value)).toEqual([
+      "Changed",
+      "In portal",
+      "New",
     ]);
   });
 

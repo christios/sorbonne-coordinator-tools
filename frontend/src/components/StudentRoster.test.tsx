@@ -830,3 +830,83 @@ describe("students sent here from Groups & CRNs", () => {
     expect(banner.textContent).toContain("1 of them are in this record");
   });
 });
+
+describe("selecting a run of students", () => {
+  /** The ids in the order the table is showing them, which is the order a range follows. */
+  const shownIds = () =>
+    [...screen.getAllByRole("row")]
+      .slice(1)
+      .map((row) => row.textContent?.match(/A\d+/)?.[0])
+      .filter(Boolean) as string[];
+
+  const tick = (id: string, shift = false) =>
+    fireEvent.click(screen.getByLabelText(new RegExp(`^Select ${id}$`)), shift ? { shiftKey: true } : {});
+
+  it("takes everything between the last tick and a shift-click", async () => {
+    renderRoster();
+    await screen.findByText("A001");
+    const ids = shownIds();
+
+    tick(ids[0]);
+    tick(ids[ids.length - 1], true);
+
+    expect(screen.getByText(`${ids.length} selected`)).toBeTruthy();
+  });
+
+  it("works upwards as well as downwards", async () => {
+    renderRoster();
+    await screen.findByText("A001");
+    const ids = shownIds();
+
+    tick(ids[2]);
+    tick(ids[0], true);
+
+    expect(screen.getByText("3 selected")).toBeTruthy();
+  });
+
+  it("follows the rows on screen, not the order they are held in", async () => {
+    // Sorted the other way, a range between the same two clicks covers different students.
+    renderRoster();
+    await screen.findByText("A001");
+    fireEvent.click(screen.getByRole("button", { name: /Sort by Id/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Sort by Id/ }));
+    const reversed = shownIds();
+
+    tick(reversed[0]);
+    tick(reversed[1], true);
+
+    expect(screen.getByText("2 selected")).toBeTruthy();
+  });
+
+  it("a plain click after a range starts a new anchor rather than extending", async () => {
+    renderRoster();
+    await screen.findByText("A001");
+    const ids = shownIds();
+
+    tick(ids[0]);
+    tick(ids[1], true);
+    tick(ids[3]);
+
+    expect(screen.getByText("3 selected")).toBeTruthy();
+  });
+});
+
+describe("sorting by status", () => {
+  it("ranks by the pills the cell shows, not by the portal state alone", async () => {
+    // The bug: three signals in one cell, and only one of them reached the sort. Two rows
+    // both "In portal", one of them flagged New, sorted into id order as if identical.
+    withNames();
+    renderRoster();
+    await screen.findByText("A001");
+
+    fireEvent.click(screen.getByRole("button", { name: /Sort by Status/ }));
+
+    const shown = [...screen.getAllByRole("row")].slice(1).map((row) => row.textContent ?? "");
+    const notInPortal = shown.findIndex((text) => text.includes("Not in portal"));
+    const isNew = shown.findIndex((text) => text.includes("New"));
+    const quiet = shown.map((text) => !/Not in portal|New|Changed/.test(text)).lastIndexOf(true);
+
+    expect(notInPortal).toBeLessThan(isNew);
+    expect(isNew).toBeLessThan(quiet);
+  });
+});

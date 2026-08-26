@@ -83,7 +83,8 @@ export const StudentTable = memo(function StudentTable({
   onSort: (key: string) => void;
   onResize: (id: string, width: number) => void;
   onReorder: (id: string, beforeId: string) => void;
-  onToggle: (studentId: string) => void;
+  /** `extend` is a shift-click: take everything between the last one and this one. */
+  onToggle: (studentId: string, extend?: boolean) => void;
   onToggleAll: () => void;
   onOpenHistory: (row: StudentRow) => void;
   empty: string;
@@ -177,9 +178,11 @@ const StudentTableRow = memo(function StudentTableRow({
   columns: StudentColumn[];
   layout: ColumnLayout;
   selected: boolean;
-  onToggle: (studentId: string) => void;
+  onToggle: (studentId: string, extend?: boolean) => void;
   onOpenHistory: (row: StudentRow) => void;
 }) {
+  const extend = useRef(false);
+
   return (
     <tr className="border-t border-[#eef1f5]">
       <td className="px-3 py-2">
@@ -187,14 +190,28 @@ const StudentTableRow = memo(function StudentTableRow({
           type="checkbox"
           aria-label={`Select ${row.name || row.studentId}`}
           checked={selected}
-          onChange={() => onToggle(row.studentId)}
+          /*
+           * Shift-click reaches back to the last row that was ticked.
+           *
+           * Only `click` carries the modifier, and only `change` should decide anything —
+           * acting on both meant the range landed and was then toggled back off by the
+           * change that followed it. So click records the intent and change acts on it.
+           */
+          onClick={(event) => {
+            extend.current = event.shiftKey;
+          }}
+          onChange={() => onToggle(row.studentId, extend.current)}
         />
       </td>
       {columns.map((column) => (
         <td
           key={column.id}
           className="truncate px-4 py-2 text-[#344054]"
-          style={{ width: widthOf(layout, column) }}
+          style={{
+            width: widthOf(layout, column),
+            minWidth: widthOf(layout, column),
+            maxWidth: widthOf(layout, column),
+          }}
         >
           <Cell row={row} column={column} />
         </td>
@@ -309,10 +326,15 @@ function HeaderCell({
     <th
       ref={cell}
       scope="col"
-      className={`group relative border-r border-[#e4e8ee] bg-white px-4 py-3 font-semibold last:border-r-0 ${
+      /*
+       * `overflow-hidden` is what lets a column be dragged narrower than its own heading.
+       * Without it the header's content — grip, label, copy button — sets a floor, and the
+       * handle simply stops moving at a width nobody chose.
+       */
+      className={`group relative overflow-hidden border-r border-[#e4e8ee] bg-white px-4 py-3 font-semibold last:border-r-0 ${
         lifted ? "opacity-40" : ""
       }`}
-      style={{ width }}
+      style={{ width, minWidth: width, maxWidth: width }}
       onDragOver={(event) => {
         if (!dragging || lifted) return;
         // Without this the drop is refused and the cursor shows the "no" sign.
@@ -337,7 +359,7 @@ function HeaderCell({
           }`}
         />
       ) : null}
-      <span className="flex items-center gap-1">
+      <span className="flex min-w-0 items-center gap-1">
         <span
           draggable
           role="button"

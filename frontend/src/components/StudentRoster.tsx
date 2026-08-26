@@ -236,7 +236,28 @@ export function StudentRoster({
 
   visibleRef.current = visible;
 
-  const toggle = useCallback((studentId: string) => {
+  /*
+   * Ticking one row, or every row between the last one and this one.
+   *
+   * The anchor is whichever row was ticked last, and it follows the order on screen rather
+   * than the order in the data — a range picked after sorting by cohort has to be the rows
+   * the coordinator can see between their two clicks, not whatever lies between those two
+   * ids in the record.
+   */
+  const anchor = useRef("");
+  const toggle = useCallback((studentId: string, extend = false) => {
+    const shown = visibleRef.current.map((row) => row.studentId);
+    const from = shown.indexOf(anchor.current);
+    const to = shown.indexOf(studentId);
+
+    if (extend && from !== -1 && to !== -1) {
+      const [start, end] = from < to ? [from, to] : [to, from];
+      const range = shown.slice(start, end + 1);
+      setSelected((current) => new Set([...current, ...range]));
+      return;
+    }
+
+    anchor.current = studentId;
     setSelected((current) => {
       const next = new Set(current);
       if (next.has(studentId)) next.delete(studentId);
@@ -581,7 +602,23 @@ const COLLATION: Intl.CollatorOptions = { numeric: true, sensitivity: "accent" }
 function sortRows(rows: StudentRow[], sort: Sort, columns: StudentColumn[]): StudentRow[] {
   const direction = sort.ascending ? 1 : -1;
   const column = columns.find((candidate) => candidate.id === sort.key);
-  const valueOf = (row: StudentRow) => String(column?.accessor(row) ?? "");
+
+  // A column may rank differently from how it reads — Status shows three signals and none
+  // of them is the value it filters by — so its own ranking wins where it has one.
+  if (column?.sortValue) {
+    const rank = column.sortValue;
+    return [...rows].sort((left, right) => {
+      const a = rank(left);
+      const b = rank(right);
+      const compared = typeof a === "number" && typeof b === "number" ? a - b : String(a).localeCompare(String(b), undefined, COLLATION);
+      return (compared || left.studentId.localeCompare(right.studentId)) * direction;
+    });
+  }
+
+  const valueOf = (row: StudentRow) => {
+    const held = column?.accessor(row);
+    return Array.isArray(held) ? held.join(" ") : String(held ?? "");
+  };
   return [...rows].sort((left, right) => {
     // Blanks last however the sort runs: a student with no major is not the first thing
     // you want to see when sorting by major.

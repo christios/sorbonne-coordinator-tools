@@ -27,6 +27,13 @@ export type StudentColumn = FilterColumn<StudentRow> & {
   type: ColumnDataType;
   /** How the cell reads on screen, which is not always how it filters. */
   display?: (row: StudentRow) => string;
+  /**
+   * How the column ranks when sorted, when that is not how it filters or displays.
+   *
+   * Status is the case: it shows three separate signals in one cell, and none of them is
+   * the value it filters by.
+   */
+  sortValue?: (row: StudentRow) => string | number;
   /** Columns that carry the row's identity and would make the table unreadable if hidden. */
   required?: boolean;
   defaultWidth: number;
@@ -40,6 +47,22 @@ export type StudentColumn = FilterColumn<StudentRow> & {
  * column vanishes and there is nothing left to grab to bring it back.
  */
 export const MIN_WIDTH = 28;
+
+/** Exactly what the Status cell shows, in the order it shows them. */
+export function statusPills(row: StudentRow): string[] {
+  const pills = [row.status === "not_in_portal" ? "Not in portal" : "In portal"];
+  if (row.isNew) pills.push("New");
+  if (row.changes.length > 0) pills.push("Changed");
+  return pills;
+}
+
+/** Worth attention first: gone from the portal, then newly arrived, then altered. */
+const STATUS_RANK: ((row: StudentRow) => boolean)[] = [
+  (row) => row.status === "not_in_portal",
+  (row) => row.isNew,
+  (row) => row.changes.length > 0,
+  () => true,
+];
 
 /** The columns a coordinator sees before they have arranged anything. */
 const DEFAULT_SHOWN = [
@@ -57,9 +80,15 @@ const OWN_COLUMNS: StudentColumn[] = [
   {
     id: "status",
     displayName: "Status",
-    type: "option",
-    accessor: (row) => row.status,
-    display: (row) => (row.status === "not_in_portal" ? "Not in portal" : "In portal"),
+    // Three signals in one cell, so each is an option of its own: "show me everyone the
+    // last sync brought in" was not askable while this filtered on portal state alone.
+    type: "multiOption",
+    accessor: (row) => statusPills(row),
+    display: (row) => statusPills(row).join(" · "),
+    // Sorted by how much it wants looking at, not alphabetically. A coordinator who clicks
+    // Status is asking what needs attention, and "Changed" before "In portal" is only an
+    // accident of the alphabet.
+    sortValue: (row) => STATUS_RANK.findIndex((test) => test(row)),
     required: true,
     defaultWidth: 150,
   },
