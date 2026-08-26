@@ -45,6 +45,12 @@ export type CatalogueScope = {
   code: string;
   name: string;
   note: string;
+  /** The student tab this block's column lives on in the workbook it came from. */
+  tab?: string;
+  /** What that column is called there: "TD group", "Readiness group". */
+  groupColumn?: string;
+  /** Which column it was, so blocks sharing a tab come back in the order they were in. */
+  columnIndex?: number;
   courses: CatalogueCourse[];
   groups: CatalogueGroup[];
 };

@@ -7,7 +7,7 @@ import { WorkbookReview } from "@/components/WorkbookReview";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { type CrnVerdict, fetchPublication } from "@/services/publication";
 import { unplacedIn, verdictFor } from "@/services/publicationView";
-import { namesHeld } from "@/services/rosterStore";
+import { fieldHeld, namesHeld } from "@/services/rosterStore";
 import { downloadWorkbook, prefixOf } from "@/services/workbookExport";
 import {
   type WorkbookApplied,
@@ -102,6 +102,8 @@ export function GroupCatalogue({
     setExporting(true);
     try {
       const held = namesHeld();
+      // The registrar's word for what they are on, which the workbook has a column for.
+      const programs = fieldHeld("MAJOR_CODE_DESC");
       const placements = await fetchAssignments(cohort.id);
       const byScope = new Map(scopes.map((scope) => [scope.id, scope.code]));
       const labelOf = new Map(
@@ -112,6 +114,7 @@ export function GroupCatalogue({
         .map(([studentId, byScopeId]) => ({
           studentId,
           name: held[studentId] ?? "",
+          program: programs[studentId] ?? "",
           groups: Object.fromEntries(
             Object.entries(byScopeId).flatMap(([scopeId, groupId]) => {
               const code = byScope.get(scopeId);
@@ -129,6 +132,9 @@ export function GroupCatalogue({
           blocks: scopes.map((scope) => ({
             code: scope.code,
             name: scope.name,
+            tab: scope.tab ?? "",
+            groupColumn: scope.groupColumn ?? "",
+            columnIndex: scope.columnIndex ?? 0,
             courses: scope.courses,
             groups: scope.groups,
           })),

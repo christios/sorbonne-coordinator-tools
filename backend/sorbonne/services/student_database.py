@@ -69,7 +69,7 @@ def _now() -> str:
 
 
 # Blocks first, then what hangs off them, then the people placed in it.
-_WORKBOOK_ORDER = {"addCourse": 0, "addGroup": 1, "setCell": 2, "place": 3}
+_WORKBOOK_ORDER = {"setLayout": 0, "addCourse": 1, "addGroup": 2, "setCell": 3, "place": 4}
 
 
 def _ids_of(scopes, cohort_id: str) -> set[str]:
@@ -449,6 +449,11 @@ class StudentDatabase:
                     "name": scope["name"],
                     "note": scope["note"],
                     "termId": scope["term_id"],
+                    # Where this block sits in the workbook, so writing one back out puts
+                    # it where it was: Readiness is a column on the tutorials tab.
+                    "tab": scope["tab"],
+                    "groupColumn": scope["group_column"],
+                    "columnIndex": scope["group_column_index"],
                     "courses": [_course(row) for row in courses if row["scope_id"] == scope["id"]],
                     "groups": [
                         {
@@ -616,6 +621,9 @@ class StudentDatabase:
             held[scope["code"].upper()] = {
                 "id": scope["id"],
                 "name": scope["name"],
+                "tab": scope["tab"],
+                "groupColumn": scope["group_column"],
+                "columnIndex": scope["group_column_index"],
                 "courses": {row["code"]: row["name"] for row in courses if row["scope_id"] == scope["id"]},
                 "groups": {
                     group["label"]: {
@@ -658,7 +666,7 @@ class StudentDatabase:
         catalogue has never held is meaningless without it — but only when that row is
         actually approved, so an unticked block is never quietly conjured up.
         """
-        applied = {"courses": 0, "groups": 0, "cells": 0, "placements": 0}
+        applied = {"layout": 0, "courses": 0, "groups": 0, "cells": 0, "placements": 0}
         now = _now()
 
         with self.engine.begin() as connection:
@@ -686,9 +694,19 @@ class StudentDatabase:
                     continue
 
                 scope_id = self._ensure_scope(
-                    connection, cohort_id, term_id, operation["scopeCode"], operation.get("scopeName", "")
+                    connection,
+                    cohort_id,
+                    term_id,
+                    operation["scopeCode"],
+                    operation.get("scopeName", ""),
+                    tab=operation.get("scopeTab", ""),
+                    group_column=operation.get("scopeGroupColumn", ""),
+                    column_index=operation.get("scopeColumnIndex", 0),
                 )
-                if kind == "addCourse":
+                if kind == "setLayout":
+                    self._set_layout(connection, scope_id, operation)
+                    applied["layout"] += 1
+                elif kind == "addCourse":
                     self._ensure_course(connection, scope_id, operation)
                     applied["courses"] += 1
                 elif kind == "addGroup":
@@ -949,21 +967,49 @@ class StudentDatabase:
 
     # --------------------------------------------------------------- helpers
 
-    def _ensure_scope(
-        self, connection: Connection, cohort_id: str, term_id: str, code: str, name: str
+    def _set_layout(self, connection: Connection, scope_id: str, operation: dict[str, Any]) -> None:
+        """Where this block's column sits in the workbook: which tab, and what it is called."""
+        connection.execute(
+            text("""UPDATE cohort_scopes
+                    SET tab = :tab, group_column = :column, group_column_index = :position
+                    WHERE id = :id"""),
+            {
+                "id": scope_id,
+                "tab": _text(operation.get("tab", "")),
+                "column": _text(operation.get("groupColumn", "")),
+                "position": int(operation.get("columnIndex", 0) or 0),
+            },
+        )
+
+    def _ensure_scope(  # noqa: PLR0913 - one argument per column of the block being made
+        self,
+        connection: Connection,
+        cohort_id: str,
+        term_id: str,
+        code: str,
+        name: str,
+        tab: str = "",
+        group_column: str = "",
+        column_index: int = 0,
     ) -> str:
         existing = self._scope_id(connection, cohort_id, _text(code), _text(term_id))
         if existing:
             return existing
         scope_id = str(uuid4())
         connection.execute(
-            text("""INSERT INTO cohort_scopes (id, cohort_id, code, name, note, term_id, position)
-                    VALUES (:id, :cohort_id, :code, :name, '', :term_id,
+            text("""INSERT INTO cohort_scopes
+                        (id, cohort_id, code, name, note, term_id, tab, group_column,
+                         group_column_index, position)
+                    VALUES (:id, :cohort_id, :code, :name, '', :term_id, :tab, :group_column,
+                            :group_column_index,
                             (SELECT coalesce(max(position), 0) + 1 FROM cohort_scopes
                              WHERE cohort_id = :cohort_id))"""),
             {
                 "id": scope_id,
                 "cohort_id": cohort_id,
+                "tab": _text(tab),
+                "group_column": _text(group_column),
+                "group_column_index": int(column_index or 0),
                 "code": _text(code),
                 "name": _text(name),
                 "term_id": _text(term_id),

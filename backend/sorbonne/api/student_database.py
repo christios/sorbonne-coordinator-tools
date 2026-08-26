@@ -295,8 +295,12 @@ async def preview_workbook(
 
     # Placements are optional: an unfilled template is a perfectly good source of blocks.
     try:
-        placements = parse_group_assignments(content, workbook.filename or "").students
-        placement_note = ""
+        read = parse_group_assignments(content, workbook.filename or "")
+        placements, placement_note = read.students, ""
+        # The student tabs are the only place that says which column a block's group sits
+        # in, and that is what orders two blocks sharing a tab when the file is written out.
+        for scope in reference.scopes:
+            scope.column_index = read.columns.get(scope.code.upper(), 0)
     except AssignmentImportError as exc:
         placements, placement_note = {}, str(exc)
 

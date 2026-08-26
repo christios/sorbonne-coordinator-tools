@@ -42,6 +42,31 @@ def diff_reference(*, held: Catalogue, incoming) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
         unchanged = 0
 
+        # Where the block sits in the workbook — which tab, and what its column is called.
+        # Only offered when the sheet disagrees with what is held, which for a block stored
+        # before this was recorded means the first re-upload offers to fill it in.
+        if stored is not None and (scope.tab or scope.group_column) and (
+            stored.get("tab", "") != scope.tab
+            or stored.get("groupColumn", "") != scope.group_column
+            or stored.get("columnIndex", 0) != scope.column_index
+        ):
+            rows.append(
+                {
+                    "kind": "layout",
+                    "op": "setLayout",
+                    "key": f"layout|{scope.code}",
+                    "status": "changed" if stored.get("tab") else "added",
+                    "label": f"{scope.code} sits on a tab",
+                    "detail": f"{scope.tab or '—'} · {scope.group_column or '—'}",
+                    "before": f"{stored.get('tab', '')} · {stored.get('groupColumn', '')}".strip(" ·"),
+                    "after": f"{scope.tab} · {scope.group_column}".strip(" ·"),
+                    "scopeCode": scope.code,
+                    "tab": scope.tab,
+                    "groupColumn": scope.group_column,
+                    "columnIndex": scope.column_index,
+                }
+            )
+
         stored_courses = {code.upper() for code in (stored or {}).get("courses", {})}
         for course in scope.courses:
             if course.code.upper() not in stored_courses:
@@ -54,6 +79,9 @@ def diff_reference(*, held: Catalogue, incoming) -> list[dict[str, Any]]:
                         "label": course.code,
                         "detail": course.name or "a course this block does not teach yet",
                         "scopeCode": scope.code,
+                        "scopeTab": scope.tab,
+                        "scopeGroupColumn": scope.group_column,
+                        "scopeColumnIndex": scope.column_index,
                         "courseCode": course.code,
                         "courseName": course.name,
                         "component": course.component,
@@ -75,6 +103,9 @@ def diff_reference(*, held: Catalogue, incoming) -> list[dict[str, Any]]:
                         "label": f"Group {group.label}",
                         "detail": f"{len(group.crns)} CRN(s) come with it",
                         "scopeCode": scope.code,
+                        "scopeTab": scope.tab,
+                        "scopeGroupColumn": scope.group_column,
+                        "scopeColumnIndex": scope.column_index,
                         "groupLabel": group.label,
                         "capacity": group.capacity,
                         "note": group.note,

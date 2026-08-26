@@ -121,6 +121,30 @@ export function namesHeld(): Record<string, string> {
   return names;
 }
 
+/**
+ * One portal field per student, from the pulls this browser is holding.
+ *
+ * The same rule as the names: most recent pull wins, and nothing leaves the browser. Used
+ * for the workbook's Program column, which is the registrar's word rather than ours.
+ */
+export function fieldHeld(field: string): Record<string, string> {
+  const store = read();
+  const values: Record<string, string> = {};
+  const pulls = Object.values(store)
+    .flatMap((preset) => [preset.previous, preset.current])
+    .filter((pull): pull is StoredPull => Boolean(pull))
+    .sort((left, right) => left.fetchedAt - right.fetchedAt);
+
+  for (const pull of pulls) {
+    for (const row of pull.rows) {
+      const id = studentIdOf(row);
+      const value = String(row[field] ?? "").trim();
+      if (id && value) values[id] = value;
+    }
+  }
+  return values;
+}
+
 export function lastSync(viewId: string): string {
   return syncTimes()[viewId] ?? "";
 }

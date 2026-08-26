@@ -48,6 +48,9 @@ class AssignmentImport:
     sheets_read: list[str] = field(default_factory=list)
     scopes_seen: set[str] = field(default_factory=set)
     blank_rows: int = 0
+    #: `scope code -> the column its group sits in`, which is where two blocks sharing a
+    #: tab get their order from. Nothing else records which of them comes first.
+    columns: dict[str, int] = field(default_factory=dict)
 
     @property
     def assignment_count(self) -> int:
@@ -107,6 +110,8 @@ def parse_group_assignments(content: bytes, filename: str = "") -> AssignmentImp
         if heading is None or not group_columns:
             continue
         report.sheets_read.append(sheet.title)
+        for column, code in group_columns.items():
+            report.columns.setdefault(code.upper(), column)
         _read_sheet(sheet, heading, group_columns, report)
 
     if not report.students:

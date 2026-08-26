@@ -186,3 +186,47 @@ def test_a_workbook_id_this_cohort_does_not_hold_is_reported_not_placed():
     assert [row["studentId"] for row in report["rows"]] == ["A1"]
     assert report["unknownStudents"] == ["A00099999"]
     assert summarize_assignments(report)["unknownStudents"] == 1
+
+
+def test_a_block_carries_where_it_sits_in_the_workbook():
+    """Readiness is a column on the tutorials tab, not a tab of its own.
+
+    Nothing but the Reference sheet knows that, so a workbook written back out without it
+    has one sheet per block and stops being the file it came from.
+    """
+    incoming = workbook(groups=[ImportedGroup(label="2", crns={"MATH001": ("22160", "Dr X")})])
+    incoming.scopes[0].tab = "MATH& PHYS CM"
+    incoming.scopes[0].group_column = "CM group"
+
+    rows = diff_reference(held={}, incoming=incoming)[0]["rows"]
+
+    # Any row that could be the one to create the block has to carry it, since which of
+    # them arrives first is the coordinator's choice, not ours.
+    assert rows
+    for row in rows:
+        assert row["scopeTab"] == "MATH& PHYS CM"
+        assert row["scopeGroupColumn"] == "CM group"
+
+
+def test_a_block_stored_before_the_layout_was_kept_is_offered_it():
+    held = held_catalogue()
+    incoming = workbook()
+    incoming.scopes[0].tab = "MATH& PHYS CM"
+    incoming.scopes[0].group_column = "CM group"
+
+    (row,) = diff_reference(held=held, incoming=incoming)[0]["rows"]
+
+    assert row["kind"] == "layout"
+    assert row["op"] == "setLayout"
+    assert row["after"] == "MATH& PHYS CM · CM group"
+
+
+def test_a_layout_that_already_agrees_is_not_a_decision():
+    held = held_catalogue()
+    held["CM"]["tab"] = "MATH& PHYS CM"
+    held["CM"]["groupColumn"] = "CM group"
+    incoming = workbook()
+    incoming.scopes[0].tab = "MATH& PHYS CM"
+    incoming.scopes[0].group_column = "CM group"
+
+    assert diff_reference(held=held, incoming=incoming)[0]["rows"] == []

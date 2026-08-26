@@ -60,6 +60,14 @@ class ImportedGroup:
 class ImportedScope:
     code: str
     name: str = ""
+    #: Which student tab this block's column lives on. Two blocks share a tab when the
+    #: coordinator put them there — Readiness sits beside the tutorials, not on its own —
+    #: and that is layout the Reference sheet records and nothing else knows.
+    tab: str = ""
+    #: What that column is called on the tab: "TD group", "Readiness group".
+    group_column: str = ""
+    #: Which column that is, so two blocks on one tab come back in the order they were in.
+    column_index: int = 0
     courses: list[ImportedCourse] = field(default_factory=list)
     groups: list[ImportedGroup] = field(default_factory=list)
 
@@ -107,13 +115,21 @@ def _reference_sheet(book: openpyxl.Workbook):
     )
 
 
-def _scope_of(scopes: dict[str, ImportedScope], code: str, name: str) -> ImportedScope:
+def _scope_of(
+    scopes: dict[str, ImportedScope], code: str, name: str, tab: str = "", group_column: str = ""
+) -> ImportedScope:
     scope = scopes.get(code)
     if scope is None:
-        scope = ImportedScope(code=code, name=name)
+        scope = ImportedScope(code=code, name=name, tab=tab, group_column=group_column)
         scopes[code] = scope
-    elif not scope.name:
+        return scope
+    if not scope.name:
         scope.name = name
+    # First row wins: the sheet repeats the same tab on every row of a block.
+    if not scope.tab:
+        scope.tab = tab
+    if not scope.group_column:
+        scope.group_column = group_column
     return scope
 
 
@@ -140,7 +156,13 @@ def _read_cohort_rows(rows, columns) -> dict[str, ImportedScope]:
         course_code = _text(row[columns["course code"]])
         if not (crn and scope_code and label and course_code):
             continue
-        scope = _scope_of(scopes, scope_code, "")
+        scope = _scope_of(
+            scopes,
+            scope_code,
+            "",
+            tab=_pick(row, columns, "tab"),
+            group_column=_pick(row, columns, "group column"),
+        )
         _course_of(
             scope,
             ImportedCourse(
