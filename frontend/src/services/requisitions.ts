@@ -9,6 +9,7 @@ export type CourseRow = {
   level: string;
   title: string;
   hours: string;
+  classType?: string;
 };
 
 export type RequisitionContent = {
@@ -53,6 +54,7 @@ export function missingRequisitionFields(requisition: { label: string; academicY
     if (!course.courseNumber.trim()) missing.push(`${prefix} number`);
     if (!course.level.trim()) missing.push(`${prefix} level`);
     if (!course.hours.trim()) missing.push(`${prefix} hours`);
+    if (!course.classType?.trim() && !/\b(CM|TD|TP|Coach)\b/i.test(course.hours)) missing.push(`${prefix} class type`);
   });
   return missing;
 }
@@ -62,10 +64,10 @@ type RequisitionCompletionInput = { label: string; academicYear: string; content
 /** Identifies the furthest incomplete part of the guided requisition workflow. */
 export function lastIncompleteRequisitionStep(requisition: RequisitionCompletionInput): { section: "details" | "courses"; focusTarget: string } | null {
   const { content } = requisition;
-  const incompleteCourse = content.courses.find((course) => !course.title.trim() || !course.subjectCode.trim() || !course.courseNumber.trim() || !course.level.trim() || !course.hours.trim());
+  const incompleteCourse = content.courses.find((course) => !course.title.trim() || !course.subjectCode.trim() || !course.courseNumber.trim() || !course.level.trim() || !course.hours.trim() || (!course.classType?.trim() && !/\b(CM|TD|TP|Coach)\b/i.test(course.hours)));
   if (!content.courses.length) return { section: "courses", focusTarget: "add-course" };
   if (incompleteCourse) {
-    const field = !incompleteCourse.title.trim() ? "title" : !incompleteCourse.subjectCode.trim() ? "subject-code" : !incompleteCourse.courseNumber.trim() ? "course-number" : !incompleteCourse.level.trim() ? "level" : "hours";
+    const field = !incompleteCourse.title.trim() ? "title" : !incompleteCourse.subjectCode.trim() ? "subject-code" : !incompleteCourse.courseNumber.trim() ? "course-number" : !incompleteCourse.level.trim() ? "level" : !incompleteCourse.hours.trim() ? "hours" : "class-type";
     return { section: "courses", focusTarget: `course:${incompleteCourse.id}:${field}` };
   }
   if (!requisition.label.trim()) return { section: "details", focusTarget: "requisition-title" };

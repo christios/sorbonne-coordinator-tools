@@ -40,6 +40,8 @@ This document records the user-facing decisions made while shaping the SCEN Coor
 
 ## Editor shell and fields
 
+- Field labels on saved records are interactive: clicking a label reveals a shared information icon. The icon opens a branded, editable field-information popover. Do not show it on unsaved creation forms, and do not use field information as a substitute for edit history.
+
 - The syllabus editor uses a numbered section sidebar and one focused section canvas at a time.
 - Integrity policy and classroom etiquette were intentionally removed from the editor and navigation.
 - Locked institutional policy text stays fixed; only course-specific content is editable.
@@ -106,6 +108,18 @@ Before merging any overlay, dropdown, tooltip-like preview, or move menu:
 - Job title and Employee type are required template-backed controls: the UI must expose every Job title available in the approved DOCX, while Employee type uses the readable **Full Time Employee** and **Part Time Employee** labels and exports their corresponding form checkboxes.
 - The last section is named **Review** and summarizes the teacher, request details, course count, and decimal teaching-hours total before export. Review labels use dark blue and values near-black so the two levels remain easy to distinguish. The approved DOCX must carry the same exact decimal total, never a truncated integer.
 - **Add course** first adds a single empty, expanded card. From there, coordinators either select a catalogue item or fill their own fields. Show only course title and code in catalogue results; search must tolerate harmless punctuation/format differences such as a missing dash. Keep at most one teaching-load card expanded.
+- Every teaching-load card has its own required class-type field. Keep this distinct from the request-level Type of class and show the selected type in the card summary.
+
+### Scoped tasks
+
+- The task lifecycle is binary: **Not started** or **Completed**. There is no intermediate stage and no status dropdown; completion is toggled from the circular control at the start of each task row, which is also the reopen control.
+- One `TaskRow` serves both the resource profile panel and the library Tasks Overview: completion toggle, title, optional description, contextual meta (the teacher name, in the overview only), deadline, urgency indicator, and the activity, edit, and delete actions. Do not fork a second row for a new surface.
+- Task creation and editing happen in one shared dialog on both surfaces. Opening it from a teacher profile preselects that teacher and hides the teacher picker; opening it from the overview requires choosing one.
+- Activity history is per task, collapsed by default, and loaded only when opened. It records **Created**, **Completed**, and **Reopened** with dates and no actor; actor attribution is deliberately deferred.
+- Two template concepts are deliberately distinct and must stay visibly different. A **bundle** (`Teacher onboarding`) applies several tasks at once and visibly lists its three included tasks in the teacher creation flow. A **quick template** pre-fills one task form; it is created, updated, and deleted from inside the task dialog and is shared with every coordinator.
+- Task state is visible at a glance: a grey circle for not started and a green check for completed; red overdue and amber due-soon indicators are separate urgency signals. The teacher library shows completed/total progress and only surfaces an urgency warning when needed. Every task mutation must refresh those badges.
+- The teacher-only **Tasks Overview** leads with Total, Open, Completed, and Overdue summary cards, then primary status and teacher filters, then a compact secondary row of search, folder, and deadline filters. The cards summarize the current scope (teacher, folder, search) and act as filters; status and urgency then narrow the list within that scope, so the totals never collapse into a restatement of the active filter.
+- It defaults to open work for active teachers, sorted overdue, due within seven days, then undated. Completed work is opt-in and archived teachers are excluded.
 
 ### Learning outcomes
 

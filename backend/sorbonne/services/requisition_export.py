@@ -71,11 +71,17 @@ def _fill_courses(table: Any, courses: list[dict[str, Any]]) -> None:
         _set_cell(cells[0], _text(course.get("subjectCode")))
         _set_cell(cells[1], _text(course.get("courseNumber")))
         _set_cell(cells[3], _text(course.get("title")))
-        _set_cell(cells[4], _text(course.get("hours")))
+        _set_cell(cells[4], _course_hours(course))
         for offset, sdt in enumerate(_content_controls(row)):
             _set_id(sdt, _CLONED_SDT_ID_BASE + index * 10 + offset)
         _set_dropdown(row, 0, _text(course.get("level")))
         table.append(row)
+
+
+def _course_hours(course: dict[str, Any]) -> str:
+    hours = _text(course.get("hours"))
+    class_type = _text(course.get("classType"))
+    return f"{hours} {class_type}".strip() if class_type and class_type.casefold() not in hours.casefold() else hours
 
 
 def _table_with(body: Any, marker: str) -> Any:

@@ -4,6 +4,22 @@ The teacher database replaces the legacy teaching-requisition library. It stores
 
 Requisitions are labelled, revisioned records attached to a teacher. Multiple records may share an academic year. The DOCX export fills the employee name from the parent teacher profile while retaining the existing academic request fields and teaching-load editor.
 
+## Shared field information and tasks
+
+Field information is a record-specific, shared capability. A coordinator clicks a saved field label to reveal the information control, then can add or edit guidance for that exact resource and stable field key. Field information is deliberately separate from syllabus edit history: it is enabled for saved syllabus, teacher-profile, and teacher-requisition fields, while unsaved creation forms do not expose it.
+
+Tasks are generic scoped records, reusable by future apps but currently shown only on teacher profiles and in the teacher library. A task has a title, an optional description, an optional due date, and a binary status of `NOT_STARTED` or `COMPLETED`. Status changes are revision-protected and preserve the completion timestamp until the task is reopened; tasks are retained when a teacher is archived.
+
+Migration `0020` retired the `IN_PROGRESS` stage, converting those rows to `NOT_STARTED` and leaving completed rows and their timestamps untouched. The API still accepts `IN_PROGRESS` for one release and folds it into `NOT_STARTED`, so a browser holding an older bundle cannot fail a save.
+
+Each task carries an activity history of dated `CREATED`, `COMPLETED`, and `REOPENED` entries, read from `GET /api/v1/tasks/{id}/activity`. Only completion and reopening are stored; the creation entry is derived from the task's `created_at`, so every creation path reports a full history — including the onboarding bundles written by `TeacherStore`, which does not write activity rows. Actor attribution is deliberately deferred.
+
+Two kinds of template exist and are not interchangeable. A **bundle** (`task_templates` + `task_template_items`) applies several tasks at once; the fixed **Teacher onboarding** bundle still creates CID Clearance, Requisition signature, and ID Issuance (for newcomers) when a teacher is created. A **quick template** (`task_quick_templates`) is a single reusable title and description that pre-fills the task form; coordinators create, edit, and delete them from the task dialog, and they are shared across all coordinators per resource type.
+
+The teacher library also provides a teacher-only **Tasks Overview**: summary cards for total, open, completed, and overdue work over the current scope, primary status and teacher filters, and secondary search, folder, and deadline filters. It defaults to open tasks for active teachers, ordered overdue, due within seven days, then undated. Teacher rows show completed/total task progress and an urgency warning when applicable. This is not a platform-wide inbox. Assignees, notifications, comments, recurring tasks, and named activity actors are out of scope.
+
+Each teaching-load course has its own required class type (CM, TD, TP, Coach, or Not Applicable). The requisition-level type of class remains for the approved form. Course-row DOCX hours render as numeric hours followed by the course class type (for example `15 TD`); legacy suffixed hour values remain readable and export unchanged.
+
 The `0007` migration intentionally removes legacy requisition and requisition-folder data before creating the empty teacher database schema. Archived teachers are hidden from the default library but can be restored from the Archived view.
 
 ## Google Form document intake

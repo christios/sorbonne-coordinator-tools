@@ -30,6 +30,7 @@ class TeacherInput(BaseModel):
     email: str = Field(default="", max_length=320)
     phone: str = Field(default="", max_length=80)
     notes: str = Field(default="", max_length=5000)
+    taskTemplateIds: list[str] = Field(default_factory=list, max_length=20)
 
 
 class CreateFolderRequest(BaseModel):
@@ -67,12 +68,16 @@ def list_teachers(
 
 @router.post("", status_code=201)
 def create_teacher(request: TeacherInput, store: TeacherStore = Depends(get_store)) -> dict[str, Any]:
-    return store.create_teacher(
-        full_name=request.fullName.strip(),
-        email=request.email.strip(),
-        phone=request.phone.strip(),
-        notes=request.notes.strip(),
-    )
+    try:
+        return store.create_teacher(
+            full_name=request.fullName.strip(),
+            email=request.email.strip(),
+            phone=request.phone.strip(),
+            notes=request.notes.strip(),
+            task_template_ids=request.taskTemplateIds,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.get("/folders")
