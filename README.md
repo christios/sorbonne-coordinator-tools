@@ -224,14 +224,32 @@ uv run fastapi deploy . --no-wait
 
 Prefer the GitHub workflow so the release uses the configured secrets and is recorded in Actions.
 
-After deployment, verify:
+After deployment, verify. Only the health check and the static app shell answer an
+anonymous caller, so **401 is the pass** for everything else — these commands check that
+each route refuses correctly rather than that it returns data:
 
 ```bash
-curl -fsS https://sorbonne-coordinator-tools.fastapicloud.dev/healthcheck
-curl -fsS https://sorbonne-coordinator-tools.fastapicloud.dev/handbook/ > /dev/null
-curl -fsS https://sorbonne-coordinator-tools.fastapicloud.dev/api/v1/syllabi > /dev/null
-curl -fsS https://sorbonne-coordinator-tools.fastapicloud.dev/api/v1/teachers > /dev/null
+BASE=https://sorbonne-coordinator-tools.fastapicloud.dev
+
+curl -fsS "$BASE/healthcheck"
+curl -fsS -o /dev/null "$BASE/"
+
+for path in /handbook/ /api/v1/syllabi /api/v1/teachers /api/v1/student-database/cohorts; do
+  curl -s -o /dev/null -w "$path -> %{http_code}\n" "$BASE$path"
+done
 ```
+
+Reading the result:
+
+| What you see | What it means |
+| --- | --- |
+| `401` on the guarded routes | Healthy. The session cookie is required and missing. |
+| `503` | The sign-in settings are not all set, so the deployment closed rather than opening unauthenticated. |
+| `200` on a guarded route | The gate is not doing its job. Stop and investigate. |
+| No answer, or a `5xx` health check | Startup failed. Migrations run in the lifespan, so a bad Alembic state stops the application before it serves anything — check the deployment log for `MultipleHeads` or a failed revision. |
+
+The first request after a release may time out while the instance starts; retry before
+concluding anything.
 
 ## Important product constraints
 
