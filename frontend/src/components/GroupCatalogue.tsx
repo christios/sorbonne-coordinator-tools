@@ -3,9 +3,11 @@ import { AlertTriangle, Check, CheckCircle2, Download, Loader2, Plus, Trash2, Up
 import { useEffect, useState } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { InfoHint } from "@/components/InfoHint";
 import { WorkbookReview } from "@/components/WorkbookReview";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { type CrnVerdict, fetchPublication } from "@/services/publication";
+import { countsLine, summariseCatalogue } from "@/services/catalogueSummary";
 import { unplacedIn, verdictFor } from "@/services/publicationView";
 import { fieldHeld, namesHeld } from "@/services/rosterStore";
 import { downloadWorkbook, prefixOf } from "@/services/workbookExport";
@@ -171,71 +173,98 @@ export function GroupCatalogue({
     );
   }
 
+  const counts = summariseCatalogue(scopes);
+  const heldNames = Object.keys(namesHeld()).length;
+
   return (
     <>
-      <section className="rounded-lg border border-[#d9dee7] bg-white p-5">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="max-w-2xl">
-            <h3 className="text-base font-semibold text-[#171717]">Fill this from a workbook</h3>
-            <p className="mt-1 text-sm leading-6 text-[#667085]">
-              One file says both things: its Reference sheet is the blocks, groups and CRNs, and its
-              student tabs are who sits in which group. Nothing is written on upload — you are shown
-              what it would change and approve it row by row.
-              {termId ? "" : " Choose a semester first."}
-            </p>
-          </div>
-          <label
-            className={`inline-flex shrink-0 items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold ${
-              termId
-                ? "cursor-pointer bg-[#1f4e79] text-white hover:bg-[#183f63]"
-                : "cursor-not-allowed bg-[#e4e8ef] text-[#98a2b3]"
-            }`}
-          >
-            {check.isPending ? (
-              <Loader2 size={16} className="animate-spin" aria-hidden="true" />
-            ) : (
-              <Upload size={16} aria-hidden="true" />
-            )}
-            {check.isPending ? "Reading…" : "Upload workbook"}
-            <input
-              type="file"
-              accept=".xlsx"
-              className="sr-only"
-              disabled={!termId}
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                event.target.value = "";
-                if (file) check.mutate(file);
-              }}
-            />
-          </label>
-        </div>
+      <section className="rounded-lg border border-[#d9dee7] bg-white px-5 py-3">
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
+          <p className="text-sm text-[#667085]">
+            {scopes.length
+              ? countsLine(counts)
+              : termId
+                ? "No blocks yet — add one below, or fill them all from a workbook."
+                : "Choose a semester to see its blocks."}
+          </p>
 
-        <div className="mt-4 flex flex-wrap items-start justify-between gap-3 border-t border-[#eef1f5] pt-4">
-          <div>
-            <h3 className="text-base font-semibold text-[#171717]">Take it back out</h3>
-            <p className="mt-1 max-w-2xl text-sm leading-6 text-[#667085]">
-              Download this semester as the same workbook, ready to edit and upload again. Student
-              names come from this browser&rsquo;s last portal pull, because they are held nowhere else.
-            </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <label
+              title={termId ? undefined : "Choose a semester first — a workbook fills one semester."}
+              className={`inline-flex shrink-0 items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold ${
+                termId
+                  ? "cursor-pointer bg-[#1f4e79] text-white hover:bg-[#183f63]"
+                  : "cursor-not-allowed bg-[#e4e8ef] text-[#98a2b3]"
+              }`}
+            >
+              {check.isPending ? (
+                <Loader2 size={16} className="animate-spin" aria-hidden="true" />
+              ) : (
+                <Upload size={16} aria-hidden="true" />
+              )}
+              {check.isPending ? "Reading…" : "Upload workbook"}
+              <input
+                type="file"
+                accept=".xlsx"
+                className="sr-only"
+                disabled={!termId}
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  event.target.value = "";
+                  if (file) check.mutate(file);
+                }}
+              />
+            </label>
+            <InfoHint label="What an uploaded workbook must contain" title="Upload workbook">
+              <p>
+                One file says both things: its <b>Reference</b> sheet is the blocks, their groups
+                and a CRN for every course; its <b>student tabs</b> are who sits in which group.
+              </p>
+              <p>
+                Nothing is written on upload. Every difference is shown and you tick the ones to
+                keep — whatever you leave unticked stays exactly as it is.
+              </p>
+              <p>
+                Only students this cohort holds can be placed. Any other id in the file is
+                reported and skipped.
+              </p>
+              {termId ? null : <p>Choose a semester first — a workbook fills one semester.</p>}
+            </InfoHint>
+
+            <span aria-hidden="true" className="mx-1 hidden h-6 w-px bg-[#e4e8ef] sm:block" />
+
+            <button
+              type="button"
+              onClick={exportWorkbook}
+              disabled={exporting || scopes.length === 0}
+              className="inline-flex shrink-0 items-center gap-2 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc] disabled:opacity-50"
+            >
+              {exporting ? (
+                <Loader2 size={16} className="animate-spin" aria-hidden="true" />
+              ) : (
+                <Download size={16} aria-hidden="true" />
+              )}
+              {exporting ? "Building…" : "Export workbook"}
+            </button>
+            <InfoHint label="What the exported workbook contains" title="Export workbook">
+              <p>
+                The same workbook this page was filled from — same tabs, same columns, in the same
+                order — ready to edit and upload again.
+              </p>
+              <p>
+                It would carry {countsLine(counts)}.
+              </p>
+              <p>
+                {heldNames
+                  ? `Student names come from this browser's last portal pull, ${heldNames} held. They are kept nowhere else, which is why the file is built here rather than on the server.`
+                  : "This browser is holding no student names, so the name column would come out blank. Sync a view on the Students page first."}
+              </p>
+            </InfoHint>
           </div>
-          <button
-            type="button"
-            onClick={exportWorkbook}
-            disabled={exporting || scopes.length === 0}
-            className="inline-flex shrink-0 items-center gap-2 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc] disabled:opacity-50"
-          >
-            {exporting ? (
-              <Loader2 size={16} className="animate-spin" aria-hidden="true" />
-            ) : (
-              <Download size={16} aria-hidden="true" />
-            )}
-            {exporting ? "Building…" : "Export workbook"}
-          </button>
         </div>
 
         {applied ? (
-          <div className="mt-4 rounded-md border border-[#bfdcc6] bg-[#f4faf5] px-4 py-3 text-sm text-[#2f6b3d]">
+          <div className="mt-3 rounded-md border border-[#bfdcc6] bg-[#f4faf5] px-4 py-3 text-sm text-[#2f6b3d]">
             <p className="flex items-center gap-2 font-semibold">
               <CheckCircle2 size={16} aria-hidden="true" />
               {applied.approved} approved change(s) applied
@@ -270,12 +299,14 @@ export function GroupCatalogue({
         ))}
       </div>
 
-      <AddRow
-        label="Add a block"
-        placeholder="TD, CM, Readiness…"
-        busy={createScope.isPending}
-        onAdd={(code) => createScope.mutate(code)}
-      />
+      <section className="mt-5 rounded-lg border border-dashed border-[#c8d0da] bg-white px-5 py-4">
+        <AddRow
+          label="Add a block"
+          placeholder="TD, CM, Readiness…"
+          busy={createScope.isPending}
+          onAdd={(code) => createScope.mutate(code)}
+        />
+      </section>
 
       <ConfirmDialog
         open={pendingScope !== null}
@@ -556,7 +587,7 @@ function AddRow({
 
   return (
     <form
-      className="mt-4 flex items-end gap-2"
+      className="flex items-end gap-2"
       onSubmit={(event) => {
         event.preventDefault();
         const trimmed = value.trim();

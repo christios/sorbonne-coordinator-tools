@@ -286,13 +286,37 @@ describe("GroupCatalogue", () => {
     expect(screen.queryByText(/Upload student groups/)).toBeNull();
   });
 
+  it("says what the semester holds, rather than explaining itself in paragraphs", async () => {
+    // Two headings and two blurbs stood above two buttons. What the numbers say cannot be
+    // guessed from the page; what the blurbs said could be read once and never again.
+    renderCatalogue("term-1");
+    await screen.findByLabelText(/CRN for TD group 5, MATH001/);
+
+    expect(screen.getByText("1 block · 1 group · 2 courses · every CRN filled")).toBeTruthy();
+    expect(screen.queryByText(/Fill this from a workbook/)).toBeNull();
+    expect(screen.queryByText(/Take it back out/)).toBeNull();
+  });
+
+  it("keeps the explanation one press away, on the button it explains", async () => {
+    renderCatalogue("term-1");
+    await screen.findByLabelText(/CRN for TD group 5, MATH001/);
+
+    expect(screen.queryByText(/its Reference sheet is the blocks/i)).toBeNull();
+    fireEvent.click(screen.getByLabelText("What an uploaded workbook must contain"));
+
+    const hint = await screen.findByRole("dialog", { name: "Upload workbook" });
+    expect(within(hint).getByText(/Nothing is written on upload/)).toBeTruthy();
+  });
+
   it("cannot be used until a semester is chosen, because blocks belong to one", async () => {
     renderCatalogue();
     await screen.findByLabelText(/CRN for TD group 5, MATH001/);
 
-    const input = screen.getByText(/^Upload workbook$/).closest("label")?.querySelector("input");
+    const label = screen.getByText(/^Upload workbook$/).closest("label");
+    const input = label?.querySelector("input");
     expect((input as HTMLInputElement).disabled).toBe(true);
-    expect(screen.getByText(/Choose a semester first/)).toBeTruthy();
+    // Why it cannot be used, without having to open anything.
+    expect(label?.getAttribute("title")).toMatch(/Choose a semester first/);
   });
 });
 
