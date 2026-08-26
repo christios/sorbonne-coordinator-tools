@@ -1,10 +1,11 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FolderInput, Globe, Search } from "lucide-react";
+import { FolderInput, Globe, LayoutGrid, Search } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ColumnMenu } from "@/components/ColumnMenu";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { CopyButton } from "@/components/CopyButton";
+import { PlaceInBlock } from "@/components/PlaceInBlock";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { SelectMenu } from "@/components/SelectMenu";
 import { StudentHistoryPane } from "@/components/StudentHistoryPane";
@@ -13,7 +14,7 @@ import { TableFilterBar } from "@/components/TableFilterBar";
 import { tableText } from "@/services/copyCells";
 import { forgetHistory, loadHistory, type PullHistory } from "@/services/pullHistory";
 import { fetchSchema } from "@/services/scenRosters";
-import { changesSince, studentRows, type StudentRow } from "@/services/rosterView";
+import { changesSince, sharedCohort, studentRows, type StudentRow } from "@/services/rosterView";
 import { PortalError } from "@/services/scenRosters";
 import {
   forgetRosters,
@@ -33,7 +34,12 @@ import {
   type StudentColumn,
 } from "@/services/studentColumns";
 import { applyFilters, type FilterModel } from "@/services/tableFilter";
-import { fetchStudents, setCohort, type Cohort } from "@/services/studentDatabase";
+import {
+  fetchStudents,
+  setCohort,
+  type Cohort,
+  type PlacementReport,
+} from "@/services/studentDatabase";
 
 /** Where a student goes when the picker is used, with "no cohort" as a real choice. */
 const NO_COHORT = "__none__";
@@ -112,6 +118,9 @@ export function StudentRoster({ cohorts, viewId }: { cohorts: Cohort[]; viewId: 
     saveLayout(next);
   }, []);
 
+  const [placing, setPlacing] = useState(false);
+  const [placed, setPlaced] = useState<(PlacementReport & { removed: boolean }) | null>(null);
+
   const move = useMutation({
     mutationFn: ({ ids, cohortId }: { ids: string[]; cohortId: string | null }) =>
       setCohort(ids, cohortId),
@@ -186,6 +195,9 @@ export function StudentRoster({ cohorts, viewId }: { cohorts: Cohort[]; viewId: 
   if (students.isLoading || !layout) return <ScreenLoading label="Loading the students…" />;
 
   const chosen = [...selected];
+  // A block belongs to one cohort, so placing is only offered for a selection that is in one.
+  const placeInto = sharedCohort(rows, selected);
+  const cohortOfSelection = cohorts.find((candidate) => candidate.id === placeInto) ?? null;
   const error = move.error ?? students.error;
 
   return (
@@ -233,12 +245,57 @@ export function StudentRoster({ cohorts, viewId }: { cohorts: Cohort[]; viewId: 
           >
             <FolderInput size={15} aria-hidden="true" /> {chosen.length ? `Move ${chosen.length}` : "Move"}
           </button>
+          <button
+            type="button"
+            disabled={!cohortOfSelection}
+            title={
+              chosen.length && !cohortOfSelection
+                ? "Blocks belong to one cohort — select students who share one"
+                : undefined
+            }
+            onClick={() => {
+              setPlaced(null);
+              setPlacing(true);
+            }}
+            className="inline-flex items-center gap-2 rounded-md border border-[#b7bec8] bg-white px-3 py-1.5 font-semibold text-[#344054] disabled:opacity-50"
+          >
+            <LayoutGrid size={15} aria-hidden="true" /> Place in a block…
+          </button>
           {chosen.length ? (
             <button type="button" onClick={() => setSelected(new Set())} className="text-[#667085] underline">
               Clear
             </button>
           ) : null}
       </div>
+
+      {placed ? (
+        <p className="mt-2 rounded-md border border-[#bfdcc6] bg-[#f4faf5] px-4 py-2.5 text-sm text-[#2f6b3d]">
+          {placed.assigned} student(s) {placed.removed ? "taken out of the block" : "placed"}.
+          {placed.skipped.length > 0 ? (
+            <span className="ml-1 text-[#8a6116]">
+              {placed.skipped.length} id(s) were not in that block&rsquo;s cohort and were left alone:{" "}
+              {placed.skipped.slice(0, 5).join(", ")}
+              {placed.skipped.length > 5 ? "…" : ""}
+            </span>
+          ) : null}
+        </p>
+      ) : null}
+
+      {cohortOfSelection ? (
+        <PlaceInBlock
+          open={placing}
+          cohort={cohortOfSelection}
+          studentIds={chosen}
+          onClose={() => setPlacing(false)}
+          onPlaced={(report) => {
+            setPlaced(report);
+            setPlacing(false);
+            setSelected(new Set());
+            client.invalidateQueries({ queryKey: ["students"] });
+            client.invalidateQueries({ queryKey: ["catalogue"] });
+          }}
+        />
+      ) : null}
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <TableFilterBar

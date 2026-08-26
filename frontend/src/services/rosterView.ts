@@ -180,3 +180,19 @@ export function countBy(rows: StudentRow[]): Record<StatusFilter, number> {
     changed: rows.filter((row) => row.changes.length > 0).length,
   };
 }
+
+/**
+ * The one cohort a selection belongs to, or null when there isn't one.
+ *
+ * Blocks belong to a cohort, so a selection spanning two of them has no single block list
+ * to choose from — and a student in no cohort has none at all. Rather than place what it
+ * can and quietly drop the rest, the control asks for a selection it can answer for.
+ */
+export function sharedCohort(rows: StudentRow[], selected: Set<string>): string | null {
+  const cohorts = new Set(
+    rows.filter((row) => selected.has(row.studentId)).map((row) => row.cohortId ?? ""),
+  );
+  if (cohorts.size !== 1) return null;
+  const [only] = [...cohorts];
+  return only || null;
+}

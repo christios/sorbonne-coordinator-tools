@@ -428,3 +428,88 @@ def _as_ordinary_coordinator(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
+
+
+# ------------------------------------------------- placing students in a block
+
+
+def block_with_a_group(client: TestClient, cohort_id: str, code: str = "TD") -> tuple[str, str]:
+    scope = client.post(
+        f"/api/v1/student-database/cohorts/{cohort_id}/scopes", json={"code": code}
+    ).json()
+    group = client.post(
+        f"/api/v1/student-database/scopes/{scope['id']}/groups", json={"label": "1"}
+    ).json()
+    return scope["id"], group["id"]
+
+
+def place(client: TestClient, scope_id: str, student_ids: list[str], group_id: str | None) -> dict:
+    response = client.put(
+        f"/api/v1/student-database/scopes/{scope_id}/assignments",
+        json={"studentIds": student_ids, "groupId": group_id},
+    )
+    assert response.status_code == status.HTTP_200_OK, response.text
+    return response.json()
+
+
+def in_cohort(client: TestClient, view_id: str, cohort_id: str, ids: list[str]) -> None:
+    sync(client, view_id, ids)
+    client.post("/api/v1/student-database/students/cohort", json={"studentIds": ids, "cohortId": cohort_id})
+
+
+def test_students_are_placed_in_a_group_in_one_go(client: TestClient, cohort_id: str, view_id: str):
+    scope_id, group_id = block_with_a_group(client, cohort_id)
+    in_cohort(client, view_id, cohort_id, STUDENTS)
+
+    report = place(client, scope_id, STUDENTS, group_id)
+
+    assert report["assigned"] == len(STUDENTS)
+    assert report["skipped"] == []
+    held = client.get(f"/api/v1/student-database/cohorts/{cohort_id}/assignments").json()["assignments"]
+    assert {student: by_scope[scope_id] for student, by_scope in held.items()} == {
+        student: group_id for student in STUDENTS
+    }
+
+
+def test_a_student_this_cohort_does_not_hold_is_skipped_and_named(
+    client: TestClient, cohort_id: str, view_id: str
+):
+    """A block belongs to one cohort, so its groups are not open to everybody.
+
+    Placing an outsider would write a row saying they are in a cohort they are not in, and
+    their enrolment would follow. The same rule the workbook upload follows.
+    """
+    scope_id, group_id = block_with_a_group(client, cohort_id)
+    in_cohort(client, view_id, cohort_id, STUDENTS[:1])
+    sync(client, view_id, [*STUDENTS[:1], "A00099999"])
+
+    report = place(client, scope_id, [STUDENTS[0], "A00099999"], group_id)
+
+    assert report["assigned"] == 1
+    assert report["skipped"] == ["A00099999"]
+
+
+def test_placing_nobody_in_a_group_takes_them_out_of_the_block(
+    client: TestClient, cohort_id: str, view_id: str
+):
+    scope_id, group_id = block_with_a_group(client, cohort_id)
+    in_cohort(client, view_id, cohort_id, STUDENTS)
+    place(client, scope_id, STUDENTS, group_id)
+
+    place(client, scope_id, STUDENTS, None)
+
+    held = client.get(f"/api/v1/student-database/cohorts/{cohort_id}/assignments").json()["assignments"]
+    assert held == {}
+
+
+def test_a_group_from_another_block_is_refused(client: TestClient, cohort_id: str, view_id: str):
+    scope_id, _ = block_with_a_group(client, cohort_id)
+    _, elsewhere = block_with_a_group(client, cohort_id, code="CM")
+    in_cohort(client, view_id, cohort_id, STUDENTS)
+
+    response = client.put(
+        f"/api/v1/student-database/scopes/{scope_id}/assignments",
+        json={"studentIds": STUDENTS, "groupId": elsewhere},
+    )
+
+    assert response.status_code == status.HTTP_404_NOT_FOUND

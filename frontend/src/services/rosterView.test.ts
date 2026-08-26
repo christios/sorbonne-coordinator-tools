@@ -5,9 +5,11 @@ import {
   choices,
   countBy,
   filterRows,
+  sharedCohort,
   sortRows,
   studentRows,
   NO_FILTERS,
+  type StudentRow,
 } from "@/services/rosterView";
 import type { RosterRow } from "@/services/scenRosters";
 import type { Student } from "@/services/studentDatabase";
@@ -220,5 +222,31 @@ describe("sorting", () => {
       "A003",
       "A999",
     ]);
+  });
+});
+
+describe("the cohort a selection shares", () => {
+  const row = (studentId: string, cohortId: string | null) =>
+    ({ studentId, cohortId }) as StudentRow;
+
+  it("is the cohort when every selected student is in it", () => {
+    const rows = [row("A1", "c1"), row("A2", "c1"), row("A3", "c2")];
+    expect(sharedCohort(rows, new Set(["A1", "A2"]))).toBe("c1");
+  });
+
+  it("is nothing when the selection spans two cohorts", () => {
+    // There is no block list that answers for both, so the control has to decline.
+    const rows = [row("A1", "c1"), row("A2", "c2")];
+    expect(sharedCohort(rows, new Set(["A1", "A2"]))).toBeNull();
+  });
+
+  it("is nothing when a selected student is in no cohort at all", () => {
+    const rows = [row("A1", "c1"), row("A2", null)];
+    expect(sharedCohort(rows, new Set(["A1", "A2"]))).toBeNull();
+    expect(sharedCohort(rows, new Set(["A2"]))).toBeNull();
+  });
+
+  it("is nothing when nothing is selected", () => {
+    expect(sharedCohort([row("A1", "c1")], new Set())).toBeNull();
   });
 });

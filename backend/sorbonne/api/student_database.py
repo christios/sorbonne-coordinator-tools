@@ -430,24 +430,26 @@ async def assign_students(
     body: AssignmentInput,
     request: Request,
     database: StudentDatabase = Depends(get_database),
-) -> dict[str, int]:
+) -> dict[str, Any]:
     """Put students in a group of this scope, or take them out of it.
 
     One group per student per scope: their enrolment is the union of the groups they hold,
-    so assigning replaces whatever they had for this scope rather than adding to it.
+    so assigning replaces whatever they had for this scope rather than adding to it. An id
+    the block's cohort does not hold comes back under `skipped` rather than being placed.
     """
     staff = getattr(request.state, "staff_user", None)
     actor = getattr(staff, "email", "") or ""
     try:
-        for student_id in body.student_ids:
-            database.assign(
-                student_id=student_id, scope_id=scope_id, group_id=body.group_id, actor=actor
-            )
+        return database.assign_many(
+            scope_id=scope_id,
+            student_ids=body.student_ids,
+            group_id=body.group_id,
+            actor=actor,
+        )
     except ScopeNotFound as exc:
         raise _missing(exc, "block") from exc
     except GroupNotFound as exc:
         raise _missing(exc, "group") from exc
-    return {"assigned": len(body.student_ids)}
 
 
 @router.get("/cohorts/{cohort_id}/assignments")

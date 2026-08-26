@@ -508,6 +508,67 @@ class StudentDatabase:
                 )
             self._touch(connection, cohort_id)
 
+    def assign_many(
+        self, *, scope_id: str, student_ids: list[str], group_id: str | None, actor: str = ""
+    ) -> dict[str, Any]:
+        """Place several students in one group of one block, in a single pass.
+
+        A student the block's cohort does not hold is skipped and named, not placed. The
+        cohort is the roster, and a block belongs to one: placing an outsider would write a
+        row claiming they are in a cohort they are not in, which nothing downstream would
+        question. Same rule the workbook upload follows, for the same reason.
+        """
+        with self.engine.begin() as connection:
+            cohort_id = self._cohort_of_scope(connection, scope_id)
+            if group_id is not None:
+                owner = connection.execute(
+                    text("SELECT scope_id FROM scope_groups WHERE id = :id"), {"id": group_id}
+                ).scalar()
+                if owner != scope_id:
+                    raise GroupNotFound(group_id)
+
+            held = {
+                row[0]
+                for row in connection.execute(
+                    text("SELECT student_id FROM students WHERE cohort_id = :cohort"),
+                    {"cohort": cohort_id},
+                )
+            }
+            wanted = [student for student in dict.fromkeys(student_ids) if student in held]
+            skipped = sorted({student for student in student_ids if student not in held})
+
+            if wanted and group_id is None:
+                connection.execute(
+                    text("""DELETE FROM group_assignments
+                            WHERE scope_id = :scope AND student_id = ANY(:students)"""),
+                    {"scope": scope_id, "students": wanted},
+                )
+            elif wanted:
+                now = _now()
+                connection.execute(
+                    text("""INSERT INTO group_assignments
+                                (cohort_id, student_id, scope_id, group_id, updated_at, updated_by)
+                            VALUES (:cohort, :student, :scope, :group, :updated_at, :actor)
+                            ON CONFLICT (cohort_id, student_id, scope_id)
+                            DO UPDATE SET group_id = excluded.group_id,
+                                          updated_at = excluded.updated_at,
+                                          updated_by = excluded.updated_by"""),
+                    [
+                        {
+                            "cohort": cohort_id,
+                            "student": student,
+                            "scope": scope_id,
+                            "group": group_id,
+                            "updated_at": now,
+                            "actor": _text(actor),
+                        }
+                        for student in wanted
+                    ],
+                )
+            self._touch(connection, cohort_id)
+
+        return {"assigned": len(wanted), "skipped": skipped}
+
     def catalogue_for_diff(self, cohort_id: str, term_id: str) -> dict[str, Any]:
         """One semester's blocks in the shape `workbook_diff` compares against."""
         held: dict[str, Any] = {}

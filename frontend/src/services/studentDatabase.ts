@@ -104,6 +104,26 @@ export function fetchCatalogue(cohortId: string, termId?: string): Promise<Catal
   return request<Catalogue>(`${BASE}/cohorts/${cohortId}/catalogue${query}`);
 }
 
+export type PlacementReport = {
+  assigned: number;
+  /** Ids the block's cohort does not hold. They were not placed. */
+  skipped: string[];
+};
+
+/**
+ * Put students in one group of one block, or take them out of it with a null group.
+ *
+ * A student holds at most one group per block, so this replaces rather than adds — which
+ * is what makes their enrolment the union of their blocks rather than a pile of history.
+ */
+export function assignStudents(
+  scopeId: string,
+  studentIds: string[],
+  groupId: string | null,
+): Promise<PlacementReport> {
+  return send<PlacementReport>(`${BASE}/scopes/${scopeId}/assignments`, "PUT", { studentIds, groupId });
+}
+
 /** Who is in which group, as `{student id: {scope id: group id}}`. */
 export async function fetchAssignments(cohortId: string): Promise<Record<string, Record<string, string>>> {
   const payload = await request<{ assignments: Record<string, Record<string, string>> }>(
