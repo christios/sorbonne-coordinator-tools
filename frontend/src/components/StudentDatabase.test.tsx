@@ -151,6 +151,66 @@ describe("syncing a view", () => {
   });
 });
 
+/**
+ * Switching view used to remount the table.
+ *
+ * Everything the coordinator had set up went with it — the columns they had arranged, the
+ * filters, the sort — and a full-screen loader covered a list React Query already had.
+ */
+describe("changing view", () => {
+  const SECOND: database.StudentView = { ...VIEW, id: "view-2", name: "L1", held: 3 };
+
+  async function switchToL1() {
+    fireEvent.click(await screen.findByRole("combobox", { name: "View" }));
+    fireEvent.click(await screen.findByRole("option", { name: /L1/ }));
+  }
+
+  it("asks the server once per view, and not again on the way back", async () => {
+    vi.spyOn(database, "fetchViews").mockResolvedValue([VIEW, SECOND]);
+    const fetched = vi.spyOn(database, "fetchStudents").mockResolvedValue([]);
+    renderApp();
+    await screen.findByRole("combobox", { name: "View" });
+    await waitFor(() => expect(fetched).toHaveBeenCalledTimes(1));
+
+    await switchToL1();
+    await waitFor(() => expect(fetched).toHaveBeenCalledTimes(2));
+
+    // Back to the first: its answer is minutes old and still good.
+    fireEvent.click(await screen.findByRole("combobox", { name: "View" }));
+    fireEvent.click(await screen.findByRole("option", { name: /Foundation Year/ }));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "View" }).textContent).toContain("Foundation Year"));
+    expect(fetched).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps the table on screen instead of a loading page", async () => {
+    vi.spyOn(database, "fetchViews").mockResolvedValue([VIEW, SECOND]);
+    renderApp();
+    const table = await screen.findByRole("table");
+
+    await switchToL1();
+
+    // The same table element: not torn down and rebuilt.
+    expect(screen.getByRole("table")).toBe(table);
+    expect(screen.queryByText(/Loading the students…/)).toBeNull();
+  });
+
+  it("keeps the columns the coordinator arranged", async () => {
+    vi.spyOn(database, "fetchViews").mockResolvedValue([VIEW, SECOND]);
+    renderApp();
+    await screen.findByRole("table");
+    const [resize] = screen.getAllByRole("separator", { name: /^Resize / });
+    const column = resize.closest("th") as HTMLElement;
+    fireEvent.keyDown(resize, { key: "ArrowRight" });
+    const width = column.style.width;
+
+    await switchToL1();
+
+    expect((screen.getAllByRole("separator", { name: /^Resize / })[0].closest("th") as HTMLElement).style.width).toBe(
+      width,
+    );
+  });
+});
+
 describe("who may define a view", () => {
   it("offers making and deleting one to an administrator", async () => {
     renderApp(ADMIN);

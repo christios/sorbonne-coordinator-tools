@@ -19,7 +19,12 @@ import {
 import { useEffect, useState } from "react";
 
 import { SelectMenu } from "@/components/SelectMenu";
-import { PlatformAnnouncement, fetchAnnouncements, saveAnnouncements } from "@/services/timetables";
+import {
+  type AnnouncementLevel,
+  PlatformAnnouncement,
+  fetchAnnouncements,
+  saveAnnouncements,
+} from "@/services/timetables";
 
 const MAX_MESSAGE_LENGTH = 160;
 
@@ -39,12 +44,27 @@ const ICON_CHOICES: Array<{ value: string; label: string; icon: LucideIcon }> = 
 
 const ICONS = new Map(ICON_CHOICES.map((choice) => [choice.value, choice.icon]));
 
-type Row = { key: string; icon: string; message: string };
+/**
+ * How much a notice matters, which the student platform turns into how loudly it lands.
+ *
+ * "Notice" sits in the strip as everything used to. The two above it open as a card over
+ * the student's timetable until they acknowledge it, so they are worth spending sparingly
+ * — a strip where everything is urgent is a strip where nothing is.
+ */
+const LEVEL_CHOICES: Array<{ value: AnnouncementLevel; label: string }> = [
+  { value: "notice", label: "Notice — sits in the strip" },
+  { value: "important", label: "Important — opens once" },
+  { value: "urgent", label: "Urgent — opens once, in red" },
+];
+
+type Row = { key: string; id: string; icon: string; level: AnnouncementLevel; message: string };
 
 function toRows(announcements: PlatformAnnouncement[]): Row[] {
   return announcements.map((announcement, index) => ({
     key: announcement.id ?? `row-${index}`,
+    id: announcement.id ?? "",
     icon: announcement.icon,
+    level: announcement.level ?? "notice",
     message: announcement.message,
   }));
 }
@@ -64,7 +84,10 @@ export function AnnouncementEditor() {
   }, [announcements.data]);
 
   const save = useMutation({
-    mutationFn: () => saveAnnouncements(rows.map(({ icon, message }) => ({ icon, message: message.trim() }))),
+    mutationFn: () =>
+      saveAnnouncements(
+        rows.map(({ id, icon, level, message }) => ({ id, icon, level, message: message.trim() })),
+      ),
     onSuccess: (result) => {
       setRows(toRows(result));
       setSaved(true);
@@ -79,7 +102,10 @@ export function AnnouncementEditor() {
 
   function addRow() {
     setSaved(false);
-    setRows((current) => [...current, { key: `new-${Date.now()}`, icon: "info", message: "" }]);
+    setRows((current) => [
+      ...current,
+      { key: `new-${Date.now()}`, id: "", icon: "info", level: "notice", message: "" },
+    ]);
   }
 
   function removeRow(key: string) {
@@ -119,6 +145,14 @@ export function AnnouncementEditor() {
                       value={row.icon}
                       onChange={(icon) => update(row.key, { icon })}
                       options={ICON_CHOICES.map(({ value, label }) => ({ value, label }))}
+                    />
+                  </div>
+                  <div className="w-52 shrink-0">
+                    <SelectMenu
+                      label="How much it matters"
+                      value={row.level}
+                      onChange={(level) => update(row.key, { level: level as AnnouncementLevel })}
+                      options={LEVEL_CHOICES}
                     />
                   </div>
                   <label className="min-w-0 flex-1 text-sm font-semibold text-[#344054]">

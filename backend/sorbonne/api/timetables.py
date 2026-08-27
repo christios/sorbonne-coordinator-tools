@@ -41,7 +41,12 @@ class PublishInput(BaseModel):
 
 
 class AnnouncementInput(BaseModel):
+    # Passed straight through. The id is how the platform recognises a notice it already
+    # holds, and the level is how loudly it lands for a student; this application only
+    # carries them, so that the access code stays server-side.
+    id: str = ""
     icon: str = Field(min_length=1, max_length=40)
+    level: str = "notice"
     message: str = Field(min_length=1, max_length=160)
 
 

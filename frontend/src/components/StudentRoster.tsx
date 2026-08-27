@@ -82,6 +82,15 @@ export function StudentRoster({
     queryKey: ["students", asked],
     queryFn: () => fetchStudents(asked),
     /*
+     * Not before a view has been settled on.
+     *
+     * The view arrives a tick after the first render, and an empty one means "every
+     * student we hold" — so without this the page opened by fetching the whole roster
+     * and then immediately fetching again for the view it had just chosen. The first
+     * answer was the larger of the two and nobody ever saw it.
+     */
+    enabled: everywhere || asked !== "",
+    /*
      * A view's students are worth keeping. Switching views refetched thousands of rows
      * behind a full-screen loader every time, including views visited a moment ago; now
      * a recent answer is reused, and while a genuinely new one is in flight the table
@@ -128,6 +137,19 @@ export function StudentRoster({
 
   // The arrangement can only be reconciled once the columns are known.
   useEffect(() => setLayout(loadLayout(allColumns)), [allColumns]);
+
+  /*
+   * A selection belongs to the view it was made in.
+   *
+   * The table survives a change of view now, and most of what it holds should: the
+   * columns, the filters, the sort are the coordinator's working setup. A selection is
+   * different — "Move these 30" pointing at students the new view does not contain is a
+   * write against people the coordinator can no longer see.
+   */
+  useEffect(() => {
+    setSelected(new Set());
+    setFocus([]);
+  }, [viewId]);
 
   const layoutRef = useRef<ColumnLayout | null>(null);
   layoutRef.current = layout;

@@ -5,9 +5,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AnnouncementEditor } from "@/components/AnnouncementEditor";
 import * as timetables from "@/services/timetables";
 
-const EXISTING = [
-  { id: "a1", icon: "calendar", message: "Week 1 starts Monday 31 August" },
-  { id: "a2", icon: "alert", message: "Room 5.033 is closed this week" },
+const EXISTING: timetables.PlatformAnnouncement[] = [
+  { id: "a1", icon: "calendar", level: "notice", message: "Week 1 starts Monday 31 August" },
+  { id: "a2", icon: "alert", level: "urgent", message: "Room 5.033 is closed this week" },
 ];
 
 function renderEditor() {
@@ -53,10 +53,37 @@ describe("AnnouncementEditor", () => {
 
     await waitFor(() =>
       expect(save).toHaveBeenCalledWith([
-        { icon: "calendar", message: "Week 2 starts Monday 7 September" },
-        { icon: "alert", message: "Room 5.033 is closed this week" },
+        { id: "a1", icon: "calendar", level: "notice", message: "Week 2 starts Monday 7 September" },
+        { id: "a2", icon: "alert", level: "urgent", message: "Room 5.033 is closed this week" },
       ]),
     );
+  });
+
+  it("sends each notice back with the id it arrived with", async () => {
+    // The platform keeps a notice's identity while its words are unchanged, and every
+    // student's dismissal hangs off that identity. Saving a fix to one line must not
+    // hand the other seven back to everybody who had already read them.
+    const save = vi.spyOn(timetables, "saveAnnouncements").mockResolvedValue(EXISTING);
+    renderEditor();
+    await waitFor(() => expect(messageBoxes()).toHaveLength(2));
+
+    fireEvent.click(screen.getByRole("button", { name: "Save strip" }));
+
+    await waitFor(() => expect(save).toHaveBeenCalled());
+    expect(save.mock.calls[0][0].map((item) => item.id)).toEqual(["a1", "a2"]);
+  });
+
+  it("says how much each notice matters, and starts a new one quiet", async () => {
+    const save = vi.spyOn(timetables, "saveAnnouncements").mockResolvedValue(EXISTING);
+    renderEditor();
+    await waitFor(() => expect(messageBoxes()).toHaveLength(2));
+
+    fireEvent.click(screen.getByRole("button", { name: /Add announcement/ }));
+    fireEvent.change(messageBoxes()[2], { target: { value: "The library closes at 6" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save strip" }));
+
+    await waitFor(() => expect(save).toHaveBeenCalled());
+    expect(save.mock.calls[0][0].map((item) => item.level)).toEqual(["notice", "urgent", "notice"]);
   });
 
   it("adds a line and removes one", async () => {
@@ -100,7 +127,8 @@ describe("AnnouncementEditor", () => {
 
     const [firstRow] = screen.getAllByRole("listitem");
     // The repo forbids native <select> in product UI; SelectMenu renders a button.
-    expect(within(firstRow).getByRole("combobox").tagName).toBe("BUTTON");
+    expect(within(firstRow).getByRole("combobox", { name: "Icon" }).tagName).toBe("BUTTON");
+    expect(within(firstRow).getByRole("combobox", { name: /How much it matters/ })).toBeTruthy();
     expect(document.querySelector("select")).toBeNull();
   });
 

@@ -111,9 +111,13 @@ export function deleteTimetableTerm(termId: string): Promise<void> {
   return request<void>(`/api/v1/timetables/terms/${termId}`, { method: "DELETE" });
 }
 
+/** Quietest first, matching the levels the student platform accepts. */
+export type AnnouncementLevel = "notice" | "important" | "urgent";
+
 export type PlatformAnnouncement = {
   id?: string;
   icon: string;
+  level?: AnnouncementLevel;
   message: string;
 };
 
@@ -128,7 +132,19 @@ export async function saveAnnouncements(
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      announcements: announcements.map(({ icon, message }) => ({ icon, message })),
+      /*
+       * The id goes back with each notice. It is what tells the platform this is the
+       * same notice as before rather than a new one wearing its words — and a notice
+       * that keeps its identity keeps every student's dismissal of it. Dropping the id
+       * here, which is what this used to do, made saving a typo fix resurrect the whole
+       * strip on every student's phone.
+       */
+      announcements: announcements.map(({ id, icon, level, message }) => ({
+        id: id ?? "",
+        icon,
+        level: level ?? "notice",
+        message,
+      })),
     }),
   });
   return payload.announcements;

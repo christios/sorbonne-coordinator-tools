@@ -170,10 +170,18 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
             ) : null}
           </header>
 
+          {/*
+            * StudentRoster is deliberately not keyed on the view.
+            *
+            * A key there remounted the whole table whenever the view changed, throwing
+            * away the column arrangement, the filters, the sort and the scroll position,
+            * and putting a full-screen loader over a list React Query already had in
+            * hand. It now keeps its shape and swaps its rows; the one thing that must not
+            * carry across a view — the selection — is cleared inside it.
+            */}
           {page === "students" && !cohorts.isLoading && !views.isLoading ? (
             available.length ? (
               <StudentRoster
-                key={viewId}
                 cohorts={knownCohorts}
                 viewId={viewId}
                 preselect={preselect}
