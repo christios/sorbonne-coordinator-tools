@@ -82,6 +82,21 @@ def _resolve_term(cohorts: list[dict[str, Any]]) -> dict[str, list[str]]:
     return enrolments
 
 
+def _cohort_members(cohorts: list[dict[str, Any]]) -> dict[str, dict[str, str]]:
+    """Who belongs to which cohort, for every member — not only the placed ones.
+
+    The platform has no notion of cohorts otherwise, and it needs one to deliver a notice
+    addressed to a population. Everybody the cohort holds is sent, including students
+    nobody has put in a group yet: they resolve to no enrolments at all, and they are the
+    students most likely to need telling why their timetable is empty.
+    """
+    members: dict[str, dict[str, str]] = {}
+    for cohort in cohorts:
+        for student in cohort.get("students", []):
+            members[student] = {"key": cohort["cohortId"], "name": cohort["cohortName"]}
+    return members
+
+
 @router.get("/terms/{term_id}")
 async def read_publication(
     term_id: str,
@@ -158,7 +173,10 @@ async def publish(
         )
     try:
         return await client.replace_enrolments(
-            term_id, _resolve_term(cohorts), base_updated_at=body.base_updated_at
+            term_id,
+            _resolve_term(cohorts),
+            cohorts=_cohort_members(cohorts),
+            base_updated_at=body.base_updated_at,
         )
     except StudentPlatformError as exc:
         raise _forward(exc) from exc

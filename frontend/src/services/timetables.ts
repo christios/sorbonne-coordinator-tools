@@ -118,20 +118,32 @@ export type PlatformAnnouncement = {
   id?: string;
   icon: string;
   level?: AnnouncementLevel;
+  /** "" for everybody in the semester; otherwise a cohort id. */
+  cohortKey?: string;
   message: string;
 };
 
-export async function fetchAnnouncements(): Promise<{ announcements: PlatformAnnouncement[]; icons: string[] }> {
-  return request<{ announcements: PlatformAnnouncement[]; icons: string[] }>("/api/v1/timetables/announcements");
+/** A cohort the platform holds members for, so the editor can offer it by name. */
+export type PlatformCohort = { key: string; name: string; students: number };
+
+export async function fetchAnnouncements(
+  termId: string,
+): Promise<{ announcements: PlatformAnnouncement[]; icons: string[]; cohorts: PlatformCohort[] }> {
+  return request<{ announcements: PlatformAnnouncement[]; icons: string[]; cohorts: PlatformCohort[] }>(
+    `/api/v1/timetables/announcements?term=${encodeURIComponent(termId)}`,
+  );
 }
 
 export async function saveAnnouncements(
+  termId: string,
   announcements: PlatformAnnouncement[],
 ): Promise<PlatformAnnouncement[]> {
-  const payload = await request<{ announcements: PlatformAnnouncement[] }>("/api/v1/timetables/announcements", {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
+  const payload = await request<{ announcements: PlatformAnnouncement[] }>(
+    `/api/v1/timetables/announcements?term=${encodeURIComponent(termId)}`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
       /*
        * The id goes back with each notice. It is what tells the platform this is the
        * same notice as before rather than a new one wearing its words — and a notice
@@ -139,14 +151,16 @@ export async function saveAnnouncements(
        * here, which is what this used to do, made saving a typo fix resurrect the whole
        * strip on every student's phone.
        */
-      announcements: announcements.map(({ id, icon, level, message }) => ({
-        id: id ?? "",
-        icon,
-        level: level ?? "notice",
-        message,
-      })),
-    }),
-  });
+        announcements: announcements.map(({ id, icon, level, cohortKey, message }) => ({
+          id: id ?? "",
+          icon,
+          level: level ?? "notice",
+          cohortKey: cohortKey ?? "",
+          message,
+        })),
+      }),
+    },
+  );
   return payload.announcements;
 }
 

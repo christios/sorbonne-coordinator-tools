@@ -24,9 +24,25 @@ function messageBoxes(): HTMLInputElement[] {
 }
 
 beforeEach(() => {
+  vi.spyOn(timetables, "fetchTimetableTerms").mockResolvedValue([
+    {
+      id: "term-1",
+      name: "Physics & Maths — Semester 1",
+      slug: "s1",
+      timezone: "Asia/Dubai",
+      isPublished: true,
+      courseCount: 1,
+      sessionCount: 1,
+      studentCount: 1,
+      timetableFilename: "t.xls",
+      enrolmentFilename: "",
+      updatedAt: "2026-08-21T18:00:00Z",
+    },
+  ]);
   vi.spyOn(timetables, "fetchAnnouncements").mockResolvedValue({
     announcements: EXISTING,
     icons: ["info", "alert", "calendar"],
+    cohorts: [{ key: "cohort-1", name: "Foundation Year", students: 24 }],
   });
 });
 
@@ -52,9 +68,21 @@ describe("AnnouncementEditor", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save strip" }));
 
     await waitFor(() =>
-      expect(save).toHaveBeenCalledWith([
-        { id: "a1", icon: "calendar", level: "notice", message: "Week 2 starts Monday 7 September" },
-        { id: "a2", icon: "alert", level: "urgent", message: "Room 5.033 is closed this week" },
+      expect(save).toHaveBeenCalledWith("term-1", [
+        {
+          id: "a1",
+          icon: "calendar",
+          level: "notice",
+          cohortKey: "",
+          message: "Week 2 starts Monday 7 September",
+        },
+        {
+          id: "a2",
+          icon: "alert",
+          level: "urgent",
+          cohortKey: "",
+          message: "Room 5.033 is closed this week",
+        },
       ]),
     );
   });
@@ -70,7 +98,7 @@ describe("AnnouncementEditor", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save strip" }));
 
     await waitFor(() => expect(save).toHaveBeenCalled());
-    expect(save.mock.calls[0][0].map((item) => item.id)).toEqual(["a1", "a2"]);
+    expect(save.mock.calls[0][1].map((item) => item.id)).toEqual(["a1", "a2"]);
   });
 
   it("says how much each notice matters, and starts a new one quiet", async () => {
@@ -83,7 +111,7 @@ describe("AnnouncementEditor", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save strip" }));
 
     await waitFor(() => expect(save).toHaveBeenCalled());
-    expect(save.mock.calls[0][0].map((item) => item.level)).toEqual(["notice", "urgent", "notice"]);
+    expect(save.mock.calls[0][1].map((item) => item.level)).toEqual(["notice", "urgent", "notice"]);
   });
 
   it("adds a line and removes one", async () => {
@@ -117,7 +145,7 @@ describe("AnnouncementEditor", () => {
     fireEvent.click(screen.getByRole("button", { name: /Remove announcement Room 5.033/ }));
     fireEvent.click(screen.getByRole("button", { name: "Save strip" }));
 
-    await waitFor(() => expect(save).toHaveBeenCalledWith([]));
+    await waitFor(() => expect(save).toHaveBeenCalledWith("term-1", []));
     expect(screen.getByText(/No announcements/)).toBeTruthy();
   });
 
@@ -129,6 +157,7 @@ describe("AnnouncementEditor", () => {
     // The repo forbids native <select> in product UI; SelectMenu renders a button.
     expect(within(firstRow).getByRole("combobox", { name: "Icon" }).tagName).toBe("BUTTON");
     expect(within(firstRow).getByRole("combobox", { name: /How much it matters/ })).toBeTruthy();
+    expect(within(firstRow).getByRole("combobox", { name: /Who sees it/ })).toBeTruthy();
     expect(document.querySelector("select")).toBeNull();
   });
 
@@ -142,5 +171,44 @@ describe("AnnouncementEditor", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save strip" }));
 
     expect((await screen.findByRole("alert")).textContent).toContain("under 160 characters");
+  });
+});
+
+
+describe("who a notice is for", () => {
+  it("offers the semester's cohorts as well as everyone in it", async () => {
+    renderEditor();
+    await waitFor(() => expect(messageBoxes()).toHaveLength(2));
+
+    const [firstRow] = screen.getAllByRole("listitem");
+    fireEvent.click(within(firstRow).getByRole("combobox", { name: /Who sees it/ }));
+
+    expect(await screen.findByRole("option", { name: /Everyone this semester/ })).toBeTruthy();
+    expect(screen.getByRole("option", { name: /Foundation Year only \(24\)/ })).toBeTruthy();
+  });
+
+  it("sends the chosen cohort with the notice", async () => {
+    const save = vi.spyOn(timetables, "saveAnnouncements").mockResolvedValue(EXISTING);
+    renderEditor();
+    await waitFor(() => expect(messageBoxes()).toHaveLength(2));
+
+    const [firstRow] = screen.getAllByRole("listitem");
+    fireEvent.click(within(firstRow).getByRole("combobox", { name: /Who sees it/ }));
+    fireEvent.click(await screen.findByRole("option", { name: /Foundation Year only/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Save strip" }));
+
+    await waitFor(() => expect(save).toHaveBeenCalled());
+    expect(save.mock.calls[0][1].map((item) => item.cohortKey)).toEqual(["cohort-1", ""]);
+  });
+
+  it("saves against the semester on screen, because each has its own strip", async () => {
+    const save = vi.spyOn(timetables, "saveAnnouncements").mockResolvedValue(EXISTING);
+    renderEditor();
+    await waitFor(() => expect(messageBoxes()).toHaveLength(2));
+
+    fireEvent.click(screen.getByRole("button", { name: "Save strip" }));
+
+    await waitFor(() => expect(save).toHaveBeenCalled());
+    expect(save.mock.calls[0][0]).toBe("term-1");
   });
 });

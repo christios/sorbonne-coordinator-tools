@@ -16,13 +16,14 @@ import {
   TriangleAlert,
   type LucideIcon,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { SelectMenu } from "@/components/SelectMenu";
 import {
   type AnnouncementLevel,
   PlatformAnnouncement,
   fetchAnnouncements,
+  fetchTimetableTerms,
   saveAnnouncements,
 } from "@/services/timetables";
 
@@ -57,7 +58,17 @@ const LEVEL_CHOICES: Array<{ value: AnnouncementLevel; label: string }> = [
   { value: "urgent", label: "Urgent — opens once, in red" },
 ];
 
-type Row = { key: string; id: string; icon: string; level: AnnouncementLevel; message: string };
+/** Everybody in the semester. Empty rather than a sentinel, because it is what is stored. */
+const EVERYONE = "";
+
+type Row = {
+  key: string;
+  id: string;
+  icon: string;
+  level: AnnouncementLevel;
+  cohortKey: string;
+  message: string;
+};
 
 function toRows(announcements: PlatformAnnouncement[]): Row[] {
   return announcements.map((announcement, index) => ({
@@ -65,6 +76,7 @@ function toRows(announcements: PlatformAnnouncement[]): Row[] {
     id: announcement.id ?? "",
     icon: announcement.icon,
     level: announcement.level ?? "notice",
+    cohortKey: announcement.cohortKey ?? EVERYONE,
     message: announcement.message,
   }));
 }
@@ -75,7 +87,20 @@ function toRows(announcements: PlatformAnnouncement[]): Row[] {
  */
 export function AnnouncementEditor() {
   const queryClient = useQueryClient();
-  const announcements = useQuery({ queryKey: ["platform-announcements"], queryFn: fetchAnnouncements });
+  const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms });
+  const [termId, setTermId] = useState("");
+  const semesters = useMemo(() => terms.data ?? [], [terms.data]);
+
+  // Land on a semester rather than on nothing, the way the other pickers do.
+  useEffect(() => {
+    if (semesters.length && !semesters.some((term) => term.id === termId)) setTermId(semesters[0].id);
+  }, [semesters, termId]);
+
+  const announcements = useQuery({
+    queryKey: ["platform-announcements", termId],
+    queryFn: () => fetchAnnouncements(termId),
+    enabled: Boolean(termId),
+  });
   const [rows, setRows] = useState<Row[]>([]);
   const [saved, setSaved] = useState(false);
 
@@ -86,12 +111,19 @@ export function AnnouncementEditor() {
   const save = useMutation({
     mutationFn: () =>
       saveAnnouncements(
-        rows.map(({ id, icon, level, message }) => ({ id, icon, level, message: message.trim() })),
+        termId,
+        rows.map(({ id, icon, level, cohortKey, message }) => ({
+          id,
+          icon,
+          level,
+          cohortKey,
+          message: message.trim(),
+        })),
       ),
     onSuccess: (result) => {
       setRows(toRows(result));
       setSaved(true);
-      queryClient.invalidateQueries({ queryKey: ["platform-announcements"] });
+      queryClient.invalidateQueries({ queryKey: ["platform-announcements", termId] });
     },
   });
 
@@ -104,7 +136,7 @@ export function AnnouncementEditor() {
     setSaved(false);
     setRows((current) => [
       ...current,
-      { key: `new-${Date.now()}`, id: "", icon: "info", level: "notice", message: "" },
+      { key: `new-${Date.now()}`, id: "", icon: "info", level: "notice", cohortKey: EVERYONE, message: "" },
     ]);
   }
 
@@ -123,7 +155,29 @@ export function AnnouncementEditor() {
         down and returns when they scroll back to the top. Leave it empty to hide it entirely.
       </p>
 
-      {announcements.isLoading ? (
+      <div className="mt-5 flex flex-wrap items-end gap-3">
+        <div className="w-fit min-w-[14rem] max-w-[24rem]">
+          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[#667085]">Semester</p>
+          <SelectMenu
+            label="Semester"
+            value={termId}
+            onChange={setTermId}
+            disabled={!semesters.length}
+            placeholder={terms.isLoading ? "Loading…" : "No semester uploaded yet"}
+            options={semesters.map((term) => ({ value: term.id, label: term.name }))}
+          />
+        </div>
+        <p className="mb-2.5 max-w-md text-sm leading-6 text-[#667085]">
+          Each semester has its own strip. A notice can go to everyone studying it, or to one
+          cohort within it — a cohort only appears here once the semester has been published to.
+        </p>
+      </div>
+
+      {!termId && !terms.isLoading ? (
+        <p className="mt-5 text-sm text-[#667085]">
+          Import a semester before writing notices for it.
+        </p>
+      ) : announcements.isLoading ? (
         <p className="mt-5 text-sm text-[#667085]">Loading the current strip…</p>
       ) : announcements.error ? (
         <p role="alert" className="mt-5 text-sm text-[#a6292f]">
@@ -145,6 +199,20 @@ export function AnnouncementEditor() {
                       value={row.icon}
                       onChange={(icon) => update(row.key, { icon })}
                       options={ICON_CHOICES.map(({ value, label }) => ({ value, label }))}
+                    />
+                  </div>
+                  <div className="w-56 shrink-0">
+                    <SelectMenu
+                      label="Who sees it"
+                      value={row.cohortKey}
+                      onChange={(cohortKey) => update(row.key, { cohortKey })}
+                      options={[
+                        { value: EVERYONE, label: "Everyone this semester" },
+                        ...(announcements.data?.cohorts ?? []).map((cohort) => ({
+                          value: cohort.key,
+                          label: `${cohort.name} only (${cohort.students})`,
+                        })),
+                      ]}
                     />
                   </div>
                   <div className="w-52 shrink-0">

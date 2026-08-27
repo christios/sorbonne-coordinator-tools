@@ -47,6 +47,8 @@ class AnnouncementInput(BaseModel):
     id: str = ""
     icon: str = Field(min_length=1, max_length=40)
     level: str = "notice"
+    # Empty means everybody in the semester; otherwise a cohort id from this database.
+    cohortKey: str = ""
     message: str = Field(min_length=1, max_length=160)
 
 
@@ -176,18 +178,20 @@ async def delete_term(term_id: str, client: StudentPlatformClient = Depends(requ
 
 
 @router.get("/announcements")
-async def list_announcements(client: StudentPlatformClient = Depends(require_client)) -> dict[str, Any]:
+async def list_announcements(
+    term: str = "", client: StudentPlatformClient = Depends(require_client)
+) -> dict[str, Any]:
     try:
-        return await client.list_announcements()
+        return await client.list_announcements(term)
     except StudentPlatformError as exc:
         raise _forward(exc) from exc
 
 
 @router.put("/announcements")
 async def replace_announcements(
-    body: AnnouncementsInput, client: StudentPlatformClient = Depends(require_client)
+    body: AnnouncementsInput, term: str = "", client: StudentPlatformClient = Depends(require_client)
 ) -> dict[str, Any]:
     try:
-        return await client.replace_announcements([item.model_dump() for item in body.announcements])
+        return await client.replace_announcements(term, [item.model_dump() for item in body.announcements])
     except StudentPlatformError as exc:
         raise _forward(exc) from exc

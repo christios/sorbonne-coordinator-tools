@@ -216,12 +216,13 @@ def test_saving_announcements_forwards_the_whole_strip(client: TestClient):
     assert "Room 5.033 is closed" in seen["body"]
 
 
-def test_a_notice_keeps_its_id_and_level_across_the_proxy(client: TestClient):
-    """Both decide what a student sees, and neither is this application's to invent.
+def test_a_notice_keeps_its_id_level_and_audience_across_the_proxy(client: TestClient):
+    """All three decide what a student sees, and none is this application's to invent.
 
     The id is how the platform recognises a notice it already holds, which is what keeps
-    a student's dismissal of it alive; the level is how loudly it lands. Dropping either
-    on the way through would be silent and would only show up on a student's phone.
+    a student's dismissal of it alive; the level is how loudly it lands; the cohort key is
+    who it lands on. Dropping any of them on the way through would be silent and would
+    only show up on a student's phone.
     """
     seen = {}
 
@@ -230,16 +231,28 @@ def test_a_notice_keeps_its_id_and_level_across_the_proxy(client: TestClient):
         return httpx.Response(status.HTTP_200_OK, json={"announcements": []})
 
     use(client, handler).put(
-        "/api/v1/timetables/announcements",
+        "/api/v1/timetables/announcements?term=term-1",
         json={
             "announcements": [
-                {"id": "a1", "icon": "alert", "level": "urgent", "message": "Room 5.033 is closed"}
+                {
+                    "id": "a1",
+                    "icon": "alert",
+                    "level": "urgent",
+                    "cohortKey": "cohort-foundation",
+                    "message": "Room 5.033 is closed",
+                }
             ]
         },
     )
 
     assert seen["body"]["announcements"] == [
-        {"id": "a1", "icon": "alert", "level": "urgent", "message": "Room 5.033 is closed"}
+        {
+            "id": "a1",
+            "icon": "alert",
+            "level": "urgent",
+            "cohortKey": "cohort-foundation",
+            "message": "Room 5.033 is closed",
+        }
     ]
 
 

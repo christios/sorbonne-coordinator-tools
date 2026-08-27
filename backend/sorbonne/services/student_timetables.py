@@ -119,23 +119,36 @@ class StudentPlatformClient:
         )
 
     async def replace_enrolments(
-        self, term_id: str, enrolments: dict[str, list[str]], *, base_updated_at: str | None = None
+        self,
+        term_id: str,
+        enrolments: dict[str, list[str]],
+        *,
+        cohorts: dict[str, dict[str, str]] | None = None,
+        base_updated_at: str | None = None,
     ) -> dict[str, Any]:
-        """Make the semester's enrolments exactly what this application resolved."""
+        """Make the semester's enrolments exactly what this application resolved.
+
+        Cohort membership travels with them because it is the same act of publishing: who
+        is on what, and which population each of them belongs to, settled together.
+        """
         return await self._request(
             "PUT",
             f"/api/v1/admin/terms/{term_id}/enrolments",
-            json={"enrolments": enrolments, "base_updated_at": base_updated_at},
+            json={
+                "enrolments": enrolments,
+                "cohorts": cohorts or {},
+                "base_updated_at": base_updated_at,
+            },
             timeout=UPLOAD_TIMEOUT_SECONDS,
         )
 
-    async def list_announcements(self) -> dict[str, Any]:
-        payload = await self._request("GET", "/api/v1/admin/announcements")
-        return payload if isinstance(payload, dict) else {"announcements": [], "icons": []}
+    async def list_announcements(self, term: str = "") -> dict[str, Any]:
+        payload = await self._request("GET", f"/api/v1/admin/announcements?term={term}")
+        return payload if isinstance(payload, dict) else {"announcements": [], "icons": [], "cohorts": []}
 
-    async def replace_announcements(self, announcements: list[dict[str, str]]) -> dict[str, Any]:
+    async def replace_announcements(self, term: str, announcements: list[dict[str, str]]) -> dict[str, Any]:
         payload = await self._request(
-            "PUT", "/api/v1/admin/announcements", json={"announcements": announcements}
+            "PUT", f"/api/v1/admin/announcements?term={term}", json={"announcements": announcements}
         )
         return payload if isinstance(payload, dict) else {"announcements": []}
 

@@ -310,3 +310,54 @@ def test_a_group_from_another_scope_is_refused(client: TestClient, database: Stu
     built = build_cohort(database)
     response = put_assignment(client, built["cm"], built["group1"])
     assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+def test_publishing_tells_the_platform_which_cohort_each_student_is_in(
+    client: TestClient, database: StudentDatabase
+):
+    """The platform has no notion of cohorts otherwise, and a notice addressed to one has
+    to reach the right people."""
+    build_cohort(database)
+
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/sections"):
+            return httpx.Response(status.HTTP_200_OK, json={"sections": SECTIONS})
+        seen["body"] = json.loads(request.content.decode())
+        return httpx.Response(status.HTTP_200_OK, json={"studentCount": 2})
+
+    use(client, handler).post(f"/api/v1/publication/terms/{TERM}/publish", json={})
+
+    cohorts = seen["body"]["cohorts"]
+    assert cohorts, "cohort membership was not sent at all"
+    assert all(set(entry) == {"key", "name"} for entry in cohorts.values())
+    assert {entry["name"] for entry in cohorts.values()} == {"Foundation Year"}
+
+
+def test_a_student_nobody_has_placed_still_gets_a_cohort(
+    client: TestClient, database: StudentDatabase
+):
+    """They resolve to no enrolments at all, and are the likeliest to need telling why."""
+    build_cohort(database)
+    cohort = database.list_cohorts()[0]
+    with database.engine.begin() as connection:
+        connection.execute(
+            text("""INSERT INTO students (student_id, status, cohort_id, first_seen_at,
+                                          last_seen_at, updated_at)
+                    VALUES ('A-unplaced', 'in_portal', :cohort, 'now', 'now', 'now')"""),
+            {"cohort": cohort["id"]},
+        )
+
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/sections"):
+            return httpx.Response(status.HTTP_200_OK, json={"sections": SECTIONS})
+        seen["body"] = json.loads(request.content.decode())
+        return httpx.Response(status.HTTP_200_OK, json={"studentCount": 3})
+
+    use(client, handler).post(f"/api/v1/publication/terms/{TERM}/publish", json={})
+
+    assert "A-unplaced" not in seen["body"]["enrolments"]
+    assert seen["body"]["cohorts"]["A-unplaced"]["name"] == "Foundation Year"

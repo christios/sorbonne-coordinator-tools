@@ -83,7 +83,7 @@ beforeEach(() => {
   vi.spyOn(rosters, "pullFilter").mockResolvedValue(PORTAL);
   vi.spyOn(timetables, "fetchTimetableStatus").mockResolvedValue({ configured: true, host: "scen.example.dev" });
   vi.spyOn(timetables, "fetchTimetableTerms").mockResolvedValue([]);
-  vi.spyOn(timetables, "fetchAnnouncements").mockResolvedValue({ announcements: [], icons: ["info"] });
+  vi.spyOn(timetables, "fetchAnnouncements").mockResolvedValue({ announcements: [], icons: ["info"], cohorts: [] });
 });
 
 afterEach(() => {
