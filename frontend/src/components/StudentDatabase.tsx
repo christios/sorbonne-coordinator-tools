@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { CalendarDays, ListTree, Megaphone, Users } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { AnnouncementEditor } from "@/components/AnnouncementEditor";
 import { CohortActions } from "@/components/CohortActions";
@@ -13,6 +13,7 @@ import { StaffMenu } from "@/components/StaffMenu";
 import { StudentRoster } from "@/components/StudentRoster";
 import { SidePane } from "@/components/SidePane";
 import { ViewBar } from "@/components/ViewBar";
+import { locationFor, pageFromLocation } from "@/routes/toolRoute";
 import { fetchCohorts, fetchViews } from "@/services/studentDatabase";
 import { fetchTimetableStatus, fetchTimetableTerms } from "@/services/timetables";
 
@@ -27,6 +28,12 @@ const PAGES = [
 ] as const;
 
 type PageId = (typeof PAGES)[number]["id"];
+
+/** The page the address names, or the one to open when it names none we know. */
+function pageOf(hash: string): PageId {
+  const named = pageFromLocation(hash);
+  return PAGES.some((candidate) => candidate.id === named) ? (named as PageId) : "students";
+}
 
 // A blurb is optional: the Students page explains itself through the view picker.
 const TITLES: Record<PageId, { title: string; blurb?: string }> = {
@@ -61,7 +68,30 @@ const TITLES: Record<PageId, { title: string; blurb?: string }> = {
 export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => void } = {}) {
   const cohorts = useQuery({ queryKey: ["cohorts"], queryFn: fetchCohorts });
   const views = useQuery({ queryKey: ["views"], queryFn: fetchViews });
-  const [page, setPage] = useState<PageId>("students");
+  /*
+   * The page lives in the address, not only in state.
+   *
+   * It was state alone, so every reload — and every press of the back button — dropped
+   * the coordinator on Students however deep in the work they were, and a link to a page
+   * could not be sent to anybody. The address is now the truth, and the sidebar writes to
+   * it rather than to a variable.
+   */
+  const [page, setPage] = useState<PageId>(() => pageOf(window.location.hash));
+
+  useEffect(() => {
+    const follow = () => setPage(pageOf(window.location.hash));
+    window.addEventListener("hashchange", follow);
+    return () => window.removeEventListener("hashchange", follow);
+  }, []);
+
+  const openPage = useCallback((next: PageId) => {
+    setPage(next);
+    // Replace rather than push: which page you are on inside a tool is where you are, not
+    // a step in a journey, and pushing would make Back walk every page you had glanced at
+    // on the way. replaceState also changes the address without navigating, so nothing
+    // remounts underneath the choice.
+    window.history.replaceState(null, "", `#${locationFor("database", next)}`);
+  }, []);
   const [termId, setTermId] = useState("");
   // Set when the Groups page sends somebody here: the Students table opens on exactly them.
   const [preselect, setPreselect] = useState<string[]>([]);
@@ -105,7 +135,7 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
         heading="Students and timetables"
         items={PAGES.map(({ id, name, icon, group }) => ({ id, name, icon, group }))}
         activeId={page}
-        onSelect={(id) => setPage(id as PageId)}
+        onSelect={(id) => openPage(id as PageId)}
         // Who is signed in, and their settings, belong at the foot of whichever pane is
         // on screen — inside a tool that is this one, not the launcher's.
         footer={<StaffMenu variant="sidebar" onOpenSettings={onOpenSettings} />}
@@ -207,7 +237,7 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
               termId={termId}
               onShowStudents={(ids) => {
                 setPreselect(ids);
-                setPage("students");
+                openPage("students");
               }}
             />
           ) : null}

@@ -288,3 +288,72 @@ describe("students and their timetables in one place", () => {
     expect(await screen.findByRole("button", { name: /sync this view/i })).toBeTruthy();
   });
 });
+
+
+/**
+ * Refreshing used to lose your place.
+ *
+ * The page was state and nothing else, so a reload — or the back button — dropped the
+ * coordinator on Students however deep in the work they were.
+ */
+describe("keeping your place", () => {
+  // Local, because the `open` helper above belongs to another describe block — and
+  // calling it from here quietly resolved to window.open, which clicks nothing.
+  const choose = async (name: RegExp) => fireEvent.click(await screen.findByRole("button", { name }));
+
+  /*
+   * Set the address and let the hashchange it fires settle *before* mounting.
+   *
+   * Without the wait these tests pass whether or not the page is read on mount: jsdom
+   * dispatches hashchange a tick after the assignment, so the listener quietly did the
+   * work and a component that ignored the address entirely still looked correct.
+   */
+  const startAt = async (hash: string) => {
+    window.location.hash = hash;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  };
+
+  afterEach(() => {
+    window.location.hash = "";
+  });
+
+  it("opens the page the address names", async () => {
+    await startAt("#/database/semesters");
+    renderApp();
+
+    expect(await screen.findByText(/Semesters on the student platform/)).toBeTruthy();
+  });
+
+  it("writes the page into the address when one is chosen", async () => {
+    renderApp();
+    await choose(/^Groups & CRNs$/);
+
+    await waitFor(() => expect(window.location.hash).toBe("#/database/groups"));
+  });
+
+  it("opens Students when the address names no page", async () => {
+    await startAt("#/database");
+    renderApp();
+
+    expect(await screen.findByRole("combobox", { name: "View" })).toBeTruthy();
+  });
+
+  it("opens Students rather than nothing when the address names a page we lost", async () => {
+    await startAt("#/database/a-page-that-was-removed");
+    renderApp();
+
+    expect(await screen.findByRole("combobox", { name: "View" })).toBeTruthy();
+  });
+
+  it("follows the back button", async () => {
+    await startAt("#/database/announcements");
+    renderApp();
+    await screen.findByRole("combobox", { name: "Semester" });
+
+    // What going back looks like to the page: the address changes underneath it.
+    window.location.hash = "#/database/semesters";
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
+
+    expect(await screen.findByText(/Semesters on the student platform/)).toBeTruthy();
+  });
+});
