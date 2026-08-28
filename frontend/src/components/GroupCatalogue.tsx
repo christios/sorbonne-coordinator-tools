@@ -68,7 +68,19 @@ export function GroupCatalogue({
   const [exporting, setExporting] = useState(false);
   const [pendingScope, setPendingScope] = useState<CatalogueScope | null>(null);
 
-  const refresh = () => client.invalidateQueries({ queryKey: ["catalogue", cohort.id, termId] });
+  /*
+   * The catalogue and what the platform makes of it, together.
+   *
+   * The "nobody has placed them" warning and the CRN ticks are both read from the
+   * publication, not from the catalogue — so removing a group, adding a block or typing a
+   * CRN changed the matrix and left the warning above it describing the semester as it was
+   * a moment ago. It took a page refresh to catch up, which is the one thing a coordinator
+   * should never have to think to do.
+   */
+  const refresh = () => {
+    client.invalidateQueries({ queryKey: ["catalogue", cohort.id, termId] });
+    client.invalidateQueries({ queryKey: ["publication"] });
+  };
 
   // One workbook, both halves, and nothing written until it has been looked at.
   const check = useMutation({
@@ -84,7 +96,6 @@ export function GroupCatalogue({
     onSuccess: (result, variables) => {
       setApplied({ ...result, approved: variables.approved });
       setPreview(null);
-      client.invalidateQueries({ queryKey: ["publication", termId] });
       refresh();
     },
   });

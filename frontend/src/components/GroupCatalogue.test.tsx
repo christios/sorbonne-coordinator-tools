@@ -414,6 +414,45 @@ describe("students nobody has placed", () => {
       isReady: false,
     });
 
+  it("recounts the moment a group is removed, without a page refresh", async () => {
+    /*
+     * The warning is read from the publication and the matrix from the catalogue, and
+     * only the catalogue was being refetched. Removing a group changed the table and left
+     * the sentence above it describing the semester as it was a moment ago.
+     */
+    let unassigned: Record<string, string[]> = { TD: ["A1", "A2", "A3"] };
+    vi.spyOn(publication, "fetchPublication").mockImplementation(async () => ({
+      cohorts: [
+        {
+          cohortId: "cohort-1",
+          cohort: "Foundation Year",
+          students: 24,
+          studentsResolved: 20,
+          unassigned,
+          warnings: [],
+          isReady: false,
+        },
+      ],
+      validation: {},
+      unmatchedCrns: 0,
+      sections: 43,
+      resolved: { students: 20, enrolments: 140 },
+      isReady: false,
+    }));
+    vi.spyOn(database, "deleteGroup").mockResolvedValue();
+    renderCatalogue("term-1");
+    expect((await screen.findByText(/in no group for/)).textContent).toContain("TD (3)");
+
+    // Removing the group leaves everybody who sat in it unplaced.
+    unassigned = { TD: ["A1", "A2", "A3", "A4", "A5"] };
+    fireEvent.click(screen.getByLabelText("Remove group 5"));
+    fireEvent.click(await screen.findByRole("button", { name: "Remove group" }));
+
+    await waitFor(() =>
+      expect(screen.getByText(/in no group for/).textContent).toContain("TD (5)"),
+    );
+  });
+
   it("warns while the blocks are being filled, not only when publishing", async () => {
     withUnassigned({ TD: ["A1", "A2", "A3"], CM: ["A1"] });
     renderCatalogue("term-1");

@@ -212,6 +212,8 @@ export function StudentRoster({
       setSelected(new Set());
       client.invalidateQueries({ queryKey: ["students"] });
       client.invalidateQueries({ queryKey: ["cohorts"] });
+      client.invalidateQueries({ queryKey: ["catalogue"] });
+      client.invalidateQueries({ queryKey: ["publication"] });
     },
   });
 
@@ -229,6 +231,9 @@ export function StudentRoster({
       setConfirmMove(null);
       client.invalidateQueries({ queryKey: ["students"] });
       client.invalidateQueries({ queryKey: ["cohorts"] });
+      // A move drops every group they held, so both cohorts' counts have changed.
+      client.invalidateQueries({ queryKey: ["catalogue"] });
+      client.invalidateQueries({ queryKey: ["publication"] });
     },
   });
 
@@ -446,6 +451,9 @@ export function StudentRoster({
             setSelected(new Set());
             client.invalidateQueries({ queryKey: ["students"] });
             client.invalidateQueries({ queryKey: ["catalogue"] });
+            // Placing somebody is the commonest way the "nobody has placed them" count
+            // changes, and that count is the publication's, not the catalogue's.
+            client.invalidateQueries({ queryKey: ["publication"] });
           }}
         />
       ) : null}
