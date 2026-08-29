@@ -134,9 +134,22 @@ export function App() {
     <main className={`${shell} bg-[#f7f8fa]`}>
       <header className={`shrink-0 border-b border-[#d9dee7] bg-white ${compactSyllabusHeader ? "hidden" : ""}`}>
         <div data-testid="app-header" className={`mx-auto flex max-w-[98rem] flex-col items-start gap-3 px-4 transition-[padding,gap] duration-200 sm:px-6 lg:flex-row lg:items-center lg:justify-between lg:px-8 ${compactSyllabusHeader ? "py-2" : "py-5"}`}>
-          <div>
-            <p className={`text-xs font-semibold uppercase tracking-normal text-[#a6292f] ${compactSyllabusHeader ? "hidden" : ""}`}>Sorbonne University Abu Dhabi</p>
-            <h1 className={`font-semibold tracking-normal text-[#171717] transition-[font-size,margin] duration-200 ${compactSyllabusHeader ? "text-base" : "mt-1 text-2xl"}`}>Academic Coordinator Tools</h1>
+          <div className="flex items-center gap-3.5">
+            {/*
+              * The SCEN mark stands beside the university's name, never merged into it:
+              * they are two identities, and the guidance is explicit that the Sorbonne
+              * lockup keeps its own weight. The mark folds away with the rest of the
+              * header when the syllabus editor asks for the room.
+              */}
+            <img
+              src="/assets/logos/coordinator-tools-mark.svg"
+              alt=""
+              className={`w-auto shrink-0 transition-[height] duration-200 ${compactSyllabusHeader ? "h-7" : "h-11"}`}
+            />
+            <div>
+              <p className={`text-xs font-semibold uppercase tracking-normal text-[#a6292f] ${compactSyllabusHeader ? "hidden" : ""}`}>Sorbonne University Abu Dhabi</p>
+              <h1 className={`font-semibold tracking-normal text-[#171717] transition-[font-size,margin] duration-200 ${compactSyllabusHeader ? "text-base" : "mt-1 text-2xl"}`}>Academic Coordinator Tools</h1>
+            </div>
           </div>
           <div className="flex items-center gap-3">
             {activeTool ? (
