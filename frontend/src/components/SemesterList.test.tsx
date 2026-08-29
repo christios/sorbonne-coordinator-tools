@@ -110,7 +110,7 @@ describe("the two ways a semester gets its timetable", () => {
     fireEvent.click(await screen.findByRole("button", { name: /Import a timetable/ }));
 
     const dialog = await screen.findByRole("dialog", { name: "Import a timetable" });
-    expect(within(dialog).getByRole("button", { name: /Import to student platform/ })).toBeTruthy();
+    expect(within(dialog).getByRole("button", { name: /Import to Student Hub/ })).toBeTruthy();
     expect(screen.getByRole("row", { name: /Physics & Maths/ })).toBeTruthy();
 
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));

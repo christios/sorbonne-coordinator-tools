@@ -36,7 +36,7 @@ function fillIn() {
   });
 }
 
-const importButton = () => screen.getByRole("button", { name: /Import to student platform/ }) as HTMLButtonElement;
+const importButton = () => screen.getByRole("button", { name: /Import to Student Hub/ }) as HTMLButtonElement;
 
 afterEach(() => vi.restoreAllMocks());
 

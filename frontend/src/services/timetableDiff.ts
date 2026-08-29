@@ -1,5 +1,5 @@
 /**
- * Turning the student platform's diff into what the review screen shows, and turning what
+ * Turning the Student Hub's diff into what the review screen shows, and turning what
  * the coordinator ticked back into the changes to apply.
  *
  * Pure functions, because these are the rules that have to be right: which rows are

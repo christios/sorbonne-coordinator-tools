@@ -27,7 +27,7 @@ class Config(BaseSettings):
     coordinator_access_emails: str = ""
     session_secret: str | None = None
     session_hours: int = 12
-    # SCEN Student Platform (separate deployment) — the timetable uploader is
+    # SCEN Student Hub (separate deployment) — the timetable uploader is
     # disabled until both of these are configured.
     scen_student_platform_url: str | None = None
     scen_student_platform_token: str | None = None

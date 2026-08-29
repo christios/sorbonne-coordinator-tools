@@ -49,7 +49,7 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe("AnnouncementEditor", () => {
-  it("loads the strip that is currently on the student platform", async () => {
+  it("loads the strip that is currently on the Student Hub", async () => {
     renderEditor();
 
     await waitFor(() => expect(messageBoxes()).toHaveLength(2));

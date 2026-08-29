@@ -18,7 +18,7 @@ import { fetchCohorts, fetchViews } from "@/services/studentDatabase";
 import { fetchTimetableStatus, fetchTimetableTerms } from "@/services/timetables";
 
 // Two families of page in one pane: what this application knows about students, and what
-// the student platform shows them. They belong together because they are the same job —
+// the Student Hub shows them. They belong together because they are the same job —
 // the CRNs a cohort is taught in are the CRNs its timetable is built from.
 const PAGES = [
   { id: "students", name: "Students", icon: Users, group: "Students" },
@@ -46,7 +46,7 @@ const TITLES: Record<PageId, { title: string; blurb?: string }> = {
   },
   semesters: {
     title: "Semesters",
-    blurb: "What the student platform holds, and whether students can see it yet.",
+    blurb: "What the Student Hub holds, and whether students can see it yet.",
   },
   announcements: {
     title: "Announcements",
@@ -243,7 +243,7 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
           ) : null}
 
           {onPlatform && status.isLoading ? (
-            <ScreenLoading label="Checking the student platform connection…" />
+            <ScreenLoading label="Checking the Student Hub connection…" />
           ) : null}
           {onPlatform && !status.isLoading && !status.data?.configured ? <PlatformNotConfigured /> : null}
           {page === "semesters" && status.data?.configured ? <SemesterList host={status.data.host} /> : null}

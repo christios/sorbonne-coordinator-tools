@@ -30,7 +30,7 @@ import {
 
 const MAX_MESSAGE_LENGTH = 160;
 
-/** Mirrors the icons the student platform accepts, with the label shown here. */
+/** Mirrors the icons the Student Hub accepts, with the label shown here. */
 const ICON_CHOICES: Array<{ value: string; label: string; icon: LucideIcon }> = [
   { value: "info", label: "Information", icon: Info },
   { value: "alert", label: "Warning", icon: TriangleAlert },
@@ -47,7 +47,7 @@ const ICON_CHOICES: Array<{ value: string; label: string; icon: LucideIcon }> = 
 const ICONS = new Map(ICON_CHOICES.map((choice) => [choice.value, choice.icon]));
 
 /**
- * How much a notice matters, which the student platform turns into how loudly it lands.
+ * How much a notice matters, which the Student Hub turns into how loudly it lands.
  *
  * "Notice" sits in the strip as everything used to. The two above it open as a card over
  * the student's timetable until they acknowledge it, so they are worth spending sparingly
@@ -153,7 +153,7 @@ function toRows(announcements: PlatformAnnouncement[]): Row[] {
 
 /**
  * The strip above the student header. The coordinator writes the lines and picks
- * an icon for each; the student platform owns how they are laid out.
+ * an icon for each; the Student Hub owns how they are laid out.
  */
 export function AnnouncementEditor() {
   const queryClient = useQueryClient();

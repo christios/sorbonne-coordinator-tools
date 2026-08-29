@@ -1,4 +1,4 @@
-"""Publishing a semester's enrolments to the SCEN Student Platform.
+"""Publishing a semester's enrolments to the SCEN Student Hub.
 
 This is the one place that reads both databases: the blocks and group assignments are this
 application's, the timetable and the students' view of it are the platform's. So it sits

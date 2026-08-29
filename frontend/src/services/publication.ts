@@ -1,5 +1,5 @@
 /**
- * Publishing a semester's enrolments to the SCEN Student Platform.
+ * Publishing a semester's enrolments to the SCEN Student Hub.
  *
  * Three calls, always in this order: ask what stands in the way, ask what would change, and
  * only then write. The middle one is not a formality — a publish replaces rather than

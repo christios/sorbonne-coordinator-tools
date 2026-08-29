@@ -34,7 +34,7 @@ export const COORDINATOR_APPS: CoordinatorApp[] = [
     icon: Users,
     keywords:
       "student database cohort group crn roster portal registrar assignment scope block " +
-      "timetable schedule semester upload publish scen student platform announcement notice",
+      "timetable schedule semester upload publish scen student hub platform announcement notice",
   },
   {
     id: "handbook",

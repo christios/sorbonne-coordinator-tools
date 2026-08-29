@@ -267,12 +267,12 @@ describe("students and their timetables in one place", () => {
     }
   });
 
-  it("reaches the semesters the student platform holds", async () => {
+  it("reaches the semesters the Student Hub holds", async () => {
     renderApp();
 
     await open(/^Semesters$/);
 
-    expect(await screen.findByText(/Semesters on the student platform/)).toBeTruthy();
+    expect(await screen.findByText(/Semesters on the Student Hub/)).toBeTruthy();
     expect(screen.getByRole("button", { name: /Import a timetable/ })).toBeTruthy();
   });
 
@@ -321,7 +321,7 @@ describe("keeping your place", () => {
     await startAt("#/database/semesters");
     renderApp();
 
-    expect(await screen.findByText(/Semesters on the student platform/)).toBeTruthy();
+    expect(await screen.findByText(/Semesters on the Student Hub/)).toBeTruthy();
   });
 
   it("writes the page into the address when one is chosen", async () => {
@@ -354,6 +354,6 @@ describe("keeping your place", () => {
     window.location.hash = "#/database/semesters";
     window.dispatchEvent(new HashChangeEvent("hashchange"));
 
-    expect(await screen.findByText(/Semesters on the student platform/)).toBeTruthy();
+    expect(await screen.findByText(/Semesters on the Student Hub/)).toBeTruthy();
   });
 });

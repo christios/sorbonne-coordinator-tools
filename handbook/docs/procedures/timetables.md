@@ -54,7 +54,7 @@ confirmed opening dates:
 
 ## Publishing a change to students
 
-Students read the timetable from the SCEN Student Platform, so a change agreed with
+Students read the timetable from the SCEN Student Hub, so a change agreed with
 the timetabling office is not visible to them until it is uploaded. In **Coordinator
 Tools → Students and Timetables → Semesters**, a semester carries an **Update
 timetable** action:

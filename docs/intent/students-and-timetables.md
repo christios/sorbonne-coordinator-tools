@@ -8,7 +8,7 @@ thing to resolve, not the line to quietly drop.
 
 - **Outcome** — The registrar's timetable becomes the single source of truth for a semester.
   Groups, CRNs and what students see all derive from it or validate against it, and
-  Coordinator Tools owns "who is in which group" and publishes that to the student platform.
+  Coordinator Tools owns "who is in which group" and publishes that to the Student Hub.
 - **User** — the coordinator, and the 2803 students who read the result.
 - **Why now** — S1 2026-27 starts in early September, and today the same fact lives in two
   places (the group-template workbooks *and* the roster console) with nothing checking that

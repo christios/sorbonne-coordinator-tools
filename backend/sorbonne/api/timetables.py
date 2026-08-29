@@ -1,4 +1,4 @@
-"""Upload SCEN timetables into the student platform from inside Coordinator Tools."""
+"""Upload SCEN timetables into the Student Hub from inside Coordinator Tools."""
 
 from __future__ import annotations
 

@@ -84,7 +84,7 @@ export function SemesterImport({
               ) : (
                 <FileSpreadsheet size={16} aria-hidden="true" />
               )}
-              Import to student platform
+              Import to Student Hub
             </button>
           </>
         )

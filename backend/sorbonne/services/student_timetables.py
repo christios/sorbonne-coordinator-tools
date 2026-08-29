@@ -1,6 +1,6 @@
-"""Client for the SCEN Student Platform's coordinator API.
+"""Client for the SCEN Student Hub's coordinator API.
 
-Timetables live in the student platform, not in this database. This service is the
+Timetables live in the Student Hub, not in this database. This service is the
 only place that talks to it, so the access token stays on the server and never
 reaches the browser.
 """
@@ -170,13 +170,13 @@ class StudentPlatformClient:
                 response = await client.request(method, path, headers=self._headers, **kwargs)
         except httpx.RequestError as exc:
             raise StudentPlatformError(
-                f"The student platform at {self.host} could not be reached. Try again in a moment.",
+                f"The Student Hub at {self.host} could not be reached. Try again in a moment.",
                 status_code=502,
             ) from exc
 
         if response.status_code == httpx.codes.UNAUTHORIZED:
             raise StudentPlatformError(
-                "The student platform rejected this deployment's access code. Update "
+                "The Student Hub rejected this deployment's access code. Update "
                 "SCEN_STUDENT_PLATFORM_TOKEN and redeploy.",
                 status_code=502,
             )
@@ -195,13 +195,13 @@ def _detail_of(response: httpx.Response) -> str:
     try:
         body = response.json()
     except ValueError:
-        return f"The student platform returned an unexpected error ({response.status_code})."
+        return f"The Student Hub returned an unexpected error ({response.status_code})."
     detail = body.get("detail") if isinstance(body, dict) else None
     if isinstance(detail, str) and detail.strip():
         return detail
     if isinstance(detail, dict) and isinstance(detail.get("message"), str):
         return detail["message"]
-    return f"The student platform returned an unexpected error ({response.status_code})."
+    return f"The Student Hub returned an unexpected error ({response.status_code})."
 
 
 def _structured_detail(response: httpx.Response) -> dict[str, Any] | None:

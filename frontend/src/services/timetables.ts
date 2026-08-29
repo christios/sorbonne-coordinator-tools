@@ -111,7 +111,7 @@ export function deleteTimetableTerm(termId: string): Promise<void> {
   return request<void>(`/api/v1/timetables/terms/${termId}`, { method: "DELETE" });
 }
 
-/** Quietest first, matching the levels the student platform accepts. */
+/** Quietest first, matching the levels the Student Hub accepts. */
 export type AnnouncementLevel = "notice" | "important" | "urgent";
 
 export type PlatformAnnouncement = {

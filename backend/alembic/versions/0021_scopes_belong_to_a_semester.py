@@ -5,7 +5,7 @@ how they are split: Block A is Maths Gr.3 in the first semester and Maths Gr.2 i
 Until now a scope was unique on `(cohort_id, code)`, so a cohort could hold one "TD" and no
 more, and the same rows had to serve both semesters or be thrown away between them.
 
-`term_id` is the student platform's own term id, deliberately kept as an opaque string rather
+`term_id` is the Student Hub's own term id, deliberately kept as an opaque string rather
 than mirrored into a table here. Timetables live over there; a term that disappears should
 surface as a validation failure the coordinator can read, not as a foreign key this database
 cannot satisfy.

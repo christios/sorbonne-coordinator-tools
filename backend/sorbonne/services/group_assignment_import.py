@@ -11,7 +11,7 @@ types the group into, and the rest is the course. So the workbook tells us where
 groups live rather than us guessing from header text — a renamed column or a new course tab
 goes on working.
 
-Unlike the student platform's reader, this one deliberately stops at the group. CRNs belong
+Unlike the Student Hub's reader, this one deliberately stops at the group. CRNs belong
 to the catalogue here, which is validated against the timetable; resolving them twice, from
 two sources, is exactly the drift this whole change exists to remove.
 

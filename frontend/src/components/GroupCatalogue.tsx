@@ -56,7 +56,7 @@ export function GroupCatalogue({
     queryFn: () => fetchCatalogue(cohort.id, termId),
   });
   // What the timetable says about each CRN. Best effort: the catalogue is still editable
-  // when the student platform cannot be reached, it just cannot be checked.
+  // when the Student Hub cannot be reached, it just cannot be checked.
   const publication = useQuery({
     queryKey: ["publication", termId],
     queryFn: () => fetchPublication(termId),
