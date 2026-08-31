@@ -54,6 +54,27 @@ window.addEventListener('message', event => {
   }
 });
 
+/*
+ * Relay the background's progress to the page.
+ *
+ * A pull is now several requests rather than one, and the page has a single timer over
+ * the whole thing. These let it know the pull is alive, so a slow success stops looking
+ * like a hang — which is how a working sync came to be reported as a missing extension.
+ */
+chrome.runtime.onMessage.addListener(message => {
+  if (!message || message.type !== 'fetch_progress') return;
+  window.postMessage(
+    {
+      channel: CHANNEL,
+      dir: 'progress',
+      fetched: message.fetched,
+      total: message.total,
+      name: message.name
+    },
+    ORIGIN
+  );
+});
+
 // Announce availability for pages that are already listening. Pages that load
 // later should use ping() instead of relying on catching this.
 window.postMessage(

@@ -45,18 +45,36 @@ async function loadWorker(): Promise<void> {
     if (!String(target).startsWith("http")) {
       return { json: async () => JSON.parse(readFileSync(String(target), "utf8")) };
     }
-    requests.push({ url: String(target), body: JSON.parse(init?.body ?? "{}") });
+    const body = JSON.parse(init?.body ?? "{}");
+    requests.push({ url: String(target), body });
+    // `population` lets a test say how many students the term holds; the default keeps
+    // the single-row behaviour every other test was written against.
+    const total = population ?? 1;
+    const skip = Number(body.Skip ?? 0);
+    const take = Number(body.Take ?? total);
+    const entities = Array.from({ length: Math.max(0, Math.min(take, total - skip)) }, (_, i) => ({
+      SPRIDEN_ID: `A${String(skip + i).padStart(3, "0")}`,
+      FULL_NAME: "Amira",
+      PASSPORT_ID: "SECRET",
+    }));
     return {
       status: 200,
       ok: true,
       headers: { get: () => "application/json" },
-      json: async () => ({ Entities: [{ SPRIDEN_ID: "A001", FULL_NAME: "Amira", PASSPORT_ID: "SECRET" }] }),
+      json: async () => ({ Entities: entities, TotalCount: total }),
     };
   });
 
   vi.resetModules();
   await import("../../extension/background.js");
 }
+
+/** How many students the fake portal holds. Null keeps the one-row default. */
+let population: number | null = null;
+
+afterEach(() => {
+  population = null;
+});
 
 const send = (message: unknown): Promise<Record<string, unknown>> =>
   new Promise((resolve) => {
@@ -113,10 +131,55 @@ describe("the extension's service worker", () => {
     expect(reply.ok).toBe(true);
     expect(requests[0].body).toMatchObject({
       EqualityFilter: { TERM_CODE: "262710", YEARLEVEL_CODE: ["FY"] },
-      Take: 0,
+      Skip: 0,
+      Take: 500,
     });
     // The portal returns 45 columns including passports; only the allowlist survives.
-    expect(reply.rows).toEqual([{ SPRIDEN_ID: "A001", FULL_NAME: "Amira" }]);
+    expect(reply.rows).toEqual([{ SPRIDEN_ID: "A000", FULL_NAME: "Amira" }]);
+  });
+
+  /*
+   * A whole term used to be one request with `Take: 0`. The first term is 2876 students,
+   * and one request that large is a single point of failure with nothing to show while it
+   * runs — the page could not tell a slow success from a hang, and abandoned it.
+   */
+  describe("a term that does not fit in one answer", () => {
+    it("walks the pages and returns every student once", async () => {
+      population = 1150;
+
+      const reply = await send({ type: "fetch", filter: {} });
+
+      expect(reply.rows).toHaveLength(1150);
+      expect(new Set(reply.rows.map((r: { SPRIDEN_ID: string }) => r.SPRIDEN_ID)).size).toBe(1150);
+    });
+
+    it("asks for each page in turn", async () => {
+      population = 1150;
+
+      await send({ type: "fetch", filter: {} });
+
+      const portal = requests.filter((r) => r.url.startsWith("http"));
+      expect(portal.map((r) => r.body.Skip)).toEqual([0, 500, 1000]);
+      expect(portal.every((r) => r.body.Take === 500)).toBe(true);
+    });
+
+    it("stops on the short page rather than asking for ever", async () => {
+      population = 300;
+
+      await send({ type: "fetch", filter: {} });
+
+      expect(requests.filter((r) => r.url.startsWith("http"))).toHaveLength(1);
+    });
+
+    it("says so rather than quietly returning half a term", async () => {
+      // A portal that never returns a short page would otherwise spin here for ever.
+      population = 25000;
+
+      const reply = await send({ type: "fetch", filter: {} });
+
+      expect(reply.warning).toBe("truncated");
+      expect(reply.rows.length).toBeLessThan(25000);
+    });
   });
 
   it("returns the columns the portal's own picker lists, once it has read them", async () => {
@@ -164,7 +227,7 @@ describe("the extension's service worker", () => {
       expect(offered).not.toContain(refused);
       expect(reply.columns).not.toContain(refused);
     }
-    expect(reply.rows).toEqual([{ SPRIDEN_ID: "A001", FULL_NAME: "Amira" }]);
+    expect(reply.rows).toEqual([{ SPRIDEN_ID: "A000", FULL_NAME: "Amira" }]);
   });
 
   it("offers what the service has always returned, not only what the grid shows", async () => {

@@ -10,7 +10,14 @@ import { useStaffUser } from "@/components/useStaffUser";
 import { describeFilter, filterLines, type Filter } from "@/services/filterSummary";
 import { recordPull } from "@/services/pullHistory";
 import { rememberPull, rememberSync } from "@/services/rosterStore";
-import { PortalError, fetchSchema, pullFilter, studentIdOf, type PortalField } from "@/services/scenRosters";
+import {
+  PortalError,
+  fetchSchema,
+  pullFilter,
+  studentIdOf,
+  type PortalField,
+  type PullProgress,
+} from "@/services/scenRosters";
 import { createView, deleteView, syncView, type StudentView } from "@/services/studentDatabase";
 
 /**
@@ -40,6 +47,9 @@ export function ViewBar({
   const [name, setName] = useState("");
   const [pendingDelete, setPendingDelete] = useState<StudentView | null>(null);
   const [showingFilter, setShowingFilter] = useState(false);
+  // How far the pull has got. A whole term is thousands of students and several minutes;
+  // a button that only says "Syncing…" for that long is indistinguishable from a hang.
+  const [pulled, setPulled] = useState<PullProgress | null>(null);
 
   const fields = schema.data?.fields ?? [];
   const view = views.find((candidate) => candidate.id === viewId) ?? null;
@@ -53,7 +63,12 @@ export function ViewBar({
 
   const sync = useMutation({
     mutationFn: async (target: StudentView) => {
-      const roster = await pullFilter(target.filter as Filter, { name: target.name, expect: null });
+      setPulled(null);
+      const roster = await pullFilter(
+        target.filter as Filter,
+        { name: target.name, expect: null },
+        setPulled,
+      );
       const report = await syncView(target.id, roster.rows.map(studentIdOf).filter(Boolean));
       rememberPull({ ...roster, presetId: target.id });
       rememberSync(target.id, report.syncedAt);
@@ -61,6 +76,7 @@ export function ViewBar({
       recordPull(target.id, roster.rows, roster.fetchedAt);
       return report;
     },
+    onSettled: () => setPulled(null),
     onSuccess: refresh,
   });
 
@@ -117,7 +133,13 @@ export function ViewBar({
           ) : (
             <Download size={16} aria-hidden="true" />
           )}
-          {sync.isPending ? "Syncing…" : view?.lastSyncedAt ? "Sync this view" : "Seed this view"}
+          {sync.isPending
+            ? pulled
+              ? `${pulled.fetched.toLocaleString()}${pulled.total ? ` of ${pulled.total.toLocaleString()}` : ""}…`
+              : "Syncing…"
+            : view?.lastSyncedAt
+              ? "Sync this view"
+              : "Seed this view"}
         </button>
 
         {view ? (

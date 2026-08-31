@@ -18,6 +18,22 @@ import { checkFilter, mayReturn } from './filter-schema.js';
 
 const ENDPOINT = 'https://reg.psuad.ac.ae/PSUADPortal/Services/StudentSearch/Enrollment/List';
 
+/*
+ * A whole term, a page at a time.
+ *
+ * This used to ask for everything at once — `Take: 0`, no limit — and the first term is
+ * 2876 students. One request that large is a single point of failure with nothing to show
+ * for itself while it runs: the page could not tell a slow success from a hang, and gave
+ * up on it.
+ *
+ * Five hundred is small enough that a page returns promptly and large enough that a term
+ * is six of them rather than sixty.
+ */
+const PAGE_SIZE = 500;
+
+/* A stop, so a portal that never returns a short page cannot spin here for ever. */
+const MAX_ROWS = 20000;
+
 let configCache = null;
 async function config() {
   if (!configCache) {
@@ -112,6 +128,57 @@ async function fetchPreset(presetId) {
   });
 }
 
+/**
+ * One page of the portal's answer.
+ *
+ * Errors are returned rather than thrown, in the shape the caller already sends back, so
+ * an expired session on page four says the same thing it would have said on page one.
+ */
+async function fetchPage(equality, sort, skip) {
+  const res = await fetch(ENDPOINT, {
+    method: 'POST',
+    credentials: 'include',        // the coordinator's own portal session
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Requested-With': 'XMLHttpRequest'
+    },
+    body: JSON.stringify({ EqualityFilter: equality, Sort: sort, Skip: skip, Take: PAGE_SIZE })
+  });
+
+  // An expired session redirects to the HTML login page rather than erroring.
+  const isJson = (res.headers.get('content-type') || '').includes('json');
+  if (res.status === 401 || res.status === 403 || !isJson) {
+    return {
+      error: {
+        ok: false,
+        error: 'auth',
+        loginUrl: ENDPOINT.replace(/\/Services\/.*$/, '/StudentSearch/Enrollment')
+      }
+    };
+  }
+  if (!res.ok) {
+    return { error: { ok: false, error: 'http', status: res.status, message: String(res.status) } };
+  }
+
+  const data = await res.json();
+  return { entities: data.Entities || [], total: Number(data.TotalCount ?? 0) || null };
+}
+
+/**
+ * Say how far along we are.
+ *
+ * Without this the page has one timer covering the whole pull and no way to tell a slow
+ * success from a hang — which is exactly how a working sync came to be reported as a
+ * missing extension. Sent to every listening tab; nothing depends on anyone hearing it.
+ */
+function onProgress(meta, fetched, total) {
+  try {
+    chrome.runtime.sendMessage({ type: 'fetch_progress', fetched, total, name: meta.name || '' });
+  } catch (e) {
+    // No listener is not a problem: progress is a courtesy, not part of the answer.
+  }
+}
+
 /** Run one composed filter, once it has been checked against the schema. */
 async function fetchFilter(filter, meta = {}) {
   const cfg = await config();
@@ -119,38 +186,32 @@ async function fetchFilter(filter, meta = {}) {
   const refusal = checkFilter(filter, fields, { trustValues: source === 'portal' });
   if (refusal) return { ok: false, error: 'filter_refused', detail: refusal, message: refusal };
 
-  const body = {
-    EqualityFilter: Object.assign({ TERM_CODE: cfg.term.code }, filter),
-    Sort: meta.sort || ['FULL_NAME'],
-    Skip: 0,
-    Take: 0                        // 0 = no limit
-  };
-
-  let res;
-  try {
-    res = await fetch(ENDPOINT, {
-      method: 'POST',
-      credentials: 'include',      // the coordinator's own portal session
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Requested-With': 'XMLHttpRequest'
-      },
-      body: JSON.stringify(body)
-    });
-  } catch (e) {
-    return { ok: false, error: 'network', message: e.message };
-  }
-
-  // An expired session redirects to the HTML login page rather than erroring.
-  const isJson = (res.headers.get('content-type') || '').includes('json');
-  if (res.status === 401 || res.status === 403 || !isJson) {
-    return { ok: false, error: 'auth', loginUrl: cfg.loginUrl || ENDPOINT.replace(/\/Services\/.*$/, '/StudentSearch/Enrollment') };
-  }
-  if (!res.ok) return { ok: false, error: 'http', status: res.status, message: String(res.status) };
-
-  const data = await res.json();
   const columns = await allowedColumns();
-  const rows = trim(data.Entities || [], columns);
+  const equality = Object.assign({ TERM_CODE: cfg.term.code }, filter);
+  const sort = meta.sort || ['FULL_NAME'];
+
+  const rows = [];
+  let truncated = false;
+  for (let skip = 0; ; skip += PAGE_SIZE) {
+    let page;
+    try {
+      page = await fetchPage(equality, sort, skip);
+    } catch (e) {
+      return { ok: false, error: 'network', message: e.message };
+    }
+    if (page.error) return page.error;
+
+    rows.push(...trim(page.entities, columns));
+    onProgress(meta, rows.length, page.total);
+
+    // The last page is the one that comes back short. A page of exactly PAGE_SIZE with
+    // nothing after it costs one extra empty request, which is the cheap way round.
+    if (page.entities.length < PAGE_SIZE) break;
+    if (rows.length >= MAX_ROWS) {
+      truncated = true;
+      break;
+    }
+  }
 
   return {
     ok: true,
@@ -162,10 +223,12 @@ async function fetchFilter(filter, meta = {}) {
     count: rows.length,
     expect: meta.expect || null,
     // Loud rather than silent: an unrecognised filter code returns 0 with HTTP 200.
-    warning: rows.length === 0
-      ? 'zero_rows'
-      : (meta.expect && Math.abs(meta.expect - rows.length) > Math.max(10, meta.expect * 0.15)
-          ? 'count_drift' : null),
+    warning: truncated
+      ? 'truncated'
+      : rows.length === 0
+        ? 'zero_rows'
+        : (meta.expect && Math.abs(meta.expect - rows.length) > Math.max(10, meta.expect * 0.15)
+            ? 'count_drift' : null),
     fetchedAt: Date.now(),
     rows
   };

@@ -14,14 +14,13 @@
 
 const CHANNEL = "scen-rosters";
 /*
- * A whole term is one request.
+ * The clock is for silence, not for length.
  *
- * The extension asks the portal for every matching row at once — `Take: 0` — so pulling
- * the first term's 2876 students is a single answer that takes as long as it takes.
- * Twenty seconds was comfortably less than that, and the pull failed on the way to
- * succeeding.
+ * The extension pages the portal now and reports each page as it lands, and every report
+ * starts this again — so a whole term takes as long as it takes, and only a pull that has
+ * genuinely stopped hits the limit. A minute without a word is stopped.
  */
-const FETCH_TIMEOUT_MS = 180_000;
+const FETCH_TIMEOUT_MS = 60_000;
 const PING_TIMEOUT_MS = 1_500;
 
 export type RosterRow = {
@@ -59,7 +58,15 @@ type Reply = { ok: boolean; error?: string; message?: string; [key: string]: unk
 
 let sequence = 0;
 
-function ask(type: string, extra: Record<string, unknown> = {}, timeout = FETCH_TIMEOUT_MS): Promise<Reply> {
+/** How far a pull has got, for a caller that wants to say so. */
+export type PullProgress = { fetched: number; total: number | null };
+
+function ask(
+  type: string,
+  extra: Record<string, unknown> = {},
+  timeout = FETCH_TIMEOUT_MS,
+  onProgress?: (progress: PullProgress) => void,
+): Promise<Reply> {
   return new Promise((resolve) => {
     const id = `${CHANNEL}:${++sequence}`;
     let settled = false;
@@ -72,17 +79,39 @@ function ask(type: string, extra: Record<string, unknown> = {}, timeout = FETCH_
       resolve(payload);
     };
 
-    const onMessage = (event: MessageEvent) => {
-      if (event.source !== window || event.origin !== window.location.origin) return;
-      const message = event.data as { channel?: string; dir?: string; id?: string; payload?: Reply };
-      if (message?.channel !== CHANNEL || message.dir !== "response" || message.id !== id) return;
-      finish(message.payload ?? { ok: false, error: "extension_unavailable" });
-    };
-
     // "timed_out", not "extension_unavailable": silence for N seconds means the extension
     // did not answer *in time*, which is not the same as it not being there — and telling
     // a coordinator to install what they already have sends them somewhere useless.
-    const timer = setTimeout(() => finish({ ok: false, error: "timed_out" }), timeout);
+    let timer = setTimeout(() => finish({ ok: false, error: "timed_out" }), timeout);
+
+    const onMessage = (event: MessageEvent) => {
+      if (event.source !== window || event.origin !== window.location.origin) return;
+      const message = event.data as {
+        channel?: string;
+        dir?: string;
+        id?: string;
+        payload?: Reply;
+        fetched?: number;
+        total?: number | null;
+      };
+      if (message?.channel !== CHANNEL) return;
+
+      /*
+       * A pull is several pages now, and each one that lands is proof the extension is
+       * still working. The clock is for silence, so any word from it starts the clock
+       * again — otherwise a pull that is going perfectly well is abandoned for being
+       * long, which is the whole fault this is here to prevent.
+       */
+      if (message.dir === "progress") {
+        onProgress?.({ fetched: Number(message.fetched ?? 0), total: message.total ?? null });
+        clearTimeout(timer);
+        timer = setTimeout(() => finish({ ok: false, error: "timed_out" }), timeout);
+        return;
+      }
+
+      if (message.dir !== "response" || message.id !== id) return;
+      finish(message.payload ?? { ok: false, error: "extension_unavailable" });
+    };
     window.addEventListener("message", onMessage);
     window.postMessage({ channel: CHANNEL, dir: "request", id, type, ...extra }, window.location.origin);
   });
@@ -210,8 +239,11 @@ function messageFor(code: string, detail = ""): string {
 }
 
 /** Pull one of the extension's own presets, by name. */
-export async function pullRoster(presetId: string): Promise<PortalRoster> {
-  return run({ presetId }, presetId);
+export async function pullRoster(
+  presetId: string,
+  onProgress?: (progress: PullProgress) => void,
+): Promise<PortalRoster> {
+  return run({ presetId }, presetId, onProgress);
 }
 
 /**
@@ -223,12 +255,17 @@ export async function pullRoster(presetId: string): Promise<PortalRoster> {
 export async function pullFilter(
   filter: Record<string, string[]>,
   meta: { name?: string; expect?: number | null } = {},
+  onProgress?: (progress: PullProgress) => void,
 ): Promise<PortalRoster> {
-  return run({ filter, meta }, "");
+  return run({ filter, meta }, "", onProgress);
 }
 
-async function run(request: Record<string, unknown>, presetId: string): Promise<PortalRoster> {
-  const reply = await ask("fetch", request);
+async function run(
+  request: Record<string, unknown>,
+  presetId: string,
+  onProgress?: (progress: PullProgress) => void,
+): Promise<PortalRoster> {
+  const reply = await ask("fetch", request, FETCH_TIMEOUT_MS, onProgress);
   if (!reply.ok) {
     // A refusal explains itself in `detail`; a failure further out uses `message`.
     const detail = String(reply.message ?? reply.detail ?? reply.status ?? "");
