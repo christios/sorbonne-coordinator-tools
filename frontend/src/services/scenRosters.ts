@@ -13,7 +13,15 @@
  */
 
 const CHANNEL = "scen-rosters";
-const FETCH_TIMEOUT_MS = 20_000;
+/*
+ * A whole term is one request.
+ *
+ * The extension asks the portal for every matching row at once — `Take: 0` — so pulling
+ * the first term's 2876 students is a single answer that takes as long as it takes.
+ * Twenty seconds was comfortably less than that, and the pull failed on the way to
+ * succeeding.
+ */
+const FETCH_TIMEOUT_MS = 180_000;
 const PING_TIMEOUT_MS = 1_500;
 
 export type RosterRow = {
@@ -71,7 +79,10 @@ function ask(type: string, extra: Record<string, unknown> = {}, timeout = FETCH_
       finish(message.payload ?? { ok: false, error: "extension_unavailable" });
     };
 
-    const timer = setTimeout(() => finish({ ok: false, error: "extension_unavailable" }), timeout);
+    // "timed_out", not "extension_unavailable": silence for N seconds means the extension
+    // did not answer *in time*, which is not the same as it not being there — and telling
+    // a coordinator to install what they already have sends them somewhere useless.
+    const timer = setTimeout(() => finish({ ok: false, error: "timed_out" }), timeout);
     window.addEventListener("message", onMessage);
     window.postMessage({ channel: CHANNEL, dir: "request", id, type, ...extra }, window.location.origin);
   });
@@ -80,6 +91,23 @@ function ask(type: string, extra: Record<string, unknown> = {}, timeout = FETCH_
 /** True when the extension is installed and this origin is in its content-script matches. */
 export async function isExtensionInstalled(): Promise<boolean> {
   return Boolean((await ask("ping", {}, PING_TIMEOUT_MS)).ok);
+}
+
+/**
+ * Which kind of silence this was.
+ *
+ * A request that times out has told us nothing about why. Asking the extension for a
+ * ping settles it: an extension that answers in a moment is present and was simply still
+ * working, and one that does not is not there. The difference is the whole message —
+ * "try again or narrow the filter" against "install the extension".
+ */
+export function silenceMeans(extensionAnswers: boolean): "timed_out" | "extension_unavailable" {
+  return extensionAnswers ? "timed_out" : "extension_unavailable";
+}
+
+async function diagnose(error: string): Promise<string> {
+  if (error !== "timed_out") return error;
+  return silenceMeans(await isExtensionInstalled());
 }
 
 export async function listPresets(): Promise<RosterPreset[]> {
@@ -128,6 +156,7 @@ export type PortalSchema = {
  */
 export async function fetchSchema(): Promise<PortalSchema> {
   const reply = await ask("schema", {}, 5_000);
+  const error = reply.ok ? "" : await diagnose(String(reply.error ?? "unknown"));
   return {
     ok: Boolean(reply.ok),
     source: (reply.source as PortalSchema["source"]) ?? "unknown",
@@ -135,7 +164,7 @@ export async function fetchSchema(): Promise<PortalSchema> {
     columns: (reply.columns as PortalColumn[]) ?? [],
     term: (reply.term as PortalSchema["term"]) ?? null,
     harvestedAt: (reply.harvestedAt as number | null) ?? null,
-    error: reply.ok ? "" : messageFor(String(reply.error ?? "unknown"), String(reply.message ?? "")),
+    error: reply.ok ? "" : messageFor(error, String(reply.message ?? "")),
   };
 }
 
@@ -151,6 +180,11 @@ export class PortalError extends Error {
 
 function messageFor(code: string, detail = ""): string {
   switch (code) {
+    case "timed_out":
+      return (
+        "The registrar portal did not finish answering. A whole term is thousands of " +
+        "students in one request — try again, or narrow the view's filter."
+      );
     case "extension_unavailable":
       // Chrome says this when the extension has been updated under an open page: the
       // injected script belongs to the old instance and can no longer reach it.
@@ -198,7 +232,7 @@ async function run(request: Record<string, unknown>, presetId: string): Promise<
   if (!reply.ok) {
     // A refusal explains itself in `detail`; a failure further out uses `message`.
     const detail = String(reply.message ?? reply.detail ?? reply.status ?? "");
-    throw new PortalError(String(reply.error ?? "unknown"), detail);
+    throw new PortalError(await diagnose(String(reply.error ?? "unknown")), detail);
   }
   return {
     presetId: String(reply.presetId ?? presetId),

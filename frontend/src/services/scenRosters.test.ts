@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { PortalError } from "@/services/scenRosters";
+import { PortalError, silenceMeans } from "@/services/scenRosters";
 
 /**
  * What a coordinator is told when a pull fails.
@@ -38,5 +38,38 @@ describe("what a failed pull says", () => {
   it("carries the detail even for a code it has never heard of", () => {
     // The point: an unknown code must not swallow what little is known about it.
     expect(new PortalError("something_new", "the details").message).toContain("the details");
+  });
+
+  it("does not tell somebody to install what they have already installed", () => {
+    /*
+     * The bug reported from production. Syncing the first term — 2876 students in one
+     * request — ran past the timeout, and a timeout was reported with the same code as a
+     * missing extension. The coordinator was told to install a thing that was working.
+     */
+    expect(new PortalError("timed_out").message).not.toMatch(/install/i);
+    expect(new PortalError("timed_out").message).toMatch(/did not finish answering/);
+    expect(new PortalError("timed_out").message).toMatch(/narrow the view's filter/);
+  });
+});
+
+/**
+ * Silence says nothing about its own cause, so the answer is to ask.
+ *
+ * An extension that replies to a ping in a moment is present and was merely still
+ * working; one that does not is not there. The two want opposite advice — "try again or
+ * narrow the filter" against "install the extension" — and before this they got the same.
+ *
+ * The decision is tested here; that it is reached through a real ping is verified in a
+ * browser, because jsdom does not deliver postMessage on a clock any test can advance.
+ */
+describe("telling a slow extension from an absent one", () => {
+  it("blames the portal when the extension answers a ping", () => {
+    expect(silenceMeans(true)).toBe("timed_out");
+    expect(new PortalError(silenceMeans(true)).message).toMatch(/did not finish answering/);
+  });
+
+  it("blames the extension when it answers nothing at all", () => {
+    expect(silenceMeans(false)).toBe("extension_unavailable");
+    expect(new PortalError(silenceMeans(false)).message).toMatch(/Install it/);
   });
 });
