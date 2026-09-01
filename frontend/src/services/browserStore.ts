@@ -19,21 +19,18 @@
  */
 
 const DB_NAME = "scen-coordinator";
-const DB_VERSION = 1;
+// No fixed version: the database is opened at whatever version it already has, and only
+// raised when the store is missing. See db().
 const STORE = "kv";
 
 let opening: Promise<IDBDatabase | null> | null = null;
 
-/** The database, or null when this browser will not give us one. */
-function db(): Promise<IDBDatabase | null> {
-  if (opening) return opening;
-  opening = new Promise((resolve) => {
-    // Private browsing, an old browser, or a policy that blocks storage: fall back
-    // rather than fail. The caller cannot tell the difference and should not have to.
-    if (typeof indexedDB === "undefined") return resolve(null);
+/** Open the database, creating the store if this version is being created or raised. */
+function openAt(version?: number): Promise<IDBDatabase | null> {
+  return new Promise((resolve) => {
     let request: IDBOpenDBRequest;
     try {
-      request = indexedDB.open(DB_NAME, DB_VERSION);
+      request = version === undefined ? indexedDB.open(DB_NAME) : indexedDB.open(DB_NAME, version);
     } catch {
       return resolve(null);
     }
@@ -44,6 +41,31 @@ function db(): Promise<IDBDatabase | null> {
     request.onerror = () => resolve(null);
     request.onblocked = () => resolve(null);
   });
+}
+
+/**
+ * The database, or null when this browser will not give us one.
+ *
+ * Opened without naming a version, so whatever is already there is what we get. A
+ * database can exist at some version and not have the store in it — an upgrade that did
+ * not finish, or anything else that opened it by name first — and asking for a version it
+ * already has runs no upgrade, so it would stay broken for good. Raising the version is
+ * what creates the store, so that is the recovery: notice it is missing and reopen one
+ * version up.
+ */
+function db(): Promise<IDBDatabase | null> {
+  if (opening) return opening;
+  opening = (async () => {
+    // Private browsing, an old browser, or a policy that blocks storage: fall back
+    // rather than fail. The caller cannot tell the difference and should not have to.
+    if (typeof indexedDB === "undefined") return null;
+    const database = await openAt();
+    if (!database) return null;
+    if (database.objectStoreNames.contains(STORE)) return database;
+    const version = database.version;
+    database.close();
+    return openAt(version + 1);
+  })();
   return opening;
 }
 
@@ -123,7 +145,14 @@ export async function drop(key: string): Promise<void> {
   });
 }
 
-/** Only for tests: forget the open database so the next call opens a fresh one. */
-export function resetForTests(): void {
+/**
+ * Only for tests: close the open database and forget it, so the next call opens fresh.
+ *
+ * Closing matters as much as forgetting: an open connection blocks `deleteDatabase`, and
+ * a blocked delete simply never completes.
+ */
+export async function resetForTests(): Promise<void> {
+  const held = opening;
   opening = null;
+  (await held)?.close();
 }

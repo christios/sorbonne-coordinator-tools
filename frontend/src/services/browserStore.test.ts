@@ -60,19 +60,49 @@ describe("the drawer the rosters live in", () => {
     expect(window.localStorage.getItem("scen-rosters:v2")).toBeNull();
   });
 
+  /*
+   * A database that exists at some version without the store in it — an upgrade that did
+   * not finish, or anything that opened it by name first. Asking for a version it already
+   * has runs no upgrade, so without this it would stay unusable for good and every write
+   * would be refused. Reached for real: a console probe that opened the database by name
+   * created exactly this.
+   */
+  it("recovers a database that exists without its object store", async () => {
+    await browser.resetForTests();
+    await new Promise<void>((resolve) => {
+      const req = indexedDB.deleteDatabase("scen-coordinator");
+      req.onsuccess = () => resolve();
+      req.onerror = () => resolve();
+      req.onblocked = () => resolve();
+    });
+    // Open it by name and create nothing, the way an outside probe would.
+    const bare = await new Promise<IDBDatabase>((resolve) => {
+      const req = indexedDB.open("scen-coordinator");
+      req.onsuccess = () => resolve(req.result);
+    });
+    expect(bare.objectStoreNames.contains("kv")).toBe(false);
+    bare.close();
+    await browser.resetForTests();
+
+    expect(await browser.write("probe", { a: 1 })).toBe(true);
+    expect(await browser.read("probe")).toEqual({ a: 1 });
+    // It healed the database rather than quietly falling back to localStorage.
+    expect(window.localStorage.getItem("probe")).toBeNull();
+  });
+
   it("falls back to localStorage when the browser will not open a database", async () => {
     // Private browsing, an old browser, or a policy that blocks storage.
     vi.spyOn(indexedDB, "open").mockImplementation(() => {
       throw new Error("blocked");
     });
-    browser.resetForTests();
+    await browser.resetForTests();
 
     expect(await browser.write("probe", { a: 1 })).toBe(true);
     expect(await browser.read("probe")).toEqual({ a: 1 });
     expect(window.localStorage.getItem("probe")).toBe('{"a":1}');
 
     vi.restoreAllMocks();
-    browser.resetForTests();
+    await browser.resetForTests();
     window.localStorage.removeItem("probe");
   });
 });
