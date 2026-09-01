@@ -100,3 +100,38 @@ def test_raises_for_unknown_catalogue_entry() -> None:
         pass
     else:  # pragma: no cover - documents the required not-found boundary
         raise AssertionError("unknown catalogue entry must fail")
+
+
+def test_fills_the_export_plo_table_from_the_linked_programme() -> None:
+    """A syllabus owned by a programme carries no PLO text of its own."""
+    store = make_store()
+    programme = store.create("programmes", label=f"Programme {uuid4()}", payload={})
+    store.create(
+        "plos",
+        label="PLO 1",
+        parent_id=programme["id"],
+        payload={"code": "PLO 1", "outcome": "Model and solve physics problems."},
+    )
+    content = {
+        "identification": {"cataloguePloProgrammeId": programme["id"]},
+        "learningOutcomes": {"plos": [], "clos": [{"clo": "CLO 1"}]},
+    }
+
+    resolved = store.resolve_plos(content)
+
+    assert resolved["learningOutcomes"]["plos"] == [
+        {
+            "id": resolved["learningOutcomes"]["plos"][0]["id"],
+            "code": "PLO 1",
+            "outcome": "Model and solve physics problems.",
+        }
+    ]
+    assert resolved["learningOutcomes"]["clos"] == [{"clo": "CLO 1"}]
+    assert content["learningOutcomes"]["plos"] == []
+
+
+def test_leaves_plos_alone_when_the_syllabus_has_no_programme() -> None:
+    store = make_store()
+    content = {"learningOutcomes": {"plos": [{"id": "local", "legacyText": "PLO 1: Local outcome."}]}}
+
+    assert store.resolve_plos(content) == content

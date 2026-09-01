@@ -183,7 +183,8 @@ def export_syllabus(
 
     with NamedTemporaryFile(prefix="scen-syllabus-", suffix=".docx", delete=False) as file:
         output_path = Path(file.name)
-    build_syllabus_docx({**syllabus, "content": catalogue_store.resolve_people(syllabus["content"])}, output_path)
+    content = catalogue_store.resolve_plos(catalogue_store.resolve_people(syllabus["content"]))
+    build_syllabus_docx({**syllabus, "content": content}, output_path)
     background_tasks.add_task(output_path.unlink, missing_ok=True)
     return FileResponse(
         output_path,

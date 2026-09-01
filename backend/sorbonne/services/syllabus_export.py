@@ -164,12 +164,11 @@ def _fill_contacts(instructor_table: Table, administrative_table: Table, contact
 def _fill_delivery(table: Table, delivery: dict[str, Any]) -> None:
     mode = _text(delivery.get("mode"))
     _set_cell_text(table.cell(2, 0), "☒" if mode == "Face-to-Face Delivery" else "")
-    _set_cell_text(
-        table.cell(2, 1), _percentage(delivery.get("faceToFacePercent")) if mode == "Blended Learning Delivery" else ""
-    )
-    _set_cell_text(
-        table.cell(2, 2), _percentage(delivery.get("onlinePercent")) if mode == "Blended Learning Delivery" else ""
-    )
+    # A face-to-face course still records its split as 100 / 0. Gating these cells on
+    # "Blended Learning Delivery" discarded whatever the professor entered and left the
+    # delivery table blank in the exported document.
+    _set_cell_text(table.cell(2, 1), _percentage(delivery.get("faceToFacePercent")))
+    _set_cell_text(table.cell(2, 2), _percentage(delivery.get("onlinePercent")))
 
 
 def _fill_learning_outcomes(plo_table: Table, clo_table: Table, outcomes: dict[str, Any]) -> None:

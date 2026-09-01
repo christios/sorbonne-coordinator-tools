@@ -198,3 +198,23 @@ def test_keeps_legacy_administrative_contact_text_readable(tmp_path) -> None:
 
     document = Document(output)
     assert document.tables[2].cell(0, 1).text.strip() == LEGACY_CONTACT
+
+
+def test_prints_the_delivery_split_for_a_face_to_face_course(tmp_path) -> None:
+    """A face-to-face course records 100 / 0; the table must not come out blank."""
+    syllabus = {
+        "courseTitle": "Mechanics",
+        "courseCode": "PHYS125",
+        "academicYear": "2026-2027",
+        "content": {
+            "delivery": {"mode": "Face-to-Face Delivery", "faceToFacePercent": "100", "onlinePercent": "0"},
+        },
+    }
+    output = tmp_path / "syllabus.docx"
+
+    build_syllabus_docx(syllabus, output)
+
+    delivery = Document(output).tables[4]
+    assert delivery.cell(2, 0).text.strip() == "☒"
+    assert delivery.cell(2, 1).text.strip() == "100%"
+    assert delivery.cell(2, 2).text.strip() == "0%"

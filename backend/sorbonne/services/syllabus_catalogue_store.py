@@ -259,6 +259,35 @@ class SyllabusCatalogueStore:
             resolved["facultyDetails"] = faculty
         return resolved
 
+    def resolve_plos(self, content: dict[str, Any]) -> dict[str, Any]:
+        """Return an export copy whose PLOs come from the programme's catalogue.
+
+        Programme learning outcomes are owned by the catalogue, not by the syllabus, so
+        a syllabus linked to a programme carries no PLO text of its own. Without this the
+        exported document printed the PLO table's labels against empty cells.
+        """
+        resolved = deepcopy(content)
+        identification = _record(resolved.get("identification"))
+        programme_id = _text(identification.get("cataloguePloProgrammeId")) or _text(
+            identification.get("catalogueProgrammeId")
+        )
+        if not programme_id:
+            return resolved
+        entries = self.list("plos", parent_id=programme_id)
+        if not entries:
+            return resolved
+        outcomes = _record(resolved.get("learningOutcomes"))
+        outcomes["plos"] = [
+            {
+                "id": entry["id"],
+                "code": _text(_record(entry.get("payload")).get("code")) or _text(entry.get("label")),
+                "outcome": _text(_record(entry.get("payload")).get("outcome")),
+            }
+            for entry in entries
+        ]
+        resolved["learningOutcomes"] = outcomes
+        return resolved
+
     def _person(self, item_id: str) -> dict[str, Any]:
         try:
             return self.get("people", item_id)
