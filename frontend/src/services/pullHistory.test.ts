@@ -5,7 +5,7 @@ import {
   forgetHistory,
   historyFor,
   historySummary,
-  loadHistory,
+  loadHistory, resetSweepForTests,
   recordPull,
 } from "@/services/pullHistory";
 import type { RosterRow } from "@/services/scenRosters";
@@ -223,5 +223,39 @@ describe("leaving is a transition, not a state", () => {
 
     expect(history.latest.A002.FULL_NAME).toBe("Karim Nasser");
     expect(history.present).toEqual([]);
+  });
+});
+
+/*
+ * Keys left behind by a migration that returned before it got to them.
+ *
+ * v1 held one shared history that could not be split into per-view ones, so it was
+ * superseded rather than converted — and then stranded, because once the database holds
+ * the history the read returns before it looks at localStorage again. It was still
+ * sitting in a real coordinator's browser at 0.17 MB.
+ */
+describe("keys nothing reads any more", () => {
+  it("clears them even when the history is already in the database", async () => {
+    await recordPull(VIEW, [row("A001")], 1_000);
+    window.localStorage.setItem("scen-pull-history:v1", "x".repeat(1000));
+    window.localStorage.setItem("scen-rosters:synced", "{}");
+    // A fresh page: the sweep runs once, and this is that once.
+    resetSweepForTests();
+
+    await loadHistory(VIEW);
+
+    expect(window.localStorage.getItem("scen-pull-history:v1")).toBeNull();
+    expect(window.localStorage.getItem("scen-rosters:synced")).toBeNull();
+  });
+
+  it("leaves the keys that are still in use alone", async () => {
+    window.localStorage.setItem("scen-rosters:synced:v2", '{"fy":"2026-08-23"}');
+    window.localStorage.setItem("scen-student-columns:v1", '{"order":[]}');
+    resetSweepForTests();
+
+    await loadHistory(VIEW);
+
+    expect(window.localStorage.getItem("scen-rosters:synced:v2")).toBe('{"fy":"2026-08-23"}');
+    expect(window.localStorage.getItem("scen-student-columns:v1")).toBe('{"order":[]}');
   });
 });

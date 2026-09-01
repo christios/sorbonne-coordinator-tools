@@ -73,7 +73,33 @@ const EMPTY: PullHistory = { pulls: [], latest: {}, present: [] };
  * whole term is over two megabytes on its own, which localStorage refused — silently,
  * so the term view simply had no history and nothing said why.
  */
+/*
+ * Keys nothing reads any more, left behind by a migration that returned before it got to
+ * them. v1 held a single shared history that could not be split into per-view ones, so it
+ * was superseded rather than converted — and then stranded, because once the database
+ * holds the history this function returns before it ever looks at localStorage again.
+ * Small, but it is a coordinator's disk and 0.17 MB of it was going to sit there for good.
+ */
+const DEAD_KEYS = [OLD_KEY, "scen-rosters:synced"];
+let swept = false;
+
+/** Only for tests: the sweep runs once per page, and a test needs that once. */
+export function resetSweepForTests(): void {
+  swept = false;
+}
+
+function sweep(): void {
+  if (swept) return;
+  swept = true;
+  try {
+    for (const key of DEAD_KEYS) window.localStorage.removeItem(key);
+  } catch {
+    // What cannot be removed could not have been written.
+  }
+}
+
 async function read(): Promise<HistoryStore> {
+  sweep();
   const held = await browser.read<HistoryStore>(KEY);
   if (held) return held;
 
@@ -172,7 +198,7 @@ async function write(viewId: string, history: PullHistory): Promise<void> {
 /** Every view's history, or one view's when it is named. */
 export async function forgetHistory(viewId?: string): Promise<void> {
   try {
-    window.localStorage.removeItem(OLD_KEY);
+    for (const key of DEAD_KEYS) window.localStorage.removeItem(key);
     window.localStorage.removeItem(KEY);
   } catch {
     // If it cannot be removed it could not have been written either.
