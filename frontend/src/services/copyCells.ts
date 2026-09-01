@@ -53,9 +53,13 @@ export async function copyToClipboard(text: string): Promise<boolean> {
     holder.style.position = "fixed";
     holder.style.opacity = "0";
     document.body.appendChild(holder);
+    // Selecting takes the focus, and whatever had it should get it back: a menu that
+    // closes because the copy stole focus takes its own "copied" tick with it.
+    const had = document.activeElement as HTMLElement | null;
     holder.select();
     const copied = document.execCommand("copy");
     document.body.removeChild(holder);
+    had?.focus?.();
     return copied;
   } catch {
     return false;

@@ -6,6 +6,7 @@ import { ColumnMenu } from "@/components/ColumnMenu";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Modal } from "@/components/Modal";
 import { CopyButton } from "@/components/CopyButton";
+import { CopyPresetMenu } from "@/components/CopyPresetMenu";
 import { PlaceInBlock } from "@/components/PlaceInBlock";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { SelectMenu } from "@/components/SelectMenu";
@@ -13,7 +14,8 @@ import { StudentHistoryPane } from "@/components/StudentHistoryPane";
 import { StudentTable, cellText, type Sort } from "@/components/StudentTable";
 import { TableFilterBar } from "@/components/TableFilterBar";
 import { costOfMove, describeCost } from "@/services/cohortMove";
-import { tableText } from "@/services/copyCells";
+import { copyToClipboard, tableText } from "@/services/copyCells";
+import { presetText, rowsForCopy } from "@/services/copyPresets";
 import { forgetHistory, loadHistory, type PullHistory } from "@/services/pullHistory";
 import { fetchSchema } from "@/services/scenRosters";
 import { fetchTimetableTerms } from "@/services/timetables";
@@ -486,6 +488,16 @@ export function StudentRoster({
           filters={filters}
           optionsFor={(column) => optionsFor(rows, column)}
           onChange={setFilters}
+        />
+
+        <CopyPresetMenu
+          columns={allColumns}
+          onCopy={async (chosen, withHeader) => {
+            if (chosen.length === 0) return false;
+            return copyToClipboard(
+              presetText(chosen, rowsForCopy(visible, selected), cellText, withHeader),
+            );
+          }}
         />
 
         <label className="relative ml-auto block w-full sm:w-60">
