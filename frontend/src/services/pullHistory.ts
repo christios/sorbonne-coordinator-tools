@@ -83,13 +83,58 @@ export function loadHistory(viewId: string): PullHistory {
   return { ...held, present: Array.isArray(held.present) ? held.present : Object.keys(held.latest) };
 }
 
-function write(viewId: string, history: PullHistory): void {
+function put(store: Record<string, PullHistory>): boolean {
   try {
-    const store = read();
-    store[viewId] = history;
     window.localStorage.setItem(KEY, JSON.stringify(store));
+    return true;
   } catch {
+    return false;
+  }
+}
+
+/**
+ * Give up the oldest history there is, wherever it lives.
+ *
+ * A term-sized view carries a megabyte of `latest` values, and the browser's quota is
+ * shared with the rosters — which are what the table shows names from, and so are written
+ * first and must win. The timeline is the thing worth losing here, and its oldest entries
+ * are the least worth keeping.
+ */
+function shrink(store: Record<string, PullHistory>, keep: string): Record<string, PullHistory> | null {
+  // 1. The oldest recorded pulls, from whichever view holds the most of them.
+  const longest = Object.keys(store)
+    .filter((id) => (store[id]?.pulls.length ?? 0) > 1)
+    .sort((a, b) => store[b].pulls.length - store[a].pulls.length)[0];
+  if (longest) {
+    const pulls = store[longest].pulls;
+    return { ...store, [longest]: { ...store[longest], pulls: pulls.slice(Math.ceil(pulls.length / 2)) } };
+  }
+
+  // 2. Another view's history entirely.
+  const other = Object.keys(store).find((id) => id !== keep);
+  if (other) {
+    const next = { ...store };
+    delete next[other];
+    return next;
+  }
+
+  return null;
+}
+
+function write(viewId: string, history: PullHistory): void {
+  let store: Record<string, PullHistory>;
+  try {
+    store = read();
+  } catch {
+    return;
+  }
+  store[viewId] = history;
+  for (;;) {
+    if (put(store)) return;
+    const smaller = shrink(store, viewId);
     // A history that cannot be written must never break the sync it was recording.
+    if (!smaller) return;
+    store = smaller;
   }
 }
 

@@ -49,11 +49,100 @@ function read(): Store {
   }
 }
 
-function write(store: Store): void {
+/**
+ * Whether the last pull actually reached storage, and what was dropped to make it fit.
+ *
+ * The names are read back from storage rather than held in memory, so a write that fails
+ * is not a degraded page — it is a table of students with no names in it. That has to be
+ * sayable.
+ */
+export type StorageReport = { stored: boolean; shed: string[] };
+
+let lastReport: StorageReport = { stored: true, shed: [] };
+
+/** How the last `rememberPull` went. Reset by a later pull, not by reading it. */
+export function storageReport(): StorageReport {
+  return lastReport;
+}
+
+/** True if it went in. False means the quota refused it, or storage is unavailable. */
+function write(store: Store): boolean {
   try {
     window.localStorage.setItem(KEY, JSON.stringify(store));
+    return true;
   } catch {
-    // Storage being unavailable must never break the page; the roster stays in memory.
+    // Private browsing, a full disk, or — the usual one — the origin's quota.
+    return false;
+  }
+}
+
+/**
+ * The order things are given up in when a term will not fit.
+ *
+ * A browser allows an origin about five megabytes. A view holding a whole term is over a
+ * megabyte on its own and is kept twice, once as the current pull and once as the pull
+ * before it, and every other view a coordinator has ever synced is kept alongside it. The
+ * first term is 2876 students, so this is now reachable rather than theoretical.
+ *
+ * What is given up is chosen so that the thing on screen survives: comparison points go
+ * before rosters, other views go before this one, and the current pull of the view being
+ * looked at is the last thing standing. Losing a comparison point costs the "changed
+ * since last pull" column for that view; losing the current pull costs every name.
+ */
+function shrink(store: Store, keep: string): { store: Store; gave: string } | null {
+  const others = Object.keys(store).filter((id) => id !== keep);
+
+  // 1. Comparison points from other views.
+  const withPrevious = others.filter((id) => store[id]?.previous);
+  if (withPrevious.length) {
+    const oldest = withPrevious.sort(
+      (a, b) => (store[a].previous?.fetchedAt ?? 0) - (store[b].previous?.fetchedAt ?? 0),
+    )[0];
+    return {
+      store: { ...store, [oldest]: { current: store[oldest].current } },
+      gave: `the comparison point for ${store[oldest].previous?.name || oldest}`,
+    };
+  }
+
+  // 2. This view's own comparison point.
+  if (store[keep]?.previous) {
+    return {
+      store: { ...store, [keep]: { current: store[keep].current } },
+      gave: "the comparison point for this view",
+    };
+  }
+
+  // 3. Whole other views, least recently pulled first.
+  if (others.length) {
+    const oldest = others.sort(
+      (a, b) => (store[a].current?.fetchedAt ?? 0) - (store[b].current?.fetchedAt ?? 0),
+    )[0];
+    const gave = `the stored roster for ${store[oldest].current?.name || oldest}`;
+    const next = { ...store };
+    delete next[oldest];
+    return { store: next, gave };
+  }
+
+  return null;
+}
+
+/**
+ * Store this pull, giving up as little as possible to make it fit.
+ *
+ * Retrying after each thing dropped rather than clearing everything: a coordinator who
+ * syncs a whole term should not silently lose the four views they were working with when
+ * dropping one comparison point would have been enough.
+ */
+function writeFitting(store: Store, keep: string): StorageReport {
+  const shed: string[] = [];
+  let current = store;
+  for (;;) {
+    if (write(current)) return { stored: true, shed };
+    const smaller = shrink(current, keep);
+    // Nothing left to give up and it still will not fit: say so rather than pretend.
+    if (!smaller) return { stored: false, shed };
+    shed.push(smaller.gave);
+    current = smaller.store;
   }
 }
 
@@ -77,7 +166,7 @@ export function rememberPull(roster: PortalRoster): StoredPreset {
     ? existing.current
     : existing.previous;
   store[roster.presetId] = { current: kept, previous };
-  write(store);
+  lastReport = writeFitting(store, roster.presetId);
   try {
     window.localStorage.setItem(LAST, roster.presetId);
   } catch {

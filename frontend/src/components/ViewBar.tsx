@@ -9,7 +9,7 @@ import { SelectMenu } from "@/components/SelectMenu";
 import { useStaffUser } from "@/components/useStaffUser";
 import { describeFilter, filterLines, type Filter } from "@/services/filterSummary";
 import { recordPull } from "@/services/pullHistory";
-import { rememberPull, rememberSync } from "@/services/rosterStore";
+import { rememberPull, rememberSync, storageReport, type StorageReport } from "@/services/rosterStore";
 import {
   PortalError,
   fetchSchema,
@@ -50,6 +50,9 @@ export function ViewBar({
   // How far the pull has got. A whole term is thousands of students and several minutes;
   // a button that only says "Syncing…" for that long is indistinguishable from a hang.
   const [pulled, setPulled] = useState<PullProgress | null>(null);
+  // Whether the names actually reached this browser's storage. They are read back from
+  // there, so a refused write is a table with no names in it rather than a slower page.
+  const [storage, setStorage] = useState<StorageReport | null>(null);
 
   const fields = schema.data?.fields ?? [];
   const view = views.find((candidate) => candidate.id === viewId) ?? null;
@@ -71,6 +74,7 @@ export function ViewBar({
       );
       const report = await syncView(target.id, roster.rows.map(studentIdOf).filter(Boolean));
       rememberPull({ ...roster, presetId: target.id });
+      setStorage(storageReport());
       rememberSync(target.id, report.syncedAt);
       // One history per view, so a student's changes read against the same question.
       recordPull(target.id, roster.rows, roster.fetchedAt);
@@ -185,6 +189,18 @@ export function ViewBar({
       {sync.error ? (
         <p role="alert" className="max-w-md text-right text-xs text-[#a6292f]">
           {sync.error instanceof PortalError ? sync.error.message : (sync.error as Error).message}
+        </p>
+      ) : storage && !storage.stored ? (
+        <p role="alert" className="max-w-md text-right text-xs text-[#a6292f]">
+          The students synced, but this browser had no room to keep their names, so the
+          table will show ids only. Use “Forget stored rosters” on the Students page to
+          clear the older pulls, then sync again.
+        </p>
+      ) : storage && storage.shed.length ? (
+        <p className="max-w-md text-right text-xs text-[#98a2b3]">
+          Synced. This browser was full, so it gave up {storage.shed[0]}
+          {storage.shed.length > 1 ? ` and ${storage.shed.length - 1} more` : ""} to keep
+          this roster.
         </p>
       ) : report ? (
         <p className="text-xs text-[#98a2b3]">
