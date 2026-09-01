@@ -52,12 +52,9 @@ import {
 } from "@/components/syllabusSaveState";
 import {
   BibliographyEditor,
-  PloEditor,
 } from "@/components/StructuredEntryEditors";
 import {
   deliveryPercentageError,
-  ploDisplayLabel,
-  ploEntries,
 } from "@/services/syllabusContent";
 import {
   CatalogueEntry,
@@ -463,6 +460,14 @@ function SectionForm({
       }),
     enabled: Boolean(catalogueProgrammeId),
   });
+  const scenCompetencies = useQuery({
+    queryKey: ["syllabus-catalogues", "competencies", "editor"],
+    queryFn: () => listCatalogueEntries("competencies", { includeRetired: true }),
+  });
+  const graduateCompetencies = useQuery({
+    queryKey: ["syllabus-catalogues", "graduate-competencies", "editor"],
+    queryFn: () => listCatalogueEntries("graduate-competencies", { includeRetired: true }),
+  });
   const teachingPresets = useQuery({
     queryKey: ["syllabus-catalogues", "teaching-presets", "editor"],
     queryFn: () => listCatalogueEntries("teaching-presets"),
@@ -779,6 +784,8 @@ function SectionForm({
         onOpenHistory={onOpenHistory}
         cataloguePlos={cataloguePlos.data ?? []}
         catalogueProgrammeId={catalogueProgrammeId}
+        scenCompetencies={scenCompetencies.data ?? []}
+        graduateCompetencies={graduateCompetencies.data ?? []}
       />
     );
   if (active === "schedule") {
@@ -1096,6 +1103,8 @@ function LearningOutcomesEditor({
   onOpenHistory,
   cataloguePlos,
   catalogueProgrammeId,
+  scenCompetencies,
+  graduateCompetencies,
 }: {
   section: Record<string, unknown>;
   onChange: (value: Record<string, unknown>) => void;
@@ -1104,134 +1113,100 @@ function LearningOutcomesEditor({
   onOpenHistory: (field: HistoryField) => void;
   cataloguePlos: CatalogueEntry[];
   catalogueProgrammeId: string;
+  scenCompetencies: CatalogueEntry[];
+  graduateCompetencies: CatalogueEntry[];
 }) {
-  const [tab, setTab] = useState<"plos" | "clos">("plos");
-  const tabs = [
-    { key: "plos" as const, label: "Programme learning outcomes" },
-    { key: "clos" as const, label: "Course learning outcomes" },
-  ];
-  const localPloOptions = ploEntries(section.plos).map((plo, index) => {
-    const label = ploDisplayLabel(plo, index);
-    return { value: label, label };
-  });
   const cataloguePloOptions = cataloguePlos.map((plo) => {
     const code = stringify(plo.payload.code) || plo.label;
     const outcome = stringify(plo.payload.outcome);
     const label = outcome ? `${code}: ${outcome}` : code;
     return { value: label, label, catalogueId: plo.id };
   });
-  const catalogueMode = Boolean(catalogueProgrammeId);
+  const competencyOptions = scenCompetencies.map((entry) => {
+    const code = stringify(entry.payload.code) || entry.label;
+    const outcome = stringify(entry.payload.outcome);
+    const label = outcome ? `${code}: ${outcome}` : entry.label;
+    return { value: label, label, catalogueId: entry.id };
+  });
+  const graduateById = new Map(graduateCompetencies.map((entry) => [entry.id, entry]));
+  const rows = (section.clos as Row[]) ?? [];
   return (
     <section className="min-w-0 rounded-lg border border-[#d9dee7] bg-white p-5">
-      <h3 className="text-lg font-semibold text-[#171717]">
-        Learning outcomes
-      </h3>
-      <div
-        role="tablist"
-        aria-label="Learning outcomes editor"
-        className="mt-5 flex gap-1 border-b border-[#d9dee7]"
-      >
-        {tabs.map((item) => (
-          <button
-            key={item.key}
-            type="button"
-            role="tab"
-            aria-selected={tab === item.key}
-            onClick={() => setTab(item.key)}
-            className={`border-b-2 px-3 py-2 text-sm font-semibold transition-colors ${tab === item.key ? "border-[#1f4e79] text-[#1f4e79]" : "border-transparent text-[#667085] hover:border-[#b7bec8] hover:text-[#344054]"}`}
-          >
-            {item.label}
-          </button>
-        ))}
-      </div>
-      <div role="tabpanel" className="mt-5 min-w-0">
-        {tab === "plos" ? (
-          catalogueMode ? (
-            <CataloguePloList entries={cataloguePlos} />
-          ) : (
-            <PloEditor
-              value={section.plos}
-              onChange={(plos) => onChange({ ...section, plos })}
-              syllabusId={syllabusId}
-              revision={revision}
-              onOpenHistory={onOpenHistory}
-            />
-          )
-        ) : (
-          <RowsEditor
-            title="Course learning outcomes and alignment"
-            columns={[
-              ["clo", "Course learning outcome"],
-              ["plo", "Aligned PLOs"],
-              ["skills", "Graduate skills"],
-            ]}
-            rows={(section.clos as Row[]) ?? []}
-            onChange={(clos) => onChange({ ...section, clos })}
-            selectOptions={{
-              plo: catalogueMode ? cataloguePloOptions : localPloOptions,
-            }}
-            onPloChange={
-              catalogueMode
-                ? (row, labels) => ({
-                    ...row,
-                    plo: labels,
-                    ploIds: labels
-                      .split("\n")
-                      .map(
-                        (label) =>
-                          cataloguePloOptions.find(
-                            (option) => option.value === label,
-                          )?.catalogueId,
-                      )
-                      .filter(Boolean)
-                      .join("\n"),
-                  })
-                : undefined
-            }
-            addLabel="Add outcome"
-            historyPath="learningOutcomes.clos"
-            syllabusId={syllabusId}
-            revision={revision}
-            onOpenHistory={onOpenHistory}
-          />
-        )}
+      <h3 className="text-lg font-semibold text-[#171717]">Learning outcomes</h3>
+      <p className="mt-1 text-sm text-[#667085]">
+        Programme learning outcomes and graduate competencies are maintained in the
+        catalogue. Align each course outcome to them here.
+      </p>
+      {catalogueProgrammeId ? null : (
+        <p
+          role="note"
+          className="mt-4 rounded-md border border-[#f0d8a8] bg-[#fdf8ee] px-3 py-2 text-sm text-[#8a6116]"
+        >
+          Choose this course&apos;s programme in section 1 to align its outcomes: the
+          approved programme learning outcomes come from the programme.
+        </p>
+      )}
+      <div className="mt-5 min-w-0">
+        <RowsEditor
+          title="Course learning outcomes and alignment"
+          columns={[
+            ["clo", "Course learning outcome"],
+            ["plo", "Aligned PLOs"],
+            ["skills", "SCEN graduate competencies"],
+          ]}
+          rows={rows}
+          onChange={(clos) => onChange({ ...section, clos })}
+          rowLabel="CLO"
+          selectOptions={{ plo: cataloguePloOptions, skills: competencyOptions }}
+          derivedColumns={{
+            skills: {
+              label: "SUAD graduate competencies",
+              derive: (value) => suadCompetencyText(value, scenCompetencies, graduateById),
+            },
+          }}
+          onPloChange={(row, labels, key) => {
+            const options = key === "plo" ? cataloguePloOptions : competencyOptions;
+            const ids = labels
+              .split("\n")
+              .map((label) => options.find((option) => option.value === label)?.catalogueId)
+              .filter(Boolean)
+              .join("\n");
+            return { ...row, [key]: labels, [key === "plo" ? "ploIds" : "skillIds"]: ids };
+          }}
+          addLabel="Add outcome"
+          historyPath="learningOutcomes.clos"
+          syllabusId={syllabusId}
+          revision={revision}
+          onOpenHistory={onOpenHistory}
+        />
       </div>
     </section>
   );
 }
 
-function CataloguePloList({ entries }: { entries: CatalogueEntry[] }) {
-  if (!entries.length)
-    return (
-      <p className="rounded-md border border-dashed border-[#d0d5dd] px-3 py-3 text-sm text-[#667085]">
-        This programme has no approved PLOs yet. Manage them in the catalogue
-        workspace.
-      </p>
-    );
-  return (
-    <section>
-      <p className="mb-3 text-sm text-[#667085]">
-        Approved PLOs are managed centrally and are read-only here. Choose one
-        or more of them when aligning a CLO.
-      </p>
-      <div className="grid gap-3">
-        {entries.map((entry) => (
-          <article
-            key={entry.id}
-            className="rounded-lg border border-[#d9dee7] bg-[#f8fafc] p-4"
-          >
-            <p className="text-sm font-semibold text-[#344054]">
-              {stringify(entry.payload.code) || entry.label}
-            </p>
-            <p className="mt-1 text-sm leading-6 text-[#475467]">
-              {stringify(entry.payload.outcome)}
-            </p>
-          </article>
-        ))}
-      </div>
-    </section>
-  );
+/** The SUAD competencies a course develops follow from the SCEN ones it selects. */
+function suadCompetencyText(
+  value: string,
+  scenCompetencies: CatalogueEntry[],
+  graduateById: Map<string, CatalogueEntry>,
+) {
+  const selected = new Set(value.split("\n").filter(Boolean));
+  const labels = new Set<string>();
+  for (const competency of scenCompetencies) {
+    const code = stringify(competency.payload.code) || competency.label;
+    const outcome = stringify(competency.payload.outcome);
+    const label = outcome ? `${code}: ${outcome}` : competency.label;
+    if (!selected.has(label)) continue;
+    const ids = competency.payload.graduateCompetencyIds;
+    if (!Array.isArray(ids)) continue;
+    for (const id of ids) {
+      const graduate = graduateById.get(String(id));
+      if (graduate) labels.add(graduate.label);
+    }
+  }
+  return Array.from(labels).join("\n");
 }
+
 function Field({
   label,
   value,
@@ -1345,6 +1320,8 @@ function RowsEditor({
   revision,
   onOpenHistory,
   onPloChange,
+  rowLabel,
+  derivedColumns,
 }: {
   title: string;
   columns: string[][];
@@ -1356,7 +1333,11 @@ function RowsEditor({
   syllabusId: string;
   revision: number;
   onOpenHistory: (field: HistoryField) => void;
-  onPloChange?: (row: Row, labels: string) => Row;
+  onPloChange?: (row: Row, labels: string, key: string) => Row;
+  /** Numbers each entry, so a CLO reads "CLO 1" wherever it is referenced. */
+  rowLabel?: string;
+  /** Read-only columns whose value follows from another the professor chose. */
+  derivedColumns?: Record<string, { label: string; derive: (value: string) => string }>;
 }) {
   const normalized = Array.isArray(rows) ? rows : [];
   const [movingRowId, setMovingRowId] = useState<string | null>(null);
@@ -1420,8 +1401,8 @@ function RowsEditor({
             onChange(
               normalized.map((item, itemIndex) =>
                 itemIndex === index
-                  ? key === "plo" && onPloChange
-                    ? onPloChange(item, value)
+                  ? (key === "plo" || key === "skills") && onPloChange
+                    ? onPloChange(item, value, key)
                     : { ...item, [key]: value }
                   : item,
               ),
@@ -1577,12 +1558,15 @@ function RowsEditor({
                         </div>
                       );
                     }
-                    if (key === "plo" && options) {
+                    if ((key === "plo" || key === "skills") && options) {
+                      const derived = derivedColumns?.[key];
                       return (
+                        <div key={key} className="grid gap-3 lg:col-span-2">
                         <PloAlignmentField
-                          key={key}
                           label={label}
-                          pickerLabel={`Add aligned PLO to CLO ${index + 1}`}
+                          pickerLabel={`Add ${label.toLowerCase()} to ${rowLabel ?? "entry"} ${index + 1}`}
+                          emptyText={key === "plo" ? "No PLOs aligned yet." : "No graduate competencies selected yet."}
+                          addText={key === "plo" ? "Add aligned PLO" : "Add graduate competency"}
                           value={value}
                           onChange={(next) => updateRow(key, next)}
                           options={options}
@@ -1596,6 +1580,15 @@ function RowsEditor({
                             />
                           }
                         />
+                        {derived ? (
+                          <div>
+                            <p className="text-sm font-medium text-[#344054]">{derived.label}</p>
+                            <p className="mt-1 whitespace-pre-line rounded-md border border-dashed border-[#d0d5dd] bg-[#f8fafc] px-3 py-2 text-sm text-[#475467]">
+                              {derived.derive(value) || "Follows from the competencies selected above."}
+                            </p>
+                          </div>
+                        ) : null}
+                        </div>
                       );
                     }
                     return availableOptions ? (
@@ -1649,9 +1642,13 @@ export function PloAlignmentField({
   onChange,
   options,
   history,
+  emptyText = "No PLOs aligned yet.",
+  addText = "Add aligned PLO",
 }: {
   label: string;
   pickerLabel: string;
+  emptyText?: string;
+  addText?: string;
   value: string;
   onChange: (value: string) => void;
   options: SelectOption[];
@@ -1714,14 +1711,14 @@ export function PloAlignmentField({
         </ul>
       ) : (
         <p className="rounded-md border border-dashed border-[#d0d5dd] px-3 py-2 text-sm text-[#667085]">
-          No PLOs aligned yet.
+          {emptyText}
         </p>
       )}
       <SelectMenu
         label={pickerLabel}
         value=""
         onChange={add}
-        placeholder="Add aligned PLO"
+        placeholder={addText}
         options={availableOptions}
         disabled={availableOptions.length === 0}
       />
