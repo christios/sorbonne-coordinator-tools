@@ -4,7 +4,9 @@ import {
   loadPresets,
   newPresetId,
   presetColumns,
+  movePicked,
   presetText,
+  reorderPicked,
   rowsForCopy,
   savePresets,
   type CopyPreset,
@@ -136,5 +138,39 @@ describe("keeping presets in this browser", () => {
 
     expect(newPresetId(held)).not.toBe("p1");
     expect(newPresetId(held)).toBeTruthy();
+  });
+});
+
+/*
+ * The order columns copy in is the order they were ticked, which is rarely the order
+ * they are wanted in. Dragging says so directly, and the arrows say it without a mouse.
+ */
+describe("putting the picked columns in order", () => {
+  const ids = ["a", "b", "c", "d"];
+
+  it("drops one in front of another", () => {
+    expect(reorderPicked(ids, "d", "b")).toEqual(["a", "d", "b", "c"]);
+  });
+
+  it("drops one at the end when there is nothing to go in front of", () => {
+    expect(reorderPicked(ids, "a", "")).toEqual(["b", "c", "d", "a"]);
+  });
+
+  it("leaves the order alone when something is dropped on itself", () => {
+    expect(reorderPicked(ids, "b", "b")).toEqual(ids);
+  });
+
+  it("ignores a column that is not picked", () => {
+    expect(reorderPicked(ids, "z", "b")).toEqual(ids);
+  });
+
+  it("moves one a place at a time", () => {
+    expect(movePicked(ids, "c", -1)).toEqual(["a", "c", "b", "d"]);
+    expect(movePicked(ids, "c", 1)).toEqual(["a", "b", "d", "c"]);
+  });
+
+  it("will not move the first one further left, or the last further right", () => {
+    expect(movePicked(ids, "a", -1)).toEqual(ids);
+    expect(movePicked(ids, "d", 1)).toEqual(ids);
   });
 });

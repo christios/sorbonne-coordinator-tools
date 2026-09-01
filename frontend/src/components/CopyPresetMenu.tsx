@@ -1,4 +1,4 @@
-import { Check, ClipboardCopy, Plus, Trash2, X } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, ClipboardCopy, GripVertical, Plus, Trash2, X } from "lucide-react";
 import { Popover } from "radix-ui";
 import { useEffect, useState } from "react";
 
@@ -6,7 +6,9 @@ import { Modal } from "@/components/Modal";
 import {
   loadPresets,
   newPresetId,
+  movePicked,
   presetColumns,
+  reorderPicked,
   savePresets,
   type CopyPreset,
   type CopyPresets,
@@ -224,12 +226,16 @@ function PresetDialog({
   const [name, setName] = useState("");
   const [picked, setPicked] = useState<string[]>([]);
   const [search, setSearch] = useState("");
+  const [dragging, setDragging] = useState("");
+  const [over, setOver] = useState("");
 
   // Reopening for a different preset must not show the last one's answers.
   useEffect(() => {
     setName(preset?.name ?? "");
     setPicked(preset?.columnIds ?? []);
     setSearch("");
+    setDragging("");
+    setOver("");
   }, [preset]);
 
   const needle = search.trim().toLowerCase();
@@ -291,11 +297,96 @@ function PresetDialog({
             </button>
           ) : null}
         </div>
-        <p className="mt-1 min-h-5 text-sm text-[#1f4e79]">
-          {picked.length
-            ? picked.map((id) => known.get(id)?.displayName ?? id).join("  ·  ")
-            : <span className="text-[#98a2b3]">Nothing picked yet.</span>}
-        </p>
+        {picked.length ? (
+          <ul
+            className="mt-1 flex flex-wrap gap-1"
+            // Dropping past the last chip means the end, which the chips themselves
+            // cannot say — a drag beyond them is over this list and nothing else.
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={(event) => {
+              event.preventDefault();
+              const id = event.dataTransfer.getData("text/plain");
+              if (id) setPicked((current) => reorderPicked(current, id, ""));
+              setDragging("");
+            }}
+          >
+            {picked.map((id, at) => {
+              const label = known.get(id)?.displayName ?? id;
+              const lifted = dragging === id;
+              return (
+                <li
+                  key={id}
+                  draggable
+                  onDragStart={(event) => {
+                    setDragging(id);
+                    event.dataTransfer.effectAllowed = "move";
+                    // Firefox starts no drag at all unless something is set here.
+                    event.dataTransfer.setData("text/plain", id);
+                  }}
+                  onDragEnd={() => setDragging("")}
+                  onDragOver={(event) => {
+                    if (!dragging || lifted) return;
+                    // Without this the drop is refused and the cursor shows the "no" sign.
+                    event.preventDefault();
+                    setOver(id);
+                  }}
+                  onDragLeave={() => setOver((current) => (current === id ? "" : current))}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setOver("");
+                    if (dragging && !lifted) setPicked((current) => reorderPicked(current, dragging, id));
+                    setDragging("");
+                  }}
+                  className={`relative flex cursor-grab items-center gap-1 rounded border px-1.5 py-1 text-sm ${
+                    lifted ? "border-[#cbd5e1] opacity-40" : "border-[#cfe0ee] bg-[#f2f7fb] text-[#1f4e79]"
+                  }`}
+                >
+                  {/* Where it would land. */}
+                  {over === id && dragging && !lifted ? (
+                    <span aria-hidden="true" className="pointer-events-none absolute inset-y-0 -left-0.5 w-0.5 bg-[#1f4e79]" />
+                  ) : null}
+                  <GripVertical size={12} className="shrink-0 text-[#98a2b3]" aria-hidden="true" />
+                  <span className="tabular-nums text-xs text-[#98a2b3]">{at + 1}</span>
+                  {label}
+                  {/* A drag needs a mouse; these do not. */}
+                  <span className="ml-0.5 flex items-center">
+                    <button
+                      type="button"
+                      aria-label={`Move ${label} earlier`}
+                      disabled={at === 0}
+                      onClick={() => setPicked((current) => movePicked(current, id, -1))}
+                      className="rounded px-0.5 text-[#98a2b3] hover:text-[#1f4e79] disabled:opacity-30"
+                    >
+                      <ChevronLeft size={13} aria-hidden="true" />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`Move ${label} later`}
+                      disabled={at === picked.length - 1}
+                      onClick={() => setPicked((current) => movePicked(current, id, 1))}
+                      className="rounded px-0.5 text-[#98a2b3] hover:text-[#1f4e79] disabled:opacity-30"
+                    >
+                      <ChevronRight size={13} aria-hidden="true" />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`Take ${label} out`}
+                      onClick={() => setPicked((current) => current.filter((kept) => kept !== id))}
+                      className="rounded px-0.5 text-[#98a2b3] hover:text-[#a6292f]"
+                    >
+                      <X size={13} aria-hidden="true" />
+                    </button>
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        ) : (
+          <p className="mt-1 min-h-5 text-sm text-[#98a2b3]">
+            Nothing picked yet. Tick a column below; drag them to change the order.
+          </p>
+        )}
       </div>
 
       <input

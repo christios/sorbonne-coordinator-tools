@@ -111,6 +111,33 @@ export function rowsForCopy<Row extends { studentId: string }>(
   return wanted;
 }
 
+/**
+ * Drop one picked column in front of another, which is what a drag between them means.
+ *
+ * The same rule the table's headers use, on a plain list: an empty `beforeId` means the
+ * end, so a column dragged past the last one lands after it rather than nowhere.
+ */
+export function reorderPicked(ids: string[], id: string, beforeId: string): string[] {
+  if (id === beforeId) return ids;
+  const order = [...ids];
+  const from = order.indexOf(id);
+  if (from < 0) return ids;
+  order.splice(from, 1);
+  const to = beforeId ? order.indexOf(beforeId) : order.length;
+  order.splice(to < 0 ? order.length : to, 0, id);
+  return order;
+}
+
+/** One place left or right, for anyone not using a mouse. */
+export function movePicked(ids: string[], id: string, by: -1 | 1): string[] {
+  const order = [...ids];
+  const from = order.indexOf(id);
+  const to = from + by;
+  if (from < 0 || to < 0 || to >= order.length) return ids;
+  order.splice(to, 0, ...order.splice(from, 1));
+  return order;
+}
+
 /** The block a preset puts on the clipboard: rows down, the preset's columns across. */
 export function presetText<Row>(
   columns: StudentColumn[],

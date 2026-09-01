@@ -211,6 +211,65 @@ describe("the copy preset menu", () => {
     }
   });
 
+  /*
+   * Columns copy in the order they were picked, which is rarely the order they are
+   * wanted in — and re-ticking everything to change it is not an answer.
+   */
+  it("reorders the picked columns by dragging one onto another", async () => {
+    renderMenu();
+    openMenu();
+    fireEvent.click(await screen.findByRole("button", { name: /New preset/ }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.change(within(dialog).getByLabelText("Preset name"), { target: { value: "Merge" } });
+    fireEvent.click(within(dialog).getByLabelText("Id"));
+    fireEvent.click(within(dialog).getByLabelText("E-mail"));
+
+    // Drag the e-mail chip onto the id chip: it lands in front of it.
+    const chips = within(dialog).getAllByRole("listitem");
+    const data = new Map<string, string>();
+    const dataTransfer = {
+      effectAllowed: "",
+      setData: (kind: string, value: string) => data.set(kind, value),
+      getData: (kind: string) => data.get(kind) ?? "",
+    };
+    fireEvent.dragStart(chips[1], { dataTransfer });
+    fireEvent.dragOver(chips[0], { dataTransfer });
+    fireEvent.drop(chips[0], { dataTransfer });
+
+    fireEvent.click(within(dialog).getByRole("button", { name: /Save 2 columns/ }));
+    expect(loadPresets().presets[0].columnIds).toEqual(["portal:PSUAD_EMAIL", "studentId"]);
+  });
+
+  it("reorders without a mouse, for anyone who cannot drag", async () => {
+    renderMenu();
+    openMenu();
+    fireEvent.click(await screen.findByRole("button", { name: /New preset/ }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.change(within(dialog).getByLabelText("Preset name"), { target: { value: "Merge" } });
+    fireEvent.click(within(dialog).getByLabelText("Id"));
+    fireEvent.click(within(dialog).getByLabelText("E-mail"));
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Move E-mail earlier" }));
+
+    fireEvent.click(within(dialog).getByRole("button", { name: /Save 2 columns/ }));
+    expect(loadPresets().presets[0].columnIds).toEqual(["portal:PSUAD_EMAIL", "studentId"]);
+  });
+
+  it("takes a column out from its chip", async () => {
+    renderMenu();
+    openMenu();
+    fireEvent.click(await screen.findByRole("button", { name: /New preset/ }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByLabelText("Id"));
+    fireEvent.click(within(dialog).getByLabelText("E-mail"));
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Take Id out" }));
+
+    expect(within(dialog).getByRole("button", { name: /Save 1 column/ })).toBeTruthy();
+    // The tick box follows it, rather than claiming it is still picked.
+    expect((within(dialog).getByLabelText("Id") as HTMLInputElement).checked).toBe(false);
+  });
+
   it("narrows a long column list by searching it", async () => {
     renderMenu();
     openMenu();
