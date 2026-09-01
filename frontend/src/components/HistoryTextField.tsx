@@ -81,6 +81,9 @@ export function HistoryTextField({
             inputMode={inputMode}
             aria-invalid={invalid || undefined}
             onChange={handleChange}
+            // A number field changes value when the wheel passes over it, which is how
+            // contact hours and ECTS moved without anyone meaning to change them.
+            onWheel={type === "number" ? (event) => event.currentTarget.blur() : undefined}
             className={textInputClass}
           />
         )}

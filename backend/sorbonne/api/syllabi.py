@@ -274,6 +274,13 @@ def compare_syllabi(
 
 
 def _export_filename(syllabus: dict[str, Any]) -> str:
-    title = "".join(character if character.isalnum() else "-" for character in syllabus["courseTitle"]).strip("-")
-    year = "".join(character if character.isalnum() else "-" for character in syllabus["academicYear"]).strip("-")
-    return f"{title or 'syllabus'}-{year or 'export'}.docx"
+    """Name the file so the course can be told from the filename alone."""
+    code = _filename_part(syllabus.get("courseCode"))
+    title = _filename_part(syllabus.get("courseTitle"))
+    year = _filename_part(syllabus.get("academicYear"))
+    parts = [part for part in (code, title or "syllabus", year or "export") if part]
+    return f"{'-'.join(parts)}.docx"
+
+
+def _filename_part(value: Any) -> str:
+    return "".join(character if character.isalnum() else "-" for character in str(value or "")).strip("-")

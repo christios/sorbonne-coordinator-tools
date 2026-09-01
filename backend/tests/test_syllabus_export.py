@@ -271,3 +271,13 @@ def test_numbers_course_outcomes_that_are_not_numbered_already(tmp_path) -> None
     table = Document(output).tables[6]
     assert table.rows[1].cells[0].text.strip() == "CLO 1: Solve mechanics problems."
     assert table.rows[2].cells[0].text.strip() == "CLO 2. Already numbered."
+
+
+def test_export_filename_leads_with_the_course_code() -> None:
+    from sorbonne.api.syllabi import _export_filename
+
+    name = _export_filename(
+        {"courseTitle": "Mechanics Physics 1", "courseCode": "PHYS125", "academicYear": "2026-2027"}
+    )
+
+    assert name == "PHYS125-Mechanics-Physics-1-2026-2027.docx"
