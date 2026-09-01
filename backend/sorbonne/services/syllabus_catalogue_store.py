@@ -19,6 +19,7 @@ CATALOGUE_CATEGORIES = frozenset(
         "programmes",
         "plos",
         "competencies",
+        "graduate-competencies",
         "teaching-presets",
         "assessment-types",
         "rubric-presets",
