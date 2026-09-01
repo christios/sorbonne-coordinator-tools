@@ -16,7 +16,10 @@
 
 import { displayNameOf, studentIdOf, type PortalRoster, type RosterRow } from "@/services/scenRosters";
 
-const KEY = "scen-rosters:v1";
+// v2 packs the rows: the field names are written once per pull instead of once per
+// student. See pack(). v1 is read for as long as it is still there, then replaced.
+const KEY = "scen-rosters:v2";
+const OLD_KEY = "scen-rosters:v1";
 // Which view was last pulled. Nothing reads it any more — the view on screen decides
 // which pull to show — but it is still written, and still cleared, so an upgrade back and
 // forth does not strand it.
@@ -39,14 +42,129 @@ export type StoredPreset = { current?: StoredPull; previous?: StoredPull };
 
 type Store = Record<string, StoredPreset>;
 
-function read(): Store {
+/**
+ * A pull with its field names written once.
+ *
+ * A portal row carries between fifteen and thirty-nine fields, and the names are more
+ * than half of it — `MAJOR_CODE_DESC` is longer than most of the values it labels. Stored
+ * as objects, a whole term spends over a megabyte repeating the same thirty-four words
+ * 2876 times, and the browser's five-megabyte quota is not big enough for that on top of
+ * every other view a coordinator has synced. The first term is 2876 students, so this is
+ * the difference between the names being kept and the table having none.
+ *
+ * `values` is aligned to `fields`; a field a row does not have is null, which is not the
+ * same as an empty string and unpacks back to absent.
+ */
+type PackedPull = {
+  presetId: string;
+  name: string;
+  count: number;
+  fetchedAt: number;
+  fields: string[];
+  values: (string | number | boolean | null)[][];
+};
+
+type PackedPreset = { current?: PackedPull; previous?: PackedPull };
+type PackedStore = Record<string, PackedPreset>;
+
+function pack(pull: StoredPull): PackedPull {
+  // Every field any row has, in first-seen order: the portal's own column order, which
+  // is stable across a pull and reads sensibly if anyone ever looks at the raw store.
+  const fields: string[] = [];
+  const seen = new Set<string>();
+  for (const row of pull.rows) {
+    for (const field of Object.keys(row)) {
+      if (!seen.has(field)) {
+        seen.add(field);
+        fields.push(field);
+      }
+    }
+  }
+  return {
+    presetId: pull.presetId,
+    name: pull.name,
+    count: pull.count,
+    fetchedAt: pull.fetchedAt,
+    fields,
+    values: pull.rows.map((row) => fields.map((field) => (field in row ? (row[field] ?? null) : null))),
+  };
+}
+
+function unpack(pull: PackedPull): StoredPull {
+  const { fields, values } = pull;
+  return {
+    presetId: pull.presetId,
+    name: pull.name,
+    count: pull.count,
+    fetchedAt: pull.fetchedAt,
+    rows: values.map((row) => {
+      const out: RosterRow = {};
+      fields.forEach((field, index) => {
+        const value = row[index];
+        if (value !== null && value !== undefined) out[field] = value as RosterRow[string];
+      });
+      return out;
+    }),
+  };
+}
+
+/** A pull written before packing existed, which is a plain `StoredPull`. */
+function isPacked(pull: unknown): pull is PackedPull {
+  return Boolean(pull && Array.isArray((pull as PackedPull).fields));
+}
+
+function readPacked(): PackedStore {
   try {
     const raw = window.localStorage.getItem(KEY);
-    return raw ? (JSON.parse(raw) as Store) : {};
+    if (raw) return JSON.parse(raw) as PackedStore;
   } catch {
     // Private browsing, a full disk, or something that is not ours: behave as if empty.
     return {};
   }
+
+  /*
+   * Nothing under the new key. Carry the old store over rather than making a coordinator
+   * re-sync every view they have: the names are only in this browser, so losing them
+   * costs a trip to the portal for each one.
+   */
+  try {
+    const raw = window.localStorage.getItem(OLD_KEY);
+    if (!raw) return {};
+    const old = JSON.parse(raw) as Store;
+    const migrated: PackedStore = {};
+    for (const [id, preset] of Object.entries(old)) {
+      migrated[id] = {
+        current: preset.current ? pack(preset.current) : undefined,
+        previous: preset.previous ? pack(preset.previous) : undefined,
+      };
+    }
+    // Only drop the old copy once the new one is safely down. If the write is refused
+    // there is nothing to gain by having deleted the only copy.
+    if (write(migrated)) window.localStorage.removeItem(OLD_KEY);
+    return migrated;
+  } catch {
+    return {};
+  }
+}
+
+function read(): Store {
+  const packed = readPacked();
+  const store: Store = {};
+  for (const [id, preset] of Object.entries(packed)) {
+    store[id] = {
+      current: preset.current
+        ? isPacked(preset.current)
+          ? unpack(preset.current)
+          : (preset.current as unknown as StoredPull)
+        : undefined,
+      previous: preset.previous
+        ? isPacked(preset.previous)
+          ? unpack(preset.previous)
+          : (preset.previous as unknown as StoredPull)
+        : undefined,
+    };
+  }
+  return store;
 }
 
 /**
@@ -66,7 +184,7 @@ export function storageReport(): StorageReport {
 }
 
 /** True if it went in. False means the quota refused it, or storage is unavailable. */
-function write(store: Store): boolean {
+function write(store: PackedStore): boolean {
   try {
     window.localStorage.setItem(KEY, JSON.stringify(store));
     return true;
@@ -89,7 +207,7 @@ function write(store: Store): boolean {
  * looked at is the last thing standing. Losing a comparison point costs the "changed
  * since last pull" column for that view; losing the current pull costs every name.
  */
-function shrink(store: Store, keep: string): { store: Store; gave: string } | null {
+function shrink(store: PackedStore, keep: string): { store: PackedStore; gave: string } | null {
   const others = Object.keys(store).filter((id) => id !== keep);
 
   // 1. Comparison points from other views.
@@ -133,7 +251,7 @@ function shrink(store: Store, keep: string): { store: Store; gave: string } | nu
  * syncs a whole term should not silently lose the four views they were working with when
  * dropping one comparison point would have been enough.
  */
-function writeFitting(store: Store, keep: string): StorageReport {
+function writeFitting(store: PackedStore, keep: string): StorageReport {
   const shed: string[] = [];
   let current = store;
   for (;;) {
@@ -152,15 +270,15 @@ export function loadPull(presetId: string): StoredPreset {
 
 /** Keep this pull, and demote the one it replaces to "previous". */
 export function rememberPull(roster: PortalRoster): StoredPreset {
-  const store = read();
+  const store = readPacked();
   const existing = store[roster.presetId] ?? {};
-  const kept: StoredPull = {
+  const kept = pack({
     presetId: roster.presetId,
     name: roster.name,
     count: roster.count,
     fetchedAt: roster.fetchedAt,
     rows: roster.rows,
-  };
+  });
   // Pulling twice in quick succession should not throw away the comparison point.
   const previous = existing.current && existing.current.fetchedAt !== kept.fetchedAt
     ? existing.current
@@ -172,7 +290,11 @@ export function rememberPull(roster: PortalRoster): StoredPreset {
   } catch {
     // Same as write(): storage being unavailable must not break the page.
   }
-  return store[roster.presetId];
+  const saved = store[roster.presetId];
+  return {
+    current: saved?.current ? unpack(saved.current) : undefined,
+    previous: saved?.previous ? unpack(saved.previous) : undefined,
+  };
 }
 
 function syncTimes(): Record<string, string> {
@@ -249,6 +371,7 @@ export function rememberSync(viewId: string, syncedAt: string): void {
 export function forgetRosters(): void {
   try {
     window.localStorage.removeItem(KEY);
+    window.localStorage.removeItem(OLD_KEY);
     window.localStorage.removeItem(LAST);
     window.localStorage.removeItem(SYNCED);
     window.localStorage.removeItem("scen-rosters:synced");

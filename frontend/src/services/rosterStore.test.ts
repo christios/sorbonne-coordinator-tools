@@ -162,3 +162,64 @@ describe("when this browser has no room left", () => {
     expect(loadPull("scen-l1").current).toBeUndefined();
   });
 });
+
+/*
+ * Packing.
+ *
+ * A portal row carries up to thirty-nine fields and more than half of every stored row
+ * was the field names, repeated once per student. A whole term is 2876 of them, which did
+ * not fit beside the views a coordinator already had — the write was refused, the refusal
+ * was discarded, and the table showed students with no names.
+ */
+describe("packing the rows", () => {
+  const wide = (id: string) => ({
+    SPRIDEN_ID: id,
+    FULL_NAME: `Name ${id}`,
+    MAJOR_CODE_DESC: "Applied Mathematics and Physics",
+    JUSTIFY_ATTENDANCE_IND: "N",
+    POTENTIAL_GRADUATE: "N",
+    NATIONALITY_CAT: "GCC",
+  });
+
+  it("gives back exactly what went in", () => {
+    const rows = [wide("A001"), wide("A002")];
+    rememberPull(pull(1000, rows));
+
+    expect(loadPull("scen-fy").current?.rows).toEqual(rows);
+  });
+
+  it("keeps a field one row has and another does not, without inventing it", () => {
+    rememberPull(pull(1000, [{ SPRIDEN_ID: "A001", YEARLEVEL_CODE: "FY" }, { SPRIDEN_ID: "A002" }]));
+
+    const stored = loadPull("scen-fy").current?.rows ?? [];
+    expect(stored[0]).toEqual({ SPRIDEN_ID: "A001", YEARLEVEL_CODE: "FY" });
+    expect(stored[1]).toEqual({ SPRIDEN_ID: "A002" });
+    expect("YEARLEVEL_CODE" in stored[1]).toBe(false);
+  });
+
+  it("writes the field names once for the pull, not once for each student", () => {
+    const rows = Array.from({ length: 200 }, (_, i) => wide(`A${i}`));
+    rememberPull(pull(1000, rows));
+
+    const raw = window.localStorage.getItem("scen-rosters:v2") ?? "";
+    // One mention in `fields`, and none in the rows themselves.
+    expect(raw.split("MAJOR_CODE_DESC").length - 1).toBe(1);
+    // Comfortably smaller than the same rows written as objects.
+    expect(raw.length).toBeLessThan(JSON.stringify(rows).length * 0.6);
+  });
+
+  it("carries over a store written before packing existed", () => {
+    const rows = [wide("A001"), wide("A002")];
+    window.localStorage.setItem(
+      "scen-rosters:v1",
+      JSON.stringify({
+        "scen-fy": { current: { presetId: "scen-fy", name: "SCEN — FY", count: 2, fetchedAt: 1000, rows } },
+      }),
+    );
+
+    expect(loadPull("scen-fy").current?.rows).toEqual(rows);
+    // Moved over rather than copied: two stores of names is the problem, not the fix.
+    expect(window.localStorage.getItem("scen-rosters:v1")).toBeNull();
+    expect(window.localStorage.getItem("scen-rosters:v2")).toBeTruthy();
+  });
+});
