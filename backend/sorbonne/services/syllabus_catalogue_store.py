@@ -318,6 +318,33 @@ class SyllabusCatalogueStore:
         resolved["learningOutcomes"] = outcomes
         return resolved
 
+    def resolve_teaching_approach(self, content: dict[str, Any]) -> dict[str, Any]:
+        """Compose section 8 from the approved presets the course selected.
+
+        Each subsection names the kind of session it describes, so a course taught as
+        lectures and tutorials reads as two labelled blocks rather than one run-on
+        paragraph in which neither can be told from the other.
+        """
+        resolved = deepcopy(content)
+        approach = _record(resolved.get("teachingApproach"))
+        preset_ids = [item for item in approach.get("teachingPresetIds") or [] if isinstance(item, str)]
+        if not preset_ids:
+            return resolved
+        presets = {item["id"]: item for item in self.list("teaching-presets", include_retired=True)}
+        chosen = [presets[item] for item in preset_ids if item in presets]
+        if not chosen:
+            return resolved
+        for key in ("methods", "engagement", "feedback"):
+            blocks = [
+                f"{preset['label']}: {_text(_record(preset.get('payload')).get(key))}"
+                for preset in chosen
+                if _text(_record(preset.get("payload")).get(key))
+            ]
+            if blocks:
+                approach[key] = "\n\n".join(blocks)
+        resolved["teachingApproach"] = approach
+        return resolved
+
     def _person(self, item_id: str) -> dict[str, Any]:
         try:
             return self.get("people", item_id)

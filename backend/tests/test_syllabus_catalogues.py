@@ -135,3 +135,18 @@ def test_leaves_plos_alone_when_the_syllabus_has_no_programme() -> None:
     content = {"learningOutcomes": {"plos": [{"id": "local", "legacyText": "PLO 1: Local outcome."}]}}
 
     assert store.resolve_plos(content) == content
+
+
+def test_labels_each_teaching_approach_by_the_kind_of_session() -> None:
+    """Section 8 must say which session each paragraph describes."""
+    store = make_store()
+    lecture = store.create("teaching-presets", label=f"Lecture {uuid4()}", payload={"methods": "Instructor-led."})
+    tutorial = store.create("teaching-presets", label=f"Tutorial {uuid4()}", payload={"methods": "Small group."})
+    content = {"teachingApproach": {"teachingPresetIds": [lecture["id"], tutorial["id"]]}}
+
+    resolved = store.resolve_teaching_approach(content)
+
+    assert resolved["teachingApproach"]["methods"] == (
+        f"{lecture['label']}: Instructor-led.\n\n{tutorial['label']}: Small group."
+    )
+    assert "methods" not in content["teachingApproach"]

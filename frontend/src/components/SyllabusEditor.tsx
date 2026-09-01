@@ -820,37 +820,11 @@ function SectionForm({
     );
   if (active === "teachingApproach")
     return (
-      <div className="grid gap-4">
-        <TeachingPresetPicker
-          value={section}
-          presets={teachingPresets.data ?? []}
-          onApply={(next) => editContent(active, next)}
-        />
-        <SyllabusSubsection title="Teaching methods and learning activities">
-          {text(
-            "Teaching methods and learning activities",
-            section.methods,
-            (value) => editContent(active, { ...section, methods: value }),
-            true,
-          )}
-        </SyllabusSubsection>
-        <SyllabusSubsection title="Student engagement">
-          {text(
-            "Student engagement",
-            section.engagement,
-            (value) => editContent(active, { ...section, engagement: value }),
-            true,
-          )}
-        </SyllabusSubsection>
-        <SyllabusSubsection title="Feedback and academic progress">
-          {text(
-            "Feedback and academic progress",
-            section.feedback,
-            (value) => editContent(active, { ...section, feedback: value }),
-            true,
-          )}
-        </SyllabusSubsection>
-      </div>
+      <TeachingApproachSection
+        value={section}
+        presets={teachingPresets.data ?? []}
+        onChange={(next) => editContent(active, next)}
+      />
     );
   if (active === "assessment")
     return (
@@ -909,128 +883,81 @@ function Section({
   return <SyllabusSubsection title={title}>{children}</SyllabusSubsection>;
 }
 
-function TeachingPresetPicker({
+function TeachingApproachSection({
   value,
   presets,
-  onApply,
+  onChange,
 }: {
   value: Record<string, unknown>;
   presets: CatalogueEntry[];
-  onApply: (value: Record<string, unknown>) => void;
+  onChange: (value: Record<string, unknown>) => void;
 }) {
-  const [selected, setSelected] = useState<string[]>(
-    Array.isArray(value.teachingPresetIds)
-      ? value.teachingPresetIds.filter(
-          (item): item is string => typeof item === "string",
-        )
-      : [],
-  );
-  const [showPreview, setShowPreview] = useState(false);
-  const [confirmApply, setConfirmApply] = useState(false);
+  const selected = Array.isArray(value.teachingPresetIds)
+    ? value.teachingPresetIds.filter((item): item is string => typeof item === "string")
+    : [];
   const chosen = presets.filter((preset) => selected.includes(preset.id));
-  const compiled = (key: "methods" | "engagement" | "feedback") =>
-    chosen
-      .map((preset) => stringify(preset.payload[key]).trim())
-      .filter(Boolean)
-      .join("\n\n");
-  const apply = () => {
-    onApply({
-      ...value,
-      teachingPresetIds: selected,
-      methods: compiled("methods"),
-      engagement: compiled("engagement"),
-      feedback: compiled("feedback"),
-    });
-    setConfirmApply(false);
+  const subsections = [
+    ["methods", "8.1 Teaching methods and learning activities"],
+    ["engagement", "8.2 Student engagement"],
+    ["feedback", "8.3 Feedback and academic progress"],
+  ] as const;
+  const toggle = (id: string) => {
+    const next = selected.includes(id)
+      ? selected.filter((item) => item !== id)
+      : [...selected, id];
+    // Keep the catalogue's own order, so the syllabus reads lectures before tutorials.
+    const ordered = presets.filter((preset) => next.includes(preset.id)).map((preset) => preset.id);
+    onChange({ ...value, teachingPresetIds: ordered });
   };
-  const hasExistingContent = [
-    value.methods,
-    value.engagement,
-    value.feedback,
-  ].some((item) => stringify(item).trim());
-  if (!presets.length) return null;
   return (
-    <section className="rounded-md border border-[#d9dee7] bg-[#f8fafc] p-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h4 className="text-sm font-semibold text-[#344054]">
-            Teaching approach presets
-          </h4>
-          <p className="mt-1 text-sm text-[#667085]">
-            Select one or more approved approaches, review the combined text,
-            then apply it deliberately.
-          </p>
+    <div className="grid gap-4">
+      <section className="rounded-lg border border-[#d9dee7] bg-white p-5">
+        <h3 className="text-lg font-semibold text-[#171717]">Teaching and learning approach</h3>
+        <p className="mt-1 text-sm text-[#667085]">
+          Choose the kinds of session this course uses. The three subsections are written by
+          the department and appear below exactly as they will in the syllabus.
+        </p>
+        <div className="mt-4 grid gap-2">
+          {presets.length ? (
+            presets.map((preset) => (
+              <label key={preset.id} className="flex items-start gap-2 text-sm text-[#344054]">
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={selected.includes(preset.id)}
+                  onChange={() => toggle(preset.id)}
+                />
+                <span>{preset.label}</span>
+              </label>
+            ))
+          ) : (
+            <p className="text-sm text-[#667085]">No approved teaching approaches yet.</p>
+          )}
         </div>
-        <button
-          type="button"
-          onClick={() => setShowPreview((current) => !current)}
-          className="w-fit rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#1f4e79]"
-        >
-          {showPreview ? "Hide preview" : "Preview"}
-        </button>
-      </div>
-      <div className="mt-3 grid gap-2">
-        {presets.map((preset) => (
-          <label
-            key={preset.id}
-            className="flex items-start gap-2 rounded-md bg-white px-3 py-2 text-sm text-[#344054]"
-          >
-            <input
-              type="checkbox"
-              checked={selected.includes(preset.id)}
-              onChange={() =>
-                setSelected((current) =>
-                  current.includes(preset.id)
-                    ? current.filter((id) => id !== preset.id)
-                    : [...current, preset.id],
-                )
-              }
-            />
-            <span>{preset.label}</span>
-          </label>
-        ))}
-      </div>
-      {showPreview ? (
-        <div className="mt-4 rounded-md border border-[#d9dee7] bg-white p-4">
-          <p className="text-sm font-semibold text-[#344054]">
-            Combined preview
-          </p>
-          {(["methods", "engagement", "feedback"] as const).map((key) => (
-            <div key={key} className="mt-3">
-              <p className="text-sm font-semibold capitalize text-[#475467]">
-                {key === "methods"
-                  ? "Teaching methods"
-                  : key === "engagement"
-                    ? "Student engagement"
-                    : "Feedback and academic progress"}
-              </p>
-              <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-[#667085]">
-                {compiled(key) ||
-                  "No text is supplied by the selected presets."}
-              </p>
+      </section>
+      {subsections.map(([key, heading]) => (
+        <section key={key} className="rounded-lg border border-[#d9dee7] bg-white p-5">
+          <h4 className="text-sm font-semibold text-[#344054]">{heading}</h4>
+          {chosen.length ? (
+            <div className="mt-3 grid gap-3">
+              {chosen.map((preset) => (
+                <div key={preset.id} className="rounded-md border border-[#e5e7eb] bg-[#f8fafc] p-3">
+                  <p className="text-sm font-semibold text-[#344054]">{preset.label}</p>
+                  <p className="mt-1 whitespace-pre-line text-sm leading-6 text-[#475467]">
+                    {stringify(preset.payload[key]) ||
+                      "The department has not written this section yet."}
+                  </p>
+                </div>
+              ))}
             </div>
-          ))}
-          <button
-            type="button"
-            disabled={!chosen.length}
-            onClick={() =>
-              hasExistingContent ? setConfirmApply(true) : apply()
-            }
-            className="mt-4 rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white disabled:bg-[#9ba8b5]"
-          >
-            Apply to this syllabus
-          </button>
-        </div>
-      ) : null}
-      <ConfirmDialog
-        open={confirmApply}
-        title="Replace teaching-approach text?"
-        description="Applying this preview will replace the three existing teaching-approach fields. Your current text will not be changed unless you confirm."
-        confirmLabel="Replace and apply"
-        onConfirm={apply}
-        onClose={() => setConfirmApply(false)}
-      />
-    </section>
+          ) : (
+            <p className="mt-3 whitespace-pre-line rounded-md border border-dashed border-[#d0d5dd] px-3 py-3 text-sm text-[#667085]">
+              {stringify(value[key]) || "Select the kinds of session above."}
+            </p>
+          )}
+        </section>
+      ))}
+    </div>
   );
 }
 
