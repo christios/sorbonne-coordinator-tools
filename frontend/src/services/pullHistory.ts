@@ -21,6 +21,7 @@
  * like a mass departure from whichever view you were looking at.
  */
 
+import * as browser from "@/services/browserStore";
 import { studentIdOf, type RosterRow } from "@/services/scenRosters";
 
 // v1 was a single shared history. It cannot be split after the fact — a pull did not
@@ -67,18 +68,30 @@ type HistoryStore = Record<string, PullHistory>;
 
 const EMPTY: PullHistory = { pulls: [], latest: {}, present: [] };
 
-function read(): HistoryStore {
+/*
+ * The history moved to IndexedDB with the rosters, and for the same reason: recording a
+ * whole term is over two megabytes on its own, which localStorage refused — silently,
+ * so the term view simply had no history and nothing said why.
+ */
+async function read(): Promise<HistoryStore> {
+  const held = await browser.read<HistoryStore>(KEY);
+  if (held) return held;
+
+  // Carry over whatever localStorage still holds, then stop keeping two copies.
   try {
     const raw = window.localStorage.getItem(KEY);
-    return raw ? (JSON.parse(raw) as HistoryStore) : {};
+    if (!raw) return {};
+    const old = JSON.parse(raw) as HistoryStore;
+    if (await browser.write(KEY, old)) window.localStorage.removeItem(KEY);
+    return old;
   } catch {
     // Private browsing, a full disk, or something that is not ours.
     return {};
   }
 }
 
-export function loadHistory(viewId: string): PullHistory {
-  const held = read()[viewId];
+export async function loadHistory(viewId: string): Promise<PullHistory> {
+  const held = (await read())[viewId];
   if (!held || !Array.isArray(held.pulls) || !held.latest) return EMPTY;
   return { ...held, present: Array.isArray(held.present) ? held.present : Object.keys(held.latest) };
 }
@@ -90,10 +103,10 @@ export function loadHistory(viewId: string): PullHistory {
  * them, which is what the roster store used to keep a whole second copy of the previous
  * pull for. This is that copy, without the duplication.
  */
-export function allLatest(): { at: number; values: Record<string, Record<string, string>> }[] {
+export async function allLatest(): Promise<{ at: number; values: Record<string, Record<string, string>> }[]> {
   let store: Record<string, PullHistory>;
   try {
-    store = read();
+    store = await read();
   } catch {
     return [];
   }
@@ -106,13 +119,8 @@ export function allLatest(): { at: number; values: Record<string, Record<string,
     .sort((left, right) => left.at - right.at);
 }
 
-function put(store: Record<string, PullHistory>): boolean {
-  try {
-    window.localStorage.setItem(KEY, JSON.stringify(store));
-    return true;
-  } catch {
-    return false;
-  }
+function put(store: Record<string, PullHistory>): Promise<boolean> {
+  return browser.write(KEY, store);
 }
 
 /**
@@ -144,16 +152,16 @@ function shrink(store: Record<string, PullHistory>, keep: string): Record<string
   return null;
 }
 
-function write(viewId: string, history: PullHistory): void {
+async function write(viewId: string, history: PullHistory): Promise<void> {
   let store: Record<string, PullHistory>;
   try {
-    store = read();
+    store = await read();
   } catch {
     return;
   }
   store[viewId] = history;
   for (;;) {
-    if (put(store)) return;
+    if (await put(store)) return;
     const smaller = shrink(store, viewId);
     // A history that cannot be written must never break the sync it was recording.
     if (!smaller) return;
@@ -162,19 +170,17 @@ function write(viewId: string, history: PullHistory): void {
 }
 
 /** Every view's history, or one view's when it is named. */
-export function forgetHistory(viewId?: string): void {
+export async function forgetHistory(viewId?: string): Promise<void> {
   try {
     window.localStorage.removeItem(OLD_KEY);
-    if (viewId === undefined) {
-      window.localStorage.removeItem(KEY);
-      return;
-    }
-    const store = read();
-    delete store[viewId];
-    window.localStorage.setItem(KEY, JSON.stringify(store));
+    window.localStorage.removeItem(KEY);
   } catch {
     // If it cannot be removed it could not have been written either.
   }
+  if (viewId === undefined) return browser.drop(KEY);
+  const store = await read();
+  delete store[viewId];
+  await put(store);
 }
 
 /** A pull's rows, flattened to `id -> field -> value`, blanks dropped. */
@@ -200,8 +206,8 @@ function valuesOf(rows: RosterRow[]): Record<string, Record<string, string>> {
  * The first pull is the baseline: everybody has arrived, and nobody has changed, because
  * there is nothing yet to have changed from.
  */
-export function recordPull(viewId: string, rows: RosterRow[], at: number = Date.now()): PullHistory {
-  const history = loadHistory(viewId);
+export async function recordPull(viewId: string, rows: RosterRow[], at: number = Date.now()): Promise<PullHistory> {
+  const history = await loadHistory(viewId);
   const now = valuesOf(rows);
   const before = history.latest;
   const first = history.pulls.length === 0;
@@ -244,7 +250,9 @@ export function recordPull(viewId: string, rows: RosterRow[], at: number = Date.
     present: Object.keys(now),
     pulls: [...history.pulls, record].slice(-MAX_PULLS),
   };
-  write(viewId, next);
+  // Awaited: the next pull reads this back, and a write still in flight reads as no
+  // history at all — which makes the pull after it look like a first pull.
+  await write(viewId, next);
   return next;
 }
 

@@ -105,6 +105,21 @@ export function GroupCatalogue({
   });
   const removeScope = useMutation({ mutationFn: deleteScope, onSuccess: refresh });
 
+  /*
+   * How many names this browser holds, which the export note reports. Read rather than
+   * computed: the names live in a drawer the browser answers for asynchronously.
+   */
+  const [heldNames, setHeldNames] = useState(0);
+  useEffect(() => {
+    let current = true;
+    void namesHeld().then((held) => {
+      if (current) setHeldNames(Object.keys(held).length);
+    });
+    return () => {
+      current = false;
+    };
+  }, [catalogue.dataUpdatedAt]);
+
   /**
    * Write the semester back out as the workbook it came from.
    *
@@ -114,9 +129,9 @@ export function GroupCatalogue({
   const exportWorkbook = async () => {
     setExporting(true);
     try {
-      const held = namesHeld();
+      const held = await namesHeld();
       // The registrar's word for what they are on, which the workbook has a column for.
-      const programs = fieldHeld("MAJOR_CODE_DESC");
+      const programs = await fieldHeld("MAJOR_CODE_DESC");
       const placements = await fetchAssignments(cohort.id);
       const byScope = new Map(scopes.map((scope) => [scope.id, scope.code]));
       const labelOf = new Map(
@@ -185,7 +200,6 @@ export function GroupCatalogue({
   }
 
   const counts = summariseCatalogue(scopes);
-  const heldNames = Object.keys(namesHeld()).length;
 
   return (
     <>

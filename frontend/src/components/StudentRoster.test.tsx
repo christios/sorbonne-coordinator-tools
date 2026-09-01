@@ -114,8 +114,8 @@ const PULLED = [
   { SPRIDEN_ID: "A003", FULL_NAME: "Nadia Newcomer", YEARLEVEL_CODE: "FY", MAJOR_CODE_DESC: "Mathematics" },
 ];
 
-function withNames() {
-  rememberPull({
+async function withNames() {
+  await rememberPull({
     // Stored under the view that pulled it: another view's pull answered another question.
     presetId: VIEW_ID,
     name: "Sync",
@@ -161,10 +161,10 @@ beforeEach(() => {
   vi.spyOn(rosters, "fetchSchema").mockResolvedValue(SCHEMA);
 });
 
-afterEach(() => {
+afterEach(async () => {
   vi.restoreAllMocks();
-  forgetRosters();
-  forgetHistory();
+  await forgetRosters();
+  await forgetHistory();
   window.localStorage.clear();
 });
 
@@ -178,7 +178,7 @@ describe("StudentRoster", () => {
   });
 
   it("names them from the pull this browser is holding", async () => {
-    withNames();
+    await withNames();
     renderRoster();
 
     expect(await screen.findByText("Amira Haddad")).toBeTruthy();
@@ -186,7 +186,7 @@ describe("StudentRoster", () => {
   });
 
   it("marks a student the last sync brought in as new", async () => {
-    withNames();
+    await withNames();
     renderRoster();
 
     expect(within(await waitFor(() => rowFor("Nadia Newcomer"))).getByText("New")).toBeTruthy();
@@ -194,7 +194,7 @@ describe("StudentRoster", () => {
   });
 
   it("shows a student the portal stopped returning without pretending to know their name", async () => {
-    withNames();
+    await withNames();
     renderRoster();
 
     const gone = (await screen.findByText("A999")).closest("tr") as HTMLElement;
@@ -211,7 +211,7 @@ describe("StudentRoster", () => {
 
   describe("column filters", () => {
     it("narrows by a column's own values", async () => {
-      withNames();
+      await withNames();
       renderRoster();
       await screen.findByText("Amira Haddad");
 
@@ -223,7 +223,7 @@ describe("StudentRoster", () => {
     });
 
     it("turns the operator plural on its own when a second value is chosen", async () => {
-      withNames();
+      await withNames();
       renderRoster();
       await screen.findByText("Amira Haddad");
 
@@ -238,7 +238,7 @@ describe("StudentRoster", () => {
     });
 
     it("inverts when the operator is changed, keeping the values", async () => {
-      withNames();
+      await withNames();
       renderRoster();
       await screen.findByText("Amira Haddad");
 
@@ -252,7 +252,7 @@ describe("StudentRoster", () => {
     });
 
     it("removes one chip without disturbing the others", async () => {
-      withNames();
+      await withNames();
       renderRoster();
       await screen.findByText("Amira Haddad");
 
@@ -269,7 +269,7 @@ describe("StudentRoster", () => {
     });
 
     it("clears every filter at once", async () => {
-      withNames();
+      await withNames();
       renderRoster();
       await screen.findByText("Amira Haddad");
 
@@ -283,7 +283,7 @@ describe("StudentRoster", () => {
 
   describe("columns", () => {
     it("adds a column that was put away, and remembers it", async () => {
-      withNames();
+      await withNames();
       const { unmount } = renderRoster();
       await screen.findByText("Amira Haddad");
       expect(screen.queryByRole("button", { name: "Sort by E-mail" })).toBeNull();
@@ -400,7 +400,7 @@ describe("StudentRoster", () => {
 
   it("moves the selected students into a cohort, sending ids and nothing else", async () => {
     const move = vi.spyOn(database, "setCohort").mockResolvedValue(2);
-    withNames();
+    await withNames();
     renderRoster();
     await screen.findByText("Amira Haddad");
 
@@ -420,7 +420,7 @@ describe("StudentRoster", () => {
   it("moves without a word when the students hold no groups, which is most moves", async () => {
     // The confirmation is only worth reading if it is rare. Nobody in HELD is placed.
     const move = vi.spyOn(database, "setCohort").mockResolvedValue(1);
-    withNames();
+    await withNames();
     renderRoster();
     await screen.findByText("Amira Haddad");
 
@@ -449,7 +449,7 @@ describe("StudentRoster", () => {
       ),
     );
     const move = vi.spyOn(database, "setCohort").mockResolvedValue(1);
-    withNames();
+    await withNames();
     renderRoster();
     await screen.findByText("Amira Haddad");
 
@@ -476,7 +476,7 @@ describe("StudentRoster", () => {
       ),
     );
     const move = vi.spyOn(database, "setCohort").mockResolvedValue(1);
-    withNames();
+    await withNames();
     renderRoster();
     await screen.findByText("Amira Haddad");
 
@@ -493,7 +493,7 @@ describe("StudentRoster", () => {
 
   it("takes students out of a cohort with a null, not a delete", async () => {
     const move = vi.spyOn(database, "setCohort").mockResolvedValue(1);
-    withNames();
+    await withNames();
     renderRoster();
     await screen.findByText("Amira Haddad");
 
@@ -507,7 +507,7 @@ describe("StudentRoster", () => {
 
   it("selects everyone shown, respecting the filter", async () => {
     const move = vi.spyOn(database, "setCohort").mockResolvedValue(1);
-    withNames();
+    await withNames();
     renderRoster();
     await screen.findByText("Amira Haddad");
     await addFilter("Year");
@@ -523,7 +523,7 @@ describe("StudentRoster", () => {
 
   describe("searching", () => {
     it("looks in every column on screen, not a chosen few", async () => {
-      withNames();
+      await withNames();
       renderRoster();
       await screen.findByText("Amira Haddad");
 
@@ -535,7 +535,7 @@ describe("StudentRoster", () => {
     });
 
     it("finds a student by the cohort they are in", async () => {
-      withNames();
+      await withNames();
       renderRoster();
       await screen.findByText("Amira Haddad");
 
@@ -546,7 +546,7 @@ describe("StudentRoster", () => {
     });
 
     it("still finds by id and by name", async () => {
-      withNames();
+      await withNames();
       renderRoster();
       await screen.findByText("Amira Haddad");
 
@@ -561,10 +561,10 @@ describe("StudentRoster", () => {
   describe("the history panel", () => {
     it("lists only the pulls something changed in, and says how many were quiet", async () => {
       const at = (n: number) => 1_700_000_000_000 + n * 86_400_000;
-      recordPull(VIEW_ID, [{ SPRIDEN_ID: "A001", FULL_NAME: "Amira Haddad", YEARLEVEL_CODE: "FY" }], at(1));
-      recordPull(VIEW_ID, [{ SPRIDEN_ID: "A001", FULL_NAME: "Amira Haddad", YEARLEVEL_CODE: "FY" }], at(2));
-      recordPull(VIEW_ID, [{ SPRIDEN_ID: "A001", FULL_NAME: "Amira Haddad", YEARLEVEL_CODE: "L1" }], at(3));
-      withNames();
+      await recordPull(VIEW_ID, [{ SPRIDEN_ID: "A001", FULL_NAME: "Amira Haddad", YEARLEVEL_CODE: "FY" }], at(1));
+      await recordPull(VIEW_ID, [{ SPRIDEN_ID: "A001", FULL_NAME: "Amira Haddad", YEARLEVEL_CODE: "FY" }], at(2));
+      await recordPull(VIEW_ID, [{ SPRIDEN_ID: "A001", FULL_NAME: "Amira Haddad", YEARLEVEL_CODE: "L1" }], at(3));
+      await withNames();
       renderRoster();
       await screen.findByText("Amira Haddad");
 
@@ -578,9 +578,9 @@ describe("StudentRoster", () => {
     });
 
     it("says so plainly when a student has never changed", async () => {
-      recordPull(VIEW_ID, [{ SPRIDEN_ID: "A001", FULL_NAME: "Amira Haddad" }], 1_000);
-      recordPull(VIEW_ID, [{ SPRIDEN_ID: "A001", FULL_NAME: "Amira Haddad" }], 2_000);
-      withNames();
+      await recordPull(VIEW_ID, [{ SPRIDEN_ID: "A001", FULL_NAME: "Amira Haddad" }], 1_000);
+      await recordPull(VIEW_ID, [{ SPRIDEN_ID: "A001", FULL_NAME: "Amira Haddad" }], 2_000);
+      await withNames();
       renderRoster();
       await screen.findByText("Amira Haddad");
 
@@ -591,7 +591,7 @@ describe("StudentRoster", () => {
     });
 
     it("closes when the pointer goes down on the table behind it", async () => {
-      withNames();
+      await withNames();
       renderRoster();
       await screen.findByText("Amira Haddad");
       fireEvent.click(screen.getByRole("button", { name: "History for Amira Haddad" }));
@@ -609,7 +609,7 @@ describe("StudentRoster", () => {
     });
 
     it("stays open when the pointer goes down inside it", async () => {
-      withNames();
+      await withNames();
       renderRoster();
       await screen.findByText("Amira Haddad");
       fireEvent.click(screen.getByRole("button", { name: "History for Amira Haddad" }));
@@ -624,7 +624,7 @@ describe("StudentRoster", () => {
     });
 
     it("swaps to another student rather than closing when their history is asked for", async () => {
-      withNames();
+      await withNames();
       renderRoster();
       await screen.findByText("Amira Haddad");
       fireEvent.click(screen.getByRole("button", { name: "History for Amira Haddad" }));
@@ -641,7 +641,7 @@ describe("StudentRoster", () => {
     });
 
     it("closes again", async () => {
-      withNames();
+      await withNames();
       renderRoster();
       await screen.findByText("Amira Haddad");
       fireEvent.click(screen.getByRole("button", { name: "History for Amira Haddad" }));
@@ -658,7 +658,7 @@ describe("StudentRoster", () => {
       Object.assign(navigator, {
         clipboard: { writeText: (text: string) => (written.push(text), Promise.resolve()) },
       });
-      withNames();
+      await withNames();
       renderRoster();
       await screen.findByText("Amira Haddad");
 
@@ -673,7 +673,7 @@ describe("StudentRoster", () => {
       Object.assign(navigator, {
         clipboard: { writeText: (text: string) => (written.push(text), Promise.resolve()) },
       });
-      withNames();
+      await withNames();
       renderRoster();
       await screen.findByText("Amira Haddad");
 
@@ -686,7 +686,7 @@ describe("StudentRoster", () => {
   });
 
   it("keeps every student when the stored rosters are forgotten", async () => {
-    withNames();
+    await withNames();
     renderRoster();
     await screen.findByText("Amira Haddad");
 
@@ -720,7 +720,7 @@ describe("sorting", () => {
   it("sorts by a portal column, not just by our own", async () => {
     // The bug: sorting read the column id off the row, so anything reached through
     // `portal` compared as blank and the table stayed in id order however you clicked.
-    withNames();
+    await withNames();
     renderRoster();
     await screen.findByText("Amira Haddad");
 
@@ -732,7 +732,7 @@ describe("sorting", () => {
   });
 
   it("turns the sort around when the same column is clicked again", async () => {
-    withNames();
+    await withNames();
     renderRoster();
     await screen.findByText("Amira Haddad");
 
@@ -745,7 +745,7 @@ describe("sorting", () => {
   it("ignores case, because the registrar's is not a decision about order", async () => {
     // The portal hands back whatever case it holds. Sorted case-sensitively, "nasser"
     // lands after every capitalised name instead of beside them.
-    rememberPull({
+    await rememberPull({
       presetId: VIEW_ID,
       name: "Sync",
       count: 3,
@@ -770,7 +770,7 @@ describe("sorting", () => {
   it("treats names that differ only in case as the same name", async () => {
     // Default collation ranks case, so "martin" and "MARTIN" land in an order decided by
     // capitalisation. They are one name: order them by id instead, so the list is stable.
-    rememberPull({
+    await rememberPull({
       presetId: VIEW_ID,
       name: "Sync",
       count: 3,
@@ -794,7 +794,7 @@ describe("sorting", () => {
 
   it("keeps accents apart, which case-folding must not flatten", async () => {
     // Case is noise; an accent is a different letter. Léa and Lea are two people.
-    rememberPull({
+    await rememberPull({
       presetId: VIEW_ID,
       name: "Sync",
       count: 3,
@@ -818,7 +818,7 @@ describe("sorting", () => {
   });
 
   it("sorts by our own columns too", async () => {
-    withNames();
+    await withNames();
     renderRoster();
     await screen.findByText("Amira Haddad");
 
@@ -833,7 +833,7 @@ describe("sorting", () => {
 
 describe("the toolbar", () => {
   it("keeps the cohort control on screen, disabled until something is selected", async () => {
-    withNames();
+    await withNames();
     renderRoster();
     await screen.findByText("Amira Haddad");
 
@@ -851,7 +851,7 @@ describe("the toolbar", () => {
 
   it("searches every student we hold when told to, not only this view", async () => {
     const fetched = vi.spyOn(database, "fetchStudents").mockResolvedValue(HELD);
-    withNames();
+    await withNames();
     renderRoster();
     await screen.findByText("Amira Haddad");
 
@@ -969,7 +969,7 @@ describe("sorting by status", () => {
   it("ranks by the pills the cell shows, not by the portal state alone", async () => {
     // The bug: three signals in one cell, and only one of them reached the sort. Two rows
     // both "In portal", one of them flagged New, sorted into id order as if identical.
-    withNames();
+    await withNames();
     renderRoster();
     await screen.findByText("A001");
 

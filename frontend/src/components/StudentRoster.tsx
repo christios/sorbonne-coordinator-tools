@@ -61,6 +61,9 @@ const NEW_COHORT = "__new__";
  * Names, e-mail addresses and year levels come from the SCEN Rosters extension and are
  * kept in this browser alone — see services/rosterStore.ts.
  */
+/** What a view's history is before it has been read, and after it has been forgotten. */
+const NO_HISTORY: PullHistory = { pulls: [], latest: {}, present: [] };
+
 export function StudentRoster({
   cohorts,
   viewId,
@@ -116,7 +119,7 @@ export function StudentRoster({
 
   const [stored, setStored] = useState<StoredPreset>({});
   const [syncedAt, setSyncedAt] = useState("");
-  const [history, setHistory] = useState<PullHistory>(() => loadHistory(viewId));
+  const [history, setHistory] = useState<PullHistory>(NO_HISTORY);
   const [historyOf, setHistoryOf] = useState<StudentRow | null>(null);
   const [layout, setLayout] = useState<ColumnLayout | null>(null);
   const [filters, setFilters] = useState<FilterModel[]>([]);
@@ -126,13 +129,26 @@ export function StudentRoster({
   const [moveTo, setMoveTo] = useState("");
   const [confirmForget, setConfirmForget] = useState(false);
 
-  // The names and the history live in this browser, so they are read back on mount
-  // rather than fetched — and again after a sync, which is what changes them. All three
-  // are this view's: another view's pull answered a different question.
+  /*
+   * The names and the history live in this browser, so they are read back on mount
+   * rather than fetched — and again after a sync, which is what changes them. All three
+   * are this view's: another view's pull answered a different question.
+   *
+   * The browser answers for its own disk asynchronously now that these are held in a
+   * drawer big enough for a term, so a read that arrives after the view has moved on is
+   * discarded rather than shown against the wrong view.
+   */
   useEffect(() => {
-    setStored(loadPull(viewId));
+    let current = true;
     setSyncedAt(lastSync(viewId));
-    setHistory(loadHistory(viewId));
+    void Promise.all([loadPull(viewId), loadHistory(viewId)]).then(([pull, past]) => {
+      if (!current) return;
+      setStored(pull);
+      setHistory(past);
+    });
+    return () => {
+      current = false;
+    };
   }, [students.dataUpdatedAt, viewId]);
 
   // The arrangement can only be reconciled once the columns are known.
@@ -643,11 +659,11 @@ export function StudentRoster({
         }
         confirmLabel="Forget rosters"
         onConfirm={() => {
-          forgetRosters();
-          forgetHistory();
-          setStored({});
-          setHistory(loadHistory(viewId));
-          setSyncedAt("");
+          void Promise.all([forgetRosters(), forgetHistory()]).then(() => {
+            setStored({});
+            setHistory(NO_HISTORY);
+            setSyncedAt("");
+          });
           setConfirmForget(false);
         }}
         onClose={() => setConfirmForget(false)}

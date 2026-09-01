@@ -73,11 +73,13 @@ export function ViewBar({
         setPulled,
       );
       const report = await syncView(target.id, roster.rows.map(studentIdOf).filter(Boolean));
-      rememberPull({ ...roster, presetId: target.id });
+      // Awaited, not fired off: the browser answers for its own disk asynchronously, and
+      // the report below is only true once the write has actually landed.
+      await rememberPull({ ...roster, presetId: target.id });
       setStorage(storageReport());
       rememberSync(target.id, report.syncedAt);
       // One history per view, so a student's changes read against the same question.
-      recordPull(target.id, roster.rows, roster.fetchedAt);
+      await recordPull(target.id, roster.rows, roster.fetchedAt);
       return report;
     },
     onSettled: () => setPulled(null),
