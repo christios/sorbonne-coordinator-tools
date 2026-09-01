@@ -4,6 +4,7 @@ from sorbonne.services.syllabus_export import build_syllabus_docx
 
 
 EXPANDED_PLO_TABLE_ROW_COUNT = 8
+CLO_TABLE_COLUMN_COUNT = 4
 LEGACY_CONTACT = "Name: Mrs Sample Contact\\nContact details: s.contact@sorbonne.ae"
 
 
@@ -218,3 +219,53 @@ def test_prints_the_delivery_split_for_a_face_to_face_course(tmp_path) -> None:
     assert delivery.cell(2, 0).text.strip() == "☒"
     assert delivery.cell(2, 1).text.strip() == "100%"
     assert delivery.cell(2, 2).text.strip() == "0%"
+
+
+def test_reports_scen_and_suad_competencies_in_separate_columns(tmp_path) -> None:
+    syllabus = {
+        "courseTitle": "Mechanics",
+        "courseCode": "PHYS125",
+        "academicYear": "2026-2027",
+        "content": {
+            "learningOutcomes": {
+                "clos": [
+                    {
+                        "clo": "Solve mechanics problems.",
+                        "plo": "PLO 1",
+                        "skills": "SCEN-C6 Communication",
+                        "suadSkills": "GradComp 4 — Critical reasoning",
+                    }
+                ]
+            }
+        },
+    }
+    output = tmp_path / "syllabus.docx"
+
+    build_syllabus_docx(syllabus, output)
+
+    table = Document(output).tables[6]
+    assert len(table.columns) == CLO_TABLE_COLUMN_COUNT
+    assert table.rows[0].cells[2].text.strip() == "SCEN Graduate Competencies"
+    assert table.rows[0].cells[3].text.strip() == "SUAD Graduate Competencies"
+    assert table.rows[1].cells[2].text.strip() == "SCEN-C6 Communication"
+    assert table.rows[1].cells[3].text.strip() == "GradComp 4 — Critical reasoning"
+
+
+def test_numbers_course_outcomes_that_are_not_numbered_already(tmp_path) -> None:
+    syllabus = {
+        "courseTitle": "Mechanics",
+        "courseCode": "PHYS125",
+        "academicYear": "2026-2027",
+        "content": {
+            "learningOutcomes": {
+                "clos": [{"clo": "Solve mechanics problems."}, {"clo": "CLO 2. Already numbered."}]
+            }
+        },
+    }
+    output = tmp_path / "syllabus.docx"
+
+    build_syllabus_docx(syllabus, output)
+
+    table = Document(output).tables[6]
+    assert table.rows[1].cells[0].text.strip() == "CLO 1: Solve mechanics problems."
+    assert table.rows[2].cells[0].text.strip() == "CLO 2. Already numbered."

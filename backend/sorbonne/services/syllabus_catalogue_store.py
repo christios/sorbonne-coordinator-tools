@@ -289,6 +289,35 @@ class SyllabusCatalogueStore:
         resolved["learningOutcomes"] = outcomes
         return resolved
 
+    def resolve_competencies(self, content: dict[str, Any]) -> dict[str, Any]:
+        """Fill each outcome's SUAD competencies from the SCEN ones it develops.
+
+        The professor picks SCEN competencies; which SUAD graduate competencies those
+        develop is the catalogue's mapping, not a second thing to type.
+        """
+        resolved = deepcopy(content)
+        outcomes = _record(resolved.get("learningOutcomes"))
+        clos = [item for item in outcomes.get("clos") or [] if isinstance(item, dict)]
+        if not clos:
+            return resolved
+        graduate = {item["id"]: item for item in self.list("graduate-competencies", include_retired=True)}
+        scen = {item["id"]: item for item in self.list("competencies", include_retired=True)}
+        updated = []
+        for clo in clos:
+            labels: list[str] = []
+            for competency_id in _text(clo.get("skillIds")).split("\n"):
+                competency = scen.get(competency_id.strip())
+                if competency is None:
+                    continue
+                for graduate_id in _record(competency.get("payload")).get("graduateCompetencyIds") or []:
+                    entry = graduate.get(str(graduate_id))
+                    if entry is not None and entry["label"] not in labels:
+                        labels.append(entry["label"])
+            updated.append({**clo, "suadSkills": "\n".join(labels)} if labels else clo)
+        outcomes["clos"] = updated
+        resolved["learningOutcomes"] = outcomes
+        return resolved
+
     def _person(self, item_id: str) -> dict[str, Any]:
         try:
             return self.get("people", item_id)

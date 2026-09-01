@@ -5,6 +5,7 @@ from __future__ import annotations
 from copy import deepcopy
 from datetime import date, datetime
 from pathlib import Path
+import re
 from typing import Any
 
 from docx import Document
@@ -181,12 +182,37 @@ def _fill_learning_outcomes(plo_table: Table, clo_table: Table, outcomes: dict[s
         _set_cell_text(row.cells[1], outcome)
 
     clos = _rows(outcomes.get("clos"))
+    # SCEN and SUAD competencies are reported separately, so the approved three-column
+    # table gains a fourth whenever the SUAD mapping has something to say.
+    if any(_text(clo.get("suadSkills")) for clo in clos):
+        _ensure_column(clo_table, "SUAD Graduate Competencies")
+        _set_cell_text(clo_table.rows[0].cells[2], "SCEN Graduate Competencies")
     _ensure_data_rows(clo_table, header_rows=1, required_rows=max(6, len(clos)))
     for index, row in enumerate(clo_table.rows[1:]):
         source = clos[index] if index < len(clos) else {}
-        _set_cell_text(row.cells[0], _text(source.get("clo")))
+        _set_cell_text(row.cells[0], _numbered_clo(_text(source.get("clo")), index) if source else "")
         _set_cell_text(row.cells[1], _text(source.get("plo")))
         _set_cell_text(row.cells[2], _text(source.get("skills")))
+        if len(row.cells) > CLO_SUAD_COLUMN:
+            _set_cell_text(row.cells[CLO_SUAD_COLUMN], _text(source.get("suadSkills")))
+
+
+CLO_SUAD_COLUMN = 3
+
+
+def _numbered_clo(text: str, index: int) -> str:
+    """Number the outcomes so a CLO can be referred to by number everywhere else."""
+    if not text:
+        return ""
+    return text if re.match(r"^\s*CLO\s*\d", text, re.IGNORECASE) else f"CLO {index + 1}: {text}"
+
+
+def _ensure_column(table: Table, heading: str) -> None:
+    """Widen an approved template table by one column, once."""
+    if len(table.columns) > CLO_SUAD_COLUMN:
+        return
+    table.add_column(table.columns[-1].width)
+    _set_cell_text(table.rows[0].cells[CLO_SUAD_COLUMN], heading)
 
 
 def _fill_schedule(table: Table, schedule: list[dict[str, Any]]) -> None:
