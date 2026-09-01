@@ -183,11 +183,17 @@ def export_syllabus(
 
     with NamedTemporaryFile(prefix="scen-syllabus-", suffix=".docx", delete=False) as file:
         output_path = Path(file.name)
-    content = catalogue_store.resolve_teaching_approach(
-        catalogue_store.resolve_competencies(
-            catalogue_store.resolve_plos(catalogue_store.resolve_people(syllabus["content"]))
-        )
-    )
+    # Everything the catalogue owns is applied to a copy of the content, so the document
+    # builder stays a pure function of what it is handed.
+    content = syllabus["content"]
+    for resolve in (
+        catalogue_store.resolve_people,
+        catalogue_store.resolve_plos,
+        catalogue_store.resolve_competencies,
+        catalogue_store.resolve_teaching_approach,
+        catalogue_store.resolve_rubrics,
+    ):
+        content = resolve(content)
     build_syllabus_docx({**syllabus, "content": content}, output_path)
     background_tasks.add_task(output_path.unlink, missing_ok=True)
     return FileResponse(

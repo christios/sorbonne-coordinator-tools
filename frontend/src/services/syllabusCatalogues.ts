@@ -5,6 +5,7 @@ export type CatalogueCategory =
   | "plos"
   | "competencies"
   | "graduate-competencies"
+  | "ai-policies"
   | "teaching-presets"
   | "assessment-types"
   | "rubric-presets"

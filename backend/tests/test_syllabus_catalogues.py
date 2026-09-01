@@ -150,3 +150,32 @@ def test_labels_each_teaching_approach_by_the_kind_of_session() -> None:
         f"{lecture['label']}: Instructor-led.\n\n{tutorial['label']}: Small group."
     )
     assert "methods" not in content["teachingApproach"]
+
+
+def test_attaches_the_approved_rubric_for_each_assessment_type_used() -> None:
+    """A course does not write rubrics; it uses the ones for the types it assesses."""
+    store = make_store()
+    assessment_type = store.create("assessment-types", label=f"Quiz {uuid4()}", payload={})
+    store.create(
+        "rubric-presets",
+        label="Quiz rubric",
+        payload={
+            "assessmentTypeId": assessment_type["id"],
+            "criteria": [{"name": "Accuracy", "inadequate": "Poor.", "meets": "Sound.", "exceeds": "Excellent."}],
+        },
+    )
+    content = {
+        "assessment": {
+            "items": [
+                {"id": "a1", "assessmentTypeId": assessment_type["id"]},
+                {"id": "a2", "assessmentTypeId": assessment_type["id"]},
+            ]
+        }
+    }
+
+    rubrics = store.resolve_rubrics(content)["assessment"]["rubrics"]
+
+    assert [rubric["assignment"] for rubric in rubrics] == ["Quiz rubric"]
+    assert rubrics[0]["criteria"] == [
+        {"criterion": "Accuracy", "inadequate": "Poor.", "meets": "Sound.", "exceeds": "Excellent."}
+    ]

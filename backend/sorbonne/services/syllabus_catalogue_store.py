@@ -20,6 +20,7 @@ CATALOGUE_CATEGORIES = frozenset(
         "plos",
         "competencies",
         "graduate-competencies",
+        "ai-policies",
         "teaching-presets",
         "assessment-types",
         "rubric-presets",
@@ -343,6 +344,51 @@ class SyllabusCatalogueStore:
             if blocks:
                 approach[key] = "\n\n".join(blocks)
         resolved["teachingApproach"] = approach
+        return resolved
+
+    def resolve_rubrics(self, content: dict[str, Any]) -> dict[str, Any]:
+        """Attach the approved rubric for each assessment type the course uses.
+
+        A course does not write its own rubrics: the ones that belong in the syllabus
+        follow from the assessment types named in the graded activities.
+        """
+        resolved = deepcopy(content)
+        assessment = _record(resolved.get("assessment"))
+        used: list[str] = []
+        for item in assessment.get("items") or []:
+            type_id = _text(_record(item).get("assessmentTypeId"))
+            if type_id and type_id not in used:
+                used.append(type_id)
+        if not used:
+            return resolved
+        presets = self.list("rubric-presets", include_retired=True)
+        rubrics = []
+        for type_id in used:
+            preset = next(
+                (item for item in presets if _text(_record(item.get("payload")).get("assessmentTypeId")) == type_id),
+                None,
+            )
+            if preset is None:
+                continue
+            criteria = _record(preset.get("payload")).get("criteria")
+            rubrics.append(
+                {
+                    "id": preset["id"],
+                    "assignment": preset["label"],
+                    "criteria": [
+                        {
+                            "criterion": _text(_record(item).get("name")),
+                            "inadequate": _text(_record(item).get("inadequate")),
+                            "meets": _text(_record(item).get("meets")),
+                            "exceeds": _text(_record(item).get("exceeds")),
+                        }
+                        for item in (criteria if isinstance(criteria, list) else [])
+                    ],
+                }
+            )
+        if rubrics:
+            assessment["rubrics"] = rubrics
+            resolved["assessment"] = assessment
         return resolved
 
     def _person(self, item_id: str) -> dict[str, Any]:

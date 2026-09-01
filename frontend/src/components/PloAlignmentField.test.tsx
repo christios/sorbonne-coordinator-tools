@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { PloAlignmentField } from "./SyllabusEditor";
+import { PloAlignmentField } from "./PloAlignmentField";
 
 const options = [
   { value: "PLO 1", label: "PLO 1: First outcome" },
