@@ -183,7 +183,9 @@ def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
-def _row(item_id: str, category: str, label: str, payload: dict, sort_order: int, parent_id=None) -> dict:
+def _row(  # noqa: PLR0913 - one row of the catalogue table, spelled out
+    item_id: str, category: str, label: str, payload: dict, sort_order: int, parent_id=None
+) -> dict:
     stamp = _now()
     return {
         "id": item_id,
@@ -225,7 +227,15 @@ def upgrade() -> None:
     for number, name in GRADUATE_COMPETENCIES.items():
         item_id = f"graduate-competency-{number}"
         if item_id not in existing:
-            rows.append(_row(item_id, "graduate-competencies", f"GradComp {number} — {name}", {"code": f"GradComp {number}", "outcome": name}, number))
+            rows.append(
+                _row(
+                    item_id,
+                    "graduate-competencies",
+                    f"GradComp {number} — {name}",
+                    {"code": f"GradComp {number}", "outcome": name},
+                    number,
+                )
+            )
 
     for index, entry in enumerate(SCEN_COMPETENCIES, start=1):
         item_id = f"scen-competency-{index}"
