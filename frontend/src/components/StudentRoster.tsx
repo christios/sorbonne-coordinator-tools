@@ -490,17 +490,21 @@ export function StudentRoster({
           onChange={setFilters}
         />
 
-        <CopyPresetMenu
-          columns={allColumns}
-          onCopy={async (chosen, withHeader) => {
-            if (chosen.length === 0) return false;
-            return copyToClipboard(
-              presetText(chosen, rowsForCopy(visible, selected), cellText, withHeader),
-            );
-          }}
-        />
+        {/* The margin lives here rather than on the search box, so the two travel
+            together as a pair on the right instead of the button sitting by the filters. */}
+        <div className="ml-auto">
+          <CopyPresetMenu
+            columns={allColumns}
+            onCopy={async (chosen, withHeader) => {
+              if (chosen.length === 0) return false;
+              return copyToClipboard(
+                presetText(chosen, rowsForCopy(visible, selected), cellText, withHeader),
+              );
+            }}
+          />
+        </div>
 
-        <label className="relative ml-auto block w-full sm:w-60">
+        <label className="relative block w-full sm:w-60">
           <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#667085]" />
           <input
             aria-label="Search students"
