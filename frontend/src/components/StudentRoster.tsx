@@ -17,7 +17,7 @@ import { tableText } from "@/services/copyCells";
 import { forgetHistory, loadHistory, type PullHistory } from "@/services/pullHistory";
 import { fetchSchema } from "@/services/scenRosters";
 import { fetchTimetableTerms } from "@/services/timetables";
-import { changesSince, sharedCohort, studentRows, type StudentRow } from "@/services/rosterView";
+import { changesFromRecord, changesSince, sharedCohort, studentRows, type StudentRow } from "@/services/rosterView";
 import { PortalError } from "@/services/scenRosters";
 import {
   forgetRosters,
@@ -237,10 +237,16 @@ export function StudentRoster({
     },
   });
 
-  const changes = useMemo(
-    () => changesSince(stored.previous?.rows ?? [], stored.current?.rows ?? []),
-    [stored],
-  );
+  /*
+   * What changed comes from the history, which records it pull by pull. A `previous`
+   * roster is only read when there is no history to read — a view last synced by a
+   * version that kept one, which the next sync replaces.
+   */
+  const changes = useMemo(() => {
+    const newest = history.pulls[history.pulls.length - 1] ?? null;
+    if (newest) return changesFromRecord(newest);
+    return changesSince(stored.previous?.rows ?? [], stored.current?.rows ?? []);
+  }, [history, stored]);
   const everyRow = useMemo(
     () => studentRows(students.data ?? [], stored.current?.rows ?? [], changes, syncedAt, termNames),
     [students.data, stored, changes, syncedAt, termNames],

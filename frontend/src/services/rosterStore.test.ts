@@ -35,23 +35,35 @@ describe("the browser's roster store", () => {
     expect(loadPull("scen-l1").current?.rows).toEqual([{ SPRIDEN_ID: "B001" }]);
   });
 
-  it("keeps the pull before this one, which is what changed compares against", () => {
+  /*
+   * The store used to keep the previous pull whole, so the table could work out what had
+   * changed. The history already records that, pull by pull — so this kept a second copy
+   * of 45 fields a student in order to compare six of them, and a term of it did not fit.
+   */
+  it("does not keep a second copy of the pull before this one", () => {
     rememberPull(pull(1000, [{ SPRIDEN_ID: "A001", YEARLEVEL_CODE: "FY" }]));
 
     const stored = rememberPull(pull(2000, [{ SPRIDEN_ID: "A001", YEARLEVEL_CODE: "L1" }]));
 
-    expect(stored.previous?.fetchedAt).toBe(1000);
     expect(stored.current?.fetchedAt).toBe(2000);
+    expect(stored.previous).toBeUndefined();
   });
 
-  it("does not throw the comparison away when the same pull is stored twice", () => {
-    rememberPull(pull(1000, [{ SPRIDEN_ID: "A001" }]));
-    rememberPull(pull(2000, [{ SPRIDEN_ID: "A001" }]));
+  it("still reads a comparison point left by an older version", () => {
+    // A view last synced before the change, which the next sync replaces.
+    window.localStorage.setItem(
+      "scen-rosters:v2",
+      JSON.stringify({
+        "scen-fy": {
+          current: { presetId: "scen-fy", name: "n", count: 1, fetchedAt: 2000,
+                     fields: ["SPRIDEN_ID"], values: [["A001"]] },
+          previous: { presetId: "scen-fy", name: "n", count: 1, fetchedAt: 1000,
+                      fields: ["SPRIDEN_ID", "YEARLEVEL_CODE"], values: [["A001", "FY"]] },
+        },
+      }),
+    );
 
-    // A re-render, or a second save of the same response, must not lose the older pull.
-    const stored = rememberPull(pull(2000, [{ SPRIDEN_ID: "A001" }]));
-
-    expect(stored.previous?.fetchedAt).toBe(1000);
+    expect(loadPull("scen-fy").previous?.rows).toEqual([{ SPRIDEN_ID: "A001", YEARLEVEL_CODE: "FY" }]);
   });
 
   it("forgets everything when asked", () => {
@@ -133,8 +145,12 @@ describe("when this browser has no room left", () => {
   });
 
   it("gives up another view's comparison point before this view's roster", () => {
-    rememberPull({ ...pull(1000, [wide("B001")]), presetId: "scen-l1" });
+    // A comparison point from an older version — nothing writes one now, but a
+    // coordinator can still be holding them, and they are what should go first.
     rememberPull({ ...pull(2000, [wide("B002")]), presetId: "scen-l1" });
+    const held = JSON.parse(window.localStorage.getItem("scen-rosters:v2") ?? "{}");
+    held["scen-l1"].previous = { ...held["scen-l1"].current, fetchedAt: 1000 };
+    window.localStorage.setItem("scen-rosters:v2", JSON.stringify(held));
     expect(loadPull("scen-l1").previous).toBeTruthy();
 
     // Room for two of these rosters, not the three that current + previous + a new

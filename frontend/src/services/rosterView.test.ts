@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  changesSince,
+  changesFromRecord, changesSince,
   choices,
   countBy,
   filterRows,
@@ -281,5 +281,58 @@ describe("the blocks a student sits in", () => {
   it("shortens the registrar's title to the part that fits a cell", () => {
     expect(shortTerm("Physics & Maths — First Year, Semester 2")).toBe("Semester 2");
     expect(shortTerm("Languages")).toBe("Languages");
+  });
+});
+
+/*
+ * The "changed" column, now read from the history instead of from a second full copy of
+ * the previous pull. Same answer, one copy of the data.
+ */
+describe("what changed, taken from the history", () => {
+  const record = (changed: Record<string, { field: string; from: string; to: string }[]>) => ({ changed });
+
+  it("reads a change the history recorded", () => {
+    const changes = changesFromRecord(
+      record({ A001: [{ field: "YEARLEVEL_CODE", from: "FY", to: "L1" }] }),
+    );
+
+    expect(changes.get("A001")).toEqual(["year FY → L1"]);
+  });
+
+  it("agrees with what comparing two rosters used to say", () => {
+    const before = [{ SPRIDEN_ID: "A001", YEARLEVEL_CODE: "FY", MAJOR_CODE_DESC: "Maths" }];
+    const after = [{ SPRIDEN_ID: "A001", YEARLEVEL_CODE: "L1", MAJOR_CODE_DESC: "Physics" }];
+
+    const fromRosters = changesSince(before, after);
+    const fromHistory = changesFromRecord(
+      record({
+        A001: [
+          { field: "YEARLEVEL_CODE", from: "FY", to: "L1" },
+          { field: "MAJOR_CODE_DESC", from: "Maths", to: "Physics" },
+        ],
+      }),
+    );
+
+    expect([...fromHistory.entries()]).toEqual([...fromRosters.entries()]);
+  });
+
+  it("ignores fields the table does not watch", () => {
+    const changes = changesFromRecord(
+      record({ A001: [{ field: "ABSENCE_PER", from: "0", to: "3.5" }] }),
+    );
+
+    expect(changes.size).toBe(0);
+  });
+
+  it("does not call a value arriving from nothing a change", () => {
+    const changes = changesFromRecord(
+      record({ A001: [{ field: "PSUAD_EMAIL", from: "", to: "a@b.c" }] }),
+    );
+
+    expect(changes.size).toBe(0);
+  });
+
+  it("says nothing when there is no history yet", () => {
+    expect(changesFromRecord(null).size).toBe(0);
   });
 });

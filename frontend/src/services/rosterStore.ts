@@ -14,6 +14,7 @@
  * they are per-machine, and a colleague's browser knows nothing about them.
  */
 
+import { allLatest } from "@/services/pullHistory";
 import { displayNameOf, studentIdOf, type PortalRoster, type RosterRow } from "@/services/scenRosters";
 
 // v2 packs the rows: the field names are written once per pull instead of once per
@@ -279,11 +280,14 @@ export function rememberPull(roster: PortalRoster): StoredPreset {
     fetchedAt: roster.fetchedAt,
     rows: roster.rows,
   });
-  // Pulling twice in quick succession should not throw away the comparison point.
-  const previous = existing.current && existing.current.fetchedAt !== kept.fetchedAt
-    ? existing.current
-    : existing.previous;
-  store[roster.presetId] = { current: kept, previous };
+  /*
+   * Only the pull itself. What changed since the last one is the history's answer and
+   * always was — keeping the whole previous roster here stored 45 fields a student so
+   * that six of them could be compared, and a term's worth of that did not fit beside
+   * the views a coordinator already had. A `previous` written by an older version is
+   * still read, so nothing a coordinator already has stops working.
+   */
+  store[roster.presetId] = { current: kept, previous: existing.previous };
   lastReport = writeFitting(store, roster.presetId);
   try {
     window.localStorage.setItem(LAST, roster.presetId);
@@ -307,6 +311,15 @@ function syncTimes(): Record<string, string> {
 }
 
 /** When this view last synced, so a student first seen then shows as newly arrived. */
+/** Every pull held, oldest first, so a newer one overwrites an older one's answer. */
+function heldPulls(): StoredPull[] {
+  const store = read();
+  return Object.values(store)
+    .flatMap((preset) => [preset.previous, preset.current])
+    .filter((pull): pull is StoredPull => Boolean(pull))
+    .sort((left, right) => left.fetchedAt - right.fetchedAt);
+}
+
 /**
  * Every name this browser holds, across every view it has pulled.
  *
@@ -315,14 +328,19 @@ function syncTimes(): Record<string, string> {
  * the most recent pull wins, since that is the one whose spelling the registrar last used.
  */
 export function namesHeld(): Record<string, string> {
-  const store = read();
   const names: Record<string, string> = {};
-  const pulls = Object.values(store)
-    .flatMap((preset) => [preset.previous, preset.current])
-    .filter((pull): pull is StoredPull => Boolean(pull))
-    .sort((left, right) => left.fetchedAt - right.fetchedAt);
 
-  for (const pull of pulls) {
+  // The history first: it keeps a student's last known values after the portal stops
+  // returning them, so a departed student still has a name in an export.
+  for (const { values } of allLatest()) {
+    for (const [id, fields] of Object.entries(values)) {
+      const name = displayNameOf(fields as RosterRow);
+      if (id && name) names[id] = name;
+    }
+  }
+
+  // Then the pulls themselves, which are newer and win.
+  for (const pull of heldPulls()) {
     for (const row of pull.rows) {
       const id = studentIdOf(row);
       const name = displayNameOf(row);
@@ -339,14 +357,16 @@ export function namesHeld(): Record<string, string> {
  * for the workbook's Program column, which is the registrar's word rather than ours.
  */
 export function fieldHeld(field: string): Record<string, string> {
-  const store = read();
   const values: Record<string, string> = {};
-  const pulls = Object.values(store)
-    .flatMap((preset) => [preset.previous, preset.current])
-    .filter((pull): pull is StoredPull => Boolean(pull))
-    .sort((left, right) => left.fetchedAt - right.fetchedAt);
 
-  for (const pull of pulls) {
+  for (const { values: held } of allLatest()) {
+    for (const [id, fields] of Object.entries(held)) {
+      const value = String(fields[field] ?? "").trim();
+      if (id && value) values[id] = value;
+    }
+  }
+
+  for (const pull of heldPulls()) {
     for (const row of pull.rows) {
       const id = studentIdOf(row);
       const value = String(row[field] ?? "").trim();

@@ -10,6 +10,7 @@
  * they live.
  */
 
+import type { FieldChange } from "@/services/pullHistory";
 import { displayNameOf, studentIdOf, type RosterRow } from "@/services/scenRosters";
 import type { Student } from "@/services/studentDatabase";
 
@@ -70,6 +71,33 @@ export function changesSince(previous: RosterRow[], current: RosterRow[]): Map<s
       return was && now && was !== now ? [`${label} ${was} → ${now}`] : [];
     });
     if (moved.length) changes.set(id, moved);
+  }
+  return changes;
+}
+
+/**
+ * What changed, taken from the history rather than worked out again.
+ *
+ * The history already records every pull's changes, field by field, against the values
+ * the pull before it left behind. Keeping a second full copy of the previous roster just
+ * to recompute the same answer stored it twice — 45 fields a student to look at six.
+ *
+ * The history watches every field; this table shows the six worth a coordinator's
+ * attention, so the rest are dropped here rather than at the point they were recorded.
+ */
+export function changesFromRecord(record: { changed: Record<string, FieldChange[]> } | null): Map<string, string[]> {
+  const changes = new Map<string, string[]>();
+  if (!record) return changes;
+  const watched = new Map(WATCHED.map(({ column, label }) => [String(column), label]));
+
+  for (const [id, moved] of Object.entries(record.changed)) {
+    const shown = moved.flatMap(({ field, from, to }) => {
+      const label = watched.get(field);
+      // Same rule as before: an arrival is not a change, so a value appearing from
+      // nothing is not worth a line.
+      return label && from && to ? [`${label} ${from} → ${to}`] : [];
+    });
+    if (shown.length) changes.set(id, shown);
   }
   return changes;
 }

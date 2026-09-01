@@ -83,6 +83,29 @@ export function loadHistory(viewId: string): PullHistory {
   return { ...held, present: Array.isArray(held.present) ? held.present : Object.keys(held.latest) };
 }
 
+/**
+ * Every value this browser holds, view by view, newest view last.
+ *
+ * The history keeps a student's last known values even after the portal stops returning
+ * them, which is what the roster store used to keep a whole second copy of the previous
+ * pull for. This is that copy, without the duplication.
+ */
+export function allLatest(): { at: number; values: Record<string, Record<string, string>> }[] {
+  let store: Record<string, PullHistory>;
+  try {
+    store = read();
+  } catch {
+    return [];
+  }
+  return Object.values(store)
+    .filter((history) => history?.latest)
+    .map((history) => ({
+      at: history.pulls?.[history.pulls.length - 1]?.at ?? 0,
+      values: history.latest,
+    }))
+    .sort((left, right) => left.at - right.at);
+}
+
 function put(store: Record<string, PullHistory>): boolean {
   try {
     window.localStorage.setItem(KEY, JSON.stringify(store));
