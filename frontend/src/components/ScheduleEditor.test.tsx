@@ -8,7 +8,7 @@ describe("ScheduleEditor", () => {
   it("keeps sessions compact until one is opened", () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(<QueryClientProvider client={queryClient}><ScheduleEditor
-      rows={[{ id: "session-1", date: "2026-09-01", topic: "Climate governance", preClass: "Read the assigned chapter.", assessments: "" }]}
+      rows={[{ id: "session-1", sessionType: "CM", week: "1", topic: "Climate governance", preClass: "Read the assigned chapter.", assessments: "" }]}
       onChange={vi.fn()}
       syllabusId="syllabus-1"
       revision={1}
@@ -16,20 +16,21 @@ describe("ScheduleEditor", () => {
     /></QueryClientProvider>);
 
     expect(screen.getByText("Climate governance")).toBeTruthy();
-    expect(screen.getByLabelText("Section 1")).toBeTruthy();
+    expect(screen.getByLabelText("Session 1 CM")).toBeTruthy();
     expect(screen.queryByLabelText("Pre-class learning activities")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Expand topic: Climate governance (position 1)" }));
 
     expect(screen.getByLabelText("Pre-class learning activities")).toBeTruthy();
-    expect(screen.getByLabelText("Date").textContent).toContain("01 Sept 2026");
+    expect(screen.getByLabelText("Week")).toHaveProperty("value", "1");
+    expect(screen.getByText("Session type")).toBeTruthy();
     expect(screen.queryByLabelText("Session")).toBeNull();
   });
 
   it("opens a blank session so its fields are ready to complete", () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(<QueryClientProvider client={queryClient}><ScheduleEditor
-      rows={[{ id: "session-blank", date: "", topic: "", preClass: "", assessments: "" }]}
+      rows={[{ id: "session-blank", sessionType: "CM", week: "", topic: "", preClass: "", assessments: "" }]}
       onChange={vi.fn()}
       syllabusId="syllabus-1"
       revision={1}
@@ -43,7 +44,7 @@ describe("ScheduleEditor", () => {
   it("keeps the session title concise and provides a separate details field with an end-of-list add action", () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(<QueryClientProvider client={queryClient}><ScheduleEditor
-      rows={[{ id: "session-1", date: "", topic: "Climate governance", preClass: "", assessments: "" }]}
+      rows={[{ id: "session-1", sessionType: "CM", week: "", topic: "Climate governance", preClass: "", assessments: "" }]}
       onChange={vi.fn()}
       syllabusId="syllabus-1"
       revision={1}

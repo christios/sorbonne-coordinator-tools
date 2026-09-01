@@ -3,17 +3,28 @@ import { ArrowDownUp, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { CollapsibleEntryCard } from "@/components/CollapsibleEntryCard";
-import { DateField } from "@/components/DateField";
-import { FieldHistoryControl, HistoryField } from "@/components/FieldHistory";
+import { SelectMenu } from "@/components/SelectMenu";
 import { HistoryTextField } from "@/components/HistoryTextField";
+import { type HistoryField } from "@/components/FieldHistory";
 
 type ScheduleRow = Record<string, string> & { id: string };
 type ScheduleField = {
-  key: "date" | "topic" | "details" | "preClass" | "assessments";
+  key: "week" | "topic" | "details" | "preClass" | "assessments";
   label: string;
-  type?: "date";
   multiline?: boolean;
 };
+
+/**
+ * Lectures, tutorials and labs are counted separately, so a course reads
+ * 1 CM, 2 CM, 1 TD, 3 CM — each kind keeping its own sequence.
+ */
+export const SESSION_TYPES = [
+  { value: "CM", label: "CM — Cours magistral", pill: "bg-[#e8edf3] text-[#1f4e79]" },
+  { value: "TD", label: "TD — Travaux dirigés", pill: "bg-[#fdf3e3] text-[#8a6116]" },
+  { value: "TP", label: "TP — Travaux pratiques", pill: "bg-[#e9f5ec] text-[#1f6b3a]" },
+] as const;
+
+const DEFAULT_SESSION_TYPE = "CM";
 
 type Props = {
   rows: ScheduleRow[];
@@ -24,7 +35,7 @@ type Props = {
 };
 
 const fields: ScheduleField[] = [
-  { key: "date", label: "Date", type: "date" },
+  { key: "week", label: "Week" },
   { key: "topic", label: "Topic" },
   { key: "details", label: "Session details", multiline: true },
   { key: "preClass", label: "Pre-class learning activities", multiline: true },
@@ -34,8 +45,6 @@ const fields: ScheduleField[] = [
 export function ScheduleEditor({
   rows,
   onChange,
-  syllabusId,
-  revision,
   onOpenHistory,
 }: Props) {
   const [expandedIds, setExpandedIds] = useState<string[]>(() =>
@@ -66,6 +75,14 @@ export function ScheduleEditor({
         ? current.filter((item) => item !== id)
         : [...current, id],
     );
+  const sessionNumbers = new Map<string, number>();
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    const type = row.sessionType || DEFAULT_SESSION_TYPE;
+    const next = (counts.get(type) ?? 0) + 1;
+    counts.set(type, next);
+    sessionNumbers.set(row.id, next);
+  }
   const updateRow = (id: string, key: string, value: string) =>
     onChange(
       rows.map((row) => (row.id === id ? { ...row, [key]: value } : row)),
@@ -76,7 +93,7 @@ export function ScheduleEditor({
     const id = crypto.randomUUID();
     onChange([
       ...rows,
-      { id, date: "", topic: "", details: "", preClass: "", assessments: "" },
+      { id, sessionType: DEFAULT_SESSION_TYPE, week: "", topic: "", details: "", preClass: "", assessments: "" },
     ]);
     setExpandedIds((current) => [...current, id]);
     window.requestAnimationFrame(() =>
@@ -124,13 +141,23 @@ export function ScheduleEditor({
                 onToggle={() => toggleExpanded(row.id)}
                 toggleLabel={`${isExpanded ? "Collapse" : "Expand"} topic: ${topicLabel(row)} (position ${index + 1})`}
                 title={topicLabel(row)}
-                summary={row.date || "No date set"}
+                summary={row.week ? `Week ${row.week}` : "No week set"}
                 leading={
-                  <span
-                    aria-label={`Section ${index + 1}`}
-                    className="mt-0.5 inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-[#e8edf3] px-1.5 text-xs font-semibold text-[#1f4e79]"
-                  >
-                    {index + 1}
+                  <span className="mt-0.5 inline-flex shrink-0 items-center gap-1">
+                    <span
+                      aria-label={`Session ${sessionNumbers.get(row.id) ?? index + 1} ${row.sessionType || DEFAULT_SESSION_TYPE}`}
+                      className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[#eef1f5] px-1.5 text-xs font-semibold text-[#344054]"
+                    >
+                      {sessionNumbers.get(row.id) ?? index + 1}
+                    </span>
+                    <span
+                      className={`inline-flex h-5 items-center justify-center rounded-full px-2 text-xs font-semibold ${
+                        SESSION_TYPES.find((item) => item.value === (row.sessionType || DEFAULT_SESSION_TYPE))?.pill ??
+                        "bg-[#eef1f5] text-[#344054]"
+                      }`}
+                    >
+                      {row.sessionType || DEFAULT_SESSION_TYPE}
+                    </span>
                   </span>
                 }
                 actions={
@@ -204,35 +231,21 @@ export function ScheduleEditor({
                 }
               >
                 <div className="grid gap-4 lg:grid-cols-2">
+                  <label className="grid gap-1 text-sm font-medium text-[#344054]">
+                    Session type
+                    <SelectMenu
+                      label={`Session ${sessionNumbers.get(row.id) ?? index + 1} type`}
+                      value={row.sessionType || DEFAULT_SESSION_TYPE}
+                      onChange={(next) => updateRow(row.id, "sessionType", next)}
+                      options={SESSION_TYPES.map((item) => ({ value: item.value, label: item.label }))}
+                    />
+                  </label>
                   {fields.map((field) => {
                     const value = row[field.key] ?? "";
                     const historyField = {
                       path: `schedule[${row.id}].${field.key}`,
                       label: `Course schedule · ${field.label}`,
                     };
-                    const historyControl = (
-                      <FieldHistoryControl
-                        syllabusId={syllabusId}
-                        revision={revision}
-                        field={historyField}
-                        onOpenSidebar={onOpenHistory}
-                        placement={field.multiline ? "top" : "center"}
-                      />
-                    );
-                    if (field.type === "date") {
-                      return (
-                        <div key={field.key}>
-                          <DateField
-                            label={field.label}
-                            value={dateInputValue(value)}
-                            onChange={(next) =>
-                              updateRow(row.id, field.key, next)
-                            }
-                            trailing={historyControl}
-                          />
-                        </div>
-                      );
-                    }
                     return (
                       <HistoryTextField
                         key={field.key}
@@ -270,11 +283,6 @@ function topicLabel(row: ScheduleRow) {
 }
 
 function scheduleSummary(row: ScheduleRow) {
-  return `${topicLabel(row)}${row.date ? ` · ${row.date}` : ""}`;
+  return `${topicLabel(row)}${row.week ? ` · week ${row.week}` : ""}`;
 }
 
-function dateInputValue(value: string) {
-  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
-  const match = value.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
-  return match ? `${match[3]}-${match[2]}-${match[1]}` : "";
-}

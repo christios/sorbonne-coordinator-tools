@@ -56,7 +56,8 @@ def test_builds_a_filled_template_with_repeatable_course_content(tmp_path) -> No
             "schedule": [
                 {
                     "id": "session-1",
-                    "date": "2026-09-01",
+                    "sessionType": "CM",
+                    "week": "1",
                     "topic": "Climate governance",
                     "details": "Institutions, actors, and implementation pathways.",
                     "preClass": "Read chapter 1",
@@ -148,7 +149,8 @@ def test_builds_a_filled_template_with_repeatable_course_content(tmp_path) -> No
     assert document.tables[1].cell(0, 1).text == "M. Modele Syllabus"
     assert document.tables[5].cell(1, 1).text == "Evaluate climate policy."
     assert document.tables[6].cell(1, 0).text == "CLO 1: Analyse climate law."
-    assert document.tables[7].cell(1, 0).text == "1"
+    assert document.tables[7].cell(1, 0).text == "1 CM"
+    assert document.tables[7].cell(1, 1).text == "Week 1"
     assert (
         document.tables[7].cell(1, 3).text
         == "Session details:\nInstitutions, actors, and implementation pathways.\n\nPre-class learning activities:\nRead chapter 1\n\nAssessments:\nShort quiz"

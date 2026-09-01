@@ -216,13 +216,30 @@ def _ensure_column(table: Table, heading: str) -> None:
 
 
 def _fill_schedule(table: Table, schedule: list[dict[str, Any]]) -> None:
+    # Lectures, tutorials and labs are counted separately, so the column reads
+    # 1 CM, 2 CM, 1 TD, 3 CM rather than one running total across all of them.
+    counts: dict[str, int] = {}
+    numbers: list[str] = []
+    for source in schedule:
+        session_type = _text(source.get("sessionType")) or DEFAULT_SESSION_TYPE
+        counts[session_type] = counts.get(session_type, 0) + 1
+        numbers.append(f"{counts[session_type]} {session_type}")
+
     _ensure_data_rows(table, header_rows=1, required_rows=max(16, len(schedule)))
     for index, row in enumerate(table.rows[1:]):
         source = schedule[index] if index < len(schedule) else {}
-        _set_cell_text(row.cells[0], str(index + 1) if source else "")
-        _set_cell_text(row.cells[1], _display_date(source.get("date")))
+        _set_cell_text(row.cells[0], numbers[index] if index < len(numbers) else "")
+        _set_cell_text(row.cells[1], _week(source.get("week")) or _display_date(source.get("date")))
         _set_cell_text(row.cells[2], _text(source.get("topic")))
         _set_cell_text(row.cells[3], _schedule_learning_details(source))
+
+
+DEFAULT_SESSION_TYPE = "CM"
+
+
+def _week(value: Any) -> str:
+    text = _text(value)
+    return f"Week {text}" if text and not text.lower().startswith("week") else text
 
 
 def _fill_bibliography(table: Table, bibliography: dict[str, Any]) -> None:
