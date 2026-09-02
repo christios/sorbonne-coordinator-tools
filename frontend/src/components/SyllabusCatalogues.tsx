@@ -4,6 +4,7 @@ import { FormEvent, useState } from "react";
 
 import { AutoResizeTextarea } from "@/components/AutoResizeTextarea";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { PloAlignmentField } from "@/components/PloAlignmentField";
 import { SectionEditorShell } from "@/components/SectionEditorShell";
 import {
   CatalogueCategory,
@@ -15,14 +16,16 @@ import {
   updateCatalogueEntry,
 } from "@/services/syllabusCatalogues";
 
-type CatalogueSection = "people" | "programmes" | "competencies" | "teaching-presets" | "assessment" | "bibliography";
+type CatalogueSection = "people" | "programmes" | "competencies" | "graduate-competencies" | "teaching-presets" | "assessment" | "ai-policies" | "bibliography";
 
 const sections = [
   { id: "people", label: "People" },
   { id: "programmes", label: "Programmes & PLOs" },
   { id: "competencies", label: "SCEN competencies" },
+  { id: "graduate-competencies", label: "SUAD graduate competencies" },
   { id: "teaching-presets", label: "Teaching presets" },
   { id: "assessment", label: "Assessment types & rubrics" },
+  { id: "ai-policies", label: "AI policies" },
   { id: "bibliography", label: "Bibliography" },
 ];
 
@@ -41,9 +44,11 @@ export function SyllabusCatalogues({ onBack }: { onBack: () => void }) {
   >
     {activeSection === "people" ? <PeopleCatalogue /> : null}
     {activeSection === "programmes" ? <ProgrammesCatalogue /> : null}
-    {activeSection === "competencies" ? <SimpleCatalogue category="competencies" title="SCEN competencies" description="Reference competencies for the SCEN curriculum. They are maintained here but are not mapped into course outcomes in this phase." createLabel="Add competency" /> : null}
+    {activeSection === "competencies" ? <CompetenciesCatalogue /> : null}
+    {activeSection === "graduate-competencies" ? <SimpleCatalogue category="graduate-competencies" title="SUAD graduate competencies" description="The institution's graduate competencies. Each SCEN competency points at the ones it develops." createLabel="New graduate competency" /> : null}
     {activeSection === "teaching-presets" ? <TeachingPresetsCatalogue /> : null}
     {activeSection === "assessment" ? <AssessmentCatalogue /> : null}
+    {activeSection === "ai-policies" ? <SimpleCatalogue category="ai-policies" title="AI policies" description="The policies a graded activity may apply. Courses choose from these; they do not write their own." createLabel="New AI policy" /> : null}
     {activeSection === "bibliography" ? <BibliographyCatalogue /> : null}
   </SectionEditorShell>;
 }
@@ -191,3 +196,43 @@ function EmptyState({ children }: { children: React.ReactNode }) { return <p cla
 function stringValue(value: unknown) { return typeof value === "string" ? value : ""; }
 const inputClass = "rounded-md border border-[#b7bec8] bg-white px-3 py-2 font-normal text-[#344054] focus:border-[#1f4e79] focus:outline-none focus:ring-2 focus:ring-[#d7e5f3]";
 const textareaClass = "rounded-md border border-[#b7bec8] bg-white px-3 py-2 font-normal leading-6 text-[#344054] focus:border-[#1f4e79] focus:outline-none focus:ring-2 focus:ring-[#d7e5f3]";
+
+function CompetenciesCatalogue() {
+  const [showCreate, setShowCreate] = useState(false);
+  const data = useCatalogue("competencies");
+  const graduate = useCatalogue("graduate-competencies");
+  return <div className="rounded-lg border border-[#d9dee7] bg-white p-5"><CatalogueHeader title="SCEN competencies" description="Reference competencies for the department. Attach the SUAD graduate competencies each one develops." action={<button type="button" onClick={() => setShowCreate(true)} className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white"><FilePlus2 size={16} /> New competency</button>} />{showCreate ? <SimpleEntryForm category="competencies" fieldLabel="Name" onCancel={() => setShowCreate(false)} onSaved={() => setShowCreate(false)} /> : null}<CatalogueEntries category="competencies" entries={data.data ?? []} isLoading={data.isLoading} renderDetails={(entry) => <GraduateCompetencyPicker entry={entry} graduate={graduate.data ?? []} />} /></div>;
+}
+
+function GraduateCompetencyPicker({ entry, graduate }: { entry: CatalogueEntry; graduate: CatalogueEntry[] }) {
+  const client = useQueryClient();
+  const ids = Array.isArray(entry.payload.graduateCompetencyIds) ? entry.payload.graduateCompetencyIds.map(String) : [];
+  const save = useMutation({
+    mutationFn: (nextIds: string[]) =>
+      updateCatalogueEntry("competencies", entry.id, {
+        label: entry.label,
+        payload: { ...entry.payload, graduateCompetencyIds: nextIds },
+        parentId: entry.parentId,
+        sortOrder: entry.sortOrder,
+        expectedRevision: entry.revision,
+      }),
+    onSuccess: () => { void client.invalidateQueries({ queryKey: ["syllabus-catalogues", "competencies"] }); },
+  });
+  const options = graduate.map((item) => ({ value: item.label, label: item.label }));
+  const value = graduate.filter((item) => ids.includes(item.id)).map((item) => item.label).join("\n");
+  return <div className="mt-3">
+    <PloAlignmentField
+      label="SUAD graduate competencies developed"
+      pickerLabel={`Add a graduate competency to ${entry.label}`}
+      emptyText="No graduate competencies attached yet."
+      addText="Add graduate competency"
+      value={value}
+      options={options}
+      onChange={(next: string) => {
+        const labels = next.split("\n").filter(Boolean);
+        save.mutate(graduate.filter((item) => labels.includes(item.label)).map((item) => item.id));
+      }}
+    />
+    {save.isError ? <p role="alert" className="mt-2 text-sm text-[#8f1f25]">That change could not be saved. Reload and try again.</p> : null}
+  </div>;
+}
