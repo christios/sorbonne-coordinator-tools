@@ -7,6 +7,7 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Modal } from "@/components/Modal";
 import { CopyButton } from "@/components/CopyButton";
 import { CopyPresetMenu } from "@/components/CopyPresetMenu";
+import { HistoryBackup } from "@/components/HistoryBackup";
 import { PlaceInBlock } from "@/components/PlaceInBlock";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { SelectMenu } from "@/components/SelectMenu";
@@ -631,6 +632,14 @@ export function StudentRoster({
         ) : (
           ". No names held in this browser yet — sync to fill them in."
         )}
+        {". "}
+        <HistoryBackup
+          onRestored={() => {
+            // A restore changes the history behind the changed column, so read it again.
+            void loadHistory(viewId).then(setHistory);
+          }}
+        />
+        {"."}
       </p>
 
       <StudentTable

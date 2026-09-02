@@ -5,7 +5,11 @@ import {
   forgetHistory,
   historyFor,
   historySummary,
-  loadHistory, resetSweepForTests,
+  historyForBackup,
+  loadHistory,
+  mergeHistories,
+  resetSweepForTests,
+  restoreHistories,
   recordPull,
 } from "@/services/pullHistory";
 import type { RosterRow } from "@/services/scenRosters";
@@ -257,5 +261,97 @@ describe("keys nothing reads any more", () => {
 
     expect(window.localStorage.getItem("scen-rosters:synced:v2")).toBe('{"fy":"2026-08-23"}');
     expect(window.localStorage.getItem("scen-student-columns:v1")).toBe('{"order":[]}');
+  });
+});
+
+/*
+ * A backup and a browser are two partial accounts of the same thing: the file may be
+ * older, the browser may have been wiped and re-synced since, and either may hold pulls
+ * the other never saw. Restoring has to bring them together without inventing anything.
+ */
+describe("bringing a restored history together with this browser's", () => {
+  const record = (at: number, changed: Record<string, { field: string; from: string; to: string }[]> = {}) => ({
+    id: `${at}`,
+    at,
+    count: 1,
+    changed,
+    arrived: [],
+    departed: [],
+  });
+  const history = (pulls: ReturnType<typeof record>[], latest = {}, present: string[] = []) => ({
+    pulls,
+    latest,
+    present,
+  });
+
+  it("keeps the pulls only the backup has", () => {
+    const mine = history([record(3_000)]);
+    const theirs = history([record(1_000), record(2_000)]);
+
+    expect(mergeHistories(mine, theirs).pulls.map((p) => p.at)).toEqual([1_000, 2_000, 3_000]);
+  });
+
+  it("changes nothing when the same file is restored twice", () => {
+    const theirs = history([record(1_000), record(2_000)]);
+    const once = mergeHistories(history([]), theirs);
+
+    expect(mergeHistories(once, theirs)).toEqual(once);
+  });
+
+  it("takes the newer side's snapshot whole, rather than mixing two", () => {
+    // latest and present describe one moment; a blend of two would be a moment that
+    // never happened.
+    const mine = history([record(3_000)], { A001: { FULL_NAME: "Newer" } }, ["A001"]);
+    const theirs = history([record(1_000)], { A001: { FULL_NAME: "Older" }, B002: { FULL_NAME: "Gone" } }, ["A001", "B002"]);
+
+    const merged = mergeHistories(mine, theirs);
+    expect(merged.latest).toEqual({ A001: { FULL_NAME: "Newer" } });
+    expect(merged.present).toEqual(["A001"]);
+  });
+
+  it("takes the backup's snapshot when the backup is the newer one", () => {
+    const mine = history([record(1_000)], { A001: { FULL_NAME: "Older" } }, ["A001"]);
+    const theirs = history([record(9_000)], { A001: { FULL_NAME: "Newer" } }, ["A001"]);
+
+    expect(mergeHistories(mine, theirs).latest).toEqual({ A001: { FULL_NAME: "Newer" } });
+  });
+
+  it("lets this browser's account of a pull stand where both saw it", () => {
+    const mine = history([record(1_000, { A001: [{ field: "YEARLEVEL_CODE", from: "FY", to: "L1" }] })]);
+    const theirs = history([record(1_000)]);
+
+    expect(mergeHistories(mine, theirs).pulls[0].changed).toEqual({
+      A001: [{ field: "YEARLEVEL_CODE", from: "FY", to: "L1" }],
+    });
+  });
+
+  it("rebuilds a wiped browser from a backup", async () => {
+    await recordPull(VIEW, [row("A001")], 1_000);
+    await recordPull(VIEW, [row("A001", { YEARLEVEL_CODE: "L1" })], 2_000);
+    const saved = await historyForBackup();
+
+    await forgetHistory();
+    expect((await loadHistory(VIEW)).pulls).toEqual([]);
+
+    const touched = await restoreHistories(saved);
+
+    expect(touched).toBe(1);
+    expect((await loadHistory(VIEW)).pulls).toHaveLength(2);
+    expect(historyFor(await loadHistory(VIEW), "A001")).toHaveLength(1);
+  });
+
+  it("does not double up when a backup is restored over a live history", async () => {
+    await recordPull(VIEW, [row("A001")], 1_000);
+    const saved = await historyForBackup();
+
+    await restoreHistories(saved);
+
+    expect((await loadHistory(VIEW)).pulls).toHaveLength(1);
+  });
+
+  it("ignores a file whose histories are not histories", async () => {
+    await restoreHistories({ "view-x": { pulls: "nonsense" } as never });
+
+    expect((await loadHistory("view-x")).pulls).toEqual([]);
   });
 });

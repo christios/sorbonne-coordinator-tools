@@ -8,6 +8,7 @@ import { Modal } from "@/components/Modal";
 import { SelectMenu } from "@/components/SelectMenu";
 import { useStaffUser } from "@/components/useStaffUser";
 import { describeFilter, filterLines, type Filter } from "@/services/filterSummary";
+import { backUpHistory } from "@/services/historyBackup";
 import { recordPull } from "@/services/pullHistory";
 import { rememberPull, rememberSync, storageReport, type StorageReport } from "@/services/rosterStore";
 import {
@@ -80,6 +81,10 @@ export function ViewBar({
       rememberSync(target.id, report.syncedAt);
       // One history per view, so a student's changes read against the same question.
       await recordPull(target.id, roster.rows, roster.fetchedAt);
+      // The history is the one thing here that cannot be rebuilt from the server, so the
+      // copy on disk is rewritten while we know it has just changed. It does nothing
+      // until a folder has been chosen, and a failure must not fail the sync.
+      void backUpHistory();
       return report;
     },
     onSettled: () => setPulled(null),

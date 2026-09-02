@@ -209,6 +209,57 @@ export async function forgetHistory(viewId?: string): Promise<void> {
   await put(store);
 }
 
+/**
+ * Two accounts of the same view's history, brought together.
+ *
+ * A restored backup and whatever this browser has are both partial: the backup may be
+ * older, the browser may have been wiped and re-synced since, and either may hold pulls
+ * the other never saw. Pulls are identified by when they happened, so the union of them
+ * is the fuller history and restoring the same file twice changes nothing.
+ *
+ * `latest` and `present` are not unioned — they are a snapshot of one moment, and mixing
+ * two would invent a state that never existed. The side whose newest pull is newer wins
+ * them whole.
+ */
+export function mergeHistories(mine: PullHistory, theirs: PullHistory): PullHistory {
+  const byId = new Map<string, PullRecord>();
+  for (const pull of theirs.pulls ?? []) byId.set(pull.id, pull);
+  // Ours second: where both saw a pull, this browser's account of it stands.
+  for (const pull of mine.pulls ?? []) byId.set(pull.id, pull);
+  const pulls = [...byId.values()].sort((left, right) => left.at - right.at).slice(-MAX_PULLS);
+
+  const newestOf = (history: PullHistory) => history.pulls?.[history.pulls.length - 1]?.at ?? -1;
+  const fresher = newestOf(theirs) > newestOf(mine) ? theirs : mine;
+  return { pulls, latest: fresher.latest ?? {}, present: fresher.present ?? [] };
+}
+
+/** Every view's history, for writing out; and the shape a backup file carries. */
+export type HistoryBackup = {
+  kind: "scen-pull-history";
+  version: 1;
+  savedAt: number;
+  histories: Record<string, PullHistory>;
+};
+
+export async function historyForBackup(): Promise<Record<string, PullHistory>> {
+  return read();
+}
+
+/** Put a restored file's histories in alongside what this browser holds. */
+export async function restoreHistories(histories: Record<string, PullHistory>): Promise<number> {
+  const store = await read();
+  let touched = 0;
+  for (const [viewId, theirs] of Object.entries(histories)) {
+    if (!theirs || !Array.isArray(theirs.pulls)) continue;
+    const mine = store[viewId] ?? EMPTY;
+    const merged = mergeHistories(mine, theirs);
+    if (merged.pulls.length !== mine.pulls.length) touched += 1;
+    store[viewId] = merged;
+  }
+  await put(store);
+  return touched;
+}
+
 /** A pull's rows, flattened to `id -> field -> value`, blanks dropped. */
 function valuesOf(rows: RosterRow[]): Record<string, Record<string, string>> {
   const students: Record<string, Record<string, string>> = {};
