@@ -63,7 +63,7 @@ function renderApp(user: typeof ADMIN | null = ADMIN, onOpenSettings = () => {})
 
 /** The sync waits on the views query, so it is briefly disabled after the page appears. */
 async function clickSync() {
-  const button = await screen.findByRole("button", { name: /sync this view/i });
+  const button = await screen.findByRole("button", { name: /sync this filter/i });
   await waitFor(() => expect(button).toHaveProperty("disabled", false));
   fireEvent.click(button);
 }
@@ -99,7 +99,7 @@ describe("syncing a view", () => {
 
     expect(await screen.findByRole("combobox", { name: "View" })).toBeTruthy();
     // The label waits on the views query, which says whether this one has been synced.
-    expect(await screen.findByRole("button", { name: /sync this view/i })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: /sync this filter/i })).toBeTruthy();
   });
 
   it("asks the portal for the view's own fixed filter, and sends back only ids", async () => {
@@ -138,7 +138,7 @@ describe("syncing a view", () => {
 
   it("warns that a new view's filter cannot be changed afterwards", async () => {
     renderApp();
-    fireEvent.click(await screen.findByRole("button", { name: "New view" }));
+    fireEvent.click(await screen.findByRole("button", { name: "New portal filter" }));
 
     expect(await screen.findByText(/fixed now and cannot be changed afterwards/i)).toBeTruthy();
   });
@@ -147,7 +147,7 @@ describe("syncing a view", () => {
     vi.spyOn(database, "fetchViews").mockResolvedValue([]);
     renderApp();
 
-    expect(await screen.findByText(/No views yet/)).toBeTruthy();
+    expect(await screen.findByText(/No portal filters yet/)).toBeTruthy();
   });
 });
 
@@ -215,7 +215,7 @@ describe("who may define a view", () => {
   it("offers making and deleting one to an administrator", async () => {
     renderApp(ADMIN);
 
-    expect(await screen.findByRole("button", { name: "New view" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "New portal filter" })).toBeTruthy();
     // The delete button waits for a view to be chosen, which happens once they load.
     expect(await screen.findByRole("button", { name: `Delete ${VIEW.name}` })).toBeTruthy();
   });
@@ -224,14 +224,14 @@ describe("who may define a view", () => {
     renderApp(COLLEAGUE);
     await screen.findByRole("combobox", { name: "View" });
 
-    expect(screen.queryByRole("button", { name: "New view" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "New portal filter" })).toBeNull();
     expect(screen.queryByRole("button", { name: `Delete ${VIEW.name}` })).toBeNull();
   });
 
   it("still lets them sync the view they are looking at", async () => {
     renderApp(COLLEAGUE);
 
-    expect(await screen.findByRole("button", { name: /Sync this view/ })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: /Sync this filter/ })).toBeTruthy();
   });
 });
 
@@ -285,7 +285,7 @@ describe("students and their timetables in one place", () => {
 
     // The roster is this application's own, so a missing platform must not close it.
     await open(/^Students$/);
-    expect(await screen.findByRole("button", { name: /sync this view/i })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: /sync this filter/i })).toBeTruthy();
   });
 });
 

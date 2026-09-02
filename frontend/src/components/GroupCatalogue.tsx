@@ -282,7 +282,7 @@ export function GroupCatalogue({
               <p>
                 {heldNames
                   ? `Student names come from this browser's last portal pull, ${heldNames} held. They are kept nowhere else, which is why the file is built here rather than on the server.`
-                  : "This browser is holding no student names, so the name column would come out blank. Sync a view on the Students page first."}
+                  : "This browser is holding no student names, so the name column would come out blank. Sync a portal filter on the Students page first."}
               </p>
             </InfoHint>
           </div>

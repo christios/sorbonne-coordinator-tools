@@ -529,8 +529,8 @@ export function StudentRoster({
           onClick={() => setEverywhere((current) => !current)}
           title={
             everywhere
-              ? "Searching every student we hold. Click to go back to this view."
-              : "Search every student we hold, not only this view"
+              ? "Searching every student we hold. Click to go back to this portal filter."
+              : "Search every student we hold, not only this portal filter"
           }
           className={`inline-flex shrink-0 items-center gap-2 rounded-md border px-3 py-2 text-sm font-semibold ${
             everywhere
@@ -539,7 +539,7 @@ export function StudentRoster({
           }`}
         >
           <Globe size={15} aria-hidden="true" />
-          {everywhere ? "All students" : "This view"}
+          {everywhere ? "All students" : "This filter"}
         </button>
 
         <ColumnMenu layout={layout} columns={allColumns} onChange={arrange} />

@@ -855,7 +855,7 @@ describe("the toolbar", () => {
     renderRoster();
     await screen.findByText("Amira Haddad");
 
-    fireEvent.click(screen.getByRole("button", { name: /This view/ }));
+    fireEvent.click(screen.getByRole("button", { name: /This filter/ }));
 
     // No view named: the whole record, so a student can be found without knowing which
     // population holds them.

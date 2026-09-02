@@ -113,7 +113,7 @@ export function ViewBar({
           <SelectMenu
             label="View"
             value={viewId}
-            placeholder={views.length ? "Choose a view…" : "No views yet"}
+            placeholder={views.length ? "Choose a portal filter…" : "No portal filters yet"}
             searchable={views.length > 12}
             options={views.map((candidate) => ({
               value: candidate.id,
@@ -144,15 +144,15 @@ export function ViewBar({
               ? `${pulled.fetched.toLocaleString()}${pulled.total ? ` of ${pulled.total.toLocaleString()}` : ""}…`
               : "Syncing…"
             : view?.lastSyncedAt
-              ? "Sync this view"
-              : "Seed this view"}
+              ? "Sync this filter"
+              : "Seed this filter"}
         </button>
 
         {view ? (
           <button
             type="button"
-            aria-label={`The filter behind ${view.name}`}
-            title={`The filter behind ${view.name}`}
+            aria-label={`What ${view.name} asks the portal`}
+            title={`What ${view.name} asks the portal`}
             onClick={() => setShowingFilter(true)}
             className="rounded-md border border-[#b7bec8] bg-white p-2 text-[#667085] hover:bg-[#f8fafc] hover:text-[#344054]"
           >
@@ -163,8 +163,8 @@ export function ViewBar({
         {isAdmin ? (
           <button
             type="button"
-            aria-label="New view"
-            title="New view"
+            aria-label="New portal filter"
+            title="New portal filter"
             onClick={() => {
               setComposing({});
               setName("");
@@ -218,7 +218,7 @@ export function ViewBar({
       <Modal
         open={showingFilter && view !== null}
         title={view ? `What ${view.name} asks the portal` : ""}
-        description="Fixed when the view was made and never edited since, which is what lets it tell you who has left. A different question would be a different view."
+        description="Fixed when the portal filter was made and never edited since, which is what lets it tell you who has left. A different question would be a different portal filter."
         onClose={() => setShowingFilter(false)}
       >
         {view ? <FilterReading filter={view.filter as Filter} fields={fields} /> : null}
@@ -226,8 +226,8 @@ export function ViewBar({
 
       <Modal
         open={composing !== null}
-        title="New view"
-        description="A view is a population. Its filter is fixed now and cannot be changed afterwards — that is what lets it tell you who has left."
+        title="New portal filter"
+        description="A portal filter is a population. What it asks the portal is fixed now and cannot be changed afterwards — that is what lets it tell you who has left."
         onClose={() => setComposing(null)}
         footer={
           <>
@@ -235,7 +235,7 @@ export function ViewBar({
               aria-label="View name"
               value={name}
               onChange={(event) => setName(event.target.value)}
-              placeholder="Name this view"
+              placeholder="Name this portal filter"
               className="w-56 rounded-md border border-[#cbd5e1] px-3 py-2 text-sm"
             />
             <button
@@ -251,7 +251,7 @@ export function ViewBar({
               onClick={() => make.mutate()}
               className="rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
             >
-              {make.isPending ? "Creating…" : "Create view"}
+              {make.isPending ? "Creating…" : "Create portal filter"}
             </button>
           </>
         }
@@ -278,13 +278,13 @@ export function ViewBar({
 
       <ConfirmDialog
         open={pendingDelete !== null}
-        title="Delete this view?"
+        title="Delete this portal filter?"
         description={
           pendingDelete
-            ? `${pendingDelete.name} and its record of who it returned will be removed for every coordinator. The students themselves stay — they are held whether or not a view returns them.`
+            ? `${pendingDelete.name} and its record of who it returned will be removed for every coordinator. The students themselves stay — they are held whether or not a portal filter returns them.`
             : ""
         }
-        confirmLabel="Delete view"
+        confirmLabel="Delete portal filter"
         onConfirm={() => {
           if (pendingDelete) remove.mutate(pendingDelete);
           setPendingDelete(null);
