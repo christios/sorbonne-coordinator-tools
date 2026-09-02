@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { StudentDatabase } from "@/components/StudentDatabase";
 import { StaffContext } from "@/components/useStaffUser";
+import * as backup from "@/services/historyBackup";
 import { forgetHistory } from "@/services/pullHistory";
 import { forgetRosters } from "@/services/rosterStore";
 import * as rosters from "@/services/scenRosters";
@@ -124,6 +125,41 @@ describe("syncing a view", () => {
     await clickSync();
 
     expect(await screen.findByText(/2 returned · 2 added · 0 no longer in this view/)).toBeTruthy();
+  });
+
+  /*
+   * A backup that has quietly stopped working is worse than no backup: it is discovered
+   * when it is needed, which is after the thing it was protecting has gone. The write was
+   * fired off and its answer dropped.
+   */
+  it("says when the history could not be copied to the chosen folder", async () => {
+    vi.spyOn(backup, "backUpHistory").mockResolvedValue({ ok: false, reason: "no_permission" });
+    renderApp();
+
+    await clickSync();
+
+    expect(await screen.findByText(/Chrome needs you to allow it again/)).toBeTruthy();
+  });
+
+  it("stays quiet about the backup when no folder has been chosen", async () => {
+    // Not opting in is not a failure, and a warning about it every sync would be noise.
+    vi.spyOn(backup, "backUpHistory").mockResolvedValue({ ok: false, reason: "no_folder" });
+    renderApp();
+
+    await clickSync();
+
+    expect(await screen.findByText(/2 returned/)).toBeTruthy();
+    expect(screen.queryByText(/could not be written/)).toBeNull();
+  });
+
+  it("still reports the sync itself when the backup fails", async () => {
+    // The students are synced either way; the backup is a copy, not the point.
+    vi.spyOn(backup, "backUpHistory").mockResolvedValue({ ok: false, reason: "failed" });
+    renderApp();
+
+    await clickSync();
+
+    await waitFor(() => expect(database.syncView).toHaveBeenCalled());
   });
 
   it("offers no way to change a view's filter", async () => {

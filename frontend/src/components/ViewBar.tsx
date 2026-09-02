@@ -8,7 +8,7 @@ import { Modal } from "@/components/Modal";
 import { SelectMenu } from "@/components/SelectMenu";
 import { useStaffUser } from "@/components/useStaffUser";
 import { describeFilter, filterLines, type Filter } from "@/services/filterSummary";
-import { backUpHistory } from "@/services/historyBackup";
+import { backUpHistory, type BackupOutcome } from "@/services/historyBackup";
 import { recordPull } from "@/services/pullHistory";
 import { rememberPull, rememberSync, storageReport, type StorageReport } from "@/services/rosterStore";
 import {
@@ -54,6 +54,8 @@ export function ViewBar({
   // Whether the names actually reached this browser's storage. They are read back from
   // there, so a refused write is a table with no names in it rather than a slower page.
   const [storage, setStorage] = useState<StorageReport | null>(null);
+  // Whether the copy on disk kept up. Null until a sync has tried.
+  const [backup, setBackup] = useState<BackupOutcome | null>(null);
 
   const fields = schema.data?.fields ?? [];
   const view = views.find((candidate) => candidate.id === viewId) ?? null;
@@ -81,10 +83,16 @@ export function ViewBar({
       rememberSync(target.id, report.syncedAt);
       // One history per view, so a student's changes read against the same question.
       await recordPull(target.id, roster.rows, roster.fetchedAt);
-      // The history is the one thing here that cannot be rebuilt from the server, so the
-      // copy on disk is rewritten while we know it has just changed. It does nothing
-      // until a folder has been chosen, and a failure must not fail the sync.
-      void backUpHistory();
+      /*
+       * The history is the one thing here that cannot be rebuilt from the server, so the
+       * copy on disk is rewritten while we know it has just changed. It does nothing
+       * until a folder has been chosen.
+       *
+       * Awaited and reported rather than fired off: a backup that quietly stopped working
+       * is worse than no backup, because it is only discovered when it is needed. A
+       * failure still must not fail the sync — the students are synced either way.
+       */
+      setBackup(await backUpHistory());
       return report;
     },
     onSettled: () => setPulled(null),
@@ -196,6 +204,12 @@ export function ViewBar({
       {sync.error ? (
         <p role="alert" className="max-w-md text-right text-xs text-[#a6292f]">
           {sync.error instanceof PortalError ? sync.error.message : (sync.error as Error).message}
+        </p>
+      ) : backup && !backup.ok && backup.reason !== "no_folder" ? (
+        <p role="alert" className="max-w-md text-right text-xs text-[#a6292f]">
+          {backup.reason === "no_permission"
+            ? "Synced, but the history was not copied to your folder — Chrome needs you to allow it again."
+            : "Synced, but the history could not be written to your folder."}
         </p>
       ) : storage && !storage.stored ? (
         <p role="alert" className="max-w-md text-right text-xs text-[#a6292f]">
