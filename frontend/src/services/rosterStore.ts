@@ -331,6 +331,38 @@ async function heldPulls(): Promise<StoredPull[]> {
 }
 
 /**
+ * What the portal last said about each student, whoever asked.
+ *
+ * A view is a question about *which* students, not a separate account of what is true
+ * about them: a student in the L1 view and the whole-term view is one student, and the
+ * more recent answer is the better one wherever they are shown. Reading only the view's
+ * own pull meant syncing one view left the same student stale in every other — and it
+ * disagreed with the workbook export, which has always taken the newest across views.
+ *
+ * Newest wins, which is why the pulls are walked oldest first. The history goes in
+ * underneath: it holds the last known values of students no view returns any more, so
+ * somebody who has left still reads rather than emptying out.
+ */
+export async function rowsHeld(): Promise<RosterRow[]> {
+  const merged = new Map<string, RosterRow>();
+
+  for (const { values } of await allLatest()) {
+    for (const [id, fields] of Object.entries(values)) {
+      if (id) merged.set(id, fields as RosterRow);
+    }
+  }
+
+  for (const pull of await heldPulls()) {
+    for (const row of pull.rows) {
+      const id = studentIdOf(row);
+      if (id) merged.set(id, row);
+    }
+  }
+
+  return [...merged.values()];
+}
+
+/**
  * Every name this browser holds, across every view it has pulled.
  *
  * The export needs names and the server has none — by design, they arrive from the

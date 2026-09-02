@@ -984,3 +984,53 @@ describe("sorting by status", () => {
     expect(isNew).toBeLessThan(quiet);
   });
 });
+
+/*
+ * A student in two views is one student. Syncing them in the whole-term view used to
+ * leave them stale in the L1 view, because the table read only the view it was showing.
+ */
+describe("a student who is in more than one view", () => {
+  it("shows what another view's sync last learned about them", async () => {
+    // This view has never been synced; a different one pulled this student just now.
+    await rememberPull({
+      presetId: "some-other-view",
+      name: "Whole term",
+      count: 1,
+      expect: null,
+      warning: null,
+      fetchedAt: Date.now(),
+      rows: [{ SPRIDEN_ID: "A001", FULL_NAME: "Amira Haddad", YEARLEVEL_CODE: "FY" }],
+    });
+
+    renderRoster();
+
+    expect(await screen.findByText("Amira Haddad")).toBeTruthy();
+  });
+
+  it("prefers the newer sync when two views disagree", async () => {
+    await rememberPull({
+      presetId: VIEW_ID,
+      name: "This view",
+      count: 1,
+      expect: null,
+      warning: null,
+      fetchedAt: 1_000,
+      rows: [{ SPRIDEN_ID: "A001", FULL_NAME: "Old Spelling", YEARLEVEL_CODE: "FY" }],
+    });
+    await rememberPull({
+      presetId: "some-other-view",
+      name: "Whole term",
+      count: 1,
+      expect: null,
+      warning: null,
+      fetchedAt: 2_000,
+      rows: [{ SPRIDEN_ID: "A001", FULL_NAME: "New Spelling", YEARLEVEL_CODE: "L1" }],
+    });
+
+    renderRoster();
+
+    // The other view synced later, so its answer is the better one — here too.
+    expect(await screen.findByText("New Spelling")).toBeTruthy();
+    expect(screen.queryByText("Old Spelling")).toBeNull();
+  });
+});

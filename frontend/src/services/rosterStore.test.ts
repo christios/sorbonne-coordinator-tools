@@ -10,6 +10,7 @@ import {
   namesHeld,
   rememberPull,
   rememberSync,
+  rowsHeld,
   storageReport,
 } from "@/services/rosterStore";
 import type { PortalRoster } from "@/services/scenRosters";
@@ -292,5 +293,83 @@ describe("the names this browser holds", () => {
     });
 
     expect((await namesHeld()).A001).toBe("Ada Lovelace");
+  });
+});
+
+/*
+ * A view is a question about which students, not a separate account of what is true
+ * about them. Syncing the whole-term view used to leave the same student stale in the L1
+ * view — and it disagreed with the workbook export, which has always taken the newest
+ * across views.
+ */
+describe("what the portal last said about each student", () => {
+  const row = (id: string, name: string, extra: Record<string, string> = {}) => ({
+    SPRIDEN_ID: id,
+    FULL_NAME: name,
+    ...extra,
+  });
+
+  it("takes a student's newest row whichever view pulled it", async () => {
+    await rememberPull({ ...pull(1000, [row("A001", "Old Name")]), presetId: "scen-l1" });
+    await rememberPull({ ...pull(2000, [row("A001", "New Name")]), presetId: "scen-term" });
+
+    const held = await rowsHeld();
+
+    expect(held).toHaveLength(1);
+    expect(held[0].FULL_NAME).toBe("New Name");
+  });
+
+  it("does not let an older view's pull overwrite a newer one", async () => {
+    // Synced in the other order: the term view is still the newer answer.
+    await rememberPull({ ...pull(2000, [row("A001", "New Name")]), presetId: "scen-term" });
+    await rememberPull({ ...pull(1000, [row("A001", "Old Name")]), presetId: "scen-l1" });
+
+    expect((await rowsHeld())[0].FULL_NAME).toBe("New Name");
+  });
+
+  it("carries every student across every view, not only the one asked about", async () => {
+    await rememberPull({ ...pull(1000, [row("A001", "Ada")]), presetId: "scen-l1" });
+    await rememberPull({ ...pull(2000, [row("B002", "Grace")]), presetId: "scen-term" });
+
+    const byId = new Map((await rowsHeld()).map((r) => [r.SPRIDEN_ID, r.FULL_NAME]));
+    expect(byId.get("A001")).toBe("Ada");
+    expect(byId.get("B002")).toBe("Grace");
+  });
+
+  it("still knows a student no view returns any more, from the history", async () => {
+    await browser.write("scen-pull-history:v2", {
+      "scen-l1": {
+        pulls: [{ id: "1", at: 500, count: 1, changed: {}, arrived: [], departed: [] }],
+        latest: { GONE1: { FULL_NAME: "Departed Student", MAJOR_CODE_DESC: "Maths" } },
+        present: [],
+      },
+    });
+    await rememberPull({ ...pull(1000, [row("A001", "Ada")]), presetId: "scen-l1" });
+
+    const byId = new Map((await rowsHeld()).map((r) => [r.SPRIDEN_ID, r.FULL_NAME]));
+    expect(byId.get("A001")).toBe("Ada");
+    // Not returned by any view, but still known.
+    expect((await rowsHeld()).find((r) => r.FULL_NAME === "Departed Student")).toBeTruthy();
+  });
+
+  it("prefers a pull to the history, since a pull is what just happened", async () => {
+    await browser.write("scen-pull-history:v2", {
+      "scen-l1": {
+        pulls: [{ id: "1", at: 500, count: 1, changed: {}, arrived: [], departed: [] }],
+        latest: { A001: { FULL_NAME: "Stale Name" } },
+        present: ["A001"],
+      },
+    });
+    await rememberPull({ ...pull(1000, [row("A001", "Fresh Name")]), presetId: "scen-l1" });
+
+    expect((await rowsHeld())[0].FULL_NAME).toBe("Fresh Name");
+  });
+
+  it("agrees with the names the workbook export uses", async () => {
+    await rememberPull({ ...pull(1000, [row("A001", "Old Name")]), presetId: "scen-l1" });
+    await rememberPull({ ...pull(2000, [row("A001", "New Name")]), presetId: "scen-term" });
+
+    const fromTable = (await rowsHeld()).find((r) => r.SPRIDEN_ID === "A001")?.FULL_NAME;
+    expect(fromTable).toBe((await namesHeld()).A001);
   });
 });

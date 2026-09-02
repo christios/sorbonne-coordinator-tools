@@ -17,7 +17,7 @@ import { costOfMove, describeCost } from "@/services/cohortMove";
 import { copyToClipboard, tableText } from "@/services/copyCells";
 import { presetText, rowsForCopy } from "@/services/copyPresets";
 import { forgetHistory, loadHistory, type PullHistory } from "@/services/pullHistory";
-import { fetchSchema } from "@/services/scenRosters";
+import { fetchSchema, type RosterRow } from "@/services/scenRosters";
 import { fetchTimetableTerms } from "@/services/timetables";
 import { changesFromRecord, changesSince, sharedCohort, studentRows, type StudentRow } from "@/services/rosterView";
 import { PortalError } from "@/services/scenRosters";
@@ -25,6 +25,7 @@ import {
   forgetRosters,
   lastSync,
   loadPull,
+  rowsHeld,
   type StoredPreset,
 } from "@/services/rosterStore";
 import {
@@ -130,6 +131,11 @@ export function StudentRoster({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [moveTo, setMoveTo] = useState("");
   const [confirmForget, setConfirmForget] = useState(false);
+  /*
+   * What the portal last said about each student, from whichever view asked most
+   * recently. A view chooses which students, not what is true about them.
+   */
+  const [portalRows, setPortalRows] = useState<RosterRow[]>([]);
 
   /*
    * The names and the history live in this browser, so they are read back on mount
@@ -143,10 +149,11 @@ export function StudentRoster({
   useEffect(() => {
     let current = true;
     setSyncedAt(lastSync(viewId));
-    void Promise.all([loadPull(viewId), loadHistory(viewId)]).then(([pull, past]) => {
+    void Promise.all([loadPull(viewId), loadHistory(viewId), rowsHeld()]).then(([pull, past, held]) => {
       if (!current) return;
       setStored(pull);
       setHistory(past);
+      setPortalRows(held);
     });
     return () => {
       current = false;
@@ -266,8 +273,8 @@ export function StudentRoster({
     return changesSince(stored.previous?.rows ?? [], stored.current?.rows ?? []);
   }, [history, stored]);
   const everyRow = useMemo(
-    () => studentRows(students.data ?? [], stored.current?.rows ?? [], changes, syncedAt, termNames),
-    [students.data, stored, changes, syncedAt, termNames],
+    () => studentRows(students.data ?? [], portalRows, changes, syncedAt, termNames),
+    [students.data, portalRows, changes, syncedAt, termNames],
   );
   const rows = useMemo(() => {
     if (focus.length === 0) return everyRow;
@@ -614,7 +621,7 @@ export function StudentRoster({
       <p className="mt-2 text-xs text-[#98a2b3]">
         {rows.length} student{rows.length === 1 ? "" : "s"} held
         {visible.length !== rows.length ? `, ${visible.length} shown` : ""}
-        {stored.current ? (
+        {portalRows.length ? (
           <>
             {". Names came from the portal in this browser. "}
             <button type="button" onClick={() => setConfirmForget(true)} className="underline">
@@ -678,6 +685,9 @@ export function StudentRoster({
           void Promise.all([forgetRosters(), forgetHistory()]).then(() => {
             setStored({});
             setHistory(NO_HISTORY);
+            // The names on screen come from every view now, not this one's pull, so
+            // forgetting has to take them away here too or they sit there until reload.
+            setPortalRows([]);
             setSyncedAt("");
           });
           setConfirmForget(false);
