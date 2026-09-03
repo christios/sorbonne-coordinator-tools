@@ -51,6 +51,32 @@ function mint({ backend, email, run }) {
   return cookieFrom(run("uv", args, { cwd: backend, encoding: "utf8" }));
 }
 
+/**
+ * When the cookie's session runs out, in seconds since the epoch — or 0 if unreadable.
+ *
+ * The value is `base64(json).signature`, and the json carries `exp`. Only the moment is
+ * read here; the signature is the backend's business.
+ */
+export function expiryOf(cookie) {
+  try {
+    const value = String(cookie).split("=").slice(1).join("=");
+    const payload = value.split(".")[0];
+    const json = Buffer.from(payload.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8");
+    const exp = Number(JSON.parse(json).exp);
+    return Number.isFinite(exp) ? exp : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/** Re-mint this long before the session would end, so a page never gets a dying cookie. */
+export const RENEW_BEFORE_SECONDS = 60 * 60;
+
+export function needsRenewal(cookie, nowSeconds = Date.now() / 1000) {
+  const exp = expiryOf(cookie);
+  return !exp || exp - nowSeconds < RENEW_BEFORE_SECONDS;
+}
+
 export function devSession({ backend: backendDirectory = "", env = process.env, run = execFileSync, log = console } = {}) {
   let backend = backendDirectory;
 
@@ -83,6 +109,21 @@ export function devSession({ backend: backendDirectory = "", env = process.env, 
       let warned = false;
       server.middlewares.use((request, response, next) => {
         if ((request.headers.accept ?? "").includes("text/html")) {
+          /*
+           * A session lasts twelve hours and a dev server runs for days, so the cookie
+           * minted at start-up goes stale while the server is still serving — and every
+           * page load then hands the browser a dying token, which the API refuses. So it
+           * is minted again as it nears the end, once per twelve hours or so, on the page
+           * load that needs it. A failed re-mint keeps the last cookie rather than none.
+           */
+          if (needsRenewal(cookie)) {
+            try {
+              cookie = mint({ backend, email: env.DEV_SESSION_EMAIL, run }) || cookie;
+              log.info("  dev session renewed");
+            } catch {
+              // Keep serving the old one; the sign-in screen will say if it is too late.
+            }
+          }
           response.setHeader("Set-Cookie", `${cookie}; Path=/; SameSite=Lax`);
           const mismatch = !warned && hostMismatch(request.headers.host, env.VITE_API_BASE_URL);
           if (mismatch) {

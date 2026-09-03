@@ -332,8 +332,16 @@ async function heldPulls(): Promise<StoredPull[]> {
 
 /** When this browser last heard from the portal, whichever view asked. Null when never. */
 export async function latestPullAt(): Promise<number | null> {
-  const pulls = await heldPulls();
-  return pulls.length ? pulls[pulls.length - 1].fetchedAt : null;
+  // The packed store, not the unpacked rows: this wants one number, and unpacking every
+  // view's roster to get it was most of the Cohorts page's load time.
+  const store = await readPacked();
+  let latest: number | null = null;
+  for (const preset of Object.values(store)) {
+    for (const pull of [preset.previous, preset.current]) {
+      if (pull && (latest === null || pull.fetchedAt > latest)) latest = pull.fetchedAt;
+    }
+  }
+  return latest;
 }
 
 /**

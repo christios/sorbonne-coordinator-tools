@@ -116,7 +116,9 @@ export type DiscrepancyRule = {
 };
 
 export async function fetchDiscrepancyRules(): Promise<DiscrepancyRule[]> {
-  const response = await apiFetch(`${BASE}/discrepancy-rules`);
+  // The full API address, like every other call here: a relative path reaches the
+  // dev server in local development and comes back as index.html.
+  const response = await apiFetch(`${API_BASE_URL}${BASE}/discrepancy-rules`);
   if (!response.ok) throw new Error("The rules could not be loaded.");
   return ((await response.json()) as { rules: DiscrepancyRule[] }).rules;
 }

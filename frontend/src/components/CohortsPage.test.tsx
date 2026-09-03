@@ -161,7 +161,20 @@ describe("the Cohorts page", () => {
 
     renderPage();
 
-    expect(await screen.findByText(/placed before the moment of placement was recorded/)).toBeTruthy();
+    // Said once, in the summary — not once per student.
+    expect(await screen.findByText(/All was placed before the moment of placement was recorded/)).toBeTruthy();
+    expect(screen.queryByText(/changes cannot be judged/)).toBeNull();
+  });
+
+  it("shows the error when the rules cannot be loaded, rather than an empty cohort", async () => {
+    vi.spyOn(database, "fetchStudents").mockResolvedValue([student("A001", "c1")]);
+    vi.spyOn(database, "fetchDiscrepancyRules").mockRejectedValue(new Error("The rules could not be loaded."));
+    await portalSays([{ SPRIDEN_ID: "A001", FULL_NAME: "Amira Haddad" }]);
+
+    renderPage();
+
+    expect(await screen.findByRole("alert")).toHaveProperty("textContent", "The rules could not be loaded.");
+    expect(screen.queryByText(/Nobody is in this cohort yet/)).toBeNull();
   });
 
   it("hands a flagged student to the Students table, where moving lives", async () => {

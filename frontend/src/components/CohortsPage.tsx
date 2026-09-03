@@ -49,8 +49,9 @@ export function CohortsPage({
   const students = useQuery({ queryKey: ["students", ""], queryFn: () => fetchStudents("") });
   const rules = useQuery({ queryKey: ["discrepancy-rules"], queryFn: fetchDiscrepancyRules });
 
-  // This browser's evidence: read once per visit, and again after the rules change
-  // (which is when somebody is most likely to have just synced too).
+  // This browser's evidence: read once per visit. It has nothing to do with the rules,
+  // and re-reading every roster whenever the rules refetched — which opening the editor
+  // does — made "Rules" feel like a page load.
   const [evidence, setEvidence] = useState<{
     current: Map<string, RosterRow>;
     changes: Map<string, Change[]>;
@@ -70,7 +71,7 @@ export function CohortsPage({
     return () => {
       live = false;
     };
-  }, [rules.dataUpdatedAt]);
+  }, []);
 
   // Land on a cohort rather than on nothing.
   useEffect(() => {
@@ -139,16 +140,27 @@ export function CohortsPage({
     setDismissed(pruneDismissed(live));
   }, [rows.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const flagged = rows.filter((row) => row.warnings.length);
+  // "Placed before placement was recorded" is true of every student placed before the
+  // moment was kept, so it is said once, in the summary, rather than once per student.
+  const isFlag = (warning: Warning) => warning.kind !== "no_baseline";
+  const flagged = rows.filter((row) => row.warnings.some(isFlag));
+  const unjudged = rows.filter((row) => row.warnings.some((warning) => warning.kind === "no_baseline")).length;
   // A student whose only warnings are dismissed drops out of the flagged list — which is
   // the point of dismissing — but has to come back when the dismissed are asked for, or
   // there is nowhere to undo it from.
   const shown = showAll
     ? rows
-    : rows.filter((row) => row.warnings.length || (showDismissed && row.dismissedWarnings.length));
+    : rows.filter((row) => row.warnings.some(isFlag) || (showDismissed && row.dismissedWarnings.length));
   const dismissedCount = rows.reduce((sum, row) => sum + row.dismissedWarnings.length, 0);
 
   if (students.isLoading || rules.isLoading || !evidence) return <ScreenLoading label="Reading what the portal said…" />;
+  if (students.error || rules.error) {
+    return (
+      <p role="alert" className="rounded-md border border-[#e5b7b9] bg-[#fdf3f3] px-4 py-3 text-sm text-[#a6292f]">
+        {((students.error ?? rules.error) as Error).message}
+      </p>
+    );
+  }
 
   return (
     <section>
@@ -207,6 +219,13 @@ export function CohortsPage({
           : rules.data?.length
             ? `Nothing to flag among ${rows.length}.`
             : "No rules yet — nothing counts as a discrepancy until you add one."}
+        {unjudged ? (
+          <>
+            {" "}
+            {unjudged === rows.length ? "All" : unjudged} {unjudged === 1 ? "was" : "were"} placed before the moment of
+            placement was recorded, so change rules cannot judge {unjudged === 1 ? "them" : "them"} — only what is true now.
+          </>
+        ) : null}
         {rows.length > flagged.length ? (
           <>
             {" "}
@@ -249,7 +268,7 @@ export function CohortsPage({
                 <p className="text-xs tabular-nums text-[#667085]">{row.student.studentId}</p>
               </div>
               <ul className="min-w-0 flex-1 space-y-1">
-                {row.warnings.map((warning) => (
+                {row.warnings.filter(isFlag).map((warning) => (
                   <li key={warning.key} className="flex items-start gap-2 text-sm text-[#344054]">
                     <AlertTriangle
                       size={14}
@@ -291,7 +310,7 @@ export function CohortsPage({
                       </li>
                     ))
                   : null}
-                {row.warnings.length === 0 && !(showDismissed && row.dismissedWarnings.length) ? (
+                {!row.warnings.some(isFlag) && !(showDismissed && row.dismissedWarnings.length) ? (
                   <li className="text-sm text-[#98a2b3]">Nothing to flag.</li>
                 ) : null}
               </ul>
