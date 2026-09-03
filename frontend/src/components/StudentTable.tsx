@@ -1,7 +1,8 @@
-import { ArrowDown, ArrowUp, Clock3, GripVertical } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, Clock3, GripVertical, RotateCcw, X } from "lucide-react";
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { CopyButton } from "@/components/CopyButton";
+import { describeWarning } from "@/services/discrepancies";
 import { columnText, rowText } from "@/services/copyCells";
 import type { StudentRow } from "@/services/rosterView";
 import { MIN_WIDTH, widthOf, type ColumnLayout, type StudentColumn } from "@/services/studentColumns";
@@ -73,6 +74,7 @@ export const StudentTable = memo(function StudentTable({
   onToggle,
   onToggleAll,
   onOpenHistory,
+  onDismissWarning,
   empty,
 }: {
   rows: StudentRow[];
@@ -87,6 +89,8 @@ export const StudentTable = memo(function StudentTable({
   onToggle: (studentId: string, extend?: boolean) => void;
   onToggleAll: () => void;
   onOpenHistory: (row: StudentRow) => void;
+  /** Cohorts page only: put a warning away until the record changes, or bring it back. */
+  onDismissWarning?: (key: string, dismissed: boolean) => void;
   empty: string;
 }) {
   const allShown = rows.length > 0 && rows.every((row) => selected.has(row.studentId));
@@ -144,6 +148,7 @@ export const StudentTable = memo(function StudentTable({
               selected={selected.has(row.studentId)}
               onToggle={onToggle}
               onOpenHistory={onOpenHistory}
+              onDismissWarning={onDismissWarning}
             />
           ))}
           {rows.length === 0 ? (
@@ -173,6 +178,7 @@ const StudentTableRow = memo(function StudentTableRow({
   selected,
   onToggle,
   onOpenHistory,
+  onDismissWarning,
 }: {
   row: StudentRow;
   columns: StudentColumn[];
@@ -180,6 +186,7 @@ const StudentTableRow = memo(function StudentTableRow({
   selected: boolean;
   onToggle: (studentId: string, extend?: boolean) => void;
   onOpenHistory: (row: StudentRow) => void;
+  onDismissWarning?: (key: string, dismissed: boolean) => void;
 }) {
   const extend = useRef(false);
 
@@ -213,7 +220,7 @@ const StudentTableRow = memo(function StudentTableRow({
             maxWidth: widthOf(layout, column),
           }}
         >
-          <Cell row={row} column={column} />
+          <Cell row={row} column={column} onDismissWarning={onDismissWarning} />
         </td>
       ))}
       <td className="w-10 whitespace-nowrap px-2 py-2 text-right">
@@ -235,7 +242,48 @@ const StudentTableRow = memo(function StudentTableRow({
   );
 });
 
-function Cell({ row, column }: { row: StudentRow; column: StudentColumn }) {
+function Cell({
+  row,
+  column,
+  onDismissWarning,
+}: {
+  row: StudentRow;
+  column: StudentColumn;
+  onDismissWarning?: (key: string, dismissed: boolean) => void;
+}) {
+  if (column.id === "warnings") {
+    if (!row.warnings.length) return <span className="text-[#98a2b3]">—</span>;
+    return (
+      <ul className="space-y-0.5">
+        {row.warnings.map((warning) => (
+          <li
+            key={warning.key}
+            className={`flex items-start gap-1.5 text-xs ${warning.dismissed ? "text-[#98a2b3] line-through" : "text-[#8a4b00]"}`}
+          >
+            <AlertTriangle size={12} className="mt-0.5 shrink-0" aria-hidden="true" />
+            <span className="min-w-0 flex-1 truncate" title={describeWarning(warning)}>
+              {describeWarning(warning)}
+            </span>
+            {onDismissWarning && warning.kind !== "no_baseline" ? (
+              <button
+                type="button"
+                aria-label={`${warning.dismissed ? "Restore" : "Dismiss"}: ${describeWarning(warning)}`}
+                title={warning.dismissed ? "Bring this warning back" : "Dismiss until this student's record changes again"}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onDismissWarning(warning.key, !warning.dismissed);
+                }}
+                className="shrink-0 rounded p-0.5 text-[#98a2b3] hover:bg-[#f2f7fb] hover:text-[#344054]"
+              >
+                {warning.dismissed ? <RotateCcw size={11} aria-hidden="true" /> : <X size={11} aria-hidden="true" />}
+              </button>
+            ) : null}
+          </li>
+        ))}
+      </ul>
+    );
+  }
+
   if (column.id === "status") {
     return (
       <>

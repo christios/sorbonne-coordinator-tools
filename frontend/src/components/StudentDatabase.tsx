@@ -238,13 +238,7 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
             <p className="text-sm text-[#667085]">Create a cohort first, then fill its groups.</p>
           ) : null}
           {page === "cohorts" && !cohorts.isLoading ? (
-            <CohortsPage
-              cohorts={knownCohorts}
-              onShowStudents={(ids) => {
-                setPreselect(ids);
-                openPage("students");
-              }}
-            />
+            <CohortsPage cohorts={knownCohorts} />
           ) : null}
           {page === "cohorts" && cohorts.isLoading ? <ScreenLoading label="Loading cohorts…" /> : null}
           {page === "groups" && cohort ? (

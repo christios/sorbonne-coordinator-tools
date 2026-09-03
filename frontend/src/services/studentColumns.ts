@@ -18,6 +18,7 @@
  */
 
 import type { ColumnDataType, FilterColumn } from "@/services/tableFilter";
+import { describeWarning } from "@/services/discrepancies";
 import type { StudentRow } from "@/services/rosterView";
 import type { PortalColumn, PortalField } from "@/services/scenRosters";
 
@@ -67,6 +68,7 @@ const STATUS_RANK: ((row: StudentRow) => boolean)[] = [
 /** The columns a coordinator sees before they have arranged anything. */
 const DEFAULT_SHOWN = [
   "status",
+  "warnings",
   "portal:FULL_NAME",
   "studentId",
   "portal:YEARLEVEL_CODE",
@@ -135,6 +137,21 @@ const OWN_COLUMNS: StudentColumn[] = [
   },
 ];
 
+/**
+ * Where the portal and the cohort disagree. Only offered on the Cohorts page, which is
+ * the one place rows carry warnings; elsewhere it would be a column of dashes.
+ */
+export const WARNINGS_COLUMN: StudentColumn = {
+  id: "warnings",
+  displayName: "Warnings",
+  type: "text",
+  accessor: (row) => row.warnings.map((warning) => describeWarning(warning)).join("; "),
+  display: (row) => row.warnings.map((warning) => describeWarning(warning)).join("; "),
+  // Most trouble first when sorted descending, which is how the Cohorts page opens.
+  sortValue: (row) => row.warnings.filter((warning) => !warning.dismissed).length,
+  defaultWidth: 360,
+};
+
 /** Portal fields we already have a column of our own for, or that say nothing useful. */
 const SKIP_PORTAL_FIELDS = new Set(["SPRIDEN_ID", "ROWNUM", "ROW_NUM"]);
 
@@ -165,10 +182,17 @@ function portalColumn(column: PortalColumn, filterable: Map<string, PortalField>
  * to our own plus the handful the roster always carries — otherwise the first visit would
  * show nothing but ids.
  */
-export function buildColumns(portalColumns: PortalColumn[], fields: PortalField[] = []): StudentColumn[] {
+export function buildColumns(
+  portalColumns: PortalColumn[],
+  fields: PortalField[] = [],
+  { withWarnings = false }: { withWarnings?: boolean } = {},
+): StudentColumn[] {
   const filterable = new Map(fields.map((field) => [field.key.toUpperCase(), field]));
   const portal = portalColumns.length ? portalColumns : FALLBACK_COLUMNS;
-  const columns = [...OWN_COLUMNS];
+  // The warnings sit beside the name, where the eye goes, rather than at the far end.
+  const columns = withWarnings
+    ? [OWN_COLUMNS[0], WARNINGS_COLUMN, ...OWN_COLUMNS.slice(1)]
+    : [...OWN_COLUMNS];
   for (const column of portal) {
     if (SKIP_PORTAL_FIELDS.has(column.key.toUpperCase())) continue;
     columns.push(portalColumn(column, filterable));

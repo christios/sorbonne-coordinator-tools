@@ -20,6 +20,7 @@ import { presetText, rowsForCopy } from "@/services/copyPresets";
 import { forgetHistory, loadHistory, type PullHistory } from "@/services/pullHistory";
 import { fetchSchema, type RosterRow } from "@/services/scenRosters";
 import { fetchTimetableTerms } from "@/services/timetables";
+import type { Warning } from "@/services/discrepancies";
 import { changesFromRecord, changesSince, sharedCohort, studentRows, type StudentRow } from "@/services/rosterView";
 import { PortalError } from "@/services/scenRosters";
 import {
@@ -73,6 +74,10 @@ export function StudentRoster({
   viewId,
   preselect = [],
   filterCohort = "",
+  scope,
+  warningsFor,
+  onDismissWarning,
+  defaultSort,
 }: {
   cohorts: Cohort[];
   viewId: string;
@@ -80,11 +85,22 @@ export function StudentRoster({
   preselect?: string[];
   /** A cohort whose members to show — arrives as an ordinary filter chip, clearable. */
   filterCohort?: string;
+  /**
+   * The Cohorts page: the table is narrowed to one cohort's students (or to those in
+   * none, with `cohortId: null`) as a population rather than a clearable chip, every
+   * student we hold is fetched rather than a portal filter's, and each row carries the
+   * warnings the page worked out for it.
+   */
+  scope?: { cohortId: string | null };
+  warningsFor?: (studentId: string) => Warning[];
+  onDismissWarning?: (key: string, dismissed: boolean) => void;
+  defaultSort?: Sort;
 }) {
   const client = useQueryClient();
   const [everywhere, setEverywhere] = useState(false);
   // Searching everywhere asks for the whole record rather than this view's population.
-  const asked = everywhere ? "" : viewId;
+  // A scoped table is always everywhere: a cohort's students come from every view.
+  const asked = everywhere || scope ? "" : viewId;
   const students = useQuery({
     queryKey: ["students", asked],
     queryFn: () => fetchStudents(asked),
@@ -96,7 +112,7 @@ export function StudentRoster({
      * and then immediately fetching again for the view it had just chosen. The first
      * answer was the larger of the two and nobody ever saw it.
      */
-    enabled: everywhere || asked !== "",
+    enabled: everywhere || Boolean(scope) || asked !== "",
     /*
      * A view's students are worth keeping. Switching views refetched thousands of rows
      * behind a full-screen loader every time, including views visited a moment ago; now
@@ -117,8 +133,8 @@ export function StudentRoster({
 
   // The table offers the portal's own fields, so the columns follow the harvested schema.
   const allColumns = useMemo(
-    () => buildColumns(schema.data?.columns ?? [], schema.data?.fields ?? []),
-    [schema.data],
+    () => buildColumns(schema.data?.columns ?? [], schema.data?.fields ?? [], { withWarnings: Boolean(warningsFor) }),
+    [schema.data, warningsFor],
   );
 
   const [stored, setStored] = useState<StoredPreset>({});
@@ -128,7 +144,7 @@ export function StudentRoster({
   const [layout, setLayout] = useState<ColumnLayout | null>(null);
   const [filters, setFilters] = useState<FilterModel[]>([]);
   const [query, setQuery] = useState("");
-  const [sort, setSort] = useState<Sort>({ key: "studentId", ascending: true });
+  const [sort, setSort] = useState<Sort>(defaultSort ?? { key: "studentId", ascending: true });
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [moveTo, setMoveTo] = useState("");
   const [confirmForget, setConfirmForget] = useState(false);
@@ -274,14 +290,18 @@ export function StudentRoster({
     return changesSince(stored.previous?.rows ?? [], stored.current?.rows ?? []);
   }, [history, stored]);
   const everyRow = useMemo(
-    () => studentRows(students.data ?? [], portalRows, changes, syncedAt, termNames),
-    [students.data, portalRows, changes, syncedAt, termNames],
+    () => studentRows(students.data ?? [], portalRows, changes, syncedAt, termNames, warningsFor),
+    [students.data, portalRows, changes, syncedAt, termNames, warningsFor],
   );
   const rows = useMemo(() => {
-    if (focus.length === 0) return everyRow;
+    // The population first: a scope is not a filter chip, it is who the page is about.
+    const population = scope
+      ? everyRow.filter((row) => (scope.cohortId === null ? !row.cohortId : row.cohortId === scope.cohortId))
+      : everyRow;
+    if (focus.length === 0) return population;
     const wanted = new Set(focus);
-    return everyRow.filter((row) => wanted.has(row.studentId));
-  }, [everyRow, focus]);
+    return population.filter((row) => wanted.has(row.studentId));
+  }, [everyRow, focus, scope]);
 
   const columns = useMemo(
     () => (layout ? visibleColumns(layout, allColumns) : []),
@@ -524,6 +544,7 @@ export function StudentRoster({
           />
         </label>
 
+        {scope ? null : (
         <button
           type="button"
           aria-pressed={everywhere}
@@ -542,6 +563,7 @@ export function StudentRoster({
           <Globe size={15} aria-hidden="true" />
           {everywhere ? "All students" : "This filter"}
         </button>
+        )}
 
         <ColumnMenu layout={layout} columns={allColumns} onChange={arrange} />
 
@@ -652,12 +674,17 @@ export function StudentRoster({
         onResize={resize}
         onReorder={reorder}
         onOpenHistory={setHistoryOf}
+        onDismissWarning={onDismissWarning}
         onToggle={toggle}
         onToggleAll={toggleAll}
         empty={
           rows.length
             ? "Nobody matches those filters."
-            : "No students yet. Sync with the portal to build the list."
+            : scope
+              ? scope.cohortId === null
+                ? "Every student we hold is in a cohort."
+                : "Nobody is in this cohort yet."
+              : "No students yet. Sync with the portal to build the list."
         }
       />
 

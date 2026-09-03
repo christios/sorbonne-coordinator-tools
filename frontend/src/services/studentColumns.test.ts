@@ -54,6 +54,7 @@ const row = (over: Partial<StudentRow> = {}): StudentRow => ({
   portal: { FULL_NAME: "Amira Haddad", YEARLEVEL_CODE: "FY", MAJOR_CODE_DESC: "Mathematics" },
   isNew: false,
   changes: [],
+  warnings: [],
   groups: [],
   ...over,
 });

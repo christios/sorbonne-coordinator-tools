@@ -58,6 +58,8 @@ export type Warning = {
   /** For a state: what it is now; and for `differs`, what the cohort expected. */
   value?: string;
   expected?: string;
+  /** Set by the page when the coordinator has dismissed it and asked to see the dismissed. */
+  dismissed?: boolean;
 };
 
 /** What the page shows for one field, so a warning reads as a sentence. */

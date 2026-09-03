@@ -10,6 +10,7 @@
  * they live.
  */
 
+import type { Warning } from "@/services/discrepancies";
 import type { FieldChange } from "@/services/pullHistory";
 import { displayNameOf, studentIdOf, type RosterRow } from "@/services/scenRosters";
 import type { Student } from "@/services/studentDatabase";
@@ -35,6 +36,8 @@ export type StudentRow = {
   isNew: boolean;
   /** What the portal says differently from the previous pull: "year FY → L1". */
   changes: string[];
+  /** Where the portal and the cohort disagree — see services/discrepancies.ts. Empty off the Cohorts page. */
+  warnings: Warning[];
   /** The blocks they sit in, as a coordinator says them: "TD 1", or "S2 · TD 3". */
   groups: string[];
 };
@@ -144,6 +147,7 @@ export function studentRows(
   changes: Map<string, string[]> = new Map(),
   syncedAt = "",
   termNames: Record<string, string> = {},
+  warningsFor: (studentId: string) => Warning[] = () => [],
 ): StudentRow[] {
   const pulled = new Map<string, RosterRow>();
   for (const row of portal) {
@@ -173,6 +177,7 @@ export function studentRows(
       portal,
       isNew: Boolean(syncedAt) && student.firstSeenAt >= syncedAt,
       changes: changes.get(student.studentId) ?? [],
+      warnings: warningsFor(student.studentId),
     };
   });
 }
