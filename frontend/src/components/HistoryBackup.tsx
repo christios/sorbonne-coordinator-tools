@@ -11,7 +11,9 @@ import {
   folderPermission,
   forgetFolder,
   restoreFrom,
-  BACKUP_FILENAME,
+  setBackupFilename,
+  backupFilename,
+  DEFAULT_FILENAME,
 } from "@/services/historyBackup";
 import { describeAge } from "@/services/rosterStore";
 
@@ -29,6 +31,8 @@ export function HistoryBackup({ onRestored }: { onRestored: () => void }) {
   const [permission, setPermission] = useState<"granted" | "denied" | "prompt" | null>(null);
   const [writtenAt, setWrittenAt] = useState<number | null>(null);
   const [busy, setBusy] = useState("");
+  const [filename, setFilename] = useState(DEFAULT_FILENAME);
+  const [badName, setBadName] = useState(false);
   const [said, setSaid] = useState("");
   const file = useRef<HTMLInputElement>(null);
 
@@ -37,6 +41,7 @@ export function HistoryBackup({ onRestored }: { onRestored: () => void }) {
     setFolder(handle?.name ?? null);
     setPermission(handle ? await folderPermission(handle, false) : null);
     setWrittenAt(await backupWrittenAt());
+    setFilename(await backupFilename());
   };
 
   useEffect(() => {
@@ -127,7 +132,7 @@ export function HistoryBackup({ onRestored }: { onRestored: () => void }) {
                 <span className="font-medium">{folder}</span>
                 <span className="text-[#98a2b3]">
                   {" "}
-                  · {BACKUP_FILENAME}
+                  · {filename}
                   {writtenAt ? ` · saved ${describeAge(writtenAt)}` : " · nothing written yet"}
                 </span>
               </p>
@@ -144,6 +149,38 @@ export function HistoryBackup({ onRestored }: { onRestored: () => void }) {
                 .
               </p>
             ) : null}
+
+            <label className="mt-3 block">
+              <span className="text-sm font-medium text-[#344054]">File name</span>
+              <input
+                aria-label="Backup file name"
+                value={filename}
+                onChange={(event) => {
+                  setFilename(event.target.value);
+                  setBadName(false);
+                }}
+                onBlur={async (event) => {
+                  const settled = await setBackupFilename(event.target.value);
+                  if (!settled) return setBadName(true);
+                  // Shown as it was stored: .json added, spaces trimmed.
+                  setFilename(settled);
+                  await look();
+                }}
+                className="mt-1 w-full rounded border border-[#cbd5e1] px-2 py-1.5 text-sm"
+              />
+            </label>
+            {badName ? (
+              <p role="alert" className="mt-1 text-sm text-[#a6292f]">
+                That is not a name a file can have. Leave out slashes — the file goes in
+                the folder above.
+              </p>
+            ) : (
+              <p className="mt-1 text-xs text-[#98a2b3]">
+                Renaming writes to the new name from the next save. Anything written under
+                the old name stays in the folder — take it away yourself if you do not
+                want it.
+              </p>
+            )}
 
             <div className="mt-3 flex flex-wrap gap-2">
               <button

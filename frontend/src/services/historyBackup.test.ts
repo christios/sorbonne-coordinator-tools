@@ -7,6 +7,9 @@ import {
   chooseFolder,
   forgetFolder,
   restoreFrom,
+  cleanFilename,
+  setBackupFilename,
+  backupFilename,
 } from "@/services/historyBackup";
 import { forgetHistory, loadHistory, recordPull } from "@/services/pullHistory";
 
@@ -48,6 +51,7 @@ function fakeFolder() {
  */
 const HANDLE_KEY = "scen-history-backup-folder";
 let heldHandle: unknown = null;
+const realDrop = browser.drop;
 
 beforeEach(async () => {
   window.localStorage.clear();
@@ -56,7 +60,6 @@ beforeEach(async () => {
 
   const realRead = browser.read;
   const realWrite = browser.write;
-  const realDrop = browser.drop;
   vi.spyOn(browser, "read").mockImplementation(async (key: string) =>
     key === HANDLE_KEY ? (heldHandle as never) : realRead(key),
   );
@@ -71,6 +74,8 @@ beforeEach(async () => {
   });
 
   await forgetFolder();
+  // The chosen name outlives the folder, so a test that sets one must not reach the next.
+  await realDrop("scen-history-backup-filename");
 });
 afterEach(() => vi.restoreAllMocks());
 
@@ -155,5 +160,69 @@ describe("keeping the history where a browser wipe cannot reach it", () => {
     delete (window as unknown as { showDirectoryPicker?: unknown }).showDirectoryPicker;
 
     expect(canWriteToFolder()).toBe(false);
+  });
+});
+
+
+/*
+ * The name is the coordinator's. Only two things are ours: it has to go in the folder
+ * that was granted rather than somewhere else, and it has to be a file rather than a
+ * hidden one.
+ */
+describe("naming the file", () => {
+  it("takes a plain name and gives it the extension", () => {
+    expect(cleanFilename("term history")).toBe("term history.json");
+  });
+
+  it("leaves an extension that is already there, whatever its case", () => {
+    expect(cleanFilename("history.json")).toBe("history.json");
+    expect(cleanFilename("History.JSON")).toBe("History.JSON");
+  });
+
+  it("trims what was typed around the edges", () => {
+    expect(cleanFilename("  spring term  ")).toBe("spring term.json");
+  });
+
+  it("refuses a path, which would write outside the folder that was granted", () => {
+    expect(cleanFilename("../elsewhere/history")).toBeNull();
+    expect(cleanFilename("sub/folder.json")).toBeNull();
+    expect(cleanFilename("back\\slash.json")).toBeNull();
+  });
+
+  it("refuses a name with nothing in it", () => {
+    expect(cleanFilename("")).toBeNull();
+    expect(cleanFilename("   ")).toBeNull();
+    expect(cleanFilename(".")).toBeNull();
+    // Would be a hidden file rather than a backup.
+    expect(cleanFilename(".json")).toBeNull();
+  });
+
+  it("keeps a long name to something a file system will take", () => {
+    expect((cleanFilename("x".repeat(300)) ?? "").length).toBeLessThanOrEqual(105);
+  });
+
+  it("writes under the chosen name, and defaults until one is chosen", async () => {
+    const { handle, files } = fakeFolder();
+    (window as unknown as { showDirectoryPicker: unknown }).showDirectoryPicker = async () => handle;
+    await recordPull(VIEW, [row("A001")], 1_000);
+    await chooseFolder();
+
+    expect(await backupFilename()).toBe("scen-pull-history.json");
+    await backUpHistory();
+    expect(files.has("scen-pull-history.json")).toBe(true);
+
+    expect(await setBackupFilename("term one")).toBe("term one.json");
+    await backUpHistory();
+
+    expect(files.has("term one.json")).toBe(true);
+    // The earlier file is left where it is rather than quietly removed.
+    expect(files.has("scen-pull-history.json")).toBe(true);
+  });
+
+  it("keeps a refused name out of storage, so the old one still stands", async () => {
+    await setBackupFilename("good name");
+
+    expect(await setBackupFilename("bad/name")).toBeNull();
+    expect(await backupFilename()).toBe("good name.json");
   });
 });

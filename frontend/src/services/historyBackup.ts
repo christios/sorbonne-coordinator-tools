@@ -21,7 +21,39 @@ import * as browser from "@/services/browserStore";
 import { historyForBackup, restoreHistories, type HistoryBackup } from "@/services/pullHistory";
 
 const HANDLE_KEY = "scen-history-backup-folder";
-export const BACKUP_FILENAME = "scen-pull-history.json";
+const FILENAME_KEY = "scen-history-backup-filename";
+export const DEFAULT_FILENAME = "scen-pull-history.json";
+
+/**
+ * A name the file system will accept, or null when there is nothing usable in it.
+ *
+ * A folder separator would mean writing somewhere other than the folder that was granted,
+ * which is not ours to do; the rest is tidying. The extension is added rather than
+ * demanded, because a coordinator naming a file should not have to think about it, and a
+ * file called `.json` is a hidden file rather than a backup.
+ */
+export function cleanFilename(input: string): string | null {
+  // eslint-disable-next-line no-control-regex
+  const trimmed = input.replace(/[\u0000-\u001f]/g, "").trim();
+  if (!trimmed || trimmed === "." || trimmed === "..") return null;
+  if (/[/\\]/.test(trimmed)) return null;
+  const named = trimmed.length > 100 ? trimmed.slice(0, 100) : trimmed;
+  const withExtension = named.toLowerCase().endsWith(".json") ? named : `${named}.json`;
+  return withExtension === ".json" ? null : withExtension;
+}
+
+/** The name to write under. The default until somebody chooses otherwise. */
+export async function backupFilename(): Promise<string> {
+  return (await browser.read<string>(FILENAME_KEY)) || DEFAULT_FILENAME;
+}
+
+/** Returns the name actually stored, so the caller can show what it settled on. */
+export async function setBackupFilename(input: string): Promise<string | null> {
+  const named = cleanFilename(input);
+  if (!named) return null;
+  await browser.write(FILENAME_KEY, named);
+  return named;
+}
 
 /** Chrome and Edge have it; Safari and Firefox do not. */
 export function canWriteToFolder(): boolean {
@@ -101,7 +133,7 @@ export async function backUpHistory(): Promise<BackupOutcome> {
     histories: await historyForBackup(),
   };
   try {
-    const file = await handle.getFileHandle(BACKUP_FILENAME, { create: true });
+    const file = await handle.getFileHandle(await backupFilename(), { create: true });
     // createWritable writes to a swap file and moves it into place on close, so a failure
     // part-way through leaves the previous backup rather than half of this one.
     const writable = await file.createWritable();
@@ -118,7 +150,7 @@ export async function backupWrittenAt(): Promise<number | null> {
   const handle = await chosenFolder();
   if (!handle || (await folderPermission(handle, false)) !== "granted") return null;
   try {
-    const file = await handle.getFileHandle(BACKUP_FILENAME);
+    const file = await handle.getFileHandle(await backupFilename());
     return (await file.getFile()).lastModified;
   } catch {
     return null;
