@@ -15,6 +15,9 @@ export type Cohort = {
   name: string;
   term: string;
   notes: string;
+  /** What the cohort expects of its students, as the portal words it. Empty means no expectation. */
+  program: string;
+  yearLevel: string;
   memberCount: number;
   scopeCount: number;
   createdAt: string;
@@ -88,15 +91,41 @@ export async function fetchCohorts(): Promise<Cohort[]> {
   return (await request<{ cohorts: Cohort[] }>(`${BASE}/cohorts`)).cohorts;
 }
 
-export function createCohort(input: { name: string; term?: string; notes?: string }): Promise<Cohort> {
-  return send<Cohort>(`${BASE}/cohorts`, "POST", { term: "", notes: "", ...input });
+export type CohortInput = { name: string; term?: string; notes?: string; program?: string; yearLevel?: string };
+
+export function createCohort(input: CohortInput): Promise<Cohort> {
+  return send<Cohort>(`${BASE}/cohorts`, "POST", { term: "", notes: "", program: "", yearLevel: "", ...input });
 }
 
-export function updateCohort(
-  cohortId: string,
-  input: { name: string; term: string; notes: string },
-): Promise<Cohort> {
-  return send<Cohort>(`${BASE}/cohorts/${cohortId}`, "PATCH", input);
+export function updateCohort(cohortId: string, input: CohortInput): Promise<Cohort> {
+  return send<Cohort>(`${BASE}/cohorts/${cohortId}`, "PATCH", {
+    term: "",
+    notes: "",
+    program: "",
+    yearLevel: "",
+    ...input,
+  });
+}
+
+/** What counts as a discrepancy between the portal and a cohort. Shared by every coordinator. */
+export type DiscrepancyRule = {
+  id: string;
+  field: string;
+  kind: "changed" | "changed_to" | "is" | "differs";
+  values: string[];
+};
+
+export async function fetchDiscrepancyRules(): Promise<DiscrepancyRule[]> {
+  const response = await apiFetch(`${BASE}/discrepancy-rules`);
+  if (!response.ok) throw new Error("The rules could not be loaded.");
+  return ((await response.json()) as { rules: DiscrepancyRule[] }).rules;
+}
+
+/** The whole set, replaced: the page edits them as one list. */
+export async function saveDiscrepancyRules(
+  rules: Omit<DiscrepancyRule, "id">[] | DiscrepancyRule[],
+): Promise<DiscrepancyRule[]> {
+  return (await send<{ rules: DiscrepancyRule[] }>(`${BASE}/discrepancy-rules`, "PUT", { rules })).rules;
 }
 
 export function deleteCohort(cohortId: string): Promise<void> {
@@ -254,6 +283,8 @@ export type Student = {
   status: "in_portal" | "not_in_portal";
   cohortId: string | null;
   cohortName: string;
+  /** When they were placed in that cohort; empty for a placement made before this was kept. */
+  cohortSince: string;
   firstSeenAt: string;
   lastSeenAt: string;
   /** The blocks this student sits in, labelled — one entry per (semester, block). */

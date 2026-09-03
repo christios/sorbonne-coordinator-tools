@@ -260,6 +260,35 @@ export async function restoreHistories(histories: Record<string, PullHistory>): 
   return touched;
 }
 
+/**
+ * Every change recorded for every student, whichever view recorded it.
+ *
+ * A change is a fact about the student, not about the view that noticed it: the L1 view
+ * and the whole-term view seeing the same status flip are one event, which is why entries
+ * are de-duplicated by moment, field and values rather than listed once per view.
+ */
+export async function allChanges(): Promise<Map<string, { at: number; field: string; from: string; to: string }[]>> {
+  const store = await read();
+  const seen = new Set<string>();
+  const out = new Map<string, { at: number; field: string; from: string; to: string }[]>();
+  for (const history of Object.values(store)) {
+    for (const pull of history?.pulls ?? []) {
+      for (const [studentId, moved] of Object.entries(pull.changed ?? {})) {
+        for (const change of moved) {
+          const key = `${studentId}|${pull.at}|${change.field}|${change.from}|${change.to}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          const list = out.get(studentId) ?? [];
+          list.push({ at: pull.at, field: change.field, from: change.from, to: change.to });
+          out.set(studentId, list);
+        }
+      }
+    }
+  }
+  for (const list of out.values()) list.sort((left, right) => left.at - right.at);
+  return out;
+}
+
 /** A pull's rows, flattened to `id -> field -> value`, blanks dropped. */
 function valuesOf(rows: RosterRow[]): Record<string, Record<string, string>> {
   const students: Record<string, Record<string, string>> = {};

@@ -349,6 +349,7 @@ def test_the_student_record_carries_no_name(client: TestClient, view_id: str):
         "status",
         "cohortId",
         "cohortName",
+        "cohortSince",
         "firstSeenAt",
         "lastSeenAt",
         "groups",
@@ -525,3 +526,43 @@ def test_a_student_carries_the_groups_they_are_in_by_name(client: TestClient, co
 
     assert held[STUDENTS[0]] == [{"termId": "", "scopeCode": "TD", "groupLabel": "1"}]
     assert held[STUDENTS[1]] == []
+
+
+# ------------------------------------------------------------ discrepancies
+
+
+def test_the_rules_start_empty_and_come_back_as_saved(client: TestClient) -> None:
+    client.put("/api/v1/student-database/discrepancy-rules", json={"rules": []})
+    assert client.get("/api/v1/student-database/discrepancy-rules").json() == {"rules": []}
+
+    saved = client.put(
+        "/api/v1/student-database/discrepancy-rules",
+        json={"rules": [{"field": "STST_CODE", "kind": "changed_to", "values": ["WD"]}]},
+    )
+
+    assert saved.status_code == status.HTTP_200_OK
+    [rule] = saved.json()["rules"]
+    assert (rule["field"], rule["kind"], rule["values"]) == ("STST_CODE", "changed_to", ["WD"])
+    assert rule["id"]
+    assert client.get("/api/v1/student-database/discrepancy-rules").json()["rules"] == [rule]
+
+
+def test_a_rule_that_cannot_mean_anything_says_why(client: TestClient) -> None:
+    response = client.put(
+        "/api/v1/student-database/discrepancy-rules",
+        json={"rules": [{"field": "STST_CODE", "kind": "differs"}]},
+    )
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    assert "differ from" in response.json()["detail"]
+
+
+def test_a_cohort_carries_its_program_and_year(client: TestClient) -> None:
+    made = client.post(
+        "/api/v1/student-database/cohorts",
+        json={"name": "L1 Maths", "program": "Applied Mathematics and Physics", "yearLevel": "L1"},
+    )
+
+    assert made.status_code == status.HTTP_201_CREATED
+    assert made.json()["program"] == "Applied Mathematics and Physics"
+    assert made.json()["yearLevel"] == "L1"

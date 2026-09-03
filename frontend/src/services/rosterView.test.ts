@@ -32,6 +32,7 @@ const student = (studentId: string, over: Partial<Student> = {}): Student => ({
   status: "in_portal",
   cohortId: null,
   cohortName: "",
+  cohortSince: "",
   firstSeenAt: EARLIER,
   lastSeenAt: SYNCED,
   groups: [],

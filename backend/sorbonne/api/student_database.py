@@ -22,6 +22,7 @@ from sorbonne.services.workbook_diff import (
 from sorbonne.services.group_reference_import import ReferenceImportError, parse_group_reference
 from sorbonne.services.student_database import (
     CohortNotFound,
+    InvalidRule,
     DuplicateFilterName,
     DuplicateLabel,
     FilterNotFound,
@@ -45,6 +46,23 @@ class CohortInput(BaseModel):
     name: str = Field(min_length=1, max_length=160)
     term: str = Field(default="", max_length=80)
     notes: str = Field(default="", max_length=2000)
+    # What the cohort expects of its students, as the portal words it. Optional: a cohort
+    # with neither is judged on status alone.
+    program: str = Field(default="", max_length=160)
+    yearLevel: str = Field(default="", max_length=40)
+
+
+class RuleInput(BaseModel):
+    """One thing that counts as a discrepancy — see services.student_database._clean_rule."""
+
+    id: str = Field(default="", max_length=80)
+    field: str = Field(min_length=1, max_length=64)
+    kind: str = Field(min_length=1, max_length=20)
+    values: list[str] = Field(default_factory=list, max_length=100)
+
+
+class RulesInput(BaseModel):
+    rules: list[RuleInput] = Field(default_factory=list, max_length=50)
 
 
 class SyncInput(BaseModel):
@@ -135,7 +153,9 @@ async def list_cohorts(database: StudentDatabase = Depends(get_database)) -> dic
 async def create_cohort(
     body: CohortInput, database: StudentDatabase = Depends(get_database)
 ) -> dict[str, Any]:
-    return database.create_cohort(name=body.name, term=body.term, notes=body.notes)
+    return database.create_cohort(
+        name=body.name, term=body.term, notes=body.notes, program=body.program, year_level=body.yearLevel
+    )
 
 
 @router.patch("/cohorts/{cohort_id}")
@@ -143,7 +163,14 @@ async def update_cohort(
     cohort_id: str, body: CohortInput, database: StudentDatabase = Depends(get_database)
 ) -> dict[str, Any]:
     try:
-        return database.update_cohort(cohort_id, name=body.name, term=body.term, notes=body.notes)
+        return database.update_cohort(
+            cohort_id,
+            name=body.name,
+            term=body.term,
+            notes=body.notes,
+            program=body.program,
+            year_level=body.yearLevel,
+        )
     except CohortNotFound as exc:
         raise _missing(exc, "cohort") from exc
 
@@ -154,6 +181,24 @@ async def delete_cohort(cohort_id: str, database: StudentDatabase = Depends(get_
         database.delete_cohort(cohort_id)
     except CohortNotFound as exc:
         raise _missing(exc, "cohort") from exc
+
+
+# ----------------------------------------------------------- discrepancies
+
+
+@router.get("/discrepancy-rules")
+async def list_discrepancy_rules(database: StudentDatabase = Depends(get_database)) -> dict[str, Any]:
+    return {"rules": database.list_discrepancy_rules()}
+
+
+@router.put("/discrepancy-rules")
+async def replace_discrepancy_rules(
+    body: RulesInput, database: StudentDatabase = Depends(get_database)
+) -> dict[str, Any]:
+    try:
+        return {"rules": database.replace_discrepancy_rules([rule.model_dump() for rule in body.rules])}
+    except InvalidRule as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 
 
 # ---------------------------------------------------------------- students

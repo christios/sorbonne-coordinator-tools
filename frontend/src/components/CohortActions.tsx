@@ -28,10 +28,19 @@ export function CohortActions({
   const [deleting, setDeleting] = useState(false);
   const [name, setName] = useState(cohort.name);
   const [term, setTerm] = useState(cohort.term);
+  const [program, setProgram] = useState(cohort.program);
+  const [yearLevel, setYearLevel] = useState(cohort.yearLevel);
 
   const refresh = () => client.invalidateQueries({ queryKey: ["cohorts"] });
   const rename = useMutation({
-    mutationFn: () => updateCohort(cohort.id, { name: name.trim(), term: term.trim(), notes: cohort.notes }),
+    mutationFn: () =>
+      updateCohort(cohort.id, {
+        name: name.trim(),
+        term: term.trim(),
+        notes: cohort.notes,
+        program: program.trim(),
+        yearLevel: yearLevel.trim(),
+      }),
     onSuccess: () => {
       setRenaming(false);
       refresh();
@@ -63,6 +72,8 @@ export function CohortActions({
           onClick={() => {
             setName(cohort.name);
             setTerm(cohort.term);
+            setProgram(cohort.program);
+            setYearLevel(cohort.yearLevel);
             setRenaming(true);
           }}
           className="rounded-md border border-[#b7bec8] bg-white p-2 text-[#344054] hover:bg-[#f8fafc]"
@@ -116,6 +127,28 @@ export function CohortActions({
               value={term}
               onChange={(event) => setTerm(event.target.value)}
               placeholder="2026-27"
+              className="mt-1.5 block w-full rounded-md border border-[#cbd5e1] px-3 py-2 text-sm font-normal"
+            />
+          </label>
+          {/*
+            * What the cohort expects, in the portal's own words. Optional: a cohort with
+            * neither is judged on status alone by the Cohorts page.
+            */}
+          <label className="block text-sm font-semibold text-[#344054]">
+            Program the cohort expects
+            <input
+              value={program}
+              onChange={(event) => setProgram(event.target.value)}
+              placeholder="Applied Mathematics and Physics — as the portal names it, or leave blank"
+              className="mt-1.5 block w-full rounded-md border border-[#cbd5e1] px-3 py-2 text-sm font-normal"
+            />
+          </label>
+          <label className="block text-sm font-semibold text-[#344054]">
+            Year level the cohort expects
+            <input
+              value={yearLevel}
+              onChange={(event) => setYearLevel(event.target.value)}
+              placeholder="L1 — or leave blank"
               className="mt-1.5 block w-full rounded-md border border-[#cbd5e1] px-3 py-2 text-sm font-normal"
             />
           </label>

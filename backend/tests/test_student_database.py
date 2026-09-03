@@ -1,12 +1,15 @@
 """Cohorts and their catalogue of groups and CRNs."""
 
 import pytest
+from uuid import uuid4
 
 from sorbonne.services.group_reference_import import parse_group_reference
 from sorbonne.services.workbook_diff import diff_reference
 from sorbonne.services.student_database import (
     CohortNotFound,
     DuplicateLabel,
+    InvalidRule,
+    SavedSearch,
     StudentDatabase,
 )
 from tests.conftest import TEST_DATABASE_URL
@@ -165,3 +168,124 @@ def test_the_catalogue_carries_no_student_identity(database: StudentDatabase, co
     fields = {key for scope in catalogue["scopes"] for group in scope["groups"] for key in group}
 
     assert fields == {"id", "label", "capacity", "note", "assigned", "crns"}
+
+
+# ------------------------------------------------------------ discrepancies
+
+
+def test_a_cohort_can_say_what_program_and_year_it_expects(database: StudentDatabase) -> None:
+    made = database.create_cohort(name="L1 Maths", program="Applied Mathematics and Physics", year_level="L1")
+
+    assert made["program"] == "Applied Mathematics and Physics"
+    assert made["yearLevel"] == "L1"
+    # And still may say nothing: a cohort with neither is judged on status alone.
+    plain = database.create_cohort(name="Foundation Year")
+    assert plain["program"] == "" and plain["yearLevel"] == ""
+
+
+def test_a_cohort_expectation_can_be_changed(database: StudentDatabase, cohort: dict) -> None:
+    changed = database.update_cohort(
+        cohort["id"], name=cohort["name"], term=cohort["term"], notes="", program="Physics", year_level="L2"
+    )
+
+    assert (changed["program"], changed["yearLevel"]) == ("Physics", "L2")
+
+
+def _hold(database: StudentDatabase, *ids: str) -> None:
+    """Put students on the record the way a sync does, so they can be placed."""
+    # Views are shared and this file does not clear them between tests, so each gets
+    # its own rather than colliding on a name.
+    view = database.save_filter(SavedSearch(name=f"hold {uuid4()}"))
+    database.sync_view(view["id"], list(ids))
+
+
+def test_placing_a_student_records_when(database: StudentDatabase, cohort: dict) -> None:
+    _hold(database, "A001")
+
+    database.set_cohort(["A001"], cohort["id"])
+
+    student = next(s for s in database.list_students() if s["studentId"] == "A001")
+    assert student["cohortSince"], "placement should leave a moment behind"
+
+
+def test_re_saving_a_student_into_the_same_cohort_is_not_a_placement(
+    database: StudentDatabase, cohort: dict
+) -> None:
+    # The moment is the baseline "what changed since we put them here" is measured
+    # from. Moving it on a no-op would silently forgive every change made in between.
+    _hold(database, "A001")
+    database.set_cohort(["A001"], cohort["id"])
+    first = next(s for s in database.list_students() if s["studentId"] == "A001")["cohortSince"]
+
+    database.set_cohort(["A001"], cohort["id"])
+
+    again = next(s for s in database.list_students() if s["studentId"] == "A001")["cohortSince"]
+    assert again == first
+
+
+def test_moving_to_another_cohort_is_a_new_placement(database: StudentDatabase, cohort: dict) -> None:
+    _hold(database, "A001")
+    database.set_cohort(["A001"], cohort["id"])
+    first = next(s for s in database.list_students() if s["studentId"] == "A001")["cohortSince"]
+    other = database.create_cohort(name="Elsewhere")
+
+    database.set_cohort(["A001"], other["id"])
+
+    moved = next(s for s in database.list_students() if s["studentId"] == "A001")["cohortSince"]
+    assert moved >= first and moved != first or moved > first
+
+
+def test_the_rules_are_kept_whole_and_in_order(database: StudentDatabase) -> None:
+    database.replace_discrepancy_rules([])
+
+    kept = database.replace_discrepancy_rules(
+        [
+            {"field": "STST_CODE", "kind": "changed_to", "values": ["WD", "IS"]},
+            {"field": "ESTS_CODE", "kind": "changed"},
+            {"field": "MAJOR_CODE_DESC", "kind": "differs"},
+            {"field": "STST_CODE", "kind": "is", "values": ["WD"]},
+        ]
+    )
+
+    assert [(r["field"], r["kind"]) for r in kept] == [
+        ("STST_CODE", "changed_to"),
+        ("ESTS_CODE", "changed"),
+        ("MAJOR_CODE_DESC", "differs"),
+        ("STST_CODE", "is"),
+    ]
+    assert kept[0]["values"] == ["WD", "IS"]
+    # Kinds that do not take values carry none, whatever was sent.
+    assert kept[1]["values"] == [] and kept[2]["values"] == []
+    assert database.list_discrepancy_rules() == kept
+
+
+def test_replacing_the_rules_replaces_them(database: StudentDatabase) -> None:
+    database.replace_discrepancy_rules([{"field": "STST_CODE", "kind": "changed"}])
+
+    database.replace_discrepancy_rules([{"field": "ESTS_CODE", "kind": "changed"}])
+
+    assert [r["field"] for r in database.list_discrepancy_rules()] == ["ESTS_CODE"]
+
+
+def test_a_rule_keeps_its_id_across_a_replace(database: StudentDatabase) -> None:
+    # Dismissals in a browser point at a rule by id; a re-save must not orphan them.
+    [first] = database.replace_discrepancy_rules([{"field": "STST_CODE", "kind": "changed"}])
+
+    [again] = database.replace_discrepancy_rules([{**first, "values": []}])
+
+    assert again["id"] == first["id"]
+
+
+@pytest.mark.parametrize(
+    ("rule", "why"),
+    [
+        ({"field": "not a field", "kind": "changed"}, "field name"),
+        ({"field": "STST_CODE", "kind": "sometimes"}, "kind"),
+        ({"field": "STST_CODE", "kind": "differs"}, "no STST_CODE to differ from"),
+        ({"field": "STST_CODE", "kind": "changed_to", "values": []}, "needs at least one value"),
+        ({"field": "STST_CODE", "kind": "is", "values": ["", "  "]}, "needs at least one value"),
+    ],
+)
+def test_a_rule_that_cannot_mean_anything_is_refused(database: StudentDatabase, rule: dict, why: str) -> None:
+    with pytest.raises(InvalidRule, match=why):
+        database.replace_discrepancy_rules([rule])

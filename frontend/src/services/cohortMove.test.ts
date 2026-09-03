@@ -13,6 +13,7 @@ function student(
     status: "in_portal",
     cohortId,
     cohortName: cohortId ?? "",
+    cohortSince: "",
     firstSeenAt: "",
     lastSeenAt: "",
     groups,

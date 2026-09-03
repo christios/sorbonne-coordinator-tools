@@ -330,6 +330,12 @@ async function heldPulls(): Promise<StoredPull[]> {
     .sort((left, right) => left.fetchedAt - right.fetchedAt);
 }
 
+/** When this browser last heard from the portal, whichever view asked. Null when never. */
+export async function latestPullAt(): Promise<number | null> {
+  const pulls = await heldPulls();
+  return pulls.length ? pulls[pulls.length - 1].fetchedAt : null;
+}
+
 /**
  * What the portal last said about each student, whoever asked.
  *

@@ -117,26 +117,49 @@ class StudentDatabase:
             raise CohortNotFound(cohort_id)
         return _cohort(row)
 
-    def create_cohort(self, *, name: str, term: str = "", notes: str = "") -> dict[str, Any]:
+    def create_cohort(
+        self, *, name: str, term: str = "", notes: str = "", program: str = "", year_level: str = ""
+    ) -> dict[str, Any]:
         cohort_id, now = str(uuid4()), _now()
         with self.engine.begin() as connection:
             connection.execute(
-                text("""INSERT INTO student_cohorts (id, name, term, notes, created_at, updated_at)
-                        VALUES (:id, :name, :term, :notes, :now, :now)"""),
-                {"id": cohort_id, "name": _text(name), "term": _text(term), "notes": notes.strip(), "now": now},
+                text("""INSERT INTO student_cohorts
+                            (id, name, term, notes, program, year_level, created_at, updated_at)
+                        VALUES (:id, :name, :term, :notes, :program, :year_level, :now, :now)"""),
+                {
+                    "id": cohort_id,
+                    "name": _text(name),
+                    "term": _text(term),
+                    "notes": notes.strip(),
+                    "program": _text(program),
+                    "year_level": _text(year_level),
+                    "now": now,
+                },
             )
         return self.get_cohort(cohort_id)
 
-    def update_cohort(self, cohort_id: str, *, name: str, term: str, notes: str) -> dict[str, Any]:
+    def update_cohort(  # noqa: PLR0913 — one argument per column, the way the form sends them
+        self,
+        cohort_id: str,
+        *,
+        name: str,
+        term: str,
+        notes: str,
+        program: str = "",
+        year_level: str = "",
+    ) -> dict[str, Any]:
         with self.engine.begin() as connection:
             updated = connection.execute(
                 text("""UPDATE student_cohorts SET name = :name, term = :term, notes = :notes,
+                            program = :program, year_level = :year_level,
                             updated_at = :now WHERE id = :id"""),
                 {
                     "id": cohort_id,
                     "name": _text(name),
                     "term": _text(term),
                     "notes": notes.strip(),
+                    "program": _text(program),
+                    "year_level": _text(year_level),
                     "now": _now(),
                 },
             )
@@ -330,7 +353,7 @@ class StudentDatabase:
                    ORDER BY s.student_id"""
         parameters: dict[str, Any] = {}
         if view_id:
-            query = """SELECT s.student_id, s.cohort_id, s.first_seen_at AS held_since,
+            query = """SELECT s.student_id, s.cohort_id, s.cohort_since, s.first_seen_at AS held_since,
                               c.name AS cohort_name,
                               m.status, m.first_seen_at, m.last_seen_at
                        FROM view_members m
@@ -380,8 +403,16 @@ class StudentDatabase:
                         AND cohort_id <> COALESCE(:cohort_id, '')"""),
                 {"ids": wanted, "cohort_id": cohort_id},
             )
+            # The moment of placement is the baseline "what changed since we put them
+            # here" is measured from, so it moves only when the cohort does: re-saving a
+            # student into the cohort they are already in is not a placement.
             moved = connection.execute(
-                text("""UPDATE students SET cohort_id = :cohort_id, updated_at = :now
+                text("""UPDATE students
+                        SET cohort_since = CASE
+                                WHEN cohort_id IS DISTINCT FROM :cohort_id THEN :now
+                                ELSE cohort_since END,
+                            cohort_id = :cohort_id,
+                            updated_at = :now
                         WHERE student_id = ANY(:ids)"""),
                 {"ids": wanted, "cohort_id": cohort_id, "now": now},
             ).rowcount
@@ -393,6 +424,38 @@ class StudentDatabase:
         """One cohort's students — the same records, narrowed to that cohort."""
         self.get_cohort(cohort_id)
         return [student for student in self.list_students() if student["cohortId"] == cohort_id]
+
+    # ---------------------------------------------------------- discrepancies
+
+    def list_discrepancy_rules(self) -> list[dict[str, Any]]:
+        """What counts as a discrepancy, in the order the coordinators put them."""
+        with self.engine.connect() as connection:
+            rows = (
+                connection.execute(text("SELECT * FROM discrepancy_rules ORDER BY position, created_at"))
+                .mappings()
+                .all()
+            )
+        return [_rule(row) for row in rows]
+
+    def replace_discrepancy_rules(self, rules: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """The whole set at once.
+
+        Rules are edited as a list on one page, and a list is what comes back: replacing
+        it whole is simpler to reason about than reconciling additions, removals and
+        reorderings one by one, and there are never more than a dozen.
+        """
+        cleaned = [_clean_rule(rule, position) for position, rule in enumerate(rules)]
+        now = _now()
+        with self.engine.begin() as connection:
+            connection.execute(text("DELETE FROM discrepancy_rules"))
+            for rule in cleaned:
+                connection.execute(
+                    text("""INSERT INTO discrepancy_rules
+                                (id, field, kind, "values", position, created_at, updated_at)
+                            VALUES (:id, :field, :kind, :values, :position, :now, :now)"""),
+                    {**rule, "values": json.dumps(rule["values"]), "now": now},
+                )
+        return self.list_discrepancy_rules()
 
     # ------------------------------------------------------------- catalogue
 
@@ -1227,7 +1290,55 @@ def _student(row, groups: list[dict[str, str]]) -> dict[str, Any]:
         "cohortName": row["cohort_name"] or "",
         "firstSeenAt": row["first_seen_at"],
         "lastSeenAt": row["last_seen_at"],
+        # Empty for a placement made before this was recorded: no baseline, and the
+        # Cohorts page says so rather than treating every change as since then.
+        "cohortSince": row["cohort_since"] or "",
         "groups": groups,
+    }
+
+
+RULE_KINDS = ("changed", "changed_to", "is", "differs")
+# What "differs from the cohort" can compare against: the two things a cohort carries.
+DIFFERS_FIELDS = ("MAJOR_CODE_DESC", "YEARLEVEL_CODE")
+FIELD_NAME = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")
+
+
+class InvalidRule(ValueError):
+    """A rule that cannot mean anything, and why."""
+
+
+def _clean_rule(rule: dict[str, Any], position: int) -> dict[str, Any]:
+    field = _text(rule.get("field")).upper()
+    kind = _text(rule.get("kind"))
+    raw_values = rule.get("values") or []
+    if not FIELD_NAME.match(field):
+        raise InvalidRule(f"'{rule.get('field')}' is not a portal field name.")
+    if kind not in RULE_KINDS:
+        raise InvalidRule(f"'{kind}' is not a kind of rule.")
+    if kind == "differs" and field not in DIFFERS_FIELDS:
+        raise InvalidRule(f"A cohort has no {field} to differ from; only a program or a year level.")
+    if not isinstance(raw_values, list):
+        raise InvalidRule("A rule's values must be a list.")
+    values = [_text(value) for value in raw_values if _text(value)]
+    if kind in ("changed_to", "is") and not values:
+        raise InvalidRule(f"A '{kind}' rule needs at least one value.")
+    if kind in ("changed", "differs"):
+        values = []
+    return {
+        "id": _text(rule.get("id")) or str(uuid4()),
+        "field": field,
+        "kind": kind,
+        "values": values,
+        "position": position,
+    }
+
+
+def _rule(row) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "field": row["field"],
+        "kind": row["kind"],
+        "values": json.loads(row["values"] or "[]"),
     }
 
 
@@ -1237,6 +1348,8 @@ def _cohort(row) -> dict[str, Any]:
         "name": row["name"],
         "term": row["term"],
         "notes": row["notes"],
+        "program": row["program"] or "",
+        "yearLevel": row["year_level"] or "",
         "memberCount": row["member_count"],
         "scopeCount": row["scope_count"],
         "createdAt": row["created_at"],

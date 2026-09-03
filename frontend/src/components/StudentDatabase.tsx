@@ -1,9 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
-import { CalendarDays, ListTree, Megaphone, Users } from "lucide-react";
+import { CalendarDays, ListTree, Megaphone, ShieldAlert, Users } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { AnnouncementEditor } from "@/components/AnnouncementEditor";
 import { CohortActions } from "@/components/CohortActions";
+import { CohortsPage } from "@/components/CohortsPage";
+import { LabelledPicker } from "@/components/LabelledPicker";
 import { GroupCatalogue } from "@/components/GroupCatalogue";
 import { PlatformNotConfigured } from "@/components/PlatformNotConfigured";
 import { ScreenLoading } from "@/components/ScreenLoading";
@@ -23,6 +25,7 @@ import { fetchTimetableStatus, fetchTimetableTerms } from "@/services/timetables
 const PAGES = [
   { id: "students", name: "Students", icon: Users, group: "Students" },
   { id: "groups", name: "Groups & CRNs", icon: ListTree, group: "Students" },
+  { id: "cohorts", name: "Cohorts", icon: ShieldAlert, group: "Students" },
   { id: "semesters", name: "Semesters", icon: CalendarDays, group: "Timetables" },
   { id: "announcements", name: "Announcements", icon: Megaphone, group: "Timetables" },
 ] as const;
@@ -43,6 +46,10 @@ const TITLES: Record<PageId, { title: string; blurb?: string }> = {
   groups: {
     title: "Groups & CRNs",
     blurb: "What each group stands for: one CRN per course in the block.",
+  },
+  cohorts: {
+    title: "Cohorts",
+    blurb: "Where what admissions says about a student has drifted from where the department put them.",
   },
   semesters: {
     title: "Semesters",
@@ -230,6 +237,16 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
           {needsCohort && !cohorts.isLoading && !cohort ? (
             <p className="text-sm text-[#667085]">Create a cohort first, then fill its groups.</p>
           ) : null}
+          {page === "cohorts" && !cohorts.isLoading ? (
+            <CohortsPage
+              cohorts={knownCohorts}
+              onShowStudents={(ids) => {
+                setPreselect(ids);
+                openPage("students");
+              }}
+            />
+          ) : null}
+          {page === "cohorts" && cohorts.isLoading ? <ScreenLoading label="Loading cohorts…" /> : null}
           {page === "groups" && cohort ? (
             <GroupCatalogue
               key={`${cohort.id}:${termId}`}
@@ -254,40 +271,3 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
   );
 }
 
-/**
- * A dropdown with its name above it, and whatever acts on the thing chosen beside it.
- *
- * Two pickers sit together on the groups page — the cohort and the semester — and a bare
- * control gives no clue which is which. The label is not decoration here; it is the
- * difference between reading the page and guessing at it.
- *
- * The width is the choice's, not the layout's. A fixed column truncated "Foundation Year —
- * 2026-27" to something that could have been any cohort, which is the one thing a picker
- * must never do; so it sizes to what it is showing, with a floor so a short name still
- * looks like a control and a ceiling so a long one cannot push the page about.
- */
-function LabelledPicker({
-  label,
-  hint,
-  beside,
-  children,
-}: {
-  label: string;
-  hint?: string;
-  /** Buttons that act on whatever is chosen, kept out of the control's own width. */
-  beside?: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="min-w-0">
-      <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[#667085]">
-        {label}
-        {hint ? <span className="ml-1.5 font-normal normal-case text-[#98a2b3]">{hint}</span> : null}
-      </p>
-      <div className="flex items-center gap-1.5">
-        <div className="w-fit min-w-[12rem] max-w-[24rem]">{children}</div>
-        {beside}
-      </div>
-    </div>
-  );
-}
