@@ -82,9 +82,15 @@ describe("the Cohorts page", () => {
 
     expect(await screen.findByText("Amira Haddad")).toBeTruthy();
     expect(screen.getByText(/student status changed to WD \(was AS\)/)).toBeTruthy();
-    // Karim has nothing to flag, so he is not in the flagged list by default.
-    expect(screen.queryByText("Karim Nasser")).toBeNull();
+    // Karim is listed too — the page is the cohort's student list — with nothing to flag,
+    // and below Amira, since flagged students come first.
+    expect(screen.getByText("Karim Nasser")).toBeTruthy();
     expect(screen.getByText(/1 of 2 students flagged/)).toBeTruthy();
+    const names = screen.getAllByRole("button", { name: /Amira Haddad|Karim Nasser/ }).map((b) => b.textContent);
+    expect(names).toEqual(["Amira Haddad", "Karim Nasser"]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Show only flagged" }));
+    expect(screen.queryByText("Karim Nasser")).toBeNull();
   });
 
   it("flags a major that differs from what the cohort expects", async () => {
@@ -128,8 +134,10 @@ describe("the Cohorts page", () => {
 
     expect(await screen.findByText("Amira Haddad")).toBeTruthy();
     expect(screen.getByText(/in no cohort, and nothing about them says they should not be/)).toBeTruthy();
-    // Withdrawn, so not a placement candidate; placed, so not unplaced.
-    expect(screen.queryByText("Karim Nasser")).toBeNull();
+    // Karim is unplaced too, so he is in the list — but withdrawn, so not flagged as a
+    // candidate. Nadia is placed, so she is not on this list at all.
+    expect(screen.getByText("Karim Nasser")).toBeTruthy();
+    expect(screen.getAllByText(/in no cohort, and nothing about them/)).toHaveLength(1);
     expect(screen.queryByText("Nadia Newcomer")).toBeNull();
   });
 

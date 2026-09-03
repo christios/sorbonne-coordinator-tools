@@ -42,7 +42,9 @@ export function CohortsPage({
 }) {
   const [cohortId, setCohortId] = useState("");
   const [editingRules, setEditingRules] = useState(false);
-  const [showAll, setShowAll] = useState(false);
+  // The list is the page: every student in the cohort, warnings on the rows, flagged
+  // ones first. Narrowing to the flagged is the option, not the default.
+  const [onlyFlagged, setOnlyFlagged] = useState(false);
   const [showDismissed, setShowDismissed] = useState(false);
   const [dismissed, setDismissed] = useState<Set<string>>(() => loadDismissed());
 
@@ -148,9 +150,9 @@ export function CohortsPage({
   // A student whose only warnings are dismissed drops out of the flagged list — which is
   // the point of dismissing — but has to come back when the dismissed are asked for, or
   // there is nowhere to undo it from.
-  const shown = showAll
-    ? rows
-    : rows.filter((row) => row.warnings.some(isFlag) || (showDismissed && row.dismissedWarnings.length));
+  const shown = onlyFlagged
+    ? rows.filter((row) => row.warnings.some(isFlag) || (showDismissed && row.dismissedWarnings.length))
+    : rows;
   const dismissedCount = rows.reduce((sum, row) => sum + row.dismissedWarnings.length, 0);
 
   if (students.isLoading || rules.isLoading || !evidence) return <ScreenLoading label="Reading what the portal said…" />;
@@ -226,11 +228,11 @@ export function CohortsPage({
             placement was recorded, so change rules cannot judge {unjudged === 1 ? "them" : "them"} — only what is true now.
           </>
         ) : null}
-        {rows.length > flagged.length ? (
+        {flagged.length && rows.length > flagged.length ? (
           <>
             {" "}
-            <button type="button" onClick={() => setShowAll((current) => !current)} className="underline">
-              {showAll ? "Show only flagged" : "Show everyone"}
+            <button type="button" onClick={() => setOnlyFlagged((current) => !current)} className="underline">
+              {onlyFlagged ? "Show everyone" : "Show only flagged"}
             </button>
           </>
         ) : null}
@@ -250,7 +252,7 @@ export function CohortsPage({
             ? cohortId === UNPLACED
               ? "Every student we hold is in a cohort."
               : "Nobody is in this cohort yet."
-            : "Nothing flagged. Everything the portal says matches what this cohort expects."}
+            : "Nothing flagged."}
         </p>
       ) : (
         <ul className="mt-4 divide-y divide-[#eef1f5] rounded-md border border-[#d9dee7] bg-white">
