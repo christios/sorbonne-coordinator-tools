@@ -122,6 +122,8 @@ class GroupInput(BaseModel):
     label: str = Field(min_length=1, max_length=40)
     capacity: int = Field(default=0, ge=0, le=10_000)
     note: str = Field(default="", max_length=400)
+    # The programme this group takes first, as the registrar spells it. Empty means any.
+    program: str = Field(default="", max_length=160)
 
 
 class CellInput(BaseModel):
@@ -501,6 +503,39 @@ async def assign_students(
         raise _missing(exc, "group") from exc
 
 
+MAX_PLACEMENTS = 20_000
+
+
+class PlacementsInput(BaseModel):
+    """A whole fill: which students go in which group of the block."""
+
+    placements: dict[str, list[str]] = Field(default_factory=dict)
+
+
+@router.put("/scopes/{scope_id}/placements")
+async def place_students(
+    scope_id: str,
+    body: PlacementsInput,
+    request: Request,
+    database: StudentDatabase = Depends(get_database),
+) -> dict[str, Any]:
+    """Write a previewed fill, all of it or none of it.
+
+    The fill itself is worked out in the browser, which is where the names and programmes
+    it orders by are held; only `id -> group` arrives here.
+    """
+    if sum(len(students) for students in body.placements.values()) > MAX_PLACEMENTS:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="That is too many students at once.")
+    staff = getattr(request.state, "staff_user", None)
+    actor = getattr(staff, "email", "") or ""
+    try:
+        return database.place_many(scope_id=scope_id, placements=body.placements, actor=actor)
+    except ScopeNotFound as exc:
+        raise _missing(exc, "block") from exc
+    except GroupNotFound as exc:
+        raise _missing(exc, "group") from exc
+
+
 @router.get("/cohorts/{cohort_id}/assignments")
 async def read_assignments(
     cohort_id: str, database: StudentDatabase = Depends(get_database)
@@ -516,7 +551,11 @@ async def add_group(
     scope_id: str, body: GroupInput, database: StudentDatabase = Depends(get_database)
 ) -> dict[str, str]:
     try:
-        return {"id": database.add_group(scope_id, label=body.label, capacity=body.capacity, note=body.note)}
+        return {
+            "id": database.add_group(
+                scope_id, label=body.label, capacity=body.capacity, note=body.note, program=body.program
+            )
+        }
     except ScopeNotFound as exc:
         raise _missing(exc, "block") from exc
     except DuplicateLabel as exc:
@@ -528,7 +567,9 @@ async def update_group(
     group_id: str, body: GroupInput, database: StudentDatabase = Depends(get_database)
 ) -> dict[str, bool]:
     try:
-        database.update_group(group_id, label=body.label, capacity=body.capacity, note=body.note)
+        database.update_group(
+            group_id, label=body.label, capacity=body.capacity, note=body.note, program=body.program
+        )
     except GroupNotFound as exc:
         raise _missing(exc, "group") from exc
     return {"saved": True}

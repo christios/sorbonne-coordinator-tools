@@ -28,8 +28,8 @@ const CATALOGUE: database.Catalogue = {
       note: "",
       courses: [],
       groups: [
-        { id: "group-1", label: "1", capacity: 24, note: "", assigned: 20, crns: {} },
-        { id: "group-2", label: "2", capacity: 0, note: "", assigned: 0, crns: {} },
+        { id: "group-1", label: "1", capacity: 24, note: "", program: "", assigned: 20, crns: {} },
+        { id: "group-2", label: "2", capacity: 0, note: "", program: "", assigned: 0, crns: {} },
       ],
     },
   ],

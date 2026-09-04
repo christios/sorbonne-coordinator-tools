@@ -80,6 +80,15 @@ def _text(value: object) -> str:
     return " ".join(str(value or "").split())
 
 
+_PLACE = """INSERT INTO group_assignments
+                (cohort_id, student_id, scope_id, group_id, updated_at, updated_by)
+            VALUES (:cohort, :student, :scope, :group, :updated_at, :actor)
+            ON CONFLICT (cohort_id, student_id, scope_id)
+            DO UPDATE SET group_id = excluded.group_id,
+                          updated_at = excluded.updated_at,
+                          updated_by = excluded.updated_by"""
+
+
 class StudentDatabase:
     def __init__(self, database_url: str) -> None:
         # No ping on every checkout: from the deployment to its database a round-trip is
@@ -529,6 +538,7 @@ class StudentDatabase:
                             "label": group["label"],
                             "capacity": group["capacity"],
                             "note": group["note"],
+                            "program": group["program"],
                             "assigned": counts.get(group["id"], 0),
                             "crns": crns.get(group["id"], {}),
                         }
@@ -629,13 +639,7 @@ class StudentDatabase:
             elif wanted:
                 now = _now()
                 connection.execute(
-                    text("""INSERT INTO group_assignments
-                                (cohort_id, student_id, scope_id, group_id, updated_at, updated_by)
-                            VALUES (:cohort, :student, :scope, :group, :updated_at, :actor)
-                            ON CONFLICT (cohort_id, student_id, scope_id)
-                            DO UPDATE SET group_id = excluded.group_id,
-                                          updated_at = excluded.updated_at,
-                                          updated_by = excluded.updated_by"""),
+                    text(_PLACE),
                     [
                         {
                             "cohort": cohort_id,
@@ -651,6 +655,64 @@ class StudentDatabase:
             self._touch(connection, cohort_id)
 
         return {"assigned": len(wanted), "skipped": skipped}
+
+    def place_many(
+        self, *, scope_id: str, placements: dict[str, list[str]], actor: str = ""
+    ) -> dict[str, Any]:
+        """A whole fill at once: `group id -> students`, written in one transaction.
+
+        A fill that half-lands is worse than one that does not land, because the page would
+        show a block that is neither what it was nor what was previewed. Same rules as
+        placing in one group: a student the cohort does not hold is skipped and named, and
+        a group of another block is refused outright. A student named under two groups
+        goes where they were named first.
+        """
+        with self.engine.begin() as connection:
+            cohort_id = self._cohort_of_scope(connection, scope_id)
+            owned = {
+                row[0]
+                for row in connection.execute(
+                    text("SELECT id FROM scope_groups WHERE scope_id = :scope"), {"scope": scope_id}
+                )
+            }
+            for group_id in placements:
+                if group_id not in owned:
+                    raise GroupNotFound(group_id)
+
+            held = {
+                row[0]
+                for row in connection.execute(
+                    text("SELECT student_id FROM students WHERE cohort_id = :cohort"),
+                    {"cohort": cohort_id},
+                )
+            }
+            now = _now()
+            rows: list[dict[str, Any]] = []
+            seen: set[str] = set()
+            skipped: set[str] = set()
+            for group_id, students in placements.items():
+                for student in students:
+                    if student in seen:
+                        continue
+                    seen.add(student)
+                    if student not in held:
+                        skipped.add(student)
+                        continue
+                    rows.append(
+                        {
+                            "cohort": cohort_id,
+                            "student": student,
+                            "scope": scope_id,
+                            "group": group_id,
+                            "updated_at": now,
+                            "actor": _text(actor),
+                        }
+                    )
+            if rows:
+                connection.execute(text(_PLACE), rows)
+            self._touch(connection, cohort_id)
+
+        return {"assigned": len(rows), "skipped": sorted(skipped)}
 
     def catalogue_for_diff(self, cohort_id: str, term_id: str) -> dict[str, Any]:
         """One semester's blocks in the shape `workbook_diff` compares against."""
@@ -975,7 +1037,9 @@ class StudentDatabase:
         with self.engine.begin() as connection:
             connection.execute(text("DELETE FROM scope_courses WHERE id = :id"), {"id": course_id})
 
-    def add_group(self, scope_id: str, *, label: str, capacity: int = 0, note: str = "") -> str:
+    def add_group(
+        self, scope_id: str, *, label: str, capacity: int = 0, note: str = "", program: str = ""
+    ) -> str:
         group_id = str(uuid4())
         with self.engine.begin() as connection:
             cohort_id = self._cohort_of_scope(connection, scope_id)
@@ -986,8 +1050,8 @@ class StudentDatabase:
             if existing:
                 raise DuplicateLabel(label)
             connection.execute(
-                text("""INSERT INTO scope_groups (id, scope_id, label, capacity, note, position)
-                        VALUES (:id, :scope_id, :label, :capacity, :note,
+                text("""INSERT INTO scope_groups (id, scope_id, label, capacity, note, program, position)
+                        VALUES (:id, :scope_id, :label, :capacity, :note, :program,
                                 (SELECT coalesce(max(position), 0) + 1 FROM scope_groups
                                  WHERE scope_id = :scope_id))"""),
                 {
@@ -996,16 +1060,25 @@ class StudentDatabase:
                     "label": _text(label),
                     "capacity": max(0, capacity),
                     "note": _text(note),
+                    "program": _text(program),
                 },
             )
             self._touch(connection, cohort_id)
         return group_id
 
-    def update_group(self, group_id: str, *, label: str, capacity: int, note: str) -> None:
+    def update_group(self, group_id: str, *, label: str, capacity: int, note: str, program: str = "") -> None:
         with self.engine.begin() as connection:
             updated = connection.execute(
-                text("UPDATE scope_groups SET label = :label, capacity = :capacity, note = :note WHERE id = :id"),
-                {"id": group_id, "label": _text(label), "capacity": max(0, capacity), "note": _text(note)},
+                text("""UPDATE scope_groups SET label = :label, capacity = :capacity, note = :note,
+                                                program = :program
+                        WHERE id = :id"""),
+                {
+                    "id": group_id,
+                    "label": _text(label),
+                    "capacity": max(0, capacity),
+                    "note": _text(note),
+                    "program": _text(program),
+                },
             )
             if updated.rowcount == 0:
                 raise GroupNotFound(group_id)

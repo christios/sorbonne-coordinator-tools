@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { GroupCatalogue } from "@/components/GroupCatalogue";
 import * as publication from "@/services/publication";
+import * as roster from "@/services/rosterStore";
 import * as database from "@/services/studentDatabase";
 import type { WorkbookPreview } from "@/services/workbookReview";
 
@@ -36,7 +37,7 @@ const CATALOGUE: database.Catalogue = {
           id: "group-5",
           label: "5",
           capacity: 0,
-          note: "",
+          note: "", program: "",
           assigned: 0,
           crns: {
             "course-1": { crn: "23563", teacher: "Jad Tarsissi" },
@@ -392,6 +393,26 @@ describe("adding a block", () => {
 
     await waitFor(() => expect(create).toHaveBeenCalled());
     expect(create).toHaveBeenCalledWith("cohort-1", { code: "LANG", termId: "term-1" });
+  });
+});
+
+describe("what a group prefers", () => {
+  it("is chosen from the programmes this browser has seen, and saved on the group", async () => {
+    vi.spyOn(roster, "fieldHeld").mockResolvedValue({ A1: "Physics", A2: "Maths", A3: "Physics" });
+    const update = vi.spyOn(database, "updateGroup").mockResolvedValue();
+    renderCatalogue("term-1");
+
+    const control = (await screen.findByLabelText("Programme TD group 5 prefers")) as HTMLSelectElement;
+    await waitFor(() => expect(within(control).getAllByRole("option").map((o) => o.textContent)).toEqual([
+      "Any programme",
+      "Prefers Maths",
+      "Prefers Physics",
+    ]));
+
+    fireEvent.change(control, { target: { value: "Physics" } });
+    await waitFor(() =>
+      expect(update).toHaveBeenCalledWith("group-5", { label: "5", capacity: 0, note: "", program: "Physics" }),
+    );
   });
 });
 

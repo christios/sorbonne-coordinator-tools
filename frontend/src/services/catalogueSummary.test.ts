@@ -18,7 +18,7 @@ function scope(
       id: `g-${code}-${index}`,
       label: group.label,
       capacity: 0,
-      note: "",
+      note: "", program: "",
       assigned: 0,
       crns: Object.fromEntries(
         Object.entries(group.crns ?? {}).map(([course, crn]) => [course, { crn, teacher: "" }]),

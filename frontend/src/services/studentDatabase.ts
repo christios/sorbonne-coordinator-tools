@@ -36,6 +36,8 @@ export type CatalogueGroup = {
   label: string;
   capacity: number;
   note: string;
+  /** The programme this group takes first, as the registrar spells it. Empty means any. */
+  program: string;
   /** How many of the cohort's students sit in this group. */
   assigned: number;
   /** course id -> the CRN that group holds for it. */
@@ -161,6 +163,16 @@ export function assignStudents(
   return send<PlacementReport>(`${BASE}/scopes/${scopeId}/assignments`, "PUT", { studentIds, groupId });
 }
 
+/**
+ * Write a whole fill — `group id -> student ids` — in one go, all of it or none of it.
+ *
+ * The fill was planned in the browser, where the names and programmes it ordered by are
+ * held; only ids and group ids travel.
+ */
+export function placeStudents(scopeId: string, placements: Record<string, string[]>): Promise<PlacementReport> {
+  return send<PlacementReport>(`${BASE}/scopes/${scopeId}/placements`, "PUT", { placements });
+}
+
 /** Who is in which group, as `{student id: {scope id: group id}}`. */
 export async function fetchAssignments(cohortId: string): Promise<Record<string, Record<string, string>>> {
   const payload = await request<{ assignments: Record<string, Record<string, string>> }>(
@@ -249,18 +261,19 @@ export function deleteCourse(courseId: string): Promise<void> {
 
 export function addGroup(
   scopeId: string,
-  input: { label: string; capacity?: number; note?: string },
+  input: { label: string; capacity?: number; note?: string; program?: string },
 ): Promise<{ id: string }> {
   return send<{ id: string }>(`${BASE}/scopes/${scopeId}/groups`, "POST", {
     capacity: 0,
     note: "",
+    program: "",
     ...input,
   });
 }
 
 export function updateGroup(
   groupId: string,
-  input: { label: string; capacity: number; note: string },
+  input: { label: string; capacity: number; note: string; program: string },
 ): Promise<void> {
   return send<void>(`${BASE}/groups/${groupId}`, "PATCH", input);
 }

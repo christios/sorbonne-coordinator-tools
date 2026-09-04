@@ -1,8 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Check, CheckCircle2, Download, FileSpreadsheet, Loader2, Plus, Trash2 } from "lucide-react";
+import { AlertTriangle, Check, CheckCircle2, Download, FileSpreadsheet, Loader2, Plus, Trash2, Wand2 } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { downloadAdmissionsList } from "@/services/admissionsExport";
+import { FillBlock, type FillReport } from "@/components/FillBlock";
 import { InfoHint } from "@/components/InfoHint";
 import { WorkbookReview } from "@/components/WorkbookReview";
 import { ScreenLoading } from "@/components/ScreenLoading";
@@ -23,6 +25,7 @@ import {
   fetchCatalogue,
   previewWorkbook,
   setGroupCrn,
+  updateGroup,
   type CatalogueGroup,
   type CatalogueScope,
   type Cohort,
@@ -66,7 +69,14 @@ export function GroupCatalogue({
   const [preview, setPreview] = useState<WorkbookPreview | null>(null);
   const [applied, setApplied] = useState<(WorkbookApplied & { approved: number }) | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [exportingList, setExportingList] = useState(false);
   const [pendingScope, setPendingScope] = useState<CatalogueScope | null>(null);
+  const [filled, setFilled] = useState<FillReport | null>(null);
+  // The programmes this browser has seen the registrar use, for a group to prefer one.
+  const programs = useQuery({
+    queryKey: ["fields-held", "MAJOR_CODE_DESC"],
+    queryFn: async () => [...new Set(Object.values(await fieldHeld("MAJOR_CODE_DESC")))].sort(),
+  });
 
   /*
    * The catalogue and what the platform makes of it, together.
@@ -79,6 +89,8 @@ export function GroupCatalogue({
    */
   const refresh = () => {
     client.invalidateQueries({ queryKey: ["catalogue", cohort.id, termId] });
+    client.invalidateQueries({ queryKey: ["assignments", cohort.id] });
+    client.invalidateQueries({ queryKey: ["students"] });
     client.invalidateQueries({ queryKey: ["publication"] });
   };
 
@@ -172,6 +184,32 @@ export function GroupCatalogue({
       );
     } finally {
       setExporting(false);
+    }
+  };
+
+  /*
+   * The admissions list: the same groups, flattened to one row per student and one CRN
+   * per course. Names come from this browser, like the workbook's.
+   */
+  const exportAdmissions = async () => {
+    setExportingList(true);
+    try {
+      const held = await namesHeld();
+      const placements = await fetchAssignments(cohort.id);
+      await downloadAdmissionsList(
+        {
+          prefix: prefixOf(cohort.name),
+          scopes,
+          students: Object.entries(placements).map(([studentId, groups]) => ({
+            studentId,
+            name: held[studentId] ?? "",
+            groups,
+          })),
+        },
+        `${cohort.name.replace(/[^A-Za-z0-9]+/g, "-")}-admissions.xlsx`,
+      );
+    } finally {
+      setExportingList(false);
     }
   };
 
@@ -285,6 +323,29 @@ export function GroupCatalogue({
                   : "This browser is holding no student names, so the name column would come out blank. Sync a portal filter on the Students page first."}
               </p>
             </InfoHint>
+            <button
+              type="button"
+              onClick={exportAdmissions}
+              disabled={exportingList || scopes.length === 0}
+              className="inline-flex shrink-0 items-center gap-2 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc] disabled:opacity-50"
+            >
+              {exportingList ? (
+                <Loader2 size={16} className="animate-spin" aria-hidden="true" />
+              ) : (
+                <Download size={16} aria-hidden="true" />
+              )}
+              {exportingList ? "Building…" : "Admissions list"}
+            </button>
+            <InfoHint label="What the admissions list contains" title="Admissions list">
+              <p>
+                One flat sheet for admissions to register from: a row per student who sits in a group,
+                and a CRN column per course of every block — blank where they are in no group for it.
+              </p>
+              <p>
+                Derived from the same groups as the workbook and the Student Hub, so the three agree.
+                Names come from this browser, like the workbook&apos;s.
+              </p>
+            </InfoHint>
           </div>
         </div>
 
@@ -298,6 +359,19 @@ export function GroupCatalogue({
               {applied.groups} group(s), {applied.courses} course(s) and {applied.cells} CRN(s) written,
               and {applied.placements} student placement(s). Everything you left unticked is as it was.
             </p>
+          </div>
+        ) : null}
+        {filled ? (
+          <div className="mt-3 rounded-md border border-[#bfdcc6] bg-[#f4faf5] px-4 py-3 text-sm text-[#2f6b3d]">
+            <p className="flex items-center gap-2 font-semibold">
+              <CheckCircle2 size={16} aria-hidden="true" />
+              {filled.assigned} student{filled.assigned === 1 ? "" : "s"} placed in {filled.scopeCode}
+            </p>
+            {filled.unplaced ? (
+              <p className="mt-1 leading-6">
+                {filled.unplaced} could not be placed and still {filled.unplaced === 1 ? "sits" : "sit"} in no group.
+              </p>
+            ) : null}
           </div>
         ) : null}
         {error ? (
@@ -320,7 +394,14 @@ export function GroupCatalogue({
             validation={publication.data?.validation ?? {}}
             key={scope.id}
             scope={scope}
+            cohort={cohort}
+            clashes={publication.data ? clashesIn(publication.data, cohort.id) : null}
+            programs={programs.data ?? []}
             onChanged={refresh}
+            onFilled={(report) => {
+              setFilled(report);
+              refresh();
+            }}
             onRemove={() => setPendingScope(scope)}
           />
         ))}
@@ -460,17 +541,28 @@ const CLASHES_SHOWN = 5;
 
 function ScopeMatrix({
   scope,
+  cohort,
+  clashes,
+  programs,
   validation,
   onChanged,
+  onFilled,
   onRemove,
 }: {
   scope: CatalogueScope;
+  cohort: Cohort;
+  /** The cohort's clashing pairs, or null while the timetable's word is not in. */
+  clashes: GroupClash[] | null;
+  /** The programmes a group may prefer, as this browser has seen the registrar spell them. */
+  programs: string[];
   /** What the timetable says about each CRN, keyed "groupId|courseCode". */
   validation: Record<string, CrnVerdict>;
   onChanged: () => void;
+  onFilled: (report: FillReport) => void;
   onRemove: () => void;
 }) {
   const [pendingGroup, setPendingGroup] = useState<CatalogueGroup | null>(null);
+  const [filling, setFilling] = useState(false);
 
   const createGroup = useMutation({
     mutationFn: (label: string) => addGroup(scope.id, { label }),
@@ -481,6 +573,11 @@ function ScopeMatrix({
     onSuccess: onChanged,
   });
   const removeGroup = useMutation({ mutationFn: deleteGroup, onSuccess: onChanged });
+  const prefer = useMutation({
+    mutationFn: ({ group, program }: { group: CatalogueGroup; program: string }) =>
+      updateGroup(group.id, { label: group.label, capacity: group.capacity, note: group.note, program }),
+    onSuccess: onChanged,
+  });
   const saveCell = useMutation({
     mutationFn: ({ groupId, courseId, crn }: { groupId: string; courseId: string; crn: string }) =>
       setGroupCrn(groupId, courseId, { crn }),
@@ -488,7 +585,11 @@ function ScopeMatrix({
   });
 
   const error =
-    createGroup.error?.message ?? createCourse.error?.message ?? saveCell.error?.message ?? null;
+    createGroup.error?.message ??
+    createCourse.error?.message ??
+    saveCell.error?.message ??
+    prefer.error?.message ??
+    null;
 
   return (
     <section className="rounded-lg border border-[#d9dee7] bg-white">
@@ -500,14 +601,39 @@ function ScopeMatrix({
             {scope.courses.length} course{scope.courses.length === 1 ? "" : "s"}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={onRemove}
-          className="rounded-md border border-[#e5b7b9] bg-white px-3 py-1.5 text-sm font-semibold text-[#a6292f] hover:bg-[#fdf3f3]"
-        >
-          Remove block
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setFilling(true)}
+            disabled={scope.groups.length === 0}
+            title={scope.groups.length ? undefined : "Add a group first."}
+            className="inline-flex items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-3 py-1.5 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb] disabled:opacity-50"
+          >
+            <Wand2 size={14} aria-hidden="true" /> Fill {scope.code}
+          </button>
+          <button
+            type="button"
+            onClick={onRemove}
+            className="rounded-md border border-[#e5b7b9] bg-white px-3 py-1.5 text-sm font-semibold text-[#a6292f] hover:bg-[#fdf3f3]"
+          >
+            Remove block
+          </button>
+        </div>
       </header>
+
+      {filling ? (
+        <FillBlock
+          open
+          cohort={cohort}
+          scope={scope}
+          clashes={clashes}
+          onClose={() => setFilling(false)}
+          onFilled={(report) => {
+            setFilling(false);
+            onFilled(report);
+          }}
+        />
+      ) : null}
 
       {error ? (
         <p role="alert" className="px-5 py-3 text-sm text-[#a6292f]">
@@ -543,6 +669,22 @@ function ScopeMatrix({
                       : `${group.assigned} assigned`}
                     {group.note ? ` · ${group.note}` : ""}
                   </span>
+                  <select
+                    aria-label={`Programme ${scope.code} group ${group.label} prefers`}
+                    value={group.program}
+                    onChange={(event) => prefer.mutate({ group, program: event.target.value })}
+                    className={`mt-1 block max-w-[11rem] rounded border bg-white px-1 py-0.5 text-xs ${
+                      group.program ? "border-[#cfe3d4] text-[#2f6b3d]" : "border-transparent text-[#98a2b3]"
+                    }`}
+                  >
+                    <option value="">Any programme</option>
+                    {/* The value it holds stays choosable even when this browser has not seen it. */}
+                    {[...new Set([group.program, ...programs].filter(Boolean))].map((program) => (
+                      <option key={program} value={program}>
+                        Prefers {program}
+                      </option>
+                    ))}
+                  </select>
                 </td>
                 {scope.courses.map((course) => (
                   <td key={course.id} className="px-3 py-2">

@@ -490,6 +490,54 @@ def test_a_student_this_cohort_does_not_hold_is_skipped_and_named(
     assert report["skipped"] == ["A00099999"]
 
 
+def test_a_whole_fill_lands_in_one_go(client: TestClient, cohort_id: str, view_id: str):
+    scope_id, group_1 = block_with_a_group(client, cohort_id)
+    group_2 = client.post(f"/api/v1/student-database/scopes/{scope_id}/groups", json={"label": "2"}).json()["id"]
+    in_cohort(client, view_id, cohort_id, STUDENTS)
+    sync(client, view_id, [*STUDENTS, "A00099999"])
+
+    response = client.put(
+        f"/api/v1/student-database/scopes/{scope_id}/placements",
+        json={"placements": {group_1: [STUDENTS[0], "A00099999"], group_2: STUDENTS[1:]}},
+    )
+
+    assert response.status_code == status.HTTP_200_OK, response.text
+    assert response.json() == {"assigned": len(STUDENTS), "skipped": ["A00099999"]}
+    held = client.get(f"/api/v1/student-database/cohorts/{cohort_id}/assignments").json()["assignments"]
+    assert held[STUDENTS[0]][scope_id] == group_1
+    assert all(held[student][scope_id] == group_2 for student in STUDENTS[1:])
+
+
+def test_a_fill_naming_a_group_of_another_block_writes_nothing(
+    client: TestClient, cohort_id: str, view_id: str
+):
+    scope_id, group_id = block_with_a_group(client, cohort_id)
+    _, other = block_with_a_group(client, cohort_id, code="CM")
+    in_cohort(client, view_id, cohort_id, STUDENTS)
+
+    response = client.put(
+        f"/api/v1/student-database/scopes/{scope_id}/placements",
+        json={"placements": {group_id: STUDENTS[:1], other: STUDENTS[1:]}},
+    )
+
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+    held = client.get(f"/api/v1/student-database/cohorts/{cohort_id}/assignments").json()["assignments"]
+    assert held == {}
+
+
+def test_a_group_remembers_the_programme_it_prefers(client: TestClient, cohort_id: str):
+    scope_id, group_id = block_with_a_group(client, cohort_id)
+
+    client.patch(
+        f"/api/v1/student-database/groups/{group_id}",
+        json={"label": "1", "capacity": 24, "note": "", "program": "Physics"},
+    )
+
+    group = scope_of(catalogue(client, cohort_id), "TD")["groups"][0]
+    assert group["program"] == "Physics"
+    assert group["capacity"] == SEATS
+
+
 def test_placing_nobody_in_a_group_takes_them_out_of_the_block(
     client: TestClient, cohort_id: str, view_id: str
 ):
