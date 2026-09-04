@@ -8,6 +8,60 @@ import type { StudentRow } from "@/services/rosterView";
 import { MIN_WIDTH, widthOf, type ColumnLayout, type StudentColumn } from "@/services/studentColumns";
 
 /** What a cell says, which is what a copy of it should say too. */
+/** Rows mounted beyond the viewport on each side, so a wheel or an arrow key finds one already there. */
+const OVERSCAN = 20;
+/** A row's height until real ones have been measured. */
+const ROW_GUESS = 41;
+
+/**
+ * Which rows to mount for where the box is scrolled to.
+ *
+ * Heights are learned from the rows on screen — the average of what is actually
+ * rendered — so rows carrying two lines of warnings or a wrap of group pills nudge the
+ * estimate rather than break it. Where nothing has a height (a headless renderer, or a
+ * box not yet laid out) every row is mounted, which is what the tests see.
+ */
+function useWindow(box: React.RefObject<HTMLElement | null>, total: number) {
+  const [view, setView] = useState({ top: 0, height: 0 });
+  const [rowHeight, setRowHeight] = useState(ROW_GUESS);
+
+  // Where the box is scrolled to, read in the scroll handler itself. Not through
+  // requestAnimationFrame: a hidden tab pauses that, and a window that only moves when
+  // the tab is visible leaves a scrolled-to-the-middle table blank.
+  useEffect(() => {
+    const element = box.current;
+    if (!element) return;
+    const read = () => setView({ top: element.scrollTop, height: element.clientHeight });
+    read();
+    element.addEventListener("scroll", read, { passive: true });
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(read);
+    observer?.observe(element);
+    return () => {
+      element.removeEventListener("scroll", read);
+      observer?.disconnect();
+    };
+  }, [box, total]);
+
+  // Learn the row height from the rows that are there, after they have been laid out:
+  // the average of what is mounted, so rows carrying two lines of warnings nudge the
+  // estimate rather than break it.
+  useEffect(() => {
+    const element = box.current;
+    if (!element) return;
+    const mounted = element.querySelectorAll<HTMLTableRowElement>("tbody tr[data-student-id]");
+    if (mounted.length < 5) return;
+    const first = mounted[0].getBoundingClientRect().top;
+    const last = mounted[mounted.length - 1].getBoundingClientRect().bottom;
+    const measured = (last - first) / mounted.length;
+    if (measured > 8) setRowHeight((current) => (Math.abs(current - measured) > 0.5 ? measured : current));
+  }, [box, view.top, view.height, total]);
+
+  if (!view.height) return { start: 0, end: total, before: 0, after: 0 };
+  const start = Math.max(0, Math.floor(view.top / rowHeight) - OVERSCAN);
+  const end = Math.min(total, Math.ceil((view.top + view.height) / rowHeight) + OVERSCAN);
+  return { start, end, before: start * rowHeight, after: (total - end) * rowHeight };
+}
+
 /** A gap under the table, so it does not sit flush against the bottom of the window. */
 const BOTTOM_GAP = 16;
 
@@ -99,6 +153,7 @@ export const StudentTable = memo(function StudentTable({
   const allShown = rows.length > 0 && rows.every((row) => selected.has(row.studentId));
   const [dragging, setDragging] = useState("");
   const box = useFillHeight();
+  const window_ = useWindow(box, rows.length);
 
   return (
     /*
@@ -142,7 +197,19 @@ export const StudentTable = memo(function StudentTable({
           </tr>
         </thead>
         <tbody>
-          {rows.map((row) => (
+          {/*
+            * Only the rows in and around the viewport are mounted. Three thousand rows at
+            * nine cells each took the best part of a second to mount, which was the pause
+            * between choosing a tab and seeing the table; the spacer rows hold the scroll
+            * height so the bar and the position stay honest.
+            */}
+          {/* A row with no cell has no height in a table, so the spacer is a cell. */}
+          {window_.before > 0 ? (
+            <tr aria-hidden="true">
+              <td colSpan={columns.length + 2} style={{ height: window_.before, padding: 0, border: 0 }} />
+            </tr>
+          ) : null}
+          {rows.slice(window_.start, window_.end).map((row) => (
             <StudentTableRow
               key={row.studentId}
               row={row}
@@ -155,6 +222,11 @@ export const StudentTable = memo(function StudentTable({
               highlighted={row.studentId === highlightedId}
             />
           ))}
+          {window_.after > 0 ? (
+            <tr aria-hidden="true">
+              <td colSpan={columns.length + 2} style={{ height: window_.after, padding: 0, border: 0 }} />
+            </tr>
+          ) : null}
           {rows.length === 0 ? (
             <tr>
               <td colSpan={columns.length + 2} className="px-5 py-10 text-center text-sm text-[#667085]">

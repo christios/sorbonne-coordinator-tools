@@ -224,11 +224,18 @@ export function filterRows(rows: StudentRow[], filters: Filters): StudentRow[] {
   );
 }
 
+/**
+ * One collator for every comparison. `localeCompare` with an options object builds a
+ * collator each time it is called, and a sort of three thousand rows calls it thirty-odd
+ * thousand times — which was most of the pause when a filter changed.
+ */
+export const COLLATOR = new Intl.Collator(undefined, { numeric: true });
+
 export function sortRows(rows: StudentRow[], key: SortKey, ascending: boolean): StudentRow[] {
   const direction = ascending ? 1 : -1;
   return [...rows].sort((left, right) => {
-    const compared = String(left[key]).localeCompare(String(right[key]), undefined, { numeric: true });
-    return (compared || left.studentId.localeCompare(right.studentId)) * direction;
+    const compared = COLLATOR.compare(String(left[key]), String(right[key]));
+    return (compared || COLLATOR.compare(left.studentId, right.studentId)) * direction;
   });
 }
 

@@ -356,6 +356,8 @@ function asDay(value: string): string {
 }
 
 /** The values a column actually holds, for the filter bar to offer as options. */
+const OPTION_COLLATOR = new Intl.Collator(undefined, { numeric: true, sensitivity: "accent" });
+
 export function optionsFor(rows: StudentRow[], column: StudentColumn): { value: string; label: string }[] {
   const seen = new Map<string, string>();
   for (const row of rows) {
@@ -371,5 +373,5 @@ export function optionsFor(rows: StudentRow[], column: StudentColumn): { value: 
   // Same collation as the table: case ignored, accents kept, "10" after "9".
   return [...seen]
     .map(([value, label]) => ({ value, label }))
-    .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: "accent" }));
+    .sort((a, b) => OPTION_COLLATOR.compare(a.label, b.label));
 }

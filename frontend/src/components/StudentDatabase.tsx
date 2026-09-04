@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { CalendarDays, ListChecks, ListTree, Megaphone, Users } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -16,7 +16,7 @@ import { StudentRoster } from "@/components/StudentRoster";
 import { SidePane } from "@/components/SidePane";
 import { ViewBar } from "@/components/ViewBar";
 import { locationFor, pageFromLocation } from "@/routes/toolRoute";
-import { fetchCohorts, fetchViews } from "@/services/studentDatabase";
+import { fetchCohorts, fetchStudents, fetchViews } from "@/services/studentDatabase";
 import { fetchTimetableStatus, fetchTimetableTerms } from "@/services/timetables";
 
 // Two families of page in one pane: what this application knows about students, and what
@@ -100,6 +100,7 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
     // remounts underneath the choice.
     window.history.replaceState(null, "", `#${locationFor("database", next)}`);
   }, []);
+  const client = useQueryClient();
   const [termId, setTermId] = useState("");
   // Set when the Groups page sends somebody here: the Students table opens on exactly them.
   const [preselect, setPreselect] = useState<string[]>([]);
@@ -131,6 +132,25 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
     if (!available.length) return;
     if (!available.some((candidate) => candidate.id === viewId)) setViewId(available[0].id);
   }, [available, viewId]);
+
+  /*
+   * The two student lists the pages need, fetched before either page asks. The Students
+   * page wants the chosen portal filter's students and the Cohorts page wants everyone;
+   * each fetched only when its page opened, so the first switch between them paid for a
+   * list of three thousand rows over the network — the pause a coordinator saw as the
+   * page taking a second to appear. Same keys and staleness as the pages' own queries,
+   * so this is the same fetch, made earlier.
+   */
+  useEffect(() => {
+    void client.prefetchQuery({ queryKey: ["students", ""], queryFn: () => fetchStudents(""), staleTime: 5 * 60_000 });
+    if (viewId) {
+      void client.prefetchQuery({
+        queryKey: ["students", viewId],
+        queryFn: () => fetchStudents(viewId),
+        staleTime: 5 * 60_000,
+      });
+    }
+  }, [client, viewId]);
 
   const knownCohorts = cohorts.data ?? [];
   const cohort = knownCohorts.find((candidate) => candidate.id === cohortId) ?? knownCohorts[0] ?? null;

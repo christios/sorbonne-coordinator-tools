@@ -804,6 +804,9 @@ export function StudentRoster({
  * student id, so the order never wobbles between renders.
  */
 const COLLATION: Intl.CollatorOptions = { numeric: true, sensitivity: "accent" };
+// Built once: `localeCompare` with options builds a collator per call, and a sort of
+// three thousand rows makes thirty-odd thousand calls — most of the pause on a filter change.
+const collator = new Intl.Collator(undefined, COLLATION);
 
 /**
  * Sort by what the column reads, whatever the column is.
@@ -827,8 +830,8 @@ function sortRows(rows: StudentRow[], sort: Sort, columns: StudentColumn[]): Stu
     return [...rows].sort((left, right) => {
       const a = rank(left);
       const b = rank(right);
-      const compared = typeof a === "number" && typeof b === "number" ? a - b : String(a).localeCompare(String(b), undefined, COLLATION);
-      return (compared || left.studentId.localeCompare(right.studentId)) * direction;
+      const compared = typeof a === "number" && typeof b === "number" ? a - b : collator.compare(String(a), String(b));
+      return (compared || collator.compare(left.studentId, right.studentId)) * direction;
     });
   }
 
@@ -842,7 +845,7 @@ function sortRows(rows: StudentRow[], sort: Sort, columns: StudentColumn[]): Stu
     const a = valueOf(left);
     const b = valueOf(right);
     if (!a !== !b) return a ? -1 : 1;
-    const compared = a.localeCompare(b, undefined, COLLATION);
-    return (compared || left.studentId.localeCompare(right.studentId)) * direction;
+    const compared = collator.compare(a, b);
+    return (compared || collator.compare(left.studentId, right.studentId)) * direction;
   });
 }

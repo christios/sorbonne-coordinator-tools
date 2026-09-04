@@ -203,19 +203,22 @@ describe("changing view", () => {
 
   it("asks the server once per view, and not again on the way back", async () => {
     vi.spyOn(database, "fetchViews").mockResolvedValue([VIEW, SECOND]);
-    const fetched = vi.spyOn(database, "fetchStudents").mockResolvedValue([]);
+    const spy = vi.spyOn(database, "fetchStudents").mockResolvedValue([]);
+    // The everyone-list is prefetched for the Cohorts page as soon as the app opens; what
+    // this test guards is the per-view fetch, so only calls that name a view are counted.
+    const fetched = { calls: () => spy.mock.calls.filter(([view]) => Boolean(view)).length };
     renderApp();
     await screen.findByRole("combobox", { name: "View" });
-    await waitFor(() => expect(fetched).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(fetched.calls()).toBe(1));
 
     await switchToL1();
-    await waitFor(() => expect(fetched).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(fetched.calls()).toBe(2));
 
     // Back to the first: its answer is minutes old and still good.
     fireEvent.click(await screen.findByRole("combobox", { name: "View" }));
     fireEvent.click(await screen.findByRole("option", { name: /Foundation Year/ }));
     await waitFor(() => expect(screen.getByRole("combobox", { name: "View" }).textContent).toContain("Foundation Year"));
-    expect(fetched).toHaveBeenCalledTimes(2);
+    expect(fetched.calls()).toBe(2);
   });
 
   it("keeps the table on screen instead of a loading page", async () => {
