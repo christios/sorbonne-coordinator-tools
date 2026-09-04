@@ -82,7 +82,11 @@ def _text(value: object) -> str:
 
 class StudentDatabase:
     def __init__(self, database_url: str) -> None:
-        self.engine: Engine = create_engine(database_url, pool_pre_ping=True)
+        # No ping on every checkout: from the deployment to its database a round-trip is
+        # about a hundred milliseconds, and the ping was one more on every request.
+        # Connections are recycled instead, so one that has gone stale while idle is
+        # replaced before it is next used rather than tested each time.
+        self.engine: Engine = create_engine(database_url, pool_pre_ping=False, pool_recycle=300)
 
     # --------------------------------------------------------------- cohorts
 
@@ -348,41 +352,42 @@ class StudentDatabase:
         A view's own status wins: whether *this* population still returns them is what the
         page is about, and it is not always what another view would say.
         """
-        query = """SELECT s.*, c.name AS cohort_name
-                   FROM students s LEFT JOIN student_cohorts c ON c.id = s.cohort_id
-                   ORDER BY s.student_id"""
+        # The groups come with the row, aggregated in the query, rather than in a second
+        # query joined up here. Labelled, not as ids: "TD 1" is what a coordinator
+        # recognises. One round-trip instead of two: from the deployment to its database
+        # each is about a hundred milliseconds, and this list is read on every visit.
+        # Aggregated once for everybody and joined, not once per student: a per-row
+        # subquery ran three thousand times and cost more than the round-trip it saved.
+        groups = """LEFT JOIN (
+                        SELECT a.student_id,
+                               json_agg(json_build_object(
+                                   'termId', sc.term_id, 'scopeCode', sc.code, 'groupLabel', g.label)
+                                   ORDER BY sc.code, g.label) AS groups
+                        FROM group_assignments a
+                        JOIN scope_groups g ON g.id = a.group_id
+                        JOIN cohort_scopes sc ON sc.id = a.scope_id
+                        GROUP BY a.student_id
+                    ) grp ON grp.student_id = s.student_id"""
+        query = f"""SELECT s.*, c.name AS cohort_name, grp.groups
+                    FROM students s
+                    LEFT JOIN student_cohorts c ON c.id = s.cohort_id
+                    {groups}
+                    ORDER BY s.student_id"""  # noqa: S608 — the fragment is ours, not input
         parameters: dict[str, Any] = {}
         if view_id:
-            query = """SELECT s.student_id, s.cohort_id, s.cohort_since, s.first_seen_at AS held_since,
-                              c.name AS cohort_name,
-                              m.status, m.first_seen_at, m.last_seen_at
-                       FROM view_members m
-                       JOIN students s ON s.student_id = m.student_id
-                       LEFT JOIN student_cohorts c ON c.id = s.cohort_id
-                       WHERE m.view_id = :view
-                       ORDER BY s.student_id"""
+            query = f"""SELECT s.student_id, s.cohort_id, s.cohort_since, s.first_seen_at AS held_since,
+                               c.name AS cohort_name,
+                               m.status, m.first_seen_at, m.last_seen_at, grp.groups
+                        FROM view_members m
+                        JOIN students s ON s.student_id = m.student_id
+                        LEFT JOIN student_cohorts c ON c.id = s.cohort_id
+                        {groups}
+                        WHERE m.view_id = :view
+                        ORDER BY s.student_id"""  # noqa: S608
             parameters = {"view": view_id}
         with self.engine.connect() as connection:
             rows = connection.execute(text(query), parameters).mappings().all()
-            # Labelled, not as ids: "TD 1" is what a coordinator recognises, and the table
-            # cannot look a group id up for itself without loading every cohort's catalogue.
-            assignments = (
-                connection.execute(
-                    text("""SELECT a.student_id, s.term_id, s.code AS scope_code, g.label
-                            FROM group_assignments a
-                            JOIN scope_groups g ON g.id = a.group_id
-                            JOIN cohort_scopes s ON s.id = a.scope_id
-                            ORDER BY s.code, g.label""")
-                )
-                .mappings()
-                .all()
-            )
-        held: dict[str, list[dict[str, str]]] = {}
-        for row in assignments:
-            held.setdefault(row["student_id"], []).append(
-                {"termId": row["term_id"], "scopeCode": row["scope_code"], "groupLabel": row["label"]}
-            )
-        return [_student(row, held.get(row["student_id"], [])) for row in rows]
+        return [_student(row, row["groups"] or []) for row in rows]
 
     def set_cohort(self, student_ids: list[str], cohort_id: str | None) -> int:
         """Put students in a cohort, or take them out of one when `cohort_id` is None.
