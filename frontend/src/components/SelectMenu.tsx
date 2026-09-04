@@ -62,13 +62,7 @@ export function SelectMenu({ label, value, onChange, options, placeholder, trail
   // "2 values selected" makes a coordinator open it to find out. Past a few, the rest
   // become "+N" so the control stays a control.
   const SHOWN = 3;
-  const selectedLabel = multiple
-    ? selected.length
-      ? selected.length <= SHOWN
-        ? selected.map((option) => option.label).join(", ")
-        : `${selected.slice(0, SHOWN).map((option) => option.label).join(", ")} +${selected.length - SHOWN}`
-      : placeholder
-    : selected[0]?.label ?? placeholder;
+  const selectedLabel = multiple ? placeholder : (selected[0]?.label ?? placeholder);
   const normalizedQuery = normalizeSearch(query);
   const visibleOptions = searchable
     ? normalizedQuery ? options.filter((option) => normalizeSearch(`${option.label} ${option.searchText ?? ""}`).includes(normalizedQuery)) : options.slice(0, 50)
@@ -141,19 +135,40 @@ export function SelectMenu({ label, value, onChange, options, placeholder, trail
         aria-expanded={isOpen}
         aria-haspopup="listbox"
         disabled={disabled}
-        className={`flex h-10 w-full items-center rounded-md border px-3 py-2 ${trailing ? "pr-20" : "pr-10"} text-left transition-colors focus:outline-none focus:ring-2 focus:ring-[#d7e5f3] disabled:cursor-not-allowed disabled:bg-[#f7f8fa] disabled:text-[#98a2b3] ${
+        className={`flex ${multiple && selected.length ? "min-h-10" : "h-10"} w-full items-center rounded-md border px-3 py-2 ${trailing ? "pr-20" : "pr-10"} text-left transition-colors focus:outline-none focus:ring-2 focus:ring-[#d7e5f3] disabled:cursor-not-allowed disabled:bg-[#f7f8fa] disabled:text-[#98a2b3] ${
           variant === "tinted"
             ? "border-[#cfe0ee] bg-[#eef4fa] font-semibold text-[#1f4e79] hover:border-[#9fbfdc] hover:bg-[#e4eef7] focus:border-[#1f4e79]"
             : "border-[#b7bec8] bg-white font-normal text-[#344054] hover:border-[#98a2b3] hover:bg-[#f8fafc] focus:border-[#1f4e79]"
         }`}
       >
         <span className={`flex min-w-0 flex-1 items-center ${selected.length || value ? "" : "text-[#667085]"}`}>
-          <span
-            className="truncate"
-            title={multiple && selected.length ? `${selected.length} ${itemNoun}${selected.length === 1 ? "" : "s"}: ${selected.map((option) => option.label).join(", ")}` : undefined}
-          >
-            {selectedLabel}
-          </span>
+          {multiple && selected.length ? (
+            /*
+             * Each chosen value as a pill, so the control shows what it is doing at a
+             * glance rather than as a sentence to read. Past a few, the rest fold into
+             * one "+N" pill and the full list sits in the tooltip.
+             */
+            <span
+              className="flex min-w-0 flex-wrap items-center gap-1"
+              title={`${selected.length} ${itemNoun}${selected.length === 1 ? "" : "s"}: ${selected.map((option) => option.label).join(", ")}`}
+            >
+              {selected.slice(0, SHOWN).map((option) => (
+                <span
+                  key={option.value}
+                  className="inline-flex max-w-[10rem] items-center truncate rounded-full bg-[#e8edf3] px-2 py-0.5 text-xs font-semibold text-[#1f4e79]"
+                >
+                  {option.label}
+                </span>
+              ))}
+              {selected.length > SHOWN ? (
+                <span className="inline-flex items-center rounded-full bg-[#eef1f5] px-2 py-0.5 text-xs font-semibold tabular-nums text-[#667085]">
+                  +{selected.length - SHOWN}
+                </span>
+              ) : null}
+            </span>
+          ) : (
+            <span className="truncate">{selectedLabel}</span>
+          )}
           {selected.length === 1 && selected[0].badge !== undefined ? (
             <Badge text={selected[0].badge} tone={selected[0].badgeTone} />
           ) : null}

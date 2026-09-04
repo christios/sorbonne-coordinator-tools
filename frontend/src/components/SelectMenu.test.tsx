@@ -193,16 +193,22 @@ describe("a multi-select says what is chosen", () => {
     { value: "M1", label: "M1" },
   ];
 
-  it("names the values rather than counting them", () => {
+  it("shows each chosen value as its own pill rather than counting them", () => {
     render(<SelectMenu label="Year" multiple itemNoun="value" value={"FY\nL1"} onChange={() => {}} options={options} />);
 
-    expect(screen.getByRole("combobox", { name: "Year" }).textContent).toContain("FY, L1");
+    const trigger = screen.getByRole("combobox", { name: "Year" });
+    const pills = [...trigger.querySelectorAll("span.rounded-full")].map((pill) => pill.textContent);
+    expect(pills).toEqual(["FY", "L1"]);
     expect(screen.queryByText(/values selected/)).toBeNull();
   });
 
-  it("folds the tail into +N once there are more than a few", () => {
+  it("folds the tail into one +N pill once there are more than a few", () => {
     render(<SelectMenu label="Year" multiple itemNoun="value" value={"FY\nL1\nL2\nL3\nM1"} onChange={() => {}} options={options} />);
 
-    expect(screen.getByRole("combobox", { name: "Year" }).textContent).toContain("FY, L1, L2 +2");
+    const trigger = screen.getByRole("combobox", { name: "Year" });
+    const pills = [...trigger.querySelectorAll("span.rounded-full")].map((pill) => pill.textContent);
+    expect(pills).toEqual(["FY", "L1", "L2", "+2"]);
+    // The whole list is still there for anyone who hovers.
+    expect(trigger.querySelector("[title]")?.getAttribute("title")).toContain("FY, L1, L2, L3, M1");
   });
 });

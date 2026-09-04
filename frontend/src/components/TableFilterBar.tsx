@@ -1,4 +1,4 @@
-import { Filter as FilterIcon, Plus, X } from "lucide-react";
+import { FunnelPlus, FunnelX, X } from "lucide-react";
 import { Popover } from "radix-ui";
 import { useState } from "react";
 
@@ -84,10 +84,11 @@ export function TableFilterBar({
         <button
           type="button"
           onClick={() => onChange([])}
-          className="inline-flex items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-2.5 py-1.5 text-sm font-semibold text-[#344054] hover:bg-[#fdf3f3] hover:border-[#e5b7b9] hover:text-[#a6292f]"
+          aria-label="Clear filters"
+          title="Clear all filters"
+          className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-[#b7bec8] bg-white text-[#344054] hover:border-[#e5b7b9] hover:bg-[#fdf3f3] hover:text-[#a6292f]"
         >
-          <X size={14} aria-hidden="true" />
-          Clear filters
+          <FunnelX size={16} aria-hidden="true" />
         </button>
       ) : null}
     </div>
@@ -110,10 +111,12 @@ function AddFilter({
       <Popover.Trigger asChild>
         <button
           type="button"
-          className="inline-flex items-center gap-1.5 rounded-md border border-dashed border-[#b7bec8] px-2.5 py-1.5 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc]"
+          aria-label={hasFilters ? "Add filter" : "Filter"}
+          title={hasFilters ? "Add a filter" : "Filter the table"}
+          className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-dashed border-[#b7bec8] text-[#344054] hover:bg-[#f8fafc]"
         >
-          {hasFilters ? <Plus size={14} aria-hidden="true" /> : <FilterIcon size={14} aria-hidden="true" />}
-          {hasFilters ? "Add filter" : "Filter"}
+          {/* The funnel with a plus, as a spreadsheet draws it: the shape says it without the word. */}
+          <FunnelPlus size={16} aria-hidden="true" />
         </button>
       </Popover.Trigger>
       <Popover.Portal>
