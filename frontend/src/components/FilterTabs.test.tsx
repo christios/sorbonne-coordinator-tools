@@ -18,21 +18,29 @@ function renderStrip(filters: FilterModel[] = [], sort = SORT) {
 beforeEach(() => window.localStorage.clear());
 
 describe("the filter tabs", () => {
-  it("starts on All students, with nothing else until something is saved", () => {
+  it("starts on All students, and a new tab can always be made — even with nothing narrowed", async () => {
     renderStrip();
 
     expect(screen.getByRole("tab", { name: "All students" }).getAttribute("aria-selected")).toBe("true");
     expect(screen.getAllByRole("tab")).toHaveLength(1);
-    // Nothing to save when nothing is narrowed.
-    expect(screen.getByRole("button", { name: /Save as tab/ }).hasAttribute("disabled")).toBe(true);
+    // The one control that makes a tab must never look dead.
+    const make = screen.getByRole("button", { name: /New tab/ });
+    expect(make.hasAttribute("disabled")).toBe(false);
+
+    fireEvent.click(make);
+    fireEvent.change(await screen.findByLabelText("Tab name"), { target: { value: "Scratch" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create tab" }));
+
+    expect(await screen.findByRole("tab", { name: /Scratch/ })).toBeTruthy();
+    expect(loadTabs()[0]).toMatchObject({ name: "Scratch", filters: [] });
   });
 
-  it("saves the current filters as a named tab, and remembers it", async () => {
+  it("makes a tab from the current filters, named, and remembers it", async () => {
     renderStrip([year(["FY"])]);
 
-    fireEvent.click(screen.getByRole("button", { name: /Save as tab/ }));
+    fireEvent.click(screen.getByRole("button", { name: /New tab/ }));
     fireEvent.change(await screen.findByLabelText("Tab name"), { target: { value: "First years" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save tab" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create tab" }));
 
     expect(await screen.findByRole("tab", { name: /First years/ })).toBeTruthy();
     expect(loadTabs()[0]).toMatchObject({ name: "First years", filters: [year(["FY"])], sort: SORT });
@@ -99,15 +107,14 @@ describe("the filter tabs", () => {
     expect(onApply).toHaveBeenLastCalledWith([], { key: "studentId", ascending: true });
   });
 
-  it("offers to update a tab once the table has drifted from it", async () => {
+  it("keeps whatever is changed while a tab is open, the way a tab works anywhere", async () => {
     saveTabs([{ id: "t1", name: "First years", filters: [year(["FY"])], sort: SORT }]);
-    // Opened, then narrowed further: the table now holds two filters.
     const { rerender } = render(
       <FilterTabs filters={[year(["FY"])]} sort={SORT} columnIds={COLUMNS} onApply={vi.fn()} />,
     );
     fireEvent.click(await screen.findByRole("tab", { name: /First years/ }));
-    expect(screen.queryByRole("button", { name: /Update First years/ })).toBeNull();
 
+    // Narrowed further while open: the tab now holds two filters, with nothing pressed.
     rerender(
       <FilterTabs
         filters={[year(["FY"]), { columnId: "groups", type: "multiOption", operator: "include any of", values: ["TD 1"] }]}
@@ -117,7 +124,16 @@ describe("the filter tabs", () => {
       />,
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: /Update First years/ }));
     expect(loadTabs()[0].filters).toHaveLength(2);
+    expect(screen.queryByRole("button", { name: /Update/ })).toBeNull();
+  });
+
+  it("does not touch a tab that is not open", async () => {
+    saveTabs([{ id: "t1", name: "First years", filters: [year(["FY"])], sort: SORT }]);
+
+    // On All students, narrowing the table changes nothing stored.
+    render(<FilterTabs filters={[year(["L1"])]} sort={SORT} columnIds={COLUMNS} onApply={vi.fn()} />);
+
+    expect(loadTabs()[0].filters).toEqual([year(["FY"])]);
   });
 });

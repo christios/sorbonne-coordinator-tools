@@ -1,4 +1,4 @@
-import { Check, Pencil, Plus, Trash2, X } from "lucide-react";
+import { Pencil, Plus, Trash2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { Modal } from "@/components/Modal";
@@ -8,10 +8,11 @@ import type { FilterModel } from "@/services/tableFilter";
 /**
  * A strip of named ways of looking at the Students table.
  *
- * "All students" is the table with nothing narrowed. Each tab after it is a set of
- * filters and a sort a coordinator saved; opening one puts them back, and the strip
- * shows which tab the table currently matches. Narrow the table further and the tab
- * stays lit but marked, with the choice of updating it to what is on screen.
+ * "All students" is the table with nothing narrowed, and cannot be changed. Every tab
+ * after it is one a coordinator made, and works the way a tab works anywhere: open it
+ * and its filters and sort come back; change them while it is open and it keeps the
+ * change. There is no separate "save" — the first version of this had one, greyed out
+ * until a filter existed, and the one control that made a tab looked dead.
  */
 export function FilterTabs({
   filters,
@@ -38,9 +39,14 @@ export function FilterTabs({
   };
 
   const open = tabs.find((tab) => tab.id === openId) ?? null;
-  const onAll = filters.length === 0;
-  // Changed since it was opened: the table no longer matches what the tab holds.
-  const drifted = open ? !matchesTab(fitTab(open, columnIds), filters, sort) : false;
+
+  // The open tab follows the table: whatever is narrowed or sorted while it is open is
+  // what it holds from then on. Written only when something actually differs, so a
+  // render is not a write.
+  useEffect(() => {
+    if (!open || matchesTab(open, filters, sort)) return;
+    keep(tabs.map((tab) => (tab.id === open.id ? { ...tab, filters, sort } : tab)));
+  }, [filters, sort]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const apply = (tab: FilterTab | null) => {
     setOpenId(tab?.id ?? "");
@@ -62,11 +68,6 @@ export function FilterTabs({
     setNaming(null);
   };
 
-  const updateOpen = () => {
-    if (!open) return;
-    keep(tabs.map((tab) => (tab.id === open.id ? { ...tab, filters, sort } : tab)));
-  };
-
   const tabClass = (active: boolean) =>
     `inline-flex shrink-0 items-center gap-1.5 rounded-t-md border border-b-0 px-3 py-1.5 text-sm ${
       active
@@ -84,9 +85,9 @@ export function FilterTabs({
         <button
           type="button"
           role="tab"
-          aria-selected={onAll && !open}
+          aria-selected={!open}
           onClick={() => apply(null)}
-          className={tabClass(onAll && !open)}
+          className={tabClass(!open)}
         >
           All students
         </button>
@@ -103,26 +104,12 @@ export function FilterTabs({
                 className={tabClass(active)}
               >
                 {tab.name}
-                {active && drifted ? (
-                  <span className="text-[#8a6d00]" title="Changed since this tab was opened">
-                    •
-                  </span>
+                {tab.filters.length ? (
+                  <span className="text-xs font-normal text-[#98a2b3]">{tab.filters.length}</span>
                 ) : null}
-                <span className="text-xs font-normal text-[#98a2b3]">{tab.filters.length}</span>
               </button>
               {active ? (
                 <span className="mb-1 flex items-center gap-0.5 pl-0.5">
-                  {drifted ? (
-                    <button
-                      type="button"
-                      aria-label={`Update ${tab.name} to the current filters`}
-                      title="Save what is on screen into this tab"
-                      onClick={updateOpen}
-                      className="rounded p-1 text-[#8a6d00] hover:bg-[#fff6e5]"
-                    >
-                      <Check size={13} aria-hidden="true" />
-                    </button>
-                  ) : null}
                   <button
                     type="button"
                     aria-label={`Rename ${tab.name}`}
@@ -148,21 +135,22 @@ export function FilterTabs({
         <button
           type="button"
           onClick={() => setNaming({ id: "", name: "" })}
-          disabled={onAll}
-          title={onAll ? "Narrow the table first, then save that as a tab" : "Save the current filters as a tab"}
-          className="mb-1 ml-1 inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-[#1f4e79] hover:bg-[#f2f7fb] disabled:text-[#98a2b3] disabled:hover:bg-transparent"
+          title="A new tab, starting from what the table shows now"
+          className="mb-1 ml-1 inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]"
         >
-          <Plus size={13} aria-hidden="true" /> Save as tab
+          <Plus size={13} aria-hidden="true" /> New tab
         </button>
       </div>
 
       <Modal
         open={naming !== null}
-        title={naming?.id ? "Rename this tab" : "Save these filters as a tab"}
+        title={naming?.id ? "Rename this tab" : "New tab"}
         description={
           naming?.id
             ? undefined
-            : `${filters.length} filter${filters.length === 1 ? "" : "s"} and the current sort. Tabs are kept in this browser.`
+            : filters.length
+              ? `Starts with the ${filters.length} filter${filters.length === 1 ? "" : "s"} and the sort on screen now, and keeps whatever you change while it is open. Tabs are kept in this browser.`
+              : "Starts with everyone, and keeps whatever you filter or sort while it is open. Tabs are kept in this browser."
         }
         onClose={() => setNaming(null)}
         footer={
@@ -176,7 +164,7 @@ export function FilterTabs({
               onClick={() => naming && save(naming.name)}
               className="rounded-md bg-[#1f4e79] px-4 py-2 text-sm font-semibold text-white disabled:bg-[#9ba8b5]"
             >
-              {naming?.id ? "Rename" : "Save tab"}
+              {naming?.id ? "Rename" : "Create tab"}
             </button>
           </div>
         }
