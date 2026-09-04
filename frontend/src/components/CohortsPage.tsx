@@ -166,7 +166,8 @@ export function CohortsPage({ cohorts }: { cohorts: Cohort[] }) {
           className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc]"
         >
           <Settings2 size={15} aria-hidden="true" />
-          Rules
+          {/* Named for what it is: beside a cohort picker, a bare "Rules" reads as that cohort's. */}
+          Rules for all cohorts
           <span className="tabular-nums text-xs font-normal text-[#98a2b3]">{rules.data?.length ?? 0}</span>
         </button>
       </div>
