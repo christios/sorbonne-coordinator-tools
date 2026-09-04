@@ -244,6 +244,7 @@ def test_the_rules_are_kept_whole_and_in_order(database: StudentDatabase) -> Non
             {"field": "ESTS_CODE", "kind": "changed"},
             {"field": "MAJOR_CODE_DESC", "kind": "differs"},
             {"field": "STST_CODE", "kind": "is", "values": ["WD"]},
+            {"field": "ESTS_CODE", "kind": "is_not", "values": ["EL"]},
         ]
     )
 
@@ -252,6 +253,7 @@ def test_the_rules_are_kept_whole_and_in_order(database: StudentDatabase) -> Non
         ("ESTS_CODE", "changed"),
         ("MAJOR_CODE_DESC", "differs"),
         ("STST_CODE", "is"),
+        ("ESTS_CODE", "is_not"),
     ]
     assert kept[0]["values"] == ["WD", "IS"]
     # Kinds that do not take values carry none, whatever was sent.
@@ -284,6 +286,7 @@ def test_a_rule_keeps_its_id_across_a_replace(database: StudentDatabase) -> None
         ({"field": "STST_CODE", "kind": "differs"}, "no STST_CODE to differ from"),
         ({"field": "STST_CODE", "kind": "changed_to", "values": []}, "needs at least one value"),
         ({"field": "STST_CODE", "kind": "is", "values": ["", "  "]}, "needs at least one value"),
+        ({"field": "STST_CODE", "kind": "is_not", "values": []}, "needs at least one value"),
     ],
 )
 def test_a_rule_that_cannot_mean_anything_is_refused(database: StudentDatabase, rule: dict, why: str) -> None:

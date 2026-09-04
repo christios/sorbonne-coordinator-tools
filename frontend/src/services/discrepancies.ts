@@ -18,13 +18,13 @@
 
 import { rowText } from "@/services/copyCells";
 
-export type RuleKind = "changed" | "changed_to" | "is" | "differs";
+export type RuleKind = "changed" | "changed_to" | "is" | "is_not" | "differs";
 
 export type Rule = {
   id: string;
   field: string;
   kind: RuleKind;
-  /** Portal values; meaningful for `changed_to` and `is`. */
+  /** Portal values; meaningful for `changed_to`, `is` and `is_not`. */
   values: string[];
 };
 
@@ -88,6 +88,19 @@ function expectedOf(cohort: Expectation | null, field: string): string {
 const same = (left: string, right: string) => left.trim().toLowerCase() === right.trim().toLowerCase();
 
 /**
+ * Whether a state rule fires on a current value.
+ *
+ * `is` names the values that are trouble; `is_not` names the values that are fine, so
+ * anything else is — including a code admissions invented last week that nobody here
+ * has seen. A student with no value for the field is not judged either way.
+ */
+function stateFires(rule: Rule, value: string): boolean {
+  if (!value) return false;
+  const listed = rule.values.some((wanted) => same(wanted, value));
+  return rule.kind === "is" ? listed : rule.kind === "is_not" ? !listed : false;
+}
+
+/**
  * The warnings for the students of one cohort.
  *
  * Change rules are measured from the moment of placement: the record as it stood when
@@ -121,16 +134,18 @@ export function warningsForCohort(input: {
     }
 
     for (const rule of input.rules) {
-      if (rule.kind === "is") {
+      if (rule.kind === "is" || rule.kind === "is_not") {
         const value = now[rule.field] ?? "";
-        if (value && rule.values.some((wanted) => same(wanted, value))) {
+        if (stateFires(rule, value)) {
           out.push({
             key: `${student.studentId}:${rule.id}:${value}`,
             studentId: student.studentId,
             ruleId: rule.id,
-            kind: "is",
+            kind: rule.kind,
             field: rule.field,
             value,
+            // What was expected instead, so the row can say so.
+            expected: rule.kind === "is_not" ? rule.values.join(" or ") : undefined,
           });
         }
         continue;
@@ -189,17 +204,14 @@ export function unplacedWarnings(input: {
   rules: Rule[];
   current: (studentId: string) => Record<string, string> | undefined;
 }): Warning[] {
-  const trouble = input.rules.filter((rule) => rule.kind === "is");
+  const trouble = input.rules.filter((rule) => rule.kind === "is" || rule.kind === "is_not");
   const out: Warning[] = [];
   for (const student of input.students) {
     if (student.cohortId) continue;
     const now = input.current(student.studentId);
     // No record at all is not "in good standing": it is nothing to judge by.
     if (!now) continue;
-    const inTrouble = trouble.some((rule) => {
-      const value = now[rule.field] ?? "";
-      return value && rule.values.some((wanted) => same(wanted, value));
-    });
+    const inTrouble = trouble.some((rule) => stateFires(rule, now[rule.field] ?? ""));
     if (inTrouble) continue;
     out.push({
       key: `${student.studentId}:unplaced`,
@@ -222,6 +234,8 @@ export function describeWarning(warning: Warning): string {
       return `${field} changed to ${warning.to}${warning.from ? ` (was ${warning.from})` : ""}`;
     case "is":
       return `${field} is ${warning.value}`;
+    case "is_not":
+      return `${field} is ${warning.value}, not ${warning.expected}`;
     case "differs":
       return `${field} is ${warning.value}, cohort expects ${warning.expected}`;
     case "unplaced":

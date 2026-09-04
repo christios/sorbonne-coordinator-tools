@@ -33,7 +33,7 @@ def upgrade() -> None:
         "discrepancy_rules",
         sa.Column("id", sa.Text(), primary_key=True),
         sa.Column("field", sa.Text(), nullable=False),
-        # changed | changed_to | is | differs — see services/student_database.py
+        # changed | changed_to | is | is_not | differs — see services/student_database.py
         sa.Column("kind", sa.Text(), nullable=False),
         # A JSON array of portal values; meaningful for changed_to and is.
         sa.Column("values", sa.Text(), nullable=False, server_default="[]"),

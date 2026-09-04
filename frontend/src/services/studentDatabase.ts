@@ -111,7 +111,7 @@ export function updateCohort(cohortId: string, input: CohortInput): Promise<Coho
 export type DiscrepancyRule = {
   id: string;
   field: string;
-  kind: "changed" | "changed_to" | "is" | "differs";
+  kind: "changed" | "changed_to" | "is" | "is_not" | "differs";
   values: string[];
 };
 

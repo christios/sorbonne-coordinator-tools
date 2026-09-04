@@ -164,6 +164,42 @@ describe("the state right now", () => {
   });
 });
 
+describe("the state right now, the other way round", () => {
+  // The allow-list: name what is fine, and anything else warns — including a code
+  // admissions invented last week that nobody here has seen.
+  const notEligible: Rule = { id: "r6", field: "ESTS_CODE", kind: "is_not", values: ["EL"] };
+
+  it("warns when the current value is not one the rule allows", () => {
+    const warnings = engine(L1_MATHS, [placed("A001", "c1")], [notEligible], { A001: { ESTS_CODE: "NE" } });
+
+    expect(warnings[0]).toMatchObject({ kind: "is_not", field: "ESTS_CODE", value: "NE", expected: "EL" });
+  });
+
+  it("stays quiet when it is one of them", () => {
+    expect(engine(L1_MATHS, [placed("A001", "c1")], [notEligible], { A001: { ESTS_CODE: "el" } })).toEqual([]);
+  });
+
+  it("does not judge a student who has no value for the field", () => {
+    expect(engine(L1_MATHS, [placed("A001", "c1")], [notEligible], { A001: { STST_CODE: "AS" } })).toEqual([]);
+  });
+
+  it("counts as trouble for the unplaced list, so such a student is not a placement candidate", () => {
+    const warnings = unplacedWarnings({
+      students: [placed("A001", null, ""), placed("A002", null, "")],
+      rules: [notEligible],
+      current: (id) => ({ A001: { ESTS_CODE: "EL" }, A002: { ESTS_CODE: "NE" } })[id],
+    });
+
+    expect(warnings.map((w) => w.studentId)).toEqual(["A001"]);
+  });
+
+  it("reads as a sentence that says what was expected", () => {
+    expect(
+      describeWarning({ key: "", studentId: "A001", ruleId: "r6", kind: "is_not", field: "ESTS_CODE", value: "NE", expected: "EL" }),
+    ).toBe("enrolment status is NE, not EL");
+  });
+});
+
 describe("differing from what the cohort expects", () => {
   const major: Rule = { id: "r4", field: "MAJOR_CODE_DESC", kind: "differs", values: [] };
   const year: Rule = { id: "r5", field: "YEARLEVEL_CODE", kind: "differs", values: [] };

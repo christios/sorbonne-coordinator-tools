@@ -25,6 +25,7 @@ const KINDS: { value: RuleKind; label: string; hint: string }[] = [
   { value: "changed", label: "changes at all", hint: "since the student was placed in the cohort" },
   { value: "changed_to", label: "changes to…", hint: "since placement, to one of the values you tick" },
   { value: "is", label: "is currently…", hint: "right now, whatever it was before" },
+  { value: "is_not", label: "is currently not…", hint: "right now, anything but the values you tick — a code nobody has seen counts" },
   { value: "differs", label: "differs from the cohort's", hint: "major against program, or year level against year level" },
 ];
 
@@ -127,7 +128,7 @@ export function DiscrepancyRulesEditor({ open, onClose }: { open: boolean; onClo
       <ol className="space-y-3">
         {drafts.map((draft, index) => {
           const options = valuesFor(draft.field);
-          const needsValues = draft.kind === "changed_to" || draft.kind === "is";
+          const needsValues = draft.kind === "changed_to" || draft.kind === "is" || draft.kind === "is_not";
           const badDiffers = draft.kind === "differs" && !DIFFERS_FIELDS.includes(draft.field);
           return (
             <li key={draft.id || `new-${index}`} className="rounded-md border border-[#d9dee7] bg-white p-3">

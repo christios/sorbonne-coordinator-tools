@@ -1297,7 +1297,7 @@ def _student(row, groups: list[dict[str, str]]) -> dict[str, Any]:
     }
 
 
-RULE_KINDS = ("changed", "changed_to", "is", "differs")
+RULE_KINDS = ("changed", "changed_to", "is", "is_not", "differs")
 # What "differs from the cohort" can compare against: the two things a cohort carries.
 DIFFERS_FIELDS = ("MAJOR_CODE_DESC", "YEARLEVEL_CODE")
 FIELD_NAME = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")
@@ -1320,7 +1320,7 @@ def _clean_rule(rule: dict[str, Any], position: int) -> dict[str, Any]:
     if not isinstance(raw_values, list):
         raise InvalidRule("A rule's values must be a list.")
     values = [_text(value) for value in raw_values if _text(value)]
-    if kind in ("changed_to", "is") and not values:
+    if kind in ("changed_to", "is", "is_not") and not values:
         raise InvalidRule(f"A '{kind}' rule needs at least one value.")
     if kind in ("changed", "differs"):
         values = []
