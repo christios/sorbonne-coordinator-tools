@@ -1042,3 +1042,32 @@ describe("a student who is in more than one view", () => {
     expect(screen.queryByText("Old Spelling")).toBeNull();
   });
 });
+
+/*
+ * The history pane is the detail of a row in the table beside it. The row should look
+ * like the one being read, and the arrow keys should read the next one without going
+ * back to the table to find its button.
+ */
+describe("reading histories from the pane", () => {
+  it("lights the row whose history is open, and walks to the next with the arrow keys", async () => {
+    await withNames();
+    renderRoster();
+    await screen.findByText("Amira Haddad");
+
+    fireEvent.click(screen.getByRole("button", { name: "History for Amira Haddad" }));
+    const pane = await screen.findByRole("complementary", { name: "Student history" });
+    expect(within(pane).getByText("Amira Haddad")).toBeTruthy();
+    const lit = () => document.querySelector("tr.bg-\\[\\#eef4fa\\]")?.getAttribute("data-student-id");
+    expect(lit()).toBe("A001");
+
+    fireEvent.keyDown(document, { key: "ArrowDown" });
+
+    expect(await within(pane).findByText("Karim Nasser")).toBeTruthy();
+    expect(lit()).toBe("A002");
+
+    fireEvent.keyDown(document, { key: "ArrowUp" });
+
+    expect(await within(pane).findByText("Amira Haddad")).toBeTruthy();
+    expect(lit()).toBe("A001");
+  });
+});

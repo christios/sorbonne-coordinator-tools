@@ -7,6 +7,7 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Modal } from "@/components/Modal";
 import { CopyButton } from "@/components/CopyButton";
 import { CopyPresetMenu } from "@/components/CopyPresetMenu";
+import { FilterTabs } from "@/components/FilterTabs";
 import { HistoryBackup } from "@/components/HistoryBackup";
 import { PlaceInBlock } from "@/components/PlaceInBlock";
 import { ScreenLoading } from "@/components/ScreenLoading";
@@ -187,6 +188,31 @@ export function StudentRoster({
   useEffect(() => setLayout(loadLayout(allColumns, layoutKey)), [allColumns, layoutKey]);
 
   /*
+   * With a student's history open, the arrow keys read the next and the previous row's —
+   * the table is the list and the pane is the detail, so walking one should walk the
+   * other. The row is scrolled into view, since it may well be off the screen.
+   */
+  useEffect(() => {
+    if (!historyOf) return;
+    const walk = (event: KeyboardEvent) => {
+      if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+      const target = event.target as HTMLElement | null;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) return;
+      const shown = visibleRef.current;
+      const at = shown.findIndex((row) => row.studentId === historyOf.studentId);
+      const next = shown[at + (event.key === "ArrowDown" ? 1 : -1)];
+      if (!next) return;
+      event.preventDefault();
+      setHistoryOf(next);
+      document
+        .querySelector(`[data-student-id="${CSS.escape(next.studentId)}"]`)
+        ?.scrollIntoView({ block: "nearest" });
+    };
+    document.addEventListener("keydown", walk);
+    return () => document.removeEventListener("keydown", walk);
+  }, [historyOf]);
+
+  /*
    * A selection belongs to the view it was made in.
    *
    * The table survives a change of view now, and most of what it holds should: the
@@ -313,6 +339,7 @@ export function StudentRoster({
     () => (layout ? visibleColumns(layout, allColumns) : []),
     [layout, allColumns],
   );
+  const columnIds = useMemo(() => new Set(allColumns.map((column) => column.id)), [allColumns]);
   const visibleRef = useRef<StudentRow[]>([]);
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -516,6 +543,24 @@ export function StudentRoster({
         />
       ) : null}
 
+      {/*
+        * Saved ways of looking, on the Students page only: the Cohorts page is already
+        * one way of looking, and its filters are its own.
+        */}
+      {!scope ? (
+        <div className="mt-3">
+          <FilterTabs
+            filters={filters}
+            sort={sort}
+            columnIds={columnIds}
+            onApply={(nextFilters, nextSort) => {
+              setFilters(nextFilters);
+              setSort(nextSort);
+            }}
+          />
+        </div>
+      ) : null}
+
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <TableFilterBar
           columns={columns}
@@ -681,6 +726,7 @@ export function StudentRoster({
         onReorder={reorder}
         onOpenHistory={setHistoryOf}
         onDismissWarning={onDismissWarning}
+        highlightedId={historyOf?.studentId}
         onToggle={toggle}
         onToggleAll={toggleAll}
         empty={

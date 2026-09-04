@@ -75,6 +75,7 @@ export const StudentTable = memo(function StudentTable({
   onToggleAll,
   onOpenHistory,
   onDismissWarning,
+  highlightedId,
   empty,
 }: {
   rows: StudentRow[];
@@ -91,6 +92,8 @@ export const StudentTable = memo(function StudentTable({
   onOpenHistory: (row: StudentRow) => void;
   /** Cohorts page only: put a warning away until the record changes, or bring it back. */
   onDismissWarning?: (key: string, dismissed: boolean) => void;
+  /** The row whose history is open beside the table, so the eye can find it. */
+  highlightedId?: string;
   empty: string;
 }) {
   const allShown = rows.length > 0 && rows.every((row) => selected.has(row.studentId));
@@ -149,6 +152,7 @@ export const StudentTable = memo(function StudentTable({
               onToggle={onToggle}
               onOpenHistory={onOpenHistory}
               onDismissWarning={onDismissWarning}
+              highlighted={row.studentId === highlightedId}
             />
           ))}
           {rows.length === 0 ? (
@@ -179,6 +183,7 @@ const StudentTableRow = memo(function StudentTableRow({
   onToggle,
   onOpenHistory,
   onDismissWarning,
+  highlighted = false,
 }: {
   row: StudentRow;
   columns: StudentColumn[];
@@ -187,11 +192,15 @@ const StudentTableRow = memo(function StudentTableRow({
   onToggle: (studentId: string, extend?: boolean) => void;
   onOpenHistory: (row: StudentRow) => void;
   onDismissWarning?: (key: string, dismissed: boolean) => void;
+  highlighted?: boolean;
 }) {
   const extend = useRef(false);
 
   return (
-    <tr className="border-t border-[#eef1f5]">
+    <tr
+      data-student-id={row.studentId}
+      className={`border-t border-[#eef1f5] ${highlighted ? "bg-[#eef4fa] shadow-[inset_3px_0_0_#1f4e79]" : ""}`}
+    >
       <td className="px-3 py-2">
         <input
           type="checkbox"

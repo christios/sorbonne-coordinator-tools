@@ -183,3 +183,26 @@ describe("SelectMenu", () => {
     }
   });
 });
+
+describe("a multi-select says what is chosen", () => {
+  const options = [
+    { value: "FY", label: "FY" },
+    { value: "L1", label: "L1" },
+    { value: "L2", label: "L2" },
+    { value: "L3", label: "L3" },
+    { value: "M1", label: "M1" },
+  ];
+
+  it("names the values rather than counting them", () => {
+    render(<SelectMenu label="Year" multiple itemNoun="value" value={"FY\nL1"} onChange={() => {}} options={options} />);
+
+    expect(screen.getByRole("combobox", { name: "Year" }).textContent).toContain("FY, L1");
+    expect(screen.queryByText(/values selected/)).toBeNull();
+  });
+
+  it("folds the tail into +N once there are more than a few", () => {
+    render(<SelectMenu label="Year" multiple itemNoun="value" value={"FY\nL1\nL2\nL3\nM1"} onChange={() => {}} options={options} />);
+
+    expect(screen.getByRole("combobox", { name: "Year" }).textContent).toContain("FY, L1, L2 +2");
+  });
+});

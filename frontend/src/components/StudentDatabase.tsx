@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { CalendarDays, ListTree, Megaphone, ShieldAlert, Users } from "lucide-react";
+import { CalendarDays, ListChecks, ListTree, Megaphone, Users } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { AnnouncementEditor } from "@/components/AnnouncementEditor";
@@ -24,8 +24,9 @@ import { fetchTimetableStatus, fetchTimetableTerms } from "@/services/timetables
 // the CRNs a cohort is taught in are the CRNs its timetable is built from.
 const PAGES = [
   { id: "students", name: "Students", icon: Users, group: "Students" },
+  // Directly under Students, as its sub-tab: the pane draws a child beneath its parent.
+  { id: "cohorts", name: "Cohorts", icon: ListChecks, group: "Students", parent: "students" },
   { id: "groups", name: "Groups & CRNs", icon: ListTree, group: "Students" },
-  { id: "cohorts", name: "Cohorts", icon: ShieldAlert, group: "Students" },
   { id: "semesters", name: "Semesters", icon: CalendarDays, group: "Timetables" },
   { id: "announcements", name: "Announcements", icon: Megaphone, group: "Timetables" },
 ] as const;
@@ -140,7 +141,7 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
       <SidePane
         label="Students and timetables pages"
         heading="Students and timetables"
-        items={PAGES.map(({ id, name, icon, group }) => ({ id, name, icon, group }))}
+        items={PAGES.map(({ id, name, icon, group, ...rest }) => ({ id, name, icon, group, ...rest }))}
         activeId={page}
         onSelect={(id) => openPage(id as PageId)}
         // Who is signed in, and their settings, belong at the foot of whichever pane is

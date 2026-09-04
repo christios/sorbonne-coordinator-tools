@@ -84,8 +84,9 @@ export function TableFilterBar({
         <button
           type="button"
           onClick={() => onChange([])}
-          className="rounded-md px-2 py-1.5 text-sm text-[#667085] underline hover:text-[#344054]"
+          className="inline-flex items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-2.5 py-1.5 text-sm font-semibold text-[#344054] hover:bg-[#fdf3f3] hover:border-[#e5b7b9] hover:text-[#a6292f]"
         >
+          <X size={14} aria-hidden="true" />
           Clear filters
         </button>
       ) : null}
@@ -260,8 +261,9 @@ function ChipValue({
   const pair = OPERATORS[filter.type][filter.operator]?.target === "multiple";
 
   if (column.type === "option" || column.type === "multiOption") {
+    // Sized to what it holds, within reason: the chip is there to be read.
     return (
-      <span className="w-48 py-0.5">
+      <span className="inline-block min-w-[11rem] max-w-[24rem] py-0.5">
         <SelectMenu
           label={`${column.displayName} value`}
           multiple

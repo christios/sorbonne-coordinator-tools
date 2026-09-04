@@ -58,8 +58,16 @@ export function SelectMenu({ label, value, onChange, options, placeholder, trail
   const [placement, setPlacement] = useState<MenuPlacement | null>(null);
   const selectedValues = multiple ? value.split("\n").filter(Boolean) : [value];
   const selected = options.filter((option) => selectedValues.includes(option.value));
+  // The values themselves, not a count: "FY, L1" says what the filter is doing, and
+  // "2 values selected" makes a coordinator open it to find out. Past a few, the rest
+  // become "+N" so the control stays a control.
+  const SHOWN = 3;
   const selectedLabel = multiple
-    ? selected.length ? `${selected.length} ${itemNoun}${selected.length === 1 ? "" : "s"} selected` : placeholder
+    ? selected.length
+      ? selected.length <= SHOWN
+        ? selected.map((option) => option.label).join(", ")
+        : `${selected.slice(0, SHOWN).map((option) => option.label).join(", ")} +${selected.length - SHOWN}`
+      : placeholder
     : selected[0]?.label ?? placeholder;
   const normalizedQuery = normalizeSearch(query);
   const visibleOptions = searchable
@@ -140,7 +148,12 @@ export function SelectMenu({ label, value, onChange, options, placeholder, trail
         }`}
       >
         <span className={`flex min-w-0 flex-1 items-center ${selected.length || value ? "" : "text-[#667085]"}`}>
-          <span className="truncate">{selectedLabel}</span>
+          <span
+            className="truncate"
+            title={multiple && selected.length ? `${selected.length} ${itemNoun}${selected.length === 1 ? "" : "s"}: ${selected.map((option) => option.label).join(", ")}` : undefined}
+          >
+            {selectedLabel}
+          </span>
           {selected.length === 1 && selected[0].badge !== undefined ? (
             <Badge text={selected[0].badge} tone={selected[0].badgeTone} />
           ) : null}
