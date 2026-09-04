@@ -144,9 +144,11 @@ const OWN_COLUMNS: StudentColumn[] = [
 export const WARNINGS_COLUMN: StudentColumn = {
   id: "warnings",
   displayName: "Warnings",
-  type: "text",
-  accessor: (row) => row.warnings.map((warning) => describeWarning(warning)).join("; "),
-  display: (row) => row.warnings.map((warning) => describeWarning(warning)).join("; "),
+  // Several per student, each an option of its own — so "show me everyone whose major
+  // differs" is one tick, the way "everyone in TD 1" is on the Groups column.
+  type: "multiOption",
+  accessor: (row) => row.warnings.map((warning) => describeWarning(warning)),
+  display: (row) => row.warnings.map((warning) => describeWarning(warning)).join(" · "),
   // Most trouble first when sorted descending, which is how the Cohorts page opens.
   sortValue: (row) => row.warnings.filter((warning) => !warning.dismissed).length,
   defaultWidth: 360,

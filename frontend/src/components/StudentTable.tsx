@@ -335,16 +335,17 @@ function Cell({
   if (column.id === "warnings") {
     if (!row.warnings.length) return <span className="text-[#98a2b3]">—</span>;
     return (
-      <ul className="space-y-0.5">
+      <span className="flex flex-wrap gap-1">
         {row.warnings.map((warning) => (
-          <li
+          <span
             key={warning.key}
-            className={`flex items-start gap-1.5 text-xs ${warning.dismissed ? "text-[#98a2b3] line-through" : "text-[#8a4b00]"}`}
+            title={describeWarning(warning)}
+            className={`inline-flex max-w-full items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${
+              warning.dismissed ? "bg-[#f2f4f7] text-[#98a2b3] line-through" : "bg-[#fff1e3] text-[#8a4b00]"
+            }`}
           >
-            <AlertTriangle size={12} className="mt-0.5 shrink-0" aria-hidden="true" />
-            <span className="min-w-0 flex-1 truncate" title={describeWarning(warning)}>
-              {describeWarning(warning)}
-            </span>
+            <AlertTriangle size={11} className="shrink-0" aria-hidden="true" />
+            <span className="min-w-0 truncate">{describeWarning(warning)}</span>
             {onDismissWarning && warning.kind !== "no_baseline" ? (
               <button
                 type="button"
@@ -354,14 +355,14 @@ function Cell({
                   event.stopPropagation();
                   onDismissWarning(warning.key, !warning.dismissed);
                 }}
-                className="shrink-0 rounded p-0.5 text-[#98a2b3] hover:bg-[#f2f7fb] hover:text-[#344054]"
+                className="-mr-1 shrink-0 rounded-full p-0.5 hover:bg-white/70"
               >
-                {warning.dismissed ? <RotateCcw size={11} aria-hidden="true" /> : <X size={11} aria-hidden="true" />}
+                {warning.dismissed ? <RotateCcw size={10} aria-hidden="true" /> : <X size={10} aria-hidden="true" />}
               </button>
             ) : null}
-          </li>
+          </span>
         ))}
-      </ul>
+      </span>
     );
   }
 

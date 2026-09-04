@@ -136,6 +136,33 @@ describe("the Cohorts page", () => {
     expect(screen.getByRole("option", { name: /Not in any cohort\s*1$/ })).toBeTruthy();
   });
 
+  it("offers each warning as a filter value, the way groups are", async () => {
+    vi.spyOn(database, "fetchStudents").mockResolvedValue([
+      student("A001", "c1"),
+      student("A002", "c1"),
+      student("A003", "c1"),
+    ]);
+    vi.spyOn(database, "fetchDiscrepancyRules").mockResolvedValue([MAJOR, IS_WITHDRAWN]);
+    await portalSays([
+      { SPRIDEN_ID: "A001", FULL_NAME: "Amira Haddad", MAJOR_CODE_DESC: "Physics", STST_CODE: "AS" },
+      { SPRIDEN_ID: "A002", FULL_NAME: "Karim Nasser", MAJOR_CODE_DESC: "Applied Mathematics and Physics", STST_CODE: "WD" },
+      { SPRIDEN_ID: "A003", FULL_NAME: "Nadia Newcomer", MAJOR_CODE_DESC: "Applied Mathematics and Physics", STST_CODE: "AS" },
+    ]);
+
+    renderPage();
+    await screen.findByText("Nadia Newcomer");
+
+    // Filter → Warnings → tick the withdrawn warning: only Karim is left.
+    fireEvent.click(screen.getByRole("button", { name: /^(Filter|Add filter)$/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Warnings" }));
+    fireEvent.click(await screen.findByRole("combobox", { name: "Warnings value" }));
+    fireEvent.click(await screen.findByRole("option", { name: /student status is WD/ }));
+
+    await waitFor(() => expect(screen.queryByText("Amira Haddad")).toBeNull());
+    expect(screen.getByText("Karim Nasser")).toBeTruthy();
+    expect(screen.queryByText("Nadia Newcomer")).toBeNull();
+  });
+
   it("puts the flagged students first", async () => {
     vi.spyOn(database, "fetchStudents").mockResolvedValue([student("A001", "c1"), student("A002", "c1")]);
     vi.spyOn(database, "fetchDiscrepancyRules").mockResolvedValue([MAJOR]);
