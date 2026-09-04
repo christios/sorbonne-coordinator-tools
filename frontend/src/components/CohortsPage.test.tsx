@@ -108,6 +108,34 @@ describe("the Cohorts page", () => {
     expect(screen.getByText(/1 of 2 students flagged/)).toBeTruthy();
   });
 
+  it("has no Cohort column — every row would say the same thing — and pills the groups", async () => {
+    vi.spyOn(database, "fetchStudents").mockResolvedValue([
+      { ...student("A001", "c1"), groups: [{ termId: "t1", scopeCode: "TD", groupLabel: "1" }, { termId: "t1", scopeCode: "CM", groupLabel: "2" }] },
+    ]);
+    vi.spyOn(database, "fetchDiscrepancyRules").mockResolvedValue([]);
+    await portalSays([{ SPRIDEN_ID: "A001", FULL_NAME: "Amira Haddad" }]);
+
+    renderPage();
+    await screen.findByText("Amira Haddad");
+
+    expect(screen.queryByRole("columnheader", { name: /^Cohort/ })).toBeNull();
+    // Each group is its own pill, not one dotted string.
+    const groups = within(rowOf("Amira Haddad")).getAllByText(/^(TD 1|CM 2)$/);
+    expect(groups.map((pill) => pill.textContent)).toEqual(["TD 1", "CM 2"]);
+  });
+
+  it("shows how many students each cohort holds, in the picker", async () => {
+    vi.spyOn(database, "fetchStudents").mockResolvedValue([student("A001", "c1"), student("A002", null, "")]);
+    vi.spyOn(database, "fetchDiscrepancyRules").mockResolvedValue([]);
+    await portalSays([{ SPRIDEN_ID: "A001", FULL_NAME: "Amira Haddad" }]);
+
+    renderPage([{ ...L1, memberCount: 1 }]);
+    fireEvent.click(await screen.findByRole("combobox", { name: "Cohort" }));
+
+    expect(await screen.findByRole("option", { name: /L1 Maths — 2026-27\s*1$/ })).toBeTruthy();
+    expect(screen.getByRole("option", { name: /Not in any cohort\s*1$/ })).toBeTruthy();
+  });
+
   it("puts the flagged students first", async () => {
     vi.spyOn(database, "fetchStudents").mockResolvedValue([student("A001", "c1"), student("A002", "c1")]);
     vi.spyOn(database, "fetchDiscrepancyRules").mockResolvedValue([MAJOR]);
@@ -163,7 +191,7 @@ describe("the Cohorts page", () => {
 
     renderPage();
     fireEvent.click(await screen.findByRole("combobox", { name: "Cohort" }));
-    fireEvent.click(await screen.findByRole("option", { name: "Not in any cohort" }));
+    fireEvent.click(await screen.findByRole("option", { name: /Not in any cohort/ }));
 
     await screen.findByText("Amira Haddad");
     expect(within(rowOf("Amira Haddad")).getByText(/in no cohort, and nothing about them/)).toBeTruthy();

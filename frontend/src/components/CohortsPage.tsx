@@ -121,6 +121,7 @@ export function CohortsPage({ cohorts }: { cohorts: Cohort[] }) {
   ).size;
   const unjudged = new Set(all.filter((warning) => warning.kind === "no_baseline").map((w) => w.studentId)).size;
   const dismissedCount = all.filter((warning) => warning.dismissed).length;
+  const unplacedCount = students.data ? students.data.filter((student) => !student.cohortId).length : 0;
   const population = students.data
     ? students.data.filter((student) => (cohortId === UNPLACED ? !student.cohortId : student.cohortId === cohortId)).length
     : 0;
@@ -146,8 +147,15 @@ export function CohortsPage({ cohorts }: { cohorts: Cohort[] }) {
               ...cohorts.map((candidate) => ({
                 value: candidate.id,
                 label: candidate.term ? `${candidate.name} — ${candidate.term}` : candidate.name,
+                badge: String(candidate.memberCount),
+                badgeTone: candidate.memberCount ? ("accent" as const) : ("muted" as const),
               })),
-              { value: UNPLACED, label: "Not in any cohort" },
+              {
+                value: UNPLACED,
+                label: "Not in any cohort",
+                badge: String(unplacedCount),
+                badgeTone: unplacedCount ? ("accent" as const) : ("muted" as const),
+              },
             ]}
           />
         </LabelledPicker>

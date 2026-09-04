@@ -97,6 +97,8 @@ export function StudentRoster({
   defaultSort?: Sort;
 }) {
   const client = useQueryClient();
+  // The scoped table has its own arrangement; see studentColumns.loadLayout.
+  const layoutKey = scope ? "scen-student-columns:cohorts:v1" : undefined;
   const [everywhere, setEverywhere] = useState(false);
   // Searching everywhere asks for the whole record rather than this view's population.
   // A scoped table is always everywhere: a cohort's students come from every view.
@@ -133,8 +135,12 @@ export function StudentRoster({
 
   // The table offers the portal's own fields, so the columns follow the harvested schema.
   const allColumns = useMemo(
-    () => buildColumns(schema.data?.columns ?? [], schema.data?.fields ?? [], { withWarnings: Boolean(warningsFor) }),
-    [schema.data, warningsFor],
+    () =>
+      buildColumns(schema.data?.columns ?? [], schema.data?.fields ?? [], {
+        withWarnings: Boolean(warningsFor),
+        withoutCohort: Boolean(scope),
+      }),
+    [schema.data, warningsFor, scope],
   );
 
   const [stored, setStored] = useState<StoredPreset>({});
@@ -178,7 +184,7 @@ export function StudentRoster({
   }, [students.dataUpdatedAt, viewId]);
 
   // The arrangement can only be reconciled once the columns are known.
-  useEffect(() => setLayout(loadLayout(allColumns)), [allColumns]);
+  useEffect(() => setLayout(loadLayout(allColumns, layoutKey)), [allColumns, layoutKey]);
 
   /*
    * A selection belongs to the view it was made in.
@@ -203,8 +209,8 @@ export function StudentRoster({
    */
   const arrange = useCallback((next: ColumnLayout) => {
     setLayout(next);
-    saveLayout(next);
-  }, []);
+    saveLayout(next, layoutKey);
+  }, [layoutKey]);
 
   const [naming, setNaming] = useState(false);
   const [newName, setNewName] = useState("");

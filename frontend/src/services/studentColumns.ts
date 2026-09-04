@@ -185,14 +185,14 @@ function portalColumn(column: PortalColumn, filterable: Map<string, PortalField>
 export function buildColumns(
   portalColumns: PortalColumn[],
   fields: PortalField[] = [],
-  { withWarnings = false }: { withWarnings?: boolean } = {},
+  { withWarnings = false, withoutCohort = false }: { withWarnings?: boolean; withoutCohort?: boolean } = {},
 ): StudentColumn[] {
   const filterable = new Map(fields.map((field) => [field.key.toUpperCase(), field]));
   const portal = portalColumns.length ? portalColumns : FALLBACK_COLUMNS;
-  // The warnings sit beside the name, where the eye goes, rather than at the far end.
-  const columns = withWarnings
-    ? [OWN_COLUMNS[0], WARNINGS_COLUMN, ...OWN_COLUMNS.slice(1)]
-    : [...OWN_COLUMNS];
+  // The warnings sit beside the name, where the eye goes, rather than at the far end. On
+  // a table that is one cohort's, the Cohort column would say the same thing on every row.
+  const own = withoutCohort ? OWN_COLUMNS.filter((column) => column.id !== "cohortName") : OWN_COLUMNS;
+  const columns = withWarnings ? [own[0], WARNINGS_COLUMN, ...own.slice(1)] : [...own];
   for (const column of portal) {
     if (SKIP_PORTAL_FIELDS.has(column.key.toUpperCase())) continue;
     columns.push(portalColumn(column, filterable));
@@ -274,9 +274,14 @@ export function reconcileLayout(
   return { order, hidden, widths };
 }
 
-export function loadLayout(columns: StudentColumn[]): ColumnLayout {
+/**
+ * The layout is per table, not per browser: the Cohorts page has columns the Students
+ * page does not and lacks one it has, and a coordinator arranging one should not find
+ * the other rearranged. `storageKey` names which.
+ */
+export function loadLayout(columns: StudentColumn[], storageKey: string = KEY): ColumnLayout {
   try {
-    const raw = window.localStorage.getItem(KEY);
+    const raw = window.localStorage.getItem(storageKey);
     return reconcileLayout(raw ? (JSON.parse(raw) as ColumnLayout) : null, columns);
   } catch {
     // Private browsing, or something that is not ours: fall back to the default.
@@ -284,9 +289,9 @@ export function loadLayout(columns: StudentColumn[]): ColumnLayout {
   }
 }
 
-export function saveLayout(layout: ColumnLayout): void {
+export function saveLayout(layout: ColumnLayout, storageKey: string = KEY): void {
   try {
-    window.localStorage.setItem(KEY, JSON.stringify(layout));
+    window.localStorage.setItem(storageKey, JSON.stringify(layout));
   } catch {
     // A preference that cannot be remembered must never break the table.
   }

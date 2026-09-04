@@ -284,6 +284,22 @@ function Cell({
     );
   }
 
+  if (column.id === "groups") {
+    if (!row.groups.length) return <span className="text-[#98a2b3]">—</span>;
+    return (
+      <span className="flex flex-wrap gap-1" title={row.groups.join(" · ")}>
+        {row.groups.map((group) => (
+          <span
+            key={group}
+            className="inline-flex items-center rounded-full bg-[#eef1f5] px-2 py-0.5 text-xs font-semibold text-[#344054]"
+          >
+            {group}
+          </span>
+        ))}
+      </span>
+    );
+  }
+
   if (column.id === "status") {
     return (
       <>
