@@ -26,9 +26,10 @@ from tests.conftest import TEST_DATABASE_URL
 TERM = "term-1"
 OTHER_TERM = "term-2"
 
+MONDAY = {"date": "2026-08-31", "start": "08:30:00", "end": "10:00:00", "isExam": False}
 SECTIONS = [
-    {"crn": "22151", "code": "MATH-001-CM-GR.A", "kind": "Lecture", "groupLabel": "Gr. A"},
-    {"crn": "23652", "code": "MATH-011-TD-Gr.1", "kind": "Tutorial", "groupLabel": "Gr. 1"},
+    {"crn": "22151", "code": "MATH-001-CM-GR.A", "kind": "Lecture", "groupLabel": "Gr. A", "sessions": [MONDAY]},
+    {"crn": "23652", "code": "MATH-011-TD-Gr.1", "kind": "Tutorial", "groupLabel": "Gr. 1", "sessions": [MONDAY]},
     {"crn": "23653", "code": "MATH-011-TD-Gr.2", "kind": "Tutorial", "groupLabel": "Gr. 2"},
 ]
 
@@ -135,6 +136,24 @@ def test_students_in_no_group_stop_it_being_ready_and_are_named(
     assert payload["isReady"] is False
     assert "2 with no Lectures group" in report["warnings"]
     assert report["unassigned"]["CM"] == ["A001", "A002"]
+
+
+def test_groups_that_meet_at_the_same_hour_are_named_with_who_sits_in_both(
+    client: TestClient, database: StudentDatabase
+):
+    # CM A and TD 1 both meet Monday 08:30, and both students are in both. Not a blocker —
+    # the timetable is what it is — but it is said where the placing happens.
+    build_cohort(database)
+
+    report = use(client, sections_then({})).get(f"/api/v1/publication/terms/{TERM}").json()
+
+    [clash] = report["cohorts"][0]["clashes"]
+    assert [f"{group['scopeCode']} {group['label']}" for group in clash["groups"]] == ["CM A", "TD 1"]
+    assert clash["windows"] == [
+        {"weekday": "Mon", "start": "08:30", "end": "10:00", "crns": ["22151", "23652"], "dates": 1}
+    ]
+    assert clash["students"] == ["A001", "A002"]
+    assert report["isReady"] is True
 
 
 def test_a_cohort_set_up_for_another_semester_is_not_this_ones_business(

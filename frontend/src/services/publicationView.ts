@@ -9,7 +9,14 @@
  * remove a cohort I forgot to fill", which look identical if you only count what was added.
  */
 
-import type { CohortReadiness, CrnVerdict, Publication, PublicationPreview } from "@/services/publication";
+import type {
+  ClashWindow,
+  CohortReadiness,
+  CrnVerdict,
+  GroupClash,
+  Publication,
+  PublicationPreview,
+} from "@/services/publication";
 
 /** How serious a thing standing in the way is. */
 export type Severity = "blocking" | "warning" | "clear";
@@ -141,4 +148,21 @@ export function unplacedIn(publication: Publication, cohortId: string): Unplaced
 
   const ids = [...new Set(Object.values(cohort.unassigned).flat())].sort();
   return { total: ids.length, byBlock, ids };
+}
+
+/** The groups of one cohort that meet at the same hour, worst first — as the report has them. */
+export function clashesIn(publication: Publication, cohortId: string): GroupClash[] {
+  return publication.cohorts.find((candidate) => candidate.cohortId === cohortId)?.clashes ?? [];
+}
+
+/** "CM A × TD 1", or "TD 1 (its own CRNs)" when a group clashes with itself. */
+export function clashName(clash: GroupClash): string {
+  const names = clash.groups.map((group) => `${group.scopeCode} ${group.label}`.trim());
+  return names.length === 1 ? `${names[0]} (its own CRNs)` : names.join(" × ");
+}
+
+/** "Mon 08:30–10:00 (22151 / 23652) ×14" — the hour, the two CRNs, and how often. */
+export function describeClashWindow(window: ClashWindow): string {
+  const often = window.dates > 1 ? ` ×${window.dates}` : "";
+  return `${window.weekday} ${window.start}–${window.end} (${window.crns.join(" / ")})${often}`;
 }

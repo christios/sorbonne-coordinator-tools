@@ -6,9 +6,9 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { InfoHint } from "@/components/InfoHint";
 import { WorkbookReview } from "@/components/WorkbookReview";
 import { ScreenLoading } from "@/components/ScreenLoading";
-import { type CrnVerdict, fetchPublication } from "@/services/publication";
+import { type CrnVerdict, type GroupClash, fetchPublication } from "@/services/publication";
 import { countsLine, summariseCatalogue } from "@/services/catalogueSummary";
-import { unplacedIn, verdictFor } from "@/services/publicationView";
+import { clashName, clashesIn, describeClashWindow, unplacedIn, verdictFor } from "@/services/publicationView";
 import { fieldHeld, namesHeld } from "@/services/rosterStore";
 import { downloadWorkbook, prefixOf } from "@/services/workbookExport";
 import {
@@ -312,6 +312,8 @@ export function GroupCatalogue({
         onShow={onShowStudents}
       />
 
+      <Clashes clashes={publication.data ? clashesIn(publication.data, cohort.id) : []} onShow={onShowStudents} />
+
       <div className="mt-5 space-y-5">
         {scopes.map((scope) => (
           <ScopeMatrix
@@ -389,6 +391,72 @@ function Unplaced({
     </p>
   );
 }
+
+/**
+ * Groups that meet at the same hour, so cannot share a student.
+ *
+ * The timetable knows when every CRN meets; the groups were built here; this is where the
+ * two are held against each other. Said on this page, above the matrix, because it is a
+ * constraint on placing — a fill must never put one student in both — and the moment to
+ * learn it is while the blocks are being built, not when a student's week has two things
+ * at Monday 08:30.
+ */
+function Clashes({ clashes, onShow }: { clashes: GroupClash[]; onShow?: (studentIds: string[]) => void }) {
+  const [showingAll, setShowingAll] = useState(false);
+  if (clashes.length === 0) return null;
+
+  // Worst first, and only the worst by default: a semester where every Readiness group
+  // overlaps every TD group is twenty-odd lines, and the ones with students in both are
+  // the ones to act on.
+  const shown = showingAll ? clashes : clashes.slice(0, CLASHES_SHOWN);
+
+  return (
+    <section className="mt-5 rounded-md border border-[#e8d9ac] bg-[#fdf9ee] px-4 py-3 text-sm leading-6 text-[#8a6116]">
+      <p className="flex items-center gap-2 font-semibold">
+        <AlertTriangle size={16} className="shrink-0" aria-hidden="true" />
+        {clashes.length === 1 ? "One pair of groups meets" : `${clashes.length} pairs of groups meet`} at the
+        same hour, so cannot share a student.
+      </p>
+      <ul className="mt-1 space-y-0.5">
+        {shown.map((clash) => (
+          <li
+            key={clash.groups.map((group) => group.id).join("|")}
+            className="flex flex-wrap items-baseline gap-x-2"
+          >
+            <b>{clashName(clash)}</b>
+            <span>{clash.windows.map(describeClashWindow).join("; ")}</span>
+            <span className="text-[#a07a2a]">
+              ·{" "}
+              {clash.students.length
+                ? `${clash.students.length} student${clash.students.length === 1 ? "" : "s"} in both`
+                : "nobody in both yet"}
+            </span>
+            {onShow && clash.students.length ? (
+              <button
+                type="button"
+                onClick={() => onShow(clash.students)}
+                className="font-semibold text-[#1f4e79] underline"
+              >
+                Show them in Students
+              </button>
+            ) : null}
+          </li>
+        ))}
+      </ul>
+      {clashes.length > CLASHES_SHOWN ? (
+        <button
+          type="button"
+          onClick={() => setShowingAll((current) => !current)}
+          className="mt-1 font-semibold text-[#1f4e79] underline"
+        >
+          {showingAll ? "Show fewer" : `Show all ${clashes.length} pairs`}
+        </button>
+      ) : null}
+    </section>
+  );
+}
+
+const CLASHES_SHOWN = 5;
 
 function ScopeMatrix({
   scope,

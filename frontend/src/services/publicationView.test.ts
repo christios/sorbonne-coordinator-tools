@@ -18,6 +18,7 @@ function cohort(overrides: Partial<CohortReadiness> = {}): CohortReadiness {
     studentsResolved: 24,
     unassigned: {},
     warnings: [],
+    clashes: [],
     isReady: true,
     ...overrides,
   };

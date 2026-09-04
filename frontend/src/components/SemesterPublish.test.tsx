@@ -30,6 +30,7 @@ const READY: Publication = {
       studentsResolved: 24,
       unassigned: {},
       warnings: [],
+      clashes: [],
       isReady: true,
     },
   ],
@@ -120,6 +121,7 @@ describe("before anything is sent", () => {
           isReady: false,
           unassigned: { TD: ["A1", "A2", "A3", "A4"] },
           warnings: ["4 with no Tutorials group"],
+          clashes: [],
         },
       ],
     });

@@ -21,6 +21,7 @@ from pydantic import BaseModel
 from sorbonne.api.timetables import require_client
 from sorbonne.config import config
 from sorbonne.services.enrolment_resolution import Group, Scope, Section, readiness, resolve, validate
+from sorbonne.services.group_clashes import Session, clashes
 from sorbonne.services.student_database import StudentDatabase
 from sorbonne.services.student_timetables import StudentPlatformClient, StudentPlatformError
 
@@ -71,6 +72,43 @@ def _sections(rows: list[dict[str, Any]]) -> list[Section]:
     ]
 
 
+def _sessions(rows: list[dict[str, Any]]) -> list[Session]:
+    """When every section meets — exams included, since a student cannot sit two at once."""
+    return [
+        Session(
+            crn=row.get("crn", ""),
+            date=str(session.get("date", "")),
+            start=str(session.get("start", "")),
+            end=str(session.get("end", "")),
+        )
+        for row in rows
+        for session in row.get("sessions", [])
+        if isinstance(session, dict)
+    ]
+
+
+def _clashes(cohort: dict[str, Any], groups: list[Group], sessions: list[Session]) -> list[dict[str, Any]]:
+    """The cohort's clashing groups, each pair named the way the page lays the blocks out."""
+    code_of = {row["id"]: row["code"] for row in cohort["scopes"]}
+    order = {row["id"]: index for index, row in enumerate(cohort["scopes"])}
+    named = []
+    for clash in clashes(groups=groups, sessions=sessions, assignments=_assignments(cohort)):
+        pair = sorted(clash["groups"], key=lambda group: order.get(group["scopeId"], 0))
+        # A window's two CRNs are in the pair's order; keep them so when the pair is turned.
+        turned = pair[0]["id"] != clash["groups"][0]["id"]
+        named.append(
+            {
+                **clash,
+                "groups": [{**group, "scopeCode": code_of.get(group["scopeId"], "")} for group in pair],
+                "windows": [
+                    {**window, "crns": list(reversed(window["crns"]))} if turned else window
+                    for window in clash["windows"]
+                ],
+            }
+        )
+    return named
+
+
 def _resolve_term(cohorts: list[dict[str, Any]]) -> dict[str, list[str]]:
     """Every cohort on the semester, merged. One student can only be in one cohort."""
     enrolments: dict[str, list[str]] = {}
@@ -106,9 +144,11 @@ async def read_publication(
     """What stands between this semester and being published. Writes nothing."""
     cohorts = database.term_publication(term_id)
     try:
-        sections = _sections(await client.list_sections(term_id))
+        rows = await client.list_sections(term_id)
     except StudentPlatformError as exc:
         raise _forward(exc) from exc
+    sections = _sections(rows)
+    sessions = _sessions(rows)
 
     reports = []
     verdicts: dict[str, dict[str, Any]] = {}
@@ -125,6 +165,9 @@ async def read_publication(
                     course_codes=cohort["courseCodes"],
                     assignments=_assignments(cohort),
                 ),
+                # A warning rather than a blocker: the timetable is what it is, and the
+                # coordinator may well know. But it must be said where the placing happens.
+                "clashes": _clashes(cohort, groups, sessions),
             }
         )
         verdicts.update(validate(groups=groups, sections=sections))

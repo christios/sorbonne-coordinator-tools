@@ -21,7 +21,23 @@ export type CohortReadiness = {
   /** Scope code -> the students with no group for it. */
   unassigned: Record<string, string[]>;
   warnings: string[];
+  /** Groups that meet at the same hour. A warning, not a blocker: the timetable is what it is. */
+  clashes: GroupClash[];
   isReady: boolean;
+};
+
+/** One hour of the week two CRNs both occupy, and how many dates it happens on. */
+export type ClashWindow = { weekday: string; start: string; end: string; crns: string[]; dates: number };
+
+/**
+ * Two groups a student cannot sit in both of — or one group whose own CRNs meet at the
+ * same hour. Read from the timetable, so it is what the Student Hub says, not a guess.
+ */
+export type GroupClash = {
+  groups: { id: string; scopeId: string; scopeCode: string; label: string }[];
+  windows: ClashWindow[];
+  /** Who sits in both today. */
+  students: string[];
 };
 
 export type CrnVerdict = {

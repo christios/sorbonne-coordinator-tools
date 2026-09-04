@@ -395,6 +395,86 @@ describe("adding a block", () => {
   });
 });
 
+describe("groups that meet at the same hour", () => {
+  const withClashes = (clashes: publication.GroupClash[]) =>
+    vi.spyOn(publication, "fetchPublication").mockResolvedValue({
+      cohorts: [
+        {
+          cohortId: "cohort-1",
+          cohort: "Foundation Year",
+          students: 24,
+          studentsResolved: 24,
+          unassigned: {},
+          warnings: [],
+          clashes,
+          isReady: true,
+        },
+      ],
+      validation: {},
+      unmatchedCrns: 0,
+      sections: 43,
+      resolved: { students: 24, enrolments: 140 },
+      isReady: true,
+    });
+
+  it("names the pair, the hour, and who sits in both", async () => {
+    withClashes([
+      {
+        groups: [
+          { id: "group-a", scopeId: "scope-cm", scopeCode: "CM", label: "A" },
+          { id: "group-5", scopeId: "scope-td", scopeCode: "TD", label: "5" },
+        ],
+        windows: [{ weekday: "Mon", start: "08:30", end: "10:00", crns: ["22151", "23563"], dates: 14 }],
+        students: ["A1", "A2"],
+      },
+    ]);
+    const onShow = vi.fn();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <GroupCatalogue cohort={COHORT} termId="term-1" onShowStudents={onShow} />
+      </QueryClientProvider>,
+    );
+
+    const line = (await screen.findByText("CM A × TD 5")).closest("li");
+    expect(line?.textContent).toContain("Mon 08:30–10:00 (22151 / 23563) ×14");
+    expect(line?.textContent).toContain("2 students in both");
+
+    fireEvent.click(within(line as HTMLElement).getByText("Show them in Students"));
+    expect(onShow).toHaveBeenCalledWith(["A1", "A2"]);
+  });
+
+  it("shows the worst five and keeps the rest behind a click", async () => {
+    const pair = (label: string, students: string[]): publication.GroupClash => ({
+      groups: [
+        { id: `rdns-${label}`, scopeId: "scope-rdns", scopeCode: "RDNS", label },
+        { id: "group-5", scopeId: "scope-td", scopeCode: "TD", label: "5" },
+      ],
+      windows: [{ weekday: "Tue", start: "13:15", end: "14:45", crns: ["24000", "23563"], dates: 1 }],
+      students,
+    });
+    withClashes([pair("1", ["A1"]), ...["2", "3", "4", "5", "6", "7"].map((label) => pair(label, []))]);
+    renderCatalogue("term-1");
+
+    await screen.findByText("RDNS 1 × TD 5");
+    expect(screen.getByText("RDNS 5 × TD 5")).toBeTruthy();
+    expect(screen.queryByText("RDNS 6 × TD 5")).toBeNull();
+
+    fireEvent.click(screen.getByText("Show all 7 pairs"));
+    expect(screen.getByText("RDNS 7 × TD 5")).toBeTruthy();
+
+    fireEvent.click(screen.getByText("Show fewer"));
+    expect(screen.queryByText("RDNS 7 × TD 5")).toBeNull();
+  });
+
+  it("says nothing when the timetable finds no overlap", async () => {
+    withClashes([]);
+    renderCatalogue("term-1");
+    await screen.findByText(/1 block/);
+    expect(screen.queryByText(/at the same hour/)).toBeNull();
+  });
+});
+
 describe("students nobody has placed", () => {
   const withUnassigned = (unassigned: Record<string, string[]>) =>
     vi.spyOn(publication, "fetchPublication").mockResolvedValue({
@@ -406,6 +486,7 @@ describe("students nobody has placed", () => {
           studentsResolved: 20,
           unassigned,
           warnings: [],
+          clashes: [],
           isReady: false,
         },
       ],
@@ -432,6 +513,7 @@ describe("students nobody has placed", () => {
           studentsResolved: 20,
           unassigned,
           warnings: [],
+          clashes: [],
           isReady: false,
         },
       ],
