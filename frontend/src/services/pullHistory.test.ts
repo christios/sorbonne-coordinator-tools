@@ -8,8 +8,10 @@ import {
   historyForBackup,
   loadHistory,
   mergeHistories,
+  packHistory,
   resetSweepForTests,
   restoreHistories,
+  unpackHistory,
   recordPull,
 } from "@/services/pullHistory";
 import type { RosterRow } from "@/services/scenRosters";
@@ -353,5 +355,59 @@ describe("bringing a restored history together with this browser's", () => {
     await restoreHistories({ "view-x": { pulls: "nonsense" } as never });
 
     expect((await loadHistory("view-x")).pulls).toEqual([]);
+  });
+});
+
+/*
+ * The baseline is most of the history and most of the backup file: every field of every
+ * student, with the field names repeated once per student. Packed, the names are written
+ * once. What comes back must be exactly what went in.
+ */
+describe("packing the baseline", () => {
+  it("gives back exactly what went in", async () => {
+    await recordPull(VIEW, [row("A001"), row("A002", { PSUAD_EMAIL: "a@b.c" })], 1_000);
+    const before = await loadHistory(VIEW);
+
+    const again = unpackHistory(packHistory(before));
+
+    expect(again).toEqual(before);
+  });
+
+  it("writes each field name once for the view, not once per student", async () => {
+    const rows = Array.from({ length: 50 }, (_, i) => row(`A${i}`));
+    await recordPull(VIEW, rows, 1_000);
+
+    const packed = packHistory(await loadHistory(VIEW));
+
+    expect(JSON.stringify(packed).split("MAJOR_CODE_DESC").length - 1).toBe(1);
+    expect(JSON.stringify(packed).length).toBeLessThan(JSON.stringify(await loadHistory(VIEW)).length * 0.7);
+  });
+
+  it("restores a backup written before packing, as it was", async () => {
+    // A version 1 file: latest as a map of maps.
+    const touched = await restoreHistories({
+      "view-old": {
+        pulls: [{ id: "1000", at: 1000, count: 1, changed: {}, arrived: [], departed: [] }],
+        latest: { A001: { FULL_NAME: "Amira", MAJOR_CODE_DESC: "Maths" } },
+        present: ["A001"],
+      },
+    });
+
+    expect(touched).toBe(1);
+    expect((await loadHistory("view-old")).latest.A001).toEqual({ FULL_NAME: "Amira", MAJOR_CODE_DESC: "Maths" });
+  });
+
+  it("restores a packed backup", async () => {
+    await restoreHistories({
+      "view-new": {
+        pulls: [{ id: "1000", at: 1000, count: 1, changed: {}, arrived: [], departed: [] }],
+        present: ["A001"],
+        fields: ["FULL_NAME", "MAJOR_CODE_DESC"],
+        rows: { A001: ["Amira", null] },
+      },
+    });
+
+    // A null is a field the student does not have, not an empty value.
+    expect((await loadHistory("view-new")).latest.A001).toEqual({ FULL_NAME: "Amira" });
   });
 });

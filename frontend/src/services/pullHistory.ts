@@ -66,6 +66,75 @@ export type PullHistory = {
 
 type HistoryStore = Record<string, PullHistory>;
 
+/**
+ * A history as it is stored and written to the backup file.
+ *
+ * `latest` holds every field of every student the view has seen, and as a map of maps
+ * it repeats every field name once per student — 41% of the whole file, measured on a
+ * real one. Packed, the names are written once and each student is a row of values
+ * aligned to them, the way the rosters are kept. `pulls` and `present` are small and
+ * stay as they are, so a backup file is still readable where it matters.
+ */
+type PackedHistory = {
+  pulls: PullRecord[];
+  present: string[];
+  fields: string[];
+  /** student id -> values aligned to `fields`; a field the student lacks is null. */
+  rows: Record<string, (string | null)[]>;
+};
+
+type PackedStore = Record<string, PackedHistory>;
+
+function isPacked(history: unknown): history is PackedHistory {
+  return Boolean(history && Array.isArray((history as PackedHistory).fields) && (history as PackedHistory).rows);
+}
+
+export function packHistory(history: PullHistory): PackedHistory {
+  const fields: string[] = [];
+  const seen = new Set<string>();
+  for (const student of Object.values(history.latest)) {
+    for (const field of Object.keys(student)) {
+      if (!seen.has(field)) {
+        seen.add(field);
+        fields.push(field);
+      }
+    }
+  }
+  const rows: Record<string, (string | null)[]> = {};
+  for (const [id, student] of Object.entries(history.latest)) {
+    rows[id] = fields.map((field) => (field in student ? student[field] : null));
+  }
+  return { pulls: history.pulls, present: history.present, fields, rows };
+}
+
+export function unpackHistory(packed: PackedHistory): PullHistory {
+  const latest: Record<string, Record<string, string>> = {};
+  for (const [id, values] of Object.entries(packed.rows)) {
+    const student: Record<string, string> = {};
+    packed.fields.forEach((field, at) => {
+      const value = values[at];
+      if (value !== null && value !== undefined) student[field] = value;
+    });
+    latest[id] = student;
+  }
+  return { pulls: packed.pulls ?? [], present: packed.present ?? [], latest };
+}
+
+/** Either shape, as found: a store or file written before packing is read as it was. */
+function unpackStore(held: Record<string, PackedHistory | PullHistory>): HistoryStore {
+  const out: HistoryStore = {};
+  for (const [viewId, history] of Object.entries(held)) {
+    out[viewId] = isPacked(history) ? unpackHistory(history) : (history as PullHistory);
+  }
+  return out;
+}
+
+function packStore(store: HistoryStore): PackedStore {
+  const out: PackedStore = {};
+  for (const [viewId, history] of Object.entries(store)) out[viewId] = packHistory(history);
+  return out;
+}
+
 const EMPTY: PullHistory = { pulls: [], latest: {}, present: [] };
 
 /*
@@ -100,15 +169,15 @@ function sweep(): void {
 
 async function read(): Promise<HistoryStore> {
   sweep();
-  const held = await browser.read<HistoryStore>(KEY);
-  if (held) return held;
+  const held = await browser.read<Record<string, PackedHistory | PullHistory>>(KEY);
+  if (held) return unpackStore(held);
 
   // Carry over whatever localStorage still holds, then stop keeping two copies.
   try {
     const raw = window.localStorage.getItem(KEY);
     if (!raw) return {};
-    const old = JSON.parse(raw) as HistoryStore;
-    if (await browser.write(KEY, old)) window.localStorage.removeItem(KEY);
+    const old = unpackStore(JSON.parse(raw) as Record<string, PackedHistory | PullHistory>);
+    if (await browser.write(KEY, packStore(old))) window.localStorage.removeItem(KEY);
     return old;
   } catch {
     // Private browsing, a full disk, or something that is not ours.
@@ -146,7 +215,7 @@ export async function allLatest(): Promise<{ at: number; values: Record<string, 
 }
 
 function put(store: Record<string, PullHistory>): Promise<boolean> {
-  return browser.write(KEY, store);
+  return browser.write(KEY, packStore(store));
 }
 
 /**
@@ -233,23 +302,29 @@ export function mergeHistories(mine: PullHistory, theirs: PullHistory): PullHist
   return { pulls, latest: fresher.latest ?? {}, present: fresher.present ?? [] };
 }
 
-/** Every view's history, for writing out; and the shape a backup file carries. */
+/**
+ * Every view's history, for writing out; and the shape a backup file carries.
+ *
+ * Version 2 carries histories packed. A version 1 file, with `latest` as a map of maps,
+ * is still restored: the reader takes either shape as it finds it.
+ */
 export type HistoryBackup = {
   kind: "scen-pull-history";
-  version: 1;
+  version: 1 | 2;
   savedAt: number;
-  histories: Record<string, PullHistory>;
+  histories: Record<string, PullHistory | PackedHistory>;
 };
 
-export async function historyForBackup(): Promise<Record<string, PullHistory>> {
-  return read();
+export async function historyForBackup(): Promise<Record<string, PackedHistory>> {
+  return packStore(await read());
 }
 
 /** Put a restored file's histories in alongside what this browser holds. */
-export async function restoreHistories(histories: Record<string, PullHistory>): Promise<number> {
+export async function restoreHistories(histories: Record<string, PullHistory | PackedHistory>): Promise<number> {
   const store = await read();
   let touched = 0;
-  for (const [viewId, theirs] of Object.entries(histories)) {
+  for (const [viewId, found] of Object.entries(unpackStore(histories))) {
+    const theirs = found;
     if (!theirs || !Array.isArray(theirs.pulls)) continue;
     const mine = store[viewId] ?? EMPTY;
     const merged = mergeHistories(mine, theirs);

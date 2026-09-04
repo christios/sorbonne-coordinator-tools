@@ -128,7 +128,7 @@ export async function backUpHistory(): Promise<BackupOutcome> {
 
   const payload: HistoryBackup = {
     kind: "scen-pull-history",
-    version: 1,
+    version: 2,
     savedAt: Date.now(),
     histories: await historyForBackup(),
   };
@@ -137,7 +137,9 @@ export async function backUpHistory(): Promise<BackupOutcome> {
     // createWritable writes to a swap file and moves it into place on close, so a failure
     // part-way through leaves the previous backup rather than half of this one.
     const writable = await file.createWritable();
-    await writable.write(JSON.stringify(payload, null, 1));
+    // Not pretty-printed: on a real file the indentation alone was about a megabyte, and
+    // the file is for the tool to read back, not for a person to read.
+    await writable.write(JSON.stringify(payload));
     await writable.close();
     return { ok: true, savedAt: payload.savedAt };
   } catch {
