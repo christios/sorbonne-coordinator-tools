@@ -177,7 +177,7 @@ describe("SelectMenu", () => {
 
       expect(container.contains(menu)).toBe(false);
       expect(menu.closest("[data-select-menu-placement]")?.getAttribute("data-select-menu-placement")).toBe("top");
-      expect(menu.style.width).toBe("var(--radix-popover-trigger-width)");
+      expect(menu.style.minWidth).toBe("var(--radix-popover-trigger-width)");
     } finally {
       Object.defineProperty(window, "innerHeight", { configurable: true, value: previousInnerHeight });
     }

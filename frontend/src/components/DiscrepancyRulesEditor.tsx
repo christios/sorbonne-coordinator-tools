@@ -133,19 +133,25 @@ export function DiscrepancyRulesEditor({ open, onClose }: { open: boolean; onClo
             <li key={draft.id || `new-${index}`} className="rounded-md border border-[#d9dee7] bg-white p-3">
               <div className="flex flex-wrap items-center gap-2 text-sm text-[#344054]">
                 <span className="font-semibold">Warn when</span>
-                <SelectMenu
-                  label={`Field for rule ${index + 1}`}
-                  value={draft.field}
-                  onChange={(field) => update(index, { field, values: [] })}
-                  placeholder="a field"
-                  options={fields}
-                />
-                <SelectMenu
-                  label={`Condition for rule ${index + 1}`}
-                  value={draft.kind}
-                  onChange={(kind) => update(index, { kind: kind as RuleKind, values: [] })}
-                  options={KINDS.map(({ value, label }) => ({ value, label }))}
-                />
+                <div className="w-64 min-w-[14rem]">
+                  <SelectMenu
+                    label={`Field for rule ${index + 1}`}
+                    value={draft.field}
+                    onChange={(field) => update(index, { field, values: [] })}
+                    placeholder="a field"
+                    options={fields}
+                  />
+                </div>
+                {/* The condition, set apart from the field: one says what, the other says how. */}
+                <div className="w-60 min-w-[13rem]">
+                  <SelectMenu
+                    label={`Condition for rule ${index + 1}`}
+                    value={draft.kind}
+                    onChange={(kind) => update(index, { kind: kind as RuleKind, values: [] })}
+                    options={KINDS.map(({ value, label }) => ({ value, label }))}
+                    variant="tinted"
+                  />
+                </div>
                 <span className="ml-auto flex items-center gap-1">
                   <button
                     type="button"

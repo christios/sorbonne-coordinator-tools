@@ -43,9 +43,14 @@ type Props = {
   searchPlaceholder?: string;
   disabled?: boolean;
   required?: boolean;
+  /**
+   * "tinted" marks a control that chooses *how* rather than *what* — the condition beside a
+   * field, say — so two dropdowns side by side do not read as two of the same thing.
+   */
+  variant?: "default" | "tinted";
 };
 
-export function SelectMenu({ label, value, onChange, options, placeholder, trailing, multiple = false, itemNoun = "item", searchable = false, searchPlaceholder = "Search options", disabled = false, required = false }: Props) {
+export function SelectMenu({ label, value, onChange, options, placeholder, trailing, multiple = false, itemNoun = "item", searchable = false, searchPlaceholder = "Search options", disabled = false, required = false, variant = "default" }: Props) {
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState("");
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -128,7 +133,11 @@ export function SelectMenu({ label, value, onChange, options, placeholder, trail
         aria-expanded={isOpen}
         aria-haspopup="listbox"
         disabled={disabled}
-        className={`flex h-10 w-full items-center rounded-md border border-[#b7bec8] bg-white px-3 py-2 ${trailing ? "pr-20" : "pr-10"} text-left font-normal text-[#344054] transition-colors hover:border-[#98a2b3] hover:bg-[#f8fafc] focus:border-[#1f4e79] focus:outline-none focus:ring-2 focus:ring-[#d7e5f3] disabled:cursor-not-allowed disabled:bg-[#f7f8fa] disabled:text-[#98a2b3]`}
+        className={`flex h-10 w-full items-center rounded-md border px-3 py-2 ${trailing ? "pr-20" : "pr-10"} text-left transition-colors focus:outline-none focus:ring-2 focus:ring-[#d7e5f3] disabled:cursor-not-allowed disabled:bg-[#f7f8fa] disabled:text-[#98a2b3] ${
+          variant === "tinted"
+            ? "border-[#cfe0ee] bg-[#eef4fa] font-semibold text-[#1f4e79] hover:border-[#9fbfdc] hover:bg-[#e4eef7] focus:border-[#1f4e79]"
+            : "border-[#b7bec8] bg-white font-normal text-[#344054] hover:border-[#98a2b3] hover:bg-[#f8fafc] focus:border-[#1f4e79]"
+        }`}
       >
         <span className={`flex min-w-0 flex-1 items-center ${selected.length || value ? "" : "text-[#667085]"}`}>
           <span className="truncate">{selectedLabel}</span>
@@ -142,7 +151,7 @@ export function SelectMenu({ label, value, onChange, options, placeholder, trail
       {trailing}
       <Popover.Portal>
       {isOpen ? (
-        <Popover.Content ref={contentRef} role="listbox" aria-label={label} side={placement?.side ?? "bottom"} sideOffset={MENU_GAP} avoidCollisions={false} data-select-menu-placement={placement?.side ?? "bottom"} style={{ width: "var(--radix-popover-trigger-width)", ...(placement ? { maxHeight: placement.maxHeight } : {}) }} className="z-[100] isolate overflow-y-auto rounded-lg border border-[#d9dee7] bg-white p-1 opacity-100 shadow-lg outline-none">
+        <Popover.Content ref={contentRef} role="listbox" aria-label={label} side={placement?.side ?? "bottom"} sideOffset={MENU_GAP} avoidCollisions={false} data-select-menu-placement={placement?.side ?? "bottom"} style={{ minWidth: "var(--radix-popover-trigger-width)", maxWidth: "min(36rem, calc(100vw - 2rem))", ...(placement ? { maxHeight: placement.maxHeight } : {}) }} className="z-[100] isolate overflow-y-auto rounded-lg border border-[#d9dee7] bg-white p-1 opacity-100 shadow-lg outline-none">
           {searchable ? <input aria-label={`Search ${label}`} value={query} onChange={(event) => setQuery(event.target.value)} placeholder={searchPlaceholder} className="mb-1 h-9 w-full rounded-md border border-[#b7bec8] px-3 text-sm font-normal focus:border-[#1f4e79] focus:outline-none focus:ring-2 focus:ring-[#d7e5f3]" autoFocus /> : null}
           {visibleOptions.map((option) => (
             <button
@@ -154,7 +163,8 @@ export function SelectMenu({ label, value, onChange, options, placeholder, trail
               className={`flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm font-normal transition-colors ${selectedValues.includes(option.value) ? "bg-[#e8edf3] font-semibold text-[#1f4e79]" : "text-[#344054] hover:bg-[#f7f8fa]"}`}
             >
               {multiple ? <span aria-hidden="true" className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border ${selectedValues.includes(option.value) ? "border-[#1f4e79] bg-[#1f4e79] text-white" : "border-[#98a2b3] bg-white"}`}>{selectedValues.includes(option.value) ? "✓" : ""}</span> : null}
-              <span className="min-w-0 flex-1 truncate">{option.label}</span>
+              {/* Wrapped, never clipped: an option a coordinator cannot read is one they cannot choose. */}
+              <span className="min-w-0 flex-1 whitespace-normal break-words">{option.label}</span>
               {option.badge !== undefined ? <Badge text={option.badge} tone={option.badgeTone} /> : null}
             </button>
           ))}
