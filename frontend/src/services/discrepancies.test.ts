@@ -362,6 +362,14 @@ describe("students who belong to a cohort and are not in it", () => {
     expect(ask(NO_EXPECTATION, [belongs], [placed("A003", null, "")])).toEqual([]);
     expect(ask(L1_MATHS, [], [placed("A003", null, "")])).toEqual([]);
   });
+
+  it("does not count a student the state rules call trouble", () => {
+    const withdrawn: Rule = { id: "r12", field: "STST_CODE", kind: "is", values: ["WD"] };
+    const gone = { ...current, A003: { ...current.A003, STST_CODE: "WD" } };
+    const arrivals = arrivalsFor({ cohort: L1_MATHS, rules: [belongs, withdrawn], students: [placed("A003", null, ""), placed("A002", "c9")], current: (id) => gone[id], changes: () => [], options: PORTAL });
+
+    expect(arrivals.map((arrival) => arrival.studentId)).toEqual(["A002"]);
+  });
 });
 
 describe("a column the pull started carrying", () => {

@@ -335,7 +335,8 @@ export function unplacedWarnings(input: {
  * and the term and year level when the cohort states them. That is the student admissions
  * has just made the department's, and equally the one somebody took out of the cohort by
  * hand while nothing about them changed. When the history holds the change that brought
- * them in, the line says so; a student the portal has dropped is not listed.
+ * them in, the line says so. A student the portal has dropped, or one the cohort's state
+ * rules call trouble — withdrawn, inactive, another department — does not belong.
  */
 export type Arrival = {
   /** Holds still while the fact does, so a dismissal can point at it. */
@@ -362,11 +363,13 @@ export function arrivalsFor(input: {
   const { majors, terms, yearLevel } = input.cohort;
   const rule = input.rules.find((candidate) => candidate.kind === "belongs");
   if (!rule || !majors.length) return [];
+  const trouble = input.rules.filter((candidate) => candidate.kind === "is" || candidate.kind === "is_not");
   const out: Arrival[] = [];
   for (const student of input.students) {
     if (student.cohortId === input.cohort.id) continue;
     const now = input.current(student.studentId);
     if (!now || now[STATUS_FIELD] === "not_in_portal") continue;
+    if (trouble.some((candidate) => stateFires(candidate, valueOf(now, candidate.field, options), options))) continue;
     const major = valueOf(now, "MAJOR_CODE", options);
     if (!meansOneOf("MAJOR_CODE", majors, major, options)) continue;
     if (terms.length && !meansOneOf("TERM_CODE", terms, valueOf(now, "TERM_CODE", options), options)) continue;
