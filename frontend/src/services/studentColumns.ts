@@ -444,3 +444,8 @@ export function sortByColumn<T>(
     return (compared || SORT_COLLATOR.compare(idOf(left), idOf(right))) * direction;
   });
 }
+
+/** How a cell reads as text, for the clipboard and the search box. */
+export function plainCellText<T>(row: T, column: GridColumn<T>): string {
+  return column.display ? column.display(row) : String(column.accessor(row) ?? "");
+}

@@ -80,6 +80,13 @@ export function PortalFilterBar({
     mutationFn: async (target: PortalFilter) => {
       setPulled(null);
       const roster = await pullFilter(target.filter, { name: target.name, kind }, setPulled);
+      // An extension older than this page knows only the student grid and answers with
+      // students whatever it was asked; those must not land as courses or teachers.
+      if (roster.kind !== kind) {
+        throw new Error(
+          "The SCEN Rosters extension answered with a list of students, so it is older than this page. Load version 1.6.0 or later and reload.",
+        );
+      }
       let report: SyncReport;
       if (kind === "courses") {
         report = await syncCourses(target.id, roster.rows.map(courseRowOf).filter((row) => row.crn));

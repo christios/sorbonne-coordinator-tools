@@ -4,13 +4,14 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { ColumnMenu } from "@/components/ColumnMenu";
 import { CopyButton } from "@/components/CopyButton";
 import { CopyPresetMenu } from "@/components/CopyPresetMenu";
-import { DataTable, plainCellText, type Sort } from "@/components/DataTable";
+import { DataTable, type Sort } from "@/components/DataTable";
 import { TableFilterBar } from "@/components/TableFilterBar";
 import { copyToClipboard, tableText } from "@/services/copyCells";
 import { presetText, rowsForCopy } from "@/services/copyPresets";
 import {
   loadLayout,
   optionsFor,
+  plainCellText,
   reorderColumn,
   resizeColumn,
   saveLayout,

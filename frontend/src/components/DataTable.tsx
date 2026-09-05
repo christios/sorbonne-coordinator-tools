@@ -3,7 +3,7 @@ import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, type R
 
 import { CopyButton } from "@/components/CopyButton";
 import { columnText, rowText } from "@/services/copyCells";
-import { MIN_WIDTH, widthOf, type ColumnLayout, type GridColumn } from "@/services/studentColumns";
+import { MIN_WIDTH, plainCellText, widthOf, type ColumnLayout, type GridColumn } from "@/services/studentColumns";
 
 /** Rows mounted beyond each edge of the viewport, so a scroll has something to land on. */
 const OVERSCAN = 20;
@@ -89,11 +89,6 @@ function useFillHeight() {
 }
 
 export type Sort = { key: string; ascending: boolean };
-
-/** How a cell reads as text, for the clipboard and the search box. */
-export function plainCellText<T>(row: T, column: GridColumn<T>): string {
-  return column.display ? column.display(row) : String(column.accessor(row) ?? "");
-}
 
 export type DataTableProps<T> = {
   rows: T[];

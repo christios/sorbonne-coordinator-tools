@@ -58,6 +58,22 @@ describe("syncing a registrations filter", () => {
     expect(await screen.findByText(/1 student returned/)).toBeTruthy();
   });
 
+  it("refuses a pull an older extension answered with students", async () => {
+    vi.spyOn(rosters, "pullFilter").mockResolvedValue({
+      kind: "students", presetId: "", name: "SCEN", count: 1, expect: null, warning: null, fetchedAt: 1,
+      rows: [{ SPRIDEN_ID: "A001", FULL_NAME: "Amira Haddad" }],
+    });
+    const sync = vi.spyOn(lists, "syncRegistrations");
+    show("registrations");
+
+    const button = await screen.findByText("Seed this filter");
+    await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(button);
+
+    expect((await screen.findByRole("alert")).textContent).toMatch(/older than this page/);
+    expect(sync).not.toHaveBeenCalled();
+  });
+
   it("says so when the extension refuses", async () => {
     vi.spyOn(rosters, "pullFilter").mockRejectedValue(new rosters.PortalError("auth"));
     show("registrations");
