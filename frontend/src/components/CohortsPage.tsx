@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ArrowRightCircle, Settings2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { CohortActions } from "@/components/CohortActions";
 import { DiscrepancyRulesEditor } from "@/components/DiscrepancyRulesEditor";
 import { LabelledPicker } from "@/components/LabelledPicker";
 import { ScreenLoading } from "@/components/ScreenLoading";
@@ -245,6 +246,8 @@ export function CohortsPage({ cohorts }: { cohorts: Cohort[] }) {
             ]}
           />
         </LabelledPicker>
+        {/* The cohort's own settings — name, year, and what it expects — beside the cohort they act on. */}
+        {cohort ? <CohortActions key={cohort.id} cohort={cohort} /> : null}
 
         <button
           type="button"

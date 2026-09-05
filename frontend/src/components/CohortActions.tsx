@@ -24,7 +24,8 @@ export function CohortActions({
   onShowMembers,
 }: {
   cohort: Cohort;
-  onShowMembers: (cohort: Cohort) => void;
+  /** Left out where the members are already on screen, as on the Cohorts page. */
+  onShowMembers?: (cohort: Cohort) => void;
 }) {
   const client = useQueryClient();
   const [editing, setEditing] = useState(false);
@@ -72,15 +73,17 @@ export function CohortActions({
   return (
     <>
       <div className="flex items-center gap-1">
-        <button
-          type="button"
-          onClick={() => onShowMembers(cohort)}
-          title={`Show the ${cohort.memberCount} students in ${cohort.name}`}
-          className="inline-flex items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-2.5 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc]"
-        >
-          <Users size={15} aria-hidden="true" />
-          <span className="tabular-nums">{cohort.memberCount}</span>
-        </button>
+        {onShowMembers ? (
+          <button
+            type="button"
+            onClick={() => onShowMembers(cohort)}
+            title={`Show the ${cohort.memberCount} students in ${cohort.name}`}
+            className="inline-flex items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-2.5 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc]"
+          >
+            <Users size={15} aria-hidden="true" />
+            <span className="tabular-nums">{cohort.memberCount}</span>
+          </button>
+        ) : null}
         <button
           type="button"
           aria-label={`Edit ${cohort.name}`}
