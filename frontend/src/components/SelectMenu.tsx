@@ -58,9 +58,14 @@ type Props = {
    * field, say — so two dropdowns side by side do not read as two of the same thing.
    */
   variant?: "default" | "tinted";
+  /**
+   * False when the page shows the chosen values itself, beside the control: the trigger
+   * then only says what pressing it does, rather than repeating them.
+   */
+  showSelection?: boolean;
 };
 
-export function SelectMenu({ label, value, onChange, options, placeholder, trailing, multiple = false, itemNoun = "item", searchable = false, searchPlaceholder = "Search options", disabled = false, required = false, variant = "default" }: Props) {
+export function SelectMenu({ label, value, onChange, options, placeholder, trailing, multiple = false, itemNoun = "item", searchable = false, searchPlaceholder = "Search options", disabled = false, required = false, variant = "default", showSelection = true }: Props) {
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState("");
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -151,8 +156,8 @@ export function SelectMenu({ label, value, onChange, options, placeholder, trail
             : "border-[#b7bec8] bg-white font-normal text-[#344054] hover:border-[#98a2b3] hover:bg-[#f8fafc] focus:border-[#1f4e79]"
         }`}
       >
-        <span className={`flex min-w-0 flex-1 items-center ${selected.length || value ? "" : "text-[#667085]"}`}>
-          {multiple && selected.length ? (
+        <span className={`flex min-w-0 flex-1 items-center ${(selected.length || value) && showSelection ? "" : "text-[#667085]"}`}>
+          {multiple && selected.length && showSelection ? (
             /*
              * Each chosen value as a pill, so the control shows what it is doing at a
              * glance rather than as a sentence to read. Past a few, the rest fold into

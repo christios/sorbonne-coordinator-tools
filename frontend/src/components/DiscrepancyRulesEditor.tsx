@@ -304,6 +304,7 @@ function ValuePicker({
           multiple
           itemNoun="value"
           placeholder={chosen.length ? "Add another…" : "Choose values…"}
+          showSelection={false}
           searchable={options.length > 8}
           onChange={(next) => onChange(next.split("\n").filter(Boolean))}
           options={options.map((option) => ({
