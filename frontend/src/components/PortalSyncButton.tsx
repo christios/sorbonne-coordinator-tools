@@ -1,6 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Check, Loader2, RefreshCw, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { clearRun, getRun, isRunning, startRun, subscribe, type SyncRun, type SyncStep } from "@/services/syncRun";
 import { freshen, useSyncTargets } from "@/services/syncTargets";
@@ -45,6 +45,25 @@ export function PortalSyncButton() {
   const [run, setRun] = useState<SyncRun | null>(() => getRun());
   const [open, setOpen] = useState(false);
   const { targets, ready } = useSyncTargets();
+  const box = useRef<HTMLDivElement>(null);
+
+  // Anywhere else puts the report away — it is a report, not a dialog, and nothing in the
+  // page below it should have to wait for a close button to be found.
+  useEffect(() => {
+    if (!open) return;
+    const away = (event: MouseEvent) => {
+      if (!box.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", away);
+    document.addEventListener("keydown", escape);
+    return () => {
+      document.removeEventListener("mousedown", away);
+      document.removeEventListener("keydown", escape);
+    };
+  }, [open]);
 
   useEffect(() => subscribe(setRun), []);
 
@@ -75,20 +94,20 @@ export function PortalSyncButton() {
 
 
   return (
-    <div className="relative">
-      <div className="flex items-center gap-1">
+    <div className="relative" ref={box}>
+      <div className="flex items-center">
         <button
           type="button"
           onClick={() => {
+            // While a run is going the button is how you look at it; only an idle one
+            // starts another. Either way the report opens, rather than being gone looking for.
             if (running || !ready) return setOpen((was) => !was);
-            // Opened as it starts: pressing sync should show the run, not leave the
-            // coordinator to go looking for it.
             setOpen(true);
             void startRun(targets, () => freshen(client));
           }}
           disabled={!ready && !running}
           title={ready ? "Ask the registrar portal for every list" : "Nothing to sync yet: no views or portal filters"}
-          className="inline-flex min-w-0 items-center gap-2 rounded-md border border-[#d9dee7] bg-white px-3 py-2 text-sm font-semibold text-[#1f4e79] shadow-sm hover:bg-[#f2f7fb] disabled:opacity-50"
+          className="inline-flex items-center gap-2 rounded-md border border-[#d9dee7] bg-white px-3 py-2 text-sm font-semibold text-[#1f4e79] shadow-sm hover:bg-[#f2f7fb] disabled:opacity-50"
         >
           {running ? (
             <Loader2 size={15} className="shrink-0 animate-spin" aria-hidden="true" />
@@ -98,29 +117,25 @@ export function PortalSyncButton() {
             <RefreshCw size={15} className="shrink-0" aria-hidden="true" />
           )}
           {/*
-            * The clock is on the button, not only in the panel behind it.
+            * The clock is on the button, not only in the panel behind it: the students are
+            * two thousand rows in one request, so the count sits on "1 of 6" for minutes
+            * and a number that moves is the difference between waiting and worrying.
             *
-            * The students are two thousand rows in one request and take minutes, so the
-            * count sat on "1 of 6" long enough to read as a hang. A number that moves
-            * every second is the difference between waiting and worrying.
+            * It has a slot of its own — fixed width, lining figures — because a button
+            * that changes size every second as the digits change is worse than no clock.
             */}
-          <span className="truncate">
-            {running
-              ? `Syncing ${Math.min(settled + 1, steps.length)} of ${steps.length}${current?.startedAt ? ` · ${since(current.startedAt, now)}` : "…"}`
-              : "Portal sync"}
-          </span>
+          {running ? (
+            <span className="flex items-center gap-1.5">
+              <span>{`Syncing ${Math.min(settled + 1, steps.length)} of ${steps.length}`}</span>
+              <span className="w-[3.75rem] text-right font-normal tabular-nums text-[#667085]">
+                {current?.startedAt ? since(current.startedAt, now) : ""}
+              </span>
+            </span>
+          ) : (
+            <span>Portal sync</span>
+          )}
         </button>
 
-        {steps.length ? (
-          <button
-            type="button"
-            aria-label="What the last portal sync did"
-            onClick={() => setOpen((was) => !was)}
-            className="shrink-0 rounded-md border border-[#d9dee7] bg-white px-1.5 py-2 text-xs text-[#667085] shadow-sm hover:bg-[#f2f7fb]"
-          >
-            {open ? "▴" : "▾"}
-          </button>
-        ) : null}
       </div>
 
       {/* Under the button and against the right edge, which is where the header ends. */}

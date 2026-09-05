@@ -28,22 +28,29 @@ import { fetchTimetableStatus } from "@/services/timetables";
 // the Student Hub shows them. They belong together because they are the same job —
 // the CRNs a cohort is taught in are the CRNs its timetable is built from.
 const PAGES = [
-  { id: "students", name: "Students", icon: Users, group: "Students" },
+  /*
+   * Registrar validation: every page here holds what the department believes against what
+   * the registrar's portal says — the students, the cohorts they were put in, the courses
+   * they are registered in, and the staff teaching them.
+   */
+  { id: "students", name: "Students", icon: Users, group: "Registrar validation" },
   // Directly under Students, as its sub-tab: the pane draws a child beneath its parent.
-  { id: "cohorts", name: "Cohorts", icon: ListChecks, group: "Students", parent: "students" },
+  { id: "cohorts", name: "Cohorts", icon: ListChecks, group: "Registrar validation", parent: "students" },
   // The other half of the Cohorts check: whether the registrar registered each student in
   // the sections we placed them in.
-  { id: "registrations", name: "Course Registration", icon: ClipboardList, group: "Students", parent: "students" },
-  { id: "groups", name: "Groups & CRNs", icon: ListTree, group: "Students" },
-  // How full every group is: the Capacity sheet the workbooks carried, kept live.
-  { id: "capacity", name: "Capacity", icon: GaugeCircle, group: "Students", parent: "groups" },
-  { id: "courses", name: "Courses", icon: BookOpen, group: "Students" },
+  { id: "registrations", name: "Course Registration", icon: ClipboardList, group: "Registrar validation", parent: "students" },
+  { id: "courses", name: "Courses", icon: BookOpen, group: "Registrar validation" },
   // The department's own list, chosen from the portal's, where a course gets its UE and parent CRN.
-  { id: "active-courses", name: "Active courses", icon: BookMarked, group: "Students", parent: "courses" },
-  { id: "teachers", name: "Teachers", icon: GraduationCap, group: "Students" },
+  { id: "active-courses", name: "Active courses", icon: BookMarked, group: "Registrar validation", parent: "courses" },
+  { id: "teachers", name: "Teachers", icon: GraduationCap, group: "Registrar validation" },
   // The department's own list, chosen from the portal's or brought from the part-time database.
-  { id: "active-teachers", name: "Active teachers", icon: UserCheck, group: "Students", parent: "teachers" },
+  { id: "active-teachers", name: "Active teachers", icon: UserCheck, group: "Registrar validation", parent: "teachers" },
   { id: "semesters", name: "Semesters", icon: CalendarDays, group: "Timetables" },
+  // The timetable request itself: the sections a semester is taught in, and how full they
+  // are. It is what the semester above it publishes, not a check against the registrar.
+  { id: "groups", name: "Groups & CRNs", icon: ListTree, group: "Timetables" },
+  // How full every group is: the Capacity sheet the workbooks carried, kept live.
+  { id: "capacity", name: "Capacity", icon: GaugeCircle, group: "Timetables", parent: "groups" },
   { id: "announcements", name: "Announcements", icon: Megaphone, group: "Timetables" },
 ] as const;
 

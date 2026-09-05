@@ -146,6 +146,20 @@ export function App() {
         <div data-testid="app-header" className={`mx-auto flex max-w-[98rem] flex-col items-start gap-3 px-4 transition-[padding,gap] duration-200 sm:px-6 lg:flex-row lg:items-center lg:justify-between lg:px-8 ${compactSyllabusHeader ? "py-2" : "py-5"}`}>
           <div className="flex items-center gap-3.5">
             {/*
+              * The way back stands before everything, against the edge of the screen —
+              * the negative margin cancels the header's own padding, and the flat left
+              * side says it is anchored there rather than floating near it.
+              */}
+            {activeTool ? (
+              <button
+                type="button"
+                onClick={showAllApps}
+                className="-ml-4 mr-1 inline-flex items-center gap-2 rounded-md rounded-l-none border border-l-0 border-[#d9dee7] bg-white px-3 py-2 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb] sm:-ml-6 lg:-ml-8"
+              >
+                <span aria-hidden="true">←</span> All apps
+              </button>
+            ) : null}
+            {/*
               * The SCEN mark stands beside the university's name, never merged into it:
               * they are two identities, and the guidance is explicit that the Sorbonne
               * lockup keeps its own weight. The mark folds away with the rest of the
@@ -162,15 +176,6 @@ export function App() {
             </div>
           </div>
           <div className="flex items-center gap-3">
-            {activeTool ? (
-              <button
-                type="button"
-                onClick={showAllApps}
-                className="inline-flex items-center gap-2 rounded-md border border-[#d9dee7] bg-white px-3 py-2 text-sm font-semibold text-[#1f4e79] shadow-sm hover:bg-[#f2f7fb]"
-              >
-                <span aria-hidden="true">←</span> All apps
-              </button>
-            ) : null}
             {/*
               * Portal sync belongs to the student pages, and stays in sight anywhere while
               * a run it started is still going, so its report can be read wherever the

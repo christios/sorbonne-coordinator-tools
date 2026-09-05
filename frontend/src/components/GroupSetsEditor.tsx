@@ -36,6 +36,8 @@ const KINDS: { value: ScopeKind; label: string }[] = [
  * rather than on a card because a set spans courses. The cards read it; a section is
  * one group of a set holding one course.
  */
+const pickerLabel = "mb-1 text-xs font-semibold uppercase tracking-wide text-[#667085]";
+
 export function GroupSetsEditor({
   open,
   cohorts,
@@ -99,9 +101,17 @@ export function GroupSetsEditor({
 
   return (
     <Modal open={open} size="wide" title="Group sets" description="How a cohort's students are split for a semester. A set spans the courses whose sections share its numbering; a section is one group holding one course." onClose={onClose}>
+      {/* The semester first: a set belongs to one, and which cohort's sets you are looking
+          at only means anything once the semester is settled. */}
       <div className="mb-4 grid gap-3 sm:grid-cols-2">
-        <SelectMenu label="Cohort" value={cohortId} onChange={setCohortId} options={cohorts.map((cohort) => ({ value: cohort.id, label: cohort.name }))} />
-        <SelectMenu label="Semester" value={termId} onChange={setTermId} placeholder="Choose a semester" options={terms.map((term) => ({ value: term.id, label: term.name }))} />
+        <div>
+          <p className={pickerLabel}>Semester</p>
+          <SelectMenu label="Semester" value={termId} onChange={setTermId} placeholder="Choose a semester" options={terms.map((term) => ({ value: term.id, label: term.name }))} />
+        </div>
+        <div>
+          <p className={pickerLabel}>Cohort</p>
+          <SelectMenu label="Cohort" value={cohortId} onChange={setCohortId} options={cohorts.map((cohort) => ({ value: cohort.id, label: cohort.name }))} />
+        </div>
       </div>
       {error ? <p role="alert" className="mb-3 text-sm text-[#a6292f]">{error}</p> : null}
 
