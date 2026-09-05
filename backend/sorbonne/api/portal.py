@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 
 from sorbonne.api.timetables import require_client
 from sorbonne.config import config
-from sorbonne.services.portal_lists import KINDS, PortalListStore, TeacherNotFound, UnknownKind
+from sorbonne.services.portal_lists import KINDS, ActiveTeacherNotFound, PortalListStore, UnknownKind
 from sorbonne.services.student_database import (
     CohortNotFound,
     DuplicateFilterName,
@@ -103,8 +103,17 @@ class RegistrationsSyncInput(BaseModel):
     rows: list[RegistrationRow] = Field(default_factory=list, max_length=MAX_ROWS)
 
 
-class TeacherLinkInput(BaseModel):
-    partTimeTeacherId: str = Field(default="", max_length=80)
+class PartTimeRef(BaseModel):
+    """A record of the part-time teacher database, as much of it as an active teacher keeps."""
+
+    id: str = Field(min_length=1, max_length=80)
+    fullName: str = Field(default="", max_length=200)
+    email: str = Field(default="", max_length=320)
+
+
+class ActiveTeachersInput(BaseModel):
+    portalTeacherIds: list[str] = Field(default_factory=list, max_length=2000)
+    partTime: list[PartTimeRef] = Field(default_factory=list, max_length=2000)
 
 
 class TermLinkInput(BaseModel):
@@ -223,14 +232,29 @@ async def list_teachers(filter: str = "", store: PortalListStore = Depends(get_s
     return {"teachers": store.list_teachers(filter)}
 
 
-@router.put("/teachers/{teacher_id}/link")
-async def link_teacher(
-    teacher_id: str, body: TeacherLinkInput, store: PortalListStore = Depends(get_store)
-) -> dict[str, Any]:
+@router.get("/active-teachers")
+async def list_active_teachers(store: PortalListStore = Depends(get_store)) -> dict[str, Any]:
+    return {"teachers": store.list_active_teachers()}
+
+
+@router.post("/active-teachers")
+async def add_active_teachers(
+    body: ActiveTeachersInput, request: Request, store: PortalListStore = Depends(get_store)
+) -> dict[str, int]:
+    """Choose teachers from the portal's list, or bring them from the part-time database."""
+    return store.add_active_teachers(
+        portal_teacher_ids=body.portalTeacherIds,
+        part_time=[record.model_dump() for record in body.partTime],
+        actor=_actor(request),
+    )
+
+
+@router.delete("/active-teachers/{active_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_active_teacher(active_id: str, store: PortalListStore = Depends(get_store)) -> None:
     try:
-        return store.link_teacher(teacher_id, body.partTimeTeacherId)
-    except TeacherNotFound as exc:
-        raise _missing("teacher") from exc
+        store.remove_active_teacher(active_id)
+    except ActiveTeacherNotFound as exc:
+        raise _missing("active teacher") from exc
 
 
 @router.get("/students/{student_id}/registrations")

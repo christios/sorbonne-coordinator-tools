@@ -36,6 +36,7 @@ def empty_tables() -> None:
             "portal_filters",
             "portal_courses",
             "portal_teachers",
+            "active_teachers",
             "student_registrations",
             "term_links",
             "students",
@@ -131,7 +132,7 @@ def test_a_courses_pull_cannot_land_on_a_teachers_filter(client: TestClient):
 # ------------------------------------------------------------------- teachers
 
 
-def test_teachers_are_kept_without_personal_fields_and_can_be_matched(client: TestClient):
+def test_teachers_are_kept_without_personal_fields(client: TestClient):
     made = make_filter(client, "teachers")
     rows = [
         {
@@ -148,12 +149,72 @@ def test_teachers_are_kept_without_personal_fields_and_can_be_matched(client: Te
     assert teacher["teacherId"] == "A00015756"
     assert "persEmail" not in teacher and "x@gmail.com" not in str(teacher)
 
-    linked = client.put(f"{BASE}/teachers/A00015756/link", json={"partTimeTeacherId": "pt-42"}).json()
-    assert linked["partTimeTeacherId"] == "pt-42"
-    assert (
-        client.put(f"{BASE}/teachers/nobody/link", json={"partTimeTeacherId": "pt-42"}).status_code
-        == status.HTTP_404_NOT_FOUND
+
+# ------------------------------------------------------------ active teachers
+
+
+def seed_teachers(client: TestClient) -> None:
+    made = make_filter(client, "teachers")
+    client.post(
+        f"{BASE}/filters/{made['id']}/sync/teachers",
+        json={
+            "rows": [
+                {
+                    "teacherId": "A001",
+                    "fullName": "Ahlem Trabelsi",
+                    "type": "Part-Time",
+                    "psuadEmail": "ahlem@sorbonne.ae",
+                },
+                {"teacherId": "A002", "fullName": "Bilal Maaz", "type": "Full Time", "psuadEmail": "bilal@sorbonne.ae"},
+            ]
+        },
     )
+
+
+def test_active_teachers_are_chosen_from_the_portal_and_carry_its_facts(client: TestClient):
+    seed_teachers(client)
+
+    report = client.post(f"{BASE}/active-teachers", json={"portalTeacherIds": ["a001", "A999"]}).json()
+
+    assert report == {"added": 1, "linked": 0, "skipped": 1}
+    [active] = client.get(f"{BASE}/active-teachers").json()["teachers"]
+    assert active["fullName"] == "Ahlem Trabelsi"
+    assert active["type"] == "Part-Time"
+    assert active["source"] == "portal"
+    # Choosing them again is not a second row.
+    assert client.post(f"{BASE}/active-teachers", json={"portalTeacherIds": ["A001"]}).json()["skipped"] == 1
+
+
+def test_a_part_time_record_with_the_same_email_is_the_same_person(client: TestClient):
+    seed_teachers(client)
+    client.post(f"{BASE}/active-teachers", json={"portalTeacherIds": ["A001"]})
+
+    report = client.post(
+        f"{BASE}/active-teachers",
+        json={
+            "partTime": [
+                {"id": "pt-1", "fullName": "Ahlem Trabelsi", "email": "AHLEM@sorbonne.ae"},
+                {"id": "pt-2", "fullName": "Carla Nasr", "email": "carla@example.org"},
+            ]
+        },
+    ).json()
+
+    assert report == {"added": 1, "linked": 1, "skipped": 0}
+    held = {row["fullName"]: row for row in client.get(f"{BASE}/active-teachers").json()["teachers"]}
+    assert held["Ahlem Trabelsi"]["source"] == "both"
+    assert held["Ahlem Trabelsi"]["partTimeTeacherId"] == "pt-1"
+    assert held["Carla Nasr"]["source"] == "part-time"
+    assert held["Carla Nasr"]["type"] == ""
+
+
+def test_an_active_teacher_can_be_removed(client: TestClient):
+    seed_teachers(client)
+    client.post(f"{BASE}/active-teachers", json={"portalTeacherIds": ["A002"]})
+    [active] = client.get(f"{BASE}/active-teachers").json()["teachers"]
+
+    assert client.delete(f"{BASE}/active-teachers/{active['id']}").status_code == status.HTTP_204_NO_CONTENT
+    assert client.get(f"{BASE}/active-teachers").json() == {"teachers": []}
+    assert client.delete(f"{BASE}/active-teachers/{active['id']}").status_code == status.HTTP_404_NOT_FOUND
 
 
 # -------------------------------------------------------------- registrations

@@ -42,7 +42,7 @@ class UnknownKind(Exception):
     pass
 
 
-class TeacherNotFound(Exception):
+class ActiveTeacherNotFound(Exception):
     pass
 
 
@@ -399,22 +399,6 @@ class PortalListStore:
             )
         return [_teacher(row) for row in rows]
 
-    def link_teacher(self, teacher_id: str, part_time_teacher_id: str) -> dict[str, Any]:
-        """Say which record in the part-time teacher database this teacher is. Empty unlinks."""
-        with self.engine.begin() as connection:
-            updated = connection.execute(
-                text("UPDATE portal_teachers SET part_time_teacher_id = :p WHERE teacher_id = :t"),
-                {"p": _text(part_time_teacher_id), "t": teacher_id},
-            ).rowcount
-            if updated == 0:
-                raise TeacherNotFound(teacher_id)
-            row = (
-                connection.execute(text("SELECT * FROM portal_teachers WHERE teacher_id = :t"), {"t": teacher_id})
-                .mappings()
-                .first()
-            )
-        return _teacher(row)
-
     # ------------------------------------------------------------ registrations
 
     def sync_registrations(self, filter_id: str, term_code: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
@@ -559,6 +543,127 @@ class PortalListStore:
                     {"t": term_code},
                 )
             }
+
+    # ---------------------------------------------------------- active teachers
+
+    def list_active_teachers(self) -> list[dict[str, Any]]:
+        """The department's own list, with what the portal knows about each when it is there."""
+        with self.engine.connect() as connection:
+            rows = (
+                connection.execute(
+                    text("""SELECT a.*, p.teacher_status, p.category, p.type, p.last_term, p.department,
+                                   p.rank, p.courses, p.institution, p.status AS portal_status,
+                                   coalesce(nullif(a.full_name, ''), p.full_name, '') AS shown_name,
+                                   coalesce(nullif(a.email, ''), p.psuad_email, '') AS shown_email
+                            FROM active_teachers a
+                            LEFT JOIN portal_teachers p ON p.teacher_id = a.portal_teacher_id
+                            ORDER BY shown_name, a.id""")
+                )
+                .mappings()
+                .all()
+            )
+        return [_active(row) for row in rows]
+
+    def add_active_teachers(
+        self,
+        *,
+        portal_teacher_ids: list[str],
+        part_time: list[dict[str, str]],
+        actor: str = "",
+    ) -> dict[str, int]:
+        """Choose teachers from the portal, or bring them from the part-time database.
+
+        One person, one row: a portal teacher whose university e-mail is already on an
+        active record from the part-time side is joined to it rather than listed twice,
+        and the other way round. A portal id the portal list does not hold is skipped.
+        """
+        now = _now()
+        added = linked = skipped = 0
+        with self.engine.begin() as connection:
+            held = connection.execute(text("SELECT * FROM active_teachers")).mappings().all()
+            by_portal = {row["portal_teacher_id"]: row for row in held if row["portal_teacher_id"]}
+            by_part_time = {row["part_time_teacher_id"]: row for row in held if row["part_time_teacher_id"]}
+            by_email = {row["email"].casefold(): row for row in held if row["email"]}
+
+            for raw in portal_teacher_ids:
+                teacher_id = _text(raw).upper()
+                if not teacher_id or teacher_id in by_portal:
+                    skipped += 1
+                    continue
+                portal = (
+                    connection.execute(
+                        text("SELECT full_name, psuad_email FROM portal_teachers WHERE teacher_id = :t"),
+                        {"t": teacher_id},
+                    )
+                    .mappings()
+                    .first()
+                )
+                if portal is None:
+                    skipped += 1
+                    continue
+                email = _text(portal["psuad_email"])
+                same = by_email.get(email.casefold()) if email else None
+                if same is not None and not same["portal_teacher_id"]:
+                    connection.execute(
+                        text("UPDATE active_teachers SET portal_teacher_id = :t WHERE id = :id"),
+                        {"t": teacher_id, "id": same["id"]},
+                    )
+                    linked += 1
+                    continue
+                connection.execute(
+                    text("""INSERT INTO active_teachers
+                                (id, portal_teacher_id, part_time_teacher_id, full_name, email, added_at, added_by)
+                            VALUES (:id, :t, '', :name, :email, :now, :actor)"""),
+                    {
+                        "id": str(uuid4()),
+                        "t": teacher_id,
+                        "name": _text(portal["full_name"]),
+                        "email": email,
+                        "now": now,
+                        "actor": _text(actor),
+                    },
+                )
+                by_portal[teacher_id] = {"portal_teacher_id": teacher_id}
+                if email:
+                    by_email[email.casefold()] = {"id": "", "portal_teacher_id": teacher_id, "part_time_teacher_id": ""}
+                added += 1
+
+            for record in part_time:
+                part_time_id = _text(record.get("id"))
+                if not part_time_id or part_time_id in by_part_time:
+                    skipped += 1
+                    continue
+                email = _text(record.get("email"))
+                same = by_email.get(email.casefold()) if email else None
+                if same is not None and same.get("id") and not same["part_time_teacher_id"]:
+                    connection.execute(
+                        text("UPDATE active_teachers SET part_time_teacher_id = :p WHERE id = :id"),
+                        {"p": part_time_id, "id": same["id"]},
+                    )
+                    linked += 1
+                    continue
+                connection.execute(
+                    text("""INSERT INTO active_teachers
+                                (id, portal_teacher_id, part_time_teacher_id, full_name, email, added_at, added_by)
+                            VALUES (:id, '', :p, :name, :email, :now, :actor)"""),
+                    {
+                        "id": str(uuid4()),
+                        "p": part_time_id,
+                        "name": _text(record.get("fullName")),
+                        "email": email,
+                        "now": now,
+                        "actor": _text(actor),
+                    },
+                )
+                by_part_time[part_time_id] = {"part_time_teacher_id": part_time_id}
+                added += 1
+        return {"added": added, "linked": linked, "skipped": skipped}
+
+    def remove_active_teacher(self, active_id: str) -> None:
+        with self.engine.begin() as connection:
+            removed = connection.execute(text("DELETE FROM active_teachers WHERE id = :id"), {"id": active_id}).rowcount
+        if removed == 0:
+            raise ActiveTeacherNotFound(active_id)
 
     # --------------------------------------------------------------- term links
 
@@ -719,8 +824,36 @@ def _teacher(row: Any) -> dict[str, Any]:
         "courses": row["courses"],
         "institution": row["institution"],
         "psuadEmail": row["psuad_email"],
-        "partTimeTeacherId": row["part_time_teacher_id"],
         "status": row["status"],
         "firstSeenAt": row["first_seen_at"],
         "lastSeenAt": row["last_seen_at"],
+    }
+
+
+def _active(row: Any) -> dict[str, Any]:
+    source = (
+        "both"
+        if row["portal_teacher_id"] and row["part_time_teacher_id"]
+        else "portal"
+        if row["portal_teacher_id"]
+        else "part-time"
+    )
+    return {
+        "id": row["id"],
+        "portalTeacherId": row["portal_teacher_id"],
+        "partTimeTeacherId": row["part_time_teacher_id"],
+        "fullName": row["shown_name"],
+        "email": row["shown_email"],
+        "source": source,
+        "addedAt": row["added_at"],
+        "addedBy": row["added_by"],
+        "teacherStatus": row["teacher_status"] or "",
+        "category": row["category"] or "",
+        "type": row["type"] or "",
+        "lastTerm": row["last_term"] or "",
+        "department": row["department"] or "",
+        "rank": row["rank"] or "",
+        "courses": row["courses"] or "",
+        "institution": row["institution"] or "",
+        "portalStatus": row["portal_status"] or "",
     }
