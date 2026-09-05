@@ -90,8 +90,8 @@ export type CatalogueGroup = {
   crns: Record<string, Section>;
 };
 
-/** How a group set relates to its courses: numbered across them, its own, or inside another. */
-export type ScopeKind = "shared" | "independent" | "nested";
+/** A group set is plain — numbered across whatever courses it carries — or nested inside another. */
+export type ScopeKind = "shared" | "nested";
 
 /** A block of components taught in parallel groups — Foundation Year TD, Languages A1. */
 export type CatalogueScope = {

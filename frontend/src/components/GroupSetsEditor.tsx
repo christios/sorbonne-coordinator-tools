@@ -24,8 +24,7 @@ import type { ActiveCourse } from "@/services/portalLists";
 import type { TimetableTerm } from "@/services/timetables";
 
 const KINDS: { value: ScopeKind; label: string }[] = [
-  { value: "shared", label: "Shared numbering across its courses" },
-  { value: "independent", label: "Its own numbering" },
+  { value: "shared", label: "Its own groups, numbered across its courses" },
   { value: "nested", label: "Nested inside another set" },
 ];
 

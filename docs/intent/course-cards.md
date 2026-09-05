@@ -56,3 +56,7 @@ Revised 5 September 2026.
   hours, sessions, duration, weeks, students, and what is asked of the timetable in one
   line — and a dialog edits a row. The Degree column of the workbook is the cohort's
   majors.
+
+- **Two kinds of set, not three** (5 September 2026): a set is plain — its groups numbered
+  across whatever courses it carries, one or many — or nested inside another. "Its own
+  numbering" was a plain set with one course; nothing behaved differently, so it went.

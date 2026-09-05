@@ -25,7 +25,10 @@ from sqlalchemy import Connection, Engine, create_engine, text
 from sqlalchemy.exc import IntegrityError
 
 
-SCOPE_KINDS = ("shared", "independent", "nested")
+# A set is plain — its groups numbered across whatever courses it carries, one or many —
+# or nested inside another set. "Independent" was a third word for a plain set with one
+# course; nothing behaved differently, so it is read as plain.
+SCOPE_KINDS = ("shared", "nested")
 
 SECTION_FIELDS = (
     "teacher_id",

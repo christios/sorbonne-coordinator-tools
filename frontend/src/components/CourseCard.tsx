@@ -11,7 +11,7 @@ import type { CrnVerdict, GroupClash } from "@/services/publication";
 import { verdictFor } from "@/services/publicationView";
 import { EMPTY_SECTION, setGroupCrn, updateSection, type Cohort, type Section } from "@/services/studentDatabase";
 
-const KIND_WORD = { shared: "shared numbering", independent: "own numbering", nested: "nested" } as const;
+const KIND_WORD = { shared: "own groups", nested: "nested" } as const;
 
 /**
  * One course, and under it every section anybody teaches of it.

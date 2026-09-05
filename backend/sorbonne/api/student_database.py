@@ -113,7 +113,7 @@ class ScopeInput(BaseModel):
     # Which semester the block belongs to. Blank means "not said yet", which is what the
     # rows migrated from before blocks had semesters carry.
     term_id: str = Field(default="", alias="termId", max_length=80)
-    # shared across its courses, independent, or nested inside another set.
+    # shared across its courses, or nested inside another set.
     kind: str = Field(default="shared", max_length=20)
     parent_scope_id: str = Field(default="", alias="parentScopeId", max_length=80)
 
