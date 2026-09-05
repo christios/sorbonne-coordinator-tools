@@ -327,6 +327,41 @@ def test_the_register_says_which_crns_are_parents_and_which_are_children(client:
     assert (after["22152"]["childCount"], after["22152"]["parentCrn"]) == (0, "24226")
 
 
+def test_a_parent_cannot_have_a_parent_and_a_child_cannot_be_one(client: TestClient):
+    made = make_filter(client, "courses")
+    client.post(
+        f"{BASE}/filters/{made['id']}/sync/courses",
+        json={
+            "rows": [
+                course("22151", "MATH-001"),
+                course("22152", "MATH-001", teacher="Dr Haddad"),
+                {**course("24226", "MATH-001", teacher=""), "title": "Pre Calculus 1", "registered": 0},
+            ]
+        },
+    )
+    client.post(f"{BASE}/active-courses", json={"courseCodes": ["MATH-001"]})
+    register = {row["crn"]: row for row in client.get(f"{BASE}/active-crns").json()["crns"]}
+    client.patch(f"{BASE}/active-crns/{register['22151']['id']}", json={"parentCrn": "24226"})
+
+    # The register is two deep: the top of the course cannot hang from one of its sections…
+    refused = client.patch(f"{BASE}/active-crns/{register['24226']['id']}", json={"parentCrn": "22152"})
+    assert refused.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    assert "parent of 1" in refused.json()["detail"]
+
+    # …and nothing may hang from a section that already hangs from something.
+    chained = client.patch(f"{BASE}/active-crns/{register['22152']['id']}", json={"parentCrn": "22151"})
+    assert chained.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    assert "hangs from 24226 itself" in chained.json()["detail"]
+
+    itself = client.patch(f"{BASE}/active-crns/{register['22152']['id']}", json={"parentCrn": "22152"})
+    assert itself.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
+    # Clearing a parent is always allowed, which is how a mistake is undone.
+    cleared = client.patch(f"{BASE}/active-crns/{register['22151']['id']}", json={"parentCrn": ""})
+    assert cleared.status_code == status.HTTP_200_OK
+    assert cleared.json()["parentCrn"] == ""
+
+
 def test_the_register_says_where_the_portal_has_moved_away_from_it(client: TestClient):
     made = make_filter(client, "courses")
     sync = lambda rows: client.post(f"{BASE}/filters/{made['id']}/sync/courses", json={"rows": rows})  # noqa: E731

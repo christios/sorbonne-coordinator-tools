@@ -47,6 +47,10 @@ class ActiveCourseNotFound(Exception):
     """An active course id nothing holds any more."""
 
 
+class InvalidParent(ValueError):
+    """A parent CRN that would make nonsense of the register, and why."""
+
+
 class ActiveTeacherNotFound(Exception):
     pass
 
@@ -764,14 +768,47 @@ class PortalListStore:
         return {"added": added, "skipped": skipped}
 
     def update_active_crn(self, crn_id: str, *, parent_crn: str) -> dict[str, Any]:
-        """What this section hangs from. The one thing about a CRN that is ours to say."""
+        """What this section hangs from. The one thing about a CRN that is ours to say.
+
+        The register is two deep and no deeper: a CRN the sections hang from is the top of
+        its course, so it cannot hang from anything itself, and nothing may hang from a
+        section. Refused here rather than only in the picker, because the register is what
+        the timetable workbook's Parent CRN column is written from.
+        """
+        parent = _text(parent_crn)
         with self.engine.begin() as connection:
-            updated = connection.execute(
+            held = (
+                connection.execute(
+                    text("SELECT term_code, crn FROM active_course_crns WHERE id = :id"), {"id": crn_id}
+                )
+                .mappings()
+                .first()
+            )
+            if held is None:
+                raise ActiveCourseNotFound(crn_id)
+            if parent:
+                if parent == held["crn"]:
+                    raise InvalidParent("A CRN cannot hang from itself.")
+                children = connection.execute(
+                    text("""SELECT count(*) FROM active_course_crns
+                            WHERE term_code = :term AND parent_crn = :crn"""),
+                    {"term": held["term_code"], "crn": held["crn"]},
+                ).scalar()
+                if children:
+                    raise InvalidParent(
+                        f"{held['crn']} is the parent of {children} CRN(s), and a parent cannot have one."
+                    )
+                above = connection.execute(
+                    text("""SELECT parent_crn FROM active_course_crns
+                            WHERE term_code = :term AND crn = :crn"""),
+                    {"term": held["term_code"], "crn": parent},
+                ).scalar()
+                if _text(above):
+                    raise InvalidParent(f"{parent} hangs from {_text(above)} itself, so nothing may hang from it.")
+            connection.execute(
                 text("UPDATE active_course_crns SET parent_crn = :parent WHERE id = :id"),
-                {"id": crn_id, "parent": _text(parent_crn)},
-            ).rowcount
-        if updated == 0:
-            raise ActiveCourseNotFound(crn_id)
+                {"id": crn_id, "parent": parent},
+            )
         return next(row for row in self.list_active_crns() if row["id"] == crn_id)
 
     def remove_active_crn(self, crn_id: str) -> None:

@@ -19,6 +19,7 @@ from sorbonne.services.portal_lists import (
     KINDS,
     ActiveCourseNotFound,
     ActiveTeacherNotFound,
+    InvalidParent,
     PortalListStore,
     UnknownKind,
 )
@@ -355,6 +356,8 @@ async def update_active_crn(
         return store.update_active_crn(crn_id, parent_crn=body.parentCrn)
     except ActiveCourseNotFound as exc:
         raise _missing("registered CRN") from exc
+    except InvalidParent as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 
 
 @router.delete("/active-crns/{crn_id}", status_code=status.HTTP_204_NO_CONTENT)

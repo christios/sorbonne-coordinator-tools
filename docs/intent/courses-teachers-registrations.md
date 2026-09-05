@@ -55,6 +55,10 @@ Revised 5 September 2026 — Courses is a register of CRNs.
 - **How a CRN gets in:** choosing a course on the portal's Courses page takes in every CRN
   the portal lists for it at that moment. The ones the registrar makes later are flagged,
   not taken in silently; a banner takes them in on request.
+- **The register is two deep and no deeper.** A CRN the sections hang from is the top of
+  its course and has no parent itself; nothing may hang from a section that already hangs
+  from something; nothing hangs from itself. Refused by the server, not only by the
+  picker, since the workbook's Parent CRN column is written from this.
 - **Parent CRN is per CRN**, chosen from that course's own CRNs. The portal makes one row
   per course that the sections hang from — plain title, no teacher, nobody registered —
   and that CRN is the workbook's Parent CRN, so it is offered as the suggestion. It is

@@ -29,11 +29,8 @@ const COLUMNS: GridColumn<ActiveCrn>[] = [
   {
     id: "role",
     displayName: "Role",
-    // Both at once is possible — a CRN can hang from one and be hung from by another —
-    // so it filters as "include any of" rather than as one word.
-    type: "multiOption",
-    accessor: (row) => rolesOf(row),
-    display: (row) => rolesOf(row).join(" · ") || "On its own",
+    type: "option",
+    accessor: (row) => rolesOf(row)[0] ?? "On its own",
     defaultWidth: 130,
   },
   { id: "ue", displayName: "UE", type: "option", accessor: (row) => row.ue, defaultWidth: 110 },
@@ -60,13 +57,12 @@ const SHOWN = ["crn", "courseCode", "portalTitle", "role", "parentCrn", "ue", "t
 
 /**
  * What this CRN is within the course: the one the sections hang from, one of those
- * sections, or neither — a CRN nobody has linked either way yet.
+ * sections, or neither — a CRN nobody has linked either way yet. Never both, since the
+ * register is two deep: a parent has no parent of its own.
  */
 function rolesOf(row: ActiveCrn): string[] {
-  const roles = [];
-  if (row.childCount) roles.push("Parent");
-  if (row.parentCrn) roles.push("Child");
-  return roles;
+  if (row.childCount) return ["Parent"];
+  return row.parentCrn ? ["Child"] : [];
 }
 
 const idOf = (row: ActiveCrn) => row.id;
@@ -149,16 +145,9 @@ export function ActiveCourses() {
       );
     }
     if (column.id === "role") {
-      const roles = rolesOf(row);
-      if (!roles.length) return <span className="text-[#c8d0da]">On its own</span>;
-      return (
-        <span className="flex flex-wrap gap-1">
-          {row.childCount ? (
-            <StatePill tone="accent">Parent of {row.childCount}</StatePill>
-          ) : null}
-          {row.parentCrn ? <StatePill tone="muted">Child</StatePill> : null}
-        </span>
-      );
+      if (row.childCount) return <StatePill tone="accent">Parent of {row.childCount}</StatePill>;
+      if (row.parentCrn) return <StatePill tone="muted">Child</StatePill>;
+      return <span className="text-[#c8d0da]">On its own</span>;
     }
     if (column.id === "ue" && !row.ue) return <span className="text-[#c8d0da]">—</span>;
     return undefined;
@@ -427,10 +416,13 @@ export function CrnDialog({
     },
   });
 
+  // The register is two deep, so a CRN that already hangs from something cannot be a
+  // parent, and this row cannot have one if things hang from it.
+  const isParent = row.childCount > 0;
   const options = [
     { value: "", label: "None yet" },
     ...siblings
-      .filter((candidate) => candidate.crn !== row.crn)
+      .filter((candidate) => candidate.crn !== row.crn && !candidate.parentCrn)
       .map((candidate) => ({
         value: candidate.crn,
         label: candidate.crn === suggested ? `${candidate.crn} — the portal's row for the course` : candidate.crn,
@@ -466,18 +458,23 @@ export function CrnDialog({
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
           <span className="block text-sm font-semibold text-[#344054]">Parent CRN</span>
-          <span className="block text-xs font-normal text-[#98a2b3]">Chosen from this course&apos;s CRNs, so the register holds a link.</span>
+          <span className="block text-xs font-normal text-[#98a2b3]">
+            {isParent
+              ? `${row.childCount} CRN(s) hang from this one, so it is the top of the course and has no parent itself.`
+              : "Chosen from this course's CRNs that are not sections themselves, so the register holds a link."}
+          </span>
           <div className="mt-1.5">
             <SelectMenu
               label={`Parent CRN for ${row.crn}`}
               value={parent}
               onChange={setParent}
               searchable={options.length > 8}
-              placeholder="None yet"
+              disabled={isParent}
+              placeholder={isParent ? "The top of the course" : "None yet"}
               options={options}
             />
           </div>
-          {suggested && parent !== suggested ? (
+          {!isParent && suggested && parent !== suggested ? (
             <button type="button" onClick={() => setParent(suggested)} className="mt-1 text-xs font-semibold text-[#1f4e79] underline">
               Use {suggested}, the portal&apos;s row for this course
             </button>
