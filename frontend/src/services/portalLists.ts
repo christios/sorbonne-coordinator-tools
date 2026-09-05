@@ -90,7 +90,8 @@ export type Mismatch = {
   termCode: string;
   courseCode: string;
   kind: "missing" | "wrong" | "extra" | "unplaced";
-  expected: string;
+  /** Every section of this course our blocks give the student — a lecture and a tutorial. */
+  expected: string[];
   registered: string[];
 };
 
@@ -473,15 +474,24 @@ export function describePullWarning(warning: string | null, count: number, expec
   }
 }
 
-/** "registered in 23224, group says 23223" — one mismatch as a sentence. */
+/**
+ * "MATH-001: not registered in 23223" — one mismatch as a sentence.
+ *
+ * Both sides are lists: a course taught as a lecture and a tutorial gives a student two
+ * sections and the registrar registers them in both. So the sentence names the sections
+ * that differ rather than reciting every CRN either side holds, which is what made a
+ * correctly registered student read as a problem.
+ */
 export function describeMismatch(mismatch: Mismatch): string {
+  const absent = mismatch.expected.filter((crn) => !mismatch.registered.includes(crn));
+  const surplus = mismatch.registered.filter((crn) => !mismatch.expected.includes(crn));
   switch (mismatch.kind) {
     case "missing":
-      return `${mismatch.courseCode}: not registered, group says ${mismatch.expected}`;
+      return `${mismatch.courseCode}: not registered in ${absent.join(" or ")}`;
     case "wrong":
-      return `${mismatch.courseCode}: registered in ${mismatch.registered.join(", ")}, group says ${mismatch.expected}`;
+      return `${mismatch.courseCode}: registered in ${surplus.join(" and ")}, we placed them in ${absent.join(" and ")}`;
     case "extra":
-      return `${mismatch.courseCode}: registered in ${mismatch.registered.join(" and ")}, group says only ${mismatch.expected}`;
+      return `${mismatch.courseCode}: registered in ${surplus.join(" and ")} as well, which is no group of theirs`;
     case "unplaced":
       return `${mismatch.courseCode}: registered in ${mismatch.registered.join(", ")}, but in no group of ours`;
   }

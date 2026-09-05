@@ -46,8 +46,8 @@ beforeEach(() => {
     { termCode: "262710", crn: "23653", courseCode: "MATH-011", title: "Algorithms", teacherName: "Dr Ahmed", status: "in_portal", lastSeenAt: "" },
   ]);
   vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue([
-    { studentId: "A001", termId: "term-1", termCode: "262710", courseCode: "MATH-011", kind: "wrong", expected: "23652", registered: ["23653"] },
-    { studentId: "A002", termId: "term-1", termCode: "262710", courseCode: "MATH-001", kind: "missing", expected: "22151", registered: [] },
+    { studentId: "A001", termId: "term-1", termCode: "262710", courseCode: "MATH-011", kind: "wrong", expected: ["23652"], registered: ["23653"] },
+    { studentId: "A002", termId: "term-1", termCode: "262710", courseCode: "MATH-001", kind: "missing", expected: ["22151"], registered: [] },
   ]);
   vi.spyOn(lists, "fetchTermLinks").mockResolvedValue({ "term-1": "262710" });
   vi.spyOn(timetables, "fetchTimetableTerms").mockResolvedValue([
@@ -93,7 +93,7 @@ describe("a student's record", () => {
     expect(registrations.textContent).toContain("Dr Ahmed");
 
     const differences = await screen.findByLabelText("Differences");
-    expect(differences.textContent).toBe("MATH-011: registered in 23653, group says 23652");
+    expect(differences.textContent).toBe("MATH-011: registered in 23653, we placed them in 23652");
   });
 
   it("reads the history from this browser", async () => {

@@ -40,14 +40,25 @@ describe("a mismatch as a sentence", () => {
   const base = { studentId: "A001", termId: "t", termCode: "262710", courseCode: "MATH-011" };
 
   it("says what the registrar did and what the group says", () => {
-    expect(describeMismatch({ ...base, kind: "wrong", expected: "23652", registered: ["23653"] })).toBe(
-      "MATH-011: registered in 23653, group says 23652",
+    expect(describeMismatch({ ...base, kind: "wrong", expected: ["23652"], registered: ["23653"] })).toBe(
+      "MATH-011: registered in 23653, we placed them in 23652",
     );
-    expect(describeMismatch({ ...base, kind: "missing", expected: "23652", registered: [] })).toBe(
-      "MATH-011: not registered, group says 23652",
+    expect(describeMismatch({ ...base, kind: "missing", expected: ["23652"], registered: [] })).toBe(
+      "MATH-011: not registered in 23652",
     );
-    expect(describeMismatch({ ...base, kind: "unplaced", expected: "", registered: ["23652"] })).toBe(
+    expect(describeMismatch({ ...base, kind: "unplaced", expected: [], registered: ["23652"] })).toBe(
       "MATH-011: registered in 23652, but in no group of ours",
     );
+  });
+
+  it("names only the section that differs when a course has a lecture and a tutorial", () => {
+    // Registered in both of ours and in a third: only the third is worth saying.
+    expect(
+      describeMismatch({ ...base, kind: "extra", expected: ["22151", "23561"], registered: ["22151", "23561", "23904"] }),
+    ).toBe("MATH-011: registered in 23904 as well, which is no group of theirs");
+    // The lecture is right and the tutorial was never registered.
+    expect(
+      describeMismatch({ ...base, kind: "missing", expected: ["22151", "23561"], registered: ["22151"] }),
+    ).toBe("MATH-011: not registered in 23561");
   });
 });

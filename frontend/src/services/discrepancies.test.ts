@@ -479,7 +479,7 @@ describe("the registrar's registrations, as warnings", () => {
 
   it("carries the server's sentence, and a key that holds while the fact does", async () => {
     const { registrationWarnings } = await import("@/services/discrepancies");
-    const mismatch = { studentId: "A001", termCode: "262710", courseCode: "MATH-011", kind: "wrong" as const, expected: "23652", registered: ["23653"] };
+    const mismatch = { studentId: "A001", termCode: "262710", courseCode: "MATH-011", kind: "wrong" as const, expected: ["23652"], registered: ["23653"] };
 
     const [warning] = registrationWarnings([mismatch], describe_);
 

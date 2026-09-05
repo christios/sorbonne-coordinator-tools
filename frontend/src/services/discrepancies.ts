@@ -439,18 +439,18 @@ export function registrationWarnings<
     termCode: string;
     courseCode: string;
     kind: "missing" | "wrong" | "extra" | "unplaced";
-    expected: string;
+    expected: string[];
     registered: string[];
   },
 >(mismatches: M[], describe: (mismatch: M) => string): Warning[] {
   return mismatches.map((mismatch) => ({
-    key: `registration|${mismatch.studentId}|${mismatch.termCode}|${mismatch.courseCode}|${mismatch.kind}|${mismatch.expected}|${mismatch.registered.join("+")}`,
+    key: `registration|${mismatch.studentId}|${mismatch.termCode}|${mismatch.courseCode}|${mismatch.kind}|${mismatch.expected.join("+")}|${mismatch.registered.join("+")}`,
     studentId: mismatch.studentId,
     ruleId: "registration",
     kind: "registration",
     field: "registration",
     value: describe(mismatch),
-    expected: mismatch.expected,
+    expected: mismatch.expected.join(" and "),
   }));
 }
 

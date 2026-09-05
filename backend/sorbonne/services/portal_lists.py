@@ -64,9 +64,11 @@ class Mismatch:
     term_code: str
     course_code: str
     # missing: placed, not registered · wrong: registered elsewhere · extra: registered in
-    # a second section too · unplaced: registered, but in no group of ours
+    # a section we did not place them in · unplaced: registered, but in no group of ours
     kind: str
-    expected: str
+    # Every section of this course our blocks give the student: a course taught as a
+    # lecture and a tutorial gives them two, and both are right.
+    expected: list[str]
     registered: list[str]
 
     def as_payload(self) -> dict[str, Any]:
@@ -1075,14 +1077,17 @@ class PortalListStore:
                 continue
             groups = {group["id"]: group for group in cohort["groups"]}
             course_codes = sorted({code for group in groups.values() for code in group["crns"]})
-            expected: dict[str, dict[str, str]] = {}
+            expected: dict[str, dict[str, set[str]]] = {}
             for row in cohort["assignments"]:
                 group = groups.get(row["groupId"])
                 if group is None:
                     continue
                 for code, crn in group["crns"].items():
                     if crn:
-                        expected.setdefault(row["studentId"], {})[code] = crn
+                        # A student is in several sets at once — a lecture group and a
+                        # tutorial group — and each may carry the same course. All of
+                        # their sections are expected, not whichever was read last.
+                        expected.setdefault(row["studentId"], {}).setdefault(code, set()).add(crn)
             registered = self.registered_in(term_code)
             pulled = self.pulled_students(term_code)
             for student in cohort["students"]:
@@ -1094,7 +1099,7 @@ class PortalListStore:
                         term_id,
                         term_code,
                         code,
-                        expected.get(student, {}).get(code, ""),
+                        sorted(expected.get(student, {}).get(code, set())),
                         registered.get(student, {}).get(code, []),
                     )
                     for code in course_codes
@@ -1103,20 +1108,32 @@ class PortalListStore:
 
 
 def _judge(  # noqa: PLR0913 - one argument per part of the verdict
-    student: str, term_id: str, term_code: str, code: str, expected: str, registered: list[str]
+    student: str, term_id: str, term_code: str, code: str, expected: list[str], registered: list[str]
 ) -> Mismatch | None:
+    """One student, one course: what we placed them in against what the registrar has.
+
+    Both sides are lists, because a course taught as a lecture and a tutorial puts a
+    student in two of its sections and the registrar registers them in both. What matters
+    is the difference either way: a section of ours they are not registered in, and a
+    section they are registered in that is not one of ours.
+    """
+    ours = sorted(set(expected))
     held = sorted(set(registered))
-    if expected and not held:
-        kind = "missing"
-    elif expected and expected not in held:
+    absent = [crn for crn in ours if crn not in held]
+    surplus = [crn for crn in held if crn not in ours]
+    if not ours:
+        kind = "unplaced" if held else ""
+    elif absent and surplus:
         kind = "wrong"
-    elif expected and len(held) > 1:
+    elif absent:
+        kind = "missing"
+    elif surplus:
         kind = "extra"
-    elif not expected and held:
-        kind = "unplaced"
     else:
+        kind = ""
+    if not kind:
         return None
-    return Mismatch(student, term_id, term_code, code, kind, expected, held)
+    return Mismatch(student, term_id, term_code, code, kind, ours, held)
 
 
 def _kind(kind: str) -> None:

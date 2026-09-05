@@ -514,8 +514,12 @@ def test_the_crns_of_a_linked_semester_come_keyed_by_crn(client: TestClient):
 # ------------------------------------------------------------- the comparison
 
 
-def build_cohort(database: StudentDatabase) -> str:
-    """Foundation Year on term-1: CM A (22151) and TD 1 (23652); A001 and A002 placed in both."""
+def build_cohort(database: StudentDatabase, maths_in_tutorials: str = "") -> str:
+    """Foundation Year on term-1: CM A (22151) and TD 1 (23652); A001 and A002 placed in both.
+
+    `maths_in_tutorials` gives the tutorial group a section of MATH-001 too, the way a
+    course taught as a lecture and a tutorial really is.
+    """
     cohort = database.create_cohort(name="Foundation Year", term="2026-27")
     with database.engine.begin() as connection:
         for student in ("A001", "A002", "A003"):
@@ -532,6 +536,8 @@ def build_cohort(database: StudentDatabase) -> str:
     group_1 = database.add_group(td, label="1")
     database.set_cell(group_id=group_a, course_id=maths, crn="22151")
     database.set_cell(group_id=group_1, course_id=algorithms, crn="23652")
+    if maths_in_tutorials:
+        database.set_cell(group_id=group_1, course_id=database.add_course(td, code="MATH-001"), crn=maths_in_tutorials)
     for student in ("A001", "A002"):
         database.assign(student_id=student, scope_id=cm, group_id=group_a)
         database.assign(student_id=student, scope_id=td, group_id=group_1)
@@ -562,12 +568,45 @@ def test_the_check_says_where_the_registrar_differs_from_our_groups(client: Test
     found = client.get(f"{BASE}/cohorts/{cohort_id}/registration-check").json()["mismatches"]
 
     assert sorted(
-        (m["studentId"], m["courseCode"], m["kind"], m["expected"], tuple(m["registered"])) for m in found
+        (m["studentId"], m["courseCode"], m["kind"], tuple(m["expected"]), tuple(m["registered"])) for m in found
     ) == [
-        ("A001", "MATH-011", "wrong", "23652", ("23653",)),
-        ("A002", "MATH-001", "missing", "22151", ()),
-        ("A003", "MATH-001", "unplaced", "", ("22151",)),
+        ("A001", "MATH-011", "wrong", ("23652",), ("23653",)),
+        ("A002", "MATH-001", "missing", ("22151",), ()),
+        ("A003", "MATH-001", "unplaced", (), ("22151",)),
     ]
+
+
+def test_a_course_taught_twice_over_expects_both_of_its_sections(client: TestClient, database: StudentDatabase):
+    """A lecture group and a tutorial group may carry the same course: both are right.
+
+    Foundation Year MATH-001 is taught as CM B and TD 2 at once, and the registrar
+    registers a student in both. Keeping only one of them read every correctly registered
+    student as registered somewhere they should not be.
+    """
+    # The tutorial group carries MATH-001 as well; A001 and A002 are in both groups.
+    cohort_id = build_cohort(database, maths_in_tutorials="23561")
+    client.put(f"{BASE}/term-links/{HUB_TERM}", json={"portalTermCode": TERM})
+    made = make_filter(client, "registrations")
+    client.post(
+        f"{BASE}/filters/{made['id']}/sync/registrations",
+        json={
+            "termCode": TERM,
+            "rows": [
+                # A001 is registered in both sections of MATH-001, which is exactly right.
+                {"studentId": "A001", "crn": "22151", "courseCode": "MATH-001"},
+                {"studentId": "A001", "crn": "23561", "courseCode": "MATH-001"},
+                {"studentId": "A001", "crn": "23652", "courseCode": "MATH-011"},
+                # A002 has the lecture but not the tutorial: one section is genuinely absent.
+                {"studentId": "A002", "crn": "22151", "courseCode": "MATH-001"},
+                {"studentId": "A002", "crn": "23652", "courseCode": "MATH-011"},
+            ],
+        },
+    )
+
+    found = client.get(f"{BASE}/cohorts/{cohort_id}/registration-check").json()["mismatches"]
+
+    seen = [(m["studentId"], m["courseCode"], m["kind"], tuple(m["expected"]), tuple(m["registered"])) for m in found]
+    assert seen == [("A002", "MATH-001", "missing", ("22151", "23561"), ("22151",))]
 
 
 def test_a_student_no_pull_has_returned_is_not_judged(client: TestClient, database: StudentDatabase):
