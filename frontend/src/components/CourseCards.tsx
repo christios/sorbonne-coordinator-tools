@@ -1,5 +1,5 @@
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, ChevronsDownUp, ChevronsUpDown, FileSpreadsheet, ListTree, Plus, Search } from "lucide-react";
+import { CheckCircle2, ChevronsDownUp, ChevronsUpDown, Download, FileSpreadsheet, ListTree, Plus, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { AddFromPortal } from "@/components/AddFromPortal";
@@ -7,6 +7,8 @@ import { ClashPanel } from "@/components/ClashPanel";
 import { CourseCard } from "@/components/CourseCard";
 import type { FillReport } from "@/components/FillBlock";
 import { GroupSetsEditor } from "@/components/GroupSetsEditor";
+import { Modal } from "@/components/Modal";
+import { SelectMenu } from "@/components/SelectMenu";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { TableFilterBar } from "@/components/TableFilterBar";
 import { WorkbookReview } from "@/components/WorkbookReview";
@@ -18,6 +20,7 @@ import { clashesIn } from "@/services/publicationView";
 import { type Cohort, type WorkbookApplied, applyWorkbook, fetchCourseCards } from "@/services/studentDatabase";
 import { optionsFor, plainCellText } from "@/services/studentColumns";
 import { applyFilters, type FilterModel } from "@/services/tableFilter";
+import { downloadTimetableWorkbook, requestSheets } from "@/services/timetableExport";
 import { fetchTimetableTerms } from "@/services/timetables";
 import type { Operation, WorkbookPreview } from "@/services/workbookReview";
 
@@ -66,6 +69,9 @@ export function CourseCards({ cohorts, onShowStudents }: { cohorts: Cohort[]; on
   const [editingSets, setEditingSets] = useState<{ cohortId: string; termId: string } | null>(null);
   const [tools, setTools] = useState(false);
   const [adding, setAdding] = useState(false);
+  const [requesting, setRequesting] = useState(false);
+  const [requestTerm, setRequestTerm] = useState("");
+  const [building, setBuilding] = useState(false);
   const [preview, setPreview] = useState<{ preview: WorkbookPreview; cohort: Cohort; termId: string } | null>(null);
   const [applied, setApplied] = useState<(WorkbookApplied & { approved: number }) | null>(null);
   const [filled, setFilled] = useState<FillReport | null>(null);
@@ -111,6 +117,16 @@ export function CourseCards({ cohorts, onShowStudents }: { cohorts: Cohort[]; on
         </button>
         <button type="button" onClick={() => setTools(true)} className={button}>
           <FileSpreadsheet size={15} aria-hidden="true" /> Workbook and lists
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setRequestTerm(single?.termId || termIds[0] || "");
+            setRequesting(true);
+          }}
+          className={button}
+        >
+          <Download size={15} aria-hidden="true" /> Timetable request
         </button>
         <div className="ml-auto flex items-center gap-2">
           <label className="relative block w-full sm:w-64">
@@ -184,6 +200,48 @@ export function CourseCards({ cohorts, onShowStudents }: { cohorts: Cohort[]; on
       {editingSets ? (
         <GroupSetsEditor open cohorts={cohorts} terms={terms.data ?? []} initialCohortId={editingSets.cohortId} initialTermId={editingSets.termId} onClose={() => setEditingSets(null)} onChanged={refresh} />
       ) : null}
+      <Modal
+        open={requesting}
+        title="Timetable request"
+        description="The workbook the timetabler gets: a sheet per cohort for one semester, the CRN table, teacher hours."
+        onClose={() => setRequesting(false)}
+        footer={
+          <div className="flex items-center justify-end gap-3">
+            <button type="button" onClick={() => setRequesting(false)} className="text-sm font-semibold text-[#667085]">Cancel</button>
+            <button
+              type="button"
+              disabled={!requestTerm || building}
+              onClick={async () => {
+                setBuilding(true);
+                try {
+                  const sheets = requestSheets(
+                    cards,
+                    requestTerm,
+                    termName(requestTerm),
+                    (cohortId) => cohorts.find((cohort) => cohort.id === cohortId)?.program || cohorts.find((cohort) => cohort.id === cohortId)?.name || "",
+                    nameOf,
+                  );
+                  await downloadTimetableWorkbook(sheets, `Time-Tables-${termName(requestTerm).replace(/[^A-Za-z0-9]+/g, "-")}.xlsx`);
+                  setRequesting(false);
+                } finally {
+                  setBuilding(false);
+                }
+              }}
+              className="rounded-md bg-[#1f4e79] px-4 py-2 text-sm font-semibold text-white disabled:bg-[#9ba8b5]"
+            >
+              {building ? "Building…" : "Download"}
+            </button>
+          </div>
+        }
+      >
+        <SelectMenu label="Semester" value={requestTerm} onChange={setRequestTerm} placeholder="Which semester…" options={termIds.map((id) => ({ value: id, label: termName(id) }))} />
+        {requestTerm ? (
+          <p className="mt-3 text-sm text-[#667085]">
+            {cards.filter((card) => card.termId === requestTerm).length} course{cards.filter((card) => card.termId === requestTerm).length === 1 ? "" : "s"} across{" "}
+            {new Set(cards.filter((card) => card.termId === requestTerm).map((card) => card.cohortId)).size} cohort(s). Teachers come from Active teachers; a section nobody has chosen keeps the portal&apos;s name.
+          </p>
+        ) : null}
+      </Modal>
       {adding ? <AddFromPortal open cohorts={cohorts} terms={terms.data ?? []} onClose={() => setAdding(false)} onAdded={() => { setAdding(false); refresh(); }} /> : null}
       <WorkbookTools open={tools} cohorts={cohorts} terms={terms.data ?? []} onClose={() => setTools(false)} onPreview={(held, cohort, termId) => { setTools(false); setPreview({ preview: held, cohort, termId }); }} />
     </section>
