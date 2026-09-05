@@ -8,6 +8,7 @@ import { CourseCard } from "@/components/CourseCard";
 import type { FillReport } from "@/components/FillBlock";
 import { GroupSetsEditor } from "@/components/GroupSetsEditor";
 import { Modal } from "@/components/Modal";
+import { LabelledPicker } from "@/components/LabelledPicker";
 import { SelectMenu } from "@/components/SelectMenu";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { TableFilterBar } from "@/components/TableFilterBar";
@@ -67,6 +68,14 @@ export function CourseCards({ cohorts, onShowStudents }: { cohorts: Cohort[]; on
   const columns = useMemo(() => cardColumns(nameOf), [teachers.data]); // eslint-disable-line react-hooks/exhaustive-deps
   const [filters, setFilters] = useState<FilterModel[]>([]);
   const [query, setQuery] = useState("");
+  /*
+   * One cohort at a time.
+   *
+   * Every year's courses in one list read as a wall: the cohort is the unit the work is
+   * done in, and the chip on each card was doing the job a picker should. Sets open to
+   * every cohort stay on screen whichever is chosen, because they are everyone's.
+   */
+  const [cohortId, setCohortId] = useState("");
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
     const searched = needle ? cards.filter((card) => columns.some((column) => plainCellText(card, column).toLowerCase().includes(needle))) : cards;
@@ -102,6 +111,14 @@ export function CourseCards({ cohorts, onShowStudents }: { cohorts: Cohort[]; on
     },
   });
 
+  // The one chosen, or the first with courses on it — landing on an empty year would look
+  // like the page had nothing at all.
+  const chosen =
+    cohorts.find((cohort) => cohort.id === cohortId) ??
+    cohorts.find((cohort) => cards.some((card) => card.cohortId === cohort.id)) ??
+    cohorts[0] ??
+    null;
+
   if (catalogues.isLoading) return <ScreenLoading label="Loading the courses…" />;
   if (catalogues.error) return <p role="alert" className="text-sm text-[#a6292f]">{(catalogues.error as Error).message}</p>;
 
@@ -112,7 +129,7 @@ export function CourseCards({ cohorts, onShowStudents }: { cohorts: Cohort[]; on
   // The clash panel belongs to one cohort in one semester; it shows when the list is one.
   // A course whose every set is open to every cohort is the department's, not a year's.
   const acrossCohorts = visible.filter((card) => card.sets.length > 0 && card.sets.every((set) => set.scope.openToAll));
-  const byCohort = visible.filter((card) => !acrossCohorts.includes(card));
+  const byCohort = visible.filter((card) => !acrossCohorts.includes(card) && (!chosen || card.cohortId === chosen.id));
   const showCard = (card: (typeof visible)[number]) => {
     const publication = publicationOf(card.termId);
     const report = publication?.cohorts.find((entry) => entry.cohortId === card.cohortId) ?? null;
@@ -144,13 +161,29 @@ export function CourseCards({ cohorts, onShowStudents }: { cohorts: Cohort[]; on
     );
   };
 
-  const pairs = [...new Set(visible.map((card) => `${card.cohortId}|${card.termId}`))];
-  const single = pairs.length === 1 ? visible[0] : null;
+  const pairs = [...new Set(byCohort.map((card) => `${card.cohortId}|${card.termId}`))];
+  const single = pairs.length === 1 ? byCohort[0] : null;
   const clashes = single ? (publicationOf(single.termId) ? clashesIn(publicationOf(single.termId)!, single.cohortId) : null) : null;
   const button = "inline-flex items-center gap-2 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc]";
 
   return (
     <section>
+      <div className="mb-3 flex flex-wrap items-end gap-3">
+        <LabelledPicker label="Cohort">
+          <SelectMenu
+            label="Cohort"
+            value={chosen?.id ?? ""}
+            onChange={setCohortId}
+            options={cohorts.map((cohort) => ({
+              value: cohort.id,
+              label: cohort.term ? `${cohort.name} — ${cohort.term}` : cohort.name,
+              badge: String(cards.filter((card) => card.cohortId === cohort.id).length),
+              badgeTone: cards.some((card) => card.cohortId === cohort.id) ? ("accent" as const) : ("muted" as const),
+            }))}
+          />
+        </LabelledPicker>
+      </div>
+
       <div className="flex flex-wrap items-center gap-2">
         <TableFilterBar columns={columns} filters={filters} optionsFor={(column) => optionsFor(cards, column)} onChange={setFilters} />
         <button type="button" onClick={() => setEditingSets({ cohortId: single?.cohortId ?? cohorts[0]?.id ?? "", termId: single?.termId ?? "" })} className={button}>
