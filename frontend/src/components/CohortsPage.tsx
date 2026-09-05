@@ -7,8 +7,9 @@ import { LabelledPicker } from "@/components/LabelledPicker";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { SelectMenu } from "@/components/SelectMenu";
 import { StudentRoster } from "@/components/StudentRoster";
-import { unplacedWarnings, warningsForCohort, type Change, type Rule, type Warning } from "@/services/discrepancies";
+import { registrationWarnings, unplacedWarnings, warningsForCohort, type Change, type Rule, type Warning } from "@/services/discrepancies";
 import { dismiss, loadDismissed, pruneDismissed, restore } from "@/services/dismissals";
+import { describeMismatch, fetchRegistrationCheck } from "@/services/portalLists";
 import { allChanges } from "@/services/pullHistory";
 import { describeAge, latestPullAt, rowsHeld } from "@/services/rosterStore";
 import { studentIdOf, type RosterRow } from "@/services/scenRosters";
@@ -34,6 +35,15 @@ export function CohortsPage({ cohorts }: { cohorts: Cohort[] }) {
   // The same query the roster makes, so React Query answers both from one fetch.
   const students = useQuery({ queryKey: ["students", ""], queryFn: () => fetchStudents("") });
   const rules = useQuery({ queryKey: ["discrepancy-rules"], queryFn: fetchDiscrepancyRules });
+  // The registrar's registrations against this cohort's groups: the server's comparison,
+  // read here so it lands in the same Warnings column. Best effort — a cohort with no
+  // linked semester, or no registrations pulled, simply has none.
+  const registrations = useQuery({
+    queryKey: ["registration-check", cohortId],
+    queryFn: () => fetchRegistrationCheck(cohortId),
+    enabled: Boolean(cohortId) && cohortId !== UNPLACED,
+    retry: false,
+  });
 
   // This browser's evidence: read once per visit. It has nothing to do with the rules.
   const [evidence, setEvidence] = useState<{
@@ -85,12 +95,13 @@ export function CohortsPage({ cohorts }: { cohorts: Cohort[] }) {
         : cohort
           ? warningsForCohort({ cohort, students: placed, rules: ruleList, current, changes: (id) => evidence.changes.get(id) ?? [] })
           : [];
-    for (const warning of warnings) {
+    const registered = cohort ? registrationWarnings(registrations.data ?? [], describeMismatch) : [];
+    for (const warning of [...warnings, ...registered]) {
       const marked = dismissed.has(warning.key) ? { ...warning, dismissed: true } : warning;
       out.set(warning.studentId, [...(out.get(warning.studentId) ?? []), marked]);
     }
     return out;
-  }, [evidence, students.data, rules.data, cohortId, cohort, dismissed]);
+  }, [evidence, students.data, rules.data, registrations.data, cohortId, cohort, dismissed]);
 
   // Dismissals that no longer point at anything are let go, so the store stays small.
   useEffect(() => {

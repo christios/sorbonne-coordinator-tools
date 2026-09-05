@@ -308,3 +308,19 @@ describe("reading a warning", () => {
     expect(text).toBe("Id\tStudent\tWarning\nA001\tAmira Haddad\tstudent status is WD");
   });
 });
+
+describe("the registrar's registrations, as warnings", () => {
+  const describe_ = (m: { courseCode: string; kind: string }) => `${m.courseCode} ${m.kind}`;
+
+  it("carries the server's sentence, and a key that holds while the fact does", async () => {
+    const { registrationWarnings } = await import("@/services/discrepancies");
+    const mismatch = { studentId: "A001", termCode: "262710", courseCode: "MATH-011", kind: "wrong" as const, expected: "23652", registered: ["23653"] };
+
+    const [warning] = registrationWarnings([mismatch], describe_);
+
+    expect(warning).toMatchObject({ studentId: "A001", kind: "registration", value: "MATH-011 wrong" });
+    expect(describeWarning(warning)).toBe("MATH-011 wrong");
+    expect(registrationWarnings([mismatch], describe_)[0].key).toBe(warning.key);
+    expect(registrationWarnings([{ ...mismatch, registered: ["23654"] }], describe_)[0].key).not.toBe(warning.key);
+  });
+});

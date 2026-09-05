@@ -49,7 +49,7 @@ export type Warning = {
   key: string;
   studentId: string;
   ruleId: string;
-  kind: RuleKind | "unplaced" | "no_baseline";
+  kind: RuleKind | "unplaced" | "no_baseline" | "registration";
   field: string;
   /** For a change: what it was and what it became, and when. */
   from?: string;
@@ -242,7 +242,39 @@ export function describeWarning(warning: Warning): string {
       return "in no cohort, and nothing about them says they should not be";
     case "no_baseline":
       return "placed before the moment of placement was recorded — changes cannot be judged";
+    case "registration":
+      // Written in full by registrationWarnings, since the sentence is the portal's fact.
+      return warning.value ?? "registration differs from the group";
   }
+}
+
+/**
+ * The registrar's registrations held against our groups, as warnings.
+ *
+ * The comparison itself is the server's — it holds both the groups and the registrations,
+ * as ids and CRNs — so this only gives each difference the shape a warning has: a key
+ * that holds still while the fact does, so a coordinator who has seen "registered in
+ * 23653, group says 23652" and decided it is fine can dismiss it until it changes.
+ */
+export function registrationWarnings<
+  M extends {
+    studentId: string;
+    termCode: string;
+    courseCode: string;
+    kind: "missing" | "wrong" | "extra" | "unplaced";
+    expected: string;
+    registered: string[];
+  },
+>(mismatches: M[], describe: (mismatch: M) => string): Warning[] {
+  return mismatches.map((mismatch) => ({
+    key: `registration|${mismatch.studentId}|${mismatch.termCode}|${mismatch.courseCode}|${mismatch.kind}|${mismatch.expected}|${mismatch.registered.join("+")}`,
+    studentId: mismatch.studentId,
+    ruleId: "registration",
+    kind: "registration",
+    field: "registration",
+    value: describe(mismatch),
+    expected: mismatch.expected,
+  }));
 }
 
 /** The whole list as a spreadsheet block, for handing to admissions. */

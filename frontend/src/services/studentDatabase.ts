@@ -50,6 +50,8 @@ export type CatalogueScope = {
   code: string;
   name: string;
   note: string;
+  /** The Student Hub semester this block belongs to. */
+  termId?: string;
   /** The student tab this block's column lives on in the workbook it came from. */
   tab?: string;
   /** What that column is called there: "TD group", "Readiness group". */
