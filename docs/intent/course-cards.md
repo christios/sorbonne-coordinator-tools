@@ -27,6 +27,11 @@ Confirmed intent, 5 September 2026.
   Teacher is chosen from Active teachers, with the portal's name beside it as a check.
   Facts are fields (hours, sessions per week, duration, weeks, anticipated students);
   wishes are text (room, day, time preference, parallel / not in parallel, comments).
+- **The page:** no cohort or semester dropdowns. One list of course cards across cohorts
+  and semesters, with the search box and the filter chips the other pages have (semester,
+  cohort, group set, teacher, type, retired) — not the table component: cards, collapsed
+  to a line each, opened to show the sections and groups inside. The semester is chosen
+  only when exporting, since the workbook is one semester.
 - **Success:** open the semester, assign teachers and constraints on the cards, download
   the workbook, and it is the file that would have been sent — teacher hours right.
 - **Constraint:** nothing about students changes shape; the cohort's placements and CRNs
