@@ -654,6 +654,9 @@ def test_the_cards_list_every_cohort_at_once(client: TestClient, cohort_id: str)
 
     payload = client.get("/api/v1/student-database/course-cards").json()
 
-    by_name = {entry["cohort"]["name"]: entry for entry in payload["cohorts"]}
-    assert [scope["code"] for scope in by_name["Foundation Year"]["scopes"]] == ["TD"]
-    assert [scope["code"] for scope in by_name["L1"]["scopes"]] == ["CM"]
+    # By id, not by name: cohorts are shared and long-lived, and two of them may be called
+    # the same thing — only the ids this test made say which entry is which.
+    by_id = {entry["cohort"]["id"]: entry for entry in payload["cohorts"]}
+    assert [scope["code"] for scope in by_id[cohort_id]["scopes"]] == ["TD"]
+    assert [scope["code"] for scope in by_id[other["id"]]["scopes"]] == ["CM"]
+    assert by_id[cohort_id]["cohort"]["name"] == "Foundation Year"
