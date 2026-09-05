@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, Check } from "lucide-react";
+import { AlertTriangle, Check, ChevronDown } from "lucide-react";
+import { useState, type ReactNode } from "react";
 
 import { Modal } from "@/components/Modal";
 import { labelOf } from "@/services/discrepancies";
@@ -9,17 +10,48 @@ import type { StudentRow } from "@/services/rosterView";
 import { fetchAssignments, fetchCatalogue, type Cohort } from "@/services/studentDatabase";
 import { fetchTimetableTerms } from "@/services/timetables";
 
-/** The portal fields worth reading first; the rest follow alphabetically. */
-const LEADING = ["FULL_NAME", "SPRIDEN_ID", "PSUAD_EMAIL", "YEARLEVEL_CODE", "MAJOR_CODE_DESC", "STST_CODE", "ESTS_CODE", "PROGRAM_CODE", "TERM_CODE"];
+/*
+ * The portal's fields, sorted into the questions a coordinator actually asks. Anything
+ * not named here is still shown, folded away, so nothing the portal said is lost.
+ */
+const GROUPS: { title: string; keys: string[] }[] = [
+  { title: "Programme", keys: ["MAJOR_CODE_DESC", "MAJOR_CODE", "PROGRAM_CODE", "PROGRAM_DESC", "YEARLEVEL_CODE", "LEVEL_CODE", "DEPT_DESC", "DEPT_CODE", "COLLEGE_CODE", "COLLEGE_DESC", "CAMPUS_CODE"] },
+  { title: "Status", keys: ["STST_CODE", "STST_DESC", "ESTS_CODE", "ESTS_DESC", "STYP_DESC", "STYP_CODE", "TERM_CODE", "RE_COURSES_COUNT", "ABSENCE_PER"] },
+  { title: "Contact", keys: ["PSUAD_EMAIL", "FIRST_NAME", "LAST_NAME"] },
+];
+const NAMED = new Set(GROUPS.flatMap((group) => group.keys).concat(["FULL_NAME", "SPRIDEN_ID"]));
+
+const LABELS: Record<string, string> = {
+  STST_DESC: "student status",
+  ESTS_DESC: "enrolment status",
+  MAJOR_CODE: "major code",
+  PROGRAM_DESC: "programme",
+  DEPT_DESC: "department",
+  DEPT_CODE: "department code",
+  COLLEGE_CODE: "college",
+  LEVEL_CODE: "level",
+  CAMPUS_CODE: "campus",
+  STYP_DESC: "student type",
+  STYP_CODE: "student type code",
+  TERM_CODE: "term",
+  RE_COURSES_COUNT: "registered courses",
+  ABSENCE_PER: "absence %",
+  FIRST_NAME: "first name",
+  LAST_NAME: "last name",
+};
+
+function nameOf(field: string): string {
+  const label = LABELS[field] ?? labelOf(field);
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
 
 /**
  * Everything this application knows about one student, on one screen.
  *
- * The portal's fields as this browser last saw them, the cohort and when they were put
- * there, the groups they sit in and the CRNs those stand for, the registrar's actual
- * registrations beside them with the differences said plainly, and the record's history
- * of changes. It answers "which courses is this student in?" without a trip to the
- * portal, and "is that what we meant?" without a spreadsheet.
+ * Read top to bottom the way the question is asked: who they are, what the portal says
+ * about them, where the department put them, what the registrar actually registered, and
+ * what has changed. The portal's facts are this browser's — the server holds no name —
+ * and the record says so once rather than on every line.
  */
 export function StudentRecord({
   open,
@@ -63,7 +95,6 @@ export function StudentRecord({
 
   const termName = (termId: string) => (terms.data ?? []).find((term) => term.id === termId)?.name ?? termId;
   const held = assignments.data?.[row.studentId] ?? {};
-  /** The groups this student holds, with the CRNs each stands for. */
   const placements = (catalogue.data?.scopes ?? [])
     .filter((scope) => held[scope.id])
     .map((scope) => {
@@ -77,59 +108,84 @@ export function StudentRecord({
   const registered = new Set((registrations.data ?? []).filter((r) => r.status === "in_portal").map((r) => r.crn));
   const mismatches: Mismatch[] = (check.data ?? []).filter((mismatch) => mismatch.studentId === row.studentId);
   const entries = historyFor(history, row.studentId);
-  const fields = Object.entries(row.portal).filter(([, value]) => String(value ?? "").trim());
-  fields.sort(([a], [b]) => {
-    const ia = LEADING.indexOf(a);
-    const ib = LEADING.indexOf(b);
-    if (ia !== -1 || ib !== -1) return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
-    return a.localeCompare(b);
-  });
+  const portal = Object.fromEntries(Object.entries(row.portal).filter(([, value]) => String(value ?? "").trim()));
+  const rest = Object.keys(portal)
+    .filter((key) => !NAMED.has(key))
+    .sort();
+  const noLink = links.data && Object.keys(links.data).length === 0;
 
   return (
     <Modal
       open={open}
+      size="wide"
       title={row.name || row.studentId}
-      description={[
-        row.studentId,
-        row.status === "not_in_portal" ? "no longer in the portal" : "in the portal",
-        cohort ? cohort.name : "in no cohort",
-      ].join(" · ")}
       onClose={onClose}
+      header={
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
+          <span className="font-mono text-[#667085]">{row.studentId}</span>
+          {row.status === "not_in_portal" ? <Pill tone="bad">Not in portal</Pill> : <Pill tone="good">In portal</Pill>}
+          {cohort ? (
+            <Pill tone="accent">{cohort.name}</Pill>
+          ) : (
+            <Pill tone="muted">No cohort</Pill>
+          )}
+          {row.yearLevel ? <Pill tone="muted">{row.yearLevel}</Pill> : null}
+          {row.major ? <Pill tone="muted">{row.major}</Pill> : null}
+          {row.email ? (
+            <a href={`mailto:${row.email}`} className="text-[#1f4e79] underline">
+              {row.email}
+            </a>
+          ) : null}
+        </div>
+      }
     >
-      <div className="grid gap-6 md:grid-cols-2">
-        <section>
-          <h3 className="text-sm font-semibold text-[#344054]">From the portal</h3>
-          <p className="mb-2 text-xs text-[#98a2b3]">As this browser last saw it. Nothing here is on the server.</p>
-          <dl className="grid grid-cols-[minmax(7rem,auto)_1fr] gap-x-3 gap-y-1 text-sm">
-            {fields.map(([field, value]) => (
-              <div key={field} className="contents">
-                <dt className="text-[#667085]">{labelOf(field)}</dt>
-                <dd className="text-[#171717]">{String(value)}</dd>
-              </div>
-            ))}
-            {fields.length === 0 ? <p className="col-span-2 text-[#667085]">No portal pull holds this student.</p> : null}
-          </dl>
-        </section>
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
+        {/* ------------------------------------------------------------ the portal */}
+        <Card title="From the portal" note="As this browser last saw it. Nothing here is on the server.">
+          {Object.keys(portal).length === 0 ? (
+            <Empty>No portal pull holds this student. Sync a portal filter on the Students page.</Empty>
+          ) : (
+            <div className="space-y-4">
+              {GROUPS.map((group) => {
+                const present = group.keys.filter((key) => portal[key] !== undefined);
+                if (!present.length) return null;
+                return (
+                  <div key={group.title}>
+                    <h4 className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-[#98a2b3]">{group.title}</h4>
+                    <Facts entries={present.map((key) => [nameOf(key), String(portal[key])])} />
+                  </div>
+                );
+              })}
+              {rest.length ? (
+                <Folded label={`${rest.length} more portal field${rest.length === 1 ? "" : "s"}`}>
+                  <Facts entries={rest.map((key) => [nameOf(key), String(portal[key])])} />
+                </Folded>
+              ) : null}
+            </div>
+          )}
+        </Card>
 
-        <section className="space-y-6">
-          <div>
-            <h3 className="text-sm font-semibold text-[#344054]">Groups</h3>
+        <div className="space-y-5">
+          {/* ------------------------------------------------------------ groups */}
+          <Card title="Groups" note={cohort ? `Where ${cohort.name} put them, and the CRNs each group stands for.` : "Where the department put them."}>
             {!cohortId ? (
-              <p className="text-sm text-[#667085]">In no cohort, so in no group.</p>
+              <Empty>In no cohort, so in no group.</Empty>
+            ) : catalogue.isLoading || assignments.isLoading ? (
+              <Empty>Reading…</Empty>
             ) : placements.length === 0 ? (
-              <p className="text-sm text-[#667085]">{cohort?.name}: in no group yet.</p>
+              <Empty>In no group yet.</Empty>
             ) : (
-              <ul className="space-y-2 text-sm" aria-label="Groups">
+              <ul className="space-y-2.5" aria-label="Groups">
                 {placements.map(({ scope, group, crns }) => (
-                  <li key={scope.id}>
-                    <span className="font-semibold text-[#171717]">
+                  <li key={scope.id} className="flex flex-wrap items-start gap-x-3 gap-y-1">
+                    <span className="inline-flex items-center rounded-full bg-[#eef1f5] px-2.5 py-0.5 text-sm font-semibold text-[#344054]">
                       {scope.code} {group?.label ?? "?"}
                     </span>
-                    <span className="text-[#98a2b3]"> · {termName(scope.termId ?? "")}</span>
-                    <ul className="mt-0.5 flex flex-wrap gap-x-3 text-xs text-[#667085]">
+                    <span className="pt-0.5 text-xs text-[#98a2b3]">{termName(scope.termId ?? "")}</span>
+                    <ul className="flex basis-full flex-wrap gap-x-4 gap-y-0.5 pl-1 text-xs text-[#667085]">
                       {crns.map((cell) => (
-                        <li key={cell.courseCode} className="inline-flex items-center gap-1">
-                          {cell.courseCode} {cell.crn || "—"}
+                        <li key={cell.courseCode} className="inline-flex items-center gap-1 tabular-nums">
+                          <span className="text-[#344054]">{cell.courseCode}</span> {cell.crn || "—"}
                           {cell.crn && registered.has(cell.crn) ? (
                             <Check size={12} className="text-[#2f6b3d]" aria-label="registered" />
                           ) : null}
@@ -140,23 +196,23 @@ export function StudentRecord({
                 ))}
               </ul>
             )}
-          </div>
+          </Card>
 
-          <div>
-            <h3 className="text-sm font-semibold text-[#344054]">Registered in the portal</h3>
+          {/* ------------------------------------------------------ registrations */}
+          <Card title="Registered in the portal" note="What the registrar actually registered, per term.">
             {registrations.isLoading ? (
-              <p className="text-sm text-[#667085]">Reading…</p>
+              <Empty>Reading…</Empty>
             ) : registrations.error ? (
               <p className="text-sm text-[#a6292f]">{(registrations.error as Error).message}</p>
             ) : (registrations.data ?? []).length === 0 ? (
-              <p className="text-sm text-[#667085]">No registrations pulled for this student. Sync a Registrations filter that covers them.</p>
+              <Empty>No registrations pulled for this student yet. Sync a Registrations filter that covers them.</Empty>
             ) : (
               <table className="w-full text-left text-sm" aria-label="Registrations">
-                <thead className="text-xs uppercase tracking-wide text-[#667085]">
+                <thead className="text-[11px] uppercase tracking-wide text-[#98a2b3]">
                   <tr>
-                    <th className="py-1 font-semibold">Term</th>
-                    <th className="py-1 font-semibold">CRN</th>
-                    <th className="py-1 font-semibold">Course</th>
+                    <th className="py-1 pr-3 font-semibold">Term</th>
+                    <th className="py-1 pr-3 font-semibold">CRN</th>
+                    <th className="py-1 pr-3 font-semibold">Course</th>
                     <th className="py-1 font-semibold">Teacher</th>
                   </tr>
                 </thead>
@@ -166,60 +222,129 @@ export function StudentRecord({
                       key={`${registration.termCode}|${registration.crn}`}
                       className={`border-t border-[#eef1f5] ${registration.status === "not_in_portal" ? "text-[#98a2b3] line-through" : ""}`}
                     >
-                      <td className="py-1 tabular-nums">{registration.termCode}</td>
-                      <td className="py-1 tabular-nums">{registration.crn}</td>
-                      <td className="py-1">
-                        {registration.courseCode}
+                      <td className="py-1.5 pr-3 tabular-nums text-[#667085]">{registration.termCode}</td>
+                      <td className="py-1.5 pr-3 tabular-nums">{registration.crn}</td>
+                      <td className="py-1.5 pr-3">
+                        <span className="font-semibold text-[#171717]">{registration.courseCode}</span>
                         {registration.title ? <span className="block text-xs text-[#98a2b3]">{registration.title}</span> : null}
                       </td>
-                      <td className="py-1 text-[#667085]">{registration.teacherName}</td>
+                      <td className="py-1.5 text-[#667085]">{registration.teacherName}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             )}
+
             {mismatches.length ? (
-              <ul className="mt-2 space-y-1 rounded-md border border-[#e8d9ac] bg-[#fdf9ee] px-3 py-2 text-sm text-[#8a6116]" aria-label="Differences">
+              <ul className="mt-3 space-y-1.5" aria-label="Differences">
                 {mismatches.map((mismatch) => (
-                  <li key={`${mismatch.termCode}|${mismatch.courseCode}|${mismatch.kind}`} className="flex items-start gap-2">
-                    <AlertTriangle size={14} className="mt-1 shrink-0" aria-hidden="true" />
+                  <li
+                    key={`${mismatch.termCode}|${mismatch.courseCode}|${mismatch.kind}`}
+                    className="flex items-start gap-2 rounded-md border border-[#e8d9ac] bg-[#fdf9ee] px-3 py-2 text-sm text-[#8a6116]"
+                  >
+                    <AlertTriangle size={14} className="mt-0.5 shrink-0" aria-hidden="true" />
                     <span>{describeMismatch(mismatch)}</span>
                   </li>
                 ))}
               </ul>
             ) : cohortId && check.data && (registrations.data ?? []).length ? (
-              <p className="mt-2 text-xs text-[#2f6b3d]">Registrations agree with the groups.</p>
+              <p className="mt-3 inline-flex items-center gap-1.5 text-sm text-[#2f6b3d]">
+                <Check size={14} aria-hidden="true" /> Registrations agree with the groups.
+              </p>
             ) : null}
-            {links.data && Object.keys(links.data).length === 0 && cohortId ? (
-              <p className="mt-2 text-xs text-[#98a2b3]">No semester is linked to a portal term yet, so nothing is compared. Set the portal term on the Semesters page.</p>
+            {noLink && cohortId ? (
+              <p className="mt-3 text-xs text-[#98a2b3]">
+                No semester is linked to a portal term yet, so nothing is compared. Set the portal term on the Semesters page.
+              </p>
             ) : null}
-          </div>
-        </section>
+          </Card>
+        </div>
       </div>
 
-      <section className="mt-6">
-        <h3 className="text-sm font-semibold text-[#344054]">History</h3>
+      {/* ---------------------------------------------------------------- history */}
+      <Card className="mt-5" title="History" note="What changed in the portal's record, from this browser's pull history.">
         {entries.length === 0 ? (
-          <p className="text-sm text-[#667085]">No changes recorded in this browser&apos;s pull history.</p>
+          <Empty>No changes recorded.</Empty>
         ) : (
-          <ul className="mt-1 space-y-1.5 text-sm" aria-label="History">
+          <ol className="space-y-2" aria-label="History">
             {entries.map((entry) => (
-              <li key={entry.pullId} className="flex flex-wrap items-baseline gap-x-3">
-                <span className="tabular-nums text-[#98a2b3]">{new Date(entry.at).toLocaleDateString()}</span>
+              <li key={entry.pullId} className="grid grid-cols-[6.5rem_1fr] gap-x-3 text-sm">
+                <span className="tabular-nums text-[#98a2b3]">{new Date(entry.at).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}</span>
                 {entry.kind === "arrived" ? (
-                  <span className="text-[#2f6b3d]">first seen</span>
+                  <span className="text-[#2f6b3d]">First seen in a pull</span>
                 ) : entry.kind === "departed" ? (
-                  <span className="text-[#a6292f]">no longer returned</span>
+                  <span className="text-[#a6292f]">No longer returned by the portal</span>
                 ) : (
-                  <span className="text-[#344054]">
-                    {entry.changes.map((change) => `${labelOf(change.field)}: ${change.from || "—"} → ${change.to || "—"}`).join(" · ")}
+                  <span className="flex flex-wrap gap-1.5">
+                    {entry.changes.map((change) => (
+                      <span key={change.field} className="inline-flex items-center gap-1 rounded-full bg-[#fff6e5] px-2 py-0.5 text-xs text-[#8a6d00]">
+                        <span className="font-semibold">{labelOf(change.field)}:</span> {change.from || "—"} → {change.to || "—"}
+                      </span>
+                    ))}
                   </span>
                 )}
               </li>
             ))}
-          </ul>
+          </ol>
         )}
-      </section>
+      </Card>
     </Modal>
   );
+}
+
+function Card({ title, note, className = "", children }: { title: string; note?: string; className?: string; children: ReactNode }) {
+  return (
+    <section className={`rounded-lg border border-[#e4e8ef] bg-white px-4 py-3 ${className}`}>
+      <h3 className="text-sm font-semibold text-[#171717]">{title}</h3>
+      {note ? <p className="mb-2 text-xs text-[#98a2b3]">{note}</p> : <div className="mb-2" />}
+      {children}
+    </section>
+  );
+}
+
+function Facts({ entries }: { entries: [string, string][] }) {
+  return (
+    <dl className="grid grid-cols-[minmax(8rem,auto)_1fr] gap-x-4 gap-y-1 text-sm">
+      {entries.map(([label, value]) => (
+        <div key={label} className="contents">
+          <dt className="text-[#667085]">{label}</dt>
+          <dd className="break-words text-[#171717]">{value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+function Folded({ label, children }: { label: string; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        aria-expanded={open}
+        className="inline-flex items-center gap-1 text-xs font-semibold text-[#1f4e79]"
+      >
+        <ChevronDown size={13} className={`transition-transform ${open ? "rotate-180" : ""}`} aria-hidden="true" />
+        {open ? "Hide" : "Show"} {label}
+      </button>
+      {open ? <div className="mt-2">{children}</div> : null}
+    </div>
+  );
+}
+
+function Empty({ children }: { children: ReactNode }) {
+  return <p className="text-sm text-[#667085]">{children}</p>;
+}
+
+function Pill({ tone, children }: { tone: "good" | "bad" | "muted" | "accent"; children: ReactNode }) {
+  const look =
+    tone === "good"
+      ? "bg-[#eaf4ec] text-[#2f6b3d]"
+      : tone === "bad"
+        ? "bg-[#fdf3f3] text-[#a6292f]"
+        : tone === "accent"
+          ? "bg-[#e8edf3] text-[#1f4e79]"
+          : "bg-[#eef1f5] text-[#344054]";
+  return <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${look}`}>{children}</span>;
 }
