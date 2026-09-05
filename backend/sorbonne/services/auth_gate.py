@@ -12,11 +12,27 @@ anyone who asks.
 
 from __future__ import annotations
 
+from functools import lru_cache
+
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from sorbonne.services.staff_auth import SESSION_COOKIE, is_configured, user_for_request
+from sorbonne.config import config
+from sorbonne.services.api_tokens import ApiTokenStore
+from sorbonne.services.staff_auth import SESSION_COOKIE, is_configured, read_session, user_for_request
+
+@lru_cache(maxsize=1)
+def _tokens() -> ApiTokenStore:
+    """One store, not one per request: every authenticated call would otherwise open its
+    own connection pool."""
+    return ApiTokenStore(config.database_url)
+
+
+def token_user(token: str):
+    """Who an API token speaks for, if anyone. A seam, so a test can hold its own store."""
+    return _tokens().user_for(token)
+
 
 # Everything a signed-out browser is allowed to reach.
 PUBLIC_PATHS = frozenset({"/healthcheck", "/api/v1/auth/config", "/api/v1/auth/session"})
@@ -44,9 +60,19 @@ class StaffAuthGate(BaseHTTPMiddleware):
                 },
             )
 
-        user = user_for_request(request.cookies.get(SESSION_COOKIE), request.headers.get("authorization"))
+        cookie = request.cookies.get(SESSION_COOKIE)
+        authorization = request.headers.get("authorization")
+        user = read_session(cookie)
+        # How the caller proved who they are, because a token may not mint another.
+        kind = "cookie"
+        if user is None and authorization and authorization.lower().startswith("bearer "):
+            user = token_user(authorization.split(" ", 1)[1].strip())
+            kind = "token"
+        if user is None:
+            user, kind = user_for_request(cookie, authorization), "google"
         if user is None:
             return JSONResponse(status_code=401, content={"detail": "Sign in to continue."})
 
         request.state.staff_user = user
+        request.state.auth_kind = kind
         return await call_next(request)

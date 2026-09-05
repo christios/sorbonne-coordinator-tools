@@ -67,3 +67,42 @@ export function updateCoordinator(
 export function removeCoordinator(email: string): Promise<void> {
   return request<void>(`/api/v1/users/${encodeURIComponent(email)}`, { method: "DELETE" });
 }
+
+/**
+ * A token a coordinator makes for a script: their identity, in a string a program can
+ * send. The token itself comes back once, from the request that made it, and the list
+ * afterwards knows only its first characters.
+ */
+export type ApiToken = {
+  id: string;
+  name: string;
+  prefix: string;
+  email: string;
+  createdAt: string;
+  expiresAt: string;
+  lastUsedAt: string;
+  revokedAt: string;
+};
+
+export async function fetchApiTokens(): Promise<ApiToken[]> {
+  const response = await apiFetch(`${API_BASE_URL}/api/v1/auth/tokens`);
+  if (!response.ok) throw new Error(await readError(response));
+  return ((await response.json()) as { tokens: ApiToken[] }).tokens;
+}
+
+export async function createApiToken(input: { name: string; days: number }): Promise<{ token: string; record: ApiToken }> {
+  const response = await apiFetch(`${API_BASE_URL}/api/v1/auth/tokens`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) throw new Error(await readError(response));
+  return (await response.json()) as { token: string; record: ApiToken };
+}
+
+export async function revokeApiToken(tokenId: string): Promise<void> {
+  const response = await apiFetch(`${API_BASE_URL}/api/v1/auth/tokens/${encodeURIComponent(tokenId)}`, {
+    method: "DELETE",
+  });
+  if (!response.ok) throw new Error(await readError(response));
+}
