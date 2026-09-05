@@ -14,6 +14,12 @@ const WORDS = {
 } as const;
 const ORDER = Object.keys(WORDS) as (keyof typeof WORDS)[];
 
+/** "2m 10s" — how long this list has been with the portal. */
+function since(at: number, now: number): string {
+  const seconds = Math.max(0, Math.round((now - at) / 1000));
+  return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+}
+
 function StepIcon({ state }: { state: SyncStep["state"] }) {
   if (state === "running") return <Loader2 size={13} className="animate-spin text-[#1f4e79]" aria-hidden="true" />;
   if (state === "done") return <Check size={13} className="text-[#2e7d55]" aria-hidden="true" />;
@@ -30,9 +36,9 @@ function StepIcon({ state }: { state: SyncStep["state"] }) {
  * depend on each other in, and it is the only way to ask: the pages themselves no longer
  * sync, so no page can be refreshed while the rest go stale.
  *
- * It stands at the foot of the pane, under the pages it refreshes. The run itself lives
- * in {@link "@/services/syncRun"} rather than in this component, so changing pages does
- * not interrupt it and a reload picks it up where it was.
+ * It stands at the top right of the header, where the account menu used to. The run
+ * itself lives in {@link "@/services/syncRun"} rather than in this component, so changing
+ * pages does not interrupt it and a reload picks it up where it was.
  */
 export function PortalSyncButton() {
   const client = useQueryClient();
@@ -42,7 +48,22 @@ export function PortalSyncButton() {
 
   useEffect(() => subscribe(setRun), []);
 
-  const running = isRunning(run);
+  /*
+   * A ticking clock while a list is with the portal.
+   *
+   * A pull is one slow request with nothing to count, so the only honest signal of
+   * progress is how long it has been going — and that is also what tells a coordinator
+   * whether to wait or to worry. It stops when the run does.
+   */
+  const [now, setNow] = useState(() => Date.now());
+  const going = isRunning(run);
+  useEffect(() => {
+    if (!going) return;
+    const tick = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(tick);
+  }, [going]);
+
+  const running = going;
   const steps = run?.steps ?? [];
   const done = steps.filter((step) => step.state === "done").length;
   const failed = steps.filter((step) => step.state === "failed");
@@ -63,7 +84,7 @@ export function PortalSyncButton() {
           }}
           disabled={!ready && !running}
           title={ready ? "Ask the registrar portal for every list" : "Nothing to sync yet: no views or portal filters"}
-          className="inline-flex min-w-0 flex-1 items-center gap-2 rounded-md border border-[#d9dee7] bg-white px-3 py-2 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb] disabled:opacity-50"
+          className="inline-flex min-w-0 items-center gap-2 rounded-md border border-[#d9dee7] bg-white px-3 py-2 text-sm font-semibold text-[#1f4e79] shadow-sm hover:bg-[#f2f7fb] disabled:opacity-50"
         >
           {running ? (
             <Loader2 size={15} className="shrink-0 animate-spin" aria-hidden="true" />
@@ -80,16 +101,16 @@ export function PortalSyncButton() {
             type="button"
             aria-label="What the last portal sync did"
             onClick={() => setOpen((was) => !was)}
-            className="shrink-0 rounded-md border border-[#d9dee7] bg-white px-1.5 py-2 text-xs text-[#667085] hover:bg-[#f2f7fb]"
+            className="shrink-0 rounded-md border border-[#d9dee7] bg-white px-1.5 py-2 text-xs text-[#667085] shadow-sm hover:bg-[#f2f7fb]"
           >
-            {open ? "▾" : "▴"}
+            {open ? "▴" : "▾"}
           </button>
         ) : null}
       </div>
 
-      {/* Upwards: the button is at the foot of the pane, so there is no room below it. */}
+      {/* Under the button and against the right edge, which is where the header ends. */}
       {open && steps.length ? (
-        <div className="absolute bottom-full left-0 z-30 mb-2 w-80 rounded-lg border border-[#d9dee7] bg-white p-3 text-left shadow-lg">
+        <div className="absolute right-0 top-full z-30 mt-2 w-80 rounded-lg border border-[#d9dee7] bg-white p-3 text-left shadow-lg">
           <div className="mb-2 flex items-baseline justify-between">
             <p className="text-sm font-semibold text-[#171717]">
               {running ? "Syncing every list" : failed.length ? "Synced, with trouble" : "Synced"}
@@ -113,6 +134,9 @@ export function PortalSyncButton() {
                       {step.state === "done" ? (
                         <span className="text-[#98a2b3]"> — {step.seen?.toLocaleString() ?? 0} returned</span>
                       ) : null}
+                      {step.state === "running" && step.startedAt ? (
+                        <span className="text-[#98a2b3]"> — {since(step.startedAt, now)}</span>
+                      ) : null}
                       {step.warning ? <span className="block text-[#8a6116]">{step.warning}</span> : null}
                       {step.error ? <span className="block text-[#a6292f]">{step.error}</span> : null}
                     </span>
@@ -122,7 +146,7 @@ export function PortalSyncButton() {
           </ul>
           <p className="mt-2 border-t border-[#eef1f5] pt-2 text-[11px] text-[#98a2b3]">
             {running
-              ? `${current ? `${current.name} is with the portal now. ` : ""}This keeps going if you change page, and picks up where it was if you reload.`
+              ? `${current ? `${current.name} is with the portal now — one slow request, with nothing to count until it lands. ` : ""}This keeps going if you change page, and picks up where it was if you reload.`
               : `${done} of ${steps.length} synced${failed.length ? `, ${failed.length} did not` : ""}.`}
           </p>
         </div>

@@ -4,7 +4,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { StudentDatabase } from "@/components/StudentDatabase";
 import { StaffContext } from "@/components/useStaffUser";
-import * as backup from "@/services/historyBackup";
 import { forgetHistory } from "@/services/pullHistory";
 import { forgetRosters } from "@/services/rosterStore";
 import * as rosters from "@/services/scenRosters";
@@ -63,19 +62,6 @@ function renderApp(user: typeof ADMIN | null = ADMIN, onOpenSettings = () => {})
   );
 }
 
-/**
- * Portal sync waits on the views and portal filters, so it is briefly disabled.
- *
- * Waited out to the end, because the run is module state shared by every test in this
- * file: a test that walked away mid-run would leave the next one unable to start.
- */
-async function clickSync() {
-  const button = await screen.findByRole("button", { name: /portal sync/i });
-  await waitFor(() => expect(button).toHaveProperty("disabled", false));
-  fireEvent.click(button);
-  await screen.findByText(/^Synced/);
-}
-
 beforeEach(() => {
   window.localStorage.clear();
   vi.spyOn(database, "fetchCohorts").mockResolvedValue([]);
@@ -101,71 +87,13 @@ afterEach(() => {
   window.localStorage.clear();
 });
 
-describe("Portal sync", () => {
-  it("stands at the foot of the pane, and the pages themselves no longer sync", async () => {
+describe("the pages themselves no longer sync", () => {
+  it("offers the view picker, and no sync of its own", async () => {
     renderApp();
 
     expect(await screen.findByRole("combobox", { name: "View" })).toBeTruthy();
-    expect(await screen.findByRole("button", { name: /portal sync/i })).toBeTruthy();
-    // One way to ask the portal, not one per page.
+    // One way to ask the portal — Portal sync, in the header — not one per page.
     expect(screen.queryByRole("button", { name: /sync this filter|seed this filter/i })).toBeNull();
-  });
-
-  it("asks the portal for the view's own fixed filter, and sends back only ids", async () => {
-    renderApp();
-
-    await clickSync();
-
-    await waitFor(() => expect(database.syncView).toHaveBeenCalled());
-    expect((rosters.pullFilter as ReturnType<typeof vi.fn>).mock.calls[0][0]).toEqual({
-      YEARLEVEL_CODE: ["FY"],
-    });
-    const [view, ids] = (database.syncView as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(view).toBe("view-1");
-    expect(ids).toEqual(["A001", "A002"]);
-    // The privacy rule, pinned: no name may cross to our API.
-    expect(JSON.stringify(ids)).not.toContain("Amira");
-  });
-
-  it("says what the run did, list by list", async () => {
-    renderApp();
-
-    await clickSync();
-
-    await waitFor(() => expect(database.syncView).toHaveBeenCalled());
-    // The panel opens with the run in it: the list, and what the portal gave back.
-    expect(await screen.findByText("Students ·")).toBeTruthy();
-    expect(await screen.findByText(/2 returned/)).toBeTruthy();
-  });
-
-  it("says when the history could not be copied to the chosen folder", async () => {
-    vi.spyOn(backup, "backUpHistory").mockResolvedValue({ ok: false, reason: "no_permission" });
-    renderApp();
-
-    await clickSync();
-
-    expect(await screen.findByText(/Chrome needs you to allow it again/)).toBeTruthy();
-  });
-
-  it("stays quiet about the backup when no folder has been chosen", async () => {
-    // Not opting in is not a failure, and a warning about it every sync would be noise.
-    vi.spyOn(backup, "backUpHistory").mockResolvedValue({ ok: false, reason: "no_folder" });
-    renderApp();
-
-    await clickSync();
-
-    expect(await screen.findByText(/2 returned/)).toBeTruthy();
-    expect(screen.queryByText(/could not be written/)).toBeNull();
-  });
-
-  it("still syncs the students when the backup fails", async () => {
-    // The students are synced either way; the backup is a copy, not the point.
-    vi.spyOn(backup, "backUpHistory").mockResolvedValue({ ok: false, reason: "failed" });
-    renderApp();
-
-    await clickSync();
-
-    await waitFor(() => expect(database.syncView).toHaveBeenCalled());
   });
 });
 
@@ -275,11 +203,7 @@ describe("who may define a view", () => {
     expect(screen.queryByRole("button", { name: `Delete ${VIEW.name}` })).toBeNull();
   });
 
-  it("still lets them ask the portal, which settles nothing about a population", async () => {
-    renderApp(COLLEAGUE);
 
-    expect(await screen.findByRole("button", { name: /portal sync/i })).toBeTruthy();
-  });
 });
 
 describe("the account menu", () => {

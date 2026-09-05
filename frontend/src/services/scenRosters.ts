@@ -21,6 +21,16 @@ const CHANNEL = "scen-rosters";
  * genuinely stopped hits the limit. A minute without a word is stopped.
  */
 const FETCH_TIMEOUT_MS = 60_000;
+/*
+ * And a limit on the whole thing.
+ *
+ * The clock above is for silence, and the extension beats every five seconds while it
+ * waits on the portal — so a request the portal never answers is a page that waits for
+ * ever, looking exactly like one that is working. Ten minutes is far longer than the
+ * slowest real pull (a whole term of students is about a minute) and short enough that
+ * nobody sits watching a spinner that will never stop.
+ */
+const PULL_LIMIT_MS = 10 * 60_000;
 const PING_TIMEOUT_MS = 1_500;
 
 export type RosterRow = {
@@ -91,6 +101,7 @@ function ask(
       settled = true;
       window.removeEventListener("message", onMessage);
       clearTimeout(timer);
+      clearTimeout(limit);
       resolve(payload);
     };
 
@@ -98,6 +109,8 @@ function ask(
     // did not answer *in time*, which is not the same as it not being there — and telling
     // a coordinator to install what they already have sends them somewhere useless.
     let timer = setTimeout(() => finish({ ok: false, error: "timed_out" }), timeout);
+    // Not restarted by progress: this one is the whole pull's length, not its silence.
+    const limit = setTimeout(() => finish({ ok: false, error: "gave_up" }), PULL_LIMIT_MS);
 
     const onMessage = (event: MessageEvent) => {
       if (event.source !== window || event.origin !== window.location.origin) return;
@@ -229,6 +242,11 @@ export class PortalError extends Error {
 
 function messageFor(code: string, detail = ""): string {
   switch (code) {
+    case "gave_up":
+      return (
+        "The registrar portal was still answering after ten minutes, so this list was " +
+        "given up on. The portal is not well; try again later, or narrow the filter."
+      );
     case "timed_out":
       return (
         "The registrar portal did not finish answering. A whole term is thousands of " +

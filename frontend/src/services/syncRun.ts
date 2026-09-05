@@ -34,6 +34,8 @@ export type SyncStep = {
   id: string;
   name: string;
   state: StepState;
+  /** When the portal was asked, so a slow list can be told from a stuck one. */
+  startedAt?: number;
   /** What the sync reported, once it has: how many rows the portal returned. */
   seen?: number;
   /** Said out loud, because a pull that is quietly incomplete is the worst kind. */
@@ -206,7 +208,7 @@ async function drive(targets: SyncTarget[], onStep?: (step: SyncStep) => void): 
         settle(patch(next.key, { state: "failed", error: "This list no longer exists." }), onStep);
         continue;
       }
-      patch(next.key, { state: "running" });
+      patch(next.key, { state: "running", startedAt: Date.now() });
       try {
         const outcome = await syncTarget(target);
         settle(patch(next.key, { state: "done", seen: outcome.report.seen, warning: outcome.warning }), onStep);

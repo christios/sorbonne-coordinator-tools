@@ -16,7 +16,6 @@ import { PortalRegistrations } from "@/components/PortalRegistrations";
 import { PortalTeachers } from "@/components/PortalTeachers";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { SemesterList } from "@/components/SemesterList";
-import { PortalSyncButton } from "@/components/PortalSyncButton";
 import { StaffMenu } from "@/components/StaffMenu";
 import { StudentRoster } from "@/components/StudentRoster";
 import { SidePane } from "@/components/SidePane";
@@ -195,15 +194,9 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
         items={PAGES.map(({ id, name, icon, group, ...rest }) => ({ id, name, icon, group, ...rest }))}
         activeId={page}
         onSelect={(id) => openPage(id as PageId)}
-        // The foot of the pane: the one button that refreshes every page above it, and
-        // who is signed in. Both belong to whichever pane is on screen — inside a tool
-        // that is this one, not the launcher's.
-        footer={
-          <div className="space-y-2">
-            <PortalSyncButton />
-            <StaffMenu variant="sidebar" onOpenSettings={onOpenSettings} />
-          </div>
-        }
+        // Who is signed in, and their settings, belong at the foot of whichever pane is
+        // on screen — inside a tool that is this one, not the launcher's.
+        footer={<StaffMenu variant="sidebar" onOpenSettings={onOpenSettings} />}
       />
 
       <div className="min-w-0 flex-1 overflow-y-auto">

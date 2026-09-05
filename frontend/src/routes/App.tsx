@@ -8,6 +8,7 @@ import { FileDropzone } from "@/components/FileDropzone";
 import { RosterTable } from "@/components/RosterTable";
 import { StaffMenu } from "@/components/StaffMenu";
 import { StaffSettings } from "@/components/StaffSettings";
+import { PortalSyncButton } from "@/components/PortalSyncButton";
 import { SyllabusBuilder } from "@/components/SyllabusBuilder";
 import { SyncRunDriver } from "@/components/SyncRunDriver";
 import { TeacherDatabase } from "@/components/TeacherDatabase";
@@ -15,6 +16,7 @@ import { StudentDatabase } from "@/components/StudentDatabase";
 import { COORDINATOR_APPS } from "@/routes/apps";
 import { handbookUrl } from "@/routes/handbookRoute";
 import { ToolId, toolFromLocation } from "@/routes/toolRoute";
+import { getRun, isRunning, subscribe } from "@/services/syncRun";
 import {
   BatchRosterPreview,
   BatchRosterPreviewItem,
@@ -118,6 +120,10 @@ export function App() {
   }
 
   const compactSyllabusHeader = activeTool === "syllabus" && syllabusHeaderCollapsed;
+  // Whether a portal sync is still going, so its button stays in sight even after the
+  // coordinator has left the pages it refreshes.
+  const [syncing, setSyncing] = useState(() => isRunning(getRun()));
+  useEffect(() => subscribe((run) => setSyncing(isRunning(run))), []);
   const isPicker = activeTool === null;
   // Any screen with a left pane needs the pane to end where the window does, so the
   // account menu at its foot is reachable. Guessing the header's height got that wrong;
@@ -165,6 +171,12 @@ export function App() {
                 <span aria-hidden="true">←</span> All apps
               </button>
             ) : null}
+            {/*
+              * Portal sync belongs to the student pages, and stays in sight anywhere while
+              * a run it started is still going, so its report can be read wherever the
+              * coordinator has gone since.
+              */}
+            {activeTool === "database" || syncing ? <PortalSyncButton /> : null}
             {/*
               * Who is signed in lives at the foot of the pane. The header keeps a copy
               * only where the pane is not on screen at all — below `lg`, where it hides —
