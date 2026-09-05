@@ -1,33 +1,48 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link2, Link2Off, UserPlus } from "lucide-react";
-import { useMemo, useState } from "react";
+import { UserPlus } from "lucide-react";
+import { useState } from "react";
 
+import { ListGrid, StatePill } from "@/components/ListGrid";
 import { PortalFilterBar } from "@/components/PortalFilterBar";
 import { ScreenLoading } from "@/components/ScreenLoading";
-import { SelectMenu } from "@/components/SelectMenu";
-import { SimpleTable, type SimpleColumn } from "@/components/SimpleTable";
-import {
-  type PartTimeTeacher,
-  type PortalTeacher,
-  addPartTimeTeacher,
-  fetchPartTimeTeachers,
-  fetchPortalTeachers,
-  linkTeacher,
-} from "@/services/portalLists";
+import { type PortalTeacher, addActiveTeachers, fetchActiveTeachers, fetchPortalTeachers } from "@/services/portalLists";
+import type { GridColumn } from "@/services/studentColumns";
 
 const FILTER_KEY = "scen-portal-filter:teachers";
 
-function fold(value: string): string {
-  return value.trim().toLowerCase().replace(/\s+/g, " ");
-}
+const TEACHER_COLUMNS: GridColumn<PortalTeacher>[] = [
+  { id: "teacherId", displayName: "ID", type: "text", accessor: (row) => row.teacherId, required: true, defaultWidth: 110 },
+  { id: "fullName", displayName: "Name", type: "text", accessor: (row) => row.fullName, required: true, defaultWidth: 220 },
+  { id: "type", displayName: "Type", type: "option", accessor: (row) => row.type, defaultWidth: 200 },
+  { id: "category", displayName: "Category", type: "option", accessor: (row) => row.category, defaultWidth: 120 },
+  { id: "teacherStatus", displayName: "Status", type: "option", accessor: (row) => row.teacherStatus, defaultWidth: 90 },
+  { id: "department", displayName: "Dept.", type: "option", accessor: (row) => row.department, defaultWidth: 110 },
+  { id: "courses", displayName: "Courses", type: "text", accessor: (row) => row.courses, defaultWidth: 220 },
+  { id: "lastTerm", displayName: "Last term", type: "option", accessor: (row) => row.lastTerm, defaultWidth: 100 },
+  { id: "coursesCount", displayName: "# courses", type: "number", accessor: (row) => Number(row.coursesCount) || 0, defaultWidth: 100 },
+  { id: "studentsCount", displayName: "# students", type: "number", accessor: (row) => Number(row.studentsCount) || 0, defaultWidth: 100 },
+  { id: "rank", displayName: "Rank", type: "text", accessor: (row) => row.rank, defaultWidth: 180 },
+  { id: "institution", displayName: "Institution", type: "text", accessor: (row) => row.institution, defaultWidth: 220 },
+  { id: "psuadEmail", displayName: "E-mail", type: "text", accessor: (row) => row.psuadEmail, defaultWidth: 240 },
+  {
+    id: "status",
+    displayName: "Portal",
+    type: "option",
+    accessor: (row) => (row.status === "in_portal" ? "Returned" : "No longer returned"),
+    defaultWidth: 150,
+  },
+  { id: "active", displayName: "Active", type: "option", accessor: () => "", defaultWidth: 90 },
+];
+const SHOWN = ["teacherId", "fullName", "type", "department", "courses", "lastTerm", "psuadEmail", "active"];
+
+const idOf = (row: PortalTeacher) => row.teacherId;
+const labelOf = (row: PortalTeacher) => row.fullName || row.teacherId;
 
 /**
- * Who the portal says teaches, as the department's own list of the teachers it deals with.
+ * Who the portal says teaches, as the department chooses its active teachers from.
  *
- * Mirrors the portal's staff list, pulled by filter. The part-time teacher database is a
- * separate application with its own records, folders and requisitions; a portal teacher
- * can be matched to a record there, or added to it, so the two lists agree on who a
- * person is without either owning the other.
+ * Mirrors the portal's staff list, pulled by filter. Select the teachers the department
+ * deals with and add them to Active teachers, which is the department's own list.
  */
 export function PortalTeachers() {
   const client = useQueryClient();
@@ -38,123 +53,39 @@ export function PortalTeachers() {
       return "";
     }
   });
-  const [type, setType] = useState("");
-  const [withGone, setWithGone] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const teachers = useQuery({ queryKey: ["portal", "teachers", filterId], queryFn: () => fetchPortalTeachers(filterId) });
-  const partTime = useQuery({ queryKey: ["part-time-teachers"], queryFn: fetchPartTimeTeachers });
+  const active = useQuery({ queryKey: ["active-teachers"], queryFn: fetchActiveTeachers });
+  const activeIds = new Set((active.data ?? []).map((row) => row.portalTeacherId).filter(Boolean));
 
-  const refresh = () => {
-    client.invalidateQueries({ queryKey: ["portal", "teachers"] });
-    client.invalidateQueries({ queryKey: ["part-time-teachers"] });
-  };
-  const link = useMutation({
-    mutationFn: ({ teacherId, partTimeTeacherId }: { teacherId: string; partTimeTeacherId: string }) =>
-      linkTeacher(teacherId, partTimeTeacherId),
-    onSuccess: refresh,
-  });
   const add = useMutation({
-    mutationFn: async (teacher: PortalTeacher) => {
-      const made = await addPartTimeTeacher({ fullName: teacher.fullName, email: teacher.psuadEmail });
-      return linkTeacher(teacher.teacherId, made.id);
+    mutationFn: (ids: string[]) => addActiveTeachers({ portalTeacherIds: ids }),
+    onSuccess: () => {
+      setSelected(new Set());
+      client.invalidateQueries({ queryKey: ["active-teachers"] });
     },
-    onSuccess: refresh,
   });
 
-  /** The part-time record a portal teacher most likely is: same university e-mail, else the same name. */
-  const suggestions = useMemo(() => {
-    const byEmail = new Map<string, PartTimeTeacher>();
-    const byName = new Map<string, PartTimeTeacher>();
-    for (const record of partTime.data ?? []) {
-      if (record.email) byEmail.set(fold(record.email), record);
-      if (record.fullName) byName.set(fold(record.fullName), record);
-    }
-    return (teacher: PortalTeacher) =>
-      (teacher.psuadEmail && byEmail.get(fold(teacher.psuadEmail))) || byName.get(fold(teacher.fullName)) || null;
-  }, [partTime.data]);
-  const partTimeById = new Map((partTime.data ?? []).map((record) => [record.id, record]));
-
-  const types = [...new Set((teachers.data ?? []).map((teacher) => teacher.type).filter(Boolean))].sort();
-  const rows = (teachers.data ?? []).filter(
-    (teacher) => (!type || teacher.type === type) && (withGone || teacher.status === "in_portal"),
+  // The Active column reads the department's list, so the column model borrows it here.
+  const columns = TEACHER_COLUMNS.map((column) =>
+    column.id === "active" ? { ...column, accessor: (row: PortalTeacher) => (activeIds.has(row.teacherId) ? "Active" : "") } : column,
   );
+  const renderCell = (row: PortalTeacher, column: GridColumn<PortalTeacher>) => {
+    if (column.id === "status") {
+      return row.status === "in_portal" ? <span className="text-xs text-[#667085]">Returned</span> : <StatePill tone="bad">No longer returned</StatePill>;
+    }
+    if (column.id === "active") return activeIds.has(row.teacherId) ? <StatePill tone="good">Active</StatePill> : <span className="text-[#98a2b3]">—</span>;
+    return undefined;
+  };
 
-  const columns: SimpleColumn<PortalTeacher>[] = [
-    { key: "teacherId", label: "ID", value: (row) => row.teacherId, width: "6.5rem" },
-    { key: "fullName", label: "Name", value: (row) => row.fullName },
-    { key: "type", label: "Type", value: (row) => row.type },
-    { key: "category", label: "Category", value: (row) => row.category },
-    { key: "department", label: "Dept.", value: (row) => row.department },
-    { key: "courses", label: "Courses", value: (row) => row.courses },
-    { key: "lastTerm", label: "Last term", value: (row) => row.lastTerm },
-    { key: "rank", label: "Rank", value: (row) => row.rank },
-    {
-      key: "psuadEmail",
-      label: "E-mail",
-      value: (row) => row.psuadEmail,
-      render: (row) =>
-        row.psuadEmail ? (
-          <a href={`mailto:${row.psuadEmail}`} className="text-[#1f4e79] underline">
-            {row.psuadEmail}
-          </a>
-        ) : (
-          ""
-        ),
-    },
-    {
-      key: "partTime",
-      label: "Part-time database",
-      value: (row) => (row.partTimeTeacherId ? partTimeById.get(row.partTimeTeacherId)?.fullName ?? "linked" : ""),
-      render: (row) => {
-        const busy = link.isPending || add.isPending;
-        if (row.partTimeTeacherId) {
-          const record = partTimeById.get(row.partTimeTeacherId);
-          return (
-            <span className="inline-flex flex-wrap items-center gap-2">
-              <span className="text-[#2f6b3d]">{record?.fullName ?? "Linked"}</span>
-              <button
-                type="button"
-                aria-label={`Unlink ${row.fullName} from the part-time database`}
-                disabled={busy}
-                onClick={() => link.mutate({ teacherId: row.teacherId, partTimeTeacherId: "" })}
-                className="text-[#98a2b3] hover:text-[#a6292f]"
-              >
-                <Link2Off size={14} aria-hidden="true" />
-              </button>
-            </span>
-          );
-        }
-        const suggestion = suggestions(row);
-        return suggestion ? (
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => link.mutate({ teacherId: row.teacherId, partTimeTeacherId: suggestion.id })}
-            className="inline-flex items-center gap-1.5 text-[#1f4e79] underline"
-          >
-            <Link2 size={14} aria-hidden="true" /> Match to {suggestion.fullName}
-          </button>
-        ) : (
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => add.mutate(row)}
-            className="inline-flex items-center gap-1.5 text-[#667085] hover:text-[#1f4e79]"
-          >
-            <UserPlus size={14} aria-hidden="true" /> Add to part-time database
-          </button>
-        );
-      },
-    },
-  ];
-
-  const error = link.error?.message ?? add.error?.message ?? null;
+  const chosen = [...selected].filter((id) => !activeIds.has(id));
 
   return (
     <section>
       <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
         <p className="max-w-xl text-sm text-[#667085]">
           The portal&apos;s staff list, pulled by filter. Personal contact details never leave the portal.
-          A teacher can be matched to the Part-time Teacher Database, or added to it.
+          Select the teachers the department deals with and add them to Active teachers.
         </p>
         <PortalFilterBar
           kind="teachers"
@@ -169,9 +100,15 @@ export function PortalTeachers() {
           }}
         />
       </div>
-      {error ? (
+      {add.error ? (
         <p role="alert" className="mb-3 rounded-md border border-[#e5b7b9] bg-[#fdf3f3] px-4 py-3 text-sm text-[#a6292f]">
-          {error}
+          {(add.error as Error).message}
+        </p>
+      ) : null}
+      {add.data ? (
+        <p className="mb-3 rounded-md border border-[#bfdcc6] bg-[#f4faf5] px-4 py-2.5 text-sm text-[#2f6b3d]">
+          {add.data.added} added to Active teachers{add.data.linked ? `, ${add.data.linked} joined to a part-time record` : ""}
+          {add.data.skipped ? `, ${add.data.skipped} already there` : ""}.
         </p>
       ) : null}
 
@@ -180,31 +117,32 @@ export function PortalTeachers() {
       ) : teachers.error ? (
         <p role="alert" className="text-sm text-[#a6292f]">{(teachers.error as Error).message}</p>
       ) : (
-        <SimpleTable
+        <ListGrid
           columns={columns}
-          rows={rows}
-          rowKey={(row) => row.teacherId}
+          rows={teachers.data ?? []}
+          idOf={idOf}
+          labelOf={labelOf}
+          layoutKey="scen-columns:teachers:v1"
+          presetKey="scen-copy-presets:teachers:v1"
+          shown={SHOWN}
           initialSort={{ key: "fullName", ascending: true }}
           searchLabel="Search teachers"
+          noun="teachers"
+          selected={selected}
+          onSelectedChange={setSelected}
+          renderCell={renderCell}
           empty={filterId ? "Nothing pulled yet — sync the filter." : "Choose a portal filter, or make one."}
           toolbar={
-            <>
-              {types.length > 1 ? (
-                <div className="w-56">
-                  <SelectMenu
-                    label="Type"
-                    value={type}
-                    placeholder="Every type"
-                    onChange={setType}
-                    options={[{ value: "", label: "Every type" }, ...types.map((value) => ({ value, label: value }))]}
-                  />
-                </div>
-              ) : null}
-              <label className="inline-flex items-center gap-2 text-sm text-[#344054]">
-                <input type="checkbox" checked={withGone} onChange={(event) => setWithGone(event.target.checked)} />
-                Show teachers no longer returned
-              </label>
-            </>
+            <button
+              type="button"
+              disabled={chosen.length === 0 || add.isPending}
+              title={selected.size && !chosen.length ? "Everyone selected is already active" : "Add the selected teachers to Active teachers"}
+              onClick={() => add.mutate(chosen)}
+              className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+            >
+              <UserPlus size={15} aria-hidden="true" />
+              {chosen.length ? `Add ${chosen.length} to active teachers` : "Add to active teachers"}
+            </button>
           }
         />
       )}

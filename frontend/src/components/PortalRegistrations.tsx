@@ -1,12 +1,33 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 
+import { ListGrid } from "@/components/ListGrid";
 import { PortalFilterBar } from "@/components/PortalFilterBar";
-import { SimpleTable, type SimpleColumn } from "@/components/SimpleTable";
 import { type PortalFilter, fetchPortalFilters } from "@/services/portalLists";
 import type { PortalRoster, RosterRow } from "@/services/scenRosters";
+import type { GridColumn } from "@/services/studentColumns";
 
 const FILTER_KEY = "scen-portal-filter:registrations";
+
+const field = (row: RosterRow, key: string) => String(row[key] ?? "");
+const COLUMNS: GridColumn<RosterRow>[] = [
+  { id: "SPRIDEN_ID", displayName: "ID", type: "text", accessor: (row) => field(row, "SPRIDEN_ID"), required: true, defaultWidth: 110 },
+  { id: "FULL_NAME", displayName: "Student", type: "text", accessor: (row) => field(row, "FULL_NAME"), required: true, defaultWidth: 220 },
+  { id: "YEARLEVEL_CODE", displayName: "Year", type: "option", accessor: (row) => field(row, "YEARLEVEL_CODE"), defaultWidth: 80 },
+  { id: "MAJOR_CODE", displayName: "Major", type: "option", accessor: (row) => field(row, "MAJOR_CODE"), defaultWidth: 90 },
+  { id: "DEPT_CODE", displayName: "Dept.", type: "option", accessor: (row) => field(row, "DEPT_CODE"), defaultWidth: 90 },
+  { id: "LEVEL_CODE", displayName: "Level", type: "option", accessor: (row) => field(row, "LEVEL_CODE"), defaultWidth: 80 },
+  { id: "COLLEGE_CODE", displayName: "College", type: "option", accessor: (row) => field(row, "COLLEGE_CODE"), defaultWidth: 90 },
+  { id: "COURSE_CRN", displayName: "CRN", type: "text", accessor: (row) => field(row, "COURSE_CRN"), defaultWidth: 90 },
+  { id: "COURSE_CODE", displayName: "Course", type: "option", accessor: (row) => field(row, "COURSE_CODE"), defaultWidth: 130 },
+  { id: "COURSE_TITLE", displayName: "Title", type: "text", accessor: (row) => field(row, "COURSE_TITLE"), defaultWidth: 240 },
+  { id: "TEACHER_NAME", displayName: "Teacher", type: "option", accessor: (row) => field(row, "TEACHER_NAME"), defaultWidth: 200 },
+  { id: "TERM_CODE", displayName: "Term", type: "option", accessor: (row) => field(row, "TERM_CODE"), defaultWidth: 90 },
+];
+const SHOWN = ["SPRIDEN_ID", "FULL_NAME", "YEARLEVEL_CODE", "MAJOR_CODE", "COURSE_CRN", "COURSE_CODE", "COURSE_TITLE", "TEACHER_NAME"];
+
+const idOf = (row: RosterRow) => `${field(row, "SPRIDEN_ID")}|${field(row, "COURSE_CRN")}`;
+const labelOf = (row: RosterRow) => `${field(row, "FULL_NAME") || field(row, "SPRIDEN_ID")} in ${field(row, "COURSE_CRN")}`;
 
 /**
  * Which courses the portal says each student is registered in.
@@ -27,18 +48,7 @@ export function PortalRegistrations() {
   const [last, setLast] = useState<PortalRoster | null>(null);
   const filters = useQuery({ queryKey: ["portal-filters", "registrations"], queryFn: () => fetchPortalFilters("registrations") });
   const chosen: PortalFilter | null = (filters.data ?? []).find((candidate) => candidate.id === filterId) ?? null;
-
   const rows = last?.rows ?? [];
-  const columns: SimpleColumn<RosterRow>[] = [
-    { key: "id", label: "ID", value: (row) => String(row.SPRIDEN_ID ?? ""), width: "6.5rem" },
-    { key: "name", label: "Student", value: (row) => String(row.FULL_NAME ?? "") },
-    { key: "year", label: "Year", value: (row) => String(row.YEARLEVEL_CODE ?? "") },
-    { key: "major", label: "Major", value: (row) => String(row.MAJOR_CODE ?? "") },
-    { key: "crn", label: "CRN", value: (row) => String(row.COURSE_CRN ?? "") },
-    { key: "course", label: "Course", value: (row) => String(row.COURSE_CODE ?? "") },
-    { key: "title", label: "Title", value: (row) => String(row.COURSE_TITLE ?? "") },
-    { key: "teacher", label: "Teacher", value: (row) => String(row.TEACHER_NAME ?? "") },
-  ];
 
   return (
     <section>
@@ -68,12 +78,18 @@ export function PortalRegistrations() {
       </div>
 
       {rows.length ? (
-        <SimpleTable
-          columns={columns}
+        <ListGrid
+          columns={COLUMNS}
           rows={rows}
-          rowKey={(row) => `${row.SPRIDEN_ID}|${row.COURSE_CRN}`}
-          initialSort={{ key: "name", ascending: true }}
+          idOf={idOf}
+          labelOf={labelOf}
+          layoutKey="scen-columns:registrations:v1"
+          presetKey="scen-copy-presets:registrations:v1"
+          shown={SHOWN}
+          initialSort={{ key: "FULL_NAME", ascending: true }}
           searchLabel="Search this pull"
+          noun="registrations"
+          empty="Nothing in this pull."
         />
       ) : (
         <p className="rounded-lg border border-dashed border-[#c8d0da] bg-white px-5 py-6 text-sm text-[#667085]">

@@ -1,29 +1,49 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 
+import { ListGrid, StatePill } from "@/components/ListGrid";
 import { PortalFilterBar } from "@/components/PortalFilterBar";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { SelectMenu } from "@/components/SelectMenu";
-import { SimpleTable, type SimpleColumn } from "@/components/SimpleTable";
 import { type PortalCourse, fetchPortalCourses } from "@/services/portalLists";
+import type { GridColumn } from "@/services/studentColumns";
 
 const FILTER_KEY = "scen-portal-filter:courses";
 
-function remembered(key: string): string {
-  try {
-    return window.localStorage.getItem(key) ?? "";
-  } catch {
-    return "";
-  }
-}
+const COLUMNS: GridColumn<PortalCourse>[] = [
+  { id: "crn", displayName: "CRN", type: "text", accessor: (row) => row.crn, required: true, defaultWidth: 90 },
+  { id: "courseCode", displayName: "Course", type: "text", accessor: (row) => row.courseCode, required: true, defaultWidth: 130 },
+  { id: "title", displayName: "Title", type: "text", accessor: (row) => row.title, defaultWidth: 260 },
+  { id: "sequence", displayName: "Seq.", type: "text", accessor: (row) => row.sequence, defaultWidth: 70 },
+  { id: "partOfTerm", displayName: "Part of term", type: "option", accessor: (row) => row.partOfTermDesc || row.partOfTerm, defaultWidth: 160 },
+  { id: "credits", displayName: "Credits", type: "number", accessor: (row) => Number(row.credits) || 0, defaultWidth: 90 },
+  { id: "department", displayName: "Dept.", type: "option", accessor: (row) => row.department, defaultWidth: 90 },
+  { id: "level", displayName: "Level", type: "option", accessor: (row) => row.level, defaultWidth: 80 },
+  { id: "college", displayName: "College", type: "option", accessor: (row) => row.college, defaultWidth: 90 },
+  { id: "contactHours", displayName: "Contact hrs", type: "number", accessor: (row) => Number(row.contactHours) || 0, defaultWidth: 100 },
+  { id: "teacherName", displayName: "Teacher", type: "option", accessor: (row) => row.teacherName, defaultWidth: 200 },
+  { id: "registered", displayName: "Registered", type: "number", accessor: (row) => row.registered, defaultWidth: 100 },
+  { id: "subject", displayName: "Subject", type: "option", accessor: (row) => row.subject, defaultWidth: 90 },
+  { id: "begins", displayName: "Begins", type: "text", accessor: (row) => row.begins, defaultWidth: 110 },
+  { id: "ends", displayName: "Ends", type: "text", accessor: (row) => row.ends, defaultWidth: 110 },
+  { id: "termCode", displayName: "Term", type: "option", accessor: (row) => row.termCode, defaultWidth: 90 },
+  {
+    id: "status",
+    displayName: "Portal",
+    type: "option",
+    accessor: (row) => (row.status === "in_portal" ? "In portal" : "No longer listed"),
+    defaultWidth: 130,
+  },
+  { id: "lastSeenAt", displayName: "Last seen", type: "date", accessor: (row) => row.lastSeenAt, display: (row) => row.lastSeenAt.slice(0, 10), defaultWidth: 120 },
+];
+const SHOWN = ["crn", "courseCode", "title", "partOfTerm", "credits", "department", "level", "teacherName", "registered", "status"];
 
-function remember(key: string, value: string): void {
-  try {
-    window.localStorage.setItem(key, value);
-  } catch {
-    // a preference that cannot be kept must not break the page
-  }
-}
+const idOf = (row: PortalCourse) => `${row.termCode}|${row.crn}`;
+const labelOf = (row: PortalCourse) => `${row.courseCode} ${row.crn}`;
+const renderCell = (row: PortalCourse, column: GridColumn<PortalCourse>) =>
+  column.id === "status" ? (
+    row.status === "in_portal" ? <StatePill tone="good">In portal</StatePill> : <StatePill tone="bad">No longer listed</StatePill>
+  ) : undefined;
 
 /**
  * The term's CRNs as the registrar portal lists them.
@@ -35,51 +55,23 @@ function remember(key: string, value: string): void {
 export function PortalCourses() {
   const [filterId, setFilterId] = useState(() => remembered(FILTER_KEY));
   const [term, setTerm] = useState("");
-  const [withGone, setWithGone] = useState(false);
-  const courses = useQuery({
-    queryKey: ["portal", "courses", filterId],
-    queryFn: () => fetchPortalCourses("", filterId),
-  });
+  const courses = useQuery({ queryKey: ["portal", "courses", filterId], queryFn: () => fetchPortalCourses("", filterId) });
 
   const terms = useMemo(() => courses.data?.terms ?? [], [courses.data]);
   useEffect(() => {
     if (terms.length && !terms.includes(term)) setTerm(terms[0]);
   }, [terms, term]);
-
-  const rows = (courses.data?.courses ?? []).filter(
-    (course) => (!term || course.termCode === term) && (withGone || course.status === "in_portal"),
+  const rows = useMemo(
+    () => (courses.data?.courses ?? []).filter((course) => !term || course.termCode === term),
+    [courses.data, term],
   );
-
-  const columns: SimpleColumn<PortalCourse>[] = [
-    { key: "crn", label: "CRN", value: (row) => row.crn, width: "5rem" },
-    { key: "courseCode", label: "Course", value: (row) => row.courseCode },
-    { key: "title", label: "Title", value: (row) => row.title },
-    { key: "sequence", label: "Seq.", value: (row) => row.sequence, width: "4rem" },
-    { key: "partOfTerm", label: "Part of term", value: (row) => row.partOfTermDesc || row.partOfTerm },
-    { key: "credits", label: "Credits", value: (row) => Number(row.credits) || 0, align: "right" },
-    { key: "department", label: "Dept.", value: (row) => row.department },
-    { key: "level", label: "Level", value: (row) => row.level },
-    { key: "teacherName", label: "Teacher", value: (row) => row.teacherName },
-    { key: "registered", label: "Registered", value: (row) => row.registered, align: "right" },
-    {
-      key: "status",
-      label: "Portal",
-      value: (row) => (row.status === "in_portal" ? "In portal" : "No longer listed"),
-      render: (row) =>
-        row.status === "in_portal" ? (
-          <span className="rounded-full bg-[#eaf4ec] px-2 py-0.5 text-xs font-semibold text-[#2f6b3d]">In portal</span>
-        ) : (
-          <span className="rounded-full bg-[#fdf3f3] px-2 py-0.5 text-xs font-semibold text-[#a6292f]">No longer listed</span>
-        ),
-    },
-  ];
 
   return (
     <section>
       <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
         <p className="max-w-xl text-sm text-[#667085]">
-          One row per CRN, as the portal lists it. Groups &amp; CRNs and Semesters check their CRNs against
-          this list, so keep the filter that covers the department synced.
+          One row per CRN, as the portal lists it. Groups &amp; CRNs and Semesters check their CRNs against this
+          list, so keep the filter that covers the department synced.
         </p>
         <PortalFilterBar
           kind="courses"
@@ -96,33 +88,44 @@ export function PortalCourses() {
       ) : courses.error ? (
         <p role="alert" className="text-sm text-[#a6292f]">{(courses.error as Error).message}</p>
       ) : (
-        <SimpleTable
-          columns={columns}
+        <ListGrid
+          columns={COLUMNS}
           rows={rows}
-          rowKey={(row) => `${row.termCode}|${row.crn}`}
+          idOf={idOf}
+          labelOf={labelOf}
+          layoutKey="scen-columns:courses:v1"
+          presetKey="scen-copy-presets:courses:v1"
+          shown={SHOWN}
           initialSort={{ key: "courseCode", ascending: true }}
           searchLabel="Search courses"
+          noun="courses"
+          renderCell={renderCell}
           empty={filterId ? "Nothing pulled yet — sync the filter." : "Choose a portal filter, or make one."}
           toolbar={
-            <>
-              {terms.length > 1 ? (
-                <div className="w-44">
-                  <SelectMenu
-                    label="Term"
-                    value={term}
-                    onChange={setTerm}
-                    options={terms.map((code) => ({ value: code, label: code }))}
-                  />
-                </div>
-              ) : null}
-              <label className="inline-flex items-center gap-2 text-sm text-[#344054]">
-                <input type="checkbox" checked={withGone} onChange={(event) => setWithGone(event.target.checked)} />
-                Show CRNs no longer listed
-              </label>
-            </>
+            terms.length > 1 ? (
+              <div className="w-40">
+                <SelectMenu label="Term" value={term} onChange={setTerm} options={terms.map((code) => ({ value: code, label: code }))} />
+              </div>
+            ) : null
           }
         />
       )}
     </section>
   );
+}
+
+function remembered(key: string): string {
+  try {
+    return window.localStorage.getItem(key) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function remember(key: string, value: string): void {
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    // a preference that cannot be kept must not break the page
+  }
 }

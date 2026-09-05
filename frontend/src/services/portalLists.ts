@@ -68,8 +68,6 @@ export type PortalTeacher = {
   courses: string;
   institution: string;
   psuadEmail: string;
-  /** The matching record in the part-time teacher database, or "". */
-  partTimeTeacherId: string;
   status: "in_portal" | "not_in_portal";
   firstSeenAt: string;
   lastSeenAt: string;
@@ -167,8 +165,43 @@ export async function fetchPortalTeachers(filter = ""): Promise<PortalTeacher[]>
   return (await request<{ teachers: PortalTeacher[] }>(`/teachers${filter ? `?filter=${encodeURIComponent(filter)}` : ""}`)).teachers;
 }
 
-export function linkTeacher(teacherId: string, partTimeTeacherId: string): Promise<PortalTeacher> {
-  return send<PortalTeacher>(`/teachers/${encodeURIComponent(teacherId)}/link`, "PUT", { partTimeTeacherId });
+/**
+ * One of the department's active teachers: chosen from the portal, brought from the
+ * part-time database, or both when the two turned out to be one person.
+ */
+export type ActiveTeacher = {
+  id: string;
+  portalTeacherId: string;
+  partTimeTeacherId: string;
+  fullName: string;
+  email: string;
+  source: "portal" | "part-time" | "both";
+  addedAt: string;
+  addedBy: string;
+  teacherStatus: string;
+  category: string;
+  type: string;
+  lastTerm: string;
+  department: string;
+  rank: string;
+  courses: string;
+  institution: string;
+  portalStatus: string;
+};
+
+export async function fetchActiveTeachers(): Promise<ActiveTeacher[]> {
+  return (await request<{ teachers: ActiveTeacher[] }>("/active-teachers")).teachers;
+}
+
+export function addActiveTeachers(input: {
+  portalTeacherIds?: string[];
+  partTime?: { id: string; fullName: string; email: string }[];
+}): Promise<{ added: number; linked: number; skipped: number }> {
+  return send("/active-teachers", "POST", { portalTeacherIds: [], partTime: [], ...input });
+}
+
+export function removeActiveTeacher(activeId: string): Promise<void> {
+  return request<void>(`/active-teachers/${encodeURIComponent(activeId)}`, { method: "DELETE" });
 }
 
 export async function fetchRegistrations(studentId: string): Promise<Registration[]> {
@@ -211,15 +244,6 @@ export async function fetchPartTimeTeachers(): Promise<PartTimeTeacher[]> {
   return body.items ?? body.teachers ?? [];
 }
 
-export async function addPartTimeTeacher(input: { fullName: string; email: string }): Promise<PartTimeTeacher> {
-  const response = await apiFetch(`${API_BASE_URL}/api/v1/teachers`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ...input, phone: "", notes: "", taskTemplateIds: [] }),
-  });
-  if (!response.ok) throw new Error(await readError(response));
-  return (await response.json()) as PartTimeTeacher;
-}
 
 // ---------------------------------------------------------- the mappers
 

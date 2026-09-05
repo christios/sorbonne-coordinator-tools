@@ -1,7 +1,8 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { BookOpen, CalendarDays, ClipboardList, GraduationCap, ListChecks, ListTree, Megaphone, Users } from "lucide-react";
+import { BookOpen, CalendarDays, ClipboardList, GraduationCap, ListChecks, ListTree, Megaphone, UserCheck, Users } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { ActiveTeachers } from "@/components/ActiveTeachers";
 import { AnnouncementEditor } from "@/components/AnnouncementEditor";
 import { CohortActions } from "@/components/CohortActions";
 import { CohortsPage } from "@/components/CohortsPage";
@@ -34,6 +35,8 @@ const PAGES = [
   { id: "groups", name: "Groups & CRNs", icon: ListTree, group: "Students" },
   { id: "courses", name: "Courses", icon: BookOpen, group: "Students" },
   { id: "teachers", name: "Teachers", icon: GraduationCap, group: "Students" },
+  // The department's own list, chosen from the portal's or brought from the part-time database.
+  { id: "active-teachers", name: "Active teachers", icon: UserCheck, group: "Students", parent: "teachers" },
   { id: "semesters", name: "Semesters", icon: CalendarDays, group: "Timetables" },
   { id: "announcements", name: "Announcements", icon: Megaphone, group: "Timetables" },
 ] as const;
@@ -69,7 +72,11 @@ const TITLES: Record<PageId, { title: string; blurb?: string }> = {
   },
   teachers: {
     title: "Teachers",
-    blurb: "The portal's staff list, and how it matches the Part-time Teacher Database.",
+    blurb: "The portal's staff list — choose the teachers the department deals with from it.",
+  },
+  "active-teachers": {
+    title: "Active teachers",
+    blurb: "The department's own list: chosen from the portal, or brought from the Part-time Teacher Database.",
   },
   semesters: {
     title: "Semesters",
@@ -275,6 +282,7 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
           ) : null}
           {page === "courses" ? <PortalCourses /> : null}
           {page === "teachers" ? <PortalTeachers /> : null}
+          {page === "active-teachers" ? <ActiveTeachers /> : null}
           {page === "registrations" ? <PortalRegistrations /> : null}
           {needsCohort && cohorts.isLoading ? <ScreenLoading label="Loading cohorts…" /> : null}
           {needsCohort && !cohorts.isLoading && !cohort ? (
