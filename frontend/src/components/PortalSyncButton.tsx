@@ -66,9 +66,13 @@ export function PortalSyncButton() {
   const running = going;
   const steps = run?.steps ?? [];
   const done = steps.filter((step) => step.state === "done").length;
+  // How far along the run is: a list that failed is behind us too, and counting only the
+  // ones that worked left the button frozen on the first number for the whole run.
+  const settled = steps.filter((step) => step.state === "done" || step.state === "failed").length;
   const failed = steps.filter((step) => step.state === "failed");
   const current = steps.find((step) => step.state === "running");
   const troubled = failed.length || steps.some((step) => step.warning);
+
 
   return (
     <div className="relative">
@@ -93,7 +97,18 @@ export function PortalSyncButton() {
           ) : (
             <RefreshCw size={15} className="shrink-0" aria-hidden="true" />
           )}
-          <span className="truncate">{running ? `Syncing ${done + 1} of ${steps.length}…` : "Portal sync"}</span>
+          {/*
+            * The clock is on the button, not only in the panel behind it.
+            *
+            * The students are two thousand rows in one request and take minutes, so the
+            * count sat on "1 of 6" long enough to read as a hang. A number that moves
+            * every second is the difference between waiting and worrying.
+            */}
+          <span className="truncate">
+            {running
+              ? `Syncing ${Math.min(settled + 1, steps.length)} of ${steps.length}${current?.startedAt ? ` · ${since(current.startedAt, now)}` : "…"}`
+              : "Portal sync"}
+          </span>
         </button>
 
         {steps.length ? (
