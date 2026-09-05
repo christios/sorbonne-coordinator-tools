@@ -20,13 +20,14 @@ const FYS: CohortCatalogue = {
 
 const termName = (id: string) => (id === "term-1" ? "Physics & Maths — First Year, Semester 1" : id);
 const nameOf = (id: string) => ({ "t-ghantous": "Samar Ghantous" })[id] ?? "";
+const PARENTS = new Map([["23223", "24226"], ["23899", "24226"]]);
 const ACTIVE = [
-  { id: "a1", courseCode: "MATH001", title: "Pre-calculus 1", ue: "UL1MA001", parentCrn: "24226", addedAt: "", addedBy: "", crnCount: 2, termCount: 1, lastTerm: "262710" },
+  { id: "a1", courseCode: "MATH001", title: "Pre-calculus 1", ue: "UL1MA001", addedAt: "", addedBy: "", crnCount: 2, portalCrnCount: 2, termCount: 1, lastTerm: "262710", portalParentCrn: "24226" },
 ];
 
 describe("the request sheets", () => {
   it("write one row per section in the workbook's columns, with the retired ones marked", () => {
-    const cards = buildCards([FYS], termName);
+    const cards = buildCards([FYS], termName, ACTIVE, PARENTS);
 
     const [sheet] = requestSheets(cards, "term-1", termName("term-1"), () => "Foundation Year for Sciences", nameOf);
 
@@ -47,7 +48,7 @@ describe("the request sheets", () => {
     expect(sheetPrefix("Foundation Year")).toBe("FY");
     expect(sheetPrefix("BSc L1")).toBe("B-L1");
     expect(sheetPrefix("L2")).toBe("L2");
-    const [card] = buildCards([FYS], termName);
+    const [card] = buildCards([FYS], termName, ACTIVE, PARENTS);
     expect(sectionName(card, card.sets[0].rows[0])).toBe("Pre-calculus 1 G.1-TD");
   });
 
@@ -58,7 +59,7 @@ describe("the request sheets", () => {
   });
 
   it("is the workbook: a sheet per cohort with the header on row 4, the CRN table, teacher hours, the list", async () => {
-    const sheets = requestSheets(buildCards([FYS], termName, ACTIVE), "term-1", "Semester 1", () => "FYS", nameOf);
+    const sheets = requestSheets(buildCards([FYS], termName, ACTIVE, PARENTS), "term-1", "Semester 1", () => "FYS", nameOf);
     const buffer = await buildTimetableWorkbook(sheets);
     const ExcelJS = await import("exceljs");
     const book = new ExcelJS.Workbook();

@@ -137,6 +137,25 @@ class ActiveCoursesInput(BaseModel):
 class ActiveCourseUpdate(BaseModel):
     title: str = Field(default="", max_length=200)
     ue: str = Field(default="", max_length=40)
+
+
+class RegisterCrn(BaseModel):
+    """One CRN taken into the register by hand, rather than with its course."""
+
+    termCode: str = Field(default="", max_length=20)
+    crn: str = Field(min_length=1, max_length=20)
+    courseCode: str = Field(default="", max_length=40)
+
+
+class ActiveCrnsInput(BaseModel):
+    #: Every CRN the portal lists for these courses joins the register.
+    courseCodes: list[str] = Field(default_factory=list, max_length=2000)
+    crns: list[RegisterCrn] = Field(default_factory=list, max_length=5000)
+
+
+class ActiveCrnUpdate(BaseModel):
+    """What this section hangs from, as a CRN of the portal's own list."""
+
     parentCrn: str = Field(default="", max_length=20)
 
 
@@ -303,9 +322,53 @@ async def update_active_course(
     active_id: str, body: ActiveCourseUpdate, store: PortalListStore = Depends(get_store)
 ) -> dict[str, Any]:
     try:
-        return store.update_active_course(active_id, title=body.title, ue=body.ue, parent_crn=body.parentCrn)
+        return store.update_active_course(active_id, title=body.title, ue=body.ue)
     except ActiveCourseNotFound as exc:
         raise _missing("active course") from exc
+
+
+# ------------------------------------------------------- the register of CRNs
+
+
+@router.get("/active-crns")
+async def list_active_crns(term: str = "", store: PortalListStore = Depends(get_store)) -> dict[str, Any]:
+    """Our CRNs for a term, each with what the portal says about it and about its parent."""
+    return {"crns": store.list_active_crns(term)}
+
+
+@router.post("/active-crns")
+async def add_active_crns(
+    body: ActiveCrnsInput, request: Request, store: PortalListStore = Depends(get_store)
+) -> dict[str, int]:
+    return store.add_active_crns(
+        course_codes=body.courseCodes,
+        crns=[record.model_dump() for record in body.crns],
+        actor=_actor(request),
+    )
+
+
+@router.patch("/active-crns/{crn_id}")
+async def update_active_crn(
+    crn_id: str, body: ActiveCrnUpdate, store: PortalListStore = Depends(get_store)
+) -> dict[str, Any]:
+    try:
+        return store.update_active_crn(crn_id, parent_crn=body.parentCrn)
+    except ActiveCourseNotFound as exc:
+        raise _missing("registered CRN") from exc
+
+
+@router.delete("/active-crns/{crn_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_active_crn(crn_id: str, store: PortalListStore = Depends(get_store)) -> None:
+    try:
+        store.remove_active_crn(crn_id)
+    except ActiveCourseNotFound as exc:
+        raise _missing("registered CRN") from exc
+
+
+@router.get("/register-check")
+async def register_check(term: str = "", store: PortalListStore = Depends(get_store)) -> dict[str, Any]:
+    """Where the registrar's list and the department's register have moved apart."""
+    return store.register_check(term)
 
 
 @router.delete("/active-courses/{active_id}", status_code=status.HTTP_204_NO_CONTENT)

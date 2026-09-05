@@ -29,20 +29,23 @@ const FYS: CohortCatalogue = {
 
 const termName = (id: string) => ({ "term-1": "Semester 1" })[id] ?? id;
 const ACTIVE = [
-  { id: "a1", courseCode: "MATH001", title: "Pre-calculus 1", ue: "UL1MA001", parentCrn: "24226", addedAt: "", addedBy: "", crnCount: 3, termCount: 1, lastTerm: "262710" },
+  { id: "a1", courseCode: "MATH001", title: "Pre-calculus 1", ue: "UL1MA001", addedAt: "", addedBy: "", crnCount: 3, portalCrnCount: 3, termCount: 1, lastTerm: "262710", portalParentCrn: "24226" },
 ];
 const nameOf = (id: string) => ({ "t-maaz": "Bilal Maaz", "t-ghantous": "Samar Ghantous" })[id] ?? "";
 
 describe("cards from the catalogue", () => {
   it("makes one card per course per semester, whichever sets carry it", () => {
-    const cards = buildCards([FYS], termName, ACTIVE);
+    const cards = buildCards([FYS], termName, ACTIVE, new Map([["23223", "24226"]]));
 
     expect(cards.map((card) => card.code)).toEqual(["MATH001", "MATH011"]);
     const maths = cards[0];
     expect(maths.name).toBe("Pre-calculus 1");
-    // The UE and parent CRN are the active course's; a course not on that list has none.
-    expect([maths.ue, maths.parentCrn, maths.active?.id]).toEqual(["UL1MA001", "24226", "a1"]);
-    expect([cards[1].ue, cards[1].parentCrn, cards[1].active]).toEqual(["", "", null]);
+    // The UE is the active course's; a course not on that list has none.
+    expect([maths.ue, maths.active?.id]).toEqual(["UL1MA001", "a1"]);
+    expect([cards[1].ue, cards[1].active]).toEqual(["", null]);
+    // The parent CRN is the register's answer for that very CRN, section by section.
+    const rows = maths.sets.flatMap((set) => set.rows);
+    expect(rows.filter((row) => row.parentCrn).map((row) => [row.section?.crn, row.parentCrn])).toEqual([["23223", "24226"]]);
     expect(maths.termName).toBe("Semester 1");
     expect(maths.sets.map((set) => set.scope.code)).toEqual(["CM", "TD"]);
   });

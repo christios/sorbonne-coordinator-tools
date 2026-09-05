@@ -100,7 +100,8 @@ export function requestSheets(
           degree: cohortDegree(card.cohortId),
           ue: card.ue,
           crn: section.crn,
-          parentCrn: card.parentCrn,
+          // The register's answer for this very CRN: a course may hang from more than one.
+          parentCrn: row.parentCrn,
           subject: code.subject,
           courseNumber: code.number,
           hours: section.hours,

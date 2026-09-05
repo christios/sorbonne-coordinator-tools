@@ -65,7 +65,10 @@ export function PortalCourses() {
     mutationFn: (codes: string[]) => addActiveCourses({ courseCodes: codes }),
     onSuccess: () => {
       setSelected(new Set());
+      // Choosing a course takes its CRNs into the register with it, so both move.
       client.invalidateQueries({ queryKey: ["active-courses"] });
+      client.invalidateQueries({ queryKey: ["active-crns"] });
+      client.invalidateQueries({ queryKey: ["register-check"] });
     },
   });
   // The Active column reads the department's list, so the column model borrows it here.

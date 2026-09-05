@@ -45,3 +45,23 @@ Portal facts behind this (read 5 September 2026): Courses Search posts to
 (26,467 rows for the term, filters `DEPT_CODE`, `MAJOR_CODE`, `LEVEL_CODE`,
 `YEARLEVEL_CODE`, `TERM_CODE`, `COLLEGE_CODE`). All three are the same Serenity
 `ListRequest` shape the extension already speaks for Students.
+
+Revised 5 September 2026 — Courses is a register of CRNs.
+
+- **What the page is for:** a register of the department's CRNs for a term. One row per
+  CRN: the course it belongs to, what it hangs from, and the course's UE. Every row is a
+  link — to the portal's entry for the CRN, and to the portal's entry for its parent — so
+  a link leading nowhere shows as one rather than reading as a number.
+- **How a CRN gets in:** choosing a course on the portal's Courses page takes in every CRN
+  the portal lists for it at that moment. The ones the registrar makes later are flagged,
+  not taken in silently; a banner takes them in on request.
+- **Parent CRN is per CRN**, chosen from that course's own CRNs. The portal makes one row
+  per course that the sections hang from — plain title, no teacher, nobody registered —
+  and that CRN is the workbook's Parent CRN, so it is offered as the suggestion. It is
+  also what names the course, instead of whichever section came first.
+- **UE is per course**, edited from any of its CRN rows and changing all of them.
+- **The banner**, as on Cohorts: CRNs we hold that the portal has stopped listing, CRNs the
+  portal lists for our courses that nobody has taken in, and CRNs a course card teaches
+  under that the register does not hold.
+- **The timetable workbook** reads the Parent CRN of each section from the register, so a
+  course whose sections hang from two parents can say so.

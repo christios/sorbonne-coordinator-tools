@@ -17,6 +17,7 @@ a group, a CRN the Hub teaches, and a CRN the portal registered can be the same 
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from typing import Any
 from uuid import uuid4
@@ -671,14 +672,205 @@ class PortalListStore:
 
     # ---------------------------------------------------------- active courses
 
+    def list_active_crns(self, term_code: str = "") -> list[dict[str, Any]]:
+        """The register: our CRNs, each with what the portal says about it beside it."""
+        clause = " AND r.term_code = :term" if term_code else ""
+        with self.engine.connect() as connection:
+            rows = (
+                connection.execute(
+                    text(f"""SELECT r.*, a.title AS course_title, a.ue,
+                                    p.title AS portal_title, p.teacher_name, p.registered,
+                                    p.status AS portal_status, p.sequence, p.part_of_term_desc,
+                                    p.credits, p.contact_hours,
+                                    pp.title AS parent_title, pp.status AS parent_status,
+                                    pp.course_code AS parent_course_code,
+                                    (SELECT count(*) FROM group_crns gc WHERE gc.crn = r.crn) AS used_by
+                             FROM active_course_crns r
+                             LEFT JOIN active_courses a ON a.course_code = r.course_code
+                             LEFT JOIN portal_courses p
+                                    ON p.term_code = r.term_code AND p.crn = r.crn
+                             LEFT JOIN portal_courses pp
+                                    ON pp.term_code = r.term_code AND pp.crn = r.parent_crn
+                             WHERE 1 = 1{clause}
+                             ORDER BY r.course_code, r.crn"""),  # noqa: S608
+                    {"term": term_code} if term_code else {},
+                )
+                .mappings()
+                .all()
+            )
+        return [_active_crn(row) for row in rows]
+
+    def add_active_crns(
+        self, *, course_codes: list[str], crns: list[dict[str, str]], actor: str = ""
+    ) -> dict[str, int]:
+        """Take CRNs into the register: every one the portal lists for a course, or named ones.
+
+        A course brings its CRNs in when it is chosen; the ones the registrar makes later
+        are flagged rather than taken in behind the coordinator's back, and this is how
+        they are taken in.
+        """
+        now, added, skipped = _now(), 0, 0
+        with self.engine.begin() as connection:
+            held = {
+                (row[0], row[1])
+                for row in connection.execute(text("SELECT term_code, crn FROM active_course_crns"))
+            }
+            wanted: list[tuple[str, str, str]] = []
+            for raw in course_codes:
+                code = _text(raw).upper()
+                if not code:
+                    continue
+                wanted.extend(
+                    (row[0], row[1], code)
+                    for row in connection.execute(
+                        text("SELECT term_code, crn FROM portal_courses WHERE upper(course_code) = :code"),
+                        {"code": code},
+                    )
+                )
+            for record in crns:
+                term_code, crn = _text(record.get("termCode")), _text(record.get("crn"))
+                if not crn:
+                    continue
+                code = _text(record.get("courseCode")).upper()
+                if not code:
+                    code = _text(
+                        connection.execute(
+                            text("SELECT upper(course_code) FROM portal_courses WHERE crn = :crn LIMIT 1"),
+                            {"crn": crn},
+                        ).scalar()
+                    )
+                wanted.append((term_code, crn, code))
+            for term_code, crn, code in wanted:
+                if not code or (term_code, crn) in held:
+                    skipped += 1
+                    continue
+                connection.execute(
+                    text("""INSERT INTO active_course_crns
+                                (id, term_code, crn, course_code, parent_crn, added_at, added_by)
+                            VALUES (:id, :term_code, :crn, :course_code, '', :now, :actor)"""),
+                    {
+                        "id": str(uuid4()),
+                        "term_code": term_code,
+                        "crn": crn,
+                        "course_code": code,
+                        "now": now,
+                        "actor": _text(actor),
+                    },
+                )
+                held.add((term_code, crn))
+                added += 1
+        return {"added": added, "skipped": skipped}
+
+    def update_active_crn(self, crn_id: str, *, parent_crn: str) -> dict[str, Any]:
+        """What this section hangs from. The one thing about a CRN that is ours to say."""
+        with self.engine.begin() as connection:
+            updated = connection.execute(
+                text("UPDATE active_course_crns SET parent_crn = :parent WHERE id = :id"),
+                {"id": crn_id, "parent": _text(parent_crn)},
+            ).rowcount
+        if updated == 0:
+            raise ActiveCourseNotFound(crn_id)
+        return next(row for row in self.list_active_crns() if row["id"] == crn_id)
+
+    def remove_active_crn(self, crn_id: str) -> None:
+        with self.engine.begin() as connection:
+            removed = connection.execute(
+                text("DELETE FROM active_course_crns WHERE id = :id"), {"id": crn_id}
+            ).rowcount
+        if removed == 0:
+            raise ActiveCourseNotFound(crn_id)
+
+    def register_check(self, term_code: str = "") -> dict[str, list[dict[str, Any]]]:
+        """Where the registrar's list and the department's register have moved apart.
+
+        Three questions, the ones a coordinator acts on: what we hold that the portal has
+        stopped listing, what the portal lists for our courses that we have not taken in,
+        and what a course card is teaching under a CRN nobody registered.
+        """
+        term = _text(term_code)
+        params: dict[str, Any] = {"term": term} if term else {}
+        where_register = " AND r.term_code = :term" if term else ""
+        where_portal = " AND p.term_code = :term" if term else ""
+        with self.engine.connect() as connection:
+            gone = (
+                connection.execute(
+                    text(f"""SELECT r.id, r.term_code, r.crn, r.course_code,
+                                    (SELECT count(*) FROM group_crns gc WHERE gc.crn = r.crn) AS used_by
+                             FROM active_course_crns r
+                             LEFT JOIN portal_courses p
+                                    ON p.term_code = r.term_code AND p.crn = r.crn
+                             WHERE (p.crn IS NULL OR p.status <> 'in_portal'){where_register}
+                             ORDER BY r.course_code, r.crn"""),  # noqa: S608
+                    params,
+                )
+                .mappings()
+                .all()
+            )
+            arrived = (
+                connection.execute(
+                    text(f"""SELECT p.term_code, p.crn, upper(p.course_code) AS course_code,
+                                    p.title, p.teacher_name, p.registered
+                             FROM portal_courses p
+                             JOIN active_courses a ON a.course_code = upper(p.course_code)
+                             WHERE p.status = 'in_portal'
+                               AND NOT EXISTS (SELECT 1 FROM active_course_crns r
+                                                WHERE r.term_code = p.term_code AND r.crn = p.crn)
+                               {where_portal}
+                             ORDER BY upper(p.course_code), p.crn"""),  # noqa: S608
+                    params,
+                )
+                .mappings()
+                .all()
+            )
+            unregistered = (
+                connection.execute(
+                    text("""SELECT DISTINCT gc.crn, c.code AS course_code
+                            FROM group_crns gc
+                            JOIN scope_courses c ON c.id = gc.course_id
+                            WHERE gc.crn <> '' AND gc.retired = false
+                              AND NOT EXISTS (SELECT 1 FROM active_course_crns r WHERE r.crn = gc.crn)
+                            ORDER BY c.code, gc.crn""")
+                )
+                .mappings()
+                .all()
+            )
+        return {
+            "gone": [
+                {
+                    "id": row["id"],
+                    "termCode": row["term_code"],
+                    "crn": row["crn"],
+                    "courseCode": row["course_code"],
+                    "usedBy": int(row["used_by"] or 0),
+                }
+                for row in gone
+            ],
+            "arrived": [
+                {
+                    "termCode": row["term_code"],
+                    "crn": row["crn"],
+                    "courseCode": row["course_code"],
+                    "title": row["title"],
+                    "teacherName": row["teacher_name"],
+                    "registered": int(row["registered"] or 0),
+                }
+                for row in arrived
+            ],
+            "unregistered": [
+                {"crn": row["crn"], "courseCode": row["course_code"]} for row in unregistered
+            ],
+        }
+
     def list_active_courses(self) -> list[dict[str, Any]]:
         """The department's own list of courses, with how the portal knows each."""
         with self.engine.connect() as connection:
             rows = (
                 connection.execute(
                     text("""SELECT a.*,
+                                   (SELECT count(*) FROM active_course_crns r
+                                     WHERE r.course_code = a.course_code) AS crn_count,
                                    (SELECT count(*) FROM portal_courses c
-                                     WHERE upper(c.course_code) = a.course_code) AS crn_count,
+                                     WHERE upper(c.course_code) = a.course_code) AS portal_crn_count,
                                    (SELECT count(DISTINCT c.term_code) FROM portal_courses c
                                      WHERE upper(c.course_code) = a.course_code) AS term_count,
                                    (SELECT max(c.term_code) FROM portal_courses c
@@ -689,7 +881,8 @@ class PortalListStore:
                 .mappings()
                 .all()
             )
-        return [_active_course(row) for row in rows]
+            parents = {row["course_code"]: _parent_row(connection, row["course_code"]) for row in rows}
+        return [_active_course(row, parents.get(row["course_code"])) for row in rows]
 
     def add_active_courses(
         self, *, course_codes: list[str], by_hand: list[dict[str, str]], actor: str = ""
@@ -712,15 +905,12 @@ class PortalListStore:
                 if not code or code in held:
                     skipped += 1
                     continue
-                title = connection.execute(
-                    text("""SELECT title FROM portal_courses WHERE upper(course_code) = :code
-                            ORDER BY term_code DESC, crn LIMIT 1"""),
-                    {"code": code},
-                ).scalar()
+                title = _course_title(connection, code)
                 if title is None:
                     skipped += 1
                     continue
-                self._insert_active_course(connection, code, _text(title), now, actor)
+                self._insert_active_course(connection, code, title, now, actor)
+                self._take_in_crns(connection, code, now, actor)
                 held.add(code)
                 added += 1
             for record in by_hand:
@@ -729,25 +919,41 @@ class PortalListStore:
                     skipped += 1
                     continue
                 self._insert_active_course(connection, code, _text(record.get("title")), now, actor)
+                self._take_in_crns(connection, code, now, actor)
                 held.add(code)
                 added += 1
         return {"added": added, "skipped": skipped}
 
     @staticmethod
+    def _take_in_crns(connection: Connection, code: str, now: str, actor: str) -> None:
+        """Every CRN the portal lists for this course, as the register's rows."""
+        for term_code, crn in connection.execute(
+            text("SELECT term_code, crn FROM portal_courses WHERE upper(course_code) = :code"),
+            {"code": code},
+        ):
+            connection.execute(
+                text("""INSERT INTO active_course_crns
+                            (id, term_code, crn, course_code, parent_crn, added_at, added_by)
+                        VALUES (:id, :term_code, :crn, :code, '', :now, :actor)
+                        ON CONFLICT (term_code, crn) DO NOTHING"""),
+                {"id": str(uuid4()), "term_code": term_code, "crn": crn, "code": code, "now": now, "actor": actor},
+            )
+
+    @staticmethod
     def _insert_active_course(connection: Connection, code: str, title: str, now: str, actor: str) -> None:
         connection.execute(
-            text("""INSERT INTO active_courses (id, course_code, title, ue, parent_crn, added_at, added_by)
-                    VALUES (:id, :code, :title, '', '', :now, :actor)"""),
+            text("""INSERT INTO active_courses (id, course_code, title, ue, added_at, added_by)
+                    VALUES (:id, :code, :title, '', :now, :actor)"""),
             {"id": str(uuid4()), "code": code, "title": title, "now": now, "actor": _text(actor)},
         )
 
-    def update_active_course(self, active_id: str, *, title: str, ue: str, parent_crn: str) -> dict[str, Any]:
-        """The course's own facts: what to call it, its Sorbonne UE, the CRN its sections hang from."""
+    def update_active_course(self, active_id: str, *, title: str, ue: str) -> dict[str, Any]:
+        """The course's own facts: what to call it and its Sorbonne UE. The parent CRN is
+        a fact of each section, and lives on the register's CRN rows."""
         with self.engine.begin() as connection:
             updated = connection.execute(
-                text("""UPDATE active_courses SET title = :title, ue = :ue, parent_crn = :parent_crn
-                        WHERE id = :id"""),
-                {"id": active_id, "title": _text(title), "ue": _text(ue), "parent_crn": _text(parent_crn)},
+                text("UPDATE active_courses SET title = :title, ue = :ue WHERE id = :id"),
+                {"id": active_id, "title": _text(title), "ue": _text(ue)},
             ).rowcount
         if updated == 0:
             raise ActiveCourseNotFound(active_id)
@@ -755,6 +961,14 @@ class PortalListStore:
 
     def remove_active_course(self, active_id: str) -> None:
         with self.engine.begin() as connection:
+            code = connection.execute(
+                text("SELECT course_code FROM active_courses WHERE id = :id"), {"id": active_id}
+            ).scalar()
+            # Its CRNs go with it: they were in the register because the course was.
+            if code:
+                connection.execute(
+                    text("DELETE FROM active_course_crns WHERE course_code = :code"), {"code": code}
+                )
             removed = connection.execute(text("DELETE FROM active_courses WHERE id = :id"), {"id": active_id}).rowcount
         if removed == 0:
             raise ActiveCourseNotFound(active_id)
@@ -924,19 +1138,98 @@ def _teacher(row: Any) -> dict[str, Any]:
     }
 
 
-def _active_course(row: Any) -> dict[str, Any]:
+# A section's title says which group it is — "Pre-Calculus 1 G.A-CM", "Analysis 1-TD".
+# The course's own row says none of that, which is how the two are told apart.
+_SECTION_TITLE = re.compile(r"(\bG\.?\s*[0-9A-Z]+\b|[-–]\s*(CM|TD|TP)\b|\b(CM|TD|TP)\s*$)", re.IGNORECASE)
+
+
+def _parent_row(connection: Connection, code: str) -> Any:
+    """The portal's own row for the course rather than for one of its sections.
+
+    The registrar makes one CRN per course that the sections hang from: it carries the
+    course's plain name, no teacher and nobody registered. That CRN is the Parent CRN of
+    the timetable workbook, so finding it here is what lets the register propose one.
+    """
+    rows = (
+        connection.execute(
+            text("""SELECT term_code, crn, title, teacher_name, registered FROM portal_courses
+                    WHERE upper(course_code) = :code AND status = 'in_portal'
+                    ORDER BY term_code DESC, crn"""),
+            {"code": code},
+        )
+        .mappings()
+        .all()
+    )
+    parents = [
+        row
+        for row in rows
+        if not _text(row["teacher_name"])
+        and not int(row["registered"] or 0)
+        and not _SECTION_TITLE.search(row["title"] or "")
+    ]
+    # More than one, and none is the obvious answer: say nothing rather than pick blind.
+    return parents[0] if len(parents) == 1 else None
+
+
+def _course_title(connection: Connection, code: str) -> str | None:
+    """What to call the course: the name on its own row, else the newest section's."""
+    parent = _parent_row(connection, code)
+    if parent is not None:
+        return _text(parent["title"])
+    title = connection.execute(
+        text("""SELECT title FROM portal_courses WHERE upper(course_code) = :code
+                ORDER BY term_code DESC, crn LIMIT 1"""),
+        {"code": code},
+    ).scalar()
+    return None if title is None else _text(title)
+
+
+def _active_crn(row: Any) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "termCode": row["term_code"],
+        "crn": row["crn"],
+        "courseCode": row["course_code"],
+        "parentCrn": row["parent_crn"],
+        # What the course says, the same on every CRN of it.
+        "courseTitle": row["course_title"] or "",
+        "ue": row["ue"] or "",
+        # What the portal says about this CRN, or nothing when it lists it no longer.
+        "portalTitle": row["portal_title"] or "",
+        "teacherName": row["teacher_name"] or "",
+        "registered": int(row["registered"] or 0),
+        "portalStatus": row["portal_status"] or "not_listed",
+        "sequence": row["sequence"] or "",
+        "partOfTerm": row["part_of_term_desc"] or "",
+        "credits": row["credits"] or "",
+        "contactHours": row["contact_hours"] or "",
+        # The parent as the portal knows it, so a link that leads nowhere shows as one.
+        "parentTitle": row["parent_title"] or "",
+        "parentStatus": ("" if not row["parent_crn"] else (row["parent_status"] or "not_listed")),
+        "parentCourseCode": (row["parent_course_code"] or "").upper(),
+        # How many sections of a course card teach under it.
+        "usedBy": int(row["used_by"] or 0),
+        "addedAt": row["added_at"],
+        "addedBy": row["added_by"],
+    }
+
+
+def _active_course(row: Any, parent: Any = None) -> dict[str, Any]:
     return {
         "id": row["id"],
         "courseCode": row["course_code"],
         "title": row["title"],
         "ue": row["ue"],
-        "parentCrn": row["parent_crn"],
         "addedAt": row["added_at"],
         "addedBy": row["added_by"],
-        # How the portal knows it: in how many CRNs, across how many terms, and the latest.
+        # How many of its CRNs the register holds, and how many the portal lists.
         "crnCount": int(row["crn_count"] or 0),
+        "portalCrnCount": int(row["portal_crn_count"] or 0),
         "termCount": int(row["term_count"] or 0),
         "lastTerm": row["last_term"] or "",
+        # The CRN the portal's own row for this course has, which the register offers as
+        # each section's parent. Empty when the portal has no such row, or more than one.
+        "portalParentCrn": "" if parent is None else parent["crn"],
     }
 
 

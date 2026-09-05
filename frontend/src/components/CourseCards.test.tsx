@@ -43,7 +43,7 @@ beforeEach(() => {
     { id: "act-2", portalTeacherId: "A002", partTimeTeacherId: "", fullName: "Jad Tarsissi", email: "", source: "portal", addedAt: "", addedBy: "", teacherStatus: "", category: "", type: "", lastTerm: "", department: "", rank: "", courses: "", institution: "", portalStatus: "" },
   ]);
   vi.spyOn(lists, "fetchActiveCourses").mockResolvedValue([
-    { id: "a1", courseCode: "MATH001", title: "Pre-calculus 1", ue: "UL1MA001", parentCrn: "24226", addedAt: "", addedBy: "", crnCount: 3, termCount: 1, lastTerm: "262710" },
+    { id: "a1", courseCode: "MATH001", title: "Pre-calculus 1", ue: "UL1MA001", addedAt: "", addedBy: "", crnCount: 3, portalCrnCount: 3, termCount: 1, lastTerm: "262710", portalParentCrn: "24226" },
   ]);
   vi.spyOn(lists, "fetchTermCrns").mockResolvedValue({
     portalTermCode: "262710",

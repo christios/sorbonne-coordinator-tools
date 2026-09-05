@@ -214,14 +214,86 @@ export type ActiveCourse = {
   courseCode: string;
   title: string;
   ue: string;
-  parentCrn: string;
   addedAt: string;
   addedBy: string;
-  /** How the portal knows it: in how many CRNs, across how many terms, and the latest term. */
+  /** How many of its CRNs the register holds, and how many the portal lists. */
   crnCount: number;
+  portalCrnCount: number;
   termCount: number;
   lastTerm: string;
+  /**
+   * The CRN of the portal's own row for this course — the one with the plain title, no
+   * teacher and nobody registered — which the register offers as each section's parent.
+   * Empty when the portal has no such row, or more than one.
+   */
+  portalParentCrn: string;
 };
+
+/**
+ * One CRN of the department's register: ours, linked to the portal's entry for it, and
+ * to the portal's entry for the parent it hangs from.
+ */
+export type ActiveCrn = {
+  id: string;
+  termCode: string;
+  crn: string;
+  courseCode: string;
+  /** The CRN this section hangs from, as an entry of the portal's own list. */
+  parentCrn: string;
+  /** What the course says, the same on every CRN of it. */
+  courseTitle: string;
+  ue: string;
+  /** What the portal says about this CRN; blank when it lists it no longer. */
+  portalTitle: string;
+  teacherName: string;
+  registered: number;
+  portalStatus: "in_portal" | "not_in_portal" | "not_listed";
+  sequence: string;
+  partOfTerm: string;
+  credits: string;
+  contactHours: string;
+  /** The parent as the portal knows it, so a link leading nowhere shows as one. */
+  parentTitle: string;
+  parentStatus: "" | "in_portal" | "not_in_portal" | "not_listed";
+  parentCourseCode: string;
+  /** How many sections of a course card teach under this CRN. */
+  usedBy: number;
+  addedAt: string;
+  addedBy: string;
+};
+
+/** Where the registrar's list and the department's register have moved apart. */
+export type RegisterCheck = {
+  /** Ours, that the portal has stopped listing. */
+  gone: { id: string; termCode: string; crn: string; courseCode: string; usedBy: number }[];
+  /** The portal's, for a course of ours, that nobody has taken in. */
+  arrived: { termCode: string; crn: string; courseCode: string; title: string; teacherName: string; registered: number }[];
+  /** Taught on a course card under a CRN the register does not hold. */
+  unregistered: { crn: string; courseCode: string }[];
+};
+
+export async function fetchActiveCrns(term = ""): Promise<ActiveCrn[]> {
+  return (await request<{ crns: ActiveCrn[] }>(`/active-crns${term ? `?term=${encodeURIComponent(term)}` : ""}`)).crns;
+}
+
+export function addActiveCrns(input: {
+  courseCodes?: string[];
+  crns?: { termCode: string; crn: string; courseCode?: string }[];
+}): Promise<{ added: number; skipped: number }> {
+  return send("/active-crns", "POST", { courseCodes: [], crns: [], ...input });
+}
+
+export function setParentCrn(crnId: string, parentCrn: string): Promise<ActiveCrn> {
+  return send(`/active-crns/${encodeURIComponent(crnId)}`, "PATCH", { parentCrn });
+}
+
+export function removeActiveCrn(crnId: string): Promise<void> {
+  return request<void>(`/active-crns/${encodeURIComponent(crnId)}`, { method: "DELETE" });
+}
+
+export function fetchRegisterCheck(term = ""): Promise<RegisterCheck> {
+  return request<RegisterCheck>(`/register-check${term ? `?term=${encodeURIComponent(term)}` : ""}`);
+}
 
 export async function fetchActiveCourses(): Promise<ActiveCourse[]> {
   return (await request<{ courses: ActiveCourse[] }>("/active-courses")).courses;
@@ -234,10 +306,7 @@ export function addActiveCourses(input: {
   return send("/active-courses", "POST", { courseCodes: [], byHand: [], ...input });
 }
 
-export function updateActiveCourse(
-  activeId: string,
-  input: { title: string; ue: string; parentCrn: string },
-): Promise<ActiveCourse> {
+export function updateActiveCourse(activeId: string, input: { title: string; ue: string }): Promise<ActiveCourse> {
   return send(`/active-courses/${encodeURIComponent(activeId)}`, "PATCH", input);
 }
 

@@ -38,6 +38,7 @@ def empty_tables() -> None:
             "portal_teachers",
             "active_teachers",
             "active_courses",
+            "active_course_crns",
             "student_registrations",
             "term_links",
             "students",
@@ -246,11 +247,83 @@ def test_active_courses_are_chosen_from_the_portal_by_code(client: TestClient):
         ("MATH-001", "Course MATH-001", 2, TERM),
         ("PHYS-001", "Mechanics", 1, "262720"),
     ]
+    # Choosing the course took its CRNs into the register with it: two of one, one of the other.
+    assert [row["crn"] for row in client.get(f"{BASE}/active-crns").json()["crns"]] == ["22151", "22152", "22160"]
     # Choosing a course again is not a second row.
     assert client.post(f"{BASE}/active-courses", json={"courseCodes": ["MATH-001"]}).json()["skipped"] == 1
 
 
-def test_an_active_course_can_be_added_by_hand_and_given_its_ue_and_parent_crn(client: TestClient):
+def test_choosing_a_course_takes_its_crns_into_the_register(client: TestClient):
+    seed_courses(client)
+
+    client.post(f"{BASE}/active-courses", json={"courseCodes": ["MATH-001"]})
+
+    register = client.get(f"{BASE}/active-crns").json()["crns"]
+    assert [(row["crn"], row["courseCode"], row["parentCrn"]) for row in register] == [
+        ("22151", "MATH-001", ""),
+        ("22152", "MATH-001", ""),
+    ]
+    # The portal's facts travel with the row, so the page never has to join them itself.
+    assert register[0]["portalTitle"] == "Course MATH-001"
+    assert register[0]["teacherName"] == "Dr Maaz"
+    assert register[0]["portalStatus"] == "in_portal"
+
+
+def test_a_parent_crn_is_a_link_to_the_portal_s_own_row(client: TestClient):
+    made = make_filter(client, "courses")
+    client.post(
+        f"{BASE}/filters/{made['id']}/sync/courses",
+        json={
+            "rows": [
+                course("22151", "MATH-001"),
+                course("22152", "MATH-001", teacher="Dr Haddad"),
+                # The registrar's row for the course itself: plain name, no teacher, nobody in it.
+                {**course("24226", "MATH-001", teacher=""), "title": "Pre Calculus 1", "registered": 0},
+            ]
+        },
+    )
+    client.post(f"{BASE}/active-courses", json={"courseCodes": ["MATH-001"]})
+
+    # The course is named after its own row, and that row's CRN is offered as the parent.
+    [held] = client.get(f"{BASE}/active-courses").json()["courses"]
+    assert (held["title"], held["portalParentCrn"], held["crnCount"]) == ("Pre Calculus 1", "24226", 3)
+
+    register = client.get(f"{BASE}/active-crns").json()["crns"]
+    section = next(row for row in register if row["crn"] == "22151")
+    linked = client.patch(f"{BASE}/active-crns/{section['id']}", json={"parentCrn": "24226"}).json()
+    assert (linked["parentCrn"], linked["parentTitle"], linked["parentStatus"]) == (
+        "24226",
+        "Pre Calculus 1",
+        "in_portal",
+    )
+
+    # A parent nothing in the portal answers to is shown as the dangling link it is.
+    dangling = client.patch(f"{BASE}/active-crns/{section['id']}", json={"parentCrn": "24229"}).json()
+    assert (dangling["parentCrn"], dangling["parentStatus"]) == ("24229", "not_listed")
+
+
+def test_the_register_says_where_the_portal_has_moved_away_from_it(client: TestClient):
+    made = make_filter(client, "courses")
+    sync = lambda rows: client.post(f"{BASE}/filters/{made['id']}/sync/courses", json={"rows": rows})  # noqa: E731
+    sync([course("22151", "MATH-001"), course("22152", "MATH-001")])
+    client.post(f"{BASE}/active-courses", json={"courseCodes": ["MATH-001"]})
+
+    # The registrar drops one section and makes another.
+    sync([course("22151", "MATH-001"), course("22153", "MATH-001")])
+    report = client.get(f"{BASE}/register-check").json()
+
+    assert [row["crn"] for row in report["gone"]] == ["22152"]
+    assert [row["crn"] for row in report["arrived"]] == ["22153"]
+    assert report["unregistered"] == []
+
+    # Taking the new one in empties that half of the report.
+    client.post(f"{BASE}/active-crns", json={"crns": [{"termCode": TERM, "crn": "22153"}]})
+    after = client.get(f"{BASE}/register-check").json()
+    assert after["arrived"] == []
+    assert [row["crn"] for row in after["gone"]] == ["22152"]
+
+
+def test_an_active_course_can_be_added_by_hand_and_given_its_ue(client: TestClient):
     report = client.post(
         f"{BASE}/active-courses", json={"byHand": [{"courseCode": "lang-a1", "title": "French A1"}]}
     ).json()
@@ -259,9 +332,9 @@ def test_an_active_course_can_be_added_by_hand_and_given_its_ue_and_parent_crn(c
     assert (held["courseCode"], held["title"], held["crnCount"]) == ("LANG-A1", "French A1", 0)
 
     changed = client.patch(
-        f"{BASE}/active-courses/{held['id']}", json={"title": "French A1", "ue": "UL1LA001", "parentCrn": "24226"}
+        f"{BASE}/active-courses/{held['id']}", json={"title": "French A1", "ue": "UL1LA001"}
     ).json()
-    assert (changed["ue"], changed["parentCrn"]) == ("UL1LA001", "24226")
+    assert changed["ue"] == "UL1LA001"
 
     assert client.delete(f"{BASE}/active-courses/{held['id']}").status_code == status.HTTP_204_NO_CONTENT
     assert client.get(f"{BASE}/active-courses").json() == {"courses": []}

@@ -18,6 +18,8 @@ export type SectionRow = {
   course: CatalogueCourse;
   /** Null when this group holds nothing for the course yet — a row that can be started. */
   section: Section | null;
+  /** What this section's CRN hangs from, as the register says. Empty when unregistered. */
+  parentCrn: string;
 };
 
 export type CardSet = {
@@ -38,9 +40,8 @@ export type Card = {
   name: string;
   /** The active course this card is, when the code is on the department's list. */
   active: ActiveCourse | null;
-  /** Its UE and parent CRN, read from the active course — empty when the code is not on the list. */
+  /** Its UE, read from the active course — empty when the code is not on the list. */
   ue: string;
-  parentCrn: string;
   sets: CardSet[];
 };
 
@@ -56,6 +57,8 @@ export function buildCards(
   cohorts: CohortCatalogue[],
   termName: (termId: string) => string,
   activeCourses: ActiveCourse[] = [],
+  /** CRN -> the parent CRN the register holds for it. */
+  parentOf: Map<string, string> = new Map(),
 ): Card[] {
   const active = new Map(activeCourses.map((course) => [course.courseCode.toUpperCase(), course]));
   const cards = new Map<string, Card>();
@@ -78,7 +81,6 @@ export function buildCards(
             name: known?.title || course.name,
             active: known,
             ue: known?.ue ?? "",
-            parentCrn: known?.parentCrn ?? "",
             sets: [],
           };
           cards.set(key, card);
@@ -87,7 +89,10 @@ export function buildCards(
         card.sets.push({
           scope,
           course,
-          rows: scope.groups.map((group) => ({ scope, group, course, section: group.crns[course.id] ?? null })),
+          rows: scope.groups.map((group) => {
+            const section = group.crns[course.id] ?? null;
+            return { scope, group, course, section, parentCrn: (section?.crn && parentOf.get(section.crn)) || "" };
+          }),
         });
       }
     }

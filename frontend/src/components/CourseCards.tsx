@@ -14,7 +14,7 @@ import { TableFilterBar } from "@/components/TableFilterBar";
 import { WorkbookReview } from "@/components/WorkbookReview";
 import { WorkbookTools } from "@/components/WorkbookTools";
 import { buildCards, cardColumns } from "@/services/courseCards";
-import { fetchActiveCourses, fetchActiveTeachers, fetchTermCrns } from "@/services/portalLists";
+import { fetchActiveCourses, fetchActiveCrns, fetchActiveTeachers, fetchTermCrns } from "@/services/portalLists";
 import { fetchPublication } from "@/services/publication";
 import { clashesIn } from "@/services/publicationView";
 import { type Cohort, type WorkbookApplied, applyWorkbook, fetchCourseCards } from "@/services/studentDatabase";
@@ -39,8 +39,14 @@ export function CourseCards({ cohorts, onShowStudents }: { cohorts: Cohort[]; on
   const teachers = useQuery({ queryKey: ["active-teachers"], queryFn: fetchActiveTeachers });
   // The department's courses: a card's title, UE and parent CRN are read from here.
   const activeCourses = useQuery({ queryKey: ["active-courses"], queryFn: fetchActiveCourses });
+  // The register: what each CRN hangs from, which the workbook's Parent CRN column is.
+  const registered = useQuery({ queryKey: ["active-crns"], queryFn: () => fetchActiveCrns() });
+  const parentOf = useMemo(
+    () => new Map((registered.data ?? []).filter((row) => row.parentCrn).map((row) => [row.crn, row.parentCrn])),
+    [registered.data],
+  );
   const termName = (termId: string) => (terms.data ?? []).find((term) => term.id === termId)?.name ?? (termId ? "unknown semester" : "");
-  const cards = useMemo(() => buildCards(catalogues.data ?? [], termName, activeCourses.data ?? []), [catalogues.data, terms.data, activeCourses.data]); // eslint-disable-line react-hooks/exhaustive-deps
+  const cards = useMemo(() => buildCards(catalogues.data ?? [], termName, activeCourses.data ?? [], parentOf), [catalogues.data, terms.data, activeCourses.data, parentOf]); // eslint-disable-line react-hooks/exhaustive-deps
   const termIds = useMemo(() => [...new Set(cards.map((card) => card.termId).filter(Boolean))], [cards]);
 
   // What the platform makes of each semester, and what the portal lists for it: one
@@ -81,6 +87,7 @@ export function CourseCards({ cohorts, onShowStudents }: { cohorts: Cohort[]; on
   const refresh = () => {
     client.invalidateQueries({ queryKey: ["course-cards"] });
     client.invalidateQueries({ queryKey: ["active-courses"] });
+    client.invalidateQueries({ queryKey: ["active-crns"] });
     client.invalidateQueries({ queryKey: ["catalogue"] });
     client.invalidateQueries({ queryKey: ["publication"] });
     client.invalidateQueries({ queryKey: ["assignments"] });
