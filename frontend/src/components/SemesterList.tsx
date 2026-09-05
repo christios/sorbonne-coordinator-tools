@@ -3,6 +3,7 @@ import { CalendarDays, FileSpreadsheet } from "lucide-react";
 import { useState } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { PortalTermLink } from "@/components/PortalTermLink";
 import { SemesterImport } from "@/components/SemesterImport";
 import { SemesterPublish } from "@/components/SemesterPublish";
 import { SemesterUpdate } from "@/components/SemesterUpdate";
@@ -99,7 +100,7 @@ export function SemesterList({ host }: { host: string | null }) {
                 </p>
               ) : (
                 <div className="overflow-x-auto">
-                  <table className="w-full min-w-[46rem] text-left text-sm">
+                  <table className="w-full min-w-[56rem] text-left text-sm">
                     <thead className="text-xs uppercase tracking-wide text-[#667085]">
                       <tr>
                         <th scope="col" className="px-6 py-3 font-semibold">Semester</th>
@@ -107,6 +108,7 @@ export function SemesterList({ host }: { host: string | null }) {
                         <th scope="col" className="px-4 py-3 text-right font-semibold">Sessions</th>
                         <th scope="col" className="px-4 py-3 text-right font-semibold">Students</th>
                         <th scope="col" className="px-4 py-3 font-semibold">Students can see it</th>
+                        <th scope="col" className="px-4 py-3 font-semibold">Portal term</th>
                         <th scope="col" className="px-6 py-3" />
                       </tr>
                     </thead>
@@ -133,6 +135,9 @@ export function SemesterList({ host }: { host: string | null }) {
                             >
                               {term.isPublished ? "Published" : "Hidden"}
                             </button>
+                          </td>
+                          <td className="px-4 py-4">
+                            <PortalTermLink termId={term.id} />
                           </td>
                           <td className="px-6 py-4">
                             <div className="flex justify-end gap-2">

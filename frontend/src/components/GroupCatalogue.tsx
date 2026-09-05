@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { downloadAdmissionsList } from "@/services/admissionsExport";
+import { type TermCrns, fetchTermCrns } from "@/services/portalLists";
 import { FillBlock, type FillReport } from "@/components/FillBlock";
 import { InfoHint } from "@/components/InfoHint";
 import { WorkbookReview } from "@/components/WorkbookReview";
@@ -63,6 +64,14 @@ export function GroupCatalogue({
   const publication = useQuery({
     queryKey: ["publication", termId],
     queryFn: () => fetchPublication(termId),
+    enabled: Boolean(termId),
+    retry: false,
+  });
+  // What the registrar portal lists for this semester, once it is linked to a portal
+  // term. A CRN the timetable has but the portal does not is a CRN nobody can register in.
+  const portal = useQuery({
+    queryKey: ["portal-crns", termId],
+    queryFn: () => fetchTermCrns(termId),
     enabled: Boolean(termId),
     retry: false,
   });
@@ -392,6 +401,7 @@ export function GroupCatalogue({
         {scopes.map((scope) => (
           <ScopeMatrix
             validation={publication.data?.validation ?? {}}
+            portal={portal.data?.portalTermCode ? portal.data : null}
             key={scope.id}
             scope={scope}
             cohort={cohort}
@@ -545,6 +555,7 @@ function ScopeMatrix({
   clashes,
   programs,
   validation,
+  portal,
   onChanged,
   onFilled,
   onRemove,
@@ -557,6 +568,8 @@ function ScopeMatrix({
   programs: string[];
   /** What the timetable says about each CRN, keyed "groupId|courseCode". */
   validation: Record<string, CrnVerdict>;
+  /** What the portal lists for the linked term, or null when the semester is not linked. */
+  portal: TermCrns | null;
   onChanged: () => void;
   onFilled: (report: FillReport) => void;
   onRemove: () => void;
@@ -693,6 +706,7 @@ function ScopeMatrix({
                       crn={group.crns[course.id]?.crn ?? ""}
                       teacher={group.crns[course.id]?.teacher ?? ""}
                       verdict={verdictFor(validation, group.id, course.code)}
+                      portal={portal ? (portal.crns[group.crns[course.id]?.crn ?? ""] ?? null) : undefined}
                       onSave={(crn) => saveCell.mutate({ groupId: group.id, courseId: course.id, crn })}
                     />
                   </td>
@@ -771,6 +785,7 @@ function CrnCell({
   crn,
   teacher,
   verdict,
+  portal,
   onSave,
 }: {
   label: string;
@@ -778,6 +793,8 @@ function CrnCell({
   teacher: string;
   /** Undefined when the timetable could not be reached, which is not the same as wrong. */
   verdict?: CrnVerdict;
+  /** The portal's row for this CRN; null when the portal lists no such CRN; undefined when unlinked. */
+  portal?: TermCrns["crns"][string] | null;
   onSave: (crn: string) => void;
 }) {
   const [draft, setDraft] = useState(crn);
@@ -803,6 +820,13 @@ function CrnCell({
       />
       <Verdict verdict={verdict} crn={crn} />
       {teacher ? <span className="mt-0.5 block text-[11px] text-[#98a2b3]">{teacher}</span> : null}
+      {crn && portal === null ? (
+        <span className="mt-0.5 block text-[11px] text-[#a6292f]">Not in the portal&apos;s list</span>
+      ) : crn && portal && portal.teacherName && (!teacher || portal.teacherName !== teacher) ? (
+        <span className="mt-0.5 block text-[11px] text-[#667085]" title="The teacher the portal lists for this CRN">
+          Portal: {portal.teacherName}
+        </span>
+      ) : null}
     </>
   );
 }

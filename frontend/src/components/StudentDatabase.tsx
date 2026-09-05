@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { CalendarDays, ListChecks, ListTree, Megaphone, Users } from "lucide-react";
+import { BookOpen, CalendarDays, ClipboardList, GraduationCap, ListChecks, ListTree, Megaphone, Users } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { AnnouncementEditor } from "@/components/AnnouncementEditor";
@@ -8,6 +8,9 @@ import { CohortsPage } from "@/components/CohortsPage";
 import { LabelledPicker } from "@/components/LabelledPicker";
 import { GroupCatalogue } from "@/components/GroupCatalogue";
 import { PlatformNotConfigured } from "@/components/PlatformNotConfigured";
+import { PortalCourses } from "@/components/PortalCourses";
+import { PortalRegistrations } from "@/components/PortalRegistrations";
+import { PortalTeachers } from "@/components/PortalTeachers";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { SelectMenu } from "@/components/SelectMenu";
 import { SemesterList } from "@/components/SemesterList";
@@ -26,7 +29,11 @@ const PAGES = [
   { id: "students", name: "Students", icon: Users, group: "Students" },
   // Directly under Students, as its sub-tab: the pane draws a child beneath its parent.
   { id: "cohorts", name: "Cohorts", icon: ListChecks, group: "Students", parent: "students" },
+  // What the portal says each student is registered in — the pull the Cohorts warnings read.
+  { id: "registrations", name: "Registrations", icon: ClipboardList, group: "Students", parent: "students" },
   { id: "groups", name: "Groups & CRNs", icon: ListTree, group: "Students" },
+  { id: "courses", name: "Courses", icon: BookOpen, group: "Students" },
+  { id: "teachers", name: "Teachers", icon: GraduationCap, group: "Students" },
   { id: "semesters", name: "Semesters", icon: CalendarDays, group: "Timetables" },
   { id: "announcements", name: "Announcements", icon: Megaphone, group: "Timetables" },
 ] as const;
@@ -51,6 +58,18 @@ const TITLES: Record<PageId, { title: string; blurb?: string }> = {
   cohorts: {
     title: "Cohorts",
     blurb: "Where what admissions says about a student has drifted from where the department put them.",
+  },
+  registrations: {
+    title: "Registrations",
+    blurb: "Which CRNs the portal says each student is registered in.",
+  },
+  courses: {
+    title: "Courses",
+    blurb: "The term's CRNs as the registrar portal lists them — what everything else checks against.",
+  },
+  teachers: {
+    title: "Teachers",
+    blurb: "The portal's staff list, and how it matches the Part-time Teacher Database.",
   },
   semesters: {
     title: "Semesters",
@@ -254,6 +273,9 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
           {page === "students" && (cohorts.isLoading || views.isLoading) ? (
             <ScreenLoading label="Loading…" />
           ) : null}
+          {page === "courses" ? <PortalCourses /> : null}
+          {page === "teachers" ? <PortalTeachers /> : null}
+          {page === "registrations" ? <PortalRegistrations /> : null}
           {needsCohort && cohorts.isLoading ? <ScreenLoading label="Loading cohorts…" /> : null}
           {needsCohort && !cohorts.isLoading && !cohort ? (
             <p className="text-sm text-[#667085]">Create a cohort first, then fill its groups.</p>

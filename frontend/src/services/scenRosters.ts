@@ -51,6 +51,8 @@ export type PullKind = "students" | "courses" | "teachers" | "registrations";
 
 export type PortalRoster = {
   kind: PullKind;
+  /** The portal term the extension asked about, for lists that are per term. */
+  term?: { code: string; label: string } | null;
   presetId: string;
   name: string;
   count: number;
@@ -286,6 +288,7 @@ async function run(
   }
   return {
     kind: (reply.kind as PullKind) ?? "students",
+    term: (reply.term as PortalRoster["term"]) ?? null,
     presetId: String(reply.presetId ?? presetId),
     name: String(reply.name ?? presetId),
     count: Number(reply.count ?? 0),
