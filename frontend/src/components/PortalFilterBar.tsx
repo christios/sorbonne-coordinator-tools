@@ -12,19 +12,12 @@ import {
   type ListKind,
   type PortalFilter,
   type SyncReport,
-  courseRowOf,
   createPortalFilter,
-  describePullWarning,
   deletePortalFilter,
   fetchPortalFilters,
-  registrationRowOf,
-  syncCourses,
-  syncRegistrations,
-  syncTeachers,
-  teacherRowOf,
-  termCodeOf,
 } from "@/services/portalLists";
-import { PortalError, fetchGridSchema, pullFilter, type PortalRoster, type PullProgress } from "@/services/scenRosters";
+import { syncTarget } from "@/services/portalSync";
+import { PortalError, fetchGridSchema, type PortalRoster, type PullProgress } from "@/services/scenRosters";
 
 const NOUNS: Record<ListKind, { one: string; many: string }> = {
   courses: { one: "course", many: "courses" },
@@ -79,37 +72,18 @@ export function PortalFilterBar({
     if (kind === "registrations") client.invalidateQueries({ queryKey: ["registration-check"] });
   };
 
+  // The act itself is portalSync's, so this button and the header's "Sync all" do the
+  // same thing; what is local to this bar is only how the result is shown.
   const sync = useMutation({
     mutationFn: async (target: PortalFilter) => {
       setPulled(null);
       setNotice("");
-      const roster = await pullFilter(target.filter, { name: target.name, kind }, setPulled);
-      // An extension older than this page knows only the student grid and answers with
-      // students whatever it was asked; those must not land as courses or teachers.
-      if (roster.kind !== kind) {
-        throw new Error(
-          "The SCEN Rosters extension answered with a list of students, so it is older than this page. Load version 1.6.0 or later and reload.",
-        );
-      }
-      let report: SyncReport;
-      if (kind === "courses") {
-        report = await syncCourses(target.id, roster.rows.map(courseRowOf).filter((row) => row.crn));
-      } else if (kind === "teachers") {
-        report = await syncTeachers(target.id, roster.rows.map(teacherRowOf).filter((row) => row.teacherId));
-      } else {
-        const termCode = termCodeOf(roster.term, roster.rows);
-        if (!termCode) throw new Error("The portal did not say which term these registrations are for.");
-        report = await syncRegistrations(
-          target.id,
-          termCode,
-          roster.rows.map(registrationRowOf).filter((row) => row.studentId && row.crn),
-        );
-      }
-      onPulled?.(roster, report);
+      const outcome = await syncTarget({ kind, id: target.id, name: target.name, filter: target.filter }, setPulled);
+      onPulled?.(outcome.roster, outcome.report);
       // A pull that came back short is the one thing that must not pass quietly: it is
       // how a third of the department's teachers went missing without anyone noticing.
-      setNotice(describePullWarning(roster.warning, roster.count, roster.expect));
-      return report;
+      setNotice(outcome.warning);
+      return outcome.report;
     },
     onSettled: () => setPulled(null),
     onSuccess: refresh,

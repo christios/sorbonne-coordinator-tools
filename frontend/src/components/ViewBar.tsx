@@ -8,18 +8,11 @@ import { Modal } from "@/components/Modal";
 import { SelectMenu } from "@/components/SelectMenu";
 import { useStaffUser } from "@/components/useStaffUser";
 import { describeFilter, filterLines, type Filter } from "@/services/filterSummary";
-import { backUpHistory, type BackupOutcome } from "@/services/historyBackup";
-import { recordPull } from "@/services/pullHistory";
-import { rememberPull, rememberSync, storageReport, type StorageReport } from "@/services/rosterStore";
-import {
-  PortalError,
-  fetchSchema,
-  pullFilter,
-  studentIdOf,
-  type PortalField,
-  type PullProgress,
-} from "@/services/scenRosters";
-import { createView, deleteView, syncView, type StudentView } from "@/services/studentDatabase";
+import { type BackupOutcome } from "@/services/historyBackup";
+import { syncTarget } from "@/services/portalSync";
+import { type StorageReport } from "@/services/rosterStore";
+import { PortalError, fetchSchema, type PortalField, type PullProgress } from "@/services/scenRosters";
+import { createView, deleteView, type StudentView } from "@/services/studentDatabase";
 
 /**
  * Which population the Students page is showing, and the one button that refreshes it.
@@ -67,33 +60,18 @@ export function ViewBar({
     client.invalidateQueries({ queryKey: ["cohorts"] });
   };
 
+  // The act itself is portalSync's, so this button and the header's "Sync all" do the
+  // same thing; what is local to this bar is only how the result is shown.
   const sync = useMutation({
     mutationFn: async (target: StudentView) => {
       setPulled(null);
-      const roster = await pullFilter(
-        target.filter as Filter,
-        { name: target.name, expect: null },
+      const outcome = await syncTarget(
+        { kind: "students", id: target.id, name: target.name, filter: target.filter },
         setPulled,
       );
-      const report = await syncView(target.id, roster.rows.map(studentIdOf).filter(Boolean));
-      // Awaited, not fired off: the browser answers for its own disk asynchronously, and
-      // the report below is only true once the write has actually landed.
-      await rememberPull({ ...roster, presetId: target.id });
-      setStorage(storageReport());
-      rememberSync(target.id, report.syncedAt);
-      // One history per view, so a student's changes read against the same question.
-      await recordPull(target.id, roster.rows, roster.fetchedAt);
-      /*
-       * The history is the one thing here that cannot be rebuilt from the server, so the
-       * copy on disk is rewritten while we know it has just changed. It does nothing
-       * until a folder has been chosen.
-       *
-       * Awaited and reported rather than fired off: a backup that quietly stopped working
-       * is worse than no backup, because it is only discovered when it is needed. A
-       * failure still must not fail the sync — the students are synced either way.
-       */
-      setBackup(await backUpHistory());
-      return report;
+      setStorage(outcome.storage ?? null);
+      setBackup(outcome.backup ?? null);
+      return outcome.report;
     },
     onSettled: () => setPulled(null),
     onSuccess: refresh,

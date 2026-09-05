@@ -9,11 +9,13 @@ import { RosterTable } from "@/components/RosterTable";
 import { StaffMenu } from "@/components/StaffMenu";
 import { StaffSettings } from "@/components/StaffSettings";
 import { SyllabusBuilder } from "@/components/SyllabusBuilder";
+import { SyncAllButton } from "@/components/SyncAllButton";
 import { TeacherDatabase } from "@/components/TeacherDatabase";
 import { StudentDatabase } from "@/components/StudentDatabase";
 import { COORDINATOR_APPS } from "@/routes/apps";
 import { handbookUrl } from "@/routes/handbookRoute";
 import { ToolId, toolFromLocation } from "@/routes/toolRoute";
+import { getRun, isRunning, subscribe } from "@/services/syncRun";
 import {
   BatchRosterPreview,
   BatchRosterPreviewItem,
@@ -117,6 +119,10 @@ export function App() {
   }
 
   const compactSyllabusHeader = activeTool === "syllabus" && syllabusHeaderCollapsed;
+  // Whether a sync started on the student pages is still going, so the button stays in
+  // sight — and keeps being driven — wherever the coordinator has gone since.
+  const [syncing, setSyncing] = useState(() => isRunning(getRun()));
+  useEffect(() => subscribe((run) => setSyncing(isRunning(run))), []);
   const isPicker = activeTool === null;
   // Any screen with a left pane needs the pane to end where the window does, so the
   // account menu at its foot is reachable. Guessing the header's height got that wrong;
@@ -152,6 +158,12 @@ export function App() {
             </div>
           </div>
           <div className="flex items-center gap-3">
+            {/*
+              * Syncing belongs to the student pages, so the button stands with them — and
+              * stays in sight anywhere while a run it started is still going, because the
+              * header is the one thing always mounted and something must drive the run.
+              */}
+            {activeTool === "database" || syncing ? <SyncAllButton /> : null}
             {activeTool ? (
               <button
                 type="button"
