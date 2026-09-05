@@ -1,5 +1,5 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Filter, FolderInput, Globe, IdCard, LayoutGrid, Search } from "lucide-react";
+import { Filter, FolderInput, Globe, LayoutGrid, Search } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ColumnMenu } from "@/components/ColumnMenu";
@@ -151,7 +151,7 @@ export function StudentRoster({
   const [syncedAt, setSyncedAt] = useState("");
   const [history, setHistory] = useState<PullHistory>(NO_HISTORY);
   const [historyOf, setHistoryOf] = useState<StudentRow | null>(null);
-  // The one student whose whole record is open, from the toolbar button.
+  // The one student whose whole record is open: a click anywhere on their row.
   const [recordOf, setRecordOf] = useState<StudentRow | null>(null);
   const [layout, setLayout] = useState<ColumnLayout | null>(null);
   const [filters, setFilters] = useState<FilterModel[]>([]);
@@ -580,19 +580,7 @@ export function StudentRoster({
 
         {/* The margin lives here rather than on the search box, so the two travel
             together as a pair on the right instead of the button sitting by the filters. */}
-        <div className="ml-auto flex items-center gap-2">
-          <button
-            type="button"
-            disabled={chosen.length !== 1}
-            title={chosen.length === 1 ? "Everything known about this student" : "Select one student"}
-            onClick={() => {
-              const target = rows.find((candidate) => candidate.studentId === chosen[0]);
-              if (target) setRecordOf(target);
-            }}
-            className="inline-flex items-center gap-2 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc] disabled:opacity-50"
-          >
-            <IdCard size={16} aria-hidden="true" /> Student record
-          </button>
+        <div className="ml-auto">
           <CopyPresetMenu
             columns={allColumns}
             onCopy={async (chosen, withHeader) => {
@@ -748,6 +736,7 @@ export function StudentRoster({
         onOpenHistory={setHistoryOf}
         onDismissWarning={onDismissWarning}
         highlightedId={historyOf?.studentId}
+        onRowClick={setRecordOf}
         onToggle={toggle}
         onToggleAll={toggleAll}
         empty={

@@ -36,6 +36,7 @@ export const StudentTable = memo(function StudentTable({
   onOpenHistory,
   onDismissWarning,
   highlightedId,
+  onRowClick,
   empty,
 }: {
   rows: StudentRow[];
@@ -54,6 +55,8 @@ export const StudentTable = memo(function StudentTable({
   onDismissWarning?: (key: string, dismissed: boolean) => void;
   /** The row whose history is open beside the table, so the eye can find it. */
   highlightedId?: string;
+  /** A click anywhere on the row that is not a control: the student's record. */
+  onRowClick?: (row: StudentRow) => void;
   empty: string;
 }) {
   const renderCell = useCallback(
@@ -93,6 +96,7 @@ export const StudentTable = memo(function StudentTable({
       onToggle={onToggle}
       onToggleAll={onToggleAll}
       highlightedId={highlightedId}
+      onRowClick={onRowClick}
       empty={empty}
     />
   );

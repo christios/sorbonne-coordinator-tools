@@ -60,6 +60,18 @@ describe("a list on the shared table", () => {
     expect(screen.getByText("3 courses, 1 shown")).toBeTruthy();
   });
 
+  it("opens the row on a click anywhere but a control", () => {
+    const onRowClick = vi.fn();
+    show({ onRowClick } as never);
+
+    fireEvent.click(screen.getByText("MATH-011"));
+    expect(onRowClick).toHaveBeenCalledWith(ROWS[1]);
+
+    onRowClick.mockClear();
+    fireEvent.click(screen.getByLabelText("Select MATH-011"));
+    expect(onRowClick).not.toHaveBeenCalled();
+  });
+
   it("hands the selection to the page", () => {
     const onSelectedChange = vi.fn();
     show({ selected: new Set(), onSelectedChange });

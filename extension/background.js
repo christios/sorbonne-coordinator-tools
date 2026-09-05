@@ -53,9 +53,19 @@ function trim(rows, columns) {
   });
 }
 
-async function storedFields() {
-  const { portalFields } = await chrome.storage.local.get('portalFields');
-  return portalFields || null;
+/**
+ * What the probe learned about one grid. Students live under the key they always had;
+ * the other grids under their own, so a visit to the Courses page cannot overwrite what
+ * was learned about students.
+ */
+function harvestKey(kind) {
+  return kind === 'students' ? 'portalFields' : 'portalFields:' + kind;
+}
+
+async function storedFields(kind = 'students') {
+  const key = harvestKey(kind);
+  const held = await chrome.storage.local.get(key);
+  return held[key] || null;
 }
 
 /** FIRST_NAME -> "First name": a readable label for a column nobody has labelled. */
@@ -196,7 +206,19 @@ async function gridSchema(kind) {
   const students = await schema();
   if (kind === 'students') return { grid, fields: students.fields, columns: students.columns.map(column => column.key), source: students.source };
   const columns = (grid.columns || []).filter(key => mayReturn(key));
-  return { grid, fields: fieldsFor(kind, students.fields), columns, source: 'built-in' };
+  // The grid's own harvest first — its quick filters, with the values they offer — then
+  // the declared fields, borrowing the student grid's code tables where they are shared.
+  const learned = await storedFields(kind);
+  const own = learned?.fields?.length ? learned.fields : null;
+  const declared = fieldsFor(kind, students.fields);
+  if (!own) return { grid, fields: declared, columns, source: 'built-in', harvestedAt: null };
+  const byKey = new Map(declared.map(field => [field.key, field]));
+  const fields = own.map(field => {
+    const known = byKey.get(field.key);
+    return field.options.length || !known ? { ...field, verified: true } : known;
+  });
+  for (const field of declared) if (!own.some(candidate => candidate.key === field.key)) fields.push(field);
+  return { grid, fields, columns, source: 'portal', harvestedAt: learned.harvestedAt || null };
 }
 
 /** Run one composed filter, once it has been checked against the schema. */
@@ -285,15 +307,17 @@ async function handle(msg) {
         term: cfg.term,
         fields: known.fields,
         columns: known.columns.map(key => ({ key, label: titleOf(key) })),
-        source: 'built-in',
-        harvestedAt: null,
+        source: known.source,
+        harvestedAt: known.harvestedAt,
       };
     }
     case 'fields:harvest': {
       // Sent by the portal content script. Keep the richest harvest we have seen: a page
       // where no filter panel was open knows the field names but not their values, and a
       // grid read before it finished rendering knows fewer columns than one read after.
-      const learned = await storedFields();
+      // One harvest per grid, so the Courses page cannot overwrite the students'.
+      const kind = gridOf(msg.kind) ? msg.kind : 'students';
+      const learned = await storedFields(kind);
       const columns = (msg.columns || []).filter(column => mayReturn(column.key, column.label));
       const held = (learned && learned.columns) || [];
       // Fields and columns are learned from different parts of the page and arrive
@@ -306,7 +330,7 @@ async function handle(msg) {
         || (columns.length === held.length && columns.length > 0 && keys(columns) !== keys(held));
       if (richer || wider) {
         await chrome.storage.local.set({
-          portalFields: {
+          [harvestKey(kind)]: {
             fields: richer ? fields : ((learned && learned.fields) || []),
             columns: wider ? columns : held,
             harvestedAt: Date.now(),

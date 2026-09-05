@@ -47,6 +47,7 @@ export function ListGrid<T>({
   onSelectedChange,
   renderCell,
   rowActions,
+  onRowClick,
 }: {
   columns: GridColumn<T>[];
   rows: T[];
@@ -70,6 +71,7 @@ export function ListGrid<T>({
   onSelectedChange?: (selected: Set<string>) => void;
   renderCell?: (row: T, column: GridColumn<T>) => ReactNode | undefined;
   rowActions?: (row: T) => ReactNode;
+  onRowClick?: (row: T) => void;
 }) {
   const [layout, setLayout] = useState<ColumnLayout | null>(null);
   const [filters, setFilters] = useState<FilterModel[]>([]);
@@ -214,6 +216,7 @@ export function ListGrid<T>({
         labelOf={labelOf}
         renderCell={renderCell}
         rowActions={rowActions}
+        onRowClick={onRowClick}
         onSort={sortBy}
         onResize={resize}
         onReorder={reorder}

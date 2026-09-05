@@ -114,6 +114,8 @@ export type DataTableProps<T> = {
   onToggleAll: () => void;
   /** The row whose detail is open beside the table, so the eye can find it. */
   highlightedId?: string;
+  /** A click anywhere on the row that is not a control: opening the row's own screen. */
+  onRowClick?: (row: T) => void;
   empty: string;
 };
 
@@ -143,6 +145,7 @@ export function DataTable<T>({
   onToggle,
   onToggleAll,
   highlightedId,
+  onRowClick,
   empty,
 }: DataTableProps<T>) {
   const allShown = rows.length > 0 && rows.every((row) => selected.has(idOf(row)));
@@ -197,6 +200,7 @@ export function DataTable<T>({
                 renderCell={renderCell}
                 rowActions={rowActions}
                 onToggle={onToggle}
+                onRowClick={onRowClick}
                 highlighted={id === highlightedId}
               />
             );
@@ -230,6 +234,7 @@ type RowProps<T> = {
   renderCell?: (row: T, column: GridColumn<T>) => ReactNode | undefined;
   rowActions?: (row: T) => ReactNode;
   onToggle: (id: string, extend?: boolean) => void;
+  onRowClick?: (row: T) => void;
   highlighted: boolean;
 };
 
@@ -250,12 +255,29 @@ function DataTableRowInner<T>({
   renderCell,
   rowActions,
   onToggle,
+  onRowClick,
   highlighted,
 }: RowProps<T>) {
   const extend = useRef(false);
 
   return (
-    <tr data-row-id={id} className={`border-t border-[#eef1f5] ${highlighted ? "bg-[#eef4fa] shadow-[inset_3px_0_0_#1f4e79]" : ""}`}>
+    <tr
+      data-row-id={id}
+      className={`border-t border-[#eef1f5] ${highlighted ? "bg-[#eef4fa] shadow-[inset_3px_0_0_#1f4e79]" : ""} ${
+        onRowClick ? "cursor-pointer hover:bg-[#f8fafc]" : ""
+      }`}
+      onClick={
+        onRowClick
+          ? (event) => {
+              // A click on a control is that control's; a drag to select text is not a click.
+              const target = event.target as HTMLElement;
+              if (target.closest("button, input, a, [role='button'], [role='separator']")) return;
+              if (window.getSelection()?.toString()) return;
+              onRowClick(row);
+            }
+          : undefined
+      }
+    >
       <td className="px-3 py-2">
         <input
           type="checkbox"
