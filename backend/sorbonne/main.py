@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from sorbonne.api.auth import router as auth_router
 from sorbonne.api.bibliography_lookup import router as bibliography_lookup_router
 from sorbonne.api.rosters import router as rosters_router
+from sorbonne.api.portal import router as portal_router
 from sorbonne.api.publication import router as publication_router
 from sorbonne.api.student_database import router as student_database_router
 from sorbonne.api.syllabus_catalogues import router as syllabus_catalogues_router
@@ -50,6 +51,7 @@ app.add_middleware(
 app.include_router(auth_router, prefix="/api/v1")
 app.include_router(rosters_router, prefix="/api/v1")
 app.include_router(teachers_router, prefix="/api/v1")
+app.include_router(portal_router, prefix="/api/v1")
 app.include_router(teacher_requisitions_router, prefix="/api/v1")
 app.include_router(teacher_documents_router, prefix="/api/v1")
 app.include_router(workflow_router, prefix="/api/v1")

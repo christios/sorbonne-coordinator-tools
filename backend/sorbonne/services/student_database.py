@@ -1266,7 +1266,9 @@ class StudentDatabase:
 
 
 FIELD_KEY = re.compile(r"^[A-Z][A-Z0-9_]{1,39}$")
-VALUE = re.compile(r"^[A-Za-z0-9._-]{1,40}$")
+# A code, or a description the portal itself filters by ("Flying-Professional Assignment" is
+# how the teachers grid names a type) — never a sentence. Mirrors the extension's rule.
+VALUE = re.compile(r"^[A-Za-z0-9._\-][A-Za-z0-9._\- ]{0,59}$")
 MAX_FIELDS = 12
 MAX_VALUES = 40
 
