@@ -110,6 +110,11 @@ export type CatalogueScope = {
    * degree does not. Such a set takes any student, and counts all of them.
    */
   openToAll: boolean;
+  /**
+   * Whose row this is. A shared set has to live under some cohort and belongs to none of
+   * them, so a page asking for the shared sets too can tell them apart from its own.
+   */
+  cohortId?: string;
   /** The student tab this block's column lives on in the workbook it came from. */
   tab?: string;
   /** What that column is called there: "TD group", "Readiness group". */
@@ -208,11 +213,15 @@ export function deleteCohort(cohortId: string): Promise<void> {
   return request<void>(`${BASE}/cohorts/${cohortId}`, { method: "DELETE" });
 }
 
-export function fetchCatalogue(cohortId: string, termId?: string): Promise<Catalogue> {
+export function fetchCatalogue(cohortId: string, termId?: string, withShared = false): Promise<Catalogue> {
   // A cohort's blocks are defined per semester, so asking without one would show both
   // semesters' "TD" at once, meaning different things.
-  const query = termId ? `?term_id=${encodeURIComponent(termId)}` : "";
-  return request<Catalogue>(`${BASE}/cohorts/${cohortId}/catalogue${query}`);
+  const query = new URLSearchParams();
+  if (termId) query.set("term_id", termId);
+  // The sets open to every cohort as well — the department's, not this cohort's.
+  if (withShared) query.set("with_shared", "true");
+  const asked = query.toString();
+  return request<Catalogue>(`${BASE}/cohorts/${cohortId}/catalogue${asked ? `?${asked}` : ""}`);
 }
 
 export type PlacementReport = {

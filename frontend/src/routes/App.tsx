@@ -143,18 +143,20 @@ export function App() {
           has to pick an unfinished one up. It draws nothing. */}
       <SyncRunDriver />
       <header className={`shrink-0 border-b border-[#d9dee7] bg-white ${compactSyllabusHeader ? "hidden" : ""}`}>
-        <div data-testid="app-header" className={`mx-auto flex max-w-[98rem] flex-col items-start gap-3 px-4 transition-[padding,gap] duration-200 sm:px-6 lg:flex-row lg:items-center lg:justify-between lg:px-8 ${compactSyllabusHeader ? "py-2" : "py-5"}`}>
+        {/*
+          * Full width, not a centred column: the panes below the header run to the edges
+          * of the window, and a header that stopped short of them left the way back
+          * floating in the middle of nothing on a wide screen. The padding is the pane's
+          * own, so All apps starts where "Students and timetables" starts.
+          */}
+        <div data-testid="app-header" className={`flex flex-col items-start gap-3 px-6 transition-[padding,gap] duration-200 lg:flex-row lg:items-center lg:justify-between ${compactSyllabusHeader ? "py-2" : "py-5"}`}>
           <div className="flex items-center gap-3.5">
-            {/*
-              * The way back stands before everything, against the edge of the screen —
-              * the negative margin cancels the header's own padding, and the flat left
-              * side says it is anchored there rather than floating near it.
-              */}
+            {/* The way back stands before everything, where a way back is looked for. */}
             {activeTool ? (
               <button
                 type="button"
                 onClick={showAllApps}
-                className="-ml-4 mr-1 inline-flex items-center gap-2 rounded-md rounded-l-none border border-l-0 border-[#d9dee7] bg-white px-3 py-2 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb] sm:-ml-6 lg:-ml-8"
+                className="mr-1 inline-flex items-center gap-2 rounded-md border border-[#d9dee7] bg-white px-3 py-2 text-sm font-semibold text-[#1f4e79] shadow-sm hover:bg-[#f2f7fb]"
               >
                 <span aria-hidden="true">←</span> All apps
               </button>

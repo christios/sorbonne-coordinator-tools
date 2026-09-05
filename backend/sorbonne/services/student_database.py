@@ -511,19 +511,35 @@ class StudentDatabase:
 
     # ------------------------------------------------------------- catalogue
 
-    def read_catalogue(self, cohort_id: str, term_id: str | None = None) -> dict[str, Any]:
+    def read_catalogue(
+        self, cohort_id: str, term_id: str | None = None, with_shared: bool = False
+    ) -> dict[str, Any]:
         """One cohort's scopes as a matrix, with how many students sit in each group.
 
         Scoped to a semester when one is given, because a cohort's groups reshuffle between
         them and showing both at once would offer two "TD" that mean different things.
+
+        `with_shared` adds the semester's sets that are open to every cohort, whichever
+        cohort happens to hold them. Languages are one class for the whole department, and
+        the row saying so has to live under some cohort — which made the set look like that
+        cohort's and left it unreachable from any other. Each scope says whose it is, so a
+        page can keep the two apart.
         """
         self.get_cohort(cohort_id)
         clause = "" if term_id is None else " AND term_id = :term_id"
+        own = f"cohort_id = :id{clause}"
+        # A shared set is the department's, so it is answered for every cohort of its
+        # semester — but only when the caller asked, since most callers mean "this
+        # cohort's own" and would otherwise start seeing another cohort's rows.
+        where = f"({own}) OR (open_to_all{clause})" if with_shared else own
+        params: dict[str, Any] = {"id": cohort_id}
+        if term_id is not None:
+            params["term_id"] = term_id
         with self.engine.connect() as connection:
             scopes = (
                 connection.execute(
-                    text(f"SELECT * FROM cohort_scopes WHERE cohort_id = :id{clause} ORDER BY position, code"),  # noqa: S608
-                    {"id": cohort_id, "term_id": term_id} if term_id is not None else {"id": cohort_id},
+                    text(f"SELECT * FROM cohort_scopes WHERE {where} ORDER BY position, code"),  # noqa: S608
+                    params,
                 )
                 .mappings()
                 .all()
@@ -570,6 +586,10 @@ class StudentDatabase:
                     "parentScopeId": scope["parent_scope_id"],
                     # True for a set the whole department shares, as the languages are.
                     "openToAll": bool(scope["open_to_all"]),
+                    # Whose row this is. A shared set is answered for every cohort, so a
+                    # page can say plainly that it belongs to the department, not to the
+                    # cohort being looked at.
+                    "cohortId": scope["cohort_id"],
                     # Where this block sits in the workbook, so writing one back out puts
                     # it where it was: Readiness is a column on the tutorials tab.
                     "tab": scope["tab"],

@@ -110,6 +110,40 @@ export function CourseCards({ cohorts, onShowStudents }: { cohorts: Cohort[]; on
   }
 
   // The clash panel belongs to one cohort in one semester; it shows when the list is one.
+  // A course whose every set is open to every cohort is the department's, not a year's.
+  const acrossCohorts = visible.filter((card) => card.sets.length > 0 && card.sets.every((set) => set.scope.openToAll));
+  const byCohort = visible.filter((card) => !acrossCohorts.includes(card));
+  const showCard = (card: (typeof visible)[number]) => {
+    const publication = publicationOf(card.termId);
+    const report = publication?.cohorts.find((entry) => entry.cohortId === card.cohortId) ?? null;
+    return (
+      <CourseCard
+        key={card.key}
+        card={card}
+        open={open.has(card.key)}
+        onToggle={() =>
+          setOpen((current) => {
+            const next = new Set(current);
+            if (next.has(card.key)) next.delete(card.key);
+            else next.add(card.key);
+            return next;
+          })
+        }
+        cohort={cohorts.find((cohort) => cohort.id === card.cohortId) ?? null}
+        teachers={teachers.data ?? []}
+        portal={portalOf(card.termId)}
+        validation={publication?.validation ?? {}}
+        unassigned={report?.unassigned ?? {}}
+        clashes={publication ? clashesIn(publication, card.cohortId) : null}
+        onChanged={refresh}
+        onFilled={(reportOfFill) => {
+          setFilled(reportOfFill);
+          refresh();
+        }}
+      />
+    );
+  };
+
   const pairs = [...new Set(visible.map((card) => `${card.cohortId}|${card.termId}`))];
   const single = pairs.length === 1 ? visible[0] : null;
   const clashes = single ? (publicationOf(single.termId) ? clashesIn(publicationOf(single.termId)!, single.cohortId) : null) : null;
@@ -174,36 +208,25 @@ export function CourseCards({ cohorts, onShowStudents }: { cohorts: Cohort[]; on
             {cards.length ? "No course matches the filters." : "No courses yet. Add one from the portal, or open Group sets to define a semester's sets and their courses."}
           </p>
         ) : (
-          visible.map((card) => {
-            const publication = publicationOf(card.termId);
-            const report = publication?.cohorts.find((entry) => entry.cohortId === card.cohortId) ?? null;
-            return (
-              <CourseCard
-                key={card.key}
-                card={card}
-                open={open.has(card.key)}
-                onToggle={() =>
-                  setOpen((current) => {
-                    const next = new Set(current);
-                    if (next.has(card.key)) next.delete(card.key);
-                    else next.add(card.key);
-                    return next;
-                  })
-                }
-                cohort={cohorts.find((cohort) => cohort.id === card.cohortId) ?? null}
-                teachers={teachers.data ?? []}
-                portal={portalOf(card.termId)}
-                validation={publication?.validation ?? {}}
-                unassigned={report?.unassigned ?? {}}
-                clashes={publication ? clashesIn(publication, card.cohortId) : null}
-                onChanged={refresh}
-                onFilled={(reportOfFill) => {
-                  setFilled(reportOfFill);
-                  refresh();
-                }}
-              />
-            );
-          })
+          <>
+            {byCohort.map(showCard)}
+
+            {/*
+              * The department's own, kept apart.
+              *
+              * A course taught only in sets open to every cohort — the languages — belongs
+              * to no one year, and listing it among Foundation Year's said it did.
+              */}
+            {acrossCohorts.length ? (
+              <section className="pt-2">
+                <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[#1f4e79]">Across cohorts</p>
+                <p className="mb-2 text-xs text-[#667085]">
+                  One set of classes for the whole department, whichever year a student is in.
+                </p>
+                <div className="space-y-3">{acrossCohorts.map(showCard)}</div>
+              </section>
+            ) : null}
+          </>
         )}
       </div>
 

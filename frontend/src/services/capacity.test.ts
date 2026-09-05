@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { capacityRows, groupTotals, statusOf } from "@/services/capacity";
+import { capacityByGroup, capacityBySet, capacityRows, groupTotals, statusOf } from "@/services/capacity";
 import { EMPTY_SECTION, type CohortCatalogue } from "@/services/studentDatabase";
 
 const section = (crn: string, over: Partial<typeof EMPTY_SECTION> = {}) => ({ ...EMPTY_SECTION, crn, ...over });
@@ -113,6 +113,30 @@ describe("how full every group is", () => {
     expect(statusOf(30, 12)).toBe("Room");
     expect(statusOf(30, 0)).toBe("Empty");
     expect(statusOf(0, 12)).toBe("No capacity set");
+  });
+
+  it("reads a group once, keeping the sections it is taught in", () => {
+    const groups = capacityByGroup(capacityRows([FYS], termName));
+
+    expect(groups.map((group) => `${group.set} ${group.group}`)).toEqual(["LANG A1-G1", "TD 1", "TD 2"]);
+    // TD 1 carries two courses and is still one class of thirty-four.
+    const first = groups.find((group) => group.group === "1")!;
+    expect([first.enrolled, first.capacity, first.status]).toEqual([34, 33, "Over"]);
+    expect(first.sections.map((section) => section.courseCode)).toEqual(["MATH-001", "MATH-011"]);
+  });
+
+  it("gathers the groups by set, with the shared ones last and a scale for the bars", () => {
+    const sets = capacityBySet(capacityByGroup(capacityRows([FYS], termName)));
+
+    // A set the whole department shares comes after the cohort's own.
+    expect(sets.map((set) => [set.code, set.shared])).toEqual([
+      ["TD", false],
+      ["LANG", true],
+    ]);
+    const tutorials = sets[0];
+    expect([tutorials.enrolled, tutorials.capacity, tutorials.over]).toEqual([67, 66, 1]);
+    // The bars of a set are drawn against its fullest group, not against the page.
+    expect(tutorials.peak).toBe(34);
   });
 
   it("counts a group once for the totals, however many courses its set carries", () => {

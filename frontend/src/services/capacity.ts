@@ -140,6 +140,88 @@ export function groupTotals(rows: CapacityRow[]): {
   };
 }
 
+/**
+ * One group, once, with the sections it is taught in.
+ *
+ * The rows above are one per section, which is what a sheet of CRNs wants and the wrong
+ * unit for "is this class over its seats" — TD 1 is one class of thirty-four whether its
+ * set carries one course or three. This is the group's own reading, and it keeps its
+ * sections so the answer can be opened up.
+ */
+export type GroupCapacity = {
+  key: string;
+  cohortId: string;
+  cohortName: string;
+  termName: string;
+  set: string;
+  shared: boolean;
+  group: string;
+  capacity: number;
+  enrolled: number;
+  free: number;
+  status: CapacityStatus;
+  sections: CapacityRow[];
+};
+
+export function capacityByGroup(rows: CapacityRow[]): GroupCapacity[] {
+  const held = new Map<string, GroupCapacity>();
+  for (const row of rows) {
+    const key = `${row.cohortId}|${row.set}|${row.group}`;
+    const seen = held.get(key);
+    if (seen) {
+      seen.sections.push(row);
+      continue;
+    }
+    held.set(key, {
+      key,
+      cohortId: row.cohortId,
+      cohortName: row.cohortName,
+      termName: row.termName,
+      set: row.set,
+      shared: row.shared,
+      group: row.group,
+      capacity: row.capacity,
+      enrolled: row.enrolled,
+      free: row.free,
+      status: row.status,
+      sections: [row],
+    });
+  }
+  return [...held.values()].sort(
+    (left, right) => left.set.localeCompare(right.set) || left.group.localeCompare(right.group, undefined, { numeric: true }),
+  );
+}
+
+/** The groups of one set, and how the set stands as a whole. */
+export type SetCapacity = {
+  code: string;
+  shared: boolean;
+  groups: GroupCapacity[];
+  capacity: number;
+  enrolled: number;
+  over: number;
+  /** The fullest group's enrolment, so every bar in the set is drawn to one scale. */
+  peak: number;
+};
+
+export function capacityBySet(groups: GroupCapacity[]): SetCapacity[] {
+  const held = new Map<string, GroupCapacity[]>();
+  for (const group of groups) held.set(group.set, [...(held.get(group.set) ?? []), group]);
+  return [...held.entries()]
+    .map(([code, own]) => ({
+      code,
+      shared: own.some((group) => group.shared),
+      groups: own,
+      // Seats only where a capacity is stated: adding zeroes would claim room there is
+      // no word on.
+      capacity: own.reduce((total, group) => total + group.capacity, 0),
+      enrolled: own.reduce((total, group) => total + group.enrolled, 0),
+      over: own.filter((group) => group.status === "Over").length,
+      peak: Math.max(1, ...own.map((group) => Math.max(group.capacity, group.enrolled))),
+    }))
+    .sort((left, right) => Number(left.shared) - Number(right.shared) || left.code.localeCompare(right.code));
+}
+
 /** What the table shows, and what its filters and search may ask of a row. */
 export function capacityColumns(): GridColumn<CapacityRow>[] {
   return [

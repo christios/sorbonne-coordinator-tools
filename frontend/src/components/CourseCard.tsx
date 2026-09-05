@@ -56,6 +56,8 @@ export function CourseCard({
   const named = [...new Set(rows.map((row) => (row.section?.teacherId ? teacherName(row.section.teacherId) : row.section?.teacher ?? "")).filter(Boolean))];
   const missing = rows.filter((row) => !row.section?.crn && !row.section?.retired).length;
   const retired = rows.filter((row) => row.section?.retired).length;
+  // A course taught only in sets the whole department shares belongs to no one cohort.
+  const shared = card.sets.length > 0 && card.sets.every((set) => set.scope.openToAll);
   const chip = "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold";
 
   return (
@@ -72,8 +74,13 @@ export function CourseCard({
           <span className="font-semibold tabular-nums text-[#171717]">{card.code}</span>
           <span className="truncate text-[#344054]">{card.name || <span className="text-[#98a2b3]">untitled</span>}</span>
         </button>
-        <span className={`${chip} bg-[#eef1f5] text-[#344054]`}>
-          {card.cohortName} · {card.termName || "no semester"}
+        {/*
+          * Whose card this is. A course taught only in sets open to every cohort is the
+          * department's — the languages — and naming the cohort whose row happens to hold
+          * the set said something untrue.
+          */}
+        <span className={`${chip} ${shared ? "bg-[#e8edf3] text-[#1f4e79]" : "bg-[#eef1f5] text-[#344054]"}`}>
+          {shared ? "Across cohorts" : card.cohortName} · {card.termName || "no semester"}
         </span>
         {!card.active ? (
           <span className={`${chip} bg-[#fdf9ee] text-[#8a6116]`} title="Choose it on the Courses page so it carries a UE and a parent CRN">
@@ -98,7 +105,8 @@ export function CourseCard({
               <section key={set.scope.id} className="px-4 py-3">
                 <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
                   <span className="font-semibold text-[#1f4e79]">{set.scope.code}</span>
-                  {set.scope.openToAll ? (
+                  {/* Said once: on a card that is wholly shared the header says it already. */}
+                  {set.scope.openToAll && !shared ? (
                     <span className="rounded-full bg-[#eef1f5] px-2 py-0.5 text-xs font-semibold text-[#344054]" title="Any student of any cohort may be in this set">
                       open to every cohort
                     </span>

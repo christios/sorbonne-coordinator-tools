@@ -68,9 +68,12 @@ export function GroupSetsEditor({
     }
   }, [open, initialCohortId, initialTermId, cohorts, terms]);
 
+  // The shared sets too: languages are the department's class, and reaching them only
+  // from whichever cohort happens to hold the row is what made them look like that
+  // cohort's. They are listed apart, below.
   const catalogue = useQuery({
-    queryKey: ["catalogue", cohortId, termId],
-    queryFn: () => fetchCatalogue(cohortId, termId),
+    queryKey: ["catalogue", cohortId, termId, "with-shared"],
+    queryFn: () => fetchCatalogue(cohortId, termId, true),
     enabled: open && Boolean(cohortId && termId),
   });
   const refresh = () => {
@@ -97,6 +100,10 @@ export function GroupSetsEditor({
   const remove = useMutation({ mutationFn: deleteScope, onSuccess: refresh });
   const removeGroup = useMutation({ mutationFn: deleteGroup, onSuccess: refresh });
   const scopes = catalogue.data?.scopes ?? [];
+  // A shared set is the department's however it is filed, so it is listed apart from the
+  // cohort's own — including under the cohort whose row happens to hold it.
+  const shared = scopes.filter((scope) => scope.openToAll);
+  const own = scopes.filter((scope) => !scope.openToAll);
   const error = make.error?.message ?? remove.error?.message ?? removeGroup.error?.message ?? null;
 
   return (
@@ -121,9 +128,33 @@ export function GroupSetsEditor({
         <p className="text-sm text-[#667085]">Loading…</p>
       ) : (
         <div className="space-y-4">
-          {scopes.map((scope) => (
+          {own.map((scope) => (
             <ScopeEditor key={scope.id} scope={scope} scopes={scopes} activeCourses={activeCourses} onChanged={refresh} onRemove={() => setPendingScope(scope)} onRemoveGroup={setPendingGroup} />
           ))}
+
+          {/*
+            * The department's sets, not this cohort's.
+            *
+            * A language class holds first, second and third years at once — the level
+            * decides the group, the degree does not. Its row has to live under some
+            * cohort, and listing it there made it read as that cohort's and left it
+            * unreachable from the others. Here it is under every cohort, said plainly.
+            */}
+          {shared.length ? (
+            <section className="rounded-lg border border-[#d9dee7] bg-[#f8fafc] p-3">
+              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[#1f4e79]">Across cohorts</p>
+              <p className="mb-3 text-xs text-[#667085]">
+                One set of classes for the whole department, whichever year a student is in. Each student is still
+                counted under their own cohort.
+              </p>
+              <div className="space-y-4">
+                {shared.map((scope) => (
+                  <ScopeEditor key={scope.id} scope={scope} scopes={scopes} activeCourses={activeCourses} onChanged={refresh} onRemove={() => setPendingScope(scope)} onRemoveGroup={setPendingGroup} />
+                ))}
+              </div>
+            </section>
+          ) : null}
+
           <form
             className="flex flex-wrap items-end gap-2 rounded-lg border border-dashed border-[#c8d0da] px-4 py-3"
             onSubmit={(event) => {

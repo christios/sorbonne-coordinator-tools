@@ -676,6 +676,31 @@ def test_a_set_open_to_every_cohort_holds_the_whole_department(client: TestClien
     assert mine["A002"][scope["id"]] == group["id"]
 
 
+def test_a_shared_set_is_answered_for_every_cohort_when_asked(client: TestClient, cohort_id: str):
+    """The row has to live under some cohort; the set belongs to the department.
+
+    Reaching it only from whichever cohort happened to hold it is what made the languages
+    look like Foundation Year's, so a page may ask for the shared ones too — and is told
+    whose row each is, so it can keep them apart.
+    """
+    other = client.post("/api/v1/student-database/cohorts", json={"name": "L2 elsewhere"}).json()
+    client.post(f"/api/v1/student-database/cohorts/{cohort_id}/scopes", json={"code": "LANG", "openToAll": True})
+    client.post(f"/api/v1/student-database/cohorts/{other['id']}/scopes", json={"code": "TD"})
+
+    own = client.get(f"/api/v1/student-database/cohorts/{other['id']}/catalogue").json()
+    with_shared = client.get(
+        f"/api/v1/student-database/cohorts/{other['id']}/catalogue", params={"with_shared": True}
+    ).json()
+
+    # Asked plainly, the cohort has only its own; asked for the shared ones, LANG is there.
+    assert [scope["code"] for scope in own["scopes"]] == ["TD"]
+    codes = [scope["code"] for scope in with_shared["scopes"]]
+    assert "TD" in codes
+    mine = [scope for scope in with_shared["scopes"] if scope["cohortId"] == cohort_id]
+    assert [scope["code"] for scope in mine] == ["LANG"]
+    assert mine[0]["openToAll"] is True
+
+
 def test_a_set_of_one_cohort_still_turns_outsiders_away(client: TestClient, cohort_id: str, view_id: str):
     other = client.post("/api/v1/student-database/cohorts", json={"name": "L2 apart"}).json()
     sync(client, view_id, ["A001", "A002"])
