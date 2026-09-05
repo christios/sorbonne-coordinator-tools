@@ -10,7 +10,17 @@ export type SelectOption = {
   badge?: string;
   /** "muted" for a badge that means nothing yet — a view nobody has synced. */
   badgeTone?: "accent" | "muted";
+  /** Something that wants attention beside the badge — "3 flagged" — shown in red. */
+  alert?: string;
 };
+
+function Alert({ text }: { text: string }) {
+  return (
+    <span className="ml-1.5 shrink-0 rounded-full bg-[#fdf3f3] px-2 py-0.5 text-xs font-semibold tabular-nums text-[#a6292f]">
+      {text}
+    </span>
+  );
+}
 
 function Badge({ text, tone }: { text: string; tone: SelectOption["badgeTone"] }) {
   return (
@@ -172,6 +182,7 @@ export function SelectMenu({ label, value, onChange, options, placeholder, trail
           {selected.length === 1 && selected[0].badge !== undefined ? (
             <Badge text={selected[0].badge} tone={selected[0].badgeTone} />
           ) : null}
+          {selected.length === 1 && selected[0].alert ? <Alert text={selected[0].alert} /> : null}
         </span>
       </button>
       </Popover.Trigger>
@@ -194,6 +205,7 @@ export function SelectMenu({ label, value, onChange, options, placeholder, trail
               {/* Wrapped, never clipped: an option a coordinator cannot read is one they cannot choose. */}
               <span className="min-w-0 flex-1 whitespace-normal break-words">{option.label}</span>
               {option.badge !== undefined ? <Badge text={option.badge} tone={option.badgeTone} /> : null}
+              {option.alert ? <Alert text={option.alert} /> : null}
             </button>
           ))}
           {!visibleOptions.length ? <p className="px-3 py-2 text-sm text-[#667085]">No options match your search.</p> : null}

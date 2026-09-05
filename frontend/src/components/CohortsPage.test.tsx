@@ -14,7 +14,7 @@ const L1: Cohort = {
   name: "L1 Maths",
   term: "2026-27",
   notes: "",
-  program: "Applied Mathematics and Physics",
+  majors: ["Applied Mathematics and Physics"], terms: [],
   yearLevel: "L1",
   memberCount: 2,
   scopeCount: 0,
@@ -200,7 +200,7 @@ describe("the Cohorts page", () => {
     renderPage();
 
     expect(await screen.findByText(/As of this browser's last sync/)).toBeTruthy();
-    expect(screen.getByText(/This cohort expects Applied Mathematics and Physics, L1/)).toBeTruthy();
+    expect(screen.getByText(/This cohort expects major Applied Mathematics and Physics, year level L1/)).toBeTruthy();
   });
 
   it("lists the unplaced under “Not in any cohort”, flagging those who look fine", async () => {

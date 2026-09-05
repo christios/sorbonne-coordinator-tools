@@ -27,6 +27,8 @@ export type StudentRow = {
   status: StudentStatus;
   cohortId: string | null;
   cohortName: string;
+  /** When they were placed in that cohort; empty for a placement made before this was kept. */
+  cohortSince: string;
   /** When we first held this student, and when the portal last returned them. */
   firstSeenAt: string;
   lastSeenAt: string;
@@ -171,6 +173,7 @@ export function studentRows(
       status: student.status,
       cohortId: student.cohortId,
       cohortName: student.cohortName,
+      cohortSince: student.cohortSince,
       groups: groupLabels(student.groups ?? [], termNames),
       firstSeenAt: student.firstSeenAt,
       lastSeenAt: student.lastSeenAt,

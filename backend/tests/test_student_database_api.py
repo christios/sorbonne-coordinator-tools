@@ -565,14 +565,15 @@ def test_a_rule_that_cannot_mean_anything_says_why(client: TestClient) -> None:
     assert "differ from" in response.json()["detail"]
 
 
-def test_a_cohort_carries_its_program_and_year(client: TestClient) -> None:
+def test_a_cohort_carries_its_majors_terms_and_year(client: TestClient) -> None:
     made = client.post(
         "/api/v1/student-database/cohorts",
-        json={"name": "L1 Maths", "program": "Applied Mathematics and Physics", "yearLevel": "L1"},
+        json={"name": "L1 Maths", "majors": ["MATH", "PHYS"], "terms": ["262710"], "yearLevel": "L1"},
     )
 
     assert made.status_code == status.HTTP_201_CREATED
-    assert made.json()["program"] == "Applied Mathematics and Physics"
+    assert made.json()["majors"] == ["MATH", "PHYS"]
+    assert made.json()["terms"] == ["262710"]
     assert made.json()["yearLevel"] == "L1"
 
 
@@ -583,7 +584,7 @@ def test_a_section_carries_the_timetable_request_beyond_its_crn(client: TestClie
     scope_id, group_id = block_with_a_group(client, cohort_id)
     course = client.post(
         f"/api/v1/student-database/scopes/{scope_id}/courses",
-        json={"code": "MATH-001", "name": "Pre-calculus 1", "component": "TD", "ue": "UL1MA001", "parentCrn": "24226"},
+        json={"code": "MATH-001", "name": "Pre-calculus 1", "component": "TD"},
     ).json()
     client.put(f"/api/v1/student-database/groups/{group_id}/courses/{course['id']}", json={"crn": "23223"})
 
@@ -602,8 +603,8 @@ def test_a_section_carries_the_timetable_request_beyond_its_crn(client: TestClie
 
     assert response.status_code == status.HTTP_200_OK, response.text
     block = scope_of(catalogue(client, cohort_id), "TD")
-    assert block["courses"][0]["ue"] == "UL1MA001"
-    assert block["courses"][0]["parentCrn"] == "24226"
+    # The UE and parent CRN are the active course's, not the set's — see test_portal_api.
+    assert set(block["courses"][0]) == {"id", "code", "name", "component"}
     section = block["groups"][0]["crns"][course["id"]]
     assert section["crn"] == "23223"
     assert section["teacherId"] == "act-1"

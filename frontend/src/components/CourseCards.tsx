@@ -14,7 +14,7 @@ import { TableFilterBar } from "@/components/TableFilterBar";
 import { WorkbookReview } from "@/components/WorkbookReview";
 import { WorkbookTools } from "@/components/WorkbookTools";
 import { buildCards, cardColumns } from "@/services/courseCards";
-import { fetchActiveTeachers, fetchTermCrns } from "@/services/portalLists";
+import { fetchActiveCourses, fetchActiveTeachers, fetchTermCrns } from "@/services/portalLists";
 import { fetchPublication } from "@/services/publication";
 import { clashesIn } from "@/services/publicationView";
 import { type Cohort, type WorkbookApplied, applyWorkbook, fetchCourseCards } from "@/services/studentDatabase";
@@ -37,8 +37,10 @@ export function CourseCards({ cohorts, onShowStudents }: { cohorts: Cohort[]; on
   const catalogues = useQuery({ queryKey: ["course-cards"], queryFn: fetchCourseCards });
   const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, retry: false });
   const teachers = useQuery({ queryKey: ["active-teachers"], queryFn: fetchActiveTeachers });
+  // The department's courses: a card's title, UE and parent CRN are read from here.
+  const activeCourses = useQuery({ queryKey: ["active-courses"], queryFn: fetchActiveCourses });
   const termName = (termId: string) => (terms.data ?? []).find((term) => term.id === termId)?.name ?? (termId ? "unknown semester" : "");
-  const cards = useMemo(() => buildCards(catalogues.data ?? [], termName), [catalogues.data, terms.data]); // eslint-disable-line react-hooks/exhaustive-deps
+  const cards = useMemo(() => buildCards(catalogues.data ?? [], termName, activeCourses.data ?? []), [catalogues.data, terms.data, activeCourses.data]); // eslint-disable-line react-hooks/exhaustive-deps
   const termIds = useMemo(() => [...new Set(cards.map((card) => card.termId).filter(Boolean))], [cards]);
 
   // What the platform makes of each semester, and what the portal lists for it: one
@@ -78,6 +80,7 @@ export function CourseCards({ cohorts, onShowStudents }: { cohorts: Cohort[]; on
 
   const refresh = () => {
     client.invalidateQueries({ queryKey: ["course-cards"] });
+    client.invalidateQueries({ queryKey: ["active-courses"] });
     client.invalidateQueries({ queryKey: ["catalogue"] });
     client.invalidateQueries({ queryKey: ["publication"] });
     client.invalidateQueries({ queryKey: ["assignments"] });
@@ -161,7 +164,7 @@ export function CourseCards({ cohorts, onShowStudents }: { cohorts: Cohort[]; on
       <div className="mt-4 space-y-3">
         {visible.length === 0 ? (
           <p className="rounded-lg border border-dashed border-[#c8d0da] bg-white px-5 py-8 text-center text-sm text-[#667085]">
-            {cards.length ? "No course matches the filters." : "No courses yet. Open Group sets to define a semester's sets and their courses, or upload a workbook."}
+            {cards.length ? "No course matches the filters." : "No courses yet. Add one from the portal, or open Group sets to define a semester's sets and their courses."}
           </p>
         ) : (
           visible.map((card) => {
@@ -198,7 +201,7 @@ export function CourseCards({ cohorts, onShowStudents }: { cohorts: Cohort[]; on
       </div>
 
       {editingSets ? (
-        <GroupSetsEditor open cohorts={cohorts} terms={terms.data ?? []} initialCohortId={editingSets.cohortId} initialTermId={editingSets.termId} onClose={() => setEditingSets(null)} onChanged={refresh} />
+        <GroupSetsEditor open cohorts={cohorts} terms={terms.data ?? []} activeCourses={activeCourses.data ?? []} initialCohortId={editingSets.cohortId} initialTermId={editingSets.termId} onClose={() => setEditingSets(null)} onChanged={refresh} />
       ) : null}
       <Modal
         open={requesting}
@@ -218,7 +221,11 @@ export function CourseCards({ cohorts, onShowStudents }: { cohorts: Cohort[]; on
                     cards,
                     requestTerm,
                     termName(requestTerm),
-                    (cohortId) => cohorts.find((cohort) => cohort.id === cohortId)?.program || cohorts.find((cohort) => cohort.id === cohortId)?.name || "",
+                    // The Degree column: the cohort's majors as the portal codes them, else its name.
+                    (cohortId) => {
+                      const cohort = cohorts.find((candidate) => candidate.id === cohortId);
+                      return cohort?.majors.join(" / ") || cohort?.name || "";
+                    },
                     nameOf,
                   );
                   await downloadTimetableWorkbook(sheets, `Time-Tables-${termName(requestTerm).replace(/[^A-Za-z0-9]+/g, "-")}.xlsx`);
@@ -242,7 +249,7 @@ export function CourseCards({ cohorts, onShowStudents }: { cohorts: Cohort[]; on
           </p>
         ) : null}
       </Modal>
-      {adding ? <AddFromPortal open cohorts={cohorts} terms={terms.data ?? []} onClose={() => setAdding(false)} onAdded={() => { setAdding(false); refresh(); }} /> : null}
+      {adding ? <AddFromPortal open cohorts={cohorts} terms={terms.data ?? []} activeCourses={activeCourses.data ?? []} onClose={() => setAdding(false)} onAdded={() => { setAdding(false); refresh(); }} /> : null}
       <WorkbookTools open={tools} cohorts={cohorts} terms={terms.data ?? []} onClose={() => setTools(false)} onPreview={(held, cohort, termId) => { setTools(false); setPreview({ preview: held, cohort, termId }); }} />
     </section>
   );

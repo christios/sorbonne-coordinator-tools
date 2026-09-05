@@ -20,6 +20,7 @@ import {
   updateGroup,
   updateScope,
 } from "@/services/studentDatabase";
+import type { ActiveCourse } from "@/services/portalLists";
 import type { TimetableTerm } from "@/services/timetables";
 
 const KINDS: { value: ScopeKind; label: string }[] = [
@@ -40,6 +41,7 @@ export function GroupSetsEditor({
   open,
   cohorts,
   terms,
+  activeCourses,
   initialCohortId = "",
   initialTermId = "",
   onClose,
@@ -48,6 +50,8 @@ export function GroupSetsEditor({
   open: boolean;
   cohorts: Cohort[];
   terms: TimetableTerm[];
+  /** The department's own list: the only courses a set can carry. */
+  activeCourses: ActiveCourse[];
   initialCohortId?: string;
   initialTermId?: string;
   onClose: () => void;
@@ -107,7 +111,7 @@ export function GroupSetsEditor({
       ) : (
         <div className="space-y-4">
           {scopes.map((scope) => (
-            <ScopeEditor key={scope.id} scope={scope} scopes={scopes} onChanged={refresh} onRemove={() => setPendingScope(scope)} onRemoveGroup={setPendingGroup} />
+            <ScopeEditor key={scope.id} scope={scope} scopes={scopes} activeCourses={activeCourses} onChanged={refresh} onRemove={() => setPendingScope(scope)} onRemoveGroup={setPendingGroup} />
           ))}
           <form
             className="flex flex-wrap items-end gap-2 rounded-lg border border-dashed border-[#c8d0da] px-4 py-3"
@@ -164,12 +168,14 @@ export function GroupSetsEditor({
 function ScopeEditor({
   scope,
   scopes,
+  activeCourses,
   onChanged,
   onRemove,
   onRemoveGroup,
 }: {
   scope: CatalogueScope;
   scopes: CatalogueScope[];
+  activeCourses: ActiveCourse[];
   onChanged: () => void;
   onRemove: () => void;
   onRemoveGroup: (group: CatalogueGroup) => void;
@@ -197,8 +203,9 @@ function ScopeEditor({
       onChanged();
     },
   });
+  const chosenCourse = activeCourses.find((course) => course.courseCode === courseCode) ?? null;
   const makeCourse = useMutation({
-    mutationFn: () => addCourse(scope.id, { code: courseCode.trim(), component: courseComponent.trim() }),
+    mutationFn: () => addCourse(scope.id, { code: courseCode.trim(), name: chosenCourse?.title ?? "", component: courseComponent.trim() }),
     onSuccess: () => {
       setCourseCode("");
       onChanged();
@@ -271,6 +278,7 @@ function ScopeEditor({
         </div>
         <div>
           <h4 className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-[#98a2b3]">Courses in this set</h4>
+          {activeCourses.length === 0 ? <p className="mb-1 text-xs text-[#8a6116]">Choose the department&apos;s courses on the Courses page first; a set carries active courses only.</p> : null}
           <ul className="space-y-1">
             {scope.courses.map((course) => (
               <li key={course.id} className="flex items-center gap-2 text-sm">
@@ -289,7 +297,19 @@ function ScopeEditor({
               if (courseCode.trim()) makeCourse.mutate();
             }}
           >
-            <input aria-label={`New course in ${scope.code}`} value={courseCode} onChange={(event) => setCourseCode(event.target.value)} placeholder="Course code" className={`w-28 ${field}`} />
+            <div className="w-56">
+              <SelectMenu
+                label={`New course in ${scope.code}`}
+                value={courseCode}
+                placeholder={activeCourses.length ? "Which course…" : "No active courses yet"}
+                searchable={activeCourses.length > 8}
+                disabled={activeCourses.length === 0}
+                onChange={setCourseCode}
+                options={activeCourses
+                  .filter((course) => !scope.courses.some((held) => held.code.toUpperCase() === course.courseCode.toUpperCase()))
+                  .map((course) => ({ value: course.courseCode, label: course.courseCode, searchText: course.title, badge: course.ue || undefined, badgeTone: "muted" as const }))}
+              />
+            </div>
             <input aria-label={`Component of the new course in ${scope.code}`} value={courseComponent} onChange={(event) => setCourseComponent(event.target.value)} placeholder="CM / TD / TP" className={`w-24 ${field}`} />
             <button type="submit" disabled={!courseCode.trim() || makeCourse.isPending} className="inline-flex items-center gap-1 rounded-md border border-[#b7bec8] bg-white px-2.5 py-1 text-xs font-semibold text-[#344054] disabled:opacity-50">
               <Plus size={12} aria-hidden="true" /> Add course

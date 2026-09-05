@@ -1,11 +1,12 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { BookPlus } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { ListGrid, StatePill } from "@/components/ListGrid";
 import { PortalFilterBar } from "@/components/PortalFilterBar";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { SelectMenu } from "@/components/SelectMenu";
-import { type PortalCourse, fetchPortalCourses } from "@/services/portalLists";
+import { type PortalCourse, addActiveCourses, fetchActiveCourses, fetchPortalCourses } from "@/services/portalLists";
 import type { GridColumn } from "@/services/studentColumns";
 
 const FILTER_KEY = "scen-portal-filter:courses";
@@ -35,15 +36,13 @@ const COLUMNS: GridColumn<PortalCourse>[] = [
     defaultWidth: 130,
   },
   { id: "lastSeenAt", displayName: "Last seen", type: "date", accessor: (row) => row.lastSeenAt, display: (row) => row.lastSeenAt.slice(0, 10), defaultWidth: 120 },
+  // Whether the course is on the department's own list; the accessor is filled in on the page.
+  { id: "active", displayName: "Active", type: "option", accessor: () => "", defaultWidth: 90 },
 ];
-const SHOWN = ["crn", "courseCode", "title", "partOfTerm", "credits", "department", "level", "teacherName", "registered", "status"];
+const SHOWN = ["crn", "courseCode", "title", "partOfTerm", "credits", "department", "level", "teacherName", "registered", "status", "active"];
 
 const idOf = (row: PortalCourse) => `${row.termCode}|${row.crn}`;
 const labelOf = (row: PortalCourse) => `${row.courseCode} ${row.crn}`;
-const renderCell = (row: PortalCourse, column: GridColumn<PortalCourse>) =>
-  column.id === "status" ? (
-    row.status === "in_portal" ? <StatePill tone="good">In portal</StatePill> : <StatePill tone="bad">No longer listed</StatePill>
-  ) : undefined;
 
 /**
  * The term's CRNs as the registrar portal lists them.
@@ -53,9 +52,29 @@ const renderCell = (row: PortalCourse, column: GridColumn<PortalCourse>) =>
  * the portal's own answer, pulled by filter, and says when it was last asked.
  */
 export function PortalCourses() {
+  const client = useQueryClient();
   const [filterId, setFilterId] = useState(() => remembered(FILTER_KEY));
   const [term, setTerm] = useState("");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const courses = useQuery({ queryKey: ["portal", "courses", filterId], queryFn: () => fetchPortalCourses("", filterId) });
+  const active = useQuery({ queryKey: ["active-courses"], queryFn: fetchActiveCourses });
+  const activeCodes = useMemo(() => new Set((active.data ?? []).map((row) => row.courseCode.toUpperCase())), [active.data]);
+  const isActive = (row: PortalCourse) => activeCodes.has(row.courseCode.toUpperCase());
+
+  const add = useMutation({
+    mutationFn: (codes: string[]) => addActiveCourses({ courseCodes: codes }),
+    onSuccess: () => {
+      setSelected(new Set());
+      client.invalidateQueries({ queryKey: ["active-courses"] });
+    },
+  });
+  // The Active column reads the department's list, so the column model borrows it here.
+  const columns = COLUMNS.map((column) => (column.id === "active" ? { ...column, accessor: (row: PortalCourse) => (isActive(row) ? "Active" : "") } : column));
+  const renderCell = (row: PortalCourse, column: GridColumn<PortalCourse>) => {
+    if (column.id === "status") return row.status === "in_portal" ? <StatePill tone="good">In portal</StatePill> : <StatePill tone="bad">No longer listed</StatePill>;
+    if (column.id === "active") return isActive(row) ? <StatePill tone="good">Active</StatePill> : <span className="text-[#98a2b3]">—</span>;
+    return undefined;
+  };
 
   const terms = useMemo(() => courses.data?.terms ?? [], [courses.data]);
   useEffect(() => {
@@ -65,13 +84,18 @@ export function PortalCourses() {
     () => (courses.data?.courses ?? []).filter((course) => !term || course.termCode === term),
     [courses.data, term],
   );
+  // A selection is CRNs; what becomes active is the course, once however many CRNs were ticked.
+  const chosen = [
+    ...new Set(rows.filter((row) => selected.has(idOf(row)) && !isActive(row)).map((row) => row.courseCode.toUpperCase())),
+  ];
 
   return (
     <section>
       <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
         <p className="max-w-xl text-sm text-[#667085]">
           One row per CRN, as the portal lists it. Groups &amp; CRNs and Semesters check their CRNs against this
-          list, so keep the filter that covers the department synced.
+          list, so keep the filter that covers the department synced. Select the courses the department deals with
+          and add them to Active courses.
         </p>
         <PortalFilterBar
           kind="courses"
@@ -89,7 +113,7 @@ export function PortalCourses() {
         <p role="alert" className="text-sm text-[#a6292f]">{(courses.error as Error).message}</p>
       ) : (
         <ListGrid
-          columns={COLUMNS}
+          columns={columns}
           rows={rows}
           idOf={idOf}
           labelOf={labelOf}
@@ -99,14 +123,29 @@ export function PortalCourses() {
           initialSort={{ key: "courseCode", ascending: true }}
           searchLabel="Search courses"
           noun="courses"
+          selected={selected}
+          onSelectedChange={setSelected}
           renderCell={renderCell}
           empty={filterId ? "Nothing pulled yet — sync the filter." : "Choose a portal filter, or make one."}
           toolbar={
-            terms.length > 1 ? (
-              <div className="w-40">
-                <SelectMenu label="Term" value={term} onChange={setTerm} options={terms.map((code) => ({ value: code, label: code }))} />
-              </div>
-            ) : null
+            <>
+              {terms.length > 1 ? (
+                <div className="w-40">
+                  <SelectMenu label="Term" value={term} onChange={setTerm} options={terms.map((code) => ({ value: code, label: code }))} />
+                </div>
+              ) : null}
+              <button
+                type="button"
+                disabled={chosen.length === 0 || add.isPending}
+                title={selected.size && !chosen.length ? "Every selected course is already active" : "Add the selected courses to Active courses"}
+                onClick={() => add.mutate(chosen)}
+                className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+              >
+                <BookPlus size={15} aria-hidden="true" />
+                {chosen.length ? `Add ${chosen.length} to active courses` : "Add to active courses"}
+              </button>
+              {add.error ? <span role="alert" className="text-sm text-[#a6292f]">{(add.error as Error).message}</span> : null}
+            </>
           }
         />
       )}

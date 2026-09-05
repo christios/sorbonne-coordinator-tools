@@ -157,6 +157,9 @@ class StudentPlatformClient:
             "POST", f"/api/v1/admin/terms/{term_id}/publish", json={"published": published}
         )
 
+    async def rename_term(self, term_id: str, name: str) -> dict[str, Any]:
+        return await self._request("PATCH", f"/api/v1/admin/terms/{term_id}", json={"name": name})
+
     async def delete_term(self, term_id: str) -> None:
         await self._request("DELETE", f"/api/v1/admin/terms/{term_id}")
 

@@ -1,17 +1,39 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  STATUS_FIELD,
+  STATUS_OPTIONS,
+  arrivalsFor,
   describeWarning,
+  unjudgeable,
   unplacedWarnings,
+  valueOf,
   warningsForCohort,
   warningsText,
   type Change,
+  type Options,
   type Placed,
   type Rule,
 } from "@/services/discrepancies";
 
-const L1_MATHS = { id: "c1", program: "Applied Mathematics and Physics", yearLevel: "L1" };
-const NO_EXPECTATION = { id: "c2", program: "", yearLevel: "" };
+const L1_MATHS = { id: "c1", majors: ["MATH"], terms: ["262710"], yearLevel: "L1" };
+const NO_EXPECTATION = { id: "c2", majors: [], terms: [], yearLevel: "" };
+
+/** The portal's code tables, as the extension reads them. */
+const PORTAL: Options = (field) =>
+  field === "MAJOR_CODE"
+    ? [
+        { value: "MATH", label: "Applied Mathematics and Physics" },
+        { value: "PHYS", label: "Physics" },
+      ]
+    : field === "DEPT_CODE"
+      ? [
+          { value: "SCEN", label: "Science and Engineering" },
+          { value: "HUMA", label: "Humanities" },
+        ]
+      : field === STATUS_FIELD
+        ? STATUS_OPTIONS
+        : [];
 
 const placed = (studentId: string, cohortId: string | null, cohortSince = "2026-09-01T09:00:00Z"): Placed => ({
   studentId,
@@ -27,6 +49,7 @@ function engine(
   rules: Rule[],
   current: Record<string, Record<string, string>>,
   changes: Record<string, Change[]> = {},
+  options: Options = PORTAL,
 ) {
   return warningsForCohort({
     cohort,
@@ -34,6 +57,7 @@ function engine(
     rules,
     current: (id) => current[id],
     changes: (id) => changes[id] ?? [],
+    options,
   });
 }
 
@@ -201,35 +225,140 @@ describe("the state right now, the other way round", () => {
 });
 
 describe("differing from what the cohort expects", () => {
-  const major: Rule = { id: "r4", field: "MAJOR_CODE_DESC", kind: "differs", values: [] };
+  const major: Rule = { id: "r4", field: "MAJOR_CODE", kind: "differs", values: [] };
+  const majorByDesc: Rule = { id: "r4b", field: "MAJOR_CODE_DESC", kind: "differs", values: [] };
   const year: Rule = { id: "r5", field: "YEARLEVEL_CODE", kind: "differs", values: [] };
+  const term: Rule = { id: "r6", field: "TERM_CODE", kind: "differs", values: [] };
 
-  it("warns when the student's major is not the cohort's program", () => {
+  it("warns when the student's major is not one of the cohort's", () => {
     const warnings = engine(L1_MATHS, [placed("A001", "c1")], [major], {
-      A001: { MAJOR_CODE_DESC: "Physics" },
+      A001: { MAJOR_CODE: "PHYS" },
     });
 
-    expect(warnings[0]).toMatchObject({
-      kind: "differs",
-      value: "Physics",
-      expected: "Applied Mathematics and Physics",
+    expect(warnings[0]).toMatchObject({ kind: "differs", field: "MAJOR_CODE", value: "PHYS", expected: "MATH" });
+  });
+
+  it("reads the major from its description when the pull carries no code", () => {
+    // The pull carried MAJOR_CODE_DESC only; the portal's table says which code that is.
+    const warnings = engine(L1_MATHS, [placed("A001", "c1"), placed("A002", "c1")], [major, majorByDesc], {
+      A001: { MAJOR_CODE_DESC: "Physics" },
+      A002: { MAJOR_CODE_DESC: "applied mathematics and physics " },
     });
+
+    expect(warnings.map((warning) => [warning.studentId, warning.field, warning.value])).toEqual([
+      ["A001", "MAJOR_CODE", "PHYS"],
+      ["A001", "MAJOR_CODE_DESC", "PHYS"],
+    ]);
   });
 
   it("stays quiet when they match, however the portal spells it", () => {
-    const warnings = engine(L1_MATHS, [placed("A001", "c1")], [major, year], {
-      A001: { MAJOR_CODE_DESC: "applied mathematics and physics ", YEARLEVEL_CODE: "l1" },
+    const warnings = engine(L1_MATHS, [placed("A001", "c1")], [major, year, term], {
+      A001: { MAJOR_CODE: "math ", YEARLEVEL_CODE: "l1", TERM_CODE: "262710" },
     });
 
     expect(warnings).toEqual([]);
   });
 
+  it("accepts any of several majors and terms a cohort spans", () => {
+    const wide = { id: "c3", majors: ["MATH", "PHYS"], terms: ["262710", "262720"], yearLevel: "" };
+    const warnings = engine(wide, [placed("A001", "c3"), placed("A002", "c3")], [major, term], {
+      A001: { MAJOR_CODE: "PHYS", TERM_CODE: "262720" },
+      A002: { MAJOR_CODE: "CHEM", TERM_CODE: "262710" },
+    });
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toMatchObject({ studentId: "A002", value: "CHEM", expected: "MATH or PHYS" });
+  });
+
   it("has nothing to say for a cohort that states no expectation", () => {
-    const warnings = engine(NO_EXPECTATION, [placed("A001", "c2")], [major, year], {
-      A001: { MAJOR_CODE_DESC: "Physics", YEARLEVEL_CODE: "L3" },
+    const warnings = engine(NO_EXPECTATION, [placed("A001", "c2")], [major, year, term], {
+      A001: { MAJOR_CODE: "PHYS", YEARLEVEL_CODE: "L3", TERM_CODE: "262710" },
     });
 
     expect(warnings).toEqual([]);
+  });
+});
+
+describe("a rule on a code the pull only describes", () => {
+  const notScen: Rule = { id: "r7", field: "DEPT_CODE", kind: "is_not", values: ["SCEN"] };
+
+  it("fires on the description, read through the portal's table", () => {
+    const warnings = engine(L1_MATHS, [placed("A001", "c1"), placed("A002", "c1")], [notScen], {
+      A001: { DEPT_DESC: "Humanities" },
+      A002: { DEPT_DESC: "Science and Engineering" },
+    });
+
+    expect(warnings.map((warning) => [warning.studentId, warning.value])).toEqual([["A001", "HUMA"]]);
+  });
+
+  it("still judges a description the table does not know, as the text itself", () => {
+    const warnings = engine(L1_MATHS, [placed("A001", "c1")], [notScen], { A001: { DEPT_DESC: "Business" } });
+
+    expect(warnings[0]).toMatchObject({ value: "Business", expected: "SCEN" });
+  });
+
+  it("is silent, and says so, when no row carries the field under any name", () => {
+    expect(engine(L1_MATHS, [placed("A001", "c1")], [notScen], { A001: { STST_CODE: "AS" } })).toEqual([]);
+    expect(unjudgeable([notScen], new Set(["STST_CODE", "MAJOR_CODE_DESC"]))).toEqual([notScen]);
+    expect(unjudgeable([notScen], new Set(["DEPT_DESC"]))).toEqual([]);
+  });
+
+  it("reads a value as the code, the description mapped back, or the text", () => {
+    expect(valueOf({ DEPT_CODE: "SCEN", DEPT_DESC: "Science and Engineering" }, "DEPT_CODE", PORTAL)).toBe("SCEN");
+    expect(valueOf({ DEPT_DESC: "Science and Engineering" }, "DEPT_CODE", PORTAL)).toBe("SCEN");
+    expect(valueOf({ DEPT_DESC: "Business" }, "DEPT_CODE", PORTAL)).toBe("Business");
+    expect(valueOf({}, "DEPT_CODE", PORTAL)).toBe("");
+  });
+});
+
+describe("the status, this application's own field", () => {
+  const gone: Rule = { id: "r8", field: STATUS_FIELD, kind: "is", values: ["not_in_portal"] };
+
+  it("warns about a student the last sync no longer found", () => {
+    const warnings = engine(L1_MATHS, [placed("A001", "c1"), placed("A002", "c1")], [gone], {
+      A001: { STATUS: "not_in_portal" },
+      A002: { STATUS: "in_portal" },
+    });
+
+    expect(warnings.map((warning) => warning.studentId)).toEqual(["A001"]);
+    expect(describeWarning(warnings[0])).toBe("status is not_in_portal");
+  });
+});
+
+describe("students who moved into a cohort's major", () => {
+  const changes = {
+    A001: [{ at: T("2026-09-05T10:00:00Z"), field: "MAJOR_CODE_DESC", from: "Physics", to: "Applied Mathematics and Physics" }],
+    A002: [{ at: T("2026-09-04T10:00:00Z"), field: "MAJOR_CODE", from: "PHYS", to: "MATH" }],
+    A003: [{ at: T("2026-09-03T10:00:00Z"), field: "MAJOR_CODE", from: "PHYS", to: "MATH" }],
+    A004: [{ at: T("2026-09-02T10:00:00Z"), field: "MAJOR_CODE", from: "MATH", to: "MATH" }],
+  };
+  const current: Record<string, Record<string, string>> = {
+    A001: { MAJOR_CODE_DESC: "Applied Mathematics and Physics" },
+    A002: { MAJOR_CODE: "MATH" },
+    A003: { MAJOR_CODE: "PHYS" },
+    A004: { MAJOR_CODE: "MATH" },
+  };
+
+  it("lists those not in the cohort, newest first, whether the pull kept the code or the description", () => {
+    const arrivals = arrivalsFor({
+      cohort: L1_MATHS,
+      students: [placed("A001", null, ""), placed("A002", "c9"), placed("A003", null, ""), placed("A004", null, ""), placed("A005", "c1")],
+      current: (id) => current[id],
+      changes: (id) => changes[id as keyof typeof changes] ?? [],
+      options: PORTAL,
+    });
+
+    // A003 moved in and out again; A004 never came from elsewhere; A005 is already in the cohort.
+    expect(arrivals.map((arrival) => [arrival.studentId, arrival.cohortId, arrival.to])).toEqual([
+      ["A001", null, "Applied Mathematics and Physics"],
+      ["A002", "c9", "MATH"],
+    ]);
+  });
+
+  it("has nothing to say for a cohort with no majors", () => {
+    expect(
+      arrivalsFor({ cohort: NO_EXPECTATION, students: [placed("A001", null, "")], current: (id) => current[id], changes: (id) => changes[id as keyof typeof changes] ?? [] }),
+    ).toEqual([]);
   });
 });
 

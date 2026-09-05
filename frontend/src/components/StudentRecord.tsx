@@ -1,13 +1,23 @@
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, Check, ChevronDown } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { AlertTriangle, ArrowRightCircle, Check, ChevronDown } from "lucide-react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { Modal } from "@/components/Modal";
-import { labelOf } from "@/services/discrepancies";
+import {
+  STATUS_FIELD,
+  STATUS_OPTIONS,
+  arrivalsFor,
+  describeWarning,
+  labelOf,
+  warningsForCohort,
+  type Change,
+  type Options,
+} from "@/services/discrepancies";
 import { type Mismatch, describeMismatch, fetchRegistrationCheck, fetchRegistrations, fetchTermLinks } from "@/services/portalLists";
-import { historyFor, type PullHistory } from "@/services/pullHistory";
+import { allChanges, historyFor, type PullHistory } from "@/services/pullHistory";
 import type { StudentRow } from "@/services/rosterView";
-import { fetchAssignments, fetchCatalogue, type Cohort } from "@/services/studentDatabase";
+import { fetchSchema } from "@/services/scenRosters";
+import { fetchAssignments, fetchCatalogue, fetchDiscrepancyRules, type Cohort } from "@/services/studentDatabase";
 import { fetchTimetableTerms } from "@/services/timetables";
 
 /*
@@ -93,6 +103,44 @@ export function StudentRecord({
     enabled: open && Boolean(cohortId),
   });
 
+  // The rules, judged for this one student: the same engine as the Cohorts page, on one row.
+  const rules = useQuery({ queryKey: ["discrepancy-rules"], queryFn: fetchDiscrepancyRules, enabled: open });
+  const schema = useQuery({ queryKey: ["portal-schema"], queryFn: fetchSchema, enabled: open, staleTime: 60_000 });
+  const [changes, setChanges] = useState<Change[] | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    let live = true;
+    void allChanges().then((held) => {
+      if (live) setChanges(held.get(row.studentId) ?? []);
+    });
+    return () => {
+      live = false;
+    };
+  }, [open, row.studentId]);
+  const judged = useMemo(() => {
+    if (!rules.data || !changes) return null;
+    const options: Options = (field) =>
+      field === STATUS_FIELD
+        ? STATUS_OPTIONS
+        : (schema.data?.fields.find((candidate) => candidate.key.toUpperCase() === field)?.options ?? []);
+    const now = { ...row.portal, [STATUS_FIELD]: row.status };
+    const placed = [{ studentId: row.studentId, cohortId: row.cohortId, cohortSince: row.cohortSince }];
+    const current = () => now;
+    const changesOf = () => changes;
+    const own = cohort
+      ? warningsForCohort({ cohort, students: placed, rules: rules.data, current, changes: changesOf, options }).filter(
+          (warning) => warning.kind !== "no_baseline",
+        )
+      : [];
+    // The other direction: a cohort whose majors they moved into, that they are not in.
+    const arrivals = cohorts
+      .filter((candidate) => candidate.id !== row.cohortId)
+      .flatMap((candidate) =>
+        arrivalsFor({ cohort: candidate, students: placed, current, changes: changesOf, options }).map((arrival) => ({ ...arrival, cohort: candidate })),
+      );
+    return { own, arrivals };
+  }, [rules.data, schema.data, changes, row, cohort, cohorts]);
+
   const termName = (termId: string) => (terms.data ?? []).find((term) => term.id === termId)?.name ?? termId;
   const held = assignments.data?.[row.studentId] ?? {};
   const placements = (catalogue.data?.scopes ?? [])
@@ -139,6 +187,31 @@ export function StudentRecord({
         </div>
       }
     >
+      {/* --------------------------------------------------------------- warnings */}
+      {judged && (judged.own.length || judged.arrivals.length) ? (
+        <ul className="mb-5 space-y-1.5" aria-label="Warnings">
+          {judged.own.map((warning) => (
+            <li key={warning.key} className="flex items-start gap-2 rounded-md border border-[#e8d9ac] bg-[#fdf9ee] px-3 py-2 text-sm text-[#8a6116]">
+              <AlertTriangle size={14} className="mt-0.5 shrink-0" aria-hidden="true" />
+              <span>
+                {describeWarning(warning)}
+                {cohort ? <span className="text-[#b08a2e]"> — by the rules, in {cohort.name}</span> : null}
+              </span>
+            </li>
+          ))}
+          {judged.arrivals.map((arrival) => (
+            <li key={arrival.cohort.id} className="flex items-start gap-2 rounded-md border border-[#bcd3ea] bg-[#eef5fb] px-3 py-2 text-sm text-[#1f4e79]">
+              <ArrowRightCircle size={14} className="mt-0.5 shrink-0" aria-hidden="true" />
+              <span>
+                Major changed {arrival.from ? `from ${arrival.from} ` : ""}to {arrival.to} on{" "}
+                {new Date(arrival.at).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}.{" "}
+                {arrival.cohort.name} expects {arrival.cohort.majors.join(" or ")}, and they are {cohort ? `in ${cohort.name}` : "in no cohort"}.
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
         {/* ------------------------------------------------------------ the portal */}
         <Card title="From the portal" note="As this browser last saw it. Nothing here is on the server.">

@@ -19,6 +19,7 @@ const ROW: StudentRow = {
   status: "in_portal",
   cohortId: "cohort-1",
   cohortName: "Foundation Year",
+  cohortSince: "",
   firstSeenAt: "",
   lastSeenAt: "",
   portal: { FULL_NAME: "Amira Haddad", STST_CODE: "AS", MAJOR_CODE_DESC: "Mathematics" },
@@ -29,7 +30,7 @@ const ROW: StudentRow = {
 };
 
 const COHORT: database.Cohort = {
-  id: "cohort-1", name: "Foundation Year", term: "2026-27", notes: "", program: "", yearLevel: "",
+  id: "cohort-1", name: "Foundation Year", term: "2026-27", notes: "", majors: [], terms: [], yearLevel: "",
   memberCount: 1, scopeCount: 1, createdAt: "", updatedAt: "",
 };
 
@@ -56,7 +57,7 @@ beforeEach(() => {
     scopes: [
       {
         id: "scope-td", code: "TD", name: "Tutorials", note: "", termId: "term-1",
-        kind: "shared", parentScopeId: "", courses: [{ id: "c-algo", code: "MATH-011", name: "Algorithms", component: "TD", ue: "", parentCrn: "" }],
+        kind: "shared", parentScopeId: "", courses: [{ id: "c-algo", code: "MATH-011", name: "Algorithms", component: "TD" }],
         groups: [{ id: "td-1", label: "1", capacity: 0, note: "", program: "", parentGroupId: "", assigned: 1, crns: { "c-algo": { ...EMPTY_SECTION, crn: "23652", teacher: "" } } }],
       },
     ],

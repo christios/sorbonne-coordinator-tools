@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { Modal } from "@/components/Modal";
 import { SelectMenu } from "@/components/SelectMenu";
-import { fetchTermCrns } from "@/services/portalLists";
+import { type ActiveCourse, fetchTermCrns } from "@/services/portalLists";
 import { type PortalCourseChoice, type SeedRow, portalCourses, proposeRows, seedSteps } from "@/services/portalSeed";
 import { type Cohort, addCourse, addGroup, fetchCatalogue, setGroupCrn } from "@/services/studentDatabase";
 import type { TimetableTerm } from "@/services/timetables";
@@ -19,12 +19,15 @@ export function AddFromPortal({
   open,
   cohorts,
   terms,
+  activeCourses,
   onClose,
   onAdded,
 }: {
   open: boolean;
   cohorts: Cohort[];
   terms: TimetableTerm[];
+  /** The department's own list: a card is only made for a course on it. */
+  activeCourses: ActiveCourse[];
   onClose: () => void;
   onAdded: () => void;
 }) {
@@ -41,7 +44,11 @@ export function AddFromPortal({
   const portal = useQuery({ queryKey: ["portal-crns", termId], queryFn: () => fetchTermCrns(termId), enabled: open && Boolean(termId), retry: false });
   const catalogue = useQuery({ queryKey: ["catalogue", cohortId, termId], queryFn: () => fetchCatalogue(cohortId, termId), enabled: open && Boolean(cohortId && termId) });
   const scopes = useMemo(() => catalogue.data?.scopes ?? [], [catalogue.data]);
-  const courses = useMemo(() => portalCourses(portal.data?.crns ?? {}), [portal.data]);
+  // The portal's CRNs of this term, grouped by course, kept to the courses the department chose.
+  const activeCodes = useMemo(() => new Set(activeCourses.map((course) => course.courseCode.toUpperCase())), [activeCourses]);
+  const listed = useMemo(() => portalCourses(portal.data?.crns ?? {}), [portal.data]);
+  const courses = useMemo(() => listed.filter((course) => activeCodes.has(course.courseCode.toUpperCase())), [listed, activeCodes]);
+  const notActive = listed.length - courses.length;
   const course: PortalCourseChoice | null = courses.find((candidate) => candidate.courseCode === courseCode) ?? null;
 
   // A first guess whenever the course or the sets change; the table below corrects it.
@@ -90,7 +97,7 @@ export function AddFromPortal({
       open={open}
       size="wide"
       title="Add a course from the portal"
-      description="Pick the course as the portal lists it; say which set and group each of its CRNs is. The portal's teacher comes across to be confirmed on the card."
+      description="Pick one of the department's active courses; its CRNs in the portal are listed, and you say which set and group each is. The portal's teacher comes across to be confirmed on the card."
       onClose={onClose}
       footer={
         <div className="flex items-center justify-end gap-3">
@@ -107,13 +114,18 @@ export function AddFromPortal({
         <SelectMenu
           label="Course"
           value={courseCode}
-          placeholder={!termId ? "Choose a semester first" : !linked ? "Semester not linked to a portal term" : courses.length ? "Which course…" : "No portal CRNs pulled for this term"}
+          placeholder={!termId ? "Choose a semester first" : !linked ? "Semester not linked to a portal term" : courses.length ? "Which course…" : listed.length ? "None of this term's courses is active yet" : "No portal CRNs pulled for this term"}
           searchable
           disabled={!linked || courses.length === 0}
           onChange={setCourseCode}
           options={courses.map((candidate) => ({ value: candidate.courseCode, label: candidate.courseCode, badge: String(candidate.sections.length), searchText: candidate.title }))}
         />
       </div>
+      {linked && notActive ? (
+        <p className="mt-2 text-xs text-[#98a2b3]">
+          {notActive} other course{notActive === 1 ? "" : "s"} in the portal&apos;s list {notActive === 1 ? "is" : "are"} not on the active list. Choose them on the Courses page to add them here.
+        </p>
+      ) : null}
       {termId && portal.data && !linked ? (
         <p className="mt-3 text-sm text-[#8a6116]">This semester is not linked to a portal term. Set the portal term on the Semesters page, and sync the Courses list for it.</p>
       ) : null}

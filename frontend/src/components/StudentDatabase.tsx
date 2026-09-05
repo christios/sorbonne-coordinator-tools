@@ -1,7 +1,8 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { BookOpen, CalendarDays, ClipboardList, GraduationCap, ListChecks, ListTree, Megaphone, UserCheck, Users } from "lucide-react";
+import { BookMarked, BookOpen, CalendarDays, ClipboardList, GraduationCap, ListChecks, ListTree, Megaphone, UserCheck, Users } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
+import { ActiveCourses } from "@/components/ActiveCourses";
 import { ActiveTeachers } from "@/components/ActiveTeachers";
 import { AnnouncementEditor } from "@/components/AnnouncementEditor";
 import { CohortsPage } from "@/components/CohortsPage";
@@ -31,6 +32,8 @@ const PAGES = [
   { id: "registrations", name: "Registrations", icon: ClipboardList, group: "Students", parent: "students" },
   { id: "groups", name: "Groups & CRNs", icon: ListTree, group: "Students" },
   { id: "courses", name: "Courses", icon: BookOpen, group: "Students" },
+  // The department's own list, chosen from the portal's, where a course gets its UE and parent CRN.
+  { id: "active-courses", name: "Active courses", icon: BookMarked, group: "Students", parent: "courses" },
   { id: "teachers", name: "Teachers", icon: GraduationCap, group: "Students" },
   // The department's own list, chosen from the portal's or brought from the part-time database.
   { id: "active-teachers", name: "Active teachers", icon: UserCheck, group: "Students", parent: "teachers" },
@@ -66,6 +69,10 @@ const TITLES: Record<PageId, { title: string; blurb?: string }> = {
   courses: {
     title: "Courses",
     blurb: "The term's CRNs as the registrar portal lists them — what everything else checks against.",
+  },
+  "active-courses": {
+    title: "Active courses",
+    blurb: "The department's own list: chosen from the portal's courses, each with its UE and the parent CRN its sections hang from.",
   },
   teachers: {
     title: "Teachers",
@@ -221,6 +228,7 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
             <ScreenLoading label="Loading…" />
           ) : null}
           {page === "courses" ? <PortalCourses /> : null}
+          {page === "active-courses" ? <ActiveCourses /> : null}
           {page === "teachers" ? <PortalTeachers /> : null}
           {page === "active-teachers" ? <ActiveTeachers /> : null}
           {page === "registrations" ? <PortalRegistrations /> : null}

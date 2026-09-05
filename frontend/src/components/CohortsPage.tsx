@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Settings2 } from "lucide-react";
+import { ArrowRightCircle, Settings2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { DiscrepancyRulesEditor } from "@/components/DiscrepancyRulesEditor";
@@ -7,16 +7,69 @@ import { LabelledPicker } from "@/components/LabelledPicker";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { SelectMenu } from "@/components/SelectMenu";
 import { StudentRoster } from "@/components/StudentRoster";
-import { registrationWarnings, unplacedWarnings, warningsForCohort, type Change, type Rule, type Warning } from "@/services/discrepancies";
+import {
+  STATUS_FIELD,
+  STATUS_OPTIONS,
+  arrivalsFor,
+  labelOf,
+  registrationWarnings,
+  unjudgeable,
+  unplacedWarnings,
+  warningsForCohort,
+  type Arrival,
+  type Change,
+  type Options,
+  type Rule,
+  type Warning,
+} from "@/services/discrepancies";
 import { dismiss, loadDismissed, pruneDismissed, restore } from "@/services/dismissals";
 import { describeMismatch, fetchRegistrationCheck } from "@/services/portalLists";
 import { allChanges } from "@/services/pullHistory";
 import { describeAge, latestPullAt, rowsHeld } from "@/services/rosterStore";
-import { studentIdOf, type RosterRow } from "@/services/scenRosters";
-import { fetchDiscrepancyRules, fetchStudents, type Cohort } from "@/services/studentDatabase";
+import { displayNameOf, fetchSchema, studentIdOf, type RosterRow } from "@/services/scenRosters";
+import { fetchDiscrepancyRules, fetchStudents, type Cohort, type Student } from "@/services/studentDatabase";
 
 /** The picker's entry for the reverse check: students the department has nowhere for. */
 export const UNPLACED = "__unplaced__";
+
+/** This browser's evidence: what the portal last said, and every change it has recorded. */
+type Evidence = {
+  current: Map<string, Record<string, string>>;
+  names: Map<string, string>;
+  changes: Map<string, Change[]>;
+  /** Every field name any held row carries — what the rules can be judged on. */
+  carried: Set<string>;
+  asOf: number | null;
+};
+
+/** The warnings of every cohort at once, so the picker can count them beside the members. */
+function judge(
+  cohorts: Cohort[],
+  students: Student[],
+  rules: Rule[],
+  evidence: Evidence,
+  options: Options,
+): { byCohort: Map<string, Warning[]>; unplaced: Warning[]; arrivals: Map<string, Arrival[]> } {
+  const placed = students.map((student) => ({ studentId: student.studentId, cohortId: student.cohortId, cohortSince: student.cohortSince }));
+  // The status is this application's, so it joins the portal's fields here rather than in
+  // a pull. A student this browser holds no row for is still nothing to judge by — unless
+  // the portal has dropped them, which is the one fact about them the status does carry.
+  const status = new Map(students.map((student) => [student.studentId, student.status]));
+  const current = (id: string) => {
+    const held = evidence.current.get(id);
+    const state = status.get(id) ?? "";
+    if (!held && state !== "not_in_portal") return undefined;
+    return { ...(held ?? {}), [STATUS_FIELD]: state };
+  };
+  const changes = (id: string) => evidence.changes.get(id) ?? [];
+  const byCohort = new Map<string, Warning[]>();
+  const arrivals = new Map<string, Arrival[]>();
+  for (const cohort of cohorts) {
+    byCohort.set(cohort.id, warningsForCohort({ cohort, students: placed, rules, current, changes, options }));
+    arrivals.set(cohort.id, arrivalsFor({ cohort, students: placed, current, changes, options }));
+  }
+  return { byCohort, unplaced: unplacedWarnings({ students: placed, rules, current, options }), arrivals };
+}
 
 /**
  * Where the portal and the department disagree, cohort by cohort.
@@ -35,6 +88,8 @@ export function CohortsPage({ cohorts }: { cohorts: Cohort[] }) {
   // The same query the roster makes, so React Query answers both from one fetch.
   const students = useQuery({ queryKey: ["students", ""], queryFn: () => fetchStudents("") });
   const rules = useQuery({ queryKey: ["discrepancy-rules"], queryFn: fetchDiscrepancyRules });
+  // The portal's code tables, so a rule on DEPT_CODE can read a row that carries DEPT_DESC.
+  const schema = useQuery({ queryKey: ["portal-schema"], queryFn: fetchSchema, staleTime: 60_000 });
   // The registrar's registrations against this cohort's groups: the server's comparison,
   // read here so it lands in the same Warnings column. Best effort — a cohort with no
   // linked semester, or no registrations pulled, simply has none.
@@ -46,24 +101,27 @@ export function CohortsPage({ cohorts }: { cohorts: Cohort[] }) {
   });
 
   // This browser's evidence: read once per visit. It has nothing to do with the rules.
-  const [evidence, setEvidence] = useState<{
-    current: Map<string, Record<string, string>>;
-    changes: Map<string, Change[]>;
-    asOf: number | null;
-  } | null>(null);
+  const [evidence, setEvidence] = useState<Evidence | null>(null);
   useEffect(() => {
     let live = true;
     void Promise.all([rowsHeld(), allChanges(), latestPullAt()]).then(([rows, changes, asOf]) => {
       if (!live) return;
       const current = new Map<string, Record<string, string>>();
+      const names = new Map<string, string>();
+      const carried = new Set<string>();
       for (const row of rows as RosterRow[]) {
         const id = studentIdOf(row);
         if (!id) continue;
         const flat: Record<string, string> = {};
-        for (const [field, value] of Object.entries(row)) flat[field] = String(value ?? "");
+        for (const [field, value] of Object.entries(row)) {
+          const text = String(value ?? "");
+          flat[field] = text;
+          if (text.trim()) carried.add(field);
+        }
         current.set(id, flat);
+        names.set(id, displayNameOf(row));
       }
-      setEvidence({ current, changes, asOf });
+      setEvidence({ current, names, changes, carried, asOf });
     });
     return () => {
       live = false;
@@ -78,30 +136,31 @@ export function CohortsPage({ cohorts }: { cohorts: Cohort[] }) {
 
   const cohort = cohorts.find((candidate) => candidate.id === cohortId) ?? null;
 
-  /** Every warning the rules produce, by student, dismissed ones marked. */
+  const options: Options = useCallback(
+    (field: string) =>
+      field === STATUS_FIELD
+        ? STATUS_OPTIONS
+        : (schema.data?.fields.find((candidate) => candidate.key.toUpperCase() === field)?.options ?? []),
+    [schema.data],
+  );
+
+  /** Every cohort judged, and this one's warnings by student, dismissed ones marked. */
+  const judged = useMemo(() => {
+    if (!evidence || !students.data || !rules.data) return null;
+    return judge(cohorts, students.data, rules.data, evidence, options);
+  }, [cohorts, evidence, students.data, rules.data, options]);
+
   const byStudent = useMemo(() => {
     const out = new Map<string, Warning[]>();
-    if (!evidence || !students.data || !rules.data) return out;
-    const placed = students.data.map((student) => ({
-      studentId: student.studentId,
-      cohortId: student.cohortId,
-      cohortSince: student.cohortSince,
-    }));
-    const ruleList: Rule[] = rules.data;
-    const current = (id: string) => evidence.current.get(id);
-    const warnings =
-      cohortId === UNPLACED
-        ? unplacedWarnings({ students: placed, rules: ruleList, current })
-        : cohort
-          ? warningsForCohort({ cohort, students: placed, rules: ruleList, current, changes: (id) => evidence.changes.get(id) ?? [] })
-          : [];
+    if (!judged) return out;
+    const own = cohortId === UNPLACED ? judged.unplaced : (judged.byCohort.get(cohortId) ?? []);
     const registered = cohort ? registrationWarnings(registrations.data ?? [], describeMismatch) : [];
-    for (const warning of [...warnings, ...registered]) {
+    for (const warning of [...own, ...registered]) {
       const marked = dismissed.has(warning.key) ? { ...warning, dismissed: true } : warning;
       out.set(warning.studentId, [...(out.get(warning.studentId) ?? []), marked]);
     }
     return out;
-  }, [evidence, students.data, rules.data, registrations.data, cohortId, cohort, dismissed]);
+  }, [judged, registrations.data, cohortId, cohort, dismissed]);
 
   // Dismissals that no longer point at anything are let go, so the store stays small.
   useEffect(() => {
@@ -126,16 +185,27 @@ export function CohortsPage({ cohorts }: { cohorts: Cohort[] }) {
     [],
   );
 
+  /** Students flagged in a cohort, not counting dismissed warnings or the no-baseline note. */
+  const flaggedIn = (warnings: Warning[]) =>
+    new Set(warnings.filter((warning) => warning.kind !== "no_baseline" && !dismissed.has(warning.key)).map((warning) => warning.studentId)).size;
+
   const all = [...byStudent.values()].flat();
-  const flaggedStudents = new Set(
-    all.filter((warning) => warning.kind !== "no_baseline" && !warning.dismissed).map((warning) => warning.studentId),
-  ).size;
+  const flaggedStudents = flaggedIn(all);
   const unjudged = new Set(all.filter((warning) => warning.kind === "no_baseline").map((w) => w.studentId)).size;
   const dismissedCount = all.filter((warning) => warning.dismissed).length;
   const unplacedCount = students.data ? students.data.filter((student) => !student.cohortId).length : 0;
   const population = students.data
     ? students.data.filter((student) => (cohortId === UNPLACED ? !student.cohortId : student.cohortId === cohortId)).length
     : 0;
+  const arrivals = cohort ? (judged?.arrivals.get(cohort.id) ?? []) : [];
+  const silent = evidence && rules.data ? unjudgeable(rules.data.filter((rule) => rule.field !== STATUS_FIELD), evidence.carried) : [];
+  const expects = cohort
+    ? [
+        cohort.majors.length ? `major ${cohort.majors.join(" or ")}` : "",
+        cohort.terms.length ? `term ${cohort.terms.join(" or ")}` : "",
+        cohort.yearLevel ? `year level ${cohort.yearLevel}` : "",
+      ].filter(Boolean)
+    : [];
 
   if (students.isLoading || rules.isLoading || !evidence) return <ScreenLoading label="Reading what the portal said…" />;
   if (students.error || rules.error) {
@@ -155,17 +225,22 @@ export function CohortsPage({ cohorts }: { cohorts: Cohort[] }) {
             value={cohortId}
             onChange={setCohortId}
             options={[
-              ...cohorts.map((candidate) => ({
-                value: candidate.id,
-                label: candidate.term ? `${candidate.name} — ${candidate.term}` : candidate.name,
-                badge: String(candidate.memberCount),
-                badgeTone: candidate.memberCount ? ("accent" as const) : ("muted" as const),
-              })),
+              ...cohorts.map((candidate) => {
+                const flagged = flaggedIn(judged?.byCohort.get(candidate.id) ?? []);
+                return {
+                  value: candidate.id,
+                  label: candidate.term ? `${candidate.name} — ${candidate.term}` : candidate.name,
+                  badge: String(candidate.memberCount),
+                  badgeTone: candidate.memberCount ? ("accent" as const) : ("muted" as const),
+                  alert: flagged ? `${flagged} flagged` : undefined,
+                };
+              }),
               {
                 value: UNPLACED,
                 label: "Not in any cohort",
                 badge: String(unplacedCount),
                 badgeTone: unplacedCount ? ("accent" as const) : ("muted" as const),
+                alert: judged?.unplaced.length ? `${flaggedIn(judged.unplaced)} flagged` : undefined,
               },
             ]}
           />
@@ -187,10 +262,10 @@ export function CohortsPage({ cohorts }: { cohorts: Cohort[] }) {
         {evidence.asOf
           ? `As of this browser's last sync, ${describeAge(evidence.asOf)}. `
           : "This browser has never synced, so there is nothing to judge against. "}
-        {cohort?.program || cohort?.yearLevel ? (
-          <>This cohort expects {[cohort.program, cohort.yearLevel].filter(Boolean).join(", ")}. </>
+        {expects.length ? (
+          <>This cohort expects {expects.join(", ")}. </>
         ) : cohortId !== UNPLACED ? (
-          "This cohort states no program or year, so it is judged on status alone. "
+          "This cohort states no major, term or year level, so it is judged on status alone. "
         ) : null}
         {flaggedStudents
           ? `${flaggedStudents} of ${population} ${cohortId === UNPLACED ? "unplaced students" : "students"} flagged.`
@@ -214,6 +289,18 @@ export function CohortsPage({ cohorts }: { cohorts: Cohort[] }) {
         ) : null}
       </p>
 
+      {silent.length ? (
+        <p role="status" className="mt-3 rounded-md border border-[#e8d9ac] bg-[#fdf9ee] px-4 py-2.5 text-sm text-[#8a6116]">
+          {silent.length === 1 ? "One rule cannot be judged" : `${silent.length} rules cannot be judged`}: no pull this browser
+          holds carries {[...new Set(silent.map((rule) => labelOf(rule.field)))].join(", ")}. Sync the students again with the
+          current extension, which asks the portal for the codes as well as the descriptions.
+        </p>
+      ) : null}
+
+      {cohort && arrivals.length ? (
+        <ArrivalsBanner cohort={cohort} cohorts={cohorts} arrivals={arrivals} names={evidence.names} />
+      ) : null}
+
       <div className="mt-3">
         {/*
           * Keyed on the cohort: switching cohorts is switching populations, and the
@@ -232,5 +319,53 @@ export function CohortsPage({ cohorts }: { cohorts: Cohort[] }) {
 
       <DiscrepancyRulesEditor open={editingRules} onClose={() => setEditingRules(false)} />
     </section>
+  );
+}
+
+/**
+ * Students admissions has moved into one of this cohort's majors who are not in it.
+ *
+ * The rules judge the cohort's own students; this is the other direction, and the one a
+ * coordinator has no other way of seeing — a student who became the department's last
+ * week, sitting in no cohort or in the wrong one.
+ */
+function ArrivalsBanner({
+  cohort,
+  cohorts,
+  arrivals,
+  names,
+}: {
+  cohort: Cohort;
+  cohorts: Cohort[];
+  arrivals: Arrival[];
+  names: Map<string, string>;
+}) {
+  const [open, setOpen] = useState(false);
+  const shown = open ? arrivals : arrivals.slice(0, 5);
+  const where = (arrival: Arrival) =>
+    arrival.cohortId ? `in ${cohorts.find((candidate) => candidate.id === arrival.cohortId)?.name ?? "another cohort"}` : "in no cohort";
+  return (
+    <div role="status" className="mt-3 rounded-md border border-[#bcd3ea] bg-[#eef5fb] px-4 py-3 text-sm text-[#1f4e79]">
+      <p className="flex items-center gap-2 font-semibold">
+        <ArrowRightCircle size={16} aria-hidden="true" />
+        {arrivals.length === 1 ? "One student has" : `${arrivals.length} students have`} moved into{" "}
+        {cohort.majors.join(" or ")} and {arrivals.length === 1 ? "is" : "are"} not in {cohort.name}.
+      </p>
+      <ul className="mt-1.5 space-y-0.5 pl-6">
+        {shown.map((arrival) => (
+          <li key={arrival.studentId}>
+            <span className="font-semibold">{names.get(arrival.studentId) || arrival.studentId}</span>{" "}
+            <span className="font-mono text-xs text-[#5b7a9a]">{arrival.studentId}</span> — {arrival.from || "—"} → {arrival.to} on{" "}
+            {new Date(arrival.at).toLocaleDateString(undefined, { day: "numeric", month: "short" })}, {where(arrival)}.
+          </li>
+        ))}
+      </ul>
+      {arrivals.length > 5 ? (
+        <button type="button" onClick={() => setOpen((current) => !current)} className="mt-1.5 pl-6 text-xs font-semibold underline">
+          {open ? "Show fewer" : `Show all ${arrivals.length}`}
+        </button>
+      ) : null}
+      <p className="mt-1.5 pl-6 text-xs text-[#5b7a9a]">Find them under “Not in any cohort” or their current cohort, and move them from the Students table.</p>
+    </div>
   );
 }

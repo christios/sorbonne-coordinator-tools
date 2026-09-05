@@ -1,10 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp, Plus, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, Plus, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { Modal } from "@/components/Modal";
 import { SelectMenu } from "@/components/SelectMenu";
-import { labelOf, type RuleKind } from "@/services/discrepancies";
+import { STATUS_FIELD, STATUS_OPTIONS, labelOf, type RuleKind } from "@/services/discrepancies";
 import { fetchSchema, type PortalField } from "@/services/scenRosters";
 import { fetchDiscrepancyRules, saveDiscrepancyRules } from "@/services/studentDatabase";
 
@@ -12,9 +12,10 @@ import { fetchDiscrepancyRules, saveDiscrepancyRules } from "@/services/studentD
  * What counts as a discrepancy, in the coordinators' own terms.
  *
  * A rule is a sentence: "warn when student status changes to WD or IS", "warn when major
- * differs from the cohort's program". The fields and values are the portal's own, read
- * from the schema the extension learned, so a rule can only name things the portal can
- * actually say — and a coordinator picking a value sees the portal's label for it.
+ * differs from the cohort's". The fields and values are the portal's own, read from the
+ * schema the extension learned, so a rule can only name things the portal can actually
+ * say — and a coordinator picking a value sees the portal's label for it. One field is
+ * this application's: whether the last sync still found the student in the portal.
  *
  * Saved as one list, shared by everybody: cohorts are shared, so the rules that judge
  * them should be too.
@@ -23,23 +24,27 @@ type Draft = { id: string; field: string; kind: RuleKind; values: string[] };
 
 const KINDS: { value: RuleKind; label: string; hint: string }[] = [
   { value: "changed", label: "changes at all", hint: "since the student was placed in the cohort" },
-  { value: "changed_to", label: "changes to…", hint: "since placement, to one of the values you tick" },
+  { value: "changed_to", label: "changes to…", hint: "since placement, to one of the values you pick" },
   { value: "is", label: "is currently…", hint: "right now, whatever it was before" },
-  { value: "is_not", label: "is currently not…", hint: "right now, anything but the values you tick — a code nobody has seen counts" },
-  { value: "differs", label: "differs from the cohort's", hint: "major against program, or year level against year level" },
+  { value: "is_not", label: "is currently not…", hint: "right now, anything but the values you pick — a code nobody has seen counts" },
+  { value: "differs", label: "differs from the cohort's", hint: "major against the cohort's majors, term against its terms, year level against its year level" },
 ];
 
-const DIFFERS_FIELDS = ["MAJOR_CODE_DESC", "YEARLEVEL_CODE"];
+/** What a cohort carries, so what a `differs` rule can compare against. */
+const DIFFERS_FIELDS = ["MAJOR_CODE", "MAJOR_CODE_DESC", "TERM_CODE", "YEARLEVEL_CODE"];
+/** The status is a fact of now, not of the pull history: it has no "changed". */
+const STATUS_KINDS: RuleKind[] = ["is", "is_not"];
 
-/** The fields the portal offers, with a few that always matter first. */
+/** The fields the portal offers, with a few that always matter first, and the status. */
 function fieldChoices(fields: PortalField[]): { value: string; label: string }[] {
   const known = new Map(fields.map((field) => [field.key.toUpperCase(), field.label || field.key]));
-  for (const key of ["STST_CODE", "ESTS_CODE", "MAJOR_CODE_DESC", "YEARLEVEL_CODE"]) {
+  for (const key of ["STST_CODE", "ESTS_CODE", "MAJOR_CODE", "MAJOR_CODE_DESC", "YEARLEVEL_CODE", "DEPT_CODE", "TERM_CODE"]) {
     if (!known.has(key)) known.set(key, labelOf(key));
   }
-  return [...known.entries()]
+  const portal = [...known.entries()]
     .map(([value, label]) => ({ value, label: `${label} (${value})` }))
     .sort((left, right) => left.label.localeCompare(right.label));
+  return [{ value: STATUS_FIELD, label: "Status — in the portal or not (ours)" }, ...portal];
 }
 
 export function DiscrepancyRulesEditor({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -63,7 +68,9 @@ export function DiscrepancyRulesEditor({ open, onClose }: { open: boolean; onClo
 
   const fields = fieldChoices(schema.data?.fields ?? []);
   const valuesFor = (field: string) =>
-    schema.data?.fields.find((candidate) => candidate.key.toUpperCase() === field)?.options ?? [];
+    field === STATUS_FIELD
+      ? STATUS_OPTIONS
+      : (schema.data?.fields.find((candidate) => candidate.key.toUpperCase() === field)?.options ?? []);
 
   const update = (index: number, patch: Partial<Draft>) =>
     setDrafts((current) => current.map((draft, at) => (at === index ? { ...draft, ...patch } : draft)));
@@ -80,7 +87,8 @@ export function DiscrepancyRulesEditor({ open, onClose }: { open: boolean; onClo
     (draft) =>
       draft.field &&
       (draft.kind === "changed" || draft.kind === "differs" || draft.values.length > 0) &&
-      (draft.kind !== "differs" || DIFFERS_FIELDS.includes(draft.field)),
+      (draft.kind !== "differs" || DIFFERS_FIELDS.includes(draft.field)) &&
+      (draft.field !== STATUS_FIELD || STATUS_KINDS.includes(draft.kind)),
   );
 
   return (
@@ -120,16 +128,18 @@ export function DiscrepancyRulesEditor({ open, onClose }: { open: boolean; onClo
     >
       {drafts.length === 0 ? (
         <p className="rounded-md border border-dashed border-[#cbd5e1] px-4 py-6 text-center text-sm text-[#667085]">
-          No rules yet, so nothing is a discrepancy. Add one below — a good first pair is
-          “student status changes to WD or IS” and “major differs from the cohort's”.
+          No rules yet, so nothing is a discrepancy. Add one below — a good first set is “student status changes
+          to WD or IS”, “major differs from the cohort's” and “status is not in portal”.
         </p>
       ) : null}
 
       <ol className="space-y-3">
         {drafts.map((draft, index) => {
           const options = valuesFor(draft.field);
+          const kinds = draft.field === STATUS_FIELD ? KINDS.filter((kind) => STATUS_KINDS.includes(kind.value)) : KINDS;
           const needsValues = draft.kind === "changed_to" || draft.kind === "is" || draft.kind === "is_not";
           const badDiffers = draft.kind === "differs" && !DIFFERS_FIELDS.includes(draft.field);
+          const badStatus = draft.field === STATUS_FIELD && !STATUS_KINDS.includes(draft.kind);
           return (
             <li key={draft.id || `new-${index}`} className="rounded-md border border-[#d9dee7] bg-white p-3">
               <div className="flex flex-wrap items-center gap-2 text-sm text-[#344054]">
@@ -138,8 +148,15 @@ export function DiscrepancyRulesEditor({ open, onClose }: { open: boolean; onClo
                   <SelectMenu
                     label={`Field for rule ${index + 1}`}
                     value={draft.field}
-                    onChange={(field) => update(index, { field, values: [] })}
+                    onChange={(field) =>
+                      update(index, {
+                        field,
+                        values: [],
+                        kind: field === STATUS_FIELD && !STATUS_KINDS.includes(draft.kind) ? "is" : draft.kind,
+                      })
+                    }
                     placeholder="a field"
+                    searchable={fields.length > 12}
                     options={fields}
                   />
                 </div>
@@ -149,7 +166,7 @@ export function DiscrepancyRulesEditor({ open, onClose }: { open: boolean; onClo
                     label={`Condition for rule ${index + 1}`}
                     value={draft.kind}
                     onChange={(kind) => update(index, { kind: kind as RuleKind, values: [] })}
-                    options={KINDS.map(({ value, label }) => ({ value, label }))}
+                    options={kinds.map(({ value, label }) => ({ value, label }))}
                     variant="tinted"
                   />
                 </div>
@@ -186,36 +203,29 @@ export function DiscrepancyRulesEditor({ open, onClose }: { open: boolean; onClo
 
               {badDiffers ? (
                 <p role="alert" className="mt-2 text-sm text-[#a6292f]">
-                  A cohort only carries a program and a year level, so only major and year level can differ from it.
+                  A cohort carries its majors, its terms and a year level, so only those can differ from it.
+                </p>
+              ) : null}
+              {badStatus ? (
+                <p role="alert" className="mt-2 text-sm text-[#a6292f]">
+                  The status is a fact of now: say what it is, or is not.
                 </p>
               ) : null}
 
               {needsValues ? (
                 options.length ? (
-                  <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
-                    {options.map((option) => (
-                      <li key={option.value} className="flex items-center gap-1.5 text-sm text-[#344054]">
-                        <input
-                          type="checkbox"
-                          id={`rule-${index}-${option.value}`}
-                          checked={draft.values.includes(option.value)}
-                          onChange={() =>
-                            update(index, {
-                              values: draft.values.includes(option.value)
-                                ? draft.values.filter((value) => value !== option.value)
-                                : [...draft.values, option.value],
-                            })
-                          }
-                        />
-                        <label htmlFor={`rule-${index}-${option.value}`}>
-                          {option.label}
-                          {option.label !== option.value ? (
-                            <span className="text-[#98a2b3]"> ({option.value})</span>
-                          ) : null}
-                        </label>
-                      </li>
-                    ))}
-                  </ul>
+                  <ValueChips
+                    label={`Values for rule ${index + 1}`}
+                    options={options}
+                    chosen={draft.values}
+                    onToggle={(value) =>
+                      update(index, {
+                        values: draft.values.includes(value)
+                          ? draft.values.filter((held) => held !== value)
+                          : [...draft.values, value],
+                      })
+                    }
+                  />
                 ) : (
                   <label className="mt-2 block text-sm text-[#344054]">
                     Values, comma separated
@@ -251,5 +261,49 @@ export function DiscrepancyRulesEditor({ open, onClose }: { open: boolean; onClo
         <Plus size={14} aria-hidden="true" /> Add a rule
       </button>
     </Modal>
+  );
+}
+
+/**
+ * The values a rule names, as chips: pressed is chosen. A row of checkboxes with labels
+ * beside them read as a form; a row of chips reads as the list it is.
+ */
+function ValueChips({
+  label,
+  options,
+  chosen,
+  onToggle,
+}: {
+  label: string;
+  options: { value: string; label: string }[];
+  chosen: string[];
+  onToggle: (value: string) => void;
+}) {
+  return (
+    <div role="group" aria-label={label} className="mt-2 flex flex-wrap gap-1.5">
+      {options.map((option) => {
+        const on = chosen.includes(option.value);
+        return (
+          <button
+            key={option.value}
+            type="button"
+            role="checkbox"
+            aria-checked={on}
+            onClick={() => onToggle(option.value)}
+            className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold transition-colors ${
+              on
+                ? "border-[#1f4e79] bg-[#1f4e79] text-white"
+                : "border-[#d9dee7] bg-white text-[#344054] hover:border-[#9ba8b5] hover:bg-[#f8fafc]"
+            }`}
+          >
+            {on ? <Check size={12} aria-hidden="true" /> : null}
+            {option.label}
+            {option.label !== option.value ? (
+              <span className={on ? "font-normal text-white/70" : "font-normal text-[#98a2b3]"}>{option.value}</span>
+            ) : null}
+          </button>
+        );
+      })}
+    </div>
   );
 }

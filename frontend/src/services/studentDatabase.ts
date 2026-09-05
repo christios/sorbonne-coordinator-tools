@@ -15,8 +15,12 @@ export type Cohort = {
   name: string;
   term: string;
   notes: string;
-  /** What the cohort expects of its students, as the portal words it. Empty means no expectation. */
-  program: string;
+  /**
+   * What the cohort expects of its students, as the portal codes it: the majors and the
+   * portal terms it spans, and a year level. Empty means no expectation on that count.
+   */
+  majors: string[];
+  terms: string[];
   yearLevel: string;
   memberCount: number;
   scopeCount: number;
@@ -29,10 +33,6 @@ export type CatalogueCourse = {
   code: string;
   name: string;
   component: string;
-  /** The Sorbonne UE the course belongs to (UL1MA001), for the timetabler's workbook. */
-  ue: string;
-  /** The CRN the sections hang from in the portal. */
-  parentCrn: string;
 };
 
 /**
@@ -154,20 +154,23 @@ export async function fetchCohorts(): Promise<Cohort[]> {
   return (await request<{ cohorts: Cohort[] }>(`${BASE}/cohorts`)).cohorts;
 }
 
-export type CohortInput = { name: string; term?: string; notes?: string; program?: string; yearLevel?: string };
+export type CohortInput = {
+  name: string;
+  term?: string;
+  notes?: string;
+  majors?: string[];
+  terms?: string[];
+  yearLevel?: string;
+};
+
+const COHORT_DEFAULTS = { term: "", notes: "", majors: [], terms: [], yearLevel: "" };
 
 export function createCohort(input: CohortInput): Promise<Cohort> {
-  return send<Cohort>(`${BASE}/cohorts`, "POST", { term: "", notes: "", program: "", yearLevel: "", ...input });
+  return send<Cohort>(`${BASE}/cohorts`, "POST", { ...COHORT_DEFAULTS, ...input });
 }
 
 export function updateCohort(cohortId: string, input: CohortInput): Promise<Cohort> {
-  return send<Cohort>(`${BASE}/cohorts/${cohortId}`, "PATCH", {
-    term: "",
-    notes: "",
-    program: "",
-    yearLevel: "",
-    ...input,
-  });
+  return send<Cohort>(`${BASE}/cohorts/${cohortId}`, "PATCH", { ...COHORT_DEFAULTS, ...input });
 }
 
 /** What counts as a discrepancy between the portal and a cohort. Shared by every coordinator. */
@@ -307,7 +310,7 @@ export function deleteScope(scopeId: string): Promise<void> {
 
 export function addCourse(
   scopeId: string,
-  input: { code: string; name?: string; component?: string; ue?: string; parentCrn?: string },
+  input: { code: string; name?: string; component?: string },
 ): Promise<{ id: string }> {
   return send<{ id: string }>(`${BASE}/scopes/${scopeId}/courses`, "POST", {
     name: "",
@@ -343,10 +346,7 @@ export function deleteGroup(groupId: string): Promise<void> {
   return request<void>(`${BASE}/groups/${groupId}`, { method: "DELETE" });
 }
 
-export function updateCourse(
-  courseId: string,
-  input: { code: string; name: string; component: string; ue: string; parentCrn: string },
-): Promise<void> {
+export function updateCourse(courseId: string, input: { code: string; name: string; component: string }): Promise<void> {
   return send<void>(`${BASE}/courses/${courseId}`, "PATCH", input);
 }
 

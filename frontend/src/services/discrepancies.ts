@@ -7,10 +7,14 @@
  * timetable time.
  *
  * The rules are the coordinators' and shared: "warn when STST_CODE changes to WD",
- * "warn when MAJOR_CODE_DESC differs from the cohort's program". The evidence is this
- * browser's — the pull history, which records every change with its before and after —
- * because the server is never told a name, so the judging has to happen where the names
- * are.
+ * "warn when MAJOR_CODE differs from the cohort's". The evidence is this browser's — the
+ * pull history, which records every change with its before and after — because the
+ * server is never told a name, so the judging has to happen where the names are.
+ *
+ * A rule names a portal code; a pull may carry the code, the description the portal
+ * shows for it, or both. DEPT_CODE is SCEN and DEPT_DESC is "Science and Engineering",
+ * and the rule must fire either way, so values are read through the portal's own code
+ * table when the code itself is not on the row.
  *
  * Pure: everything is passed in, nothing is fetched. That is what makes the rules
  * testable one at a time.
@@ -38,7 +42,23 @@ export type Placed = {
   cohortSince: string;
 };
 
-export type Expectation = { id: string; program: string; yearLevel: string };
+/** What a cohort expects, as the portal codes it. Empty lists expect nothing. */
+export type Expectation = { id: string; majors: string[]; terms: string[]; yearLevel: string };
+
+/** The portal's code table for a field — `{ value: "SCEN", label: "Science and Engineering" }`. */
+export type Options = (field: string) => { value: string; label: string }[];
+
+const NO_OPTIONS: Options = () => [];
+
+/**
+ * The one field that is this application's rather than the portal's: whether the last
+ * sync still found the student. A rule may name it like any other.
+ */
+export const STATUS_FIELD = "STATUS";
+export const STATUS_OPTIONS = [
+  { value: "in_portal", label: "In portal" },
+  { value: "not_in_portal", label: "Not in portal" },
+];
 
 export type Warning = {
   /**
@@ -67,25 +87,80 @@ export const FIELD_LABELS: Record<string, string> = {
   STST_CODE: "student status",
   ESTS_CODE: "enrolment status",
   MAJOR_CODE_DESC: "major",
+  MAJOR_CODE: "major",
   YEARLEVEL_CODE: "year level",
   FULL_NAME: "name",
   PSUAD_EMAIL: "e-mail",
   PROGRAM_CODE: "program",
+  DEPT_CODE: "department",
+  DEPT_DESC: "department",
+  TERM_CODE: "term",
+  [STATUS_FIELD]: "status",
 };
 
 export function labelOf(field: string): string {
   return FIELD_LABELS[field] ?? field.toLowerCase().replace(/_/g, " ");
 }
 
-/** The cohort's own value for a field a `differs` rule can read, or "" when it has none. */
-function expectedOf(cohort: Expectation | null, field: string): string {
-  if (!cohort) return "";
-  if (field === "MAJOR_CODE_DESC") return cohort.program;
-  if (field === "YEARLEVEL_CODE") return cohort.yearLevel;
-  return "";
+/**
+ * The field names a pull might carry the same fact under: the code, or the description
+ * the portal shows beside it. MAJOR_CODE and MAJOR_CODE_DESC; DEPT_CODE and DEPT_DESC.
+ */
+export function twins(field: string): string[] {
+  const out = [field];
+  if (field.endsWith("_CODE")) out.push(`${field}_DESC`, field.replace(/_CODE$/, "_DESC"));
+  else if (field.endsWith("_DESC")) out.push(field.replace(/_DESC$/, "_CODE"), field.replace(/_CODE_DESC$/, "_CODE"));
+  return [...new Set(out)];
 }
 
 const same = (left: string, right: string) => left.trim().toLowerCase() === right.trim().toLowerCase();
+
+/** The portal's label for a code, or the code itself when the table does not know it. */
+function labelFor(field: string, code: string, options: Options): string {
+  return options(field).find((option) => same(option.value, code))?.label ?? code;
+}
+
+/**
+ * Whether a value on a row means one of the wanted codes.
+ *
+ * Wanted is what the rule or the cohort says, usually a code; the value is what the pull
+ * carried, which may be the code or the description. Either spelling of either side
+ * counts, so "SCEN" is "Science and Engineering" and back.
+ */
+function meansOneOf(field: string, wanted: string[], value: string, options: Options): boolean {
+  if (!value) return false;
+  return wanted.some(
+    (code) =>
+      same(code, value) || same(labelFor(field, code, options), value) || same(code, labelFor(field, value, options)),
+  );
+}
+
+/**
+ * A row's value for a field: the code when the pull carried it, else what the row says
+ * under the description it travels with, read back to a code where the table allows.
+ */
+export function valueOf(now: Record<string, string>, field: string, options: Options = NO_OPTIONS): string {
+  for (const name of twins(field)) {
+    const held = now[name] ?? "";
+    if (!held) continue;
+    if (name === field) return held;
+    const known = options(field).find((option) => same(option.label, held));
+    return known?.value ?? held;
+  }
+  return "";
+}
+
+/** The cohort's own values for a field a `differs` rule can read; empty when it states none. */
+function expectedOf(cohort: Expectation | null, field: string): string[] {
+  if (!cohort) return [];
+  if (field === "MAJOR_CODE") return cohort.majors;
+  if (field === "TERM_CODE") return cohort.terms;
+  if (field === "YEARLEVEL_CODE") return cohort.yearLevel ? [cohort.yearLevel] : [];
+  return [];
+}
+
+/** The field a `differs` rule on a description compares by — the code beside it. */
+const codeField = (field: string) => (field === "MAJOR_CODE_DESC" ? "MAJOR_CODE" : field);
 
 /**
  * Whether a state rule fires on a current value.
@@ -94,10 +169,16 @@ const same = (left: string, right: string) => left.trim().toLowerCase() === righ
  * anything else is — including a code admissions invented last week that nobody here
  * has seen. A student with no value for the field is not judged either way.
  */
-function stateFires(rule: Rule, value: string): boolean {
+function stateFires(rule: Rule, value: string, options: Options): boolean {
   if (!value) return false;
-  const listed = rule.values.some((wanted) => same(wanted, value));
+  const listed = meansOneOf(rule.field, rule.values, value, options);
   return rule.kind === "is" ? listed : rule.kind === "is_not" ? !listed : false;
+}
+
+/** The changes of one student the rule's field is about, under whichever name they were kept. */
+function changesTo(field: string, changes: Change[]): Change[] {
+  const names = new Set(twins(field));
+  return changes.filter((change) => names.has(change.field));
 }
 
 /**
@@ -114,8 +195,10 @@ export function warningsForCohort(input: {
   rules: Rule[];
   current: (studentId: string) => Record<string, string> | undefined;
   changes: (studentId: string) => Change[];
+  options?: Options;
 }): Warning[] {
   const out: Warning[] = [];
+  const options = input.options ?? NO_OPTIONS;
   const members = input.students.filter((student) => student.cohortId === input.cohort.id);
   const changeRules = input.rules.filter((rule) => rule.kind === "changed" || rule.kind === "changed_to");
 
@@ -135,8 +218,8 @@ export function warningsForCohort(input: {
 
     for (const rule of input.rules) {
       if (rule.kind === "is" || rule.kind === "is_not") {
-        const value = now[rule.field] ?? "";
-        if (stateFires(rule, value)) {
+        const value = valueOf(now, rule.field, options);
+        if (stateFires(rule, value, options)) {
           out.push({
             key: `${student.studentId}:${rule.id}:${value}`,
             studentId: student.studentId,
@@ -152,28 +235,29 @@ export function warningsForCohort(input: {
       }
 
       if (rule.kind === "differs") {
-        const expected = expectedOf(input.cohort, rule.field);
-        const value = now[rule.field] ?? "";
+        const field = codeField(rule.field);
+        const expected = expectedOf(input.cohort, field);
+        const value = valueOf(now, field, options);
         // A cohort that states no expectation has nothing to differ from; a student we
         // hold no record for cannot differ either — that is the no-name case, not this.
-        if (expected && value && !same(expected, value)) {
+        if (expected.length && value && !meansOneOf(field, expected, value, options)) {
           out.push({
-            key: `${student.studentId}:${rule.id}:${value}≠${expected}`,
+            key: `${student.studentId}:${rule.id}:${value}≠${expected.join("|")}`,
             studentId: student.studentId,
             ruleId: rule.id,
             kind: "differs",
             field: rule.field,
             value,
-            expected,
+            expected: expected.join(" or "),
           });
         }
         continue;
       }
 
       if (Number.isNaN(placedAt)) continue;
-      for (const change of input.changes(student.studentId)) {
-        if (change.field !== rule.field || change.at < placedAt) continue;
-        if (rule.kind === "changed_to" && !rule.values.some((wanted) => same(wanted, change.to))) continue;
+      for (const change of changesTo(rule.field, input.changes(student.studentId))) {
+        if (change.at < placedAt) continue;
+        if (rule.kind === "changed_to" && !meansOneOf(rule.field, rule.values, change.to, options)) continue;
         out.push({
           key: `${student.studentId}:${rule.id}:${change.from}→${change.to}@${change.at}`,
           studentId: student.studentId,
@@ -203,7 +287,9 @@ export function unplacedWarnings(input: {
   students: Placed[];
   rules: Rule[];
   current: (studentId: string) => Record<string, string> | undefined;
+  options?: Options;
 }): Warning[] {
+  const options = input.options ?? NO_OPTIONS;
   const trouble = input.rules.filter((rule) => rule.kind === "is" || rule.kind === "is_not");
   const out: Warning[] = [];
   for (const student of input.students) {
@@ -211,7 +297,7 @@ export function unplacedWarnings(input: {
     const now = input.current(student.studentId);
     // No record at all is not "in good standing": it is nothing to judge by.
     if (!now) continue;
-    const inTrouble = trouble.some((rule) => stateFires(rule, now[rule.field] ?? ""));
+    const inTrouble = trouble.some((rule) => stateFires(rule, valueOf(now, rule.field, options), options));
     if (inTrouble) continue;
     out.push({
       key: `${student.studentId}:unplaced`,
@@ -222,6 +308,59 @@ export function unplacedWarnings(input: {
     });
   }
   return out;
+}
+
+/**
+ * A student who moved into one of a cohort's majors and is not in that cohort.
+ *
+ * The rules judge a cohort's own students; this is the other direction — somebody
+ * admissions has just made the department's, whom the department has not yet taken in.
+ * Read from the pull history, so it is only as complete as this browser's record.
+ */
+export type Arrival = {
+  studentId: string;
+  /** Where they are now: another cohort, or none. */
+  cohortId: string | null;
+  at: number;
+  from: string;
+  to: string;
+};
+
+export function arrivalsFor(input: {
+  cohort: Expectation;
+  students: Placed[];
+  current: (studentId: string) => Record<string, string> | undefined;
+  changes: (studentId: string) => Change[];
+  options?: Options;
+}): Arrival[] {
+  const options = input.options ?? NO_OPTIONS;
+  const majors = input.cohort.majors;
+  if (!majors.length) return [];
+  const out: Arrival[] = [];
+  for (const student of input.students) {
+    if (student.cohortId === input.cohort.id) continue;
+    const moved = changesTo("MAJOR_CODE", input.changes(student.studentId))
+      .filter(
+        (change) =>
+          meansOneOf("MAJOR_CODE", majors, change.to, options) && !meansOneOf("MAJOR_CODE", majors, change.from, options),
+      )
+      .sort((left, right) => right.at - left.at)[0];
+    if (!moved) continue;
+    // Only while it still holds: a student moved in and out again is not an arrival.
+    const now = input.current(student.studentId);
+    if (now && !meansOneOf("MAJOR_CODE", majors, valueOf(now, "MAJOR_CODE", options), options)) continue;
+    out.push({ studentId: student.studentId, cohortId: student.cohortId, at: moved.at, from: moved.from, to: moved.to });
+  }
+  return out.sort((left, right) => right.at - left.at);
+}
+
+/**
+ * The rules no pull can answer: their field, under any of its names, is on no row this
+ * browser holds. A rule on DEPT_CODE is silent, not satisfied, when the pulls carry
+ * neither DEPT_CODE nor DEPT_DESC — and the page should say so rather than show nothing.
+ */
+export function unjudgeable(rules: Rule[], carried: Set<string>): Rule[] {
+  return rules.filter((rule) => !twins(rule.field).some((name) => carried.has(name)));
 }
 
 /** A warning as a sentence, the way the row shows it. */

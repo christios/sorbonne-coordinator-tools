@@ -42,3 +42,17 @@ Confirmed intent, 5 September 2026.
 Where it came from: the "Student groups" session's scripts (`13_placement-test-2026/_tool/
 build_groups.py`, `14_l1-groups/_tool/build_l1.py`), whose rules define the group sets,
 and the constraints workbook they read.
+
+Revised 5 September 2026.
+
+- **Active courses.** A course's title, UE and parent CRN belong to the department's own
+  list of courses — chosen from the portal's Courses page (or added by hand) the way
+  Active teachers are chosen from Teachers — and are edited there, not on the card. A
+  card shows neither UE nor parent CRN; it says when its code is not on the active list.
+- **Dropdowns, not typing:** a group set carries active courses only (a picker); a
+  section's CRN is chosen from the portal's list for that course and semester when the
+  semester is linked, typed only when it is not; the teacher from Active teachers.
+- **Cards read cleanly.** Rows are read-only — group, CRN with its verdict, teacher,
+  hours, sessions, duration, weeks, students, and what is asked of the timetable in one
+  line — and a dialog edits a row. The Degree column of the workbook is the cohort's
+  majors.

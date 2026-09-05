@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CalendarDays, FileSpreadsheet } from "lucide-react";
+import { CalendarDays, FileSpreadsheet, Pencil } from "lucide-react";
 import { useState } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { Modal } from "@/components/Modal";
 import { PortalTermLink } from "@/components/PortalTermLink";
 import { SemesterImport } from "@/components/SemesterImport";
 import { SemesterPublish } from "@/components/SemesterPublish";
@@ -11,6 +12,7 @@ import {
   TimetableTerm,
   deleteTimetableTerm,
   fetchTimetableTerms,
+  renameTimetableTerm,
   setTimetableTermPublished,
 } from "@/services/timetables";
 
@@ -29,6 +31,8 @@ export function SemesterList({ host }: { host: string | null }) {
   const [updating, setUpdating] = useState<TimetableTerm | null>(null);
   const [importing, setImporting] = useState(false);
   const [publishing, setPublishing] = useState<TimetableTerm | null>(null);
+  const [renaming, setRenaming] = useState<TimetableTerm | null>(null);
+  const [newName, setNewName] = useState("");
   // An update starts as a dialog over this list and takes the screen once it has a diff.
   const [updateStage, setUpdateStage] = useState<"pick" | "review">("pick");
 
@@ -41,6 +45,13 @@ export function SemesterList({ host }: { host: string | null }) {
   const deleteMutation = useMutation({
     mutationFn: (term: TimetableTerm) => deleteTimetableTerm(term.id),
     onSuccess: refresh,
+  });
+  const renameMutation = useMutation({
+    mutationFn: ({ term, name }: { term: TimetableTerm; name: string }) => renameTimetableTerm(term.id, name),
+    onSuccess: () => {
+      setRenaming(null);
+      refresh();
+    },
   });
 
   const error = publishMutation.error?.message ?? deleteMutation.error?.message ?? null;
@@ -116,7 +127,22 @@ export function SemesterList({ host }: { host: string | null }) {
                       {(terms.data ?? []).map((term) => (
                         <tr key={term.id} className="border-t border-[#e4e8ef]">
                           <td className="px-6 py-4">
-                            <span className="font-semibold text-[#171717]">{term.name}</span>
+                            <span className="inline-flex items-center gap-1.5">
+                              <span className="font-semibold text-[#171717]">{term.name}</span>
+                              <button
+                                type="button"
+                                aria-label={`Rename ${term.name}`}
+                                title="Rename this semester"
+                                onClick={() => {
+                                  setNewName(term.name);
+                                  renameMutation.reset();
+                                  setRenaming(term);
+                                }}
+                                className="rounded p-1 text-[#98a2b3] hover:bg-[#f2f7fb] hover:text-[#1f4e79]"
+                              >
+                                <Pencil size={13} aria-hidden="true" />
+                              </button>
+                            </span>
                             <span className="mt-0.5 block text-xs text-[#667085]">{term.timetableFilename}</span>
                           </td>
                           <td className="px-4 py-4 text-right tabular-nums">{term.courseCount}</td>
@@ -185,6 +211,45 @@ export function SemesterList({ host }: { host: string | null }) {
           onStage={setUpdateStage}
         />
       ) : null}
+
+      <Modal
+        open={renaming !== null}
+        title="Rename this semester"
+        description="What coordinators and students see it called. Its address for students stays the same, so links keep working."
+        onClose={() => setRenaming(null)}
+        footer={
+          <div className="flex items-center justify-end gap-3">
+            <button type="button" onClick={() => setRenaming(null)} className="text-sm font-semibold text-[#667085]">
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={!newName.trim() || renameMutation.isPending}
+              onClick={() => renaming && renameMutation.mutate({ term: renaming, name: newName.trim() })}
+              className="rounded-md bg-[#1f4e79] px-4 py-2 text-sm font-semibold text-white disabled:bg-[#9ba8b5]"
+            >
+              {renameMutation.isPending ? "Saving…" : "Rename"}
+            </button>
+          </div>
+        }
+      >
+        <label className="block text-sm font-semibold text-[#344054]">
+          Name
+          <input
+            aria-label="Semester name"
+            autoFocus
+            value={newName}
+            onChange={(event) => setNewName(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && newName.trim() && renaming) renameMutation.mutate({ term: renaming, name: newName.trim() });
+            }}
+            className="mt-1.5 block w-full rounded-md border border-[#cbd5e1] px-3 py-2 text-sm font-normal"
+          />
+        </label>
+        {renameMutation.error ? (
+          <p role="alert" className="mt-3 text-sm text-[#a6292f]">{(renameMutation.error as Error).message}</p>
+        ) : null}
+      </Modal>
 
       <ConfirmDialog
         open={pendingDelete !== null}

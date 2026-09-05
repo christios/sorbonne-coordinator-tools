@@ -47,9 +47,11 @@ class CohortInput(BaseModel):
     name: str = Field(min_length=1, max_length=160)
     term: str = Field(default="", max_length=80)
     notes: str = Field(default="", max_length=2000)
-    # What the cohort expects of its students, as the portal words it. Optional: a cohort
-    # with neither is judged on status alone.
-    program: str = Field(default="", max_length=160)
+    # What the cohort expects of its students, as the portal codes it: the majors and the
+    # portal terms it spans, and a year level. Optional: a cohort that states none of them
+    # is judged on status alone.
+    majors: list[str] = Field(default_factory=list, max_length=20)
+    terms: list[str] = Field(default_factory=list, max_length=20)
     yearLevel: str = Field(default="", max_length=40)
 
 
@@ -120,8 +122,6 @@ class CourseInput(BaseModel):
     code: str = Field(min_length=1, max_length=40)
     name: str = Field(default="", max_length=160)
     component: str = Field(default="", max_length=40)
-    ue: str = Field(default="", max_length=40)
-    parent_crn: str = Field(default="", alias="parentCrn", max_length=20)
 
 
 class SectionInput(BaseModel):
@@ -177,7 +177,12 @@ async def list_cohorts(database: StudentDatabase = Depends(get_database)) -> dic
 @router.post("/cohorts", status_code=status.HTTP_201_CREATED)
 async def create_cohort(body: CohortInput, database: StudentDatabase = Depends(get_database)) -> dict[str, Any]:
     return database.create_cohort(
-        name=body.name, term=body.term, notes=body.notes, program=body.program, year_level=body.yearLevel
+        name=body.name,
+        term=body.term,
+        notes=body.notes,
+        majors=body.majors,
+        terms=body.terms,
+        year_level=body.yearLevel,
     )
 
 
@@ -191,7 +196,8 @@ async def update_cohort(
             name=body.name,
             term=body.term,
             notes=body.notes,
-            program=body.program,
+            majors=body.majors,
+            terms=body.terms,
             year_level=body.yearLevel,
         )
     except CohortNotFound as exc:
@@ -483,14 +489,7 @@ async def add_course(
 ) -> dict[str, str]:
     try:
         return {
-            "id": database.add_course(
-                scope_id,
-                code=body.code,
-                name=body.name,
-                component=body.component,
-                ue=body.ue,
-                parent_crn=body.parent_crn,
-            )
+            "id": database.add_course(scope_id, code=body.code, name=body.name, component=body.component)
         }
     except ScopeNotFound as exc:
         raise _missing(exc, "block") from exc
@@ -501,9 +500,7 @@ async def update_course(
     course_id: str, body: CourseInput, database: StudentDatabase = Depends(get_database)
 ) -> dict[str, bool]:
     try:
-        database.update_course(
-            course_id, code=body.code, name=body.name, component=body.component, ue=body.ue, parent_crn=body.parent_crn
-        )
+        database.update_course(course_id, code=body.code, name=body.name, component=body.component)
     except CourseNotFound as exc:
         raise _missing(exc, "course") from exc
     return {"saved": True}

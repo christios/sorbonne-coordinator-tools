@@ -59,15 +59,16 @@ export function SidePane({
               onClick={() => onSelect(item.id)}
               title={item.name}
               aria-current={active ? "page" : undefined}
-              className={`flex items-center gap-3 rounded-md py-2 text-left text-sm ${
-                item.parent ? "ml-6 border-l-2 pl-3 pr-3" : "px-3"
+              // A sub-page is a smaller line under its parent: tighter, lighter, closer.
+              className={`flex items-center rounded-md text-left ${
+                item.parent ? "ml-7 gap-2 border-l-2 py-1 pl-2.5 pr-3 text-[13px]" : "gap-3 py-2 px-3 text-sm"
               } ${
                 active
                   ? `bg-[#e8edf3] font-semibold text-[#1f4e79] ${item.parent ? "border-[#1f4e79]" : ""}`
                   : `font-medium text-[#424956] hover:bg-[#f2f7fb] hover:text-[#1f4e79] ${item.parent ? "border-[#e4e8ef]" : ""}`
               }`}
             >
-              <Icon size={item.parent ? 14 : 16} className="shrink-0 text-[#1f4e79]" aria-hidden="true" />
+              <Icon size={item.parent ? 13 : 16} className={`shrink-0 ${item.parent ? "text-[#5b7a9a]" : "text-[#1f4e79]"}`} aria-hidden="true" />
               <span className="truncate">{item.name}</span>
             </button>
             </div>

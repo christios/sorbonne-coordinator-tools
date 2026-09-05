@@ -8,7 +8,7 @@ import type { TimetableTerm } from "@/services/timetables";
 import type { WorkbookPreview } from "@/services/workbookReview";
 
 const COHORT: database.Cohort = {
-  id: "cohort-1", name: "Foundation Year", term: "S1 2026-27", notes: "", program: "", yearLevel: "",
+  id: "cohort-1", name: "Foundation Year", term: "S1 2026-27", notes: "", majors: [], terms: [], yearLevel: "",
   memberCount: 0, scopeCount: 1, createdAt: "", updatedAt: "",
 };
 const TERMS = [{ id: "term-1", name: "Semester 1" } as TimetableTerm];

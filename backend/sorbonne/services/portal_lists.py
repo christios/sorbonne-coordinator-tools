@@ -42,6 +42,10 @@ class UnknownKind(Exception):
     pass
 
 
+class ActiveCourseNotFound(Exception):
+    """An active course id nothing holds any more."""
+
+
 class ActiveTeacherNotFound(Exception):
     pass
 
@@ -665,6 +669,96 @@ class PortalListStore:
         if removed == 0:
             raise ActiveTeacherNotFound(active_id)
 
+    # ---------------------------------------------------------- active courses
+
+    def list_active_courses(self) -> list[dict[str, Any]]:
+        """The department's own list of courses, with how the portal knows each."""
+        with self.engine.connect() as connection:
+            rows = (
+                connection.execute(
+                    text("""SELECT a.*,
+                                   (SELECT count(*) FROM portal_courses c
+                                     WHERE upper(c.course_code) = a.course_code) AS crn_count,
+                                   (SELECT count(DISTINCT c.term_code) FROM portal_courses c
+                                     WHERE upper(c.course_code) = a.course_code) AS term_count,
+                                   (SELECT max(c.term_code) FROM portal_courses c
+                                     WHERE upper(c.course_code) = a.course_code) AS last_term
+                            FROM active_courses a
+                            ORDER BY a.course_code""")
+                )
+                .mappings()
+                .all()
+            )
+        return [_active_course(row) for row in rows]
+
+    def add_active_courses(
+        self, *, course_codes: list[str], by_hand: list[dict[str, str]], actor: str = ""
+    ) -> dict[str, int]:
+        """Choose courses from the portal's list, or add one the portal does not list yet.
+
+        One code, one row, however many CRNs or terms the portal lists it in: the title
+        is the portal's latest word for it. A code the portal list does not hold is
+        skipped rather than invented — that is what the by-hand path is for.
+        """
+        now = _now()
+        added = skipped = 0
+        with self.engine.begin() as connection:
+            held = {
+                row[0]
+                for row in connection.execute(text("SELECT course_code FROM active_courses"))
+            }
+            for raw in course_codes:
+                code = _text(raw).upper()
+                if not code or code in held:
+                    skipped += 1
+                    continue
+                title = connection.execute(
+                    text("""SELECT title FROM portal_courses WHERE upper(course_code) = :code
+                            ORDER BY term_code DESC, crn LIMIT 1"""),
+                    {"code": code},
+                ).scalar()
+                if title is None:
+                    skipped += 1
+                    continue
+                self._insert_active_course(connection, code, _text(title), now, actor)
+                held.add(code)
+                added += 1
+            for record in by_hand:
+                code = _text(record.get("courseCode")).upper()
+                if not code or code in held:
+                    skipped += 1
+                    continue
+                self._insert_active_course(connection, code, _text(record.get("title")), now, actor)
+                held.add(code)
+                added += 1
+        return {"added": added, "skipped": skipped}
+
+    @staticmethod
+    def _insert_active_course(connection: Connection, code: str, title: str, now: str, actor: str) -> None:
+        connection.execute(
+            text("""INSERT INTO active_courses (id, course_code, title, ue, parent_crn, added_at, added_by)
+                    VALUES (:id, :code, :title, '', '', :now, :actor)"""),
+            {"id": str(uuid4()), "code": code, "title": title, "now": now, "actor": _text(actor)},
+        )
+
+    def update_active_course(self, active_id: str, *, title: str, ue: str, parent_crn: str) -> dict[str, Any]:
+        """The course's own facts: what to call it, its Sorbonne UE, the CRN its sections hang from."""
+        with self.engine.begin() as connection:
+            updated = connection.execute(
+                text("""UPDATE active_courses SET title = :title, ue = :ue, parent_crn = :parent_crn
+                        WHERE id = :id"""),
+                {"id": active_id, "title": _text(title), "ue": _text(ue), "parent_crn": _text(parent_crn)},
+            ).rowcount
+        if updated == 0:
+            raise ActiveCourseNotFound(active_id)
+        return next(course for course in self.list_active_courses() if course["id"] == active_id)
+
+    def remove_active_course(self, active_id: str) -> None:
+        with self.engine.begin() as connection:
+            removed = connection.execute(text("DELETE FROM active_courses WHERE id = :id"), {"id": active_id}).rowcount
+        if removed == 0:
+            raise ActiveCourseNotFound(active_id)
+
     # --------------------------------------------------------------- term links
 
     def term_links(self) -> dict[str, str]:
@@ -827,6 +921,22 @@ def _teacher(row: Any) -> dict[str, Any]:
         "status": row["status"],
         "firstSeenAt": row["first_seen_at"],
         "lastSeenAt": row["last_seen_at"],
+    }
+
+
+def _active_course(row: Any) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "courseCode": row["course_code"],
+        "title": row["title"],
+        "ue": row["ue"],
+        "parentCrn": row["parent_crn"],
+        "addedAt": row["added_at"],
+        "addedBy": row["added_by"],
+        # How the portal knows it: in how many CRNs, across how many terms, and the latest.
+        "crnCount": int(row["crn_count"] or 0),
+        "termCount": int(row["term_count"] or 0),
+        "lastTerm": row["last_term"] or "",
     }
 
 

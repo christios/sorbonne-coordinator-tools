@@ -107,6 +107,15 @@ export function setTimetableTermPublished(termId: string, published: boolean): P
   });
 }
 
+/** A new name for the semester. Its address for students — the slug — stays as it was. */
+export function renameTimetableTerm(termId: string, name: string): Promise<TimetableTerm> {
+  return request<TimetableTerm>(`/api/v1/timetables/terms/${termId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+}
+
 export function deleteTimetableTerm(termId: string): Promise<void> {
   return request<void>(`/api/v1/timetables/terms/${termId}`, { method: "DELETE" });
 }

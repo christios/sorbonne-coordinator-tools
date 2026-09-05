@@ -37,6 +37,7 @@ def empty_tables() -> None:
             "portal_courses",
             "portal_teachers",
             "active_teachers",
+            "active_courses",
             "student_registrations",
             "term_links",
             "students",
@@ -215,6 +216,56 @@ def test_an_active_teacher_can_be_removed(client: TestClient):
     assert client.delete(f"{BASE}/active-teachers/{active['id']}").status_code == status.HTTP_204_NO_CONTENT
     assert client.get(f"{BASE}/active-teachers").json() == {"teachers": []}
     assert client.delete(f"{BASE}/active-teachers/{active['id']}").status_code == status.HTTP_404_NOT_FOUND
+
+
+# ------------------------------------------------------------ active courses
+
+
+def seed_courses(client: TestClient) -> None:
+    made = make_filter(client, "courses")
+    client.post(
+        f"{BASE}/filters/{made['id']}/sync/courses",
+        json={
+            "rows": [
+                course("22151", "MATH-001"),
+                course("22152", "MATH-001", teacher="Dr Haddad"),
+                {**course("22160", "PHYS-001"), "termCode": "262720", "title": "Mechanics"},
+            ]
+        },
+    )
+
+
+def test_active_courses_are_chosen_from_the_portal_by_code(client: TestClient):
+    seed_courses(client)
+
+    report = client.post(f"{BASE}/active-courses", json={"courseCodes": ["math-001", "PHYS-001", "CHEM-999"]}).json()
+
+    assert report == {"added": 2, "skipped": 1}
+    held = client.get(f"{BASE}/active-courses").json()["courses"]
+    assert [(c["courseCode"], c["title"], c["crnCount"], c["lastTerm"]) for c in held] == [
+        ("MATH-001", "Course MATH-001", 2, TERM),
+        ("PHYS-001", "Mechanics", 1, "262720"),
+    ]
+    # Choosing a course again is not a second row.
+    assert client.post(f"{BASE}/active-courses", json={"courseCodes": ["MATH-001"]}).json()["skipped"] == 1
+
+
+def test_an_active_course_can_be_added_by_hand_and_given_its_ue_and_parent_crn(client: TestClient):
+    report = client.post(
+        f"{BASE}/active-courses", json={"byHand": [{"courseCode": "lang-a1", "title": "French A1"}]}
+    ).json()
+    assert report == {"added": 1, "skipped": 0}
+    [held] = client.get(f"{BASE}/active-courses").json()["courses"]
+    assert (held["courseCode"], held["title"], held["crnCount"]) == ("LANG-A1", "French A1", 0)
+
+    changed = client.patch(
+        f"{BASE}/active-courses/{held['id']}", json={"title": "French A1", "ue": "UL1LA001", "parentCrn": "24226"}
+    ).json()
+    assert (changed["ue"], changed["parentCrn"]) == ("UL1LA001", "24226")
+
+    assert client.delete(f"{BASE}/active-courses/{held['id']}").status_code == status.HTTP_204_NO_CONTENT
+    assert client.get(f"{BASE}/active-courses").json() == {"courses": []}
+    assert client.patch(f"{BASE}/active-courses/{held['id']}", json={}).status_code == status.HTTP_404_NOT_FOUND
 
 
 # -------------------------------------------------------------- registrations

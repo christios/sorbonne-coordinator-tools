@@ -49,6 +49,7 @@ const row = (over: Partial<StudentRow> = {}): StudentRow => ({
   status: "in_portal",
   cohortId: null,
   cohortName: "",
+  cohortSince: "",
   firstSeenAt: "2026-08-01T09:00:00+00:00",
   lastSeenAt: "2026-08-22T09:00:00+00:00",
   portal: { FULL_NAME: "Amira Haddad", YEARLEVEL_CODE: "FY", MAJOR_CODE_DESC: "Mathematics" },

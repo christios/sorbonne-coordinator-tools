@@ -99,6 +99,16 @@ def _text(value: object) -> str:
     return " ".join(str(value or "").split())
 
 
+def _codes(values: list[str] | None) -> list[str]:
+    """Portal codes as a tidy list: trimmed, non-empty, each once, in the order given."""
+    seen: dict[str, None] = {}
+    for value in values or []:
+        cleaned = _text(value)
+        if cleaned:
+            seen.setdefault(cleaned, None)
+    return list(seen)
+
+
 _PLACE = """INSERT INTO group_assignments
                 (cohort_id, student_id, scope_id, group_id, updated_at, updated_by)
             VALUES (:cohort, :student, :scope, :group, :updated_at, :actor)
@@ -149,21 +159,29 @@ class StudentDatabase:
             raise CohortNotFound(cohort_id)
         return _cohort(row)
 
-    def create_cohort(
-        self, *, name: str, term: str = "", notes: str = "", program: str = "", year_level: str = ""
+    def create_cohort(  # noqa: PLR0913 — one argument per column, the way the form sends them
+        self,
+        *,
+        name: str,
+        term: str = "",
+        notes: str = "",
+        majors: list[str] | None = None,
+        terms: list[str] | None = None,
+        year_level: str = "",
     ) -> dict[str, Any]:
         cohort_id, now = str(uuid4()), _now()
         with self.engine.begin() as connection:
             connection.execute(
                 text("""INSERT INTO student_cohorts
-                            (id, name, term, notes, program, year_level, created_at, updated_at)
-                        VALUES (:id, :name, :term, :notes, :program, :year_level, :now, :now)"""),
+                            (id, name, term, notes, major_codes, term_codes, year_level, created_at, updated_at)
+                        VALUES (:id, :name, :term, :notes, :majors, :terms, :year_level, :now, :now)"""),
                 {
                     "id": cohort_id,
                     "name": _text(name),
                     "term": _text(term),
                     "notes": notes.strip(),
-                    "program": _text(program),
+                    "majors": json.dumps(_codes(majors)),
+                    "terms": json.dumps(_codes(terms)),
                     "year_level": _text(year_level),
                     "now": now,
                 },
@@ -177,20 +195,22 @@ class StudentDatabase:
         name: str,
         term: str,
         notes: str,
-        program: str = "",
+        majors: list[str] | None = None,
+        terms: list[str] | None = None,
         year_level: str = "",
     ) -> dict[str, Any]:
         with self.engine.begin() as connection:
             updated = connection.execute(
                 text("""UPDATE student_cohorts SET name = :name, term = :term, notes = :notes,
-                            program = :program, year_level = :year_level,
+                            major_codes = :majors, term_codes = :terms, year_level = :year_level,
                             updated_at = :now WHERE id = :id"""),
                 {
                     "id": cohort_id,
                     "name": _text(name),
                     "term": _text(term),
                     "notes": notes.strip(),
-                    "program": _text(program),
+                    "majors": json.dumps(_codes(majors)),
+                    "terms": json.dumps(_codes(terms)),
                     "year_level": _text(year_level),
                     "now": _now(),
                 },
@@ -1059,15 +1079,13 @@ class StudentDatabase:
             connection.execute(text("DELETE FROM cohort_scopes WHERE id = :id"), {"id": scope_id})
             self._touch(connection, cohort_id)
 
-    def add_course(  # noqa: PLR0913 - one argument per column of the course
-        self, scope_id: str, *, code: str, name: str = "", component: str = "", ue: str = "", parent_crn: str = ""
-    ) -> str:
+    def add_course(self, scope_id: str, *, code: str, name: str = "", component: str = "") -> str:
         course_id = str(uuid4())
         with self.engine.begin() as connection:
             cohort_id = self._cohort_of_scope(connection, scope_id)
             connection.execute(
-                text("""INSERT INTO scope_courses (id, scope_id, code, name, component, ue, parent_crn, position)
-                        VALUES (:id, :scope_id, :code, :name, :component, :ue, :parent_crn,
+                text("""INSERT INTO scope_courses (id, scope_id, code, name, component, position)
+                        VALUES (:id, :scope_id, :code, :name, :component,
                                 (SELECT coalesce(max(position), 0) + 1 FROM scope_courses
                                  WHERE scope_id = :scope_id))
                         ON CONFLICT (scope_id, code) DO NOTHING"""),
@@ -1077,28 +1095,21 @@ class StudentDatabase:
                     "code": _text(code),
                     "name": _text(name),
                     "component": _text(component),
-                    "ue": _text(ue),
-                    "parent_crn": _text(parent_crn),
                 },
             )
             self._touch(connection, cohort_id)
         return course_id
 
-    def update_course(  # noqa: PLR0913 - one argument per column of the course
-        self, course_id: str, *, code: str, name: str, component: str, ue: str = "", parent_crn: str = ""
-    ) -> None:
+    def update_course(self, course_id: str, *, code: str, name: str, component: str) -> None:
         with self.engine.begin() as connection:
             updated = connection.execute(
-                text("""UPDATE scope_courses SET code = :code, name = :name, component = :component,
-                                                 ue = :ue, parent_crn = :parent_crn
+                text("""UPDATE scope_courses SET code = :code, name = :name, component = :component
                         WHERE id = :id"""),
                 {
                     "id": course_id,
                     "code": _text(code),
                     "name": _text(name),
                     "component": _text(component),
-                    "ue": _text(ue),
-                    "parent_crn": _text(parent_crn),
                 },
             )
             if updated.rowcount == 0:
@@ -1491,8 +1502,9 @@ def _student(row, groups: list[dict[str, str]]) -> dict[str, Any]:
 
 
 RULE_KINDS = ("changed", "changed_to", "is", "is_not", "differs")
-# What "differs from the cohort" can compare against: the two things a cohort carries.
-DIFFERS_FIELDS = ("MAJOR_CODE_DESC", "YEARLEVEL_CODE")
+# What "differs from the cohort" can compare against: the majors and terms a cohort spans
+# (by code, or by the portal's label for the code) and the year level it expects.
+DIFFERS_FIELDS = ("MAJOR_CODE", "MAJOR_CODE_DESC", "TERM_CODE", "YEARLEVEL_CODE")
 FIELD_NAME = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")
 
 
@@ -1509,7 +1521,7 @@ def _clean_rule(rule: dict[str, Any], position: int) -> dict[str, Any]:
     if kind not in RULE_KINDS:
         raise InvalidRule(f"'{kind}' is not a kind of rule.")
     if kind == "differs" and field not in DIFFERS_FIELDS:
-        raise InvalidRule(f"A cohort has no {field} to differ from; only a program or a year level.")
+        raise InvalidRule(f"A cohort has no {field} to differ from; only its majors, terms or year level.")
     if not isinstance(raw_values, list):
         raise InvalidRule("A rule's values must be a list.")
     values = [_text(value) for value in raw_values if _text(value)]
@@ -1541,7 +1553,9 @@ def _cohort(row) -> dict[str, Any]:
         "name": row["name"],
         "term": row["term"],
         "notes": row["notes"],
-        "program": row["program"] or "",
+        # What the cohort expects, as the portal codes it: the majors and terms it spans.
+        "majors": json.loads(row["major_codes"] or "[]"),
+        "terms": json.loads(row["term_codes"] or "[]"),
         "yearLevel": row["year_level"] or "",
         "memberCount": row["member_count"],
         "scopeCount": row["scope_count"],
@@ -1556,8 +1570,6 @@ def _course(row) -> dict[str, Any]:
         "code": row["code"],
         "name": row["name"],
         "component": row["component"],
-        "ue": row["ue"],
-        "parentCrn": row["parent_crn"],
     }
 
 

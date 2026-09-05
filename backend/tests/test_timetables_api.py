@@ -159,6 +159,20 @@ def test_listing_terms_passes_the_platform_response_through(client: TestClient):
     assert response.json()["terms"][0]["slug"] == "physics-maths-semester-1"
 
 
+def test_renaming_a_term_forwards_the_name(client: TestClient):
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["method"], seen["path"], seen["body"] = request.method, request.url.path, request.content.decode()
+        return httpx.Response(status.HTTP_200_OK, json={**TERM, "name": "Semester 1 (2026-27)"})
+
+    response = use(client, handler).patch("/api/v1/timetables/terms/term-1", json={"name": "Semester 1 (2026-27)"})
+
+    assert response.json()["name"] == "Semester 1 (2026-27)"
+    assert (seen["method"], seen["path"]) == ("PATCH", "/api/v1/admin/terms/term-1")
+    assert "Semester 1 (2026-27)" in seen["body"]
+
+
 def test_publishing_a_term_forwards_the_flag(client: TestClient):
     seen = {}
 

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "SCEN Rosters",
-  "version": "1.6.1",
+  "version": "1.6.2",
   "description": "One-click student rosters, courses, teachers and registrations from the PSUAD registrar portal, using your own login.",
   "permissions": [
     "storage",

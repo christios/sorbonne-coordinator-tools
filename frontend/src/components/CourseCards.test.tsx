@@ -10,7 +10,7 @@ import { EMPTY_SECTION } from "@/services/studentDatabase";
 import * as timetables from "@/services/timetables";
 
 const COHORT: database.Cohort = {
-  id: "c1", name: "Foundation Year", term: "2026-27", notes: "", program: "", yearLevel: "",
+  id: "c1", name: "Foundation Year", term: "2026-27", notes: "", majors: [], terms: [], yearLevel: "",
   memberCount: 12, scopeCount: 2, createdAt: "", updatedAt: "",
 };
 
@@ -21,8 +21,8 @@ const CATALOGUES: database.CohortCatalogue[] = [
       {
         id: "s-td", code: "TD", name: "Tutorials", note: "", termId: "term-1", kind: "shared", parentScopeId: "",
         courses: [
-          { id: "td-math", code: "MATH001", name: "Pre-calculus 1", component: "TD", ue: "", parentCrn: "24226" },
-          { id: "td-algo", code: "MATH011", name: "Algorithms", component: "TD", ue: "", parentCrn: "" },
+          { id: "td-math", code: "MATH001", name: "Pre-calculus 1", component: "TD" },
+          { id: "td-algo", code: "MATH011", name: "Algorithms", component: "TD" },
         ],
         groups: [
           { id: "td-1", label: "1", capacity: 33, note: "", program: "", parentGroupId: "", assigned: 30, crns: { "td-math": { ...EMPTY_SECTION, crn: "23223", teacherId: "act-1", hours: "50" }, "td-algo": { ...EMPTY_SECTION, crn: "23652" } } },
@@ -42,7 +42,17 @@ beforeEach(() => {
     { id: "act-1", portalTeacherId: "A001", partTimeTeacherId: "", fullName: "Samar Ghantous", email: "", source: "portal", addedAt: "", addedBy: "", teacherStatus: "", category: "", type: "", lastTerm: "", department: "", rank: "", courses: "", institution: "", portalStatus: "" },
     { id: "act-2", portalTeacherId: "A002", partTimeTeacherId: "", fullName: "Jad Tarsissi", email: "", source: "portal", addedAt: "", addedBy: "", teacherStatus: "", category: "", type: "", lastTerm: "", department: "", rank: "", courses: "", institution: "", portalStatus: "" },
   ]);
-  vi.spyOn(lists, "fetchTermCrns").mockResolvedValue({ portalTermCode: "262710", crns: { "23223": { courseCode: "MATH-001", title: "", teacherName: "Samar Ghantous", status: "in_portal" } } });
+  vi.spyOn(lists, "fetchActiveCourses").mockResolvedValue([
+    { id: "a1", courseCode: "MATH001", title: "Pre-calculus 1", ue: "UL1MA001", parentCrn: "24226", addedAt: "", addedBy: "", crnCount: 3, termCount: 1, lastTerm: "262710" },
+  ]);
+  vi.spyOn(lists, "fetchTermCrns").mockResolvedValue({
+    portalTermCode: "262710",
+    crns: {
+      "23223": { courseCode: "MATH001", title: "", teacherName: "Samar Ghantous", status: "in_portal" },
+      "23224": { courseCode: "MATH001", title: "", teacherName: "", status: "in_portal" },
+      "23999": { courseCode: "MATH001", title: "", teacherName: "Jad Tarsissi", status: "in_portal" },
+    },
+  });
   vi.spyOn(publication, "fetchPublication").mockResolvedValue({
     cohorts: [{ cohortId: "c1", cohort: "Foundation Year", students: 12, studentsResolved: 10, unassigned: { TD: ["A9", "A10"] }, warnings: [], clashes: [], isReady: false }],
     validation: { "td-1|MATH001": { status: "matched", detail: "" } },
@@ -70,25 +80,33 @@ describe("the course cards", () => {
     expect(maths.textContent).toContain("Foundation Year · Semester 1");
     expect(maths.textContent).toContain("2 sections in TD");
     expect(await within(maths).findByText("Samar Ghantous")).toBeTruthy();
-    expect(screen.queryByLabelText("CRN for TD 1 MATH001")).toBeNull();
+    expect(screen.queryByLabelText("Edit TD 1 MATH001")).toBeNull();
     expect(screen.getByText("2 courses · 1 cohort-semester")).toBeTruthy();
+    // Algorithms is not on the active list, and the card says so; Pre-calculus is, and does not.
+    const algo = screen.getByText("MATH011").closest("article") as HTMLElement;
+    expect(algo.textContent).toContain("Not on the active list");
+    expect(maths.textContent).not.toContain("Not on the active list");
   });
 
-  it("opens to the sections, and saves a CRN and a teacher on the row", async () => {
+  it("opens to the sections, and changes a CRN and a teacher through the row's dialog", async () => {
     const saveCrn = vi.spyOn(database, "setGroupCrn").mockResolvedValue();
     const saveDetails = vi.spyOn(database, "updateSection").mockResolvedValue();
     show();
 
     fireEvent.click(await screen.findByLabelText("Expand MATH001"));
-    const crn = (await screen.findByLabelText("CRN for TD 2 MATH001")) as HTMLInputElement;
-    expect(crn.value).toBe("23224");
-    expect(screen.getByText("2 in no group")).toBeTruthy();
+    expect(await screen.findByText("2 in no group")).toBeTruthy();
+    const row = screen.getByTitle("Edit TD 2 MATH001");
+    expect(row.textContent).toContain("23224");
+    fireEvent.click(screen.getByLabelText("Edit TD 2 MATH001"));
 
-    fireEvent.change(crn, { target: { value: "23999" } });
-    fireEvent.blur(crn);
+    // The CRN is chosen from the portal's list for this course; the teacher from Active teachers.
+    fireEvent.click(await screen.findByRole("combobox", { name: "CRN for TD 2 MATH001" }));
+    fireEvent.click(await screen.findByRole("option", { name: /23999/ }));
+    fireEvent.click(screen.getByRole("combobox", { name: "Teacher for TD 2 MATH001" }));
+    fireEvent.click(await screen.findByRole("option", { name: "Jad Tarsissi" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
     await waitFor(() => expect(saveCrn).toHaveBeenCalledWith("td-2", "td-math", { crn: "23999", teacher: "" }));
-
-    fireEvent.change(screen.getByLabelText("Teacher for TD 2 MATH001"), { target: { value: "act-2" } });
     await waitFor(() => expect(saveDetails).toHaveBeenCalledWith("td-2", "td-math", expect.objectContaining({ teacherId: "act-2" })));
   });
 

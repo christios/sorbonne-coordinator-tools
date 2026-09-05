@@ -24,3 +24,23 @@ Confirmed intent, 3 September 2026.
   from the portal itself; rules per cohort beyond program and year; any automatic action.
 - **Assumed:** Any coordinator may edit the rules; a dismissal is per browser, like the
   evidence it rests on.
+
+Revised 5 September 2026.
+
+- **What a cohort expects** is now said in the portal's codes: one or more majors
+  (MAJOR_CODE), one or more portal terms (TERM_CODE), and a year level. The free-text
+  programme is gone; "differs from the cohort's" compares major, term or year level
+  against those lists, matching a code or the portal's label for it.
+- **Values are read through the portal's code tables.** A rule names a code (DEPT_CODE
+  is SCEN); a pull may carry only the description (DEPT_DESC "Science and Engineering").
+  The engine reads whichever the row has and maps between them — this is why a rule on
+  the department code was silent before. The extension (1.6.2) now also asks the portal
+  for DEPT_CODE, MAJOR_CODE and PROGRAM_CODE; a rule no held pull can answer is named on
+  the page rather than shown as nothing.
+- **Status is a field a rule may name:** whether the last sync still found the student
+  in the portal ("is" / "is not" only).
+- **Arrivals:** a banner per cohort lists students whose major changed *into* one of the
+  cohort's majors and who are not in it, from the pull history; the student's record
+  says the same.
+- **The picker** counts flagged students beside each cohort's members; rule values are
+  chips rather than checkboxes.

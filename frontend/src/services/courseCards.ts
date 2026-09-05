@@ -8,6 +8,7 @@
  * so the page can be filtered and searched the way the tables are.
  */
 
+import type { ActiveCourse } from "@/services/portalLists";
 import type { CatalogueCourse, CatalogueGroup, CatalogueScope, CohortCatalogue, Section } from "@/services/studentDatabase";
 import type { GridColumn } from "@/services/studentColumns";
 
@@ -35,6 +36,9 @@ export type Card = {
   termName: string;
   code: string;
   name: string;
+  /** The active course this card is, when the code is on the department's list. */
+  active: ActiveCourse | null;
+  /** Its UE and parent CRN, read from the active course — empty when the code is not on the list. */
   ue: string;
   parentCrn: string;
   sets: CardSet[];
@@ -44,18 +48,26 @@ export type Card = {
  * Cards from every cohort's catalogue.
  *
  * A course appears once per cohort and semester, however many group sets carry it: the
- * CM set's MATH001 and the TD set's MATH001 are one card with two sets inside. The name,
- * UE and parent CRN are the first non-empty ones found, since the rows were typed apart.
+ * CM set's MATH001 and the TD set's MATH001 are one card with two sets inside. The title,
+ * UE and parent CRN are the active course's, since that is the one place they are kept;
+ * a card whose code is not on that list keeps the title typed on its rows and has no UE.
  */
-export function buildCards(cohorts: CohortCatalogue[], termName: (termId: string) => string): Card[] {
+export function buildCards(
+  cohorts: CohortCatalogue[],
+  termName: (termId: string) => string,
+  activeCourses: ActiveCourse[] = [],
+): Card[] {
+  const active = new Map(activeCourses.map((course) => [course.courseCode.toUpperCase(), course]));
   const cards = new Map<string, Card>();
   for (const held of cohorts) {
     for (const scope of held.scopes) {
       const termId = scope.termId ?? "";
       for (const course of scope.courses) {
-        const key = `${held.cohort.id}|${termId}|${course.code.toUpperCase()}`;
+        const code = course.code.toUpperCase();
+        const key = `${held.cohort.id}|${termId}|${code}`;
         let card = cards.get(key);
         if (!card) {
+          const known = active.get(code) ?? null;
           card = {
             key,
             cohortId: held.cohort.id,
@@ -63,16 +75,15 @@ export function buildCards(cohorts: CohortCatalogue[], termName: (termId: string
             termId,
             termName: termName(termId),
             code: course.code,
-            name: course.name,
-            ue: course.ue,
-            parentCrn: course.parentCrn,
+            name: known?.title || course.name,
+            active: known,
+            ue: known?.ue ?? "",
+            parentCrn: known?.parentCrn ?? "",
             sets: [],
           };
           cards.set(key, card);
         }
         card.name ||= course.name;
-        card.ue ||= course.ue;
-        card.parentCrn ||= course.parentCrn;
         card.sets.push({
           scope,
           course,
@@ -110,7 +121,13 @@ export function cardColumns(nameOf: (teacherId: string) => string): GridColumn<C
     { id: "cohortName", displayName: "Cohort", type: "option", accessor: (card) => card.cohortName, defaultWidth: 160 },
     { id: "code", displayName: "Course", type: "text", accessor: (card) => card.code, defaultWidth: 120 },
     { id: "name", displayName: "Title", type: "text", accessor: (card) => card.name, defaultWidth: 200 },
-    { id: "ue", displayName: "UE", type: "option", accessor: (card) => card.ue, defaultWidth: 120 },
+    {
+      id: "active",
+      displayName: "On the active list",
+      type: "option",
+      accessor: (card) => (card.active ? "Active" : "Not active"),
+      defaultWidth: 120,
+    },
     { id: "sets", displayName: "Group set", type: "multiOption", accessor: (card) => card.sets.map((set) => set.scope.code), defaultWidth: 120 },
     { id: "types", displayName: "Type", type: "multiOption", accessor: (card) => [...new Set(card.sets.map((set) => set.course.component).filter(Boolean))], defaultWidth: 100 },
     { id: "teachers", displayName: "Teacher", type: "multiOption", accessor: (card) => teachersOf(card, nameOf), defaultWidth: 200 },

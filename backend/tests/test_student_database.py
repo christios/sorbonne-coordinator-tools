@@ -175,22 +175,26 @@ def test_the_catalogue_carries_no_student_identity(database: StudentDatabase, co
 # ------------------------------------------------------------ discrepancies
 
 
-def test_a_cohort_can_say_what_program_and_year_it_expects(database: StudentDatabase) -> None:
-    made = database.create_cohort(name="L1 Maths", program="Applied Mathematics and Physics", year_level="L1")
+def test_a_cohort_can_say_which_majors_terms_and_year_it_expects(database: StudentDatabase) -> None:
+    made = database.create_cohort(
+        name="L1 Maths", majors=["MATH", " PHYS ", "MATH", ""], terms=["262710", "262720"], year_level="L1"
+    )
 
-    assert made["program"] == "Applied Mathematics and Physics"
+    # Codes as the portal writes them, each once, blanks dropped.
+    assert made["majors"] == ["MATH", "PHYS"]
+    assert made["terms"] == ["262710", "262720"]
     assert made["yearLevel"] == "L1"
-    # And still may say nothing: a cohort with neither is judged on status alone.
+    # And still may say nothing: a cohort with none is judged on status alone.
     plain = database.create_cohort(name="Foundation Year")
-    assert plain["program"] == "" and plain["yearLevel"] == ""
+    assert (plain["majors"], plain["terms"], plain["yearLevel"]) == ([], [], "")
 
 
 def test_a_cohort_expectation_can_be_changed(database: StudentDatabase, cohort: dict) -> None:
     changed = database.update_cohort(
-        cohort["id"], name=cohort["name"], term=cohort["term"], notes="", program="Physics", year_level="L2"
+        cohort["id"], name=cohort["name"], term=cohort["term"], notes="", majors=["PHYS"], year_level="L2"
     )
 
-    assert (changed["program"], changed["yearLevel"]) == ("Physics", "L2")
+    assert (changed["majors"], changed["terms"], changed["yearLevel"]) == (["PHYS"], [], "L2")
 
 
 def _hold(database: StudentDatabase, *ids: str) -> None:
@@ -286,6 +290,7 @@ def test_a_rule_keeps_its_id_across_a_replace(database: StudentDatabase) -> None
         ({"field": "not a field", "kind": "changed"}, "field name"),
         ({"field": "STST_CODE", "kind": "sometimes"}, "kind"),
         ({"field": "STST_CODE", "kind": "differs"}, "no STST_CODE to differ from"),
+        ({"field": "DEPT_CODE", "kind": "differs"}, "no DEPT_CODE to differ from"),
         ({"field": "STST_CODE", "kind": "changed_to", "values": []}, "needs at least one value"),
         ({"field": "STST_CODE", "kind": "is", "values": ["", "  "]}, "needs at least one value"),
         ({"field": "STST_CODE", "kind": "is_not", "values": []}, "needs at least one value"),

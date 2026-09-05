@@ -204,6 +204,47 @@ export function removeActiveTeacher(activeId: string): Promise<void> {
   return request<void>(`/active-teachers/${encodeURIComponent(activeId)}`, { method: "DELETE" });
 }
 
+/**
+ * One of the department's active courses: chosen from the portal's list or added by
+ * hand, and carrying what the timetabler's workbook needs to know about the course
+ * itself — its Sorbonne UE and the parent CRN its sections hang from.
+ */
+export type ActiveCourse = {
+  id: string;
+  courseCode: string;
+  title: string;
+  ue: string;
+  parentCrn: string;
+  addedAt: string;
+  addedBy: string;
+  /** How the portal knows it: in how many CRNs, across how many terms, and the latest term. */
+  crnCount: number;
+  termCount: number;
+  lastTerm: string;
+};
+
+export async function fetchActiveCourses(): Promise<ActiveCourse[]> {
+  return (await request<{ courses: ActiveCourse[] }>("/active-courses")).courses;
+}
+
+export function addActiveCourses(input: {
+  courseCodes?: string[];
+  byHand?: { courseCode: string; title: string }[];
+}): Promise<{ added: number; skipped: number }> {
+  return send("/active-courses", "POST", { courseCodes: [], byHand: [], ...input });
+}
+
+export function updateActiveCourse(
+  activeId: string,
+  input: { title: string; ue: string; parentCrn: string },
+): Promise<ActiveCourse> {
+  return send(`/active-courses/${encodeURIComponent(activeId)}`, "PATCH", input);
+}
+
+export function removeActiveCourse(activeId: string): Promise<void> {
+  return request<void>(`/active-courses/${encodeURIComponent(activeId)}`, { method: "DELETE" });
+}
+
 export async function fetchRegistrations(studentId: string): Promise<Registration[]> {
   return (await request<{ registrations: Registration[] }>(`/students/${encodeURIComponent(studentId)}/registrations`)).registrations;
 }

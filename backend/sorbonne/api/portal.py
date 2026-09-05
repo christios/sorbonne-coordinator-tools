@@ -15,7 +15,13 @@ from pydantic import BaseModel, Field
 
 from sorbonne.api.timetables import require_client
 from sorbonne.config import config
-from sorbonne.services.portal_lists import KINDS, ActiveTeacherNotFound, PortalListStore, UnknownKind
+from sorbonne.services.portal_lists import (
+    KINDS,
+    ActiveCourseNotFound,
+    ActiveTeacherNotFound,
+    PortalListStore,
+    UnknownKind,
+)
 from sorbonne.services.student_database import (
     CohortNotFound,
     DuplicateFilterName,
@@ -114,6 +120,24 @@ class PartTimeRef(BaseModel):
 class ActiveTeachersInput(BaseModel):
     portalTeacherIds: list[str] = Field(default_factory=list, max_length=2000)
     partTime: list[PartTimeRef] = Field(default_factory=list, max_length=2000)
+
+
+class ByHandCourse(BaseModel):
+    """A course the portal does not list yet, said by code and title."""
+
+    courseCode: str = Field(min_length=1, max_length=40)
+    title: str = Field(default="", max_length=200)
+
+
+class ActiveCoursesInput(BaseModel):
+    courseCodes: list[str] = Field(default_factory=list, max_length=2000)
+    byHand: list[ByHandCourse] = Field(default_factory=list, max_length=200)
+
+
+class ActiveCourseUpdate(BaseModel):
+    title: str = Field(default="", max_length=200)
+    ue: str = Field(default="", max_length=40)
+    parentCrn: str = Field(default="", max_length=20)
 
 
 class TermLinkInput(BaseModel):
@@ -255,6 +279,41 @@ async def remove_active_teacher(active_id: str, store: PortalListStore = Depends
         store.remove_active_teacher(active_id)
     except ActiveTeacherNotFound as exc:
         raise _missing("active teacher") from exc
+
+
+@router.get("/active-courses")
+async def list_active_courses(store: PortalListStore = Depends(get_store)) -> dict[str, Any]:
+    return {"courses": store.list_active_courses()}
+
+
+@router.post("/active-courses")
+async def add_active_courses(
+    body: ActiveCoursesInput, request: Request, store: PortalListStore = Depends(get_store)
+) -> dict[str, int]:
+    """Choose courses from the portal's list, or add one by hand."""
+    return store.add_active_courses(
+        course_codes=body.courseCodes,
+        by_hand=[record.model_dump() for record in body.byHand],
+        actor=_actor(request),
+    )
+
+
+@router.patch("/active-courses/{active_id}")
+async def update_active_course(
+    active_id: str, body: ActiveCourseUpdate, store: PortalListStore = Depends(get_store)
+) -> dict[str, Any]:
+    try:
+        return store.update_active_course(active_id, title=body.title, ue=body.ue, parent_crn=body.parentCrn)
+    except ActiveCourseNotFound as exc:
+        raise _missing("active course") from exc
+
+
+@router.delete("/active-courses/{active_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_active_course(active_id: str, store: PortalListStore = Depends(get_store)) -> None:
+    try:
+        store.remove_active_course(active_id)
+    except ActiveCourseNotFound as exc:
+        raise _missing("active course") from exc
 
 
 @router.get("/students/{student_id}/registrations")
