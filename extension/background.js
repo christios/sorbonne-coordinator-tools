@@ -21,15 +21,17 @@ const PORTAL = 'https://reg.psuad.ac.ae/PSUADPortal/';
 const ENDPOINT = PORTAL + 'Services/StudentSearch/Enrollment/List';
 
 /*
- * A whole term, a page at a time.
+ * A whole term in one request, because the portal cannot be paged.
  *
- * This used to ask for everything at once — `Take: 0`, no limit — and the first term is
- * 2876 students. One request that large is a single point of failure with nothing to show
- * for itself while it runs: the page could not tell a slow success from a hang, and gave
- * up on it.
+ * This asked a page at a time for a while, five hundred rows each, to keep a long pull
+ * visibly alive. It cost a third of the answer: the portal's Skip/Take slices are not
+ * stable, so the same person comes back on two pages and somebody else on none, and a
+ * sort by a unique column does not steady them. Measured on 5 September 2026 — 1,486
+ * active staff arrived as 1,486 rows that were 913 distinct people; 2,966 students
+ * arrived as 1,193.
  *
- * Five hundred is small enough that a page returns promptly and large enough that a term
- * is six of them rather than sixty.
+ * So it is one request again, `Take: 0`, and the liveness problem that paging was meant
+ * to solve is solved by a heartbeat instead: see fetchFilter.
  */
 const PAGE_SIZE = 500;
 
@@ -146,7 +148,7 @@ async function fetchPreset(presetId) {
  * Errors are returned rather than thrown, in the shape the caller already sends back, so
  * an expired session on page four says the same thing it would have said on page one.
  */
-async function fetchPage(equality, sort, skip, grid) {
+async function fetchPage(equality, sort, skip, grid, take = PAGE_SIZE) {
   const res = await fetch(PORTAL + 'Services/' + grid.path, {
     method: 'POST',
     credentials: 'include',        // the coordinator's own portal session
@@ -154,7 +156,7 @@ async function fetchPage(equality, sort, skip, grid) {
       'Content-Type': 'application/json',
       'X-Requested-With': 'XMLHttpRequest'
     },
-    body: JSON.stringify({ EqualityFilter: equality, Sort: sort, Skip: skip, Take: PAGE_SIZE })
+    body: JSON.stringify({ EqualityFilter: equality, Sort: sort, Skip: skip, Take: take })
   });
 
   // An expired session redirects to the HTML login page rather than erroring.
@@ -234,27 +236,39 @@ async function fetchFilter(filter, meta = {}) {
   const equality = Object.assign(grid.term ? { TERM_CODE: cfg.term.code } : {}, filter);
   const sort = meta.sort || grid.sort;
 
-  const rows = [];
+  /*
+   * One request for the whole answer, never a page at a time.
+   *
+   * The portal's Skip/Take slices are not stable: asking for the same filter in pages of
+   * 500 returns the same person on two pages and somebody else on none. Sorting by a
+   * unique column does not fix it. Measured on 5 September 2026: the active staff list is
+   * 1,486 people, and three paged requests collected 1,486 rows that were only 913
+   * distinct — a third of the department's teachers silently absent. The students were
+   * worse: 2,966 in one request, 1,193 in pages.
+   *
+   * `Take: 0` means no limit, and the portal answers it in full. It is slow for a big
+   * grid, so a heartbeat goes out while we wait: the page's watchdog is for silence, and
+   * this request is quiet for a minute or more.
+   */
+  const beat = setInterval(() => onProgress(meta, 0, null), 5000);
+  let page;
+  try {
+    page = await fetchPage(equality, sort, 0, grid, 0);
+  } catch (e) {
+    return { ok: false, error: 'network', message: e.message };
+  } finally {
+    clearInterval(beat);
+  }
+  if (page.error) return page.error;
+
+  let rows = trim(page.entities, columns);
+  onProgress(meta, rows.length, page.total);
+  // The portal said how many there are; anything else is an answer we should not trust.
+  const short = page.total !== null && rows.length !== page.total;
   let truncated = false;
-  for (let skip = 0; ; skip += PAGE_SIZE) {
-    let page;
-    try {
-      page = await fetchPage(equality, sort, skip, grid);
-    } catch (e) {
-      return { ok: false, error: 'network', message: e.message };
-    }
-    if (page.error) return page.error;
-
-    rows.push(...trim(page.entities, columns));
-    onProgress(meta, rows.length, page.total);
-
-    // The last page is the one that comes back short. A page of exactly PAGE_SIZE with
-    // nothing after it costs one extra empty request, which is the cheap way round.
-    if (page.entities.length < PAGE_SIZE) break;
-    if (rows.length >= MAX_ROWS) {
-      truncated = true;
-      break;
-    }
+  if (rows.length > MAX_ROWS) {
+    rows = rows.slice(0, MAX_ROWS);
+    truncated = true;
   }
 
   return {
@@ -270,10 +284,12 @@ async function fetchFilter(filter, meta = {}) {
     // Loud rather than silent: an unrecognised filter code returns 0 with HTTP 200.
     warning: truncated
       ? 'truncated'
-      : rows.length === 0
-        ? 'zero_rows'
-        : (meta.expect && Math.abs(meta.expect - rows.length) > Math.max(10, meta.expect * 0.15)
-            ? 'count_drift' : null),
+      : short
+        ? 'short_answer'
+        : rows.length === 0
+          ? 'zero_rows'
+          : (meta.expect && Math.abs(meta.expect - rows.length) > Math.max(10, meta.expect * 0.15)
+              ? 'count_drift' : null),
     fetchedAt: Date.now(),
     rows
   };

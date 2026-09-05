@@ -57,7 +57,13 @@ export type PortalRoster = {
   name: string;
   count: number;
   expect: number | null;
-  /** "zero_rows" when a filter code matched nothing; "count_drift" when the size moved a lot. */
+  /**
+   * What the extension noticed about the answer: "zero_rows" when a filter code matched
+   * nothing, "count_drift" when the size moved a lot, "short_answer" when the portal
+   * said how many there were and then sent fewer, "truncated" when there were too many
+   * to hold. A pull that is quietly incomplete is the worst kind, so these are said out
+   * loud on the page rather than kept here.
+   */
   warning: string | null;
   fetchedAt: number;
   rows: RosterRow[];

@@ -69,3 +69,21 @@ Revised 5 September 2026 — Courses is a register of CRNs.
   under that the register does not hold.
 - **The timetable workbook** reads the Parent CRN of each section from the register, so a
   course whose sections hang from two parents can say so.
+
+5 September 2026 — the pull was losing a third of every list.
+
+The extension asked the portal in pages of 500. The portal's Skip/Take slices are not
+stable: the same person comes back on two pages and somebody else on none, and sorting by
+a unique column does not steady them. Measured against the portal itself — 1,486 active
+staff arrived as 1,486 rows that were 913 distinct people; 2,966 students arrived as
+1,193. A pull is one request again (`Take: 0`, which the portal answers in full), with a
+heartbeat so a slow answer is not mistaken for a hang — the problem paging was introduced
+to solve.
+
+A pull that comes back shorter than the portal says it holds now says so on the page
+("short_answer"), along with the other warnings, which were computed and never shown.
+
+Teachers can be pulled by department (TEACHING_DEPT) and by category, so nobody fetches
+1,486 people to find the department's 49. Somebody teaching for two departments carries
+both codes in one field, "CEED,SCEN", and the portal matches the filter exactly, so three
+such people are missed by a search for SCEN — worth knowing when the count looks light.

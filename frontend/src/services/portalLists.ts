@@ -457,6 +457,22 @@ export function termCodeOf(term: { code: string } | null | undefined, rows: Rost
   return term?.code || (rows.length ? text(rows[0], "TERM_CODE") : "");
 }
 
+/** What a pull's warning means, in words a coordinator can act on. */
+export function describePullWarning(warning: string | null, count: number, expected: number | null): string {
+  switch (warning) {
+    case "zero_rows":
+      return "The portal answered with nobody at all. A filter code it does not recognise returns an empty list rather than an error, so check the codes.";
+    case "short_answer":
+      return `The portal said there were more than the ${count.toLocaleString()} it sent. This pull is incomplete — sync it again before trusting it.`;
+    case "truncated":
+      return `More rows than this tool will hold; the first ${count.toLocaleString()} were kept. Narrow the filter.`;
+    case "count_drift":
+      return `${count.toLocaleString()} rows, where about ${expected?.toLocaleString() ?? "another number"} was expected. Worth a look before it is relied on.`;
+    default:
+      return "";
+  }
+}
+
 /** "registered in 23224, group says 23223" — one mismatch as a sentence. */
 export function describeMismatch(mismatch: Mismatch): string {
   switch (mismatch.kind) {

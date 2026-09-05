@@ -66,6 +66,50 @@ export const GRIDS = {
         verified: false,
       },
       { key: 'LAST_TERM_CODE', label: 'Last term taught', options: [], verified: false },
+      {
+        key: 'TEACHING_DEPT',
+        label: 'Department',
+        /*
+         * Verified on 5 September 2026 against the 1,486 active staff. Somebody who
+         * teaches for two departments has both codes in one field — "CEED,SCEN" — and
+         * the portal matches this filter exactly, so three such people are missed by a
+         * search for SCEN. Narrowing to 49 from 1,486 is worth that, with eyes open.
+         */
+        options: [
+          { value: 'SCEN', label: 'Science and Engineering' },
+          { value: 'SCAI', label: 'Artificial Intelligence' },
+          { value: 'SCMA', label: 'Mathematics (SCMA)' },
+          { value: 'MATH', label: 'Mathematics' },
+          { value: 'PHYS', label: 'Physics' },
+          { value: 'AHA', label: 'Art History and Archaeology' },
+          { value: 'HIST', label: 'History' },
+          { value: 'GEOG', label: 'Geography' },
+          { value: 'LEA', label: 'Applied Foreign Languages' },
+          { value: 'LPEM', label: 'Languages' },
+          { value: 'PHSS', label: 'Philosophy and Sociology' },
+          { value: 'FRCL', label: 'French as a Foreign Language' },
+          { value: 'FREN', label: 'French Literature' },
+          { value: 'LBUS', label: 'Business' },
+          { value: 'CEIN', label: 'Information and Communication' },
+          { value: 'CEED', label: 'Education' },
+          { value: 'SPRT', label: 'Sport' },
+          { value: 'ARCI', label: 'Archaeology' },
+          { value: 'MMCM', label: 'Music and Musicology' },
+        ],
+        verified: true,
+      },
+      {
+        key: 'TEACHER_CAT_DESC',
+        label: 'Category',
+        options: [
+          { value: 'Professor', label: 'Professor' },
+          { value: 'Lecturer', label: 'Lecturer' },
+          { value: 'MDC', label: 'MDC' },
+          { value: 'Academic Coordinator', label: 'Academic Coordinator' },
+          { value: 'Head of Department', label: 'Head of Department' },
+        ],
+        verified: true,
+      },
     ],
     columns: [
       'SPRIDEN_ID', 'FULL_NAME', 'TEACHER_STATUS', 'TEACHER_CAT_DESC', 'TEACHER_TYPE_DESC',

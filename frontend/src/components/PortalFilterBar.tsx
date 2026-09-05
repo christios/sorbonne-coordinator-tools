@@ -14,6 +14,7 @@ import {
   type SyncReport,
   courseRowOf,
   createPortalFilter,
+  describePullWarning,
   deletePortalFilter,
   fetchPortalFilters,
   registrationRowOf,
@@ -63,6 +64,8 @@ export function PortalFilterBar({
   const [pendingDelete, setPendingDelete] = useState<PortalFilter | null>(null);
   const [showingFilter, setShowingFilter] = useState(false);
   const [pulled, setPulled] = useState<PullProgress | null>(null);
+  //: What the last pull was worth saying about itself, when it was not simply fine.
+  const [notice, setNotice] = useState("");
 
   const fields = schema.data?.fields ?? [];
   const available = filters.data ?? [];
@@ -79,6 +82,7 @@ export function PortalFilterBar({
   const sync = useMutation({
     mutationFn: async (target: PortalFilter) => {
       setPulled(null);
+      setNotice("");
       const roster = await pullFilter(target.filter, { name: target.name, kind }, setPulled);
       // An extension older than this page knows only the student grid and answers with
       // students whatever it was asked; those must not land as courses or teachers.
@@ -102,6 +106,9 @@ export function PortalFilterBar({
         );
       }
       onPulled?.(roster, report);
+      // A pull that came back short is the one thing that must not pass quietly: it is
+      // how a third of the department's teachers went missing without anyone noticing.
+      setNotice(describePullWarning(roster.warning, roster.count, roster.expect));
       return report;
     },
     onSettled: () => setPulled(null),
@@ -155,8 +162,13 @@ export function PortalFilterBar({
           className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-3.5 py-2 text-sm font-semibold text-white disabled:opacity-50"
         >
           {sync.isPending ? <Loader2 size={16} className="animate-spin" aria-hidden="true" /> : <Download size={16} aria-hidden="true" />}
+          {/*
+            * A pull is one request the portal answers slowly, so most of the wait has no
+            * count to show — only the heartbeat that says it is still going. "Syncing…"
+            * until rows actually arrive is the honest reading of that.
+            */}
           {sync.isPending
-            ? pulled
+            ? pulled && pulled.fetched > 0
               ? `${pulled.fetched.toLocaleString()}${pulled.total ? ` of ${pulled.total.toLocaleString()}` : ""}…`
               : "Syncing…"
             : chosen?.lastSyncedAt
@@ -203,6 +215,12 @@ export function PortalFilterBar({
           </button>
         ) : null}
       </div>
+
+      {notice && !sync.error ? (
+        <p role="status" className="max-w-md text-right text-xs text-[#8a6116]">
+          {notice}
+        </p>
+      ) : null}
 
       {sync.error ? (
         <p role="alert" className="max-w-md text-right text-xs text-[#a6292f]">
