@@ -122,14 +122,16 @@ export function FillBlock({
           capacity: group.capacity,
           program: group.program,
           assigned: group.assigned,
+          parentGroupId: group.parentGroupId,
         })),
         candidates,
         clashes: clashSet,
         order,
         policy,
         seed,
+        parentScopeId: scope.kind === "nested" ? scope.parentScopeId : "",
       }),
-    [scope.groups, candidates, clashSet, order, policy, seed],
+    [scope, candidates, clashSet, order, policy, seed],
   );
 
   const fill = useMutation({
@@ -179,6 +181,12 @@ export function FillBlock({
           >
             <Dices size={15} aria-hidden="true" /> Draw again
           </button>
+        ) : null}
+        {scope.kind === "nested" ? (
+          <Note>
+            This set nests inside another: each student goes to a group inside the parent group they already hold, and
+            anyone not yet placed in the parent set waits.
+          </Note>
         ) : null}
         {policy === "packed" && scope.groups.every((group) => !group.capacity) ? (
           <Note>No group in this block has a capacity, so packed puts everyone in the first group.</Note>

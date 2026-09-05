@@ -28,6 +28,8 @@ export type FillGroup = {
   program: string;
   /** How many sit in it already. */
   assigned: number;
+  /** For a group of a nested set: the group of the parent set it sits inside. */
+  parentGroupId?: string;
 };
 
 export type FillCandidate = {
@@ -69,6 +71,7 @@ export function planFill({
   order,
   policy,
   seed = Date.now(),
+  parentScopeId = "",
 }: {
   groups: FillGroup[];
   candidates: FillCandidate[];
@@ -78,6 +81,12 @@ export function planFill({
   policy: FillPolicy;
   /** For the random order, so a preview and what is written are the same draw. */
   seed?: number;
+  /**
+   * For a nested set: the set it sits inside. A student may only go into a group that
+   * nests in the parent group they already hold — a TP half of their own TD group —
+   * and one not yet in a parent group waits.
+   */
+  parentScopeId?: string;
 }): FillPlan {
   const counts = new Map(groups.map((group) => [group.id, group.assigned]));
   const placements: Placement[] = [];
@@ -85,7 +94,10 @@ export function planFill({
 
   const hasRoom = (group: FillGroup) => group.capacity === 0 || (counts.get(group.id) ?? 0) < group.capacity;
   const permitted = (candidate: FillCandidate) =>
-    groups.filter((group) => !Object.values(candidate.held).some((held) => clashes.has(clashKey(held, group.id))));
+    groups.filter((group) => {
+      if (parentScopeId && group.parentGroupId !== candidate.held[parentScopeId]) return false;
+      return !Object.values(candidate.held).some((held) => clashes.has(clashKey(held, group.id)));
+    });
 
   const seat = (candidate: FillCandidate, among: FillGroup[], why: Placement["why"]): boolean => {
     const open = among.filter(hasRoom);
@@ -113,8 +125,13 @@ export function planFill({
     const allowed = permitted(candidate);
     if (groups.length === 0) {
       unplaced.push({ studentId: candidate.studentId, why: "the block has no groups" });
+    } else if (parentScopeId && !candidate.held[parentScopeId]) {
+      unplaced.push({ studentId: candidate.studentId, why: "not yet in a group of the set this one nests in" });
     } else if (allowed.length === 0) {
-      unplaced.push({ studentId: candidate.studentId, why: "every group meets at the same hour as one they already hold" });
+      unplaced.push({
+        studentId: candidate.studentId,
+        why: parentScopeId ? "no group of this set nests in their parent group" : "every group meets at the same hour as one they already hold",
+      });
     } else if (!seat(candidate, allowed, "least full")) {
       unplaced.push({
         studentId: candidate.studentId,

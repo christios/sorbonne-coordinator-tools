@@ -125,6 +125,38 @@ describe("a group that clashes with one the student holds", () => {
   });
 });
 
+describe("a set nested inside another", () => {
+  // TP halves 2A and 2B sit inside TD group 2; 3A inside TD 3.
+  const halves = [
+    group("tp-2a", { capacity: 1, parentGroupId: "td-2" }),
+    group("tp-2b", { capacity: 5, parentGroupId: "td-2" }),
+    group("tp-3a", { capacity: 5, parentGroupId: "td-3" }),
+  ];
+
+  it("keeps a student inside the half of their own parent group", () => {
+    const result = plan({
+      groups: halves,
+      parentScopeId: "scope-td",
+      candidates: [student("A1", { held: { "scope-td": "td-2" } }), student("A2", { held: { "scope-td": "td-2" } }), student("A3", { held: { "scope-td": "td-3" } })],
+    });
+
+    expect(where(result)).toEqual({ A1: "tp-2a", A2: "tp-2b", A3: "tp-3a" });
+  });
+
+  it("makes a student wait who is not yet in a parent group, and says so", () => {
+    const result = plan({ groups: halves, parentScopeId: "scope-td", candidates: [student("A9")] });
+
+    expect(result.placements).toEqual([]);
+    expect(result.unplaced[0].why).toMatch(/not yet in a group/);
+  });
+
+  it("says when their parent group has no half of its own", () => {
+    const result = plan({ groups: halves, parentScopeId: "scope-td", candidates: [student("A5", { held: { "scope-td": "td-5" } })] });
+
+    expect(result.unplaced[0].why).toMatch(/nests in their parent group/);
+  });
+});
+
 describe("the order", () => {
   const people = [
     student("A2", { first: "Zara", last: "Haddad" }),
