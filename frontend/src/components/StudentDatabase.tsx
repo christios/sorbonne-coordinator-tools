@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { BookMarked, BookOpen, CalendarDays, ClipboardList, GraduationCap, ListChecks, ListTree, Megaphone, UserCheck, Users } from "lucide-react";
-import { Settings2 } from "lucide-react";
+import { Globe } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import { ActiveCourses } from "@/components/ActiveCourses";
@@ -210,7 +210,7 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
                 onClick={() => setSharedRulesOpen(true)}
                 className="inline-flex items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc]"
               >
-                <Settings2 size={15} aria-hidden="true" />
+                <Globe size={15} aria-hidden="true" />
                 Rules for every cohort
                 <span className="tabular-nums text-xs font-normal text-[#98a2b3]">{sharedCount}</span>
               </button>
