@@ -139,13 +139,29 @@ export function CapacityPage() {
 
   const cohorts = useMemo(() => {
     const held = new Map<string, string>();
-    for (const row of rows) held.set(row.cohortId, row.cohortName);
+    // Named by the cohorts that have groups of their own: a year is not in the list
+    // because it happens to hold the row for a set everybody shares.
+    for (const row of rows) if (!row.shared) held.set(row.cohortId, row.cohortName);
     return [...held.entries()].map(([id, name]) => ({ id, name })).sort((left, right) => left.name.localeCompare(right.name));
   }, [rows]);
 
   const chosen = cohorts.find((cohort) => cohort.id === cohortId) ?? cohorts[0] ?? null;
-  const mine = useMemo(() => rows.filter((row) => row.cohortId === chosen?.id), [rows, chosen]);
-  const sets = useMemo(() => capacityBySet(capacityByGroup(mine)), [mine]);
+  /*
+   * This cohort's own, and the department's.
+   *
+   * A set open to every cohort is filed under whichever one holds its row — the languages
+   * under Foundation Year — so asking for a cohort's rows showed them to that cohort and
+   * to nobody else. They belong to every year, and are shown to every year.
+   *
+   * They are kept out of the totals, though: twenty language groups would swamp L2's four,
+   * and their seats are not L2's to count. The shared sets carry their own numbers below.
+   */
+  const mine = useMemo(() => rows.filter((row) => row.cohortId === chosen?.id && !row.shared), [rows, chosen]);
+  const everyones = useMemo(() => rows.filter((row) => row.shared), [rows]);
+  const sets = useMemo(
+    () => [...capacityBySet(capacityByGroup(mine)), ...capacityBySet(capacityByGroup(everyones))],
+    [mine, everyones],
+  );
   const totals = useMemo(() => groupTotals(mine), [mine]);
   const over = useMemo(() => capacityByGroup(mine).filter((group) => group.status === "Over"), [mine]);
 
@@ -190,7 +206,11 @@ export function CapacityPage() {
       </div>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Tile label="Groups" value={String(totals.groups)} hint={`${sets.length} set${sets.length === 1 ? "" : "s"}`} />
+        <Tile
+          label="Groups"
+          value={String(totals.groups)}
+          hint={`${sets.filter((set) => !set.shared).length} set${sets.filter((set) => !set.shared).length === 1 ? "" : "s"} of this cohort's own`}
+        />
         <Tile label="Students placed" value={totals.enrolled.toLocaleString()} hint="counted once per group" />
         <Tile
           label="Seats"
@@ -251,7 +271,8 @@ export function CapacityPage() {
 
       <p className="mt-4 text-xs text-[#98a2b3]">
         A group&apos;s enrolment is the group&apos;s, whatever its set carries: open one to see its sections. Bars are
-        drawn to the fullest group of their set, so a set reads against itself.
+        drawn to the fullest group of their set, so a set reads against itself. A set shared across cohorts holds
+        this cohort&apos;s students among everybody else&apos;s, so its seats are counted apart from the totals above.
       </p>
     </section>
   );

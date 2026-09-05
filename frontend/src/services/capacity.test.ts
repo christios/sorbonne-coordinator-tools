@@ -107,6 +107,16 @@ describe("how full every group is", () => {
     });
   });
 
+  it("keeps a shared set's seats out of one cohort's totals", () => {
+    // Twenty language groups would swamp a year's four, and their seats are not that
+    // year's to count — the page shows them apart, and the totals are of the year's own.
+    const rows = capacityRows([FYS], termName);
+    const own = rows.filter((row) => !row.shared);
+
+    expect(groupTotals(own)).toMatchObject({ groups: 2, capacity: 66, enrolled: 67 });
+    expect(groupTotals(rows).groups).toBe(3);
+  });
+
   it("reads the numbers the way a coordinator would say them", () => {
     expect(statusOf(30, 31)).toBe("Over");
     expect(statusOf(30, 30)).toBe("Full");
