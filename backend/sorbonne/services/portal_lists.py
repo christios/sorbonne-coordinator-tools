@@ -684,7 +684,9 @@ class PortalListStore:
                                     p.credits, p.contact_hours,
                                     pp.title AS parent_title, pp.status AS parent_status,
                                     pp.course_code AS parent_course_code,
-                                    (SELECT count(*) FROM group_crns gc WHERE gc.crn = r.crn) AS used_by
+                                    (SELECT count(*) FROM group_crns gc WHERE gc.crn = r.crn) AS used_by,
+                                    (SELECT count(*) FROM active_course_crns k
+                                      WHERE k.term_code = r.term_code AND k.parent_crn = r.crn) AS child_count
                              FROM active_course_crns r
                              LEFT JOIN active_courses a ON a.course_code = r.course_code
                              LEFT JOIN portal_courses p
@@ -795,7 +797,9 @@ class PortalListStore:
             gone = (
                 connection.execute(
                     text(f"""SELECT r.id, r.term_code, r.crn, r.course_code,
-                                    (SELECT count(*) FROM group_crns gc WHERE gc.crn = r.crn) AS used_by
+                                    (SELECT count(*) FROM group_crns gc WHERE gc.crn = r.crn) AS used_by,
+                                    (SELECT count(*) FROM active_course_crns k
+                                      WHERE k.term_code = r.term_code AND k.parent_crn = r.crn) AS child_count
                              FROM active_course_crns r
                              LEFT JOIN portal_courses p
                                     ON p.term_code = r.term_code AND p.crn = r.crn
@@ -1207,6 +1211,8 @@ def _active_crn(row: Any) -> dict[str, Any]:
         "parentTitle": row["parent_title"] or "",
         "parentStatus": ("" if not row["parent_crn"] else (row["parent_status"] or "not_listed")),
         "parentCourseCode": (row["parent_course_code"] or "").upper(),
+        # How many of the register's CRNs hang from this one, which is what makes it a parent.
+        "childCount": int(row["child_count"] or 0),
         # How many sections of a course card teach under it.
         "usedBy": int(row["used_by"] or 0),
         "addedAt": row["added_at"],

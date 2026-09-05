@@ -229,12 +229,14 @@ export function ListGrid<T>({
 }
 
 /** A pill for a yes/no state, the way the roster marks "Not in portal". */
-export function StatePill({ tone, children }: { tone: "good" | "bad" | "muted"; children: ReactNode }) {
+export function StatePill({ tone, children }: { tone: "good" | "bad" | "muted" | "accent"; children: ReactNode }) {
   const look =
     tone === "good"
       ? "bg-[#eaf4ec] text-[#2f6b3d]"
       : tone === "bad"
         ? "bg-[#fdf3f3] text-[#a6292f]"
-        : "bg-[#eef1f5] text-[#344054]";
+        : tone === "accent"
+          ? "bg-[#e8edf3] text-[#1f4e79]"
+          : "bg-[#eef1f5] text-[#344054]";
   return <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${look}`}>{children}</span>;
 }

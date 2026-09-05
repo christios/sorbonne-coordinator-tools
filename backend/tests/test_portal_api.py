@@ -302,6 +302,31 @@ def test_a_parent_crn_is_a_link_to_the_portal_s_own_row(client: TestClient):
     assert (dangling["parentCrn"], dangling["parentStatus"]) == ("24229", "not_listed")
 
 
+def test_the_register_says_which_crns_are_parents_and_which_are_children(client: TestClient):
+    made = make_filter(client, "courses")
+    client.post(
+        f"{BASE}/filters/{made['id']}/sync/courses",
+        json={
+            "rows": [
+                course("22151", "MATH-001"),
+                course("22152", "MATH-001", teacher="Dr Haddad"),
+                {**course("24226", "MATH-001", teacher=""), "title": "Pre Calculus 1", "registered": 0},
+            ]
+        },
+    )
+    client.post(f"{BASE}/active-courses", json={"courseCodes": ["MATH-001"]})
+    register = {row["crn"]: row for row in client.get(f"{BASE}/active-crns").json()["crns"]}
+    for crn in ("22151", "22152"):
+        client.patch(f"{BASE}/active-crns/{register[crn]['id']}", json={"parentCrn": "24226"})
+
+    after = {row["crn"]: row for row in client.get(f"{BASE}/active-crns").json()["crns"]}
+
+    # The one the sections hang from counts them; each section knows it is a child.
+    assert (after["24226"]["childCount"], after["24226"]["parentCrn"]) == (2, "")
+    assert (after["22151"]["childCount"], after["22151"]["parentCrn"]) == (0, "24226")
+    assert (after["22152"]["childCount"], after["22152"]["parentCrn"]) == (0, "24226")
+
+
 def test_the_register_says_where_the_portal_has_moved_away_from_it(client: TestClient):
     made = make_filter(client, "courses")
     sync = lambda rows: client.post(f"{BASE}/filters/{made['id']}/sync/courses", json={"rows": rows})  # noqa: E731

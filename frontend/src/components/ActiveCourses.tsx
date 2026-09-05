@@ -26,6 +26,16 @@ const COLUMNS: GridColumn<ActiveCrn>[] = [
   { id: "courseCode", displayName: "Course", type: "option", accessor: (row) => row.courseCode, required: true, defaultWidth: 120 },
   { id: "portalTitle", displayName: "Section", type: "text", accessor: (row) => row.portalTitle, defaultWidth: 240 },
   { id: "parentCrn", displayName: "Parent CRN", type: "text", accessor: (row) => row.parentCrn, defaultWidth: 130 },
+  {
+    id: "role",
+    displayName: "Role",
+    // Both at once is possible — a CRN can hang from one and be hung from by another —
+    // so it filters as "include any of" rather than as one word.
+    type: "multiOption",
+    accessor: (row) => rolesOf(row),
+    display: (row) => rolesOf(row).join(" · ") || "On its own",
+    defaultWidth: 130,
+  },
   { id: "ue", displayName: "UE", type: "option", accessor: (row) => row.ue, defaultWidth: 110 },
   { id: "teacherName", displayName: "Teacher", type: "option", accessor: (row) => row.teacherName, defaultWidth: 190 },
   { id: "registered", displayName: "Registered", type: "number", accessor: (row) => row.registered, defaultWidth: 100 },
@@ -46,7 +56,18 @@ const COLUMNS: GridColumn<ActiveCrn>[] = [
   { id: "addedAt", displayName: "Added", type: "date", accessor: (row) => row.addedAt, display: (row) => row.addedAt.slice(0, 10), defaultWidth: 110 },
   { id: "addedBy", displayName: "Added by", type: "text", accessor: (row) => row.addedBy, defaultWidth: 190 },
 ];
-const SHOWN = ["crn", "courseCode", "portalTitle", "parentCrn", "ue", "teacherName", "registered", "usedBy", "portalStatus"];
+const SHOWN = ["crn", "courseCode", "portalTitle", "role", "parentCrn", "ue", "teacherName", "registered", "usedBy", "portalStatus"];
+
+/**
+ * What this CRN is within the course: the one the sections hang from, one of those
+ * sections, or neither — a CRN nobody has linked either way yet.
+ */
+function rolesOf(row: ActiveCrn): string[] {
+  const roles = [];
+  if (row.childCount) roles.push("Parent");
+  if (row.parentCrn) roles.push("Child");
+  return roles;
+}
 
 const idOf = (row: ActiveCrn) => row.id;
 const labelOf = (row: ActiveCrn) => `${row.courseCode} ${row.crn}`;
@@ -124,6 +145,18 @@ export function ActiveCourses() {
           {row.parentStatus !== "in_portal" ? (
             <Link2Off size={12} className="text-[#a6292f]" aria-label="Not a CRN the portal lists" />
           ) : null}
+        </span>
+      );
+    }
+    if (column.id === "role") {
+      const roles = rolesOf(row);
+      if (!roles.length) return <span className="text-[#c8d0da]">On its own</span>;
+      return (
+        <span className="flex flex-wrap gap-1">
+          {row.childCount ? (
+            <StatePill tone="accent">Parent of {row.childCount}</StatePill>
+          ) : null}
+          {row.parentCrn ? <StatePill tone="muted">Child</StatePill> : null}
         </span>
       );
     }

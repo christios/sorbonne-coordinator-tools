@@ -256,6 +256,8 @@ export type ActiveCrn = {
   parentTitle: string;
   parentStatus: "" | "in_portal" | "not_in_portal" | "not_listed";
   parentCourseCode: string;
+  /** How many of the register's CRNs hang from this one, which is what makes it a parent. */
+  childCount: number;
   /** How many sections of a course card teach under this CRN. */
   usedBy: number;
   addedAt: string;
