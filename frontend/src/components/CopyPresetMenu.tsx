@@ -13,7 +13,7 @@ import {
   type CopyPreset,
   type CopyPresets,
 } from "@/services/copyPresets";
-import type { StudentColumn } from "@/services/studentColumns";
+import type { ColumnMeta } from "@/services/studentColumns";
 
 /**
  * Sets of columns worth copying again, and the copying of them.
@@ -30,14 +30,17 @@ import type { StudentColumn } from "@/services/studentColumns";
  * offers upwards of forty, and choosing among them in a dropdown-width list means
  * scrolling a column of checkboxes through a letterbox.
  */
-export function CopyPresetMenu({
+export function CopyPresetMenu<C extends ColumnMeta>({
   columns,
   onCopy,
+  storageKey,
 }: {
   /** Every column that exists, not only the ones on screen. */
-  columns: StudentColumn[];
+  columns: C[];
   /** Put these columns on the clipboard. False when the browser refused. */
-  onCopy: (columns: StudentColumn[], withHeader: boolean) => Promise<boolean>;
+  onCopy: (columns: C[], withHeader: boolean) => Promise<boolean>;
+  /** Where this table's presets live; each table keeps its own, as their columns differ. */
+  storageKey?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [held, setHeld] = useState<CopyPresets>({ presets: [], withHeader: false });
@@ -45,7 +48,7 @@ export function CopyPresetMenu({
   const [state, setState] = useState<{ id: string; ok: boolean } | null>(null);
 
   // Read once on mount: they are this browser's, and a few hundred bytes.
-  useEffect(() => setHeld(loadPresets()), []);
+  useEffect(() => setHeld(loadPresets(storageKey)), [storageKey]);
 
   useEffect(() => {
     if (!state) return;
@@ -55,7 +58,7 @@ export function CopyPresetMenu({
 
   const keep = (next: CopyPresets) => {
     setHeld(next);
-    savePresets(next);
+    savePresets(next, storageKey);
   };
 
   const copy = async (preset: CopyPreset) => {
@@ -212,14 +215,14 @@ export function CopyPresetMenu({
  * the chosen set is listed back in full — a preset whose columns come out in a surprising
  * order is one you find out about after pasting.
  */
-function PresetDialog({
+function PresetDialog<C extends ColumnMeta>({
   preset,
   columns,
   onSave,
   onClose,
 }: {
   preset: CopyPreset | null;
-  columns: StudentColumn[];
+  columns: C[];
   onSave: (name: string, columnIds: string[]) => void;
   onClose: () => void;
 }) {

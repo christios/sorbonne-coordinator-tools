@@ -35,13 +35,13 @@ import {
 import {
   buildColumns,
   loadLayout,
+  sortByColumn,
   optionsFor,
   reorderColumn,
   resizeColumn,
   saveLayout,
   visibleColumns,
   type ColumnLayout,
-  type StudentColumn,
 } from "@/services/studentColumns";
 import { applyFilters, type FilterModel } from "@/services/tableFilter";
 import {
@@ -70,6 +70,8 @@ const NEW_COHORT = "__new__";
  */
 /** What a view's history is before it has been read, and after it has been forgotten. */
 const NO_HISTORY: PullHistory = { pulls: [], latest: {}, present: [] };
+
+const studentIdOf = (row: StudentRow) => row.studentId;
 
 export function StudentRoster({
   cohorts,
@@ -208,7 +210,7 @@ export function StudentRoster({
       event.preventDefault();
       setHistoryOf(next);
       document
-        .querySelector(`[data-student-id="${CSS.escape(next.studentId)}"]`)
+        .querySelector(`[data-row-id="${CSS.escape(next.studentId)}"]`)
         ?.scrollIntoView({ block: "nearest" });
     };
     document.addEventListener("keydown", walk);
@@ -353,7 +355,7 @@ export function StudentRoster({
           columns.some((column) => cellText(row, column).toLowerCase().includes(needle)),
         )
       : rows;
-    return sortRows(applyFilters(searched, columns, filters), sort, allColumns);
+    return sortByColumn(applyFilters(searched, columns, filters), sort, allColumns, studentIdOf);
   }, [rows, columns, filters, sort, query]);
 
   visibleRef.current = visible;
@@ -812,59 +814,4 @@ export function StudentRoster({
   );
 }
 
-/**
- * How every sorted list of text in this table compares.
- *
- * `numeric` so "10" follows "9" rather than "1". `sensitivity: "accent"` so case is
- * ignored — the registrar returns names and codes in whatever case it happens to hold,
- * and "MARTIN", "Martin" and "martin" are one name to a coordinator reading the list.
- * Accents still count: at Sorbonne, é is not e, and collapsing them would put French
- * names somewhere nobody expects. Values that differ only by case tie-break on the
- * student id, so the order never wobbles between renders.
- */
-const COLLATION: Intl.CollatorOptions = { numeric: true, sensitivity: "accent" };
-// Built once: `localeCompare` with options builds a collator per call, and a sort of
-// three thousand rows makes thirty-odd thousand calls — most of the pause on a filter change.
-const collator = new Intl.Collator(undefined, COLLATION);
 
-/**
- * Sort by what the column reads, whatever the column is.
- *
- * A column is not a property of the row: the portal's are reached through `portal`, under
- * ids like `portal:FULL_NAME`. Indexing the row by the column id worked for the handful
- * that happen to be properties and silently did nothing for the rest, which sorted every
- * portal column into id order.
- *
- * The accessor rather than the displayed text, because a date displays as "23 Aug 2026"
- * and that sorts alphabetically by month.
- */
-function sortRows(rows: StudentRow[], sort: Sort, columns: StudentColumn[]): StudentRow[] {
-  const direction = sort.ascending ? 1 : -1;
-  const column = columns.find((candidate) => candidate.id === sort.key);
-
-  // A column may rank differently from how it reads — Status shows three signals and none
-  // of them is the value it filters by — so its own ranking wins where it has one.
-  if (column?.sortValue) {
-    const rank = column.sortValue;
-    return [...rows].sort((left, right) => {
-      const a = rank(left);
-      const b = rank(right);
-      const compared = typeof a === "number" && typeof b === "number" ? a - b : collator.compare(String(a), String(b));
-      return (compared || collator.compare(left.studentId, right.studentId)) * direction;
-    });
-  }
-
-  const valueOf = (row: StudentRow) => {
-    const held = column?.accessor(row);
-    return Array.isArray(held) ? held.join(" ") : String(held ?? "");
-  };
-  return [...rows].sort((left, right) => {
-    // Blanks last however the sort runs: a student with no major is not the first thing
-    // you want to see when sorting by major.
-    const a = valueOf(left);
-    const b = valueOf(right);
-    if (!a !== !b) return a ? -1 : 1;
-    const compared = collator.compare(a, b);
-    return (compared || collator.compare(left.studentId, right.studentId)) * direction;
-  });
-}

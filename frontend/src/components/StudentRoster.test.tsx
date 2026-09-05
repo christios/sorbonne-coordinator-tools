@@ -1058,7 +1058,7 @@ describe("reading histories from the pane", () => {
     fireEvent.click(screen.getByRole("button", { name: "History for Amira Haddad" }));
     const pane = await screen.findByRole("complementary", { name: "Student history" });
     expect(within(pane).getByText("Amira Haddad")).toBeTruthy();
-    const lit = () => document.querySelector("tr.bg-\\[\\#eef4fa\\]")?.getAttribute("data-student-id");
+    const lit = () => document.querySelector("tr.bg-\\[\\#eef4fa\\]")?.getAttribute("data-row-id");
     expect(lit()).toBe("A001");
 
     fireEvent.keyDown(document, { key: "ArrowDown" });

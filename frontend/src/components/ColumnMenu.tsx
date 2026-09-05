@@ -7,7 +7,7 @@ import {
   moveColumn,
   toggleColumn,
   type ColumnLayout,
-  type StudentColumn,
+  type ColumnMeta,
 } from "@/services/studentColumns";
 
 /**
@@ -23,14 +23,14 @@ export function ColumnMenu({
   onChange,
 }: {
   layout: ColumnLayout;
-  columns: StudentColumn[];
+  columns: ColumnMeta[];
   onChange: (layout: ColumnLayout) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const ordered = layout.order
     .map((id) => columns.find((column) => column.id === id))
-    .filter((column): column is StudentColumn => Boolean(column));
+    .filter((column): column is ColumnMeta => Boolean(column));
   const needle = search.trim().toLowerCase();
   const listed = needle
     ? ordered.filter((column) => column.displayName.toLowerCase().includes(needle))

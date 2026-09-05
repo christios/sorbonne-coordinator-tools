@@ -13,7 +13,7 @@
  */
 
 import { rowText, tableText } from "@/services/copyCells";
-import type { StudentColumn } from "@/services/studentColumns";
+import type { ColumnMeta } from "@/services/studentColumns";
 
 const KEY = "scen-copy-presets:v1";
 
@@ -38,9 +38,9 @@ export type CopyPresets = {
 
 const EMPTY: CopyPresets = { presets: [], withHeader: false };
 
-export function loadPresets(): CopyPresets {
+export function loadPresets(storageKey: string = KEY): CopyPresets {
   try {
-    const raw = window.localStorage.getItem(KEY);
+    const raw = window.localStorage.getItem(storageKey);
     if (!raw) return EMPTY;
     const held = JSON.parse(raw) as Partial<CopyPresets>;
     return {
@@ -61,9 +61,9 @@ export function loadPresets(): CopyPresets {
   }
 }
 
-export function savePresets(held: CopyPresets): void {
+export function savePresets(held: CopyPresets, storageKey: string = KEY): void {
   try {
-    window.localStorage.setItem(KEY, JSON.stringify(held));
+    window.localStorage.setItem(storageKey, JSON.stringify(held));
   } catch {
     // A preference that cannot be remembered must never break the table.
   }
@@ -86,11 +86,11 @@ export function newPresetId(existing: CopyPreset[]): string {
  * Dropping it silently is right here: the alternative is a copy that refuses to happen
  * because of a column nobody has missed.
  */
-export function presetColumns(preset: CopyPreset, columns: StudentColumn[]): StudentColumn[] {
+export function presetColumns<C extends ColumnMeta>(preset: CopyPreset, columns: C[]): C[] {
   const known = new Map(columns.map((column) => [column.id, column]));
   return preset.columnIds
     .map((id) => known.get(id))
-    .filter((column): column is StudentColumn => Boolean(column));
+    .filter((column): column is C => Boolean(column));
 }
 
 /**
@@ -100,12 +100,13 @@ export function presetColumns(preset: CopyPreset, columns: StudentColumn[]): Stu
  * means after the filters, the search and the sort, so a preset copies what the
  * coordinator is looking at rather than the whole roster behind it.
  */
-export function rowsForCopy<Row extends { studentId: string }>(
+export function rowsForCopy<Row>(
   shown: Row[],
   selected: ReadonlySet<string>,
+  idOf: (row: Row) => string = (row) => String((row as { studentId?: string }).studentId ?? ""),
 ): Row[] {
   if (selected.size === 0) return shown;
-  const wanted = shown.filter((row) => selected.has(row.studentId));
+  const wanted = shown.filter((row) => selected.has(idOf(row)));
   // A selection made before a filter narrowed the table can have nothing left on screen.
   // Copying every row then would be the opposite of what was asked for.
   return wanted;
@@ -139,10 +140,10 @@ export function movePicked(ids: string[], id: string, by: -1 | 1): string[] {
 }
 
 /** The block a preset puts on the clipboard: rows down, the preset's columns across. */
-export function presetText<Row>(
-  columns: StudentColumn[],
+export function presetText<Row, C extends ColumnMeta>(
+  columns: C[],
   rows: Row[],
-  cell: (row: Row, column: StudentColumn) => string,
+  cell: (row: Row, column: C) => string,
   withHeader: boolean,
 ): string {
   const body = rows.map((row) => columns.map((column) => cell(row, column)));
