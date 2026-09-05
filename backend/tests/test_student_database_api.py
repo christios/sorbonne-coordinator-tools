@@ -1,6 +1,5 @@
 """The Student Database's routes, as the screens use them."""
 
-
 import pytest
 from fastapi import status
 from fastapi.testclient import TestClient
@@ -42,9 +41,7 @@ def empty_shared_tables() -> None:
 
 @pytest.fixture
 def cohort_id(client: TestClient) -> str:
-    response = client.post(
-        "/api/v1/student-database/cohorts", json={"name": "Foundation Year", "term": "S1 2026-27"}
-    )
+    response = client.post("/api/v1/student-database/cohorts", json={"name": "Foundation Year", "term": "S1 2026-27"})
     assert response.status_code == status.HTTP_201_CREATED, response.text
     return response.json()["id"]
 
@@ -62,9 +59,7 @@ def scope_of(body: dict, code: str) -> dict:
 @pytest.mark.anonymous
 def test_the_student_database_is_closed_to_a_signed_out_browser():
     with TestClient(app) as anonymous:
-        assert (
-            anonymous.get("/api/v1/student-database/cohorts").status_code == status.HTTP_401_UNAUTHORIZED
-        )
+        assert anonymous.get("/api/v1/student-database/cohorts").status_code == status.HTTP_401_UNAUTHORIZED
 
 
 def test_a_cohort_is_created_listed_and_deleted(client: TestClient):
@@ -75,10 +70,7 @@ def test_a_cohort_is_created_listed_and_deleted(client: TestClient):
     listed = client.get("/api/v1/student-database/cohorts").json()["cohorts"]
     assert created["id"] in {row["id"] for row in listed}
 
-    assert (
-        client.delete(f"/api/v1/student-database/cohorts/{created['id']}").status_code
-        == status.HTTP_204_NO_CONTENT
-    )
+    assert client.delete(f"/api/v1/student-database/cohorts/{created['id']}").status_code == status.HTTP_204_NO_CONTENT
 
 
 def preview_workbook(client: TestClient, cohort_id: str, content: bytes, name: str = "FYS.xlsx"):
@@ -140,14 +132,13 @@ def test_a_block_a_group_and_a_crn_can_be_added_by_hand(client: TestClient, coho
 
     assert saved.status_code == status.HTTP_200_OK
     stored = scope_of(catalogue(client, cohort_id), "TD")["groups"][0]
-    assert stored["crns"][course["id"]] == {"crn": "23223", "teacher": "Dr Ghantous"}
+    cell = stored["crns"][course["id"]]
+    assert cell == {**cell, "crn": "23223", "teacher": "Dr Ghantous"}
     assert stored["capacity"] == SEATS
 
 
 def test_a_repeated_group_label_is_refused_with_a_reason(client: TestClient, cohort_id: str):
-    scope = client.post(
-        f"/api/v1/student-database/cohorts/{cohort_id}/scopes", json={"code": "TD"}
-    ).json()
+    scope = client.post(f"/api/v1/student-database/cohorts/{cohort_id}/scopes", json={"code": "TD"}).json()
     client.post(f"/api/v1/student-database/scopes/{scope['id']}/groups", json={"label": "1"})
 
     repeated = client.post(f"/api/v1/student-database/scopes/{scope['id']}/groups", json={"label": "1"})
@@ -158,15 +149,9 @@ def test_a_repeated_group_label_is_refused_with_a_reason(client: TestClient, coh
 
 def test_an_empty_crn_clears_the_cell(client: TestClient, cohort_id: str):
     scope = client.post(f"/api/v1/student-database/cohorts/{cohort_id}/scopes", json={"code": "TD"}).json()
-    course = client.post(
-        f"/api/v1/student-database/scopes/{scope['id']}/courses", json={"code": "MATH001"}
-    ).json()
-    group = client.post(
-        f"/api/v1/student-database/scopes/{scope['id']}/groups", json={"label": "1"}
-    ).json()
-    client.put(
-        f"/api/v1/student-database/groups/{group['id']}/courses/{course['id']}", json={"crn": "23223"}
-    )
+    course = client.post(f"/api/v1/student-database/scopes/{scope['id']}/courses", json={"code": "MATH001"}).json()
+    group = client.post(f"/api/v1/student-database/scopes/{scope['id']}/groups", json={"label": "1"}).json()
+    client.put(f"/api/v1/student-database/groups/{group['id']}/courses/{course['id']}", json={"crn": "23223"})
 
     client.put(f"/api/v1/student-database/groups/{group['id']}/courses/{course['id']}", json={"crn": ""})
 
@@ -174,10 +159,7 @@ def test_an_empty_crn_clears_the_cell(client: TestClient, cohort_id: str):
 
 
 def test_an_unknown_cohort_answers_404(client: TestClient):
-    assert (
-        client.get("/api/v1/student-database/cohorts/nope/catalogue").status_code
-        == status.HTTP_404_NOT_FOUND
-    )
+    assert client.get("/api/v1/student-database/cohorts/nope/catalogue").status_code == status.HTTP_404_NOT_FOUND
 
 
 # ------------------------------------------------------------------ students
@@ -253,9 +235,7 @@ def test_a_later_sync_marks_who_the_view_stopped_returning(client: TestClient, v
 
 def test_two_views_may_disagree_about_a_student(client: TestClient, view_id: str):
     # The reason a view owns its membership: leaving one population is not leaving them all.
-    other = client.post(
-        "/api/v1/student-database/views", json={"name": "Everyone", "filter": {}}
-    ).json()["id"]
+    other = client.post("/api/v1/student-database/views", json={"name": "Everyone", "filter": {}}).json()["id"]
     sync(client, view_id, STUDENTS)
     sync(client, other, STUDENTS)
 
@@ -274,9 +254,7 @@ def test_a_student_no_view_returns_is_gone_from_the_record(client: TestClient, v
 
     sync(client, view_id, STUDENTS[:1])
 
-    assert {row["studentId"]: row["status"] for row in students_of(client)}["A00021505"] == (
-        "not_in_portal"
-    )
+    assert {row["studentId"]: row["status"] for row in students_of(client)}["A00021505"] == ("not_in_portal")
 
 
 def test_the_student_record_is_shared_between_views(client: TestClient, view_id: str):
@@ -309,9 +287,7 @@ def test_students_are_moved_into_a_cohort_in_bulk(client: TestClient, cohort_id:
     assert holding == {"A00021503": cohort_id, "A00021505": cohort_id, "A00021509": None}
 
 
-def test_a_null_cohort_takes_students_out_of_the_one_they_are_in(
-    client: TestClient, cohort_id: str, view_id: str
-):
+def test_a_null_cohort_takes_students_out_of_the_one_they_are_in(client: TestClient, cohort_id: str, view_id: str):
     sync(client, view_id, STUDENTS)
     client.post(
         "/api/v1/student-database/students/cohort",
@@ -369,9 +345,7 @@ def test_the_cohort_list_counts_the_students_in_it(client: TestClient, cohort_id
 
 
 def test_a_view_takes_portal_codes_only(client: TestClient):
-    refused = client.post(
-        "/api/v1/student-database/views", json={"name": "Bad", "filter": {"PASSPORT_NUMBER": ["X1"]}}
-    )
+    refused = client.post("/api/v1/student-database/views", json={"name": "Bad", "filter": {"PASSPORT_NUMBER": ["X1"]}})
 
     assert refused.status_code == status.HTTP_400_BAD_REQUEST
 
@@ -423,24 +397,16 @@ def _as_ordinary_coordinator(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         auth_gate,
         "user_for_request",
-        lambda *_args, **_kwargs: StaffUser(
-            email="colleague@sorbonne.ae", name="Colleague", is_admin=False
-        ),
+        lambda *_args, **_kwargs: StaffUser(email="colleague@sorbonne.ae", name="Colleague", is_admin=False),
     )
-
-
 
 
 # ------------------------------------------------- placing students in a block
 
 
 def block_with_a_group(client: TestClient, cohort_id: str, code: str = "TD") -> tuple[str, str]:
-    scope = client.post(
-        f"/api/v1/student-database/cohorts/{cohort_id}/scopes", json={"code": code}
-    ).json()
-    group = client.post(
-        f"/api/v1/student-database/scopes/{scope['id']}/groups", json={"label": "1"}
-    ).json()
+    scope = client.post(f"/api/v1/student-database/cohorts/{cohort_id}/scopes", json={"code": code}).json()
+    group = client.post(f"/api/v1/student-database/scopes/{scope['id']}/groups", json={"label": "1"}).json()
     return scope["id"], group["id"]
 
 
@@ -472,9 +438,7 @@ def test_students_are_placed_in_a_group_in_one_go(client: TestClient, cohort_id:
     }
 
 
-def test_a_student_this_cohort_does_not_hold_is_skipped_and_named(
-    client: TestClient, cohort_id: str, view_id: str
-):
+def test_a_student_this_cohort_does_not_hold_is_skipped_and_named(client: TestClient, cohort_id: str, view_id: str):
     """A block belongs to one cohort, so its groups are not open to everybody.
 
     Placing an outsider would write a row saying they are in a cohort they are not in, and
@@ -508,9 +472,7 @@ def test_a_whole_fill_lands_in_one_go(client: TestClient, cohort_id: str, view_i
     assert all(held[student][scope_id] == group_2 for student in STUDENTS[1:])
 
 
-def test_a_fill_naming_a_group_of_another_block_writes_nothing(
-    client: TestClient, cohort_id: str, view_id: str
-):
+def test_a_fill_naming_a_group_of_another_block_writes_nothing(client: TestClient, cohort_id: str, view_id: str):
     scope_id, group_id = block_with_a_group(client, cohort_id)
     _, other = block_with_a_group(client, cohort_id, code="CM")
     in_cohort(client, view_id, cohort_id, STUDENTS)
@@ -538,9 +500,7 @@ def test_a_group_remembers_the_programme_it_prefers(client: TestClient, cohort_i
     assert group["capacity"] == SEATS
 
 
-def test_placing_nobody_in_a_group_takes_them_out_of_the_block(
-    client: TestClient, cohort_id: str, view_id: str
-):
+def test_placing_nobody_in_a_group_takes_them_out_of_the_block(client: TestClient, cohort_id: str, view_id: str):
     scope_id, group_id = block_with_a_group(client, cohort_id)
     in_cohort(client, view_id, cohort_id, STUDENTS)
     place(client, scope_id, STUDENTS, group_id)
@@ -614,3 +574,85 @@ def test_a_cohort_carries_its_program_and_year(client: TestClient) -> None:
     assert made.status_code == status.HTTP_201_CREATED
     assert made.json()["program"] == "Applied Mathematics and Physics"
     assert made.json()["yearLevel"] == "L1"
+
+
+# ------------------------------------------------------------- the request
+
+
+def test_a_section_carries_the_timetable_request_beyond_its_crn(client: TestClient, cohort_id: str):
+    scope_id, group_id = block_with_a_group(client, cohort_id)
+    course = client.post(
+        f"/api/v1/student-database/scopes/{scope_id}/courses",
+        json={"code": "MATH-001", "name": "Pre-calculus 1", "component": "TD", "ue": "UL1MA001", "parentCrn": "24226"},
+    ).json()
+    client.put(f"/api/v1/student-database/groups/{group_id}/courses/{course['id']}", json={"crn": "23223"})
+
+    response = client.patch(
+        f"/api/v1/student-database/groups/{group_id}/courses/{course['id']}",
+        json={
+            "teacherId": "act-1",
+            "hours": "50",
+            "sessionsPerWeek": "2 sessions - weeks 2 to 14",
+            "duration": "1.5",
+            "anticipated": 33,
+            "constraints": "Should NOT be in parallel with G.2",
+            "comments": "Mutualized with Maths",
+        },
+    )
+
+    assert response.status_code == status.HTTP_200_OK, response.text
+    block = scope_of(catalogue(client, cohort_id), "TD")
+    assert block["courses"][0]["ue"] == "UL1MA001"
+    assert block["courses"][0]["parentCrn"] == "24226"
+    section = block["groups"][0]["crns"][course["id"]]
+    assert section["crn"] == "23223"
+    assert section["teacherId"] == "act-1"
+    assert section["anticipated"] == SEATS + 9
+    assert section["constraints"] == "Should NOT be in parallel with G.2"
+    assert section["retired"] is False
+
+
+def test_a_section_may_exist_before_the_portal_has_a_crn_for_it(client: TestClient, cohort_id: str):
+    scope_id, group_id = block_with_a_group(client, cohort_id)
+    course = client.post(f"/api/v1/student-database/scopes/{scope_id}/courses", json={"code": "MATH-001"}).json()
+
+    client.patch(f"/api/v1/student-database/groups/{group_id}/courses/{course['id']}", json={"hours": "50"})
+
+    section = scope_of(catalogue(client, cohort_id), "TD")["groups"][0]["crns"][course["id"]]
+    assert section == {**section, "crn": "", "hours": "50"}
+
+
+def test_a_group_set_knows_its_kind_and_a_group_its_parent(client: TestClient, cohort_id: str):
+    td = client.post(f"/api/v1/student-database/cohorts/{cohort_id}/scopes", json={"code": "TD"}).json()
+    td_group = client.post(f"/api/v1/student-database/scopes/{td['id']}/groups", json={"label": "2"}).json()
+    tp = client.post(
+        f"/api/v1/student-database/cohorts/{cohort_id}/scopes",
+        json={"code": "TP", "kind": "nested", "parentScopeId": td["id"]},
+    ).json()
+    client.post(
+        f"/api/v1/student-database/scopes/{tp['id']}/groups",
+        json={"label": "2A", "capacity": 20, "parentGroupId": td_group["id"]},
+    )
+
+    held = catalogue(client, cohort_id)
+    assert scope_of(held, "TD")["kind"] == "shared"
+    assert scope_of(held, "TP")["kind"] == "nested"
+    assert scope_of(held, "TP")["parentScopeId"] == td["id"]
+    assert scope_of(held, "TP")["groups"][0]["parentGroupId"] == td_group["id"]
+    # A kind nobody has heard of is treated as the ordinary one, not refused.
+    odd = client.post(
+        f"/api/v1/student-database/cohorts/{cohort_id}/scopes", json={"code": "X", "kind": "weird"}
+    ).json()
+    assert next(s for s in catalogue(client, cohort_id)["scopes"] if s["id"] == odd["id"])["kind"] == "shared"
+
+
+def test_the_cards_list_every_cohort_at_once(client: TestClient, cohort_id: str):
+    block_with_a_group(client, cohort_id)
+    other = client.post("/api/v1/student-database/cohorts", json={"name": "L1", "term": "S1 2026-27"}).json()
+    block_with_a_group(client, other["id"], code="CM")
+
+    payload = client.get("/api/v1/student-database/course-cards").json()
+
+    by_name = {entry["cohort"]["name"]: entry for entry in payload["cohorts"]}
+    assert [scope["code"] for scope in by_name["Foundation Year"]["scopes"]] == ["TD"]
+    assert [scope["code"] for scope in by_name["L1"]["scopes"]] == ["CM"]

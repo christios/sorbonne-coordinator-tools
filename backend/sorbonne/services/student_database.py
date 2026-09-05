@@ -25,6 +25,22 @@ from sqlalchemy import Connection, Engine, create_engine, text
 from sqlalchemy.exc import IntegrityError
 
 
+SCOPE_KINDS = ("shared", "independent", "nested")
+
+SECTION_FIELDS = (
+    "teacher_id",
+    "hours",
+    "sessions_per_week",
+    "duration",
+    "weeks",
+    "room_pref",
+    "day_pref",
+    "time_pref",
+    "constraints",
+    "comments",
+)
+
+
 class CohortNotFound(Exception):
     pass
 
@@ -34,6 +50,10 @@ class ScopeNotFound(Exception):
 
 
 class GroupNotFound(Exception):
+    pass
+
+
+class CourseNotFound(Exception):
     pass
 
 
@@ -61,7 +81,6 @@ class SavedSearch:
 
 class InvalidFilter(Exception):
     """A saved search must be portal codes and nothing else."""
-
 
 
 def _now() -> str:
@@ -182,9 +201,7 @@ class StudentDatabase:
 
     def delete_cohort(self, cohort_id: str) -> None:
         with self.engine.begin() as connection:
-            deleted = connection.execute(
-                text("DELETE FROM student_cohorts WHERE id = :id"), {"id": cohort_id}
-            )
+            deleted = connection.execute(text("DELETE FROM student_cohorts WHERE id = :id"), {"id": cohort_id})
         if deleted.rowcount == 0:
             raise CohortNotFound(cohort_id)
 
@@ -195,9 +212,7 @@ class StudentDatabase:
             rows = connection.execute(text("SELECT * FROM student_views ORDER BY name")).mappings().all()
         return [_filter(row) for row in rows]
 
-    def save_filter(
-        self, search: SavedSearch, *, filter_id: str | None = None, actor: str = ""
-    ) -> dict[str, Any]:
+    def save_filter(self, search: SavedSearch, *, filter_id: str | None = None, actor: str = "") -> dict[str, Any]:
         """Create one view. The name is how coordinators refer to it.
 
         A view with no filter is every student the term holds, which is a population like
@@ -262,9 +277,7 @@ class StudentDatabase:
 
     def delete_filter(self, filter_id: str) -> None:
         with self.engine.begin() as connection:
-            deleted = connection.execute(
-                text("DELETE FROM student_views WHERE id = :id"), {"id": filter_id}
-            )
+            deleted = connection.execute(text("DELETE FROM student_views WHERE id = :id"), {"id": filter_id})
         if deleted.rowcount == 0:
             raise FilterNotFound(filter_id)
 
@@ -511,12 +524,9 @@ class StudentDatabase:
                 ).all()
             )
 
-        crns: dict[str, dict[str, dict[str, str]]] = {}
+        crns: dict[str, dict[str, dict[str, Any]]] = {}
         for cell in cells:
-            crns.setdefault(cell["group_id"], {})[cell["course_id"]] = {
-                "crn": cell["crn"],
-                "teacher": cell["teacher"],
-            }
+            crns.setdefault(cell["group_id"], {})[cell["course_id"]] = _section(cell)
 
         return {
             "scopes": [
@@ -526,6 +536,8 @@ class StudentDatabase:
                     "name": scope["name"],
                     "note": scope["note"],
                     "termId": scope["term_id"],
+                    "kind": scope["kind"],
+                    "parentScopeId": scope["parent_scope_id"],
                     # Where this block sits in the workbook, so writing one back out puts
                     # it where it was: Readiness is a column on the tutorials tab.
                     "tab": scope["tab"],
@@ -539,6 +551,7 @@ class StudentDatabase:
                             "capacity": group["capacity"],
                             "note": group["note"],
                             "program": group["program"],
+                            "parentGroupId": group["parent_group_id"],
                             "assigned": counts.get(group["id"], 0),
                             "crns": crns.get(group["id"], {}),
                         }
@@ -549,6 +562,16 @@ class StudentDatabase:
                 for scope in scopes
             ]
         }
+
+    def list_catalogues(self) -> list[dict[str, Any]]:
+        """Every cohort's blocks, every semester — the cards page reads them all at once."""
+        return [
+            {
+                "cohort": {"id": cohort["id"], "name": cohort["name"], "term": cohort["term"]},
+                **self.read_catalogue(cohort["id"]),
+            }
+            for cohort in self.list_cohorts()
+        ]
 
     def _rows(self, connection: Connection, table: str, scope_ids: list[str], order: str):
         return (
@@ -656,9 +679,7 @@ class StudentDatabase:
 
         return {"assigned": len(wanted), "skipped": skipped}
 
-    def place_many(
-        self, *, scope_id: str, placements: dict[str, list[str]], actor: str = ""
-    ) -> dict[str, Any]:
+    def place_many(self, *, scope_id: str, placements: dict[str, list[str]], actor: str = "") -> dict[str, Any]:
         """A whole fill at once: `group id -> students`, written in one transaction.
 
         A fill that half-lands is worse than one that does not land, because the page would
@@ -744,7 +765,8 @@ class StudentDatabase:
         crns: dict[str, dict[str, str]] = {}
         for cell in cells:
             course_code = code_of.get(cell["course_id"])
-            if course_code:
+            # A section the portal has no CRN for yet, or one retired, enrols nobody.
+            if course_code and cell["crn"] and not cell["retired"]:
                 crns.setdefault(cell["group_id"], {})[course_code] = cell["crn"]
 
         for scope in scopes:
@@ -935,7 +957,8 @@ class StudentDatabase:
         crns: dict[str, dict[str, str]] = {}
         for cell in cells:
             course_code = code_of.get(cell["course_id"])
-            if course_code:
+            # A section the portal has no CRN for yet, or one retired, enrols nobody.
+            if course_code and cell["crn"] and not cell["retired"]:
                 crns.setdefault(cell["group_id"], {})[course_code] = cell["crn"]
 
         return [
@@ -973,15 +996,26 @@ class StudentDatabase:
 
     # ------------------------------------------------------- editing a scope
 
-    def add_scope(self, cohort_id: str, *, code: str, name: str = "", note: str = "", term_id: str = "") -> str:
+    def add_scope(  # noqa: PLR0913 - one argument per column of the block
+        self,
+        cohort_id: str,
+        *,
+        code: str,
+        name: str = "",
+        note: str = "",
+        term_id: str = "",
+        kind: str = "shared",
+        parent_scope_id: str = "",
+    ) -> str:
         self.get_cohort(cohort_id)
         scope_id = str(uuid4())
         with self.engine.begin() as connection:
             if self._scope_id(connection, cohort_id, _text(code), _text(term_id)):
                 raise DuplicateLabel(code)
             connection.execute(
-                text("""INSERT INTO cohort_scopes (id, cohort_id, code, name, note, term_id, position)
-                        VALUES (:id, :cohort_id, :code, :name, :note, :term_id,
+                text("""INSERT INTO cohort_scopes
+                            (id, cohort_id, code, name, note, term_id, kind, parent_scope_id, position)
+                        VALUES (:id, :cohort_id, :code, :name, :note, :term_id, :kind, :parent,
                                 (SELECT coalesce(max(position), 0) + 1 FROM cohort_scopes
                                  WHERE cohort_id = :cohort_id))"""),
                 {
@@ -991,16 +1025,29 @@ class StudentDatabase:
                     "name": _text(name),
                     "note": _text(note),
                     "term_id": _text(term_id),
+                    "kind": _scope_kind(kind),
+                    "parent": _text(parent_scope_id) if _scope_kind(kind) == "nested" else "",
                 },
             )
             self._touch(connection, cohort_id)
         return scope_id
 
-    def update_scope(self, scope_id: str, *, code: str, name: str, note: str) -> None:
+    def update_scope(  # noqa: PLR0913 - one argument per column of the block
+        self, scope_id: str, *, code: str, name: str, note: str, kind: str = "shared", parent_scope_id: str = ""
+    ) -> None:
         with self.engine.begin() as connection:
             updated = connection.execute(
-                text("UPDATE cohort_scopes SET code = :code, name = :name, note = :note WHERE id = :id"),
-                {"id": scope_id, "code": _text(code), "name": _text(name), "note": _text(note)},
+                text("""UPDATE cohort_scopes SET code = :code, name = :name, note = :note,
+                                                 kind = :kind, parent_scope_id = :parent
+                        WHERE id = :id"""),
+                {
+                    "id": scope_id,
+                    "code": _text(code),
+                    "name": _text(name),
+                    "note": _text(note),
+                    "kind": _scope_kind(kind),
+                    "parent": _text(parent_scope_id) if _scope_kind(kind) == "nested" else "",
+                },
             )
             if updated.rowcount == 0:
                 raise ScopeNotFound(scope_id)
@@ -1012,13 +1059,15 @@ class StudentDatabase:
             connection.execute(text("DELETE FROM cohort_scopes WHERE id = :id"), {"id": scope_id})
             self._touch(connection, cohort_id)
 
-    def add_course(self, scope_id: str, *, code: str, name: str = "", component: str = "") -> str:
+    def add_course(  # noqa: PLR0913 - one argument per column of the course
+        self, scope_id: str, *, code: str, name: str = "", component: str = "", ue: str = "", parent_crn: str = ""
+    ) -> str:
         course_id = str(uuid4())
         with self.engine.begin() as connection:
             cohort_id = self._cohort_of_scope(connection, scope_id)
             connection.execute(
-                text("""INSERT INTO scope_courses (id, scope_id, code, name, component, position)
-                        VALUES (:id, :scope_id, :code, :name, :component,
+                text("""INSERT INTO scope_courses (id, scope_id, code, name, component, ue, parent_crn, position)
+                        VALUES (:id, :scope_id, :code, :name, :component, :ue, :parent_crn,
                                 (SELECT coalesce(max(position), 0) + 1 FROM scope_courses
                                  WHERE scope_id = :scope_id))
                         ON CONFLICT (scope_id, code) DO NOTHING"""),
@@ -1028,17 +1077,46 @@ class StudentDatabase:
                     "code": _text(code),
                     "name": _text(name),
                     "component": _text(component),
+                    "ue": _text(ue),
+                    "parent_crn": _text(parent_crn),
                 },
             )
             self._touch(connection, cohort_id)
         return course_id
 
+    def update_course(  # noqa: PLR0913 - one argument per column of the course
+        self, course_id: str, *, code: str, name: str, component: str, ue: str = "", parent_crn: str = ""
+    ) -> None:
+        with self.engine.begin() as connection:
+            updated = connection.execute(
+                text("""UPDATE scope_courses SET code = :code, name = :name, component = :component,
+                                                 ue = :ue, parent_crn = :parent_crn
+                        WHERE id = :id"""),
+                {
+                    "id": course_id,
+                    "code": _text(code),
+                    "name": _text(name),
+                    "component": _text(component),
+                    "ue": _text(ue),
+                    "parent_crn": _text(parent_crn),
+                },
+            )
+            if updated.rowcount == 0:
+                raise CourseNotFound(course_id)
+
     def delete_course(self, course_id: str) -> None:
         with self.engine.begin() as connection:
             connection.execute(text("DELETE FROM scope_courses WHERE id = :id"), {"id": course_id})
 
-    def add_group(
-        self, scope_id: str, *, label: str, capacity: int = 0, note: str = "", program: str = ""
+    def add_group(  # noqa: PLR0913 - one argument per column of the group
+        self,
+        scope_id: str,
+        *,
+        label: str,
+        capacity: int = 0,
+        note: str = "",
+        program: str = "",
+        parent_group_id: str = "",
     ) -> str:
         group_id = str(uuid4())
         with self.engine.begin() as connection:
@@ -1050,8 +1128,9 @@ class StudentDatabase:
             if existing:
                 raise DuplicateLabel(label)
             connection.execute(
-                text("""INSERT INTO scope_groups (id, scope_id, label, capacity, note, program, position)
-                        VALUES (:id, :scope_id, :label, :capacity, :note, :program,
+                text("""INSERT INTO scope_groups
+                            (id, scope_id, label, capacity, note, program, parent_group_id, position)
+                        VALUES (:id, :scope_id, :label, :capacity, :note, :program, :parent,
                                 (SELECT coalesce(max(position), 0) + 1 FROM scope_groups
                                  WHERE scope_id = :scope_id))"""),
                 {
@@ -1061,16 +1140,26 @@ class StudentDatabase:
                     "capacity": max(0, capacity),
                     "note": _text(note),
                     "program": _text(program),
+                    "parent": _text(parent_group_id),
                 },
             )
             self._touch(connection, cohort_id)
         return group_id
 
-    def update_group(self, group_id: str, *, label: str, capacity: int, note: str, program: str = "") -> None:
+    def update_group(  # noqa: PLR0913 - one argument per column of the group
+        self,
+        group_id: str,
+        *,
+        label: str,
+        capacity: int,
+        note: str,
+        program: str = "",
+        parent_group_id: str = "",
+    ) -> None:
         with self.engine.begin() as connection:
             updated = connection.execute(
                 text("""UPDATE scope_groups SET label = :label, capacity = :capacity, note = :note,
-                                                program = :program
+                                                program = :program, parent_group_id = :parent
                         WHERE id = :id"""),
                 {
                     "id": group_id,
@@ -1078,6 +1167,7 @@ class StudentDatabase:
                     "capacity": max(0, capacity),
                     "note": _text(note),
                     "program": _text(program),
+                    "parent": _text(parent_group_id),
                 },
             )
             if updated.rowcount == 0:
@@ -1105,6 +1195,35 @@ class StudentDatabase:
                         SET crn = :crn, teacher = :teacher"""),
                 {"group_id": group_id, "course_id": course_id, "crn": value, "teacher": _text(teacher)},
             )
+
+    def update_section(self, *, group_id: str, course_id: str, **fields: Any) -> None:
+        """What the timetabler's workbook says about one section, beyond its CRN.
+
+        The CRN itself is `set_cell`'s. A section may exist without one — the portal has
+        not made it yet — so this creates the row when it is missing rather than refusing.
+        """
+        values = {name: _text(fields.get(name, "")) for name in SECTION_FIELDS}
+        values["anticipated"] = max(0, int(fields.get("anticipated", 0) or 0))
+        values["retired"] = bool(fields.get("retired", False))
+        with self.engine.begin() as connection:
+            owner = connection.execute(
+                text("SELECT scope_id FROM scope_groups WHERE id = :id"), {"id": group_id}
+            ).scalar()
+            if owner is None:
+                raise GroupNotFound(group_id)
+            course = connection.execute(
+                text("SELECT scope_id FROM scope_courses WHERE id = :id"), {"id": course_id}
+            ).scalar()
+            if course is None:
+                raise CourseNotFound(course_id)
+            assignments = ", ".join(f"{name} = :{name}" for name in (*SECTION_FIELDS, "anticipated", "retired"))
+            connection.execute(
+                text(f"""INSERT INTO group_crns (group_id, course_id, crn, teacher, {", ".join(values)})
+                         VALUES (:group_id, :course_id, '', '', {", ".join(f":{name}" for name in values)})
+                         ON CONFLICT (group_id, course_id) DO UPDATE SET {assignments}"""),  # noqa: S608 - fixed names
+                {"group_id": group_id, "course_id": course_id, **values},
+            )
+            self._touch_by_scope(connection, owner)
 
     # --------------------------------------------------------------- helpers
 
@@ -1218,9 +1337,7 @@ class StudentDatabase:
         course_id = self._ensure_course(connection, scope_id, operation)
         self._write_cell(connection, group_id, course_id, operation.get("crn", ""), operation.get("teacher", ""))
 
-    def _write_cell(
-        self, connection: Connection, group_id: str, course_id: str, crn: str, teacher: str
-    ) -> None:
+    def _write_cell(self, connection: Connection, group_id: str, course_id: str, crn: str, teacher: str) -> None:
         connection.execute(
             text("""INSERT INTO group_crns (group_id, course_id, crn, teacher)
                     VALUES (:group, :course, :crn, :teacher)
@@ -1237,9 +1354,7 @@ class StudentDatabase:
             raise GroupNotFound(group_id)
         return scope_id
 
-    def _scope_id(
-        self, connection: Connection, cohort_id: str, code: str, term_id: str = ""
-    ) -> str | None:
+    def _scope_id(self, connection: Connection, cohort_id: str, code: str, term_id: str = "") -> str | None:
         row = connection.execute(
             text("""SELECT id FROM cohort_scopes
                     WHERE cohort_id = :cohort_id AND code = :code AND term_id = :term_id"""),
@@ -1248,9 +1363,7 @@ class StudentDatabase:
         return row[0] if row else None
 
     def _cohort_of_scope(self, connection: Connection, scope_id: str) -> str:
-        row = connection.execute(
-            text("SELECT cohort_id FROM cohort_scopes WHERE id = :id"), {"id": scope_id}
-        ).first()
+        row = connection.execute(text("SELECT cohort_id FROM cohort_scopes WHERE id = :id"), {"id": scope_id}).first()
         if row is None:
             raise ScopeNotFound(scope_id)
         return row[0]
@@ -1438,4 +1551,35 @@ def _cohort(row) -> dict[str, Any]:
 
 
 def _course(row) -> dict[str, Any]:
-    return {"id": row["id"], "code": row["code"], "name": row["name"], "component": row["component"]}
+    return {
+        "id": row["id"],
+        "code": row["code"],
+        "name": row["name"],
+        "component": row["component"],
+        "ue": row["ue"],
+        "parentCrn": row["parent_crn"],
+    }
+
+
+def _section(cell) -> dict[str, Any]:
+    return {
+        "crn": cell["crn"],
+        "teacher": cell["teacher"],
+        "teacherId": cell["teacher_id"],
+        "hours": cell["hours"],
+        "sessionsPerWeek": cell["sessions_per_week"],
+        "duration": cell["duration"],
+        "weeks": cell["weeks"],
+        "anticipated": cell["anticipated"],
+        "roomPref": cell["room_pref"],
+        "dayPref": cell["day_pref"],
+        "timePref": cell["time_pref"],
+        "constraints": cell["constraints"],
+        "comments": cell["comments"],
+        "retired": bool(cell["retired"]),
+    }
+
+
+def _scope_kind(kind: str) -> str:
+    value = _text(kind).lower()
+    return value if value in SCOPE_KINDS else "shared"

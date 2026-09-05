@@ -126,9 +126,7 @@ def test_a_fully_assigned_cohort_is_ready(client: TestClient, database: StudentD
     assert payload["resolved"] == {"students": 2, "enrolments": 4}
 
 
-def test_students_in_no_group_stop_it_being_ready_and_are_named(
-    client: TestClient, database: StudentDatabase
-):
+def test_students_in_no_group_stop_it_being_ready_and_are_named(client: TestClient, database: StudentDatabase):
     build_cohort(database, assign=False)
     payload = use(client, sections_then({})).get(f"/api/v1/publication/terms/{TERM}").json()
 
@@ -156,9 +154,7 @@ def test_groups_that_meet_at_the_same_hour_are_named_with_who_sits_in_both(
     assert report["isReady"] is True
 
 
-def test_a_cohort_set_up_for_another_semester_is_not_this_ones_business(
-    client: TestClient, database: StudentDatabase
-):
+def test_a_cohort_set_up_for_another_semester_is_not_this_ones_business(client: TestClient, database: StudentDatabase):
     build_cohort(database, term_id=OTHER_TERM)
     payload = use(client, sections_then({})).get(f"/api/v1/publication/terms/{TERM}").json()
 
@@ -207,9 +203,7 @@ def _course_of(database: StudentDatabase, scope_id: str) -> str:
 # ------------------------------------------------------------ preview and publish
 
 
-def test_the_preview_sends_what_was_resolved_and_writes_nothing_here(
-    client: TestClient, database: StudentDatabase
-):
+def test_the_preview_sends_what_was_resolved_and_writes_nothing_here(client: TestClient, database: StudentDatabase):
     build_cohort(database)
     seen = {}
 
@@ -284,9 +278,7 @@ def test_a_stale_publish_keeps_the_platforms_own_refusal(client: TestClient, dat
         status.HTTP_409_CONFLICT,
     )
 
-    response = use(client, handler).post(
-        f"/api/v1/publication/terms/{TERM}/publish", json={"base_updated_at": "stale"}
-    )
+    response = use(client, handler).post(f"/api/v1/publication/terms/{TERM}/publish", json={"base_updated_at": "stale"})
 
     assert response.status_code == status.HTTP_409_CONFLICT
     assert "changed by somebody else" in response.json()["detail"]
@@ -302,9 +294,7 @@ def put_assignment(client: TestClient, scope_id: str, group_id: str | None, stud
 # ------------------------------------------------------------------- assigning
 
 
-def test_assigning_puts_a_student_in_a_group_and_replaces_what_they_had(
-    client: TestClient, database: StudentDatabase
-):
+def test_assigning_puts_a_student_in_a_group_and_replaces_what_they_had(client: TestClient, database: StudentDatabase):
     """One group per scope: assigning again moves them rather than adding a second."""
     built = build_cohort(database, assign=False)
     other = database.add_group(built["cm"], label="B")
@@ -315,9 +305,7 @@ def test_assigning_puts_a_student_in_a_group_and_replaces_what_they_had(
     assert database.assignments_of(built["cohort"]["id"])["A001"] == {built["cm"]: other}
 
 
-def test_assigning_to_nothing_leaves_them_undecided_rather_than_enrolled(
-    client: TestClient, database: StudentDatabase
-):
+def test_assigning_to_nothing_leaves_them_undecided_rather_than_enrolled(client: TestClient, database: StudentDatabase):
     built = build_cohort(database)
     put_assignment(client, built["cm"], None)
 
@@ -331,9 +319,7 @@ def test_a_group_from_another_scope_is_refused(client: TestClient, database: Stu
     assert response.status_code == status.HTTP_404_NOT_FOUND
 
 
-def test_publishing_tells_the_platform_which_cohort_each_student_is_in(
-    client: TestClient, database: StudentDatabase
-):
+def test_publishing_tells_the_platform_which_cohort_each_student_is_in(client: TestClient, database: StudentDatabase):
     """The platform has no notion of cohorts otherwise, and a notice addressed to one has
     to reach the right people."""
     build_cohort(database)
@@ -354,9 +340,7 @@ def test_publishing_tells_the_platform_which_cohort_each_student_is_in(
     assert {entry["name"] for entry in cohorts.values()} == {"Foundation Year"}
 
 
-def test_a_student_nobody_has_placed_still_gets_a_cohort(
-    client: TestClient, database: StudentDatabase
-):
+def test_a_student_nobody_has_placed_still_gets_a_cohort(client: TestClient, database: StudentDatabase):
     """They resolve to no enrolments at all, and are the likeliest to need telling why."""
     build_cohort(database)
     cohort = database.list_cohorts()[0]
@@ -380,3 +364,18 @@ def test_a_student_nobody_has_placed_still_gets_a_cohort(
 
     assert "A-unplaced" not in seen["body"]["enrolments"]
     assert seen["body"]["cohorts"]["A-unplaced"]["name"] == "Foundation Year"
+
+
+def test_a_section_without_a_crn_or_retired_enrols_nobody(client: TestClient, database: StudentDatabase):
+    built = build_cohort(database)
+    # A third course in the TD block whose section has details but no CRN yet, and a
+    # retired section for a fourth: neither may reach the platform as an enrolment.
+    pending = database.add_course(built["td"], code="PHYS-001")
+    database.update_section(group_id=built["group1"], course_id=pending, hours="30")
+    retired = database.add_course(built["td"], code="CHEM-001")
+    database.set_cell(group_id=built["group1"], course_id=retired, crn="29999")
+    database.update_section(group_id=built["group1"], course_id=retired, retired=True)
+
+    resolved = api._resolve_term(database.term_publication(TERM))
+
+    assert resolved["A001"] == ["22151", "23652"]

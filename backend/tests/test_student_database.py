@@ -102,7 +102,8 @@ class TestEditingTheCatalogue:
 
         scope = scope_of(database.read_catalogue(cohort["id"]), "TD")
         assert scope["name"] == "Tutorials"
-        assert group_of(scope, "1")["crns"][course_id] == {"crn": "23223", "teacher": "Dr Ghantous"}
+        cell = group_of(scope, "1")["crns"][course_id]
+        assert cell == {**cell, **{"crn": "23223", "teacher": "Dr Ghantous"}}
 
     def test_two_groups_in_one_scope_cannot_share_a_label(self, database: StudentDatabase, scope_id: str):
         database.add_group(scope_id, label="1")
@@ -168,7 +169,7 @@ def test_the_catalogue_carries_no_student_identity(database: StudentDatabase, co
     fields = {key for scope in catalogue["scopes"] for group in scope["groups"] for key in group}
 
     # A programme a group prefers is the group's, not any student's.
-    assert fields == {"id", "label", "capacity", "note", "program", "assigned", "crns"}
+    assert fields == {"id", "label", "capacity", "note", "program", "parentGroupId", "assigned", "crns"}
 
 
 # ------------------------------------------------------------ discrepancies
