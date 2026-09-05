@@ -13,7 +13,6 @@ import {
   STATUS_OPTIONS,
   arrivalsFor,
   labelOf,
-  registrationWarnings,
   rulesFor,
   sharedRules,
   unjudgeable,
@@ -25,8 +24,7 @@ import {
   type Rule,
   type Warning,
 } from "@/services/discrepancies";
-import { dismiss, loadDismissed, pruneDismissed, restore } from "@/services/dismissals";
-import { describeMismatch, fetchRegistrationCheck } from "@/services/portalLists";
+import { dismiss, isRegistrationKey, loadDismissed, pruneDismissed, restore } from "@/services/dismissals";
 import { allChanges } from "@/services/pullHistory";
 import { describeAge, latestPullAt, rowsHeld } from "@/services/rosterStore";
 import { displayNameOf, fetchSchema, studentIdOf, type RosterRow } from "@/services/scenRosters";
@@ -95,16 +93,6 @@ export function CohortsPage({ cohorts }: { cohorts: Cohort[] }) {
   const rules = useQuery({ queryKey: ["discrepancy-rules"], queryFn: fetchDiscrepancyRules });
   // The portal's code tables, so a rule on DEPT_CODE can read a row that carries DEPT_DESC.
   const schema = useQuery({ queryKey: ["portal-schema"], queryFn: fetchSchema, staleTime: 60_000 });
-  // The registrar's registrations against this cohort's groups: the server's comparison,
-  // read here so it lands in the same Warnings column. Best effort — a cohort with no
-  // linked semester, or no registrations pulled, simply has none.
-  const registrations = useQuery({
-    queryKey: ["registration-check", cohortId],
-    queryFn: () => fetchRegistrationCheck(cohortId),
-    enabled: Boolean(cohortId) && cohortId !== UNPLACED,
-    retry: false,
-  });
-
   // This browser's evidence: read once per visit. It has nothing to do with the rules.
   const [evidence, setEvidence] = useState<Evidence | null>(null);
   useEffect(() => {
@@ -159,18 +147,18 @@ export function CohortsPage({ cohorts }: { cohorts: Cohort[] }) {
     const out = new Map<string, Warning[]>();
     if (!judged) return out;
     const own = cohortId === UNPLACED ? judged.unplaced : (judged.byCohort.get(cohortId) ?? []);
-    const registered = cohort ? registrationWarnings(registrations.data ?? [], describeMismatch) : [];
-    for (const warning of [...own, ...registered]) {
+    for (const warning of own) {
       const marked = dismissed.has(warning.key) ? { ...warning, dismissed: true } : warning;
       out.set(warning.studentId, [...(out.get(warning.studentId) ?? []), marked]);
     }
     return out;
-  }, [judged, registrations.data, cohortId, cohort, dismissed]);
+  }, [judged, cohortId, dismissed]);
 
   // Dismissals that no longer point at anything are let go, so the store stays small.
   useEffect(() => {
     if (!byStudent.size) return;
-    setDismissed(pruneDismissed([...byStudent.values()].flat().map((warning) => warning.key)));
+    // Only this page's own: the registration dismissals belong to Course Registration.
+    setDismissed(pruneDismissed([...byStudent.values()].flat().map((warning) => warning.key), (key) => !isRegistrationKey(key)));
   }, [byStudent.size]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /*

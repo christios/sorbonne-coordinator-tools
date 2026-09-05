@@ -31,8 +31,9 @@ const PAGES = [
   { id: "students", name: "Students", icon: Users, group: "Students" },
   // Directly under Students, as its sub-tab: the pane draws a child beneath its parent.
   { id: "cohorts", name: "Cohorts", icon: ListChecks, group: "Students", parent: "students" },
-  // What the portal says each student is registered in — the pull the Cohorts warnings read.
-  { id: "registrations", name: "Registrations", icon: ClipboardList, group: "Students", parent: "students" },
+  // The other half of the Cohorts check: whether the registrar registered each student in
+  // the sections we placed them in.
+  { id: "registrations", name: "Course Registration", icon: ClipboardList, group: "Students", parent: "students" },
   { id: "groups", name: "Groups & CRNs", icon: ListTree, group: "Students" },
   // How full every group is: the Capacity sheet the workbooks carried, kept live.
   { id: "capacity", name: "Capacity", icon: GaugeCircle, group: "Students", parent: "groups" },
@@ -68,8 +69,8 @@ const TITLES: Record<PageId, { title: string; blurb?: string }> = {
     blurb: "Where what admissions says about a student has drifted from where the department put them.",
   },
   registrations: {
-    title: "Registrations",
-    blurb: "Which CRNs the portal says each student is registered in.",
+    title: "Course Registration",
+    blurb: "Whether the registrar has each student registered in the sections we placed them in.",
   },
   capacity: {
     title: "Capacity",
@@ -256,7 +257,8 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
           {page === "active-courses" ? <ActiveCourses /> : null}
           {page === "teachers" ? <PortalTeachers /> : null}
           {page === "active-teachers" ? <ActiveTeachers /> : null}
-          {page === "registrations" ? <PortalRegistrations /> : null}
+          {page === "registrations" && !cohorts.isLoading ? <PortalRegistrations cohorts={knownCohorts} /> : null}
+          {page === "registrations" && cohorts.isLoading ? <ScreenLoading label="Loading cohorts…" /> : null}
           {page === "groups" && cohorts.isLoading ? <ScreenLoading label="Loading cohorts…" /> : null}
           {page === "cohorts" && !cohorts.isLoading ? (
             <CohortsPage cohorts={knownCohorts} />

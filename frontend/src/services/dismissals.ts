@@ -43,10 +43,20 @@ export function restore(key: string): Set<string> {
   return keys;
 }
 
-/** Drop dismissals whose warning no longer exists, so the store does not grow for ever. */
-export function pruneDismissed(live: Iterable<string>): Set<string> {
+/**
+ * Drop dismissals whose warning no longer exists, so the store does not grow for ever.
+ *
+ * One store, more than one page. A page can only speak for the warnings it shows, so it
+ * says which keys are its own with `mine`; everybody else's are left alone. Without that,
+ * the Cohorts page would throw away every registration dismissal the moment it pruned,
+ * because none of those warnings are on it.
+ */
+export function pruneDismissed(live: Iterable<string>, mine: (key: string) => boolean = () => true): Set<string> {
   const alive = new Set(live);
-  const keys = new Set([...loadDismissed()].filter((key) => alive.has(key)));
+  const keys = new Set([...loadDismissed()].filter((key) => alive.has(key) || !mine(key)));
   save(keys);
   return keys;
 }
+
+/** The keys of registration differences, which live on the Course Registration page. */
+export const isRegistrationKey = (key: string) => key.startsWith("registration|");
