@@ -15,7 +15,7 @@ from sqlalchemy import text
 from sorbonne.api import portal as api
 from sorbonne.api import student_database as student_api
 from sorbonne.main import app
-from sorbonne.services.portal_lists import PortalListStore
+from sorbonne.services.portal_lists import _SECTION_TITLE, PortalListStore
 from sorbonne.services.student_database import StudentDatabase
 from tests.conftest import TEST_DATABASE_URL
 
@@ -300,6 +300,32 @@ def test_a_parent_crn_is_a_link_to_the_portal_s_own_row(client: TestClient):
     # A parent nothing in the portal answers to is shown as the dangling link it is.
     dangling = client.patch(f"{BASE}/active-crns/{section['id']}", json={"parentCrn": "24229"}).json()
     assert (dangling["parentCrn"], dangling["parentStatus"]) == ("24229", "not_listed")
+
+
+@pytest.mark.parametrize(
+    ("title", "is_section"),
+    [
+        # The registrar's own rows for a course, which carry its plain name.
+        ("Geometric Optics", False),
+        ("Graphs and Random Graphs", False),
+        ("Pre Calculus 1", False),
+        ("Mathematics Readiness course", False),
+        ("Integration to World of Work 1", False),
+        ("Intro to AI & ML -Tech Foundat", False),
+        ("Mechanics-Physics 1", False),
+        # And the rows for one group of it.
+        ("Geometric Optics -CM", True),
+        ("Geometric Optics G.B-TP", True),
+        ("Pre-Calculus 1 G.A-CM", True),
+        ("Analysis 1-TD", True),
+        ("Maths Readiness G.5-TD", True),
+        ("Intg to Wrld of Wrk1 G.1", True),
+        ("Computer Science CM", True),
+    ],
+)
+def test_a_group_marker_needs_its_dot_or_its_digit(title: str, is_section: bool):
+    """A G and some letters is a word, not a group: "Geometric Optics" names a course."""
+    assert bool(_SECTION_TITLE.search(title)) is is_section
 
 
 def test_the_register_says_which_crns_are_parents_and_which_are_children(client: TestClient):

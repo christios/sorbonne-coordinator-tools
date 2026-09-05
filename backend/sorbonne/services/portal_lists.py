@@ -1181,7 +1181,14 @@ def _teacher(row: Any) -> dict[str, Any]:
 
 # A section's title says which group it is — "Pre-Calculus 1 G.A-CM", "Analysis 1-TD".
 # The course's own row says none of that, which is how the two are told apart.
-_SECTION_TITLE = re.compile(r"(\bG\.?\s*[0-9A-Z]+\b|[-–]\s*(CM|TD|TP)\b|\b(CM|TD|TP)\s*$)", re.IGNORECASE)
+#
+# The group marker needs its dot or its digit: "G.1", "G.A-CM", "G2". Without that, a G
+# and some letters is just a word, and "Geometric Optics" was being read as a section of
+# something — which is exactly how Geometric Optics lost its parent CRN.
+_SECTION_TITLE = re.compile(
+    r"(\bG\.\s*[0-9A-Z]+\b|\bG\s*[0-9]\w*\b|[-–]\s*(CM|TD|TP)\b|\b(CM|TD|TP)\s*$)",
+    re.IGNORECASE,
+)
 
 
 def _parent_row(connection: Connection, code: str) -> Any:
