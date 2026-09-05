@@ -1,12 +1,61 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Pencil, Trash2, Users } from "lucide-react";
+import { Pencil, Plus, Trash2, Users } from "lucide-react";
 import { useState } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Modal } from "@/components/Modal";
 import { SelectMenu } from "@/components/SelectMenu";
-import { fetchSchema, type PortalField } from "@/services/scenRosters";
+import { fetchPortalCourses, fetchTermLinks } from "@/services/portalLists";
+import { rowsHeld } from "@/services/rosterStore";
+import { fetchSchema, type PortalField, type RosterRow } from "@/services/scenRosters";
 import { type Cohort, deleteCohort, updateCohort } from "@/services/studentDatabase";
+
+type Option = { value: string; label: string };
+
+/** The codes the department has always dealt in, for a browser that has read nothing yet. */
+const KNOWN: Record<string, Option[]> = {
+  MAJOR_CODE: [
+    { value: "MATH", label: "Applied Mathematics and Physics" },
+    { value: "PHYS", label: "Physics" },
+  ],
+  YEARLEVEL_CODE: [
+    { value: "FY", label: "Foundation Year" },
+    { value: "L1", label: "L1" },
+    { value: "L2", label: "L2" },
+    { value: "L3", label: "L3" },
+  ],
+  TERM_CODE: [],
+};
+
+/**
+ * Every code a field is known to take, from every source this browser has: the portal's
+ * own table when the extension has read it, the values on the rows the pulls hold, the
+ * portal terms other pages know, and the codes the department has always used. Each once,
+ * the portal's label where there is one.
+ */
+function choicesFor(field: string, sources: { schema: PortalField[]; rows: RosterRow[]; extra: Option[] }): Option[] {
+  const out = new Map<string, string>();
+  const add = (value: string, label = "") => {
+    const code = value.trim();
+    if (!code) return;
+    if (!out.has(code) || (label && out.get(code) === code)) out.set(code, label || out.get(code) || code);
+  };
+  for (const option of sources.schema.find((held) => held.key.toUpperCase() === field)?.options ?? []) add(option.value, option.label);
+  for (const option of sources.extra) add(option.value, option.label);
+  for (const option of KNOWN[field] ?? []) add(option.value, option.label);
+  // What the pulls carry: the code when they have it, else the description, which the
+  // rules match by label anyway.
+  const described = field.replace(/_CODE$/, "_DESC");
+  for (const row of sources.rows) {
+    const code = String(row[field] ?? "").trim();
+    const desc = String(row[described] ?? row[`${field}_DESC`] ?? "").trim();
+    if (code) add(code, desc);
+    else if (desc) add(desc);
+  }
+  return [...out.entries()]
+    .map(([value, label]) => ({ value, label: label === value ? value : `${label} (${value})` }))
+    .sort((left, right) => left.label.localeCompare(right.label));
+}
 
 /**
  * Renaming a cohort, saying what it expects, deleting one, and seeing who is in it.
@@ -36,6 +85,9 @@ export function CohortActions({
   const [terms, setTerms] = useState<string[]>(cohort.terms);
   const [yearLevel, setYearLevel] = useState(cohort.yearLevel);
   const schema = useQuery({ queryKey: ["portal-schema"], queryFn: fetchSchema, enabled: editing, staleTime: 60_000 });
+  const held = useQuery({ queryKey: ["roster-rows-held"], queryFn: rowsHeld, enabled: editing, staleTime: 60_000 });
+  const portalTerms = useQuery({ queryKey: ["portal", "courses", ""], queryFn: () => fetchPortalCourses("", ""), enabled: editing, retry: false });
+  const links = useQuery({ queryKey: ["term-links"], queryFn: fetchTermLinks, enabled: editing, retry: false });
 
   const refresh = () => client.invalidateQueries({ queryKey: ["cohorts"] });
   const save = useMutation({
@@ -61,14 +113,18 @@ export function CohortActions({
     },
   });
 
-  const fields = schema.data?.fields ?? [];
-  const optionsOf = (key: string) => fields.find((field) => field.key.toUpperCase() === key)?.options ?? [];
-  // The term the extension is set to is always offered, even before the portal's list is read.
-  const termOptions = [...optionsOf("TERM_CODE")];
+  const sources = { schema: schema.data?.fields ?? [], rows: held.data ?? [], extra: [] as Option[] };
+  // Terms come from more places than a table: the term the extension is set to, the terms
+  // the Courses list holds, and the ones the semesters are linked to.
   const current = schema.data?.term;
-  if (current && !termOptions.some((option) => option.value === current.code)) {
-    termOptions.unshift({ value: current.code, label: current.label || current.code });
-  }
+  const termExtra: Option[] = [
+    ...(current ? [{ value: current.code, label: current.label || current.code }] : []),
+    ...(portalTerms.data?.terms ?? []).map((code) => ({ value: code, label: code })),
+    ...Object.values(links.data ?? {}).map((code) => ({ value: code, label: code })),
+  ];
+  const majorOptions = choicesFor("MAJOR_CODE", sources);
+  const termOptions = choicesFor("TERM_CODE", { ...sources, extra: termExtra });
+  const yearOptions = choicesFor("YEARLEVEL_CODE", sources);
 
   return (
     <>
@@ -156,7 +212,7 @@ export function CohortActions({
             label="Majors the cohort expects"
             hint="MAJOR_CODE, as the portal filters by it. More than one when the cohort spans them."
             values={majors}
-            options={optionsOf("MAJOR_CODE")}
+            options={majorOptions}
             placeholder="MATH, PHYS"
             noun="major"
             onChange={setMajors}
@@ -174,18 +230,16 @@ export function CohortActions({
             label="Year level the cohort expects"
             hint="YEARLEVEL_CODE — one, or none."
             values={yearLevel ? [yearLevel] : []}
-            options={optionsOf("YEARLEVEL_CODE")}
+            options={yearOptions}
             placeholder="L1"
             noun="year level"
             single
             onChange={(next) => setYearLevel(next[0] ?? "")}
           />
-          {schema.data && schema.data.source !== "portal" ? (
-            <p className="text-xs text-[#98a2b3]">
-              The portal&apos;s code tables have not been read yet, so codes are typed rather than chosen. Open the portal
-              once with the extension installed and they will be offered.
-            </p>
-          ) : null}
+          <p className="text-xs text-[#98a2b3]">
+            Codes come from the portal&apos;s tables as the extension read them, from the pulls this browser holds, and
+            from the ones the department has always used. A code not listed can be added under its field.
+          </p>
           {save.error ? (
             <p role="alert" className="rounded-md border border-[#e5b7b9] bg-[#fdf3f3] px-4 py-3 text-sm text-[#a6292f]">
               {(save.error as Error).message}
@@ -207,8 +261,9 @@ export function CohortActions({
 }
 
 /**
- * Portal codes, chosen from the portal's own table when the extension has read it, and
- * typed when it has not. Either way what is kept is the code, never the label.
+ * Portal codes, chosen from a list — never typed into the list itself. What is kept is
+ * the code, never the label. A code nobody has listed yet can be added underneath, and
+ * from then on it is one of the choices.
  */
 export function CodesField({
   label,
@@ -223,52 +278,76 @@ export function CodesField({
   label: string;
   hint?: string;
   values: string[];
-  options: PortalField["options"];
+  options: Option[];
   placeholder: string;
   noun: string;
   single?: boolean;
   onChange: (values: string[]) => void;
 }) {
-  // A value the table does not list — typed on a day it was not read — is still offered,
+  const [other, setOther] = useState("");
+  const [adding, setAdding] = useState(false);
+  // A value the list does not carry — saved on a day it was not known — is still offered,
   // so a saved cohort never shows a blank where its own expectation should be.
   const offered = [...options];
   for (const value of values) {
     if (!offered.some((option) => option.value === value)) offered.push({ value, label: value });
   }
+  const add = () => {
+    const code = other.trim().toUpperCase();
+    if (!code) return;
+    onChange(single ? [code] : values.includes(code) ? values : [...values, code]);
+    setOther("");
+    setAdding(false);
+  };
   return (
     <div className="block text-sm font-semibold text-[#344054]">
       {label}
       {hint ? <span className="block text-xs font-normal text-[#98a2b3]">{hint}</span> : null}
       <div className="mt-1.5">
-        {options.length ? (
-          <SelectMenu
-            label={label}
-            value={single ? (values[0] ?? "") : values.join("\n")}
-            multiple={!single}
-            itemNoun={noun}
-            placeholder={single ? "None" : `Choose ${noun}s…`}
-            searchable={offered.length > 12}
-            onChange={(next) => onChange(single ? (next ? [next] : []) : next.split("\n").filter(Boolean))}
-            options={single ? [{ value: "", label: "None" }, ...offered] : offered}
-          />
-        ) : (
-          <input
-            aria-label={label}
-            value={values.join(", ")}
-            onChange={(event) =>
-              onChange(
-                event.target.value
-                  .split(",")
-                  .map((value) => value.trim())
-                  .filter(Boolean)
-                  .slice(0, single ? 1 : undefined),
-              )
-            }
-            placeholder={placeholder}
-            className="block w-full rounded-md border border-[#cbd5e1] px-3 py-2 text-sm font-normal"
-          />
-        )}
+        <SelectMenu
+          label={label}
+          value={single ? (values[0] ?? "") : values.join("\n")}
+          multiple={!single}
+          itemNoun={noun}
+          placeholder={single ? "None" : `Choose ${noun}s…`}
+          searchable={offered.length > 12}
+          onChange={(next) => onChange(single ? (next ? [next] : []) : next.split("\n").filter(Boolean))}
+          options={single ? [{ value: "", label: "None" }, ...offered] : offered}
+        />
       </div>
+      {adding ? (
+        <div className="mt-1.5 flex items-center gap-2">
+          <input
+            aria-label={`Add a ${noun} code`}
+            autoFocus
+            value={other}
+            onChange={(event) => setOther(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                add();
+              }
+              if (event.key === "Escape") setAdding(false);
+            }}
+            placeholder={placeholder}
+            className="block w-40 rounded-md border border-[#cbd5e1] px-3 py-1.5 text-sm font-normal"
+          />
+          <button type="button" onClick={add} disabled={!other.trim()} className="text-xs font-semibold text-[#1f4e79] disabled:opacity-50">
+            Add
+          </button>
+          <button type="button" onClick={() => setAdding(false)} className="text-xs font-semibold text-[#667085]">
+            Cancel
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setAdding(true)}
+          className="mt-1 inline-flex items-center gap-1 text-xs font-normal text-[#667085] hover:text-[#1f4e79]"
+        >
+          <Plus size={12} aria-hidden="true" /> A {noun} code not listed
+        </button>
+      )}
     </div>
   );
 }
