@@ -26,7 +26,7 @@ const CATALOGUE: database.Catalogue = {
       code: "TD",
       name: "Tutorials",
       note: "",
-      kind: "shared", parentScopeId: "",
+      kind: "shared", parentScopeId: "", openToAll: false,
       courses: [],
       groups: [
         { id: "group-1", label: "1", capacity: 24, note: "", program: "", parentGroupId: "", assigned: 20, crns: {} },

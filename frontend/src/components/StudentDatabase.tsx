@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { BookMarked, BookOpen, CalendarDays, ClipboardList, GraduationCap, ListChecks, ListTree, Megaphone, UserCheck, Users } from "lucide-react";
+import { BookMarked, BookOpen, CalendarDays, ClipboardList, GaugeCircle, GraduationCap, ListChecks, ListTree, Megaphone, UserCheck, Users } from "lucide-react";
 import { Globe } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
@@ -7,6 +7,7 @@ import { ActiveCourses } from "@/components/ActiveCourses";
 import { ActiveTeachers } from "@/components/ActiveTeachers";
 import { AnnouncementEditor } from "@/components/AnnouncementEditor";
 import { CohortsPage } from "@/components/CohortsPage";
+import { CapacityPage } from "@/components/CapacityPage";
 import { CourseCards } from "@/components/CourseCards";
 import { DiscrepancyRulesEditor } from "@/components/DiscrepancyRulesEditor";
 import { PlatformNotConfigured } from "@/components/PlatformNotConfigured";
@@ -33,6 +34,8 @@ const PAGES = [
   // What the portal says each student is registered in — the pull the Cohorts warnings read.
   { id: "registrations", name: "Registrations", icon: ClipboardList, group: "Students", parent: "students" },
   { id: "groups", name: "Groups & CRNs", icon: ListTree, group: "Students" },
+  // How full every group is: the Capacity sheet the workbooks carried, kept live.
+  { id: "capacity", name: "Capacity", icon: GaugeCircle, group: "Students", parent: "groups" },
   { id: "courses", name: "Courses", icon: BookOpen, group: "Students" },
   // The department's own list, chosen from the portal's, where a course gets its UE and parent CRN.
   { id: "active-courses", name: "Active courses", icon: BookMarked, group: "Students", parent: "courses" },
@@ -67,6 +70,10 @@ const TITLES: Record<PageId, { title: string; blurb?: string }> = {
   registrations: {
     title: "Registrations",
     blurb: "Which CRNs the portal says each student is registered in.",
+  },
+  capacity: {
+    title: "Capacity",
+    blurb: "How full every group is: its seats, who is in it, and where there is room.",
   },
   courses: {
     title: "Courses",
@@ -244,6 +251,7 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
           {page === "students" && (cohorts.isLoading || views.isLoading) ? (
             <ScreenLoading label="Loading…" />
           ) : null}
+          {page === "capacity" ? <CapacityPage /> : null}
           {page === "courses" ? <PortalCourses /> : null}
           {page === "active-courses" ? <ActiveCourses /> : null}
           {page === "teachers" ? <PortalTeachers /> : null}

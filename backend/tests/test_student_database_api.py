@@ -647,6 +647,50 @@ def test_a_group_set_knows_its_kind_and_a_group_its_parent(client: TestClient, c
     assert next(s for s in catalogue(client, cohort_id)["scopes"] if s["id"] == odd["id"])["kind"] == "shared"
 
 
+def test_a_set_open_to_every_cohort_holds_the_whole_department(client: TestClient, cohort_id: str, view_id: str):
+    """Languages are one set of classes for everybody: the level decides the group, not the degree."""
+    other = client.post("/api/v1/student-database/cohorts", json={"name": "L2 for languages"}).json()
+    sync(client, view_id, ["A001", "A002"])
+    client.post("/api/v1/student-database/students/cohort", json={"studentIds": ["A001"], "cohortId": cohort_id})
+    client.post("/api/v1/student-database/students/cohort", json={"studentIds": ["A002"], "cohortId": other["id"]})
+
+    scope = client.post(
+        f"/api/v1/student-database/cohorts/{cohort_id}/scopes",
+        json={"code": "LANG", "openToAll": True},
+    ).json()
+    group = client.post(f"/api/v1/student-database/scopes/{scope['id']}/groups", json={"label": "A1-G1"}).json()
+
+    placed = client.put(
+        f"/api/v1/student-database/scopes/{scope['id']}/placements",
+        json={"placements": {group["id"]: ["A001", "A002"]}},
+    ).json()
+
+    # The set belongs to one cohort and holds students from both, counting all of them.
+    both = 2
+    assert (placed["assigned"], placed["skipped"]) == (both, [])
+    block = scope_of(catalogue(client, cohort_id), "LANG")
+    assert block["openToAll"] is True
+    assert block["groups"][0]["assigned"] == both
+    # And each student is filed under their own cohort, not under the set's owner.
+    mine = client.get(f"/api/v1/student-database/cohorts/{other['id']}/assignments").json()["assignments"]
+    assert mine["A002"][scope["id"]] == group["id"]
+
+
+def test_a_set_of_one_cohort_still_turns_outsiders_away(client: TestClient, cohort_id: str, view_id: str):
+    other = client.post("/api/v1/student-database/cohorts", json={"name": "L2 apart"}).json()
+    sync(client, view_id, ["A001", "A002"])
+    client.post("/api/v1/student-database/students/cohort", json={"studentIds": ["A001"], "cohortId": cohort_id})
+    client.post("/api/v1/student-database/students/cohort", json={"studentIds": ["A002"], "cohortId": other["id"]})
+    scope_id, group_id = block_with_a_group(client, cohort_id)
+
+    placed = client.put(
+        f"/api/v1/student-database/scopes/{scope_id}/placements",
+        json={"placements": {group_id: ["A001", "A002"]}},
+    ).json()
+
+    assert (placed["assigned"], placed["skipped"]) == (1, ["A002"])
+
+
 def test_the_cards_list_every_cohort_at_once(client: TestClient, cohort_id: str):
     block_with_a_group(client, cohort_id)
     other = client.post("/api/v1/student-database/cohorts", json={"name": "L1", "term": "S1 2026-27"}).json()

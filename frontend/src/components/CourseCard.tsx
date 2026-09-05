@@ -98,6 +98,11 @@ export function CourseCard({
               <section key={set.scope.id} className="px-4 py-3">
                 <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
                   <span className="font-semibold text-[#1f4e79]">{set.scope.code}</span>
+                  {set.scope.openToAll ? (
+                    <span className="rounded-full bg-[#eef1f5] px-2 py-0.5 text-xs font-semibold text-[#344054]" title="Any student of any cohort may be in this set">
+                      open to every cohort
+                    </span>
+                  ) : null}
                   <span className="text-[#667085]">
                     {set.scope.name || "group set"} · {KIND_WORD[set.scope.kind] ?? set.scope.kind} · {set.scope.groups.length} group
                     {set.scope.groups.length === 1 ? "" : "s"}

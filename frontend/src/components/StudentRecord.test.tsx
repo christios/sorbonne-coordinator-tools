@@ -57,7 +57,7 @@ beforeEach(() => {
     scopes: [
       {
         id: "scope-td", code: "TD", name: "Tutorials", note: "", termId: "term-1",
-        kind: "shared", parentScopeId: "", courses: [{ id: "c-algo", code: "MATH-011", name: "Algorithms", component: "TD" }],
+        kind: "shared", parentScopeId: "", openToAll: false, courses: [{ id: "c-algo", code: "MATH-011", name: "Algorithms", component: "TD" }],
         groups: [{ id: "td-1", label: "1", capacity: 0, note: "", program: "", parentGroupId: "", assigned: 1, crns: { "c-algo": { ...EMPTY_SECTION, crn: "23652", teacher: "" } } }],
       },
     ],

@@ -104,6 +104,12 @@ export type CatalogueScope = {
   kind: ScopeKind;
   /** For a nested set, the set it sits inside. */
   parentScopeId: string;
+  /**
+   * True for a set the whole department shares. Languages are the case: A1-G1 holds
+   * first, second and third years at once, because the level decides the group and the
+   * degree does not. Such a set takes any student, and counts all of them.
+   */
+  openToAll: boolean;
   /** The student tab this block's column lives on in the workbook it came from. */
   tab?: string;
   /** What that column is called there: "TD group", "Readiness group". */
@@ -288,7 +294,15 @@ export function applyWorkbook(
 
 export function addScope(
   cohortId: string,
-  input: { code: string; name?: string; note?: string; termId?: string; kind?: ScopeKind; parentScopeId?: string },
+  input: {
+    code: string;
+    name?: string;
+    note?: string;
+    termId?: string;
+    kind?: ScopeKind;
+    parentScopeId?: string;
+    openToAll?: boolean;
+  },
 ): Promise<{ id: string }> {
   // The semester matters: a block added without one is invisible to the page that made it.
   return send<{ id: string }>(`${BASE}/cohorts/${cohortId}/scopes`, "POST", {
@@ -301,7 +315,7 @@ export function addScope(
 
 export function updateScope(
   scopeId: string,
-  input: { code: string; name: string; note: string; kind?: ScopeKind; parentScopeId?: string },
+  input: { code: string; name: string; note: string; kind?: ScopeKind; parentScopeId?: string; openToAll?: boolean },
 ): Promise<void> {
   return send<void>(`${BASE}/scopes/${scopeId}`, "PATCH", input);
 }

@@ -15,7 +15,7 @@ const CM: CatalogueScope = {
   code: "CM",
   name: "Lectures",
   note: "",
-  kind: "shared", parentScopeId: "",
+  kind: "shared", parentScopeId: "", openToAll: false,
   courses: [{ id: "c-math", code: "MATH001", name: "Pre-calculus", component: "CM" }],
   groups: [{ id: "cm-a", label: "A", capacity: 0, note: "", program: "", parentGroupId: "", assigned: 2, crns: { "c-math": { ...EMPTY_SECTION, crn: "22151", teacher: "" } } }],
 };
@@ -25,7 +25,7 @@ const TD: CatalogueScope = {
   code: "TD",
   name: "Tutorials",
   note: "",
-  kind: "shared", parentScopeId: "",
+  kind: "shared", parentScopeId: "", openToAll: false,
   courses: [
     { id: "t-math", code: "MATH001", name: "Pre-calculus", component: "TD" },
     { id: "t-algo", code: "MATH011", name: "Algorithms", component: "" },

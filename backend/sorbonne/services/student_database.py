@@ -541,10 +541,15 @@ class StudentDatabase:
                 .mappings()
                 .all()
             )
+            # A set open to every cohort counts everyone in it, wherever they come from;
+            # any other set holds only this cohort's students anyway.
             counts = dict(
                 connection.execute(
-                    text("""SELECT group_id, count(*) FROM group_assignments
-                            WHERE cohort_id = :id GROUP BY group_id"""),
+                    text("""SELECT a.group_id, count(*) FROM group_assignments a
+                            JOIN scope_groups g ON g.id = a.group_id
+                            JOIN cohort_scopes s ON s.id = g.scope_id
+                            WHERE s.open_to_all OR a.cohort_id = :id
+                            GROUP BY a.group_id"""),
                     {"id": cohort_id},
                 ).all()
             )
@@ -563,6 +568,8 @@ class StudentDatabase:
                     "termId": scope["term_id"],
                     "kind": scope["kind"],
                     "parentScopeId": scope["parent_scope_id"],
+                    # True for a set the whole department shares, as the languages are.
+                    "openToAll": bool(scope["open_to_all"]),
                     # Where this block sits in the workbook, so writing one back out puts
                     # it where it was: Readiness is a column on the tutorials tab.
                     "tab": scope["tab"],
@@ -639,7 +646,7 @@ class StudentDatabase:
                                           updated_at = excluded.updated_at,
                                           updated_by = excluded.updated_by"""),
                     {
-                        "cohort": cohort_id,
+                        "cohort": self._cohorts_of(connection, [student_id]).get(student_id, cohort_id),
                         "student": student_id,
                         "scope": scope_id,
                         "group": group_id,
@@ -668,13 +675,9 @@ class StudentDatabase:
                 if owner != scope_id:
                     raise GroupNotFound(group_id)
 
-            held = {
-                row[0]
-                for row in connection.execute(
-                    text("SELECT student_id FROM students WHERE cohort_id = :cohort"),
-                    {"cohort": cohort_id},
-                )
-            }
+            # A set open to every cohort takes anybody the department holds; every other
+            # set takes its own cohort's students, and says who it turned away.
+            held = self._placeable(connection, scope_id, cohort_id)
             wanted = [student for student in dict.fromkeys(student_ids) if student in held]
             skipped = sorted({student for student in student_ids if student not in held})
 
@@ -686,11 +689,12 @@ class StudentDatabase:
                 )
             elif wanted:
                 now = _now()
+                mine = self._cohorts_of(connection, wanted)
                 connection.execute(
                     text(_PLACE),
                     [
                         {
-                            "cohort": cohort_id,
+                            "cohort": mine.get(student, cohort_id),
                             "student": student,
                             "scope": scope_id,
                             "group": group_id,
@@ -725,13 +729,10 @@ class StudentDatabase:
                 if group_id not in owned:
                     raise GroupNotFound(group_id)
 
-            held = {
-                row[0]
-                for row in connection.execute(
-                    text("SELECT student_id FROM students WHERE cohort_id = :cohort"),
-                    {"cohort": cohort_id},
-                )
-            }
+            # A set open to every cohort takes anybody the department holds; every other
+            # set takes its own cohort's students, and says who it turned away.
+            held = self._placeable(connection, scope_id, cohort_id)
+            cohort_of = self._cohorts_of(connection, sorted({s for ids in placements.values() for s in ids}))
             now = _now()
             rows: list[dict[str, Any]] = []
             seen: set[str] = set()
@@ -746,7 +747,8 @@ class StudentDatabase:
                         continue
                     rows.append(
                         {
-                            "cohort": cohort_id,
+                            # Whose student they are, which is not always whose set it is.
+                            "cohort": cohort_of.get(student, cohort_id),
                             "student": student,
                             "scope": scope_id,
                             "group": group_id,
@@ -759,6 +761,30 @@ class StudentDatabase:
             self._touch(connection, cohort_id)
 
         return {"assigned": len(rows), "skipped": sorted(skipped)}
+
+    def _cohorts_of(self, connection: Connection, student_ids: list[str]) -> dict[str, str]:
+        """Whose student each of these is, so a shared set files them under themselves."""
+        if not student_ids:
+            return {}
+        return {
+            row[0]: row[1]
+            for row in connection.execute(
+                text("SELECT student_id, cohort_id FROM students WHERE student_id = ANY(:ids)"),
+                {"ids": student_ids},
+            )
+            if row[1]
+        }
+
+    def _placeable(self, connection: Connection, scope_id: str, cohort_id: str) -> set[str]:
+        """The students this set may hold: its cohort's, or the whole department's."""
+        if self._open_to_all(connection, scope_id):
+            return {row[0] for row in connection.execute(text("SELECT student_id FROM students"))}
+        return {
+            row[0]
+            for row in connection.execute(
+                text("SELECT student_id FROM students WHERE cohort_id = :cohort"), {"cohort": cohort_id}
+            )
+        }
 
     def catalogue_for_diff(self, cohort_id: str, term_id: str) -> dict[str, Any]:
         """One semester's blocks in the shape `workbook_diff` compares against."""
@@ -1021,6 +1047,14 @@ class StudentDatabase:
 
     # ------------------------------------------------------- editing a scope
 
+    def _open_to_all(self, connection: Connection, scope_id: str) -> bool:
+        """Whether this set takes students from every cohort, as the languages do."""
+        return bool(
+            connection.execute(
+                text("SELECT open_to_all FROM cohort_scopes WHERE id = :id"), {"id": scope_id}
+            ).scalar()
+        )
+
     def add_scope(  # noqa: PLR0913 - one argument per column of the block
         self,
         cohort_id: str,
@@ -1031,6 +1065,7 @@ class StudentDatabase:
         term_id: str = "",
         kind: str = "shared",
         parent_scope_id: str = "",
+        open_to_all: bool = False,
     ) -> str:
         self.get_cohort(cohort_id)
         scope_id = str(uuid4())
@@ -1039,8 +1074,10 @@ class StudentDatabase:
                 raise DuplicateLabel(code)
             connection.execute(
                 text("""INSERT INTO cohort_scopes
-                            (id, cohort_id, code, name, note, term_id, kind, parent_scope_id, position)
+                            (id, cohort_id, code, name, note, term_id, kind, parent_scope_id,
+                             open_to_all, position)
                         VALUES (:id, :cohort_id, :code, :name, :note, :term_id, :kind, :parent,
+                                :open_to_all,
                                 (SELECT coalesce(max(position), 0) + 1 FROM cohort_scopes
                                  WHERE cohort_id = :cohort_id))"""),
                 {
@@ -1052,18 +1089,28 @@ class StudentDatabase:
                     "term_id": _text(term_id),
                     "kind": _scope_kind(kind),
                     "parent": _text(parent_scope_id) if _scope_kind(kind) == "nested" else "",
+                    "open_to_all": bool(open_to_all),
                 },
             )
             self._touch(connection, cohort_id)
         return scope_id
 
     def update_scope(  # noqa: PLR0913 - one argument per column of the block
-        self, scope_id: str, *, code: str, name: str, note: str, kind: str = "shared", parent_scope_id: str = ""
+        self,
+        scope_id: str,
+        *,
+        code: str,
+        name: str,
+        note: str,
+        kind: str = "shared",
+        parent_scope_id: str = "",
+        open_to_all: bool = False,
     ) -> None:
         with self.engine.begin() as connection:
             updated = connection.execute(
                 text("""UPDATE cohort_scopes SET code = :code, name = :name, note = :note,
-                                                 kind = :kind, parent_scope_id = :parent
+                                                 kind = :kind, parent_scope_id = :parent,
+                                                 open_to_all = :open_to_all
                         WHERE id = :id"""),
                 {
                     "id": scope_id,
@@ -1072,6 +1119,7 @@ class StudentDatabase:
                     "note": _text(note),
                     "kind": _scope_kind(kind),
                     "parent": _text(parent_scope_id) if _scope_kind(kind) == "nested" else "",
+                    "open_to_all": bool(open_to_all),
                 },
             )
             if updated.rowcount == 0:

@@ -14,7 +14,7 @@ function scope(
     code,
     name: "",
     note: "",
-    kind: "shared", parentScopeId: "",
+    kind: "shared", parentScopeId: "", openToAll: false,
     courses: courses.map((id) => ({ id, code: id, name: id, component: "", ue: "", parentCrn: "" })),
     groups: groups.map((group, index) => ({
       id: `g-${code}-${index}`,

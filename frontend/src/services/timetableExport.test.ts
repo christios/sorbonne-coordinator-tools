@@ -8,7 +8,7 @@ const FYS: CohortCatalogue = {
   cohort: { id: "c1", name: "Foundation Year", term: "2026-27" },
   scopes: [
     {
-      id: "s-td", code: "TD", name: "Tutorials", note: "", termId: "term-1", kind: "shared", parentScopeId: "",
+      id: "s-td", code: "TD", name: "Tutorials", note: "", termId: "term-1", kind: "shared", parentScopeId: "", openToAll: false,
       courses: [{ id: "td-math", code: "MATH001", name: "Pre-calculus 1", component: "TD" }],
       groups: [
         { id: "td-1", label: "1", capacity: 33, note: "", program: "", parentGroupId: "", assigned: 33, crns: { "td-math": { ...EMPTY_SECTION, crn: "23223", teacherId: "t-ghantous", hours: "50", sessionsPerWeek: "2 sessions - weeks 2 to 14", duration: "1.5", anticipated: 33, constraints: "Should NOT be in parallel with G.2", comments: "Mutualized with Maths" } } },

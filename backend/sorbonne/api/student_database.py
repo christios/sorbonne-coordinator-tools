@@ -117,6 +117,9 @@ class ScopeInput(BaseModel):
     term_id: str = Field(default="", alias="termId", max_length=80)
     # shared across its courses, or nested inside another set.
     kind: str = Field(default="shared", max_length=20)
+    # True for a set the whole department shares — the languages, where the level decides
+    # the group and the degree does not.
+    openToAll: bool = False
     parent_scope_id: str = Field(default="", alias="parentScopeId", max_length=80)
 
 
@@ -452,6 +455,7 @@ async def add_scope(
                 term_id=body.term_id,
                 kind=body.kind,
                 parent_scope_id=body.parent_scope_id,
+                open_to_all=body.openToAll,
             )
         }
     except CohortNotFound as exc:
@@ -472,6 +476,7 @@ async def update_scope(
             note=body.note,
             kind=body.kind,
             parent_scope_id=body.parent_scope_id,
+            open_to_all=body.openToAll,
         )
     except ScopeNotFound as exc:
         raise _missing(exc, "block") from exc

@@ -19,7 +19,7 @@ const CATALOGUES: database.CohortCatalogue[] = [
     cohort: { id: "c1", name: "Foundation Year", term: "2026-27" },
     scopes: [
       {
-        id: "s-td", code: "TD", name: "Tutorials", note: "", termId: "term-1", kind: "shared", parentScopeId: "",
+        id: "s-td", code: "TD", name: "Tutorials", note: "", termId: "term-1", kind: "shared", parentScopeId: "", openToAll: false,
         courses: [
           { id: "td-math", code: "MATH001", name: "Pre-calculus 1", component: "TD" },
           { id: "td-algo", code: "MATH011", name: "Algorithms", component: "TD" },

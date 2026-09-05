@@ -9,12 +9,12 @@ const FYS: CohortCatalogue = {
   cohort: { id: "c1", name: "Foundation Year", term: "2026-27" },
   scopes: [
     {
-      id: "s-cm", code: "CM", name: "Lectures", note: "", termId: "term-1", kind: "shared", parentScopeId: "",
+      id: "s-cm", code: "CM", name: "Lectures", note: "", termId: "term-1", kind: "shared", parentScopeId: "", openToAll: false,
       courses: [{ id: "cm-math", code: "MATH001", name: "Pre-calculus 1", component: "CM" }],
       groups: [{ id: "cm-a", label: "A", capacity: 0, note: "", program: "", parentGroupId: "", assigned: 98, crns: { "cm-math": section("22151", "t-maaz") } }],
     },
     {
-      id: "s-td", code: "TD", name: "Tutorials", note: "", termId: "term-1", kind: "shared", parentScopeId: "",
+      id: "s-td", code: "TD", name: "Tutorials", note: "", termId: "term-1", kind: "shared", parentScopeId: "", openToAll: false,
       courses: [
         { id: "td-math", code: "MATH001", name: "", component: "TD" },
         { id: "td-algo", code: "MATH011", name: "Algorithms", component: "TD" },

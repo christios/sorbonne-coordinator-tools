@@ -60,3 +60,18 @@ Revised 5 September 2026.
 - **Two kinds of set, not three** (5 September 2026): a set is plain — its groups numbered
   across whatever courses it carries, one or many — or nested inside another. "Its own
   numbering" was a plain set with one course; nothing behaved differently, so it went.
+
+5 September 2026 — sets the whole department shares, and a Capacity page.
+
+- **A set may be open to every cohort.** Languages are one set of classes for everybody:
+  A1-G1 holds first, second and third years at once, because the level of French decides
+  the group and the degree does not. Twelve of the nineteen language groups of Semester 1
+  hold more than one cohort, so copying the set per cohort would split one class into four
+  with a quarter of the seats each. An open set takes any student the department holds and
+  counts all of them; each is still filed under their own cohort, so every per-cohort view
+  reads true. Every other set is unchanged and still turns outsiders away.
+- **Capacity**, under Groups & CRNs: the Capacity sheet the workbooks carried, kept live.
+  One row per section — CRN, group, seats, enrolled, seats free, status — with retired
+  sections left out because nobody is in them. Seats are the group's capacity, falling
+  back to the section's anticipated students. The totals count a group once however many
+  courses its set carries, and count seats only where a capacity is stated.

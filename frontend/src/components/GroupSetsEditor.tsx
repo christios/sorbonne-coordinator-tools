@@ -79,14 +79,16 @@ export function GroupSetsEditor({
   };
   const [newCode, setNewCode] = useState("");
   const [newKind, setNewKind] = useState<ScopeKind>("shared");
+  const [newOpen, setNewOpen] = useState(false);
   const [newParent, setNewParent] = useState("");
   const [pendingScope, setPendingScope] = useState<CatalogueScope | null>(null);
   const [pendingGroup, setPendingGroup] = useState<CatalogueGroup | null>(null);
 
   const make = useMutation({
-    mutationFn: () => addScope(cohortId, { code: newCode.trim(), termId, kind: newKind, parentScopeId: newKind === "nested" ? newParent : "" }),
+    mutationFn: () => addScope(cohortId, { code: newCode.trim(), termId, kind: newKind, parentScopeId: newKind === "nested" ? newParent : "", openToAll: newOpen }),
     onSuccess: () => {
       setNewCode("");
+      setNewOpen(false);
       refresh();
     },
   });
@@ -122,6 +124,10 @@ export function GroupSetsEditor({
             <label className="text-xs font-semibold text-[#344054]">
               New set
               <input aria-label="New group set code" value={newCode} onChange={(event) => setNewCode(event.target.value)} placeholder="TD, CM, TP, RDNS…" className="mt-1 block w-32 rounded-md border border-[#cbd5e1] px-2 py-1.5 text-sm" />
+            </label>
+            <label className="inline-flex items-center gap-2 pb-2 text-xs font-semibold text-[#344054]">
+              <input type="checkbox" aria-label="Open to every cohort" checked={newOpen} onChange={(event) => setNewOpen(event.target.checked)} />
+              Open to every cohort
             </label>
             <div className="w-72">
               <SelectMenu label="Kind" value={newKind} onChange={(value) => setNewKind(value as ScopeKind)} options={KINDS} />
@@ -192,7 +198,15 @@ function ScopeEditor({
   }, [scope]);
 
   const save = useMutation({
-    mutationFn: () => updateScope(scope.id, { code: scope.code, name, note: scope.note, kind, parentScopeId: kind === "nested" ? parent : "" }),
+    mutationFn: (next: { openToAll?: boolean } = {}) =>
+      updateScope(scope.id, {
+        code: scope.code,
+        name,
+        note: scope.note,
+        kind,
+        parentScopeId: kind === "nested" ? parent : "",
+        openToAll: next.openToAll ?? scope.openToAll,
+      }),
     onSuccess: onChanged,
   });
   const makeGroup = useMutation({
@@ -221,7 +235,7 @@ function ScopeEditor({
         <span className="text-base font-semibold text-[#171717]">{scope.code}</span>
         <label className="text-xs font-semibold text-[#344054]">
           Name
-          <input aria-label={`Name of ${scope.code}`} value={name} onChange={(event) => setName(event.target.value)} onBlur={() => name !== scope.name && save.mutate()} className={`mt-1 block w-40 ${field}`} />
+          <input aria-label={`Name of ${scope.code}`} value={name} onChange={(event) => setName(event.target.value)} onBlur={() => name !== scope.name && save.mutate({})} className={`mt-1 block w-40 ${field}`} />
         </label>
         <div className="w-72">
           <SelectMenu
@@ -229,7 +243,7 @@ function ScopeEditor({
             value={kind}
             onChange={(value) => {
               setKind(value as ScopeKind);
-              if (value !== "nested") setTimeout(() => save.mutate(), 0);
+              if (value !== "nested") setTimeout(() => save.mutate({}), 0);
             }}
             options={KINDS}
           />
@@ -242,12 +256,25 @@ function ScopeEditor({
               placeholder="Which set…"
               onChange={(value) => {
                 setParent(value);
-                setTimeout(() => save.mutate(), 0);
+                setTimeout(() => save.mutate({}), 0);
               }}
               options={scopes.filter((candidate) => candidate.id !== scope.id && candidate.kind !== "nested").map((candidate) => ({ value: candidate.id, label: candidate.code }))}
             />
           </div>
         ) : null}
+        {/*
+          * Languages are the reason: one set of classes for the whole department, where
+          * the level decides the group and the degree does not.
+          */}
+        <label className="inline-flex items-center gap-2 text-xs font-semibold text-[#344054]">
+          <input
+            type="checkbox"
+            aria-label={`${scope.code} is open to every cohort`}
+            checked={scope.openToAll}
+            onChange={(event) => save.mutate({ openToAll: event.target.checked })}
+          />
+          Open to every cohort
+        </label>
         <button type="button" onClick={onRemove} className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-[#e5b7b9] bg-white px-2.5 py-1.5 text-xs font-semibold text-[#a6292f] hover:bg-[#fdf3f3]">
           <Trash2 size={13} aria-hidden="true" /> Remove set
         </button>
