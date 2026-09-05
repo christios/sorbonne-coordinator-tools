@@ -39,10 +39,13 @@ Revised 5 September 2026.
   the page rather than shown as nothing.
 - **Status is a field a rule may name:** whether the last sync still found the student
   in the portal ("is" / "is not" only).
-- **Arrivals are a rule** ("moved into the cohort's majors", on the major): where it
-  applies, a banner above the cohort's table lists students not in the cohort whose major
-  changed into one of its majors, from the pull history, each dismissable; the student's
-  record says the same. Nothing is listed without the rule.
+- **Belonging is a rule** ("belongs to the cohort, but is not in it", on the major): where
+  it applies, a banner above the cohort's table lists everyone outside the cohort whose
+  record says what the cohort expects — major, and term and year level when stated — the
+  newly admitted and the one taken out by hand alike, with the major's change from the
+  history when there is one; each line dismissable; the student's record says the same.
+  Nothing is listed without the rule. A value appearing from nothing in the history (a
+  column the extension started asking for) is not a change.
 - **A rule is for every cohort or for one.** The shared rules and a cohort's own judge
   its students; the students in no cohort are judged by the shared rules alone. A
   cohort's own rules go with it when it is deleted.

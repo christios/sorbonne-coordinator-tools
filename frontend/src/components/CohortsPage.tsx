@@ -344,8 +344,8 @@ export function CohortsPage({ cohorts }: { cohorts: Cohort[] }) {
 }
 
 /**
- * Students admissions has moved into one of this cohort's majors who are not in it —
- * what a "moved into the cohort's majors" rule finds.
+ * Students who belong to this cohort by its expectations and are not in it — what a
+ * "belongs to the cohort" rule finds: the newly admitted, and the one taken out by hand.
  *
  * They are not rows of the cohort's table, since they are not in the cohort, so they are
  * listed above it; each can be dismissed like a row's warning, until the fact changes.
@@ -371,16 +371,19 @@ function ArrivalsBanner({
     <div role="status" className="mt-3 rounded-md border border-[#bcd3ea] bg-[#eef5fb] px-4 py-3 text-sm text-[#1f4e79]">
       <p className="flex items-center gap-2 font-semibold">
         <ArrowRightCircle size={16} aria-hidden="true" />
-        {arrivals.length === 1 ? "One student has" : `${arrivals.length} students have`} moved into{" "}
-        {cohort.majors.join(" or ")} and {arrivals.length === 1 ? "is" : "are"} not in {cohort.name}.
+        {arrivals.length === 1 ? "One student belongs" : `${arrivals.length} students belong`} to {cohort.name} by what it expects and{" "}
+        {arrivals.length === 1 ? "is" : "are"} not in it.
       </p>
       <ul className="mt-1.5 space-y-0.5 pl-6">
         {shown.map((arrival) => (
           <li key={arrival.key} className="flex items-start gap-2">
             <span>
               <span className="font-semibold">{names.get(arrival.studentId) || arrival.studentId}</span>{" "}
-              <span className="font-mono text-xs text-[#5b7a9a]">{arrival.studentId}</span> — {arrival.from || "—"} → {arrival.to} on{" "}
-              {new Date(arrival.at).toLocaleDateString(undefined, { day: "numeric", month: "short" })}, {where(arrival)}.
+              <span className="font-mono text-xs text-[#5b7a9a]">{arrival.studentId}</span> — {arrival.major}
+              {arrival.moved
+                ? `, from ${arrival.moved.from} on ${new Date(arrival.moved.at).toLocaleDateString(undefined, { day: "numeric", month: "short" })}`
+                : ""}
+              , {where(arrival)}.
             </span>
             <button
               type="button"
@@ -399,7 +402,7 @@ function ArrivalsBanner({
           {open ? "Show fewer" : `Show all ${arrivals.length}`}
         </button>
       ) : null}
-      <p className="mt-1.5 pl-6 text-xs text-[#5b7a9a]">Find them under “Not in any cohort” or their current cohort, and move them from the Students table.</p>
+      <p className="mt-1.5 pl-6 text-xs text-[#5b7a9a]">Find them under “Not in any cohort” or their current cohort, and move them from the Students table — or dismiss the line if they are out on purpose.</p>
     </div>
   );
 }

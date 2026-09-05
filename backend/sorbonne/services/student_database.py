@@ -1506,9 +1506,9 @@ def _student(row, groups: list[dict[str, str]]) -> dict[str, Any]:
     }
 
 
-# The last is the outward look: students not in the cohort whose major moved into it.
-RULE_KINDS = ("changed", "changed_to", "is", "is_not", "differs", "moved_in")
-MOVED_IN_FIELDS = ("MAJOR_CODE", "MAJOR_CODE_DESC")
+# The last is the outward look: students not in the cohort whose record says they belong.
+RULE_KINDS = ("changed", "changed_to", "is", "is_not", "differs", "belongs")
+BELONGS_FIELDS = ("MAJOR_CODE", "MAJOR_CODE_DESC")
 # What "differs from the cohort" can compare against: the majors and terms a cohort spans
 # (by code, or by the portal's label for the code) and the year level it expects.
 DIFFERS_FIELDS = ("MAJOR_CODE", "MAJOR_CODE_DESC", "TERM_CODE", "YEARLEVEL_CODE")
@@ -1522,6 +1522,9 @@ class InvalidRule(ValueError):
 def _clean_rule(rule: dict[str, Any], position: int) -> dict[str, Any]:
     field = _text(rule.get("field")).upper()
     kind = _text(rule.get("kind"))
+    # The earlier name for "belongs", kept so a saved rule still reads.
+    if kind == "moved_in":
+        kind = "belongs"
     raw_values = rule.get("values") or []
     if not FIELD_NAME.match(field):
         raise InvalidRule(f"'{rule.get('field')}' is not a portal field name.")
@@ -1529,14 +1532,14 @@ def _clean_rule(rule: dict[str, Any], position: int) -> dict[str, Any]:
         raise InvalidRule(f"'{kind}' is not a kind of rule.")
     if kind == "differs" and field not in DIFFERS_FIELDS:
         raise InvalidRule(f"A cohort has no {field} to differ from; only its majors, terms or year level.")
-    if kind == "moved_in" and field not in MOVED_IN_FIELDS:
-        raise InvalidRule("Only a major can move into a cohort's; the rule must be on MAJOR_CODE.")
+    if kind == "belongs" and field not in BELONGS_FIELDS:
+        raise InvalidRule("Belonging is judged from the major first; the rule must be on MAJOR_CODE.")
     if not isinstance(raw_values, list):
         raise InvalidRule("A rule's values must be a list.")
     values = [_text(value) for value in raw_values if _text(value)]
     if kind in ("changed_to", "is", "is_not") and not values:
         raise InvalidRule(f"A '{kind}' rule needs at least one value.")
-    if kind in ("changed", "differs", "moved_in"):
+    if kind in ("changed", "differs", "belongs"):
         values = []
     return {
         "id": _text(rule.get("id")) or str(uuid4()),

@@ -327,65 +327,60 @@ describe("the status, this application's own field", () => {
   });
 });
 
-describe("students who moved into a cohort's major", () => {
+describe("students who belong to a cohort and are not in it", () => {
+  const belongs: Rule = { id: "r9", field: "MAJOR_CODE", kind: "belongs", values: [] };
   const changes = {
     A001: [{ at: T("2026-09-05T10:00:00Z"), field: "MAJOR_CODE_DESC", from: "Physics", to: "Applied Mathematics and Physics" }],
     A002: [{ at: T("2026-09-04T10:00:00Z"), field: "MAJOR_CODE", from: "PHYS", to: "MATH" }],
-    A003: [{ at: T("2026-09-03T10:00:00Z"), field: "MAJOR_CODE", from: "PHYS", to: "MATH" }],
-    A004: [{ at: T("2026-09-02T10:00:00Z"), field: "MAJOR_CODE", from: "MATH", to: "MATH" }],
   };
   const current: Record<string, Record<string, string>> = {
-    A001: { MAJOR_CODE_DESC: "Applied Mathematics and Physics" },
-    A002: { MAJOR_CODE: "MATH" },
-    A003: { MAJOR_CODE: "PHYS" },
-    A004: { MAJOR_CODE: "MATH" },
+    A001: { MAJOR_CODE_DESC: "Applied Mathematics and Physics", TERM_CODE: "262710", YEARLEVEL_CODE: "L1" },
+    A002: { MAJOR_CODE: "MATH", TERM_CODE: "262710", YEARLEVEL_CODE: "L1" },
+    A003: { MAJOR_CODE: "MATH", TERM_CODE: "262710", YEARLEVEL_CODE: "L1" },
+    A004: { MAJOR_CODE: "PHYS", TERM_CODE: "262710", YEARLEVEL_CODE: "L1" },
+    A005: { MAJOR_CODE: "MATH", TERM_CODE: "262710", YEARLEVEL_CODE: "FY" },
+    A006: { MAJOR_CODE: "MATH", TERM_CODE: "262710", YEARLEVEL_CODE: "L1", STATUS: "not_in_portal" },
   };
+  const ask = (cohort: typeof L1_MATHS, rules: Rule[], students: Placed[]) =>
+    arrivalsFor({ cohort, rules, students, current: (id) => current[id], changes: (id) => changes[id as keyof typeof changes] ?? [], options: PORTAL });
 
-  const movedIn: Rule = { id: "r9", field: "MAJOR_CODE", kind: "moved_in", values: [] };
+  it("lists everyone outside the cohort whose record says what it expects, the moved first", () => {
+    const arrivals = ask(L1_MATHS, [belongs], [
+      placed("A001", null, ""), placed("A002", "c9"), placed("A003", null, ""), placed("A004", null, ""), placed("A005", null, ""), placed("A006", null, ""), placed("A007", "c1"),
+    ]);
 
-  it("lists those not in the cohort, newest first, whether the pull kept the code or the description", () => {
-    const arrivals = arrivalsFor({
-      cohort: L1_MATHS,
-      rules: [movedIn],
-      students: [placed("A001", null, ""), placed("A002", "c9"), placed("A003", null, ""), placed("A004", null, ""), placed("A005", "c1")],
-      current: (id) => current[id],
-      changes: (id) => changes[id as keyof typeof changes] ?? [],
-      options: PORTAL,
-    });
-
-    // A003 moved in and out again; A004 never came from elsewhere; A005 is already in the cohort.
-    expect(arrivals.map((arrival) => [arrival.studentId, arrival.cohortId, arrival.to])).toEqual([
-      ["A001", null, "Applied Mathematics and Physics"],
-      ["A002", "c9", "MATH"],
+    // A003 never changed major and was simply taken out — listed all the same. A004 is
+    // Physics, A005 is Foundation Year, A006 has left the portal, A007 is in the cohort.
+    expect(arrivals.map((arrival) => [arrival.studentId, arrival.cohortId, arrival.major, arrival.moved?.from ?? null])).toEqual([
+      ["A001", null, "MATH", "Physics"],
+      ["A002", "c9", "MATH", "PHYS"],
+      ["A003", null, "MATH", null],
     ]);
   });
 
   it("has nothing to say for a cohort with no majors, or without a rule asking", () => {
-    const ask = (cohort: typeof L1_MATHS, rules: Rule[]) =>
-      arrivalsFor({ cohort, rules, students: [placed("A001", null, "")], current: (id) => current[id], changes: (id) => changes[id as keyof typeof changes] ?? [], options: PORTAL });
-    expect(ask(NO_EXPECTATION, [movedIn])).toEqual([]);
-    expect(ask(L1_MATHS, [])).toEqual([]);
-    expect(ask(L1_MATHS, [movedIn])).toHaveLength(1);
+    expect(ask(NO_EXPECTATION, [belongs], [placed("A003", null, "")])).toEqual([]);
+    expect(ask(L1_MATHS, [], [placed("A003", null, "")])).toEqual([]);
   });
 });
 
 describe("a column the pull started carrying", () => {
   const majorChanged: Rule = { id: "r10", field: "MAJOR_CODE", kind: "changed", values: [] };
-  const movedIn: Rule = { id: "r11", field: "MAJOR_CODE", kind: "moved_in", values: [] };
+  const belongs: Rule = { id: "r11", field: "MAJOR_CODE", kind: "belongs", values: [] };
   // The day the extension began asking for MAJOR_CODE, every student "changed" from nothing to a code.
   const appeared = { A001: [{ at: T("2026-09-05T10:00:00Z"), field: "MAJOR_CODE", from: "", to: "MATH" }] };
 
   it("is not a change, and not an arrival", () => {
     expect(engine(L1_MATHS, [placed("A001", "c1")], [majorChanged], { A001: { MAJOR_CODE: "MATH" } }, appeared)).toEqual([]);
     expect(
-      arrivalsFor({ cohort: L1_MATHS, rules: [movedIn], students: [placed("A001", null, "")], current: () => ({ MAJOR_CODE: "MATH" }), changes: (id) => appeared[id as "A001"] ?? [], options: PORTAL }),
-    ).toEqual([]);
+      arrivalsFor({ cohort: L1_MATHS, rules: [belongs], students: [placed("A001", null, "")], current: () => ({ MAJOR_CODE: "MATH", TERM_CODE: "262710", YEARLEVEL_CODE: "L1" }), changes: (id) => appeared[id as "A001"] ?? [], options: PORTAL }).map((arrival) => arrival.moved),
+    ).toEqual([undefined]);
   });
 });
 
 describe("rules for one cohort", () => {
   const everyone: Rule = { id: "a", field: "STST_CODE", kind: "changed", values: [] };
-  const l1Only: Rule = { id: "b", field: "MAJOR_CODE", kind: "moved_in", values: [], cohortId: "c1" };
+  const l1Only: Rule = { id: "b", field: "MAJOR_CODE", kind: "belongs", values: [], cohortId: "c1" };
   const fyOnly: Rule = { id: "c", field: "STST_CODE", kind: "is", values: ["WD"], cohortId: "c2" };
 
   it("are the shared ones and its own, and the unplaced get only the shared", () => {

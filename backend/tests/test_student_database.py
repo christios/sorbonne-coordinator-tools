@@ -272,12 +272,12 @@ def test_the_rules_are_kept_whole_and_in_order(database: StudentDatabase) -> Non
 def test_a_rule_may_belong_to_one_cohort_and_goes_with_it(database: StudentDatabase, cohort: dict) -> None:
     kept = database.replace_discrepancy_rules(
         [
-            {"field": "MAJOR_CODE", "kind": "moved_in", "cohortId": cohort["id"]},
+            {"field": "MAJOR_CODE", "kind": "moved_in", "cohortId": cohort["id"]},  # the old name, still read
             {"field": "STST_CODE", "kind": "changed"},
         ]
     )
     assert [rule["cohortId"] for rule in kept] == [cohort["id"], ""]
-    assert kept[0]["values"] == []
+    assert (kept[0]["kind"], kept[0]["values"]) == ("belongs", [])
 
     database.delete_cohort(cohort["id"])
 
@@ -308,7 +308,7 @@ def test_a_rule_keeps_its_id_across_a_replace(database: StudentDatabase) -> None
         ({"field": "STST_CODE", "kind": "sometimes"}, "kind"),
         ({"field": "STST_CODE", "kind": "differs"}, "no STST_CODE to differ from"),
         ({"field": "DEPT_CODE", "kind": "differs"}, "no DEPT_CODE to differ from"),
-        ({"field": "STST_CODE", "kind": "moved_in"}, "must be on MAJOR_CODE"),
+        ({"field": "STST_CODE", "kind": "belongs"}, "must be on MAJOR_CODE"),
         ({"field": "STST_CODE", "kind": "changed_to", "values": []}, "needs at least one value"),
         ({"field": "STST_CODE", "kind": "is", "values": ["", "  "]}, "needs at least one value"),
         ({"field": "STST_CODE", "kind": "is_not", "values": []}, "needs at least one value"),

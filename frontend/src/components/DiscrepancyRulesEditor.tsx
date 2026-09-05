@@ -28,10 +28,10 @@ const KINDS: { value: RuleKind; label: string; hint: string }[] = [
   { value: "is", label: "is currently…", hint: "right now, whatever it was before" },
   { value: "is_not", label: "is currently not…", hint: "right now, anything but the values you pick — a code nobody has seen counts" },
   { value: "differs", label: "differs from the cohort's", hint: "major against the cohort's majors, term against its terms, year level against its year level" },
-  { value: "moved_in", label: "moved into the cohort's majors", hint: "a student not in the cohort whose major changed to one the cohort expects — listed above the cohort's table" },
+  { value: "belongs", label: "belongs to the cohort, but is not in it", hint: "a student outside the cohort whose major, term and year level are what the cohort expects — listed above the cohort's table" },
 ];
-/** Only a major can move into a cohort's. */
-const MOVED_IN_FIELDS = ["MAJOR_CODE", "MAJOR_CODE_DESC"];
+/** Belonging is judged from the major first, so the rule sits on it. */
+const BELONGS_FIELDS = ["MAJOR_CODE", "MAJOR_CODE_DESC"];
 
 /** What a cohort carries, so what a `differs` rule can compare against. */
 const DIFFERS_FIELDS = ["MAJOR_CODE", "MAJOR_CODE_DESC", "TERM_CODE", "YEARLEVEL_CODE"];
@@ -95,9 +95,9 @@ export function DiscrepancyRulesEditor({ open, scope, onClose }: { open: boolean
   const complete = drafts.every(
     (draft) =>
       draft.field &&
-      (draft.kind === "changed" || draft.kind === "differs" || draft.kind === "moved_in" || draft.values.length > 0) &&
+      (draft.kind === "changed" || draft.kind === "differs" || draft.kind === "belongs" || draft.values.length > 0) &&
       (draft.kind !== "differs" || DIFFERS_FIELDS.includes(draft.field)) &&
-      (draft.kind !== "moved_in" || MOVED_IN_FIELDS.includes(draft.field)) &&
+      (draft.kind !== "belongs" || BELONGS_FIELDS.includes(draft.field)) &&
       (draft.field !== STATUS_FIELD || STATUS_KINDS.includes(draft.kind)),
   );
 
@@ -154,7 +154,7 @@ export function DiscrepancyRulesEditor({ open, scope, onClose }: { open: boolean
           const kinds = draft.field === STATUS_FIELD ? KINDS.filter((kind) => STATUS_KINDS.includes(kind.value)) : KINDS;
           const needsValues = draft.kind === "changed_to" || draft.kind === "is" || draft.kind === "is_not";
           const badDiffers = draft.kind === "differs" && !DIFFERS_FIELDS.includes(draft.field);
-          const badMoved = draft.kind === "moved_in" && !MOVED_IN_FIELDS.includes(draft.field);
+          const badMoved = draft.kind === "belongs" && !BELONGS_FIELDS.includes(draft.field);
           const badStatus = draft.field === STATUS_FIELD && !STATUS_KINDS.includes(draft.kind);
           return (
             <li key={draft.id || `new-${index}`} className="rounded-md border border-[#d9dee7] bg-white p-3">
@@ -186,7 +186,7 @@ export function DiscrepancyRulesEditor({ open, scope, onClose }: { open: boolean
                         kind: kind as RuleKind,
                         values: [],
                         // Only a major can move into a cohort's, so the field follows the kind.
-                        field: kind === "moved_in" && !MOVED_IN_FIELDS.includes(draft.field) ? "MAJOR_CODE" : draft.field,
+                        field: kind === "belongs" && !BELONGS_FIELDS.includes(draft.field) ? "MAJOR_CODE" : draft.field,
                       })
                     }
                     options={kinds.map(({ value, label }) => ({ value, label }))}
@@ -236,7 +236,7 @@ export function DiscrepancyRulesEditor({ open, scope, onClose }: { open: boolean
               ) : null}
               {badMoved ? (
                 <p role="alert" className="mt-2 text-sm text-[#a6292f]">
-                  Only a major can move into a cohort&apos;s: put this rule on the major.
+                  Belonging is judged from the major: put this rule on the major.
                 </p>
               ) : null}
 

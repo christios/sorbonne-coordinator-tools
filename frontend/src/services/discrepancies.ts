@@ -22,7 +22,7 @@
 
 import { rowText } from "@/services/copyCells";
 
-export type RuleKind = "changed" | "changed_to" | "is" | "is_not" | "differs" | "moved_in";
+export type RuleKind = "changed" | "changed_to" | "is" | "is_not" | "differs" | "belongs";
 
 export type Rule = {
   id: string;
@@ -328,12 +328,14 @@ export function unplacedWarnings(input: {
 }
 
 /**
- * A student who moved into one of a cohort's majors and is not in that cohort.
+ * A student who belongs to a cohort by its own expectations and is not in it.
  *
- * The other rules judge a cohort's own students; a `moved_in` rule looks the other
- * way — at somebody admissions has just made the department's, whom the department has
- * not yet taken in. Read from the pull history, so it is only as complete as this
- * browser's record, and only when such a rule applies to the cohort.
+ * The other rules judge a cohort's own students; a `belongs` rule looks the other way,
+ * at everyone outside the cohort whose record says what the cohort expects — the major,
+ * and the term and year level when the cohort states them. That is the student admissions
+ * has just made the department's, and equally the one somebody took out of the cohort by
+ * hand while nothing about them changed. When the history holds the change that brought
+ * them in, the line says so; a student the portal has dropped is not listed.
  */
 export type Arrival = {
   /** Holds still while the fact does, so a dismissal can point at it. */
@@ -342,9 +344,10 @@ export type Arrival = {
   studentId: string;
   /** Where they are now: another cohort, or none. */
   cohortId: string | null;
-  at: number;
-  from: string;
-  to: string;
+  /** Their major, as the row says it. */
+  major: string;
+  /** The change that brought them in, when the history has one. */
+  moved?: { at: number; from: string; to: string };
 };
 
 export function arrivalsFor(input: {
@@ -356,33 +359,31 @@ export function arrivalsFor(input: {
   options?: Options;
 }): Arrival[] {
   const options = input.options ?? NO_OPTIONS;
-  const majors = input.cohort.majors;
-  const rule = input.rules.find((candidate) => candidate.kind === "moved_in");
+  const { majors, terms, yearLevel } = input.cohort;
+  const rule = input.rules.find((candidate) => candidate.kind === "belongs");
   if (!rule || !majors.length) return [];
   const out: Arrival[] = [];
   for (const student of input.students) {
     if (student.cohortId === input.cohort.id) continue;
-    const moved = changesTo("MAJOR_CODE", input.changes(student.studentId))
-      .filter(
-        (change) =>
-          meansOneOf("MAJOR_CODE", majors, change.to, options) && !meansOneOf("MAJOR_CODE", majors, change.from, options),
-      )
-      .sort((left, right) => right.at - left.at)[0];
-    if (!moved) continue;
-    // Only while it still holds: a student moved in and out again is not an arrival.
     const now = input.current(student.studentId);
-    if (now && !meansOneOf("MAJOR_CODE", majors, valueOf(now, "MAJOR_CODE", options), options)) continue;
+    if (!now || now[STATUS_FIELD] === "not_in_portal") continue;
+    const major = valueOf(now, "MAJOR_CODE", options);
+    if (!meansOneOf("MAJOR_CODE", majors, major, options)) continue;
+    if (terms.length && !meansOneOf("TERM_CODE", terms, valueOf(now, "TERM_CODE", options), options)) continue;
+    if (yearLevel && !meansOneOf("YEARLEVEL_CODE", [yearLevel], valueOf(now, "YEARLEVEL_CODE", options), options)) continue;
+    const moved = changesTo("MAJOR_CODE", input.changes(student.studentId))
+      .filter((change) => meansOneOf("MAJOR_CODE", majors, change.to, options) && !meansOneOf("MAJOR_CODE", majors, change.from, options))
+      .sort((left, right) => right.at - left.at)[0];
     out.push({
-      key: `${input.cohort.id}:${student.studentId}:${rule.id}:${moved.from}→${moved.to}@${moved.at}`,
+      key: `${input.cohort.id}:${student.studentId}:${rule.id}:${major}:${student.cohortId ?? ""}${moved ? `@${moved.at}` : ""}`,
       ruleId: rule.id,
       studentId: student.studentId,
       cohortId: student.cohortId,
-      at: moved.at,
-      from: moved.from,
-      to: moved.to,
+      major,
+      moved: moved ? { at: moved.at, from: moved.from, to: moved.to } : undefined,
     });
   }
-  return out.sort((left, right) => right.at - left.at);
+  return out.sort((left, right) => (right.moved?.at ?? 0) - (left.moved?.at ?? 0) || left.studentId.localeCompare(right.studentId));
 }
 
 /**
@@ -408,9 +409,9 @@ export function describeWarning(warning: Warning): string {
       return `${field} is ${warning.value}, not ${warning.expected}`;
     case "differs":
       return `${field} is ${warning.value}, cohort expects ${warning.expected}`;
-    case "moved_in":
-      // Never a row's warning: a moved-in student is not in the cohort. Said for completeness.
-      return `${field} moved into the cohort's`;
+    case "belongs":
+      // Never a row's warning: such a student is not in the cohort. Said for completeness.
+      return "belongs to the cohort by its expectations, and is not in it";
     case "unplaced":
       return "in no cohort, and nothing about them says they should not be";
     case "no_baseline":

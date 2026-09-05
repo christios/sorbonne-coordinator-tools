@@ -133,8 +133,8 @@ export function StudentRecord({
           (warning) => warning.kind !== "no_baseline",
         )
       : [];
-    // The other direction: a cohort whose majors they moved into, that they are not in —
-    // where that cohort has a rule asking to know.
+    // The other direction: a cohort they belong to by its expectations, that they are not
+    // in — where that cohort has a rule asking to know.
     const arrivals = cohorts
       .filter((candidate) => candidate.id !== row.cohortId)
       .flatMap((candidate) =>
@@ -207,9 +207,11 @@ export function StudentRecord({
             <li key={arrival.cohort.id} className="flex items-start gap-2 rounded-md border border-[#bcd3ea] bg-[#eef5fb] px-3 py-2 text-sm text-[#1f4e79]">
               <ArrowRightCircle size={14} className="mt-0.5 shrink-0" aria-hidden="true" />
               <span>
-                Major changed {arrival.from ? `from ${arrival.from} ` : ""}to {arrival.to} on{" "}
-                {new Date(arrival.at).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}.{" "}
-                {arrival.cohort.name} expects {arrival.cohort.majors.join(" or ")}, and they are {cohort ? `in ${cohort.name}` : "in no cohort"}.
+                Belongs to {arrival.cohort.name} by what it expects ({arrival.major}
+                {arrival.moved
+                  ? `, from ${arrival.moved.from} on ${new Date(arrival.moved.at).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}`
+                  : ""}
+                ), and is {cohort ? `in ${cohort.name}` : "in no cohort"}.
               </span>
             </li>
           ))}
