@@ -2,7 +2,6 @@ import { useQueries, useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { LabelledPicker } from "@/components/LabelledPicker";
-import { ListGrid } from "@/components/ListGrid";
 import { PortalFilterBar } from "@/components/PortalFilterBar";
 import { SelectMenu } from "@/components/SelectMenu";
 import { StudentRoster } from "@/components/StudentRoster";
@@ -16,31 +15,9 @@ import {
   type PortalFilter,
 } from "@/services/portalLists";
 import { describeAge, latestPullAt } from "@/services/rosterStore";
-import type { PortalRoster, RosterRow } from "@/services/scenRosters";
-import type { GridColumn } from "@/services/studentColumns";
 import type { Cohort } from "@/services/studentDatabase";
 
 const FILTER_KEY = "scen-portal-filter:registrations";
-
-const field = (row: RosterRow, key: string) => String(row[key] ?? "");
-const COLUMNS: GridColumn<RosterRow>[] = [
-  { id: "SPRIDEN_ID", displayName: "ID", type: "text", accessor: (row) => field(row, "SPRIDEN_ID"), required: true, defaultWidth: 110 },
-  { id: "FULL_NAME", displayName: "Student", type: "text", accessor: (row) => field(row, "FULL_NAME"), required: true, defaultWidth: 220 },
-  { id: "YEARLEVEL_CODE", displayName: "Year", type: "option", accessor: (row) => field(row, "YEARLEVEL_CODE"), defaultWidth: 80 },
-  { id: "MAJOR_CODE", displayName: "Major", type: "option", accessor: (row) => field(row, "MAJOR_CODE"), defaultWidth: 90 },
-  { id: "DEPT_CODE", displayName: "Dept.", type: "option", accessor: (row) => field(row, "DEPT_CODE"), defaultWidth: 90 },
-  { id: "LEVEL_CODE", displayName: "Level", type: "option", accessor: (row) => field(row, "LEVEL_CODE"), defaultWidth: 80 },
-  { id: "COLLEGE_CODE", displayName: "College", type: "option", accessor: (row) => field(row, "COLLEGE_CODE"), defaultWidth: 90 },
-  { id: "COURSE_CRN", displayName: "CRN", type: "text", accessor: (row) => field(row, "COURSE_CRN"), defaultWidth: 90 },
-  { id: "COURSE_CODE", displayName: "Course", type: "option", accessor: (row) => field(row, "COURSE_CODE"), defaultWidth: 130 },
-  { id: "COURSE_TITLE", displayName: "Title", type: "text", accessor: (row) => field(row, "COURSE_TITLE"), defaultWidth: 240 },
-  { id: "TEACHER_NAME", displayName: "Teacher", type: "option", accessor: (row) => field(row, "TEACHER_NAME"), defaultWidth: 200 },
-  { id: "TERM_CODE", displayName: "Term", type: "option", accessor: (row) => field(row, "TERM_CODE"), defaultWidth: 90 },
-];
-const SHOWN = ["SPRIDEN_ID", "FULL_NAME", "YEARLEVEL_CODE", "MAJOR_CODE", "COURSE_CRN", "COURSE_CODE", "COURSE_TITLE", "TEACHER_NAME"];
-
-const idOf = (row: RosterRow) => `${field(row, "SPRIDEN_ID")}|${field(row, "COURSE_CRN")}`;
-const labelOf = (row: RosterRow) => `${field(row, "FULL_NAME") || field(row, "SPRIDEN_ID")} in ${field(row, "COURSE_CRN")}`;
 
 /** How many of a cohort's students the registrar has differently, dismissals aside. */
 const flaggedIn = (mismatches: Mismatch[], dismissed: Set<string>) =>
@@ -87,7 +64,6 @@ export function PortalRegistrations({ cohorts }: { cohorts: Cohort[] }) {
       return "";
     }
   });
-  const [last, setLast] = useState<PortalRoster | null>(null);
   const filters = useQuery({ queryKey: ["portal-filters", "registrations"], queryFn: () => fetchPortalFilters("registrations") });
   const asOf = useQuery({ queryKey: ["latest-pull-at"], queryFn: latestPullAt });
   const chosen: PortalFilter | null = (filters.data ?? []).find((candidate) => candidate.id === filterId) ?? null;
@@ -141,7 +117,6 @@ export function PortalRegistrations({ cohorts }: { cohorts: Cohort[] }) {
 
   const flagged = flaggedIn(mismatches, dismissed);
   const dismissedCount = [...byStudent.values()].flat().filter((warning) => warning.dismissed).length;
-  const rows = last?.rows ?? [];
 
   return (
     <section>
@@ -158,14 +133,12 @@ export function PortalRegistrations({ cohorts }: { cohorts: Cohort[] }) {
           filterId={filterId}
           onChoose={(id) => {
             setFilterId(id);
-            setLast(null);
             try {
               window.localStorage.setItem(FILTER_KEY, id);
             } catch {
               // fine
             }
           }}
-          onPulled={(roster) => setLast(roster)}
         />
       </div>
 
@@ -223,27 +196,6 @@ export function PortalRegistrations({ cohorts }: { cohorts: Cohort[] }) {
         />
       </div>
 
-      {rows.length ? (
-        <div className="mt-8">
-          <h3 className="text-sm font-semibold text-[#344054]">The last pull</h3>
-          <p className="mb-2 mt-0.5 text-xs text-[#98a2b3]">
-            What the portal returned just now, row per student and CRN. Shown from the pull itself and kept nowhere.
-          </p>
-          <ListGrid
-            columns={COLUMNS}
-            rows={rows}
-            idOf={idOf}
-            labelOf={labelOf}
-            layoutKey="scen-columns:registrations:v1"
-            presetKey="scen-copy-presets:registrations:v1"
-            shown={SHOWN}
-            initialSort={{ key: "FULL_NAME", ascending: true }}
-            searchLabel="Search this pull"
-            noun="registrations"
-            empty="Nothing in this pull."
-          />
-        </div>
-      ) : null}
     </section>
   );
 }

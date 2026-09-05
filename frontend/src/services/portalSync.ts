@@ -52,6 +52,34 @@ export type SyncOutcome = {
 };
 
 /**
+ * A sync that worked and still left the names behind.
+ *
+ * The table reads the names back from this browser's own storage, so a refused write is
+ * a roster of ids — synced, and useless to read. Worth saying out loud beside the pull's
+ * own warnings rather than discovering it in the table.
+ */
+function storageTrouble(storage: StorageReport | null): string {
+  if (!storage) return "";
+  if (!storage.stored) {
+    return (
+      "The students synced, but this browser had no room to keep their names, so the table " +
+      "will show ids only. Use “Forget stored rosters” on the Students page, then sync again."
+    );
+  }
+  if (!storage.shed.length) return "";
+  const more = storage.shed.length > 1 ? ` and ${storage.shed.length - 1} more` : "";
+  return `This browser was full, so it gave up ${storage.shed[0]}${more} to keep this roster.`;
+}
+
+/** A backup that quietly stopped working is worse than none: it is missed when needed. */
+function backupTrouble(backup: BackupOutcome | null): string {
+  if (!backup || backup.ok || backup.reason === "no_folder") return "";
+  return backup.reason === "no_permission"
+    ? "The history was not copied to your folder — Chrome needs you to allow it again."
+    : "The history could not be written to your folder.";
+}
+
+/**
  * An extension older than this page knows only the student grid and answers with
  * students whatever it was asked; those must not land as courses or teachers.
  */
@@ -86,7 +114,7 @@ export async function syncTarget(
      * synced either way.
      */
     const backup = await backUpHistory();
-    return { report, roster, warning, storage, backup };
+    return { report, roster, warning: [warning, storageTrouble(storage), backupTrouble(backup)].filter(Boolean).join(" "), storage, backup };
   }
 
   checkKind(roster, target.kind);

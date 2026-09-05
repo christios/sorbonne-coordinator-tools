@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, Loader2, Plus, Settings2, Trash2 } from "lucide-react";
+import { Plus, Settings2, Trash2 } from "lucide-react";
 import { useState } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -8,21 +8,19 @@ import { Modal } from "@/components/Modal";
 import { SelectMenu } from "@/components/SelectMenu";
 import { useStaffUser } from "@/components/useStaffUser";
 import { describeFilter, filterLines, type Filter } from "@/services/filterSummary";
-import { type BackupOutcome } from "@/services/historyBackup";
-import { syncTarget } from "@/services/portalSync";
-import { type StorageReport } from "@/services/rosterStore";
-import { PortalError, fetchSchema, type PortalField, type PullProgress } from "@/services/scenRosters";
+import { fetchSchema, type PortalField } from "@/services/scenRosters";
 import { createView, deleteView, type StudentView } from "@/services/studentDatabase";
 
 /**
- * Which population the Students page is showing, and the one button that refreshes it.
+ * Which population the Students page is showing, and what that view asks the portal.
  *
  * A view's filter was fixed when the view was made, so syncing asks the same question it
  * has always asked — which is the only reason "no longer in the portal" can be trusted.
  * There is deliberately no way to edit a filter: a different question is a different view.
  *
  * Making one and throwing one away are an administrator's, because both settle what a
- * population is. Syncing is everybody's: it re-asks a question already settled.
+ * population is. Asking the portal is Portal sync's, at the foot of the pane: one button
+ * that syncs every list, so no page can be refreshed while the rest go stale.
  */
 export function ViewBar({
   views,
@@ -41,15 +39,6 @@ export function ViewBar({
   const [name, setName] = useState("");
   const [pendingDelete, setPendingDelete] = useState<StudentView | null>(null);
   const [showingFilter, setShowingFilter] = useState(false);
-  // How far the pull has got. A whole term is thousands of students and several minutes;
-  // a button that only says "Syncing…" for that long is indistinguishable from a hang.
-  const [pulled, setPulled] = useState<PullProgress | null>(null);
-  // Whether the names actually reached this browser's storage. They are read back from
-  // there, so a refused write is a table with no names in it rather than a slower page.
-  const [storage, setStorage] = useState<StorageReport | null>(null);
-  // Whether the copy on disk kept up. Null until a sync has tried.
-  const [backup, setBackup] = useState<BackupOutcome | null>(null);
-
   const fields = schema.data?.fields ?? [];
   const view = views.find((candidate) => candidate.id === viewId) ?? null;
   const isAdmin = Boolean(user?.isAdmin);
@@ -59,23 +48,6 @@ export function ViewBar({
     client.invalidateQueries({ queryKey: ["students"] });
     client.invalidateQueries({ queryKey: ["cohorts"] });
   };
-
-  // The act itself is portalSync's, so this button and the header's "Sync all" do the
-  // same thing; what is local to this bar is only how the result is shown.
-  const sync = useMutation({
-    mutationFn: async (target: StudentView) => {
-      setPulled(null);
-      const outcome = await syncTarget(
-        { kind: "students", id: target.id, name: target.name, filter: target.filter },
-        setPulled,
-      );
-      setStorage(outcome.storage ?? null);
-      setBackup(outcome.backup ?? null);
-      return outcome.report;
-    },
-    onSettled: () => setPulled(null),
-    onSuccess: refresh,
-  });
 
   const make = useMutation({
     mutationFn: () => createView({ name: name.trim(), filter: composing ?? {} }),
@@ -95,12 +67,14 @@ export function ViewBar({
     },
   });
 
-  const report = sync.data;
-
   return (
     <div className="flex flex-col items-end gap-1">
-      <div className="flex flex-wrap items-center justify-end gap-2">
+      {/* Aligned to the bottom: the picker carries a label above it, the buttons do not. */}
+      <div className="flex flex-wrap items-end justify-end gap-2">
+        {/* Whose list this is: the same words as the button at the foot of the pane, so
+            the filter chosen here is plainly the one that button will ask about. */}
         <div className="w-64">
+          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[#1f4e79]">Portal sync</p>
           <SelectMenu
             label="View"
             value={viewId}
@@ -118,26 +92,6 @@ export function ViewBar({
             onChange={onChoose}
           />
         </div>
-
-        <button
-          type="button"
-          disabled={!view || sync.isPending}
-          onClick={() => view && sync.mutate(view)}
-          className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-3.5 py-2 text-sm font-semibold text-white disabled:opacity-50"
-        >
-          {sync.isPending ? (
-            <Loader2 size={16} className="animate-spin" aria-hidden="true" />
-          ) : (
-            <Download size={16} aria-hidden="true" />
-          )}
-          {sync.isPending
-            ? pulled
-              ? `${pulled.fetched.toLocaleString()}${pulled.total ? ` of ${pulled.total.toLocaleString()}` : ""}…`
-              : "Syncing…"
-            : view?.lastSyncedAt
-              ? "Sync this filter"
-              : "Seed this filter"}
-        </button>
 
         {view ? (
           <button
@@ -179,33 +133,7 @@ export function ViewBar({
         ) : null}
       </div>
 
-      {sync.error ? (
-        <p role="alert" className="max-w-md text-right text-xs text-[#a6292f]">
-          {sync.error instanceof PortalError ? sync.error.message : (sync.error as Error).message}
-        </p>
-      ) : backup && !backup.ok && backup.reason !== "no_folder" ? (
-        <p role="alert" className="max-w-md text-right text-xs text-[#a6292f]">
-          {backup.reason === "no_permission"
-            ? "Synced, but the history was not copied to your folder — Chrome needs you to allow it again."
-            : "Synced, but the history could not be written to your folder."}
-        </p>
-      ) : storage && !storage.stored ? (
-        <p role="alert" className="max-w-md text-right text-xs text-[#a6292f]">
-          The students synced, but this browser had no room to keep their names, so the
-          table will show ids only. Use “Forget stored rosters” on the Students page to
-          clear the older pulls, then sync again.
-        </p>
-      ) : storage && storage.shed.length ? (
-        <p className="max-w-md text-right text-xs text-[#98a2b3]">
-          Synced. This browser was full, so it gave up {storage.shed[0]}
-          {storage.shed.length > 1 ? ` and ${storage.shed.length - 1} more` : ""} to keep
-          this roster.
-        </p>
-      ) : report ? (
-        <p className="text-xs text-[#98a2b3]">
-          {report.seen} returned · {report.added} added · {report.missing} no longer in this view
-        </p>
-      ) : view ? (
+      {view ? (
         <p className="max-w-md text-right text-xs text-[#98a2b3]">
           {describeFilter(view.filter as Filter, fields)}
           {view.gone ? ` · ${view.gone} no longer returned` : ""}

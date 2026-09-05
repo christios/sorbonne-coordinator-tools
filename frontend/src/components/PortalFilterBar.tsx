@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, Loader2, Plus, Settings2, Trash2 } from "lucide-react";
+import { Plus, Settings2, Trash2 } from "lucide-react";
 import { useState } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -11,13 +11,11 @@ import { describeFilter, filterLines, type Filter } from "@/services/filterSumma
 import {
   type ListKind,
   type PortalFilter,
-  type SyncReport,
   createPortalFilter,
   deletePortalFilter,
   fetchPortalFilters,
 } from "@/services/portalLists";
-import { syncTarget } from "@/services/portalSync";
-import { PortalError, fetchGridSchema, type PortalRoster, type PullProgress } from "@/services/scenRosters";
+import { fetchGridSchema } from "@/services/scenRosters";
 
 const NOUNS: Record<ListKind, { one: string; many: string }> = {
   courses: { one: "course", many: "courses" },
@@ -26,26 +24,24 @@ const NOUNS: Record<ListKind, { one: string; many: string }> = {
 };
 
 /**
- * Which portal filter a list is showing, and the one button that refreshes it.
+ * Which portal filter a list is showing, and what that filter asks the portal.
  *
  * The ViewBar for the three lists that are not students: the same saved-filter idea —
  * a question fixed when the filter was made, so "no longer returned" means something —
- * pointed at the portal's courses, teachers or registrations grid. What is sent to the
- * server is what the list keeps: a course whole, a teacher without personal fields, a
- * registration as id and CRN. The pull itself, names included, is handed back to the
- * page, which decides what to do with it in this browser.
+ * pointed at the portal's courses, teachers or registrations grid.
+ *
+ * Choosing, reading and keeping filters only. Asking the portal is Portal sync's, at the
+ * foot of the pane: one button that syncs every list, so there is no longer a way to
+ * refresh one page and leave the rest a week stale.
  */
 export function PortalFilterBar({
   kind,
   filterId,
   onChoose,
-  onPulled,
 }: {
   kind: ListKind;
   filterId: string;
   onChoose: (filterId: string) => void;
-  /** The pull as it came back, for a page that wants the names it carries. */
-  onPulled?: (roster: PortalRoster, report: SyncReport) => void;
 }) {
   const client = useQueryClient();
   const user = useStaffUser();
@@ -56,10 +52,6 @@ export function PortalFilterBar({
   const [name, setName] = useState("");
   const [pendingDelete, setPendingDelete] = useState<PortalFilter | null>(null);
   const [showingFilter, setShowingFilter] = useState(false);
-  const [pulled, setPulled] = useState<PullProgress | null>(null);
-  //: What the last pull was worth saying about itself, when it was not simply fine.
-  const [notice, setNotice] = useState("");
-
   const fields = schema.data?.fields ?? [];
   const available = filters.data ?? [];
   const chosen = available.find((candidate) => candidate.id === filterId) ?? null;
@@ -71,23 +63,6 @@ export function PortalFilterBar({
     client.invalidateQueries({ queryKey: ["portal", kind] });
     if (kind === "registrations") client.invalidateQueries({ queryKey: ["registration-check"] });
   };
-
-  // The act itself is portalSync's, so this button and the header's "Sync all" do the
-  // same thing; what is local to this bar is only how the result is shown.
-  const sync = useMutation({
-    mutationFn: async (target: PortalFilter) => {
-      setPulled(null);
-      setNotice("");
-      const outcome = await syncTarget({ kind, id: target.id, name: target.name, filter: target.filter }, setPulled);
-      onPulled?.(outcome.roster, outcome.report);
-      // A pull that came back short is the one thing that must not pass quietly: it is
-      // how a third of the department's teachers went missing without anyone noticing.
-      setNotice(outcome.warning);
-      return outcome.report;
-    },
-    onSettled: () => setPulled(null),
-    onSuccess: refresh,
-  });
 
   const make = useMutation({
     mutationFn: () => createPortalFilter({ kind, name: name.trim(), filter: composing ?? {} }),
@@ -107,13 +82,16 @@ export function PortalFilterBar({
     },
   });
 
-  const report = sync.data;
   const button = "rounded-md border border-[#b7bec8] bg-white p-2 text-[#667085] hover:bg-[#f8fafc] hover:text-[#344054]";
 
   return (
     <div className="flex flex-col items-end gap-1">
-      <div className="flex flex-wrap items-center justify-end gap-2">
+      {/* Aligned to the bottom: the picker carries a label above it, the buttons do not. */}
+      <div className="flex flex-wrap items-end justify-end gap-2">
+        {/* Whose list this is: the same words as the button at the foot of the pane, so
+            the filter chosen here is plainly the one that button will ask about. */}
         <div className="w-64">
+          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[#1f4e79]">Portal sync</p>
           <SelectMenu
             label="Portal filter"
             value={filterId}
@@ -128,27 +106,6 @@ export function PortalFilterBar({
             onChange={onChoose}
           />
         </div>
-
-        <button
-          type="button"
-          disabled={!chosen || sync.isPending}
-          onClick={() => chosen && sync.mutate(chosen)}
-          className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-3.5 py-2 text-sm font-semibold text-white disabled:opacity-50"
-        >
-          {sync.isPending ? <Loader2 size={16} className="animate-spin" aria-hidden="true" /> : <Download size={16} aria-hidden="true" />}
-          {/*
-            * A pull is one request the portal answers slowly, so most of the wait has no
-            * count to show — only the heartbeat that says it is still going. "Syncing…"
-            * until rows actually arrive is the honest reading of that.
-            */}
-          {sync.isPending
-            ? pulled && pulled.fetched > 0
-              ? `${pulled.fetched.toLocaleString()}${pulled.total ? ` of ${pulled.total.toLocaleString()}` : ""}…`
-              : "Syncing…"
-            : chosen?.lastSyncedAt
-              ? "Sync this filter"
-              : "Seed this filter"}
-        </button>
 
         {chosen ? (
           <button
@@ -190,21 +147,7 @@ export function PortalFilterBar({
         ) : null}
       </div>
 
-      {notice && !sync.error ? (
-        <p role="status" className="max-w-md text-right text-xs text-[#8a6116]">
-          {notice}
-        </p>
-      ) : null}
-
-      {sync.error ? (
-        <p role="alert" className="max-w-md text-right text-xs text-[#a6292f]">
-          {sync.error instanceof PortalError ? sync.error.message : (sync.error as Error).message}
-        </p>
-      ) : report ? (
-        <p className="text-xs text-[#98a2b3]">
-          {report.seen} {report.seen === 1 ? noun.one : noun.many} returned · {report.added} added · {report.missing} no longer returned
-        </p>
-      ) : chosen ? (
+      {chosen ? (
         <p className="max-w-md text-right text-xs text-[#98a2b3]">
           {describeFilter(chosen.filter, fields)}
           {chosen.gone ? ` · ${chosen.gone} no longer returned` : ""}

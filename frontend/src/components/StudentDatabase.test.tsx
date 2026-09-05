@@ -63,11 +63,17 @@ function renderApp(user: typeof ADMIN | null = ADMIN, onOpenSettings = () => {})
   );
 }
 
-/** The sync waits on the views query, so it is briefly disabled after the page appears. */
+/**
+ * Portal sync waits on the views and portal filters, so it is briefly disabled.
+ *
+ * Waited out to the end, because the run is module state shared by every test in this
+ * file: a test that walked away mid-run would leave the next one unable to start.
+ */
 async function clickSync() {
-  const button = await screen.findByRole("button", { name: /sync this filter/i });
+  const button = await screen.findByRole("button", { name: /portal sync/i });
   await waitFor(() => expect(button).toHaveProperty("disabled", false));
   fireEvent.click(button);
+  await screen.findByText(/^Synced/);
 }
 
 beforeEach(() => {
@@ -95,13 +101,14 @@ afterEach(() => {
   window.localStorage.clear();
 });
 
-describe("syncing a view", () => {
-  it("offers the view picker and one sync in the header", async () => {
+describe("Portal sync", () => {
+  it("stands at the foot of the pane, and the pages themselves no longer sync", async () => {
     renderApp();
 
     expect(await screen.findByRole("combobox", { name: "View" })).toBeTruthy();
-    // The label waits on the views query, which says whether this one has been synced.
-    expect(await screen.findByRole("button", { name: /sync this filter/i })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: /portal sync/i })).toBeTruthy();
+    // One way to ask the portal, not one per page.
+    expect(screen.queryByRole("button", { name: /sync this filter|seed this filter/i })).toBeNull();
   });
 
   it("asks the portal for the view's own fixed filter, and sends back only ids", async () => {
@@ -120,19 +127,17 @@ describe("syncing a view", () => {
     expect(JSON.stringify(ids)).not.toContain("Amira");
   });
 
-  it("says what the sync did to this view", async () => {
+  it("says what the run did, list by list", async () => {
     renderApp();
 
     await clickSync();
 
-    expect(await screen.findByText(/2 returned · 2 added · 0 no longer in this view/)).toBeTruthy();
+    await waitFor(() => expect(database.syncView).toHaveBeenCalled());
+    // The panel opens with the run in it: the list, and what the portal gave back.
+    expect(await screen.findByText("Students ·")).toBeTruthy();
+    expect(await screen.findByText(/2 returned/)).toBeTruthy();
   });
 
-  /*
-   * A backup that has quietly stopped working is worse than no backup: it is discovered
-   * when it is needed, which is after the thing it was protecting has gone. The write was
-   * fired off and its answer dropped.
-   */
   it("says when the history could not be copied to the chosen folder", async () => {
     vi.spyOn(backup, "backUpHistory").mockResolvedValue({ ok: false, reason: "no_permission" });
     renderApp();
@@ -153,7 +158,7 @@ describe("syncing a view", () => {
     expect(screen.queryByText(/could not be written/)).toBeNull();
   });
 
-  it("still reports the sync itself when the backup fails", async () => {
+  it("still syncs the students when the backup fails", async () => {
     // The students are synced either way; the backup is a copy, not the point.
     vi.spyOn(backup, "backUpHistory").mockResolvedValue({ ok: false, reason: "failed" });
     renderApp();
@@ -162,7 +167,9 @@ describe("syncing a view", () => {
 
     await waitFor(() => expect(database.syncView).toHaveBeenCalled());
   });
+});
 
+describe("a view is a fixed question", () => {
   it("offers no way to change a view's filter", async () => {
     // The filter is fixed at creation — that is what makes "no longer in the view" mean
     // something — so there is deliberately no edit control and no shared settings dialog.
@@ -268,10 +275,10 @@ describe("who may define a view", () => {
     expect(screen.queryByRole("button", { name: `Delete ${VIEW.name}` })).toBeNull();
   });
 
-  it("still lets them sync the view they are looking at", async () => {
+  it("still lets them ask the portal, which settles nothing about a population", async () => {
     renderApp(COLLEAGUE);
 
-    expect(await screen.findByRole("button", { name: /Sync this filter/ })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: /portal sync/i })).toBeTruthy();
   });
 });
 
@@ -325,7 +332,7 @@ describe("students and their timetables in one place", () => {
 
     // The roster is this application's own, so a missing platform must not close it.
     await open(/^Students$/);
-    expect(await screen.findByRole("button", { name: /sync this filter/i })).toBeTruthy();
+    expect(await screen.findByRole("combobox", { name: "View" })).toBeTruthy();
   });
 });
 

@@ -9,13 +9,12 @@ import { RosterTable } from "@/components/RosterTable";
 import { StaffMenu } from "@/components/StaffMenu";
 import { StaffSettings } from "@/components/StaffSettings";
 import { SyllabusBuilder } from "@/components/SyllabusBuilder";
-import { SyncAllButton } from "@/components/SyncAllButton";
+import { SyncRunDriver } from "@/components/SyncRunDriver";
 import { TeacherDatabase } from "@/components/TeacherDatabase";
 import { StudentDatabase } from "@/components/StudentDatabase";
 import { COORDINATOR_APPS } from "@/routes/apps";
 import { handbookUrl } from "@/routes/handbookRoute";
 import { ToolId, toolFromLocation } from "@/routes/toolRoute";
-import { getRun, isRunning, subscribe } from "@/services/syncRun";
 import {
   BatchRosterPreview,
   BatchRosterPreviewItem,
@@ -119,10 +118,6 @@ export function App() {
   }
 
   const compactSyllabusHeader = activeTool === "syllabus" && syllabusHeaderCollapsed;
-  // Whether a sync started on the student pages is still going, so the button stays in
-  // sight — and keeps being driven — wherever the coordinator has gone since.
-  const [syncing, setSyncing] = useState(() => isRunning(getRun()));
-  useEffect(() => subscribe((run) => setSyncing(isRunning(run))), []);
   const isPicker = activeTool === null;
   // Any screen with a left pane needs the pane to end where the window does, so the
   // account menu at its foot is reachable. Guessing the header's height got that wrong;
@@ -138,6 +133,9 @@ export function App() {
 
   return (
     <main className={`${shell} bg-[#f7f8fa]`}>
+      {/* A portal sync outlives the page that started it, so something above every page
+          has to pick an unfinished one up. It draws nothing. */}
+      <SyncRunDriver />
       <header className={`shrink-0 border-b border-[#d9dee7] bg-white ${compactSyllabusHeader ? "hidden" : ""}`}>
         <div data-testid="app-header" className={`mx-auto flex max-w-[98rem] flex-col items-start gap-3 px-4 transition-[padding,gap] duration-200 sm:px-6 lg:flex-row lg:items-center lg:justify-between lg:px-8 ${compactSyllabusHeader ? "py-2" : "py-5"}`}>
           <div className="flex items-center gap-3.5">
@@ -158,12 +156,6 @@ export function App() {
             </div>
           </div>
           <div className="flex items-center gap-3">
-            {/*
-              * Syncing belongs to the student pages, so the button stands with them — and
-              * stays in sight anywhere while a run it started is still going, because the
-              * header is the one thing always mounted and something must drive the run.
-              */}
-            {activeTool === "database" || syncing ? <SyncAllButton /> : null}
             {activeTool ? (
               <button
                 type="button"
@@ -173,7 +165,12 @@ export function App() {
                 <span aria-hidden="true">←</span> All apps
               </button>
             ) : null}
-            <div className={isPicker ? "lg:hidden" : ""}>
+            {/*
+              * Who is signed in lives at the foot of the pane. The header keeps a copy
+              * only where the pane is not on screen at all — below `lg`, where it hides —
+              * so the account is reachable there and duplicated nowhere else.
+              */}
+            <div className="lg:hidden">
               <StaffMenu onOpenSettings={() => openTool("settings")} />
             </div>
           </div>
