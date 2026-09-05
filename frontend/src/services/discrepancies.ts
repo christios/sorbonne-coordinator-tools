@@ -187,10 +187,15 @@ function stateFires(rule: Rule, value: string, options: Options): boolean {
   return rule.kind === "is" ? listed : rule.kind === "is_not" ? !listed : false;
 }
 
-/** The changes of one student the rule's field is about, under whichever name they were kept. */
+/**
+ * The changes of one student the rule's field is about, under whichever name they were
+ * kept. A value appearing from nothing is not one of them: that is a column the pull
+ * started carrying — MAJOR_CODE, the day the extension began asking for it — not a
+ * student whose major moved. The same for a value vanishing.
+ */
 function changesTo(field: string, changes: Change[]): Change[] {
   const names = new Set(twins(field));
-  return changes.filter((change) => names.has(change.field));
+  return changes.filter((change) => names.has(change.field) && change.from.trim() !== "" && change.to.trim() !== "");
 }
 
 /**

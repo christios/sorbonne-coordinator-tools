@@ -369,6 +369,20 @@ describe("students who moved into a cohort's major", () => {
   });
 });
 
+describe("a column the pull started carrying", () => {
+  const majorChanged: Rule = { id: "r10", field: "MAJOR_CODE", kind: "changed", values: [] };
+  const movedIn: Rule = { id: "r11", field: "MAJOR_CODE", kind: "moved_in", values: [] };
+  // The day the extension began asking for MAJOR_CODE, every student "changed" from nothing to a code.
+  const appeared = { A001: [{ at: T("2026-09-05T10:00:00Z"), field: "MAJOR_CODE", from: "", to: "MATH" }] };
+
+  it("is not a change, and not an arrival", () => {
+    expect(engine(L1_MATHS, [placed("A001", "c1")], [majorChanged], { A001: { MAJOR_CODE: "MATH" } }, appeared)).toEqual([]);
+    expect(
+      arrivalsFor({ cohort: L1_MATHS, rules: [movedIn], students: [placed("A001", null, "")], current: () => ({ MAJOR_CODE: "MATH" }), changes: (id) => appeared[id as "A001"] ?? [], options: PORTAL }),
+    ).toEqual([]);
+  });
+});
+
 describe("rules for one cohort", () => {
   const everyone: Rule = { id: "a", field: "STST_CODE", kind: "changed", values: [] };
   const l1Only: Rule = { id: "b", field: "MAJOR_CODE", kind: "moved_in", values: [], cohortId: "c1" };
