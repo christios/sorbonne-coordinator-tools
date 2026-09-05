@@ -124,6 +124,7 @@ const PULLED = [
 
 async function withNames() {
   await rememberPull({
+    kind: "students",
     // Stored under the view that pulled it: another view's pull answered another question.
     presetId: VIEW_ID,
     name: "Sync",
@@ -754,7 +755,7 @@ describe("sorting", () => {
     // The portal hands back whatever case it holds. Sorted case-sensitively, "nasser"
     // lands after every capitalised name instead of beside them.
     await rememberPull({
-      presetId: VIEW_ID,
+      kind: "students", presetId: VIEW_ID,
       name: "Sync",
       count: 3,
       expect: null,
@@ -779,7 +780,7 @@ describe("sorting", () => {
     // Default collation ranks case, so "martin" and "MARTIN" land in an order decided by
     // capitalisation. They are one name: order them by id instead, so the list is stable.
     await rememberPull({
-      presetId: VIEW_ID,
+      kind: "students", presetId: VIEW_ID,
       name: "Sync",
       count: 3,
       expect: null,
@@ -803,7 +804,7 @@ describe("sorting", () => {
   it("keeps accents apart, which case-folding must not flatten", async () => {
     // Case is noise; an accent is a different letter. Léa and Lea are two people.
     await rememberPull({
-      presetId: VIEW_ID,
+      kind: "students", presetId: VIEW_ID,
       name: "Sync",
       count: 3,
       expect: null,
@@ -1001,7 +1002,7 @@ describe("a student who is in more than one view", () => {
   it("shows what another view's sync last learned about them", async () => {
     // This view has never been synced; a different one pulled this student just now.
     await rememberPull({
-      presetId: "some-other-view",
+      kind: "students", presetId: "some-other-view",
       name: "Whole term",
       count: 1,
       expect: null,
@@ -1017,7 +1018,7 @@ describe("a student who is in more than one view", () => {
 
   it("prefers the newer sync when two views disagree", async () => {
     await rememberPull({
-      presetId: VIEW_ID,
+      kind: "students", presetId: VIEW_ID,
       name: "This view",
       count: 1,
       expect: null,
@@ -1026,7 +1027,7 @@ describe("a student who is in more than one view", () => {
       rows: [{ SPRIDEN_ID: "A001", FULL_NAME: "Old Spelling", YEARLEVEL_CODE: "FY" }],
     });
     await rememberPull({
-      presetId: "some-other-view",
+      kind: "students", presetId: "some-other-view",
       name: "Whole term",
       count: 1,
       expect: null,

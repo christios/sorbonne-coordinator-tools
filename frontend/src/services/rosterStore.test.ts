@@ -18,7 +18,7 @@ import type { PortalRoster } from "@/services/scenRosters";
 const KEY = "scen-rosters:v2";
 
 const pull = (fetchedAt: number, rows: { SPRIDEN_ID: string; YEARLEVEL_CODE?: string }[]): PortalRoster => ({
-  presetId: "scen-fy",
+  kind: "students", presetId: "scen-fy",
   name: "SCEN — First Year",
   count: rows.length,
   expect: rows.length,
@@ -76,9 +76,9 @@ describe("the browser's roster store", () => {
     // A view last synced before the change, which the next sync replaces.
     await browser.write(KEY, {
       "scen-fy": {
-        current: { presetId: "scen-fy", name: "n", count: 1, fetchedAt: 2000,
+        current: { kind: "students", presetId: "scen-fy", name: "n", count: 1, fetchedAt: 2000,
                    fields: ["SPRIDEN_ID"], values: [["A001"]] },
-        previous: { presetId: "scen-fy", name: "n", count: 1, fetchedAt: 1000,
+        previous: { kind: "students", presetId: "scen-fy", name: "n", count: 1, fetchedAt: 1000,
                     fields: ["SPRIDEN_ID", "YEARLEVEL_CODE"], values: [["A001", "FY"]] },
       },
     });
@@ -234,7 +234,7 @@ describe("packing the rows", () => {
     window.localStorage.setItem(
       "scen-rosters:v1",
       JSON.stringify({
-        "scen-fy": { current: { presetId: "scen-fy", name: "SCEN — FY", count: 2, fetchedAt: 1000, rows } },
+        "scen-fy": { current: { kind: "students", presetId: "scen-fy", name: "SCEN — FY", count: 2, fetchedAt: 1000, rows } },
       }),
     );
 
@@ -249,7 +249,7 @@ describe("packing the rows", () => {
       KEY,
       JSON.stringify({
         "scen-fy": {
-          current: { presetId: "scen-fy", name: "n", count: 1, fetchedAt: 1000,
+          current: { kind: "students", presetId: "scen-fy", name: "n", count: 1, fetchedAt: 1000,
                      fields: ["SPRIDEN_ID", "FULL_NAME"], values: [["A001", "Ada"]] },
         },
       }),

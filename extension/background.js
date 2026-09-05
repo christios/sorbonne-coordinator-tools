@@ -15,8 +15,10 @@
  */
 
 import { checkFilter, mayReturn } from './filter-schema.js';
+import { fieldsFor, gridOf } from './grids.js';
 
-const ENDPOINT = 'https://reg.psuad.ac.ae/PSUADPortal/Services/StudentSearch/Enrollment/List';
+const PORTAL = 'https://reg.psuad.ac.ae/PSUADPortal/';
+const ENDPOINT = PORTAL + 'Services/StudentSearch/Enrollment/List';
 
 /*
  * A whole term, a page at a time.
@@ -134,8 +136,8 @@ async function fetchPreset(presetId) {
  * Errors are returned rather than thrown, in the shape the caller already sends back, so
  * an expired session on page four says the same thing it would have said on page one.
  */
-async function fetchPage(equality, sort, skip) {
-  const res = await fetch(ENDPOINT, {
+async function fetchPage(equality, sort, skip, grid) {
+  const res = await fetch(PORTAL + 'Services/' + grid.path, {
     method: 'POST',
     credentials: 'include',        // the coordinator's own portal session
     headers: {
@@ -152,7 +154,7 @@ async function fetchPage(equality, sort, skip) {
       error: {
         ok: false,
         error: 'auth',
-        loginUrl: ENDPOINT.replace(/\/Services\/.*$/, '/StudentSearch/Enrollment')
+        loginUrl: PORTAL + grid.page
       }
     };
   }
@@ -179,23 +181,43 @@ function onProgress(meta, fetched, total) {
   }
 }
 
+/**
+ * What one grid may be asked and may answer.
+ *
+ * The student grid is the learned one: its fields and columns come from the portal
+ * probe. The other three are declared in grids.js, borrowing the student grid's code
+ * tables for the fields they share, and their columns are the list there — filtered
+ * through the same NEVER_RETURNED rule, so a column banned for students is banned
+ * everywhere.
+ */
+async function gridSchema(kind) {
+  const grid = gridOf(kind);
+  if (!grid) return null;
+  const students = await schema();
+  if (kind === 'students') return { grid, fields: students.fields, columns: students.columns.map(column => column.key), source: students.source };
+  const columns = (grid.columns || []).filter(key => mayReturn(key));
+  return { grid, fields: fieldsFor(kind, students.fields), columns, source: 'built-in' };
+}
+
 /** Run one composed filter, once it has been checked against the schema. */
 async function fetchFilter(filter, meta = {}) {
   const cfg = await config();
-  const { fields, source } = await schema();
+  const kind = meta.kind || 'students';
+  const known = await gridSchema(kind);
+  if (!known) return { ok: false, error: 'unknown_grid', message: String(kind) };
+  const { grid, fields, columns, source } = known;
   const refusal = checkFilter(filter, fields, { trustValues: source === 'portal' });
   if (refusal) return { ok: false, error: 'filter_refused', detail: refusal, message: refusal };
 
-  const columns = await allowedColumns();
-  const equality = Object.assign({ TERM_CODE: cfg.term.code }, filter);
-  const sort = meta.sort || ['FULL_NAME'];
+  const equality = Object.assign(grid.term ? { TERM_CODE: cfg.term.code } : {}, filter);
+  const sort = meta.sort || grid.sort;
 
   const rows = [];
   let truncated = false;
   for (let skip = 0; ; skip += PAGE_SIZE) {
     let page;
     try {
-      page = await fetchPage(equality, sort, skip);
+      page = await fetchPage(equality, sort, skip, grid);
     } catch (e) {
       return { ok: false, error: 'network', message: e.message };
     }
@@ -215,6 +237,7 @@ async function fetchFilter(filter, meta = {}) {
 
   return {
     ok: true,
+    kind,
     presetId: meta.presetId || '',
     name: meta.name || 'Filtered search',
     filter,
@@ -250,8 +273,22 @@ async function handle(msg) {
         }))
       };
     }
-    case 'schema':
-      return Object.assign({ ok: true }, await schema());
+    case 'schema': {
+      const kind = msg.kind || 'students';
+      if (kind === 'students') return Object.assign({ ok: true }, await schema());
+      const known = await gridSchema(kind);
+      if (!known) return { ok: false, error: 'unknown_grid', message: String(kind) };
+      const cfg = await config();
+      return {
+        ok: true,
+        kind,
+        term: cfg.term,
+        fields: known.fields,
+        columns: known.columns.map(key => ({ key, label: titleOf(key) })),
+        source: 'built-in',
+        harvestedAt: null,
+      };
+    }
     case 'fields:harvest': {
       // Sent by the portal content script. Keep the richest harvest we have seen: a page
       // where no filter panel was open knows the field names but not their values, and a

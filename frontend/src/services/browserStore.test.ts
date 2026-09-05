@@ -48,7 +48,7 @@ describe("the drawer the rosters live in", () => {
     expect(asText.length).toBeGreaterThan(5 * 1024 * 1024);
 
     await rememberPull({
-      presetId: "term", name: "Whole term", count: rows.length,
+      kind: "students", presetId: "term", name: "Whole term", count: rows.length,
       expect: null, warning: null, fetchedAt: 1000, rows,
     });
 

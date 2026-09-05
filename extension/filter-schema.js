@@ -8,7 +8,9 @@
  */
 
 export const FIELD_KEY = /^[A-Z][A-Z0-9_]{1,39}$/;
-export const VALUE = /^[A-Za-z0-9._\-]{1,40}$/;
+// A code, or a description the portal itself filters by ("Flying-Professional
+// Assignment" is how the teachers grid names a type) — never a sentence.
+export const VALUE = /^[A-Za-z0-9._\-][A-Za-z0-9._\- ]{0,59}$/;
 export const MAX_FIELDS = 12;
 export const MAX_VALUES = 40;
 
@@ -29,6 +31,7 @@ export const NEVER_FILTERABLE = new Set([
   'PERS_EMAIL',
   'BALANCE',
   'NATIONAL_ID',
+  'ORACLE_ID',
 ]);
 
 /**
@@ -55,6 +58,7 @@ export const NEVER_RETURNED = [
   'PERSONAL_EMAIL',
   'HOME_EMAIL',
   'BALANCE',
+  'ORACLE_ID',
 ];
 
 /** "Date Of Birth" -> "DATE_OF_BIRTH", so a label can be read the way a key is. */

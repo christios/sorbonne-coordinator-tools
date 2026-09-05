@@ -28,14 +28,16 @@ window.addEventListener('message', event => {
   switch (req.type) {
     case 'ping':
     case 'presets':
-    case 'schema':
       outgoing = { type: req.type };
+      break;
+    case 'schema':
+      outgoing = { type: 'schema', kind: String(req.kind || 'students') };
       break;
     case 'fetch':
       // A composed filter may cross now, but the service worker checks every field and
       // value against the schema it learned from the portal before it sends anything.
       outgoing = req.filter
-        ? { type: 'fetch', filter: req.filter, meta: req.meta || {} }
+        ? { type: 'fetch', filter: req.filter, meta: Object.assign({}, req.meta || {}, { kind: String(req.kind || 'students') }) }
         : { type: 'fetch', presetId: String(req.presetId || '') };
       break;
     default:

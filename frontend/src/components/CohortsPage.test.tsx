@@ -40,7 +40,7 @@ const IS_WITHDRAWN: DiscrepancyRule = { id: "r3", field: "STST_CODE", kind: "is"
 /** What the portal said, as this browser holds it. */
 async function portalSays(rows: Record<string, string>[]) {
   await rememberPull({
-    presetId: "view-1",
+    kind: "students", presetId: "view-1",
     name: "All",
     count: rows.length,
     expect: null,

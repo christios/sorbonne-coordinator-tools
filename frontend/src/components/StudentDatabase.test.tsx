@@ -24,6 +24,7 @@ const SCHEMA: rosters.PortalSchema = {
 };
 
 const PORTAL: rosters.PortalRoster = {
+  kind: "students",
   presetId: "view-1",
   name: "Foundation Year",
   count: 2,

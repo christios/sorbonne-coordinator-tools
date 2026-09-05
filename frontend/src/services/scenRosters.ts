@@ -43,7 +43,14 @@ export type RosterPreset = {
   filter?: Record<string, string[]>;
 };
 
+/**
+ * Which portal grid a pull reads. Students was the only one for a year; courses,
+ * teachers and a student's registrations are the same request behind other pages.
+ */
+export type PullKind = "students" | "courses" | "teachers" | "registrations";
+
 export type PortalRoster = {
+  kind: PullKind;
   presetId: string;
   name: string;
   count: number;
@@ -183,8 +190,13 @@ export type PortalSchema = {
  * the portal changes. Until somebody visits the portal it falls back to the codes
  * verified by hand, which is worth showing plainly rather than hiding.
  */
-export async function fetchSchema(): Promise<PortalSchema> {
-  const reply = await ask("schema", {}, 5_000);
+export function fetchSchema(): Promise<PortalSchema> {
+  return fetchGridSchema("students");
+}
+
+/** The same, for one of the other grids: its own fields, its own columns. */
+export async function fetchGridSchema(kind: PullKind): Promise<PortalSchema> {
+  const reply = await ask("schema", { kind }, 5_000);
   const error = reply.ok ? "" : await diagnose(String(reply.error ?? "unknown"));
   return {
     ok: Boolean(reply.ok),
@@ -254,10 +266,11 @@ export async function pullRoster(
  */
 export async function pullFilter(
   filter: Record<string, string[]>,
-  meta: { name?: string; expect?: number | null } = {},
+  meta: { name?: string; expect?: number | null; kind?: PullKind } = {},
   onProgress?: (progress: PullProgress) => void,
 ): Promise<PortalRoster> {
-  return run({ filter, meta }, "", onProgress);
+  const { kind = "students", ...rest } = meta;
+  return run({ filter, meta: rest, kind }, "", onProgress);
 }
 
 async function run(
@@ -272,6 +285,7 @@ async function run(
     throw new PortalError(await diagnose(String(reply.error ?? "unknown")), detail);
   }
   return {
+    kind: (reply.kind as PullKind) ?? "students",
     presetId: String(reply.presetId ?? presetId),
     name: String(reply.name ?? presetId),
     count: Number(reply.count ?? 0),
