@@ -131,9 +131,10 @@ class SectionInput(BaseModel):
 
     teacherId: str = Field(default="", max_length=80)
     hours: str = Field(default="", max_length=40)
-    sessionsPerWeek: str = Field(default="", max_length=80)
+    # Free text from the workbook — "Weeks 2,5, 1-hour sessions; weeks 4,6,7,8,10,14, 2 2h-sessions; …"
+    sessionsPerWeek: str = Field(default="", max_length=240)
     duration: str = Field(default="", max_length=40)
-    weeks: str = Field(default="", max_length=120)
+    weeks: str = Field(default="", max_length=240)
     anticipated: int = Field(default=0, ge=0, le=10_000)
     roomPref: str = Field(default="", max_length=200)
     dayPref: str = Field(default="", max_length=200)
