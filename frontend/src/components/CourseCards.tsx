@@ -1,7 +1,8 @@
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, ChevronsDownUp, ChevronsUpDown, FileSpreadsheet, ListTree, Search } from "lucide-react";
+import { CheckCircle2, ChevronsDownUp, ChevronsUpDown, FileSpreadsheet, ListTree, Plus, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 
+import { AddFromPortal } from "@/components/AddFromPortal";
 import { ClashPanel } from "@/components/ClashPanel";
 import { CourseCard } from "@/components/CourseCard";
 import type { FillReport } from "@/components/FillBlock";
@@ -64,6 +65,7 @@ export function CourseCards({ cohorts, onShowStudents }: { cohorts: Cohort[]; on
   const [open, setOpen] = useState<Set<string>>(new Set());
   const [editingSets, setEditingSets] = useState<{ cohortId: string; termId: string } | null>(null);
   const [tools, setTools] = useState(false);
+  const [adding, setAdding] = useState(false);
   const [preview, setPreview] = useState<{ preview: WorkbookPreview; cohort: Cohort; termId: string } | null>(null);
   const [applied, setApplied] = useState<(WorkbookApplied & { approved: number }) | null>(null);
   const [filled, setFilled] = useState<FillReport | null>(null);
@@ -103,6 +105,9 @@ export function CourseCards({ cohorts, onShowStudents }: { cohorts: Cohort[]; on
         <TableFilterBar columns={columns} filters={filters} optionsFor={(column) => optionsFor(cards, column)} onChange={setFilters} />
         <button type="button" onClick={() => setEditingSets({ cohortId: single?.cohortId ?? cohorts[0]?.id ?? "", termId: single?.termId ?? "" })} className={button}>
           <ListTree size={15} aria-hidden="true" /> Group sets
+        </button>
+        <button type="button" onClick={() => setAdding(true)} className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white hover:bg-[#183f63]">
+          <Plus size={15} aria-hidden="true" /> Add from portal
         </button>
         <button type="button" onClick={() => setTools(true)} className={button}>
           <FileSpreadsheet size={15} aria-hidden="true" /> Workbook and lists
@@ -179,6 +184,7 @@ export function CourseCards({ cohorts, onShowStudents }: { cohorts: Cohort[]; on
       {editingSets ? (
         <GroupSetsEditor open cohorts={cohorts} terms={terms.data ?? []} initialCohortId={editingSets.cohortId} initialTermId={editingSets.termId} onClose={() => setEditingSets(null)} onChanged={refresh} />
       ) : null}
+      {adding ? <AddFromPortal open cohorts={cohorts} terms={terms.data ?? []} onClose={() => setAdding(false)} onAdded={() => { setAdding(false); refresh(); }} /> : null}
       <WorkbookTools open={tools} cohorts={cohorts} terms={terms.data ?? []} onClose={() => setTools(false)} onPreview={(held, cohort, termId) => { setTools(false); setPreview({ preview: held, cohort, termId }); }} />
     </section>
   );
