@@ -177,8 +177,10 @@ export function updateCohort(cohortId: string, input: CohortInput): Promise<Coho
 export type DiscrepancyRule = {
   id: string;
   field: string;
-  kind: "changed" | "changed_to" | "is" | "is_not" | "differs";
+  kind: "changed" | "changed_to" | "is" | "is_not" | "differs" | "moved_in";
   values: string[];
+  /** The cohort the rule is for; empty for every cohort. */
+  cohortId: string;
 };
 
 export async function fetchDiscrepancyRules(): Promise<DiscrepancyRule[]> {

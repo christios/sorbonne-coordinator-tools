@@ -62,6 +62,8 @@ class RuleInput(BaseModel):
     field: str = Field(min_length=1, max_length=64)
     kind: str = Field(min_length=1, max_length=20)
     values: list[str] = Field(default_factory=list, max_length=100)
+    # The cohort the rule is for; empty for every cohort.
+    cohortId: str = Field(default="", max_length=80)
 
 
 class RulesInput(BaseModel):

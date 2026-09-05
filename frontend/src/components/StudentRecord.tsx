@@ -9,6 +9,7 @@ import {
   arrivalsFor,
   describeWarning,
   labelOf,
+  rulesFor,
   warningsForCohort,
   type Change,
   type Options,
@@ -128,15 +129,18 @@ export function StudentRecord({
     const current = () => now;
     const changesOf = () => changes;
     const own = cohort
-      ? warningsForCohort({ cohort, students: placed, rules: rules.data, current, changes: changesOf, options }).filter(
+      ? warningsForCohort({ cohort, students: placed, rules: rulesFor(rules.data, cohort.id), current, changes: changesOf, options }).filter(
           (warning) => warning.kind !== "no_baseline",
         )
       : [];
-    // The other direction: a cohort whose majors they moved into, that they are not in.
+    // The other direction: a cohort whose majors they moved into, that they are not in —
+    // where that cohort has a rule asking to know.
     const arrivals = cohorts
       .filter((candidate) => candidate.id !== row.cohortId)
       .flatMap((candidate) =>
-        arrivalsFor({ cohort: candidate, students: placed, current, changes: changesOf, options }).map((arrival) => ({ ...arrival, cohort: candidate })),
+        arrivalsFor({ cohort: candidate, rules: rulesFor(rules.data, candidate.id), students: placed, current, changes: changesOf, options }).map(
+          (arrival) => ({ ...arrival, cohort: candidate }),
+        ),
       );
     return { own, arrivals };
   }, [rules.data, schema.data, changes, row, cohort, cohorts]);

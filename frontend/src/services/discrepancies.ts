@@ -22,7 +22,7 @@
 
 import { rowText } from "@/services/copyCells";
 
-export type RuleKind = "changed" | "changed_to" | "is" | "is_not" | "differs";
+export type RuleKind = "changed" | "changed_to" | "is" | "is_not" | "differs" | "moved_in";
 
 export type Rule = {
   id: string;
@@ -30,7 +30,19 @@ export type Rule = {
   kind: RuleKind;
   /** Portal values; meaningful for `changed_to`, `is` and `is_not`. */
   values: string[];
+  /** The cohort the rule is for; empty, or absent, for every cohort. */
+  cohortId?: string;
 };
+
+/** The rules that apply to one cohort: the shared ones and its own. */
+export function rulesFor(rules: Rule[], cohortId: string): Rule[] {
+  return rules.filter((rule) => !rule.cohortId || rule.cohortId === cohortId);
+}
+
+/** The rules that apply everywhere — what the students in no cohort are judged by. */
+export function sharedRules(rules: Rule[]): Rule[] {
+  return rules.filter((rule) => !rule.cohortId);
+}
 
 /** One recorded change to one student's record, from the pull history. */
 export type Change = { at: number; field: string; from: string; to: string };
@@ -313,11 +325,15 @@ export function unplacedWarnings(input: {
 /**
  * A student who moved into one of a cohort's majors and is not in that cohort.
  *
- * The rules judge a cohort's own students; this is the other direction — somebody
- * admissions has just made the department's, whom the department has not yet taken in.
- * Read from the pull history, so it is only as complete as this browser's record.
+ * The other rules judge a cohort's own students; a `moved_in` rule looks the other
+ * way — at somebody admissions has just made the department's, whom the department has
+ * not yet taken in. Read from the pull history, so it is only as complete as this
+ * browser's record, and only when such a rule applies to the cohort.
  */
 export type Arrival = {
+  /** Holds still while the fact does, so a dismissal can point at it. */
+  key: string;
+  ruleId: string;
   studentId: string;
   /** Where they are now: another cohort, or none. */
   cohortId: string | null;
@@ -328,6 +344,7 @@ export type Arrival = {
 
 export function arrivalsFor(input: {
   cohort: Expectation;
+  rules: Rule[];
   students: Placed[];
   current: (studentId: string) => Record<string, string> | undefined;
   changes: (studentId: string) => Change[];
@@ -335,7 +352,8 @@ export function arrivalsFor(input: {
 }): Arrival[] {
   const options = input.options ?? NO_OPTIONS;
   const majors = input.cohort.majors;
-  if (!majors.length) return [];
+  const rule = input.rules.find((candidate) => candidate.kind === "moved_in");
+  if (!rule || !majors.length) return [];
   const out: Arrival[] = [];
   for (const student of input.students) {
     if (student.cohortId === input.cohort.id) continue;
@@ -349,7 +367,15 @@ export function arrivalsFor(input: {
     // Only while it still holds: a student moved in and out again is not an arrival.
     const now = input.current(student.studentId);
     if (now && !meansOneOf("MAJOR_CODE", majors, valueOf(now, "MAJOR_CODE", options), options)) continue;
-    out.push({ studentId: student.studentId, cohortId: student.cohortId, at: moved.at, from: moved.from, to: moved.to });
+    out.push({
+      key: `${input.cohort.id}:${student.studentId}:${rule.id}:${moved.from}→${moved.to}@${moved.at}`,
+      ruleId: rule.id,
+      studentId: student.studentId,
+      cohortId: student.cohortId,
+      at: moved.at,
+      from: moved.from,
+      to: moved.to,
+    });
   }
   return out.sort((left, right) => right.at - left.at);
 }
@@ -377,6 +403,9 @@ export function describeWarning(warning: Warning): string {
       return `${field} is ${warning.value}, not ${warning.expected}`;
     case "differs":
       return `${field} is ${warning.value}, cohort expects ${warning.expected}`;
+    case "moved_in":
+      // Never a row's warning: a moved-in student is not in the cohort. Said for completeness.
+      return `${field} moved into the cohort's`;
     case "unplaced":
       return "in no cohort, and nothing about them says they should not be";
     case "no_baseline":

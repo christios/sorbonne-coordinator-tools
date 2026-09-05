@@ -5,6 +5,8 @@ import {
   STATUS_OPTIONS,
   arrivalsFor,
   describeWarning,
+  rulesFor,
+  sharedRules,
   unjudgeable,
   unplacedWarnings,
   valueOf,
@@ -339,9 +341,12 @@ describe("students who moved into a cohort's major", () => {
     A004: { MAJOR_CODE: "MATH" },
   };
 
+  const movedIn: Rule = { id: "r9", field: "MAJOR_CODE", kind: "moved_in", values: [] };
+
   it("lists those not in the cohort, newest first, whether the pull kept the code or the description", () => {
     const arrivals = arrivalsFor({
       cohort: L1_MATHS,
+      rules: [movedIn],
       students: [placed("A001", null, ""), placed("A002", "c9"), placed("A003", null, ""), placed("A004", null, ""), placed("A005", "c1")],
       current: (id) => current[id],
       changes: (id) => changes[id as keyof typeof changes] ?? [],
@@ -355,10 +360,24 @@ describe("students who moved into a cohort's major", () => {
     ]);
   });
 
-  it("has nothing to say for a cohort with no majors", () => {
-    expect(
-      arrivalsFor({ cohort: NO_EXPECTATION, students: [placed("A001", null, "")], current: (id) => current[id], changes: (id) => changes[id as keyof typeof changes] ?? [] }),
-    ).toEqual([]);
+  it("has nothing to say for a cohort with no majors, or without a rule asking", () => {
+    const ask = (cohort: typeof L1_MATHS, rules: Rule[]) =>
+      arrivalsFor({ cohort, rules, students: [placed("A001", null, "")], current: (id) => current[id], changes: (id) => changes[id as keyof typeof changes] ?? [], options: PORTAL });
+    expect(ask(NO_EXPECTATION, [movedIn])).toEqual([]);
+    expect(ask(L1_MATHS, [])).toEqual([]);
+    expect(ask(L1_MATHS, [movedIn])).toHaveLength(1);
+  });
+});
+
+describe("rules for one cohort", () => {
+  const everyone: Rule = { id: "a", field: "STST_CODE", kind: "changed", values: [] };
+  const l1Only: Rule = { id: "b", field: "MAJOR_CODE", kind: "moved_in", values: [], cohortId: "c1" };
+  const fyOnly: Rule = { id: "c", field: "STST_CODE", kind: "is", values: ["WD"], cohortId: "c2" };
+
+  it("are the shared ones and its own, and the unplaced get only the shared", () => {
+    expect(rulesFor([everyone, l1Only, fyOnly], "c1").map((rule) => rule.id)).toEqual(["a", "b"]);
+    expect(rulesFor([everyone, l1Only, fyOnly], "c2").map((rule) => rule.id)).toEqual(["a", "c"]);
+    expect(sharedRules([everyone, l1Only, fyOnly]).map((rule) => rule.id)).toEqual(["a"]);
   });
 });
 

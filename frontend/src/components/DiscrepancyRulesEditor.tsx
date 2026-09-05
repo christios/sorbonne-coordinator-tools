@@ -6,7 +6,7 @@ import { Modal } from "@/components/Modal";
 import { SelectMenu } from "@/components/SelectMenu";
 import { STATUS_FIELD, STATUS_OPTIONS, labelOf, type RuleKind } from "@/services/discrepancies";
 import { fetchSchema, type PortalField } from "@/services/scenRosters";
-import { fetchDiscrepancyRules, saveDiscrepancyRules } from "@/services/studentDatabase";
+import { type Cohort, fetchDiscrepancyRules, saveDiscrepancyRules } from "@/services/studentDatabase";
 
 /**
  * What counts as a discrepancy, in the coordinators' own terms.
@@ -20,7 +20,7 @@ import { fetchDiscrepancyRules, saveDiscrepancyRules } from "@/services/studentD
  * Saved as one list, shared by everybody: cohorts are shared, so the rules that judge
  * them should be too.
  */
-type Draft = { id: string; field: string; kind: RuleKind; values: string[] };
+type Draft = { id: string; field: string; kind: RuleKind; values: string[]; cohortId: string };
 
 const KINDS: { value: RuleKind; label: string; hint: string }[] = [
   { value: "changed", label: "changes at all", hint: "since the student was placed in the cohort" },
@@ -28,7 +28,10 @@ const KINDS: { value: RuleKind; label: string; hint: string }[] = [
   { value: "is", label: "is currently…", hint: "right now, whatever it was before" },
   { value: "is_not", label: "is currently not…", hint: "right now, anything but the values you pick — a code nobody has seen counts" },
   { value: "differs", label: "differs from the cohort's", hint: "major against the cohort's majors, term against its terms, year level against its year level" },
+  { value: "moved_in", label: "moved into the cohort's majors", hint: "a student not in the cohort whose major changed to one the cohort expects — listed above the cohort's table" },
 ];
+/** Only a major can move into a cohort's. */
+const MOVED_IN_FIELDS = ["MAJOR_CODE", "MAJOR_CODE_DESC"];
 
 /** What a cohort carries, so what a `differs` rule can compare against. */
 const DIFFERS_FIELDS = ["MAJOR_CODE", "MAJOR_CODE_DESC", "TERM_CODE", "YEARLEVEL_CODE"];
@@ -47,7 +50,18 @@ function fieldChoices(fields: PortalField[]): { value: string; label: string }[]
   return [{ value: STATUS_FIELD, label: "Status — in the portal or not (ours)" }, ...portal];
 }
 
-export function DiscrepancyRulesEditor({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function DiscrepancyRulesEditor({
+  open,
+  cohorts,
+  cohortId = "",
+  onClose,
+}: {
+  open: boolean;
+  cohorts: Cohort[];
+  /** The cohort the page is on, so a new rule starts as that cohort's. */
+  cohortId?: string;
+  onClose: () => void;
+}) {
   const client = useQueryClient();
   const rules = useQuery({ queryKey: ["discrepancy-rules"], queryFn: fetchDiscrepancyRules, enabled: open });
   const schema = useQuery({ queryKey: ["portal-schema"], queryFn: fetchSchema, enabled: open });
@@ -55,7 +69,7 @@ export function DiscrepancyRulesEditor({ open, onClose }: { open: boolean; onClo
 
   // Start from what is saved, each time the dialog opens.
   useEffect(() => {
-    if (open && rules.data) setDrafts(rules.data.map((rule) => ({ ...rule })));
+    if (open && rules.data) setDrafts(rules.data.map((rule) => ({ ...rule, cohortId: rule.cohortId ?? "" })));
   }, [open, rules.data]);
 
   const save = useMutation({
@@ -88,14 +102,16 @@ export function DiscrepancyRulesEditor({ open, onClose }: { open: boolean; onClo
       draft.field &&
       (draft.kind === "changed" || draft.kind === "differs" || draft.values.length > 0) &&
       (draft.kind !== "differs" || DIFFERS_FIELDS.includes(draft.field)) &&
+      (draft.kind !== "moved_in" || MOVED_IN_FIELDS.includes(draft.field)) &&
       (draft.field !== STATUS_FIELD || STATUS_KINDS.includes(draft.kind)),
   );
+  const scopeOptions = [{ value: "", label: "Every cohort" }, ...cohorts.map((cohort) => ({ value: cohort.id, label: cohort.name }))];
 
   return (
     <Modal
       open={open}
       title="What counts as a discrepancy"
-      description="One set of rules for every cohort, shared with every coordinator. Change rules are measured from the moment a student was placed in their cohort."
+      description="Shared with every coordinator. A rule is for every cohort, or for one. Change rules are measured from the moment a student was placed in their cohort."
       onClose={onClose}
       footer={
         <div className="flex items-center justify-between gap-3">
@@ -139,6 +155,7 @@ export function DiscrepancyRulesEditor({ open, onClose }: { open: boolean; onClo
           const kinds = draft.field === STATUS_FIELD ? KINDS.filter((kind) => STATUS_KINDS.includes(kind.value)) : KINDS;
           const needsValues = draft.kind === "changed_to" || draft.kind === "is" || draft.kind === "is_not";
           const badDiffers = draft.kind === "differs" && !DIFFERS_FIELDS.includes(draft.field);
+          const badMoved = draft.kind === "moved_in" && !MOVED_IN_FIELDS.includes(draft.field);
           const badStatus = draft.field === STATUS_FIELD && !STATUS_KINDS.includes(draft.kind);
           return (
             <li key={draft.id || `new-${index}`} className="rounded-md border border-[#d9dee7] bg-white p-3">
@@ -167,6 +184,16 @@ export function DiscrepancyRulesEditor({ open, onClose }: { open: boolean; onClo
                     value={draft.kind}
                     onChange={(kind) => update(index, { kind: kind as RuleKind, values: [] })}
                     options={kinds.map(({ value, label }) => ({ value, label }))}
+                    variant="tinted"
+                  />
+                </div>
+                <span className="text-[#98a2b3]">for</span>
+                <div className="w-44 min-w-[10rem]">
+                  <SelectMenu
+                    label={`Cohort for rule ${index + 1}`}
+                    value={draft.cohortId}
+                    onChange={(value) => update(index, { cohortId: value })}
+                    options={scopeOptions}
                     variant="tinted"
                   />
                 </div>
@@ -209,6 +236,11 @@ export function DiscrepancyRulesEditor({ open, onClose }: { open: boolean; onClo
               {badStatus ? (
                 <p role="alert" className="mt-2 text-sm text-[#a6292f]">
                   The status is a fact of now: say what it is, or is not.
+                </p>
+              ) : null}
+              {badMoved ? (
+                <p role="alert" className="mt-2 text-sm text-[#a6292f]">
+                  Only a major can move into a cohort&apos;s: put this rule on the major.
                 </p>
               ) : null}
 
@@ -254,7 +286,7 @@ export function DiscrepancyRulesEditor({ open, onClose }: { open: boolean; onClo
       <button
         type="button"
         onClick={() =>
-          setDrafts((current) => [...current, { id: "", field: "STST_CODE", kind: "changed_to", values: [] }])
+          setDrafts((current) => [...current, { id: "", field: "STST_CODE", kind: "changed_to", values: [], cohortId }])
         }
         className="mt-3 inline-flex items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-3 py-1.5 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc]"
       >

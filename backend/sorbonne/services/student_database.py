@@ -224,6 +224,8 @@ class StudentDatabase:
 
     def delete_cohort(self, cohort_id: str) -> None:
         with self.engine.begin() as connection:
+            # Its own rules go with it; the shared ones are everybody's.
+            connection.execute(text("DELETE FROM discrepancy_rules WHERE cohort_id = :id"), {"id": cohort_id})
             deleted = connection.execute(text("DELETE FROM student_cohorts WHERE id = :id"), {"id": cohort_id})
         if deleted.rowcount == 0:
             raise CohortNotFound(cohort_id)
@@ -501,8 +503,8 @@ class StudentDatabase:
             for rule in cleaned:
                 connection.execute(
                     text("""INSERT INTO discrepancy_rules
-                                (id, field, kind, "values", position, created_at, updated_at)
-                            VALUES (:id, :field, :kind, :values, :position, :now, :now)"""),
+                                (id, field, kind, "values", cohort_id, position, created_at, updated_at)
+                            VALUES (:id, :field, :kind, :values, :cohort_id, :position, :now, :now)"""),
                     {**rule, "values": json.dumps(rule["values"]), "now": now},
                 )
         return self.list_discrepancy_rules()
@@ -1504,7 +1506,9 @@ def _student(row, groups: list[dict[str, str]]) -> dict[str, Any]:
     }
 
 
-RULE_KINDS = ("changed", "changed_to", "is", "is_not", "differs")
+# The last is the outward look: students not in the cohort whose major moved into it.
+RULE_KINDS = ("changed", "changed_to", "is", "is_not", "differs", "moved_in")
+MOVED_IN_FIELDS = ("MAJOR_CODE", "MAJOR_CODE_DESC")
 # What "differs from the cohort" can compare against: the majors and terms a cohort spans
 # (by code, or by the portal's label for the code) and the year level it expects.
 DIFFERS_FIELDS = ("MAJOR_CODE", "MAJOR_CODE_DESC", "TERM_CODE", "YEARLEVEL_CODE")
@@ -1525,18 +1529,22 @@ def _clean_rule(rule: dict[str, Any], position: int) -> dict[str, Any]:
         raise InvalidRule(f"'{kind}' is not a kind of rule.")
     if kind == "differs" and field not in DIFFERS_FIELDS:
         raise InvalidRule(f"A cohort has no {field} to differ from; only its majors, terms or year level.")
+    if kind == "moved_in" and field not in MOVED_IN_FIELDS:
+        raise InvalidRule("Only a major can move into a cohort's; the rule must be on MAJOR_CODE.")
     if not isinstance(raw_values, list):
         raise InvalidRule("A rule's values must be a list.")
     values = [_text(value) for value in raw_values if _text(value)]
     if kind in ("changed_to", "is", "is_not") and not values:
         raise InvalidRule(f"A '{kind}' rule needs at least one value.")
-    if kind in ("changed", "differs"):
+    if kind in ("changed", "differs", "moved_in"):
         values = []
     return {
         "id": _text(rule.get("id")) or str(uuid4()),
         "field": field,
         "kind": kind,
         "values": values,
+        # Empty means every cohort.
+        "cohort_id": _text(rule.get("cohortId") or rule.get("cohort_id")),
         "position": position,
     }
 
@@ -1547,6 +1555,7 @@ def _rule(row) -> dict[str, Any]:
         "field": row["field"],
         "kind": row["kind"],
         "values": json.loads(row["values"] or "[]"),
+        "cohortId": row["cohort_id"] or "",
     }
 
 

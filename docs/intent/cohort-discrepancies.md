@@ -39,8 +39,12 @@ Revised 5 September 2026.
   the page rather than shown as nothing.
 - **Status is a field a rule may name:** whether the last sync still found the student
   in the portal ("is" / "is not" only).
-- **Arrivals:** a banner per cohort lists students whose major changed *into* one of the
-  cohort's majors and who are not in it, from the pull history; the student's record
-  says the same.
+- **Arrivals are a rule** ("moved into the cohort's majors", on the major): where it
+  applies, a banner above the cohort's table lists students not in the cohort whose major
+  changed into one of its majors, from the pull history, each dismissable; the student's
+  record says the same. Nothing is listed without the rule.
+- **A rule is for every cohort or for one.** The shared rules and a cohort's own judge
+  its students; the students in no cohort are judged by the shared rules alone. A
+  cohort's own rules go with it when it is deleted.
 - **The picker** counts flagged students beside each cohort's members; rule values are
   chips rather than checkboxes.

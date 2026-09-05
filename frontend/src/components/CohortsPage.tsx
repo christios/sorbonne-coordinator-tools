@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { ArrowRightCircle, Settings2 } from "lucide-react";
+import { ArrowRightCircle, Settings2, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { CohortActions } from "@/components/CohortActions";
@@ -14,6 +14,8 @@ import {
   arrivalsFor,
   labelOf,
   registrationWarnings,
+  rulesFor,
+  sharedRules,
   unjudgeable,
   unplacedWarnings,
   warningsForCohort,
@@ -66,10 +68,12 @@ function judge(
   const byCohort = new Map<string, Warning[]>();
   const arrivals = new Map<string, Arrival[]>();
   for (const cohort of cohorts) {
-    byCohort.set(cohort.id, warningsForCohort({ cohort, students: placed, rules, current, changes, options }));
-    arrivals.set(cohort.id, arrivalsFor({ cohort, students: placed, current, changes, options }));
+    // The shared rules and this cohort's own; the outward look only when a rule asks for it.
+    const own = rulesFor(rules, cohort.id);
+    byCohort.set(cohort.id, warningsForCohort({ cohort, students: placed, rules: own, current, changes, options }));
+    arrivals.set(cohort.id, arrivalsFor({ cohort, rules: own, students: placed, current, changes, options }));
   }
-  return { byCohort, unplaced: unplacedWarnings({ students: placed, rules, current, options }), arrivals };
+  return { byCohort, unplaced: unplacedWarnings({ students: placed, rules: sharedRules(rules), current, options }), arrivals };
 }
 
 /**
@@ -198,7 +202,8 @@ export function CohortsPage({ cohorts }: { cohorts: Cohort[] }) {
   const population = students.data
     ? students.data.filter((student) => (cohortId === UNPLACED ? !student.cohortId : student.cohortId === cohortId)).length
     : 0;
-  const arrivals = cohort ? (judged?.arrivals.get(cohort.id) ?? []) : [];
+  const arrivals = cohort ? (judged?.arrivals.get(cohort.id) ?? []).filter((arrival) => !dismissed.has(arrival.key)) : [];
+  const ownRules = cohort ? rulesFor(rules.data ?? [], cohort.id) : sharedRules(rules.data ?? []);
   const silent = evidence && rules.data ? unjudgeable(rules.data.filter((rule) => rule.field !== STATUS_FIELD), evidence.carried) : [];
   const expects = cohort
     ? [
@@ -255,9 +260,10 @@ export function CohortsPage({ cohorts }: { cohorts: Cohort[] }) {
           className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc]"
         >
           <Settings2 size={15} aria-hidden="true" />
-          {/* Named for what it is: beside a cohort picker, a bare "Rules" reads as that cohort's. */}
-          Rules for all cohorts
-          <span className="tabular-nums text-xs font-normal text-[#98a2b3]">{rules.data?.length ?? 0}</span>
+          Rules
+          <span className="tabular-nums text-xs font-normal text-[#98a2b3]" title="Rules that apply here: the shared ones and this cohort's own">
+            {ownRules.length}
+          </span>
         </button>
       </div>
 
@@ -272,9 +278,9 @@ export function CohortsPage({ cohorts }: { cohorts: Cohort[] }) {
         ) : null}
         {flaggedStudents
           ? `${flaggedStudents} of ${population} ${cohortId === UNPLACED ? "unplaced students" : "students"} flagged.`
-          : rules.data?.length
+          : ownRules.length
             ? `Nothing to flag among ${population}.`
-            : "No rules yet — nothing counts as a discrepancy until you add one."}
+            : "No rules apply here — nothing counts as a discrepancy until you add one."}
         {unjudged ? (
           <>
             {" "}
@@ -301,7 +307,13 @@ export function CohortsPage({ cohorts }: { cohorts: Cohort[] }) {
       ) : null}
 
       {cohort && arrivals.length ? (
-        <ArrivalsBanner cohort={cohort} cohorts={cohorts} arrivals={arrivals} names={evidence.names} />
+        <ArrivalsBanner
+          cohort={cohort}
+          cohorts={cohorts}
+          arrivals={arrivals}
+          names={evidence.names}
+          onDismiss={(key) => setDismissed(dismiss(key))}
+        />
       ) : null}
 
       <div className="mt-3">
@@ -320,28 +332,30 @@ export function CohortsPage({ cohorts }: { cohorts: Cohort[] }) {
         />
       </div>
 
-      <DiscrepancyRulesEditor open={editingRules} onClose={() => setEditingRules(false)} />
+      <DiscrepancyRulesEditor open={editingRules} cohorts={cohorts} cohortId={cohort?.id ?? ""} onClose={() => setEditingRules(false)} />
     </section>
   );
 }
 
 /**
- * Students admissions has moved into one of this cohort's majors who are not in it.
+ * Students admissions has moved into one of this cohort's majors who are not in it —
+ * what a "moved into the cohort's majors" rule finds.
  *
- * The rules judge the cohort's own students; this is the other direction, and the one a
- * coordinator has no other way of seeing — a student who became the department's last
- * week, sitting in no cohort or in the wrong one.
+ * They are not rows of the cohort's table, since they are not in the cohort, so they are
+ * listed above it; each can be dismissed like a row's warning, until the fact changes.
  */
 function ArrivalsBanner({
   cohort,
   cohorts,
   arrivals,
   names,
+  onDismiss,
 }: {
   cohort: Cohort;
   cohorts: Cohort[];
   arrivals: Arrival[];
   names: Map<string, string>;
+  onDismiss: (key: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const shown = open ? arrivals : arrivals.slice(0, 5);
@@ -356,10 +370,21 @@ function ArrivalsBanner({
       </p>
       <ul className="mt-1.5 space-y-0.5 pl-6">
         {shown.map((arrival) => (
-          <li key={arrival.studentId}>
-            <span className="font-semibold">{names.get(arrival.studentId) || arrival.studentId}</span>{" "}
-            <span className="font-mono text-xs text-[#5b7a9a]">{arrival.studentId}</span> — {arrival.from || "—"} → {arrival.to} on{" "}
-            {new Date(arrival.at).toLocaleDateString(undefined, { day: "numeric", month: "short" })}, {where(arrival)}.
+          <li key={arrival.key} className="flex items-start gap-2">
+            <span>
+              <span className="font-semibold">{names.get(arrival.studentId) || arrival.studentId}</span>{" "}
+              <span className="font-mono text-xs text-[#5b7a9a]">{arrival.studentId}</span> — {arrival.from || "—"} → {arrival.to} on{" "}
+              {new Date(arrival.at).toLocaleDateString(undefined, { day: "numeric", month: "short" })}, {where(arrival)}.
+            </span>
+            <button
+              type="button"
+              aria-label={`Dismiss ${names.get(arrival.studentId) || arrival.studentId}`}
+              title="Dismiss until their record changes again"
+              onClick={() => onDismiss(arrival.key)}
+              className="rounded p-0.5 text-[#5b7a9a] hover:bg-white hover:text-[#1f4e79]"
+            >
+              <X size={13} aria-hidden="true" />
+            </button>
           </li>
         ))}
       </ul>

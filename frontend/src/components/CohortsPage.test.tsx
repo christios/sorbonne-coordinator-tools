@@ -33,9 +33,9 @@ const student = (studentId: string, cohortId: string | null, cohortSince = "2026
   groups: [],
 });
 
-const WITHDRAWN: DiscrepancyRule = { id: "r1", field: "STST_CODE", kind: "changed_to", values: ["WD"] };
-const MAJOR: DiscrepancyRule = { id: "r2", field: "MAJOR_CODE_DESC", kind: "differs", values: [] };
-const IS_WITHDRAWN: DiscrepancyRule = { id: "r3", field: "STST_CODE", kind: "is", values: ["WD"] };
+const WITHDRAWN: DiscrepancyRule = { id: "r1", field: "STST_CODE", kind: "changed_to", values: ["WD"], cohortId: "" };
+const MAJOR: DiscrepancyRule = { id: "r2", field: "MAJOR_CODE_DESC", kind: "differs", values: [], cohortId: "" };
+const IS_WITHDRAWN: DiscrepancyRule = { id: "r3", field: "STST_CODE", kind: "is", values: ["WD"], cohortId: "" };
 
 /** What the portal said, as this browser holds it. */
 async function portalSays(rows: Record<string, string>[]) {
@@ -279,6 +279,6 @@ describe("the Cohorts page", () => {
 
     renderPage();
 
-    expect(await screen.findByText(/No rules yet/)).toBeTruthy();
+    expect(await screen.findByText(/No rules apply here/)).toBeTruthy();
   });
 });
