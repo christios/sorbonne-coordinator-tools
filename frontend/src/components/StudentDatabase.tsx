@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { BookMarked, BookOpen, CalendarDays, ClipboardList, GraduationCap, ListChecks, ListTree, Megaphone, UserCheck, Users } from "lucide-react";
+import { Settings2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import { ActiveCourses } from "@/components/ActiveCourses";
@@ -7,6 +8,7 @@ import { ActiveTeachers } from "@/components/ActiveTeachers";
 import { AnnouncementEditor } from "@/components/AnnouncementEditor";
 import { CohortsPage } from "@/components/CohortsPage";
 import { CourseCards } from "@/components/CourseCards";
+import { DiscrepancyRulesEditor } from "@/components/DiscrepancyRulesEditor";
 import { PlatformNotConfigured } from "@/components/PlatformNotConfigured";
 import { PortalCourses } from "@/components/PortalCourses";
 import { PortalRegistrations } from "@/components/PortalRegistrations";
@@ -18,7 +20,7 @@ import { StudentRoster } from "@/components/StudentRoster";
 import { SidePane } from "@/components/SidePane";
 import { ViewBar } from "@/components/ViewBar";
 import { locationFor, pageFromLocation } from "@/routes/toolRoute";
-import { fetchCohorts, fetchStudents, fetchViews } from "@/services/studentDatabase";
+import { fetchCohorts, fetchDiscrepancyRules, fetchStudents, fetchViews } from "@/services/studentDatabase";
 import { fetchTimetableStatus } from "@/services/timetables";
 
 // Two families of page in one pane: what this application knows about students, and what
@@ -143,6 +145,10 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
   });
 
   const [viewId, setViewId] = useState("");
+  // The shared rules sit at the page's title, apart from any one cohort's.
+  const [sharedRulesOpen, setSharedRulesOpen] = useState(false);
+  const rules = useQuery({ queryKey: ["discrepancy-rules"], queryFn: fetchDiscrepancyRules, enabled: page === "cohorts" });
+  const sharedCount = (rules.data ?? []).filter((rule) => !rule.cohortId).length;
 
   const available = views.data ?? [];
   // Land on a view rather than on nothing, and recover if the chosen one is deleted.
@@ -198,6 +204,17 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
             {page === "students" ? (
               <ViewBar views={available} viewId={viewId} onChoose={setViewId} />
             ) : null}
+            {page === "cohorts" ? (
+              <button
+                type="button"
+                onClick={() => setSharedRulesOpen(true)}
+                className="inline-flex items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc]"
+              >
+                <Settings2 size={15} aria-hidden="true" />
+                Rules for every cohort
+                <span className="tabular-nums text-xs font-normal text-[#98a2b3]">{sharedCount}</span>
+              </button>
+            ) : null}
 
           </header>
 
@@ -235,6 +252,9 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
           {page === "groups" && cohorts.isLoading ? <ScreenLoading label="Loading cohorts…" /> : null}
           {page === "cohorts" && !cohorts.isLoading ? (
             <CohortsPage cohorts={knownCohorts} />
+          ) : null}
+          {page === "cohorts" ? (
+            <DiscrepancyRulesEditor open={sharedRulesOpen} scope={{ kind: "shared" }} onClose={() => setSharedRulesOpen(false)} />
           ) : null}
           {page === "cohorts" && cohorts.isLoading ? <ScreenLoading label="Loading cohorts…" /> : null}
           {page === "groups" && !cohorts.isLoading ? (

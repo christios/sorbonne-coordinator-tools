@@ -203,7 +203,8 @@ export function CohortsPage({ cohorts }: { cohorts: Cohort[] }) {
     ? students.data.filter((student) => (cohortId === UNPLACED ? !student.cohortId : student.cohortId === cohortId)).length
     : 0;
   const arrivals = cohort ? (judged?.arrivals.get(cohort.id) ?? []).filter((arrival) => !dismissed.has(arrival.key)) : [];
-  const ownRules = cohort ? rulesFor(rules.data ?? [], cohort.id) : sharedRules(rules.data ?? []);
+  const applied = cohort ? rulesFor(rules.data ?? [], cohort.id) : sharedRules(rules.data ?? []);
+  const ownRules = cohort ? (rules.data ?? []).filter((rule) => rule.cohortId === cohort.id) : [];
   const silent = evidence && rules.data ? unjudgeable(rules.data.filter((rule) => rule.field !== STATUS_FIELD), evidence.carried) : [];
   const expects = cohort
     ? [
@@ -254,17 +255,20 @@ export function CohortsPage({ cohorts }: { cohorts: Cohort[] }) {
         {/* The cohort's own settings — name, year, and what it expects — beside the cohort they act on. */}
         {cohort ? <CohortActions key={cohort.id} cohort={cohort} /> : null}
 
-        <button
-          type="button"
-          onClick={() => setEditingRules(true)}
-          className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc]"
-        >
-          <Settings2 size={15} aria-hidden="true" />
-          Rules
-          <span className="tabular-nums text-xs font-normal text-[#98a2b3]" title="Rules that apply here: the shared ones and this cohort's own">
-            {ownRules.length}
-          </span>
-        </button>
+        {/* This cohort's own rules; the shared ones have their button at the page's title. */}
+        {cohort ? (
+          <button
+            type="button"
+            onClick={() => setEditingRules(true)}
+            className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc]"
+          >
+            <Settings2 size={15} aria-hidden="true" />
+            Rules for this cohort
+            <span className="tabular-nums text-xs font-normal text-[#98a2b3]" title="This cohort's own rules, on top of the shared ones">
+              {ownRules.length}
+            </span>
+          </button>
+        ) : null}
       </div>
 
       <p className="mt-3 text-xs text-[#98a2b3]">
@@ -278,7 +282,7 @@ export function CohortsPage({ cohorts }: { cohorts: Cohort[] }) {
         ) : null}
         {flaggedStudents
           ? `${flaggedStudents} of ${population} ${cohortId === UNPLACED ? "unplaced students" : "students"} flagged.`
-          : ownRules.length
+          : applied.length
             ? `Nothing to flag among ${population}.`
             : "No rules apply here — nothing counts as a discrepancy until you add one."}
         {unjudged ? (
@@ -332,7 +336,9 @@ export function CohortsPage({ cohorts }: { cohorts: Cohort[] }) {
         />
       </div>
 
-      <DiscrepancyRulesEditor open={editingRules} cohorts={cohorts} cohortId={cohort?.id ?? ""} onClose={() => setEditingRules(false)} />
+      {cohort ? (
+        <DiscrepancyRulesEditor open={editingRules} scope={{ kind: "cohort", cohort }} onClose={() => setEditingRules(false)} />
+      ) : null}
     </section>
   );
 }

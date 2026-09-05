@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp, Check, Plus, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Plus, Trash2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { Modal } from "@/components/Modal";
@@ -50,30 +50,25 @@ function fieldChoices(fields: PortalField[]): { value: string; label: string }[]
   return [{ value: STATUS_FIELD, label: "Status — in the portal or not (ours)" }, ...portal];
 }
 
-export function DiscrepancyRulesEditor({
-  open,
-  cohorts,
-  cohortId = "",
-  onClose,
-}: {
-  open: boolean;
-  cohorts: Cohort[];
-  /** The cohort the page is on, so a new rule starts as that cohort's. */
-  cohortId?: string;
-  onClose: () => void;
-}) {
+/** Which rules the dialog edits: the shared ones, or one cohort's own. */
+export type RulesScope = { kind: "shared" } | { kind: "cohort"; cohort: Cohort };
+
+export function DiscrepancyRulesEditor({ open, scope, onClose }: { open: boolean; scope: RulesScope; onClose: () => void }) {
   const client = useQueryClient();
   const rules = useQuery({ queryKey: ["discrepancy-rules"], queryFn: fetchDiscrepancyRules, enabled: open });
   const schema = useQuery({ queryKey: ["portal-schema"], queryFn: fetchSchema, enabled: open });
   const [drafts, setDrafts] = useState<Draft[]>([]);
+  const cohortId = scope.kind === "cohort" ? scope.cohort.id : "";
+  const inScope = (rule: { cohortId?: string }) => (rule.cohortId ?? "") === cohortId;
 
-  // Start from what is saved, each time the dialog opens.
+  // Start from what is saved for this scope, each time the dialog opens.
   useEffect(() => {
-    if (open && rules.data) setDrafts(rules.data.map((rule) => ({ ...rule, cohortId: rule.cohortId ?? "" })));
-  }, [open, rules.data]);
+    if (open && rules.data) setDrafts(rules.data.filter(inScope).map((rule) => ({ ...rule, cohortId })));
+  }, [open, rules.data]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // The server keeps one list, so the rules outside this scope go back untouched.
   const save = useMutation({
-    mutationFn: () => saveDiscrepancyRules(drafts),
+    mutationFn: () => saveDiscrepancyRules([...(rules.data ?? []).filter((rule) => !inScope(rule)), ...drafts]),
     onSuccess: (saved) => {
       client.setQueryData(["discrepancy-rules"], saved);
       onClose();
@@ -105,13 +100,16 @@ export function DiscrepancyRulesEditor({
       (draft.kind !== "moved_in" || MOVED_IN_FIELDS.includes(draft.field)) &&
       (draft.field !== STATUS_FIELD || STATUS_KINDS.includes(draft.kind)),
   );
-  const scopeOptions = [{ value: "", label: "Every cohort" }, ...cohorts.map((cohort) => ({ value: cohort.id, label: cohort.name }))];
 
   return (
     <Modal
       open={open}
-      title="What counts as a discrepancy"
-      description="Shared with every coordinator. A rule is for every cohort, or for one. Change rules are measured from the moment a student was placed in their cohort."
+      title={scope.kind === "shared" ? "Rules for every cohort" : `Rules for ${scope.cohort.name}`}
+      description={
+        scope.kind === "shared"
+          ? "Shared with every coordinator and applied to every cohort, and to the students in none. Change rules are measured from the moment a student was placed in their cohort."
+          : `Applied to ${scope.cohort.name} on top of the shared rules. Change rules are measured from the moment a student was placed in the cohort.`
+      }
       onClose={onClose}
       footer={
         <div className="flex items-center justify-between gap-3">
@@ -144,8 +142,9 @@ export function DiscrepancyRulesEditor({
     >
       {drafts.length === 0 ? (
         <p className="rounded-md border border-dashed border-[#cbd5e1] px-4 py-6 text-center text-sm text-[#667085]">
-          No rules yet, so nothing is a discrepancy. Add one below — a good first set is “student status changes
-          to WD or IS”, “major differs from the cohort's” and “status is not in portal”.
+          {scope.kind === "shared"
+            ? "No shared rules yet, so nothing is a discrepancy anywhere. Add one below — a good first set is “student status changes to WD or IS”, “major differs from the cohort's” and “status is not in portal”."
+            : `No rules of ${scope.cohort.name}'s own. The shared rules still apply to it; add one below for something only this cohort cares about.`}
         </p>
       ) : null}
 
@@ -184,16 +183,6 @@ export function DiscrepancyRulesEditor({
                     value={draft.kind}
                     onChange={(kind) => update(index, { kind: kind as RuleKind, values: [] })}
                     options={kinds.map(({ value, label }) => ({ value, label }))}
-                    variant="tinted"
-                  />
-                </div>
-                <span className="text-[#98a2b3]">for</span>
-                <div className="w-44 min-w-[10rem]">
-                  <SelectMenu
-                    label={`Cohort for rule ${index + 1}`}
-                    value={draft.cohortId}
-                    onChange={(value) => update(index, { cohortId: value })}
-                    options={scopeOptions}
                     variant="tinted"
                   />
                 </div>
@@ -246,17 +235,11 @@ export function DiscrepancyRulesEditor({
 
               {needsValues ? (
                 options.length ? (
-                  <ValueChips
+                  <ValuePicker
                     label={`Values for rule ${index + 1}`}
                     options={options}
                     chosen={draft.values}
-                    onToggle={(value) =>
-                      update(index, {
-                        values: draft.values.includes(value)
-                          ? draft.values.filter((held) => held !== value)
-                          : [...draft.values, value],
-                      })
-                    }
+                    onChange={(values) => update(index, { values })}
                   />
                 ) : (
                   <label className="mt-2 block text-sm text-[#344054]">
@@ -297,45 +280,53 @@ export function DiscrepancyRulesEditor({
 }
 
 /**
- * The values a rule names, as chips: pressed is chosen. A row of checkboxes with labels
- * beside them read as a form; a row of chips reads as the list it is.
+ * The values a rule names: chosen from a dropdown, and only the chosen ones shown, as
+ * pills that can be taken off. A code table has dozens of entries; a rule names two.
  */
-function ValueChips({
+function ValuePicker({
   label,
   options,
   chosen,
-  onToggle,
+  onChange,
 }: {
   label: string;
   options: { value: string; label: string }[];
   chosen: string[];
-  onToggle: (value: string) => void;
+  onChange: (values: string[]) => void;
 }) {
+  const labelOf = (value: string) => options.find((option) => option.value === value)?.label ?? value;
   return (
-    <div role="group" aria-label={label} className="mt-2 flex flex-wrap gap-1.5">
-      {options.map((option) => {
-        const on = chosen.includes(option.value);
-        return (
+    <div className="mt-2 flex flex-wrap items-center gap-2">
+      <div className="w-64 min-w-[14rem]">
+        <SelectMenu
+          label={label}
+          value={chosen.join("\n")}
+          multiple
+          itemNoun="value"
+          placeholder={chosen.length ? "Add another…" : "Choose values…"}
+          searchable={options.length > 8}
+          onChange={(next) => onChange(next.split("\n").filter(Boolean))}
+          options={options.map((option) => ({
+            value: option.value,
+            label: option.label === option.value ? option.value : `${option.label} (${option.value})`,
+            searchText: option.value,
+          }))}
+        />
+      </div>
+      {chosen.map((value) => (
+        <span key={value} className="inline-flex items-center gap-1 rounded-full bg-[#1f4e79] py-1 pl-2.5 pr-1.5 text-xs font-semibold text-white">
+          {labelOf(value)}
+          {labelOf(value) !== value ? <span className="font-normal text-white/70">{value}</span> : null}
           <button
-            key={option.value}
             type="button"
-            role="checkbox"
-            aria-checked={on}
-            onClick={() => onToggle(option.value)}
-            className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold transition-colors ${
-              on
-                ? "border-[#1f4e79] bg-[#1f4e79] text-white"
-                : "border-[#d9dee7] bg-white text-[#344054] hover:border-[#9ba8b5] hover:bg-[#f8fafc]"
-            }`}
+            aria-label={`Remove ${labelOf(value)}`}
+            onClick={() => onChange(chosen.filter((held) => held !== value))}
+            className="rounded-full p-0.5 hover:bg-white/20"
           >
-            {on ? <Check size={12} aria-hidden="true" /> : null}
-            {option.label}
-            {option.label !== option.value ? (
-              <span className={on ? "font-normal text-white/70" : "font-normal text-[#98a2b3]"}>{option.value}</span>
-            ) : null}
+            <X size={11} aria-hidden="true" />
           </button>
-        );
-      })}
+        </span>
+      ))}
     </div>
   );
 }
