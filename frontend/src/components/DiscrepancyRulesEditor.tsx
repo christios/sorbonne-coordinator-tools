@@ -95,7 +95,7 @@ export function DiscrepancyRulesEditor({ open, scope, onClose }: { open: boolean
   const complete = drafts.every(
     (draft) =>
       draft.field &&
-      (draft.kind === "changed" || draft.kind === "differs" || draft.values.length > 0) &&
+      (draft.kind === "changed" || draft.kind === "differs" || draft.kind === "moved_in" || draft.values.length > 0) &&
       (draft.kind !== "differs" || DIFFERS_FIELDS.includes(draft.field)) &&
       (draft.kind !== "moved_in" || MOVED_IN_FIELDS.includes(draft.field)) &&
       (draft.field !== STATUS_FIELD || STATUS_KINDS.includes(draft.kind)),
@@ -181,7 +181,14 @@ export function DiscrepancyRulesEditor({ open, scope, onClose }: { open: boolean
                   <SelectMenu
                     label={`Condition for rule ${index + 1}`}
                     value={draft.kind}
-                    onChange={(kind) => update(index, { kind: kind as RuleKind, values: [] })}
+                    onChange={(kind) =>
+                      update(index, {
+                        kind: kind as RuleKind,
+                        values: [],
+                        // Only a major can move into a cohort's, so the field follows the kind.
+                        field: kind === "moved_in" && !MOVED_IN_FIELDS.includes(draft.field) ? "MAJOR_CODE" : draft.field,
+                      })
+                    }
                     options={kinds.map(({ value, label }) => ({ value, label }))}
                     variant="tinted"
                   />
