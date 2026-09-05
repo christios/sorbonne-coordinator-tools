@@ -35,10 +35,11 @@ const TD: database.CatalogueScope = {
   code: "TD",
   name: "Tutorials",
   note: "",
+  kind: "shared", parentScopeId: "",
   courses: [],
   groups: [
-    { id: "td-1", label: "1", capacity: 2, note: "", program: "", assigned: 1, crns: {} },
-    { id: "td-2", label: "2", capacity: 2, note: "", program: "Physics", assigned: 0, crns: {} },
+    { id: "td-1", label: "1", capacity: 2, note: "", program: "", parentGroupId: "", assigned: 1, crns: {} },
+    { id: "td-2", label: "2", capacity: 2, note: "", program: "Physics", parentGroupId: "", assigned: 0, crns: {} },
   ],
 };
 

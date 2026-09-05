@@ -1,3 +1,4 @@
+import { EMPTY_SECTION } from "@/services/studentDatabase";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -14,8 +15,9 @@ const CM: CatalogueScope = {
   code: "CM",
   name: "Lectures",
   note: "",
-  courses: [{ id: "c-math", code: "MATH001", name: "Pre-calculus", component: "CM" }],
-  groups: [{ id: "cm-a", label: "A", capacity: 0, note: "", program: "", assigned: 2, crns: { "c-math": { crn: "22151", teacher: "" } } }],
+  kind: "shared", parentScopeId: "",
+  courses: [{ id: "c-math", code: "MATH001", name: "Pre-calculus", component: "CM", ue: "", parentCrn: "" }],
+  groups: [{ id: "cm-a", label: "A", capacity: 0, note: "", program: "", parentGroupId: "", assigned: 2, crns: { "c-math": { ...EMPTY_SECTION, crn: "22151", teacher: "" } } }],
 };
 
 const TD: CatalogueScope = {
@@ -23,9 +25,10 @@ const TD: CatalogueScope = {
   code: "TD",
   name: "Tutorials",
   note: "",
+  kind: "shared", parentScopeId: "",
   courses: [
-    { id: "t-math", code: "MATH001", name: "Pre-calculus", component: "TD" },
-    { id: "t-algo", code: "MATH011", name: "Algorithms", component: "" },
+    { id: "t-math", code: "MATH001", name: "Pre-calculus", component: "TD", ue: "", parentCrn: "" },
+    { id: "t-algo", code: "MATH011", name: "Algorithms", component: "", ue: "", parentCrn: "" },
   ],
   groups: [
     {
@@ -33,11 +36,11 @@ const TD: CatalogueScope = {
       label: "1",
       capacity: 0,
       note: "",
-      program: "",
+      program: "", parentGroupId: "",
       assigned: 1,
-      crns: { "t-math": { crn: "23652", teacher: "" }, "t-algo": { crn: "23365", teacher: "" } },
+      crns: { "t-math": { ...EMPTY_SECTION, crn: "23652", teacher: "" }, "t-algo": { ...EMPTY_SECTION, crn: "23365", teacher: "" } },
     },
-    { id: "td-2", label: "2", capacity: 0, note: "", program: "", assigned: 1, crns: { "t-math": { crn: "23653", teacher: "" } } },
+    { id: "td-2", label: "2", capacity: 0, note: "", program: "", parentGroupId: "", assigned: 1, crns: { "t-math": { ...EMPTY_SECTION, crn: "23653", teacher: "" } } },
   ],
 };
 

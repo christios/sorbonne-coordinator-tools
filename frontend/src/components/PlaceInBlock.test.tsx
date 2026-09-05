@@ -26,10 +26,11 @@ const CATALOGUE: database.Catalogue = {
       code: "TD",
       name: "Tutorials",
       note: "",
+      kind: "shared", parentScopeId: "",
       courses: [],
       groups: [
-        { id: "group-1", label: "1", capacity: 24, note: "", program: "", assigned: 20, crns: {} },
-        { id: "group-2", label: "2", capacity: 0, note: "", program: "", assigned: 0, crns: {} },
+        { id: "group-1", label: "1", capacity: 24, note: "", program: "", parentGroupId: "", assigned: 20, crns: {} },
+        { id: "group-2", label: "2", capacity: 0, note: "", program: "", parentGroupId: "", assigned: 0, crns: {} },
       ],
     },
   ],

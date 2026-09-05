@@ -1,3 +1,4 @@
+import { EMPTY_SECTION } from "@/services/studentDatabase";
 import { describe, expect, it } from "vitest";
 
 import { countsLine, summariseCatalogue } from "@/services/catalogueSummary";
@@ -13,15 +14,16 @@ function scope(
     code,
     name: "",
     note: "",
-    courses: courses.map((id) => ({ id, code: id, name: id, component: "" })),
+    kind: "shared", parentScopeId: "",
+    courses: courses.map((id) => ({ id, code: id, name: id, component: "", ue: "", parentCrn: "" })),
     groups: groups.map((group, index) => ({
       id: `g-${code}-${index}`,
       label: group.label,
       capacity: 0,
-      note: "", program: "",
+      note: "", program: "", parentGroupId: "",
       assigned: 0,
       crns: Object.fromEntries(
-        Object.entries(group.crns ?? {}).map(([course, crn]) => [course, { crn, teacher: "" }]),
+        Object.entries(group.crns ?? {}).map(([course, crn]) => [course, { ...EMPTY_SECTION, crn, teacher: "" }]),
       ),
     })),
   };

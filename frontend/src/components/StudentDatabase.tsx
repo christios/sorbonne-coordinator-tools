@@ -1,19 +1,16 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { BookOpen, CalendarDays, ClipboardList, GraduationCap, ListChecks, ListTree, Megaphone, UserCheck, Users } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { ActiveTeachers } from "@/components/ActiveTeachers";
 import { AnnouncementEditor } from "@/components/AnnouncementEditor";
-import { CohortActions } from "@/components/CohortActions";
 import { CohortsPage } from "@/components/CohortsPage";
-import { LabelledPicker } from "@/components/LabelledPicker";
-import { GroupCatalogue } from "@/components/GroupCatalogue";
+import { CourseCards } from "@/components/CourseCards";
 import { PlatformNotConfigured } from "@/components/PlatformNotConfigured";
 import { PortalCourses } from "@/components/PortalCourses";
 import { PortalRegistrations } from "@/components/PortalRegistrations";
 import { PortalTeachers } from "@/components/PortalTeachers";
 import { ScreenLoading } from "@/components/ScreenLoading";
-import { SelectMenu } from "@/components/SelectMenu";
 import { SemesterList } from "@/components/SemesterList";
 import { StaffMenu } from "@/components/StaffMenu";
 import { StudentRoster } from "@/components/StudentRoster";
@@ -21,7 +18,7 @@ import { SidePane } from "@/components/SidePane";
 import { ViewBar } from "@/components/ViewBar";
 import { locationFor, pageFromLocation } from "@/routes/toolRoute";
 import { fetchCohorts, fetchStudents, fetchViews } from "@/services/studentDatabase";
-import { fetchTimetableStatus, fetchTimetableTerms } from "@/services/timetables";
+import { fetchTimetableStatus } from "@/services/timetables";
 
 // Two families of page in one pane: what this application knows about students, and what
 // the Student Hub shows them. They belong together because they are the same job —
@@ -56,7 +53,7 @@ const TITLES: Record<PageId, { title: string; blurb?: string }> = {
   },
   groups: {
     title: "Groups & CRNs",
-    blurb: "What each group stands for: one CRN per course in the block.",
+    blurb: "The timetable request: every course, its sections, who teaches them and what the timetable is asked for.",
   },
   cohorts: {
     title: "Cohorts",
@@ -127,29 +124,17 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
     window.history.replaceState(null, "", `#${locationFor("database", next)}`);
   }, []);
   const client = useQueryClient();
-  const [termId, setTermId] = useState("");
   // Set when the Groups page sends somebody here: the Students table opens on exactly them.
   const [preselect, setPreselect] = useState<string[]>([]);
   // Set when a cohort's member count is pressed: the Students table filters to that cohort.
-  const [filterCohort, setFilterCohort] = useState("");
+  const [filterCohort] = useState("");
   const onPlatform = page === "semesters" || page === "announcements";
   const status = useQuery({
     queryKey: ["timetable-status"],
     queryFn: fetchTimetableStatus,
     enabled: onPlatform || page === "groups",
   });
-  const terms = useQuery({
-    queryKey: ["timetable-terms"],
-    queryFn: fetchTimetableTerms,
-    enabled: status.data?.configured === true,
-  });
 
-  const semesters = useMemo(() => terms.data ?? [], [terms.data]);
-  // Land on a semester rather than on nothing, the way the view picker does.
-  useEffect(() => {
-    if (semesters.length && !semesters.some((term) => term.id === termId)) setTermId(semesters[0].id);
-  }, [semesters, termId]);
-  const [cohortId, setCohortId] = useState("");
   const [viewId, setViewId] = useState("");
 
   const available = views.data ?? [];
@@ -179,8 +164,6 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
   }, [client, viewId]);
 
   const knownCohorts = cohorts.data ?? [];
-  const cohort = knownCohorts.find((candidate) => candidate.id === cohortId) ?? knownCohorts[0] ?? null;
-  const needsCohort = page === "groups";
 
   return (
     <div className="flex min-h-0 flex-1">
@@ -209,49 +192,6 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
               <ViewBar views={available} viewId={viewId} onChoose={setViewId} />
             ) : null}
 
-            {needsCohort ? (
-              <div className="flex flex-wrap items-end gap-x-5 gap-y-3">
-                <LabelledPicker
-                  label="Cohort"
-                  hint={knownCohorts.length > 1 ? "" : "the only one"}
-                  beside={
-                    cohort ? (
-                      <CohortActions
-                        cohort={cohort}
-                        onShowMembers={(chosen) => {
-                          setFilterCohort(chosen.name);
-                          setPage("students");
-                        }}
-                      />
-                    ) : null
-                  }
-                >
-                  <SelectMenu
-                    label="Cohort"
-                    value={cohort?.id ?? ""}
-                    onChange={setCohortId}
-                    disabled={knownCohorts.length < 2}
-                    options={knownCohorts.map((candidate) => ({
-                      value: candidate.id,
-                      label: candidate.term ? `${candidate.name} — ${candidate.term}` : candidate.name,
-                    }))}
-                  />
-                </LabelledPicker>
-                <LabelledPicker
-                  label="Semester"
-                  hint={semesters.length ? "" : "none uploaded yet"}
-                >
-                  <SelectMenu
-                    label="Semester"
-                    value={termId}
-                    onChange={setTermId}
-                    disabled={!semesters.length}
-                    placeholder="No semester"
-                    options={semesters.map((term) => ({ value: term.id, label: term.name }))}
-                  />
-                </LabelledPicker>
-              </div>
-            ) : null}
           </header>
 
           {/*
@@ -284,20 +224,15 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
           {page === "teachers" ? <PortalTeachers /> : null}
           {page === "active-teachers" ? <ActiveTeachers /> : null}
           {page === "registrations" ? <PortalRegistrations /> : null}
-          {needsCohort && cohorts.isLoading ? <ScreenLoading label="Loading cohorts…" /> : null}
-          {needsCohort && !cohorts.isLoading && !cohort ? (
-            <p className="text-sm text-[#667085]">Create a cohort first, then fill its groups.</p>
-          ) : null}
+          {page === "groups" && cohorts.isLoading ? <ScreenLoading label="Loading cohorts…" /> : null}
           {page === "cohorts" && !cohorts.isLoading ? (
             <CohortsPage cohorts={knownCohorts} />
           ) : null}
           {page === "cohorts" && cohorts.isLoading ? <ScreenLoading label="Loading cohorts…" /> : null}
-          {page === "groups" && cohort ? (
-            <GroupCatalogue
-              key={`${cohort.id}:${termId}`}
-              cohort={cohort}
-              termId={termId}
-              onShowStudents={(ids) => {
+          {page === "groups" && !cohorts.isLoading ? (
+            <CourseCards
+              cohorts={knownCohorts}
+              onShowStudents={(ids: string[]) => {
                 setPreselect(ids);
                 openPage("students");
               }}

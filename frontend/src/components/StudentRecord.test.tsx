@@ -1,3 +1,4 @@
+import { EMPTY_SECTION } from "@/services/studentDatabase";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -55,8 +56,8 @@ beforeEach(() => {
     scopes: [
       {
         id: "scope-td", code: "TD", name: "Tutorials", note: "", termId: "term-1",
-        courses: [{ id: "c-algo", code: "MATH-011", name: "Algorithms", component: "TD" }],
-        groups: [{ id: "td-1", label: "1", capacity: 0, note: "", program: "", assigned: 1, crns: { "c-algo": { crn: "23652", teacher: "" } } }],
+        kind: "shared", parentScopeId: "", courses: [{ id: "c-algo", code: "MATH-011", name: "Algorithms", component: "TD", ue: "", parentCrn: "" }],
+        groups: [{ id: "td-1", label: "1", capacity: 0, note: "", program: "", parentGroupId: "", assigned: 1, crns: { "c-algo": { ...EMPTY_SECTION, crn: "23652", teacher: "" } } }],
       },
     ],
   });

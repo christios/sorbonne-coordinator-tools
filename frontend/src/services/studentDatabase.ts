@@ -29,6 +29,50 @@ export type CatalogueCourse = {
   code: string;
   name: string;
   component: string;
+  /** The Sorbonne UE the course belongs to (UL1MA001), for the timetabler's workbook. */
+  ue: string;
+  /** The CRN the sections hang from in the portal. */
+  parentCrn: string;
+};
+
+/**
+ * One section: what one group holds for one course — a CRN, and everything the
+ * timetabler's workbook says about that row.
+ */
+export type Section = {
+  crn: string;
+  teacher: string;
+  /** An Active teacher's id, or "" when nobody has been chosen. */
+  teacherId: string;
+  hours: string;
+  sessionsPerWeek: string;
+  duration: string;
+  weeks: string;
+  anticipated: number;
+  roomPref: string;
+  dayPref: string;
+  timePref: string;
+  constraints: string;
+  comments: string;
+  /** Marked rather than deleted: the fill skips it and the workbook says so. */
+  retired: boolean;
+};
+
+export const EMPTY_SECTION: Section = {
+  crn: "",
+  teacher: "",
+  teacherId: "",
+  hours: "",
+  sessionsPerWeek: "",
+  duration: "",
+  weeks: "",
+  anticipated: 0,
+  roomPref: "",
+  dayPref: "",
+  timePref: "",
+  constraints: "",
+  comments: "",
+  retired: false,
 };
 
 export type CatalogueGroup = {
@@ -38,11 +82,16 @@ export type CatalogueGroup = {
   note: string;
   /** The programme this group takes first, as the registrar spells it. Empty means any. */
   program: string;
+  /** For a group of a nested set: the group of the parent set it sits inside. */
+  parentGroupId: string;
   /** How many of the cohort's students sit in this group. */
   assigned: number;
-  /** course id -> the CRN that group holds for it. */
-  crns: Record<string, { crn: string; teacher: string }>;
+  /** course id -> the section that group holds for it. */
+  crns: Record<string, Section>;
 };
+
+/** How a group set relates to its courses: numbered across them, its own, or inside another. */
+export type ScopeKind = "shared" | "independent" | "nested";
 
 /** A block of components taught in parallel groups — Foundation Year TD, Languages A1. */
 export type CatalogueScope = {
@@ -52,6 +101,9 @@ export type CatalogueScope = {
   note: string;
   /** The Student Hub semester this block belongs to. */
   termId?: string;
+  kind: ScopeKind;
+  /** For a nested set, the set it sits inside. */
+  parentScopeId: string;
   /** The student tab this block's column lives on in the workbook it came from. */
   tab?: string;
   /** What that column is called there: "TD group", "Readiness group". */
@@ -63,6 +115,13 @@ export type CatalogueScope = {
 };
 
 export type Catalogue = { scopes: CatalogueScope[] };
+
+/** One cohort's catalogue, with the cohort named, as the cards page reads them all at once. */
+export type CohortCatalogue = Catalogue & { cohort: { id: string; name: string; term: string } };
+
+export async function fetchCourseCards(): Promise<CohortCatalogue[]> {
+  return (await request<{ cohorts: CohortCatalogue[] }>(`${BASE}/course-cards`)).cohorts;
+}
 
 const BASE = "/api/v1/student-database";
 
@@ -224,7 +283,7 @@ export function applyWorkbook(
 
 export function addScope(
   cohortId: string,
-  input: { code: string; name?: string; note?: string; termId?: string },
+  input: { code: string; name?: string; note?: string; termId?: string; kind?: ScopeKind; parentScopeId?: string },
 ): Promise<{ id: string }> {
   // The semester matters: a block added without one is invisible to the page that made it.
   return send<{ id: string }>(`${BASE}/cohorts/${cohortId}/scopes`, "POST", {
@@ -237,7 +296,7 @@ export function addScope(
 
 export function updateScope(
   scopeId: string,
-  input: { code: string; name: string; note: string },
+  input: { code: string; name: string; note: string; kind?: ScopeKind; parentScopeId?: string },
 ): Promise<void> {
   return send<void>(`${BASE}/scopes/${scopeId}`, "PATCH", input);
 }
@@ -248,7 +307,7 @@ export function deleteScope(scopeId: string): Promise<void> {
 
 export function addCourse(
   scopeId: string,
-  input: { code: string; name?: string; component?: string },
+  input: { code: string; name?: string; component?: string; ue?: string; parentCrn?: string },
 ): Promise<{ id: string }> {
   return send<{ id: string }>(`${BASE}/scopes/${scopeId}/courses`, "POST", {
     name: "",
@@ -263,7 +322,7 @@ export function deleteCourse(courseId: string): Promise<void> {
 
 export function addGroup(
   scopeId: string,
-  input: { label: string; capacity?: number; note?: string; program?: string },
+  input: { label: string; capacity?: number; note?: string; program?: string; parentGroupId?: string },
 ): Promise<{ id: string }> {
   return send<{ id: string }>(`${BASE}/scopes/${scopeId}/groups`, "POST", {
     capacity: 0,
@@ -275,13 +334,29 @@ export function addGroup(
 
 export function updateGroup(
   groupId: string,
-  input: { label: string; capacity: number; note: string; program: string },
+  input: { label: string; capacity: number; note: string; program: string; parentGroupId?: string },
 ): Promise<void> {
   return send<void>(`${BASE}/groups/${groupId}`, "PATCH", input);
 }
 
 export function deleteGroup(groupId: string): Promise<void> {
   return request<void>(`${BASE}/groups/${groupId}`, { method: "DELETE" });
+}
+
+export function updateCourse(
+  courseId: string,
+  input: { code: string; name: string; component: string; ue: string; parentCrn: string },
+): Promise<void> {
+  return send<void>(`${BASE}/courses/${courseId}`, "PATCH", input);
+}
+
+/** Everything the workbook says about a section but its CRN, which setGroupCrn sets. */
+export function updateSection(
+  groupId: string,
+  courseId: string,
+  input: Omit<Section, "crn" | "teacher">,
+): Promise<void> {
+  return send<void>(`${BASE}/groups/${groupId}/courses/${courseId}`, "PATCH", input);
 }
 
 /** One cell of the matrix. An empty CRN clears it. */
