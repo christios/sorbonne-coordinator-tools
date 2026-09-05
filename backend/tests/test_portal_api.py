@@ -125,6 +125,27 @@ def test_courses_are_kept_and_a_dropped_one_is_marked_gone(client: TestClient):
     assert client.get(f"{BASE}/filters", params={"kind": "courses"}).json()["filters"][0]["held"] == 1
 
 
+def test_a_course_teacher_reads_as_a_name_not_as_a_list(client: TestClient):
+    """The portal ends its list of teachers with a comma even when only one name is in it."""
+    made = make_filter(client, "courses")
+    client.post(
+        f"{BASE}/filters/{made['id']}/sync/courses",
+        json={
+            "rows": [
+                course("22151", "MATH-001", "Bilal Maaz,"),
+                course("23652", "MATH-011", "Wafa Ahmed , Giulia Demasi ,"),
+                course("23653", "MATH-012", ","),
+            ]
+        },
+    )
+
+    listed = client.get(f"{BASE}/courses", params={"term": TERM}).json()["courses"]
+    held = {row["crn"]: row["teacherName"] for row in listed}
+    assert held["22151"] == "Bilal Maaz"
+    assert held["23652"] == "Wafa Ahmed, Giulia Demasi"  # two teachers still read as two
+    assert held["23653"] == ""
+
+
 def test_a_courses_pull_cannot_land_on_a_teachers_filter(client: TestClient):
     made = make_filter(client, "teachers")
     response = client.post(f"{BASE}/filters/{made['id']}/sync/courses", json={"rows": [course("22151", "MATH-001")]})

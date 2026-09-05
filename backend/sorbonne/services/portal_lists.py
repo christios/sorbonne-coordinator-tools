@@ -256,7 +256,7 @@ class PortalListStore:
             "level": _text(row.get("level")),
             "college": _text(row.get("college")),
             "contact_hours": _text(row.get("contactHours")),
-            "teacher_name": _text(row.get("teacherName")),
+            "teacher_name": _people(row.get("teacherName")),
             "registered": _int(row.get("registered")),
             "begins": _text(row.get("begins")),
             "ends": _text(row.get("ends")),
@@ -1122,6 +1122,17 @@ def _judge(  # noqa: PLR0913 - one argument per part of the verdict
 def _kind(kind: str) -> None:
     if kind not in KINDS:
         raise UnknownKind(kind)
+
+
+def _people(value: object) -> str:
+    """The teachers of a course, as a portal course row writes them.
+
+    The portal ends the list with a comma whether or not anybody follows: one teacher
+    arrives as "Bilal Maaz,". Read it as the list it is, so a name shown beside a CRN
+    reads like a name.
+    """
+    names = [_text(name) for name in str(value or "").split(",")]
+    return ", ".join(name for name in names if name)
 
 
 def _int(value: object) -> int:
