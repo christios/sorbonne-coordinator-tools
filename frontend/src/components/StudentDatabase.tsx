@@ -76,6 +76,9 @@ function pageOf(hash: string): PageId {
 /** Where the Course Registration page's portal filter is remembered, as its page had it. */
 const REGISTRATION_FILTER = "scen-portal-filter:registrations";
 
+/** The pages whose panes fill the screen rather than letting the page scroll. */
+const FILLS = new Set<PageId>(["groups", "group-schema"]);
+
 const TITLES: Record<PageId, { title: string; blurb?: string }> = {
   students: {
     title: "Students",
@@ -245,7 +248,17 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
       />
 
       <div className="min-w-0 flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-[86rem] px-4 py-6 sm:px-6">
+        {/*
+          * A column as tall as the screen, for the two pages that fill it.
+          *
+          * Groups & CRNs and Group schema put their panes at the foot of this column and
+          * let them take whatever is left, so the cohort, the warnings, the filter and the
+          * search stay where they are while each pane scrolls inside itself. That needs a
+          * definite height to divide up — `min-h-full` would let the column grow to its
+          * content and leave the panes nothing to fill — so only those two get it. Every
+          * other page keeps growing and scrolling as it always did.
+          */}
+        <div className={`mx-auto flex max-w-[86rem] flex-col px-4 py-6 sm:px-6 ${FILLS.has(page) ? "h-full" : "min-h-full"}`}>
           <header className="flex flex-wrap items-end justify-between gap-4 pb-5">
             <div>
               <h2 className="text-2xl font-semibold text-[#171717]">{TITLES[page].title}</h2>

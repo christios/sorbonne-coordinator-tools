@@ -4,7 +4,6 @@ import { useMemo, useState } from "react";
 
 import { AddFromPortal } from "@/components/AddFromPortal";
 import { CourseDetail } from "@/components/CourseDetail";
-import { useFillHeight } from "@/components/useFillHeight";
 import { WarningBanner, WarningRows, type WarningKind } from "@/components/WarningBanner";
 import type { FillReport } from "@/components/FillBlock";
 import { Modal } from "@/components/Modal";
@@ -108,7 +107,6 @@ export function CourseCards({
   const columns = useMemo(() => cardColumns(nameOf), [teachers.data]); // eslint-disable-line react-hooks/exhaustive-deps
   const [filters, setFilters] = useState<FilterModel[]>([]);
   // The two panes fill the room under the toolbar, and each scrolls inside itself.
-  const panes = useFillHeight<HTMLDivElement>({ fill: true });
   const [query, setQuery] = useState("");
   /*
    * One cohort at a time.
@@ -281,7 +279,7 @@ export function CourseCards({
   const pairs = [...new Set(byCohort.map((card) => `${card.cohortId}|${card.termId}`))];
 
   return (
-    <section>
+    <section className="flex min-h-0 flex-1 flex-col">
       <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
         <LabelledPicker label="Cohort">
           <SelectMenu
@@ -357,7 +355,7 @@ export function CourseCards({
           * of courses — so choosing a different course meant scrolling back up to find the
           * list you were choosing from. Now nothing above them ever leaves.
           */
-        <div ref={panes} className="mt-3 grid min-h-0 items-stretch gap-4 overflow-hidden lg:grid-cols-[16rem_1fr] [grid-template-rows:minmax(0,1fr)]">
+        <div className="mt-3 grid min-h-0 flex-1 items-stretch gap-4 overflow-hidden lg:grid-cols-[16rem_1fr] [grid-template-rows:minmax(0,1fr)]">
           <nav aria-label="Courses" className="min-h-0 overflow-y-auto overscroll-none rounded-lg border border-[#d9dee7] bg-white p-1.5">
             {byCohort.map((card) => (
               <CourseLine key={card.key} card={card} chosen={card.key === chosenCard?.key} onChoose={() => setCardKey(card.key)} />

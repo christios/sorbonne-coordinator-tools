@@ -6,7 +6,6 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { LabelledPicker } from "@/components/LabelledPicker";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { SelectMenu } from "@/components/SelectMenu";
-import { useFillHeight } from "@/components/useFillHeight";
 import { useRemembered } from "@/components/useRemembered";
 import { WarningBanner, WarningRows, type WarningKind } from "@/components/WarningBanner";
 import { fetchActiveCourses } from "@/services/portalLists";
@@ -127,7 +126,6 @@ export function GroupSchema({
   const [cohortId, setCohortId] = useRemembered(COHORT);
   const [chosenId, setChosenId] = useState("");
   // The two panes fill the room under the totals, and each scrolls inside itself.
-  const panes = useFillHeight<HTMLDivElement>({ fill: true });
 
   const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, retry: false });
   const active = useQuery({ queryKey: ["active-courses"], queryFn: fetchActiveCourses });
@@ -201,7 +199,7 @@ export function GroupSchema({
   }
 
   return (
-    <section>
+    <section className="flex min-h-0 flex-1 flex-col">
       <div className="mb-3 flex flex-wrap items-end gap-3">
         {/* The semester first: a set belongs to one, and the cohort means nothing until it is settled. */}
         <LabelledPicker label="Semester" hint="a set belongs to one">
@@ -236,7 +234,7 @@ export function GroupSchema({
       ) : catalogue.isLoading ? (
         <ScreenLoading label="Reading the schema…" />
       ) : (
-        <>
+        <div className="flex min-h-0 flex-1 flex-col">
           <p className="mb-3 text-xs tabular-nums text-[#98a2b3]">
             {totals.sets} set{totals.sets === 1 ? "" : "s"} · {totals.groups} group{totals.groups === 1 ? "" : "s"} ·{" "}
             {totals.courses} course{totals.courses === 1 ? "" : "s"} · {totals.placed} student placement
@@ -245,7 +243,7 @@ export function GroupSchema({
 
           <WarningBanner title="Needs attention" kinds={warnings} />
 
-          <div ref={panes} className="grid min-h-0 items-stretch gap-4 overflow-hidden lg:grid-cols-[19rem_1fr] [grid-template-rows:minmax(0,1fr)]">
+          <div className="grid min-h-0 flex-1 items-stretch gap-4 overflow-hidden lg:grid-cols-[19rem_1fr] [grid-template-rows:minmax(0,1fr)]">
             <nav aria-label="Group sets" className="min-h-0 overflow-y-auto overscroll-none rounded-lg border border-[#d9dee7] bg-white p-1.5">
               {readings.filter((reading) => !reading.shared).map((reading) => (
                 <SetLine
@@ -288,7 +286,7 @@ export function GroupSchema({
               </p>
             )}
           </div>
-        </>
+        </div>
       )}
     </section>
   );

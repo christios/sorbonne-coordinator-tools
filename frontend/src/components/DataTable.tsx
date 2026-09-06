@@ -117,7 +117,7 @@ export function DataTable<T>({
   empty,
 }: DataTableProps<T>) {
   const allShown = rows.length > 0 && rows.every((row) => selected.has(idOf(row)));
-  const box = useFillHeight();
+  const { ref: fitRef, box } = useFillHeight<HTMLElement>();
   const window_ = useWindow(box, rows.length);
   /*
    * The widths live on the `<col>` elements, not on every cell.
@@ -133,7 +133,7 @@ export function DataTable<T>({
   const reorder = useReorder(columns, onReorder, headers);
 
   return (
-    <section ref={box} className="always-scrollbar mt-3 min-h-[16rem] overflow-auto overscroll-none rounded-lg border border-[#d9dee7] bg-white">
+    <section ref={fitRef} className="always-scrollbar mt-3 min-h-[16rem] overflow-auto overscroll-none rounded-lg border border-[#d9dee7] bg-white">
       <table className="text-left text-sm" style={{ tableLayout: "fixed", width: "max-content", minWidth: "100%" }}>
         <colgroup>
           <col style={{ width: 40 }} />
