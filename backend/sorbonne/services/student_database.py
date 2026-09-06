@@ -1127,6 +1127,17 @@ class StudentDatabase:
         open_to_all: bool = False,
     ) -> None:
         with self.engine.begin() as connection:
+            # A rename onto a sibling is refused the way making a duplicate is. Without
+            # this the unique constraint answers instead, and a coordinator renaming CM to
+            # TD while TD exists gets a server error rather than a sentence.
+            held = connection.execute(
+                text("SELECT cohort_id, term_id FROM cohort_scopes WHERE id = :id"), {"id": scope_id}
+            ).mappings().first()
+            standing = (
+                self._scope_id(connection, held["cohort_id"], _text(code), held["term_id"] or "") if held else None
+            )
+            if standing and standing != scope_id:
+                raise DuplicateLabel(code)
             updated = connection.execute(
                 text("""UPDATE cohort_scopes SET code = :code, name = :name, note = :note,
                                                  kind = :kind, parent_scope_id = :parent,
@@ -1241,6 +1252,16 @@ class StudentDatabase:
         parent_group_id: str = "",
     ) -> None:
         with self.engine.begin() as connection:
+            # As above: renaming a group onto a sibling is a refusal, not a crash.
+            clash = connection.execute(
+                text("""SELECT g.id FROM scope_groups g
+                        WHERE g.label = :label
+                          AND g.scope_id = (SELECT scope_id FROM scope_groups WHERE id = :id)
+                          AND g.id <> :id"""),
+                {"id": group_id, "label": _text(label)},
+            ).first()
+            if clash:
+                raise DuplicateLabel(label)
             updated = connection.execute(
                 text("""UPDATE scope_groups SET label = :label, capacity = :capacity, note = :note,
                                                 program = :program, parent_group_id = :parent

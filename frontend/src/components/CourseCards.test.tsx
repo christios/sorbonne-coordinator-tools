@@ -77,7 +77,10 @@ describe("the course cards", () => {
 
     // The list is names and a count; the first course is shown without being asked for.
     const courses = await screen.findByRole("navigation", { name: "Courses" });
-    expect(within(courses).getAllByRole("button").map((item) => item.textContent?.slice(0, 7))).toEqual(["MATH001", "MATH011"]);
+    // The list is the courses; the two ways to bring a course in sit under them.
+    const names = within(courses).getAllByRole("button").map((item) => item.textContent ?? "");
+    expect(names.slice(0, 2).map((name) => name.slice(0, 7))).toEqual(["MATH001", "MATH011"]);
+    expect(names.slice(2)).toEqual([" Add from portal", " Workbook and lists"]);
     expect(screen.getByText("2 courses · 1 cohort-semester")).toBeTruthy();
 
     const detail = screen.getByRole("heading", { name: "MATH001" }).closest("section") as HTMLElement;

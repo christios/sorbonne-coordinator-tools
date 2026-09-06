@@ -486,6 +486,8 @@ async def update_scope(
         )
     except ScopeNotFound as exc:
         raise _missing(exc, "block") from exc
+    except DuplicateLabel as exc:
+        raise _duplicate(exc, "block") from exc
     return {"saved": True}
 
 
@@ -637,6 +639,8 @@ async def update_group(
         )
     except GroupNotFound as exc:
         raise _missing(exc, "group") from exc
+    except DuplicateLabel as exc:
+        raise _duplicate(exc, "group") from exc
     return {"saved": True}
 
 

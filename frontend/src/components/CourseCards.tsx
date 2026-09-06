@@ -6,7 +6,6 @@ import { AddFromPortal } from "@/components/AddFromPortal";
 import { CourseDetail } from "@/components/CourseDetail";
 import { WarningBanner, WarningRows, type WarningKind } from "@/components/WarningBanner";
 import type { FillReport } from "@/components/FillBlock";
-import { GroupSetsEditor } from "@/components/GroupSetsEditor";
 import { Modal } from "@/components/Modal";
 import { LabelledPicker } from "@/components/LabelledPicker";
 import { SelectMenu } from "@/components/SelectMenu";
@@ -63,7 +62,16 @@ function CourseLine({ card, chosen, onChoose }: { card: Card; chosen: boolean; o
   );
 }
 
-export function CourseCards({ cohorts, onShowStudents }: { cohorts: Cohort[]; onShowStudents?: (studentIds: string[]) => void }) {
+export function CourseCards({
+  cohorts,
+  onShowStudents,
+  onEditSchema,
+}: {
+  cohorts: Cohort[];
+  onShowStudents?: (studentIds: string[]) => void;
+  /** Off to the Group schema page, on the semester and cohort being looked at. */
+  onEditSchema?: (cohortId: string, termId: string) => void;
+}) {
   const client = useQueryClient();
   const catalogues = useQuery({ queryKey: ["course-cards"], queryFn: fetchCourseCards });
   const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, retry: false });
@@ -114,7 +122,6 @@ export function CourseCards({ cohorts, onShowStudents }: { cohorts: Cohort[]; on
     return applyFilters(searched, columns, filters);
   }, [cards, columns, filters, query]);
 
-  const [editingSets, setEditingSets] = useState<{ cohortId: string; termId: string } | null>(null);
   const [tools, setTools] = useState(false);
   const [adding, setAdding] = useState(false);
   const [requesting, setRequesting] = useState(false);
@@ -283,24 +290,12 @@ export function CourseCards({ cohorts, onShowStudents }: { cohorts: Cohort[]; on
 
       <div className="flex flex-wrap items-center gap-2">
         <TableFilterBar columns={columns} filters={filters} optionsFor={(column) => optionsFor(cards, column)} onChange={setFilters} />
-        <button type="button" onClick={() => setEditingSets({ cohortId: single?.cohortId ?? cohorts[0]?.id ?? "", termId: single?.termId ?? "" })} className={button}>
-          <ListTree size={15} aria-hidden="true" /> Group sets
-        </button>
-        <button type="button" onClick={() => setAdding(true)} className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white hover:bg-[#183f63]">
-          <Plus size={15} aria-hidden="true" /> Add from portal
-        </button>
-        <button type="button" onClick={() => setTools(true)} className={button}>
-          <FileSpreadsheet size={15} aria-hidden="true" /> Workbook and lists
-        </button>
         <button
           type="button"
-          onClick={() => {
-            setRequestTerm(single?.termId || termIds[0] || "");
-            setRequesting(true);
-          }}
+          onClick={() => onEditSchema?.(chosen?.id ?? "", single?.termId ?? termIds[0] ?? "")}
           className={button}
         >
-          <Download size={15} aria-hidden="true" /> Timetable request
+          <ListTree size={15} aria-hidden="true" /> Group schema
         </button>
         <div className="ml-auto flex items-center gap-2">
           <label className="relative block w-full sm:w-64">
@@ -339,6 +334,9 @@ export function CourseCards({ cohorts, onShowStudents }: { cohorts: Cohort[]; on
             {byCohort.map((card) => (
               <CourseLine key={card.key} card={card} chosen={card.key === chosenCard?.key} onChoose={() => setCardKey(card.key)} />
             ))}
+            {byCohort.length === 0 && acrossCohorts.length === 0 ? (
+              <p className="px-2.5 py-3 text-xs text-[#98a2b3]">No courses yet.</p>
+            ) : null}
             {acrossCohorts.length ? (
               <>
                 <p className="px-2.5 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-wide text-[#8a94a4]">Across cohorts</p>
@@ -347,6 +345,27 @@ export function CourseCards({ cohorts, onShowStudents }: { cohorts: Cohort[]; on
                 ))}
               </>
             ) : null}
+            {/*
+              * Where courses come from, at the foot of the list of them. They were toolbar
+              * buttons sitting above a page they had nothing to do with; a course arrives
+              * in this list, so the way to bring one in belongs at the end of it.
+              */}
+            <div className="mt-2 space-y-1 border-t border-[#eef1f5] px-1 pt-2">
+              <button
+                type="button"
+                onClick={() => setAdding(true)}
+                className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]"
+              >
+                <Plus size={15} aria-hidden="true" /> Add from portal
+              </button>
+              <button
+                type="button"
+                onClick={() => setTools(true)}
+                className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm font-medium text-[#667085] hover:bg-[#f6f8fb]"
+              >
+                <FileSpreadsheet size={15} aria-hidden="true" /> Workbook and lists
+              </button>
+            </div>
           </nav>
 
           {chosenCard ? (
@@ -357,6 +376,24 @@ export function CourseCards({ cohorts, onShowStudents }: { cohorts: Cohort[]; on
               teachers={teachers.data ?? []}
               portal={portalOf(chosenCard.termId)}
               publication={shownPublication}
+              action={
+                /*
+                 * The request is the whole semester's — a sheet per cohort, the CRN table,
+                 * the teacher hours — not this course's. It stands where the semester is
+                 * named, and says its own breadth so nobody reads it as "this course".
+                 */
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRequestTerm(chosenCard.termId || termIds[0] || "");
+                    setRequesting(true);
+                  }}
+                  title="The workbook the timetabler gets: every cohort of this semester"
+                  className="inline-flex items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-2.5 py-1 text-xs font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]"
+                >
+                  <Download size={13} aria-hidden="true" /> Timetable request
+                </button>
+              }
               unassigned={unassignedOf(chosenCard)}
               clashes={clashes}
               onChanged={refresh}
@@ -369,9 +406,6 @@ export function CourseCards({ cohorts, onShowStudents }: { cohorts: Cohort[]; on
         </div>
       )}
 
-      {editingSets ? (
-        <GroupSetsEditor open cohorts={cohorts} terms={terms.data ?? []} activeCourses={activeCourses.data ?? []} initialCohortId={editingSets.cohortId} initialTermId={editingSets.termId} onClose={() => setEditingSets(null)} onChanged={refresh} />
-      ) : null}
       <Modal
         open={requesting}
         title="Timetable request"

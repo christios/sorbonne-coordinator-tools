@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { BookMarked, BookOpen, CalendarDays, ClipboardList, GaugeCircle, GraduationCap, ListChecks, ListTree, Megaphone, UserCheck, Users } from "lucide-react";
+import { Blocks, BookMarked, BookOpen, CalendarDays, ClipboardList, GaugeCircle, GraduationCap, ListChecks, ListTree, Megaphone, UserCheck, Users } from "lucide-react";
 import { Globe } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
@@ -7,6 +7,7 @@ import { ActiveCourses } from "@/components/ActiveCourses";
 import { ActiveTeachers } from "@/components/ActiveTeachers";
 import { AnnouncementEditor } from "@/components/AnnouncementEditor";
 import { CohortsPage } from "@/components/CohortsPage";
+import { GroupSchema } from "@/components/GroupSchema";
 import { CapacityPage } from "@/components/CapacityPage";
 import { CourseCards } from "@/components/CourseCards";
 import { DiscrepancyRulesEditor } from "@/components/DiscrepancyRulesEditor";
@@ -49,6 +50,9 @@ const PAGES = [
   // The timetable request itself: the sections a semester is taught in, and how full they
   // are. It is what the semester above it publishes, not a check against the registrar.
   { id: "groups", name: "Groups & CRNs", icon: ListTree, group: "Timetables" },
+  // The shape those CRNs are hung on: the sets a cohort is split into and the groups
+  // inside them. It was a dialog; it is the most consequential thing here, so it is a page.
+  { id: "group-schema", name: "Group schema", icon: Blocks, group: "Timetables", parent: "groups" },
   // How full every group is: the Capacity sheet the workbooks carried, kept live.
   { id: "capacity", name: "Capacity", icon: GaugeCircle, group: "Timetables", parent: "groups" },
   { id: "announcements", name: "Announcements", icon: Megaphone, group: "Timetables" },
@@ -78,6 +82,10 @@ const TITLES: Record<PageId, { title: string; blurb?: string }> = {
   registrations: {
     title: "Course Registration",
     blurb: "Whether the registrar has each student registered in the sections we placed them in.",
+  },
+  "group-schema": {
+    title: "Group schema",
+    blurb: "The shape of a semester before the CRNs: which sets a cohort is split into, which courses each set carries, and the groups inside them.",
   },
   capacity: {
     title: "Capacity",
@@ -160,6 +168,8 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
   });
 
   const [viewId, setViewId] = useState("");
+  // Which semester and cohort the schema page opens on, when Groups & CRNs sends you there.
+  const [schemaSeed, setSchemaSeed] = useState<{ cohortId: string; termId: string } | null>(null);
   // The shared rules sit at the page's title, apart from any one cohort's.
   const [sharedRulesOpen, setSharedRulesOpen] = useState(false);
   const rules = useQuery({ queryKey: ["discrepancy-rules"], queryFn: fetchDiscrepancyRules, enabled: page === "cohorts" });
@@ -266,6 +276,10 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
           {page === "active-teachers" ? <ActiveTeachers /> : null}
           {page === "registrations" && !cohorts.isLoading ? <PortalRegistrations cohorts={knownCohorts} /> : null}
           {page === "registrations" && cohorts.isLoading ? <ScreenLoading label="Loading cohorts…" /> : null}
+          {page === "group-schema" && cohorts.isLoading ? <ScreenLoading label="Loading cohorts…" /> : null}
+          {page === "group-schema" && !cohorts.isLoading ? (
+            <GroupSchema cohorts={knownCohorts} seed={schemaSeed} onOpenGroups={() => openPage("groups")} />
+          ) : null}
           {page === "groups" && cohorts.isLoading ? <ScreenLoading label="Loading cohorts…" /> : null}
           {page === "cohorts" && !cohorts.isLoading ? (
             <CohortsPage cohorts={knownCohorts} />
@@ -280,6 +294,10 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
               onShowStudents={(ids: string[]) => {
                 setPreselect(ids);
                 openPage("students");
+              }}
+              onEditSchema={(cohortId: string, termId: string) => {
+                setSchemaSeed({ cohortId, termId });
+                openPage("group-schema");
               }}
             />
           ) : null}

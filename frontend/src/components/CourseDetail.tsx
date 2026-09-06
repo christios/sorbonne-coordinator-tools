@@ -1,5 +1,5 @@
 import { AlertTriangle, Check, Pencil, Wand2 } from "lucide-react";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 
 import { FillBlock, type FillReport } from "@/components/FillBlock";
 import { SectionDialog } from "@/components/CourseCard";
@@ -133,11 +133,14 @@ export function CourseDetail({
   publication,
   unassigned,
   clashes,
+  action,
   onChanged,
   onFilled,
 }: {
   card: Card;
   cohort: Cohort | null;
+  /** Something the whole semester's request needs, shown where the semester is named. */
+  action?: ReactNode;
   teachers: ActiveTeacher[];
   portal: TermCrns | null;
   publication: Publication | null;
@@ -167,8 +170,11 @@ export function CourseDetail({
             Not on the active list
           </span>
         ) : null}
-        <span className="ml-auto text-xs text-[#98a2b3]">
-          {card.cohortName} · {card.termName || "no semester"}
+        <span className="ml-auto flex items-center gap-3">
+          <span className="text-xs text-[#98a2b3]">
+            {card.cohortName} · {card.termName || "no semester"}
+          </span>
+          {action}
         </span>
       </header>
 

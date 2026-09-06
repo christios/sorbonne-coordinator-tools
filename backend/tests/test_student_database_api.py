@@ -729,3 +729,27 @@ def test_the_cards_list_every_cohort_at_once(client: TestClient, cohort_id: str)
     assert [scope["code"] for scope in by_id[cohort_id]["scopes"]] == ["TD"]
     assert [scope["code"] for scope in by_id[other["id"]]["scopes"]] == ["CM"]
     assert by_id[cohort_id]["cohort"]["name"] == "Foundation Year"
+
+
+def test_renaming_a_set_onto_another_is_refused_not_a_crash(client: TestClient, cohort_id: str):
+    """Making a duplicate is refused; renaming onto one used to reach the constraint raw."""
+    client.post(f"/api/v1/student-database/cohorts/{cohort_id}/scopes", json={"code": "TD"})
+    other = client.post(f"/api/v1/student-database/cohorts/{cohort_id}/scopes", json={"code": "CM"}).json()
+
+    clash = client.patch(f"/api/v1/student-database/scopes/{other['id']}", json={"code": "TD"})
+
+    assert clash.status_code == status.HTTP_409_CONFLICT
+    # And the set is untouched: a refused rename must not half-apply.
+    assert scope_of(catalogue(client, cohort_id), "CM")["code"] == "CM"
+
+
+def test_renaming_a_group_onto_a_sibling_is_refused_not_a_crash(client: TestClient, cohort_id: str):
+    scope_id, first = block_with_a_group(client, cohort_id)
+    second = client.post(f"/api/v1/student-database/scopes/{scope_id}/groups", json={"label": "2"}).json()
+
+    clash = client.patch(
+        f"/api/v1/student-database/groups/{second['id']}", json={"label": "1", "capacity": 0, "note": ""}
+    )
+
+    assert clash.status_code == status.HTTP_409_CONFLICT
+    assert first is not None
