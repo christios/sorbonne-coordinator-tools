@@ -184,6 +184,8 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
   });
 
   const [viewId, setViewId] = useState("");
+  // The slot beside the page's title, for a page with controls of its own to put there.
+  const [pageHeader, setPageHeader] = useState<HTMLDivElement | null>(null);
   /*
    * Which portal filter Course Registration reads.
    *
@@ -261,10 +263,16 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
           * page scrolls instead, as every other page here does at every width.
           */}
         <div className={`mx-auto flex max-w-[86rem] flex-col px-4 py-6 sm:px-6 ${FILLS.has(page) ? "min-h-full lg:h-full" : "min-h-full"}`}>
-          <header className="flex flex-wrap items-end justify-between gap-4 pb-5">
+          <header className={`flex flex-wrap items-end justify-between gap-4 ${FILLS.has(page) ? "pb-3" : "pb-5"}`}>
             <div>
-              <h2 className="text-2xl font-semibold text-[#171717]">{TITLES[page].title}</h2>
-              {TITLES[page].blurb ? (
+              <h2 title={TITLES[page].blurb} className="text-2xl font-semibold text-[#171717]">{TITLES[page].title}</h2>
+              {/*
+                * A page whose panes fill the screen keeps its blurb to a tooltip.
+                *
+                * Every line above the panes is a line they do not get, and this one is a
+                * sentence you read once. The title carries it for anyone who wants it.
+                */}
+              {TITLES[page].blurb && !FILLS.has(page) ? (
                 <p className="mt-1 text-sm text-[#667085]">{TITLES[page].blurb}</p>
               ) : null}
             </div>
@@ -272,6 +280,8 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
             {page === "students" ? (
               <ViewBar views={available} viewId={viewId} onChoose={setViewId} />
             ) : null}
+            {/* Filled by Groups & CRNs, which puts its cohort and its files here. */}
+            <div ref={setPageHeader} className="empty:hidden" />
             {page === "registrations" ? (
               <PortalFilterBar
                 kind="registrations"
@@ -353,6 +363,7 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
           {page === "groups" && !cohorts.isLoading ? (
             <CourseCards
               cohorts={knownCohorts}
+              header={pageHeader}
               onShowStudents={(ids: string[]) => {
                 setPreselect(ids);
                 openPage("students");

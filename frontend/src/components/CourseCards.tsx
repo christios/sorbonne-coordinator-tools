@@ -1,13 +1,13 @@
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Download, FileSpreadsheet, Plus, Search } from "lucide-react";
 import { useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { AddFromPortal } from "@/components/AddFromPortal";
 import { CourseDetail } from "@/components/CourseDetail";
 import { WarningBanner, WarningRows, type WarningKind } from "@/components/WarningBanner";
 import type { FillReport } from "@/components/FillBlock";
 import { Modal } from "@/components/Modal";
-import { LabelledPicker } from "@/components/LabelledPicker";
 import { SelectMenu } from "@/components/SelectMenu";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { TableFilterBar } from "@/components/TableFilterBar";
@@ -67,11 +67,14 @@ export function CourseCards({
   cohorts,
   onShowStudents,
   onPlaceStudents,
+  header,
 }: {
   cohorts: Cohort[];
   onShowStudents?: (studentIds: string[]) => void;
   /** Off to the Cohorts page, on this cohort and these students: where placing is done. */
   onPlaceStudents?: (cohortId: string, studentIds: string[]) => void;
+  /** The slot beside the page's title, where the cohort and the files go. */
+  header?: HTMLElement | null;
 }) {
   const client = useQueryClient();
   const catalogues = useQuery({ queryKey: ["course-cards"], queryFn: fetchCourseCards });
@@ -277,40 +280,47 @@ export function CourseCards({
   ].filter(Boolean) as WarningKind[];
 
   const pairs = [...new Set(byCohort.map((card) => `${card.cohortId}|${card.termId}`))];
+  const controls = (
+    <div className="flex flex-wrap items-center gap-2">
+      <div className="w-72">
+        <SelectMenu
+          label="Cohort"
+          value={chosen?.id ?? ""}
+          onChange={setCohortId}
+          options={cohorts.map((cohort) => ({
+            value: cohort.id,
+            label: cohort.name,
+            year: cohort.term,
+            badge: String(cards.filter((card) => card.cohortId === cohort.id).length),
+            badgeTone: cards.some((card) => card.cohortId === cohort.id) ? ("accent" as const) : ("muted" as const),
+          }))}
+        />
+      </div>
+      <button
+        type="button"
+        onClick={() => setTools(true)}
+        className="inline-flex items-center gap-2 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc]"
+      >
+        <FileSpreadsheet size={15} aria-hidden="true" /> Workbook and lists
+      </button>
+    </div>
+  );
 
   return (
     <section className="flex flex-col lg:min-h-0 lg:flex-1">
-      <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
-        <LabelledPicker label="Cohort">
-          <SelectMenu
-            label="Cohort"
-            value={chosen?.id ?? ""}
-            onChange={setCohortId}
-            options={cohorts.map((cohort) => ({
-              value: cohort.id,
-              label: cohort.name,
-              year: cohort.term,
-              badge: String(cards.filter((card) => card.cohortId === cohort.id).length),
-              badgeTone: cards.some((card) => card.cohortId === cohort.id) ? ("accent" as const) : ("muted" as const),
-            }))}
-          />
-        </LabelledPicker>
-
-        {/*
-          * The files are one cohort's and one semester's, so they belong on the line where
-          * the cohort is chosen rather than at the foot of a list of courses.
-          */}
-        <button
-          type="button"
-          onClick={() => setTools(true)}
-          className="inline-flex items-center gap-2 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc]"
-        >
-          <FileSpreadsheet size={15} aria-hidden="true" /> Workbook and lists
-        </button>
-      </div>
+      {/*
+        * The cohort and the files sit on the page's own title line.
+        *
+        * They had a row to themselves, with a caption over the picker — some seventy
+        * pixels of the screen spent on one dropdown and one button, and seventy pixels
+        * the panes below did not get. The title line was half empty; they are on it.
+        * Without a slot to put them in they stay where they were, so the page still
+        * works on its own.
+        */}
+      {header ? createPortal(controls, header) : <div className="mb-3">{controls}</div>}
 
       {filled ? (
-        <p className="mt-3 rounded-md border border-[#bfdcc6] bg-[#f4faf5] px-4 py-2.5 text-sm text-[#2f6b3d]">
+        <p className="mb-3 rounded-md border border-[#bfdcc6] bg-[#f4faf5] px-4 py-2.5 text-sm text-[#2f6b3d]">
           {filled.assigned} student{filled.assigned === 1 ? "" : "s"} placed in {filled.scopeCode}{filled.unplaced ? `; ${filled.unplaced} could not be placed` : ""}.
         </p>
       ) : null}
