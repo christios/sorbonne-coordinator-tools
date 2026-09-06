@@ -15,7 +15,7 @@ import {
 } from "@/services/capacity";
 import { rowText } from "@/services/copyCells";
 import { fetchActiveCourses, fetchActiveTeachers } from "@/services/portalLists";
-import { fetchCourseCards } from "@/services/studentDatabase";
+import { fetchCohorts, fetchCourseCards } from "@/services/studentDatabase";
 import { fetchTimetableTerms } from "@/services/timetables";
 
 /*
@@ -159,6 +159,7 @@ export function CapacityPage() {
   const teachers = useQuery({ queryKey: ["active-teachers"], queryFn: fetchActiveTeachers });
   const [cohortId, setCohortId] = useState("");
   const [opened, setOpened] = useState<Set<string>>(new Set());
+  const [showingOver, setShowingOver] = useState(false);
 
   const rows = useMemo(() => {
     const termName = (id: string) => (terms.data ?? []).find((term) => term.id === id)?.name ?? (id ? "unknown semester" : "");
@@ -166,6 +167,9 @@ export function CapacityPage() {
     return capacityRows(catalogues.data ?? [], termName, courses.data ?? [], teacherName);
   }, [catalogues.data, terms.data, courses.data, teachers.data]);
 
+  // The cohorts themselves, for the headcount: how many students a cohort holds is the
+  // cohort's own fact, and its groups cannot be added up to give it.
+  const known = useQuery({ queryKey: ["cohorts"], queryFn: fetchCohorts });
   const cohorts = useMemo(() => {
     const held = new Map<string, string>();
     // Named by the cohorts that have groups of their own: a year is not in the list
@@ -193,6 +197,8 @@ export function CapacityPage() {
   );
   const totals = useMemo(() => groupTotals(mine), [mine]);
   const over = useMemo(() => capacityByGroup(mine).filter((group) => group.status === "Over"), [mine]);
+  // The cohort's own headcount, which its groups cannot be added up to give.
+  const members = (known.data ?? []).find((cohort) => cohort.id === chosen?.id)?.memberCount ?? 0;
 
   const copy = () => {
     const lines = [rowText(["Set", "Group", "Seats", "Enrolled", "Seats free", "Status"])];
@@ -234,13 +240,23 @@ export function CapacityPage() {
         </button>
       </div>
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         <Tile
           label="Groups"
           value={String(totals.groups)}
           hint={`${sets.filter((set) => !set.shared).length} set${sets.filter((set) => !set.shared).length === 1 ? "" : "s"} of this cohort's own`}
         />
-        <Tile label="Students placed" value={totals.enrolled.toLocaleString()} hint="counted once per group" />
+        {/*
+          * Two different numbers, and reading one as the other is what makes a cohort of
+          * 152 look like 456: a student sits in a lecture and a tutorial and a practical,
+          * and each is a seat taken.
+          */}
+        <Tile label="Students" value={(members ?? 0).toLocaleString()} hint={`in ${chosen.name}`} />
+        <Tile
+          label="Seats taken"
+          value={totals.placements.toLocaleString()}
+          hint={members ? `${(totals.placements / members).toFixed(1)} groups each` : "one per group they sit in"}
+        />
         <Tile
           label="Seats"
           value={totals.capacity.toLocaleString()}
@@ -254,11 +270,41 @@ export function CapacityPage() {
         />
       </div>
 
+      {/*
+        * The groups over their seats, as a line that opens rather than a paragraph naming
+        * twelve of them in a row. The count is the thing to act on; which ones is the next
+        * question, and it is one click away.
+        */}
       {over.length ? (
-        <p role="status" className="mt-3 rounded-md border border-[#e5b7b9] bg-[#fdf3f3] px-4 py-2.5 text-sm text-[#a6292f]">
-          <AlertTriangle size={14} className="mr-1.5 inline align-[-2px]" aria-hidden="true" />
-          Over their seats: {over.map((group) => `${group.set} ${group.group} (+${group.enrolled - group.capacity})`).join(", ")}.
-        </p>
+        <section className="mt-3">
+          <button
+            type="button"
+            onClick={() => setShowingOver((was) => !was)}
+            aria-expanded={showingOver}
+            className="inline-flex items-center gap-2 rounded-full border border-[#e5b7b9] bg-[#fdf3f3] px-3.5 py-1.5 text-sm font-semibold text-[#a6292f] hover:bg-[#fbeaea]"
+          >
+            <AlertTriangle size={14} aria-hidden="true" />
+            {over.length} group{over.length === 1 ? " is" : "s are"} over their seats
+            <ChevronRight size={14} className={showingOver ? "rotate-90" : ""} aria-hidden="true" />
+          </button>
+
+          {showingOver ? (
+            <ul className="mt-2 divide-y divide-[#f7e6e7] overflow-hidden rounded-lg border border-[#f0d7d9] bg-white text-sm">
+              {over.map((group) => (
+                <li key={group.key} className="flex items-baseline gap-3 px-4 py-2">
+                  <span className="font-medium text-[#1f4e79]">{group.set}</span>
+                  <span className="text-[#344054]">{group.group}</span>
+                  <span className="ml-auto tabular-nums text-[#667085]">
+                    {group.enrolled} / {group.capacity}
+                  </span>
+                  <span className="w-16 text-right font-semibold tabular-nums text-[#a6292f]">
+                    +{group.enrolled - group.capacity}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </section>
       ) : null}
 
       <div className="mt-5 space-y-5">

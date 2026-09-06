@@ -102,7 +102,7 @@ describe("how full every group is", () => {
       groups: 2,
       capacity: 30,
       seated: 1,
-      enrolled: 32,
+      placements: 32,
       withoutCapacity: 1,
     });
   });
@@ -113,7 +113,7 @@ describe("how full every group is", () => {
     const rows = capacityRows([FYS], termName);
     const own = rows.filter((row) => !row.shared);
 
-    expect(groupTotals(own)).toMatchObject({ groups: 2, capacity: 66, enrolled: 67 });
+    expect(groupTotals(own)).toMatchObject({ groups: 2, capacity: 66, placements: 67 });
     expect(groupTotals(rows).groups).toBe(3);
   });
 
@@ -149,6 +149,14 @@ describe("how full every group is", () => {
     expect(tutorials.peak).toBe(34);
   });
 
+  it("says seats taken, not students: a student in three groups is three of them", () => {
+    // The mistake this guards: a cohort of two reading as sixty-seven.
+    const totals = groupTotals(capacityRows([FYS], termName).filter((row) => !row.shared));
+
+    expect(totals.placements).toBe(67);
+    expect(totals.groups).toBe(2);
+  });
+
   it("counts a group once for the totals, however many courses its set carries", () => {
     const totals = groupTotals(capacityRows([FYS], termName));
 
@@ -157,7 +165,7 @@ describe("how full every group is", () => {
       groups: 3,
       capacity: 33 + 33 + 24,
       seated: 3,
-      enrolled: 34 + 33 + 22,
+      placements: 34 + 33 + 22,
       over: 1,
       withoutCapacity: 0,
     });

@@ -119,7 +119,15 @@ export function groupTotals(rows: CapacityRow[]): {
   /** Seats, counted only where a group states a capacity — adding zeroes would lie. */
   capacity: number;
   seated: number;
-  enrolled: number;
+  /**
+   * Seats taken, which is not a headcount.
+   *
+   * A student sits in several groups at once — a lecture, a tutorial, a practical — and
+   * each is a placement. Adding the groups up therefore counts most students several
+   * times over, which is right against the seats and wrong against the cohort, so it is
+   * named for what it is.
+   */
+  placements: number;
   over: number;
   withoutCapacity: number;
 } {
@@ -134,7 +142,7 @@ export function groupTotals(rows: CapacityRow[]): {
     groups: groups.length,
     capacity: seated.reduce((total, row) => total + row.capacity, 0),
     seated: seated.length,
-    enrolled: groups.reduce((total, row) => total + row.enrolled, 0),
+    placements: groups.reduce((total, row) => total + row.enrolled, 0),
     over: groups.filter((row) => row.status === "Over").length,
     withoutCapacity: groups.length - seated.length,
   };
