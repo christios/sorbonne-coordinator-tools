@@ -5,10 +5,12 @@ import { useEffect, useState } from "react";
 import { Modal } from "@/components/Modal";
 import { SelectMenu } from "@/components/SelectMenu";
 import { downloadAdmissionsList } from "@/services/admissionsExport";
+import { downloadHandout, handoutName } from "@/services/studentHandout";
 import { fetchActiveCourses, fetchActiveTeachers } from "@/services/portalLists";
 import { fieldHeld, namesHeld } from "@/services/rosterStore";
 import { type Cohort, fetchAssignments, fetchCatalogue } from "@/services/studentDatabase";
 import type { TimetableTerm } from "@/services/timetables";
+import { sheetTitle, semesterLabel } from "@/services/timetableExport";
 import { downloadWorkbook, prefixOf, shortYear } from "@/services/workbookExport";
 
 /**
@@ -53,7 +55,7 @@ export function WorkbookTools({
     (section.teacherId ? (teachers.data ?? []).find((teacher) => teacher.id === section.teacherId)?.fullName : "") ||
     section.teacher;
   const scopes = catalogue.data?.scopes ?? [];
-  const [exporting, setExporting] = useState<"" | "workbook" | "list">("");
+  const [exporting, setExporting] = useState<"" | "workbook" | "list" | "handout">("");
   const [heldNames, setHeldNames] = useState(0);
   useEffect(() => {
     if (!open) return;
@@ -118,6 +120,47 @@ export function WorkbookTools({
     }
   };
 
+  /**
+   * The file the students get, which is the only one of the three they will ever see.
+   *
+   * Their own names and programmes come from this browser's roster, as everything with a
+   * name in it does; the groups and the CRNs come from the catalogue on screen.
+   */
+  const exportHandout = async () => {
+    if (!cohort) return;
+    setExporting("handout");
+    try {
+      const held = await namesHeld();
+      const programs = await fieldHeld("MAJOR_CODE_DESC");
+      const family = await fieldHeld("LAST_NAME");
+      const first = await fieldHeld("FIRST_NAME");
+      const placements = await fetchAssignments(cohort.id);
+      const labelOf = new Map(scopes.flatMap((scope) => scope.groups.map((group) => [group.id, group.label] as const)));
+      const students = Object.entries(placements).map(([studentId, byScopeId]) => ({
+        studentId,
+        // The registrar's own split where this browser has it, and the whole name where
+        // it does not — the sheet promises the list is alphabetical by family name, so
+        // something has to stand in that column.
+        family: family[studentId] || held[studentId] || studentId,
+        first: first[studentId] || "",
+        programme: programs[studentId] ?? "",
+        groups: Object.fromEntries(
+          Object.entries(byScopeId).flatMap(([scopeId, groupId]) => {
+            const label = labelOf.get(groupId);
+            return label ? [[scopeId, label] as const] : [];
+          }),
+        ),
+      }));
+      const semester = semesterLabel(terms.find((term) => term.id === termId)?.name ?? "");
+      await downloadHandout(
+        { cohortName: cohort.name, semester, year: cohort.term, scopes, students, teacherOf },
+        handoutName(cohort.workbookTab || prefixOf(cohort.name), cohort.term, sheetTitle(cohort, semester)),
+      );
+    } finally {
+      setExporting("");
+    }
+  };
+
   const ready = Boolean(cohort && termId);
   const button = "inline-flex items-center gap-2 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc] disabled:opacity-50";
 
@@ -140,9 +183,15 @@ export function WorkbookTools({
           {exporting === "list" ? <Loader2 size={16} className="animate-spin" aria-hidden="true" /> : <Download size={16} aria-hidden="true" />}
           {exporting === "list" ? "Building…" : "Admissions list"}
         </button>
+        <button type="button" onClick={exportHandout} disabled={!ready || exporting !== "" || scopes.length === 0} className={button}>
+          {exporting === "handout" ? <Loader2 size={16} className="animate-spin" aria-hidden="true" /> : <Download size={16} aria-hidden="true" />}
+          {exporting === "handout" ? "Building…" : "Student handout"}
+        </button>
       </div>
       <p className="mt-4 border-t border-[#eef1f5] pt-3 text-xs text-[#98a2b3]">
-        Reading a workbook back in is off for now. It matched a file&apos;s sets to the semester&apos;s by their code and
+        The student handout is the one file here that students themselves read: a row each, alphabetical by
+        family name, with their CRN and teacher written out under a colour per set. Reading a workbook back in
+        is off for now. It matched a file&apos;s sets to the semester&apos;s by their code and
         made a new one where it could not match, so a set renamed since the file was written came back as a second set
         with the students moved into it. The schema is edited on the Group schema page instead.
       </p>
