@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Blocks, BookMarked, BookOpen, CalendarDays, ClipboardList, GaugeCircle, GraduationCap, ListChecks, ListTree, Megaphone, UserCheck, Users } from "lucide-react";
+import { Blocks, BookMarked, BookOpen, CalendarDays, ClipboardList, Clock3, GaugeCircle, GraduationCap, ListChecks, ListTree, Megaphone, UserCheck, Users } from "lucide-react";
 import { Globe } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
@@ -9,6 +9,8 @@ import { AnnouncementEditor } from "@/components/AnnouncementEditor";
 import { CohortsPage } from "@/components/CohortsPage";
 import { GroupSchema } from "@/components/GroupSchema";
 import { CapacityPage } from "@/components/CapacityPage";
+import { TeacherHours } from "@/components/TeacherHours";
+import { TeacherRecord, type TeacherRef } from "@/components/TeacherRecord";
 import { CourseCards } from "@/components/CourseCards";
 import { DiscrepancyRulesEditor } from "@/components/DiscrepancyRulesEditor";
 import { PlatformNotConfigured } from "@/components/PlatformNotConfigured";
@@ -55,6 +57,9 @@ const PAGES = [
   { id: "group-schema", name: "Group schema", icon: Blocks, group: "Timetables", parent: "groups" },
   // How full every group is: the Capacity sheet the workbooks carried, kept live.
   { id: "capacity", name: "Capacity", icon: GaugeCircle, group: "Timetables", parent: "groups" },
+  // What every teacher is carrying: the workbook's Teacher Hours sheet, on a page. It
+  // belongs to the request rather than to the teacher list, which is why it sits here.
+  { id: "teacher-hours", name: "Teacher hours", icon: Clock3, group: "Timetables", parent: "groups" },
   { id: "announcements", name: "Announcements", icon: Megaphone, group: "Timetables" },
 ] as const;
 
@@ -86,6 +91,10 @@ const TITLES: Record<PageId, { title: string; blurb?: string }> = {
   "group-schema": {
     title: "Group schema",
     blurb: "The shape of a semester before the CRNs: which sets a cohort is split into, which courses each set carries, and the groups inside them.",
+  },
+  "teacher-hours": {
+    title: "Teacher hours",
+    blurb: "What every teacher is carrying this semester — the count the timetable workbook has always shown, and the hours nobody is teaching yet.",
   },
   capacity: {
     title: "Capacity",
@@ -168,6 +177,8 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
   });
 
   const [viewId, setViewId] = useState("");
+  // The teacher whose record is open, whichever list or page asked for it.
+  const [teacherRecord, setTeacherRecord] = useState<TeacherRef | null>(null);
   // A cohort and some of its students, when Groups & CRNs sends them to be placed.
   const [cohortFocus, setCohortFocus] = useState<{ cohortId: string; studentIds: string[] } | null>(null);
   // The shared rules sit at the page's title, apart from any one cohort's.
@@ -270,10 +281,13 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
             <ScreenLoading label="Loading…" />
           ) : null}
           {page === "capacity" ? <CapacityPage /> : null}
+          {page === "teacher-hours" ? (
+            <TeacherHours onOpenTeacher={(teacherId, fullName) => setTeacherRecord({ id: teacherId, fullName })} />
+          ) : null}
           {page === "courses" ? <PortalCourses /> : null}
           {page === "active-courses" ? <ActiveCourses /> : null}
-          {page === "teachers" ? <PortalTeachers /> : null}
-          {page === "active-teachers" ? <ActiveTeachers /> : null}
+          {page === "teachers" ? <PortalTeachers onOpenTeacher={setTeacherRecord} /> : null}
+          {page === "active-teachers" ? <ActiveTeachers onOpenTeacher={setTeacherRecord} /> : null}
           {page === "registrations" && !cohorts.isLoading ? <PortalRegistrations cohorts={knownCohorts} /> : null}
           {page === "registrations" && cohorts.isLoading ? <ScreenLoading label="Loading cohorts…" /> : null}
           {page === "group-schema" && cohorts.isLoading ? <ScreenLoading label="Loading cohorts…" /> : null}
@@ -300,6 +314,10 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
                 openPage("cohorts");
               }}
             />
+          ) : null}
+
+          {teacherRecord ? (
+            <TeacherRecord open teacher={teacherRecord} onClose={() => setTeacherRecord(null)} />
           ) : null}
 
           {onPlatform && status.isLoading ? (

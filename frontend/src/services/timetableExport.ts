@@ -10,6 +10,7 @@
 
 import type { Card, SectionRow } from "@/services/courseCards";
 import { filled } from "@/services/courseRequest";
+import { teacherLoads } from "@/services/teacherLoad";
 import { SPREADSHEET_TYPE, columnLetter } from "@/services/workbookExport";
 
 export const REQUEST_COLUMNS = [
@@ -45,6 +46,8 @@ export type RequestRow = {
   type: string;
   roomPref: string;
   teacher: string;
+  /** The Active teacher this row was resolved from, when there is one. Not a column. */
+  teacherId: string;
   timePref: string;
   dayPref: string;
   constraints: string;
@@ -112,6 +115,7 @@ export function requestSheets(
           type: row.course.component || row.scope.code,
           roomPref: section.roomPref,
           teacher: section.teacherId ? teacherName(section.teacherId) || section.teacher : section.teacher,
+          teacherId: section.teacherId,
           timePref: section.timePref,
           dayPref: section.dayPref,
           constraints: section.constraints,
@@ -176,23 +180,16 @@ export function shortSemester(termName: string): string {
     .slice(0, 6);
 }
 
-/** Hours per teacher per sheet and per type, the way the workbook's Teacher Hours sheet has them. */
+/**
+ * Hours per teacher per sheet and per type, the way the workbook's Teacher Hours sheet has
+ * them — the same count the Teacher hours page reads, so the sheet and the screen cannot
+ * come apart. What the sheet leaves out is the hours nobody is teaching yet, which the
+ * page shows because they are the point of looking.
+ */
 export function teacherHours(sheets: RequestSheet[]): { teacher: string; bySheet: number[]; byType: Record<string, number>; total: number }[] {
-  const held = new Map<string, { bySheet: number[]; byType: Record<string, number> }>();
-  sheets.forEach((sheet, index) => {
-    for (const row of sheet.rows) {
-      if (!row.teacher || row.teacher.toUpperCase() === "TBD") continue;
-      const hours = Number(row.hours) || 0;
-      const entry = held.get(row.teacher) ?? { bySheet: sheets.map(() => 0), byType: {} };
-      entry.bySheet[index] += hours;
-      const type = row.type.toUpperCase() || "OTHER";
-      entry.byType[type] = (entry.byType[type] ?? 0) + hours;
-      held.set(row.teacher, entry);
-    }
-  });
-  return [...held.entries()]
-    .map(([teacher, entry]) => ({ teacher, ...entry, total: entry.bySheet.reduce((sum, hours) => sum + hours, 0) }))
-    .sort((left, right) => left.teacher.localeCompare(right.teacher));
+  return teacherLoads(sheets)
+    .filter((load) => load.teacherId || load.teacher)
+    .map(({ teacher, bySheet, byType, total }) => ({ teacher, bySheet, byType, total }));
 }
 
 /*

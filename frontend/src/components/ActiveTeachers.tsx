@@ -3,6 +3,7 @@ import { Trash2, UserPlus } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import type { TeacherRef } from "@/components/TeacherRecord";
 import { ListGrid, StatePill } from "@/components/ListGrid";
 import { Modal } from "@/components/Modal";
 import { ScreenLoading } from "@/components/ScreenLoading";
@@ -56,7 +57,7 @@ const renderCell = (row: ActiveTeacher, column: GridColumn<ActiveTeacher>) =>
  * with a few dozen. They are chosen from the Teachers page, or brought from the
  * Part-time Teacher Database here — and a person on both sides is one row.
  */
-export function ActiveTeachers() {
+export function ActiveTeachers({ onOpenTeacher }: { onOpenTeacher?: (teacher: TeacherRef) => void }) {
   const client = useQueryClient();
   const active = useQuery({ queryKey: ["active-teachers"], queryFn: fetchActiveTeachers });
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -115,6 +116,7 @@ export function ActiveTeachers() {
           selected={selected}
           onSelectedChange={setSelected}
           renderCell={renderCell}
+          onRowClick={onOpenTeacher}
           empty="Nobody yet. Choose teachers on the Teachers page, or add them from the part-time database."
           toolbar={
             <>

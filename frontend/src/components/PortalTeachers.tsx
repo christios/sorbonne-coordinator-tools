@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import { ListGrid, StatePill } from "@/components/ListGrid";
 import { PortalFilterBar } from "@/components/PortalFilterBar";
+import type { TeacherRef } from "@/components/TeacherRecord";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { type PortalTeacher, addActiveTeachers, fetchActiveTeachers, fetchPortalTeachers } from "@/services/portalLists";
 import type { GridColumn } from "@/services/studentColumns";
@@ -44,7 +45,7 @@ const labelOf = (row: PortalTeacher) => row.fullName || row.teacherId;
  * Mirrors the portal's staff list, pulled by filter. Select the teachers the department
  * deals with and add them to Active teachers, which is the department's own list.
  */
-export function PortalTeachers() {
+export function PortalTeachers({ onOpenTeacher }: { onOpenTeacher?: (teacher: TeacherRef) => void }) {
   const client = useQueryClient();
   const [filterId, setFilterId] = useState(() => {
     try {
@@ -130,6 +131,26 @@ export function PortalTeachers() {
           noun="teachers"
           selected={selected}
           onSelectedChange={setSelected}
+          onRowClick={
+            onOpenTeacher
+              ? (row) =>
+                  onOpenTeacher({
+                    // A portal row is nobody on our list yet, so it carries no id of ours.
+                    id: "",
+                    fullName: row.fullName,
+                    portalTeacherId: row.teacherId,
+                    psuadEmail: row.psuadEmail,
+                    teacherStatus: row.teacherStatus,
+                    category: row.category,
+                    type: row.type,
+                    lastTerm: row.lastTerm,
+                    department: row.department,
+                    rank: row.rank,
+                    courses: row.courses,
+                    institution: row.institution,
+                  })
+              : undefined
+          }
           renderCell={renderCell}
           empty={filterId ? "Nothing pulled yet — sync the filter." : "Choose a portal filter, or make one."}
           toolbar={
