@@ -6,7 +6,7 @@ import { FillBlock, type FillReport } from "@/components/FillBlock";
 import { Modal } from "@/components/Modal";
 import { SelectMenu } from "@/components/SelectMenu";
 import type { Card, CardSet, SectionRow } from "@/services/courseCards";
-import type { ActiveTeacher, TermCrns } from "@/services/portalLists";
+import { MUTUALIZED_WORDS, type ActiveTeacher, type TermCrns } from "@/services/portalLists";
 import type { CrnVerdict, GroupClash } from "@/services/publication";
 import { verdictFor } from "@/services/publicationView";
 import { EMPTY_SECTION, setGroupCrn, updateSection, type Cohort, type Section } from "@/services/studentDatabase";
@@ -85,6 +85,22 @@ export function CourseCard({
         {!card.active ? (
           <span className={`${chip} bg-[#fdf9ee] text-[#8a6116]`} title="Choose it on the Courses page so it carries a UE and a parent CRN">
             Not on the active list
+          </span>
+        ) : null}
+        {/*
+          * Whether both degrees sit in it together. Said only once somebody has said it:
+          * a course nobody has answered for is not the same as one taught separately.
+          */}
+        {card.active?.mutualized ? (
+          <span
+            className={`${chip} ${card.active.mutualized === "yes" ? "bg-[#e8edf3] text-[#1f4e79]" : "bg-[#f2f4f7] text-[#667085]"}`}
+            title={
+              card.active.mutualized === "yes"
+                ? "Taught to the mathematicians and the physicists at once"
+                : "Taught to one degree alone"
+            }
+          >
+            {MUTUALIZED_WORDS[card.active.mutualized]}
           </span>
         ) : null}
         <span className="ml-auto flex flex-wrap items-center gap-2 text-xs text-[#667085]">

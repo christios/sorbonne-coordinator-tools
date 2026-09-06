@@ -210,11 +210,27 @@ export function removeActiveTeacher(activeId: string): Promise<void> {
  * hand, and carrying what the timetabler's workbook needs to know about the course
  * itself — its Sorbonne UE and the parent CRN its sections hang from.
  */
+export type Mutualized = "" | "yes" | "no";
+
+/** What the register says about a course being shared, as a coordinator reads it. */
+export const MUTUALIZED_WORDS: Record<Mutualized, string> = {
+  "": "not said",
+  yes: "Mutualized",
+  no: "One degree only",
+};
+
 export type ActiveCourse = {
   id: string;
   courseCode: string;
   title: string;
   ue: string;
+  /**
+   * Whether the course is taught to the mathematicians and the physicists at once.
+   *
+   * "yes" mutualized · "no" one degree's alone · "" nobody has said, which is where every
+   * course starts and is not the same as "no".
+   */
+  mutualized: Mutualized;
   addedAt: string;
   addedBy: string;
   /** How many of its CRNs the register holds, and how many the portal lists. */
@@ -244,6 +260,8 @@ export type ActiveCrn = {
   /** What the course says, the same on every CRN of it. */
   courseTitle: string;
   ue: string;
+  /** Whether both degrees sit in it together — the course's own fact, on every CRN of it. */
+  mutualized: Mutualized;
   /** What the portal says about this CRN; blank when it lists it no longer. */
   portalTitle: string;
   teacherName: string;
@@ -309,7 +327,10 @@ export function addActiveCourses(input: {
   return send("/active-courses", "POST", { courseCodes: [], byHand: [], ...input });
 }
 
-export function updateActiveCourse(activeId: string, input: { title: string; ue: string }): Promise<ActiveCourse> {
+export function updateActiveCourse(
+  activeId: string,
+  input: { title: string; ue: string; mutualized?: Mutualized },
+): Promise<ActiveCourse> {
   return send(`/active-courses/${encodeURIComponent(activeId)}`, "PATCH", input);
 }
 
@@ -495,4 +516,63 @@ export function describeMismatch(mismatch: Mismatch): string {
     case "unplaced":
       return `${mismatch.courseCode}: registered in ${mismatch.registered.join(", ")}, but in no group of ours`;
   }
+}
+
+/**
+ * A student's registrations as the register shapes them: sections under the course row
+ * they hang from, and the differences for that course folded in with them.
+ *
+ * The registrar answers with a flat list, in which the lecture a course is built around
+ * and the tutorial group a student actually sits in are the same kind of line. The
+ * register knows which CRN hangs from which, so the reading can say so: one block per
+ * course, the parent first, its sections indented beneath, and any warning about that
+ * course underneath the thing it is about rather than in a heap at the bottom.
+ *
+ * A registration in a course the register has never heard of still gets its own block —
+ * being unknown to us is not a reason to hide it.
+ */
+export type RegistrationFamily<R, M> = {
+  courseCode: string;
+  title: string;
+  /** The row the others hang from, when the student is registered in it. */
+  parent: R | null;
+  children: R[];
+  warnings: M[];
+};
+
+export function registrationFamilies<
+  R extends { crn: string; courseCode: string; title: string },
+  M extends { courseCode: string },
+>(registrations: R[], parentOf: (crn: string) => string, warnings: M[] = []): RegistrationFamily<R, M>[] {
+  const byCourse = new Map<string, R[]>();
+  for (const registration of registrations) {
+    const code = registration.courseCode || "—";
+    byCourse.set(code, [...(byCourse.get(code) ?? []), registration]);
+  }
+
+  const families: RegistrationFamily<R, M>[] = [];
+  for (const [courseCode, rows] of byCourse) {
+    // The parent is the one nothing of this course hangs from and that something does —
+    // or, failing that, whichever CRN the register names as the others' parent.
+    const named = new Set(rows.map((row) => parentOf(row.crn)).filter(Boolean));
+    const parent = rows.find((row) => named.has(row.crn) && !parentOf(row.crn)) ?? null;
+    const children = rows.filter((row) => row !== parent);
+    families.push({
+      courseCode,
+      title: (parent ?? rows[0])?.title ?? "",
+      parent,
+      children,
+      warnings: warnings.filter((warning) => warning.courseCode === courseCode),
+    });
+  }
+
+  // A course the student is registered in nowhere still has warnings worth reading.
+  for (const warning of warnings) {
+    if (byCourse.has(warning.courseCode)) continue;
+    const family = families.find((candidate) => candidate.courseCode === warning.courseCode);
+    if (family) family.warnings.push(warning);
+    else families.push({ courseCode: warning.courseCode, title: "", parent: null, children: [], warnings: [warning] });
+  }
+
+  return families.sort((left, right) => left.courseCode.localeCompare(right.courseCode));
 }

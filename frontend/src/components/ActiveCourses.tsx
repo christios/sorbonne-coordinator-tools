@@ -9,6 +9,8 @@ import { ScreenLoading } from "@/components/ScreenLoading";
 import { SelectMenu } from "@/components/SelectMenu";
 import {
   type ActiveCourse,
+  type Mutualized,
+  MUTUALIZED_WORDS,
   type ActiveCrn,
   addActiveCourses,
   addActiveCrns,
@@ -34,6 +36,15 @@ const COLUMNS: GridColumn<ActiveCrn>[] = [
     defaultWidth: 130,
   },
   { id: "ue", displayName: "UE", type: "option", accessor: (row) => row.ue, defaultWidth: 110 },
+  // Whether the mathematicians and the physicists sit in it together, which is what
+  // decides whether a course needs one group or two.
+  {
+    id: "mutualized",
+    displayName: "Mutualized",
+    type: "option",
+    accessor: (row) => MUTUALIZED_WORDS[row.mutualized],
+    defaultWidth: 140,
+  },
   { id: "teacherName", displayName: "Teacher", type: "option", accessor: (row) => row.teacherName, defaultWidth: 190 },
   { id: "registered", displayName: "Registered", type: "number", accessor: (row) => row.registered, defaultWidth: 100 },
   { id: "usedBy", displayName: "On cards", type: "number", accessor: (row) => row.usedBy, defaultWidth: 90 },
@@ -53,7 +64,7 @@ const COLUMNS: GridColumn<ActiveCrn>[] = [
   { id: "addedAt", displayName: "Added", type: "date", accessor: (row) => row.addedAt, display: (row) => row.addedAt.slice(0, 10), defaultWidth: 110 },
   { id: "addedBy", displayName: "Added by", type: "text", accessor: (row) => row.addedBy, defaultWidth: 190 },
 ];
-const SHOWN = ["crn", "courseCode", "portalTitle", "role", "parentCrn", "ue", "teacherName", "registered", "usedBy", "portalStatus"];
+const SHOWN = ["crn", "courseCode", "portalTitle", "role", "parentCrn", "ue", "mutualized", "teacherName", "registered", "usedBy", "portalStatus"];
 
 /**
  * What this CRN is within the course: the one the sections hang from, one of those
@@ -403,12 +414,15 @@ export function CrnDialog({
 }) {
   const [parent, setParent] = useState(row.parentCrn);
   const [ue, setUe] = useState(row.ue);
+  const [mutualized, setMutualized] = useState<Mutualized>(course?.mutualized ?? "");
   const suggested = course?.portalParentCrn ?? "";
 
   const save = useMutation({
     mutationFn: async () => {
       if (parent !== row.parentCrn) await setParentCrn(row.id, parent);
-      if (course && ue.trim() !== row.ue) await updateActiveCourse(course.id, { title: course.title, ue: ue.trim() });
+      if (course && (ue.trim() !== row.ue || mutualized !== course.mutualized)) {
+        await updateActiveCourse(course.id, { title: course.title, ue: ue.trim(), mutualized });
+      }
     },
     onSuccess: () => {
       onSaved();
@@ -487,6 +501,33 @@ export function CrnDialog({
           </span>
           <input aria-label={`UE of ${row.courseCode}`} value={ue} onChange={(event) => setUe(event.target.value)} placeholder="UL1MA001" disabled={!course} className={field} />
         </label>
+      </div>
+
+      {/*
+        * Whether the mathematicians and the physicists sit in it together.
+        *
+        * Licence 2 and Licence 3 are one cohort reading two degrees, and this is what
+        * decides whether a course needs one group or two. It belongs to the course, so it
+        * changes for every CRN of it.
+        */}
+      <div className="mt-4">
+        <span className="block text-sm font-semibold text-[#344054]">Mutualized</span>
+        <span className="block text-xs font-normal text-[#98a2b3]">
+          Whether {row.courseCode} is taught to the mathematicians and the physicists at once.
+        </span>
+        <div className="mt-1.5 max-w-xs">
+          <SelectMenu
+            label={`Whether ${row.courseCode} is mutualized`}
+            value={mutualized}
+            onChange={(value) => setMutualized(value as Mutualized)}
+            disabled={!course}
+            options={[
+              { value: "", label: "Nobody has said" },
+              { value: "yes", label: "Mutualized — both degrees together" },
+              { value: "no", label: "One degree only" },
+            ]}
+          />
+        </div>
       </div>
       {row.usedBy ? (
         <p className="mt-3 text-xs text-[#667085]">

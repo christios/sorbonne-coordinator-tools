@@ -22,7 +22,7 @@ const termName = (id: string) => (id === "term-1" ? "Physics & Maths — First Y
 const nameOf = (id: string) => ({ "t-ghantous": "Samar Ghantous" })[id] ?? "";
 const PARENTS = new Map([["23223", "24226"], ["23899", "24226"]]);
 const ACTIVE = [
-  { id: "a1", courseCode: "MATH001", title: "Pre-calculus 1", ue: "UL1MA001", addedAt: "", addedBy: "", crnCount: 2, portalCrnCount: 2, termCount: 1, lastTerm: "262710", portalParentCrn: "24226" },
+  { id: "a1", courseCode: "MATH001", title: "Pre-calculus 1", ue: "UL1MA001", mutualized: "" as const, addedAt: "", addedBy: "", crnCount: 2, portalCrnCount: 2, termCount: 1, lastTerm: "262710", portalParentCrn: "24226" },
 ];
 
 describe("the request sheets", () => {

@@ -43,8 +43,14 @@ const HISTORY: PullHistory = {
 beforeEach(() => {
   vi.spyOn(lists, "fetchRegistrations").mockResolvedValue([
     { termCode: "262710", crn: "22151", courseCode: "MATH-001", title: "Pre-calculus", teacherName: "Dr Maaz", status: "in_portal", lastSeenAt: "" },
+    { termCode: "262710", crn: "23223", courseCode: "MATH-001", title: "Pre-calculus G.1-TD", teacherName: "Dr Maaz", status: "in_portal", lastSeenAt: "" },
     { termCode: "262710", crn: "23653", courseCode: "MATH-011", title: "Algorithms", teacherName: "Dr Ahmed", status: "in_portal", lastSeenAt: "" },
   ]);
+  // The register: the tutorial hangs from the lecture the course is built around.
+  vi.spyOn(lists, "fetchActiveCrns").mockResolvedValue([
+    { id: "r1", crn: "23223", parentCrn: "22151", courseCode: "MATH-001" },
+    { id: "r2", crn: "22151", parentCrn: "", courseCode: "MATH-001" },
+  ] as unknown as lists.ActiveCrn[]);
   vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue([
     { studentId: "A001", termId: "term-1", termCode: "262710", courseCode: "MATH-011", kind: "wrong", expected: ["23652"], registered: ["23653"] },
     { studentId: "A002", termId: "term-1", termCode: "262710", courseCode: "MATH-001", kind: "missing", expected: ["22151"], registered: [] },
@@ -88,12 +94,16 @@ describe("a student's record", () => {
     expect(groups.textContent).toContain("Semester 1");
     expect(groups.textContent).toContain("MATH-011 23652");
 
+    // One block per course, and the warning about a course sits with that course.
     const registrations = await screen.findByLabelText("Registrations");
-    expect(within(registrations).getAllByRole("row")).toHaveLength(3);
+    const courses = within(registrations).getAllByRole("listitem").filter((item) => item.parentElement === registrations);
+    expect(courses.map((item) => item.textContent?.slice(0, 8))).toEqual(["MATH-001", "MATH-011"]);
     expect(registrations.textContent).toContain("Dr Ahmed");
-
-    const differences = await screen.findByLabelText("Differences");
-    expect(differences.textContent).toBe("MATH-011: registered in 23653, we placed them in 23652");
+    expect(courses[1].textContent).toContain("MATH-011: registered in 23653, we placed them in 23652");
+    // The tutorial sits inside the lecture it hangs from, not beside it.
+    const nested = within(courses[0]).getAllByRole("listitem");
+    expect(nested).toHaveLength(1);
+    expect(nested[0].textContent).toContain("23223");
   });
 
   it("reads the history from this browser", async () => {

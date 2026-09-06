@@ -43,7 +43,7 @@ beforeEach(() => {
     { id: "act-2", portalTeacherId: "A002", partTimeTeacherId: "", fullName: "Jad Tarsissi", email: "", source: "portal", addedAt: "", addedBy: "", teacherStatus: "", category: "", type: "", lastTerm: "", department: "", rank: "", courses: "", institution: "", portalStatus: "" },
   ]);
   vi.spyOn(lists, "fetchActiveCourses").mockResolvedValue([
-    { id: "a1", courseCode: "MATH001", title: "Pre-calculus 1", ue: "UL1MA001", addedAt: "", addedBy: "", crnCount: 3, portalCrnCount: 3, termCount: 1, lastTerm: "262710", portalParentCrn: "24226" },
+    { id: "a1", courseCode: "MATH001", title: "Pre-calculus 1", ue: "UL1MA001", mutualized: "" as const, addedAt: "", addedBy: "", crnCount: 3, portalCrnCount: 3, termCount: 1, lastTerm: "262710", portalParentCrn: "24226" },
   ]);
   vi.spyOn(lists, "fetchTermCrns").mockResolvedValue({
     portalTermCode: "262710",
@@ -108,6 +108,24 @@ describe("the course cards", () => {
 
     await waitFor(() => expect(saveCrn).toHaveBeenCalledWith("td-2", "td-math", { crn: "23999", teacher: "" }));
     await waitFor(() => expect(saveDetails).toHaveBeenCalledWith("td-2", "td-math", expect.objectContaining({ teacherId: "act-2" })));
+  });
+
+  it("says on the card when a course is taught to both degrees at once", async () => {
+    vi.spyOn(lists, "fetchActiveCourses").mockResolvedValue([
+      { id: "a1", courseCode: "MATH001", title: "Pre-calculus 1", ue: "UL1MA001", mutualized: "yes" as const, addedAt: "", addedBy: "", crnCount: 3, portalCrnCount: 3, termCount: 1, lastTerm: "262710", portalParentCrn: "24226" },
+    ]);
+
+    show();
+
+    expect(await screen.findByText("Mutualized")).toBeTruthy();
+  });
+
+  it("says nothing about mutualization until somebody has said", async () => {
+    show();
+    await screen.findByText("MATH001");
+
+    // Unanswered is not the same as "one degree only", so the card stays quiet.
+    expect(screen.queryByText(/Mutualized|One degree only/)).toBeNull();
   });
 
   it("narrows by search the way the tables do", async () => {

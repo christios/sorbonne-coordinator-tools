@@ -684,7 +684,7 @@ class PortalListStore:
         with self.engine.connect() as connection:
             rows = (
                 connection.execute(
-                    text(f"""SELECT r.*, a.title AS course_title, a.ue,
+                    text(f"""SELECT r.*, a.title AS course_title, a.ue, a.mutualized,
                                     p.title AS portal_title, p.teacher_name, p.registered,
                                     p.status AS portal_status, p.sequence, p.part_of_term_desc,
                                     p.credits, p.contact_hours,
@@ -990,13 +990,18 @@ class PortalListStore:
             {"id": str(uuid4()), "code": code, "title": title, "now": now, "actor": _text(actor)},
         )
 
-    def update_active_course(self, active_id: str, *, title: str, ue: str) -> dict[str, Any]:
-        """The course's own facts: what to call it and its Sorbonne UE. The parent CRN is
-        a fact of each section, and lives on the register's CRN rows."""
+    def update_active_course(
+        self, active_id: str, *, title: str, ue: str, mutualized: str = ""
+    ) -> dict[str, Any]:
+        """The course's own facts: what to call it, its Sorbonne UE, and whether it is
+        taught to both degrees at once. The parent CRN is a fact of each section, and
+        lives on the register's CRN rows."""
+        if mutualized not in ("", "yes", "no"):
+            raise ValueError("A course is mutualized, not mutualized, or nobody has said.")
         with self.engine.begin() as connection:
             updated = connection.execute(
-                text("UPDATE active_courses SET title = :title, ue = :ue WHERE id = :id"),
-                {"id": active_id, "title": _text(title), "ue": _text(ue)},
+                text("UPDATE active_courses SET title = :title, ue = :ue, mutualized = :mutualized WHERE id = :id"),
+                {"id": active_id, "title": _text(title), "ue": _text(ue), "mutualized": mutualized},
             ).rowcount
         if updated == 0:
             raise ActiveCourseNotFound(active_id)
@@ -1270,6 +1275,8 @@ def _active_crn(row: Any) -> dict[str, Any]:
         # What the course says, the same on every CRN of it.
         "courseTitle": row["course_title"] or "",
         "ue": row["ue"] or "",
+        # Whether both degrees sit in it together — the course's own fact, on every CRN.
+        "mutualized": row["mutualized"] or "",
         # What the portal says about this CRN, or nothing when it lists it no longer.
         "portalTitle": row["portal_title"] or "",
         "teacherName": row["teacher_name"] or "",
@@ -1298,6 +1305,8 @@ def _active_course(row: Any, parent: Any = None) -> dict[str, Any]:
         "courseCode": row["course_code"],
         "title": row["title"],
         "ue": row["ue"],
+        # "" unsaid · "yes" taught to both degrees at once · "no" to one of them alone.
+        "mutualized": row["mutualized"] or "",
         "addedAt": row["added_at"],
         "addedBy": row["added_by"],
         # How many of its CRNs the register holds, and how many the portal lists.

@@ -44,7 +44,7 @@ const FYS: CohortCatalogue = {
 
 const termName = (id: string) => (id === "term-1" ? "Semester 1" : id);
 const ACTIVE = [
-  { id: "a1", courseCode: "MATH-001", title: "Pre-calculus 1", ue: "UL1MA001", parentCrn: "24226", addedAt: "", addedBy: "", crnCount: 3, portalCrnCount: 3, termCount: 1, lastTerm: "262710", portalParentCrn: "24226" },
+  { id: "a1", courseCode: "MATH-001", title: "Pre-calculus 1", ue: "UL1MA001", mutualized: "" as const, parentCrn: "24226", addedAt: "", addedBy: "", crnCount: 3, portalCrnCount: 3, termCount: 1, lastTerm: "262710", portalParentCrn: "24226" },
 ];
 
 describe("how full every group is", () => {

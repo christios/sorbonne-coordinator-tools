@@ -29,7 +29,7 @@ const FYS: CohortCatalogue = {
 
 const termName = (id: string) => ({ "term-1": "Semester 1" })[id] ?? id;
 const ACTIVE = [
-  { id: "a1", courseCode: "MATH001", title: "Pre-calculus 1", ue: "UL1MA001", addedAt: "", addedBy: "", crnCount: 3, portalCrnCount: 3, termCount: 1, lastTerm: "262710", portalParentCrn: "24226" },
+  { id: "a1", courseCode: "MATH001", title: "Pre-calculus 1", ue: "UL1MA001", mutualized: "" as const, addedAt: "", addedBy: "", crnCount: 3, portalCrnCount: 3, termCount: 1, lastTerm: "262710", portalParentCrn: "24226" },
 ];
 const nameOf = (id: string) => ({ "t-maaz": "Bilal Maaz", "t-ghantous": "Samar Ghantous" })[id] ?? "";
 

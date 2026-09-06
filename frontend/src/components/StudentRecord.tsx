@@ -14,7 +14,15 @@ import {
   type Change,
   type Options,
 } from "@/services/discrepancies";
-import { type Mismatch, describeMismatch, fetchRegistrationCheck, fetchRegistrations, fetchTermLinks } from "@/services/portalLists";
+import {
+  type Mismatch,
+  describeMismatch,
+  fetchActiveCrns,
+  fetchRegistrationCheck,
+  fetchRegistrations,
+  fetchTermLinks,
+  registrationFamilies,
+} from "@/services/portalLists";
 import { allChanges, historyFor, type PullHistory } from "@/services/pullHistory";
 import type { StudentRow } from "@/services/rosterView";
 import { fetchSchema } from "@/services/scenRosters";
@@ -92,6 +100,9 @@ export function StudentRecord({
     retry: false,
   });
   const links = useQuery({ queryKey: ["term-links"], queryFn: fetchTermLinks, enabled: open });
+  // The register says which CRN hangs from which, which is what lets the list below read
+  // as courses with their sections rather than as a flat pile of numbers.
+  const register = useQuery({ queryKey: ["active-crns", ""], queryFn: () => fetchActiveCrns(), enabled: open, retry: false });
   const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, enabled: open, retry: false });
   const catalogue = useQuery({
     queryKey: ["catalogue", cohortId, ""],
@@ -159,6 +170,8 @@ export function StudentRecord({
     });
   const registered = new Set((registrations.data ?? []).filter((r) => r.status === "in_portal").map((r) => r.crn));
   const mismatches: Mismatch[] = (check.data ?? []).filter((mismatch) => mismatch.studentId === row.studentId);
+  const parentOf = (crn: string) => (register.data ?? []).find((entry) => entry.crn === crn)?.parentCrn ?? "";
+  const families = registrationFamilies(registrations.data ?? [], parentOf, mismatches);
   const entries = historyFor(history, row.studentId);
   const portal = Object.fromEntries(Object.entries(row.portal).filter(([, value]) => String(value ?? "").trim()));
   const rest = Object.keys(portal)
@@ -286,47 +299,46 @@ export function StudentRecord({
             ) : (registrations.data ?? []).length === 0 ? (
               <Empty>No registrations pulled for this student yet. Sync a Registrations filter that covers them.</Empty>
             ) : (
-              <table className="w-full text-left text-sm" aria-label="Registrations">
-                <thead className="text-[11px] uppercase tracking-wide text-[#98a2b3]">
-                  <tr>
-                    <th className="py-1 pr-3 font-semibold">Term</th>
-                    <th className="py-1 pr-3 font-semibold">CRN</th>
-                    <th className="py-1 pr-3 font-semibold">Course</th>
-                    <th className="py-1 font-semibold">Teacher</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(registrations.data ?? []).map((registration) => (
-                    <tr
-                      key={`${registration.termCode}|${registration.crn}`}
-                      className={`border-t border-[#eef1f5] ${registration.status === "not_in_portal" ? "text-[#98a2b3] line-through" : ""}`}
-                    >
-                      <td className="py-1.5 pr-3 tabular-nums text-[#667085]">{registration.termCode}</td>
-                      <td className="py-1.5 pr-3 tabular-nums">{registration.crn}</td>
-                      <td className="py-1.5 pr-3">
-                        <span className="font-semibold text-[#171717]">{registration.courseCode}</span>
-                        {registration.title ? <span className="block text-xs text-[#98a2b3]">{registration.title}</span> : null}
-                      </td>
-                      <td className="py-1.5 text-[#667085]">{registration.teacherName}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
+              /*
+               * One block per course: the row the sections hang from, then the sections,
+               * then whatever is wrong with that course. The registrar answers with a
+               * flat list in which a lecture and the tutorial group a student sits in
+               * look alike, and the register is what tells them apart.
+               */
+              <ul className="space-y-3" aria-label="Registrations">
+                {families.map((family) => (
+                  <li key={family.courseCode}>
+                    <p className="text-sm">
+                      <span className="font-semibold text-[#171717]">{family.courseCode}</span>
+                      {family.title ? <span className="ml-2 text-[#667085]">{family.title}</span> : null}
+                    </p>
 
-            {mismatches.length ? (
-              <ul className="mt-3 space-y-1.5" aria-label="Differences">
-                {mismatches.map((mismatch) => (
-                  <li
-                    key={`${mismatch.termCode}|${mismatch.courseCode}|${mismatch.kind}`}
-                    className="flex items-start gap-2 rounded-md border border-[#e8d9ac] bg-[#fdf9ee] px-3 py-2 text-sm text-[#8a6116]"
-                  >
-                    <AlertTriangle size={14} className="mt-0.5 shrink-0" aria-hidden="true" />
-                    <span>{describeMismatch(mismatch)}</span>
+                    {family.parent ? <RegistrationLine registration={family.parent} parent /> : null}
+                    {family.children.length ? (
+                      <ul className={family.parent ? "ml-4 border-l border-[#eef1f5] pl-3" : ""}>
+                        {family.children.map((child) => (
+                          <li key={`${child.termCode}|${child.crn}`}>
+                            <RegistrationLine registration={child} />
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+
+                    {family.warnings.map((warning) => (
+                      <p
+                        key={`${warning.termCode}|${warning.courseCode}|${warning.kind}`}
+                        className="ml-4 mt-1 flex items-start gap-1.5 rounded-md border border-[#e8d9ac] bg-[#fdf9ee] px-2.5 py-1.5 text-xs text-[#8a6116]"
+                      >
+                        <AlertTriangle size={12} className="mt-0.5 shrink-0" aria-hidden="true" />
+                        <span>{describeMismatch(warning)}</span>
+                      </p>
+                    ))}
                   </li>
                 ))}
               </ul>
-            ) : cohortId && check.data && (registrations.data ?? []).length ? (
+            )}
+
+            {!mismatches.length && cohortId && check.data && (registrations.data ?? []).length ? (
               <p className="mt-3 inline-flex items-center gap-1.5 text-sm text-[#2f6b3d]">
                 <Check size={14} aria-hidden="true" /> Registrations agree with the groups.
               </p>
@@ -368,6 +380,31 @@ export function StudentRecord({
         )}
       </Card>
     </Modal>
+  );
+}
+
+/**
+ * One registration: its CRN, what the portal calls it and who teaches it.
+ *
+ * The parent — the row the course is built around — is set in the ink of a heading; a
+ * section is the lighter line under it. One the portal has stopped listing is struck
+ * through rather than dropped, because a registration that has gone is news.
+ */
+function RegistrationLine({
+  registration,
+  parent = false,
+}: {
+  registration: { crn: string; termCode: string; title: string; teacherName: string; status: string };
+  parent?: boolean;
+}) {
+  const gone = registration.status === "not_in_portal";
+  return (
+    <p className={`flex flex-wrap items-baseline gap-x-2 py-0.5 text-sm ${gone ? "text-[#98a2b3] line-through" : ""}`}>
+      <span className={`tabular-nums ${parent ? "font-semibold text-[#344054]" : "text-[#667085]"}`}>{registration.crn}</span>
+      <span className="text-[#667085]">{registration.title}</span>
+      {registration.teacherName ? <span className="text-xs text-[#98a2b3]">{registration.teacherName}</span> : null}
+      <span className="text-xs tabular-nums text-[#c8d0da]">{registration.termCode}</span>
+    </p>
   );
 }
 
