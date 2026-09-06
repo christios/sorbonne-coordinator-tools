@@ -1,12 +1,11 @@
-import { AlertTriangle, Check, Pencil, Wand2 } from "lucide-react";
+import { AlertTriangle, Pencil, Wand2 } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
 import { FillBlock, type FillReport } from "@/components/FillBlock";
 import { SectionDialog } from "@/components/CourseCard";
 import type { Card, CardSet, SectionRow } from "@/services/courseCards";
 import { MUTUALIZED_WORDS, type ActiveTeacher, type TermCrns } from "@/services/portalLists";
-import type { CrnVerdict, GroupClash, Publication } from "@/services/publication";
-import { verdictFor } from "@/services/publicationView";
+import type { GroupClash } from "@/services/publication";
 import { EMPTY_SECTION, type Cohort, type Section } from "@/services/studentDatabase";
 
 const chip = "rounded-full px-2 py-0.5 text-xs font-semibold";
@@ -30,13 +29,11 @@ function SectionBlock({
   row,
   teacherName,
   portal,
-  verdict,
   onEdit,
 }: {
   row: SectionRow;
   teacherName: (id: string) => string;
   portal: TermCrns | null;
-  verdict?: CrnVerdict;
   onEdit: () => void;
 }) {
   const held = row.section ?? EMPTY_SECTION;
@@ -66,18 +63,17 @@ function SectionBlock({
           {row.scope.code} {row.group.label}
         </h4>
         {held.retired ? <span className={`${chip} bg-[#f2f4f7] text-[#98a2b3]`}>retired</span> : null}
+        {/*
+          * The CRN, and nothing about it.
+          *
+          * A tick or a warning here answered a different question — whether the CRN turned
+          * up in the imported timetable — and read as a verdict on the CRN itself. Only the
+          * Foundation Year timetable has ever been imported, so most sections wore a red
+          * mark for a file that was never uploaded. That check belongs on a page of its own.
+          */}
         <span className="ml-auto inline-flex items-center gap-1 tabular-nums">
           {held.crn ? (
-            <>
-              <span className={`text-sm ${verdict && verdict.status !== "matched" ? "text-[#a6292f]" : "text-[#667085]"}`}>{held.crn}</span>
-              {verdict ? (
-                verdict.status === "matched" ? (
-                  <Check size={13} className="text-[#2f6b3d]" aria-label="In the timetable" />
-                ) : (
-                  <AlertTriangle size={13} className="text-[#a6292f]" aria-label={verdict.detail} />
-                )
-              ) : null}
-            </>
+            <span className="text-sm text-[#667085]">{held.crn}</span>
           ) : held.retired ? null : (
             <span className={`${chip} bg-[#fdf3f3] text-[#a6292f]`}>no CRN</span>
           )}
@@ -130,7 +126,6 @@ export function CourseDetail({
   cohort,
   teachers,
   portal,
-  publication,
   unassigned,
   clashes,
   action,
@@ -143,7 +138,6 @@ export function CourseDetail({
   action?: ReactNode;
   teachers: ActiveTeacher[];
   portal: TermCrns | null;
-  publication: Publication | null;
   unassigned: Record<string, string[]>;
   clashes: GroupClash[] | null;
   onChanged: () => void;
@@ -152,7 +146,6 @@ export function CourseDetail({
   const [editing, setEditing] = useState<SectionRow | null>(null);
   const [filling, setFilling] = useState<CardSet | null>(null);
   const teacherName = (id: string) => teachers.find((teacher) => teacher.id === id)?.fullName ?? "";
-  const validation = publication?.validation ?? {};
 
   return (
     <section className="min-w-0 rounded-lg border border-[#d9dee7] bg-white">
@@ -214,14 +207,7 @@ export function CourseDetail({
 
               <div className="grid gap-2.5 sm:grid-cols-2 2xl:grid-cols-3">
                 {set.rows.map((row) => (
-                  <SectionBlock
-                    key={row.group.id}
-                    row={row}
-                    teacherName={teacherName}
-                    portal={portal}
-                    verdict={verdictFor(validation, row.group.id, row.course.code)}
-                    onEdit={() => setEditing(row)}
-                  />
+                  <SectionBlock key={row.group.id} row={row} teacherName={teacherName} portal={portal} onEdit={() => setEditing(row)} />
                 ))}
               </div>
             </div>

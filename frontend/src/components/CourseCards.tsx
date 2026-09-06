@@ -363,7 +363,6 @@ export function CourseCards({
               cohort={cohorts.find((cohort) => cohort.id === chosenCard.cohortId) ?? null}
               teachers={teachers.data ?? []}
               portal={portalOf(chosenCard.termId)}
-              publication={shownPublication}
               action={
                 /*
                  * The request is the whole semester's — a sheet per cohort, the CRN table,
