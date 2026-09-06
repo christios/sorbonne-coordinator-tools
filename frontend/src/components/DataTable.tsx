@@ -133,7 +133,7 @@ export function DataTable<T>({
   const reorder = useReorder(columns, onReorder, headers);
 
   return (
-    <section ref={fitRef} className="always-scrollbar mt-3 min-h-[16rem] overflow-auto overscroll-none rounded-lg border border-[#d9dee7] bg-white">
+    <section ref={fitRef} className="always-scrollbar relative mt-3 min-h-[16rem] overflow-auto overscroll-none rounded-lg border border-[#d9dee7] bg-white">
       <table className="text-left text-sm" style={{ tableLayout: "fixed", width: "max-content", minWidth: "100%" }}>
         <colgroup>
           <col style={{ width: 40 }} />

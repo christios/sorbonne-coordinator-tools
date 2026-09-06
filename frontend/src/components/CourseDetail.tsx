@@ -336,7 +336,7 @@ export function CourseDetail({
         </span>
       </header>
 
-      <div className="space-y-6 px-5 py-4 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:overscroll-none">
+      <div className="relative space-y-6 px-5 py-4 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:overscroll-none">
         {card.sets.map((set) => {
           const missing = unassigned[set.scope.code] ?? [];
           const left = missing.length;

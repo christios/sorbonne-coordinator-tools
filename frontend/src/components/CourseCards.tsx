@@ -366,7 +366,7 @@ export function CourseCards({
           * list you were choosing from. Now nothing above them ever leaves.
           */
         <div className="mt-3 grid items-stretch gap-4 lg:min-h-0 lg:flex-1 lg:grid-cols-[16rem_1fr] lg:overflow-hidden lg:[grid-template-rows:minmax(0,1fr)]">
-          <nav aria-label="Courses" className="rounded-lg border border-[#d9dee7] bg-white p-1.5 lg:min-h-0 lg:overflow-y-auto lg:overscroll-none">
+          <nav aria-label="Courses" className="relative rounded-lg border border-[#d9dee7] bg-white p-1.5 lg:min-h-0 lg:overflow-y-auto lg:overscroll-none">
             {byCohort.map((card) => (
               <CourseLine key={card.key} card={card} chosen={card.key === chosenCard?.key} onChoose={() => setCardKey(card.key)} />
             ))}

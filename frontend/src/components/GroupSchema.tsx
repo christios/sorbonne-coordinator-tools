@@ -244,7 +244,7 @@ export function GroupSchema({
           <WarningBanner title="Needs attention" kinds={warnings} />
 
           <div className="grid items-stretch gap-4 lg:min-h-0 lg:flex-1 lg:grid-cols-[19rem_1fr] lg:overflow-hidden lg:[grid-template-rows:minmax(0,1fr)]">
-            <nav aria-label="Group sets" className="rounded-lg border border-[#d9dee7] bg-white p-1.5 lg:min-h-0 lg:overflow-y-auto lg:overscroll-none">
+            <nav aria-label="Group sets" className="relative rounded-lg border border-[#d9dee7] bg-white p-1.5 lg:min-h-0 lg:overflow-y-auto lg:overscroll-none">
               {readings.filter((reading) => !reading.shared).map((reading) => (
                 <SetLine
                   key={reading.scope.id}
@@ -266,7 +266,7 @@ export function GroupSchema({
             </nav>
 
             {chosen ? (
-              <div className="lg:min-h-0 lg:overflow-y-auto lg:overscroll-none">
+              <div className="relative lg:min-h-0 lg:overflow-y-auto lg:overscroll-none">
               <SetEditor
                 key={chosen.scope.id}
                 reading={chosen}
