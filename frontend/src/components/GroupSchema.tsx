@@ -266,7 +266,7 @@ export function GroupSchema({
             </nav>
 
             {chosen ? (
-              <div className="relative lg:min-h-0 lg:overflow-y-auto lg:overscroll-none">
+              <div className="min-w-0 lg:min-h-0">
               <SetEditor
                 key={chosen.scope.id}
                 reading={chosen}
@@ -413,8 +413,14 @@ function SetEditor({
   const error = save.error ?? addOne.error ?? makeGroups.error ?? remove.error;
 
   return (
-    <section className="min-w-0 rounded-lg border border-[#d9dee7] bg-white">
-      <header className="border-b border-[#eef1f5] px-5 py-4">
+    /*
+      * The set's name stays put while everything about it scrolls under it.
+      *
+      * Its courses and its groups run well past a screen, and a page of fields with no
+      * name over them is a page you have to scroll back up to identify.
+      */
+    <section className="flex min-w-0 flex-col rounded-lg border border-[#d9dee7] bg-white lg:h-full lg:min-h-0">
+      <header className="shrink-0 border-b border-[#eef1f5] px-5 py-4">
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1.5">
           <h3 className="text-lg font-semibold text-[#1f4e79]">{scope.code}</h3>
           {scope.name && scope.name !== scope.code ? <p className="text-[#344054]">{scope.name}</p> : null}
@@ -431,6 +437,7 @@ function SetEditor({
         <p className="mt-1 text-sm text-[#667085]">{KIND_WORDS[scope.kind]}</p>
       </header>
 
+      <div className="relative lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:overscroll-none">
       {error ? (
         <p role="alert" className="border-b border-[#f0d7d9] bg-[#fdf3f3] px-5 py-2.5 text-sm text-[#a6292f]">
           {(error as Error).message}
@@ -673,6 +680,7 @@ function SetEditor({
         }}
         onClose={() => setRemovingGroup(null)}
       />
+      </div>
     </section>
   );
 }
