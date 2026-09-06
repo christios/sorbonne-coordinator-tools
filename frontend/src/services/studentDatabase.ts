@@ -346,6 +346,16 @@ export function updateScope(
   return send<void>(`${BASE}/scopes/${scopeId}`, "PATCH", input);
 }
 
+/**
+ * One place up or down the order a cohort's sets are read in.
+ *
+ * Which is the order Groups & CRNs draws them in, and the order the workbooks write them,
+ * because everything downstream takes the catalogue's word for it.
+ */
+export function moveScope(scopeId: string, by: -1 | 1): Promise<void> {
+  return send<void>(`${BASE}/scopes/${scopeId}/move`, "POST", { by });
+}
+
 export function deleteScope(scopeId: string): Promise<void> {
   return request<void>(`${BASE}/scopes/${scopeId}`, { method: "DELETE" });
 }

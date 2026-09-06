@@ -1162,6 +1162,45 @@ class StudentDatabase:
                 raise ScopeNotFound(scope_id)
             self._touch_by_scope(connection, scope_id)
 
+    def move_scope(self, scope_id: str, by: int) -> None:
+        """Swap a set with the one beside it, among its own cohort's sets for its semester.
+
+        The catalogue has always been read in `position` order and Groups & CRNs draws the
+        sets in the order it receives them, so this is the whole of it: the page reading a
+        cohort's tutorials before its lectures was a fact nobody had a way to change.
+
+        A swap rather than a renumber, because two sets that somehow share a position
+        should not have every other set's number rewritten to fix it — and the ordering
+        falls back to the code, so a tie is still shown in a stable order.
+        """
+        step = 1 if by > 0 else -1
+        with self.engine.begin() as connection:
+            held = connection.execute(
+                text("SELECT cohort_id, term_id, position FROM cohort_scopes WHERE id = :id"), {"id": scope_id}
+            ).mappings().first()
+            if held is None:
+                raise ScopeNotFound(scope_id)
+            # The nearest set on that side, in the reading order the page uses.
+            neighbour = connection.execute(
+                text(f"""SELECT id, position FROM cohort_scopes
+                         WHERE cohort_id = :cohort AND term_id = :term AND id <> :id
+                           AND (position, code) {'>' if step > 0 else '<'} (:position, (SELECT code FROM cohort_scopes WHERE id = :id))
+                         ORDER BY position {'ASC' if step > 0 else 'DESC'}, code {'ASC' if step > 0 else 'DESC'}
+                         LIMIT 1"""),  # noqa: S608 - the comparison is one of two fixed strings
+                {"id": scope_id, "cohort": held["cohort_id"], "term": held["term_id"], "position": held["position"]},
+            ).mappings().first()
+            if neighbour is None:
+                return
+            connection.execute(
+                text("UPDATE cohort_scopes SET position = :position WHERE id = :id"),
+                {"id": scope_id, "position": neighbour["position"]},
+            )
+            connection.execute(
+                text("UPDATE cohort_scopes SET position = :position WHERE id = :id"),
+                {"id": neighbour["id"], "position": held["position"]},
+            )
+            self._touch(connection, held["cohort_id"])
+
     def delete_scope(self, scope_id: str) -> None:
         with self.engine.begin() as connection:
             cohort_id = self._cohort_of_scope(connection, scope_id)

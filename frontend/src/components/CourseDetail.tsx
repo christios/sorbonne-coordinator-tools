@@ -308,8 +308,12 @@ export function CourseDetail({
   const teacherName = (id: string) => teachers.find((teacher) => teacher.id === id)?.fullName ?? "";
 
   return (
-    <section className="min-w-0 rounded-lg border border-[#d9dee7] bg-white">
-      <header className="flex flex-wrap items-baseline gap-x-3 gap-y-1.5 border-b border-[#eef1f5] px-5 py-4">
+    /*
+      * The course's name stays put while its sets scroll under it — a card twelve sections
+      * long otherwise leaves you reading a list of groups with no way to tell whose.
+      */
+    <section className="flex h-full min-h-0 min-w-0 flex-col rounded-lg border border-[#d9dee7] bg-white">
+      <header className="flex shrink-0 flex-wrap items-baseline gap-x-3 gap-y-1.5 border-b border-[#eef1f5] px-5 py-4">
         <h3 className="text-lg font-semibold tabular-nums text-[#171717]">{card.code}</h3>
         <p className="text-[#344054]">{card.name || <span className="text-[#98a2b3]">untitled</span>}</p>
         {card.ue ? <span className="text-xs tabular-nums text-[#98a2b3]">{card.ue}</span> : null}
@@ -332,7 +336,7 @@ export function CourseDetail({
         </span>
       </header>
 
-      <div className="space-y-6 px-5 py-4">
+      <div className="min-h-0 flex-1 space-y-6 overflow-y-auto overscroll-none px-5 py-4">
         {card.sets.map((set) => {
           const missing = unassigned[set.scope.code] ?? [];
           const left = missing.length;

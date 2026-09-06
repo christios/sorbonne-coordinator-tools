@@ -59,6 +59,12 @@ class CohortInput(BaseModel):
     firstSemester: int = Field(default=0, ge=0, le=12)
 
 
+class MoveInput(BaseModel):
+    """Which way along the order, and never further than one place at a time."""
+
+    by: int = Field(ge=-1, le=1)
+
+
 class RuleInput(BaseModel):
     """One thing that counts as a discrepancy — see services.student_database._clean_rule."""
 
@@ -525,6 +531,18 @@ async def update_course(
         database.update_course(course_id, code=body.code, name=body.name, component=body.component)
     except CourseNotFound as exc:
         raise _missing(exc, "course") from exc
+    return {"saved": True}
+
+
+@router.post("/scopes/{scope_id}/move")
+async def move_scope(
+    scope_id: str, body: MoveInput, database: StudentDatabase = Depends(get_database)
+) -> dict[str, bool]:
+    """One place up or down the order its cohort's sets are read in."""
+    try:
+        database.move_scope(scope_id, body.by)
+    except ScopeNotFound as exc:
+        raise _missing(exc, "block") from exc
     return {"saved": True}
 
 

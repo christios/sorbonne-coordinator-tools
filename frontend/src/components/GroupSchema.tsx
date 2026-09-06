@@ -1,11 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, ArrowRight, Layers, Plus, Trash2, Users } from "lucide-react";
+import { AlertTriangle, ArrowRight, ChevronDown, ChevronUp, Layers, Plus, Trash2, Users } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { LabelledPicker } from "@/components/LabelledPicker";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { SelectMenu } from "@/components/SelectMenu";
+import { useFillHeight } from "@/components/useFillHeight";
 import { useRemembered } from "@/components/useRemembered";
 import { WarningBanner, WarningRows, type WarningKind } from "@/components/WarningBanner";
 import { fetchActiveCourses } from "@/services/portalLists";
@@ -19,6 +20,7 @@ import {
   deleteGroup,
   deleteScope,
   fetchCatalogue,
+  moveScope,
   updateGroup,
   updateScope,
   type CatalogueGroup,
@@ -37,15 +39,33 @@ const chip = "rounded-full px-2 py-0.5 text-xs font-semibold";
 const field = "mt-1 block w-full rounded-md border border-[#cbd5e1] px-3 py-2 text-sm";
 const caption = "block text-xs font-semibold uppercase tracking-wide text-[#667085]";
 
-function SetLine({ reading, chosen, onChoose }: { reading: SetReading; chosen: boolean; onChoose: () => void }) {
+function SetLine({
+  reading,
+  chosen,
+  onChoose,
+  onMove,
+}: {
+  reading: SetReading;
+  chosen: boolean;
+  onChoose: () => void;
+  /**
+   * Up or down the order — which is the order Groups & CRNs reads them in.
+   *
+   * A cohort whose tutorials came before its lectures was a fact with no way to change it:
+   * the catalogue has always been read in this order and every page downstream takes its
+   * word for it, so the only thing missing was somewhere to say so.
+   */
+  onMove?: (by: -1 | 1) => void;
+}) {
   const broken = reading.trouble.some((why) => why === "no parent set" || why === "groups adrift");
   const dot = broken ? "bg-[#a6292f]" : reading.trouble.length ? "bg-[#d99b1c]" : "bg-[#2e7d55]";
   return (
+    <div className={`group relative flex items-start rounded-md ${chosen ? "bg-[#e8edf3]" : "hover:bg-[#f6f8fb]"}`}>
     <button
       type="button"
       onClick={onChoose}
       aria-current={chosen ? "true" : undefined}
-      className={`flex w-full items-start gap-2.5 rounded-md px-2.5 py-2 text-left ${chosen ? "bg-[#e8edf3]" : "hover:bg-[#f6f8fb]"}`}
+      className="flex min-w-0 flex-1 items-start gap-2.5 rounded-md px-2.5 py-2 text-left"
     >
       <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} aria-hidden="true" title={reading.trouble.join(", ") || "nothing missing"} />
       <span className="min-w-0 flex-1">
@@ -61,6 +81,23 @@ function SetLine({ reading, chosen, onChoose }: { reading: SetReading; chosen: b
         </span>
       </span>
     </button>
+    {onMove ? (
+      <span className="absolute right-1 top-1 flex flex-col opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+        {([-1, 1] as const).map((by) => (
+          <button
+            key={by}
+            type="button"
+            aria-label={`Move ${reading.scope.code} ${by < 0 ? "up" : "down"}`}
+            title={`Move ${reading.scope.code} ${by < 0 ? "up" : "down"} — this is the order Groups & CRNs reads them in`}
+            onClick={() => onMove(by)}
+            className="rounded p-0.5 text-[#98a2b3] hover:bg-white hover:text-[#1f4e79]"
+          >
+            {by < 0 ? <ChevronUp size={12} aria-hidden="true" /> : <ChevronDown size={12} aria-hidden="true" />}
+          </button>
+        ))}
+      </span>
+    ) : null}
+    </div>
   );
 }
 
@@ -89,6 +126,8 @@ export function GroupSchema({
   const [termId, setTermId] = useRemembered(SCHEMA_TERM);
   const [cohortId, setCohortId] = useRemembered(COHORT);
   const [chosenId, setChosenId] = useState("");
+  // The two panes fill the room under the totals, and each scrolls inside itself.
+  const panes = useFillHeight<HTMLDivElement>({ fill: true });
 
   const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, retry: false });
   const active = useQuery({ queryKey: ["active-courses"], queryFn: fetchActiveCourses });
@@ -96,6 +135,17 @@ export function GroupSchema({
     queryKey: ["catalogue", cohortId, termId, "with-shared"],
     queryFn: () => fetchCatalogue(cohortId, termId, true),
     enabled: Boolean(cohortId && termId),
+  });
+
+  /*
+   * The order the sets are read in, which is the order every page downstream draws them.
+   *
+   * Sets a cohort shares with the department are not moved from here: they are somebody
+   * else's row, and their place is theirs to decide.
+   */
+  const reorder = useMutation({
+    mutationFn: ({ scopeId, by }: { scopeId: string; by: -1 | 1 }) => moveScope(scopeId, by),
+    onSuccess: () => refresh(),
   });
 
   const refresh = () => {
@@ -195,10 +245,16 @@ export function GroupSchema({
 
           <WarningBanner title="Needs attention" kinds={warnings} />
 
-          <div className="grid items-start gap-4 lg:grid-cols-[19rem_1fr]">
-            <nav aria-label="Group sets" className="rounded-lg border border-[#d9dee7] bg-white p-1.5">
+          <div ref={panes} className="grid min-h-0 items-stretch gap-4 overflow-hidden lg:grid-cols-[19rem_1fr] [grid-template-rows:minmax(0,1fr)]">
+            <nav aria-label="Group sets" className="min-h-0 overflow-y-auto overscroll-none rounded-lg border border-[#d9dee7] bg-white p-1.5">
               {readings.filter((reading) => !reading.shared).map((reading) => (
-                <SetLine key={reading.scope.id} reading={reading} chosen={reading.scope.id === chosen?.scope.id} onChoose={() => setChosenId(reading.scope.id)} />
+                <SetLine
+                  key={reading.scope.id}
+                  reading={reading}
+                  chosen={reading.scope.id === chosen?.scope.id}
+                  onChoose={() => setChosenId(reading.scope.id)}
+                  onMove={(by) => reorder.mutate({ scopeId: reading.scope.id, by })}
+                />
               ))}
               {readings.some((reading) => reading.shared) ? (
                 <>
@@ -212,6 +268,7 @@ export function GroupSchema({
             </nav>
 
             {chosen ? (
+              <div className="min-h-0 overflow-y-auto overscroll-none">
               <SetEditor
                 key={chosen.scope.id}
                 reading={chosen}
@@ -223,6 +280,7 @@ export function GroupSchema({
                   refresh();
                 }}
               />
+              </div>
             ) : (
               <p className="rounded-lg border border-dashed border-[#c8d0da] bg-white px-5 py-10 text-center text-sm text-[#667085]">
                 No sets in this semester yet. A set is one way the cohort is split — the lectures, the tutorials, the

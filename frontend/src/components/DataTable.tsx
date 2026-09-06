@@ -1,7 +1,8 @@
 import { ArrowDown, ArrowUp } from "lucide-react";
-import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
 import { CopyButton } from "@/components/CopyButton";
+import { useFillHeight } from "@/components/useFillHeight";
 import { columnText, rowText } from "@/services/copyCells";
 import { plainCellText, widthOf, type ColumnLayout, type GridColumn } from "@/services/studentColumns";
 
@@ -53,81 +54,6 @@ function useWindow(box: React.RefObject<HTMLElement | null>, total: number) {
   const start = Math.max(0, Math.floor(view.top / rowHeight) - OVERSCAN);
   const end = Math.min(total, Math.ceil((view.top + view.height) / rowHeight) + OVERSCAN);
   return { start, end, before: start * rowHeight, after: (total - end) * rowHeight };
-}
-
-/** A gap under the table, so it does not sit flush against the bottom of the window. */
-const BOTTOM_GAP = 16;
-
-/** The nearest ancestor that scrolls, which is the bottom the table has to fit inside. */
-function scrollerOf(element: HTMLElement): HTMLElement | null {
-  for (let node = element.parentElement; node; node = node.parentElement) {
-    const overflow = getComputedStyle(node).overflowY;
-    if (overflow === "auto" || overflow === "scroll") return node;
-  }
-  return null;
-}
-
-/**
- * Everything that comes after the table inside the page: the count line under it, the
- * padding of whatever wraps it. The table has to leave room for all of it, or the page
- * itself starts scrolling and the table's own scrollbar stops being the one that matters.
- */
-function spaceBelow(element: HTMLElement, scroller: HTMLElement | null): number {
-  let below = 0;
-  for (let node: HTMLElement | null = element; node && node !== scroller; node = node.parentElement) {
-    for (let sibling = node.nextElementSibling; sibling; sibling = sibling.nextElementSibling) {
-      const box = sibling.getBoundingClientRect();
-      if (box.height) below += box.height + parseFloat(getComputedStyle(sibling).marginTop || "0");
-    }
-    const parent = node.parentElement;
-    if (parent && parent !== scroller) below += parseFloat(getComputedStyle(parent).paddingBottom || "0");
-  }
-  return below;
-}
-
-/**
- * Bound an element by whatever height is left below it.
- *
- * Measured rather than guessed: the toolbar above wraps at narrow widths and grows a row
- * when filters are added, and pages put a count line under the table, so any fixed
- * `100vh - something` is wrong as soon as the page is not the shape it was written for.
- * The bottom to fit inside is the scrolling container's, not the window's — inside a tool
- * with its own scrolling pane those are not the same edge.
- */
-function useFillHeight() {
-  const ref = useRef<HTMLElement>(null);
-
-  useLayoutEffect(() => {
-    const element = ref.current;
-    if (!element) return;
-    const scroller = scrollerOf(element);
-    const fit = () => {
-      const top = element.getBoundingClientRect().top;
-      const bottom = scroller ? scroller.getBoundingClientRect().bottom : window.innerHeight;
-      const room = bottom - top - spaceBelow(element, scroller) - BOTTOM_GAP;
-      element.style.maxHeight = `${Math.max(240, Math.floor(room))}px`;
-    };
-    fit();
-    window.addEventListener("resize", fit);
-    const watcher = typeof ResizeObserver === "function" ? new ResizeObserver(fit) : null;
-    // The page grows and shrinks around the table — a banner appears, a filter wraps, a
-    // count line changes — and each of those moves the room it has.
-    if (watcher) {
-      if (scroller) watcher.observe(scroller);
-      if (element.parentElement) watcher.observe(element.parentElement);
-      for (let node: HTMLElement | null = element; node && node !== scroller; node = node.parentElement) {
-        for (let sibling = node.nextElementSibling; sibling; sibling = sibling.nextElementSibling) {
-          watcher.observe(sibling);
-        }
-      }
-    }
-    return () => {
-      window.removeEventListener("resize", fit);
-      watcher?.disconnect();
-    };
-  }, []);
-
-  return ref;
 }
 
 export type Sort = { key: string; ascending: boolean };
@@ -207,7 +133,7 @@ export function DataTable<T>({
   const reorder = useReorder(columns, onReorder, headers);
 
   return (
-    <section ref={box} className="always-scrollbar mt-3 min-h-[16rem] overflow-auto rounded-lg border border-[#d9dee7] bg-white">
+    <section ref={box} className="always-scrollbar mt-3 min-h-[16rem] overflow-auto overscroll-none rounded-lg border border-[#d9dee7] bg-white">
       <table className="text-left text-sm" style={{ tableLayout: "fixed", width: "max-content", minWidth: "100%" }}>
         <colgroup>
           <col style={{ width: 40 }} />

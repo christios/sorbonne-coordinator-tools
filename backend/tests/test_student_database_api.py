@@ -580,6 +580,37 @@ def test_a_cohort_carries_its_majors_terms_and_year(client: TestClient) -> None:
 # ------------------------------------------------------------- the request
 
 
+def test_sets_are_read_in_the_order_the_coordinator_puts_them_in(client: TestClient, cohort_id: str):
+    made = [
+        client.post(f"/api/v1/student-database/cohorts/{cohort_id}/scopes", json={"code": code}).json()["id"]
+        for code in ("TD", "RDNS", "CM")
+    ]
+    codes = lambda: [scope["code"] for scope in catalogue(client, cohort_id)["scopes"]]  # noqa: E731
+
+    assert codes() == ["TD", "RDNS", "CM"]
+
+    # CM up twice puts the lectures first, where the page should read them.
+    for _ in range(2):
+        assert client.post(f"/api/v1/student-database/scopes/{made[2]}/move", json={"by": -1}).status_code == status.HTTP_200_OK
+    assert codes() == ["CM", "TD", "RDNS"]
+
+    client.post(f"/api/v1/student-database/scopes/{made[0]}/move", json={"by": 1})
+    assert codes() == ["CM", "RDNS", "TD"]
+
+
+def test_a_set_at_the_end_of_the_order_stays_there(client: TestClient, cohort_id: str):
+    first = client.post(f"/api/v1/student-database/cohorts/{cohort_id}/scopes", json={"code": "CM"}).json()["id"]
+    client.post(f"/api/v1/student-database/cohorts/{cohort_id}/scopes", json={"code": "TD"})
+
+    # Nothing above it, so nothing happens — rather than an error the page has to handle.
+    assert client.post(f"/api/v1/student-database/scopes/{first}/move", json={"by": -1}).status_code == status.HTTP_200_OK
+    assert [scope["code"] for scope in catalogue(client, cohort_id)["scopes"]] == ["CM", "TD"]
+
+
+def test_a_set_that_is_not_there_cannot_be_moved(client: TestClient):
+    assert client.post("/api/v1/student-database/scopes/nope/move", json={"by": 1}).status_code == status.HTTP_404_NOT_FOUND
+
+
 def test_a_cohort_says_what_its_sheet_in_the_timetable_workbook_is_called(client: TestClient, cohort_id: str):
     # Licence 2's first semester is called S3, because the workbook numbers across the
     # degree. No rule can derive that, so the cohort is asked.

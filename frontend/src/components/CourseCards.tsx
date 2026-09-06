@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 
 import { AddFromPortal } from "@/components/AddFromPortal";
 import { CourseDetail } from "@/components/CourseDetail";
+import { useFillHeight } from "@/components/useFillHeight";
 import { WarningBanner, WarningRows, type WarningKind } from "@/components/WarningBanner";
 import type { FillReport } from "@/components/FillBlock";
 import { Modal } from "@/components/Modal";
@@ -106,6 +107,8 @@ export function CourseCards({
   const nameOf = (teacherId: string) => (teachers.data ?? []).find((teacher) => teacher.id === teacherId)?.fullName ?? "";
   const columns = useMemo(() => cardColumns(nameOf), [teachers.data]); // eslint-disable-line react-hooks/exhaustive-deps
   const [filters, setFilters] = useState<FilterModel[]>([]);
+  // The two panes fill the room under the toolbar, and each scrolls inside itself.
+  const panes = useFillHeight<HTMLDivElement>({ fill: true });
   const [query, setQuery] = useState("");
   /*
    * One cohort at a time.
@@ -308,21 +311,6 @@ export function CourseCards({
         </button>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <TableFilterBar columns={columns} filters={filters} optionsFor={(column) => optionsFor(cards, column)} onChange={setFilters} />
-        <div className="ml-auto flex items-center gap-2">
-          <label className="relative block w-full sm:w-64">
-            <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#667085]" />
-            <input aria-label="Search courses" type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search courses, teachers, CRNs" className="w-full rounded-md border border-[#cbd5e1] py-2 pl-9 pr-3 text-sm" />
-          </label>
-        </div>
-      </div>
-
-      <p className="mt-2 text-xs text-[#98a2b3]">
-        {cards.length} course{cards.length === 1 ? "" : "s"}
-        {visible.length !== cards.length ? `, ${visible.length} shown` : ""} · {pairs.length} cohort-semester{pairs.length === 1 ? "" : "s"}
-      </p>
-
       {filled ? (
         <p className="mt-3 rounded-md border border-[#bfdcc6] bg-[#f4faf5] px-4 py-2.5 text-sm text-[#2f6b3d]">
           {filled.assigned} student{filled.assigned === 1 ? "" : "s"} placed in {filled.scopeCode}{filled.unplaced ? `; ${filled.unplaced} could not be placed` : ""}.
@@ -331,13 +319,46 @@ export function CourseCards({
 
       <WarningBanner title="Needs attention" kinds={warnings} />
 
+      {/*
+        * The filter and the search sit directly over the list they narrow.
+        *
+        * They were above the warnings, two bands away from the thing they act on, which
+        * made them read as the page's controls rather than the list's — and left the eye
+        * to travel back down past a red banner to see what they had done.
+        */}
+      {/*
+        * Standing off the header above it by as much as it stands off the panes below.
+        *
+        * It never scrolls away now, so a tight gap made it read as the last line of the
+        * page's own heading rather than as the controls belonging to the list under it.
+        */}
+      <div className="mt-6 flex flex-wrap items-center gap-2">
+        <TableFilterBar columns={columns} filters={filters} optionsFor={(column) => optionsFor(cards, column)} onChange={setFilters} />
+        <span className="text-xs text-[#98a2b3]">
+          {cards.length} course{cards.length === 1 ? "" : "s"}
+          {visible.length !== cards.length ? `, ${visible.length} shown` : ""} · {pairs.length} cohort-semester{pairs.length === 1 ? "" : "s"}
+        </span>
+        <label className="relative ml-auto block w-full sm:w-64">
+          <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#667085]" />
+          <input aria-label="Search courses" type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search courses, teachers, CRNs" className="w-full rounded-md border border-[#cbd5e1] py-2 pl-9 pr-3 text-sm" />
+        </label>
+      </div>
+
       {listed.length === 0 ? (
         <p className="mt-3 rounded-lg border border-dashed border-[#c8d0da] bg-white px-5 py-8 text-center text-sm text-[#667085]">
           {cards.length ? "No course matches the filters." : "No courses yet. Add one from the portal, or use the Group schema page to define a semester's sets and their courses."}
         </p>
       ) : (
-        <div className="mt-3 grid gap-4 lg:grid-cols-[16rem_1fr]">
-          <nav aria-label="Courses" className="max-h-[42rem] overflow-y-auto rounded-lg border border-[#d9dee7] bg-white p-1.5">
+        /*
+          * Two panes, each scrolling inside itself, filling the room under the toolbar.
+          *
+          * The page used to scroll as one, which took the cohort, the warnings, the filter
+          * and the search off the top of the screen the moment you looked down a long list
+          * of courses — so choosing a different course meant scrolling back up to find the
+          * list you were choosing from. Now nothing above them ever leaves.
+          */
+        <div ref={panes} className="mt-3 grid min-h-0 items-stretch gap-4 overflow-hidden lg:grid-cols-[16rem_1fr] [grid-template-rows:minmax(0,1fr)]">
+          <nav aria-label="Courses" className="min-h-0 overflow-y-auto overscroll-none rounded-lg border border-[#d9dee7] bg-white p-1.5">
             {byCohort.map((card) => (
               <CourseLine key={card.key} card={card} chosen={card.key === chosenCard?.key} onChoose={() => setCardKey(card.key)} />
             ))}
