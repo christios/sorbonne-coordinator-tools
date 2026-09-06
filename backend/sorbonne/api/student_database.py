@@ -522,6 +522,31 @@ async def update_course(
     return {"saved": True}
 
 
+@router.patch("/courses/{course_id}/request")
+async def update_course_request(
+    course_id: str, body: SectionInput, database: StudentDatabase = Depends(get_database)
+) -> dict[str, bool]:
+    """What the course asks of the timetable, which its sections may each answer differently."""
+    try:
+        database.update_course_request(
+            course_id,
+            teacher_id=body.teacherId,
+            hours=body.hours,
+            sessions_per_week=body.sessionsPerWeek,
+            duration=body.duration,
+            weeks=body.weeks,
+            anticipated=body.anticipated,
+            room_pref=body.roomPref,
+            day_pref=body.dayPref,
+            time_pref=body.timePref,
+            constraints=body.constraints,
+            comments=body.comments,
+        )
+    except CourseNotFound as exc:
+        raise _missing(exc, "course") from exc
+    return {"saved": True}
+
+
 @router.delete("/courses/{course_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_course(course_id: str, database: StudentDatabase = Depends(get_database)) -> None:
     database.delete_course(course_id)

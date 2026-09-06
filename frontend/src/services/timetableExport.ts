@@ -9,6 +9,7 @@
  */
 
 import type { Card, SectionRow } from "@/services/courseCards";
+import { filled } from "@/services/courseRequest";
 import { SPREADSHEET_TYPE } from "@/services/workbookExport";
 
 export const REQUEST_COLUMNS = [
@@ -92,7 +93,8 @@ export function requestSheets(
     const code = splitCourseCode(card.code);
     for (const set of card.sets) {
       for (const row of set.rows) {
-        const section = row.section;
+        // What this group says, and what its course said for every group that says nothing.
+        const section = row.section ? filled(row.section, set.course.request) : null;
         if (!section) continue;
         const comments = [section.comments, section.retired ? "Retired group" : ""].filter(Boolean).join("; ");
         held.rows.push({

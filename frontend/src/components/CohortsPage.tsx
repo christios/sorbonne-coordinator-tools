@@ -82,9 +82,24 @@ function judge(
  * the server; the evidence is this browser's, because the server is never told a name.
  * So the page is only as fresh as this browser's last sync, and says so.
  */
-export function CohortsPage({ cohorts }: { cohorts: Cohort[] }) {
-  const [cohortId, setCohortId] = useState("");
+export function CohortsPage({
+  cohorts,
+  focus,
+}: {
+  cohorts: Cohort[];
+  /**
+   * A cohort and some of its students to land on — how Groups & CRNs hands over the
+   * people a set has not placed. This is where placing happens, so this is where
+   * "6 in no group" leads.
+   */
+  focus?: { cohortId: string; studentIds: string[] } | null;
+}) {
+  const [cohortId, setCohortId] = useState(focus?.cohortId ?? "");
   const [editingRules, setEditingRules] = useState(false);
+  const sent = focus?.studentIds.join(",") ?? "";
+  useEffect(() => {
+    if (focus?.cohortId) setCohortId(focus.cohortId);
+  }, [focus?.cohortId, sent]);
   const [showDismissed, setShowDismissed] = useState(false);
   const [dismissed, setDismissed] = useState<Set<string>>(() => loadDismissed());
 
@@ -318,6 +333,7 @@ export function CohortsPage({ cohorts }: { cohorts: Cohort[] }) {
           key={cohortId}
           cohorts={cohorts}
           viewId=""
+          preselect={cohortId === focus?.cohortId ? focus.studentIds : []}
           scope={{ cohortId: cohortId === UNPLACED ? null : cohortId }}
           warningsFor={warningsFor}
           onDismissWarning={onDismissWarning}

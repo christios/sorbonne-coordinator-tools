@@ -1,4 +1,4 @@
-import { EMPTY_SECTION } from "@/services/studentDatabase";
+import { EMPTY_REQUEST, EMPTY_SECTION } from "@/services/studentDatabase";
 import { describe, expect, it } from "vitest";
 
 import { countsLine, summariseCatalogue } from "@/services/catalogueSummary";
@@ -15,7 +15,7 @@ function scope(
     name: "",
     note: "",
     kind: "shared", parentScopeId: "", openToAll: false,
-    courses: courses.map((id) => ({ id, code: id, name: id, component: "", ue: "", parentCrn: "" })),
+    courses: courses.map((id) => ({ id, code: id, name: id, component: "", request: EMPTY_REQUEST, ue: "", parentCrn: "" })),
     groups: groups.map((group, index) => ({
       id: `g-${code}-${index}`,
       label: group.label,

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { buildCards } from "@/services/courseCards";
-import { EMPTY_SECTION, type CohortCatalogue } from "@/services/studentDatabase";
+import { EMPTY_REQUEST, EMPTY_SECTION, type CohortCatalogue } from "@/services/studentDatabase";
 import { REQUEST_COLUMNS, buildTimetableWorkbook, requestSheets, sectionName, sheetPrefix, shortSemester, splitCourseCode, teacherHours } from "@/services/timetableExport";
 
 const FYS: CohortCatalogue = {
@@ -9,7 +9,7 @@ const FYS: CohortCatalogue = {
   scopes: [
     {
       id: "s-td", code: "TD", name: "Tutorials", note: "", termId: "term-1", kind: "shared", parentScopeId: "", openToAll: false,
-      courses: [{ id: "td-math", code: "MATH001", name: "Pre-calculus 1", component: "TD" }],
+      courses: [{ id: "td-math", code: "MATH001", name: "Pre-calculus 1", component: "TD", request: EMPTY_REQUEST }],
       groups: [
         { id: "td-1", label: "1", capacity: 33, note: "", program: "", parentGroupId: "", assigned: 33, crns: { "td-math": { ...EMPTY_SECTION, crn: "23223", teacherId: "t-ghantous", hours: "50", sessionsPerWeek: "2 sessions - weeks 2 to 14", duration: "1.5", anticipated: 33, constraints: "Should NOT be in parallel with G.2", comments: "Mutualized with Maths" } } },
         { id: "td-7", label: "7", capacity: 30, note: "", program: "", parentGroupId: "", assigned: 0, crns: { "td-math": { ...EMPTY_SECTION, crn: "23899", teacher: "TBD", hours: "50", retired: true } } },
@@ -26,6 +26,26 @@ const ACTIVE = [
 ];
 
 describe("the request sheets", () => {
+  it("write a silent section out with what its course asked for", () => {
+    const asked = { ...EMPTY_REQUEST, hours: "36", weeks: "2-14", anticipated: 30, roomPref: "Amphitheatre", teacherId: "t-ghantous" };
+    const cards = buildCards(
+      [{ ...FYS, scopes: [{ ...FYS.scopes[0], courses: [{ ...FYS.scopes[0].courses[0], request: asked }] }] }],
+      termName,
+      ACTIVE,
+      PARENTS,
+    );
+
+    const [sheet] = requestSheets(cards, "term-1", termName("term-1"), () => "Foundation Year for Sciences", nameOf);
+
+    // G.1 says its own hours and keeps them, and still takes the room its course asked for.
+    expect(sheet.rows[0]).toMatchObject({ hours: "50", anticipated: 33, roomPref: "Amphitheatre" });
+    // G.7 says almost nothing, so the course answers for it.
+    expect(sheet.rows[1]).toMatchObject({ hours: "50", anticipated: 30, roomPref: "Amphitheatre", weeks: "2-14" });
+    // G.7's row already carries a name from the workbook, unconfirmed as it is, so the
+    // course does not speak over it.
+    expect(sheet.rows[1].teacher).toBe("TBD");
+  });
+
   it("write one row per section in the workbook's columns, with the retired ones marked", () => {
     const cards = buildCards([FYS], termName, ACTIVE, PARENTS);
 

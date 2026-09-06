@@ -604,13 +604,79 @@ def test_a_section_carries_the_timetable_request_beyond_its_crn(client: TestClie
     assert response.status_code == status.HTTP_200_OK, response.text
     block = scope_of(catalogue(client, cohort_id), "TD")
     # The UE and parent CRN are the active course's, not the set's — see test_portal_api.
-    assert set(block["courses"][0]) == {"id", "code", "name", "component"}
+    assert set(block["courses"][0]) == {"id", "code", "name", "component", "request"}
+    # Nothing has been asked of the course itself, so its own request is empty.
+    assert block["courses"][0]["request"]["hours"] == ""
     section = block["groups"][0]["crns"][course["id"]]
     assert section["crn"] == "23223"
     assert section["teacherId"] == "act-1"
     assert section["anticipated"] == SEATS + 9
     assert section["constraints"] == "Should NOT be in parallel with G.2"
     assert section["retired"] is False
+
+
+def test_a_course_asks_for_things_of_its_own_and_the_sections_are_left_as_they_were(
+    client: TestClient, cohort_id: str
+):
+    scope_id, group_id = block_with_a_group(client, cohort_id)
+    course = client.post(
+        f"/api/v1/student-database/scopes/{scope_id}/courses",
+        json={"code": "MATH-001", "name": "Pre-calculus 1", "component": "TD"},
+    ).json()
+    client.patch(
+        f"/api/v1/student-database/groups/{group_id}/courses/{course['id']}",
+        json={"hours": "36", "anticipated": 12},
+    )
+
+    response = client.patch(
+        f"/api/v1/student-database/courses/{course['id']}/request",
+        json={
+            "hours": "50",
+            "weeks": "2-14",
+            "anticipated": 33,
+            "roomPref": "Amphitheatre",
+            "constraints": "Never on a Friday",
+        },
+    )
+
+    assert response.status_code == status.HTTP_200_OK, response.text
+    block = scope_of(catalogue(client, cohort_id), "TD")
+    asked = block["courses"][0]["request"]
+    assert asked["hours"] == "50"
+    assert asked["weeks"] == "2-14"
+    assert asked["anticipated"] == 33
+    assert asked["roomPref"] == "Amphitheatre"
+    assert asked["constraints"] == "Never on a Friday"
+    # The section keeps its own answers; nothing was pushed into it.
+    section = block["groups"][0]["crns"][course["id"]]
+    assert section["hours"] == "36"
+    assert section["anticipated"] == 12
+    assert section["constraints"] == ""
+
+
+def test_a_course_that_is_not_there_cannot_be_asked_for_anything(client: TestClient, cohort_id: str):
+    response = client.patch(
+        "/api/v1/student-database/courses/does-not-exist/request", json={"hours": "50"}
+    )
+
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+def test_renaming_a_course_leaves_what_it_asks_for_alone(client: TestClient, cohort_id: str):
+    scope_id, _group_id = block_with_a_group(client, cohort_id)
+    course = client.post(
+        f"/api/v1/student-database/scopes/{scope_id}/courses", json={"code": "MATH-001"}
+    ).json()
+    client.patch(f"/api/v1/student-database/courses/{course['id']}/request", json={"hours": "50"})
+
+    client.patch(
+        f"/api/v1/student-database/courses/{course['id']}",
+        json={"code": "MATH-001", "name": "Pre-calculus 1", "component": "TD"},
+    )
+
+    course_row = scope_of(catalogue(client, cohort_id), "TD")["courses"][0]
+    assert course_row["name"] == "Pre-calculus 1"
+    assert course_row["request"]["hours"] == "50"
 
 
 def test_a_section_may_exist_before_the_portal_has_a_crn_for_it(client: TestClient, cohort_id: str):

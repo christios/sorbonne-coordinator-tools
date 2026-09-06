@@ -65,9 +65,12 @@ function CourseLine({ card, chosen, onChoose }: { card: Card; chosen: boolean; o
 export function CourseCards({
   cohorts,
   onShowStudents,
+  onPlaceStudents,
 }: {
   cohorts: Cohort[];
   onShowStudents?: (studentIds: string[]) => void;
+  /** Off to the Cohorts page, on this cohort and these students: where placing is done. */
+  onPlaceStudents?: (cohortId: string, studentIds: string[]) => void;
 }) {
   const client = useQueryClient();
   const catalogues = useQuery({ queryKey: ["course-cards"], queryFn: fetchCourseCards });
@@ -254,9 +257,13 @@ export function CourseCards({
                   <span className="text-[#667085]">
                     {ids.length} student{ids.length === 1 ? "" : "s"} with no group
                   </span>
-                  {onShowStudents ? (
-                    <button type="button" onClick={() => onShowStudents(ids)} className="ml-auto text-xs font-semibold text-[#1f4e79] underline">
-                      Show them
+                  {onPlaceStudents && chosenCard ? (
+                    <button
+                      type="button"
+                      onClick={() => onPlaceStudents(chosenCard.cohortId, ids)}
+                      className="ml-auto text-xs font-semibold text-[#1f4e79] underline"
+                    >
+                      Place them
                     </button>
                   ) : null}
                 </li>
@@ -382,7 +389,7 @@ export function CourseCards({
               }
               unassigned={unassignedOf(chosenCard)}
               clashes={clashes}
-              onShowStudents={onShowStudents}
+              onPlaceStudents={onPlaceStudents}
               onChanged={refresh}
               onFilled={(reportOfFill) => {
                 setFilled(reportOfFill);

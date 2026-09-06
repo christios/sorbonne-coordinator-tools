@@ -1199,6 +1199,29 @@ class StudentDatabase:
             if updated.rowcount == 0:
                 raise CourseNotFound(course_id)
 
+    def update_course_request(self, course_id: str, **fields: Any) -> None:
+        """What this course asks of the timetable, for every section of it in this set.
+
+        Kept apart from what the sections say rather than pushed into them: a section that
+        has been told nothing has been told nothing, and a course's answer changing later
+        should reach every section that never had one of its own. The workbook is where
+        the two are put together.
+        """
+        values = {name: _text(fields.get(name, "")) for name in SECTION_FIELDS}
+        values["anticipated"] = max(0, int(fields.get("anticipated", 0) or 0))
+        assignments = ", ".join(f"{name} = :{name}" for name in values)
+        with self.engine.begin() as connection:
+            scope_id = connection.execute(
+                text("SELECT scope_id FROM scope_courses WHERE id = :id"), {"id": course_id}
+            ).scalar()
+            if scope_id is None:
+                raise CourseNotFound(course_id)
+            connection.execute(
+                text(f"UPDATE scope_courses SET {assignments} WHERE id = :id"),  # noqa: S608 - fixed names
+                {"id": course_id, **values},
+            )
+            self._touch_by_scope(connection, scope_id)
+
     def delete_course(self, course_id: str) -> None:
         with self.engine.begin() as connection:
             connection.execute(text("DELETE FROM scope_courses WHERE id = :id"), {"id": course_id})
@@ -1674,24 +1697,33 @@ def _course(row) -> dict[str, Any]:
         "code": row["code"],
         "name": row["name"],
         "component": row["component"],
+        # What the course asks of the timetable, as against what each section asks.
+        "request": _request(row),
+    }
+
+
+def _request(row) -> dict[str, Any]:
+    """The timetable request itself — the part a course and a section say the same way."""
+    return {
+        "teacherId": row["teacher_id"],
+        "hours": row["hours"],
+        "sessionsPerWeek": row["sessions_per_week"],
+        "duration": row["duration"],
+        "weeks": row["weeks"],
+        "anticipated": row["anticipated"],
+        "roomPref": row["room_pref"],
+        "dayPref": row["day_pref"],
+        "timePref": row["time_pref"],
+        "constraints": row["constraints"],
+        "comments": row["comments"],
     }
 
 
 def _section(cell) -> dict[str, Any]:
     return {
+        **_request(cell),
         "crn": cell["crn"],
         "teacher": cell["teacher"],
-        "teacherId": cell["teacher_id"],
-        "hours": cell["hours"],
-        "sessionsPerWeek": cell["sessions_per_week"],
-        "duration": cell["duration"],
-        "weeks": cell["weeks"],
-        "anticipated": cell["anticipated"],
-        "roomPref": cell["room_pref"],
-        "dayPref": cell["day_pref"],
-        "timePref": cell["time_pref"],
-        "constraints": cell["constraints"],
-        "comments": cell["comments"],
         "retired": bool(cell["retired"]),
     }
 

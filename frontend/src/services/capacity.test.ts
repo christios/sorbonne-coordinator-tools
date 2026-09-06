@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { capacityByGroup, capacityBySet, capacityRows, groupTotals, statusOf } from "@/services/capacity";
-import { EMPTY_SECTION, type CohortCatalogue } from "@/services/studentDatabase";
+import { EMPTY_REQUEST, EMPTY_SECTION, type CohortCatalogue } from "@/services/studentDatabase";
 
 const section = (crn: string, over: Partial<typeof EMPTY_SECTION> = {}) => ({ ...EMPTY_SECTION, crn, ...over });
 
@@ -23,8 +23,8 @@ const FYS: CohortCatalogue = {
       id: "s-td", code: "TD", name: "Tutorials", note: "", termId: "term-1", kind: "shared", parentScopeId: "",
       openToAll: false,
       courses: [
-        { id: "td-math", code: "MATH-001", name: "Pre-calculus 1", component: "TD" },
-        { id: "td-algo", code: "MATH-011", name: "Algorithms", component: "TD" },
+        { id: "td-math", code: "MATH-001", name: "Pre-calculus 1", component: "TD", request: EMPTY_REQUEST },
+        { id: "td-algo", code: "MATH-011", name: "Algorithms", component: "TD", request: EMPTY_REQUEST },
       ],
       groups: [
         group("td-1", "1", 33, 34, { "td-math": section("23223", { teacherId: "t1" }), "td-algo": section("23652") }),
@@ -36,7 +36,7 @@ const FYS: CohortCatalogue = {
     {
       id: "s-lang", code: "LANG", name: "Languages", note: "", termId: "term-1", kind: "shared", parentScopeId: "",
       openToAll: true,
-      courses: [{ id: "lang", code: "SCEN-101", name: "Languages", component: "TD" }],
+      courses: [{ id: "lang", code: "SCEN-101", name: "Languages", component: "TD", request: EMPTY_REQUEST }],
       groups: [group("a1", "A1-G1", 24, 22, { lang: section("23304") })],
     },
   ],

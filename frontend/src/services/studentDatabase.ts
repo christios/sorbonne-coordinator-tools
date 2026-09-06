@@ -33,15 +33,18 @@ export type CatalogueCourse = {
   code: string;
   name: string;
   component: string;
+  /** What this course asks of the timetable, for every section of it in this set. */
+  request: Request;
 };
 
 /**
- * One section: what one group holds for one course — a CRN, and everything the
- * timetabler's workbook says about that row.
+ * What the timetable is asked for — said by a course, or by one section of it.
+ *
+ * The same eleven answers either way, because they are the same questions: how many hours
+ * in all, spread how, for how many students, in what sort of room, avoiding what. A
+ * course answers once for its whole set; a section answers for itself where it differs.
  */
-export type Section = {
-  crn: string;
-  teacher: string;
+export type Request = {
   /** An Active teacher's id, or "" when nobody has been chosen. */
   teacherId: string;
   hours: string;
@@ -54,13 +57,9 @@ export type Section = {
   timePref: string;
   constraints: string;
   comments: string;
-  /** Marked rather than deleted: the fill skips it and the workbook says so. */
-  retired: boolean;
 };
 
-export const EMPTY_SECTION: Section = {
-  crn: "",
-  teacher: "",
+export const EMPTY_REQUEST: Request = {
   teacherId: "",
   hours: "",
   sessionsPerWeek: "",
@@ -72,8 +71,20 @@ export const EMPTY_SECTION: Section = {
   timePref: "",
   constraints: "",
   comments: "",
-  retired: false,
 };
+
+/**
+ * One section: what one group holds for one course — a CRN, and everything the
+ * timetabler's workbook says about that row.
+ */
+export type Section = Request & {
+  crn: string;
+  teacher: string;
+  /** Marked rather than deleted: the fill skips it and the workbook says so. */
+  retired: boolean;
+};
+
+export const EMPTY_SECTION: Section = { ...EMPTY_REQUEST, crn: "", teacher: "", retired: false };
 
 export type CatalogueGroup = {
   id: string;
@@ -373,6 +384,16 @@ export function deleteGroup(groupId: string): Promise<void> {
 
 export function updateCourse(courseId: string, input: { code: string; name: string; component: string }): Promise<void> {
   return send<void>(`${BASE}/courses/${courseId}`, "PATCH", input);
+}
+
+/**
+ * What the course asks of the timetable, as against what each of its sections asks.
+ *
+ * Nothing is pushed into the sections: they keep whatever they say, blank included, and
+ * the workbook is where a blank is answered by the course's own line.
+ */
+export function updateCourseRequest(courseId: string, input: Request): Promise<void> {
+  return send<void>(`${BASE}/courses/${courseId}/request`, "PATCH", input);
 }
 
 /** Everything the workbook says about a section but its CRN, which setGroupCrn sets. */

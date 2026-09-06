@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CourseCards } from "@/components/CourseCards";
 import * as lists from "@/services/portalLists";
 import * as publication from "@/services/publication";
+import { EMPTY_REQUEST } from "@/services/studentDatabase";
 import * as database from "@/services/studentDatabase";
 import { EMPTY_SECTION } from "@/services/studentDatabase";
 import * as timetables from "@/services/timetables";
@@ -21,8 +22,8 @@ const CATALOGUES: database.CohortCatalogue[] = [
       {
         id: "s-td", code: "TD", name: "Tutorials", note: "", termId: "term-1", kind: "shared", parentScopeId: "", openToAll: false,
         courses: [
-          { id: "td-math", code: "MATH001", name: "Pre-calculus 1", component: "TD" },
-          { id: "td-algo", code: "MATH011", name: "Algorithms", component: "TD" },
+          { id: "td-math", code: "MATH001", name: "Pre-calculus 1", component: "TD", request: EMPTY_REQUEST },
+          { id: "td-algo", code: "MATH011", name: "Algorithms", component: "TD", request: EMPTY_REQUEST },
         ],
         groups: [
           { id: "td-1", label: "1", capacity: 33, note: "", program: "", parentGroupId: "", assigned: 30, crns: { "td-math": { ...EMPTY_SECTION, crn: "23223", teacherId: "act-1", hours: "50" }, "td-algo": { ...EMPTY_SECTION, crn: "23652" } } },
@@ -62,11 +63,11 @@ beforeEach(() => {
 
 afterEach(() => vi.restoreAllMocks());
 
-function show(onShowStudents?: (ids: string[]) => void) {
+function show(onPlaceStudents?: (cohortId: string, ids: string[]) => void) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
-      <CourseCards cohorts={[COHORT]} onShowStudents={onShowStudents} />
+      <CourseCards cohorts={[COHORT]} onPlaceStudents={onPlaceStudents} />
     </QueryClientProvider>,
   );
 }
@@ -147,13 +148,14 @@ describe("the course cards", () => {
     expect(within(two).getByTitle("31 of 33 seats taken")).toBeTruthy();
   });
 
-  it("opens the students a set has not placed, from the count of them", async () => {
-    const showStudents = vi.fn();
-    show(showStudents);
+  it("sends the students a set has not placed to the page where placing happens", async () => {
+    const place = vi.fn();
+    show(place);
 
     fireEvent.click(await screen.findByRole("button", { name: /2 in no group/ }));
 
-    expect(showStudents).toHaveBeenCalledWith(["A9", "A10"]);
+    // The cohort as well as the people: the Cohorts page is one cohort at a time.
+    expect(place).toHaveBeenCalledWith("c1", ["A9", "A10"]);
   });
 
   it("narrows by search the way the tables do", async () => {

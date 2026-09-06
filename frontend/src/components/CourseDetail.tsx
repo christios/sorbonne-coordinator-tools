@@ -3,6 +3,7 @@ import { useState, type ReactNode } from "react";
 
 import { FillBlock, type FillReport } from "@/components/FillBlock";
 import { SectionDialog } from "@/components/CourseCard";
+import { CourseRequestDialog, CourseRequestLine } from "@/components/CourseRequest";
 import { YearPill } from "@/components/YearPill";
 import type { Card, CardSet, SectionRow } from "@/services/courseCards";
 import { MUTUALIZED_WORDS, type ActiveTeacher, type TermCrns } from "@/services/portalLists";
@@ -284,7 +285,7 @@ export function CourseDetail({
   action,
   onChanged,
   onFilled,
-  onShowStudents,
+  onPlaceStudents,
 }: {
   card: Card;
   cohort: Cohort | null;
@@ -296,11 +297,13 @@ export function CourseDetail({
   clashes: GroupClash[] | null;
   onChanged: () => void;
   onFilled: (report: FillReport) => void;
-  /** Open the Students table on exactly these ids — how "3 in no group" is answered. */
-  onShowStudents?: (studentIds: string[]) => void;
+  /** Open the Cohorts page on exactly these ids — how "3 in no group" is answered. */
+  onPlaceStudents?: (cohortId: string, studentIds: string[]) => void;
 }) {
   const [editing, setEditing] = useState<SectionRow | null>(null);
   const [filling, setFilling] = useState<CardSet | null>(null);
+  // Which set's course line is being written, if any: one per set, as the hours differ.
+  const [asking, setAsking] = useState<CardSet | null>(null);
   const [showingRetired, setShowingRetired] = useState<Record<string, boolean>>({});
   const teacherName = (id: string) => teachers.find((teacher) => teacher.id === id)?.fullName ?? "";
 
@@ -369,15 +372,16 @@ export function CourseDetail({
                    *
                    * "6 in no group" told a coordinator there was work to do and then made
                    * them go and find who it was for, in a table of three thousand rows.
-                   * Pressing it opens the Students table on exactly those six.
+                   * Pressing it opens the Cohorts page on this cohort and exactly those
+                   * six — that page being where a student is put into a block.
                    */
                   <button
                     type="button"
-                    disabled={!onShowStudents}
-                    onClick={() => onShowStudents?.(missing)}
-                    title={onShowStudents ? `Show the ${left} student${left === 1 ? "" : "s"} in no ${set.scope.code} group` : undefined}
+                    disabled={!onPlaceStudents}
+                    onClick={() => onPlaceStudents?.(card.cohortId, missing)}
+                    title={onPlaceStudents ? `Place the ${left} student${left === 1 ? "" : "s"} in no ${set.scope.code} group` : undefined}
                     className={`${chip} inline-flex items-center gap-1 bg-[#fdf9ee] text-[#8a6116] ${
-                      onShowStudents ? "hover:bg-[#f9efd6] hover:underline" : "cursor-default"
+                      onPlaceStudents ? "hover:bg-[#f9efd6] hover:underline" : "cursor-default"
                     }`}
                   >
                     <AlertTriangle size={11} aria-hidden="true" /> {left} in no group
@@ -393,6 +397,13 @@ export function CourseDetail({
                   </button>
                 ) : null}
               </div>
+
+              {/*
+                * What the course asks, above the sections that answer it. One per set: a
+                * lecture is twenty-four hours and a tutorial thirty-six, and the two are
+                * not one request with an exception.
+                */}
+              <CourseRequestLine request={set.course.request} scopeCode={set.scope.code} onEdit={() => setAsking(set)} />
 
               <div className="grid gap-2.5 sm:grid-cols-2 2xl:grid-cols-3">
                 {live.map((row) => (
@@ -451,6 +462,21 @@ export function CourseDetail({
           onFilled={(report) => {
             setFilling(null);
             onFilled(report);
+          }}
+        />
+      ) : null}
+
+      {asking ? (
+        <CourseRequestDialog
+          courseId={asking.course.id}
+          title={`${card.code} · ${asking.scope.code}`}
+          description={`What ${card.name || card.code} asks of the timetable for every ${asking.scope.code} section of it, in ${card.cohortName}, ${card.termName || "this semester"}.`}
+          held={asking.course.request}
+          teachers={teachers}
+          onClose={() => setAsking(null)}
+          onSaved={() => {
+            setAsking(null);
+            onChanged();
           }}
         />
       ) : null}

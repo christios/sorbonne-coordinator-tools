@@ -168,6 +168,8 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
   });
 
   const [viewId, setViewId] = useState("");
+  // A cohort and some of its students, when Groups & CRNs sends them to be placed.
+  const [cohortFocus, setCohortFocus] = useState<{ cohortId: string; studentIds: string[] } | null>(null);
   // The shared rules sit at the page's title, apart from any one cohort's.
   const [sharedRulesOpen, setSharedRulesOpen] = useState(false);
   const rules = useQuery({ queryKey: ["discrepancy-rules"], queryFn: fetchDiscrepancyRules, enabled: page === "cohorts" });
@@ -280,7 +282,7 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
           ) : null}
           {page === "groups" && cohorts.isLoading ? <ScreenLoading label="Loading cohorts…" /> : null}
           {page === "cohorts" && !cohorts.isLoading ? (
-            <CohortsPage cohorts={knownCohorts} />
+            <CohortsPage cohorts={knownCohorts} focus={cohortFocus} />
           ) : null}
           {page === "cohorts" ? (
             <DiscrepancyRulesEditor open={sharedRulesOpen} scope={{ kind: "shared" }} onClose={() => setSharedRulesOpen(false)} />
@@ -292,6 +294,10 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
               onShowStudents={(ids: string[]) => {
                 setPreselect(ids);
                 openPage("students");
+              }}
+              onPlaceStudents={(cohortId: string, ids: string[]) => {
+                setCohortFocus({ cohortId, studentIds: ids });
+                openPage("cohorts");
               }}
             />
           ) : null}

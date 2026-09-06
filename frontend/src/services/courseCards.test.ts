@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { buildCards, cardColumns, sectionsOf, teachersOf } from "@/services/courseCards";
-import { EMPTY_SECTION, type CohortCatalogue } from "@/services/studentDatabase";
+import { EMPTY_REQUEST, EMPTY_SECTION, type CohortCatalogue } from "@/services/studentDatabase";
 
 const section = (crn: string, teacherId = "") => ({ ...EMPTY_SECTION, crn, teacherId });
 
@@ -10,14 +10,14 @@ const FYS: CohortCatalogue = {
   scopes: [
     {
       id: "s-cm", code: "CM", name: "Lectures", note: "", termId: "term-1", kind: "shared", parentScopeId: "", openToAll: false,
-      courses: [{ id: "cm-math", code: "MATH001", name: "Pre-calculus 1", component: "CM" }],
+      courses: [{ id: "cm-math", code: "MATH001", name: "Pre-calculus 1", component: "CM", request: EMPTY_REQUEST }],
       groups: [{ id: "cm-a", label: "A", capacity: 0, note: "", program: "", parentGroupId: "", assigned: 98, crns: { "cm-math": section("22151", "t-maaz") } }],
     },
     {
       id: "s-td", code: "TD", name: "Tutorials", note: "", termId: "term-1", kind: "shared", parentScopeId: "", openToAll: false,
       courses: [
-        { id: "td-math", code: "MATH001", name: "", component: "TD" },
-        { id: "td-algo", code: "MATH011", name: "Algorithms", component: "TD" },
+        { id: "td-math", code: "MATH001", name: "", component: "TD", request: EMPTY_REQUEST },
+        { id: "td-algo", code: "MATH011", name: "Algorithms", component: "TD", request: EMPTY_REQUEST },
       ],
       groups: [
         { id: "td-1", label: "1", capacity: 33, note: "", program: "", parentGroupId: "", assigned: 33, crns: { "td-math": section("23223", "t-ghantous"), "td-algo": section("23652") } },
