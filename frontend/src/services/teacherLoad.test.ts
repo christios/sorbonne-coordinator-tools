@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import { buildCards } from "@/services/courseCards";
-import { loadTotals, sectionsTaughtBy, teacherLoads } from "@/services/teacherLoad";
+import { hoursColumn, hoursColumns, loadRows, loadTotals, sectionsTaughtBy, shownHoursColumns, teacherLoads } from "@/services/teacherLoad";
+import type { ActiveTeacher } from "@/services/portalLists";
 import { EMPTY_REQUEST, EMPTY_SECTION, type CohortCatalogue } from "@/services/studentDatabase";
 import { requestSheets, type RequestRow, type RequestSheet } from "@/services/timetableExport";
 
@@ -139,5 +140,63 @@ describe("what one teacher teaches", () => {
     const loads = teacherLoads(sheets);
 
     expect(loads.map((load) => [load.teacher, load.total])).toEqual([["Grace", 50], ["Sudarshan", 36]]);
+  });
+});
+
+
+const ACTIVE = (over: Partial<ActiveTeacher>): ActiveTeacher => ({
+  id: "act-1", portalTeacherId: "", partTimeTeacherId: "", fullName: "Samar Ghantous", email: "samar@sorbonne.ae",
+  source: "portal", addedAt: "", addedBy: "", teacherStatus: "", category: "Lecturer", type: "Full Time",
+  lastTerm: "", department: "SCEN", rank: "", courses: "", institution: "", portalStatus: "",
+  ...over,
+});
+
+describe("the table's rows and columns", () => {
+  it("joins a load to the department's list by id, or failing that by name", () => {
+    const loads = teacherLoads([
+      sheet("FYS-S1", [
+        row({ teacher: "Samar Ghantous", teacherId: "act-1" }),
+        // On the list, but every one of their sections carries only what the registrar typed.
+        row({ crn: "2", teacher: "Grace Younes", teacherId: "" }),
+        row({ crn: "3", teacher: "", teacherId: "" }),
+      ]),
+    ]);
+
+    const joined = loadRows(loads, [ACTIVE({}), ACTIVE({ id: "act-2", fullName: "Grace Younes", type: "Part-Time" })]);
+
+    expect(joined.map((held) => [held.teacher, held.standing, held.active?.type ?? ""])).toEqual([
+      ["Grace Younes", "Not confirmed", "Part-Time"],
+      ["Samar Ghantous", "Confirmed", "Full Time"],
+      ["", "Nobody yet", ""],
+    ]);
+  });
+
+  it("gives each cohort a column of its own, named the way the workbook names it", () => {
+    const columns = hoursColumns(["FYS-S1", "BSc-L2-S3"]);
+
+    expect(columns.map((column) => column.id)).toEqual([
+      "teacher", "standing", "total", "sheet:FYS-S1", "sheet:BSc-L2-S3",
+      "type:CM", "type:TD", "type:TP", "sections", "type", "category", "department", "email",
+    ]);
+    expect(columns.find((column) => column.id === "sheet:BSc-L2-S3")?.displayName).toBe("BSc L2");
+    expect(hoursColumn("FYS-S1")).toBe("FYS");
+  });
+
+  it("reads a cohort's hours out of the row in the order the sheets came", () => {
+    const [first, second] = hoursColumns(["A-S1", "B-S1"]).filter((column) => column.id.startsWith("sheet:"));
+    const held = loadRows(teacherLoads([sheet("A-S1", [row()]), sheet("B-S1", [row({ crn: "2", hours: "30" })])]), [])[0];
+
+    expect(first.accessor(held)).toBe(50);
+    expect(second.accessor(held)).toBe(30);
+  });
+
+  it("shows every cohort to begin with, and keeps who the person is in the picker", () => {
+    const shown = shownHoursColumns(["FYS-S1", "BSc-L1-S1"]);
+
+    expect(shown).toContain("sheet:FYS-S1");
+    expect(shown).toContain("sheet:BSc-L1-S1");
+    // A cohort waiting in the picker is a cohort somebody forgets to count; a department is not.
+    expect(shown).not.toContain("department");
+    expect(shown).not.toContain("email");
   });
 });

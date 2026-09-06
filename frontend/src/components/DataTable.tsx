@@ -1,9 +1,9 @@
-import { ArrowDown, ArrowUp, GripVertical } from "lucide-react";
+import { ArrowDown, ArrowUp } from "lucide-react";
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 
 import { CopyButton } from "@/components/CopyButton";
 import { columnText, rowText } from "@/services/copyCells";
-import { MIN_WIDTH, plainCellText, widthOf, type ColumnLayout, type GridColumn } from "@/services/studentColumns";
+import { plainCellText, widthOf, type ColumnLayout, type GridColumn } from "@/services/studentColumns";
 
 /** Rows mounted beyond each edge of the viewport, so a scroll has something to land on. */
 const OVERSCAN = 20;
@@ -191,34 +191,66 @@ export function DataTable<T>({
   empty,
 }: DataTableProps<T>) {
   const allShown = rows.length > 0 && rows.every((row) => selected.has(idOf(row)));
-  const [dragging, setDragging] = useState("");
   const box = useFillHeight();
   const window_ = useWindow(box, rows.length);
+  /*
+   * The widths live on the `<col>` elements, not on every cell.
+   *
+   * They used to be an inline style on each `<th>` and each `<td>`, which meant a width
+   * came out of React state and a drag re-rendered every mounted row on every pointer
+   * move — sixty rows times a dozen columns, for each pixel. A `<colgroup>` under
+   * `table-layout: fixed` sizes the whole column from one element, so the drag writes to
+   * that element directly and React hears about it once, when the pointer comes up.
+   */
+  const cols = useRef<Record<string, HTMLTableColElement | null>>({});
+  const headers = useRef<Record<string, HTMLTableCellElement | null>>({});
+  const reorder = useReorder(columns, onReorder, headers);
 
   return (
     <section ref={box} className="always-scrollbar mt-3 min-h-[16rem] overflow-auto rounded-lg border border-[#d9dee7] bg-white">
       <table className="text-left text-sm" style={{ tableLayout: "fixed", width: "max-content", minWidth: "100%" }}>
-        <thead className="sticky top-0 z-10 bg-white text-xs uppercase tracking-wide text-[#667085] shadow-[inset_0_-1px_0_#d9dee7]">
+        <colgroup>
+          <col style={{ width: 40 }} />
+          {columns.map((column) => (
+            <col
+              key={column.id}
+              ref={(element) => {
+                cols.current[column.id] = element;
+              }}
+              style={{ width: widthOf(layout, column) }}
+            />
+          ))}
+          <col style={{ width: 44 }} />
+        </colgroup>
+        <thead className="sticky top-0 z-10 bg-[#fbfcfe] text-xs font-semibold text-[#5b6675] shadow-[inset_0_-1px_0_#dfe4ec]">
           <tr>
-            <th scope="col" className="w-10 bg-white px-3 py-3">
+            <th scope="col" className="bg-[#fbfcfe] px-3 py-2.5">
               <input type="checkbox" aria-label="Select everyone shown" checked={allShown} onChange={onToggleAll} />
             </th>
-            {columns.map((column, index) => (
+            {columns.map((column) => (
               <HeaderCell
                 key={column.id}
                 column={column}
-                nextId={columns[index + 1]?.id ?? ""}
-                width={widthOf(layout, column)}
+                cell={(element) => {
+                  headers.current[column.id] = element;
+                }}
                 sort={sort}
                 onSort={onSort}
                 onResize={onResize}
-                dragging={dragging}
-                onDragging={setDragging}
-                onReorder={onReorder}
+                liveWidth={(width) => {
+                  const col = cols.current[column.id];
+                  if (col) col.style.width = `${width}px`;
+                }}
+                widthNow={() => Math.round(headers.current[column.id]?.getBoundingClientRect().width ?? 0) || widthOf(layout, column)}
+                fit={() => {
+                  const measured = fitWidth(box.current, column.id);
+                  if (measured) onResize(column.id, measured);
+                }}
+                reorder={reorder}
                 copy={() => columnText(rows.map((row) => cellText(row, column)))}
               />
             ))}
-            <th scope="col" className="w-10 bg-white px-2 py-3" />
+            <th scope="col" className="bg-[#fbfcfe] px-2 py-2.5" />
           </tr>
         </thead>
         <tbody>
@@ -236,7 +268,6 @@ export function DataTable<T>({
                 label={labelOf(row)}
                 row={row}
                 columns={columns}
-                layout={layout}
                 selected={selected.has(id)}
                 cellText={cellText}
                 renderCell={renderCell}
@@ -270,7 +301,6 @@ type RowProps<T> = {
   label: string;
   row: T;
   columns: GridColumn<T>[];
-  layout: ColumnLayout;
   selected: boolean;
   cellText: (row: T, column: GridColumn<T>) => string;
   renderCell?: (row: T, column: GridColumn<T>) => ReactNode | undefined;
@@ -291,7 +321,6 @@ function DataTableRowInner<T>({
   label,
   row,
   columns,
-  layout,
   selected,
   cellText,
   renderCell,
@@ -336,12 +365,10 @@ function DataTableRowInner<T>({
         const drawn = renderCell?.(row, column);
         const text = drawn === undefined ? cellText(row, column) : "";
         return (
-          <td
-            key={column.id}
-            className="truncate px-4 py-2 text-[#344054]"
-            style={{ width: widthOf(layout, column), minWidth: widthOf(layout, column), maxWidth: widthOf(layout, column) }}
-          >
-            {drawn === undefined ? <span title={text}>{text || "—"}</span> : drawn}
+          <td key={column.id} className="truncate px-3 py-2 text-[#344054]">
+            <span data-cell={column.id} className="block truncate">
+              {drawn === undefined ? <span title={text}>{text || "—"}</span> : drawn}
+            </span>
           </td>
         );
       })}
@@ -355,134 +382,305 @@ function DataTableRowInner<T>({
 
 const DataTableRow = memo(DataTableRowInner) as typeof DataTableRowInner;
 
+/**
+ * Reordering by pointer rather than by HTML5 drag-and-drop.
+ *
+ * The browser's own drag gives you a ghost image it renders on its own schedule, a
+ * `dragover` that fires when it feels like it, and a drop that lands a frame late; on a
+ * table of a dozen columns it reads as lag. Pointer events are the same three moments —
+ * down, move, up — with nothing between us and the screen, which is what every table
+ * worth using has moved to.
+ *
+ * A press is a sort until it has travelled far enough to be a drag, so the header stays
+ * one target for both.
+ */
+const DRAG_THRESHOLD = 4;
+
+type Reorder = {
+  /** The column being carried, if any. */
+  carrying: string;
+  /** The column the drop indicator sits on, and which side of it. */
+  over: { id: string; side: "left" | "right" } | null;
+  begin: (event: React.PointerEvent, id: string) => void;
+  /** True when the press turned into a drag, so the click that follows is not a sort. */
+  moved: () => boolean;
+};
+
+function useReorder<T>(
+  columns: GridColumn<T>[],
+  onReorder: (id: string, beforeId: string) => void,
+  headers: React.RefObject<Record<string, HTMLTableCellElement | null>>,
+): Reorder {
+  const [carrying, setCarrying] = useState("");
+  const [over, setOver] = useState<{ id: string; side: "left" | "right" } | null>(null);
+  /*
+   * The target is held in a ref as well as in state.
+   *
+   * Where it goes is decided when the pointer comes up, and reading it out of a state
+   * updater there meant reading a ref that the same handler was about to clear — React
+   * runs the updater when it likes, and twice in development. The ref is the answer; the
+   * state is only so the blue line can be drawn.
+   */
+  const target = useRef<{ id: string; side: "left" | "right" } | null>(null);
+  const press = useRef({ id: "", x: 0, moved: false });
+  const held = useRef({ columns, onReorder });
+  held.current = { columns, onReorder };
+
+  const begin = useCallback((event: React.PointerEvent, id: string) => {
+    if (event.button !== 0) return;
+    press.current = { id, x: event.clientX, moved: false };
+
+    const move = (moving: PointerEvent) => {
+      if (!press.current.id) return;
+      if (!press.current.moved) {
+        if (Math.abs(moving.clientX - press.current.x) < DRAG_THRESHOLD) return;
+        press.current.moved = true;
+        setCarrying(press.current.id);
+      }
+      /*
+       * Whichever heading the pointer is over, and which half of it — the same reading the
+       * eye makes of the blue line. Measured from the headings we already hold rather than
+       * asked of the document: `elementFromPoint` answers for whatever is painted on top,
+       * which during a drag is sometimes the indicator itself.
+       */
+      let found: { id: string; side: "left" | "right" } | null = null;
+      for (const column of held.current.columns) {
+        const cell = headers.current?.[column.id];
+        if (!cell || column.id === press.current.id) continue;
+        const box = cell.getBoundingClientRect();
+        if (!box.width || moving.clientX < box.left || moving.clientX > box.right) continue;
+        found = { id: column.id, side: moving.clientX < box.left + box.width / 2 ? "left" : "right" };
+        break;
+      }
+      target.current = found;
+      setOver(found);
+    };
+
+    const stop = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", stop);
+      window.removeEventListener("pointercancel", stop);
+      const dropped = target.current;
+      if (press.current.moved && dropped) {
+        const order = held.current.columns.map((column) => column.id);
+        const at = order.indexOf(dropped.id);
+        const before = dropped.side === "left" ? dropped.id : (order[at + 1] ?? "");
+        if (before !== press.current.id) held.current.onReorder(press.current.id, before);
+      }
+      target.current = null;
+      setOver(null);
+      setCarrying("");
+      press.current = { ...press.current, id: "" };
+    };
+
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", stop);
+    window.addEventListener("pointercancel", stop);
+  }, []);
+
+  return { carrying, over, begin, moved: () => press.current.moved };
+}
+
+/** Room for the cell's own padding, and for the heading's arrow and copy button besides. */
+const CELL_PADDING = 26;
+const HEADER_PADDING = 48;
+
+/**
+ * How wide a column would have to be to show everything in it.
+ *
+ * Measured from what is on screen — the heading and the rows the window has mounted, which
+ * is what a spreadsheet measures too. Each is briefly laid out at `max-content` and read
+ * back, because a cell that truncates is exactly as wide as its column and tells you
+ * nothing about what is inside it, and one with room to spare would otherwise keep the
+ * width it happens to have rather than shrinking to fit.
+ *
+ * Nothing measurable — a browser that lays nothing out — returns nought, and the caller
+ * leaves the column alone rather than collapsing it.
+ */
+export function fitWidth(box: HTMLElement | null, id: string): number {
+  if (!box) return 0;
+  const escaped = typeof CSS !== "undefined" && CSS.escape ? CSS.escape(id) : id.replace(/"/g, '\\"');
+  let widest = 0;
+  for (const [selector, padding] of [
+    [`[data-cell="${escaped}"]`, CELL_PADDING],
+    [`[data-header="${escaped}"]`, HEADER_PADDING],
+  ] as const) {
+    for (const part of box.querySelectorAll<HTMLElement>(selector)) {
+      const held = { width: part.style.width, wrap: part.style.whiteSpace, flex: part.style.flex };
+      part.style.width = "max-content";
+      part.style.whiteSpace = "nowrap";
+      // The heading's label is a flex item told to fill what is left, and `flex-basis`
+      // beats any width we give it — so the flex has to come off as well, or every
+      // measurement comes back as the width the column already has.
+      part.style.flex = "none";
+      widest = Math.max(widest, part.getBoundingClientRect().width + padding);
+      part.style.width = held.width;
+      part.style.whiteSpace = held.wrap;
+      part.style.flex = held.flex;
+    }
+  }
+  return widest ? Math.min(520, Math.ceil(widest)) : 0;
+}
+
 function HeaderCell<T>({
   column,
-  width,
+  cell,
   sort,
   onSort,
   onResize,
-  dragging,
-  onDragging,
-  onReorder,
+  liveWidth,
+  widthNow,
+  fit,
+  reorder,
   copy,
-  nextId,
 }: {
   column: GridColumn<T>;
-  width: number;
+  cell: (element: HTMLTableCellElement | null) => void;
   sort: Sort;
   onSort: (key: string) => void;
   onResize: (id: string, width: number) => void;
-  dragging: string;
-  onDragging: (id: string) => void;
-  onReorder: (id: string, beforeId: string) => void;
+  /** Paint a width straight onto the column, without going through React. */
+  liveWidth: (width: number) => void;
+  /** What the column measures right now, which a drag starts from. */
+  widthNow: () => number;
+  fit: () => void;
+  reorder: Reorder;
   copy: () => string;
-  nextId: string;
 }) {
   const active = sort.key === column.id;
-  const [edge, setEdge] = useState<"" | "left" | "right">("");
-  const cell = useRef<HTMLTableCellElement>(null);
-  const lifted = dragging === column.id;
-
-  const sideOf = (event: React.DragEvent) => {
-    const box = event.currentTarget.getBoundingClientRect();
-    if (!box.width) return "left";
-    return event.clientX < box.left + box.width / 2 ? "left" : "right";
-  };
+  const lifted = reorder.carrying === column.id;
+  const indicator = reorder.over?.id === column.id ? reorder.over.side : "";
 
   return (
     <th
       ref={cell}
       scope="col"
-      className={`group relative overflow-hidden border-r border-[#e4e8ee] bg-white px-4 py-3 font-semibold last:border-r-0 ${lifted ? "opacity-40" : ""}`}
-      style={{ width, minWidth: width, maxWidth: width }}
-      onDragOver={(event) => {
-        if (!dragging || lifted) return;
-        event.preventDefault();
-        setEdge(sideOf(event));
+      data-column={column.id}
+      /*
+       * The whole heading is the handle. It used to have a grip beside the label and a
+       * copy button after it, which on a ninety-pixel column left about twenty pixels for
+       * the name — "Sections" arrived as "Se…". Both are gone from the line: the heading
+       * itself drags, and copying sits over the right-hand end only while the pointer is
+       * on the column.
+       */
+      onPointerDown={(event) => {
+        if ((event.target as HTMLElement).closest("[role='separator'], [data-copy]")) return;
+        reorder.begin(event, column.id);
       }}
-      onDragLeave={() => setEdge("")}
-      onDrop={(event) => {
-        event.preventDefault();
-        const side = sideOf(event);
-        setEdge("");
-        if (dragging && !lifted) onReorder(dragging, side === "left" ? column.id : nextId);
-        onDragging("");
-      }}
+      className={`group relative select-none border-r border-[#e8ecf2] bg-[#fbfcfe] px-3 py-2.5 transition-colors last:border-r-0 hover:bg-[#f1f5fa] ${
+        reorder.carrying ? "cursor-grabbing" : "cursor-grab"
+      } ${lifted ? "opacity-40" : ""}`}
+      title={column.displayName}
     >
-      {edge && dragging && !lifted ? (
-        <span aria-hidden="true" className={`pointer-events-none absolute inset-y-0 z-20 w-0.5 bg-[#1f4e79] ${edge === "left" ? "left-0" : "right-0"}`} />
-      ) : null}
-      <span className="flex min-w-0 items-center gap-1">
+      {indicator ? (
         <span
-          draggable
-          role="button"
-          tabIndex={-1}
-          aria-label={`Drag ${column.displayName} to reorder`}
-          onDragStart={(event) => {
-            onDragging(column.id);
-            event.dataTransfer.effectAllowed = "move";
-            event.dataTransfer.setData("text/plain", column.id);
-            if (cell.current) event.dataTransfer.setDragImage(cell.current, 24, 18);
-          }}
-          onDragEnd={() => onDragging("")}
-          className="cursor-grab text-[#cbd5e1] opacity-40 transition-opacity hover:text-[#667085] group-hover:opacity-100"
-        >
-          <GripVertical size={12} aria-hidden="true" />
-        </span>
-        <button
-          type="button"
-          onClick={() => onSort(column.id)}
-          aria-label={`Sort by ${column.displayName}`}
-          className={`inline-flex min-w-0 flex-1 items-center gap-1 truncate ${active ? "text-[#1f4e79]" : ""}`}
-        >
-          <span className="truncate">{column.displayName}</span>
-          {active ? (sort.ascending ? <ArrowUp size={12} aria-hidden="true" /> : <ArrowDown size={12} aria-hidden="true" />) : null}
-        </button>
-        <CopyButton
-          label={`Copy the ${column.displayName} column`}
-          text={copy}
-          className="opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100"
+          aria-hidden="true"
+          className={`pointer-events-none absolute inset-y-0 z-20 w-0.5 bg-[#1f4e79] ${indicator === "left" ? "left-0" : "right-0"}`}
         />
+      ) : null}
+
+      <button
+        type="button"
+        onClick={() => {
+          // A press that travelled was a drag, and a drag does not also sort.
+          if (!reorder.moved()) onSort(column.id);
+        }}
+        aria-label={`Sort by ${column.displayName}`}
+        className={`flex w-full min-w-0 items-center gap-1 text-left ${active ? "text-[#1f4e79]" : ""}`}
+      >
+        <span data-header={column.id} className="min-w-0 flex-1 truncate">
+          {column.displayName}
+        </span>
+        {active ? (
+          sort.ascending ? (
+            <ArrowUp size={12} className="shrink-0" aria-hidden="true" />
+          ) : (
+            <ArrowDown size={12} className="shrink-0" aria-hidden="true" />
+          )
+        ) : (
+          <ArrowDown size={12} className="shrink-0 text-[#c8d0da] opacity-0 group-hover:opacity-100" aria-hidden="true" />
+        )}
+      </button>
+
+      <span
+        data-copy
+        className="absolute right-2 top-1/2 hidden -translate-y-1/2 rounded bg-[#f1f5fa] shadow-[0_0_0_4px_#f1f5fa] group-hover:inline-flex group-focus-within:inline-flex"
+      >
+        <CopyButton label={`Copy the ${column.displayName} column`} text={copy} />
       </span>
-      <ResizeHandle id={column.id} name={column.displayName} width={width} onResize={onResize} />
+
+      <ResizeHandle
+        id={column.id}
+        name={column.displayName}
+        widthNow={widthNow}
+        liveWidth={liveWidth}
+        onResize={onResize}
+        onFit={fit}
+      />
     </th>
   );
 }
 
-function ResizeHandle({ id, name, width, onResize }: { id: string; name: string; width: number; onResize: (id: string, width: number) => void }) {
+/**
+ * The edge you pull to make a column wider.
+ *
+ * Wider than it looks — the hit area is eight pixels, the line one — because a two-pixel
+ * target is a target you miss. While it is held, the width is written straight onto the
+ * column's `<col>` element and React is told nothing; the state is set once, when the
+ * pointer comes up. Double-click fits the column to what is in it.
+ */
+function ResizeHandle({
+  id,
+  name,
+  widthNow,
+  liveWidth,
+  onResize,
+  onFit,
+}: {
+  id: string;
+  name: string;
+  widthNow: () => number;
+  liveWidth: (width: number) => void;
+  onResize: (id: string, width: number) => void;
+  onFit: () => void;
+}) {
   const [dragging, setDragging] = useState(false);
-  const from = useRef({ x: 0, width });
+  const from = useRef({ x: 0, width: 0, at: 0, held: false });
 
   const start = (event: React.PointerEvent) => {
+    if (event.button !== 0) return;
     event.preventDefault();
-    if (dragging) return;
-    from.current = { x: event.clientX, width };
+    event.stopPropagation();
+    // A second press while the first is still held must not re-anchor the drag to the
+    // width it has reached, or the column jumps by however far the pointer has come.
+    if (from.current.held) return;
+    from.current = { x: event.clientX, width: widthNow(), at: 0, held: true };
     setDragging(true);
-  };
 
-  const move = useCallback(
-    (event: PointerEvent) => {
-      const next = from.current.width + (event.clientX - from.current.x);
-      onResize(id, Math.max(MIN_WIDTH, next));
-    },
-    [id, onResize],
-  );
-
-  useEffect(() => {
-    if (!dragging) return;
-    const stop = () => setDragging(false);
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", stop);
-    return () => {
+    const move = (moving: PointerEvent) => {
+      const next = Math.max(0, from.current.width + (moving.clientX - from.current.x));
+      from.current.at = next;
+      liveWidth(next);
+    };
+    const stop = () => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", stop);
+      window.removeEventListener("pointercancel", stop);
+      setDragging(false);
+      from.current.held = false;
+      // The one thing React is told about the whole drag.
+      if (from.current.at) onResize(id, Math.round(from.current.at));
     };
-  }, [dragging, move]);
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", stop);
+    window.addEventListener("pointercancel", stop);
+  };
 
   const nudge = (event: React.KeyboardEvent) => {
     const step = event.shiftKey ? 40 : 10;
-    if (event.key === "ArrowRight") onResize(id, width + step);
-    else if (event.key === "ArrowLeft") onResize(id, Math.max(MIN_WIDTH, width - step));
+    if (event.key === "ArrowRight") onResize(id, widthNow() + step);
+    else if (event.key === "ArrowLeft") onResize(id, Math.max(0, widthNow() - step));
+    else if (event.key === "Enter" || event.key === " ") onFit();
     else return;
     event.preventDefault();
   };
@@ -492,10 +690,20 @@ function ResizeHandle({ id, name, width, onResize }: { id: string; name: string;
       role="separator"
       aria-orientation="vertical"
       aria-label={`Resize ${name}`}
+      title={`Drag to resize ${name}, or double-click to fit it to its contents`}
       tabIndex={0}
       onPointerDown={start}
       onKeyDown={nudge}
-      className={`absolute right-0 top-0 h-full w-1.5 cursor-col-resize touch-none select-none border-r ${dragging ? "border-[#1f4e79]" : "border-transparent hover:border-[#cfe0ef]"}`}
-    />
+      onDoubleClick={(event) => {
+        event.stopPropagation();
+        onFit();
+      }}
+      className="group/edge absolute -right-1 top-0 z-10 flex h-full w-2.5 cursor-col-resize touch-none select-none justify-center"
+    >
+      <span
+        aria-hidden="true"
+        className={`h-full w-0.5 transition-colors ${dragging ? "bg-[#1f4e79]" : "bg-transparent group-hover/edge:bg-[#9fbfdc]"}`}
+      />
+    </span>
   );
 }

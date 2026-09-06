@@ -330,61 +330,83 @@ describe("StudentRoster", () => {
       expect(screen.getByLabelText(/^Status/)).toHaveProperty("disabled", true);
     });
 
-    it("tracks the pointer when the edge is dragged", async () => {
+    /** The `<col>` that sizes one column — where the widths live now. */
+    const colFor = (id: string) => {
+      const header = document.querySelector(`th[data-column="${id}"]`) as HTMLElement;
+      const at = [...(header.parentElement?.children ?? [])].indexOf(header);
+      return header.closest("table")!.querySelectorAll("colgroup col")[at] as HTMLTableColElement;
+    };
+
+    /** jsdom's PointerEvent carries no coordinates, so these are MouseEvents of that type. */
+    const at = (type: string, clientX: number) =>
+      new MouseEvent(type, { clientX, bubbles: true, cancelable: true });
+
+    /** jsdom measures nothing, so a heading is told how wide and where it is. */
+    const measured = (cell: HTMLElement, left: number, width: number) => {
+      cell.getBoundingClientRect = () =>
+        ({ left, width, right: left + width, top: 0, bottom: 40, height: 40, x: left, y: 0, toJSON: () => ({}) }) as DOMRect;
+    };
+
+    it("paints the width straight onto the column while the edge is dragged", async () => {
       renderRoster();
       await screen.findByText("A001");
+      const header = screen.getByRole("columnheader", { name: /Student/ });
+      measured(header, 0, 200);
       const handle = screen.getByRole("separator", { name: "Resize Student" });
-      const started = Number.parseInt(
-        screen.getByRole("columnheader", { name: /Student/ }).style.width,
-        10,
-      );
-
-      // jsdom's PointerEvent carries no coordinates, so these are MouseEvents of the
-      // pointer types — which is what the component reads clientX from anyway.
-      const at = (type: string, clientX: number) =>
-        new MouseEvent(type, { clientX, bubbles: true, cancelable: true });
+      const col = colFor("portal:FULL_NAME");
 
       fireEvent(handle, at("pointerdown", 700));
       // A stray second press must not re-anchor the drag to the width reached so far.
       fireEvent(handle, at("pointerdown", 760));
       fireEvent(window, at("pointermove", 800));
 
-      // 100px of pointer travel from the anchor, and the stray press changed nothing.
-      expect(screen.getByRole("columnheader", { name: /Student/ }).style.width).toBe(
-        `${started + 100}px`,
-      );
+      // 100px of pointer travel from the anchor, written to the column and to nothing else.
+      expect(col.style.width).toBe("300px");
     });
 
-    it("reorders when a header is dragged onto another", async () => {
+    it("tells the arrangement once, when the pointer comes up", async () => {
+      const { unmount } = renderRoster();
+      await screen.findByText("A001");
+      measured(screen.getByRole("columnheader", { name: /Student/ }), 0, 200);
+      const handle = screen.getByRole("separator", { name: "Resize Student" });
+
+      fireEvent(handle, at("pointerdown", 700));
+      fireEvent(window, at("pointermove", 800));
+      fireEvent(window, at("pointerup", 800));
+
+      unmount();
+      renderRoster();
+      await screen.findByText("A001");
+      expect(colFor("portal:FULL_NAME").style.width).toBe("300px");
+    });
+
+    it("reorders when a heading is dragged onto another", async () => {
       renderRoster();
       await screen.findByText("A001");
       const before = screen.getAllByRole("columnheader").map((cell) => cell.textContent ?? "");
       expect(before[1]).toContain("Status");
 
-      const handle = screen.getByRole("button", { name: "Drag Cohort to reorder" });
-      const target = screen.getByRole("columnheader", { name: /Status/ });
-      const transfer = { effectAllowed: "", setData: () => {}, getData: () => "" };
-      fireEvent.dragStart(handle, { dataTransfer: transfer });
-      fireEvent.dragOver(target, { dataTransfer: transfer });
-      fireEvent.drop(target, { dataTransfer: transfer });
+      const carried = screen.getByRole("columnheader", { name: /Cohort/ });
+      measured(screen.getByRole("columnheader", { name: /Status/ }), 0, 100);
+
+      fireEvent(carried, at("pointerdown", 400));
+      // Past the threshold, and onto the left half of Status.
+      fireEvent(window, at("pointermove", 20));
+      fireEvent(window, at("pointerup", 20));
 
       const after = screen.getAllByRole("columnheader").map((cell) => cell.textContent ?? "");
       expect(after[1]).toContain("Cohort");
     });
 
-    it("drops a column after the one it was dragged past the middle of", async () => {
+    it("drops a heading after the one it was dragged past the middle of", async () => {
       renderRoster();
       await screen.findByText("A001");
+      const carried = screen.getByRole("columnheader", { name: /Cohort/ });
+      measured(screen.getByRole("columnheader", { name: /Status/ }), 0, 100);
 
-      const handle = screen.getByRole("button", { name: "Drag Cohort to reorder" });
-      const target = screen.getByRole("columnheader", { name: /Status/ });
-      // jsdom measures nothing, so the header is given a width to have a middle.
-      target.getBoundingClientRect = () => ({ left: 0, width: 100, right: 100, top: 0, bottom: 40, height: 40, x: 0, y: 0, toJSON: () => ({}) });
-      const transfer = { effectAllowed: "", setData: () => {}, getData: () => "", setDragImage: () => {} };
-
-      fireEvent.dragStart(handle, { dataTransfer: transfer });
-      fireEvent.dragOver(target, { dataTransfer: transfer, clientX: 80 });
-      fireEvent.drop(target, { dataTransfer: transfer, clientX: 80 });
+      fireEvent(carried, at("pointerdown", 400));
+      fireEvent(window, at("pointermove", 80));
+      fireEvent(window, at("pointerup", 80));
 
       // Dropped on Status's right half, so it lands after Status rather than before it.
       const after = screen.getAllByRole("columnheader").map((cell) => cell.textContent ?? "");
@@ -392,18 +414,31 @@ describe("StudentRoster", () => {
       expect(after[2]).toContain("Cohort");
     });
 
+    it("sorts when a heading is pressed and not dragged", async () => {
+      renderRoster();
+      await screen.findByText("A001");
+      const sort = screen.getByRole("button", { name: "Sort by Student" });
+
+      fireEvent(sort, at("pointerdown", 400));
+      fireEvent(window, at("pointerup", 401));
+      fireEvent.click(sort);
+
+      // A press that went nowhere is a sort, so the order changed rather than the columns.
+      expect(screen.getAllByRole("columnheader")[1].textContent).toContain("Status");
+    });
+
     it("resizes a column from the keyboard, and remembers the width", async () => {
       const { unmount } = renderRoster();
       await screen.findByText("A001");
-      const header = screen.getByRole("columnheader", { name: /Student/ });
-      const before = header.style.width;
+      const before = colFor("portal:FULL_NAME").style.width;
 
       fireEvent.keyDown(screen.getByRole("separator", { name: "Resize Student" }), { key: "ArrowRight" });
 
-      expect(screen.getByRole("columnheader", { name: /Student/ }).style.width).not.toBe(before);
+      expect(colFor("portal:FULL_NAME").style.width).not.toBe(before);
       unmount();
       renderRoster();
-      expect((await screen.findByRole("columnheader", { name: /Student/ })).style.width).not.toBe(before);
+      await screen.findByText("A001");
+      expect(colFor("portal:FULL_NAME").style.width).not.toBe(before);
     });
   });
 

@@ -14,10 +14,20 @@
 
 import { filled } from "@/services/courseRequest";
 import type { Card } from "@/services/courseCards";
+import type { ActiveTeacher } from "@/services/portalLists";
+import type { GridColumn } from "@/services/studentColumns";
 import type { RequestSheet } from "@/services/timetableExport";
 
 /** The name the workbook prints for a row nobody has been chosen for. */
 const UNNAMED = "TBD";
+
+/** The teaching types the workbook counts separately; anything else lands in the total alone. */
+export const LOAD_TYPES = ["CM", "TD", "TP"];
+
+/** "FYS-S1" → "FYS", "BSc-L1-S1" → "BSc L1": the column one sheet's hours sit in. */
+export function hoursColumn(sheetTitle: string): string {
+  return sheetTitle.replace(/-S\d+$/i, "").replace(/-/g, " ");
+}
 
 export type TeacherLoad = {
   /** The Active teacher, when one was chosen. Empty for a row with only a typed name. */
@@ -151,4 +161,81 @@ export function sectionsTaughtBy(cards: Card[], teacherId: string, teacherName =
       left.scopeCode.localeCompare(right.scopeCode) ||
       left.groupLabel.localeCompare(right.groupLabel, undefined, { numeric: true }),
   );
+}
+
+
+/** One row of the Teacher hours table: the load, and who the department knows them to be. */
+export type LoadRow = TeacherLoad & {
+  /** How the name got here: chosen from Active teachers, typed by the registrar, or nobody. */
+  standing: "Confirmed" | "Not confirmed" | "Nobody yet";
+  active: ActiveTeacher | null;
+};
+
+/**
+ * The loads, joined to the department's list.
+ *
+ * By id where the section named one, and otherwise by the name itself — because a teacher
+ * can be on the list and still have every section carrying only what the registrar typed,
+ * and the table is more useful for knowing that they are the same person.
+ */
+export function loadRows(loads: TeacherLoad[], active: ActiveTeacher[]): LoadRow[] {
+  const byId = new Map(active.map((teacher) => [teacher.id, teacher]));
+  const byName = new Map(active.map((teacher) => [teacher.fullName.trim().toLowerCase(), teacher]));
+  return loads.map((load) => ({
+    ...load,
+    standing: !load.teacher ? "Nobody yet" : load.teacherId ? "Confirmed" : "Not confirmed",
+    active: byId.get(load.teacherId) ?? byName.get(load.teacher.trim().toLowerCase()) ?? null,
+  }));
+}
+
+/**
+ * The columns, which depend on which cohorts are in the semester being looked at.
+ *
+ * A cohort's hours are a column of their own because that is the question the department
+ * asks of this table — not "how much does she teach" but "how much of L1 does she teach" —
+ * and it is the shape the timetable workbook has always had. Who the person is comes after
+ * the numbers: it is what the filter chips work on rather than what the eye reads across.
+ */
+export function hoursColumns(sheetTitles: string[]): GridColumn<LoadRow>[] {
+  return [
+    { id: "teacher", displayName: "Teacher", type: "text", accessor: (row) => row.teacher || "Nobody yet", required: true, defaultWidth: 240 },
+    { id: "standing", displayName: "Standing", type: "option", accessor: (row) => row.standing, defaultWidth: 130 },
+    { id: "total", displayName: "Total", type: "number", accessor: (row) => row.total, defaultWidth: 90 },
+    ...sheetTitles.map((title, index) => ({
+      id: `sheet:${title}`,
+      displayName: hoursColumn(title),
+      type: "number" as const,
+      accessor: (row: LoadRow) => row.bySheet[index] ?? 0,
+      defaultWidth: 100,
+    })),
+    ...LOAD_TYPES.map((type) => ({
+      id: `type:${type}`,
+      displayName: type,
+      type: "number" as const,
+      accessor: (row: LoadRow) => row.byType[type] ?? 0,
+      defaultWidth: 80,
+    })),
+    { id: "sections", displayName: "Sections", type: "number", accessor: (row) => row.sections, defaultWidth: 100 },
+    { id: "type", displayName: "Type", type: "option", accessor: (row) => row.active?.type ?? "", defaultWidth: 190 },
+    { id: "category", displayName: "Category", type: "option", accessor: (row) => row.active?.category ?? "", defaultWidth: 120 },
+    { id: "department", displayName: "Dept.", type: "option", accessor: (row) => row.active?.department ?? "", defaultWidth: 110 },
+    { id: "email", displayName: "E-mail", type: "text", accessor: (row) => row.active?.email ?? "", defaultWidth: 240 },
+  ];
+}
+
+/**
+ * Which columns are on screen to begin with: every cohort's, and the totals.
+ *
+ * A cohort column waiting in the picker is a cohort somebody forgets to count, so they are
+ * all shown however many there are. What waits is who the person is.
+ */
+export function shownHoursColumns(sheetTitles: string[]): string[] {
+  return [
+    "teacher",
+    "standing",
+    ...sheetTitles.map((title) => `sheet:${title}`),
+    ...LOAD_TYPES.map((type) => `type:${type}`),
+    "total",
+    "sections",
+  ];
 }

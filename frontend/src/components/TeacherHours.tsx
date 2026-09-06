@@ -1,19 +1,26 @@
 import { useQuery } from "@tanstack/react-query";
-import { Copy } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { LabelledPicker } from "@/components/LabelledPicker";
+import { ListGrid, StatePill } from "@/components/ListGrid";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { SelectMenu } from "@/components/SelectMenu";
+import type { TeacherRef } from "@/components/TeacherRecord";
 import { buildCards } from "@/services/courseCards";
-import { rowText } from "@/services/copyCells";
 import { fetchActiveCourses, fetchActiveCrns, fetchActiveTeachers } from "@/services/portalLists";
-import { hoursColumn, requestSheets } from "@/services/timetableExport";
-import { loadTotals, teacherLoads, type TeacherLoad } from "@/services/teacherLoad";
+import { requestSheets } from "@/services/timetableExport";
+import {
+  hoursColumn,
+  hoursColumns,
+  loadRows,
+  loadTotals,
+  shownHoursColumns,
+  teacherLoads,
+  type LoadRow,
+} from "@/services/teacherLoad";
+import type { GridColumn } from "@/services/studentColumns";
 import { fetchCohorts, fetchCourseCards } from "@/services/studentDatabase";
 import { fetchTimetableTerms } from "@/services/timetables";
-
-const TYPES = ["CM", "TD", "TP"];
 
 function Tile({ label, value, hint, alarm }: { label: string; value: string; hint?: string; alarm?: boolean }) {
   return (
@@ -25,25 +32,25 @@ function Tile({ label, value, hint, alarm }: { label: string; value: string; hin
   );
 }
 
-/** A count of hours, or a hyphen: a nought printed everywhere makes a table of noughts. */
-function Hours({ value, strong }: { value: number; strong?: boolean }) {
-  if (!value) return <span className="text-[#d5dce4]">—</span>;
-  return <span className={strong ? "font-semibold text-[#171717]" : "text-[#344054]"}>{value}</span>;
-}
-
 /**
  * What every teacher is carrying this semester.
  *
- * The same sheet the timetable workbook has carried for years — a row per teacher, a
- * column per cohort, then CM, TD and TP, then the total — computed from the same rows the
- * workbook is written from, so the two cannot disagree. It was only readable by building
- * the file and opening it; here it is on a page, while there is still time to move
- * something.
+ * The same count the timetable workbook's Teacher Hours sheet has carried for years — a row
+ * per teacher, a column per cohort, then CM, TD and TP, then the total — computed from the
+ * rows the workbook is written from, so the sheet and the screen cannot come apart. It was
+ * only readable by building the file and opening it; here it is while there is still time
+ * to move something.
  *
- * The hours nobody is teaching are the last row rather than left out, because a section
- * with hours and no teacher is the one thing on this page worth acting on today.
+ * On the same table as the students, so it sorts, filters and copies the way every other
+ * list here does — which is most of the point. "Which part-time teachers are over forty
+ * hours" is two chips on this table and an afternoon in the workbook.
+ *
+ * The hours nobody is teaching are a row rather than an omission. The sheet leaves them
+ * out, which is fair for a file the timetabler receives; on a page they are the thing
+ * worth finding, because a section with hours and no teacher is a class with nobody in
+ * front of it.
  */
-export function TeacherHours({ onOpenTeacher }: { onOpenTeacher?: (teacherId: string, name: string) => void }) {
+export function TeacherHours({ onOpenTeacher }: { onOpenTeacher?: (teacher: TeacherRef) => void }) {
   const catalogues = useQuery({ queryKey: ["course-cards"], queryFn: fetchCourseCards });
   const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, retry: false });
   const courses = useQuery({ queryKey: ["active-courses"], queryFn: fetchActiveCourses });
@@ -64,7 +71,6 @@ export function TeacherHours({ onOpenTeacher }: { onOpenTeacher?: (teacherId: st
   const termIds = useMemo(() => [...new Set(cards.map((card) => card.termId).filter(Boolean))], [cards]);
   const chosenTerm = termIds.includes(termId) ? termId : (termIds[0] ?? "");
 
-  const nameOf = (teacherId: string) => (teachers.data ?? []).find((teacher) => teacher.id === teacherId)?.fullName ?? "";
   const sheets = useMemo(
     () =>
       requestSheets(
@@ -75,29 +81,16 @@ export function TeacherHours({ onOpenTeacher }: { onOpenTeacher?: (teacherId: st
           const cohort = (cohorts.data ?? []).find((candidate) => candidate.id === cohortId);
           return cohort?.majors.join(" / ") || cohort?.name || "";
         },
-        nameOf,
+        (teacherId) => (teachers.data ?? []).find((teacher) => teacher.id === teacherId)?.fullName ?? "",
         (cohortId) => (cohorts.data ?? []).find((candidate) => candidate.id === cohortId) ?? { name: "" },
       ),
     [cards, chosenTerm, cohorts.data, teachers.data], // eslint-disable-line react-hooks/exhaustive-deps
   );
-  const loads = useMemo(() => teacherLoads(sheets), [sheets]);
-  const totals = loadTotals(loads);
-  const columns = sheets.map((sheet) => hoursColumn(sheet.title));
-
-  const copy = () => {
-    const lines = [rowText(["Teacher", ...columns, ...TYPES, "Total"])];
-    for (const load of loads) {
-      lines.push(
-        rowText([
-          load.teacher || "Nobody yet",
-          ...load.bySheet.map(String),
-          ...TYPES.map((type) => String(load.byType[type] ?? 0)),
-          String(load.total),
-        ]),
-      );
-    }
-    void navigator.clipboard?.writeText(lines.join("\n"));
-  };
+  const rows = useMemo(() => loadRows(teacherLoads(sheets), teachers.data ?? []), [sheets, teachers.data]);
+  const totals = loadTotals(rows);
+  const sheetTitles = useMemo(() => sheets.map((sheet) => sheet.title), [sheets]);
+  const columns = useMemo(() => hoursColumns(sheetTitles), [sheetTitles]);
+  const shown = useMemo(() => shownHoursColumns(sheetTitles), [sheetTitles]);
 
   if (catalogues.isLoading) return <ScreenLoading label="Adding up the hours…" />;
   if (catalogues.error) return <p role="alert" className="text-sm text-[#a6292f]">{(catalogues.error as Error).message}</p>;
@@ -109,11 +102,10 @@ export function TeacherHours({ onOpenTeacher }: { onOpenTeacher?: (teacherId: st
     );
   }
 
-  const cell = "px-3 py-2 text-right tabular-nums";
-
   return (
     <section>
-      <div className="flex flex-wrap items-end justify-between gap-4">
+      {/* The semester decides every number below it, so it is asked first. */}
+      <div className="mb-4">
         <LabelledPicker label="Semester">
           <SelectMenu
             label="Semester"
@@ -122,16 +114,9 @@ export function TeacherHours({ onOpenTeacher }: { onOpenTeacher?: (teacherId: st
             options={termIds.map((id) => ({ value: id, label: termName(id) }))}
           />
         </LabelledPicker>
-        <button
-          type="button"
-          onClick={copy}
-          className="inline-flex items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc]"
-        >
-          <Copy size={14} aria-hidden="true" /> Copy the numbers
-        </button>
       </div>
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Tile label="Teachers" value={String(totals.teachers)} hint="with hours this semester" />
         <Tile label="Hours in all" value={String(totals.hours)} hint={`across ${totals.sections} section${totals.sections === 1 ? "" : "s"}`} />
         <Tile
@@ -140,36 +125,29 @@ export function TeacherHours({ onOpenTeacher }: { onOpenTeacher?: (teacherId: st
           hint={totals.unnamed ? "hours with no teacher named" : "every section has somebody"}
           alarm={totals.unnamed > 0}
         />
-        <Tile label="Sheets" value={String(columns.length)} hint={columns.join(", ") || "none"} />
+        <Tile label="Cohorts" value={String(sheetTitles.length)} hint={sheetTitles.map(hoursColumn).join(", ") || "none"} />
       </div>
 
-      <div className="mt-4 overflow-x-auto rounded-lg border border-[#d9dee7] bg-white">
-        <table className="w-full min-w-[42rem] border-collapse text-sm">
-          <caption className="sr-only">Teacher hours for {termName(chosenTerm)}</caption>
-          <thead>
-            <tr className="border-b border-[#e4e8ef] text-xs font-semibold uppercase tracking-wide text-[#8a94a4]">
-              <th scope="col" className="px-3 py-2 text-left">Teacher</th>
-              {columns.map((column) => (
-                <th key={column} scope="col" className="px-3 py-2 text-right">{column}</th>
-              ))}
-              {TYPES.map((type) => (
-                <th key={type} scope="col" className="px-3 py-2 text-right">{type}</th>
-              ))}
-              <th scope="col" className="px-3 py-2 text-right">Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loads.map((load) => (
-              <Row
-                key={load.teacherId || load.teacher || "nobody"}
-                load={load}
-                columns={columns}
-                cell={cell}
-                onOpen={load.teacherId && onOpenTeacher ? () => onOpenTeacher(load.teacherId, load.teacher) : undefined}
-              />
-            ))}
-          </tbody>
-        </table>
+      <div className="mt-4">
+        <ListGrid
+          key={chosenTerm}
+          columns={columns}
+          rows={rows}
+          idOf={(row) => row.teacherId || row.teacher || "nobody"}
+          labelOf={(row) => row.teacher || "Nobody yet"}
+          layoutKey="scen-columns:teacher-hours:v1"
+          presetKey="scen-copy-presets:teacher-hours:v1"
+          shown={shown}
+          initialSort={{ key: "total", ascending: false }}
+          searchLabel="Search teachers"
+          noun="teachers"
+          empty="No hours this semester. A section's hours are set on Groups & CRNs."
+          renderCell={renderCell}
+          onRowClick={(row) => {
+            if (!row.teacher || !onOpenTeacher) return;
+            onOpenTeacher(row.active ?? { id: row.teacherId, fullName: row.teacher });
+          }}
+        />
       </div>
 
       <p className="mt-3 text-xs text-[#98a2b3]">
@@ -180,50 +158,25 @@ export function TeacherHours({ onOpenTeacher }: { onOpenTeacher?: (teacherId: st
   );
 }
 
-function Row({
-  load,
-  columns,
-  cell,
-  onOpen,
-}: {
-  load: TeacherLoad;
-  columns: string[];
-  cell: string;
-  onOpen?: () => void;
-}) {
-  const nobody = !load.teacher;
-  return (
-    <tr className={`border-b border-[#f2f4f7] last:border-0 ${nobody ? "bg-[#fdf9ee]" : "hover:bg-[#f8fafc]"}`}>
-      <th scope="row" className="px-3 py-2 text-left font-medium">
-        {onOpen ? (
-          <button type="button" onClick={onOpen} className="text-[#1f4e79] underline-offset-2 hover:underline">
-            {load.teacher}
-          </button>
-        ) : (
-          <span className={nobody ? "text-[#8a6116]" : "text-[#344054]"}>
-            {load.teacher || "Nobody yet"}
-            {!nobody && !load.teacherId ? (
-              <span className="ml-2 text-[11px] font-normal text-[#98a2b3]">not confirmed</span>
-            ) : null}
-          </span>
-        )}
-        <span className="ml-2 text-[11px] font-normal tabular-nums text-[#98a2b3]">
-          {load.sections} section{load.sections === 1 ? "" : "s"}
-        </span>
-      </th>
-      {columns.map((column, index) => (
-        <td key={column} className={cell}>
-          <Hours value={load.bySheet[index] ?? 0} />
-        </td>
-      ))}
-      {TYPES.map((type) => (
-        <td key={type} className={cell}>
-          <Hours value={load.byType[type] ?? 0} />
-        </td>
-      ))}
-      <td className={`${cell} ${nobody ? "text-[#8a6116]" : ""}`}>
-        <Hours value={load.total} strong />
-      </td>
-    </tr>
-  );
-}
+/*
+ * A nought is not a number worth printing.
+ *
+ * Every teacher is absent from most cohorts, so a table that prints its noughts is mostly
+ * noughts, and the eye has to read each one to find out it says nothing. A hyphen says the
+ * same thing and gets out of the way; the total is what the eye is running down.
+ */
+const renderCell = (row: LoadRow, column: GridColumn<LoadRow>) => {
+  // "Nobody yet" is the one that wants acting on; a name nobody has confirmed is only
+  // a name nobody has confirmed.
+  if (column.id === "standing") {
+    return (
+      <StatePill tone={row.standing === "Nobody yet" ? "bad" : row.standing === "Confirmed" ? "accent" : "muted"}>
+        {row.standing}
+      </StatePill>
+    );
+  }
+  if (column.type !== "number") return undefined;
+  const value = Number(column.accessor(row)) || 0;
+  if (!value) return <span className="text-[#d5dce4]">—</span>;
+  return <span className={column.id === "total" ? "font-semibold text-[#171717]" : undefined}>{value}</span>;
+};

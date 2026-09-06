@@ -55,14 +55,14 @@ export type GridColumn<T> = FilterColumn<T> &
 
 export type StudentColumn = GridColumn<StudentRow>;
 
-/**
- * The narrowest a column may be dragged.
+/*
+ * A column may be squeezed to nothing, and there is no floor to stop it.
  *
- * Not a judgement about how wide a column ought to be — a coordinator can squeeze any of
- * them down to a sliver — only enough that the resize handle stays catchable. At zero the
- * column vanishes and there is nothing left to grab to bring it back.
+ * There used to be one, so that the edge stayed catchable — but the edge overhangs the
+ * column it belongs to, so it is still there to grab at zero, and double-clicking it fits
+ * the column back to what is in it. The floor only stopped somebody putting a column out
+ * of the way without hiding it, which is a reasonable thing to want.
  */
-export const MIN_WIDTH = 28;
 
 /** Exactly what the Status cell shows, in the order it shows them. */
 export function statusPills(row: StudentRow): string[] {
@@ -287,7 +287,7 @@ export function reconcileLayout(
   const widths: Record<string, number> = {};
   for (const [id, width] of Object.entries(stored?.widths ?? {})) {
     const column = known.get(id);
-    if (column && Number.isFinite(width)) widths[id] = Math.max(MIN_WIDTH, Number(width));
+    if (column && Number.isFinite(width)) widths[id] = Math.max(0, Number(width));
   }
   return { order, hidden, widths };
 }
@@ -329,7 +329,7 @@ export function visibleColumns<C extends ColumnMeta>(layout: ColumnLayout, colum
 }
 
 export function widthOf(layout: ColumnLayout, column: ColumnMeta): number {
-  return Math.max(MIN_WIDTH, layout.widths[column.id] ?? column.defaultWidth);
+  return Math.max(0, layout.widths[column.id] ?? column.defaultWidth);
 }
 
 /** Move a column one place along the order, skipping over nothing. */
@@ -366,7 +366,7 @@ export function toggleColumn(layout: ColumnLayout, id: string, columns: ColumnMe
 export function resizeColumn(layout: ColumnLayout, id: string, width: number, columns: ColumnMeta[]): ColumnLayout {
   const column = columns.find((candidate) => candidate.id === id);
   if (!column) return layout;
-  return { ...layout, widths: { ...layout.widths, [id]: Math.max(MIN_WIDTH, Math.round(width)) } };
+  return { ...layout, widths: { ...layout.widths, [id]: Math.max(0, Math.round(width)) } };
 }
 
 /** A day, written the way a coordinator reads one. */

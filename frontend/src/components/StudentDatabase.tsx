@@ -282,7 +282,7 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
           ) : null}
           {page === "capacity" ? <CapacityPage /> : null}
           {page === "teacher-hours" ? (
-            <TeacherHours onOpenTeacher={(teacherId, fullName) => setTeacherRecord({ id: teacherId, fullName })} />
+            <TeacherHours onOpenTeacher={setTeacherRecord} />
           ) : null}
           {page === "courses" ? <PortalCourses /> : null}
           {page === "active-courses" ? <ActiveCourses /> : null}

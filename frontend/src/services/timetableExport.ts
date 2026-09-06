@@ -10,7 +10,9 @@
 
 import type { Card, SectionRow } from "@/services/courseCards";
 import { filled } from "@/services/courseRequest";
-import { teacherLoads } from "@/services/teacherLoad";
+import { hoursColumn, teacherLoads } from "@/services/teacherLoad";
+
+export { hoursColumn } from "@/services/teacherLoad";
 import { SPREADSHEET_TYPE, columnLetter } from "@/services/workbookExport";
 
 export const REQUEST_COLUMNS = [
@@ -248,11 +250,6 @@ export function semesterLabel(termName: string): string {
 export function asNumber(value: string | number): string | number {
   const text = String(value);
   return text && String(Number(text)) === text ? Number(text) : text;
-}
-
-/** "FYS-S1" → "FYS", "BSc-L1-S1" → "BSc L1": the Teacher Hours sheet's column for it. */
-export function hoursColumn(sheetTitle: string): string {
-  return sheetTitle.replace(/-S\d+$/i, "").replace(/-/g, " ");
 }
 
 /** The thin grey rule the request sheets draw around every cell. */
