@@ -341,7 +341,7 @@ function Summary({ preview }: { preview: TimetablePreview }) {
           ) : null}
           {summary.coursesAdded > 0 ? (
             <Note tone="warn" icon={AlertTriangle}>
-              {summary.coursesAdded} new course(s) have nobody enrolled yet. They stay empty until a block
+              {summary.coursesAdded} new course(s) have nobody enrolled yet. They stay empty until a set
               carries their CRN and the semester is published again.
             </Note>
           ) : null}

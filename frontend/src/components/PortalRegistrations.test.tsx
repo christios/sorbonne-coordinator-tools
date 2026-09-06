@@ -32,7 +32,7 @@ function renderPage() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
-      <PortalRegistrations cohorts={[FYS]} />
+      <PortalRegistrations filterId="" cohorts={[FYS]} />
     </QueryClientProvider>,
   );
 }

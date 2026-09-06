@@ -64,7 +64,7 @@ export function SemesterPublish({ term, onBack }: { term: TimetableTerm; onBack:
       <div className="rounded-lg border border-[#d9dee7] bg-white p-6">
         <h3 className="text-lg font-semibold text-[#171717]">Publish {term.name} to students</h3>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-[#667085]">
-          This sends what the blocks say: every student&rsquo;s group becomes the courses they see.
+          This sends what the sets say: every student&rsquo;s group becomes the courses they see.
           Publishing <b>replaces</b> what students have now, so anyone this application does not
           place in a group loses their timetable.
         </p>

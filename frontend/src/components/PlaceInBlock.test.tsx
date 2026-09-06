@@ -73,11 +73,11 @@ beforeEach(() => {
 
 afterEach(() => vi.restoreAllMocks());
 
-describe("placing students in a block", () => {
+describe("placing students in a group", () => {
   it("says how many are being placed, and into which cohort", () => {
     show();
 
-    expect(screen.getByText(/Place 2 students in a block/)).toBeTruthy();
+    expect(screen.getByText(/Place 2 students in a group/)).toBeTruthy();
     expect(screen.getByText(/Foundation Year/)).toBeTruthy();
   });
 
@@ -105,13 +105,13 @@ describe("placing students in a block", () => {
     await waitFor(() => expect(onPlaced).toHaveBeenCalled());
   });
 
-  it("can take students out of a block, which is not the same as leaving them alone", async () => {
+  it("can take students out of a set, which is not the same as leaving them alone", async () => {
     const assign = vi.spyOn(database, "assignStudents").mockResolvedValue({ assigned: 2, skipped: [] });
     const onPlaced = show();
 
     await pick("Semester", "Physics & Maths — Semester 1");
     await pick("Block", /TD/);
-    await pick("Group", /Take them out of this block/);
+    await pick("Group", /Take them out of this set/);
     fireEvent.click(screen.getByRole("button", { name: /Take them out/ }));
 
     await waitFor(() => expect(assign).toHaveBeenCalledWith("scope-td", expect.any(Array), null));
@@ -119,7 +119,7 @@ describe("placing students in a block", () => {
     expect(onPlaced).toHaveBeenCalledWith(expect.objectContaining({ removed: true }));
   });
 
-  it("forgets the block and group when the semester changes", async () => {
+  it("forgets the set and group when the semester changes", async () => {
     // The bug this pins: block and group ids belong to one semester. Left standing, a
     // semester switch would place students into the semester they stopped looking at.
     show();
@@ -132,15 +132,15 @@ describe("placing students in a block", () => {
     await pick("Semester", "Physics & Maths — Semester 2");
 
     expect((screen.getByRole("button", { name: /Place 2/ }) as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByRole("combobox", { name: "Block" }).textContent).toContain("Which block");
+    expect(screen.getByRole("combobox", { name: "Block" }).textContent).toContain("Which set");
   });
 
-  it("says so when the cohort has no blocks in that semester yet", async () => {
+  it("says so when the cohort has no sets in that semester yet", async () => {
     vi.spyOn(database, "fetchCatalogue").mockResolvedValue({ scopes: [] });
     show();
 
     await pick("Semester", "Physics & Maths — Semester 1");
 
-    expect(await screen.findByText(/has no blocks in this semester yet/)).toBeTruthy();
+    expect(await screen.findByText(/has no sets in this semester yet/)).toBeTruthy();
   });
 });

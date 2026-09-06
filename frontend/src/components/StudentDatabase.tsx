@@ -15,6 +15,7 @@ import { CourseCards } from "@/components/CourseCards";
 import { DiscrepancyRulesEditor } from "@/components/DiscrepancyRulesEditor";
 import { PlatformNotConfigured } from "@/components/PlatformNotConfigured";
 import { PortalCourses } from "@/components/PortalCourses";
+import { PortalFilterBar } from "@/components/PortalFilterBar";
 import { PortalRegistrations } from "@/components/PortalRegistrations";
 import { PortalTeachers } from "@/components/PortalTeachers";
 import { ScreenLoading } from "@/components/ScreenLoading";
@@ -72,6 +73,9 @@ function pageOf(hash: string): PageId {
 }
 
 // A blurb is optional: the Students page explains itself through the view picker.
+/** Where the Course Registration page's portal filter is remembered, as its page had it. */
+const REGISTRATION_FILTER = "scen-portal-filter:registrations";
+
 const TITLES: Record<PageId, { title: string; blurb?: string }> = {
   students: {
     title: "Students",
@@ -177,6 +181,19 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
   });
 
   const [viewId, setViewId] = useState("");
+  /*
+   * Which portal filter Course Registration reads.
+   *
+   * Held here rather than on that page because the control that chooses it belongs on the
+   * title's line, beside the page's name, and that line is this component's.
+   */
+  const [registrationFilter, setRegistrationFilter] = useState(() => {
+    try {
+      return window.localStorage.getItem(REGISTRATION_FILTER) ?? "";
+    } catch {
+      return "";
+    }
+  });
   // The teacher whose record is open, whichever list or page asked for it.
   const [teacherRecord, setTeacherRecord] = useState<TeacherRef | null>(null);
   // A cohort and some of its students, when Groups & CRNs sends them to be placed.
@@ -240,6 +257,20 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
             {page === "students" ? (
               <ViewBar views={available} viewId={viewId} onChoose={setViewId} />
             ) : null}
+            {page === "registrations" ? (
+              <PortalFilterBar
+                kind="registrations"
+                filterId={registrationFilter}
+                onChoose={(id) => {
+                  setRegistrationFilter(id);
+                  try {
+                    window.localStorage.setItem(REGISTRATION_FILTER, id);
+                  } catch {
+                    // A filter that cannot be remembered is still a filter.
+                  }
+                }}
+              />
+            ) : null}
             {page === "cohorts" ? (
               <button
                 type="button"
@@ -288,7 +319,9 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
           {page === "active-courses" ? <ActiveCourses /> : null}
           {page === "teachers" ? <PortalTeachers onOpenTeacher={setTeacherRecord} /> : null}
           {page === "active-teachers" ? <ActiveTeachers onOpenTeacher={setTeacherRecord} /> : null}
-          {page === "registrations" && !cohorts.isLoading ? <PortalRegistrations cohorts={knownCohorts} /> : null}
+          {page === "registrations" && !cohorts.isLoading ? (
+            <PortalRegistrations cohorts={knownCohorts} filterId={registrationFilter} />
+          ) : null}
           {page === "registrations" && cohorts.isLoading ? <ScreenLoading label="Loading cohorts…" /> : null}
           {page === "group-schema" && cohorts.isLoading ? <ScreenLoading label="Loading cohorts…" /> : null}
           {page === "group-schema" && !cohorts.isLoading ? (

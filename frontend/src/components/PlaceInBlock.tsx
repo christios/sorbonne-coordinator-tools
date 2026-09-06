@@ -71,8 +71,8 @@ export function PlaceInBlock({
   return (
     <Modal
       open={open}
-      title={`Place ${studentIds.length} student${studentIds.length === 1 ? "" : "s"} in a block`}
-      description={`${cohort.name} · a student holds one group per block, so this replaces whatever they hold now.`}
+      title={`Place ${studentIds.length} student${studentIds.length === 1 ? "" : "s"} in a group`}
+      description={`${cohort.name} · a student holds one group per set, so this replaces whatever they hold now.`}
       onClose={onClose}
       footer={
         <div className="flex items-center justify-end gap-3">
@@ -103,7 +103,7 @@ export function PlaceInBlock({
         <SelectMenu
           label="Block"
           value={scopeId}
-          placeholder={termId ? "Which block…" : "Choose a semester first"}
+          placeholder={termId ? "Which set…" : "Choose a semester first"}
           options={scopes.map((candidate) => ({
             value: candidate.id,
             label: candidate.name ? `${candidate.code} · ${candidate.name}` : candidate.code,
@@ -116,7 +116,7 @@ export function PlaceInBlock({
         <SelectMenu
           label="Group"
           value={groupId}
-          placeholder={scopeId ? "Which group…" : "Choose a block first"}
+          placeholder={scopeId ? "Which group…" : "Choose a set first"}
           options={[
             ...(scope?.groups ?? []).map((group) => ({
               value: group.id,
@@ -129,7 +129,7 @@ export function PlaceInBlock({
                   : undefined,
               badgeTone: group.capacity && group.assigned >= group.capacity ? ("muted" as const) : undefined,
             })),
-            ...(scopeId ? [{ value: OUT, label: "Take them out of this block" }] : []),
+            ...(scopeId ? [{ value: OUT, label: "Take them out of this set" }] : []),
           ]}
           onChange={setGroupId}
           disabled={!scopeId}
@@ -139,7 +139,7 @@ export function PlaceInBlock({
           <p className="flex items-start gap-2 rounded-md border border-[#e8d9ac] bg-[#fdf9ee] px-4 py-3 text-sm leading-6 text-[#8a6116]">
             <AlertTriangle size={16} className="mt-0.5 shrink-0" aria-hidden="true" />
             <span>
-              {cohort.name} has no blocks in this semester yet. Define them in Groups &amp; CRNs, or
+              {cohort.name} has no sets in this semester yet. Define them on Group schema, or
               upload the group workbook, before placing anybody.
             </span>
           </p>

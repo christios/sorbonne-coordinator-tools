@@ -14,6 +14,7 @@ import { ScreenLoading } from "@/components/ScreenLoading";
 import { StudentHistoryPane } from "@/components/StudentHistoryPane";
 import { StudentRecord } from "@/components/StudentRecord";
 import { StudentTable, cellText, type Sort } from "@/components/StudentTable";
+import { MoveToCohort } from "@/components/MoveToCohort";
 import { SelectionFloating, type SelectionActionsProps } from "@/components/SelectionActions";
 import { TableFilterBar } from "@/components/TableFilterBar";
 import { costOfMove, describeCost } from "@/services/cohortMove";
@@ -53,7 +54,6 @@ import {
 } from "@/services/studentDatabase";
 
 /** Where a student goes when the picker is used, with "no cohort" as a real choice. */
-const NO_COHORT = "__none__";
 /** Making one is a way of moving into one, so it lives in the same picker. */
 const NEW_COHORT = "__new__";
 
@@ -158,7 +158,6 @@ export function StudentRoster({
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<Sort>(defaultSort ?? { key: "studentId", ascending: true });
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [moveTo, setMoveTo] = useState("");
   const [confirmForget, setConfirmForget] = useState(false);
   /*
    * What the portal last said about each student, from whichever view asked most
@@ -246,6 +245,8 @@ export function StudentRoster({
   const [naming, setNaming] = useState(false);
   const [newName, setNewName] = useState("");
   const [placing, setPlacing] = useState(false);
+  // Which cohort these students should be in — asked in a dialog, like where they sit.
+  const [moving, setMoving] = useState(false);
   const [placed, setPlaced] = useState<(PlacementReport & { removed: boolean }) | null>(null);
 
   /*
@@ -284,10 +285,9 @@ export function StudentRoster({
       await setCohort([...selected], created.id);
       return created;
     },
-    onSuccess: (created) => {
+    onSuccess: () => {
       setNaming(false);
       setNewName("");
-      setMoveTo(created.id);
       setSelected(new Set());
       client.invalidateQueries({ queryKey: ["students"] });
       client.invalidateQueries({ queryKey: ["cohorts"] });
@@ -306,7 +306,6 @@ export function StudentRoster({
       setCohort(ids, cohortId),
     onSuccess: () => {
       setSelected(new Set());
-      setMoveTo("");
       setConfirmMove(null);
       client.invalidateQueries({ queryKey: ["students"] });
       client.invalidateQueries({ queryKey: ["cohorts"] });
@@ -440,26 +439,16 @@ export function StudentRoster({
   const cohortOfSelection = cohorts.find((candidate) => candidate.id === placeInto) ?? null;
   const error = move.error ?? students.error;
 
-  /** The same controls and the same handlers, whichever of the three shapes is on. */
+  /** What the bar over the foot of the table offers, and what each of them opens. */
   const selectionActions: SelectionActionsProps = {
     count: chosen.length,
-    cohorts,
-    moveTo,
-    onMoveTo: setMoveTo,
-    onNewCohort: () => {
-      setNewName("");
-      setNaming(true);
-    },
-    onMove: () => requestMove(moveTo === NO_COHORT ? null : moveTo),
-    moving: move.isPending,
+    onMove: () => setMoving(true),
     canPlace: Boolean(cohortOfSelection),
     onPlace: () => {
       setPlaced(null);
       setPlacing(true);
     },
     onClear: () => setSelected(new Set()),
-    newCohortValue: NEW_COHORT,
-    noCohortValue: NO_COHORT,
   };
 
   return (
@@ -471,6 +460,23 @@ export function StudentRoster({
       ) : null}
 
       <SelectionFloating {...selectionActions} />
+
+      <MoveToCohort
+        open={moving}
+        count={chosen.length}
+        cohorts={cohorts}
+        busy={move.isPending}
+        onMove={(cohortId) => {
+          setMoving(false);
+          requestMove(cohortId);
+        }}
+        onNewCohort={() => {
+          setMoving(false);
+          setNewName("");
+          setNaming(true);
+        }}
+        onClose={() => setMoving(false)}
+      />
 
       {placed ? (
         <p className="mt-2 rounded-md border border-[#bfdcc6] bg-[#f4faf5] px-4 py-2.5 text-sm text-[#2f6b3d]">

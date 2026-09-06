@@ -149,7 +149,7 @@ export function FillBlock({
     <Modal
       open={open}
       title={`Fill ${scope.code}`}
-      description={`${cohort.name} · everyone not yet in this block. Nobody already placed moves.`}
+      description={`${cohort.name} · everyone not yet in this set. Nobody already placed moves.`}
       onClose={onClose}
       footer={
         <div className="flex items-center justify-end gap-3">
@@ -189,7 +189,7 @@ export function FillBlock({
           </Note>
         ) : null}
         {policy === "packed" && scope.groups.every((group) => !group.capacity) ? (
-          <Note>No group in this block has a capacity, so packed puts everyone in the first group.</Note>
+          <Note>No group in this set has a capacity, so packed puts everyone in the first group.</Note>
         ) : null}
 
         {clashes === null ? (

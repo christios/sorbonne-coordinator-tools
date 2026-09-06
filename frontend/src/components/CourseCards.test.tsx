@@ -78,10 +78,12 @@ describe("the course cards", () => {
 
     // The list is names and a count; the first course is shown without being asked for.
     const courses = await screen.findByRole("navigation", { name: "Courses" });
-    // The list is the courses; the two ways to bring a course in sit under them.
+    // The list is the courses, and the way to bring one in sits under them. The files are
+    // the cohort's rather than the list's, so they live up beside the cohort picker.
     const names = within(courses).getAllByRole("button").map((item) => item.textContent ?? "");
     expect(names.slice(0, 2).map((name) => name.slice(0, 7))).toEqual(["MATH001", "MATH011"]);
-    expect(names.slice(2)).toEqual([" Add from portal", " Workbook and lists"]);
+    expect(names.slice(2)).toEqual([" Add from portal"]);
+    expect(screen.getByRole("button", { name: /Workbook and lists/ })).toBeTruthy();
     expect(screen.getByText("2 courses · 1 cohort-semester")).toBeTruthy();
 
     const detail = screen.getByRole("heading", { name: "MATH001" }).closest("section") as HTMLElement;

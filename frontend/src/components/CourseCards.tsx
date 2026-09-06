@@ -279,7 +279,7 @@ export function CourseCards({
 
   return (
     <section>
-      <div className="mb-3 flex flex-wrap items-end gap-3">
+      <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
         <LabelledPicker label="Cohort">
           <SelectMenu
             label="Cohort"
@@ -294,6 +294,18 @@ export function CourseCards({
             }))}
           />
         </LabelledPicker>
+
+        {/*
+          * The files are one cohort's and one semester's, so they belong on the line where
+          * the cohort is chosen rather than at the foot of a list of courses.
+          */}
+        <button
+          type="button"
+          onClick={() => setTools(true)}
+          className="inline-flex items-center gap-2 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc]"
+        >
+          <FileSpreadsheet size={15} aria-hidden="true" /> Workbook and lists
+        </button>
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -341,9 +353,9 @@ export function CourseCards({
               </>
             ) : null}
             {/*
-              * Where courses come from, at the foot of the list of them. They were toolbar
-              * buttons sitting above a page they had nothing to do with; a course arrives
-              * in this list, so the way to bring one in belongs at the end of it.
+              * Where a course comes from, at the foot of the list of them: a course arrives
+              * in this list, so the way to bring one in belongs at the end of it. The files
+              * do not — they are the cohort's, and they sit with the cohort picker.
               */}
             <div className="mt-2 space-y-1 border-t border-[#eef1f5] px-1 pt-2">
               <button
@@ -352,13 +364,6 @@ export function CourseCards({
                 className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]"
               >
                 <Plus size={15} aria-hidden="true" /> Add from portal
-              </button>
-              <button
-                type="button"
-                onClick={() => setTools(true)}
-                className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm font-medium text-[#667085] hover:bg-[#f6f8fb]"
-              >
-                <FileSpreadsheet size={15} aria-hidden="true" /> Workbook and lists
               </button>
             </div>
           </nav>

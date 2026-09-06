@@ -1,64 +1,43 @@
 import { FolderInput, LayoutGrid, X } from "lucide-react";
 
-import { SelectMenu } from "@/components/SelectMenu";
-import type { Cohort } from "@/services/studentDatabase";
-
 export type SelectionActionsProps = {
   count: number;
-  cohorts: Cohort[];
-  /** The cohort the Move button would move them to; "" until one is picked. */
-  moveTo: string;
-  onMoveTo: (value: string) => void;
-  onNewCohort: () => void;
+  /** Open the dialog that asks which cohort. */
   onMove: () => void;
-  moving: boolean;
-  /** False when the selection spans cohorts, since a block belongs to one. */
+  /** False when the selection spans cohorts, since a group belongs to one. */
   canPlace: boolean;
   onPlace: () => void;
   onClear: () => void;
-  /** What every variant calls the two special entries of the Move dropdown. */
-  newCohortValue: string;
-  noCohortValue: string;
 };
 
-const PLACE_HINT = "Blocks belong to one cohort — select students who share one";
+const PLACE_HINT = "A group belongs to one cohort — select students who share one";
 
-/** The Move dropdown, the Move button and the Place button. */
+/**
+ * The two things that can be done, as two buttons.
+ *
+ * One of them used to be a dropdown and a button, and the other a button — the same kind
+ * of question asked two different ways, for no reason but the order they were written in.
+ * Both open a dialog; neither decides anything from the bar itself.
+ */
 function Controls({ props }: { props: SelectionActionsProps }) {
-  const { count, cohorts, moveTo, onMoveTo, onNewCohort, onMove, moving, canPlace, onPlace, newCohortValue, noCohortValue } = props;
   return (
     <>
-      <div className="w-56">
-        <SelectMenu
-          label="Move to cohort"
-          value={moveTo}
-          placeholder="Move to cohort…"
-          searchable={cohorts.length > 12}
-          options={[
-            ...cohorts.map((cohort) => ({ value: cohort.id, label: cohort.name })),
-            { value: newCohortValue, label: "New cohort…" },
-            { value: noCohortValue, label: "Take out of their cohort" },
-          ]}
-          onChange={(value) => (value === newCohortValue ? onNewCohort() : onMoveTo(value))}
-          disabled={!count}
-        />
-      </div>
       <button
         type="button"
-        disabled={!count || !moveTo || moving}
-        onClick={onMove}
-        className={`inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-3 py-1.5 font-semibold text-white disabled:opacity-50`}
+        disabled={!props.count}
+        onClick={props.onMove}
+        className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-3 py-1.5 font-semibold text-white disabled:opacity-50"
       >
-        <FolderInput size={15} aria-hidden="true" /> {count ? `Move ${count}` : "Move"}
+        <FolderInput size={15} aria-hidden="true" /> Move to cohort…
       </button>
       <button
         type="button"
-        disabled={!canPlace}
-        title={count && !canPlace ? PLACE_HINT : undefined}
-        onClick={onPlace}
-        className={`inline-flex items-center gap-2 rounded-md border border-[#b7bec8] bg-white px-3 py-1.5 font-semibold text-[#344054] disabled:opacity-50`}
+        disabled={!props.canPlace}
+        title={props.count && !props.canPlace ? PLACE_HINT : undefined}
+        onClick={props.onPlace}
+        className="inline-flex items-center gap-2 rounded-md border border-[#b7bec8] bg-white px-3 py-1.5 font-semibold text-[#344054] disabled:opacity-50"
       >
-        <LayoutGrid size={15} aria-hidden="true" /> Place in a block…
+        <LayoutGrid size={15} aria-hidden="true" /> Place in a group…
       </button>
     </>
   );

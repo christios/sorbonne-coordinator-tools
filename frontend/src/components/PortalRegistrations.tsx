@@ -2,7 +2,6 @@ import { useQueries, useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { LabelledPicker } from "@/components/LabelledPicker";
-import { PortalFilterBar } from "@/components/PortalFilterBar";
 import { SelectMenu } from "@/components/SelectMenu";
 import { StudentRoster } from "@/components/StudentRoster";
 import { registrationWarnings, type Warning } from "@/services/discrepancies";
@@ -16,8 +15,6 @@ import {
 } from "@/services/portalLists";
 import { describeAge, latestPullAt } from "@/services/rosterStore";
 import type { Cohort } from "@/services/studentDatabase";
-
-const FILTER_KEY = "scen-portal-filter:registrations";
 
 /** How many of a cohort's students the registrar has differently, dismissals aside. */
 const flaggedIn = (mismatches: Mismatch[], dismissed: Set<string>) =>
@@ -53,17 +50,22 @@ function describeKinds(mismatches: Mismatch[]): string {
  * as ids and CRNs. The pull that feeds it is here too: the portal's Student Courses list,
  * whose names never leave this tab.
  */
-export function PortalRegistrations({ cohorts }: { cohorts: Cohort[] }) {
+export function PortalRegistrations({
+  cohorts,
+  filterId,
+}: {
+  cohorts: Cohort[];
+  /**
+   * Which portal filter this page reads, chosen by the page above.
+   *
+   * The control that chooses it belongs on the title's line, beside the page's name, the
+   * way the Students page has always had it — and that line is the shell's, not ours.
+   */
+  filterId: string;
+}) {
   const [cohortId, setCohortId] = useState("");
   const [dismissed, setDismissed] = useState<Set<string>>(() => loadDismissed());
   const [showDismissed, setShowDismissed] = useState(false);
-  const [filterId, setFilterId] = useState(() => {
-    try {
-      return window.localStorage.getItem(FILTER_KEY) ?? "";
-    } catch {
-      return "";
-    }
-  });
   const filters = useQuery({ queryKey: ["portal-filters", "registrations"], queryFn: () => fetchPortalFilters("registrations") });
   const asOf = useQuery({ queryKey: ["latest-pull-at"], queryFn: latestPullAt });
   const chosen: PortalFilter | null = (filters.data ?? []).find((candidate) => candidate.id === filterId) ?? null;
@@ -120,27 +122,13 @@ export function PortalRegistrations({ cohorts }: { cohorts: Cohort[] }) {
 
   return (
     <section>
-      <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
-        <p className="max-w-xl text-sm text-[#667085]">
-          Every section they were placed in, and nothing else. The comparison is made on ids and CRNs; the
-          names a pull carries stay in this tab.
-          {chosen
-            ? ` ${chosen.held} student${chosen.held === 1 ? "" : "s"} held for ${chosen.name}${chosen.lastSyncedAt ? "" : ", never synced"}.`
-            : ""}
-        </p>
-        <PortalFilterBar
-          kind="registrations"
-          filterId={filterId}
-          onChoose={(id) => {
-            setFilterId(id);
-            try {
-              window.localStorage.setItem(FILTER_KEY, id);
-            } catch {
-              // fine
-            }
-          }}
-        />
-      </div>
+      <p className="mb-4 max-w-3xl text-sm text-[#667085]">
+        Every section they were placed in, and nothing else. The comparison is made on ids and CRNs; the
+        names a pull carries stay in this tab.
+        {chosen
+          ? ` ${chosen.held} student${chosen.held === 1 ? "" : "s"} held for ${chosen.name}${chosen.lastSyncedAt ? "" : ", never synced"}.`
+          : ""}
+      </p>
 
       <div className="flex flex-wrap items-end gap-x-5 gap-y-3">
         <LabelledPicker label="Cohort">

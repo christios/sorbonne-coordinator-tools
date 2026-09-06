@@ -135,7 +135,6 @@ describe("the Cohorts page", () => {
     // The year is its own pill beside the name, not part of it: no dash joins the two.
     expect(await screen.findByRole("option", { name: /L1 Maths\s*academic year\s*2026-27\s*1$/ })).toBeTruthy();
     expect(screen.queryByRole("option", { name: /L1 Maths — 2026-27/ })).toBeNull();
-    expect(screen.getByRole("option", { name: /Not in any cohort\s*1$/ })).toBeTruthy();
   });
 
   it("offers each warning as a filter value, the way groups are", async () => {
@@ -203,31 +202,6 @@ describe("the Cohorts page", () => {
 
     expect(await screen.findByText(/As of this browser's last sync/)).toBeTruthy();
     expect(screen.getByText(/This cohort expects major Applied Mathematics and Physics, year level L1/)).toBeTruthy();
-  });
-
-  it("lists the unplaced under “Not in any cohort”, flagging those who look fine", async () => {
-    vi.spyOn(database, "fetchStudents").mockResolvedValue([
-      student("A001", null, ""),
-      student("A002", null, ""),
-      student("A003", "c1"),
-    ]);
-    vi.spyOn(database, "fetchDiscrepancyRules").mockResolvedValue([IS_WITHDRAWN]);
-    await portalSays([
-      { SPRIDEN_ID: "A001", FULL_NAME: "Amira Haddad", STST_CODE: "AS" },
-      { SPRIDEN_ID: "A002", FULL_NAME: "Karim Nasser", STST_CODE: "WD" },
-      { SPRIDEN_ID: "A003", FULL_NAME: "Nadia Newcomer", STST_CODE: "AS" },
-    ]);
-
-    renderPage();
-    fireEvent.click(await screen.findByRole("combobox", { name: "Cohort" }));
-    fireEvent.click(await screen.findByRole("option", { name: /Not in any cohort/ }));
-
-    await screen.findByText("Amira Haddad");
-    expect(within(rowOf("Amira Haddad")).getByText(/in no cohort, and nothing about them/)).toBeTruthy();
-    // Karim is unplaced too, so he is listed — but withdrawn, so not a candidate.
-    expect(within(rowOf("Karim Nasser")).queryByText(/in no cohort/)).toBeNull();
-    // Nadia is placed, so she is not on this list at all.
-    expect(screen.queryByText("Nadia Newcomer")).toBeNull();
   });
 
   it("dismisses a warning from its row, remembers it, and can bring it back", async () => {

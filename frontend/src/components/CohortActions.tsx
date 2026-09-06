@@ -293,7 +293,7 @@ export function CohortActions({
       <ConfirmDialog
         open={deleting}
         title="Delete this cohort?"
-        description={`${cohort.name}, its ${cohort.memberCount} member(s) and its ${cohort.scopeCount} block(s) will be removed, in every semester. The students themselves stay — they simply belong to no cohort. This cannot be undone.`}
+        description={`${cohort.name}, its ${cohort.memberCount} member(s) and its ${cohort.scopeCount} group set(s) will be removed, in every semester. The students themselves stay — they simply belong to no cohort. This cannot be undone.`}
         confirmLabel="Delete cohort"
         onConfirm={() => remove.mutate()}
         onClose={() => setDeleting(false)}

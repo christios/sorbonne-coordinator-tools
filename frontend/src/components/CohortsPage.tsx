@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { CohortActions } from "@/components/CohortActions";
 import { DiscrepancyRulesEditor } from "@/components/DiscrepancyRulesEditor";
 import { LabelledPicker } from "@/components/LabelledPicker";
+import { NewCohort } from "@/components/NewCohort";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { SelectMenu } from "@/components/SelectMenu";
 import { StudentRoster } from "@/components/StudentRoster";
@@ -16,7 +17,6 @@ import {
   rulesFor,
   sharedRules,
   unjudgeable,
-  unplacedWarnings,
   warningsForCohort,
   type Arrival,
   type Change,
@@ -29,9 +29,6 @@ import { allChanges } from "@/services/pullHistory";
 import { describeAge, latestPullAt, rowsHeld } from "@/services/rosterStore";
 import { displayNameOf, fetchSchema, studentIdOf, type RosterRow } from "@/services/scenRosters";
 import { fetchDiscrepancyRules, fetchStudents, type Cohort, type Student } from "@/services/studentDatabase";
-
-/** The picker's entry for the reverse check: students the department has nowhere for. */
-export const UNPLACED = "__unplaced__";
 
 /** This browser's evidence: what the portal last said, and every change it has recorded. */
 type Evidence = {
@@ -50,7 +47,7 @@ function judge(
   rules: Rule[],
   evidence: Evidence,
   options: Options,
-): { byCohort: Map<string, Warning[]>; unplaced: Warning[]; arrivals: Map<string, Arrival[]> } {
+): { byCohort: Map<string, Warning[]>; arrivals: Map<string, Arrival[]> } {
   const placed = students.map((student) => ({ studentId: student.studentId, cohortId: student.cohortId, cohortSince: student.cohortSince }));
   // The status is this application's, so it joins the portal's fields here rather than in
   // a pull. A student this browser holds no row for is still nothing to judge by — unless
@@ -71,7 +68,7 @@ function judge(
     byCohort.set(cohort.id, warningsForCohort({ cohort, students: placed, rules: own, current, changes, options }));
     arrivals.set(cohort.id, arrivalsFor({ cohort, rules: own, students: placed, current, changes, options }));
   }
-  return { byCohort, unplaced: unplacedWarnings({ students: placed, rules: sharedRules(rules), current, options }), arrivals };
+  return { byCohort, arrivals };
 }
 
 /**
@@ -161,7 +158,7 @@ export function CohortsPage({
   const byStudent = useMemo(() => {
     const out = new Map<string, Warning[]>();
     if (!judged) return out;
-    const own = cohortId === UNPLACED ? judged.unplaced : (judged.byCohort.get(cohortId) ?? []);
+    const own = judged.byCohort.get(cohortId) ?? [];
     for (const warning of own) {
       const marked = dismissed.has(warning.key) ? { ...warning, dismissed: true } : warning;
       out.set(warning.studentId, [...(out.get(warning.studentId) ?? []), marked]);
@@ -201,10 +198,7 @@ export function CohortsPage({
   const flaggedStudents = flaggedIn(all);
   const unjudged = new Set(all.filter((warning) => warning.kind === "no_baseline").map((w) => w.studentId)).size;
   const dismissedCount = all.filter((warning) => warning.dismissed).length;
-  const unplacedCount = students.data ? students.data.filter((student) => !student.cohortId).length : 0;
-  const population = students.data
-    ? students.data.filter((student) => (cohortId === UNPLACED ? !student.cohortId : student.cohortId === cohortId)).length
-    : 0;
+  const population = students.data ? students.data.filter((student) => student.cohortId === cohortId).length : 0;
   const arrivals = cohort ? (judged?.arrivals.get(cohort.id) ?? []).filter((arrival) => !dismissed.has(arrival.key)) : [];
   const applied = cohort ? rulesFor(rules.data ?? [], cohort.id) : sharedRules(rules.data ?? []);
   const ownRules = cohort ? (rules.data ?? []).filter((rule) => rule.cohortId === cohort.id) : [];
@@ -246,18 +240,13 @@ export function CohortsPage({
                   alert: flagged ? `${flagged} flagged` : undefined,
                 };
               }),
-              {
-                value: UNPLACED,
-                label: "Not in any cohort",
-                badge: String(unplacedCount),
-                badgeTone: unplacedCount ? ("accent" as const) : ("muted" as const),
-                alert: judged?.unplaced.length ? `${flaggedIn(judged.unplaced)} flagged` : undefined,
-              },
             ]}
           />
         </LabelledPicker>
         {/* The cohort's own settings — name, year, and what it expects — beside the cohort they act on. */}
         {cohort ? <CohortActions key={cohort.id} cohort={cohort} /> : null}
+        {/* Making one, which until now could only happen as a side effect of moving students. */}
+        <NewCohort onCreated={(created) => setCohortId(created.id)} />
 
         {/* This cohort's own rules; the shared ones have their button at the page's title. */}
         {cohort ? (
@@ -281,11 +270,11 @@ export function CohortsPage({
           : "This browser has never synced, so there is nothing to judge against. "}
         {expects.length ? (
           <>This cohort expects {expects.join(", ")}. </>
-        ) : cohortId !== UNPLACED ? (
+        ) : (
           "This cohort states no major, term or year level, so it is judged on status alone. "
-        ) : null}
+        )}
         {flaggedStudents
-          ? `${flaggedStudents} of ${population} ${cohortId === UNPLACED ? "unplaced students" : "students"} flagged.`
+          ? `${flaggedStudents} of ${population} students flagged.`
           : applied.length
             ? `Nothing to flag among ${population}.`
             : "No rules apply here — nothing counts as a discrepancy until you add one."}
@@ -334,7 +323,7 @@ export function CohortsPage({
           cohorts={cohorts}
           viewId=""
           preselect={cohortId === focus?.cohortId ? focus.studentIds : []}
-          scope={{ cohortId: cohortId === UNPLACED ? null : cohortId }}
+          scope={{ cohortId }}
           warningsFor={warningsFor}
           onDismissWarning={onDismissWarning}
           defaultSort={{ key: "warnings", ascending: false }}
@@ -407,7 +396,7 @@ function ArrivalsBanner({
           {open ? "Show fewer" : `Show all ${arrivals.length}`}
         </button>
       ) : null}
-      <p className="mt-1.5 pl-6 text-xs text-[#5b7a9a]">Find them under “Not in any cohort” or their current cohort, and move them from the Students table — or dismiss the line if they are out on purpose.</p>
+      <p className="mt-1.5 pl-6 text-xs text-[#5b7a9a]">Find them in their current cohort, or on the Students table where a blank Cohort column is a filter of its own, and move them from there — or dismiss the line if they are out on purpose.</p>
     </div>
   );
 }

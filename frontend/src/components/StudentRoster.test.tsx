@@ -154,6 +154,11 @@ async function choose(label: string, option: string | RegExp) {
   fireEvent.click(await screen.findByRole("option", { name: option }));
 }
 
+/** The bar over the foot of the table asks which cohort in a dialog, as placing does. */
+async function openMove() {
+  fireEvent.click(await screen.findByRole("button", { name: "Move to cohort…" }));
+}
+
 function rowFor(name: string): HTMLElement {
   return screen.getByText(name).closest("tr") as HTMLElement;
 }
@@ -450,7 +455,8 @@ describe("StudentRoster", () => {
 
     fireEvent.click(screen.getByLabelText("Select Karim Nasser"));
     fireEvent.click(screen.getByLabelText("Select Nadia Newcomer"));
-    await choose("Move to cohort", "L1");
+    await openMove();
+    await choose("Move to cohort", /^L1\b/);
     fireEvent.click(screen.getByRole("button", { name: /Move 2/ }));
 
     await waitFor(() => expect(move).toHaveBeenCalled());
@@ -469,7 +475,8 @@ describe("StudentRoster", () => {
     await screen.findByText("Amira Haddad");
 
     fireEvent.click(screen.getByLabelText("Select Karim Nasser"));
-    await choose("Move to cohort", "L1");
+    await openMove();
+    await choose("Move to cohort", /^L1\b/);
     fireEvent.click(screen.getByRole("button", { name: /Move 1/ }));
 
     await waitFor(() => expect(move).toHaveBeenCalled());
@@ -498,7 +505,8 @@ describe("StudentRoster", () => {
     await screen.findByText("Amira Haddad");
 
     fireEvent.click(screen.getByLabelText("Select Amira Haddad"));
-    await choose("Move to cohort", "L1");
+    await openMove();
+    await choose("Move to cohort", /^L1\b/);
     fireEvent.click(screen.getByRole("button", { name: /Move 1/ }));
 
     const dialog = await screen.findByRole("dialog");
@@ -525,7 +533,8 @@ describe("StudentRoster", () => {
     await screen.findByText("Amira Haddad");
 
     fireEvent.click(screen.getByLabelText("Select Amira Haddad"));
-    await choose("Move to cohort", "L1");
+    await openMove();
+    await choose("Move to cohort", /^L1\b/);
     fireEvent.click(screen.getByRole("button", { name: /Move 1/ }));
 
     const dialog = await screen.findByRole("dialog");
@@ -542,7 +551,8 @@ describe("StudentRoster", () => {
     await screen.findByText("Amira Haddad");
 
     fireEvent.click(screen.getByLabelText("Select Amira Haddad"));
-    await choose("Move to cohort", "Take out of their cohort");
+    await openMove();
+    await choose("Move to cohort", /Take them out/);
     fireEvent.click(screen.getByRole("button", { name: /Move 1/ }));
 
     await waitFor(() => expect(move).toHaveBeenCalled());
@@ -558,7 +568,8 @@ describe("StudentRoster", () => {
     await choose("Year value", "L1");
 
     fireEvent.click(screen.getByLabelText("Select everyone shown"));
-    await choose("Move to cohort", "L1");
+    await openMove();
+    await choose("Move to cohort", /^L1\b/);
     fireEvent.click(screen.getByRole("button", { name: /Move 1/ }));
 
     await waitFor(() => expect(move).toHaveBeenCalled());
@@ -884,13 +895,32 @@ describe("the toolbar", () => {
     // Nothing ticked: no controls at all, rather than a band of greyed ones saying
     // "None selected" above every roster in the application.
     expect(screen.queryByText("None selected")).toBeNull();
-    expect(screen.queryByRole("combobox", { name: "Move to cohort" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Move to cohort…" })).toBeNull();
 
     fireEvent.click(screen.getByLabelText("Select Karim Nasser"));
 
     expect(screen.getByText("1 selected")).toBeTruthy();
-    expect(screen.getByRole("combobox", { name: "Move to cohort" })).toHaveProperty("disabled", false);
-    expect(screen.getByRole("button", { name: /^Move 1$/ })).toHaveProperty("disabled", true);
+    // Both are buttons onto a dialog: one kind of question, asked one way.
+    expect(screen.getByRole("button", { name: "Move to cohort…" })).toHaveProperty("disabled", false);
+    expect(screen.getByRole("button", { name: "Place in a group…" })).toBeTruthy();
+  });
+
+  it("keeps making a cohort out of the list of them", async () => {
+    await withNames();
+    renderRoster();
+    await screen.findByText("Amira Haddad");
+    fireEvent.click(screen.getByLabelText("Select Karim Nasser"));
+    await openMove();
+
+    // An action of its own, under a rule — not one more line among the cohorts, where the
+    // only entry that creates something looked exactly like the twenty that move people.
+    const create = await screen.findByRole("button", { name: /New cohort/ });
+    fireEvent.click(await screen.findByRole("combobox", { name: "Move to cohort" }));
+    expect(screen.queryByRole("option", { name: /New cohort/ })).toBeNull();
+
+    fireEvent.click(create);
+
+    expect(await screen.findByRole("button", { name: /Create and move 1/ })).toBeTruthy();
   });
 
   it("searches every student we hold when told to, not only this view", async () => {
@@ -936,7 +966,7 @@ describe("students sent here from Groups & CRNs", () => {
 
     await screen.findByText("A001");
     expect(screen.getByText(/2 selected/)).toBeTruthy();
-    const place = screen.getByRole("button", { name: /Place in a block/ }) as HTMLButtonElement;
+    const place = screen.getByRole("button", { name: /Place in a group/ }) as HTMLButtonElement;
     // A001 is in a cohort and A003 is not, so this selection has no single block list.
     expect(place.disabled).toBe(true);
   });
