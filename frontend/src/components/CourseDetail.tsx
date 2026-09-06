@@ -1,4 +1,4 @@
-import { AlertTriangle, Pencil, Wand2 } from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronRight, Pencil, Wand2 } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
 import { FillBlock, type FillReport } from "@/components/FillBlock";
@@ -55,14 +55,14 @@ function SectionBlock({
       }}
       aria-label={`Edit ${label}`}
       className={`group cursor-pointer rounded-lg border px-3.5 py-3 text-left transition hover:border-[#b7c6d8] hover:shadow-sm ${
-        held.retired ? "border-dashed border-[#e4e8ef] bg-[#fcfdfe]" : "border-[#e4e8ef] bg-white"
+        held.retired ? "border-dashed border-[#eef1f5] bg-[#fdfefe]" : "border-[#e4e8ef] bg-white"
       }`}
     >
       <header className="flex items-baseline gap-2">
-        <h4 className={`text-sm font-semibold ${held.retired ? "text-[#98a2b3]" : "text-[#171717]"}`}>
+        <h4 className={`text-sm font-semibold ${held.retired ? "text-[#c8d0da]" : "text-[#171717]"}`}>
           {row.scope.code} {row.group.label}
         </h4>
-        {held.retired ? <span className={`${chip} bg-[#f2f4f7] text-[#98a2b3]`}>retired</span> : null}
+        {held.retired ? <span className={`${chip} bg-[#f8fafc] text-[#c8d0da]`}>retired</span> : null}
         {/*
           * The CRN, and nothing about it.
           *
@@ -73,7 +73,7 @@ function SectionBlock({
           */}
         <span className="ml-auto inline-flex items-center gap-1 tabular-nums">
           {held.crn ? (
-            <span className="text-sm text-[#667085]">{held.crn}</span>
+            <span className={`text-sm ${held.retired ? "text-[#c8d0da]" : "text-[#667085]"}`}>{held.crn}</span>
           ) : held.retired ? null : (
             <span className={`${chip} bg-[#fdf3f3] text-[#a6292f]`}>no CRN</span>
           )}
@@ -81,9 +81,9 @@ function SectionBlock({
         <Pencil size={13} className="shrink-0 text-transparent group-hover:text-[#98a2b3]" aria-hidden="true" />
       </header>
 
-      <p className="mt-1 truncate text-sm">
+      <p className={`mt-1 truncate text-sm ${held.retired ? "text-[#c8d0da]" : ""}`}>
         {chosen ? (
-          <span className="text-[#344054]">{chosen}</span>
+          <span className={held.retired ? "" : "text-[#344054]"}>{chosen}</span>
         ) : held.teacher ? (
           <span className="text-[#667085]" title="Named on the row, but not chosen from Active teachers yet">
             {held.teacher} <span className="text-[11px] text-[#98a2b3]">not confirmed</span>
@@ -93,7 +93,7 @@ function SectionBlock({
         )}
       </p>
 
-      <p className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] tabular-nums text-[#98a2b3]">
+      <p className={`mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] tabular-nums ${held.retired ? "text-[#d5dce4]" : "text-[#98a2b3]"}`}>
         <span>{row.group.capacity ? `${row.group.assigned}/${row.group.capacity} students` : `${row.group.assigned} students`}</span>
         {held.hours ? <span>{held.hours} h</span> : null}
         {held.sessionsPerWeek ? <span>{held.sessionsPerWeek}/week</span> : null}
@@ -145,6 +145,7 @@ export function CourseDetail({
 }) {
   const [editing, setEditing] = useState<SectionRow | null>(null);
   const [filling, setFilling] = useState<CardSet | null>(null);
+  const [showingRetired, setShowingRetired] = useState<Record<string, boolean>>({});
   const teacherName = (id: string) => teachers.find((teacher) => teacher.id === id)?.fullName ?? "";
 
   return (
@@ -174,6 +175,21 @@ export function CourseDetail({
       <div className="space-y-6 px-5 py-4">
         {card.sets.map((set) => {
           const left = unassigned[set.scope.code]?.length ?? 0;
+          /*
+           * A group that holds nothing for this course is not a section of it.
+           *
+           * The card draws a block per group of the set, and a set's groups need not all
+           * take the same course — the Licence years split into a mathematics group and a
+           * physics group, and each takes half the set's courses. Drawing the other half
+           * as empty blocks invented sections nobody had asked the timetabler for. They
+           * are offered under "add a section" instead, which is what they really are.
+           *
+           * A retired section is kept, because it is a fact about the year, and folded
+           * away, because it is not a thing to read.
+           */
+          const live = set.rows.filter((row) => row.section && !row.section.retired);
+          const retired = set.rows.filter((row) => row.section?.retired);
+          const spare = set.rows.filter((row) => !row.section);
           return (
             <div key={set.scope.id}>
               <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
@@ -182,7 +198,7 @@ export function CourseDetail({
                   <span className="text-[#667085]">{set.scope.name}</span>
                 ) : null}
                 <span className="text-xs text-[#98a2b3]">
-                  {set.rows.length} section{set.rows.length === 1 ? "" : "s"}
+                  {live.length} section{live.length === 1 ? "" : "s"}
                   {/* A component named after its set — "CM · CM" — says it twice. */}
                   {set.course.component && set.course.component !== set.scope.code ? ` · ${set.course.component}` : ""}
                 </span>
@@ -206,10 +222,47 @@ export function CourseDetail({
               </div>
 
               <div className="grid gap-2.5 sm:grid-cols-2 2xl:grid-cols-3">
-                {set.rows.map((row) => (
+                {live.map((row) => (
                   <SectionBlock key={row.group.id} row={row} teacherName={teacherName} portal={portal} onEdit={() => setEditing(row)} />
                 ))}
               </div>
+
+              {retired.length ? (
+                <div className="mt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowingRetired((current) => ({ ...current, [set.scope.id]: !current[set.scope.id] }))}
+                    aria-expanded={Boolean(showingRetired[set.scope.id])}
+                    className="inline-flex items-center gap-1.5 text-xs font-medium text-[#98a2b3] hover:text-[#667085]"
+                  >
+                    {showingRetired[set.scope.id] ? <ChevronDown size={12} aria-hidden="true" /> : <ChevronRight size={12} aria-hidden="true" />}
+                    {retired.length} retired
+                  </button>
+                  {showingRetired[set.scope.id] ? (
+                    <div className="mt-2 grid gap-2.5 sm:grid-cols-2 2xl:grid-cols-3">
+                      {retired.map((row) => (
+                        <SectionBlock key={row.group.id} row={row} teacherName={teacherName} portal={portal} onEdit={() => setEditing(row)} />
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {spare.length ? (
+                <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-[#98a2b3]">
+                  <span>Add a section in</span>
+                  {spare.map((row) => (
+                    <button
+                      key={row.group.id}
+                      type="button"
+                      onClick={() => setEditing(row)}
+                      className="rounded-full border border-dashed border-[#c8d0da] px-2 py-0.5 font-medium text-[#667085] hover:border-[#1f4e79] hover:text-[#1f4e79]"
+                    >
+                      {row.group.label}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
             </div>
           );
         })}
