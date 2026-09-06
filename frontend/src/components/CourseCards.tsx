@@ -279,7 +279,7 @@ export function CourseCards({
   const pairs = [...new Set(byCohort.map((card) => `${card.cohortId}|${card.termId}`))];
 
   return (
-    <section className="flex min-h-0 flex-1 flex-col">
+    <section className="flex flex-col lg:min-h-0 lg:flex-1">
       <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
         <LabelledPicker label="Cohort">
           <SelectMenu
@@ -355,8 +355,8 @@ export function CourseCards({
           * of courses — so choosing a different course meant scrolling back up to find the
           * list you were choosing from. Now nothing above them ever leaves.
           */
-        <div className="mt-3 grid min-h-0 flex-1 items-stretch gap-4 overflow-hidden lg:grid-cols-[16rem_1fr] [grid-template-rows:minmax(0,1fr)]">
-          <nav aria-label="Courses" className="min-h-0 overflow-y-auto overscroll-none rounded-lg border border-[#d9dee7] bg-white p-1.5">
+        <div className="mt-3 grid items-stretch gap-4 lg:min-h-0 lg:flex-1 lg:grid-cols-[16rem_1fr] lg:overflow-hidden lg:[grid-template-rows:minmax(0,1fr)]">
+          <nav aria-label="Courses" className="rounded-lg border border-[#d9dee7] bg-white p-1.5 lg:min-h-0 lg:overflow-y-auto lg:overscroll-none">
             {byCohort.map((card) => (
               <CourseLine key={card.key} card={card} chosen={card.key === chosenCard?.key} onChoose={() => setCardKey(card.key)} />
             ))}

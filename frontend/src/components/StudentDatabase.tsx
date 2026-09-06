@@ -255,10 +255,12 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
           * let them take whatever is left, so the cohort, the warnings, the filter and the
           * search stay where they are while each pane scrolls inside itself. That needs a
           * definite height to divide up — `min-h-full` would let the column grow to its
-          * content and leave the panes nothing to fill — so only those two get it. Every
-          * other page keeps growing and scrolling as it always did.
+          * content and leave the panes nothing to fill — so only those two get it, and
+          * only from `lg`, where the panes are side by side. Narrower than that they are
+          * stacked, and two stacked panes sharing one screen's height is two slivers; the
+          * page scrolls instead, as every other page here does at every width.
           */}
-        <div className={`mx-auto flex max-w-[86rem] flex-col px-4 py-6 sm:px-6 ${FILLS.has(page) ? "h-full" : "min-h-full"}`}>
+        <div className={`mx-auto flex max-w-[86rem] flex-col px-4 py-6 sm:px-6 ${FILLS.has(page) ? "min-h-full lg:h-full" : "min-h-full"}`}>
           <header className="flex flex-wrap items-end justify-between gap-4 pb-5">
             <div>
               <h2 className="text-2xl font-semibold text-[#171717]">{TITLES[page].title}</h2>
