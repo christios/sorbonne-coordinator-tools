@@ -168,8 +168,6 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
   });
 
   const [viewId, setViewId] = useState("");
-  // Which semester and cohort the schema page opens on, when Groups & CRNs sends you there.
-  const [schemaSeed, setSchemaSeed] = useState<{ cohortId: string; termId: string } | null>(null);
   // The shared rules sit at the page's title, apart from any one cohort's.
   const [sharedRulesOpen, setSharedRulesOpen] = useState(false);
   const rules = useQuery({ queryKey: ["discrepancy-rules"], queryFn: fetchDiscrepancyRules, enabled: page === "cohorts" });
@@ -278,7 +276,7 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
           {page === "registrations" && cohorts.isLoading ? <ScreenLoading label="Loading cohorts…" /> : null}
           {page === "group-schema" && cohorts.isLoading ? <ScreenLoading label="Loading cohorts…" /> : null}
           {page === "group-schema" && !cohorts.isLoading ? (
-            <GroupSchema cohorts={knownCohorts} seed={schemaSeed} onOpenGroups={() => openPage("groups")} />
+            <GroupSchema cohorts={knownCohorts} onOpenGroups={() => openPage("groups")} />
           ) : null}
           {page === "groups" && cohorts.isLoading ? <ScreenLoading label="Loading cohorts…" /> : null}
           {page === "cohorts" && !cohorts.isLoading ? (
@@ -294,10 +292,6 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
               onShowStudents={(ids: string[]) => {
                 setPreselect(ids);
                 openPage("students");
-              }}
-              onEditSchema={(cohortId: string, termId: string) => {
-                setSchemaSeed({ cohortId, termId });
-                openPage("group-schema");
               }}
             />
           ) : null}

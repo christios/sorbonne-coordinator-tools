@@ -135,7 +135,7 @@ export function AddFromPortal({
             <span className="font-semibold">{course.courseCode}</span> {course.title} · {course.sections.length} CRN{course.sections.length === 1 ? "" : "s"} in the portal
           </p>
           {scopes.length === 0 ? (
-            <p className="mt-2 text-sm text-[#a6292f]">This cohort has no group sets in this semester yet. Make one under Group sets first.</p>
+            <p className="mt-2 text-sm text-[#a6292f]">This cohort has no group sets in this semester yet. Make one on the Group schema page first.</p>
           ) : null}
           <table className="mt-2 w-full text-left text-sm" aria-label="Sections to add">
             <thead className="text-[11px] uppercase tracking-wide text-[#98a2b3]">

@@ -1,5 +1,5 @@
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, FileSpreadsheet, ListTree, Plus, Search } from "lucide-react";
+import { Download, FileSpreadsheet, Plus, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { AddFromPortal } from "@/components/AddFromPortal";
@@ -11,6 +11,7 @@ import { LabelledPicker } from "@/components/LabelledPicker";
 import { SelectMenu } from "@/components/SelectMenu";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { TableFilterBar } from "@/components/TableFilterBar";
+import { useRemembered } from "@/components/useRemembered";
 import { WorkbookTools } from "@/components/WorkbookTools";
 import { buildCards, cardColumns, type Card } from "@/services/courseCards";
 import { fetchActiveCourses, fetchActiveCrns, fetchActiveTeachers, fetchTermCrns } from "@/services/portalLists";
@@ -18,6 +19,7 @@ import { fetchPublication } from "@/services/publication";
 import { clashName, clashesIn } from "@/services/publicationView";
 import { type Cohort, fetchCourseCards } from "@/services/studentDatabase";
 import { optionsFor, plainCellText } from "@/services/studentColumns";
+import { COHORT } from "@/services/remembered";
 import { applyFilters, type FilterModel } from "@/services/tableFilter";
 import { downloadTimetableWorkbook, requestSheets } from "@/services/timetableExport";
 import { fetchTimetableTerms } from "@/services/timetables";
@@ -26,9 +28,9 @@ import { fetchTimetableTerms } from "@/services/timetables";
  * Groups & CRNs as the department's timetable request: one list of course cards.
  *
  * Every cohort, every semester, one card per course, narrowed by the same filter chips
- * and search box the tables have — and opened to show the sections inside. Group sets
- * and the files are one press away, since both belong to a cohort and a semester rather
- * than to a card.
+ * and search box the tables have — and opened to show the sections inside. The sets those
+ * sections sit in are the Group schema page's, one entry down the sidebar; the files are
+ * at the foot of the list, since a course arrives in it.
  */
 /**
  * One course in the list on the left: its code, its name, and what is wrong with it.
@@ -63,12 +65,9 @@ function CourseLine({ card, chosen, onChoose }: { card: Card; chosen: boolean; o
 export function CourseCards({
   cohorts,
   onShowStudents,
-  onEditSchema,
 }: {
   cohorts: Cohort[];
   onShowStudents?: (studentIds: string[]) => void;
-  /** Off to the Group schema page, on the semester and cohort being looked at. */
-  onEditSchema?: (cohortId: string, termId: string) => void;
 }) {
   const client = useQueryClient();
   const catalogues = useQuery({ queryKey: ["course-cards"], queryFn: fetchCourseCards });
@@ -110,8 +109,11 @@ export function CourseCards({
    * Every year's courses in one list read as a wall: the cohort is the unit the work is
    * done in, and the chip on each card was doing the job a picker should. Sets open to
    * every cohort stay on screen whichever is chosen, because they are everyone's.
+   *
+   * Remembered by this browser, and shared with Capacity and the Group schema: the year
+   * being worked on is one answer, not one per page and not one per visit.
    */
-  const [cohortId, setCohortId] = useState("");
+  const [cohortId, setCohortId] = useRemembered(COHORT);
   // Which course the detail is showing; empty until one is picked, and the first is shown.
   const [cardKey, setCardKey] = useState("");
   const visible = useMemo(() => {
@@ -261,8 +263,6 @@ export function CourseCards({
   ].filter(Boolean) as WarningKind[];
 
   const pairs = [...new Set(byCohort.map((card) => `${card.cohortId}|${card.termId}`))];
-  const single = pairs.length === 1 ? byCohort[0] : null;
-  const button = "inline-flex items-center gap-2 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc]";
 
   return (
     <section>
@@ -284,13 +284,6 @@ export function CourseCards({
 
       <div className="flex flex-wrap items-center gap-2">
         <TableFilterBar columns={columns} filters={filters} optionsFor={(column) => optionsFor(cards, column)} onChange={setFilters} />
-        <button
-          type="button"
-          onClick={() => onEditSchema?.(chosen?.id ?? "", single?.termId ?? termIds[0] ?? "")}
-          className={button}
-        >
-          <ListTree size={15} aria-hidden="true" /> Group schema
-        </button>
         <div className="ml-auto flex items-center gap-2">
           <label className="relative block w-full sm:w-64">
             <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#667085]" />
@@ -314,7 +307,7 @@ export function CourseCards({
 
       {listed.length === 0 ? (
         <p className="mt-3 rounded-lg border border-dashed border-[#c8d0da] bg-white px-5 py-8 text-center text-sm text-[#667085]">
-          {cards.length ? "No course matches the filters." : "No courses yet. Add one from the portal, or open Group sets to define a semester's sets and their courses."}
+          {cards.length ? "No course matches the filters." : "No courses yet. Add one from the portal, or use the Group schema page to define a semester's sets and their courses."}
         </p>
       ) : (
         <div className="mt-3 grid gap-4 lg:grid-cols-[16rem_1fr]">

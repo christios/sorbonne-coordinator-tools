@@ -1,13 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, ArrowRight, Layers, Plus, Trash2, Users } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { LabelledPicker } from "@/components/LabelledPicker";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { SelectMenu } from "@/components/SelectMenu";
+import { useRemembered } from "@/components/useRemembered";
 import { WarningBanner, WarningRows, type WarningKind } from "@/components/WarningBanner";
 import { fetchActiveCourses } from "@/services/portalLists";
+import { COHORT, SCHEMA_TERM } from "@/services/remembered";
 import { labelsFrom, readSets, totalsOf, type SetReading } from "@/services/groupSchema";
 import {
   addCourse,
@@ -26,8 +28,6 @@ import {
 } from "@/services/studentDatabase";
 import { fetchTimetableTerms } from "@/services/timetables";
 
-const HELD = "scen-group-schema:v1";
-
 const KIND_WORDS: Record<ScopeKind, string> = {
   shared: "Its own groups — a student is in one of them",
   nested: "Inside another set — its groups split that set's groups",
@@ -36,15 +36,6 @@ const KIND_WORDS: Record<ScopeKind, string> = {
 const chip = "rounded-full px-2 py-0.5 text-xs font-semibold";
 const field = "mt-1 block w-full rounded-md border border-[#cbd5e1] px-3 py-2 text-sm";
 const caption = "block text-xs font-semibold uppercase tracking-wide text-[#667085]";
-
-/** What the coordinator last looked at, so coming back lands where they left. */
-function remembered(): { cohortId: string; termId: string } {
-  try {
-    return { cohortId: "", termId: "", ...JSON.parse(window.localStorage.getItem(HELD) ?? "{}") };
-  } catch {
-    return { cohortId: "", termId: "" };
-  }
-}
 
 function SetLine({ reading, chosen, onChoose }: { reading: SetReading; chosen: boolean; onChoose: () => void }) {
   const broken = reading.trouble.some((why) => why === "no parent set" || why === "groups adrift");
@@ -87,17 +78,16 @@ function SetLine({ reading, chosen, onChoose }: { reading: SetReading; chosen: b
  */
 export function GroupSchema({
   cohorts,
-  seed,
   onOpenGroups,
 }: {
   cohorts: Cohort[];
-  seed?: { cohortId: string; termId: string } | null;
   onOpenGroups?: () => void;
 }) {
   const client = useQueryClient();
-  const start = seed ?? remembered();
-  const [termId, setTermId] = useState(start.termId);
-  const [cohortId, setCohortId] = useState(start.cohortId);
+  // Both remembered by this browser: the cohort with every other cohort picker, the
+  // semester on its own, since this is the only page that asks for one.
+  const [termId, setTermId] = useRemembered(SCHEMA_TERM);
+  const [cohortId, setCohortId] = useRemembered(COHORT);
   const [chosenId, setChosenId] = useState("");
 
   const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, retry: false });
@@ -107,14 +97,6 @@ export function GroupSchema({
     queryFn: () => fetchCatalogue(cohortId, termId, true),
     enabled: Boolean(cohortId && termId),
   });
-
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(HELD, JSON.stringify({ cohortId, termId }));
-    } catch {
-      // A place that cannot be remembered is not a reason to fail.
-    }
-  }, [cohortId, termId]);
 
   const refresh = () => {
     client.invalidateQueries({ queryKey: ["catalogue"] });

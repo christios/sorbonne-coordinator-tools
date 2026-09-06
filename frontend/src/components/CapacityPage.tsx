@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import { LabelledPicker } from "@/components/LabelledPicker";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { SelectMenu } from "@/components/SelectMenu";
+import { useRemembered } from "@/components/useRemembered";
 import {
   capacityByGroup,
   capacityBySet,
@@ -14,6 +15,7 @@ import {
   type GroupCapacity,
 } from "@/services/capacity";
 import { rowText } from "@/services/copyCells";
+import { COHORT } from "@/services/remembered";
 import { fetchActiveCourses, fetchActiveTeachers } from "@/services/portalLists";
 import { fetchCohorts, fetchCourseCards } from "@/services/studentDatabase";
 import { fetchTimetableTerms } from "@/services/timetables";
@@ -157,7 +159,8 @@ export function CapacityPage() {
   const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, retry: false });
   const courses = useQuery({ queryKey: ["active-courses"], queryFn: fetchActiveCourses });
   const teachers = useQuery({ queryKey: ["active-teachers"], queryFn: fetchActiveTeachers });
-  const [cohortId, setCohortId] = useState("");
+  // The same cohort Groups & CRNs and the Group schema are on, remembered by this browser.
+  const [cohortId, setCohortId] = useRemembered(COHORT);
   const [opened, setOpened] = useState<Set<string>>(new Set());
   const [showingOver, setShowingOver] = useState(false);
 
