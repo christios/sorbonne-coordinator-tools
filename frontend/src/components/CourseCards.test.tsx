@@ -72,32 +72,33 @@ function show() {
 }
 
 describe("the course cards", () => {
-  it("shows one collapsed card per course, with where it is and who teaches it", async () => {
+  it("lists the courses, and shows the chosen one in full", async () => {
     show();
 
-    const maths = (await screen.findByText("MATH001")).closest("article") as HTMLElement;
-    expect(maths.textContent).toContain("Pre-calculus 1");
-    expect(maths.textContent).toContain("Foundation Year · Semester 1");
-    expect(maths.textContent).toContain("2 sections in TD");
-    expect(await within(maths).findByText("Samar Ghantous")).toBeTruthy();
-    expect(screen.queryByLabelText("Edit TD 1 MATH001")).toBeNull();
+    // The list is names and a count; the first course is shown without being asked for.
+    const courses = await screen.findByRole("navigation", { name: "Courses" });
+    expect(within(courses).getAllByRole("button").map((item) => item.textContent?.slice(0, 7))).toEqual(["MATH001", "MATH011"]);
     expect(screen.getByText("2 courses · 1 cohort-semester")).toBeTruthy();
-    // Algorithms is not on the active list, and the card says so; Pre-calculus is, and does not.
-    const algo = screen.getByText("MATH011").closest("article") as HTMLElement;
-    expect(algo.textContent).toContain("Not on the active list");
-    expect(maths.textContent).not.toContain("Not on the active list");
+
+    const detail = screen.getByRole("heading", { name: "MATH001" }).closest("section") as HTMLElement;
+    expect(detail.textContent).toContain("Foundation Year · Semester 1");
+    expect(await within(detail).findByText("Samar Ghantous")).toBeTruthy();
+    expect(detail.textContent).not.toContain("Not on the active list");
+
+    // Algorithms is not on the active list, and its own page says so.
+    fireEvent.click(within(courses).getByText("MATH011"));
+    expect(await screen.findByText("Not on the active list")).toBeTruthy();
   });
 
-  it("opens to the sections, and changes a CRN and a teacher through the row's dialog", async () => {
+  it("changes a CRN and a teacher through the section's dialog", async () => {
     const saveCrn = vi.spyOn(database, "setGroupCrn").mockResolvedValue();
     const saveDetails = vi.spyOn(database, "updateSection").mockResolvedValue();
     show();
 
-    fireEvent.click(await screen.findByLabelText("Expand MATH001"));
     expect(await screen.findByText("2 in no group")).toBeTruthy();
-    const row = screen.getByTitle("Edit TD 2 MATH001");
+    const row = await screen.findByLabelText("Edit TD 2 MATH001");
     expect(row.textContent).toContain("23224");
-    fireEvent.click(screen.getByLabelText("Edit TD 2 MATH001"));
+    fireEvent.click(row);
 
     // The CRN is chosen from the portal's list for this course; the teacher from Active teachers.
     fireEvent.click(await screen.findByRole("combobox", { name: "CRN for TD 2 MATH001" }));
@@ -122,20 +123,21 @@ describe("the course cards", () => {
 
   it("says nothing about mutualization until somebody has said", async () => {
     show();
-    await screen.findByText("MATH001");
+    await screen.findByRole("heading", { name: "MATH001" });
 
-    // Unanswered is not the same as "one degree only", so the card stays quiet.
+    // Unanswered is not the same as "one degree only", so the page stays quiet.
     expect(screen.queryByText(/Mutualized|One degree only/)).toBeNull();
   });
 
   it("narrows by search the way the tables do", async () => {
     show();
-    await screen.findByText("MATH001");
+    await screen.findByRole("heading", { name: "MATH001" });
 
     fireEvent.change(screen.getByLabelText("Search courses"), { target: { value: "algo" } });
 
-    expect(screen.queryByText("MATH001")).toBeNull();
-    expect(screen.getByText("MATH011")).toBeTruthy();
+    const courses = screen.getByRole("navigation", { name: "Courses" });
+    expect(within(courses).queryByText("MATH001")).toBeNull();
+    expect(within(courses).getByText("MATH011")).toBeTruthy();
     expect(screen.getByText("2 courses, 1 shown · 1 cohort-semester")).toBeTruthy();
   });
 });

@@ -1,11 +1,10 @@
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, ChevronsDownUp, ChevronsUpDown, Download, FileSpreadsheet, ListTree, Plus, Search, Sparkles } from "lucide-react";
+import { CheckCircle2, Download, FileSpreadsheet, ListTree, Plus, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { AddFromPortal } from "@/components/AddFromPortal";
-import { ClashPanel } from "@/components/ClashPanel";
-import { GroupsPreview } from "@/components/GroupsPreview";
-import { CourseCard } from "@/components/CourseCard";
+import { CourseDetail } from "@/components/CourseDetail";
+import { WarningBanner, WarningRows, type WarningKind } from "@/components/WarningBanner";
 import type { FillReport } from "@/components/FillBlock";
 import { GroupSetsEditor } from "@/components/GroupSetsEditor";
 import { Modal } from "@/components/Modal";
@@ -15,10 +14,10 @@ import { ScreenLoading } from "@/components/ScreenLoading";
 import { TableFilterBar } from "@/components/TableFilterBar";
 import { WorkbookReview } from "@/components/WorkbookReview";
 import { WorkbookTools } from "@/components/WorkbookTools";
-import { buildCards, cardColumns } from "@/services/courseCards";
+import { buildCards, cardColumns, type Card } from "@/services/courseCards";
 import { fetchActiveCourses, fetchActiveCrns, fetchActiveTeachers, fetchTermCrns } from "@/services/portalLists";
 import { fetchPublication } from "@/services/publication";
-import { clashesIn } from "@/services/publicationView";
+import { clashName, clashesIn } from "@/services/publicationView";
 import { type Cohort, type WorkbookApplied, applyWorkbook, fetchCourseCards } from "@/services/studentDatabase";
 import { optionsFor, plainCellText } from "@/services/studentColumns";
 import { applyFilters, type FilterModel } from "@/services/tableFilter";
@@ -34,6 +33,36 @@ import type { Operation, WorkbookPreview } from "@/services/workbookReview";
  * and the files are one press away, since both belong to a cohort and a semester rather
  * than to a card.
  */
+/**
+ * One course in the list on the left: its code, its name, and what is wrong with it.
+ *
+ * The dot is the whole of the summary — red where a section has no CRN, amber where one
+ * has nobody teaching it, green where there is nothing to do — because a list is read by
+ * running down it, and a list of sentences is not read at all.
+ */
+function CourseLine({ card, chosen, onChoose }: { card: Card; chosen: boolean; onChoose: () => void }) {
+  const rows = card.sets.flatMap((set) => set.rows).filter((row) => !row.section?.retired);
+  const crnless = rows.filter((row) => !row.section?.crn).length;
+  const unstaffed = rows.filter((row) => row.section?.crn && !row.section.teacherId && !row.section.teacher).length;
+  const dot = crnless ? "bg-[#a6292f]" : unstaffed ? "bg-[#d99b1c]" : "bg-[#2e7d55]";
+
+  return (
+    <button
+      type="button"
+      onClick={onChoose}
+      aria-current={chosen ? "true" : undefined}
+      className={`flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left ${chosen ? "bg-[#e8edf3]" : "hover:bg-[#f6f8fb]"}`}
+    >
+      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} aria-hidden="true" title={crnless ? `${crnless} without a CRN` : unstaffed ? `${unstaffed} with nobody teaching` : "nothing missing"} />
+      <span className="min-w-0 flex-1">
+        <span className={`block truncate text-sm tabular-nums ${chosen ? "font-semibold text-[#1f4e79]" : "text-[#344054]"}`}>{card.code}</span>
+        <span className="block truncate text-xs text-[#98a2b3]">{card.name || "untitled"}</span>
+      </span>
+      <span className="shrink-0 text-xs tabular-nums text-[#98a2b3]">{rows.length}</span>
+    </button>
+  );
+}
+
 export function CourseCards({ cohorts, onShowStudents }: { cohorts: Cohort[]; onShowStudents?: (studentIds: string[]) => void }) {
   const client = useQueryClient();
   const catalogues = useQuery({ queryKey: ["course-cards"], queryFn: fetchCourseCards });
@@ -77,14 +106,14 @@ export function CourseCards({ cohorts, onShowStudents }: { cohorts: Cohort[]; on
    * every cohort stay on screen whichever is chosen, because they are everyone's.
    */
   const [cohortId, setCohortId] = useState("");
-  const [previewing, setPreviewing] = useState(false);
+  // Which course the detail is showing; empty until one is picked, and the first is shown.
+  const [cardKey, setCardKey] = useState("");
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
     const searched = needle ? cards.filter((card) => columns.some((column) => plainCellText(card, column).toLowerCase().includes(needle))) : cards;
     return applyFilters(searched, columns, filters);
   }, [cards, columns, filters, query]);
 
-  const [open, setOpen] = useState<Set<string>>(new Set());
   const [editingSets, setEditingSets] = useState<{ cohortId: string; termId: string } | null>(null);
   const [tools, setTools] = useState(false);
   const [adding, setAdding] = useState(false);
@@ -121,10 +150,6 @@ export function CourseCards({ cohorts, onShowStudents }: { cohorts: Cohort[]; on
     cohorts[0] ??
     null;
 
-  // Temporary: two drawings of what this page could be, to be chosen between and then
-  // taken away again. Nothing in there writes anything.
-  if (previewing) return <GroupsPreview cohorts={cohorts} onClose={() => setPreviewing(false)} />;
-
   if (catalogues.isLoading) return <ScreenLoading label="Loading the courses…" />;
   if (catalogues.error) return <p role="alert" className="text-sm text-[#a6292f]">{(catalogues.error as Error).message}</p>;
 
@@ -136,40 +161,106 @@ export function CourseCards({ cohorts, onShowStudents }: { cohorts: Cohort[]; on
   // A course whose every set is open to every cohort is the department's, not a year's.
   const acrossCohorts = visible.filter((card) => card.sets.length > 0 && card.sets.every((set) => set.scope.openToAll));
   const byCohort = visible.filter((card) => !acrossCohorts.includes(card) && (!chosen || card.cohortId === chosen.id));
-  const showCard = (card: (typeof visible)[number]) => {
-    const publication = publicationOf(card.termId);
-    const report = publication?.cohorts.find((entry) => entry.cohortId === card.cohortId) ?? null;
-    return (
-      <CourseCard
-        key={card.key}
-        card={card}
-        open={open.has(card.key)}
-        onToggle={() =>
-          setOpen((current) => {
-            const next = new Set(current);
-            if (next.has(card.key)) next.delete(card.key);
-            else next.add(card.key);
-            return next;
-          })
+  /*
+   * One course at a time.
+   *
+   * Fifteen boxes to open one by one, each opening onto a ten-column table that scrolled
+   * sideways inside it, was not how the work is done. The names stand on the left with
+   * what is wrong with each; everything a course has to say is said on the right, where
+   * there is room to say it.
+   */
+  const listed = [...byCohort, ...acrossCohorts];
+  const chosenCard = listed.find((card) => card.key === cardKey) ?? listed[0] ?? null;
+  const shownPublication = chosenCard ? publicationOf(chosenCard.termId) : null;
+  const clashes = shownPublication && chosenCard ? clashesIn(shownPublication, chosenCard.cohortId) : null;
+  const unassignedOf = (card: typeof chosenCard) =>
+    (card ? shownPublication?.cohorts.find((entry) => entry.cohortId === card.cohortId)?.unassigned : null) ?? {};
+
+  /*
+   * What needs attention, counted rather than recited.
+   *
+   * The clashes used to be written out in full above the courses — five lines each,
+   * twenty-two of them — which buried the page they were about. These are the same facts,
+   * as counts that open.
+   */
+  const troubled = listed.flatMap((card) =>
+    card.sets.flatMap((set) =>
+      set.rows
+        .filter((row) => !row.section?.retired && !row.section?.crn)
+        .map((row) => ({ card, set, row })),
+    ),
+  );
+  const leftOver = Object.entries(unassignedOf(chosenCard)).filter(([, ids]) => ids.length);
+  const warnings: WarningKind[] = [
+    troubled.length
+      ? {
+          id: "crn",
+          severity: "serious" as const,
+          label: `${troubled.length} section${troubled.length === 1 ? "" : "s"} without a CRN`,
+          detail: (
+            <WarningRows more={Math.max(0, troubled.length - 8)}>
+              {troubled.slice(0, 8).map(({ card, set, row }) => (
+                <li key={`${card.key}|${row.group.id}`} className="flex items-baseline gap-3 px-4 py-2">
+                  <button type="button" onClick={() => setCardKey(card.key)} className="font-medium text-[#1f4e79] underline-offset-2 hover:underline">
+                    {card.code}
+                  </button>
+                  <span className="text-[#667085]">{set.scope.code} {row.group.label}</span>
+                </li>
+              ))}
+            </WarningRows>
+          ),
         }
-        cohort={cohorts.find((cohort) => cohort.id === card.cohortId) ?? null}
-        teachers={teachers.data ?? []}
-        portal={portalOf(card.termId)}
-        validation={publication?.validation ?? {}}
-        unassigned={report?.unassigned ?? {}}
-        clashes={publication ? clashesIn(publication, card.cohortId) : null}
-        onChanged={refresh}
-        onFilled={(reportOfFill) => {
-          setFilled(reportOfFill);
-          refresh();
-        }}
-      />
-    );
-  };
+      : null,
+    clashes && clashes.length
+      ? {
+          id: "clashes",
+          severity: "caution" as const,
+          label: `${clashes.length} timetable clash${clashes.length === 1 ? "" : "es"}`,
+          detail: (
+            <WarningRows more={Math.max(0, clashes.length - 8)}>
+              {clashes.slice(0, 8).map((clash) => (
+                <li key={clash.groups.map((group) => group.id).join("|")} className="flex flex-wrap items-baseline gap-x-3 px-4 py-2">
+                  <span className="font-medium text-[#344054]">{clashName(clash)}</span>
+                  <span className="text-xs text-[#98a2b3]">
+                    {clash.windows.length} overlapping hour{clash.windows.length === 1 ? "" : "s"}
+                  </span>
+                  <span className="ml-auto text-xs text-[#8a6116]">
+                    {clash.students.length ? `${clash.students.length} in both` : "nobody in both"}
+                  </span>
+                  {onShowStudents && clash.students.length ? (
+                    <button type="button" onClick={() => onShowStudents(clash.students)} className="text-xs font-semibold text-[#1f4e79] underline">
+                      Show them
+                    </button>
+                  ) : null}
+                </li>
+              ))}
+            </WarningRows>
+          ),
+        }
+      : null,
+    leftOver.length
+      ? {
+          id: "unplaced",
+          severity: "caution" as const,
+          label: `${leftOver.reduce((sum, [, ids]) => sum + ids.length, 0)} placements to make`,
+          detail: (
+            <WarningRows>
+              {leftOver.map(([code, ids]) => (
+                <li key={code} className="flex items-baseline gap-3 px-4 py-2">
+                  <span className="font-medium text-[#1f4e79]">{code}</span>
+                  <span className="text-[#667085]">
+                    {ids.length} student{ids.length === 1 ? "" : "s"} with no group
+                  </span>
+                </li>
+              ))}
+            </WarningRows>
+          ),
+        }
+      : null,
+  ].filter(Boolean) as WarningKind[];
 
   const pairs = [...new Set(byCohort.map((card) => `${card.cohortId}|${card.termId}`))];
   const single = pairs.length === 1 ? byCohort[0] : null;
-  const clashes = single ? (publicationOf(single.termId) ? clashesIn(publicationOf(single.termId)!, single.cohortId) : null) : null;
   const button = "inline-flex items-center gap-2 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc]";
 
   return (
@@ -195,14 +286,6 @@ export function CourseCards({ cohorts, onShowStudents }: { cohorts: Cohort[]; on
         <button type="button" onClick={() => setEditingSets({ cohortId: single?.cohortId ?? cohorts[0]?.id ?? "", termId: single?.termId ?? "" })} className={button}>
           <ListTree size={15} aria-hidden="true" /> Group sets
         </button>
-        <button
-          type="button"
-          onClick={() => setPreviewing(true)}
-          title="Two drawings of what this page could be. Nothing there writes anything."
-          className="inline-flex items-center gap-2 rounded-md border border-dashed border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#667085] hover:bg-[#f8fafc]"
-        >
-          <Sparkles size={15} aria-hidden="true" /> New layouts
-        </button>
         <button type="button" onClick={() => setAdding(true)} className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white hover:bg-[#183f63]">
           <Plus size={15} aria-hidden="true" /> Add from portal
         </button>
@@ -224,9 +307,6 @@ export function CourseCards({ cohorts, onShowStudents }: { cohorts: Cohort[]; on
             <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#667085]" />
             <input aria-label="Search courses" type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search courses, teachers, CRNs" className="w-full rounded-md border border-[#cbd5e1] py-2 pl-9 pr-3 text-sm" />
           </label>
-          <button type="button" aria-label={open.size ? "Collapse all" : "Expand all"} title={open.size ? "Collapse all" : "Expand all"} onClick={() => setOpen(open.size ? new Set() : new Set(visible.map((card) => card.key)))} className="rounded-md border border-[#b7bec8] bg-white p-2 text-[#667085] hover:bg-[#f8fafc]">
-            {open.size ? <ChevronsDownUp size={16} aria-hidden="true" /> : <ChevronsUpDown size={16} aria-hidden="true" />}
-          </button>
         </div>
       </div>
 
@@ -247,35 +327,47 @@ export function CourseCards({ cohorts, onShowStudents }: { cohorts: Cohort[]; on
         </p>
       ) : null}
 
-      {clashes ? <ClashPanel clashes={clashes} onShow={onShowStudents} /> : null}
+      <WarningBanner title="Needs attention" kinds={warnings} />
 
-      <div className="mt-4 space-y-3">
-        {visible.length === 0 ? (
-          <p className="rounded-lg border border-dashed border-[#c8d0da] bg-white px-5 py-8 text-center text-sm text-[#667085]">
-            {cards.length ? "No course matches the filters." : "No courses yet. Add one from the portal, or open Group sets to define a semester's sets and their courses."}
-          </p>
-        ) : (
-          <>
-            {byCohort.map(showCard)}
-
-            {/*
-              * The department's own, kept apart.
-              *
-              * A course taught only in sets open to every cohort — the languages — belongs
-              * to no one year, and listing it among Foundation Year's said it did.
-              */}
+      {listed.length === 0 ? (
+        <p className="mt-3 rounded-lg border border-dashed border-[#c8d0da] bg-white px-5 py-8 text-center text-sm text-[#667085]">
+          {cards.length ? "No course matches the filters." : "No courses yet. Add one from the portal, or open Group sets to define a semester's sets and their courses."}
+        </p>
+      ) : (
+        <div className="mt-3 grid gap-4 lg:grid-cols-[16rem_1fr]">
+          <nav aria-label="Courses" className="max-h-[42rem] overflow-y-auto rounded-lg border border-[#d9dee7] bg-white p-1.5">
+            {byCohort.map((card) => (
+              <CourseLine key={card.key} card={card} chosen={card.key === chosenCard?.key} onChoose={() => setCardKey(card.key)} />
+            ))}
             {acrossCohorts.length ? (
-              <section className="pt-2">
-                <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[#1f4e79]">Across cohorts</p>
-                <p className="mb-2 text-xs text-[#667085]">
-                  One set of classes for the whole department, whichever year a student is in.
-                </p>
-                <div className="space-y-3">{acrossCohorts.map(showCard)}</div>
-              </section>
+              <>
+                <p className="px-2.5 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-wide text-[#8a94a4]">Across cohorts</p>
+                {acrossCohorts.map((card) => (
+                  <CourseLine key={card.key} card={card} chosen={card.key === chosenCard?.key} onChoose={() => setCardKey(card.key)} />
+                ))}
+              </>
             ) : null}
-          </>
-        )}
-      </div>
+          </nav>
+
+          {chosenCard ? (
+            <CourseDetail
+              key={chosenCard.key}
+              card={chosenCard}
+              cohort={cohorts.find((cohort) => cohort.id === chosenCard.cohortId) ?? null}
+              teachers={teachers.data ?? []}
+              portal={portalOf(chosenCard.termId)}
+              publication={shownPublication}
+              unassigned={unassignedOf(chosenCard)}
+              clashes={clashes}
+              onChanged={refresh}
+              onFilled={(reportOfFill) => {
+                setFilled(reportOfFill);
+                refresh();
+              }}
+            />
+          ) : null}
+        </div>
+      )}
 
       {editingSets ? (
         <GroupSetsEditor open cohorts={cohorts} terms={terms.data ?? []} activeCourses={activeCourses.data ?? []} initialCohortId={editingSets.cohortId} initialTermId={editingSets.termId} onClose={() => setEditingSets(null)} onChanged={refresh} />
