@@ -14,14 +14,7 @@ import { ScreenLoading } from "@/components/ScreenLoading";
 import { StudentHistoryPane } from "@/components/StudentHistoryPane";
 import { StudentRecord } from "@/components/StudentRecord";
 import { StudentTable, cellText, type Sort } from "@/components/StudentTable";
-import {
-  SelectionFloating,
-  SelectionInToolbar,
-  SelectionMenu,
-  VARIANTS,
-  type SelectionActionsProps,
-  type SelectionVariant,
-} from "@/components/SelectionActions";
+import { SelectionFloating, type SelectionActionsProps } from "@/components/SelectionActions";
 import { TableFilterBar } from "@/components/TableFilterBar";
 import { costOfMove, describeCost } from "@/services/cohortMove";
 import { copyToClipboard, tableText } from "@/services/copyCells";
@@ -253,28 +246,6 @@ export function StudentRoster({
   const [naming, setNaming] = useState(false);
   const [newName, setNewName] = useState("");
   const [placing, setPlacing] = useState(false);
-  /*
-   * Temporary: which of the three shapes the selection controls take.
-   *
-   * Kept in this browser so switching pages or reloading does not put the comparison back
-   * to the start. It and the switch above the table go when one of them is chosen.
-   */
-  const [shape, setShape] = useState<SelectionVariant>(() => {
-    try {
-      const held = window.localStorage.getItem("scen-selection-shape");
-      return VARIANTS.some((variant) => variant.id === held) ? (held as SelectionVariant) : "toolbar";
-    } catch {
-      return "toolbar";
-    }
-  });
-  const chooseShape = (next: SelectionVariant) => {
-    setShape(next);
-    try {
-      window.localStorage.setItem("scen-selection-shape", next);
-    } catch {
-      // A comparison that cannot be remembered is still a comparison.
-    }
-  };
   const [placed, setPlaced] = useState<(PlacementReport & { removed: boolean }) | null>(null);
 
   /*
@@ -471,7 +442,6 @@ export function StudentRoster({
 
   /** The same controls and the same handlers, whichever of the three shapes is on. */
   const selectionActions: SelectionActionsProps = {
-    variant: shape,
     count: chosen.length,
     cohorts,
     moveTo,
@@ -500,7 +470,7 @@ export function StudentRoster({
         </p>
       ) : null}
 
-      {shape === "floating" ? <SelectionFloating {...selectionActions} /> : null}
+      <SelectionFloating {...selectionActions} />
 
       {placed ? (
         <p className="mt-2 rounded-md border border-[#bfdcc6] bg-[#f4faf5] px-4 py-2.5 text-sm text-[#2f6b3d]">
@@ -556,49 +526,13 @@ export function StudentRoster({
         </div>
       ) : null}
 
-      {/* Temporary: the switch that chooses between the three, and goes with the losers. */}
-      <div className="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-dashed border-[#c8d0da] bg-[#fcfdfe] px-3 py-2 text-xs">
-        <span className="font-semibold uppercase tracking-wide text-[#8a94a4]">Trying out</span>
-        {VARIANTS.map((variant) => (
-          <button
-            key={variant.id}
-            type="button"
-            onClick={() => chooseShape(variant.id)}
-            title={variant.blurb}
-            aria-pressed={shape === variant.id}
-            className={`rounded-full px-3 py-1 font-semibold ${
-              shape === variant.id
-                ? "bg-[#1f4e79] text-white"
-                : "border border-[#cbd5e1] bg-white text-[#344054] hover:bg-[#f2f7fb]"
-            }`}
-          >
-            {variant.name}
-          </button>
-        ))}
-        <span className="text-[#98a2b3]">
-          {VARIANTS.find((variant) => variant.id === shape)?.blurb} Tick a few rows to see it.
-        </span>
-      </div>
-
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        {/*
-          * Temporary: three shapes for the same controls, one of which will win.
-          *
-          * In the toolbar, they take the filter button's place while a selection is live,
-          * so the page never changes height. As a menu they sit beside it. Floating, they
-          * are elsewhere entirely — see the foot of the file.
-          */}
-        {shape === "menu" ? <SelectionMenu {...selectionActions} /> : null}
-        {shape === "toolbar" && chosen.length ? (
-          <SelectionInToolbar {...selectionActions} />
-        ) : (
-          <TableFilterBar
-            columns={columns}
-            filters={filters}
-            optionsFor={(column) => optionsFor(rows, column)}
-            onChange={setFilters}
-          />
-        )}
+        <TableFilterBar
+          columns={columns}
+          filters={filters}
+          optionsFor={(column) => optionsFor(rows, column)}
+          onChange={setFilters}
+        />
 
         {/* The margin lives here rather than on the search box, so the two travel
             together as a pair on the right instead of the button sitting by the filters. */}

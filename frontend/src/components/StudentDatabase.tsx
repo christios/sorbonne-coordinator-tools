@@ -247,7 +247,7 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
                 className="inline-flex items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc]"
               >
                 <Globe size={15} aria-hidden="true" />
-                Rules for every cohort
+                Global rules
                 <span className="tabular-nums text-xs font-normal text-[#98a2b3]">{sharedCount}</span>
               </button>
             ) : null}
