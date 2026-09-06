@@ -1,5 +1,5 @@
-import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, Download, FileSpreadsheet, ListTree, Plus, Search } from "lucide-react";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Download, FileSpreadsheet, ListTree, Plus, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { AddFromPortal } from "@/components/AddFromPortal";
@@ -11,18 +11,16 @@ import { LabelledPicker } from "@/components/LabelledPicker";
 import { SelectMenu } from "@/components/SelectMenu";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { TableFilterBar } from "@/components/TableFilterBar";
-import { WorkbookReview } from "@/components/WorkbookReview";
 import { WorkbookTools } from "@/components/WorkbookTools";
 import { buildCards, cardColumns, type Card } from "@/services/courseCards";
 import { fetchActiveCourses, fetchActiveCrns, fetchActiveTeachers, fetchTermCrns } from "@/services/portalLists";
 import { fetchPublication } from "@/services/publication";
 import { clashName, clashesIn } from "@/services/publicationView";
-import { type Cohort, type WorkbookApplied, applyWorkbook, fetchCourseCards } from "@/services/studentDatabase";
+import { type Cohort, fetchCourseCards } from "@/services/studentDatabase";
 import { optionsFor, plainCellText } from "@/services/studentColumns";
 import { applyFilters, type FilterModel } from "@/services/tableFilter";
 import { downloadTimetableWorkbook, requestSheets } from "@/services/timetableExport";
 import { fetchTimetableTerms } from "@/services/timetables";
-import type { Operation, WorkbookPreview } from "@/services/workbookReview";
 
 /**
  * Groups & CRNs as the department's timetable request: one list of course cards.
@@ -127,8 +125,6 @@ export function CourseCards({
   const [requesting, setRequesting] = useState(false);
   const [requestTerm, setRequestTerm] = useState("");
   const [building, setBuilding] = useState(false);
-  const [preview, setPreview] = useState<{ preview: WorkbookPreview; cohort: Cohort; termId: string } | null>(null);
-  const [applied, setApplied] = useState<(WorkbookApplied & { approved: number }) | null>(null);
   const [filled, setFilled] = useState<FillReport | null>(null);
 
   const refresh = () => {
@@ -140,15 +136,6 @@ export function CourseCards({
     client.invalidateQueries({ queryKey: ["assignments"] });
     client.invalidateQueries({ queryKey: ["students"] });
   };
-  const apply = useMutation({
-    mutationFn: ({ operations }: { operations: Operation[]; approved: number }) => applyWorkbook(preview!.cohort.id, preview!.termId, operations),
-    onSuccess: (result, variables) => {
-      setApplied({ ...result, approved: variables.approved });
-      setPreview(null);
-      refresh();
-    },
-  });
-
   // The one chosen, or the first with courses on it — landing on an empty year would look
   // like the page had nothing at all.
   const chosen =
@@ -159,10 +146,6 @@ export function CourseCards({
 
   if (catalogues.isLoading) return <ScreenLoading label="Loading the courses…" />;
   if (catalogues.error) return <p role="alert" className="text-sm text-[#a6292f]">{(catalogues.error as Error).message}</p>;
-
-  if (preview) {
-    return <WorkbookReview preview={preview.preview} busy={apply.isPending} error={apply.error?.message ?? null} onApply={(operations, approved) => apply.mutate({ operations, approved })} onCancel={() => setPreview(null)} />;
-  }
 
   // The clash panel belongs to one cohort in one semester; it shows when the list is one.
   // A course whose every set is open to every cohort is the department's, not a year's.
@@ -182,6 +165,10 @@ export function CourseCards({
   const clashes = shownPublication && chosenCard ? clashesIn(shownPublication, chosenCard.cohortId) : null;
   const unassignedOf = (card: typeof chosenCard) =>
     (card ? shownPublication?.cohorts.find((entry) => entry.cohortId === card.cohortId)?.unassigned : null) ?? {};
+  // Only the overlaps somebody is actually caught by; the rest are a constraint on the
+  // fill, not a thing that has gone wrong.
+  const trapped = (clashes ?? []).filter((clash) => clash.students.length);
+  const caught = new Set(trapped.flatMap((clash) => clash.students));
 
   /*
    * What needs attention, counted rather than recited.
@@ -218,23 +205,30 @@ export function CourseCards({
           ),
         }
       : null,
-    clashes && clashes.length
+    trapped.length
       ? {
           id: "clashes",
-          severity: "caution" as const,
-          label: `${clashes.length} timetable clash${clashes.length === 1 ? "" : "es"}`,
+          /*
+           * Two groups meeting at the same hour is not a fault: they are different classes
+           * and most students are in one of them. It is only a fault for the students who
+           * are in BOTH, who cannot attend either properly — so those are what is counted,
+           * and a pair nobody is caught by is not mentioned. The fill planner still knows
+           * about every overlap; it is what stops it creating more of these.
+           */
+          severity: "serious" as const,
+          label: `${caught.size} student${caught.size === 1 ? " is" : "s are"} in two groups at the same hour`,
           detail: (
-            <WarningRows more={Math.max(0, clashes.length - 8)}>
-              {clashes.slice(0, 8).map((clash) => (
+            <WarningRows more={Math.max(0, trapped.length - 8)}>
+              {trapped.slice(0, 8).map((clash) => (
                 <li key={clash.groups.map((group) => group.id).join("|")} className="flex flex-wrap items-baseline gap-x-3 px-4 py-2">
                   <span className="font-medium text-[#344054]">{clashName(clash)}</span>
                   <span className="text-xs text-[#98a2b3]">
                     {clash.windows.length} overlapping hour{clash.windows.length === 1 ? "" : "s"}
                   </span>
-                  <span className="ml-auto text-xs text-[#8a6116]">
-                    {clash.students.length ? `${clash.students.length} in both` : "nobody in both"}
+                  <span className="ml-auto text-xs text-[#a6292f]">
+                    {clash.students.length} in both
                   </span>
-                  {onShowStudents && clash.students.length ? (
+                  {onShowStudents ? (
                     <button type="button" onClick={() => onShowStudents(clash.students)} className="text-xs font-semibold text-[#1f4e79] underline">
                       Show them
                     </button>
@@ -310,12 +304,6 @@ export function CourseCards({
         {visible.length !== cards.length ? `, ${visible.length} shown` : ""} · {pairs.length} cohort-semester{pairs.length === 1 ? "" : "s"}
       </p>
 
-      {applied ? (
-        <div className="mt-3 rounded-md border border-[#bfdcc6] bg-[#f4faf5] px-4 py-3 text-sm text-[#2f6b3d]">
-          <p className="flex items-center gap-2 font-semibold"><CheckCircle2 size={16} aria-hidden="true" /> {applied.approved} approved change(s) applied</p>
-          <p className="mt-1 leading-6">{applied.groups} group(s), {applied.courses} course(s) and {applied.cells} CRN(s) written, and {applied.placements} student placement(s).</p>
-        </div>
-      ) : null}
       {filled ? (
         <p className="mt-3 rounded-md border border-[#bfdcc6] bg-[#f4faf5] px-4 py-2.5 text-sm text-[#2f6b3d]">
           {filled.assigned} student{filled.assigned === 1 ? "" : "s"} placed in {filled.scopeCode}{filled.unplaced ? `; ${filled.unplaced} could not be placed` : ""}.
@@ -453,7 +441,7 @@ export function CourseCards({
         ) : null}
       </Modal>
       {adding ? <AddFromPortal open cohorts={cohorts} terms={terms.data ?? []} activeCourses={activeCourses.data ?? []} onClose={() => setAdding(false)} onAdded={() => { setAdding(false); refresh(); }} /> : null}
-      <WorkbookTools open={tools} cohorts={cohorts} terms={terms.data ?? []} onClose={() => setTools(false)} onPreview={(held, cohort, termId) => { setTools(false); setPreview({ preview: held, cohort, termId }); }} />
+      <WorkbookTools open={tools} cohorts={cohorts} terms={terms.data ?? []} onClose={() => setTools(false)} />
     </section>
   );
 }

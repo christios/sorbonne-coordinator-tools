@@ -1,36 +1,37 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
-import { Download, FileSpreadsheet, Loader2 } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { Download, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 
-import { InfoHint } from "@/components/InfoHint";
 import { Modal } from "@/components/Modal";
 import { SelectMenu } from "@/components/SelectMenu";
 import { downloadAdmissionsList } from "@/services/admissionsExport";
 import { fieldHeld, namesHeld } from "@/services/rosterStore";
-import { type Cohort, fetchAssignments, fetchCatalogue, previewWorkbook } from "@/services/studentDatabase";
+import { type Cohort, fetchAssignments, fetchCatalogue } from "@/services/studentDatabase";
 import type { TimetableTerm } from "@/services/timetables";
 import { downloadWorkbook, prefixOf } from "@/services/workbookExport";
-import type { WorkbookPreview } from "@/services/workbookReview";
 
 /**
- * The files: the group workbook in and out, and the admissions list out.
+ * The files: the group workbook out, and the admissions list out.
  *
- * All three are one cohort's, for one semester, so the two are chosen here. The upload
- * writes nothing — it hands back what the workbook would change, and the page shows
- * that for review. Names come from this browser, which is why the files are built here.
+ * Both are one cohort's, for one semester, so the two are chosen here. Names come from
+ * this browser, which is why the files are built here.
+ *
+ * Upload is off for now. It matched a workbook's blocks to the semester's by their code,
+ * and created what it could not match — so a set renamed since the file was written came
+ * back as a second set with the students re-placed into it, silently. Reading it back in
+ * waits until it matches on something a rename cannot break. The route, the diff and the
+ * review screen are untouched; only the way in is gone.
  */
 export function WorkbookTools({
   open,
   cohorts,
   terms,
   onClose,
-  onPreview,
 }: {
   open: boolean;
   cohorts: Cohort[];
   terms: TimetableTerm[];
   onClose: () => void;
-  onPreview: (preview: WorkbookPreview, cohort: Cohort, termId: string) => void;
 }) {
   const [cohortId, setCohortId] = useState(cohorts[0]?.id ?? "");
   const [termId, setTermId] = useState(terms[0]?.id ?? "");
@@ -51,11 +52,6 @@ export function WorkbookTools({
       live = false;
     };
   }, [open]);
-
-  const check = useMutation({
-    mutationFn: (file: File) => previewWorkbook(cohortId, termId, file),
-    onSuccess: (preview) => cohort && onPreview(preview, cohort, termId),
-  });
 
   const exportWorkbook = async () => {
     if (!cohort) return;
@@ -122,27 +118,7 @@ export function WorkbookTools({
         {ready ? `${scopes.length} group set${scopes.length === 1 ? "" : "s"} in this semester.` : "Choose a semester first — a workbook fills one semester."}{" "}
         {heldNames ? `Student names come from this browser's last portal pull, ${heldNames} held.` : "This browser holds no student names, so name columns come out blank."}
       </p>
-      {check.error ? <p role="alert" className="mb-3 text-sm text-[#a6292f]">{(check.error as Error).message}</p> : null}
       <div className="flex flex-wrap items-center gap-2">
-        <label className={`${ready ? "cursor-pointer bg-[#1f4e79] text-white hover:bg-[#183f63]" : "cursor-not-allowed bg-[#e4e8ef] text-[#98a2b3]"} inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold`}>
-          {check.isPending ? <Loader2 size={16} className="animate-spin" aria-hidden="true" /> : <FileSpreadsheet size={16} aria-hidden="true" />}
-          {check.isPending ? "Reading…" : "Upload workbook"}
-          <input
-            type="file"
-            accept=".xlsx"
-            className="sr-only"
-            disabled={!ready}
-            onChange={(event) => {
-              const file = event.target.files?.[0];
-              event.target.value = "";
-              if (file) check.mutate(file);
-            }}
-          />
-        </label>
-        <InfoHint label="What an uploaded workbook must contain" title="Upload workbook">
-          <p>One file says both things: its <b>Reference</b> sheet is the blocks, their groups and a CRN for every course; its <b>student tabs</b> are who sits in which group.</p>
-          <p>Nothing is written on upload. Every difference is shown and you tick the ones to keep.</p>
-        </InfoHint>
         <button type="button" onClick={exportWorkbook} disabled={!ready || exporting !== "" || scopes.length === 0} className={button}>
           {exporting === "workbook" ? <Loader2 size={16} className="animate-spin" aria-hidden="true" /> : <Download size={16} aria-hidden="true" />}
           {exporting === "workbook" ? "Building…" : "Export workbook"}
@@ -152,6 +128,11 @@ export function WorkbookTools({
           {exporting === "list" ? "Building…" : "Admissions list"}
         </button>
       </div>
+      <p className="mt-4 border-t border-[#eef1f5] pt-3 text-xs text-[#98a2b3]">
+        Reading a workbook back in is off for now. It matched a file&apos;s sets to the semester&apos;s by their code and
+        made a new one where it could not match, so a set renamed since the file was written came back as a second set
+        with the students moved into it. The schema is edited on the Group schema page instead.
+      </p>
     </Modal>
   );
 }
