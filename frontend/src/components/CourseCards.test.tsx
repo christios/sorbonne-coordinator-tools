@@ -62,11 +62,11 @@ beforeEach(() => {
 
 afterEach(() => vi.restoreAllMocks());
 
-function show() {
+function show(onShowStudents?: (ids: string[]) => void) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
-      <CourseCards cohorts={[COHORT]} />
+      <CourseCards cohorts={[COHORT]} onShowStudents={onShowStudents} />
     </QueryClientProvider>,
   );
 }
@@ -130,6 +130,30 @@ describe("the course cards", () => {
 
     // Unanswered is not the same as "one degree only", so the page stays quiet.
     expect(screen.queryByText(/Mutualized|One degree only/)).toBeNull();
+  });
+
+  it("says the hours, the expected students and the seats as figures rather than prose", async () => {
+    show();
+
+    const one = (await screen.findByLabelText("Edit TD 1 MATH001")) as HTMLElement;
+    // The three the timetable is built from, each with its own reading.
+    expect(within(one).getByTitle("50 hours")).toBeTruthy();
+    expect(within(one).getByTitle("No expected set yet")).toBeTruthy();
+    expect(within(one).getByTitle("30 of 33 seats taken")).toBeTruthy();
+
+    // A section nobody has given hours to says so, rather than saying nothing.
+    const two = screen.getByLabelText("Edit TD 2 MATH001") as HTMLElement;
+    expect(within(two).getByTitle("No hours set yet")).toBeTruthy();
+    expect(within(two).getByTitle("31 of 33 seats taken")).toBeTruthy();
+  });
+
+  it("opens the students a set has not placed, from the count of them", async () => {
+    const showStudents = vi.fn();
+    show(showStudents);
+
+    fireEvent.click(await screen.findByRole("button", { name: /2 in no group/ }));
+
+    expect(showStudents).toHaveBeenCalledWith(["A9", "A10"]);
   });
 
   it("narrows by search the way the tables do", async () => {

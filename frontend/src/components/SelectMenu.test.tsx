@@ -202,6 +202,37 @@ describe("a multi-select says what is chosen", () => {
     expect(screen.queryByText(/values selected/)).toBeNull();
   });
 
+  it("carries an academic year as its own pill, not glued to the name", () => {
+    const cohorts = [
+      { value: "c1", label: "Foundation Year", year: "2026-27", badge: "12" },
+      { value: "c2", label: "L1 Maths", year: "2025-26" },
+    ];
+    render(<SelectMenu label="Cohort" value="c1" onChange={() => {}} options={cohorts} />);
+
+    // On the trigger, beside the name, and never joined to it by a dash.
+    const trigger = screen.getByRole("combobox", { name: "Cohort" });
+    expect(trigger.textContent).toContain("Foundation Year");
+    expect(trigger.textContent).toContain("2026-27");
+    expect(trigger.textContent).not.toContain("—");
+
+    fireEvent.click(trigger);
+    expect(screen.getByRole("option", { name: /L1 Maths\s*academic year\s*2025-26/ })).toBeTruthy();
+  });
+
+  it("finds a cohort by its year, which the label no longer carries", () => {
+    const cohorts = [
+      { value: "c1", label: "Foundation Year", year: "2026-27" },
+      { value: "c2", label: "L1 Maths", year: "2025-26" },
+    ];
+    render(<SelectMenu label="Cohort" value="" onChange={() => {}} searchable options={cohorts} />);
+
+    fireEvent.click(screen.getByRole("combobox", { name: "Cohort" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Search Cohort" }), { target: { value: "2025-26" } });
+
+    expect(screen.getAllByRole("option").map((option) => option.textContent?.trim())).toHaveLength(1);
+    expect(screen.getByRole("option", { name: /L1 Maths/ })).toBeTruthy();
+  });
+
   it("folds the tail into one +N pill once there are more than a few", () => {
     render(<SelectMenu label="Year" multiple itemNoun="value" value={"FY\nL1\nL2\nL3\nM1"} onChange={() => {}} options={options} />);
 

@@ -1,14 +1,159 @@
-import { AlertTriangle, ChevronDown, ChevronRight, Pencil, Wand2 } from "lucide-react";
+import { AlertTriangle, Armchair, ChevronDown, ChevronRight, Clock3, Pencil, UserRound, Wand2 } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
 import { FillBlock, type FillReport } from "@/components/FillBlock";
 import { SectionDialog } from "@/components/CourseCard";
+import { YearPill } from "@/components/YearPill";
 import type { Card, CardSet, SectionRow } from "@/services/courseCards";
 import { MUTUALIZED_WORDS, type ActiveTeacher, type TermCrns } from "@/services/portalLists";
 import type { GroupClash } from "@/services/publication";
 import { EMPTY_SECTION, type Cohort, type Section } from "@/services/studentDatabase";
 
 const chip = "rounded-full px-2 py-0.5 text-xs font-semibold";
+
+/**
+ * One figure the timetabler works from, said loudly enough to be read at a glance.
+ *
+ * Total hours and anticipated students are not two more numbers among six: they are what
+ * a teacher's load is computed from and what a room is chosen by, and everything else on
+ * this line — sessions a week, hours each, which weeks — follows from them. They spent a
+ * long time in the same eleven-pixel grey run-on as the rest, where the eye slid over
+ * them, so they are lifted out of it.
+ *
+ * The two do not look alike. They are different quantities — a span of teaching and a
+ * count of people — and a card carries them side by side, so an eye running down a column
+ * of sections should be able to find the one it is after without reading either. Hence a
+ * clock against a person, a square corner against a round one, and two hues rather than
+ * one; the difference is small enough that they stay a pair.
+ *
+ * Missing is a reading too. An empty box says the timetabler has not been told yet, which
+ * is worth seeing without opening the section to find out.
+ */
+const FIGURES = {
+  hours: {
+    icon: Clock3,
+    shape: "rounded-md",
+    said: "border-[#cfe0ee] bg-[#eef4fa]",
+    number: "text-[#1f4e79]",
+    word: "text-[#6d8fb4]",
+  },
+  expected: {
+    icon: UserRound,
+    shape: "rounded-full",
+    said: "border-[#d9d3e9] bg-[#f8f6fd]",
+    number: "text-[#5b4d8a]",
+    word: "text-[#9089b8]",
+  },
+} as const;
+
+function Figure({ label, value, dim }: { label: keyof typeof FIGURES; value: string; dim: boolean }) {
+  const said = Boolean(value);
+  const skin = FIGURES[label];
+  const Icon = skin.icon;
+  return (
+    <span
+      title={said ? `${value} ${label}` : `No ${label} set yet`}
+      className={`inline-flex items-center gap-1 border px-2 py-1 ${skin.shape} ${
+        dim ? "border-[#f2f5f9] bg-white" : said ? skin.said : "border-dashed border-[#d9dee7] bg-white"
+      }`}
+    >
+      <Icon size={11} aria-hidden="true" className={dim ? "text-[#e4e9ef]" : said ? skin.word : "text-[#c2c9d3]"} />
+      <span className={`text-[13px] font-semibold leading-none tabular-nums ${dim ? "text-[#d5dce4]" : said ? skin.number : "text-[#b7bec8]"}`}>
+        {value || "—"}
+      </span>
+      <span className={`text-[10px] font-semibold uppercase leading-none tracking-wide ${dim ? "text-[#e4e9ef]" : said ? skin.word : "text-[#c2c9d3]"}`}>
+        {label}
+      </span>
+    </span>
+  );
+}
+
+/**
+ * How full the group is, as a figure beside the other two.
+ *
+ * "30/33 seats taken" spent its life as grey prose at the foot of the card, which is the
+ * one place a number goes to not be read. It is the third of the three facts a timetable
+ * is built from — hours, expected, seats — so it is said the way the other two are.
+ *
+ * It differs from them in taking its colour from its own answer: full is a finished thing,
+ * over is a room that will not hold the class, and neither should have to be worked out
+ * from the digits. The edge on the left carries that verdict at the size of a glance, and
+ * the bar along the card's foot says the same in proportion.
+ */
+const SEATS = {
+  over: { skin: "border-[#e5b7b9] border-l-[3px] border-l-[#a6292f] bg-[#fdf3f3]", number: "text-[#a6292f]", word: "text-[#c98d90]" },
+  full: { skin: "border-[#cfe6d8] border-l-[3px] border-l-[#2e7d55] bg-[#f2f9f4]", number: "text-[#2e7d55]", word: "text-[#8ab7a0]" },
+  room: { skin: "border-[#d9e0e8] border-l-[3px] border-l-[#1f4e79] bg-[#f8fafc]", number: "text-[#344054]", word: "text-[#98a2b3]" },
+  unset: { skin: "border-dashed border-[#d9dee7] bg-white", number: "text-[#b7bec8]", word: "text-[#c2c9d3]" },
+} as const;
+
+/** Which of the four readings this group is: the same words Capacity uses. */
+function seatsVerdict(placed: number, seats: number): keyof typeof SEATS {
+  if (!seats) return "unset";
+  if (placed > seats) return "over";
+  if (placed === seats) return "full";
+  return "room";
+}
+
+function Seats({ placed, seats, dim }: { placed: number; seats: number; dim: boolean }) {
+  const verdict = seatsVerdict(placed, seats);
+  const skin = SEATS[verdict];
+  return (
+    <span
+      title={seats ? `${placed} of ${seats} seats taken` : `${placed} placed, no capacity set`}
+      className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 ${dim ? "border-[#f2f5f9] bg-white" : skin.skin}`}
+    >
+      <Armchair size={11} aria-hidden="true" className={dim ? "text-[#e4e9ef]" : skin.word} />
+      <span className={`text-[13px] font-semibold leading-none tabular-nums ${dim ? "text-[#d5dce4]" : skin.number}`}>
+        {placed}
+        <span className="opacity-45">/{seats || "—"}</span>
+      </span>
+      <span className={`text-[10px] font-semibold uppercase leading-none tracking-wide ${dim ? "text-[#e4e9ef]" : skin.word}`}>
+        seats
+      </span>
+    </span>
+  );
+}
+
+/**
+ * How full the group is, drawn along the foot of its card.
+ *
+ * The numbers were already there — "30/40 placed" — and were read by nobody, because
+ * reading fifteen cards means reading thirty numbers and doing thirty divisions. A room
+ * that is nearly full and a room that is over are the same sentence at a glance and
+ * completely different problems. The bar is the answer to "which of these needs a bigger
+ * room" without asking anything of the reader.
+ *
+ * The track is the group's seats, so a full bar is a full class and anything red is a
+ * class that has outgrown the room it was given — the same reading as the bars on
+ * Capacity, so the two pages do not have to be reconciled in the head.
+ *
+ * It says nothing of its own: the seats figure above states the numbers, and a second
+ * voice repeating them is one more thing for a screen reader to read out.
+ */
+function Fullness({ placed, seats, dim }: { placed: number; seats: number; dim: boolean }) {
+  const share = seats ? Math.min(1, placed / seats) : 0;
+  const tone = !seats
+    ? "#e4e8ef"
+    : placed > seats
+      ? "#a6292f"
+      : placed === seats
+        ? "#2e7d55"
+        : placed === 0
+          ? "#e4e8ef"
+          : "#1f4e79";
+  return (
+    <span
+      aria-hidden="true"
+      className={`-mx-3.5 -mb-3 mt-3 block h-1 overflow-hidden rounded-b-lg ${dim || !seats ? "bg-[#f7f9fb]" : "bg-[#eef1f5]"}`}
+    >
+      <span
+        className="block h-full"
+        style={{ width: `${share * 100}%`, backgroundColor: dim ? "#eef1f5" : tone, opacity: dim ? 0.6 : 1 }}
+      />
+    </span>
+  );
+}
 
 /** "room 12 · avoid Fridays" — what a section asks of the timetable, in one line. */
 function asks(section: Section): string {
@@ -54,7 +199,7 @@ function SectionBlock({
         }
       }}
       aria-label={`Edit ${label}`}
-      className={`group cursor-pointer rounded-lg border px-3.5 py-3 text-left transition hover:border-[#b7c6d8] hover:shadow-sm ${
+      className={`group cursor-pointer overflow-hidden rounded-lg border px-3.5 py-3 text-left transition hover:border-[#b7c6d8] hover:shadow-sm ${
         held.retired ? "border-dashed border-[#eef1f5] bg-[#fdfefe]" : "border-[#e4e8ef] bg-white"
       }`}
     >
@@ -93,14 +238,20 @@ function SectionBlock({
         )}
       </p>
 
-      <p className={`mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] tabular-nums ${held.retired ? "text-[#d5dce4]" : "text-[#98a2b3]"}`}>
-        <span>{row.group.capacity ? `${row.group.assigned}/${row.group.capacity} students` : `${row.group.assigned} students`}</span>
-        {held.hours ? <span>{held.hours} h</span> : null}
-        {held.sessionsPerWeek ? <span>{held.sessionsPerWeek}/week</span> : null}
-        {held.duration ? <span>{held.duration} h each</span> : null}
-        {held.weeks ? <span>weeks {held.weeks}</span> : null}
-        {held.anticipated ? <span>{held.anticipated} expected</span> : null}
-      </p>
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        <Figure label="hours" value={held.hours} dim={held.retired} />
+        <Figure label="expected" value={held.anticipated ? String(held.anticipated) : ""} dim={held.retired} />
+        <Seats placed={row.group.assigned} seats={row.group.capacity} dim={held.retired} />
+      </div>
+
+      {held.sessionsPerWeek || held.duration || held.weeks ? (
+        /* How the hours are spread. Detail, under the three figures they add up to. */
+        <p className={`mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] tabular-nums ${held.retired ? "text-[#d5dce4]" : "text-[#98a2b3]"}`}>
+          {held.sessionsPerWeek ? <span>{held.sessionsPerWeek}/week</span> : null}
+          {held.duration ? <span>{held.duration} h each</span> : null}
+          {held.weeks ? <span>weeks {held.weeks}</span> : null}
+        </p>
+      ) : null}
 
       {asked ? <p className="mt-1.5 text-xs leading-5 text-[#667085]">{asked}</p> : null}
       {held.crn && portalRow === null ? (
@@ -109,6 +260,8 @@ function SectionBlock({
       {portalRow?.teacherName && portalRow.teacherName !== chosen ? (
         <p className="mt-1 text-[11px] text-[#98a2b3]">Portal: {portalRow.teacherName}</p>
       ) : null}
+
+      <Fullness placed={row.group.assigned} seats={row.group.capacity} dim={held.retired} />
     </article>
   );
 }
@@ -131,6 +284,7 @@ export function CourseDetail({
   action,
   onChanged,
   onFilled,
+  onShowStudents,
 }: {
   card: Card;
   cohort: Cohort | null;
@@ -142,6 +296,8 @@ export function CourseDetail({
   clashes: GroupClash[] | null;
   onChanged: () => void;
   onFilled: (report: FillReport) => void;
+  /** Open the Students table on exactly these ids — how "3 in no group" is answered. */
+  onShowStudents?: (studentIds: string[]) => void;
 }) {
   const [editing, setEditing] = useState<SectionRow | null>(null);
   const [filling, setFilling] = useState<CardSet | null>(null);
@@ -165,8 +321,9 @@ export function CourseDetail({
           </span>
         ) : null}
         <span className="ml-auto flex items-center gap-3">
-          <span className="text-xs text-[#98a2b3]">
+          <span className="inline-flex items-center gap-2 text-xs text-[#98a2b3]">
             {card.cohortName} · {card.termName || "no semester"}
+            <YearPill year={cohort?.term ?? ""} />
           </span>
           {action}
         </span>
@@ -174,7 +331,8 @@ export function CourseDetail({
 
       <div className="space-y-6 px-5 py-4">
         {card.sets.map((set) => {
-          const left = unassigned[set.scope.code]?.length ?? 0;
+          const missing = unassigned[set.scope.code] ?? [];
+          const left = missing.length;
           /*
            * A group that holds nothing for this course is not a section of it.
            *
@@ -206,9 +364,24 @@ export function CourseDetail({
                   <span className={`${chip} bg-[#e8edf3] text-[#1f4e79]`}>Across cohorts</span>
                 ) : null}
                 {left ? (
-                  <span className={`${chip} inline-flex items-center gap-1 bg-[#fdf9ee] text-[#8a6116]`}>
+                  /*
+                   * The count is the question; the students are the answer.
+                   *
+                   * "6 in no group" told a coordinator there was work to do and then made
+                   * them go and find who it was for, in a table of three thousand rows.
+                   * Pressing it opens the Students table on exactly those six.
+                   */
+                  <button
+                    type="button"
+                    disabled={!onShowStudents}
+                    onClick={() => onShowStudents?.(missing)}
+                    title={onShowStudents ? `Show the ${left} student${left === 1 ? "" : "s"} in no ${set.scope.code} group` : undefined}
+                    className={`${chip} inline-flex items-center gap-1 bg-[#fdf9ee] text-[#8a6116] ${
+                      onShowStudents ? "hover:bg-[#f9efd6] hover:underline" : "cursor-default"
+                    }`}
+                  >
                     <AlertTriangle size={11} aria-hidden="true" /> {left} in no group
-                  </span>
+                  </button>
                 ) : null}
                 {cohort ? (
                   <button

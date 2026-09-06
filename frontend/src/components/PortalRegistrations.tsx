@@ -152,7 +152,8 @@ export function PortalRegistrations({ cohorts }: { cohorts: Cohort[] }) {
               const count = flaggedIn(byCohort.get(candidate.id) ?? [], dismissed);
               return {
                 value: candidate.id,
-                label: candidate.term ? `${candidate.name} — ${candidate.term}` : candidate.name,
+                label: candidate.name,
+                year: candidate.term,
                 badge: String(candidate.memberCount),
                 badgeTone: candidate.memberCount ? ("accent" as const) : ("muted" as const),
                 alert: count ? `${count} flagged` : undefined,

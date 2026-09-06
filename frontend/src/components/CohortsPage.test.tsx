@@ -132,7 +132,9 @@ describe("the Cohorts page", () => {
     renderPage([{ ...L1, memberCount: 1 }]);
     fireEvent.click(await screen.findByRole("combobox", { name: "Cohort" }));
 
-    expect(await screen.findByRole("option", { name: /L1 Maths — 2026-27\s*1$/ })).toBeTruthy();
+    // The year is its own pill beside the name, not part of it: no dash joins the two.
+    expect(await screen.findByRole("option", { name: /L1 Maths\s*academic year\s*2026-27\s*1$/ })).toBeTruthy();
+    expect(screen.queryByRole("option", { name: /L1 Maths — 2026-27/ })).toBeNull();
     expect(screen.getByRole("option", { name: /Not in any cohort\s*1$/ })).toBeTruthy();
   });
 

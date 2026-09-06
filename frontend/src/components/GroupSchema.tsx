@@ -169,7 +169,7 @@ export function GroupSchema({
             value={cohortId}
             onChange={setCohortId}
             placeholder="Which cohort…"
-            options={cohorts.map((cohort) => ({ value: cohort.id, label: cohort.term ? `${cohort.name} — ${cohort.term}` : cohort.name }))}
+            options={cohorts.map((cohort) => ({ value: cohort.id, label: cohort.name, year: cohort.term }))}
           />
         </LabelledPicker>
         {onOpenGroups ? (

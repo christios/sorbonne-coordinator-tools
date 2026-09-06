@@ -2,10 +2,14 @@ import { Popover } from "radix-ui";
 import { ChevronDown } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
+import { YearPill } from "@/components/YearPill";
+
 export type SelectOption = {
   value: string;
   label: string;
   searchText?: string;
+  /** An academic year — "2026-27" — shown as its own pill, so the label need not carry it. */
+  year?: string;
   /** A count or short status, shown as a pill beside the label. */
   badge?: string;
   /** "muted" for a badge that means nothing yet — a view nobody has synced. */
@@ -80,7 +84,7 @@ export function SelectMenu({ label, value, onChange, options, placeholder, trail
   const selectedLabel = multiple ? placeholder : (selected[0]?.label ?? placeholder);
   const normalizedQuery = normalizeSearch(query);
   const visibleOptions = searchable
-    ? normalizedQuery ? options.filter((option) => normalizeSearch(`${option.label} ${option.searchText ?? ""}`).includes(normalizedQuery)) : options.slice(0, 50)
+    ? normalizedQuery ? options.filter((option) => normalizeSearch(`${option.label} ${option.year ?? ""} ${option.searchText ?? ""}`).includes(normalizedQuery)) : options.slice(0, 50)
     : options;
   const hasMoreSearchResults = searchable && !normalizedQuery && options.length > visibleOptions.length;
 
@@ -184,6 +188,7 @@ export function SelectMenu({ label, value, onChange, options, placeholder, trail
           ) : (
             <span className="truncate">{selectedLabel}</span>
           )}
+          {selected.length === 1 && selected[0].year ? <YearPill year={selected[0].year} className="ml-2" /> : null}
           {selected.length === 1 && selected[0].badge !== undefined ? (
             <Badge text={selected[0].badge} tone={selected[0].badgeTone} />
           ) : null}
@@ -208,7 +213,10 @@ export function SelectMenu({ label, value, onChange, options, placeholder, trail
             >
               {multiple ? <span aria-hidden="true" className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border ${selectedValues.includes(option.value) ? "border-[#1f4e79] bg-[#1f4e79] text-white" : "border-[#98a2b3] bg-white"}`}>{selectedValues.includes(option.value) ? "✓" : ""}</span> : null}
               {/* Wrapped, never clipped: an option a coordinator cannot read is one they cannot choose. */}
-              <span className="min-w-0 flex-1 whitespace-normal break-words">{option.label}</span>
+              <span className="min-w-0 flex-1 whitespace-normal break-words">
+                {option.label}
+                {option.year ? <YearPill year={option.year} className="ml-2 align-[0.05em]" /> : null}
+              </span>
               {option.badge !== undefined ? <Badge text={option.badge} tone={option.badgeTone} /> : null}
               {option.alert ? <Alert text={option.alert} /> : null}
             </button>

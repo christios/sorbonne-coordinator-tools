@@ -249,11 +249,16 @@ export function CourseCards({
           detail: (
             <WarningRows>
               {leftOver.map(([code, ids]) => (
-                <li key={code} className="flex items-baseline gap-3 px-4 py-2">
+                <li key={code} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-4 py-2">
                   <span className="font-medium text-[#1f4e79]">{code}</span>
                   <span className="text-[#667085]">
                     {ids.length} student{ids.length === 1 ? "" : "s"} with no group
                   </span>
+                  {onShowStudents ? (
+                    <button type="button" onClick={() => onShowStudents(ids)} className="ml-auto text-xs font-semibold text-[#1f4e79] underline">
+                      Show them
+                    </button>
+                  ) : null}
                 </li>
               ))}
             </WarningRows>
@@ -274,7 +279,8 @@ export function CourseCards({
             onChange={setCohortId}
             options={cohorts.map((cohort) => ({
               value: cohort.id,
-              label: cohort.term ? `${cohort.name} — ${cohort.term}` : cohort.name,
+              label: cohort.name,
+              year: cohort.term,
               badge: String(cards.filter((card) => card.cohortId === cohort.id).length),
               badgeTone: cards.some((card) => card.cohortId === cohort.id) ? ("accent" as const) : ("muted" as const),
             }))}
@@ -376,6 +382,7 @@ export function CourseCards({
               }
               unassigned={unassignedOf(chosenCard)}
               clashes={clashes}
+              onShowStudents={onShowStudents}
               onChanged={refresh}
               onFilled={(reportOfFill) => {
                 setFilled(reportOfFill);
