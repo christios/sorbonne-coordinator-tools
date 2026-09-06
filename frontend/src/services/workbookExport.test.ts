@@ -7,11 +7,13 @@ import {
   columnLetter,
   columnsOf,
   crnFormula,
+  crnRanges,
   groupsName,
   helperKey,
   prefixOf,
   referenceRows,
   tabsOf,
+  teacherName,
 } from "@/services/workbookExport";
 
 const TD: ExportBlock = {
@@ -128,10 +130,35 @@ describe("the Reference sheet", () => {
   });
 });
 
+describe("Capacity, counted by the spreadsheet", () => {
+  it("looks through each run of green CRN columns, and not the amber ones between them", () => {
+    // Amber columns hold group labels — "1", "2" — which a COUNTIF over the whole width
+    // would count as CRNs on any workbook whose CRNs happen to be small.
+    // TD's amber column is E; its two courses are F and G.
+    expect(crnRanges([TD])).toEqual(["$F:$G"]);
+    // Two blocks on a tab: each run stands on its own, with the second amber column between.
+    expect(crnRanges([TD, RDNS])).toEqual(["$F:$G", "$I:$I"]);
+  });
+
+  it("gives a tab with no courses nothing to count", () => {
+    expect(crnRanges([{ ...TD, courses: [] }])).toEqual([]);
+  });
+});
+
+describe("who is teaching", () => {
+  it("prefers the Active teacher chosen for the section over the name its row carried", () => {
+    const resolve = { teacherOf: (section: { teacher: string; teacherId?: string }) => (section.teacherId ? "Samar Ghantous" : section.teacher) };
+    expect(teacherName(resolve, { teacher: "TBD", teacherId: "act-1" })).toBe("Samar Ghantous");
+    expect(teacherName(resolve, { teacher: "TBD" })).toBe("TBD");
+    // With nobody to ask, the row's own name stands.
+    expect(teacherName({}, { teacher: "TBD" })).toBe("TBD");
+  });
+});
+
 describe("the file it writes", () => {
   it("has the sheets the coordinator's workbook has", async () => {
     const book = await built();
-    expect(book.worksheets.map((sheet) => sheet.name)).toEqual(["TD", "Reference", "Legend"]);
+    expect(book.worksheets.map((sheet) => sheet.name)).toEqual(["TD", "Capacity", "Reference", "Legend"]);
   });
 
   it("heads a tab with the four identifying columns, then each block's own", async () => {
@@ -199,7 +226,7 @@ describe("the file it writes", () => {
       .flatMap((r) => [1, 2, 3].map((c) => String(legend?.getCell(r + 1, c).value ?? "")))
       .join(" | ");
 
-    expect(text).toContain("Tab “TD”  →  column “TD group”");
+    expect(text).toContain('Tab "TD"  →  column "TD group"   (2 groups)');
     expect(text).toContain("23652");
   });
 });

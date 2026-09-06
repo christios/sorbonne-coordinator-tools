@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { Modal } from "@/components/Modal";
 import { SelectMenu } from "@/components/SelectMenu";
 import { downloadAdmissionsList } from "@/services/admissionsExport";
+import { fetchActiveCourses, fetchActiveTeachers } from "@/services/portalLists";
 import { fieldHeld, namesHeld } from "@/services/rosterStore";
 import { type Cohort, fetchAssignments, fetchCatalogue } from "@/services/studentDatabase";
 import type { TimetableTerm } from "@/services/timetables";
@@ -41,6 +42,16 @@ export function WorkbookTools({
   }, [cohorts, terms, cohortId, termId]);
   const cohort = cohorts.find((candidate) => candidate.id === cohortId) ?? null;
   const catalogue = useQuery({ queryKey: ["catalogue", cohortId, termId], queryFn: () => fetchCatalogue(cohortId, termId), enabled: open && Boolean(cohortId && termId) });
+  // The UE codes: the workbook keys its columns on the Sorbonne unit, and only the
+  // department's course list knows which unit a registrar's course code stands for.
+  const active = useQuery({ queryKey: ["active-courses"], queryFn: fetchActiveCourses, enabled: open });
+  const ueOf = (courseCode: string) =>
+    (active.data ?? []).find((course) => course.courseCode.toUpperCase() === courseCode.toUpperCase())?.ue ?? "";
+  // Who is teaching: the Active teacher chosen for the section, else the name its row carried.
+  const teachers = useQuery({ queryKey: ["active-teachers"], queryFn: fetchActiveTeachers, enabled: open });
+  const teacherOf = (section: { teacher: string; teacherId?: string }) =>
+    (section.teacherId ? (teachers.data ?? []).find((teacher) => teacher.id === section.teacherId)?.fullName : "") ||
+    section.teacher;
   const scopes = catalogue.data?.scopes ?? [];
   const [exporting, setExporting] = useState<"" | "workbook" | "list">("");
   const [heldNames, setHeldNames] = useState(0);
@@ -82,6 +93,8 @@ export function WorkbookTools({
           prefix: prefixOf(cohort.name),
           blocks: scopes.map((scope) => ({ code: scope.code, name: scope.name, tab: scope.tab ?? "", groupColumn: scope.groupColumn ?? "", columnIndex: scope.columnIndex ?? 0, courses: scope.courses, groups: scope.groups })),
           students,
+          ueOf,
+          teacherOf,
         },
         `${cohort.name.replace(/[^A-Za-z0-9]+/g, "-")}-groups.xlsx`,
       );
