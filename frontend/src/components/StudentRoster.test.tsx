@@ -876,21 +876,21 @@ describe("sorting", () => {
 });
 
 describe("the toolbar", () => {
-  it("keeps the cohort control on screen, disabled until something is selected", async () => {
+  it("shows what can be done with a selection only once there is one", async () => {
     await withNames();
     renderRoster();
     await screen.findByText("Amira Haddad");
 
-    // It used to appear only once a row was ticked, which moved the table down under the
-    // cursor at the moment of clicking.
-    expect(screen.getByText("None selected")).toBeTruthy();
-    expect(screen.getByRole("combobox", { name: "Move to cohort" })).toHaveProperty("disabled", true);
-    expect(screen.getByRole("button", { name: /^Move$/ })).toHaveProperty("disabled", true);
+    // Nothing ticked: no controls at all, rather than a band of greyed ones saying
+    // "None selected" above every roster in the application.
+    expect(screen.queryByText("None selected")).toBeNull();
+    expect(screen.queryByRole("combobox", { name: "Move to cohort" })).toBeNull();
 
     fireEvent.click(screen.getByLabelText("Select Karim Nasser"));
 
     expect(screen.getByText("1 selected")).toBeTruthy();
     expect(screen.getByRole("combobox", { name: "Move to cohort" })).toHaveProperty("disabled", false);
+    expect(screen.getByRole("button", { name: /^Move 1$/ })).toHaveProperty("disabled", true);
   });
 
   it("searches every student we hold when told to, not only this view", async () => {

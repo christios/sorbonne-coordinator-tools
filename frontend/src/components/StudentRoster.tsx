@@ -1,5 +1,5 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Filter, FolderInput, Globe, LayoutGrid, Search } from "lucide-react";
+import { Filter, Globe, Search } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ColumnMenu } from "@/components/ColumnMenu";
@@ -11,10 +11,17 @@ import { FilterTabs } from "@/components/FilterTabs";
 import { HistoryBackup } from "@/components/HistoryBackup";
 import { PlaceInBlock } from "@/components/PlaceInBlock";
 import { ScreenLoading } from "@/components/ScreenLoading";
-import { SelectMenu } from "@/components/SelectMenu";
 import { StudentHistoryPane } from "@/components/StudentHistoryPane";
 import { StudentRecord } from "@/components/StudentRecord";
 import { StudentTable, cellText, type Sort } from "@/components/StudentTable";
+import {
+  SelectionFloating,
+  SelectionInToolbar,
+  SelectionMenu,
+  VARIANTS,
+  type SelectionActionsProps,
+  type SelectionVariant,
+} from "@/components/SelectionActions";
 import { TableFilterBar } from "@/components/TableFilterBar";
 import { costOfMove, describeCost } from "@/services/cohortMove";
 import { copyToClipboard, tableText } from "@/services/copyCells";
@@ -246,6 +253,28 @@ export function StudentRoster({
   const [naming, setNaming] = useState(false);
   const [newName, setNewName] = useState("");
   const [placing, setPlacing] = useState(false);
+  /*
+   * Temporary: which of the three shapes the selection controls take.
+   *
+   * Kept in this browser so switching pages or reloading does not put the comparison back
+   * to the start. It and the switch above the table go when one of them is chosen.
+   */
+  const [shape, setShape] = useState<SelectionVariant>(() => {
+    try {
+      const held = window.localStorage.getItem("scen-selection-shape");
+      return VARIANTS.some((variant) => variant.id === held) ? (held as SelectionVariant) : "toolbar";
+    } catch {
+      return "toolbar";
+    }
+  });
+  const chooseShape = (next: SelectionVariant) => {
+    setShape(next);
+    try {
+      window.localStorage.setItem("scen-selection-shape", next);
+    } catch {
+      // A comparison that cannot be remembered is still a comparison.
+    }
+  };
   const [placed, setPlaced] = useState<(PlacementReport & { removed: boolean }) | null>(null);
 
   /*
@@ -440,6 +469,29 @@ export function StudentRoster({
   const cohortOfSelection = cohorts.find((candidate) => candidate.id === placeInto) ?? null;
   const error = move.error ?? students.error;
 
+  /** The same controls and the same handlers, whichever of the three shapes is on. */
+  const selectionActions: SelectionActionsProps = {
+    variant: shape,
+    count: chosen.length,
+    cohorts,
+    moveTo,
+    onMoveTo: setMoveTo,
+    onNewCohort: () => {
+      setNewName("");
+      setNaming(true);
+    },
+    onMove: () => requestMove(moveTo === NO_COHORT ? null : moveTo),
+    moving: move.isPending,
+    canPlace: Boolean(cohortOfSelection),
+    onPlace: () => {
+      setPlaced(null);
+      setPlacing(true);
+    },
+    onClear: () => setSelected(new Set()),
+    newCohortValue: NEW_COHORT,
+    noCohortValue: NO_COHORT,
+  };
+
   return (
     <>
       {error ? (
@@ -448,73 +500,7 @@ export function StudentRoster({
         </p>
       ) : null}
 
-      {/*
-        * Always here, dimmed until there is something to move. A control that appears on
-        * selection moves everything below it down at the moment you click a row, and it
-        * does not answer "what can I do with these?" until after you have chosen.
-        */}
-      <div
-        className={`flex flex-wrap items-center gap-3 rounded-md border px-4 py-2.5 text-sm transition-opacity ${
-          chosen.length
-            ? "border-[#cfe0ef] bg-[#f2f7fb]"
-            : "border-[#e4e8ee] bg-[#fafbfc] opacity-60"
-        }`}
-      >
-          <span className={chosen.length ? "font-semibold text-[#1f4e79]" : "font-semibold text-[#98a2b3]"}>
-            {chosen.length ? `${chosen.length} selected` : "None selected"}
-          </span>
-          <div className="w-56">
-            <SelectMenu
-              label="Move to cohort"
-              value={moveTo}
-              placeholder="Move to cohort…"
-              searchable={cohorts.length > 12}
-              options={[
-                ...cohorts.map((cohort) => ({ value: cohort.id, label: cohort.name })),
-                { value: NEW_COHORT, label: "New cohort…" },
-                { value: NO_COHORT, label: "Take out of their cohort" },
-              ]}
-              onChange={(value) => {
-                if (value === NEW_COHORT) {
-                  setNewName("");
-                  setNaming(true);
-                  return;
-                }
-                setMoveTo(value);
-              }}
-              disabled={!chosen.length}
-            />
-          </div>
-          <button
-            type="button"
-            disabled={!chosen.length || !moveTo || move.isPending}
-            onClick={() => requestMove(moveTo === NO_COHORT ? null : moveTo)}
-            className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-3 py-1.5 font-semibold text-white disabled:opacity-50"
-          >
-            <FolderInput size={15} aria-hidden="true" /> {chosen.length ? `Move ${chosen.length}` : "Move"}
-          </button>
-          <button
-            type="button"
-            disabled={!cohortOfSelection}
-            title={
-              chosen.length && !cohortOfSelection
-                ? "Blocks belong to one cohort — select students who share one"
-                : undefined
-            }
-            onClick={() => {
-              setPlaced(null);
-              setPlacing(true);
-            }}
-            className="inline-flex items-center gap-2 rounded-md border border-[#b7bec8] bg-white px-3 py-1.5 font-semibold text-[#344054] disabled:opacity-50"
-          >
-            <LayoutGrid size={15} aria-hidden="true" /> Place in a block…
-          </button>
-          {chosen.length ? (
-            <button type="button" onClick={() => setSelected(new Set())} className="text-[#667085] underline">
-              Clear
-            </button>
-          ) : null}
-      </div>
+      {shape === "floating" ? <SelectionFloating {...selectionActions} /> : null}
 
       {placed ? (
         <p className="mt-2 rounded-md border border-[#bfdcc6] bg-[#f4faf5] px-4 py-2.5 text-sm text-[#2f6b3d]">
@@ -570,13 +556,49 @@ export function StudentRoster({
         </div>
       ) : null}
 
+      {/* Temporary: the switch that chooses between the three, and goes with the losers. */}
+      <div className="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-dashed border-[#c8d0da] bg-[#fcfdfe] px-3 py-2 text-xs">
+        <span className="font-semibold uppercase tracking-wide text-[#8a94a4]">Trying out</span>
+        {VARIANTS.map((variant) => (
+          <button
+            key={variant.id}
+            type="button"
+            onClick={() => chooseShape(variant.id)}
+            title={variant.blurb}
+            aria-pressed={shape === variant.id}
+            className={`rounded-full px-3 py-1 font-semibold ${
+              shape === variant.id
+                ? "bg-[#1f4e79] text-white"
+                : "border border-[#cbd5e1] bg-white text-[#344054] hover:bg-[#f2f7fb]"
+            }`}
+          >
+            {variant.name}
+          </button>
+        ))}
+        <span className="text-[#98a2b3]">
+          {VARIANTS.find((variant) => variant.id === shape)?.blurb} Tick a few rows to see it.
+        </span>
+      </div>
+
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        <TableFilterBar
-          columns={columns}
-          filters={filters}
-          optionsFor={(column) => optionsFor(rows, column)}
-          onChange={setFilters}
-        />
+        {/*
+          * Temporary: three shapes for the same controls, one of which will win.
+          *
+          * In the toolbar, they take the filter button's place while a selection is live,
+          * so the page never changes height. As a menu they sit beside it. Floating, they
+          * are elsewhere entirely — see the foot of the file.
+          */}
+        {shape === "menu" ? <SelectionMenu {...selectionActions} /> : null}
+        {shape === "toolbar" && chosen.length ? (
+          <SelectionInToolbar {...selectionActions} />
+        ) : (
+          <TableFilterBar
+            columns={columns}
+            filters={filters}
+            optionsFor={(column) => optionsFor(rows, column)}
+            onChange={setFilters}
+          />
+        )}
 
         {/* The margin lives here rather than on the search box, so the two travel
             together as a pair on the right instead of the button sitting by the filters. */}
