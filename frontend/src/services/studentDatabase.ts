@@ -21,6 +21,10 @@ export type Cohort = {
    */
   majors: string[];
   terms: string[];
+  /** "BSc-L2" — what this cohort's sheet is called in the timetable workbook. */
+  workbookTab: string;
+  /** The number that workbook gives this cohort's first semester: 3 for Licence 2. */
+  firstSemester: number;
   yearLevel: string;
   memberCount: number;
   scopeCount: number;
@@ -183,9 +187,11 @@ export type CohortInput = {
   majors?: string[];
   terms?: string[];
   yearLevel?: string;
+  workbookTab?: string;
+  firstSemester?: number;
 };
 
-const COHORT_DEFAULTS = { term: "", notes: "", majors: [], terms: [], yearLevel: "" };
+const COHORT_DEFAULTS = { term: "", notes: "", majors: [], terms: [], yearLevel: "", workbookTab: "", firstSemester: 0 };
 
 export function createCohort(input: CohortInput): Promise<Cohort> {
   return send<Cohort>(`${BASE}/cohorts`, "POST", { ...COHORT_DEFAULTS, ...input });

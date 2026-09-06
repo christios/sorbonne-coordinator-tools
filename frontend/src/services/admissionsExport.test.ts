@@ -80,12 +80,12 @@ describe("the rows", () => {
 
 describe("the file", () => {
   it("is one flat sheet: a header row, one row per student, CRNs as numbers", async () => {
-    const buffer = await buildAdmissionsBuffer({ prefix: "FYS", scopes: [CM, TD], students: STUDENTS });
+    const buffer = await buildAdmissionsBuffer({ prefix: "FYS", year: "26-27", scopes: [CM, TD], students: STUDENTS });
     const ExcelJS = await import("exceljs");
     const book = new ExcelJS.Workbook();
     await book.xlsx.load(buffer);
 
-    expect(book.worksheets.map((sheet) => sheet.name)).toEqual(["FYS-CRN-Enroll"]);
+    expect(book.worksheets.map((sheet) => sheet.name)).toEqual(["SCEN-FYS-CRN-Enroll-26-27"]);
     const sheet = book.worksheets[0];
     expect(sheet.getRow(1).values).toEqual([undefined, "Student ID", "Student Full Name", "MATH001 CM CRN", "MATH001 TD CRN", "MATH011 TD CRN"]);
     expect(sheet.getRow(2).values).toEqual([undefined, "A001", "Amir Saleh", 22151, 23652, 23365]);

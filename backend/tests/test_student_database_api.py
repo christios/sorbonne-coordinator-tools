@@ -580,6 +580,32 @@ def test_a_cohort_carries_its_majors_terms_and_year(client: TestClient) -> None:
 # ------------------------------------------------------------- the request
 
 
+def test_a_cohort_says_what_its_sheet_in_the_timetable_workbook_is_called(client: TestClient, cohort_id: str):
+    # Licence 2's first semester is called S3, because the workbook numbers across the
+    # degree. No rule can derive that, so the cohort is asked.
+    response = client.patch(
+        f"/api/v1/student-database/cohorts/{cohort_id}",
+        json={"name": "BSc Mathematics & Physics — Licence 2", "workbookTab": "BSc-L2", "firstSemester": 3},
+    )
+
+    assert response.status_code == status.HTTP_200_OK, response.text
+    assert response.json()["workbookTab"] == "BSc-L2"
+    assert response.json()["firstSemester"] == 3
+    held = client.get("/api/v1/student-database/cohorts").json()["cohorts"]
+    assert [c["workbookTab"] for c in held if c["id"] == cohort_id] == ["BSc-L2"]
+
+
+def test_a_cohort_that_has_not_been_asked_says_nothing_about_its_sheet(client: TestClient, cohort_id: str):
+    held = next(
+        cohort
+        for cohort in client.get("/api/v1/student-database/cohorts").json()["cohorts"]
+        if cohort["id"] == cohort_id
+    )
+
+    assert held["workbookTab"] == ""
+    assert held["firstSemester"] == 0
+
+
 def test_a_section_carries_the_timetable_request_beyond_its_crn(client: TestClient, cohort_id: str):
     scope_id, group_id = block_with_a_group(client, cohort_id)
     course = client.post(

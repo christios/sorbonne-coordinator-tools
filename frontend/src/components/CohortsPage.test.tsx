@@ -15,7 +15,7 @@ const L1: Cohort = {
   term: "2026-27",
   notes: "",
   majors: ["Applied Mathematics and Physics"], terms: [],
-  yearLevel: "L1",
+  yearLevel: "L1", workbookTab: "", firstSemester: 0,
   memberCount: 2,
   scopeCount: 0,
   createdAt: "",

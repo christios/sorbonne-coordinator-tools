@@ -12,7 +12,7 @@ import type { Cohort, Student } from "@/services/studentDatabase";
 
 const FYS: Cohort = {
   id: "c1", name: "FYS-S1", term: "2026-27", notes: "",
-  majors: [], terms: [], yearLevel: "FY",
+  majors: [], terms: [], yearLevel: "FY", workbookTab: "", firstSemester: 0,
   memberCount: 2, scopeCount: 0, createdAt: "", updatedAt: "",
 };
 

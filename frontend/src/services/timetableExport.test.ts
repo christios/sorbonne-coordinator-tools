@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { buildCards } from "@/services/courseCards";
 import { EMPTY_REQUEST, EMPTY_SECTION, type CohortCatalogue } from "@/services/studentDatabase";
-import { REQUEST_COLUMNS, buildTimetableWorkbook, requestSheets, sectionName, sheetPrefix, shortSemester, splitCourseCode, teacherHours } from "@/services/timetableExport";
+import { REQUEST_COLUMNS, asNumber, buildTimetableWorkbook, hoursColumn, requestSheets, sectionName, semesterLabel, sheetPrefix, sheetTitle, shortSemester, splitCourseCode, teacherHours } from "@/services/timetableExport";
 
 const FYS: CohortCatalogue = {
   cohort: { id: "c1", name: "Foundation Year", term: "2026-27" },
@@ -24,6 +24,40 @@ const PARENTS = new Map([["23223", "24226"], ["23899", "24226"]]);
 const ACTIVE = [
   { id: "a1", courseCode: "MATH001", title: "Pre-calculus 1", ue: "UL1MA001", mutualized: "" as const, addedAt: "", addedBy: "", crnCount: 2, portalCrnCount: 2, termCount: 1, lastTerm: "262710", portalParentCrn: "24226" },
 ];
+
+describe("what the workbook's own cells say", () => {
+  it("keeps a leading zero, which is a course number and not a small integer", () => {
+    expect(asNumber("100")).toBe(100);
+    expect(asNumber("001")).toBe("001");
+    expect(asNumber("")).toBe("");
+  });
+
+  it("says only the semester in the band under the cohort's name", () => {
+    expect(semesterLabel("Physics & Maths — First Year, Semester 1")).toBe("Semester 1");
+    expect(semesterLabel("Michaelmas")).toBe("Michaelmas");
+  });
+
+  it("names a sheet's column on Teacher Hours the way that sheet is known", () => {
+    expect(hoursColumn("BSc-L2-S3")).toBe("BSc L2");
+    expect(hoursColumn("FYS-S1")).toBe("FYS");
+  });
+});
+
+describe("the sheet's name", () => {
+  const cohort = { name: "BSc Mathematics & Physics — Licence 2", workbookTab: "BSc-L2", firstSemester: 3 };
+
+  it("is the cohort's own tab and its own numbering", () => {
+    // Licence 2's first semester is S3: the workbook numbers across the degree.
+    expect(sheetTitle(cohort, "Semester 1")).toBe("BSc-L2-S3");
+    expect(sheetTitle(cohort, "Physics & Maths, Semester 2")).toBe("BSc-L2-S4");
+  });
+
+  it("falls back to initials and the semester's own number where nobody has said", () => {
+    expect(sheetTitle({ name: "Foundation Year" }, "Semester 1")).toBe("FY-S1");
+    // A tab without a numbering still numbers from the semester itself.
+    expect(sheetTitle({ name: "Foundation Year", workbookTab: "FYS" }, "Semester 1")).toBe("FYS-S1");
+  });
+});
 
 describe("the request sheets", () => {
   it("write a silent section out with what its course asked for", () => {

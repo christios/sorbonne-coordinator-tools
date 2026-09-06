@@ -67,24 +67,35 @@ export function admissionsRows(
     }));
 }
 
-/** The sheet's name, within the 31 characters Excel allows. */
-export function admissionsSheetName(prefix: string): string {
-  return `${prefix}-CRN-Enroll`.slice(0, 31);
+/**
+ * "SCEN-L1-CRN-Enroll-26-27": the sheet's name, as the files admissions already have.
+ *
+ * The department's name in front and the year on the end, because these land in an inbox
+ * beside the same file from three other cohorts and last year's. Within the 31 characters
+ * Excel allows, the year going first if something has to be dropped — a truncated name is
+ * still recognisable, a wrong year is not.
+ */
+export function admissionsSheetName(prefix: string, year = ""): string {
+  const tail = year ? `-${year}` : "";
+  const head = `SCEN-${prefix}-CRN-Enroll`;
+  return `${head.slice(0, 31 - tail.length)}${tail}`;
 }
 
 export async function buildAdmissionsBuffer(input: {
   prefix: string;
+  /** "26-27", so a file in an inbox says which year it is for. */
+  year?: string;
   scopes: CatalogueScope[];
   students: AdmissionsStudent[];
 }): Promise<ArrayBuffer> {
   const ExcelJS = await import("exceljs");
   const book = new ExcelJS.Workbook();
   book.created = new Date();
-  const sheet = book.addWorksheet(admissionsSheetName(input.prefix));
+  const sheet = book.addWorksheet(admissionsSheetName(input.prefix, input.year ?? ""));
 
   const columns = admissionsColumns(input.scopes);
   const headers = ["Student ID", "Student Full Name", ...columns.map((column) => column.header)];
-  const widths = [14, 44, ...columns.map(() => 16)];
+  const widths = [14, 44, ...columns.map(() => 15)];
   sheet.addRow(headers);
   headers.forEach((_, index) => {
     const cell = sheet.getCell(1, index + 1);

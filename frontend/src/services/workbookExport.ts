@@ -113,6 +113,18 @@ export function prefixOf(cohortName: string): string {
   return /^[A-Z]/.test(cleaned) ? cleaned.slice(0, 20) : `C_${cleaned}`.slice(0, 20);
 }
 
+/**
+ * "2026-27" → "26-27": the academic year as the file names have it.
+ *
+ * The department writes the year both ways — "2026-2027" in a syllabus, "26-27" on a
+ * workbook — and the workbooks are what these files sit beside, so this is the short one.
+ */
+export function shortYear(term: string): string {
+  const years = term.match(/\d{2,4}/g) ?? [];
+  const short = years.map((year) => year.slice(-2));
+  return short.length >= 2 ? `${short[0]}-${short[1]}` : short[0] ?? "";
+}
+
 /** A defined name for one block's group list, which its dropdown reads from. */
 export function groupsName(prefix: string, scopeCode: string): string {
   return `${prefix}_${scopeCode.toUpperCase().replace(/[^A-Z0-9]+/g, "_")}_GROUPS`;

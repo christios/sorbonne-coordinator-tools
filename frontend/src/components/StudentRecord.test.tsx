@@ -30,7 +30,7 @@ const ROW: StudentRow = {
 };
 
 const COHORT: database.Cohort = {
-  id: "cohort-1", name: "Foundation Year", term: "2026-27", notes: "", majors: [], terms: [], yearLevel: "",
+  id: "cohort-1", name: "Foundation Year", term: "2026-27", notes: "", majors: [], terms: [], yearLevel: "", workbookTab: "", firstSemester: 0,
   memberCount: 1, scopeCount: 1, createdAt: "", updatedAt: "",
 };
 

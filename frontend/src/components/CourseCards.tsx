@@ -22,6 +22,7 @@ import { optionsFor, plainCellText } from "@/services/studentColumns";
 import { COHORT } from "@/services/remembered";
 import { applyFilters, type FilterModel } from "@/services/tableFilter";
 import { downloadTimetableWorkbook, requestSheets } from "@/services/timetableExport";
+import { shortYear } from "@/services/workbookExport";
 import { fetchTimetableTerms } from "@/services/timetables";
 
 /**
@@ -424,8 +425,15 @@ export function CourseCards({
                       return cohort?.majors.join(" / ") || cohort?.name || "";
                     },
                     nameOf,
+                    // The sheet's own name, which each cohort answers for itself.
+                    (cohortId) => cohorts.find((candidate) => candidate.id === cohortId) ?? { name: "" },
                   );
-                  await downloadTimetableWorkbook(sheets, `Time-Tables-${termName(requestTerm).replace(/[^A-Za-z0-9]+/g, "-")}.xlsx`);
+                  /*
+                   * The name the department's own file has: one workbook a year, not one
+                   * per semester with the semester spelled out in it.
+                   */
+                  const year = shortYear(cohorts.find((cohort) => cohort.term)?.term ?? "");
+                  await downloadTimetableWorkbook(sheets, `Time-Tables-${year || "request"}.xlsx`, year);
                   setRequesting(false);
                 } finally {
                   setBuilding(false);

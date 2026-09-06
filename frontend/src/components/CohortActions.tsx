@@ -84,6 +84,8 @@ export function CohortActions({
   const [majors, setMajors] = useState<string[]>(cohort.majors);
   const [terms, setTerms] = useState<string[]>(cohort.terms);
   const [yearLevel, setYearLevel] = useState(cohort.yearLevel);
+  const [workbookTab, setWorkbookTab] = useState(cohort.workbookTab);
+  const [firstSemester, setFirstSemester] = useState(String(cohort.firstSemester || ""));
   const schema = useQuery({ queryKey: ["portal-schema"], queryFn: fetchSchema, enabled: editing, staleTime: 60_000 });
   const held = useQuery({ queryKey: ["roster-rows-held"], queryFn: rowsHeld, enabled: editing, staleTime: 60_000 });
   const portalTerms = useQuery({ queryKey: ["portal", "courses", ""], queryFn: () => fetchPortalCourses("", ""), enabled: editing, retry: false });
@@ -99,6 +101,8 @@ export function CohortActions({
         majors,
         terms,
         yearLevel: yearLevel.trim(),
+        workbookTab: workbookTab.trim(),
+        firstSemester: Number(firstSemester) || 0,
       }),
     onSuccess: () => {
       setEditing(false);
@@ -149,6 +153,8 @@ export function CohortActions({
             setMajors(cohort.majors);
             setTerms(cohort.terms);
             setYearLevel(cohort.yearLevel);
+            setWorkbookTab(cohort.workbookTab);
+            setFirstSemester(String(cohort.firstSemester || ""));
             setEditing(true);
           }}
           className="rounded-md border border-[#b7bec8] bg-white p-2 text-[#344054] hover:bg-[#f8fafc]"
@@ -240,6 +246,42 @@ export function CohortActions({
             Codes come from the portal&apos;s tables as the extension read them, from the pulls this browser holds, and
             from the ones the department has always used. A code not listed can be added under its field.
           </p>
+
+          {/*
+            * What this cohort is called in the timetable workbook.
+            *
+            * Neither half can be worked out: "Foundation Year for Science" initialises to
+            * FYFS rather than FYS, and Licence 2's first semester is called S3 because the
+            * workbook numbers across the degree instead of within the year. Left blank, the
+            * export falls back to initials and the semester's own number.
+            */}
+          <div className="grid gap-4 sm:grid-cols-[1fr_10rem]">
+            <label className="block text-sm font-semibold text-[#344054]">
+              Timetable workbook tab
+              <input
+                value={workbookTab}
+                onChange={(event) => setWorkbookTab(event.target.value)}
+                placeholder="BSc-L2"
+                className="mt-1.5 block w-full rounded-md border border-[#cbd5e1] px-3 py-2 text-sm font-normal"
+              />
+              <span className="mt-1 block text-xs font-normal text-[#98a2b3]">
+                The sheet name without the semester. Blank uses the cohort&apos;s initials.
+              </span>
+            </label>
+            <label className="block text-sm font-semibold text-[#344054]">
+              Its first semester
+              <input
+                value={firstSemester}
+                inputMode="numeric"
+                onChange={(event) => setFirstSemester(event.target.value.replace(/[^0-9]/g, ""))}
+                placeholder="3"
+                className="mt-1.5 block w-full rounded-md border border-[#cbd5e1] px-3 py-2 text-sm font-normal tabular-nums"
+              />
+              <span className="mt-1 block text-xs font-normal text-[#98a2b3]">
+                3 for Licence 2, so its sheets are S3 and S4.
+              </span>
+            </label>
+          </div>
           {save.error ? (
             <p role="alert" className="rounded-md border border-[#e5b7b9] bg-[#fdf3f3] px-4 py-3 text-sm text-[#a6292f]">
               {(save.error as Error).message}

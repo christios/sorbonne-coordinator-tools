@@ -8,7 +8,7 @@ import { downloadAdmissionsList } from "@/services/admissionsExport";
 import { fieldHeld, namesHeld } from "@/services/rosterStore";
 import { type Cohort, fetchAssignments, fetchCatalogue } from "@/services/studentDatabase";
 import type { TimetableTerm } from "@/services/timetables";
-import { downloadWorkbook, prefixOf } from "@/services/workbookExport";
+import { downloadWorkbook, prefixOf, shortYear } from "@/services/workbookExport";
 
 /**
  * The files: the group workbook out, and the admissions list out.
@@ -97,7 +97,7 @@ export function WorkbookTools({
       const held = await namesHeld();
       const placements = await fetchAssignments(cohort.id);
       await downloadAdmissionsList(
-        { prefix: prefixOf(cohort.name), scopes, students: Object.entries(placements).map(([studentId, groups]) => ({ studentId, name: held[studentId] ?? "", groups })) },
+        { prefix: prefixOf(cohort.name), year: shortYear(cohort.term), scopes, students: Object.entries(placements).map(([studentId, groups]) => ({ studentId, name: held[studentId] ?? "", groups })) },
         `${cohort.name.replace(/[^A-Za-z0-9]+/g, "-")}-admissions.xlsx`,
       );
     } finally {

@@ -53,6 +53,10 @@ class CohortInput(BaseModel):
     majors: list[str] = Field(default_factory=list, max_length=20)
     terms: list[str] = Field(default_factory=list, max_length=20)
     yearLevel: str = Field(default="", max_length=40)
+    # What this cohort's sheet is called in the timetable workbook — "BSc-L2" — and the
+    # number that workbook gives its first semester, which for Licence 2 is 3.
+    workbookTab: str = Field(default="", max_length=24)
+    firstSemester: int = Field(default=0, ge=0, le=12)
 
 
 class RuleInput(BaseModel):
@@ -205,6 +209,8 @@ async def update_cohort(
             majors=body.majors,
             terms=body.terms,
             year_level=body.yearLevel,
+            workbook_tab=body.workbookTab,
+            first_semester=body.firstSemester,
         )
     except CohortNotFound as exc:
         raise _missing(exc, "cohort") from exc

@@ -201,11 +201,14 @@ class StudentDatabase:
         majors: list[str] | None = None,
         terms: list[str] | None = None,
         year_level: str = "",
+        workbook_tab: str = "",
+        first_semester: int = 0,
     ) -> dict[str, Any]:
         with self.engine.begin() as connection:
             updated = connection.execute(
                 text("""UPDATE student_cohorts SET name = :name, term = :term, notes = :notes,
                             major_codes = :majors, term_codes = :terms, year_level = :year_level,
+                            workbook_tab = :workbook_tab, first_semester = :first_semester,
                             updated_at = :now WHERE id = :id"""),
                 {
                     "id": cohort_id,
@@ -215,6 +218,8 @@ class StudentDatabase:
                     "majors": json.dumps(_codes(majors)),
                     "terms": json.dumps(_codes(terms)),
                     "year_level": _text(year_level),
+                    "workbook_tab": _text(workbook_tab),
+                    "first_semester": max(0, int(first_semester or 0)),
                     "now": _now(),
                 },
             )
@@ -1684,6 +1689,11 @@ def _cohort(row) -> dict[str, Any]:
         "majors": json.loads(row["major_codes"] or "[]"),
         "terms": json.loads(row["term_codes"] or "[]"),
         "yearLevel": row["year_level"] or "",
+        # What its sheet is called in the timetable workbook, and the number that sheet
+        # gives its first semester — S3 for Licence 2, because the numbering runs across
+        # the degree. Empty means "work it out from the name", which is what we did before.
+        "workbookTab": row["workbook_tab"] or "",
+        "firstSemester": row["first_semester"] or 0,
         "memberCount": row["member_count"],
         "scopeCount": row["scope_count"],
         "createdAt": row["created_at"],

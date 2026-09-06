@@ -11,7 +11,7 @@ import { EMPTY_SECTION } from "@/services/studentDatabase";
 import * as timetables from "@/services/timetables";
 
 const COHORT: database.Cohort = {
-  id: "c1", name: "Foundation Year", term: "2026-27", notes: "", majors: [], terms: [], yearLevel: "",
+  id: "c1", name: "Foundation Year", term: "2026-27", notes: "", majors: [], terms: [], yearLevel: "", workbookTab: "", firstSemester: 0,
   memberCount: 12, scopeCount: 2, createdAt: "", updatedAt: "",
 };
 
