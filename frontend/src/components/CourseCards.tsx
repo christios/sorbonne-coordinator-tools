@@ -1,9 +1,10 @@
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, ChevronsDownUp, ChevronsUpDown, Download, FileSpreadsheet, ListTree, Plus, Search } from "lucide-react";
+import { CheckCircle2, ChevronsDownUp, ChevronsUpDown, Download, FileSpreadsheet, ListTree, Plus, Search, Sparkles } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { AddFromPortal } from "@/components/AddFromPortal";
 import { ClashPanel } from "@/components/ClashPanel";
+import { GroupsPreview } from "@/components/GroupsPreview";
 import { CourseCard } from "@/components/CourseCard";
 import type { FillReport } from "@/components/FillBlock";
 import { GroupSetsEditor } from "@/components/GroupSetsEditor";
@@ -76,6 +77,7 @@ export function CourseCards({ cohorts, onShowStudents }: { cohorts: Cohort[]; on
    * every cohort stay on screen whichever is chosen, because they are everyone's.
    */
   const [cohortId, setCohortId] = useState("");
+  const [previewing, setPreviewing] = useState(false);
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
     const searched = needle ? cards.filter((card) => columns.some((column) => plainCellText(card, column).toLowerCase().includes(needle))) : cards;
@@ -118,6 +120,10 @@ export function CourseCards({ cohorts, onShowStudents }: { cohorts: Cohort[]; on
     cohorts.find((cohort) => cards.some((card) => card.cohortId === cohort.id)) ??
     cohorts[0] ??
     null;
+
+  // Temporary: two drawings of what this page could be, to be chosen between and then
+  // taken away again. Nothing in there writes anything.
+  if (previewing) return <GroupsPreview cohorts={cohorts} onClose={() => setPreviewing(false)} />;
 
   if (catalogues.isLoading) return <ScreenLoading label="Loading the courses…" />;
   if (catalogues.error) return <p role="alert" className="text-sm text-[#a6292f]">{(catalogues.error as Error).message}</p>;
@@ -188,6 +194,14 @@ export function CourseCards({ cohorts, onShowStudents }: { cohorts: Cohort[]; on
         <TableFilterBar columns={columns} filters={filters} optionsFor={(column) => optionsFor(cards, column)} onChange={setFilters} />
         <button type="button" onClick={() => setEditingSets({ cohortId: single?.cohortId ?? cohorts[0]?.id ?? "", termId: single?.termId ?? "" })} className={button}>
           <ListTree size={15} aria-hidden="true" /> Group sets
+        </button>
+        <button
+          type="button"
+          onClick={() => setPreviewing(true)}
+          title="Two drawings of what this page could be. Nothing there writes anything."
+          className="inline-flex items-center gap-2 rounded-md border border-dashed border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#667085] hover:bg-[#f8fafc]"
+        >
+          <Sparkles size={15} aria-hidden="true" /> New layouts
         </button>
         <button type="button" onClick={() => setAdding(true)} className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white hover:bg-[#183f63]">
           <Plus size={15} aria-hidden="true" /> Add from portal
