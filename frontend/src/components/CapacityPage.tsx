@@ -49,16 +49,29 @@ function Tile({ label, value, hint, alarm }: { label: string; value: string; hin
   );
 }
 
-/**
- * One group as a bar: its seats as the track, its students as the fill.
+/*
+ * The bar is the group's own seats, not the set's biggest group.
  *
- * The scale is the set's fullest group, so the bars of a set are read against each other
- * — which is the question, since a student moved out of one lands in another. A group
- * over its seats overflows the track in the colour that says so, and says by how many.
+ * Scaling every bar to the fullest group in its set made "over capacity" invisible: a
+ * class of 34 in 33 seats drew at 94% of the row, red but plainly not full, and the eye
+ * believed the picture over the colour. So the track *is* the capacity — its right edge
+ * is the last seat — and anything beyond it sticks out past that edge in the colour that
+ * says so. Full looks full, over looks over, and half-empty looks half-empty.
+ *
+ * A quarter of the row is kept clear for the overflow; a group more than a quarter over
+ * fills that lane and the number beside it carries the rest.
  */
+const TRACK = 76;
+const SPILL = 24;
+
+/** One group as a bar: the seats as the track, the students as the fill, the rest spilling. */
 function GroupBar({ group, peak, open, onToggle }: { group: GroupCapacity; peak: number; open: boolean; onToggle: () => void }) {
-  const width = (value: number) => `${Math.min(100, (value / peak) * 100)}%`;
-  const over = group.enrolled > group.capacity && group.capacity > 0;
+  const stated = group.capacity > 0;
+  const filled = stated ? Math.min(1, group.enrolled / group.capacity) : Math.min(1, group.enrolled / peak);
+  const over = stated ? Math.max(0, group.enrolled - group.capacity) : 0;
+  // The spill is drawn to the same scale as the track, so one seat is one width either side.
+  const spill = stated ? Math.min(SPILL, (over / group.capacity) * TRACK) : 0;
+
   return (
     <div className="py-1.5">
       <button type="button" onClick={onToggle} aria-expanded={open} className="flex w-full items-center gap-3 text-left">
@@ -68,16 +81,30 @@ function GroupBar({ group, peak, open, onToggle }: { group: GroupCapacity; peak:
           <ChevronRight size={13} className="shrink-0 text-[#98a2b3]" aria-hidden="true" />
         )}
         <span className="w-24 shrink-0 truncate text-sm font-medium text-[#344054]">{group.group}</span>
-        <span className="relative h-3 min-w-0 flex-1 rounded-full bg-[#eef1f5]">
-          {/* The seats, as a faint track end, so a half-empty group looks half empty. */}
-          {group.capacity ? (
-            <span className="absolute inset-y-0 left-0 rounded-full bg-[#e2e7ee]" style={{ width: width(group.capacity) }} />
-          ) : null}
+
+        <span className="relative h-3.5 min-w-0 flex-1">
+          {/* The seats: the whole track, whatever the group holds. */}
           <span
-            className="absolute inset-y-0 left-0 rounded-full"
-            style={{ width: width(group.enrolled), background: FILL[group.status] }}
+            className={`absolute inset-y-0 left-0 rounded-sm ${stated ? "bg-[#eef1f5]" : "bg-transparent"}`}
+            style={{ width: `${TRACK}%` }}
           />
+          <span
+            className="absolute inset-y-0 left-0 rounded-l-sm"
+            style={{ width: `${filled * TRACK}%`, background: FILL[group.status] }}
+          />
+          {/* The last seat, so full reads as full at a glance. */}
+          {stated ? (
+            <span className="absolute inset-y-[-2px] w-px bg-[#b7bec8]" style={{ left: `${TRACK}%` }} />
+          ) : null}
+          {spill ? (
+            <span
+              className="absolute inset-y-0 rounded-r-sm bg-[#a6292f]"
+              style={{ left: `${TRACK}%`, width: `${spill}%` }}
+              title={`${over} over its seats`}
+            />
+          ) : null}
         </span>
+
         <span className="w-24 shrink-0 text-right text-sm tabular-nums text-[#344054]">
           {group.enrolled}
           <span className="text-[#98a2b3]"> / {group.capacity || "—"}</span>
@@ -86,8 +113,10 @@ function GroupBar({ group, peak, open, onToggle }: { group: GroupCapacity; peak:
           {over ? (
             <>
               <AlertTriangle size={11} className="mr-1 inline align-[-1px]" aria-hidden="true" />
-              {group.enrolled - group.capacity} over
+              {over} over
             </>
+          ) : stated && group.free > 0 ? (
+            `${group.free} free`
           ) : (
             WORD[group.status]
           )}
@@ -270,8 +299,8 @@ export function CapacityPage() {
       </div>
 
       <p className="mt-4 text-xs text-[#98a2b3]">
-        A group&apos;s enrolment is the group&apos;s, whatever its set carries: open one to see its sections. Bars are
-        drawn to the fullest group of their set, so a set reads against itself. A set shared across cohorts holds
+        A group&apos;s enrolment is the group&apos;s, whatever its set carries: open one to see its sections. Each bar is
+        that group&apos;s own seats — the line is the last one — so what spills past it is what is over. A set shared across cohorts holds
         this cohort&apos;s students among everybody else&apos;s, so its seats are counted apart from the totals above.
       </p>
     </section>
