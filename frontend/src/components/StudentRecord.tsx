@@ -315,13 +315,32 @@ export function StudentRecord({
                * look alike, and the register is what tells them apart.
                */
               <ul className="space-y-3" aria-label="Registrations">
-                {families.map((family) => (
+                {families.map((family) => {
+                  /*
+                   * A course under this heading that has nothing registered in it at all.
+                   *
+                   * It is here only because a warning has to be read somewhere, and the
+                   * heading it was given is the same heading a registered course gets —
+                   * so a course the registrar has not touched read as one it had, under a
+                   * panel that says "what the registrar actually registered". It says so
+                   * now, and it says it in the place the sections would have been.
+                   */
+                  const nothing = !family.parent && family.children.length === 0;
+                  return (
                   <li key={family.courseCode}>
                     <p className="text-sm">
-                      <span className="font-semibold text-[#171717]">{family.courseCode}</span>
+                      <span className={`font-semibold ${nothing ? "text-[#98a2b3]" : "text-[#171717]"}`}>
+                        {family.courseCode}
+                      </span>
                       {family.title ? <span className="ml-2 text-[#667085]">{family.title}</span> : null}
+                      {nothing ? <span className="ml-2 text-xs text-[#98a2b3]">nothing registered</span> : null}
                     </p>
 
+                    {nothing ? (
+                      <p className="ml-4 mt-1 text-xs text-[#98a2b3]">
+                        The registrar has this student in no section of this course.
+                      </p>
+                    ) : null}
                     {family.parent ? <RegistrationLine registration={family.parent} parent /> : null}
                     {family.children.length ? (
                       <ul className={family.parent ? "ml-4 border-l border-[#eef1f5] pl-3" : ""}>
@@ -343,7 +362,8 @@ export function StudentRecord({
                       </p>
                     ))}
                   </li>
-                ))}
+                  );
+                })}
               </ul>
             )}
 

@@ -113,3 +113,27 @@ describe("a student's record", () => {
     expect(history.textContent).toContain("student status: IS → AS");
   });
 });
+
+describe("a course the registrar has not touched", () => {
+  it("says so, rather than looking like one it has", async () => {
+    vi.spyOn(lists, "fetchRegistrations").mockResolvedValue([
+      { crn: "23644", courseCode: "CPSC-100", title: "Computer Science G.1-TD", termCode: "262710", status: "in_portal" },
+    ] as never);
+    vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue([
+      // Registered in one of the two sections we expect: the course is partly there.
+      { studentId: "A001", termId: "term-1", termCode: "262710", courseCode: "CPSC-100", kind: "missing", expected: ["22155", "23644"], registered: ["23644"] },
+      // Registered in nothing at all — the heading exists only to carry the warning.
+      { studentId: "A001", termId: "term-1", termCode: "262710", courseCode: "PHYS-118", kind: "missing", expected: ["22150"], registered: [] },
+    ] as never);
+
+    show();
+
+    const list = await screen.findByLabelText("Registrations");
+    const phys = within(list).getByText("PHYS-118").closest("li") as HTMLElement;
+    expect(within(phys).getByText("nothing registered")).toBeTruthy();
+    expect(within(phys).getByText(/no section of this course/)).toBeTruthy();
+    // The course that does have a registration is not marked that way.
+    const cpsc = within(list).getByText("CPSC-100").closest("li") as HTMLElement;
+    expect(within(cpsc).queryByText("nothing registered")).toBeNull();
+  });
+});
