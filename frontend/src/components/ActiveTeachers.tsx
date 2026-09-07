@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Trash2, UserPlus } from "lucide-react";
+import { AlertTriangle, ArrowRight, Link2, Trash2, UserPlus } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -10,9 +10,12 @@ import { ScreenLoading } from "@/components/ScreenLoading";
 import {
   type ActiveTeacher,
   type PartTimeTeacher,
+  type TeacherMatch,
   addActiveTeachers,
   fetchActiveTeachers,
   fetchPartTimeTeachers,
+  fetchTeacherMatches,
+  linkActiveTeacher,
   removeActiveTeacher,
 } from "@/services/portalLists";
 import type { GridColumn } from "@/services/studentColumns";
@@ -60,11 +63,20 @@ const renderCell = (row: ActiveTeacher, column: GridColumn<ActiveTeacher>) =>
 export function ActiveTeachers({ onOpenTeacher }: { onOpenTeacher?: (teacher: TeacherRef) => void }) {
   const client = useQueryClient();
   const active = useQuery({ queryKey: ["active-teachers"], queryFn: fetchActiveTeachers });
+  const matches = useQuery({ queryKey: ["teacher-matches"], queryFn: fetchTeacherMatches, retry: false });
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [picking, setPicking] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
 
-  const refresh = () => client.invalidateQueries({ queryKey: ["active-teachers"] });
+  const refresh = () => {
+    client.invalidateQueries({ queryKey: ["active-teachers"] });
+    client.invalidateQueries({ queryKey: ["teacher-matches"] });
+  };
+  const link = useMutation({
+    mutationFn: ({ activeId, portalTeacherId }: { activeId: string; portalTeacherId: string }) =>
+      linkActiveTeacher(activeId, portalTeacherId),
+    onSuccess: () => refresh(),
+  });
   const add = useMutation({
     mutationFn: (records: PartTimeTeacher[]) => addActiveTeachers({ partTime: records }),
     onSuccess: () => {
@@ -83,7 +95,7 @@ export function ActiveTeachers({ onOpenTeacher }: { onOpenTeacher?: (teacher: Te
     },
   });
 
-  const error = add.error?.message ?? remove.error?.message ?? null;
+  const error = add.error?.message ?? remove.error?.message ?? link.error?.message ?? null;
 
   return (
     <section>
@@ -96,6 +108,12 @@ export function ActiveTeachers({ onOpenTeacher }: { onOpenTeacher?: (teacher: Te
           {add.data.skipped ? `, ${add.data.skipped} already here` : ""}.
         </p>
       ) : null}
+
+      <SameSomebody
+        matches={matches.data ?? []}
+        busy={link.isPending}
+        onLink={(match) => link.mutate({ activeId: match.activeId, portalTeacherId: match.portalTeacherId })}
+      />
 
       {active.isLoading ? (
         <ScreenLoading label="Loading active teachers…" />
@@ -157,6 +175,68 @@ export function ActiveTeachers({ onOpenTeacher }: { onOpenTeacher?: (teacher: Te
         onClose={() => setConfirmRemove(false)}
       />
     </section>
+  );
+}
+
+/**
+ * People who are probably on this list twice over, and the one press that says so.
+ *
+ * A teacher joins the portal's lists when they are first paid through it, which can be
+ * months after the department started counting on them — and a sync writes the portal's
+ * own tables and never touches ours, so nothing notices. Add them from the Teachers page
+ * and there are two rows: the part-time one their sections are attached to, and a portal
+ * one carrying everything the registrar knows. Neither says anything about the other.
+ *
+ * The names are matched, not the addresses, because the addresses are exactly what does
+ * not match: somebody the portal has only just started paying is in the part-time database
+ * under a personal address. And a name is not proof, so this offers and never acts.
+ */
+function SameSomebody({
+  matches,
+  busy,
+  onLink,
+}: {
+  matches: TeacherMatch[];
+  busy: boolean;
+  onLink: (match: TeacherMatch) => void;
+}) {
+  if (!matches.length) return null;
+  return (
+    <div className="mb-3 rounded-lg border border-[#e5cf9f] bg-[#fdf9ee] px-4 py-3">
+      <p className="flex items-center gap-2 text-sm font-semibold text-[#8a6116]">
+        <AlertTriangle size={15} aria-hidden="true" />
+        {matches.length} {matches.length === 1 ? "teacher is" : "teachers are"} now in the portal under their own
+        profile
+      </p>
+      <p className="mt-1 text-xs text-[#8a6116]">
+        They were brought from the part-time database before the portal listed them. Linking makes them one person, and
+        the portal&apos;s profile is the one that counts from then on — its name, its address, its department.
+      </p>
+      <ul className="mt-2 divide-y divide-[#f0e4c8]">
+        {matches.map((match) => (
+          <li key={match.activeId} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 py-2 text-sm">
+            <span className="font-medium text-[#171717]">{match.activeName}</span>
+            <span className="text-xs text-[#98a2b3]">{match.activeEmail || "no address here"}</span>
+            <ArrowRight size={13} className="text-[#c2a15c]" aria-hidden="true" />
+            <span className="text-[#344054]">
+              {match.portalName} <span className="tabular-nums text-xs text-[#98a2b3]">{match.portalTeacherId}</span>
+            </span>
+            <span className="text-xs text-[#98a2b3]">{match.portalEmail || "no address in the portal"}</span>
+            {match.portalStatus === "not_in_portal" ? (
+              <StatePill tone="muted">no longer in the portal</StatePill>
+            ) : null}
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => onLink(match)}
+              className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-2.5 py-1 text-xs font-semibold text-[#1f4e79] hover:bg-[#f2f7fb] disabled:opacity-50"
+            >
+              <Link2 size={13} aria-hidden="true" /> Same person
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 

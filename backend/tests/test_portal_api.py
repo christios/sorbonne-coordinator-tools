@@ -230,6 +230,74 @@ def test_a_part_time_record_with_the_same_email_is_the_same_person(client: TestC
     assert held["Carla Nasr"]["type"] == ""
 
 
+def test_a_part_timer_the_portal_has_started_returning_is_offered_as_a_match(client: TestClient):
+    seed_teachers(client)
+    # Brought from the part-time database with the personal address they had then, which is
+    # why no e-mail match will save us later.
+    client.post(
+        f"{BASE}/active-teachers",
+        json={"partTime": [{"id": "pt-1", "fullName": "Dr Ahlem TRABELSI", "email": "ahlem@gmail.com"}]},
+    )
+
+    [match] = client.get(f"{BASE}/active-teachers/matches").json()["matches"]
+
+    assert match["activeName"] == "Dr Ahlem TRABELSI"
+    assert match["portalTeacherId"] == "A001"
+    assert match["portalEmail"] == "ahlem@sorbonne.ae"
+
+    # Linking makes them one row, and the portal is the one that leads.
+    active_id = client.get(f"{BASE}/active-teachers").json()["teachers"][0]["id"]
+    linked = client.post(f"{BASE}/active-teachers/{active_id}/link", json={"portalTeacherId": "a001"})
+    assert linked.status_code == status.HTTP_200_OK
+
+    [held] = client.get(f"{BASE}/active-teachers").json()["teachers"]
+    assert held["source"] == "both"
+    assert held["partTimeTeacherId"] == "pt-1"
+    # The portal's spelling and the portal's address, not the ones the department typed.
+    assert held["fullName"] == "Ahlem Trabelsi"
+    assert held["email"] == "ahlem@sorbonne.ae"
+    assert held["type"] == "Part-Time"
+    # And nothing is offered any more.
+    assert client.get(f"{BASE}/active-teachers/matches").json()["matches"] == []
+
+
+def test_a_name_two_portal_profiles_answer_to_is_not_offered(client: TestClient):
+    seed_teachers(client)
+    second = make_filter(client, "teachers", name="Another list")
+    client.post(
+        f"{BASE}/filters/{second['id']}/sync/teachers",
+        json={"rows": [{"teacherId": "A003", "fullName": "Ahlem Trabelsi", "psuadEmail": "ahlem2@sorbonne.ae"}]},
+    )
+    client.post(
+        f"{BASE}/active-teachers",
+        json={"partTime": [{"id": "pt-1", "fullName": "Ahlem Trabelsi", "email": "ahlem@gmail.com"}]},
+    )
+
+    # Two people of that name in the portal: which one is a question for a person, not a guess.
+    assert client.get(f"{BASE}/active-teachers/matches").json()["matches"] == []
+
+
+def test_a_portal_profile_can_only_be_one_person_on_the_list(client: TestClient):
+    seed_teachers(client)
+    client.post(f"{BASE}/active-teachers", json={"portalTeacherIds": ["A001"]})
+    client.post(
+        f"{BASE}/active-teachers",
+        json={"partTime": [{"id": "pt-9", "fullName": "Somebody Else", "email": "else@example.org"}]},
+    )
+    other = next(
+        row for row in client.get(f"{BASE}/active-teachers").json()["teachers"] if row["fullName"] == "Somebody Else"
+    )
+
+    answer = client.post(f"{BASE}/active-teachers/{other['id']}/link", json={"portalTeacherId": "A001"})
+
+    assert answer.status_code == status.HTTP_409_CONFLICT
+    # A profile the portal does not hold, and a teacher the list does not hold.
+    unknown = client.post(f"{BASE}/active-teachers/{other['id']}/link", json={"portalTeacherId": "A404"})
+    nobody = client.post(f"{BASE}/active-teachers/nope/link", json={"portalTeacherId": "A001"})
+    assert unknown.status_code == status.HTTP_404_NOT_FOUND
+    assert nobody.status_code == status.HTTP_404_NOT_FOUND
+
+
 def test_an_active_teacher_can_be_removed(client: TestClient):
     seed_teachers(client)
     client.post(f"{BASE}/active-teachers", json={"portalTeacherIds": ["A002"]})

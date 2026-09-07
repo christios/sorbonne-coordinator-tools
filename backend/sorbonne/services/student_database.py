@@ -1181,12 +1181,15 @@ class StudentDatabase:
             if held is None:
                 raise ScopeNotFound(scope_id)
             # The nearest set on that side, in the reading order the page uses.
+            after = ">" if step > 0 else "<"
+            way = "ASC" if step > 0 else "DESC"
             neighbour = connection.execute(
                 text(f"""SELECT id, position FROM cohort_scopes
                          WHERE cohort_id = :cohort AND term_id = :term AND id <> :id
-                           AND (position, code) {'>' if step > 0 else '<'} (:position, (SELECT code FROM cohort_scopes WHERE id = :id))
-                         ORDER BY position {'ASC' if step > 0 else 'DESC'}, code {'ASC' if step > 0 else 'DESC'}
-                         LIMIT 1"""),  # noqa: S608 - the comparison is one of two fixed strings
+                           AND (position, code) {after}
+                               (:position, (SELECT code FROM cohort_scopes WHERE id = :id))
+                         ORDER BY position {way}, code {way}
+                         LIMIT 1"""),  # noqa: S608 - both are one of two fixed strings
                 {"id": scope_id, "cohort": held["cohort_id"], "term": held["term_id"], "position": held["position"]},
             ).mappings().first()
             if neighbour is None:

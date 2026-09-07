@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import re
+import unicodedata
 from dataclasses import dataclass
 from typing import Any
 from uuid import uuid4
@@ -49,6 +50,14 @@ class ActiveCourseNotFound(Exception):
 
 class InvalidParent(ValueError):
     """A parent CRN that would make nonsense of the register, and why."""
+
+
+class PortalTeacherNotFound(Exception):
+    """The portal has no such teacher — the list it came from is older than the list here."""
+
+
+class PortalTeacherAlreadyLinked(Exception):
+    """Somebody else on the department's list is already that portal profile."""
 
 
 class ActiveTeacherNotFound(Exception):
@@ -564,8 +573,12 @@ class PortalListStore:
                 connection.execute(
                     text("""SELECT a.*, p.teacher_status, p.category, p.type, p.last_term, p.department,
                                    p.rank, p.courses, p.institution, p.status AS portal_status,
-                                   coalesce(nullif(a.full_name, ''), p.full_name, '') AS shown_name,
-                                   coalesce(nullif(a.email, ''), p.psuad_email, '') AS shown_email
+                                   -- The portal first, and what was stored only where it is silent.
+                                   -- A row linked to a portal profile is that profile: the registrar
+                                   -- is where a name is corrected and where an address is issued, and
+                                   -- a part-time record written a year ago should not outrank it.
+                                   coalesce(nullif(p.full_name, ''), nullif(a.full_name, ''), '') AS shown_name,
+                                   coalesce(nullif(p.psuad_email, ''), nullif(a.email, ''), '') AS shown_email
                             FROM active_teachers a
                             LEFT JOIN portal_teachers p ON p.teacher_id = a.portal_teacher_id
                             ORDER BY shown_name, a.id""")
@@ -574,6 +587,97 @@ class PortalListStore:
                 .all()
             )
         return [_active(row) for row in rows]
+
+    def unlinked_portal_matches(self) -> list[dict[str, Any]]:
+        """Active teachers who came from the part-time database and look like a portal profile.
+
+        A teacher joins the portal's lists when they are first paid through it, which can be
+        months after the department started counting on them. Nothing about a sync notices:
+        it writes the portal's own tables and never touches ours, so the person quietly
+        becomes two — a part-time row with no portal columns, and a portal row nobody has
+        added. Adding the second is what creates the duplicate, and the e-mail match that
+        would have prevented it fails exactly when the part-time record holds a personal
+        address, which is the normal case for somebody not yet issued a university one.
+
+        So they are matched on the name instead, and only ever offered: a name is not proof,
+        and joining two records is not something to do to somebody behind their back.
+        """
+        with self.engine.connect() as connection:
+            active = connection.execute(text("SELECT * FROM active_teachers")).mappings().all()
+            portal = (
+                connection.execute(
+                    text("SELECT teacher_id, full_name, psuad_email, status FROM portal_teachers")
+                )
+                .mappings()
+                .all()
+            )
+        taken = {row["portal_teacher_id"] for row in active if row["portal_teacher_id"]}
+        by_name: dict[str, list[Any]] = {}
+        for row in portal:
+            if row["teacher_id"] in taken:
+                continue
+            by_name.setdefault(_name_key(row["full_name"]), []).append(row)
+
+        found: list[dict[str, Any]] = []
+        for row in active:
+            if row["portal_teacher_id"] or not row["part_time_teacher_id"]:
+                continue
+            # One candidate only. Two people of the same name is a question for a person.
+            candidates = by_name.get(_name_key(row["full_name"]), [])
+            if len(candidates) != 1:
+                continue
+            match = candidates[0]
+            found.append(
+                {
+                    "activeId": row["id"],
+                    "activeName": row["full_name"],
+                    "activeEmail": row["email"],
+                    "portalTeacherId": match["teacher_id"],
+                    "portalName": match["full_name"],
+                    "portalEmail": match["psuad_email"] or "",
+                    "portalStatus": match["status"],
+                }
+            )
+        return sorted(found, key=lambda entry: entry["activeName"].casefold())
+
+    def link_active_teacher(self, active_id: str, portal_teacher_id: str) -> None:
+        """Say that this active teacher is that portal profile, and let the profile lead.
+
+        The row keeps its part-time id, so the two sides stay joined; from here its name,
+        its address and everything else on screen are the portal's.
+        """
+        teacher_id = _text(portal_teacher_id).upper()
+        with self.engine.begin() as connection:
+            row = (
+                connection.execute(text("SELECT * FROM active_teachers WHERE id = :id"), {"id": active_id})
+                .mappings()
+                .first()
+            )
+            if row is None:
+                raise ActiveTeacherNotFound(active_id)
+            portal = (
+                connection.execute(
+                    text("SELECT teacher_id FROM portal_teachers WHERE teacher_id = :t"), {"t": teacher_id}
+                )
+                .mappings()
+                .first()
+            )
+            if portal is None:
+                raise PortalTeacherNotFound(teacher_id)
+            already = (
+                connection.execute(
+                    text("SELECT id FROM active_teachers WHERE portal_teacher_id = :t AND id <> :id"),
+                    {"t": teacher_id, "id": active_id},
+                )
+                .mappings()
+                .first()
+            )
+            if already is not None:
+                raise PortalTeacherAlreadyLinked(teacher_id)
+            connection.execute(
+                text("UPDATE active_teachers SET portal_teacher_id = :t WHERE id = :id"),
+                {"t": teacher_id, "id": active_id},
+            )
 
     def add_active_teachers(
         self,
@@ -1318,6 +1422,25 @@ def _active_course(row: Any, parent: Any = None) -> dict[str, Any]:
         # each section's parent. Empty when the portal has no such row, or more than one.
         "portalParentCrn": "" if parent is None else parent["crn"],
     }
+
+
+# Titles the registrar and the department disagree about, which are not part of a name.
+_TITLES = {"dr", "pr", "prof", "professor", "mr", "ms", "mrs", "mme", "m"}
+
+
+def _name_key(name: str) -> str:
+    """A name reduced to what two spellings of the same person have in common.
+
+    Case, accents, punctuation and titles go; the words are sorted, because the registrar
+    writes some people family-name-first and the part-time database does not. It is a key
+    for offering a match, never for making one.
+    """
+    folded = unicodedata.normalize("NFKD", _text(name).casefold())
+    stripped = "".join(character for character in folded if not unicodedata.combining(character))
+    # Split on anything that is not a letter or a digit, so "PR.Simone" is two words and
+    # the title comes off with the rest.
+    words = [word for word in re.split(r"[^\w]+", stripped) if word]
+    return " ".join(sorted(word for word in words if word not in _TITLES))
 
 
 def _active(row: Any) -> dict[str, Any]:

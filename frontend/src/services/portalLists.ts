@@ -190,6 +190,31 @@ export type ActiveTeacher = {
   portalStatus: string;
 };
 
+/**
+ * An active teacher who came from the part-time database and looks like a portal profile.
+ *
+ * Offered, never applied: a name is not proof, and joining two records is not something to
+ * do to somebody behind their back.
+ */
+export type TeacherMatch = {
+  activeId: string;
+  activeName: string;
+  activeEmail: string;
+  portalTeacherId: string;
+  portalName: string;
+  portalEmail: string;
+  portalStatus: string;
+};
+
+export async function fetchTeacherMatches(): Promise<TeacherMatch[]> {
+  return (await request<{ matches: TeacherMatch[] }>("/active-teachers/matches")).matches;
+}
+
+/** Say that this active teacher is that portal profile. The profile leads from then on. */
+export async function linkActiveTeacher(activeId: string, portalTeacherId: string): Promise<void> {
+  await send<void>(`/active-teachers/${encodeURIComponent(activeId)}/link`, "POST", { portalTeacherId });
+}
+
 export async function fetchActiveTeachers(): Promise<ActiveTeacher[]> {
   return (await request<{ teachers: ActiveTeacher[] }>("/active-teachers")).teachers;
 }

@@ -16,6 +16,8 @@ from pydantic import BaseModel, Field
 from sorbonne.api.timetables import require_client
 from sorbonne.config import config
 from sorbonne.services.portal_lists import (
+    PortalTeacherAlreadyLinked,
+    PortalTeacherNotFound,
     KINDS,
     ActiveCourseNotFound,
     ActiveTeacherNotFound,
@@ -116,6 +118,12 @@ class PartTimeRef(BaseModel):
     id: str = Field(min_length=1, max_length=80)
     fullName: str = Field(default="", max_length=200)
     email: str = Field(default="", max_length=320)
+
+
+class LinkTeacherInput(BaseModel):
+    """Which portal profile an active teacher is."""
+
+    portalTeacherId: str = Field(min_length=1)  # noqa: N815 - the wire is camelCase
 
 
 class ActiveTeachersInput(BaseModel):
@@ -281,6 +289,31 @@ async def list_teachers(filter: str = "", store: PortalListStore = Depends(get_s
 @router.get("/active-teachers")
 async def list_active_teachers(store: PortalListStore = Depends(get_store)) -> dict[str, Any]:
     return {"teachers": store.list_active_teachers()}
+
+
+@router.get("/active-teachers/matches")
+async def teacher_matches(store: PortalListStore = Depends(get_store)) -> dict[str, Any]:
+    """Active teachers who came from the part-time database and look like a portal profile."""
+    return {"matches": store.unlinked_portal_matches()}
+
+
+@router.post("/active-teachers/{active_id}/link")
+async def link_active_teacher(
+    active_id: str, body: LinkTeacherInput, store: PortalListStore = Depends(get_store)
+) -> dict[str, bool]:
+    """Say that this active teacher is that portal profile, and let the profile lead."""
+    try:
+        store.link_active_teacher(active_id, body.portalTeacherId)
+    except ActiveTeacherNotFound as exc:
+        raise _missing("active teacher") from exc
+    except PortalTeacherNotFound as exc:
+        raise _missing("portal teacher") from exc
+    except PortalTeacherAlreadyLinked as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Somebody else on the department's list is already that portal profile.",
+        ) from exc
+    return {"linked": True}
 
 
 @router.post("/active-teachers")

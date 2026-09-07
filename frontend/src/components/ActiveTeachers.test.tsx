@@ -13,6 +13,7 @@ beforeEach(() => {
       type: "Part-Time", lastTerm: "262710", department: "LPEM", rank: "", courses: "ECON-101", institution: "", portalStatus: "in_portal",
     },
   ]);
+  vi.spyOn(lists, "fetchTeacherMatches").mockResolvedValue([]);
   vi.spyOn(lists, "fetchPartTimeTeachers").mockResolvedValue([
     { id: "pt-1", fullName: "Ahlem Trabelsi", email: "ahlem@sorbonne.ae" },
     { id: "pt-2", fullName: "Carla Nasr", email: "carla@example.org" },
@@ -55,5 +56,41 @@ describe("the department's active teachers", () => {
       expect(add).toHaveBeenCalledWith({ partTime: [{ id: "pt-2", fullName: "Carla Nasr", email: "carla@example.org" }] }),
     );
     expect(await screen.findByText(/1 added/)).toBeTruthy();
+  });
+});
+
+describe("somebody the portal has started listing", () => {
+  it("is offered as a match, and linking hands the portal the lead", async () => {
+    vi.spyOn(lists, "fetchActiveTeachers").mockResolvedValue([
+      {
+        id: "act-1", portalTeacherId: "", partTimeTeacherId: "pt-1", fullName: "Dr Ahlem TRABELSI",
+        email: "ahlem@gmail.com", source: "part-time", addedAt: "2026-01-01", addedBy: "", teacherStatus: "",
+        category: "", type: "", lastTerm: "", department: "", rank: "", courses: "", institution: "", portalStatus: "",
+      },
+    ]);
+    vi.spyOn(lists, "fetchTeacherMatches").mockResolvedValue([
+      {
+        activeId: "act-1", activeName: "Dr Ahlem TRABELSI", activeEmail: "ahlem@gmail.com",
+        portalTeacherId: "A001", portalName: "Ahlem Trabelsi", portalEmail: "ahlem@sorbonne.ae",
+        portalStatus: "in_portal",
+      },
+    ]);
+    const link = vi.spyOn(lists, "linkActiveTeacher").mockResolvedValue();
+    show();
+
+    // Offered, not applied — the row is still the part-time one until somebody says so.
+    expect(await screen.findByText(/1 teacher is now in the portal/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Same person/ }));
+
+    await waitFor(() => expect(link).toHaveBeenCalledWith("act-1", "A001"));
+  });
+
+  it("says nothing when nobody looks like anybody", async () => {
+    vi.spyOn(lists, "fetchActiveTeachers").mockResolvedValue([]);
+    vi.spyOn(lists, "fetchTeacherMatches").mockResolvedValue([]);
+    show();
+
+    await screen.findByRole("button", { name: /Add from part-time database/ });
+    expect(screen.queryByText(/now in the portal/)).toBeNull();
   });
 });
