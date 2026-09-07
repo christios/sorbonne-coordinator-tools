@@ -137,3 +137,27 @@ describe("a course the registrar has not touched", () => {
     expect(within(cpsc).queryByText("nothing registered")).toBeNull();
   });
 });
+
+describe("the two lists of CRNs", () => {
+  it("shows what the groups come to against what the registrar has, and marks each gap", async () => {
+    vi.spyOn(lists, "fetchRegistrations").mockResolvedValue([
+      // One both sides have, and one the registrar has that is no group of theirs.
+      { crn: "23652", courseCode: "MATH-011", title: "Algorithms G.1-TD", termCode: "262710", status: "in_portal" },
+      { crn: "23421", courseCode: "SCEN-101", title: "French A0", termCode: "262710", status: "in_portal" },
+    ] as never);
+
+    show();
+
+    const table = await screen.findByLabelText("CRNs");
+    const rows = within(table).getAllByRole("row").slice(1).map((row) =>
+      within(row).getAllByRole("cell").map((cell) => cell.textContent?.trim()),
+    );
+
+    expect(rows).toEqual([
+      ["23652", "MATH-011Algorithms G.1-TD", "TD 1", "registered"],
+      ["23421", "SCEN-101French A0", "no group of theirs", "registered"],
+    ]);
+    expect(screen.getByText(/1 agree/)).toBeTruthy();
+    expect(screen.getByText(/1 registered that is no group of theirs/)).toBeTruthy();
+  });
+});

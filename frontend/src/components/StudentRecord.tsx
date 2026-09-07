@@ -24,6 +24,7 @@ import {
   registrationFamilies,
 } from "@/services/portalLists";
 import { allChanges, historyFor, type PullHistory } from "@/services/pullHistory";
+import { reconcile, tally } from "@/services/registrationLists";
 import type { StudentRow } from "@/services/rosterView";
 import { fetchSchema } from "@/services/scenRosters";
 import { fetchAssignments, fetchCatalogue, fetchDiscrepancyRules, type Cohort } from "@/services/studentDatabase";
@@ -178,6 +179,15 @@ export function StudentRecord({
       };
     });
   const registered = new Set((registrations.data ?? []).filter((r) => r.status === "in_portal").map((r) => r.crn));
+  /*
+   * The two lists side by side: what the groups come to, and what the registrar has.
+   *
+   * Everything worth knowing about a registration is the difference between them, and it
+   * used to have to be assembled by eye from a list of groups on one side of the page and
+   * a list of courses on the other, with the warnings folded in among the courses.
+   */
+  const lines = reconcile(placements, registrations.data ?? []);
+  const counted = tally(lines);
   const mismatches: Mismatch[] = (check.data ?? []).filter((mismatch) => mismatch.studentId === row.studentId);
   const parentOf = (crn: string) => (register.data ?? []).find((entry) => entry.crn === crn)?.parentCrn ?? "";
   const families = registrationFamilies(registrations.data ?? [], parentOf, mismatches);
@@ -296,6 +306,68 @@ export function StudentRecord({
                   </li>
                 ))}
               </ul>
+            )}
+          </Card>
+
+          {/* --------------------------------------------- ours against the portal */}
+          <Card
+            title="CRNs"
+            note="What their groups come to, what the registrar has, and where the two part company."
+          >
+            {catalogue.isLoading || registrations.isLoading ? (
+              <Empty>Reading…</Empty>
+            ) : lines.length === 0 ? (
+              <Empty>No CRNs on either side yet.</Empty>
+            ) : (
+              <>
+                <p className="mb-2 text-xs text-[#98a2b3]">
+                  {counted.agree} agree
+                  {counted.onlyOurs ? ` · ${counted.onlyOurs} not registered` : ""}
+                  {counted.onlyPortal ? ` · ${counted.onlyPortal} registered that is no group of theirs` : ""}
+                </p>
+                <table className="w-full border-collapse text-sm" aria-label="CRNs">
+                  <thead>
+                    <tr className="border-b border-[#e4e8ef] text-[11px] font-semibold uppercase tracking-wide text-[#8a94a4]">
+                      <th scope="col" className="py-1.5 pr-3 text-left">CRN</th>
+                      <th scope="col" className="py-1.5 pr-3 text-left">Course</th>
+                      <th scope="col" className="py-1.5 pr-3 text-left">Their group</th>
+                      <th scope="col" className="py-1.5 pr-3 text-left">Registrar</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {lines.map((line) => (
+                      <tr key={line.crn} className="border-b border-[#f2f4f7] last:border-0 align-top">
+                        <td className="py-1.5 pr-3 tabular-nums text-[#344054]">{line.crn}</td>
+                        <td className="py-1.5 pr-3">
+                          <span className="text-[#344054]">{line.courseCode}</span>
+                          {line.title ? <span className="ml-2 text-xs text-[#98a2b3]">{line.title}</span> : null}
+                        </td>
+                        {/*
+                          * A blank on one side is the whole point of the table, so it is
+                          * said rather than left empty: an empty cell reads as "not looked
+                          * at", and these have been looked at.
+                          */}
+                        <td className="py-1.5 pr-3">
+                          {line.ours ? (
+                            <span className="text-[#344054]">{line.from}</span>
+                          ) : (
+                            <span className="text-[#a6292f]">no group of theirs</span>
+                          )}
+                        </td>
+                        <td className="py-1.5 pr-3">
+                          {line.portal ? (
+                            <span className="inline-flex items-center gap-1 text-[#2f6b3d]">
+                              <Check size={13} aria-hidden="true" /> registered
+                            </span>
+                          ) : (
+                            <span className="text-[#a6292f]">not registered</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </>
             )}
           </Card>
 
