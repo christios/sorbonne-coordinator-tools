@@ -700,6 +700,73 @@ def test_a_course_taught_twice_over_expects_both_of_its_sections(client: TestCli
     assert seen == [("A002", "MATH-001", "missing", ("22151", "23561"), ("22151",))]
 
 
+def test_two_groups_of_one_set_is_flagged_however_they_were_placed(
+    client: TestClient, database: StudentDatabase
+):
+    """A student sits in one group of a set; the registrar having them in two is a fault.
+
+    It needs no opinion from us about where they belong — it is a contradiction inside the
+    registration — so it is found for a student we placed and for one we never placed.
+    """
+    cohort_id = build_cohort(database)
+    # A second tutorial group, which nobody is placed in.
+    with database.engine.begin() as connection:
+        td = connection.execute(text("SELECT id FROM cohort_scopes WHERE code = 'TD'")).scalar_one()
+        course = connection.execute(text("SELECT id FROM scope_courses WHERE code = 'MATH-011'")).scalar_one()
+    second = database.add_group(td, label="2")
+    database.set_cell(group_id=second, course_id=course, crn="23653")
+    client.put(f"{BASE}/term-links/{HUB_TERM}", json={"portalTermCode": TERM})
+    made = make_filter(client, "registrations")
+    client.post(
+        f"{BASE}/filters/{made['id']}/sync/registrations",
+        json={
+            "termCode": TERM,
+            "rows": [
+                # Placed in TD 1, and the registrar has them in TD 1 and TD 2 both.
+                {"studentId": "A001", "crn": "22151", "courseCode": "MATH-001"},
+                {"studentId": "A001", "crn": "23652", "courseCode": "MATH-011"},
+                {"studentId": "A001", "crn": "23653", "courseCode": "MATH-011"},
+                # Never placed in anything, and in two tutorial groups all the same.
+                {"studentId": "A003", "crn": "23652", "courseCode": "MATH-011"},
+                {"studentId": "A003", "crn": "23653", "courseCode": "MATH-011"},
+            ],
+        },
+    )
+
+    found = client.get(f"{BASE}/cohorts/{cohort_id}/registration-check").json()["mismatches"]
+    doubled = [m for m in found if m["kind"] == "doubled"]
+
+    assert [(m["studentId"], m["scopeCode"], m["courseCode"], tuple(m["registered"])) for m in doubled] == [
+        ("A001", "TD", "1, 2", ("23652", "23653")),
+        ("A003", "TD", "1, 2", ("23652", "23653")),
+    ]
+
+
+def test_one_group_of_a_set_is_several_registrations_and_no_fault(
+    client: TestClient, database: StudentDatabase
+):
+    """A set carries several courses, so one group of it is a CRN for each — all correct."""
+    cohort_id = build_cohort(database, maths_in_tutorials="23561")
+    client.put(f"{BASE}/term-links/{HUB_TERM}", json={"portalTermCode": TERM})
+    made = make_filter(client, "registrations")
+    client.post(
+        f"{BASE}/filters/{made['id']}/sync/registrations",
+        json={
+            "termCode": TERM,
+            "rows": [
+                # Both of TD 1's courses, which is exactly what one tutorial group means.
+                {"studentId": "A001", "crn": "22151", "courseCode": "MATH-001"},
+                {"studentId": "A001", "crn": "23561", "courseCode": "MATH-001"},
+                {"studentId": "A001", "crn": "23652", "courseCode": "MATH-011"},
+            ],
+        },
+    )
+
+    found = client.get(f"{BASE}/cohorts/{cohort_id}/registration-check").json()["mismatches"]
+
+    assert [m for m in found if m["kind"] == "doubled" and m["studentId"] == "A001"] == []
+
+
 def test_a_student_no_pull_has_returned_is_not_judged(client: TestClient, database: StudentDatabase):
     cohort_id = build_cohort(database)
     client.put(f"{BASE}/term-links/{HUB_TERM}", json={"portalTermCode": TERM})

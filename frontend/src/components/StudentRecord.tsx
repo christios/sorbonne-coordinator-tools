@@ -104,9 +104,18 @@ export function StudentRecord({
   // as courses with their sections rather than as a flat pile of numbers.
   const register = useQuery({ queryKey: ["active-crns", ""], queryFn: () => fetchActiveCrns(), enabled: open, retry: false });
   const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, enabled: open, retry: false });
+  /*
+   * With the sets shared across cohorts, or a language group is invisible here.
+   *
+   * A set open to every cohort lives on one cohort's row — the languages under Foundation
+   * Year — so asking for L2's catalogue alone returned nothing to match an L2 student's
+   * language placement against, and the group was silently dropped from this page while
+   * the Students table, which reads them straight from the server, showed it. It also
+   * left the registration check below judging them against half their groups.
+   */
   const catalogue = useQuery({
-    queryKey: ["catalogue", cohortId, ""],
-    queryFn: () => fetchCatalogue(cohortId),
+    queryKey: ["catalogue", cohortId, "", "with-shared"],
+    queryFn: () => fetchCatalogue(cohortId, undefined, true),
     enabled: open && Boolean(cohortId),
   });
   const assignments = useQuery({

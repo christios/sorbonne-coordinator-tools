@@ -73,12 +73,15 @@ class Mismatch:
     term_code: str
     course_code: str
     # missing: placed, not registered · wrong: registered elsewhere · extra: registered in
-    # a section we did not place them in · unplaced: registered, but in no group of ours
+    # a section we did not place them in · unplaced: registered, but in no group of ours ·
+    # doubled: registered in two sections of one set, which no student can attend
     kind: str
     # Every section of this course our blocks give the student: a course taught as a
     # lecture and a tutorial gives them two, and both are right.
     expected: list[str]
     registered: list[str]
+    # The set a `doubled` verdict is about. Empty for the verdicts that are about a course.
+    scope_code: str = ""
 
     def as_payload(self) -> dict[str, Any]:
         return {
@@ -87,6 +90,7 @@ class Mismatch:
             "termCode": self.term_code,
             "courseCode": self.course_code,
             "kind": self.kind,
+            "scopeCode": self.scope_code,
             "expected": self.expected,
             "registered": self.registered,
         }
@@ -1179,6 +1183,8 @@ class PortalListStore:
         """
         found: list[Mismatch] = []
         for term_id, term_code in self.term_links().items():
+            # Two sections of one set, before anything about placement is asked.
+            found.extend(self._doubled_in_a_set(cohort_id, term_id, term_code, database))
             cohort = next(
                 (entry for entry in database.term_publication(term_id) if entry["cohortId"] == cohort_id), None
             )
@@ -1214,6 +1220,65 @@ class PortalListStore:
                     for code in course_codes
                 )
         return [mismatch for mismatch in found if mismatch is not None]
+
+    def _doubled_in_a_set(
+        self, cohort_id: str, term_id: str, term_code: str, database: StudentDatabase
+    ) -> list[Mismatch]:
+        """Students the registrar has in two groups of one set, which nobody can attend.
+
+        A set is a way of splitting a cohort — the lectures, the tutorials, the languages —
+        and a student sits in exactly one of its groups. Two groups of one set against one
+        name is a contradiction in the registration itself: it needs no opinion from us
+        about where they ought to be, and it is wrong whether or not we have placed them.
+
+        Down to the group and not to the set, because a set carries several courses and one
+        group of it hands a student a CRN for each — a tutorial group with four courses is
+        four registrations and entirely correct.
+
+        Every set of the semester is looked at, not this cohort's. A set open to every
+        cohort is filed under whichever cohort happens to hold its row, so reading a
+        semester cohort by cohort is exactly how the languages have gone unchecked.
+        """
+        sets = database.term_scope_crns(term_id)
+        if not sets:
+            return []
+        # CRN -> which group of which set. A CRN in two places is a fault of ours rather
+        # than the registrar's, and not this check's to report; the first claim stands.
+        where: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {}
+        for entry in sets:
+            for group in entry["groups"]:
+                for crn in group["crns"]:
+                    where.setdefault(crn, (entry, group))
+
+        registered = self.registered_in(term_code)
+        pulled = self.pulled_students(term_code)
+        found: list[Mismatch] = []
+        for student in sorted(database.cohort_members(cohort_id) & pulled):
+            held: dict[str, dict[str, set[str]]] = {}
+            for crns in registered.get(student, {}).values():
+                for crn in crns:
+                    place = where.get(crn)
+                    if place is None:
+                        continue
+                    entry, group = place
+                    held.setdefault(entry["scopeId"], {}).setdefault(group["label"], set()).add(crn)
+            for scope_id, groups in held.items():
+                if len(groups) < 2:  # noqa: PLR2004 - one group of a set is the whole rule
+                    continue
+                entry = next(candidate for candidate in sets if candidate["scopeId"] == scope_id)
+                found.append(
+                    Mismatch(
+                        student_id=student,
+                        term_id=term_id,
+                        term_code=term_code,
+                        course_code=", ".join(sorted(groups)),
+                        kind="doubled",
+                        expected=[],
+                        registered=sorted({crn for crns in groups.values() for crn in crns}),
+                        scope_code=entry["code"],
+                    )
+                )
+        return found
 
 
 def _judge(  # noqa: PLR0913 - one argument per part of the verdict

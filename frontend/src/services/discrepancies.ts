@@ -438,7 +438,8 @@ export function registrationWarnings<
     studentId: string;
     termCode: string;
     courseCode: string;
-    kind: "missing" | "wrong" | "extra" | "unplaced";
+    // Whatever the check calls its verdicts; this only needs the word to key on.
+    kind: string;
     expected: string[];
     registered: string[];
   },

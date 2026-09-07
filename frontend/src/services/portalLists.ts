@@ -89,7 +89,9 @@ export type Mismatch = {
   termId: string;
   termCode: string;
   courseCode: string;
-  kind: "missing" | "wrong" | "extra" | "unplaced";
+  kind: "missing" | "wrong" | "extra" | "unplaced" | "doubled";
+  /** The set a `doubled` verdict is about; empty for the verdicts that are about a course. */
+  scopeCode?: string;
   /** Every section of this course our blocks give the student — a lecture and a tutorial. */
   expected: string[];
   registered: string[];
@@ -540,6 +542,10 @@ export function describeMismatch(mismatch: Mismatch): string {
       return `${mismatch.courseCode}: registered in ${surplus.join(" and ")} as well, which is no group of theirs`;
     case "unplaced":
       return `${mismatch.courseCode}: registered in ${mismatch.registered.join(", ")}, but in no group of ours`;
+    // `courseCode` carries the group labels here — the set is the scope, and what is wrong
+    // is that there are two of its groups against one name.
+    case "doubled":
+      return `${mismatch.scopeCode}: registered in two groups at once — ${mismatch.courseCode} (${mismatch.registered.join(", ")})`;
   }
 }
 

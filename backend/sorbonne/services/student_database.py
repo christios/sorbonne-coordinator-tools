@@ -1070,6 +1070,69 @@ class StudentDatabase:
             for cohort_id in cohort_ids
         ]
 
+    def cohort_members(self, cohort_id: str) -> set[str]:
+        """Who belongs to this cohort — the ids only, which is all a check needs."""
+        with self.engine.connect() as connection:
+            return {
+                row[0]
+                for row in connection.execute(
+                    text("SELECT student_id FROM students WHERE cohort_id = :id"), {"id": cohort_id}
+                )
+            }
+
+    def term_scope_crns(self, term_id: str) -> list[dict[str, Any]]:
+        """Every live CRN of every group of every set on this semester, whichever cohort holds it.
+
+        Not grouped by cohort, deliberately. A set open to every cohort — the languages —
+        sits on one cohort's row, so anything that reads a semester cohort by cohort loses
+        it for everybody else. The question this answers is about a set, not about whose.
+
+        Down to the group, because a set carries several courses and one group of it gives a
+        student a CRN for each: what no student can hold is two CRNs from two *groups* of the
+        same set.
+        """
+        with self.engine.connect() as connection:
+            scopes = (
+                connection.execute(
+                    text("SELECT id, code, name, cohort_id, open_to_all FROM cohort_scopes WHERE term_id = :t"),
+                    {"t": term_id},
+                )
+                .mappings()
+                .all()
+            )
+            if not scopes:
+                return []
+            scope_ids = [row["id"] for row in scopes]
+            cells = (
+                connection.execute(
+                    text("""SELECT g.scope_id, g.id AS group_id, g.label, gc.crn FROM group_crns gc
+                            JOIN scope_groups g ON g.id = gc.group_id
+                            WHERE g.scope_id = ANY(:ids) AND gc.crn <> '' AND NOT gc.retired"""),
+                    {"ids": scope_ids},
+                )
+                .mappings()
+                .all()
+            )
+        held: dict[str, dict[str, dict[str, Any]]] = {}
+        for cell in cells:
+            groups = held.setdefault(cell["scope_id"], {})
+            group = groups.setdefault(cell["group_id"], {"label": cell["label"], "crns": set()})
+            group["crns"].add(cell["crn"])
+        return [
+            {
+                "scopeId": row["id"],
+                "code": row["code"],
+                "name": row["name"],
+                "cohortId": row["cohort_id"],
+                "openToAll": row["open_to_all"],
+                "groups": [
+                    {"groupId": group_id, "label": group["label"], "crns": sorted(group["crns"])}
+                    for group_id, group in sorted(held.get(row["id"], {}).items(), key=lambda pair: pair[1]["label"])
+                ],
+            }
+            for row in scopes
+        ]
+
     # ------------------------------------------------------- editing a scope
 
     def _open_to_all(self, connection: Connection, scope_id: str) -> bool:
