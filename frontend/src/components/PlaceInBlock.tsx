@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { AlertTriangle, Loader2 } from "lucide-react";
+import { AlertTriangle, Loader2, Plus } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { Modal } from "@/components/Modal";
@@ -47,8 +47,15 @@ export function PlaceInBlock({
   onPlaced: (report: PlacementReport & { removed: boolean }) => void;
 }) {
   const [termId, setTermId] = useState("");
-  const [scopeId, setScopeId] = useState("");
-  const [groupId, setGroupId] = useState("");
+  /*
+   * One row per set, because a student arriving mid-term needs a TD and a CM and a
+   * language, and three passes through a dialog that forgets everything each time is how
+   * one of them goes missing. The server already takes one set at a time and already says
+   * whom it turned away, so this is N of the call it has always made.
+   */
+  const [rows, setRows] = useState<{ scopeId: string; groupId: string }[]>([{ scopeId: "", groupId: "" }]);
+  const setRow = (index: number, patch: Partial<{ scopeId: string; groupId: string }>) =>
+    setRows((held) => held.map((row, at) => (at === index ? { ...row, ...patch } : row)));
 
   const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, enabled: open });
   /*
@@ -68,22 +75,42 @@ export function PlaceInBlock({
   });
 
   const scopes = catalogue.data?.scopes ?? [];
-  const scope = scopes.find((candidate) => candidate.id === scopeId) ?? null;
+  const scopeOf = (id: string) => scopes.find((candidate) => candidate.id === id) ?? null;
 
-  // A semester chosen in another screen means nothing here, so the block and group are
-  // dropped whenever the semester changes rather than pointing at the old one.
-  useEffect(() => {
-    setScopeId("");
-    setGroupId("");
-  }, [termId]);
-  useEffect(() => setGroupId(""), [scopeId]);
+  // A semester chosen in another screen means nothing here, so every row is dropped when
+  // the semester changes rather than pointing at the old one's sets.
+  useEffect(() => setRows([{ scopeId: "", groupId: "" }]), [termId]);
+
+  const chosen = rows.filter((row) => row.scopeId && row.groupId);
 
   const place = useMutation({
-    mutationFn: () => assignStudents(scopeId, studentIds, groupId === OUT ? null : groupId),
-    onSuccess: (report) => onPlaced({ ...report, removed: groupId === OUT }),
+    /*
+     * One request per set, in the order they were chosen, and each one is a write. A
+     * failure halfway leaves the earlier sets already written, so what landed is named
+     * rather than swallowed — otherwise the obvious retry places them twice over.
+     */
+    mutationFn: async () => {
+      let assigned = 0;
+      const skipped = new Set<string>();
+      const written: string[] = [];
+      for (const row of chosen) {
+        const code = scopeOf(row.scopeId)?.code ?? "the set";
+        try {
+          const report = await assignStudents(row.scopeId, studentIds, row.groupId === OUT ? null : row.groupId);
+          assigned += report.assigned;
+          report.skipped.forEach((id) => skipped.add(id));
+          written.push(code);
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : "That could not be completed.";
+          throw new Error(written.length ? `${written.join(", ")} written. ${code} failed: ${reason}` : reason);
+        }
+      }
+      return { assigned, skipped: [...skipped], removed: chosen.every((row) => row.groupId === OUT) };
+    },
+    onSuccess: (report) => onPlaced(report),
   });
 
-  const ready = Boolean(scopeId && groupId) && studentIds.length > 0;
+  const ready = chosen.length === rows.length && chosen.length > 0 && studentIds.length > 0;
 
   return (
     <Modal
@@ -103,7 +130,7 @@ export function PlaceInBlock({
             className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-4 py-2 text-sm font-semibold text-white disabled:bg-[#9ba8b5]"
           >
             {place.isPending ? <Loader2 size={16} className="animate-spin" aria-hidden="true" /> : null}
-            {groupId === OUT ? "Take them out" : `Place ${studentIds.length}`}
+            {chosen.length && chosen.every((row) => row.groupId === OUT) ? "Take them out" : `Place ${studentIds.length}`}
           </button>
         </div>
       }
@@ -117,42 +144,76 @@ export function PlaceInBlock({
           onChange={setTermId}
         />
 
-        <SelectMenu
-          label="Block"
-          value={scopeId}
-          placeholder={termId ? "Which set…" : "Choose a semester first"}
-          options={scopes.map((candidate) => ({
-            value: candidate.id,
-            label: candidate.name ? `${candidate.code} · ${candidate.name}` : candidate.code,
-            badge: `${candidate.groups.length} group${candidate.groups.length === 1 ? "" : "s"}`,
-          }))}
-          onChange={setScopeId}
-          disabled={!termId || catalogue.isLoading}
-        />
+        {rows.map((row, index) => {
+          const scope = scopeOf(row.scopeId);
+          // A set already spoken for by another row is not offered again: two rows on one
+          // set would be two writes to the same place, and the second would win silently.
+          const taken = new Set(rows.filter((_, at) => at !== index).map((other) => other.scopeId));
+          // Numbered only once there is something to number: one set is "Block", not "Block 1".
+          const nth = rows.length > 1 ? ` ${index + 1}` : "";
+          return (
+            <div key={index} className="space-y-4 border-t border-[#eef1f5] pt-4 first:border-0 first:pt-0">
+              <SelectMenu
+                label={`Block${nth}`}
+                value={row.scopeId}
+                placeholder={termId ? "Which set…" : "Choose a semester first"}
+                options={scopes
+                  .filter((candidate) => !taken.has(candidate.id))
+                  .map((candidate) => ({
+                    value: candidate.id,
+                    label: candidate.name ? `${candidate.code} · ${candidate.name}` : candidate.code,
+                    badge: `${candidate.groups.length} group${candidate.groups.length === 1 ? "" : "s"}`,
+                  }))}
+                onChange={(value) => setRow(index, { scopeId: value, groupId: "" })}
+                disabled={!termId || catalogue.isLoading}
+              />
 
-        <SelectMenu
-          label="Group"
-          value={groupId}
-          placeholder={scopeId ? "Which group…" : "Choose a set first"}
-          options={[
-            // A group whose every section is retired teaches nobody; offering it is how
-            // somebody gets placed into a set that has stopped running.
-            ...(scope?.groups ?? []).filter((group) => !groupIsRetired(group)).map((group) => ({
-              value: group.id,
-              label: `Group ${group.label}`,
-              // An empty group says nothing rather than a bare "0", which reads as a label.
-              badge: group.capacity
-                ? `${group.assigned}/${group.capacity}`
-                : group.assigned
-                  ? `${group.assigned} placed`
-                  : undefined,
-              badgeTone: group.capacity && group.assigned >= group.capacity ? ("muted" as const) : undefined,
-            })),
-            ...(scopeId ? [{ value: OUT, label: "Take them out of this set" }] : []),
-          ]}
-          onChange={setGroupId}
-          disabled={!scopeId}
-        />
+              <SelectMenu
+                label={`Group${nth}`}
+                value={row.groupId}
+                placeholder={row.scopeId ? "Which group…" : "Choose a set first"}
+                options={[
+                  // A group whose every section is retired teaches nobody; offering it is
+                  // how somebody gets placed into a set that has stopped running.
+                  ...(scope?.groups ?? []).filter((group) => !groupIsRetired(group)).map((group) => ({
+                    value: group.id,
+                    label: `Group ${group.label}`,
+                    // An empty group says nothing rather than a bare "0", which reads as a label.
+                    badge: group.capacity
+                      ? `${group.assigned}/${group.capacity}`
+                      : group.assigned
+                        ? `${group.assigned} placed`
+                        : undefined,
+                    badgeTone: group.capacity && group.assigned >= group.capacity ? ("muted" as const) : undefined,
+                  })),
+                  ...(row.scopeId ? [{ value: OUT, label: "Take them out of this set" }] : []),
+                ]}
+                onChange={(value) => setRow(index, { groupId: value })}
+                disabled={!row.scopeId}
+              />
+
+              {rows.length > 1 ? (
+                <button
+                  type="button"
+                  onClick={() => setRows((held) => held.filter((_, at) => at !== index))}
+                  className="text-sm font-semibold text-[#a6292f] hover:underline"
+                >
+                  Remove this set
+                </button>
+              ) : null}
+            </div>
+          );
+        })}
+
+        {termId && rows.length < scopes.length ? (
+          <button
+            type="button"
+            onClick={() => setRows((held) => [...held, { scopeId: "", groupId: "" }])}
+            className="inline-flex items-center gap-2 rounded-md border border-[#b7bec8] bg-white px-3 py-1.5 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]"
+          >
+            <Plus size={15} aria-hidden="true" /> Another set
+          </button>
+        ) : null}
 
         {termId && !catalogue.isLoading && scopes.length === 0 ? (
           <p className="flex items-start gap-2 rounded-md border border-[#e8d9ac] bg-[#fdf9ee] px-4 py-3 text-sm leading-6 text-[#8a6116]">

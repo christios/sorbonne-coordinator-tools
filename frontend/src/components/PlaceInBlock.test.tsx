@@ -243,3 +243,98 @@ describe("sets open to every cohort", () => {
     expect(await screen.findByRole("option", { name: /LANG/ })).toBeTruthy();
   });
 });
+
+describe("placing into several sets at once", () => {
+  const THREE: database.Catalogue = {
+    scopes: [
+      CATALOGUE.scopes[0],
+      { ...CATALOGUE.scopes[0], id: "scope-cm", code: "CM", name: "Lectures",
+        groups: [{ id: "cm-a", label: "A", capacity: 0, note: "", program: "", parentGroupId: "", assigned: 0, crns: {} }] },
+      { ...CATALOGUE.scopes[0], id: "scope-lang", code: "LANG", name: "Languages", openToAll: true,
+        groups: [{ id: "lang-a1", label: "A1", capacity: 0, note: "", program: "", parentGroupId: "", assigned: 0, crns: {} }] },
+    ],
+  };
+
+  const addRow = () => fireEvent.click(screen.getByRole("button", { name: /Another set/ }));
+
+  it("places one selection into three sets, one request per set", async () => {
+    // A student joining mid-term needs a TD, a CM and a language. Three passes through a
+    // dialog that forgets everything each time is how one of them gets missed.
+    const assign = vi.spyOn(database, "assignStudents").mockResolvedValue({ assigned: 2, skipped: [] });
+    vi.spyOn(database, "fetchCatalogue").mockResolvedValue(THREE);
+    const onPlaced = show();
+
+    await pick("Semester", "Physics & Maths — Semester 1");
+    await pick("Block", /TD/);
+    await pick("Group", /Group 2/);
+    addRow();
+    await pick("Block 2", /CM/);
+    await pick("Group 2", /Group A/);
+    addRow();
+    await pick("Block 3", /LANG/);
+    await pick("Group 3", /Group A1/);
+
+    fireEvent.click(screen.getByRole("button", { name: /Place 2/ }));
+
+    await waitFor(() => expect(assign).toHaveBeenCalledTimes(3));
+    expect(assign.mock.calls.map((call) => [call[0], call[2]])).toEqual([
+      ["scope-td", "group-2"],
+      ["scope-cm", "cm-a"],
+      ["scope-lang", "lang-a1"],
+    ]);
+    await waitFor(() => expect(onPlaced).toHaveBeenCalled());
+    expect(onPlaced.mock.calls[0][0].assigned).toBe(6);
+  });
+
+  it("will not offer the same set twice", async () => {
+    vi.spyOn(database, "fetchCatalogue").mockResolvedValue(THREE);
+    show();
+
+    await pick("Semester", "Physics & Maths — Semester 1");
+    await pick("Block", /TD/);
+    addRow();
+
+    fireEvent.click(screen.getByRole("combobox", { name: "Block 2" }));
+    expect(await screen.findByRole("option", { name: /CM/ })).toBeTruthy();
+    expect(screen.queryByRole("option", { name: /TD/ })).toBeNull();
+  });
+
+  it("says which sets were written when a later one fails", async () => {
+    // The write is per set, so a failure halfway leaves the earlier ones already written.
+    // Saying nothing would invite a retry that places them twice over.
+    vi.spyOn(database, "assignStudents")
+      .mockResolvedValueOnce({ assigned: 2, skipped: [] })
+      .mockRejectedValueOnce(new Error("The server is having a moment."));
+    vi.spyOn(database, "fetchCatalogue").mockResolvedValue(THREE);
+    show();
+
+    await pick("Semester", "Physics & Maths — Semester 1");
+    await pick("Block", /TD/);
+    await pick("Group", /Group 2/);
+    addRow();
+    await pick("Block 2", /CM/);
+    await pick("Group 2", /Group A/);
+
+    fireEvent.click(screen.getByRole("button", { name: /Place 2/ }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("TD");
+    expect(alert.textContent).toContain("The server is having a moment.");
+  });
+
+  it("forgets every set row when the semester changes", async () => {
+    vi.spyOn(database, "fetchCatalogue").mockResolvedValue(THREE);
+    show();
+
+    await pick("Semester", "Physics & Maths — Semester 1");
+    await pick("Block", /TD/);
+    addRow();
+    expect(screen.getByRole("combobox", { name: "Block 2" })).toBeTruthy();
+
+    await pick("Semester", "Physics & Maths — Semester 2");
+
+    // One row again, so it loses its number too.
+    expect(screen.queryByRole("combobox", { name: "Block 2" })).toBeNull();
+    expect((screen.getByRole("combobox", { name: "Block" }) as HTMLElement).textContent).toContain("Which set");
+  });
+});
