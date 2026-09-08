@@ -19,6 +19,7 @@
  */
 
 import { syncTarget, type SyncKind, type SyncTarget } from "@/services/portalSync";
+import { PortalError } from "@/services/scenRosters";
 
 const KEY = "scen-sync-run:v1";
 /** After this long without a heartbeat, the tab that was driving is taken to be gone. */
@@ -41,6 +42,16 @@ export type SyncStep = {
   /** Said out loud, because a pull that is quietly incomplete is the worst kind. */
   warning?: string;
   error?: string;
+  /**
+   * Why it failed, as the portal names it — "not_signed_in" and the like.
+   *
+   * The sentence in `error` is written for a person and differs per list, so six lists
+   * failing for one reason produce six different sentences and nothing downstream can
+   * tell that apart from six different problems. Empty when the failure was not one the
+   * portal named. Widened alongside `error` deliberately: `scen-sync-run:v1` is read
+   * across tabs, and one compatibility event is better than two.
+   */
+  errorCode?: string;
 };
 
 export type SyncRun = {
@@ -213,7 +224,14 @@ async function drive(targets: SyncTarget[], onStep?: (step: SyncStep) => void): 
         const outcome = await syncTarget(target);
         settle(patch(next.key, { state: "done", seen: outcome.report.seen, warning: outcome.warning }), onStep);
       } catch (error) {
-        settle(patch(next.key, { state: "failed", error: (error as Error).message }), onStep);
+        settle(
+          patch(next.key, {
+            state: "failed",
+            error: (error as Error).message,
+            errorCode: error instanceof PortalError ? error.code : "",
+          }),
+          onStep,
+        );
       }
     }
     const done = read();

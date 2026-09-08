@@ -146,3 +146,35 @@ describe("syncing everything, once", () => {
     expect(run.getRun()!.steps[0]).toMatchObject({ state: "failed", error: "This list no longer exists." });
   });
 });
+
+describe("what a failed step remembers", () => {
+  it("keeps the reason, not only the sentence", async () => {
+    // The sentence is written for a person and differs per list ("SCEN courses could not
+    // be pulled…"); the reason is the same for all of them. Without the reason on the
+    // step, nothing downstream can tell six lists failing for one cause from six causes,
+    // and the button prints the same sentence six times.
+    // load() resets the module registry, so PortalError must be taken from the registry
+    // syncRun itself will use — otherwise the class identity differs and instanceof lies.
+    const run = await load();
+    const { PortalError } = await import("@/services/scenRosters");
+    syncTarget.mockRejectedValue(new PortalError("not_signed_in"));
+
+    await run.startRun(TARGETS);
+
+    const steps = run.getRun()!.steps;
+    expect(steps.map((step) => step.state)).toEqual(["failed", "failed", "failed"]);
+    expect(steps.map((step) => step.errorCode)).toEqual(["not_signed_in", "not_signed_in", "not_signed_in"]);
+    // The readable sentence survives too — this adds to the step, it does not replace.
+    expect(steps.every((step) => Boolean(step.error))).toBe(true);
+  });
+
+  it("leaves the reason empty for a failure the portal did not name", async () => {
+    syncTarget.mockRejectedValue(new Error("The server is having a moment."));
+    const run = await load();
+
+    await run.startRun(TARGETS.slice(0, 1));
+
+    expect(run.getRun()!.steps[0].errorCode).toBe("");
+    expect(run.getRun()!.steps[0].error).toBe("The server is having a moment.");
+  });
+});
