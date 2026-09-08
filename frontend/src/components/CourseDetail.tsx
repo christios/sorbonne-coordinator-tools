@@ -200,7 +200,16 @@ function SectionBlock({
         }
       }}
       aria-label={`Edit ${label}`}
-      className={`group cursor-pointer overflow-hidden rounded-lg border px-3.5 py-3 text-left transition hover:border-[#b7c6d8] hover:shadow-sm ${
+      /*
+       * A column, so the fullness bar can be held to the bottom edge.
+       *
+       * The cards sit in a grid whose default align-items is stretch, so every card in a
+       * row is as tall as the tallest. A block box given a height larger than its content
+       * leaves the surplus BELOW its last child, which floated the bar by exactly the
+       * height difference — visible on every card except the tallest in each row, which
+       * is why it read as "some cards".
+       */
+      className={`group flex cursor-pointer flex-col overflow-hidden rounded-lg border px-3.5 py-3 text-left transition hover:border-[#b7c6d8] hover:shadow-sm ${
         held.retired ? "border-dashed border-[#eef1f5] bg-[#fdfefe]" : "border-[#e4e8ef] bg-white"
       }`}
     >
@@ -262,6 +271,15 @@ function SectionBlock({
         <p className="mt-1 text-[11px] text-[#98a2b3]">Portal: {portalRow.teacherName}</p>
       ) : null}
 
+      {/*
+        * Absorbs whatever height the grid row hands this card over its own content.
+        *
+        * A spacer rather than mt-auto on the bar itself: on the card that SETS the row
+        * height the auto margin resolves to 0, so the bar would butt against the text
+        * with no gap — a subtler regression on exactly the cards that look right today.
+        * Keeping Fullness's mt-3 preserves the 12px gap on every card.
+        */}
+      <span aria-hidden="true" className="flex-1" />
       <Fullness placed={row.group.assigned} seats={row.group.capacity} dim={held.retired} />
     </article>
   );

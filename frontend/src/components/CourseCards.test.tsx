@@ -150,6 +150,30 @@ describe("the course cards", () => {
     expect(within(two).getByTitle("31 of 33 seats taken")).toBeTruthy();
   });
 
+  it("keeps the fullness bar on the card's bottom edge whatever else the card carries", async () => {
+    show();
+
+    // A STRUCTURAL PROXY, and it is one on purpose: jsdom performs no layout, so it
+    // cannot see the gap this pins. The cards sit in a grid whose default align-items
+    // is stretch, so every card in a row is as tall as the tallest; a plain block box
+    // then leaves the surplus BELOW its last child, and the bar floats by exactly the
+    // height difference. That is why it reads as "some cards" — the tallest one in each
+    // row sets the height and is always flush.
+    //
+    // Two things hold it down and both must stay: the card is a column, and something
+    // above the bar absorbs the surplus. Verify live at a width where sm:grid-cols-2 is
+    // active and again at 2xl:grid-cols-3, with one short and one tall card in a row.
+    const card = (await screen.findByLabelText("Edit TD 1 MATH001")) as HTMLElement;
+    expect(card.classList.contains("flex")).toBe(true);
+    expect(card.classList.contains("flex-col")).toBe(true);
+
+    // The bar is aria-hidden and carries no accessible name, so it is reached
+    // structurally: it is the card's last child, and the spacer sits right before it.
+    const bar = card.lastElementChild as HTMLElement;
+    expect(bar.className).toContain("rounded-b-lg");
+    expect((bar.previousElementSibling as HTMLElement | null)?.className ?? "").toContain("flex-1");
+  });
+
   it("sends the students a set has not placed to the page where placing happens", async () => {
     const place = vi.fn();
     show(place);
