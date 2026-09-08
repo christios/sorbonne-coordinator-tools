@@ -20,8 +20,20 @@ from pydantic import BaseModel
 
 from sorbonne.api.timetables import require_client
 from sorbonne.config import config
-from sorbonne.services.enrolment_resolution import Group, Scope, Section, readiness, resolve, validate
-from sorbonne.services.group_clashes import Session, clashes
+from sorbonne.services.enrolment_resolution import Section, readiness, resolve, validate
+from sorbonne.services.group_clashes import Session
+from sorbonne.services.term_clashes import (
+    assignments_of as _assignments,
+)
+from sorbonne.services.term_clashes import (
+    cohort_clashes as _clashes,
+)
+from sorbonne.services.term_clashes import (
+    groups_of as _groups,
+)
+from sorbonne.services.term_clashes import (
+    scopes_of as _scopes,
+)
 from sorbonne.services.student_database import StudentDatabase
 from sorbonne.services.student_timetables import StudentPlatformClient, StudentPlatformError
 
@@ -40,24 +52,6 @@ class PublishInput(BaseModel):
 
 def _forward(error: StudentPlatformError) -> HTTPException:
     return HTTPException(status_code=error.status_code, detail=str(error))
-
-
-def _scopes(cohort: dict[str, Any]) -> list[Scope]:
-    return [
-        Scope(id=row["id"], cohort_id=cohort["cohortId"], code=row["code"], name=row["name"])
-        for row in cohort["scopes"]
-    ]
-
-
-def _groups(cohort: dict[str, Any], key: str = "groups") -> list[Group]:
-    return [
-        Group(id=row["id"], scope_id=row["scopeId"], label=row["label"], crns=row["crns"])
-        for row in cohort.get(key, [])
-    ]
-
-
-def _assignments(cohort: dict[str, Any], key: str = "assignments") -> dict[tuple[str, str], str]:
-    return {(row["studentId"], row["scopeId"]): row["groupId"] for row in cohort.get(key, [])}
 
 
 def _sections(rows: list[dict[str, Any]]) -> list[Section]:
@@ -85,38 +79,6 @@ def _sessions(rows: list[dict[str, Any]]) -> list[Session]:
         for session in row.get("sessions", [])
         if isinstance(session, dict)
     ]
-
-
-def _clashes(cohort: dict[str, Any], groups: list[Group], sessions: list[Session]) -> list[dict[str, Any]]:
-    """The cohort's clashing groups, each pair named the way the page lays the blocks out.
-
-    Against the cohort's own sets AND the sets open to every cohort, which live on somebody
-    else's row. Without the second, a student's language hour was compared only with the
-    lectures of whichever cohort happens to hold the language set — so for everybody else
-    it was never compared with anything. Only this cohort's students are named, because a
-    clash is reported to the cohort that can do something about it.
-    """
-    scopes = [*cohort["scopes"], *cohort.get("sharedScopes", [])]
-    code_of = {row["id"]: row["code"] for row in scopes}
-    order = {row["id"]: index for index, row in enumerate(scopes)}
-    both = [*groups, *_groups(cohort, key="sharedGroups")]
-    assignments = {**_assignments(cohort), **_assignments(cohort, key="sharedAssignments")}
-    named = []
-    for clash in clashes(groups=both, sessions=sessions, assignments=assignments):
-        pair = sorted(clash["groups"], key=lambda group: order.get(group["scopeId"], 0))
-        # A window's two CRNs are in the pair's order; keep them so when the pair is turned.
-        turned = pair[0]["id"] != clash["groups"][0]["id"]
-        named.append(
-            {
-                **clash,
-                "groups": [{**group, "scopeCode": code_of.get(group["scopeId"], "")} for group in pair],
-                "windows": [
-                    {**window, "crns": list(reversed(window["crns"]))} if turned else window
-                    for window in clash["windows"]
-                ],
-            }
-        )
-    return named
 
 
 def _resolve_term(cohorts: list[dict[str, Any]]) -> dict[str, list[str]]:
