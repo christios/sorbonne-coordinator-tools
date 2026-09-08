@@ -22,6 +22,7 @@ export function MoveToCohort({
   count,
   cohorts,
   onMove,
+  describe,
   onNewCohort,
   onClose,
   busy,
@@ -31,6 +32,16 @@ export function MoveToCohort({
   cohorts: Cohort[];
   /** Null takes them out of whatever cohort they are in. */
   onMove: (cohortId: string | null) => void;
+  /**
+   * What this particular move would throw away, or "" when it throws nothing away.
+   *
+   * The consequence is not a property of moving; it is a property of the destination.
+   * A student in no cohort, joining the cohort their groups are already filed under,
+   * loses nothing — the server deletes on the cohort the assignment carries, and that
+   * is already the destination. This dialog used to assert the loss anyway, on every
+   * move, in either direction, before any cost had been worked out.
+   */
+  describe: (cohortId: string | null) => string;
   onNewCohort: () => void;
   onClose: () => void;
   busy: boolean;
@@ -45,7 +56,7 @@ export function MoveToCohort({
     <Modal
       open={open}
       title={`Move ${count} student${count === 1 ? "" : "s"}`}
-      description="A student belongs to one cohort. Moving them out of one drops every group they hold in it, in every semester."
+      description="A student belongs to one cohort."
       onClose={onClose}
       footer={
         <div className="flex items-center justify-end gap-3">
@@ -83,6 +94,13 @@ export function MoveToCohort({
           onChange={setCohortId}
         />
       </div>
+
+      {cohortId && cohortId !== OUT && describe(cohortId) ? (
+        <p className="mt-3 flex items-start gap-2 rounded-md border border-[#e5cf9f] bg-[#fdf9ee] px-4 py-2.5 text-sm text-[#8a6116]">
+          <UserMinus size={15} className="mt-0.5 shrink-0" aria-hidden="true" />
+          {describe(cohortId)}
+        </p>
+      ) : null}
 
       {cohortId === OUT ? (
         <p className="mt-3 flex items-start gap-2 rounded-md border border-[#e5cf9f] bg-[#fdf9ee] px-4 py-2.5 text-sm text-[#8a6116]">

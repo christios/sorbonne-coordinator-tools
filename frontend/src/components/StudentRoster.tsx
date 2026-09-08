@@ -465,6 +465,7 @@ export function StudentRoster({
         open={moving}
         count={chosen.length}
         cohorts={cohorts}
+        describe={(cohortId) => describeCost(moveCost(cohortId))}
         busy={move.isPending}
         onMove={(cohortId) => {
           setMoving(false);

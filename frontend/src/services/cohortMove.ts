@@ -18,9 +18,18 @@ export type MoveCost = {
  * screen: a student moved in June loses the placements somebody made for them in
  * September. Counting them first is what makes the deletion a decision.
  *
- * A student's placements are all made under the cohort they belong to, because only a
- * cohort's own members may be placed in its blocks. So the test is simply whether they
- * are already in the cohort being moved to: if they are, the move costs nothing.
+ * The test is whether they are already in the cohort being moved to: if they are, the
+ * move costs nothing.
+ *
+ * That test is not yet exactly the server's. The server deletes on the cohort each
+ * ASSIGNMENT is filed under; this counts on the cohort the STUDENT belongs to. The two
+ * agree for an ordinary placement, which is filed under the student's own cohort. They
+ * part company for a set open to every cohort — a language set — where the assignment is
+ * filed under whichever cohort owns the set. So a shared placement can be counted here
+ * and not deleted there, or deleted there and not counted here. Making both sides ask
+ * the same question needs the assignment's own cohort on the wire, which is scheduled
+ * with the retention change; until then this errs toward warning about a language group
+ * that would in fact survive.
  */
 export function costOfMove(
   students: Student[],
