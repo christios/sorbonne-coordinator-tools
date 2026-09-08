@@ -1037,6 +1037,25 @@ class StudentDatabase:
             if course_code and cell["crn"] and not cell["retired"]:
                 crns.setdefault(cell["group_id"], {})[course_code] = cell["crn"]
 
+        # A set open to every cohort sits on ONE cohort's row, so anything that reads a
+        # semester cohort by cohort loses it for everybody else — which is how a student's
+        # language hour came to be checked against the owning cohort's lectures and nobody
+        # else's. These are carried separately rather than folded into `scopes`: readiness
+        # and resolution must go on seeing a cohort's own sets and only those, or every
+        # cohort would suddenly be required to have placed everyone in a language group.
+        shared = [row for row in scopes if row["open_to_all"]]
+        shared_ids = {row["id"] for row in shared}
+
+        # Per cohort, once: the shared sets somebody ELSE's row holds, and who here is in them.
+        elsewhere = {
+            cohort_id: shared_ids - {row["id"] for row in scopes if row["cohort_id"] == cohort_id}
+            for cohort_id in cohort_ids
+        }
+        mine = {
+            cohort_id: {row["student_id"] for row in members if row["cohort_id"] == cohort_id}
+            for cohort_id in cohort_ids
+        }
+
         return [
             {
                 "cohortId": cohort_id,
@@ -1065,6 +1084,28 @@ class StudentDatabase:
                     {"studentId": row["student_id"], "scopeId": row["scope_id"], "groupId": row["group_id"]}
                     for row in assigned
                     if row["scope_id"] in _ids_of(scopes, cohort_id)
+                ],
+                # The same three, for the sets somebody else's row holds: enough to check
+                # this cohort's students against them, and nothing more.
+                "sharedScopes": [
+                    {"id": row["id"], "code": row["code"], "name": row["name"]}
+                    for row in shared
+                    if row["id"] in elsewhere[cohort_id]
+                ],
+                "sharedGroups": [
+                    {
+                        "id": group["id"],
+                        "scopeId": group["scope_id"],
+                        "label": group["label"],
+                        "crns": crns.get(group["id"], {}),
+                    }
+                    for group in groups
+                    if group["scope_id"] in elsewhere[cohort_id]
+                ],
+                "sharedAssignments": [
+                    {"studentId": row["student_id"], "scopeId": row["scope_id"], "groupId": row["group_id"]}
+                    for row in assigned
+                    if row["scope_id"] in elsewhere[cohort_id] and row["student_id"] in mine[cohort_id]
                 ],
             }
             for cohort_id in cohort_ids

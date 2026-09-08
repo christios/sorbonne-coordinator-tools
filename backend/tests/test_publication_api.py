@@ -379,3 +379,101 @@ def test_a_section_without_a_crn_or_retired_enrols_nobody(client: TestClient, da
     resolved = api._resolve_term(database.term_publication(TERM))
 
     assert resolved["A001"] == ["22151", "23652"]
+
+
+# --------------------------------------------------- sets open to every cohort
+
+
+def build_shared_language(database: StudentDatabase, owner: dict) -> dict:
+    """A LANG set on Foundation Year's row, open to every cohort, and an L1 student in it.
+
+    The languages are set up this way in production: one cohort holds the row, everybody
+    uses it. L1's own lecture and the language group meet at the same hour, and B001 sits
+    in both — which is a clash of L1's, not of Foundation Year's.
+    """
+    lang = database.add_scope(owner["cohort"]["id"], code="LANG", name="Languages", term_id=TERM, open_to_all=True)
+    french = database.add_course(lang, code="MATH-011")
+    a1 = database.add_group(lang, label="A1")
+    database.set_cell(group_id=a1, course_id=french, crn="23652")
+
+    l1 = database.create_cohort(name="L1", term="2026-27")
+    with database.engine.begin() as connection:
+        connection.execute(
+            text("""INSERT INTO students (student_id, status, cohort_id, first_seen_at,
+                                          last_seen_at, updated_at)
+                    VALUES ('B001', 'in_portal', :cohort, 'now', 'now', 'now')"""),
+            {"cohort": l1["id"]},
+        )
+    cm = database.add_scope(l1["id"], code="CM", name="Lectures", term_id=TERM)
+    maths = database.add_course(cm, code="MATH-001")
+    group_a = database.add_group(cm, label="A")
+    database.set_cell(group_id=group_a, course_id=maths, crn="22151")
+
+    database.assign(student_id="B001", scope_id=cm, group_id=group_a)
+    database.assign(student_id="B001", scope_id=lang, group_id=a1)
+    return {"l1": l1, "lang": lang, "cm": cm, "a1": a1, "groupA": group_a}
+
+
+def test_a_shared_set_clashes_with_every_cohorts_blocks_not_only_its_owners(
+    client: TestClient, database: StudentDatabase
+):
+    # The third recurrence of the same quirk: a set open to every cohort lives on ONE
+    # cohort's row, and everything that reads a semester cohort by cohort loses it for
+    # everybody else. B001 is L1's, sits in Foundation Year's language group, and that
+    # group meets at the same hour as L1's own lecture. Nobody was checking.
+    owner = build_cohort(database)
+    build_shared_language(database, owner)
+
+    report = use(client, sections_then({})).get(f"/api/v1/publication/terms/{TERM}").json()
+    l1 = next(cohort for cohort in report["cohorts"] if cohort["cohort"] == "L1")
+
+    [clash] = l1["clashes"]
+    assert sorted(f"{group['scopeCode']} {group['label']}" for group in clash["groups"]) == ["CM A", "LANG A1"]
+    assert clash["students"] == ["B001"]
+
+
+def test_a_shared_sets_clash_names_only_the_cohorts_own_students(client: TestClient, database: StudentDatabase):
+    # Foundation Year's own students are in the same language group. They are Foundation
+    # Year's to report, and must not appear on L1's line.
+    owner = build_cohort(database)
+    shared = build_shared_language(database, owner)
+    database.assign(student_id="A001", scope_id=shared["lang"], group_id=shared["a1"])
+
+    report = use(client, sections_then({})).get(f"/api/v1/publication/terms/{TERM}").json()
+    l1 = next(cohort for cohort in report["cohorts"] if cohort["cohort"] == "L1")
+
+    assert l1["clashes"][0]["students"] == ["B001"]
+
+
+def test_a_shared_set_does_not_change_what_the_semester_publishes(client: TestClient, database: StudentDatabase):
+    # The keys are additive: resolution and readiness read the cohort's own sets exactly as
+    # before, so nothing about publishing moves.
+    owner = build_cohort(database)
+    build_shared_language(database, owner)
+
+    report = use(client, sections_then({})).get(f"/api/v1/publication/terms/{TERM}").json()
+    l1 = next(cohort for cohort in report["cohorts"] if cohort["cohort"] == "L1")
+
+    # Readiness still counts only L1's own set: one student, one CM group, nothing missing.
+    assert l1["students"] == 1
+    assert l1["unassigned"] == {}
+    assert l1["isReady"] is True
+
+
+def test_two_cohorts_own_blocks_at_the_same_hour_are_still_not_a_clash(
+    client: TestClient, database: StudentDatabase
+):
+    # Guards the shape of the fix against being "simplified" into a term-wide comparison.
+    # Foundation Year's CM and L1's CM both meet Monday 08:30 — and that is not a clash for
+    # anybody, because no student is in both. Only sets open to every cohort cross the line.
+    owner = build_cohort(database)
+    shared = build_shared_language(database, owner)
+    database.assign(student_id="B001", scope_id=shared["lang"], group_id=shared["a1"])
+
+    report = use(client, sections_then({})).get(f"/api/v1/publication/terms/{TERM}").json()
+    fy = next(cohort for cohort in report["cohorts"] if cohort["cohort"] == "Foundation Year")
+
+    # Foundation Year sees its own CM/TD clash, and nothing of L1's.
+    for clash in fy["clashes"]:
+        assert set(clash["students"]) <= {"A001", "A002"}
+        assert all(group["scopeCode"] in {"CM", "TD", "LANG"} for group in clash["groups"])

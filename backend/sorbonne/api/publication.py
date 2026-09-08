@@ -49,15 +49,15 @@ def _scopes(cohort: dict[str, Any]) -> list[Scope]:
     ]
 
 
-def _groups(cohort: dict[str, Any]) -> list[Group]:
+def _groups(cohort: dict[str, Any], key: str = "groups") -> list[Group]:
     return [
         Group(id=row["id"], scope_id=row["scopeId"], label=row["label"], crns=row["crns"])
-        for row in cohort["groups"]
+        for row in cohort.get(key, [])
     ]
 
 
-def _assignments(cohort: dict[str, Any]) -> dict[tuple[str, str], str]:
-    return {(row["studentId"], row["scopeId"]): row["groupId"] for row in cohort["assignments"]}
+def _assignments(cohort: dict[str, Any], key: str = "assignments") -> dict[tuple[str, str], str]:
+    return {(row["studentId"], row["scopeId"]): row["groupId"] for row in cohort.get(key, [])}
 
 
 def _sections(rows: list[dict[str, Any]]) -> list[Section]:
@@ -88,11 +88,21 @@ def _sessions(rows: list[dict[str, Any]]) -> list[Session]:
 
 
 def _clashes(cohort: dict[str, Any], groups: list[Group], sessions: list[Session]) -> list[dict[str, Any]]:
-    """The cohort's clashing groups, each pair named the way the page lays the blocks out."""
-    code_of = {row["id"]: row["code"] for row in cohort["scopes"]}
-    order = {row["id"]: index for index, row in enumerate(cohort["scopes"])}
+    """The cohort's clashing groups, each pair named the way the page lays the blocks out.
+
+    Against the cohort's own sets AND the sets open to every cohort, which live on somebody
+    else's row. Without the second, a student's language hour was compared only with the
+    lectures of whichever cohort happens to hold the language set — so for everybody else
+    it was never compared with anything. Only this cohort's students are named, because a
+    clash is reported to the cohort that can do something about it.
+    """
+    scopes = [*cohort["scopes"], *cohort.get("sharedScopes", [])]
+    code_of = {row["id"]: row["code"] for row in scopes}
+    order = {row["id"]: index for index, row in enumerate(scopes)}
+    both = [*groups, *_groups(cohort, key="sharedGroups")]
+    assignments = {**_assignments(cohort), **_assignments(cohort, key="sharedAssignments")}
     named = []
-    for clash in clashes(groups=groups, sessions=sessions, assignments=_assignments(cohort)):
+    for clash in clashes(groups=both, sessions=sessions, assignments=assignments):
         pair = sorted(clash["groups"], key=lambda group: order.get(group["scopeId"], 0))
         # A window's two CRNs are in the pair's order; keep them so when the pair is turned.
         turned = pair[0]["id"] != clash["groups"][0]["id"]
