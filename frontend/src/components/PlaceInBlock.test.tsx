@@ -144,3 +144,59 @@ describe("placing students in a group", () => {
     expect(await screen.findByText(/has no sets in this semester yet/)).toBeTruthy();
   });
 });
+
+describe("groups nobody should be placed into", () => {
+  const section = (retired: boolean): database.Section => ({ ...database.EMPTY_SECTION, crn: "23456", retired });
+
+  function withGroups(groups: database.CatalogueGroup[]) {
+    vi.spyOn(database, "fetchCatalogue").mockResolvedValue({
+      scopes: [{ ...CATALOGUE.scopes[0], groups }],
+    });
+  }
+
+  it("does not offer a group whose every section is retired", async () => {
+    withGroups([
+      { id: "group-1", label: "1", capacity: 24, note: "", program: "", parentGroupId: "", assigned: 20, crns: { "course-a": section(false) } },
+      { id: "group-9", label: "9", capacity: 24, note: "", program: "", parentGroupId: "", assigned: 0, crns: { "course-a": section(true) } },
+    ]);
+    show();
+
+    await pick("Semester", "Physics & Maths — Semester 1");
+    await pick("Block", /TD/);
+    fireEvent.click(screen.getByRole("combobox", { name: "Group" }));
+
+    expect(await screen.findByRole("option", { name: /Group 1/ })).toBeTruthy();
+    expect(screen.queryByRole("option", { name: /Group 9/ })).toBeNull();
+  });
+
+  it("still offers a group retired for one course of the set and live for another", async () => {
+    // A set carries several courses and a group holds one section per course. Retiring
+    // the section for one of them says nothing about whether the group still teaches.
+    withGroups([
+      { id: "group-3", label: "3", capacity: 24, note: "", program: "", parentGroupId: "", assigned: 0, crns: { "course-a": section(true), "course-b": section(false) } },
+    ]);
+    show();
+
+    await pick("Semester", "Physics & Maths — Semester 1");
+    await pick("Block", /TD/);
+    fireEvent.click(screen.getByRole("combobox", { name: "Group" }));
+
+    expect(await screen.findByRole("option", { name: /Group 3/ })).toBeTruthy();
+  });
+
+  it("still offers a group that has no sections yet", async () => {
+    // Creating a group writes no sections, so a brand-new one holds none — and `every`
+    // over an empty list is true. Without the length guard the fix would hide exactly
+    // the groups somebody has just made in order to fill them.
+    withGroups([
+      { id: "group-new", label: "New", capacity: 24, note: "", program: "", parentGroupId: "", assigned: 0, crns: {} },
+    ]);
+    show();
+
+    await pick("Semester", "Physics & Maths — Semester 1");
+    await pick("Block", /TD/);
+    fireEvent.click(screen.getByRole("combobox", { name: "Group" }));
+
+    expect(await screen.findByRole("option", { name: /Group New/ })).toBeTruthy();
+  });
+});

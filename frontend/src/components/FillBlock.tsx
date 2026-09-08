@@ -21,6 +21,7 @@ import {
   type PlacementReport,
   fetchAssignments,
   fetchStudents,
+  groupIsRetired,
   placeStudents,
 } from "@/services/studentDatabase";
 
@@ -113,10 +114,19 @@ export function FillBlock({
     return keys;
   }, [clashes]);
 
+  /*
+   * The groups a fill may seat somebody in.
+   *
+   * A group whose every section is retired teaches nobody, and the checkbox that retires
+   * a section already promises as much. Leaving them in was how the overflow from a full
+   * group landed in a set that had stopped running.
+   */
+  const openGroups = useMemo(() => scope.groups.filter((group) => !groupIsRetired(group)), [scope.groups]);
+
   const plan = useMemo<FillPlan>(
     () =>
       planFill({
-        groups: scope.groups.map((group) => ({
+        groups: openGroups.map((group) => ({
           id: group.id,
           label: group.label,
           capacity: group.capacity,
@@ -131,7 +141,7 @@ export function FillBlock({
         seed,
         parentScopeId: scope.kind === "nested" ? scope.parentScopeId : "",
       }),
-    [scope, candidates, clashSet, order, policy, seed],
+    [scope, openGroups, candidates, clashSet, order, policy, seed],
   );
 
   const fill = useMutation({
@@ -143,7 +153,7 @@ export function FillBlock({
   const namesMissing = candidates.length > 0 && candidates.every((candidate) => !held.data?.names[candidate.studentId]);
   const ready = clashes !== null && !loading && plan.placements.length > 0;
   const nameOf = (id: string) => held.data?.names[id] ?? id;
-  const labelOf = new Map(scope.groups.map((group) => [group.id, group.label]));
+  const labelOf = new Map(openGroups.map((group) => [group.id, group.label]));
 
   return (
     <Modal

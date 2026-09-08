@@ -510,3 +510,19 @@ export async function setCohort(studentIds: string[], cohortId: string | null): 
   const body = await send<{ moved: number }>(`${BASE}/students/cohort`, "POST", { studentIds, cohortId });
   return body.moved;
 }
+
+/**
+ * A group nobody should be placed into any more.
+ *
+ * Retirement is recorded on the SECTION, not the group: a group of a set that carries
+ * several courses holds one section per course, and retiring one of them says nothing
+ * about the group. It is retired only when every section it holds is.
+ *
+ * The length guard is load-bearing, not defensive. `add_group` writes no sections at all,
+ * so a group created a moment ago holds none — and `every()` over an empty list is true,
+ * which would quietly hide every brand-new group from the fill and the placement dialog.
+ */
+export function groupIsRetired(group: Pick<CatalogueGroup, "crns">): boolean {
+  const sections = Object.values(group.crns ?? {});
+  return sections.length > 0 && sections.every((section) => section.retired);
+}

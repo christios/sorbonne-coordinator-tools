@@ -119,3 +119,42 @@ describe("filling a block", () => {
     expect((screen.getByText("Place 2") as HTMLButtonElement).disabled).toBe(true);
   });
 });
+
+describe("the fill and retired groups", () => {
+  const section = (retired: boolean): database.Section => ({ ...database.EMPTY_SECTION, crn: "23456", retired });
+
+  function withGroups(groups: database.CatalogueGroup[]) {
+    const onFilled = vi.fn();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <FillBlock open cohort={COHORT} scope={{ ...TD, groups }} clashes={[]} onClose={() => {}} onFilled={onFilled} />
+      </QueryClientProvider>,
+    );
+    return onFilled;
+  }
+
+  it("does not fill a group whose every section is retired", async () => {
+    // The checkbox beside a retired section already promises it teaches nobody. Seating
+    // the fill's overflow there is the one way somebody lands in a set that has stopped.
+    withGroups([
+      { id: "td-1", label: "1", capacity: 1, note: "", program: "", parentGroupId: "", assigned: 0, crns: { "course-a": section(false) } },
+      { id: "td-9", label: "9", capacity: 9, note: "", program: "", parentGroupId: "", assigned: 0, crns: { "course-a": section(true) } },
+    ]);
+
+    const sizes = await screen.findByLabelText("Group sizes after the fill");
+    const labels = within(sizes).getAllByRole("row").slice(1).map((row) => row.textContent?.[0]);
+    expect(labels).toContain("1");
+    expect(labels).not.toContain("9");
+  });
+
+  it("still fills a group retired for one course of the set and live for another", async () => {
+    withGroups([
+      { id: "td-3", label: "3", capacity: 9, note: "", program: "", parentGroupId: "", assigned: 0, crns: { "course-a": section(true), "course-b": section(false) } },
+    ]);
+
+    const sizes = await screen.findByLabelText("Group sizes after the fill");
+    const labels = within(sizes).getAllByRole("row").slice(1).map((row) => row.textContent?.[0]);
+    expect(labels).toContain("3");
+  });
+});

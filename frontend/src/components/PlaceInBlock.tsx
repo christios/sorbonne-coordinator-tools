@@ -9,6 +9,7 @@ import {
   type PlacementReport,
   assignStudents,
   fetchCatalogue,
+  groupIsRetired,
 } from "@/services/studentDatabase";
 import { fetchTimetableTerms } from "@/services/timetables";
 
@@ -118,7 +119,9 @@ export function PlaceInBlock({
           value={groupId}
           placeholder={scopeId ? "Which group…" : "Choose a set first"}
           options={[
-            ...(scope?.groups ?? []).map((group) => ({
+            // A group whose every section is retired teaches nobody; offering it is how
+            // somebody gets placed into a set that has stopped running.
+            ...(scope?.groups ?? []).filter((group) => !groupIsRetired(group)).map((group) => ({
               value: group.id,
               label: `Group ${group.label}`,
               // An empty group says nothing rather than a bare "0", which reads as a label.
