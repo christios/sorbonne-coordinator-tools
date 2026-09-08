@@ -157,13 +157,13 @@ describe("what a failed step remembers", () => {
     // syncRun itself will use — otherwise the class identity differs and instanceof lies.
     const run = await load();
     const { PortalError } = await import("@/services/scenRosters");
-    syncTarget.mockRejectedValue(new PortalError("not_signed_in"));
+    syncTarget.mockRejectedValue(new PortalError("auth"));
 
     await run.startRun(TARGETS);
 
     const steps = run.getRun()!.steps;
     expect(steps.map((step) => step.state)).toEqual(["failed", "failed", "failed"]);
-    expect(steps.map((step) => step.errorCode)).toEqual(["not_signed_in", "not_signed_in", "not_signed_in"]);
+    expect(steps.map((step) => step.errorCode)).toEqual(["auth", "auth", "auth"]);
     // The readable sentence survives too — this adds to the step, it does not replace.
     expect(steps.every((step) => Boolean(step.error))).toBe(true);
   });
@@ -176,5 +176,36 @@ describe("what a failed step remembers", () => {
 
     expect(run.getRun()!.steps[0].errorCode).toBe("");
     expect(run.getRun()!.steps[0].error).toBe("The server is having a moment.");
+  });
+});
+
+describe("giving up on a run that will not finish", () => {
+  it("abandons a run this tab is driving, even though it is still marked running", async () => {
+    // Reported from a real machine: a run that stalls can never be cleared, because the
+    // one action that would recover it refuses precisely when it is needed. `finishedAt`
+    // being null is what "running" means, and a stalled run's is null for ever.
+    const run = await load();
+    syncTarget.mockImplementation(() => new Promise(() => {}));
+    void run.startRun(TARGETS);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(run.isRunning(run.getRun())).toBe(true);
+
+    run.abandonRun();
+
+    expect(run.getRun()).toBeNull();
+    expect(held()).toBeNull();
+  });
+
+  it("still refuses the tidy-up clear while a run is going", async () => {
+    // clearRun stays as it was: it is the "this is finished with" button, and it must not
+    // become a way to lose a run that is working.
+    const run = await load();
+    syncTarget.mockImplementation(() => new Promise(() => {}));
+    void run.startRun(TARGETS);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    run.clearRun();
+
+    expect(run.getRun()).not.toBeNull();
   });
 });

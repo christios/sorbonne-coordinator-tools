@@ -168,6 +168,24 @@ export function clearRun(): void {
   write(null);
 }
 
+/**
+ * Throw the run away whatever state it is in, and stop driving it.
+ *
+ * `clearRun` is the tidy-up: it refuses while a run is going, so a working run cannot be
+ * lost by a stray click. That refusal made a STALLED run unrecoverable, because "running"
+ * is only `finishedAt === null` and a stalled run's stays null for ever — so the one
+ * action that would have recovered it declined precisely when it was needed, and the
+ * button offering it was hidden as well. Reported from a real machine.
+ *
+ * This is the other verb: deliberate, asked for, and destructive on purpose. The pull
+ * already in flight cannot be recalled — nothing can un-ask the portal — but it is no
+ * longer written down when it lands, and nothing will resume it.
+ */
+export function abandonRun(): void {
+  driving = false;
+  write(null);
+}
+
 function patch(key: string, change: Partial<SyncStep>): SyncStep | null {
   const held = read();
   if (!held) return null;

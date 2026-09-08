@@ -16,7 +16,21 @@ import { fetchViews } from "@/services/studentDatabase";
 
 const LISTS: ListKind[] = ["courses", "teachers", "registrations"];
 
-export function useSyncTargets(): { targets: SyncTarget[]; ready: boolean } {
+export type SyncTargets = {
+  targets: SyncTarget[];
+  ready: boolean;
+  /**
+   * When the OLDEST list was last synced, or null when one has never been.
+   *
+   * Oldest, not most recent, and the distinction is the whole point: after a sync the
+   * button's job is a staleness floor, and "just now" while a list is a week old is
+   * exactly the lie it exists to prevent. `lastSyncedAt` was already being fetched here
+   * and thrown away, so it costs no request.
+   */
+  syncedAt: number | null;
+};
+
+export function useSyncTargets(): SyncTargets {
   const [views, ...lists] = useQueries({
     queries: [
       { queryKey: ["views"], queryFn: fetchViews },
@@ -43,7 +57,18 @@ export function useSyncTargets(): { targets: SyncTarget[]; ready: boolean } {
     ),
   ];
 
-  return { targets, ready: targets.length > 0 };
+  const ages = [
+    ...((views.data ?? []) as { lastSyncedAt?: string }[]),
+    ...LISTS.flatMap((_, index) => (lists[index]?.data ?? []) as { lastSyncedAt?: string }[]),
+  ].map((row) => (row.lastSyncedAt ? Date.parse(row.lastSyncedAt) : Number.NaN));
+
+  return {
+    targets,
+    ready: targets.length > 0,
+    // A list nobody has ever synced makes the whole answer "never", not "as old as the
+    // others" — there is no age to report when part of the picture has no age at all.
+    syncedAt: ages.length && ages.every((at) => !Number.isNaN(at)) ? Math.min(...ages) : null,
+  };
 }
 
 /** What the pages read from the server, so every one of them is right again. */

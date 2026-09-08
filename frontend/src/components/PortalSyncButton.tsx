@@ -2,7 +2,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Check, Loader2, RefreshCw, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
-import { clearRun, getRun, isRunning, startRun, subscribe, type SyncRun, type SyncStep } from "@/services/syncRun";
+import { abandonRun, clearRun, getRun, isRunning, startRun, subscribe, type SyncRun, type SyncStep } from "@/services/syncRun";
+import { describeAge } from "@/services/rosterStore";
 import { freshen, useSyncTargets } from "@/services/syncTargets";
 
 /** The order a run goes in, and what each list is called where a coordinator reads it. */
@@ -44,7 +45,7 @@ export function PortalSyncButton() {
   const client = useQueryClient();
   const [run, setRun] = useState<SyncRun | null>(() => getRun());
   const [open, setOpen] = useState(false);
-  const { targets, ready } = useSyncTargets();
+  const { targets, ready, syncedAt } = useSyncTargets();
   const box = useRef<HTMLDivElement>(null);
 
   // Anywhere else puts the report away — it is a report, not a dialog, and nothing in the
@@ -90,6 +91,16 @@ export function PortalSyncButton() {
   const settled = steps.filter((step) => step.state === "done" || step.state === "failed").length;
   const failed = steps.filter((step) => step.state === "failed");
   const current = steps.find((step) => step.state === "running");
+  /*
+   * One reason, when every failure has the same one.
+   *
+   * An expired session fails every list, because every list starts by asking the portal
+   * who you are. Six identical sentences reads as six problems and buries the single
+   * thing to do about it. Grouped on the portal's own code rather than on the sentence,
+   * which names the list and so is different every time.
+   */
+  const codes = new Set(failed.map((step) => step.errorCode ?? ""));
+  const oneReason = failed.length > 1 && codes.size === 1 && [...codes][0] ? failed[0].error : "";
   const troubled = failed.length || steps.some((step) => step.warning);
 
 
@@ -132,7 +143,17 @@ export function PortalSyncButton() {
               </span>
             </span>
           ) : (
-            <span>Portal sync</span>
+            <span className="flex items-baseline gap-1.5">
+              <span>Portal sync</span>
+              {/*
+                * How stale the oldest list is, on the button rather than greyed in the
+                * middle of a page. It is the one thing worth knowing without opening
+                * anything: everything on screen was read from a pull of that age.
+                */}
+              {syncedAt ? (
+                <span className="font-normal text-[11px] tabular-nums text-[#98a2b3]">{describeAge(syncedAt, now)}</span>
+              ) : null}
+            </span>
           )}
         </button>
 
@@ -145,12 +166,35 @@ export function PortalSyncButton() {
             <p className="text-sm font-semibold text-[#171717]">
               {running ? "Syncing every list" : failed.length ? "Synced, with trouble" : "Synced"}
             </p>
-            {!running ? (
+            {/*
+              * While a run is going, the way out is "Give up" — not nothing.
+              *
+              * There was no control here at all during a run, and clearRun refuses while
+              * one is unfinished, so a stalled run could only be recovered by deleting a
+              * localStorage key from the console. The pull in flight cannot be recalled;
+              * this stops it being written down or resumed, which is what being stuck
+              * actually needs.
+              */}
+            {running ? (
+              <button
+                type="button"
+                onClick={() => { abandonRun(); setOpen(false); }}
+                title="Stop waiting on this run. The request already sent cannot be recalled, but nothing will resume it."
+                className="text-xs text-[#a6292f] underline"
+              >
+                Give up
+              </button>
+            ) : (
               <button type="button" onClick={() => { clearRun(); setOpen(false); }} className="text-xs text-[#667085] underline">
                 Clear
               </button>
-            ) : null}
+            )}
           </div>
+          {oneReason ? (
+            <p role="alert" className="mb-2 rounded-md border border-[#e5b7b9] bg-[#fdf3f3] px-3 py-2 text-xs leading-5 text-[#a6292f]">
+              {oneReason}
+            </p>
+          ) : null}
           <ul className="space-y-1.5">
             {ORDER.flatMap((kind) =>
               steps
@@ -168,7 +212,7 @@ export function PortalSyncButton() {
                         <span className="text-[#98a2b3]"> — {since(step.startedAt, now)}</span>
                       ) : null}
                       {step.warning ? <span className="block text-[#8a6116]">{step.warning}</span> : null}
-                      {step.error ? <span className="block text-[#a6292f]">{step.error}</span> : null}
+                      {step.error && !oneReason ? <span className="block text-[#a6292f]">{step.error}</span> : null}
                     </span>
                   </li>
                 )),

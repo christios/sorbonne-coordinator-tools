@@ -132,3 +132,58 @@ describe("Portal sync", () => {
     expect(screen.queryByText(/could not be written|allow it again/)).toBeNull();
   });
 });
+
+describe("what the button says when the portal will not answer", () => {
+  it("says it once when every list failed for the same reason", async () => {
+    // An expired session fails every list, because every list starts by asking the portal
+    // who you are. Six identical sentences reads as six problems; it is one, and the one
+    // thing to do about it is sign in again.
+    vi.spyOn(rosters, "pullFilter").mockRejectedValue(new rosters.PortalError("auth"));
+    show();
+
+    await sync();
+
+    const shown = await screen.findAllByText(/portal session has expired/);
+    expect(shown.length).toBe(1);
+    expect(screen.queryByText(/0 of 2 synced/)).toBeTruthy();
+  });
+
+  it("still names each list when they failed for different reasons", async () => {
+    // The grouping must not flatten genuinely different failures into one sentence.
+    vi.spyOn(rosters, "pullFilter").mockImplementation(async (_filter, meta) => {
+      if (meta?.kind === "courses") throw new rosters.PortalError("auth");
+      throw new Error("The server is having a moment.");
+    });
+    show();
+
+    await sync();
+
+    expect(await screen.findByText(/portal session has expired/)).toBeTruthy();
+    expect(screen.getByText(/having a moment/)).toBeTruthy();
+  });
+});
+
+describe("how stale the lists are", () => {
+  it("says the age of the oldest pull on the button itself", async () => {
+    // Not the most recent: after a sync the button's whole job is a staleness floor, and
+    // "just now" while one list is a week old is exactly the lie this is here to prevent.
+    const week = new Date(Date.now() - 7 * 24 * 3600_000).toISOString();
+    const hour = new Date(Date.now() - 3600_000).toISOString();
+    vi.spyOn(database, "fetchViews").mockResolvedValue([{ ...VIEW, lastSyncedAt: hour }]);
+    vi.spyOn(lists, "fetchPortalFilters").mockImplementation(async (kind) =>
+      kind === "courses" ? [{ ...COURSES, lastSyncedAt: week }] : [],
+    );
+    show();
+
+    expect(await screen.findByText(/7 days ago/)).toBeTruthy();
+  });
+
+  it("says nothing about age when nothing has ever been synced", async () => {
+    vi.spyOn(database, "fetchViews").mockResolvedValue([{ ...VIEW, lastSyncedAt: "" }]);
+    vi.spyOn(lists, "fetchPortalFilters").mockResolvedValue([{ ...COURSES, lastSyncedAt: "" }]);
+    show();
+
+    expect(await screen.findByRole("button", { name: /Portal sync/ })).toBeTruthy();
+    expect(screen.queryByText(/ago/)).toBeNull();
+  });
+});
