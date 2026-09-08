@@ -205,22 +205,40 @@ export function StudentRecord({
       title={row.name || row.studentId}
       onClose={onClose}
       header={
-        <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
-          <span className="font-mono text-[#667085]">{row.studentId}</span>
-          {row.status === "not_in_portal" ? <Pill tone="bad">Not in portal</Pill> : <Pill tone="good">In portal</Pill>}
-          {cohort ? (
-            <Pill tone="accent">{cohort.name}</Pill>
-          ) : (
-            <Pill tone="muted">No cohort</Pill>
-          )}
-          {row.yearLevel ? <Pill tone="muted">{row.yearLevel}</Pill> : null}
-          {row.major ? <Pill tone="muted">{row.major}</Pill> : null}
-          {row.email ? (
-            <a href={`mailto:${row.email}`} className="text-[#1f4e79] underline">
-              {row.email}
-            </a>
+        <dl className="mt-2 flex flex-wrap items-end gap-x-4 gap-y-2 text-sm">
+          {/*
+            * Each pill says what it is. Unlabelled, the row was five chips of the same
+            * shape whose meaning had to be inferred from the value — and a value that
+            * could belong to more than one field made the reader guess. A dl, because
+            * that is what a row of field-and-value is.
+            */}
+          <Field label="ID">
+            <span className="font-mono text-[#667085]">{row.studentId}</span>
+          </Field>
+          <Field label="Registrar">
+            {row.status === "not_in_portal" ? <Pill tone="bad">Not in portal</Pill> : <Pill tone="good">In portal</Pill>}
+          </Field>
+          <Field label="Cohort">
+            {cohort ? <Pill tone="accent">{cohort.name}</Pill> : <Pill tone="muted">No cohort</Pill>}
+          </Field>
+          {row.yearLevel ? (
+            <Field label="Year">
+              <Pill tone="muted">{row.yearLevel}</Pill>
+            </Field>
           ) : null}
-        </div>
+          {row.major ? (
+            <Field label="Major">
+              <Pill tone="muted">{row.major}</Pill>
+            </Field>
+          ) : null}
+          {row.email ? (
+            <Field label="E-mail">
+              <a href={`mailto:${row.email}`} className="text-[#1f4e79] underline">
+                {row.email}
+              </a>
+            </Field>
+          ) : null}
+        </dl>
       }
     >
       {/* --------------------------------------------------------------- warnings */}
@@ -552,6 +570,16 @@ function Folded({ label, children }: { label: string; children: ReactNode }) {
 
 function Empty({ children }: { children: ReactNode }) {
   return <p className="text-sm text-[#667085]">{children}</p>;
+}
+
+/** A labelled value in the record's header — the label in small print above it. */
+function Field({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <dt className="text-[10px] font-semibold uppercase leading-none tracking-[0.08em] text-[#98a2b3]">{label}</dt>
+      <dd className="leading-none">{children}</dd>
+    </div>
+  );
 }
 
 function Pill({ tone, children }: { tone: "good" | "bad" | "muted" | "accent"; children: ReactNode }) {
