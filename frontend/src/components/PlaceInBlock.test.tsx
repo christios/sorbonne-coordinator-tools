@@ -88,7 +88,7 @@ describe("placing students in a group", () => {
     expect(screen.getByText(/Choose a semester first/)).toBeTruthy();
 
     await pick("Semester", "Physics & Maths — Semester 1");
-    await waitFor(() => expect(database.fetchCatalogue).toHaveBeenCalledWith("cohort-1", "term-1"));
+    await waitFor(() => expect(database.fetchCatalogue).toHaveBeenCalledWith("cohort-1", "term-1", true));
   });
 
   it("places the selection in the chosen group", async () => {
@@ -198,5 +198,48 @@ describe("groups nobody should be placed into", () => {
     fireEvent.click(screen.getByRole("combobox", { name: "Group" }));
 
     expect(await screen.findByRole("option", { name: /Group New/ })).toBeTruthy();
+  });
+});
+
+describe("sets open to every cohort", () => {
+  const LANG: database.CatalogueScope = {
+    id: "scope-lang", code: "LANG", name: "Languages", note: "",
+    kind: "shared", parentScopeId: "", openToAll: true, courses: [],
+    groups: [{ id: "lang-a1", label: "A1", capacity: 18, note: "", program: "", parentGroupId: "", assigned: 3, crns: {} }],
+  };
+
+  it("offers the sets open to every cohort, not only this cohort's own", async () => {
+    // Languages live on one cohort's row and are used by all of them, so a dialog that
+    // asks only for a cohort's own sets can never place anybody in a language group.
+    vi.spyOn(database, "fetchCatalogue").mockResolvedValue({ scopes: [...CATALOGUE.scopes, LANG] });
+    show();
+
+    await pick("Semester", "Physics & Maths — Semester 1");
+    await waitFor(() => expect(database.fetchCatalogue).toHaveBeenCalledWith("cohort-1", "term-1", true));
+
+    fireEvent.click(screen.getByRole("combobox", { name: "Block" }));
+    expect(await screen.findByRole("option", { name: /LANG/ })).toBeTruthy();
+  });
+
+  it("asks for the catalogue under its own cache key", async () => {
+    // WorkbookTools and AddFromPortal read ["catalogue", cohort, term] WITHOUT the shared
+    // sets. Sharing one key would let whichever landed first answer for both, so this
+    // dialog would silently lose the languages again depending on what else was open.
+    // staleTime makes the seeded entry actually bind — without it the query refetches
+    // immediately and the collision this guards against cannot be observed.
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+    client.setQueryData(["catalogue", "cohort-1", "term-1"], CATALOGUE);
+
+    vi.spyOn(database, "fetchCatalogue").mockResolvedValue({ scopes: [...CATALOGUE.scopes, LANG] });
+    render(
+      <QueryClientProvider client={client}>
+        <PlaceInBlock open cohort={COHORT} studentIds={["A00025735"]} onClose={vi.fn()} onPlaced={vi.fn()} />
+      </QueryClientProvider>,
+    );
+
+    await pick("Semester", "Physics & Maths — Semester 1");
+    fireEvent.click(await screen.findByRole("combobox", { name: "Block" }));
+
+    expect(await screen.findByRole("option", { name: /LANG/ })).toBeTruthy();
   });
 });

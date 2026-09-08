@@ -33,7 +33,13 @@ export function PlaceInBlock({
   onPlaced,
 }: {
   open: boolean;
-  /** The cohort every selected student belongs to — a block is only open to its own. */
+  /**
+   * The cohort every selected student belongs to.
+   *
+   * A cohort's own set takes only its own members. A set marked open to every cohort — the
+   * languages — takes anybody, which is why they are offered here even though they live on
+   * somebody else's row.
+   */
   cohort: Cohort;
   studentIds: string[];
   onClose: () => void;
@@ -45,9 +51,19 @@ export function PlaceInBlock({
   const [groupId, setGroupId] = useState("");
 
   const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, enabled: open });
+  /*
+   * With the sets open to every cohort, under a key of their own.
+   *
+   * Languages live on one cohort's row and are used by all of them, so asking only for
+   * this cohort's own sets meant a language group could never be chosen here — the set
+   * simply was not in the list. The key carries "with-shared" because WorkbookTools and
+   * AddFromPortal read the same cohort and semester WITHOUT them: one key for two shapes
+   * lets whichever landed first answer for both, and the languages would come and go
+   * depending on what else had been open.
+   */
   const catalogue = useQuery({
-    queryKey: ["catalogue", cohort.id, termId],
-    queryFn: () => fetchCatalogue(cohort.id, termId),
+    queryKey: ["catalogue", cohort.id, termId, "with-shared"],
+    queryFn: () => fetchCatalogue(cohort.id, termId, true),
     enabled: open && Boolean(termId),
   });
 
