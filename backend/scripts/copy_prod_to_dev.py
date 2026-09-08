@@ -16,16 +16,23 @@ names are a different matter and are left behind unless `--teachers` is passed.
 What it copies, in the order the writes depend on one another:
 
   1. cohorts            so their ids exist to hang everything else from
-  2. a view             the only route that creates students is a view's sync
+  2. a view             the only route that creates students is a view's sync. Deleted
+                        again afterwards: a view is a portal sync target, not a container
   3. students           the ids production holds
   4. their cohorts      because a view's sync writes cohort_id NULL
-  5. sets, courses,     one cohort at a time, keeping a production id -> local id map
+  5. discrepancy rules  without them every cohort reads "Nothing to flag", which looks
+                        like good news and is an empty rulebook
+  6. sets, courses,     one cohort at a time, keeping a production id -> local id map
      groups, CRNs
-  6. placements         which need every group above to exist first
+  7. placements         which need every group above to exist first
+  8. the register       active courses and CRNs, and the term link — what the checks
+                        decide is "ours", and without them Active Courses is empty
 
 Not copied: history, pull evidence, dismissals, timestamps and actors. Those live in the
-browser or are not worth forging. Run a Portal sync against localhost afterwards to fill
-the browser side — the extension is already injected into http://localhost:*/*.
+browser, not on the server, and this copies the server. So the Cohorts page will still say
+"N rules cannot be judged: no pull this browser holds carries student status" until you run
+a Portal sync against localhost — the extension is already injected into
+http://localhost:*/*, so that is the whole remedy.
 
 NEVER point this at `sorbonne_test`. `backend/tests/conftest.py` runs `alembic upgrade
 head` against TEST_DATABASE_URL session-wide, and two autouse fixtures DELETE from thirteen
@@ -142,29 +149,26 @@ def main() -> int:  # noqa: PLR0915 - one straight line of steps, read top to bo
     # ---------------------------------------------------------------- 1. cohorts
     cohorts = read("/cohorts")["cohorts"]
     say(f"cohorts: {len(cohorts)}")
-    cohort_id: dict[str, str] = {}
     for cohort in cohorts:
         say(f"  {cohort['name']} ({cohort['memberCount']} members, {cohort['scopeCount']} sets)")
-        if arguments.dry_run:
-            continue
-        made = write(
-            "/cohorts",
-            {
-                "name": cohort["name"],
-                "term": cohort.get("term", ""),
-                "notes": cohort.get("notes", ""),
-                "majors": cohort.get("majors", []),
-                "terms": cohort.get("terms", []),
-                "yearLevel": cohort.get("yearLevel", ""),
-            },
-        )
-        cohort_id[cohort["id"]] = made["id"]
+    cohort_id = {} if arguments.dry_run else _copy_cohorts(write, cohorts)
 
     # ------------------------------------------------- 2-4. students and cohorts
     students = read("/students")["students"]
     say(f"\nstudents: {len(students)} (ids and status only — the server holds no names)")
     if not arguments.dry_run:
         say(f"  placed into cohorts: {_copy_students(here, write_headers, write, students, cohort_id)}")
+
+    # ------------------------------------------------------- rules and register
+    #
+    # The rules are the whole reason the Cohorts page says anything. Without them a copy
+    # of production reads "Nothing to flag" for every cohort, which looks like good news
+    # and is actually an empty rulebook. Replaced wholesale, because that is the route's
+    # own shape and because a local rulebook that has drifted is worse than none.
+    rules = read("/discrepancy-rules")["rules"]
+    say(f"\nrules: {len(rules)}")
+    if not arguments.dry_run:
+        _copy_rules(write, rules, cohort_id)
 
     say("\nsemesters:")
     terms = {} if arguments.dry_run else _term_map(source, into, read_headers, write_headers, say)
@@ -193,6 +197,9 @@ def main() -> int:  # noqa: PLR0915 - one straight line of steps, read top to bo
             placed = _copy_placements(here, write, write_headers, assignments, group_id)
             say(f"{cohort['name']}: placed {placed}")
 
+    where = {"source": source, "into": into, "read": read_headers, "write": write_headers}
+    _copy_register(where, terms, say, dry_run=arguments.dry_run)
+
     if arguments.teachers and not arguments.dry_run:
         say("\nactive teachers: copying (this step carries staff names and e-mail addresses)")
         for row in call(f"{source}/api/v1/portal/active-teachers", headers=read_headers)["teachers"]:
@@ -207,6 +214,96 @@ def main() -> int:  # noqa: PLR0915 - one straight line of steps, read top to bo
 
     say("\nDone. Run a Portal sync against localhost to fill this browser's side.")
     return 0
+
+
+def _copy_cohorts(write, cohorts: list[dict[str, Any]]) -> dict[str, str]:
+    """The cohorts themselves. Returns production id -> local id, which everything else needs."""
+    return {
+        cohort["id"]: write(
+            "/cohorts",
+            {
+                "name": cohort["name"],
+                "term": cohort.get("term", ""),
+                "notes": cohort.get("notes", ""),
+                "majors": cohort.get("majors", []),
+                "terms": cohort.get("terms", []),
+                "yearLevel": cohort.get("yearLevel", ""),
+            },
+        )["id"]
+        for cohort in cohorts
+    }
+
+
+def _copy_rules(write, rules: list[dict[str, Any]], cohort_id: dict[str, str]) -> None:
+    """Replaced wholesale, which is the route's own shape and the only honest one.
+
+    A local rulebook that has drifted from production's is worse than no rulebook: it
+    flags things production does not and stays quiet about things it does, and every
+    difference reads as a finding rather than as a stale copy.
+    """
+    write(
+        "/discrepancy-rules",
+        {
+            "rules": [
+                {
+                    "field": rule["field"],
+                    "kind": rule["kind"],
+                    "values": rule.get("values", []),
+                    # A rule for one cohort has to follow that cohort to its new id.
+                    "cohortId": cohort_id.get(rule.get("cohortId", ""), ""),
+                }
+                for rule in rules
+            ]
+        },
+        method="PUT",
+    )
+
+
+def _copy_register(where: dict[str, Any], terms: dict[str, str], say, *, dry_run: bool) -> None:
+    """The department's own register: which courses and CRNs it answers for, and the term link.
+
+    Without these the Active Courses page is empty and the registration check has nothing
+    to judge against — it decides what is "ours" from exactly this list.
+    """
+    source, into = where["source"], where["into"]
+    read_headers, write_headers = where["read"], where["write"]
+    there = lambda path: call(f"{source}/api/v1/portal{path}", headers=read_headers)  # noqa: E731
+    courses = there("/active-courses")["courses"]
+    crns = there("/active-crns")["crns"]
+    links = there("/term-links")["links"]
+    say(f"\nregister: {len(courses)} courses, {len(crns)} CRNs, {len(links)} term link(s)")
+    if dry_run:
+        return
+    call(
+        f"{into}/api/v1/portal/active-courses",
+        headers=write_headers,
+        method="POST",
+        body={"courseCodes": sorted({row["courseCode"] for row in courses if row.get("courseCode")}), "byHand": []},
+    )
+    call(
+        f"{into}/api/v1/portal/active-crns",
+        headers=write_headers,
+        method="POST",
+        body={
+            "courseCodes": [],
+            "crns": [
+                {"termCode": row.get("termCode", ""), "crn": row["crn"], "courseCode": row.get("courseCode", "")}
+                for row in crns
+                if row.get("crn")
+            ],
+        },
+    )
+    # `links` is {term id: portal term code}, and the term id is production's — so it
+    # goes through the same name-matched map the sets do, or the link points at nothing.
+    for prod_term, portal_code in links.items():
+        here_term = terms.get(prod_term)
+        if here_term:
+            call(
+                f"{into}/api/v1/portal/term-links/{here_term}",
+                headers=write_headers,
+                method="PUT",
+                body={"portalTermCode": portal_code},
+            )
 
 
 def _local_session() -> dict[str, str]:
@@ -250,7 +347,14 @@ def _empty_local(into: str) -> None:
     if urlparse(url.replace("postgresql+psycopg://", "postgresql://")).hostname not in {"localhost", "127.0.0.1"}:
         raise Refused(f"DATABASE_URL does not point at this machine: {url.split('@')[-1]}")
     with create_engine(url).begin() as connection:
-        for table in ("group_assignments", "group_crns", "scope_groups", "scope_courses", "cohort_scopes"):
+        # The department's own planning, then the register it is judged against. The
+        # register has to go too: adding to it is additive by design, so a second copy
+        # without this leaves a union of both — 42 courses where production has 31.
+        tables = (
+            "group_assignments", "group_crns", "scope_groups", "scope_courses", "cohort_scopes",
+            "active_course_crns", "active_courses", "term_links",
+        )
+        for table in tables:
             connection.execute(text(f"DELETE FROM {table}"))  # noqa: S608 - fixed names, no interpolation of input
         connection.execute(text("DELETE FROM students"))
         connection.execute(text("DELETE FROM student_cohorts"))
