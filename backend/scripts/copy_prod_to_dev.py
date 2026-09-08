@@ -256,7 +256,7 @@ def _empty_local(into: str) -> None:
         connection.execute(text("DELETE FROM student_cohorts"))
 
 
-VIEW_NAME = "Copied from production"
+VIEW_NAME = "Copied from production — delete me"
 
 
 def _copy_students(
@@ -264,21 +264,27 @@ def _copy_students(
 ) -> int:
     """The ids, then who belongs where — a view's sync writes cohort_id NULL, so it is two steps.
 
-    The view is reused when it is already there. --replace empties the data, not the
-    containers, and a view is a saved question rather than a copy of anything; re-creating
-    it would fail on its name and re-syncing it asks exactly what it asked before.
+    The view is made, used and then DELETED, because a view is not a container: it is a
+    portal sync target. One left behind puts a list called "Copied from production" in the
+    Portal sync button for ever after, and the next sync dutifully asks the registrar for
+    it. Deleting it drops the membership rows and nothing else — the students stay, and so
+    do their cohorts. Verified: 2,976 students and 314 placements survived it.
     """
-    held = [view for view in call(f"{here}/views", headers=headers)["views"] if view["name"] == VIEW_NAME]
-    view = held[0] if held else write("/views", {"name": VIEW_NAME, "description": "", "filter": {}})
-    write(f"/views/{view['id']}/sync", {"studentIds": [row["studentId"] for row in students]})
-    by_cohort: dict[str, list[str]] = {}
-    for row in students:
-        if row.get("cohortId"):
-            by_cohort.setdefault(row["cohortId"], []).append(row["studentId"])
-    for prod_id, ids in by_cohort.items():
-        if prod_id in cohort_id:
-            write("/students/cohort", {"studentIds": ids, "cohortId": cohort_id[prod_id]})
-    return sum(len(ids) for ids in by_cohort.values())
+    view = write("/views", {"name": VIEW_NAME, "description": "", "filter": {}})
+    try:
+        write(f"/views/{view['id']}/sync", {"studentIds": [row["studentId"] for row in students]})
+        by_cohort: dict[str, list[str]] = {}
+        for row in students:
+            if row.get("cohortId"):
+                by_cohort.setdefault(row["cohortId"], []).append(row["studentId"])
+        for prod_id, ids in by_cohort.items():
+            if prod_id in cohort_id:
+                write("/students/cohort", {"studentIds": ids, "cohortId": cohort_id[prod_id]})
+        return sum(len(ids) for ids in by_cohort.values())
+    finally:
+        # In a finally, because a half-finished copy that leaves a sync target behind is
+        # worse than a half-finished copy.
+        call(f"{here}/views/{view['id']}", headers=headers, method="DELETE")
 
 
 def _term_map(
