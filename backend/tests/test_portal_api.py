@@ -15,6 +15,7 @@ from sqlalchemy import text
 from sorbonne.api import portal as api
 from sorbonne.api import student_database as student_api
 from sorbonne.main import app
+from sorbonne.services.facility_timetable import FacilityTimetableStore
 from sorbonne.services.portal_lists import _SECTION_TITLE, PortalListStore
 from sorbonne.services.student_database import StudentDatabase
 from tests.conftest import TEST_DATABASE_URL
@@ -33,6 +34,9 @@ def database() -> StudentDatabase:
 def empty_tables() -> None:
     with StudentDatabase(TEST_DATABASE_URL).engine.begin() as connection:
         for table in (
+            "facility_meetings",
+            "facility_sections",
+            "facility_pulls",
             "portal_filters",
             "portal_courses",
             "portal_teachers",
@@ -51,6 +55,10 @@ def empty_tables() -> None:
 def client(database: StudentDatabase) -> TestClient:
     store = PortalListStore(TEST_DATABASE_URL)
     app.dependency_overrides[api.get_store] = lambda: store
+    # Without this the facilities routes reach for config.database_url — the DEVELOPER's
+    # own database — so the tests would read and write real local data and leak state
+    # between themselves. Every store the router builds must be overridden, not most.
+    app.dependency_overrides[api.get_facilities] = lambda: FacilityTimetableStore(TEST_DATABASE_URL)
     app.dependency_overrides[api.get_database] = lambda: database
     app.dependency_overrides[student_api.get_database] = lambda: database
     try:
@@ -839,3 +847,65 @@ def test_a_pull_that_does_not_account_for_what_it_asked_is_refused(client: TestC
 
     assert answer.status_code == status.HTTP_400_BAD_REQUEST
     assert "neither answered" in answer.json()["detail"]
+
+
+def test_clashes_are_readable_without_the_student_hub(client: TestClient, database: StudentDatabase):
+    # The whole point of the facilities record: a clash it can settle must not be
+    # unanswerable because a separate deployment is unconfigured or down.
+    cohort = database.create_cohort(name="Foundation Year", term="2026-27")
+    with database.engine.begin() as connection:
+        connection.execute(
+            text("""INSERT INTO students (student_id, status, cohort_id, first_seen_at, last_seen_at, updated_at)
+                    VALUES ('A001','in_portal',:c,'now','now','now')"""),
+            {"c": cohort["id"]},
+        )
+    cm = database.add_scope(cohort["id"], code="CM", name="Lectures", term_id="term-1")
+    td = database.add_scope(cohort["id"], code="TD", name="Tutorials", term_id="term-1")
+    maths = database.add_course(cm, code="MATH-001")
+    algo = database.add_course(td, code="MATH-011")
+    group_a = database.add_group(cm, label="A")
+    group_1 = database.add_group(td, label="1")
+    database.set_cell(group_id=group_a, course_id=maths, crn="22151")
+    database.set_cell(group_id=group_1, course_id=algo, crn="23652")
+    database.assign(student_id="A001", scope_id=cm, group_id=group_a)
+    database.assign(student_id="A001", scope_id=td, group_id=group_1)
+
+    client.put("/api/v1/portal/term-links/term-1", json={"portalTermCode": "262710"})
+    meeting = {"meetsOn": "2026-09-07", "startsAt": "08:30", "endsAt": "10:00"}
+    client.post(
+        "/api/v1/portal/facility-timetable",
+        json={
+            "termCode": "262710", "asked": ["22151", "23652"],
+            "sections": [
+                {"crn": "22151", "ours": True, "meetings": [meeting]},
+                {"crn": "23652", "ours": True, "meetings": [meeting]},
+            ],
+            "silent": [], "failed": [], "complete": True,
+        },
+    )
+
+    payload = client.get("/api/v1/portal/terms/term-1/clashes").json()
+
+    assert payload["linked"] is True
+    [clash] = payload["cohorts"][0]["clashes"]
+    assert sorted(f"{g['scopeCode']} {g['label']}" for g in clash["groups"]) == ["CM A", "TD 1"]
+    assert clash["students"] == ["A001"]
+    assert payload["coverage"]["blind"] == []
+
+
+def test_a_section_with_no_published_times_is_named_as_blind_not_counted_as_clean(
+    client: TestClient, database: StudentDatabase
+):
+    # A clash total over sections nobody has times for is a floor. One that does not say so
+    # is worse than none, because it reads as "checked, nothing found".
+    cohort = database.create_cohort(name="Foundation Year", term="2026-27")
+    cm = database.add_scope(cohort["id"], code="CM", name="Lectures", term_id="term-1")
+    maths = database.add_course(cm, code="MATH-001")
+    group_a = database.add_group(cm, label="A")
+    database.set_cell(group_id=group_a, course_id=maths, crn="22151")
+    client.put("/api/v1/portal/term-links/term-1", json={"portalTermCode": "262710"})
+
+    payload = client.get("/api/v1/portal/terms/term-1/clashes").json()
+
+    assert payload["coverage"]["blind"] == ["22151"]
+    assert payload["cohorts"][0]["clashes"] == []

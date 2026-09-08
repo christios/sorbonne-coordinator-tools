@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 
 from sorbonne.api.timetables import require_client
 from sorbonne.config import config
+from sorbonne.api.deps import optional_client
 from sorbonne.services.facility_timetable import ContradictoryPull, FacilityTimetableStore
 from sorbonne.services.portal_lists import (
     PortalTeacherAlreadyLinked,
@@ -26,6 +27,7 @@ from sorbonne.services.portal_lists import (
     PortalListStore,
     UnknownKind,
 )
+from sorbonne.services.term_clashes import cohort_clashes, groups_of
 from sorbonne.services.student_database import (
     CohortNotFound,
     DuplicateFilterName,
@@ -33,7 +35,7 @@ from sorbonne.services.student_database import (
     InvalidFilter,
     StudentDatabase,
 )
-from sorbonne.services.student_timetables import StudentPlatformClient, StudentPlatformError
+from sorbonne.services.student_timetables import StudentPlatformClient, StudentPlatformError, sessions_of
 
 router = APIRouter(prefix="/portal", tags=["portal"])
 
@@ -580,3 +582,78 @@ async def record_facility_pull(
         )
     except ContradictoryPull as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.get("/terms/{term_id}/clashes")
+async def read_term_clashes(
+    term_id: str,
+    store: PortalListStore = Depends(get_store),
+    database: StudentDatabase = Depends(get_database),
+    facilities: FacilityTimetableStore = Depends(get_facilities),
+    client: StudentPlatformClient | None = Depends(optional_client),
+) -> dict[str, Any]:
+    """Which groups meet at the same hour, answered from the registrar's own timetable.
+
+    The same reading the publication page gives, without needing the SCEN Student Hub: the
+    facilities pull is a record of its own, and a clash it can settle should not be
+    unanswerable because a separate deployment is down.
+
+    The Hub is still asked, but only for the sections facilities could not answer for, and
+    only if there is one. That ordering is the whole design — the Hub's timetable is itself
+    a registrar export uploaded by hand at the start of term, so where the two disagree the
+    live one wins, and where facilities is blind a stale answer beats none.
+
+    Never a union of the two for one CRN. A section described by both would contribute two
+    spellings of the same meeting and clash with itself.
+    """
+    cohorts = database.term_publication(term_id)
+    if not cohorts:
+        return {"termId": term_id, "portalTermCode": "", "linked": False, "cohorts": [], "coverage": {}}
+
+    crns = sorted(
+        {
+            crn
+            for cohort in cohorts
+            for group in [*cohort["groups"], *cohort.get("sharedGroups", [])]
+            for crn in group["crns"].values()
+            if crn
+        }
+    )
+    term_code = store.term_links().get(term_id, "")
+    coverage = facilities.coverage_for(term_code, crns) if term_code else None
+    sessions = facilities.sessions_for(term_code, crns) if term_code else []
+
+    blind = coverage.blind if coverage else crns
+    hub_reachable: bool | None = None
+    if blind and client is not None:
+        hub_reachable = True
+        try:
+            rows = await client.list_sections(term_id)
+            wanted = set(blind)
+            sessions = [*sessions, *[row for row in sessions_of(rows) if row.crn in wanted]]
+        except StudentPlatformError:
+            # A Hub that will not answer degrades the coverage; it never fails the reading.
+            hub_reachable = False
+
+    answered = {session.crn for session in sessions}
+    return {
+        "termId": term_id,
+        "portalTermCode": term_code,
+        "linked": bool(term_code),
+        "pulledAt": coverage.pulled_at if coverage else "",
+        "hubReachable": hub_reachable,
+        "cohorts": [
+            {
+                "cohortId": cohort["cohortId"],
+                "cohortName": cohort["cohortName"],
+                "clashes": cohort_clashes(cohort, groups_of(cohort), sessions),
+            }
+            for cohort in cohorts
+        ],
+        # Said out loud beside every count: a clash total over sections nobody has times
+        # for is a floor, and one that does not declare itself a floor is worse than none.
+        "coverage": {
+            "facilities": sorted(answered & set(coverage.published if coverage else [])),
+            "blind": sorted(crn for crn in crns if crn not in answered),
+        },
+    }

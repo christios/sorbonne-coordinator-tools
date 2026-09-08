@@ -21,7 +21,6 @@ from pydantic import BaseModel
 from sorbonne.api.timetables import require_client
 from sorbonne.config import config
 from sorbonne.services.enrolment_resolution import Section, readiness, resolve, validate
-from sorbonne.services.group_clashes import Session
 from sorbonne.services.term_clashes import (
     assignments_of as _assignments,
 )
@@ -35,7 +34,7 @@ from sorbonne.services.term_clashes import (
     scopes_of as _scopes,
 )
 from sorbonne.services.student_database import StudentDatabase
-from sorbonne.services.student_timetables import StudentPlatformClient, StudentPlatformError
+from sorbonne.services.student_timetables import StudentPlatformClient, StudentPlatformError, sessions_of
 
 router = APIRouter(prefix="/publication", tags=["publication"])
 
@@ -63,21 +62,6 @@ def _sections(rows: list[dict[str, Any]]) -> list[Section]:
             group_label=row.get("groupLabel", ""),
         )
         for row in rows
-    ]
-
-
-def _sessions(rows: list[dict[str, Any]]) -> list[Session]:
-    """When every section meets — exams included, since a student cannot sit two at once."""
-    return [
-        Session(
-            crn=row.get("crn", ""),
-            date=str(session.get("date", "")),
-            start=str(session.get("start", "")),
-            end=str(session.get("end", "")),
-        )
-        for row in rows
-        for session in row.get("sessions", [])
-        if isinstance(session, dict)
     ]
 
 
@@ -120,7 +104,7 @@ async def read_publication(
     except StudentPlatformError as exc:
         raise _forward(exc) from exc
     sections = _sections(rows)
-    sessions = _sessions(rows)
+    sessions = sessions_of(rows)
 
     reports = []
     verdicts: dict[str, dict[str, Any]] = {}

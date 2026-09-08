@@ -7,9 +7,12 @@ reaches the browser.
 
 from __future__ import annotations
 
+
 from typing import Any
 
 import httpx
+
+from sorbonne.services.group_clashes import Session
 
 UPLOAD_TIMEOUT_SECONDS = 120.0
 REQUEST_TIMEOUT_SECONDS = 30.0
@@ -221,3 +224,18 @@ def _client_safe_status(response: httpx.Response) -> int:
     """Forward the platform's own 4xx so the coordinator sees a fixable message."""
     is_client_error = httpx.codes.BAD_REQUEST <= response.status_code < httpx.codes.INTERNAL_SERVER_ERROR
     return response.status_code if is_client_error else int(httpx.codes.BAD_GATEWAY)
+
+
+def sessions_of(rows: list[dict[str, Any]]) -> list[Session]:
+    """When every section meets — exams included, since a student cannot sit two at once."""
+    return [
+        Session(
+            crn=row.get("crn", ""),
+            date=str(session.get("date", "")),
+            start=str(session.get("start", "")),
+            end=str(session.get("end", "")),
+        )
+        for row in rows
+        for session in row.get("sessions", [])
+        if isinstance(session, dict)
+    ]
