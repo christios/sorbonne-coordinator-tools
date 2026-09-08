@@ -1,9 +1,10 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ActiveTeachers } from "@/components/ActiveTeachers";
 import * as lists from "@/services/portalLists";
+import { ApiError } from "@/services/portalLists";
 
 beforeEach(() => {
   vi.spyOn(lists, "fetchActiveTeachers").mockResolvedValue([
@@ -92,5 +93,42 @@ describe("somebody the portal has started listing", () => {
 
     await screen.findByRole("button", { name: /Add from part-time database/ });
     expect(screen.queryByText(/now in the portal/)).toBeNull();
+  });
+});
+
+describe("removing teachers from the active list", () => {
+  async function pickOneAndPressRemove() {
+    show();
+    await screen.findByText("Ahlem Trabelsi");
+    const row = screen.getByText("Ahlem Trabelsi").closest("tr");
+    fireEvent.click(row?.querySelector("input[type=checkbox]") as HTMLElement);
+    fireEvent.click(screen.getByText("Remove 1"));
+    return within(await screen.findByRole("dialog"));
+  }
+
+  it("treats a teacher who has already been removed as removed", async () => {
+    // Somebody else removed them, or a first pass half-landed. The row being gone is
+    // the outcome we asked for, so it must not stall the dialog and it must not make
+    // the retry impossible.
+    const remove = vi.spyOn(lists, "removeActiveTeacher").mockRejectedValue(new ApiError("That active teacher no longer exists.", 404));
+    const dialog = await pickOneAndPressRemove();
+
+    fireEvent.click(dialog.getByRole("button", { name: "Remove" }));
+
+    await waitFor(() => expect(remove).toHaveBeenCalled());
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("closes the dialog and says what failed, instead of leaving a dead button", async () => {
+    vi.spyOn(lists, "removeActiveTeacher").mockRejectedValue(new ApiError("The server is having a moment.", 500));
+    const dialog = await pickOneAndPressRemove();
+
+    fireEvent.click(dialog.getByRole("button", { name: "Remove" }));
+
+    // Today the dialog only closes on success, so one failure leaves a live-looking red
+    // button over an error banner rendered underneath the dialog's own backdrop.
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect((await screen.findByRole("alert")).textContent).toContain("The server is having a moment.");
   });
 });

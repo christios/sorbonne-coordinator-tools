@@ -117,9 +117,32 @@ async function readError(response: Response): Promise<string> {
   return "That could not be completed. Try again in a moment.";
 }
 
+/**
+ * A failed call, carrying the status the server answered with.
+ *
+ * The message on its own cannot be reasoned about: "that teacher is already gone"
+ * and "the server is having a moment" arrive as the same shape of Error, so a caller
+ * that wants to treat the first as success would have to match on the wording of a
+ * sentence written in `api/portal.py`.
+ */
+export class ApiError extends Error {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
+/** True when the thing we asked the server to forget had already been forgotten. */
+export function alreadyGone(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 404;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await apiFetch(`${BASE}${path}`, init);
-  if (!response.ok) throw new Error(await readError(response));
+  if (!response.ok) throw new ApiError(await readError(response), response.status);
   if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
 }

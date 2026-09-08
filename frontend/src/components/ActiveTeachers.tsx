@@ -18,6 +18,7 @@ import {
   linkActiveTeacher,
   removeActiveTeacher,
 } from "@/services/portalLists";
+import { removeEach, stillSelected } from "@/services/bulkRemove";
 import type { GridColumn } from "@/services/studentColumns";
 
 const COLUMNS: GridColumn<ActiveTeacher>[] = [
@@ -85,11 +86,11 @@ export function ActiveTeachers({ onOpenTeacher }: { onOpenTeacher?: (teacher: Te
     },
   });
   const remove = useMutation({
-    mutationFn: async (ids: string[]) => {
-      for (const id of ids) await removeActiveTeacher(id);
-    },
-    onSuccess: () => {
-      setSelected(new Set());
+    mutationFn: (ids: string[]) => removeEach(ids, removeActiveTeacher),
+    // Settled, not success: closing only on success is what left a live-looking button
+    // over an error banner rendered underneath this dialog's own backdrop.
+    onSettled: (_removed, error) => {
+      setSelected(stillSelected(error));
       setConfirmRemove(false);
       refresh();
     },
@@ -171,6 +172,7 @@ export function ActiveTeachers({ onOpenTeacher }: { onOpenTeacher?: (teacher: Te
         title={`Remove ${selected.size} from active teachers?`}
         description="They stay in the portal's list and in the part-time database; only the department's list forgets them."
         confirmLabel="Remove"
+        busy={remove.isPending}
         onConfirm={() => remove.mutate([...selected])}
         onClose={() => setConfirmRemove(false)}
       />

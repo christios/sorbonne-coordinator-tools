@@ -14,12 +14,21 @@ type ConfirmDialogProps = {
    * reflex that opened it; typing "TD 3" cannot be done by reflex.
    */
   confirmPhrase?: string;
+  /**
+   * The work this dialog asked for is still running.
+   *
+   * Optional, so every existing caller is unchanged. Worth passing wherever confirming
+   * means more than one round-trip: without it the button stays live and inviting for
+   * the whole run, which reads as a dead button and invites a second press that starts
+   * the run again.
+   */
+  busy?: boolean;
   onConfirm: () => void;
   onClose: () => void;
 };
 
 /** Shared, accessible confirmation surface for destructive in-app actions. */
-export function ConfirmDialog({ open, title, description, confirmLabel, confirmPhrase, onConfirm, onClose }: ConfirmDialogProps) {
+export function ConfirmDialog({ open, title, description, confirmLabel, confirmPhrase, busy, onConfirm, onClose }: ConfirmDialogProps) {
   const titleId = useId();
   const descriptionId = useId();
   const [typed, setTyped] = useState("");
@@ -59,7 +68,7 @@ export function ConfirmDialog({ open, title, description, confirmLabel, confirmP
         ) : null}
         <div className="mt-5 flex justify-end gap-3">
           <button type="button" onClick={onClose} className="rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc]">Cancel</button>
-          <button type="button" disabled={!ready} onClick={onConfirm} className="rounded-md bg-[#a6292f] px-3 py-2 text-sm font-semibold text-white hover:bg-[#8f1f25] disabled:bg-[#d6a5a8]">{confirmLabel}</button>
+          <button type="button" disabled={!ready || busy} onClick={onConfirm} className="rounded-md bg-[#a6292f] px-3 py-2 text-sm font-semibold text-white hover:bg-[#8f1f25] disabled:bg-[#d6a5a8]">{busy ? "Working…" : confirmLabel}</button>
         </div>
       </section>
     </div>,

@@ -3,6 +3,7 @@ import { AlertTriangle, BookPlus, Link2Off, Plus, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { removeEach, stillSelected } from "@/services/bulkRemove";
 import { ListGrid, StatePill } from "@/components/ListGrid";
 import { Modal } from "@/components/Modal";
 import { ScreenLoading } from "@/components/ScreenLoading";
@@ -118,11 +119,11 @@ export function ActiveCourses() {
     onSuccess: refresh,
   });
   const remove = useMutation({
-    mutationFn: async (ids: string[]) => {
-      for (const id of ids) await removeActiveCrn(id);
-    },
-    onSuccess: () => {
-      setSelected(new Set());
+    mutationFn: (ids: string[]) => removeEach(ids, removeActiveCrn),
+    // Settled, not success — see ActiveTeachers. Selections here run to three figures,
+    // so a run that half-lands and leaves every id ticked is worse, not better.
+    onSettled: (_removed, error) => {
+      setSelected(stillSelected(error));
       setConfirmRemove(false);
       refresh();
     },
@@ -257,6 +258,7 @@ export function ActiveCourses() {
         title={`Remove ${selected.size} CRN(s) from the register?`}
         description="They stay in the portal's list, and their course stays on the department's. A course card still teaching under one will be flagged as unregistered."
         confirmLabel="Remove"
+        busy={remove.isPending}
         onConfirm={() => remove.mutate([...selected])}
         onClose={() => setConfirmRemove(false)}
       />
