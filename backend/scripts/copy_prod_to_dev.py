@@ -106,28 +106,25 @@ def call(url: str, *, headers: dict[str, str], method: str = "GET", body: Any = 
         raise Refused(f"{method} {urlparse(url).path} -> {error.code}. {detail}") from error
 
 
-def main() -> int:  # noqa: PLR0915 - one straight line of steps, read top to bottom
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--into", default=LOCAL, help="the local instance to write to")
-    parser.add_argument("--from", dest="source", default=PROD, help="where to read from")
-    parser.add_argument("--dry-run", action="store_true", help="say what would be written, write nothing")
-    parser.add_argument(
-        "--replace",
-        action="store_true",
-        help="empty the local cohorts, students and views first. Without it, a second run duplicates everything.",
-    )
-    parser.add_argument(
-        "--teachers",
-        action="store_true",
-        help="also copy the active-teacher list. Off by default: it is the only step that carries names.",
-    )
-    arguments = parser.parse_args()
+def copy_everything(  # noqa: PLR0913 - one keyword per thing the caller may choose
+    *,
+    source: str = PROD,
+    into: str = LOCAL,
+    replace: bool = False,
+    teachers: bool = False,
+    dry_run: bool = False,
+    say=print,
+) -> dict[str, Any]:
+    """The whole copy, once. The CLI and the dev-only route are both thin wrappers on this.
 
-    into = local_only(arguments.into)
-    source = arguments.source.rstrip("/")
+    One implementation, so there is one set of rules about what travels: no student names
+    because the server holds none, and no staff names unless asked for.
+    """
+    into = local_only(into)
+    source = source.rstrip("/")
 
     read_headers = {"Authorization": f"Bearer {token()}"}
-    write_headers = {} if arguments.dry_run else _local_session()
+    write_headers = {} if dry_run else _local_session()
 
     api = f"{source}/api/v1/student-database"
     here = f"{into}/api/v1/student-database"
@@ -136,42 +133,42 @@ def main() -> int:  # noqa: PLR0915 - one straight line of steps, read top to bo
         f"{here}{path}", headers=write_headers, method=method, body=body
     )
 
-    say = print
-    if arguments.dry_run:
+    if dry_run:
         say("DRY RUN — reading production, writing nothing.\n")
 
     # Writing into a database that already holds cohorts would duplicate every one of
     # them, and the second copy is indistinguishable from the first on screen. Refused
     # rather than merged: there is no sensible way to merge two copies of a cohort.
-    if not arguments.dry_run:
-        _make_room(here, into, write_headers, replace=arguments.replace, say=say)
+    if not dry_run:
+        _make_room(here, into, write_headers, replace=replace, say=say)
 
     # ---------------------------------------------------------------- 1. cohorts
     cohorts = read("/cohorts")["cohorts"]
     say(f"cohorts: {len(cohorts)}")
     for cohort in cohorts:
         say(f"  {cohort['name']} ({cohort['memberCount']} members, {cohort['scopeCount']} sets)")
-    cohort_id = {} if arguments.dry_run else _copy_cohorts(write, cohorts)
+    cohort_id = {} if dry_run else _copy_cohorts(write, cohorts)
 
     # ------------------------------------------------- 2-4. students and cohorts
     students = read("/students")["students"]
     say(f"\nstudents: {len(students)} (ids and status only — the server holds no names)")
-    if not arguments.dry_run:
-        say(f"  placed into cohorts: {_copy_students(here, write_headers, write, students, cohort_id)}")
+    placed_in_cohorts = 0
+    if not dry_run:
+        placed_in_cohorts = _copy_students(here, write_headers, write, students, cohort_id)
+        say(f"  placed into cohorts: {placed_in_cohorts}")
 
     # ------------------------------------------------------- rules and register
     #
     # The rules are the whole reason the Cohorts page says anything. Without them a copy
     # of production reads "Nothing to flag" for every cohort, which looks like good news
-    # and is actually an empty rulebook. Replaced wholesale, because that is the route's
-    # own shape and because a local rulebook that has drifted is worse than none.
+    # and is actually an empty rulebook.
     rules = read("/discrepancy-rules")["rules"]
     say(f"\nrules: {len(rules)}")
-    if not arguments.dry_run:
+    if not dry_run:
         _copy_rules(write, rules, cohort_id)
 
     say("\nsemesters:")
-    terms = {} if arguments.dry_run else _term_map(source, into, read_headers, write_headers, say)
+    terms = {} if dry_run else _term_map(source, into, read_headers, write_headers, say)
 
     # ------------------------------------- 5. sets, courses, groups and the CRNs
     #
@@ -180,27 +177,14 @@ def main() -> int:  # noqa: PLR0915 - one straight line of steps, read top to bo
     # row holds it, and the other three place their students into those same groups. Doing
     # a cohort end to end would drop those placements, because the group they name belongs
     # to a cohort that has not been reached yet, or was reached and forgotten.
-    say("")
-    group_id: dict[str, str] = {}
-    for cohort in cohorts:
-        catalogue = read(f"/cohorts/{cohort['id']}/catalogue")["scopes"]
-        groups = sum(len(scope["groups"]) for scope in catalogue)
-        say(f"{cohort['name']}: {len(catalogue)} sets, {groups} groups")
-        if arguments.dry_run:
-            continue
-        group_id.update(_copy_catalogue(write, catalogue, cohort_id[cohort["id"]], terms))
-
-    if not arguments.dry_run:
-        say("")
-        for cohort in cohorts:
-            assignments = read(f"/cohorts/{cohort['id']}/assignments")["assignments"]
-            placed = _copy_placements(here, write, write_headers, assignments, group_id)
-            say(f"{cohort['name']}: placed {placed}")
+    sets, group_id, placed = _copy_plans(
+        read, write, here, write_headers, cohorts, cohort_id, terms, say, dry_run=dry_run
+    )
 
     where = {"source": source, "into": into, "read": read_headers, "write": write_headers}
-    _copy_register(where, terms, say, dry_run=arguments.dry_run)
+    _copy_register(where, terms, say, dry_run=dry_run)
 
-    if arguments.teachers and not arguments.dry_run:
+    if teachers and not dry_run:
         say("\nactive teachers: copying (this step carries staff names and e-mail addresses)")
         for row in call(f"{source}/api/v1/portal/active-teachers", headers=read_headers)["teachers"]:
             call(
@@ -209,11 +193,79 @@ def main() -> int:  # noqa: PLR0915 - one straight line of steps, read top to bo
                 method="POST",
                 body={"portalTeacherIds": [row["portalTeacherId"]] if row.get("portalTeacherId") else []},
             )
-    elif not arguments.teachers:
-        say("\nactive teachers: skipped (pass --teachers to copy them; they carry names)")
+    elif not teachers:
+        say("\nactive teachers: skipped (they carry names)")
 
     say("\nDone. Run a Portal sync against localhost to fill this browser's side.")
+    return {
+        "cohorts": len(cohorts),
+        "students": len(students),
+        "inCohorts": placed_in_cohorts,
+        "sets": sets,
+        "groups": len(group_id),
+        "placements": placed,
+        "rules": len(rules),
+        "teachers": teachers,
+        "dryRun": dry_run,
+    }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--into", default=LOCAL, help="the local instance to write to")
+    parser.add_argument("--from", dest="source", default=PROD, help="where to read from")
+    parser.add_argument("--dry-run", action="store_true", help="say what would be written, write nothing")
+    parser.add_argument(
+        "--replace",
+        action="store_true",
+        help="empty the local cohorts, students and register first. Without it, a second run duplicates them.",
+    )
+    parser.add_argument(
+        "--teachers",
+        action="store_true",
+        help="also copy the active-teacher list. Off by default: it is the only step that carries names.",
+    )
+    arguments = parser.parse_args()
+    copy_everything(
+        source=arguments.source,
+        into=arguments.into,
+        replace=arguments.replace,
+        teachers=arguments.teachers,
+        dry_run=arguments.dry_run,
+    )
     return 0
+
+
+def _copy_plans(  # noqa: PLR0913 - the map it threads through is the point
+    read, write, here, write_headers, cohorts, cohort_id, terms, say, *, dry_run: bool
+):
+    """Every catalogue, then every placement — in that order, and never per cohort.
+
+    A set open to every cohort is created once, under the cohort whose row holds it, and
+    the other three place their students into those same groups. Doing a cohort end to end
+    drops those placements, because the group they name belongs to a cohort that has not
+    been reached yet, or was reached and forgotten. That silently lost 154 of them once.
+    """
+    say("")
+    group_id: dict[str, str] = {}
+    sets = 0
+    for cohort in cohorts:
+        catalogue = read(f"/cohorts/{cohort['id']}/catalogue")["scopes"]
+        sets += len(catalogue)
+        say(f"{cohort['name']}: {len(catalogue)} sets, {sum(len(s['groups']) for s in catalogue)} groups")
+        if not dry_run:
+            group_id.update(_copy_catalogue(write, catalogue, cohort_id[cohort["id"]], terms))
+    if dry_run:
+        return sets, group_id, 0
+
+    say("")
+    placed = 0
+    for cohort in cohorts:
+        assignments = read(f"/cohorts/{cohort['id']}/assignments")["assignments"]
+        here_placed = _copy_placements(here, write, write_headers, assignments, group_id)
+        placed += here_placed
+        say(f"{cohort['name']}: placed {here_placed}")
+    return sets, group_id, placed
 
 
 def _copy_cohorts(write, cohorts: list[dict[str, Any]]) -> dict[str, str]:

@@ -8,6 +8,7 @@ import { FileDropzone } from "@/components/FileDropzone";
 import { RosterTable } from "@/components/RosterTable";
 import { StaffMenu } from "@/components/StaffMenu";
 import { StaffSettings } from "@/components/StaffSettings";
+import { CopyProdButton } from "@/components/CopyProdButton";
 import { PortalSyncButton } from "@/components/PortalSyncButton";
 import { SyllabusBuilder } from "@/components/SyllabusBuilder";
 import { SyncRunDriver } from "@/components/SyncRunDriver";
@@ -184,6 +185,8 @@ export function App() {
               * coordinator has gone since.
               */}
             {activeTool === "database" || syncing ? <PortalSyncButton /> : null}
+            {/* Development only, and gone from a production build entirely. */}
+            {activeTool === "database" ? <CopyProdButton /> : null}
             {/*
               * Who is signed in lives at the foot of the pane. The header keeps a copy
               * only where the pane is not on screen at all — below `lg`, where it hides —
