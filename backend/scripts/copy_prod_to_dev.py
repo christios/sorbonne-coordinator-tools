@@ -166,6 +166,9 @@ def main() -> int:  # noqa: PLR0915 - one straight line of steps, read top to bo
     if not arguments.dry_run:
         say(f"  placed into cohorts: {_copy_students(here, write_headers, write, students, cohort_id)}")
 
+    say("\nsemesters:")
+    terms = {} if arguments.dry_run else _term_map(source, into, read_headers, write_headers, say)
+
     # ------------------------------------- 5. sets, courses, groups and the CRNs
     #
     # Every catalogue first, THEN every placement, and one group map across all of them.
@@ -181,7 +184,7 @@ def main() -> int:  # noqa: PLR0915 - one straight line of steps, read top to bo
         say(f"{cohort['name']}: {len(catalogue)} sets, {groups} groups")
         if arguments.dry_run:
             continue
-        group_id.update(_copy_catalogue(write, catalogue, cohort_id[cohort["id"]]))
+        group_id.update(_copy_catalogue(write, catalogue, cohort_id[cohort["id"]], terms))
 
     if not arguments.dry_run:
         say("")
@@ -278,7 +281,35 @@ def _copy_students(
     return sum(len(ids) for ids in by_cohort.values())
 
 
-def _copy_catalogue(write, catalogue: list[dict[str, Any]], here_cohort: str) -> dict[str, str]:
+def _term_map(
+    source: str, into: str, read_headers: dict[str, str], write_headers: dict[str, str], say
+) -> dict[str, str]:
+    """Production's semester ids to this machine's, matched by name.
+
+    A set's `term_id` names a semester of the Student Hub, and the two Hubs are different
+    deployments with different ids — so copying the id verbatim attaches every set to a
+    semester that does not exist here, and the sets are invisible without a single error.
+    Names are matched loosely because they are not written identically either: production
+    says "Semester 1 2026-27" where this machine says "Semester 1".
+    """
+    there = call(f"{source}/api/v1/timetables/terms", headers=read_headers)["terms"]
+    here = call(f"{into}/api/v1/timetables/terms", headers=write_headers)["terms"]
+    fold = lambda name: "".join(ch for ch in name.lower() if ch.isalnum())  # noqa: E731
+    mapped: dict[str, str] = {}
+    for term in there:
+        match = next(
+            (row for row in here if fold(row["name"]) == fold(term["name"])),
+            next((row for row in here if fold(row["name"]) in fold(term["name"])), None),
+        )
+        if match:
+            mapped[term["id"]] = match["id"]
+            say(f"  {term['name']} -> {match['name']}")
+        else:
+            say(f"  {term['name']} -> NOTHING HERE. Its sets will be copied but invisible.")
+    return mapped
+
+
+def _copy_catalogue(write, catalogue: list[dict[str, Any]], here_cohort: str, terms: dict[str, str]) -> dict[str, str]:
     """The sets, their courses, their groups and the CRNs in them. Returns prod id -> local id."""
     group_id: dict[str, str] = {}
     # Parents before children, so a nested set's parent already exists.
@@ -289,7 +320,7 @@ def _copy_catalogue(write, catalogue: list[dict[str, Any]], here_cohort: str) ->
                 "code": scope["code"],
                 "name": scope.get("name", ""),
                 "note": scope.get("note", ""),
-                "termId": scope.get("termId", ""),
+                "termId": terms.get(scope.get("termId", ""), scope.get("termId", "")),
                 "kind": scope.get("kind", "shared"),
                 "openToAll": bool(scope.get("openToAll")),
             },
