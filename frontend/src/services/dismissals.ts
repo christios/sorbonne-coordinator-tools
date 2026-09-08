@@ -43,20 +43,49 @@ export function restore(key: string): Set<string> {
   return keys;
 }
 
+/** Bring several back at once, and leave every other dismissal alone. */
+export function restoreMany(keys: Iterable<string>): Set<string> {
+  const held = loadDismissed();
+  for (const key of keys) held.delete(key);
+  save(held);
+  return held;
+}
+
+/** Forget every dismissal, of every family. */
+export function clearDismissed(): Set<string> {
+  save(new Set());
+  return new Set();
+}
+
 /**
- * Drop dismissals whose warning no longer exists, so the store does not grow for ever.
+ * Which kind of warning a key belongs to.
  *
- * One store, more than one page. A page can only speak for the warnings it shows, so it
- * says which keys are its own with `mine`; everybody else's are left alone. Without that,
- * the Cohorts page would throw away every registration dismissal the moment it pruned,
- * because none of those warnings are on it.
+ * One store, several pages, and a page can only speak for the warnings it shows. The
+ * family is read positively off the key: a page prunes its OWN family and cannot touch
+ * anything else, however many families come later.
+ *
+ * This used to be asked the other way round — the Cohorts page passed "mine is anything
+ * that is not a registration key" — which made every family nobody had taught it about
+ * its own to delete. It was correct only for as long as there were exactly two.
  */
-export function pruneDismissed(live: Iterable<string>, mine: (key: string) => boolean = () => true): Set<string> {
+export type WarningFamily = "registration" | "rule";
+
+export function familyOf(key: string): WarningFamily {
+  return key.startsWith("registration|") ? "registration" : "rule";
+}
+
+/**
+ * Drop dismissals of one family whose warning no longer exists, so the store stays small.
+ *
+ * `live` must be every live key of that family, across every cohort — not only the cohort
+ * on screen. Pruning against one cohort's warnings deletes the dismissals made against all
+ * the others, which is a silent loss of the coordinator's own decisions. And a page whose
+ * evidence is incomplete — a check that failed, a pull still arriving — must not prune at
+ * all: absent and gone are not the same, and only one of them is a reason to forget.
+ */
+export function pruneDismissed(live: Iterable<string>, family: WarningFamily): Set<string> {
   const alive = new Set(live);
-  const keys = new Set([...loadDismissed()].filter((key) => alive.has(key) || !mine(key)));
+  const keys = new Set([...loadDismissed()].filter((key) => familyOf(key) !== family || alive.has(key)));
   save(keys);
   return keys;
 }
-
-/** The keys of registration differences, which live on the Course Registration page. */
-export const isRegistrationKey = (key: string) => key.startsWith("registration|");

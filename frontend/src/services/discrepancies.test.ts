@@ -16,6 +16,9 @@ import {
   type Options,
   type Placed,
   type Rule,
+  liveKeysOf,
+  type Arrival,
+  type Warning,
 } from "@/services/discrepancies";
 
 const L1_MATHS = { id: "c1", majors: ["MATH"], terms: ["262710"], yearLevel: "L1" };
@@ -487,5 +490,31 @@ describe("the registrar's registrations, as warnings", () => {
     expect(describeWarning(warning)).toBe("MATH-011 wrong");
     expect(registrationWarnings([mismatch], describe_)[0].key).toBe(warning.key);
     expect(registrationWarnings([{ ...mismatch, registered: ["23654"] }], describe_)[0].key).not.toBe(warning.key);
+  });
+});
+
+describe("every key a prune must be told about", () => {
+  const warning = (key: string) => ({ key, studentId: "A001", kind: "changed" }) as unknown as Warning;
+  const arrival = (key: string) => ({ key, studentId: "A007", ruleId: "r9" }) as unknown as Arrival;
+
+  it("gathers every cohort's warnings, not only the one on screen", () => {
+    const keys = liveKeysOf({
+      byCohort: new Map([
+        ["c1", [warning("A001:r2:Physics")]],
+        ["c2", [warning("A002:r2:Chemistry")]],
+      ]),
+      arrivals: new Map(),
+    });
+
+    expect(keys).toEqual(["A001:r2:Physics", "A002:r2:Chemistry"]);
+  });
+
+  it("gathers arrivals, which appear on no table and were swept away by every prune", () => {
+    const keys = liveKeysOf({
+      byCohort: new Map([["c1", [warning("A001:r2:Physics")]]]),
+      arrivals: new Map([["c1", [arrival("c1:A007:r9:Maths:")]]]),
+    });
+
+    expect(keys).toContain("c1:A007:r9:Maths:");
   });
 });

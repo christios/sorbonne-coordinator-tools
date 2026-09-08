@@ -5,7 +5,7 @@ import { LabelledPicker } from "@/components/LabelledPicker";
 import { SelectMenu } from "@/components/SelectMenu";
 import { StudentRoster } from "@/components/StudentRoster";
 import { registrationWarnings, type Warning } from "@/services/discrepancies";
-import { dismiss, isRegistrationKey, loadDismissed, pruneDismissed, restore } from "@/services/dismissals";
+import { dismiss, loadDismissed, pruneDismissed, restore, restoreMany } from "@/services/dismissals";
 import {
   describeMismatch,
   fetchPortalFilters,
@@ -102,12 +102,26 @@ export function PortalRegistrations({
     return out;
   }, [mismatches, dismissed]);
 
-  // Dismissals that no longer point at anything are let go — only ours; the Cohorts page
-  // answers for its own.
+  /*
+   * Dismissals that no longer point at anything are let go — only this family's.
+   *
+   * Against every cohort that answered, and only once they all have. A check is fetched
+   * per cohort with no retry, so one that failed returns nothing at all, which is exactly
+   * the shape of a cohort with no differences — pruning on that reading would forget the
+   * coordinator's decisions because a request fell over. Absent is not gone.
+   */
+  const liveKeys = useMemo(() => {
+    if (checks.some((check) => check.isPending || check.isError)) return null;
+    return [...byCohort.values()]
+      .flat()
+      .flatMap((mismatch) => registrationWarnings([mismatch], describeMismatch).map((warning) => warning.key));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [byCohort, checks.map((check) => `${check.isPending}${check.isError}`).join("|")]);
+
   useEffect(() => {
-    if (!byStudent.size) return;
-    setDismissed(pruneDismissed([...byStudent.values()].flat().map((warning) => warning.key), isRegistrationKey));
-  }, [byStudent.size]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!liveKeys) return;
+    setDismissed(pruneDismissed(liveKeys, "registration"));
+  }, [liveKeys]);
 
   const warningsFor = useCallback(
     (studentId: string) => (byStudent.get(studentId) ?? []).filter((warning) => showDismissed || !warning.dismissed),
@@ -168,6 +182,21 @@ export function PortalRegistrations({
             {" · "}
             <button type="button" onClick={() => setShowDismissed((current) => !current)} className="underline">
               {showDismissed ? "Hide" : "Show"} {dismissedCount} dismissed
+            </button>
+            {" · "}
+            {/* Exactly the ones on screen — another cohort's, and the rules', stay put. */}
+            <button
+              type="button"
+              onClick={() =>
+                setDismissed(
+                  restoreMany(
+                    [...byStudent.values()].flat().filter((warning) => warning.dismissed).map((warning) => warning.key),
+                  ),
+                )
+              }
+              className="underline"
+            >
+              Bring {dismissedCount} back
             </button>
           </>
         ) : null}

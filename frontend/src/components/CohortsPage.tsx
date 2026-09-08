@@ -13,6 +13,7 @@ import {
   STATUS_FIELD,
   STATUS_OPTIONS,
   arrivalsFor,
+  liveKeysOf,
   labelOf,
   rulesFor,
   sharedRules,
@@ -24,7 +25,7 @@ import {
   type Rule,
   type Warning,
 } from "@/services/discrepancies";
-import { dismiss, isRegistrationKey, loadDismissed, pruneDismissed, restore } from "@/services/dismissals";
+import { dismiss, loadDismissed, pruneDismissed, restore, restoreMany } from "@/services/dismissals";
 import { allChanges } from "@/services/pullHistory";
 import { describeAge, latestPullAt, rowsHeld } from "@/services/rosterStore";
 import { displayNameOf, fetchSchema, studentIdOf, type RosterRow } from "@/services/scenRosters";
@@ -166,12 +167,25 @@ export function CohortsPage({
     return out;
   }, [judged, cohortId, dismissed]);
 
-  // Dismissals that no longer point at anything are let go, so the store stays small.
+  /*
+   * Dismissals that no longer point at anything are let go, so the store stays small.
+   *
+   * Against EVERY cohort's warnings and arrivals, not the cohort on screen. The table
+   * shows one at a time, but the store is the coordinator's and spans all of them —
+   * pruning against one cohort's keys quietly deleted every decision made about the
+   * others, and every dismissed arrival with them, since arrivals are not on the table
+   * at all. Only when `judged` is in, because a page with half its evidence cannot tell
+   * a warning that is gone from one it cannot see yet.
+   */
+  const liveKeys = useMemo(() => {
+    if (!judged) return null;
+    return liveKeysOf(judged);
+  }, [judged]);
+
   useEffect(() => {
-    if (!byStudent.size) return;
-    // Only this page's own: the registration dismissals belong to Course Registration.
-    setDismissed(pruneDismissed([...byStudent.values()].flat().map((warning) => warning.key), (key) => !isRegistrationKey(key)));
-  }, [byStudent.size]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!liveKeys) return;
+    setDismissed(pruneDismissed(liveKeys, "rule"));
+  }, [liveKeys]);
 
   /*
    * What the row carries. "Placed before placement was recorded" is true of everyone
@@ -290,6 +304,15 @@ export function CohortsPage({
             {" · "}
             <button type="button" onClick={() => setShowDismissed((current) => !current)} className="underline">
               {showDismissed ? "Hide" : "Show"} {dismissedCount} dismissed
+            </button>
+            {" · "}
+            {/* Exactly the ones on screen — another cohort's, and another family's, stay put. */}
+            <button
+              type="button"
+              onClick={() => setDismissed(restoreMany(all.filter((warning) => warning.dismissed).map((warning) => warning.key)))}
+              className="underline"
+            >
+              Bring {dismissedCount} back
             </button>
           </>
         ) : null}

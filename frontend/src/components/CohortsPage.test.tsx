@@ -258,3 +258,59 @@ describe("the Cohorts page", () => {
     expect(await screen.findByText(/No rules apply here/)).toBeTruthy();
   });
 });
+
+describe("dismissals belong to the coordinator, not to the page on screen", () => {
+  const L2: Cohort = { ...L1, id: "c2", name: "L2 Maths", yearLevel: "L2", memberCount: 1 };
+
+  async function twoCohorts() {
+    // L2 carries two flagged students where L1 carries one, so the count of warnings on
+    // screen genuinely changes with the cohort. That is what makes the prune run again.
+    vi.spyOn(database, "fetchStudents").mockResolvedValue([
+      student("A001", "c1"), student("A002", "c2"), student("A003", "c2"),
+    ]);
+    vi.spyOn(database, "fetchDiscrepancyRules").mockResolvedValue([MAJOR]);
+    await portalSays([
+      { SPRIDEN_ID: "A001", FULL_NAME: "Amira Haddad", MAJOR_CODE_DESC: "Physics" },
+      { SPRIDEN_ID: "A002", FULL_NAME: "Karim Nasser", MAJOR_CODE_DESC: "Chemistry" },
+      { SPRIDEN_ID: "A003", FULL_NAME: "Rana Aziz", MAJOR_CODE_DESC: "Biology" },
+    ]);
+    renderPage([L1, L2]);
+  }
+
+  const held = () => window.localStorage.getItem("scen-discrepancy-dismissed:v1") ?? "";
+
+  it("keeps a dismissal that belongs to a cohort the page is not showing", async () => {
+    // The store is one; the table shows one cohort at a time. Pruning against only the
+    // cohort on screen threw away every decision made about all the others — silently,
+    // and on the first render after switching.
+    await twoCohorts();
+    await screen.findByText(/major is Physics/);
+    fireEvent.click(screen.getByRole("button", { name: /^Dismiss: major is Physics/ }));
+    await waitFor(() => expect(held()).toContain("A001:r2:"));
+
+    fireEvent.click(screen.getByRole("combobox", { name: "Cohort" }));
+    fireEvent.click(await screen.findByRole("option", { name: /L2 Maths/ }));
+
+    await screen.findByText(/major is Chemistry/);
+    expect(held()).toContain("A001:r2:");
+  });
+
+  it("brings back exactly the dismissed warnings on screen, and nobody else's", async () => {
+    await twoCohorts();
+    await screen.findByText(/major is Physics/);
+    fireEvent.click(screen.getByRole("button", { name: /^Dismiss: major is Physics/ }));
+    await waitFor(() => expect(held()).toContain("A001:r2:"));
+
+    // A dismissal from another family, which this page must not touch.
+    window.localStorage.setItem(
+      "scen-discrepancy-dismissed:v1",
+      JSON.stringify([...JSON.parse(held()), "registration|A009|262710|PHYS-118|missing|22150|"]),
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: /Bring 1 back/ }));
+
+    expect(await screen.findByText(/major is Physics/)).toBeTruthy();
+    expect(held()).not.toContain("A001:r2:");
+    expect(held()).toContain("registration|A009");
+  });
+});
