@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 
 from sorbonne.api.timetables import require_client
 from sorbonne.config import config
+from sorbonne.services.facility_timetable import ContradictoryPull, FacilityTimetableStore
 from sorbonne.services.portal_lists import (
     PortalTeacherAlreadyLinked,
     PortalTeacherNotFound,
@@ -504,3 +505,78 @@ async def registration_check(
     except CohortNotFound as exc:
         raise _missing("cohort") from exc
     return {"mismatches": [mismatch.as_payload() for mismatch in store.registration_check(cohort_id, database)]}
+
+
+# -------------------------------------------------- the registrar's own schedule
+
+
+def get_facilities() -> FacilityTimetableStore:
+    return FacilityTimetableStore(config.database_url)
+
+
+class FacilityMeeting(BaseModel):
+    meetsOn: str = Field(min_length=8, max_length=10)
+    startsAt: str = Field(min_length=4, max_length=8)
+    endsAt: str = Field(min_length=4, max_length=8)
+    room: str = Field(default="", max_length=120)
+
+
+class FacilitySection(BaseModel):
+    crn: str = Field(min_length=1, max_length=20)
+    courseCode: str = Field(default="", max_length=40)
+    title: str = Field(default="", max_length=200)
+    teacherName: str = Field(default="", max_length=160)
+    rooms: list[str] = Field(default_factory=list, max_length=20)
+    ours: bool = Field(default=False)
+    headCount: int | None = Field(default=None, ge=0, le=10_000)
+    meetings: list[FacilityMeeting] = Field(default_factory=list, max_length=400)
+
+
+class FacilityPull(BaseModel):
+    """One sweep of the registrar's timetable, as the extension reports it.
+
+    `asked` is mandatory and is the whole point: a section that was asked about and
+    answered nothing is a fact, and one nobody asked about is a different fact. Without the
+    list there is no way to tell them apart, and a pull that silently returned less than it
+    should would read as the registrar cancelling classes.
+    """
+
+    termCode: str = Field(min_length=1, max_length=20)
+    asked: list[str] = Field(default_factory=list, max_length=5000)
+    sections: list[FacilitySection] = Field(default_factory=list, max_length=5000)
+    silent: list[str] = Field(default_factory=list, max_length=5000)
+    failed: list[str] = Field(default_factory=list, max_length=5000)
+    #: False when the sweep gave up part way. Its silences are then not evidence.
+    complete: bool = Field(default=False)
+
+
+@router.get("/terms/{term_code}/timetable-targets")
+async def timetable_targets(term_code: str, store: PortalListStore = Depends(get_store)) -> dict[str, Any]:
+    """Which CRNs the extension should ask the registrar's timetable about.
+
+    From our own registrations, not from a second trip to the portal: it is the only list
+    that holds the electives, and asking the registrar twice for something we already know
+    is both slower and one more thing to disagree with.
+    """
+    return store.timetable_targets(term_code)
+
+
+@router.post("/facility-timetable")
+async def record_facility_pull(
+    body: FacilityPull,
+    request: Request,
+    facilities: FacilityTimetableStore = Depends(get_facilities),
+) -> dict[str, Any]:
+    """Write down one sweep of the registrar's timetable."""
+    try:
+        return facilities.record_pull(
+            term_code=body.termCode,
+            asked=body.asked,
+            sections=[section.model_dump() for section in body.sections],
+            silent=body.silent,
+            failed=body.failed,
+            complete=body.complete,
+            actor=_actor(request),
+        )
+    except ContradictoryPull as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc

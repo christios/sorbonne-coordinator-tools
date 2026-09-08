@@ -556,6 +556,30 @@ class PortalListStore:
             held.setdefault(student, {}).setdefault(code, []).append(crn)
         return held
 
+    def timetable_targets(self, term_code: str) -> dict[str, list[str]]:
+        """Which CRNs to ask the registrar's timetable about, split by whose they are.
+
+        Taken from `student_registrations`, which is the only list that holds the electives
+        — the ~44 sections of other departments our students sit in, where a collision with
+        one of ours is real and is otherwise invisible. `portal_courses` is not a
+        substitute: it was synced with DEPT_CODE=SCEN and knows nothing outside it.
+
+        Split rather than merged, because the two halves are answerable separately: asking
+        the registrar about another department's rooms is a different question from asking
+        about our own, and shipping with the second half switched off must stay possible.
+        """
+        with self.engine.connect() as connection:
+            rows = connection.execute(
+                text("""SELECT DISTINCT r.crn,
+                               EXISTS (SELECT 1 FROM active_course_crns a
+                                        WHERE a.term_code = r.term_code AND a.crn = r.crn) AS ours
+                        FROM student_registrations r
+                        WHERE r.term_code = :t AND r.status = 'in_portal' AND r.crn <> ''"""),
+                {"t": term_code},
+            ).all()
+        ours = sorted(crn for crn, mine in rows if mine)
+        return {"ours": ours, "registered": sorted(crn for crn, mine in rows if not mine)}
+
     def pulled_students(self, term_code: str) -> set[str]:
         """Who any registrations filter has returned this term — the only students a check may judge."""
         with self.engine.connect() as connection:

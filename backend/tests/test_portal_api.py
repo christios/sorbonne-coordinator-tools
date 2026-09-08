@@ -782,3 +782,60 @@ def test_without_a_term_link_there_is_no_comparison(client: TestClient, database
         json={"termCode": TERM, "rows": [{"studentId": "A001", "crn": "22151", "courseCode": "MATH-001"}]},
     )
     assert client.get(f"{BASE}/cohorts/{cohort_id}/registration-check").json() == {"mismatches": []}
+
+
+# ------------------------------------------- the registrar's own timetable
+
+
+def test_the_extension_is_told_which_crns_to_ask_about_and_whose_they_are(client: TestClient):
+    # Split, because asking the registrar about another department's rooms is a different
+    # question from asking about our own, and shipping with that half off must stay possible.
+    with PortalListStore(TEST_DATABASE_URL).engine.begin() as connection:
+        connection.execute(
+            text("""INSERT INTO student_registrations
+                        (term_code, student_id, crn, course_code, status, first_seen_at, last_seen_at)
+                    VALUES ('262710','A001','23425','MATH-001','in_portal','now','now'),
+                           ('262710','A001','20581','ENGL-604','in_portal','now','now'),
+                           ('262710','A002','23425','MATH-001','in_portal','now','now')"""),
+        )
+        connection.execute(
+            text("""INSERT INTO active_course_crns (id, term_code, crn, course_code, added_at, added_by)
+                    VALUES ('a1','262710','23425','MATH-001','now','')"""),
+        )
+
+    payload = client.get("/api/v1/portal/terms/262710/timetable-targets").json()
+
+    assert payload == {"ours": ["23425"], "registered": ["20581"]}
+
+
+def test_a_timetable_pull_is_written_down_with_what_it_could_not_answer(client: TestClient):
+    answer = client.post(
+        "/api/v1/portal/facility-timetable",
+        json={
+            "termCode": "262710",
+            "asked": ["23425", "23426", "23427"],
+            "sections": [
+                {
+                    "crn": "23425", "courseCode": "MATH-001", "ours": True,
+                    "meetings": [{"meetsOn": "2026-09-07", "startsAt": "08:30", "endsAt": "10:00"}],
+                }
+            ],
+            "silent": ["23426"],
+            "failed": ["23427"],
+            "complete": True,
+        },
+    )
+
+    assert answer.status_code == status.HTTP_200_OK
+    assert answer.json() == {"asked": 3, "answered": 1, "silent": 1, "failed": 1, "complete": True}
+
+
+def test_a_pull_that_does_not_account_for_what_it_asked_is_refused(client: TestClient):
+    answer = client.post(
+        "/api/v1/portal/facility-timetable",
+        json={"termCode": "262710", "asked": ["23425", "23426"], "sections": [], "silent": [], "failed": [],
+              "complete": True},
+    )
+
+    assert answer.status_code == status.HTTP_400_BAD_REQUEST
+    assert "neither answered" in answer.json()["detail"]
