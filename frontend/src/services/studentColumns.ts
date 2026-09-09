@@ -18,7 +18,7 @@
  */
 
 import type { ColumnDataType, FilterColumn } from "@/services/tableFilter";
-import { describeWarning } from "@/services/discrepancies";
+import { describeWarning, warningRank } from "@/services/discrepancies";
 import type { StudentRow } from "@/services/rosterView";
 import type { PortalColumn, PortalField } from "@/services/scenRosters";
 
@@ -164,8 +164,10 @@ export const WARNINGS_COLUMN: StudentColumn = {
   type: "multiOption",
   accessor: (row) => row.warnings.map((warning) => describeWarning(warning)),
   display: (row) => row.warnings.map((warning) => describeWarning(warning)).join(" · "),
-  // Most trouble first when sorted descending, which is how the Cohorts page opens.
-  sortValue: (row) => row.warnings.filter((warning) => !warning.dismissed).length,
+  // Worst first when sorted descending, which is how the Cohorts page opens — ranked by
+  // the severity of the worst warning on the row, not by how many there are. A raw count
+  // put six registration nits above one withdrawal.
+  sortValue: (row) => warningRank(row.warnings),
   defaultWidth: 360,
 };
 

@@ -425,6 +425,75 @@ export function describeWarning(warning: Warning): string {
   }
 }
 
+/** The fields that say whether somebody is a student here at all. */
+const ENROLMENT_FIELDS = new Set([STATUS_FIELD, "STST_CODE", "ESTS_CODE"]);
+
+/**
+ * Which of the two records a warning came out of.
+ *
+ * Both questions live on one page now: does admissions still agree with us about who this
+ * student is (`record`), and does the registrar have them in the sections we placed them in
+ * (`registration`). They rest on different evidence, they are chased with different people,
+ * and a coordinator clearing one does not want the other in the way — so the source is a
+ * thing to filter and colour by in its own right, not a detail of the kind.
+ */
+export type WarningSource = "record" | "registration";
+
+export function sourceOf(warning: Warning): WarningSource {
+  return warning.kind === "registration" ? "registration" : "record";
+}
+
+/**
+ * How much trouble one warning is, on a small deliberate ladder.
+ *
+ * The Warnings column used to rank a row by how many warnings it carried, which was
+ * defensible while they were all record drift and all cost about the same. It is not
+ * defensible now the register's differences are on the same column: a student with six
+ * harmless registration nits would outrank a student who has withdrawn and is still
+ * holding a seat in a group, and the page opens sorted on this — so the nits would be the
+ * first thing anybody saw.
+ *
+ * The ladder is by consequence, and the FIELD decides before the kind does:
+ *
+ * 4 — their enrolment itself is in question. They may not be a student here any more,
+ *     which makes every other line about them moot.
+ * 3 — the register has them somewhere we did not put them. A real person in a real room
+ *     next week, or in no room at all.
+ * 2 — what is true of them now disagrees with what the cohort expects, or they are in no
+ *     cohort. Wrong, and wrong right now.
+ * 1 — something about them changed. Worth reading; not necessarily worth doing about.
+ * 0 — nothing to act on: dismissed, or the note that changes cannot be judged at all.
+ *
+ * A ranking, not a score. The numbers only have to be in the right order.
+ */
+export function severityOf(warning: Warning): number {
+  if (warning.dismissed || warning.kind === "no_baseline") return 0;
+  // Before the kind: `changed_to WD` on a status is a withdrawal, not a mere change.
+  if (ENROLMENT_FIELDS.has(warning.field.toUpperCase())) return 4;
+  if (warning.kind === "registration") return 3;
+  if (warning.kind === "changed" || warning.kind === "changed_to") return 1;
+  return 2;
+}
+
+/**
+ * How a row ranks in the Warnings column: worst warning first, then how many.
+ *
+ * Severity leads and the count only breaks ties, which is the whole point — one withdrawal
+ * outranks any number of registration nits, and between two withdrawals the busier record
+ * comes first. The count is capped so it can never carry a row up a rung.
+ */
+export function warningRank(warnings: Warning[]): number {
+  let worst = 0;
+  let live = 0;
+  for (const warning of warnings) {
+    const severity = severityOf(warning);
+    if (!severity) continue;
+    live += 1;
+    if (severity > worst) worst = severity;
+  }
+  return worst * 1000 + Math.min(live, 999);
+}
+
 /**
  * The registrar's registrations held against our groups, as warnings.
  *

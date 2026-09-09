@@ -1,8 +1,8 @@
-import { AlertTriangle, Clock3, RotateCcw, X } from "lucide-react";
+import { AlertTriangle, ClipboardList, Clock3, RotateCcw, X } from "lucide-react";
 import { memo, useCallback } from "react";
 
 import { DataTable, type Sort } from "@/components/DataTable";
-import { describeWarning } from "@/services/discrepancies";
+import { describeWarning, sourceOf, type WarningSource } from "@/services/discrepancies";
 import type { StudentRow } from "@/services/rosterView";
 import type { ColumnLayout, StudentColumn } from "@/services/studentColumns";
 
@@ -110,6 +110,25 @@ function studentLabel(row: StudentRow): string {
   return row.name || row.studentId;
 }
 
+/**
+ * Which record a warning came out of, said in colour.
+ *
+ * Amber for admissions and the department drifting apart; blue for the registrar having a
+ * student somewhere we did not put them. They are two different jobs chased with two
+ * different people, and they now sit in one column, so the cell has to say which is which
+ * before it is read. The icon carries the same distinction for anyone who cannot use the
+ * colour, and the text of the warning names its own course either way.
+ */
+const WARNING_TONES: Record<WarningSource, string> = {
+  record: "bg-[#fff1e3] text-[#8a4b00]",
+  registration: "bg-[#e6edfa] text-[#2b4a8b]",
+};
+
+const WARNING_ICONS: Record<WarningSource, typeof AlertTriangle> = {
+  record: AlertTriangle,
+  registration: ClipboardList,
+};
+
 /** The cells only a student row has. Undefined hands the cell back to the table's text. */
 function studentCell(
   row: StudentRow,
@@ -120,15 +139,19 @@ function studentCell(
     if (!row.warnings.length) return <span className="text-[#98a2b3]">—</span>;
     return (
       <span className="flex flex-wrap gap-1">
-        {row.warnings.map((warning) => (
+        {row.warnings.map((warning) => {
+          const source = sourceOf(warning);
+          const Icon = WARNING_ICONS[source];
+          return (
           <span
             key={warning.key}
             title={describeWarning(warning)}
+            data-source={source}
             className={`inline-flex max-w-full items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${
-              warning.dismissed ? "bg-[#f2f4f7] text-[#98a2b3] line-through" : "bg-[#fff1e3] text-[#8a4b00]"
+              warning.dismissed ? "bg-[#f2f4f7] text-[#98a2b3] line-through" : WARNING_TONES[source]
             }`}
           >
-            <AlertTriangle size={11} className="shrink-0" aria-hidden="true" />
+            <Icon size={11} className="shrink-0" aria-hidden="true" />
             <span className="min-w-0 truncate">{describeWarning(warning)}</span>
             {onDismissWarning && warning.kind !== "no_baseline" ? (
               <button
@@ -145,7 +168,8 @@ function studentCell(
               </button>
             ) : null}
           </span>
-        ))}
+          );
+        })}
       </span>
     );
   }

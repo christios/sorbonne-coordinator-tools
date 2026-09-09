@@ -17,6 +17,9 @@ import {
   type Placed,
   type Rule,
   liveKeysOf,
+  severityOf,
+  sourceOf,
+  warningRank,
   type Arrival,
   type Warning,
 } from "@/services/discrepancies";
@@ -516,5 +519,63 @@ describe("every key a prune must be told about", () => {
     });
 
     expect(keys).toContain("c1:A007:r9:Maths:");
+  });
+});
+
+/*
+ * The Warnings column ranked a row by how many warnings it carried, which was fine while
+ * every warning was record drift. It stopped being fine when the register's differences
+ * joined them on the same column: a student with six harmless nits outranked a student who
+ * had withdrawn, and the page opens sorted on this.
+ */
+describe("how much trouble a warning is", () => {
+  const at = (over: Partial<Warning>): Warning =>
+    ({ key: "k", studentId: "A001", ruleId: "r1", kind: "is", field: "MAJOR_CODE_DESC", ...over }) as Warning;
+
+  it("tells the two records apart by the kind, whatever the field says", () => {
+    expect(sourceOf(at({ kind: "registration", field: "registration" }))).toBe("registration");
+    expect(sourceOf(at({ kind: "differs" }))).toBe("record");
+    expect(sourceOf(at({ kind: "no_baseline" }))).toBe("record");
+  });
+
+  it("puts enrolment first: they may not be a student here at all", () => {
+    // And by the FIELD, not the kind — `changed_to WD` is a withdrawal, not a mere change,
+    // so it must not fall to the bottom rung with "e-mail changed".
+    expect(severityOf(at({ field: "STST_CODE", kind: "changed_to" }))).toBeGreaterThan(
+      severityOf(at({ field: "registration", kind: "registration" })),
+    );
+    expect(severityOf(at({ field: STATUS_FIELD, kind: "is" }))).toBeGreaterThan(
+      severityOf(at({ field: "PSUAD_EMAIL", kind: "changed" })),
+    );
+  });
+
+  it("puts the register above present-state drift, and drift above a bare change", () => {
+    expect(severityOf(at({ kind: "registration", field: "registration" }))).toBeGreaterThan(
+      severityOf(at({ kind: "differs" })),
+    );
+    expect(severityOf(at({ kind: "differs" }))).toBeGreaterThan(severityOf(at({ kind: "changed" })));
+  });
+
+  it("counts nothing that cannot be acted on", () => {
+    expect(severityOf(at({ dismissed: true, field: "STST_CODE" }))).toBe(0);
+    expect(severityOf(at({ kind: "no_baseline" }))).toBe(0);
+  });
+
+  it("ranks by the worst warning, and only then by how many", () => {
+    const withdrawal = at({ key: "w", field: "STST_CODE", kind: "is" });
+    const nit = (n: number) => at({ key: `n${n}`, kind: "registration", field: "registration" });
+    const nits = [1, 2, 3, 4, 5, 6].map(nit);
+
+    expect(warningRank([withdrawal])).toBeGreaterThan(warningRank(nits));
+    // Between two rows on the same rung, the busier record comes first.
+    expect(warningRank([withdrawal, nit(9)])).toBeGreaterThan(warningRank([withdrawal]));
+    // A dismissed warning adds nothing at all.
+    expect(warningRank([withdrawal, at({ key: "d", dismissed: true })])).toEqual(warningRank([withdrawal]));
+    expect(warningRank([])).toBe(0);
+  });
+
+  it("cannot let a count carry a row up a rung, however many warnings it has", () => {
+    const many = Array.from({ length: 5000 }, (_, index) => at({ key: `k${index}`, kind: "changed" }));
+    expect(warningRank(many)).toBeLessThan(warningRank([at({ key: "one", kind: "differs" })]));
   });
 });
