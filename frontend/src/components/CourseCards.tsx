@@ -193,6 +193,8 @@ export function CourseCards({
   // Only the overlaps somebody is actually caught by; the rest are a constraint on the
   // fill, not a thing that has gone wrong.
   const trapped = (clashes ?? []).filter((clash) => clash.students.length);
+  // What the clash counts on this page do not cover — said once, and used twice.
+  const coverage = describeClashCoverage(shownPublication?.coverage);
   const caught = new Set(trapped.flatMap((clash) => clash.students));
 
   /*
@@ -242,9 +244,6 @@ export function CourseCards({
            */
           severity: "serious" as const,
           label: `${caught.size} student${caught.size === 1 ? " is" : "s are"} in two groups at the same hour`,
-          // The floor's error bar. A clash is found by comparing hours, so a section with
-          // none cannot produce one — and without this the count reads as the whole truth.
-          note: describeClashCoverage(shownPublication?.coverage),
           detail: (
             <WarningRows more={Math.max(0, trapped.length - 8)}>
               {trapped.slice(0, 8).map((clash) => (
@@ -364,6 +363,20 @@ export function CourseCards({
           {cards.length} course{cards.length === 1 ? "" : "s"}
           {visible.length !== cards.length ? `, ${visible.length} shown` : ""} · {pairs.length} cohort-semester{pairs.length === 1 ? "" : "s"}
         </span>
+        {/*
+          * How much of this semester the registrar has actually booked.
+          *
+          * It used to be said at the end of every Portal sync, where it was an amber
+          * warning triangle on a run that had gone perfectly — sections with no room
+          * booked yet are what September looks like, so the triangle was permanent and
+          * therefore meaningless. It is a fact about this page: it is the error bar on
+          * every clash count here, and it is silent once every section has hours.
+          */}
+        {coverage ? (
+          <span className="text-xs text-[#98a2b3]" title="The registrar's timetable, as last swept">
+            · {coverage}
+          </span>
+        ) : null}
         <label className="relative ml-auto block w-full sm:w-64">
           <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#667085]" />
           <input aria-label="Search courses" type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search courses, teachers, CRNs" className="w-full rounded-md border border-[#cbd5e1] py-2 pl-9 pr-3 text-sm" />

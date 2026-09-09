@@ -276,13 +276,23 @@ describe("the registrar's timetable in the run", () => {
     expect(ran).toEqual(["students", "courses", "timetable"]);
   });
 
-  it("counts the sections answered, and calls silence silence", async () => {
+  it("counts the sections answered and warns about none of it", async () => {
+    /*
+     * One of the two answered; the other was asked and said nothing, which is a section
+     * with no room booked rather than a failure — so the run has nothing to warn about.
+     *
+     * It used to say so anyway, which put an amber triangle on the button at the end of
+     * every single sync: there is always a section nobody has booked a room for yet, so
+     * the warning could never be cleared and stopped being read. How much of the semester
+     * is booked is on Groups & CRNs now, beside the clash count it qualifies.
+     */
     show();
     await sync();
 
-    // One of the two answered; the other was asked and said nothing, which is a section
-    // with no room booked rather than a failure.
-    expect(screen.getByText(/1 with nothing booked/)).toBeTruthy();
+    const step = (await screen.findByText(/Registrar timetable/)).closest("li");
+    expect(step?.textContent).toContain("1 returned");
+    expect(screen.queryByText(/with nothing booked/)).toBeNull();
+    expect(screen.queryByText(/sections timetabled/)).toBeNull();
     expect(screen.queryByText(/would not answer/)).toBeNull();
   });
 

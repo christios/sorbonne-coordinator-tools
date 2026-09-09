@@ -199,11 +199,16 @@ describe("the course cards", () => {
 
 
 describe("the clash count says what it could not see", () => {
-  it("puts the blind sections beside the number, not in a warning of their own", async () => {
+  it("stands on the page, whether or not anything has clashed", async () => {
     /*
      * Not having asked the registrar is not a fault and cannot be cleared from this page.
      * But a count with nothing beside it reads as the whole truth about the semester, when
      * it may be a tenth of it.
+     *
+     * On the page rather than inside the clash warning, and not opened to be read: it is
+     * the error bar on every count here, including the zero. It used to be said at the end
+     * of a Portal sync instead, where it was an amber triangle on a run that had gone
+     * perfectly — sections nobody has booked a room for yet are what September looks like.
      */
     vi.spyOn(publication, "fetchPublication").mockResolvedValue({
       cohorts: [{
@@ -217,8 +222,22 @@ describe("the clash count says what it could not see", () => {
     } as never);
 
     show();
-    fireEvent.click(await screen.findByRole("button", { name: /1 student is in two groups/ }));
 
     expect(await screen.findByText(/110 of 120 sections have hours/)).toBeTruthy();
+  });
+
+  it("says nothing when the registrar has answered for every section", async () => {
+    // Silence is the point: a note that is always there is not read when it matters.
+    vi.spyOn(publication, "fetchPublication").mockResolvedValue({
+      cohorts: [],
+      validation: {}, unmatchedCrns: 0, sections: 40,
+      coverage: { linked: true, portalTermCode: "262710", pulledAt: "now", asked: 120, timetabled: 120, blind: [], hubReachable: null },
+      resolved: { students: 10, enrolments: 20 }, isReady: true,
+    } as never);
+
+    show();
+
+    expect(await screen.findByText(/2 courses/)).toBeTruthy();
+    expect(screen.queryByText(/sections have hours/)).toBeNull();
   });
 });

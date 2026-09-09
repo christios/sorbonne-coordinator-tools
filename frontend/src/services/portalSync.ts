@@ -162,7 +162,9 @@ export async function syncTarget(
       // `seen` is what the step shows: sections the registrar answered for. Silences are
       // not failures and not absences, so they travel in the warning instead of the count.
       report: { seen: sweep.answered, added: 0, missing: 0, syncedAt: new Date().toISOString() },
-      warning: sweep.warning === "nothing_to_ask" ? "" : describeSweep(sweep),
+      // Only what went wrong. How much of the semester is booked is a fact about the
+      // semester, and it is said on Groups & CRNs where it qualifies the clash count.
+      warning: describeSweep(sweep),
     };
   }
 

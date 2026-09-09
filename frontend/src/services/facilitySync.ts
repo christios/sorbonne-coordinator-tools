@@ -83,17 +83,24 @@ export async function sweepFacilityTimetable(
   return { ...report, malformed: pull.malformed, warning: pull.warning, theirs: targets.registered.length };
 }
 
-/** What a finished sweep is worth saying out loud, and nothing it is not. */
+/**
+ * What a finished sweep has to warn about — and "" when the answer is simply the answer.
+ *
+ * How much of a semester the registrar has booked is not a warning. Ten sections with no
+ * room is what September looks like, and a sync that ends in an amber triangle every
+ * single time teaches a coordinator to ignore triangles. That count is a qualification on
+ * the clashes, so it belongs on Groups & CRNs beside them — see `describeClashCoverage` —
+ * and this is left with what actually went wrong: sections the portal refused, rows whose
+ * times could not be read, and a sweep that stopped early, which retires nothing.
+ */
 export function describeSweep(sweep: FacilitySweep): string {
-  if (sweep.warning === "nothing_to_ask") {
-    return "Nothing is registered for this semester yet, so there was nothing to ask the registrar about.";
-  }
-  const said = [`${sweep.answered} of ${sweep.asked} sections timetabled`];
-  // Silence is a fact, not a failure: the registrar was asked and said nothing, which is
-  // how a section with no room booked appears.
-  if (sweep.silent) said.push(`${sweep.silent} with nothing booked`);
-  if (sweep.failed) said.push(`${sweep.failed} the portal would not answer for`);
-  if (sweep.malformed) said.push(`${sweep.malformed} rows whose times could not be read`);
-  if (!sweep.complete) said.push("the sweep did not finish, so nothing was retired by it");
-  return `${said.join(" · ")}.`;
+  // Nothing registered yet is not a fault of the sweep, and `complete` is false only
+  // because it never ran.
+  if (sweep.warning === "nothing_to_ask") return "";
+  const wrong: string[] = [];
+  if (sweep.failed) wrong.push(`${sweep.failed} the portal would not answer for`);
+  if (sweep.malformed) wrong.push(`${sweep.malformed} rows whose times could not be read`);
+  if (!sweep.complete) wrong.push("the sweep did not finish, so nothing was retired by it");
+  if (!wrong.length) return "";
+  return `${sweep.answered} of ${sweep.asked} sections timetabled · ${wrong.join(" · ")}.`;
 }

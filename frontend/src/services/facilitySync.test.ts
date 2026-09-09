@@ -80,7 +80,9 @@ describe("one sweep of the registrar's timetable", () => {
     expect(asked).not.toHaveBeenCalled();
     expect(wrote).not.toHaveBeenCalled();
     expect(sweep.complete).toBe(false);
-    expect(describeSweep(sweep)).toMatch(/nothing to ask the registrar about/);
+    // Nothing to ask is not a fault of the sweep; `complete` is false only because it
+    // never ran, and a run that asked about nothing has nothing to warn about.
+    expect(describeSweep(sweep)).toBe("");
   });
 
   it("asks about a section once however many lists name it", async () => {
@@ -94,25 +96,38 @@ describe("one sweep of the registrar's timetable", () => {
   });
 });
 
-describe("what a finished sweep is worth saying", () => {
-  it("calls silence what it is, rather than a failure", () => {
+describe("what a finished sweep is worth warning about", () => {
+  it("says nothing at all about a sweep where nothing went wrong", () => {
+    /*
+     * A section with no room booked is not a failure — it is September. Reporting the
+     * booking count as a warning put an amber triangle on every single sync, which is a
+     * triangle nobody can clear and therefore one nobody reads. The count itself is on
+     * Groups & CRNs, beside the clashes it qualifies.
+     */
     const said = describeSweep({ ...REPORT, malformed: 0, warning: null, theirs: 0 });
 
-    expect(said).toContain("2 of 3 sections timetabled");
-    expect(said).toContain("1 with nothing booked");
-    expect(said).not.toContain("would not answer");
+    expect(said).toBe("");
   });
 
   it("says when the sweep did not finish, because nothing may be retired by it", () => {
     const said = describeSweep({ ...REPORT, complete: false, malformed: 0, warning: null, theirs: 0 });
 
     expect(said).toContain("did not finish");
+    // With the fault, the ground it was found on — otherwise "did not finish" says
+    // nothing about how much of the semester did.
+    expect(said).toContain("2 of 3 sections timetabled");
   });
 
   it("says how many times could not be read, because a lost one is invisible later", () => {
     const said = describeSweep({ ...REPORT, malformed: 4, warning: "malformed_times", theirs: 0 });
 
     expect(said).toContain("4 rows whose times could not be read");
+  });
+
+  it("says which sections the portal refused, which is a gap and not a silence", () => {
+    const said = describeSweep({ ...REPORT, failed: 2, malformed: 0, warning: null, theirs: 0 });
+
+    expect(said).toContain("2 the portal would not answer for");
   });
 });
 
