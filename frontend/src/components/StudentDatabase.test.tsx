@@ -244,7 +244,8 @@ describe("students and their timetables in one place", () => {
     await open(/^Semesters$/);
 
     expect(await screen.findByText(/Semesters on the Student Hub/)).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Import a timetable/ })).toBeTruthy();
+    // Uploading one is retired: the hours now come from the registrar's own timetable.
+    expect(screen.queryByRole("button", { name: /Import a timetable/ })).toBeNull();
   });
 
   it("says the timetable pages need a platform, and leaves the roster pages alone", async () => {

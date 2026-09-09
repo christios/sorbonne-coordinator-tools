@@ -15,10 +15,14 @@ from fastapi import status
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 
+from sorbonne.api import deps
+from sorbonne.api import portal as portal_api
 from sorbonne.api import publication as api
 from sorbonne.api import student_database as student_api
 from sorbonne.api import timetables as timetables_api
 from sorbonne.main import app
+from sorbonne.services.facility_timetable import FacilityTimetableStore
+from sorbonne.services.portal_lists import PortalListStore
 from sorbonne.services.student_database import StudentDatabase
 from sorbonne.services.student_timetables import StudentPlatformClient
 from tests.conftest import TEST_DATABASE_URL
@@ -44,6 +48,13 @@ def empty_shared_tables() -> None:
     with StudentDatabase(TEST_DATABASE_URL).engine.begin() as connection:
         connection.execute(text("DELETE FROM students"))
         connection.execute(text("DELETE FROM student_cohorts"))
+        # The term link and the registrar's record outlive a cohort, so a test that made
+        # one leaks into the next — and "this semester has no portal term" is a thing
+        # several tests below assert about.
+        connection.execute(text("DELETE FROM term_links"))
+        connection.execute(text("DELETE FROM facility_meetings"))
+        connection.execute(text("DELETE FROM facility_sections"))
+        connection.execute(text("DELETE FROM facility_pulls"))
 
 
 @pytest.fixture
@@ -51,6 +62,13 @@ def client(database: StudentDatabase) -> TestClient:
     # Publishing reads one database and assigning writes it; both must be the test's.
     app.dependency_overrides[api.get_database] = lambda: database
     app.dependency_overrides[student_api.get_database] = lambda: database
+    # And every store the publication route now reads, pointed at the test's database.
+    # Left alone they are built from `config.database_url` — which is a developer's own dev
+    # database, and a test suite that reads and writes one is how fifteen stray rows once
+    # ended up in it.
+    app.dependency_overrides[portal_api.get_store] = lambda: PortalListStore(TEST_DATABASE_URL)
+    app.dependency_overrides[portal_api.get_facilities] = lambda: FacilityTimetableStore(TEST_DATABASE_URL)
+    app.dependency_overrides[deps.optional_client] = lambda: None
     try:
         yield TestClient(app)
     finally:
@@ -62,7 +80,16 @@ def platform(handler) -> StudentPlatformClient:
 
 
 def use(client: TestClient, handler) -> TestClient:
+    """Give this test a Student Hub, for both the routes that require one and those that don't.
+
+    `read_publication` takes the Hub through `optional_client` now, because the registrar's
+    own timetable answers it and the Hub is only consulted for what the registrar is blind
+    to. Overriding `require_client` alone leaves that route asking the real `get_client`,
+    which is unconfigured in a test — so the Hub silently vanishes and every CRN reads as
+    "not in this semester's timetable".
+    """
     app.dependency_overrides[timetables_api.require_client] = lambda: platform(handler)
+    app.dependency_overrides[deps.optional_client] = lambda: platform(handler)
     return client
 
 
@@ -477,3 +504,112 @@ def test_two_cohorts_own_blocks_at_the_same_hour_are_still_not_a_clash(
     for clash in fy["clashes"]:
         assert set(clash["students"]) <= {"A001", "A002"}
         assert all(group["scopeCode"] in {"CM", "TD", "LANG"} for group in clash["groups"])
+
+
+# ------------------------------------- the registrar's timetable, not an uploaded file
+
+
+"""
+The Student Hub's sessions are a registrar export somebody put through a spreadsheet at
+the start of term: a photograph, out of date the moment a room moves, and covering only
+the cohorts whose file was made. Against 141 live CRNs it had times for the 43 courses of
+one file — which is why three of four cohorts reported no clashes and meant nothing by it.
+"""
+
+
+def timetabled(term_code: str, sections: list[dict]) -> None:
+    """Say what the registrar has booked, the way a sweep of it does."""
+    FacilityTimetableStore(TEST_DATABASE_URL).record_pull(
+        term_code=term_code,
+        asked=[section["crn"] for section in sections],
+        sections=sections,
+        silent=[],
+        failed=[],
+        complete=True,
+    )
+
+
+def link(client: TestClient, term_code: str = "262710") -> None:
+    client.put(f"/api/v1/portal/term-links/{TERM}", json={"portalTermCode": term_code})
+
+
+def test_the_registrars_own_timetable_answers_the_clashes(client: TestClient, database: StudentDatabase):
+    build_cohort(database)
+    link(client)
+    # Both meet Tuesday 08:30, which the uploaded file below knows nothing about.
+    timetabled("262710", [
+        {"crn": "22151", "courseCode": "MATH-001", "ours": True,
+         "meetings": [{"meetsOn": "2026-09-01", "startsAt": "08:30", "endsAt": "10:00"}]},
+        {"crn": "23652", "courseCode": "MATH-011", "ours": True,
+         "meetings": [{"meetsOn": "2026-09-01", "startsAt": "08:30", "endsAt": "10:00"}]},
+    ])
+
+    report = use(client, sections_then({})).get(f"/api/v1/publication/terms/{TERM}").json()
+
+    [clash] = report["cohorts"][0]["clashes"]
+    # Tuesday, from the registrar — not the Monday the uploaded file says.
+    assert clash["windows"][0]["weekday"] == "Tue"
+    assert report["coverage"]["timetabled"] == 2
+    assert report["coverage"]["blind"] == []
+
+
+def test_a_section_the_registrar_has_not_timetabled_falls_back_to_the_hub(
+    client: TestClient, database: StudentDatabase
+):
+    """Where the registrar is blind, a stale answer beats none — and only there."""
+    build_cohort(database)
+    link(client)
+    # The registrar knows 22151 and says exactly what the uploaded file says. 23652 it has
+    # never been asked about, so only the Hub can answer for it.
+    timetabled("262710", [
+        {"crn": "22151", "courseCode": "MATH-001", "ours": True,
+         "meetings": [{"meetsOn": "2026-08-31", "startsAt": "08:30", "endsAt": "10:00"}]},
+    ])
+
+    report = use(client, sections_then({})).get(f"/api/v1/publication/terms/{TERM}").json()
+
+    # Both are timetabled between them, and nothing is left blind.
+    assert report["coverage"]["timetabled"] == 2
+    assert report["coverage"]["blind"] == []
+    # `dates: 1` is the assertion that matters. Both sources describe 22151 identically,
+    # so a union would give it the same meeting twice and fold the pair to `dates: 2` —
+    # one class silently counted as two. The Hub is asked ONLY for what the registrar is
+    # blind to, so 22151 arrives once.
+    [clash] = report["cohorts"][0]["clashes"]
+    assert clash["windows"] == [
+        {"weekday": "Mon", "start": "08:30", "end": "10:00", "crns": ["22151", "23652"], "dates": 1}
+    ]
+
+
+def test_with_no_portal_term_linked_every_section_is_blind_to_the_registrar(
+    client: TestClient, database: StudentDatabase
+):
+    # Nothing to ask the registrar about, so the Hub answers it all — and the coverage
+    # says so, which is what stops "no clashes" being read as "nothing wrong".
+    build_cohort(database)
+
+    report = use(client, sections_then({})).get(f"/api/v1/publication/terms/{TERM}").json()
+
+    assert report["coverage"]["linked"] is False
+    assert report["coverage"]["portalTermCode"] == ""
+    assert report["coverage"]["timetabled"] == 2
+
+
+def test_without_a_hub_the_registrar_answers_alone(client: TestClient, database: StudentDatabase):
+    """The point of the change: no Student Hub, and the page still works."""
+    build_cohort(database)
+    link(client)
+    timetabled("262710", [
+        {"crn": "22151", "courseCode": "MATH-001", "ours": True,
+         "meetings": [{"meetsOn": "2026-09-01", "startsAt": "08:30", "endsAt": "10:00"}]},
+        {"crn": "23652", "courseCode": "MATH-011", "ours": True,
+         "meetings": [{"meetsOn": "2026-09-01", "startsAt": "08:30", "endsAt": "10:00"}]},
+    ])
+
+    # No `use(...)`: `optional_client` is None, so there is no Hub at all.
+    report = client.get(f"/api/v1/publication/terms/{TERM}").json()
+
+    assert [f"{g['scopeCode']} {g['label']}" for g in report["cohorts"][0]["clashes"][0]["groups"]] == ["CM A", "TD 1"]
+    # Every CRN validated against the registrar's sections, so the semester is publishable.
+    assert report["unmatchedCrns"] == 0
+    assert report["coverage"]["hubReachable"] is None

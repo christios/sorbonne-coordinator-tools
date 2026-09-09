@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CalendarDays, FileSpreadsheet, Pencil } from "lucide-react";
+import { CalendarDays, Pencil } from "lucide-react";
 import { useState } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -89,15 +89,21 @@ export function SemesterList({ host }: { host: string | null }) {
                   <CalendarDays size={18} className="text-[#1f4e79]" aria-hidden="true" />
                   <h2 className="text-base font-semibold text-[#171717]">Semesters on the Student Hub</h2>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setImporting(true)}
-                  className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white hover:bg-[#183f63]"
-                >
-                  <FileSpreadsheet size={16} aria-hidden="true" />
-                  Import a timetable
-                </button>
+                {/*
+                  * Retired, not deleted. `SemesterImport` and `SemesterUpdate` are still
+                  * here with their tests, and bringing them back is uncommenting two
+                  * buttons — see the note below for why they went away.
+                  */}
               </header>
+
+              <p className="border-b border-[#e4e8ef] bg-[#fdf9ee] px-6 py-3 text-sm text-[#8a6116]">
+                <strong className="font-semibold">Uploading a timetable is retired.</strong> The hours a clash is
+                worked out from come from the registrar&apos;s own timetable now, swept section by section as the
+                last step of Portal sync. An uploaded file was a photograph taken in week one: out of date the
+                moment a room moved, and only ever covering the cohorts whose file somebody made — 43 courses of
+                141 sections, which is why three cohorts in four reported no clashes and meant nothing by it.
+                What is listed below is whatever was last uploaded, kept so nothing is lost.
+              </p>
 
               {terms.isLoading ? (
                 <p className="px-6 py-8 text-sm text-[#667085]">Loading semesters…</p>
@@ -107,7 +113,7 @@ export function SemesterList({ host }: { host: string | null }) {
                 </p>
               ) : (terms.data ?? []).length === 0 ? (
                 <p className="px-6 py-8 text-sm text-[#667085]">
-                  Nothing uploaded yet. Import a timetable to give students a semester.
+                  No semester here. Uploading one is retired — see above.
                 </p>
               ) : (
                 <div className="overflow-x-auto">
@@ -173,16 +179,6 @@ export function SemesterList({ host }: { host: string | null }) {
                                 className="rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc]"
                               >
                                 Publish
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setUpdateStage("pick");
-                                  setUpdating(term);
-                                }}
-                                className="rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc]"
-                              >
-                                Update timetable
                               </button>
                               <button
                                 type="button"

@@ -90,91 +90,28 @@ describe("the semesters the platform holds", () => {
   });
 });
 
-const EMPTY_PREVIEW = {
-  term: { id: TERM.id, name: TERM.name },
-  baseUpdatedAt: TERM.updatedAt,
-  filename: "revised.xls",
-  summary: {
-    unchanged: 0, changed: 0, added: 0, removed: 0, courseChanges: 0,
-    coursesAdded: 0, coursesRemoved: 0, uncertainMatches: 0, studentsLosingCourses: 0,
-  },
-  courses: [],
-};
 
-describe("the two ways a semester gets its timetable", () => {
-  it("asks for the import file without taking the list away", async () => {
-    // Picking a file is two questions. It used to cost the whole screen, including the
-    // list you were adding to.
+/*
+ * Uploading a timetable is retired: the hours a clash is worked out from come from the
+ * registrar's own timetable now, swept section by section as the last step of Portal sync.
+ *
+ * The tests that drove the two upload flows through this page went with the buttons. The
+ * components themselves are untouched and `SemesterImport.test.tsx` still exercises one
+ * directly, so bringing the feature back is uncommenting two buttons — not rebuilding it.
+ */
+describe("uploading a timetable, retired", () => {
+  it("offers neither way in, and says why", async () => {
     renderList();
 
-    fireEvent.click(await screen.findByRole("button", { name: /Import a timetable/ }));
-
-    const dialog = await screen.findByRole("dialog", { name: "Import a timetable" });
-    expect(within(dialog).getByRole("button", { name: /Import to Student Hub/ })).toBeTruthy();
-    expect(screen.getByRole("row", { name: /Physics & Maths/ })).toBeTruthy();
-
-    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
-
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    expect(screen.getByRole("row", { name: /Physics & Maths/ })).toBeTruthy();
+    expect(await screen.findByText(/Uploading a timetable is retired/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Import a timetable/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Update timetable/ })).toBeNull();
   });
 
-  it("asks for the update file over the list too, and can be called off", async () => {
+  it("still lists what was uploaded before, so nothing is lost", async () => {
     renderList();
 
-    fireEvent.click(await screen.findByRole("button", { name: /Update timetable/ }));
-
-    const dialog = await screen.findByRole("dialog", { name: /Update Physics & Maths/ });
-    expect(screen.getByRole("row", { name: /Physics & Maths/ })).toBeTruthy();
-
-    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
-
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    expect(screen.getByRole("row", { name: /Physics & Maths/ })).toBeTruthy();
-  });
-
-  it("gives the diff the whole screen, because a long review does not belong in a box", async () => {
-    vi.spyOn(timetables, "previewTimetableUpdate").mockResolvedValue(EMPTY_PREVIEW);
-    renderList();
-    fireEvent.click(await screen.findByRole("button", { name: /Update timetable/ }));
-    const dialog = await screen.findByRole("dialog", { name: /Update Physics & Maths/ });
-
-    fireEvent.change(within(dialog).getByLabelText(/New timetable export/), {
-      target: { files: [new File(["x"], "revised.xls")] },
-    });
-    fireEvent.click(within(dialog).getByRole("button", { name: /See what would change/ }));
-
-    // The dialog goes, the list stands aside, and the review keeps the diff it just fetched.
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    expect(await screen.findByText(/Update Physics & Maths/)).toBeTruthy();
-    expect(screen.getByText("revised.xls")).toBeTruthy();
-    expect(screen.queryByRole("row", { name: /Physics & Maths/ })).toBeNull();
-
-    fireEvent.click(screen.getByRole("button", { name: /All semesters/ }));
-    expect(await screen.findByRole("row", { name: /Physics & Maths/ })).toBeTruthy();
-  });
-
-  it("goes back to the dialog when a different file is wanted", async () => {
-    vi.spyOn(timetables, "previewTimetableUpdate").mockResolvedValue(EMPTY_PREVIEW);
-    renderList();
-    fireEvent.click(await screen.findByRole("button", { name: /Update timetable/ }));
-    const dialog = await screen.findByRole("dialog", { name: /Update Physics & Maths/ });
-    fireEvent.change(within(dialog).getByLabelText(/New timetable export/), {
-      target: { files: [new File(["x"], "revised.xls")] },
-    });
-    fireEvent.click(within(dialog).getByRole("button", { name: /See what would change/ }));
-    await screen.findByText("revised.xls");
-
-    fireEvent.click(screen.getByRole("button", { name: /Choose a different file/ }));
-
-    expect(await screen.findByRole("dialog", { name: /Update Physics & Maths/ })).toBeTruthy();
-    expect(screen.getByRole("row", { name: /Physics & Maths/ })).toBeTruthy();
-  });
-
-  it("says what to do when the platform holds nothing yet", async () => {
-    vi.spyOn(timetables, "fetchTimetableTerms").mockResolvedValue([]);
-    renderList();
-
-    expect(await screen.findByText(/Import a timetable to give students a semester/)).toBeTruthy();
+    expect(await screen.findByText("Physics & Maths — Semester 1")).toBeTruthy();
+    expect(screen.getByText("PHYS-MATHS-FY-SEM.1-Revised.xls")).toBeTruthy();
   });
 });

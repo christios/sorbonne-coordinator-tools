@@ -257,6 +257,24 @@ class FacilityTimetableStore:
             ).all()
         return {row[0]: (row[1], row[2]) for row in rows}
 
+    def sections_for(self, term_code: str, crns: list[str]) -> list[tuple[str, str]]:
+        """`(crn, course code)` for the sections the registrar has answered about.
+
+        What `enrolment_resolution.validate` needs to tell a CRN that is not on any
+        timetable from one that is, but under a different course's name. `gone` is left
+        out, as everywhere: it is the one state where we believe the section is not there.
+        """
+        if not crns:
+            return []
+        with self.engine.connect() as connection:
+            rows = connection.execute(
+                text("""SELECT crn, course_code FROM facility_sections
+                        WHERE term_code = :t AND crn = ANY(:crns) AND schedule_state <> 'gone'
+                        ORDER BY crn"""),
+                {"t": term_code, "crns": crns},
+            ).all()
+        return [(row[0], row[1]) for row in rows]
+
     def coverage_for(self, term_code: str, crns: list[str]) -> Coverage:
         """What this store can and cannot say about these sections."""
         if not crns:
