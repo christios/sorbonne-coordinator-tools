@@ -59,6 +59,9 @@ export const NEVER_RETURNED = [
   'HOME_EMAIL',
   'BALANCE',
   'ORACLE_ID',
+  /* The timetable service answers with the signed-in coordinator's own account name on
+     every row. Substring matching is safe here: no declared column contains it. */
+  'USER_NAME',
 ];
 
 /** "Date Of Birth" -> "DATE_OF_BIRTH", so a label can be read the way a key is. */

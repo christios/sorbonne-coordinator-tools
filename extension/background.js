@@ -15,7 +15,8 @@
  */
 
 import { checkFilter, mayReturn } from './filter-schema.js';
-import { fieldsFor, gridOf } from './grids.js';
+import { fieldsFor, gridOf, TIMETABLE } from './grids.js';
+import { collapse, headCount } from './timetable.js';
 
 const PORTAL = 'https://reg.psuad.ac.ae/PSUADPortal/';
 const ENDPOINT = PORTAL + 'Services/StudentSearch/Enrollment/List';
@@ -295,6 +296,168 @@ async function fetchFilter(filter, meta = {}) {
   };
 }
 
+/*
+ * The registrar's own timetable, one CRN at a time.
+ *
+ * Two at a time and no more. At six, about one call in seven comes back with an empty
+ * list — and an empty list is exactly what a section with no classes booked looks like,
+ * so the portal's way of saying "you are asking too fast" is indistinguishable from its
+ * way of saying "there is nothing here". A pull that hurried would quietly report a term's
+ * teaching as cancelled. This is not a tuning parameter.
+ */
+const TIMETABLE_CONCURRENCY = 2;
+
+/** Ask the portal about one CRN. Form-urlencoded, not JSON: a different service. */
+async function fetchTimetable(termCode, crn) {
+  const body = new URLSearchParams({
+    p_TermCode: termCode,
+    p_BANNERID: crn,
+    p_UCategory: TIMETABLE.category,
+  });
+  const res = await fetch(PORTAL + TIMETABLE.path, {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+      'X-Requested-With': 'XMLHttpRequest',
+    },
+    body: body.toString(),
+  });
+  const isJson = (res.headers.get('content-type') || '').includes('json');
+  if (res.status === 401 || res.status === 403 || !isJson) {
+    return { error: { ok: false, error: 'auth', loginUrl: PORTAL + TIMETABLE.page } };
+  }
+  if (!res.ok) return { error: { ok: false, error: 'http', status: res.status, message: String(res.status) } };
+  const data = await res.json();
+  return { rows: data[TIMETABLE.list] || [] };
+}
+
+/**
+ * A sweep of the registrar's timetable: what each of these CRNs is booked for.
+ *
+ * Every CRN asked about comes back in exactly one of three lists — answered, silent or
+ * failed — because the store on the other side refuses a pull that cannot account for
+ * what it asked. `complete` says whether the sweep reached the end of its own list, and
+ * only a complete one is allowed to let a silence count towards believing a section gone.
+ */
+async function fetchTimetables(msg) {
+  // Refused rather than defaulted. Student and Teacher would return a named person's
+  // whole week; the bridge never relays a category, so this can only come from a page
+  // that has gone looking for one.
+  if (msg.category && msg.category !== TIMETABLE.category) {
+    return { ok: false, error: 'category_refused', message: String(msg.category) };
+  }
+  const cfg = await config();
+  const termCode = String(msg.termCode || cfg.term.code || '').trim();
+  if (!termCode) return { ok: false, error: 'no_term', message: 'no term to ask about' };
+  const asked = [...new Set((msg.crns || []).map(crn => String(crn).trim()).filter(Boolean))];
+  if (!asked.length) return { ok: false, error: 'nothing_asked', message: 'no CRNs' };
+
+  const columns = TIMETABLE.columns.filter(key => mayReturn(key));
+  const sections = [];
+  const silent = [];
+  const failed = [];
+  let malformed = 0;
+  let stopped = null;
+  let done = 0;
+  let next = 0;
+
+  async function worker() {
+    for (;;) {
+      const at = next++;
+      if (at >= asked.length || stopped) return;
+      const crn = asked[at];
+      let answer;
+      try {
+        answer = await fetchTimetable(termCode, crn);
+      } catch (e) {
+        failed.push(crn);
+        done += 1;
+        continue;
+      }
+      if (answer.error) {
+        // An expired session fails every remaining CRN in the same way, so stop and say
+        // so once rather than making 160 more calls that cannot work.
+        if (answer.error.error === 'auth') {
+          stopped = answer.error;
+          return;
+        }
+        failed.push(crn);
+        done += 1;
+        continue;
+      }
+      const trimmed = trim(answer.rows, columns);
+      const { meetings, malformed: bad, section } = collapse(trimmed);
+      malformed += bad;
+      if (!meetings.length) {
+        // Asked, and told nothing. Written down as its own fact — never as a section
+        // with no classes, which is what an empty body would mean.
+        silent.push(crn);
+      } else {
+        sections.push(Object.assign(
+          { crn, courseCode: section?.courseCode || '', title: section?.title || '', teacherName: section?.teacherName || '' },
+          headCount(meetings),
+          { meetings: meetings.map(({ seen, ...meeting }) => meeting) },
+        ));
+      }
+      done += 1;
+      onProgress({ name: 'Timetable' }, done, asked.length);
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(TIMETABLE_CONCURRENCY, asked.length) }, worker));
+
+  if (stopped) return stopped;
+
+  /*
+   * Truncate on a SECTION boundary, on the collapsed count.
+   *
+   * MAX_ROWS is applied inside fetchFilter, which this never calls, so the cap has to be
+   * re-established here or not exist at all. Cutting mid-section would ship a section
+   * with some of its meetings, which reads as a section that meets less often — worse
+   * than shipping fewer sections, because it is wrong rather than absent.
+   */
+  const meetings = sections.reduce((total, section) => total + section.meetings.length, 0);
+  let truncated = false;
+  if (meetings > MAX_ROWS) {
+    let kept = 0;
+    const held = [];
+    for (const section of sections) {
+      if (kept + section.meetings.length > MAX_ROWS) break;
+      kept += section.meetings.length;
+      held.push(section);
+    }
+    sections.length = 0;
+    sections.push(...held);
+    truncated = true;
+  }
+
+  /*
+   * `complete` means one thing only: this sweep reached the end of the list it set out to
+   * ask about. It is what licences the store to count a silence towards believing a
+   * section gone, so it must be false for a sweep that stopped early — a truncated one
+   * never asked about the sections it dropped.
+   *
+   * Failures do NOT make it incomplete. A failed call is not evidence either way, and the
+   * store already refuses to read one as a silence; conflating the two would mean a single
+   * network blip stopped every genuine silence in the sweep from ever being believed.
+   */
+  const complete = !truncated;
+
+  return {
+    ok: true,
+    termCode,
+    asked,
+    sections,
+    silent,
+    failed,
+    complete,
+    malformed,
+    warning: truncated ? 'truncated' : malformed ? 'malformed_times' : null,
+    fetchedAt: Date.now(),
+  };
+}
+
 async function handle(msg) {
   switch (msg && msg.type) {
     case 'ping': {
@@ -357,6 +520,8 @@ async function handle(msg) {
     }
     case 'fetch':
       return msg.filter ? fetchFilter(msg.filter, msg.meta || {}) : fetchPreset(msg.presetId);
+    case 'timetable':
+      return fetchTimetables(msg);
     default:
       return { ok: false, error: 'unknown_message' };
   }

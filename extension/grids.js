@@ -10,6 +10,10 @@
  *
  * Field values marked verified were read from the portal's own filter widgets on
  * 5 September 2026. The rest are shape-checked only (a code, not a sentence).
+ *
+ * There is a second family below, TIMETABLE, which is not a ListRequest at all. It lives
+ * in this file rather than beside its handler for the reason above: what may come back is
+ * decided here, and one list is reviewable where two are not.
  */
 
 export const GRIDS = {
@@ -137,6 +141,33 @@ export const GRIDS = {
       'LEVEL_CODE', 'YEARLEVEL_CODE', 'COURSE_CRN', 'COURSE_CODE', 'COURSE_TITLE', 'TEACHER_NAME',
     ],
   },
+};
+
+/*
+ * A second family. GetTimeTable is not a Serenity ListRequest: form-urlencoded, one call
+ * per CRN, GetScheduleEventsList back. It is declared here anyway, because this file is
+ * where what may come back is decided, and a boundary in two files is a boundary nobody
+ * reviews.
+ *
+ * Deliberately NOT in GRIDS. `KINDS` and `gridOf` are built from that object, so
+ * `gridOf('timetable')` stays null and the ListRequest path can never be reached with a
+ * request this shape.
+ */
+export const TIMETABLE = {
+  path: 'Timetable/GetTimeTable',
+  page: 'Timetable',
+  form: true,
+  perCrn: true,
+  /* The only category this extension will ask for. Student and Teacher would return a
+     named person's whole week, which is not a question about a room booking. */
+  category: 'CRN',
+  list: 'GetScheduleEventsList',
+  /* EVEN_START, one N. The portal's typo, and it is the wire's spelling — not ours to
+     correct, only to read. */
+  columns: [
+    'COURSE_CRN', 'COURSE_CODE', 'COURSE_TITLE', 'ROOM_CODE',
+    'EVEN_START', 'EVENT_END', 'TEACHER_NAME',
+  ],
 };
 
 export const KINDS = Object.keys(GRIDS);
