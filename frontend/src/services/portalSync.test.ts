@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as lists from "@/services/portalLists";
+import * as sync from "@/services/portalSync";
 import { syncTarget } from "@/services/portalSync";
 import * as rosters from "@/services/scenRosters";
 
@@ -26,10 +27,17 @@ describe("one sync, wherever it was asked for", () => {
 
     expect(pull.mock.calls[0][1]).toMatchObject({ kind: "registrations", name: "SCEN" });
     // The names came back to this browser; what left it is a student id against a CRN.
-    expect(lists.syncRegistrations).toHaveBeenCalledWith("f1", "262710", [
-      { studentId: "A001", crn: "22151", courseCode: "MATH-001" },
-      { studentId: "A001", crn: "23652", courseCode: "MATH-011" },
-    ]);
+    expect(lists.syncRegistrations).toHaveBeenCalledWith(
+      "f1",
+      "262710",
+      [
+        { studentId: "A001", crn: "22151", courseCode: "MATH-001" },
+        { studentId: "A001", crn: "23652", courseCode: "MATH-011" },
+      ],
+      // The deadline the run gives our own server, threaded per call rather than set once
+      // in `apiFetch` — which is also the choke point for publication and the workbook.
+      expect.any(AbortSignal),
+    );
     expect(outcome.report.seen).toBe(1);
   });
 
@@ -56,5 +64,62 @@ describe("one sync, wherever it was asked for", () => {
     vi.spyOn(rosters, "pullFilter").mockRejectedValue(new rosters.PortalError("auth"));
 
     await expect(syncTarget(REGISTRATIONS)).rejects.toThrow(/portal session has expired/);
+  });
+});
+
+describe("waiting on our own server", () => {
+  it("gives up rather than parking for ever", async () => {
+    /*
+     * `drive()` awaits this call while the fifteen-second heartbeat goes on writing
+     * `beatAt`, so a stalled POST is never seen as abandoned: `clearRun` refuses because
+     * the run is still "running", the Clear button stays hidden, and the only way out was
+     * deleting a localStorage key from the console.
+     */
+    vi.spyOn(rosters, "pullFilter").mockResolvedValue({
+      kind: "courses", term: { code: "262710", label: "S1" }, presetId: "", name: "SCEN Courses",
+      count: 1, expect: null, warning: null, fetchedAt: Date.now(),
+      rows: [{ COURSE_CRN: "22151", COURSE_CODE: "MATH-001", TERM_CODE: "262710" }],
+    } as never);
+    // A server that never answers, and honours the deadline it was handed.
+    vi.spyOn(lists, "syncCourses").mockImplementation(
+      (_id, _rows, signal) =>
+        new Promise((_resolve, reject) => {
+          signal?.addEventListener("abort", () => reject(signal.reason));
+        }),
+    );
+
+    const target = { kind: "courses", id: "f1", name: "SCEN Courses", filter: {} } as never;
+    await expect(sync.syncTarget(target, undefined, 20)).rejects.toThrow(/did not accept this list/);
+  });
+
+  it("gives the failure a word the run can group six of them by", async () => {
+    vi.spyOn(rosters, "pullFilter").mockResolvedValue({
+      kind: "courses", term: { code: "262710", label: "S1" }, presetId: "", name: "SCEN Courses",
+      count: 0, expect: null, warning: null, fetchedAt: Date.now(), rows: [],
+    } as never);
+    vi.spyOn(lists, "syncCourses").mockImplementation(
+      (_id, _rows, signal) =>
+        new Promise((_resolve, reject) => {
+          signal?.addEventListener("abort", () => reject(signal.reason));
+        }),
+    );
+
+    const target = { kind: "courses", id: "f1", name: "SCEN Courses", filter: {} } as never;
+    const error = await sync.syncTarget(target, undefined, 20).catch((thrown) => thrown);
+
+    expect(error).toBeInstanceOf(sync.ServerTooSlow);
+    expect((error as { code: string }).code).toBe("server_slow");
+  });
+
+  it("lets a server that answers in time through untouched", async () => {
+    vi.spyOn(rosters, "pullFilter").mockResolvedValue({
+      kind: "courses", term: { code: "262710", label: "S1" }, presetId: "", name: "SCEN Courses",
+      count: 0, expect: null, warning: null, fetchedAt: Date.now(), rows: [],
+    } as never);
+    vi.spyOn(lists, "syncCourses").mockResolvedValue({ seen: 0, added: 0, missing: 0, syncedAt: "now" });
+
+    const target = { kind: "courses", id: "f1", name: "SCEN Courses", filter: {} } as never;
+
+    await expect(sync.syncTarget(target, undefined, 5_000)).resolves.toMatchObject({ report: { seen: 0 } });
   });
 });

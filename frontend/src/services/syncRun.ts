@@ -144,13 +144,22 @@ export function startRun(targets: SyncTarget[], onStep?: (step: SyncStep) => voi
  * The list that was in flight when the page went is set back to waiting: its pull did not
  * finish, so it must be asked again.
  */
-export function resumeRun(targets: SyncTarget[], onStep?: (step: SyncStep) => void): Promise<void> {
+export async function resumeRun(targets: SyncTarget[], onStep?: (step: SyncStep) => void): Promise<boolean> {
+  /*
+   * Answers whether it actually took the run over.
+   *
+   * Three of the four ways out of here are refusals, and they used to be indistinguishable
+   * from taking it on — every one returned the same resolved promise. The driver above
+   * marks a run as attempted before calling, so a refusal burned the one attempt it had:
+   * reload once inside the ninety seconds another tab is still allowed, and this tab never
+   * picked the run up again, however long the other one had been dead.
+   */
   // Already driving: there is nothing to resume, and setting the list in flight back to
   // waiting would only lose what it is doing.
-  if (driving) return Promise.resolve();
+  if (driving) return false;
   const held = read();
-  if (!isRunning(held)) return Promise.resolve();
-  if (held.owner !== TAB && !isAbandoned(held)) return Promise.resolve();
+  if (!isRunning(held)) return false;
+  if (held.owner !== TAB && !isAbandoned(held)) return false;
   const run: SyncRun = {
     ...held,
     owner: TAB,
@@ -158,7 +167,8 @@ export function resumeRun(targets: SyncTarget[], onStep?: (step: SyncStep) => vo
     steps: held.steps.map((step) => (step.state === "running" ? { ...step, state: "waiting" } : step)),
   };
   write(run);
-  return drive(targets, onStep);
+  await drive(targets, onStep);
+  return true;
 }
 
 /** Forget a finished run, so the button goes back to saying nothing happened. */
@@ -197,6 +207,20 @@ function patch(key: string, change: Partial<SyncStep>): SyncStep | null {
   });
   write({ ...held, beatAt: Date.now(), steps });
   return touched;
+}
+
+/**
+ * The word a failure is grouped by, from whoever raised it.
+ *
+ * `PortalError` was the only failure worth grouping while the portal was the only thing
+ * that could fail a step. Our own server can fail one too now — it is given ninety seconds
+ * to accept a list and no longer — and six lists whose server leg ran out of patience is
+ * one problem with one sentence, exactly as six expired portal sessions are.
+ */
+function codeOf(error: unknown): string {
+  if (error instanceof PortalError) return error.code;
+  const code = (error as { code?: unknown } | null)?.code;
+  return typeof code === "string" ? code : "";
 }
 
 /** A step has settled: it is already written down, and now anyone listening is told. */
@@ -246,7 +270,7 @@ async function drive(targets: SyncTarget[], onStep?: (step: SyncStep) => void): 
           patch(next.key, {
             state: "failed",
             error: (error as Error).message,
-            errorCode: error instanceof PortalError ? error.code : "",
+            errorCode: codeOf(error),
           }),
           onStep,
         );

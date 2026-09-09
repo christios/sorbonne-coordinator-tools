@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { abandonRun, clearRun, getRun, isRunning, startRun, subscribe, type SyncRun, type SyncStep } from "@/services/syncRun";
 import { describeAge } from "@/services/rosterStore";
+import { isExtensionInstalled } from "@/services/scenRosters";
 import { freshen, useSyncTargets } from "@/services/syncTargets";
 
 /** The order a run goes in, and what each list is called where a coordinator reads it. */
@@ -102,6 +103,24 @@ export function PortalSyncButton() {
   const codes = new Set(failed.map((step) => step.errorCode ?? ""));
   const oneReason = failed.length > 1 && codes.size === 1 && [...codes][0] ? failed[0].error : "";
   const troubled = failed.length || steps.some((step) => step.warning);
+  /*
+   * Asked once, before the run, instead of discovered N times during it.
+   *
+   * Without the extension every list fails the same way, and each one waits out the sixty
+   * seconds of silence that is how a missing extension announces itself. Six lists is six
+   * minutes to be told one thing. The check itself is a second and a half, and if it
+   * cannot be answered the run goes ahead — refusing to start on a maybe would be worse
+   * than the wait.
+   */
+  const [missing, setMissing] = useState(false);
+  const begin = async () => {
+    setMissing(false);
+    if (!(await isExtensionInstalled())) {
+      setMissing(true);
+      return;
+    }
+    await startRun(targets, () => freshen(client));
+  };
 
 
   return (
@@ -114,7 +133,7 @@ export function PortalSyncButton() {
             // starts another. Either way the report opens, rather than being gone looking for.
             if (running || !ready) return setOpen((was) => !was);
             setOpen(true);
-            void startRun(targets, () => freshen(client));
+            void begin();
           }}
           disabled={!ready && !running}
           title={ready ? "Ask the registrar portal for every list" : "Nothing to sync yet: no views or portal filters"}
@@ -160,11 +179,18 @@ export function PortalSyncButton() {
       </div>
 
       {/* Under the button and against the right edge, which is where the header ends. */}
-      {open && steps.length ? (
+      {/* Also when nothing ran: a run that was refused before it started still owes a reason. */}
+      {open && (steps.length > 0 || missing) ? (
         <div className="absolute right-0 top-full z-30 mt-2 w-80 rounded-lg border border-[#d9dee7] bg-white p-3 text-left shadow-lg">
           <div className="mb-2 flex items-baseline justify-between">
             <p className="text-sm font-semibold text-[#171717]">
-              {running ? "Syncing every list" : failed.length ? "Synced, with trouble" : "Synced"}
+              {running
+                ? "Syncing every list"
+                : missing && !steps.length
+                  ? "Nothing was asked for"
+                  : failed.length
+                    ? "Synced, with trouble"
+                    : "Synced"}
             </p>
             {/*
               * While a run is going, the way out is "Give up" — not nothing.
@@ -190,6 +216,12 @@ export function PortalSyncButton() {
               </button>
             )}
           </div>
+          {missing ? (
+            <p role="alert" className="mb-2 rounded-md border border-[#e5b7b9] bg-[#fdf3f3] px-3 py-2 text-xs leading-5 text-[#a6292f]">
+              The SCEN Rosters extension did not answer, so nothing was asked for. Install it, or reload this page
+              after enabling it.
+            </p>
+          ) : null}
           {oneReason ? (
             <p role="alert" className="mb-2 rounded-md border border-[#e5b7b9] bg-[#fdf3f3] px-3 py-2 text-xs leading-5 text-[#a6292f]">
               {oneReason}

@@ -54,6 +54,9 @@ async function sync() {
 
 beforeEach(() => {
   window.localStorage.clear();
+  // The pre-flight. Asked once before a run rather than discovered by six lists each
+  // waiting out the sixty seconds of silence a missing extension announces itself with.
+  vi.spyOn(rosters, "isExtensionInstalled").mockResolvedValue(true);
   vi.spyOn(database, "fetchViews").mockResolvedValue([VIEW]);
   vi.spyOn(database, "syncView").mockResolvedValue({ seen: 2, added: 2, missing: 0, syncedAt: "now" });
   vi.spyOn(lists, "fetchPortalFilters").mockImplementation(async (kind) => (kind === "courses" ? [COURSES] : []));
@@ -185,5 +188,39 @@ describe("how stale the lists are", () => {
 
     expect(await screen.findByRole("button", { name: /Portal sync/ })).toBeTruthy();
     expect(screen.queryByText(/ago/)).toBeNull();
+  });
+});
+
+describe("before anything is asked for", () => {
+  it("says the extension is missing instead of failing every list one at a time", async () => {
+    /*
+     * A missing extension announces itself by silence, timed out after a minute. Six lists
+     * is six minutes to be told one thing — and every one of them ends up in the failed
+     * column, which reads as six problems. The check that settles it takes a second.
+     */
+    vi.spyOn(rosters, "isExtensionInstalled").mockResolvedValue(false);
+    const pull = vi.spyOn(rosters, "pullFilter");
+
+    show();
+    const button = await screen.findByRole("button", { name: /portal sync/i });
+    await waitFor(() => expect(button).toHaveProperty("disabled", false));
+    fireEvent.click(button);
+
+    expect(await screen.findByRole("alert")).toHaveProperty(
+      "textContent",
+      expect.stringContaining("extension did not answer") as unknown as string,
+    );
+    // And nothing was asked for. A run that cannot work must not be started.
+    expect(pull).not.toHaveBeenCalled();
+  });
+
+  it("goes ahead when the extension answers", async () => {
+    const pull = vi.spyOn(rosters, "pullFilter");
+
+    show();
+    await sync();
+
+    expect(pull).toHaveBeenCalled();
+    expect(screen.queryByText(/extension did not answer/)).toBeNull();
   });
 });

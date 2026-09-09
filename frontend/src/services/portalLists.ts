@@ -147,8 +147,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T;
 }
 
-function send<T>(path: string, method: string, body: unknown): Promise<T> {
-  return request<T>(path, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+function send<T>(path: string, method: string, body: unknown, signal?: AbortSignal): Promise<T> {
+  return request<T>(path, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal });
 }
 
 // ------------------------------------------------------------------ filters
@@ -165,16 +165,16 @@ export function deletePortalFilter(filterId: string): Promise<void> {
   return request<void>(`/filters/${filterId}`, { method: "DELETE" });
 }
 
-export function syncCourses(filterId: string, rows: CourseRow[]): Promise<SyncReport> {
-  return send<SyncReport>(`/filters/${filterId}/sync/courses`, "POST", { rows });
+export function syncCourses(filterId: string, rows: CourseRow[], signal?: AbortSignal): Promise<SyncReport> {
+  return send<SyncReport>(`/filters/${filterId}/sync/courses`, "POST", { rows }, signal);
 }
 
-export function syncTeachers(filterId: string, rows: TeacherRow[]): Promise<SyncReport> {
-  return send<SyncReport>(`/filters/${filterId}/sync/teachers`, "POST", { rows });
+export function syncTeachers(filterId: string, rows: TeacherRow[], signal?: AbortSignal): Promise<SyncReport> {
+  return send<SyncReport>(`/filters/${filterId}/sync/teachers`, "POST", { rows }, signal);
 }
 
-export function syncRegistrations(filterId: string, termCode: string, rows: RegistrationRow[]): Promise<SyncReport> {
-  return send<SyncReport>(`/filters/${filterId}/sync/registrations`, "POST", { termCode, rows });
+export function syncRegistrations(filterId: string, termCode: string, rows: RegistrationRow[], signal?: AbortSignal): Promise<SyncReport> {
+  return send<SyncReport>(`/filters/${filterId}/sync/registrations`, "POST", { termCode, rows }, signal);
 }
 
 // ------------------------------------------------------------------ reading

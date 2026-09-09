@@ -91,15 +91,61 @@ function checkKind(roster: PortalRoster, kind: SyncKind): void {
   }
 }
 
+/**
+ * How long our own server gets to accept a list before the run stops waiting for it.
+ *
+ * Not in `apiFetch`. That is also the choke point for publication and for applying a
+ * workbook, and a blanket deadline there would cut off long writes nobody is waiting on a
+ * clock for. The reason the sync in particular needs one is that `drive()` awaits this
+ * promise while the fifteen-second heartbeat goes on writing `beatAt` — so a stalled POST
+ * is never abandoned, `clearRun` refuses because the run is still "running", the Clear
+ * button stays hidden, and there is no way out but clearing the browser's storage.
+ */
+const SERVER_BUDGET_MS = 90_000;
+
+export class ServerTooSlow extends Error {
+  readonly code = "server_slow";
+
+  constructor() {
+    super(
+      "Our own server did not accept this list within a minute and a half, so the run " +
+        "stopped waiting for it. Nothing was lost — try the sync again.",
+    );
+    this.name = "ServerTooSlow";
+  }
+}
+
 export async function syncTarget(
   target: SyncTarget,
   onProgress?: (progress: PullProgress) => void,
+  budgetMs: number = SERVER_BUDGET_MS,
 ): Promise<SyncOutcome> {
+  /*
+   * The budget covers the leg to OUR server and nothing else.
+   *
+   * Not the portal's answer, which has its own ten-minute patience and its own reasons to
+   * be slow; and not the writes to this browser's own disk below, which cannot hang on a
+   * network. Just the one call the run has no way to give up on by itself.
+   */
+  const accepted = async <T,>(work: (signal: AbortSignal) => Promise<T>): Promise<T> => {
+    const signal = AbortSignal.timeout(budgetMs);
+    try {
+      return await work(signal);
+    } catch (error) {
+      // The abort surfaces as a DOMException about an operation nobody asked about. Say
+      // what actually happened instead, and give it a word the run can group failures by.
+      if (signal.aborted) throw new ServerTooSlow();
+      throw error;
+    }
+  };
+
   const roster = await pullFilter(target.filter, { name: target.name, kind: target.kind }, onProgress);
   const warning = describePullWarning(roster.warning, roster.count, roster.expect);
 
   if (target.kind === "students") {
-    const report = await syncView(target.id, roster.rows.map(studentIdOf).filter(Boolean));
+    const report = await accepted((signal) =>
+      syncView(target.id, roster.rows.map(studentIdOf).filter(Boolean), signal),
+    );
     // Awaited, not fired off: the browser answers for its own disk asynchronously, and
     // what is reported back is only true once the write has actually landed.
     await rememberPull({ ...roster, presetId: target.id });
@@ -120,14 +166,14 @@ export async function syncTarget(
   checkKind(roster, target.kind);
   if (target.kind === "courses") {
     const rows = roster.rows.map(courseRowOf).filter((row) => row.crn);
-    return { report: await syncCourses(target.id, rows), roster, warning };
+    return { report: await accepted((signal) => syncCourses(target.id, rows, signal)), roster, warning };
   }
   if (target.kind === "teachers") {
     const rows = roster.rows.map(teacherRowOf).filter((row) => row.teacherId);
-    return { report: await syncTeachers(target.id, rows), roster, warning };
+    return { report: await accepted((signal) => syncTeachers(target.id, rows, signal)), roster, warning };
   }
   const termCode = termCodeOf(roster.term, roster.rows);
   if (!termCode) throw new Error("The portal did not say which term these registrations are for.");
   const rows = roster.rows.map(registrationRowOf).filter((row) => row.studentId && row.crn);
-  return { report: await syncRegistrations(target.id, termCode, rows), roster, warning };
+  return { report: await accepted((signal) => syncRegistrations(target.id, termCode, rows, signal)), roster, warning };
 }

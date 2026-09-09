@@ -168,11 +168,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T;
 }
 
-function send<T>(path: string, method: string, body: unknown): Promise<T> {
+function send<T>(path: string, method: string, body: unknown, signal?: AbortSignal): Promise<T> {
   return request<T>(path, {
     method,
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
+    signal,
   });
 }
 
@@ -501,8 +502,8 @@ export async function fetchStudents(viewId = ""): Promise<Student[]> {
  * A sync is a census of that view's population, so an id the view held and the pull did
  * not return has left it. Nothing else writes to a view's membership.
  */
-export async function syncView(viewId: string, studentIds: string[]): Promise<SyncReport> {
-  return send<SyncReport>(`${BASE}/views/${viewId}/sync`, "POST", { studentIds });
+export async function syncView(viewId: string, studentIds: string[], signal?: AbortSignal): Promise<SyncReport> {
+  return send<SyncReport>(`${BASE}/views/${viewId}/sync`, "POST", { studentIds }, signal);
 }
 
 /** Put students in a cohort, or take them out of whichever one they are in with null. */

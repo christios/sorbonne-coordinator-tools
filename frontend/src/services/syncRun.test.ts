@@ -135,6 +135,30 @@ describe("syncing everything, once", () => {
     expect(run.getRun()!.steps[0].state).toBe("done");
   });
 
+  it("says whether it actually took the run over, so a refusal is not an attempt", async () => {
+    /*
+     * The driver above marks a run as attempted before calling this, and every refusal used
+     * to look exactly like success — the same resolved promise. So one reload inside the
+     * ninety seconds another tab is still trusted burned this tab's only attempt, and it
+     * would never pick the run up again however long that tab had been dead. A timetable
+     * sweep is the longest window anybody will ever reload during.
+     */
+    window.localStorage.setItem(
+      KEY,
+      JSON.stringify({
+        id: "run-3", startedAt: Date.now(), finishedAt: null, owner: "another tab", beatAt: Date.now(),
+        steps: [{ key: "courses:f1", kind: "courses", id: "f1", name: "Courses", state: "running" }],
+      }),
+    );
+    const run = await load();
+
+    expect(await run.resumeRun(TARGETS)).toBe(false);
+
+    // The same run, now long dead, is taken over — and says so.
+    window.localStorage.setItem(KEY, JSON.stringify({ ...held(), beatAt: 0 }));
+    expect(await run.resumeRun(TARGETS)).toBe(true);
+  });
+
   it("says a list that has been deleted since cannot be synced", async () => {
     const run = await load();
 

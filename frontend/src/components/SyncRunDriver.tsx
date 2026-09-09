@@ -21,8 +21,18 @@ export function SyncRunDriver() {
   useEffect(() => {
     const held = getRun();
     if (!ready || !isRunning(held) || resumed.current === held.id) return;
-    resumed.current = held.id;
-    void resumeRun(targets, () => freshen(client));
+    /*
+     * Marked as attempted only once the attempt was ACCEPTED.
+     *
+     * `resumeRun` refuses a run that belongs to another tab and is not yet abandoned, and
+     * a refusal used to be indistinguishable from taking it on — so a single reload inside
+     * the ninety seconds the other tab is still trusted burned this tab's one attempt, and
+     * it would never pick the run up again however long that tab had been dead. A timetable
+     * sweep is the longest window anybody will ever reload during.
+     */
+    void resumeRun(targets, () => freshen(client)).then((took) => {
+      if (took) resumed.current = held.id;
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready]);
 
