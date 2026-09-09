@@ -695,7 +695,36 @@ class PortalListStore:
                 .mappings()
                 .all()
             )
-        return [_active(row) for row in rows]
+            # What each of them is actually down to teach, from our own planning. Two
+            # numbers rather than one: `sections` is how many name them at all, `linked`
+            # how many do it by a chosen id rather than free text — and the gap between the
+            # two IS the worklist. On the real data 137 sections carry a name and 0 carry a
+            # link, so a single count would say "not in our planning" about every teacher in
+            # the department and read as a bug rather than as a backlog.
+            planned = connection.execute(
+                text("""SELECT gc.teacher_id, count(*) FROM group_crns gc
+                        WHERE gc.crn <> '' AND gc.retired = false AND coalesce(gc.teacher_id, '') <> ''
+                        GROUP BY gc.teacher_id""")
+            ).all()
+            written = [
+                (row[0], row[1])
+                for row in connection.execute(
+                    text("""SELECT coalesce(gc.teacher, ''), count(*) FROM group_crns gc
+                            WHERE gc.crn <> '' AND gc.retired = false AND coalesce(gc.teacher, '') <> ''
+                            GROUP BY coalesce(gc.teacher, '')""")
+                )
+            ]
+        linked_by_id = dict(planned)
+        held = []
+        for row in rows:
+            teacher = _active(row)
+            # Named-but-not-linked is matched through `names_agree`, the same rule the
+            # register drift uses, so "El Sayed" and "Elsayed" are one person here too.
+            named = sum(count for name, count in written if names_agree(teacher["fullName"], name))
+            teacher["linkedSections"] = linked_by_id.get(row["id"], 0)
+            teacher["sections"] = teacher["linkedSections"] + named
+            held.append(teacher)
+        return held
 
     def unlinked_portal_matches(self) -> list[dict[str, Any]]:
         """Active teachers who came from the part-time database and look like a portal profile.

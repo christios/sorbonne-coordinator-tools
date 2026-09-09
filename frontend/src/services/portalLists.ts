@@ -213,6 +213,16 @@ export type ActiveTeacher = {
   courses: string;
   institution: string;
   portalStatus: string;
+  /**
+   * How many live sections our own planning has them on, and how many of those do it by a
+   * chosen id rather than free text.
+   *
+   * Two numbers because the gap between them IS the worklist: 137 sections carry a written
+   * name and none carries a chosen one, so a single count would report every teacher in the
+   * department as absent from the planning.
+   */
+  sections?: number;
+  linkedSections?: number;
 };
 
 /**

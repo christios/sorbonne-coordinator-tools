@@ -34,6 +34,28 @@ const COLUMNS: GridColumn<ActiveTeacher>[] = [
   { id: "type", displayName: "Type", type: "option", accessor: (row) => row.type, defaultWidth: 200 },
   { id: "category", displayName: "Category", type: "option", accessor: (row) => row.category, defaultWidth: 120 },
   { id: "department", displayName: "Dept.", type: "option", accessor: (row) => row.department, defaultWidth: 110 },
+  {
+    id: "planning",
+    displayName: "In our planning",
+    /*
+     * Three states, not two. A boolean would say "not in our planning" about almost every
+     * teacher in the department — 137 sections carry a written name and none carries a
+     * chosen one — and read as a bug rather than as the backlog it is. The middle state is
+     * the worklist: those names want joining to these rows.
+     */
+    type: "option",
+    accessor: (row) =>
+      row.linkedSections ? "Chosen on sections" : row.sections ? "Named, not chosen" : "No sections",
+    defaultWidth: 160,
+  },
+  {
+    id: "sections",
+    displayName: "Sections",
+    type: "number",
+    accessor: (row) => row.sections ?? 0,
+    display: (row) => (row.sections ? String(row.sections) : ""),
+    defaultWidth: 90,
+  },
   { id: "courses", displayName: "Courses", type: "text", accessor: (row) => row.courses, defaultWidth: 220 },
   { id: "lastTerm", displayName: "Last term", type: "option", accessor: (row) => row.lastTerm, defaultWidth: 100 },
   { id: "rank", displayName: "Rank", type: "text", accessor: (row) => row.rank, defaultWidth: 180 },

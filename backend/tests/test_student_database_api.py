@@ -878,3 +878,30 @@ def test_renaming_a_group_onto_a_sibling_is_refused_not_a_crash(client: TestClie
 
     assert clash.status_code == status.HTTP_409_CONFLICT
     assert first is not None
+
+
+def test_our_own_planning_cannot_put_a_student_in_two_groups_of_one_set(
+    client: TestClient, cohort_id: str, view_id: str
+):
+    """The registrar can do it; we cannot, and the schema is why.
+
+    `student_registrations` happily holds a student in two groups of one set — that is the
+    `doubled` verdict on the Cohorts page, and it is the registrar's contradiction to
+    explain. Our own planning has no such state: `group_assignments` is keyed on
+    (cohort, student, scope), so placing somebody again MOVES them.
+
+    Pinned here because the plan scheduled a report for the planning half of this, and a
+    report of something that cannot happen is a page nobody can ever act on. If the key
+    ever widens, this test is what says the report has become worth writing.
+    """
+    scope_id, first = block_with_a_group(client, cohort_id)
+    second = client.post(
+        f"/api/v1/student-database/scopes/{scope_id}/groups", json={"label": "2"}
+    ).json()["id"]
+    in_cohort(client, view_id, cohort_id, STUDENTS)
+
+    place(client, scope_id, STUDENTS[:1], first)
+    place(client, scope_id, STUDENTS[:1], second)
+
+    [held] = [row["groups"] for row in students_of(client) if row["studentId"] == STUDENTS[0]]
+    assert [group["groupLabel"] for group in held] == ["2"]
