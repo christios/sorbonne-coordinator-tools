@@ -5,6 +5,7 @@ import { FillBlock, type FillReport } from "@/components/FillBlock";
 import { GroupRoster } from "@/components/GroupRoster";
 import { SectionDialog } from "@/components/CourseCard";
 import { CourseRequestDialog, CourseRequestLine } from "@/components/CourseRequest";
+import { PortalTermLink } from "@/components/PortalTermLink";
 import { YearPill } from "@/components/YearPill";
 import type { Card, CardSet, SectionRow } from "@/services/courseCards";
 import { MUTUALIZED_WORDS, type ActiveTeacher, type TermCrns } from "@/services/portalLists";
@@ -395,6 +396,16 @@ export function CourseDetail({
             {card.cohortName} · {card.termName || "no semester"}
             <YearPill year={cohort?.term ?? ""} />
           </span>
+          {/*
+            * Which portal term this semester is, said where the semester is named.
+            *
+            * It lived only on the Semesters page, which is the Student Hub's page and the
+            * one nobody opens now the upload is retired — while every consequence of the
+            * link missing shows up HERE: no registrar timetable, no clashes, no
+            * collisions, every section reading "no timetable yet". The place to fix it
+            * should be the place you notice it.
+            */}
+          {card.termId ? <PortalTermLink termId={card.termId} /> : null}
           {action}
         </span>
       </header>

@@ -233,3 +233,65 @@ describe("giving up on a run that will not finish", () => {
     expect(run.getRun()).not.toBeNull();
   });
 });
+
+describe("retrying only what failed", () => {
+  /*
+   * Not an automatic retry, and the argument is worth keeping: the retry that matters is
+   * per-CRN and lives inside the timetable handler, so re-running a whole step to recover
+   * one section is a hundred and sixty calls to fix one. And the dominant failures — an
+   * expired session, a missing extension — are deterministic, so retrying only doubles the
+   * wait before saying the same thing. A button says who is retrying, and when.
+   */
+  it("puts the failed steps back to waiting and leaves the rest alone", async () => {
+    window.localStorage.setItem(
+      KEY,
+      JSON.stringify({
+        id: "run-9", startedAt: 1, finishedAt: 2, owner: "a tab that is gone", beatAt: 0,
+        steps: [
+          { key: "students:v1", kind: "students", id: "v1", name: "All", state: "done", seen: 7 },
+          { key: "courses:f1", kind: "courses", id: "f1", name: "Courses", state: "failed", error: "no", errorCode: "auth" },
+        ],
+      }),
+    );
+    const run = await load();
+
+    expect(run.retryFailed()).toBe(1);
+
+    const held = run.getRun()!;
+    expect(held.steps.map((step) => step.state)).toEqual(["done", "waiting"]);
+    // Reopened, so a resume picks it up — and the old reason is gone rather than lingering
+    // beside a step that is about to be tried again.
+    expect(held.finishedAt).toBeNull();
+    expect(held.steps[1].error).toBeUndefined();
+    expect(held.steps[1].errorCode).toBeUndefined();
+  });
+
+  it("does nothing to a run that failed nothing", async () => {
+    window.localStorage.setItem(
+      KEY,
+      JSON.stringify({
+        id: "run-10", startedAt: 1, finishedAt: 2, owner: "gone", beatAt: 0,
+        steps: [{ key: "students:v1", kind: "students", id: "v1", name: "All", state: "done", seen: 7 }],
+      }),
+    );
+    const run = await load();
+
+    expect(run.retryFailed()).toBe(0);
+    expect(run.getRun()!.finishedAt).toBe(2);
+  });
+
+  it("will not reopen a run that is still going", async () => {
+    // Its failures may still be joined by others, and reopening under a driver mid-flight
+    // would have two things deciding what "waiting" means.
+    window.localStorage.setItem(
+      KEY,
+      JSON.stringify({
+        id: "run-11", startedAt: 1, finishedAt: null, owner: "gone", beatAt: 0,
+        steps: [{ key: "courses:f1", kind: "courses", id: "f1", name: "Courses", state: "failed", error: "no" }],
+      }),
+    );
+    const run = await load();
+
+    expect(run.retryFailed()).toBe(0);
+  });
+});

@@ -2,7 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Check, Loader2, RefreshCw, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
-import { abandonRun, clearRun, getRun, isRunning, startRun, subscribe, type SyncRun, type SyncStep } from "@/services/syncRun";
+import { abandonRun, clearRun, getRun, isRunning, resumeRun, retryFailed, startRun, subscribe, type SyncRun, type SyncStep } from "@/services/syncRun";
 import { describeAge } from "@/services/rosterStore";
 import { isExtensionInstalled } from "@/services/scenRosters";
 import { freshen, useSyncTargets } from "@/services/syncTargets";
@@ -241,6 +241,17 @@ export function PortalSyncButton() {
                   * runs it again, the other puts the report away, and after a run with
                   * trouble a coordinator wants both to be a deliberate choice.
                   */}
+                {failed.length ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (retryFailed()) void resumeRun(targets, () => freshen(client));
+                    }}
+                    className="text-xs font-semibold text-[#1f4e79] underline"
+                  >
+                    Retry the {failed.length} that failed
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   onClick={() => void begin()}

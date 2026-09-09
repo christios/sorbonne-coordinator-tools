@@ -178,6 +178,36 @@ export async function resumeRun(targets: SyncTarget[], onStep?: (step: SyncStep)
   return true;
 }
 
+/**
+ * Put the failed steps back to waiting, so a resume picks up only those.
+ *
+ * Deliberately NOT an automatic retry of a failed step. The retry that matters is per-CRN
+ * and already lives inside the timetable handler; re-running a whole step to recover one
+ * section is a hundred and sixty calls to fix one. And the failures that dominate — an
+ * expired portal session, a missing extension — are deterministic, so retrying only
+ * doubles the wait before saying the same thing. A button says who is retrying and when.
+ *
+ * `drive` finds the first `waiting` step with no new control flow at all.
+ */
+export function retryFailed(): number {
+  const held = read();
+  if (!held || held.finishedAt === null) return 0;
+  const failed = held.steps.filter((step) => step.state === "failed");
+  if (!failed.length) return 0;
+  write({
+    ...held,
+    finishedAt: null,
+    owner: TAB,
+    beatAt: Date.now(),
+    steps: held.steps.map((step) =>
+      step.state === "failed"
+        ? { ...step, state: "waiting", error: undefined, errorCode: undefined, startedAt: undefined }
+        : step,
+    ),
+  });
+  return failed.length;
+}
+
 /** Forget a finished run, so the button goes back to saying nothing happened. */
 export function clearRun(): void {
   const held = read();
