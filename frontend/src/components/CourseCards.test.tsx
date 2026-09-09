@@ -245,3 +245,66 @@ describe("the clash count says what it could not see", () => {
     expect(screen.queryByText(/sections have hours/)).toBeNull();
   });
 });
+
+describe("a section taught in more than one stretch", () => {
+  /** MATH-351: Grace Younes to late October, Sudarshan Shinde after it, a CRN each. */
+  const split = (over: Partial<database.Section> = {}): database.Section => ({
+    ...database.EMPTY_SECTION,
+    crn: "23436",
+    teacher: "Grace Younes",
+    hours: "15",
+    weeks: "1-8",
+    parts: [
+      { ...database.EMPTY_PART, part: 1, crn: "23436", teacher: "Grace Younes", hours: "15", weeks: "1-8" },
+      { ...database.EMPTY_PART, part: 2, crn: "24311", teacher: "Sudarshan Shinde", hours: "15", weeks: "7-14" },
+    ],
+    ...over,
+  });
+
+  /** The same catalogue, with TD 1's MATH001 replaced by the section given. */
+  const withSection = (section: database.Section): database.CohortCatalogue[] => [
+    {
+      ...CATALOGUES[0],
+      scopes: [
+        {
+          ...CATALOGUES[0].scopes[0],
+          groups: CATALOGUES[0].scopes[0].groups.map((group) =>
+            group.id === "td-1" ? { ...group, crns: { ...group.crns, "td-math": section } } : group,
+          ),
+        },
+      ],
+    },
+  ];
+
+  it("keeps both halves on one card, because they are one group teaching one course", async () => {
+    /*
+     * They were two cards briefly, and that split the group's seats, its roster and its
+     * fullness away from half of its own teaching. The card is the section; the parts are
+     * stretches of it.
+     */
+    vi.spyOn(database, "fetchCourseCards").mockResolvedValue(withSection(split()));
+
+    show();
+
+    const card = (await screen.findByLabelText(/Edit TD 1 MATH001, first part/)).closest("article") as HTMLElement;
+    expect(within(card).getByText("23436")).toBeTruthy();
+    expect(within(card).getByText("24311")).toBeTruthy();
+    expect(within(card).getByText("Grace Younes")).toBeTruthy();
+    expect(within(card).getByText("Sudarshan Shinde")).toBeTruthy();
+    // The group's own facts, once — not once per stretch.
+    expect(within(card).getAllByText(/SEATS/i)).toHaveLength(1);
+  });
+
+  it("opens the half that was pressed, not whichever came first", async () => {
+    // Each half is a different CRN with a different name and different weeks, so pressing
+    // the second must not open the first professor's row.
+    vi.spyOn(database, "fetchCourseCards").mockResolvedValue(withSection(split()));
+
+    show();
+    fireEvent.click(await screen.findByRole("button", { name: /Edit TD 1 MATH001, part 2/ }));
+
+    // The weeks are what tell the two halves apart in the form; the CRN is chosen from a
+    // list, so it has no display value of its own to read.
+    expect(await screen.findByDisplayValue("7-14")).toBeTruthy();
+  });
+});

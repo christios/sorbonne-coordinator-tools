@@ -7,10 +7,10 @@ import { SectionDialog } from "@/components/CourseCard";
 import { CourseRequestDialog, CourseRequestLine } from "@/components/CourseRequest";
 import { PortalTermLink } from "@/components/PortalTermLink";
 import { YearPill } from "@/components/YearPill";
-import { rowsPerPart, type Card, type CardSet, type SectionRow } from "@/services/courseCards";
+import type { Card, CardSet, SectionRow } from "@/services/courseCards";
 import { MUTUALIZED_WORDS, type ActiveTeacher, type TermCrns } from "@/services/portalLists";
 import type { GroupClash } from "@/services/publication";
-import { EMPTY_PART, type Cohort, type SectionPart } from "@/services/studentDatabase";
+import { EMPTY_PART, partsOf, type Cohort, type SectionPart } from "@/services/studentDatabase";
 
 const chip = "rounded-full px-2 py-0.5 text-xs font-semibold";
 
@@ -175,6 +175,114 @@ function asks(section: SectionPart): string {
 }
 
 /**
+ * One stretch of a section's teaching, inside the section's own card.
+ *
+ * For the ordinary section — one professor, first week to last — this is the whole body of
+ * the card and reads exactly as the card did before parts existed. For a course handed
+ * over at mid-semester it is one of two, told apart by a rule above it and by its own
+ * press: each half is a different CRN, a different name and different weeks, so each is
+ * opened and edited on its own.
+ */
+function PartLine({
+  part,
+  only,
+  first,
+  teacherName,
+  portal,
+  teacherDrift,
+  onEdit,
+  label,
+}: {
+  part: SectionPart;
+  /** True when the section has no other part, in which case nothing divides it. */
+  only: boolean;
+  first: boolean;
+  teacherName: (id: string) => string;
+  portal: TermCrns | null;
+  teacherDrift: Set<string>;
+  /** Absent for an undivided section: the card's own press already opens it. */
+  onEdit?: () => void;
+  label: string;
+}) {
+  const portalRow = portal && part.crn ? (portal.crns[part.crn] ?? null) : undefined;
+  const chosen = part.teacherId ? teacherName(part.teacherId) : "";
+  const drifted = Boolean(part.crn) && teacherDrift.has(part.crn);
+  const asked = asks(part);
+
+  const body = (
+    <>
+      {/* The CRN sits with its own half rather than on the card's title line, which can
+          only ever carry one of them. */}
+      {only ? null : (
+        <p className="flex items-baseline gap-2">
+          {part.crn ? (
+            <span className={`text-sm tabular-nums ${part.retired ? "text-[#c8d0da]" : "text-[#667085]"}`}>{part.crn}</span>
+          ) : (
+            <span className={`${chip} bg-[#fdf3f3] text-[#a6292f]`}>no CRN</span>
+          )}
+          {part.retired ? <span className={`${chip} bg-[#f8fafc] text-[#c8d0da]`}>retired</span> : null}
+        </p>
+      )}
+
+      <p className={`mt-1 truncate text-sm ${part.retired ? "text-[#c8d0da]" : ""}`}>
+        {chosen ? (
+          <span className={part.retired ? "" : "text-[#344054]"}>{chosen}</span>
+        ) : part.teacher ? (
+          <span className="text-[#667085]" title="Named on the row, but not chosen from Active teachers yet">
+            {part.teacher} <span className="text-[11px] text-[#98a2b3]">not confirmed</span>
+          </span>
+        ) : (
+          <span className="text-[#c8d0da]">nobody yet</span>
+        )}
+      </p>
+
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        <Figure label="hours" value={part.hours} dim={part.retired} />
+        <Figure label="expected" value={part.anticipated ? String(part.anticipated) : ""} dim={part.retired} />
+      </div>
+
+      {part.sessionsPerWeek || part.duration || part.weeks ? (
+        /* How the hours are spread. Detail, under the figures they add up to. */
+        <p className={`mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] tabular-nums ${part.retired ? "text-[#d5dce4]" : "text-[#98a2b3]"}`}>
+          {part.sessionsPerWeek ? <span>{part.sessionsPerWeek}/week</span> : null}
+          {part.duration ? <span>{part.duration} h each</span> : null}
+          {part.weeks ? <span>weeks {part.weeks}</span> : null}
+        </p>
+      ) : null}
+
+      {asked ? <p className="mt-1.5 text-xs leading-5 text-[#667085]">{asked}</p> : null}
+      {part.crn && portalRow === null ? (
+        <p className="mt-1 text-[11px] text-[#a6292f]">Not in the portal&apos;s list for this semester.</p>
+      ) : null}
+      {portalRow?.teacherName && drifted ? (
+        <p className="mt-1 text-[11px] text-[#98a2b3]">Portal: {portalRow.teacherName}</p>
+      ) : null}
+    </>
+  );
+
+  if (!onEdit) return body;
+  return (
+    <button
+      type="button"
+      aria-label={`Edit ${label}`}
+      /*
+       * Its own press, and it stops the card's — the card opens the first part, and a
+       * click on the second half must not open the first professor's row instead.
+       */
+      onClick={(event) => {
+        event.stopPropagation();
+        onEdit();
+      }}
+      className={`-mx-1 block w-full rounded px-1 py-1 text-left hover:bg-[#f6f8fb] ${
+        first ? "" : "mt-2 border-t border-[#eef1f5] pt-2"
+      }`}
+    >
+      {body}
+    </button>
+  );
+}
+
+/**
  * One section, as a block rather than a row of a wide table.
  *
  * The table this replaces had ten columns and scrolled sideways inside a card, which put
@@ -194,29 +302,34 @@ function SectionBlock({
   teacherName: (id: string) => string;
   portal: TermCrns | null;
   teacherDrift: Set<string>;
-  onEdit: () => void;
+  /** Which stretch of teaching to open — the section itself when it has only one. */
+  onEdit: (part: SectionPart | null) => void;
   onShowGroup?: () => void;
 }) {
-  const held = row.section ?? EMPTY_PART;
-  const parts = row.parts ?? 1;
+  const parts = partsOf(row.section);
+  const held = parts[0] ?? EMPTY_PART;
+  const split = parts.length > 1;
   const label = `${row.scope.code} ${row.group.label} ${row.course.code}`;
-  const portalRow = portal && held.crn ? (portal.crns[held.crn] ?? null) : undefined;
-  const chosen = held.teacherId ? teacherName(held.teacherId) : "";
-  const drifted = Boolean(held.crn) && teacherDrift.has(held.crn);
-  const asked = asks(held);
+  // Dim the whole card only when NOTHING it teaches is still running.
+  const dim = parts.length > 0 && parts.every((part) => part.retired);
 
   return (
     <article
       role="button"
       tabIndex={0}
-      onClick={onEdit}
+      /*
+       * Pressing the card edits its FIRST part, which for a section taught by one person
+       * is the section. A split section's other stretches are pressed on their own rows
+       * below, because each is a different CRN with a different name and different weeks.
+       */
+      onClick={() => onEdit(row.section ? held : null)}
       onKeyDown={(event) => {
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
-          onEdit();
+          onEdit(row.section ? held : null);
         }
       }}
-      aria-label={`Edit ${label}`}
+      aria-label={split ? `Edit ${label}, first part` : `Edit ${label}`}
       /*
        * A column, so the fullness bar can be held to the bottom edge.
        *
@@ -227,24 +340,23 @@ function SectionBlock({
        * is why it read as "some cards".
        */
       className={`group flex cursor-pointer flex-col overflow-hidden rounded-lg border px-3.5 py-3 text-left transition hover:border-[#b7c6d8] hover:shadow-sm ${
-        held.retired ? "border-dashed border-[#eef1f5] bg-[#fdfefe]" : "border-[#e4e8ef] bg-white"
+        dim ? "border-dashed border-[#eef1f5] bg-[#fdfefe]" : "border-[#e4e8ef] bg-white"
       }`}
     >
       <header className="flex items-baseline gap-2">
-        <h4 className={`text-sm font-semibold ${held.retired ? "text-[#c8d0da]" : "text-[#171717]"}`}>
+        <h4 className={`text-sm font-semibold ${dim ? "text-[#c8d0da]" : "text-[#171717]"}`}>
           {row.scope.code} {row.group.label}
         </h4>
         {/*
-          * Only when there is more than one, because "part 1 of 1" is noise on every card
-          * in the department. Two cards headed "CM A" with nothing to tell them apart
-          * would be worse than no parts at all.
+          * Said on the card, not on each part: it is one thing to know about the section
+          * before reading down it, and the parts below carry their own weeks and names.
           */}
-        {parts > 1 ? (
-          <span className={`${chip} bg-[#eef4fa] text-[#1f4e79]`} title="This section is taught in more than one stretch">
-            part {held.part} of {parts}
+        {split ? (
+          <span className={`${chip} bg-[#eef4fa] text-[#1f4e79]`} title="Taught in more than one stretch, by more than one person">
+            {parts.length} parts
           </span>
         ) : null}
-        {held.retired ? <span className={`${chip} bg-[#f8fafc] text-[#c8d0da]`}>retired</span> : null}
+        {!split && held.retired ? <span className={`${chip} bg-[#f8fafc] text-[#c8d0da]`}>retired</span> : null}
         {/*
           * The CRN, and nothing about it.
           *
@@ -253,8 +365,10 @@ function SectionBlock({
           * Foundation Year timetable has ever been imported, so most sections wore a red
           * mark for a file that was never uploaded. That check belongs on a page of its own.
           */}
+        {/* One CRN belongs on the title line; several belong beside the parts that own
+            them, where each sits with the name and the weeks it goes with. */}
         <span className="ml-auto inline-flex items-center gap-1 tabular-nums">
-          {held.crn ? (
+          {split ? null : held.crn ? (
             <span className={`text-sm ${held.retired ? "text-[#c8d0da]" : "text-[#667085]"}`}>{held.crn}</span>
           ) : held.retired ? null : (
             <span className={`${chip} bg-[#fdf3f3] text-[#a6292f]`}>no CRN</span>
@@ -287,45 +401,36 @@ function SectionBlock({
         <Pencil size={13} className="shrink-0 text-transparent group-hover:text-[#98a2b3]" aria-hidden="true" />
       </header>
 
-      <p className={`mt-1 truncate text-sm ${held.retired ? "text-[#c8d0da]" : ""}`}>
-        {chosen ? (
-          <span className={held.retired ? "" : "text-[#344054]"}>{chosen}</span>
-        ) : held.teacher ? (
-          <span className="text-[#667085]" title="Named on the row, but not chosen from Active teachers yet">
-            {held.teacher} <span className="text-[11px] text-[#98a2b3]">not confirmed</span>
-          </span>
-        ) : (
-          <span className="text-[#c8d0da]">nobody yet</span>
-        )}
-      </p>
+      {/*
+        * One block per stretch of teaching.
+        *
+        * Undivided when there is one — the block IS the section and reads exactly as it
+        * did before parts existed. Divided by a rule when there are two, each with the CRN,
+        * the name and the weeks that go together, so the card answers "who teaches this,
+        * and when" without the eye travelling between two cards to do it.
+        */}
+      {parts.map((part, index) => (
+        <PartLine
+          key={part.part}
+          part={part}
+          only={!split}
+          first={index === 0}
+          teacherName={teacherName}
+          portal={portal}
+          teacherDrift={teacherDrift}
+          onEdit={split ? () => onEdit(part) : undefined}
+          label={`${label}, part ${part.part}`}
+        />
+      ))}
 
+      {/*
+        * The group's own facts, said once however many stretches it is taught in: the same
+        * people sit in every part, so a seat count per part would read as twice the class.
+        */}
       <div className="mt-2 flex flex-wrap gap-1.5">
-        <Figure label="hours" value={held.hours} dim={held.retired} />
-        <Figure label="expected" value={held.anticipated ? String(held.anticipated) : ""} dim={held.retired} />
-        {/* Said only when there is one. A section nobody is excused from is the ordinary
-            case and does not need a figure to say so. */}
-        {row.exempt ? <Figure label="exempt" value={String(row.exempt)} dim={held.retired} /> : null}
-        {/* The seats are the group's, not this stretch's: the same people sit in both
-            halves, so saying it twice would read as twice as many students. */}
-        {held.part > 1 ? null : <Seats placed={row.group.assigned} seats={row.group.capacity} dim={held.retired} />}
+        {row.exempt ? <Figure label="exempt" value={String(row.exempt)} dim={dim} /> : null}
+        <Seats placed={row.group.assigned} seats={row.group.capacity} dim={dim} />
       </div>
-
-      {held.sessionsPerWeek || held.duration || held.weeks ? (
-        /* How the hours are spread. Detail, under the three figures they add up to. */
-        <p className={`mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] tabular-nums ${held.retired ? "text-[#d5dce4]" : "text-[#98a2b3]"}`}>
-          {held.sessionsPerWeek ? <span>{held.sessionsPerWeek}/week</span> : null}
-          {held.duration ? <span>{held.duration} h each</span> : null}
-          {held.weeks ? <span>weeks {held.weeks}</span> : null}
-        </p>
-      ) : null}
-
-      {asked ? <p className="mt-1.5 text-xs leading-5 text-[#667085]">{asked}</p> : null}
-      {held.crn && portalRow === null ? (
-        <p className="mt-1 text-[11px] text-[#a6292f]">Not in the portal&apos;s list for this semester.</p>
-      ) : null}
-      {portalRow?.teacherName && drifted ? (
-        <p className="mt-1 text-[11px] text-[#98a2b3]">Portal: {portalRow.teacherName}</p>
-      ) : null}
 
       {/*
         * Absorbs whatever height the grid row hands this card over its own content.
@@ -336,7 +441,7 @@ function SectionBlock({
         * Keeping Fullness's mt-3 preserves the 12px gap on every card.
         */}
       <span aria-hidden="true" className="flex-1" />
-      {held.part > 1 ? null : <Fullness placed={row.group.assigned} seats={row.group.capacity} dim={held.retired} />}
+      <Fullness placed={row.group.assigned} seats={row.group.capacity} dim={dim} />
     </article>
   );
 }
@@ -452,16 +557,19 @@ export function CourseDetail({
            * away, because it is not a thing to read.
            */
           /*
-           * A card per PART. A section handed from one professor to another at mid-semester
-           * is two stretches of teaching under a CRN each, and one card could only ever
-           * show one of them — which is how the second half came to live in a comment.
+           * A card per SECTION, with its parts inside it.
            *
-           * A section with one part yields one card, so nothing moves for almost every set.
+           * A section handed from one professor to another at mid-semester is two stretches
+           * of teaching under a CRN each. They were two cards for a while, and that was
+           * wrong: they are one group teaching one course, so two cards split the group's
+           * seats, its roster and its fullness away from half of its own teaching.
+           *
+           * Retired is read over every part, so a section whose first half is retired and
+           * whose second half still runs is still a section that teaches.
            */
-          const shown = set.rows.flatMap((row) => rowsPerPart(row));
-          const live = shown.filter((row) => row.section && !row.section.retired);
-          const retired = shown.filter((row) => row.section?.retired);
-          const spare = shown.filter((row) => !row.section);
+          const live = set.rows.filter((row) => row.section && !partsOf(row.section).every((part) => part.retired));
+          const retired = set.rows.filter((row) => row.section && partsOf(row.section).every((part) => part.retired));
+          const spare = set.rows.filter((row) => !row.section);
           return (
             <div key={set.scope.id}>
               <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
@@ -518,7 +626,7 @@ export function CourseDetail({
 
               <div className="grid gap-2.5 sm:grid-cols-2 2xl:grid-cols-3">
                 {live.map((row) => (
-                  <SectionBlock key={`${row.group.id}|${row.section?.part ?? 1}`} row={row} teacherName={teacherName} portal={portal} teacherDrift={teacherDrift} onEdit={() => setEditing(row)} onShowGroup={() => setShowingGroup(row)} />
+                  <SectionBlock key={row.group.id} row={row} teacherName={teacherName} portal={portal} teacherDrift={teacherDrift} onEdit={(part) => setEditing({ ...row, section: part, parts: partsOf(row.section).length })} onShowGroup={() => setShowingGroup(row)} />
                 ))}
               </div>
 
@@ -536,7 +644,7 @@ export function CourseDetail({
                   {showingRetired[set.scope.id] ? (
                     <div className="mt-2 grid gap-2.5 sm:grid-cols-2 2xl:grid-cols-3">
                       {retired.map((row) => (
-                        <SectionBlock key={`${row.group.id}|${row.section?.part ?? 1}`} row={row} teacherName={teacherName} portal={portal} teacherDrift={teacherDrift} onEdit={() => setEditing(row)} onShowGroup={() => setShowingGroup(row)} />
+                        <SectionBlock key={row.group.id} row={row} teacherName={teacherName} portal={portal} teacherDrift={teacherDrift} onEdit={(part) => setEditing({ ...row, section: part, parts: partsOf(row.section).length })} onShowGroup={() => setShowingGroup(row)} />
                       ))}
                     </div>
                   ) : null}
