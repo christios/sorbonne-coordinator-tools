@@ -418,7 +418,10 @@ class StudentDatabase:
                                    -- needs: the label alone cannot be joined to the CRNs the
                                    -- group holds, and "TD 1" means different groups in
                                    -- different sets and different semesters.
-                                   'groupId', g.id)
+                                   'groupId', g.id,
+                                   -- Whether the set is open to every cohort, so a move can
+                                   -- count what it would KEEP as well as what it would drop.
+                                   'openToAll', sc.open_to_all)
                                    ORDER BY sc.code, g.label) AS groups
                         FROM group_assignments a
                         JOIN scope_groups g ON g.id = a.group_id
@@ -446,12 +449,29 @@ class StudentDatabase:
             rows = connection.execute(text(query), parameters).mappings().all()
         return [_student(row, row["groups"] or []) for row in rows]
 
-    def set_cohort(self, student_ids: list[str], cohort_id: str | None) -> int:
+    def set_cohort(self, student_ids: list[str], cohort_id: str | None, keep_shared: bool = False) -> int:
         """Put students in a cohort, or take them out of one when `cohort_id` is None.
 
         Leaving a cohort drops any group the student held in it: those groups belong to
         that cohort's blocks, so keeping the assignment would place them in a matrix they
         are no longer part of.
+
+        `keep_shared` excepts the sets open to EVERY cohort — the languages. Those are not
+        the leaving cohort's matrix; they are the university's, and a student moving from
+        L1 to L2 does not thereby stop being in French A1. Dropping them was silent and
+        cost a placement nobody knew to redo.
+
+        Only `open_to_all` scopes may be kept. A group of a cohort-owned scope cannot be:
+        `_placeable` would refuse to admit the mover to that scope at all, so the row would
+        assert a membership the rest of the system denies.
+
+        The UPDATE below can collide in principle — `cohort_id` is in the primary key — but
+        not in practice, and the reason is worth writing down because it was nearly guarded
+        against instead: `assign` files a row under the STUDENT's own cohort rather than the
+        scope's owner, so a student never holds two rows for one scope and there is nothing
+        for the update to land on. `test_a_placement_is_filed_under_the_students_own_cohort`
+        is what keeps that true; if it ever goes red, this needs a delete-the-stale-row pass
+        before the update.
         """
         wanted = _clean_ids(student_ids)
         if not wanted:
@@ -460,11 +480,30 @@ class StudentDatabase:
             self.get_cohort(cohort_id)
         now = _now()
         with self.engine.begin() as connection:
+            # The languages are the university's sets, not the leaving cohort's, so they
+            # are the one thing a move may keep.
+            spare_shared = " AND NOT s.open_to_all" if keep_shared else ""
             connection.execute(
-                text("""DELETE FROM group_assignments WHERE student_id = ANY(:ids)
-                        AND cohort_id <> COALESCE(:cohort_id, '')"""),
+                text(
+                    "DELETE FROM group_assignments a USING cohort_scopes s "
+                    "WHERE s.id = a.scope_id AND a.student_id = ANY(:ids) "
+                    "AND a.cohort_id <> COALESCE(:cohort_id, '')" + spare_shared  # noqa: S608
+                ),
                 {"ids": wanted, "cohort_id": cohort_id},
             )
+            if keep_shared and cohort_id is not None:
+                # An UPDATE and not a bare keep: `cohort_id` is IN the primary key and
+                # `assignments_of` reads by it, so a row left filed under the old cohort is
+                # invisible to every screen of the new one — kept in the table and lost on
+                # the page, which is worse than deleting it.
+                connection.execute(
+                    text("""UPDATE group_assignments a
+                            SET cohort_id = :cohort_id, updated_at = :now
+                            FROM cohort_scopes s
+                            WHERE s.id = a.scope_id AND s.open_to_all
+                              AND a.student_id = ANY(:ids) AND a.cohort_id <> :cohort_id"""),
+                    {"ids": wanted, "cohort_id": cohort_id, "now": now},
+                )
             # The moment of placement is the baseline "what changed since we put them
             # here" is measured from, so it moves only when the cohort does: re-saving a
             # student into the cohort they are already in is not a placement.

@@ -33,13 +33,13 @@ describe("what a cohort move would throw away", () => {
       TERMS,
     );
 
-    expect(cost).toEqual({ students: 1, placements: 3, semesters: ["Semester 1", "Semester 2"] });
+    expect(cost).toEqual({ students: 1, placements: 3, semesters: ["Semester 1", "Semester 2"], retained: 0 });
   });
 
   it("costs nothing when they are already in the cohort being moved to", () => {
     const cost = costOfMove([student("A1", "fy", [td("term-1")])], ["A1"], "fy", TERMS);
 
-    expect(cost).toEqual({ students: 0, placements: 0, semesters: [] });
+    expect(cost).toEqual({ students: 0, placements: 0, semesters: [], retained: 0 });
   });
 
   it("costs nothing for a student nobody has placed", () => {
@@ -60,7 +60,7 @@ describe("what a cohort move would throw away", () => {
       TERMS,
     );
 
-    expect(cost).toEqual({ students: 1, placements: 1, semesters: ["Semester 1"] });
+    expect(cost).toEqual({ students: 1, placements: 1, semesters: ["Semester 1"], retained: 0 });
   });
 
   it("falls back to the semester's id when its name is not known", () => {
@@ -72,11 +72,11 @@ describe("what a cohort move would throw away", () => {
 
 describe("saying the cost", () => {
   it("says nothing at all when nothing is lost", () => {
-    expect(describeCost({ students: 0, placements: 0, semesters: [] })).toBe("");
+    expect(describeCost({ students: 0, placements: 0, semesters: [], retained: 0 })).toBe("");
   });
 
   it("names the one semester when there is only one", () => {
-    const said = describeCost({ students: 1, placements: 2, semesters: ["Semester 1"] });
+    const said = describeCost({ students: 1, placements: 2, semesters: ["Semester 1"], retained: 0 });
 
     expect(said).toContain("1 student would lose 2 group placements in Semester 1");
   });
@@ -86,9 +86,50 @@ describe("saying the cost", () => {
       students: 6,
       placements: 11,
       semesters: ["Semester 1", "Semester 2"],
+      retained: 0,
     });
 
     expect(said).toContain("6 students would lose 11 group placements across 2 semesters");
     expect(said).toContain("Semester 1, Semester 2");
+  });
+});
+
+/*
+ * The languages are the university's sets, not a cohort's. A student moving from L1 to L2
+ * does not thereby stop being in French A1 — the server keeps those placements now, and
+ * the dialog used to threaten them.
+ */
+describe("what a move keeps", () => {
+  const student = (over: Partial<Student> = {}): Student =>
+    ({
+      studentId: "A1", status: "in_portal", cohortId: "c1", cohortName: "L1", cohortSince: "",
+      firstSeenAt: "", lastSeenAt: "",
+      groups: [
+        { termId: "t1", scopeCode: "TD", groupLabel: "1", openToAll: false },
+        { termId: "t1", scopeCode: "LANG", groupLabel: "A1", openToAll: true },
+      ],
+      ...over,
+    }) as Student;
+
+  it("counts a shared placement as kept, not as lost", () => {
+    const cost = costOfMove([student()], ["A1"], "c2", {});
+
+    expect(cost.placements).toBe(1);
+    expect(cost.retained).toBe(1);
+  });
+
+  it("says so, so the warning does not overstate the damage", () => {
+    const said = describeCost(costOfMove([student()], ["A1"], "c2", { t1: "Semester 1" }));
+
+    expect(said).toMatch(/would lose 1 group placement/);
+    expect(said).toMatch(/1 placement in sets open to every cohort — the languages — is kept/);
+  });
+
+  it("costs nothing at all when every placement is a shared one", () => {
+    // Nothing is lost, so nothing is said: a dialog that appears to reassure gets clicked
+    // through, and this move genuinely needs no confirmation.
+    const only = student({ groups: [{ termId: "t1", scopeCode: "LANG", groupLabel: "A1", openToAll: true }] });
+
+    expect(describeCost(costOfMove([only], ["A1"], "c2", {}))).toBe("");
   });
 });

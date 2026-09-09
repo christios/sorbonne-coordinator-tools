@@ -516,7 +516,8 @@ describe("StudentRoster", () => {
 
     fireEvent.click(within(dialog).getByRole("button", { name: "Move anyway" }));
     await waitFor(() => expect(move).toHaveBeenCalled());
-    expect(move.mock.calls[0]).toEqual([["A001"], "cohort-2"]);
+    // `true` is keepShared: the languages are the university's sets, not the cohort's.
+    expect(move.mock.calls[0]).toEqual([["A001"], "cohort-2", true]);
   });
 
   it("lets the move be called off, and nothing is written", async () => {
@@ -556,7 +557,7 @@ describe("StudentRoster", () => {
     fireEvent.click(screen.getByRole("button", { name: /Move 1/ }));
 
     await waitFor(() => expect(move).toHaveBeenCalled());
-    expect(move.mock.calls[0]).toEqual([["A001"], null]);
+    expect(move.mock.calls[0]).toEqual([["A001"], null, true]);
   });
 
   it("selects everyone shown, respecting the filter", async () => {

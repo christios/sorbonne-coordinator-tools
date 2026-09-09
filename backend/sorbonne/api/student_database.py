@@ -105,6 +105,9 @@ class CohortAssignment(BaseModel):
 
     student_ids: list[str] = Field(default_factory=list, max_length=20_000, alias="studentIds")
     cohort_id: str | None = Field(default=None, alias="cohortId")
+    #: Keep the placements in sets open to EVERY cohort — the languages, which are not the
+    #: leaving cohort's matrix. Defaults to false so every existing caller is unchanged.
+    keep_shared: bool = Field(default=False, alias="keepShared")
 
 
 class FilterInput(BaseModel):
@@ -317,7 +320,7 @@ async def sync_view(view_id: str, body: SyncInput, database: StudentDatabase = D
 @router.post("/students/cohort")
 async def set_cohort(body: CohortAssignment, database: StudentDatabase = Depends(get_database)) -> dict[str, int]:
     try:
-        return {"moved": database.set_cohort(body.student_ids, body.cohort_id)}
+        return {"moved": database.set_cohort(body.student_ids, body.cohort_id, body.keep_shared)}
     except CohortNotFound as exc:
         raise _missing(exc, "cohort") from exc
 

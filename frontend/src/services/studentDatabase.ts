@@ -444,7 +444,14 @@ export type Student = {
   lastSeenAt: string;
   /** The blocks this student sits in, labelled — one entry per (semester, block). */
   /** `groupId` is what the Meets column joins on: a label cannot find a group's sections. */
-  groups: { termId: string; scopeCode: string; groupLabel: string; groupId?: string }[];
+  groups: {
+    termId: string;
+    scopeCode: string;
+    groupLabel: string;
+    groupId?: string;
+    /** A set open to every cohort — the languages — which a move may keep. */
+    openToAll?: boolean;
+  }[];
 };
 
 export type SyncReport = {
@@ -508,8 +515,13 @@ export async function syncView(viewId: string, studentIds: string[], signal?: Ab
 }
 
 /** Put students in a cohort, or take them out of whichever one they are in with null. */
-export async function setCohort(studentIds: string[], cohortId: string | null): Promise<number> {
-  const body = await send<{ moved: number }>(`${BASE}/students/cohort`, "POST", { studentIds, cohortId });
+export async function setCohort(
+  studentIds: string[],
+  cohortId: string | null,
+  /** Keep the placements in sets open to every cohort. The languages are not the cohort's. */
+  keepShared = false,
+): Promise<number> {
+  const body = await send<{ moved: number }>(`${BASE}/students/cohort`, "POST", { studentIds, cohortId, keepShared });
   return body.moved;
 }
 

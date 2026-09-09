@@ -325,7 +325,7 @@ export function StudentRoster({
   const createAndMove = useMutation({
     mutationFn: async () => {
       const created = await createCohort({ name: newName.trim() });
-      await setCohort([...selected], created.id);
+      await setCohort([...selected], created.id, true);
       return created;
     },
     onSuccess: () => {
@@ -343,7 +343,9 @@ export function StudentRoster({
 
   const move = useMutation({
     mutationFn: ({ ids, cohortId }: { ids: string[]; cohortId: string | null }) =>
-      setCohort(ids, cohortId),
+      // Keeping the shared sets: the languages are the university's, not the cohort's, and
+      // dropping them was a silent loss nobody knew to redo.
+      setCohort(ids, cohortId, true),
     onSuccess: () => {
       setSelected(new Set());
       setConfirmMove(null);

@@ -534,7 +534,9 @@ def test_a_student_carries_the_groups_they_are_in_by_name(client: TestClient, co
 
     # The id travels too, and only for the Meets column: the label alone cannot be joined
     # to the CRNs a group holds, and "TD 1" is a different group in a different set.
-    assert held[STUDENTS[0]] == [{"termId": "", "scopeCode": "TD", "groupLabel": "1", "groupId": group_id}]
+    assert held[STUDENTS[0]] == [
+        {"termId": "", "scopeCode": "TD", "groupLabel": "1", "groupId": group_id, "openToAll": False}
+    ]
     assert held[STUDENTS[1]] == []
 
 
@@ -905,3 +907,102 @@ def test_our_own_planning_cannot_put_a_student_in_two_groups_of_one_set(
 
     [held] = [row["groups"] for row in students_of(client) if row["studentId"] == STUDENTS[0]]
     assert [group["groupLabel"] for group in held] == ["2"]
+
+
+def shared_block(client: TestClient, cohort_id: str) -> tuple[str, str]:
+    """A set open to every cohort — the languages — with one group in it."""
+    scope = client.post(
+        f"/api/v1/student-database/cohorts/{cohort_id}/scopes",
+        json={"code": "LANG", "openToAll": True},
+    ).json()
+    group = client.post(
+        f"/api/v1/student-database/scopes/{scope['id']}/groups", json={"label": "A1"}
+    ).json()
+    return scope["id"], group["id"]
+
+
+def move(client: TestClient, student_ids: list[str], cohort_id: str | None, keep_shared: bool = False):
+    return client.post(
+        "/api/v1/student-database/students/cohort",
+        json={"studentIds": student_ids, "cohortId": cohort_id, "keepShared": keep_shared},
+    )
+
+
+def test_a_move_drops_the_leaving_cohorts_groups_but_may_keep_a_shared_one(
+    client: TestClient, cohort_id: str, view_id: str
+):
+    """The languages are the university's set, not the cohort's.
+
+    A student moving from L1 to L2 does not thereby stop being in French A1, and dropping
+    it was silent — a placement nobody knew to redo.
+    """
+    own_scope, own_group = block_with_a_group(client, cohort_id)
+    lang_scope, lang_group = shared_block(client, cohort_id)
+    other = client.post("/api/v1/student-database/cohorts", json={"name": "L2"}).json()["id"]
+    in_cohort(client, view_id, cohort_id, STUDENTS)
+    place(client, own_scope, STUDENTS[:1], own_group)
+    place(client, lang_scope, STUDENTS[:1], lang_group)
+
+    assert move(client, STUDENTS[:1], other, keep_shared=True).status_code == status.HTTP_200_OK
+
+    [held] = [row["groups"] for row in students_of(client) if row["studentId"] == STUDENTS[0]]
+    # The cohort's own group is gone; the language group came along.
+    assert [group["scopeCode"] for group in held] == ["LANG"]
+
+
+def test_a_shared_placement_survives_a_move_back_to_a_cohort_it_once_held(
+    client: TestClient, cohort_id: str, view_id: str
+):
+    """A→B→A. The primary key is (cohort, student, scope), so a bare UPDATE would collide.
+
+    Reachable by anybody who corrects a move, and it would have been an IntegrityError in
+    front of a coordinator rather than a message.
+    """
+    lang_scope, lang_group = shared_block(client, cohort_id)
+    other = client.post("/api/v1/student-database/cohorts", json={"name": "L2"}).json()["id"]
+    in_cohort(client, view_id, cohort_id, STUDENTS)
+    place(client, lang_scope, STUDENTS[:1], lang_group)
+
+    assert move(client, STUDENTS[:1], other, keep_shared=True).status_code == status.HTTP_200_OK
+    assert move(client, STUDENTS[:1], cohort_id, keep_shared=True).status_code == status.HTTP_200_OK
+
+    [held] = [row["groups"] for row in students_of(client) if row["studentId"] == STUDENTS[0]]
+    assert [group["scopeCode"] for group in held] == ["LANG"]
+
+
+def test_a_move_that_does_not_ask_to_keep_shared_still_drops_everything(
+    client: TestClient, cohort_id: str, view_id: str
+):
+    """Every existing caller is byte-identical, which is the point of the default."""
+    lang_scope, lang_group = shared_block(client, cohort_id)
+    other = client.post("/api/v1/student-database/cohorts", json={"name": "L2"}).json()["id"]
+    in_cohort(client, view_id, cohort_id, STUDENTS)
+    place(client, lang_scope, STUDENTS[:1], lang_group)
+
+    move(client, STUDENTS[:1], other)
+
+    [held] = [row["groups"] for row in students_of(client) if row["studentId"] == STUDENTS[0]]
+    assert held == []
+
+
+def test_a_placement_is_filed_under_the_students_own_cohort(client: TestClient, cohort_id: str, view_id: str):
+    """And not under the cohort that happens to own the set — which is what makes moves safe.
+
+    `group_assignments` is keyed on (cohort, student, scope). If a placement were filed
+    under the SET's owner, a student in another cohort would end up with two rows for one
+    scope, and `set_cohort(keep_shared=True)` would collide on the primary key while moving
+    them — an IntegrityError in front of a coordinator rather than a message. It is not,
+    and this is what says so.
+    """
+    lang_scope, lang_group = shared_block(client, cohort_id)
+    other = client.post("/api/v1/student-database/cohorts", json={"name": "L2"}).json()["id"]
+    in_cohort(client, view_id, cohort_id, STUDENTS)
+    place(client, lang_scope, STUDENTS[:1], lang_group)
+
+    # Moved out and placed again from there: the row follows the student, not the set.
+    move(client, STUDENTS[:1], other, keep_shared=True)
+    place(client, lang_scope, STUDENTS[:1], lang_group)
+    assert move(client, STUDENTS[:1], cohort_id, keep_shared=True).status_code == status.HTTP_200_OK
+
+    [held] = [row["groups"] for row in students_of(client) if row["studentId"] == STUDENTS[0]]
+    assert [group["scopeCode"] for group in held] == ["LANG"]

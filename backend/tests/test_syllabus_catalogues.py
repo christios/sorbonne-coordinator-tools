@@ -1,6 +1,9 @@
 import os
 from uuid import uuid4
 
+import pytest
+from sqlalchemy import create_engine, text
+
 from sorbonne.services.syllabus_catalogue_store import (
     CatalogueNotFound,
     CatalogueRevisionConflict,
@@ -16,6 +19,25 @@ TEST_DATABASE_URL = os.getenv(
 
 def make_store() -> SyllabusCatalogueStore:
     return SyllabusCatalogueStore(TEST_DATABASE_URL)
+
+
+@pytest.fixture(autouse=True)
+def forget_what_the_tests_made() -> None:
+    """Take the rows these tests create back out again.
+
+    They never did, and it went unnoticed for as long as the pile stayed small: `list`
+    returns at most a hundred items, so once three hundred abandoned programmes had built
+    up over many runs the SEEDED one fell off the end and a test about seed data started
+    failing for reasons nothing to do with seed data.
+
+    Only the ids these tests make — uuids. The seeded rows have readable ids and are the
+    fixture, not the litter.
+    """
+    yield
+    with create_engine(TEST_DATABASE_URL).begin() as connection:
+        connection.execute(
+            text("DELETE FROM syllabus_catalogue_items WHERE id ~ '^[0-9a-f-]{36}$'")
+        )
 
 
 def test_creates_lists_and_retires_a_person_without_removing_it_from_history() -> None:
