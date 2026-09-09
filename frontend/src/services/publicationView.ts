@@ -109,6 +109,25 @@ export function verdictFor(
   return validation[`${groupId}|${courseCode}`];
 }
 
+/**
+ * How much a CRN's verdict is our problem. Three answers, not two.
+ *
+ * `mismatched` is a fault of ours: the CRN is real and belongs to another course, which is
+ * a typo in the planning and wants finding. `unknown` is not — the registrar's timetable
+ * says nothing about that section, because the sweep has not been asked about it or no
+ * room has been booked for it — and since the sweep replaced the uploaded file that is
+ * true of twenty-seven live sections, not one of them a mistake.
+ *
+ * Drawing the two alike sent somebody looking for a typo that was not there, which is the
+ * particular cost of an alarm that cannot be cleared: it teaches people to ignore alarms.
+ */
+export type VerdictTone = "settled" | "unasked" | "fault";
+
+export function toneOf(verdict?: CrnVerdict): VerdictTone {
+  if (!verdict || verdict.status === "matched") return "settled";
+  return verdict.status === "unknown" ? "unasked" : "fault";
+}
+
 /** Cohorts worth showing first: the ones with something wrong. */
 export function sortCohorts(cohorts: CohortReadiness[]): CohortReadiness[] {
   return [...cohorts].sort((left, right) => {

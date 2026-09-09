@@ -1,14 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { CohortReadiness, Publication, PublicationPreview } from "@/services/publication";
-import {
-  blockersOf,
-  describeChange,
-  isDestructive,
-  sortCohorts,
-  unplacedIn,
-  verdictFor,
-} from "@/services/publicationView";
+import { blockersOf, describeChange, isDestructive, sortCohorts, toneOf, unplacedIn, verdictFor } from "@/services/publicationView";
 
 function cohort(overrides: Partial<CohortReadiness> = {}): CohortReadiness {
   return {
@@ -181,5 +174,30 @@ describe("the students nobody has placed", () => {
 
   it("says nothing about a cohort this semester has no blocks for", () => {
     expect(unplacedIn(held({ CM: ["A1"] }), "another-cohort").total).toBe(0);
+  });
+});
+
+/*
+ * Three verdicts on a CRN, and only one of them is ours to fix.
+ *
+ * `mismatched` is a typo in our planning: the CRN is real and belongs to another course.
+ * `unknown` is not — the registrar's timetable says nothing about that section, because
+ * the sweep has not been asked about it or no room is booked — and since the sweep
+ * replaced the uploaded file that is true of twenty-seven live sections, none of them a
+ * mistake. Drawing them alike sent somebody hunting a typo that was not there, which is
+ * the particular cost of an alarm nobody can clear: it teaches people to ignore alarms.
+ */
+describe("how much a CRN's verdict is our problem", () => {
+  it("does not call an untimetabled section a fault", () => {
+    expect(toneOf({ status: "unknown", detail: "No timetable for CRN 23223 yet" })).toBe("unasked");
+  });
+
+  it("does call a CRN belonging to another course one", () => {
+    expect(toneOf({ status: "mismatched", detail: "CRN 23223 is MATH-011, not MATH-001" })).toBe("fault");
+  });
+
+  it("says nothing about a section the timetable agrees with, or one it has no verdict on", () => {
+    expect(toneOf({ status: "matched", detail: "" })).toBe("settled");
+    expect(toneOf(undefined)).toBe("settled");
   });
 });

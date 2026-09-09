@@ -1,5 +1,5 @@
 import { useMutation } from "@tanstack/react-query";
-import { AlertTriangle, Check, ChevronDown, ChevronRight, Pencil, Wand2 } from "lucide-react";
+import { AlertTriangle, Check, ChevronDown, ChevronRight, HelpCircle, Pencil, Wand2 } from "lucide-react";
 import { useState } from "react";
 
 import { FillBlock, type FillReport } from "@/components/FillBlock";
@@ -8,7 +8,7 @@ import { SelectMenu } from "@/components/SelectMenu";
 import type { Card, CardSet, SectionRow } from "@/services/courseCards";
 import { MUTUALIZED_WORDS, type ActiveTeacher, type TermCrns } from "@/services/portalLists";
 import type { CrnVerdict, GroupClash } from "@/services/publication";
-import { verdictFor } from "@/services/publicationView";
+import { toneOf, verdictFor, type VerdictTone } from "@/services/publicationView";
 import { EMPTY_SECTION, setGroupCrn, updateSection, type Cohort, type Section } from "@/services/studentDatabase";
 
 const KIND_WORD = { shared: "own groups", nested: "nested" } as const;
@@ -247,7 +247,10 @@ function SectionLine({
   const chosen = held.teacherId ? teacherName(held.teacherId) : "";
   const dim = held.retired ? "text-[#98a2b3]" : "";
   const asked = asks(held);
-  const empty = <span className="text-[#c8d0da]">—</span>;
+  /** Grey for what nobody has asked yet; red only for what is ours to fix. */
+const TONE: Record<VerdictTone, string> = { settled: "", unasked: "text-[#98a2b3]", fault: "text-[#a6292f]" };
+
+const empty = <span className="text-[#c8d0da]">—</span>;
 
   return (
     <tr
@@ -266,10 +269,21 @@ function SectionLine({
       <td className="py-2 pr-3 tabular-nums">
         {held.crn ? (
           <span className="inline-flex items-center gap-1">
-            <span className={verdict && verdict.status !== "matched" ? "text-[#a6292f]" : ""}>{held.crn}</span>
+            {/*
+              * Three verdicts, not two, and only one of them is our fault.
+              *
+              * `mismatched` is: the CRN is real and belongs to another course, which is a
+              * typo in our planning. `unknown` is not — nobody has asked the registrar
+              * about that section yet, or it has no room booked — and drawing it in the
+              * same red as a typo asks a coordinator to go and fix something they have not
+              * done wrong. Twenty-seven sections wear it today, none of them faults.
+              */}
+            <span className={TONE[toneOf(verdict)]}>{held.crn}</span>
             {verdict ? (
               verdict.status === "matched" ? (
                 <Check size={13} className="text-[#2f6b3d]" aria-label="In the timetable" />
+              ) : toneOf(verdict) === "unasked" ? (
+                <HelpCircle size={13} className="text-[#98a2b3]" aria-label={verdict.detail} />
               ) : (
                 <AlertTriangle size={13} className="text-[#a6292f]" aria-label={verdict.detail} />
               )

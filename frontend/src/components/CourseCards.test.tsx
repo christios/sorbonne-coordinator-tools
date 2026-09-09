@@ -196,3 +196,4 @@ describe("the course cards", () => {
     expect(screen.getByText("2 courses, 1 shown · 1 cohort-semester")).toBeTruthy();
   });
 });
+

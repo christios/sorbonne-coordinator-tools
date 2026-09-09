@@ -155,6 +155,25 @@ def test_a_crn_the_timetable_does_not_hold_is_flagged():
     assert "99999" in verdict["detail"]
 
 
+def test_an_untimetabled_crn_is_not_accused_of_being_wrong():
+    """The timetable is the registrar's, so its silence is a gap in what we were told.
+
+    Twenty-seven live sections wear this today and not one of them is a fault: the sweep
+    has not been asked about them, or the registrar has booked no room yet. "Not in this
+    semester's timetable" read as an accusation against a perfectly correct CRN, and sent
+    a coordinator looking for a typo that was not there.
+    """
+    stray = Group(id="g", scope_id="s-cm", label="A", crns={"MATH-001": "99999"})
+    verdict = validate(groups=[stray], sections=SECTIONS)["g|MATH-001"]
+
+    assert "No timetable for CRN 99999 yet" in verdict["detail"]
+    assert "not in this semester" not in verdict["detail"].lower()
+    # The other direction is still said as ours, because a typo landing on a real section
+    # of the wrong subject IS our mistake to fix.
+    wrong = Group(id="g", scope_id="s-cm", label="A", crns={"MATH-001": "23652"})
+    assert "is MATH-011" in validate(groups=[wrong], sections=SECTIONS)["g|MATH-001"]["detail"]
+
+
 def test_a_crn_belonging_to_a_different_course_is_the_subtler_failure():
     """A typo that lands on a real section of the wrong subject would otherwise pass."""
     wrong = Group(id="g", scope_id="s-cm", label="A", crns={"MATH-001": "23652"})

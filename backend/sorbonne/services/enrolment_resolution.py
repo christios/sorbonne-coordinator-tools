@@ -130,10 +130,16 @@ def readiness(  # noqa: PLR0913 - one keyword per thing a cohort needs to be rea
 def validate(*, groups: list[Group], sections: list[Section]) -> dict[str, dict[str, Any]]:
     """Each group's CRNs against the timetable: `"group id|course code" -> verdict`.
 
-    A CRN that is not in the timetable cannot enrol anybody, so it is the difference between
-    a block that works and one that silently teaches nobody. A CRN that *is* there but under
-    a different course code is the subtler failure — a typo that lands on a real section of
-    the wrong subject — and is worth naming separately.
+    The timetable is the registrar's own, swept section by section. So a CRN missing from
+    it means one of two quite different things — the section has no room booked yet, or
+    nobody has asked the registrar about it — and neither is "this CRN is wrong". The
+    sentence says so: an absence here is a gap in what we have been told, not a fault in
+    the planning, and the older wording ("not in this semester's timetable") read as an
+    accusation against a CRN that is very often perfectly correct.
+
+    A CRN that *is* there but under a different course code is the subtler failure — a typo
+    that lands on a real section of the wrong subject — and that one IS a fault of ours,
+    which is why it is named separately and said in the other direction.
     """
     by_crn = {section.crn: section for section in sections}
     verdicts: dict[str, dict[str, Any]] = {}
@@ -148,7 +154,10 @@ def validate(*, groups: list[Group], sections: list[Section]) -> dict[str, dict[
             if section is None:
                 verdicts[key] = {
                     "status": "unknown",
-                    "detail": f"CRN {crn} is not in this semester's timetable.",
+                    "detail": (
+                        f"No timetable for CRN {crn} yet — the registrar has not been asked "
+                        "about it, or has booked no room for it."
+                    ),
                 }
                 continue
             if not _codes_agree(section.code, course_code):
