@@ -176,6 +176,7 @@ function SourceFilter({
 export function CohortsPage({
   cohorts,
   focus,
+  onFocusTaken,
 }: {
   cohorts: Cohort[];
   /**
@@ -184,6 +185,8 @@ export function CohortsPage({
    * "6 in no group" leads.
    */
   focus?: { cohortId: string; studentIds: string[] } | null;
+  /** Said once those students are on screen, so the handover is not made twice. */
+  onFocusTaken?: () => void;
 }) {
   /*
    * The cohort, shared with every other page that asks for one.
@@ -643,6 +646,7 @@ export function CohortsPage({
           cohorts={cohorts}
           viewId=""
           preselect={cohortId === focus?.cohortId ? focus.studentIds : []}
+          onPreselectTaken={onFocusTaken}
           scope={{ cohortId }}
           warningsFor={warningsFor}
           onDismissWarning={onDismissWarning}

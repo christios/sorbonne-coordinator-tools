@@ -81,6 +81,7 @@ export function StudentRoster({
   cohorts,
   viewId,
   preselect = [],
+  onPreselectTaken,
   filterCohort = "",
   scope,
   warningsFor,
@@ -91,6 +92,15 @@ export function StudentRoster({
   viewId: string;
   /** Ids another page sent here — the table opens showing everybody, with these ticked. */
   preselect?: string[];
+  /**
+   * Said once those ids are on screen, so the page that sent them can forget that it did.
+   *
+   * A handover is an arrival, not a setting. Without this the sender goes on holding the
+   * list for the rest of the session, and every table built from it opens narrowed —
+   * including the one you get back by leaving the cohort and returning to it, which is
+   * how a coordinator meets a handover they answered ten minutes ago.
+   */
+  onPreselectTaken?: () => void;
   /** A cohort whose members to show — arrives as an ordinary filter chip, clearable. */
   filterCohort?: string;
   /**
@@ -307,6 +317,8 @@ export function StudentRoster({
      * set, so the view is out of the picture with or without this.
      */
     if (!scope) setEverywhere(true);
+    // Delivered. The ids live in `focus` from here on, which "Show everyone again" clears.
+    onPreselectTaken?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sent]);
 

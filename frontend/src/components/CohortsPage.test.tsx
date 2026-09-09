@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CohortsPage } from "@/components/CohortsPage";
@@ -367,6 +368,32 @@ describe("students sent over from Groups & CRNs", () => {
     expect(screen.queryByText("Karim Nasser")).toBeNull();
   });
 
+  /**
+   * The page's owner, in miniature: it holds the handover, and lets go of it when the page
+   * says the students are on screen. StudentDatabase is the real one.
+   */
+  function Sender({ ids }: { ids: string[] }) {
+    const [focus, setFocus] = useState<{ cohortId: string; studentIds: string[] } | null>({
+      cohortId: "c1",
+      studentIds: ids,
+    });
+    return <CohortsPage cohorts={[L1, L2]} focus={focus} onFocusTaken={() => setFocus(null)} />;
+  }
+
+  const renderSent = (ids: string[]) => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <Sender ids={ids} />
+      </QueryClientProvider>,
+    );
+  };
+
+  const chooseCohort = async (name: RegExp) => {
+    fireEvent.click(screen.getByRole("combobox", { name: "Cohort" }));
+    fireEvent.click(await screen.findByRole("option", { name }));
+  };
+
   it("comes back to the cohort, not to every student in the database", async () => {
     /*
      * The arriving selection used to widen the search as well as narrow it — harmless when
@@ -383,6 +410,39 @@ describe("students sent over from Groups & CRNs", () => {
     expect(await screen.findByText("Karim Nasser")).toBeTruthy();
     // A002 is this cohort's. A003 is L2's, and must not appear.
     expect(screen.queryByText("Rana Aziz")).toBeNull();
+  });
+
+  it("is answered once, not every time the coordinator comes back to the cohort", async () => {
+    /*
+     * The handover used to be kept by the page above for the rest of the session, and the
+     * table is keyed on the cohort — so leaving L1 and returning built a fresh table out
+     * of the same handful, narrowed again, with "Show everyone again" beside it. The
+     * coordinator answered the same arrival on every pass through their cohorts.
+     */
+    await twoCohorts();
+
+    renderSent(["A001"]);
+    await screen.findByText("Amira Haddad");
+    fireEvent.click(screen.getByRole("button", { name: /Show everyone again/ }));
+    await screen.findByText("Karim Nasser");
+
+    await chooseCohort(/L2 Maths/);
+    await screen.findByText("Rana Aziz");
+    await chooseCohort(/L1 Maths/);
+
+    expect(await screen.findByText("Karim Nasser")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Show everyone again/ })).toBeNull();
+  });
+
+  it("still narrows on arrival, which is the whole point of the handover", async () => {
+    // The fix is that the sender lets go, not that nothing happens: the students it sent
+    // must still be the only ones on screen when the page opens.
+    await twoCohorts();
+
+    renderSent(["A001"]);
+
+    expect(await screen.findByText("Amira Haddad")).toBeTruthy();
+    await waitFor(() => expect(screen.queryByText("Karim Nasser")).toBeNull());
   });
 });
 

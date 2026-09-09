@@ -175,7 +175,12 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
     window.history.replaceState(null, "", `#${locationFor("database", next)}`);
   }, []);
   const client = useQueryClient();
-  // Set when the Groups page sends somebody here: the Students table opens on exactly them.
+  /*
+   * Set when the Groups page sends somebody here: the Students table opens on exactly them.
+   *
+   * Cleared again the moment the table has them, because it is a handover and not a
+   * setting — see StudentRoster's `onPreselectTaken`.
+   */
   const [preselect, setPreselect] = useState<string[]>([]);
   // Set when a cohort's member count is pressed: the Students table filters to that cohort.
   const [filterCohort] = useState("");
@@ -191,7 +196,9 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
   const [pageHeader, setPageHeader] = useState<HTMLDivElement | null>(null);
   // The teacher whose record is open, whichever list or page asked for it.
   const [teacherRecord, setTeacherRecord] = useState<TeacherRef | null>(null);
-  // A cohort and some of its students, when Groups & CRNs sends them to be placed.
+  // A cohort and some of its students, when Groups & CRNs sends them to be placed. Held
+  // only until the cohort's table has them; kept longer, it narrowed that cohort again
+  // every time the coordinator came back round to it.
   const [cohortFocus, setCohortFocus] = useState<{ cohortId: string; studentIds: string[] } | null>(null);
   // The shared rules sit at the page's title, apart from any one cohort's.
   const [sharedRulesOpen, setSharedRulesOpen] = useState(false);
@@ -301,6 +308,7 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
                 cohorts={knownCohorts}
                 viewId={viewId}
                 preselect={preselect}
+                onPreselectTaken={() => setPreselect([])}
                 filterCohort={filterCohort}
               />
             ) : (
@@ -326,7 +334,7 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
           ) : null}
           {page === "groups" && cohorts.isLoading ? <ScreenLoading label="Loading cohorts…" /> : null}
           {page === "cohorts" && !cohorts.isLoading ? (
-            <CohortsPage cohorts={knownCohorts} focus={cohortFocus} />
+            <CohortsPage cohorts={knownCohorts} focus={cohortFocus} onFocusTaken={() => setCohortFocus(null)} />
           ) : null}
           {page === "cohorts" ? (
             <DiscrepancyRulesEditor open={sharedRulesOpen} scope={{ kind: "shared" }} onClose={() => setSharedRulesOpen(false)} />
