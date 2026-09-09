@@ -33,6 +33,20 @@ window.addEventListener('message', event => {
     case 'schema':
       outgoing = { type: 'schema', kind: String(req.kind || 'students') };
       break;
+    case 'timetable':
+      /*
+       * Deliberately no category. The service worker will only ask the portal about a
+       * CRN, and refuses a request that names anything else — but a category the page
+       * could set would be a category an injected script could set, and Student or
+       * Teacher returns a named person's whole week. It is not relayed, so it cannot be
+       * asked for from here at all.
+       */
+      outgoing = {
+        type: 'timetable',
+        termCode: String(req.termCode || ''),
+        crns: Array.isArray(req.crns) ? req.crns.map(String) : []
+      };
+      break;
     case 'fetch':
       // A composed filter may cross now, but the service worker checks every field and
       // value against the schema it learned from the portal before it sends anything.
@@ -77,9 +91,24 @@ chrome.runtime.onMessage.addListener(message => {
   );
 });
 
-// Announce availability for pages that are already listening. Pages that load
-// later should use ping() instead of relying on catching this.
+/*
+ * Announce availability for pages that are already listening. Pages that load
+ * later should use ping() instead of relying on catching this.
+ *
+ * The flavour travels with it because a coordinator who is also developing has both
+ * builds installed, and "which extension answered" is otherwise unanswerable from the
+ * page — the two have different ids on every machine and the same everything else. Each
+ * build matches one platform origin, so in practice only one can reply here; saying so
+ * out loud is what makes that checkable rather than assumed.
+ */
 window.postMessage(
-  { channel: CHANNEL, dir: 'hello', version: chrome.runtime.getManifest().version },
+  {
+    channel: CHANNEL,
+    dir: 'hello',
+    version: chrome.runtime.getManifest().version,
+    // Set by flavour.js, which build.mjs writes and lists ahead of this script. Absent
+    // when the folder is loaded unbuilt, which is a thing worth being able to see.
+    flavour: (globalThis.SCEN_FLAVOUR || {}).flavour || 'unbuilt'
+  },
   ORIGIN
 );

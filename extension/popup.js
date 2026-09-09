@@ -4,6 +4,24 @@ const ENDPOINT = 'https://reg.psuad.ac.ae/PSUADPortal/Services/StudentSearch/Enr
 const LOGIN    = 'https://reg.psuad.ac.ae/PSUADPortal/StudentSearch/Enrollment';
 
 const $ = id => document.getElementById(id);
+
+/*
+ * Say which build this is, when it is not the ordinary one.
+ *
+ * Both builds are the same extension pointed at a different Coordinator Tools, and
+ * nothing on screen distinguishes them — so the development build says so, every time it
+ * is opened. The deployed one stays quiet: a banner that is always there is furniture,
+ * and stops being read.
+ */
+const BUILD = globalThis.SCEN_FLAVOUR || { flavour: 'unbuilt' };
+if (BUILD.flavour !== 'prod') {
+  $('title').textContent = chrome.runtime.getManifest().name;
+  $('flavour').textContent =
+    BUILD.flavour === 'dev'
+      ? 'Development build — sends to ' + (BUILD.where || 'this machine') + '.'
+      : 'Loaded unbuilt. Run node extension/build.mjs and load dist/dev or dist/prod instead.';
+  $('flavour').classList.remove('hide');
+}
 let config = null;
 let last = null;   // { preset, rows }
 
