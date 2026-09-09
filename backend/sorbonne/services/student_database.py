@@ -30,6 +30,19 @@ from sqlalchemy.exc import IntegrityError
 # course; nothing behaved differently, so it is read as plain.
 SCOPE_KINDS = ("shared", "nested")
 
+#: The most parts one section may be taught in. Two is the case that exists — a course
+#: handed over at mid-semester — and the cap is here so a typo cannot make a hundred.
+MAX_PARTS = 9
+
+
+def _part_number(part: Any) -> int:
+    """Parts are numbered from 1. Anything else is a caller's mistake, not a new part."""
+    number = int(part or 1)
+    if number < 1 or number > MAX_PARTS:
+        raise ValueError(f"A part is numbered 1 to {MAX_PARTS}, not {number}.")
+    return number
+
+
 SECTION_FIELDS = (
     "teacher_id",
     "hours",
@@ -619,9 +632,7 @@ class StudentDatabase:
                 ).all()
             )
 
-        crns: dict[str, dict[str, dict[str, Any]]] = {}
-        for cell in cells:
-            crns.setdefault(cell["group_id"], {})[cell["course_id"]] = _section(cell)
+        crns = _sections_of(list(cells))
 
         return {
             "scopes": [
@@ -882,12 +893,7 @@ class StudentDatabase:
             )
 
         code_of = {row["id"]: row["code"] for row in courses}
-        crns: dict[str, dict[str, str]] = {}
-        for cell in cells:
-            course_code = code_of.get(cell["course_id"])
-            # A section the portal has no CRN for yet, or one retired, enrols nobody.
-            if course_code and cell["crn"] and not cell["retired"]:
-                crns.setdefault(cell["group_id"], {})[course_code] = cell["crn"]
+        crns = _crns_of(list(cells), code_of)
 
         for scope in scopes:
             held[scope["code"].upper()] = {
@@ -1074,12 +1080,7 @@ class StudentDatabase:
             )
 
         code_of = {row["id"]: row["code"] for row in courses}
-        crns: dict[str, dict[str, str]] = {}
-        for cell in cells:
-            course_code = code_of.get(cell["course_id"])
-            # A section the portal has no CRN for yet, or one retired, enrols nobody.
-            if course_code and cell["crn"] and not cell["retired"]:
-                crns.setdefault(cell["group_id"], {})[course_code] = cell["crn"]
+        crns = _crns_of(list(cells), code_of)
 
         # A set open to every cohort sits on ONE cohort's row, so anything that reads a
         # semester cohort by cohort loses it for everybody else — which is how a student's
@@ -1528,25 +1529,38 @@ class StudentDatabase:
         with self.engine.begin() as connection:
             connection.execute(text("DELETE FROM scope_groups WHERE id = :id"), {"id": group_id})
 
-    def set_cell(self, *, group_id: str, course_id: str, crn: str, teacher: str = "") -> None:
-        """One cell of the matrix: which CRN this group holds for this course."""
+    def set_cell(self, *, group_id: str, course_id: str, crn: str, teacher: str = "", part: int = 1) -> None:
+        """One part of one cell: which CRN this group holds for this course, when.
+
+        `part` is 1 for a section taught by one person from start to finish, which is
+        almost all of them. A course split between two professors carries a part each, and
+        clearing a part's CRN removes that part rather than the whole section — so undoing
+        a split leaves the half that remains, instead of emptying the cell.
+        """
         value = _text(crn)
         with self.engine.begin() as connection:
             if not value:
                 connection.execute(
-                    text("DELETE FROM group_crns WHERE group_id = :group_id AND course_id = :course_id"),
-                    {"group_id": group_id, "course_id": course_id},
+                    text("""DELETE FROM group_crns
+                            WHERE group_id = :group_id AND course_id = :course_id AND part = :part"""),
+                    {"group_id": group_id, "course_id": course_id, "part": _part_number(part)},
                 )
                 return
             connection.execute(
-                text("""INSERT INTO group_crns (group_id, course_id, crn, teacher)
-                        VALUES (:group_id, :course_id, :crn, :teacher)
-                        ON CONFLICT (group_id, course_id) DO UPDATE
+                text("""INSERT INTO group_crns (group_id, course_id, part, crn, teacher)
+                        VALUES (:group_id, :course_id, :part, :crn, :teacher)
+                        ON CONFLICT (group_id, course_id, part) DO UPDATE
                         SET crn = :crn, teacher = :teacher"""),
-                {"group_id": group_id, "course_id": course_id, "crn": value, "teacher": _text(teacher)},
+                {
+                    "group_id": group_id,
+                    "course_id": course_id,
+                    "part": _part_number(part),
+                    "crn": value,
+                    "teacher": _text(teacher),
+                },
             )
 
-    def update_section(self, *, group_id: str, course_id: str, **fields: Any) -> None:
+    def update_section(self, *, group_id: str, course_id: str, part: int = 1, **fields: Any) -> None:
         """What the timetabler's workbook says about one section, beyond its CRN.
 
         The CRN itself is `set_cell`'s. A section may exist without one — the portal has
@@ -1568,10 +1582,10 @@ class StudentDatabase:
                 raise CourseNotFound(course_id)
             assignments = ", ".join(f"{name} = :{name}" for name in (*SECTION_FIELDS, "anticipated", "retired"))
             connection.execute(
-                text(f"""INSERT INTO group_crns (group_id, course_id, crn, teacher, {", ".join(values)})
-                         VALUES (:group_id, :course_id, '', '', {", ".join(f":{name}" for name in values)})
-                         ON CONFLICT (group_id, course_id) DO UPDATE SET {assignments}"""),  # noqa: S608 - fixed names
-                {"group_id": group_id, "course_id": course_id, **values},
+                text(f"""INSERT INTO group_crns (group_id, course_id, part, crn, teacher, {", ".join(values)})
+                         VALUES (:group_id, :course_id, :part, '', '', {", ".join(f":{name}" for name in values)})
+                         ON CONFLICT (group_id, course_id, part) DO UPDATE SET {assignments}"""),  # noqa: S608 - fixed names
+                {"group_id": group_id, "course_id": course_id, "part": _part_number(part), **values},
             )
             self._touch_by_scope(connection, owner)
 
@@ -1687,13 +1701,22 @@ class StudentDatabase:
         course_id = self._ensure_course(connection, scope_id, operation)
         self._write_cell(connection, group_id, course_id, operation.get("crn", ""), operation.get("teacher", ""))
 
-    def _write_cell(self, connection: Connection, group_id: str, course_id: str, crn: str, teacher: str) -> None:
+    def _write_cell(  # noqa: PLR0913 - one argument per column of the cell being written
+        self, connection: Connection, group_id: str, course_id: str, crn: str, teacher: str, part: int = 1
+    ) -> None:
+        """The workbook's way in. It has a column per course and so only ever writes part 1."""
         connection.execute(
-            text("""INSERT INTO group_crns (group_id, course_id, crn, teacher)
-                    VALUES (:group, :course, :crn, :teacher)
-                    ON CONFLICT (group_id, course_id)
+            text("""INSERT INTO group_crns (group_id, course_id, part, crn, teacher)
+                    VALUES (:group, :course, :part, :crn, :teacher)
+                    ON CONFLICT (group_id, course_id, part)
                     DO UPDATE SET crn = excluded.crn, teacher = excluded.teacher"""),
-            {"group": group_id, "course": course_id, "crn": _text(crn), "teacher": _text(teacher)},
+            {
+                "group": group_id,
+                "course": course_id,
+                "part": _part_number(part),
+                "crn": _text(crn),
+                "teacher": _text(teacher),
+            },
         )
 
     def _scope_of_group(self, connection: Connection, group_id: str) -> str:
@@ -1946,13 +1969,62 @@ def _request(row) -> dict[str, Any]:
     }
 
 
-def _section(cell) -> dict[str, Any]:
+def _part(cell) -> dict[str, Any]:
+    """One stretch of a section's teaching: a CRN, and everything asked of it."""
     return {
         **_request(cell),
+        "part": int(cell["part"]),
         "crn": cell["crn"],
         "teacher": cell["teacher"],
         "retired": bool(cell["retired"]),
     }
+
+
+def _section(cells: list[Any]) -> dict[str, Any]:
+    """A (group, course) cell, which may be taught in more than one stretch.
+
+    The first part's fields stand at the top level and `parts` lists every one of them,
+    first included. That looks like duplication and is deliberate: a section with one part
+    is byte-identical to what this returned before parts existed, so nothing that reads a
+    section's `crn` or `teacher` had to learn a new shape to keep being right about the
+    ninety-nine sections in a hundred that are taught by one person from start to finish.
+
+    The two cannot drift, because both are built here from the same rows. What must not be
+    done is to write a *second* part's CRN into the top level — anything that needs every
+    CRN of a section reads `parts`, and the sites that must are the ones that decide what a
+    student is expected to be registered in, what the registrar is asked about, and whose
+    hours these are.
+    """
+    parts = [_part(cell) for cell in sorted(cells, key=lambda row: row["part"])]
+    return {**parts[0], "parts": parts}
+
+
+def _sections_of(cells: list[Any]) -> dict[str, dict[str, dict[str, Any]]]:
+    """`{group id: {course id: section}}`, folding each cell's parts back together."""
+    held: dict[tuple[str, str], list[Any]] = {}
+    for cell in cells:
+        held.setdefault((cell["group_id"], cell["course_id"]), []).append(cell)
+    found: dict[str, dict[str, dict[str, Any]]] = {}
+    for (group_id, course_id), parts in held.items():
+        found.setdefault(group_id, {})[course_id] = _section(parts)
+    return found
+
+
+def _crns_of(cells: list[Any], code_of: dict[str, str]) -> dict[str, dict[str, list[str]]]:
+    """`{group id: {course code: [CRN, ...]}}` — every CRN, because a section may have two.
+
+    A list rather than one CRN. A section taught in two halves carries a CRN for each, and
+    a map that held one of them would decide, silently and by row order, which half of the
+    semester the register is checked against and which half of it the registrar is asked
+    about. Retired cells and cells the portal has no CRN for yet enrol nobody and are left
+    out, exactly as when this returned a single CRN.
+    """
+    found: dict[str, dict[str, list[str]]] = {}
+    for cell in sorted(cells, key=lambda row: row["part"]):
+        course_code = code_of.get(cell["course_id"])
+        if course_code and cell["crn"] and not cell["retired"]:
+            found.setdefault(cell["group_id"], {}).setdefault(course_code, []).append(cell["crn"])
+    return found
 
 
 def _scope_kind(kind: str) -> str:

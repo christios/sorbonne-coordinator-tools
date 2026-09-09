@@ -1006,3 +1006,102 @@ def test_a_placement_is_filed_under_the_students_own_cohort(client: TestClient, 
 
     [held] = [row["groups"] for row in students_of(client) if row["studentId"] == STUDENTS[0]]
     assert [group["scopeCode"] for group in held] == ["LANG"]
+
+
+# --------------------------------------------------- a section taught in parts
+
+
+def course_in(client: TestClient, scope_id: str, code: str = "MATH-351") -> str:
+    return client.post(
+        f"/api/v1/student-database/scopes/{scope_id}/courses",
+        json={"code": code, "name": "Algebra & Cryptography", "component": "CM"},
+    ).json()["id"]
+
+
+def set_part(client: TestClient, group_id: str, course_id: str, crn: str, teacher: str = "", part: int = 1):
+    return client.put(
+        f"/api/v1/student-database/groups/{group_id}/courses/{course_id}",
+        json={"crn": crn, "teacher": teacher, "part": part},
+    )
+
+
+def cell_of(client: TestClient, cohort_id: str, group_id: str, course_id: str) -> dict:
+    catalogue = client.get(f"/api/v1/student-database/cohorts/{cohort_id}/catalogue").json()
+    for scope in catalogue["scopes"]:
+        for group in scope["groups"]:
+            if group["id"] == group_id and course_id in (group.get("crns") or {}):
+                return group["crns"][course_id]
+    raise AssertionError("no such cell")
+
+
+def test_a_course_handed_over_mid_semester_holds_a_crn_for_each_professor(
+    client: TestClient, cohort_id: str
+):
+    """MATH-351 is Grace Younes to late October and Sudarshan Shinde after it.
+
+    The registrar answers that with a CRN per half. The cell used to hold one, so the
+    second half had nowhere to go: a coordinator's only options were to invent a group
+    nobody is in, or to leave eleven students' registrations unexaminable.
+    """
+    scope_id, group_id = block_with_a_group(client, cohort_id, code="CM")
+    course_id = course_in(client, scope_id)
+
+    assert set_part(client, group_id, course_id, "23436", "Grace Younes", part=1).status_code == 200
+    assert set_part(client, group_id, course_id, "24311", "Sudarshan Shinde", part=2).status_code == 200
+
+    cell = cell_of(client, cohort_id, group_id, course_id)
+    assert [(part["part"], part["crn"], part["teacher"]) for part in cell["parts"]] == [
+        (1, "23436", "Grace Younes"),
+        (2, "24311", "Sudarshan Shinde"),
+    ]
+    # The first part still stands at the top level, so everything written before parts
+    # existed goes on being right about a section taught by one person.
+    assert cell["crn"] == "23436"
+    assert cell["teacher"] == "Grace Younes"
+
+
+def test_each_part_carries_its_own_hours_and_weeks(client: TestClient, cohort_id: str):
+    # The whole reason the halves are told apart: they are different teaching, with
+    # different hours belonging to different people.
+    scope_id, group_id = block_with_a_group(client, cohort_id, code="CM")
+    course_id = course_in(client, scope_id)
+    set_part(client, group_id, course_id, "23436", part=1)
+    set_part(client, group_id, course_id, "24311", part=2)
+
+    for part, hours, weeks in ((1, "15", "weeks 1-8"), (2, "15", "weeks 7-14")):
+        answer = client.patch(
+            f"/api/v1/student-database/groups/{group_id}/courses/{course_id}",
+            json={"part": part, "hours": hours, "weeks": weeks},
+        )
+        assert answer.status_code == 200, answer.text
+
+    cell = cell_of(client, cohort_id, group_id, course_id)
+    assert [(part["hours"], part["weeks"]) for part in cell["parts"]] == [
+        ("15", "weeks 1-8"),
+        ("15", "weeks 7-14"),
+    ]
+
+
+def test_clearing_one_part_leaves_the_other_rather_than_emptying_the_cell(
+    client: TestClient, cohort_id: str
+):
+    # Undoing a split is not dropping the course. Deleting the whole cell here would take
+    # the half that is still taught with it, silently.
+    scope_id, group_id = block_with_a_group(client, cohort_id, code="CM")
+    course_id = course_in(client, scope_id)
+    set_part(client, group_id, course_id, "23436", part=1)
+    set_part(client, group_id, course_id, "24311", part=2)
+
+    set_part(client, group_id, course_id, "", part=2)
+
+    cell = cell_of(client, cohort_id, group_id, course_id)
+    assert [part["crn"] for part in cell["parts"]] == ["23436"]
+
+
+def test_a_part_is_numbered_from_one_and_a_typo_is_refused(client: TestClient, cohort_id: str):
+    # The cap is what stops a mistyped part number quietly creating a hundredth section.
+    scope_id, group_id = block_with_a_group(client, cohort_id, code="CM")
+    course_id = course_in(client, scope_id)
+
+    assert set_part(client, group_id, course_id, "23436", part=0).status_code == 422
+    assert set_part(client, group_id, course_id, "23436", part=99).status_code == 422

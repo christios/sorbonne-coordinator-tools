@@ -19,9 +19,9 @@ from sorbonne.services.enrolment_resolution import (
 CM = Scope(id="s-cm", cohort_id="c1", code="CM", name="Lectures")
 TD = Scope(id="s-td", cohort_id="c1", code="TD", name="Tutorials")
 
-CM_A = Group(id="g-cm-a", scope_id="s-cm", label="A", crns={"MATH-001": "22151"})
-TD_1 = Group(id="g-td-1", scope_id="s-td", label="1", crns={"MATH-011": "23652"})
-TD_2 = Group(id="g-td-2", scope_id="s-td", label="2", crns={"MATH-011": "23653"})
+CM_A = Group(id="g-cm-a", scope_id="s-cm", label="A", crns={"MATH-001": ["22151"]})
+TD_1 = Group(id="g-td-1", scope_id="s-td", label="1", crns={"MATH-011": ["23652"]})
+TD_2 = Group(id="g-td-2", scope_id="s-td", label="2", crns={"MATH-011": ["23653"]})
 
 SECTIONS = [
     Section(crn="22151", code="MATH-001-CM-GR.A", kind="Lecture", group_label="Gr. A"),
@@ -66,13 +66,13 @@ def test_an_assignment_to_a_group_that_has_been_deleted_is_ignored():
 
 
 def test_a_group_with_no_crn_yet_contributes_nothing():
-    empty = Group(id="g-cm-b", scope_id="s-cm", label="B", crns={"MATH-001": ""})
+    empty = Group(id="g-cm-b", scope_id="s-cm", label="B", crns={"MATH-001": []})
     assert resolve(scopes=[CM], groups=[empty], assignments={("A001", "s-cm"): "g-cm-b"}) == {}
 
 
 def test_two_cohorts_on_one_semester_both_appear():
     other = Scope(id="s-cm2", cohort_id="c2", code="CM", name="Lectures")
-    other_group = Group(id="g-cm2", scope_id="s-cm2", label="A", crns={"PHYS-002": "24110"})
+    other_group = Group(id="g-cm2", scope_id="s-cm2", label="A", crns={"PHYS-002": ["24110"]})
     enrolments = resolve(
         scopes=[CM, other],
         groups=[CM_A, other_group],
@@ -127,7 +127,7 @@ def test_a_scope_nobody_has_filled_says_so_rather_than_blaming_the_students():
 
 
 def test_a_group_missing_a_crn_for_one_of_its_courses_is_reported():
-    half = Group(id="g-td-3", scope_id="s-td", label="3", crns={"MATH-011": "23652"})
+    half = Group(id="g-td-3", scope_id="s-td", label="3", crns={"MATH-011": ["23652"]})
     report = readiness(
         cohort_name="L1",
         students=["A001"],
@@ -149,7 +149,7 @@ def test_a_crn_the_timetable_holds_is_matched_and_carries_the_section():
 
 
 def test_a_crn_the_timetable_does_not_hold_is_flagged():
-    stray = Group(id="g", scope_id="s-cm", label="A", crns={"MATH-001": "99999"})
+    stray = Group(id="g", scope_id="s-cm", label="A", crns={"MATH-001": ["99999"]})
     verdict = validate(groups=[stray], sections=SECTIONS)["g|MATH-001"]
     assert verdict["status"] == "unknown"
     assert "99999" in verdict["detail"]
@@ -163,31 +163,31 @@ def test_an_untimetabled_crn_is_not_accused_of_being_wrong():
     semester's timetable" read as an accusation against a perfectly correct CRN, and sent
     a coordinator looking for a typo that was not there.
     """
-    stray = Group(id="g", scope_id="s-cm", label="A", crns={"MATH-001": "99999"})
+    stray = Group(id="g", scope_id="s-cm", label="A", crns={"MATH-001": ["99999"]})
     verdict = validate(groups=[stray], sections=SECTIONS)["g|MATH-001"]
 
     assert "No timetable for CRN 99999 yet" in verdict["detail"]
     assert "not in this semester" not in verdict["detail"].lower()
     # The other direction is still said as ours, because a typo landing on a real section
     # of the wrong subject IS our mistake to fix.
-    wrong = Group(id="g", scope_id="s-cm", label="A", crns={"MATH-001": "23652"})
+    wrong = Group(id="g", scope_id="s-cm", label="A", crns={"MATH-001": ["23652"]})
     assert "is MATH-011" in validate(groups=[wrong], sections=SECTIONS)["g|MATH-001"]["detail"]
 
 
 def test_a_crn_belonging_to_a_different_course_is_the_subtler_failure():
     """A typo that lands on a real section of the wrong subject would otherwise pass."""
-    wrong = Group(id="g", scope_id="s-cm", label="A", crns={"MATH-001": "23652"})
+    wrong = Group(id="g", scope_id="s-cm", label="A", crns={"MATH-001": ["23652"]})
     verdict = validate(groups=[wrong], sections=SECTIONS)["g|MATH-001"]
     assert verdict["status"] == "mismatched"
     assert "MATH-011" in verdict["detail"]
 
 
 def test_an_empty_crn_is_missing_rather_than_wrong():
-    blank = Group(id="g", scope_id="s-cm", label="A", crns={"MATH-001": ""})
+    blank = Group(id="g", scope_id="s-cm", label="A", crns={"MATH-001": []})
     assert validate(groups=[blank], sections=SECTIONS)["g|MATH-001"]["status"] == "missing"
 
 
 def test_codes_are_compared_past_the_separators_the_two_systems_disagree_about():
     # The workbook writes MATH001, the registrar writes MATH-001-CM-GR.A. Same course.
-    loose = Group(id="g", scope_id="s-cm", label="A", crns={"math001": "22151"})
+    loose = Group(id="g", scope_id="s-cm", label="A", crns={"math001": ["22151"]})
     assert validate(groups=[loose], sections=SECTIONS)["g|math001"]["status"] == "matched"

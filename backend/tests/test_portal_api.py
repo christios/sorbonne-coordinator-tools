@@ -1464,3 +1464,95 @@ def test_section_days_reports_a_crn_with_no_facility_row_as_blind_not_absent(
 
     assert "22151" in answer["days"]
     assert answer["blind"] == ["99999"]
+
+
+# ------------------------------------- a section taught in two parts, on one cell
+
+
+def cohort_with_a_split_section(database: StudentDatabase) -> str:
+    """CM A teaches MATH-351 under 23436 to late October and 24311 after it.
+
+    One group, one course, two CRNs — which is what the registrar actually publishes for a
+    course handed from one professor to another at mid-semester. Before parts, the second
+    half could only be held by inventing a second group or a second set; both are fictions
+    that every count and every export would then have had to know about.
+    """
+    cohort = database.create_cohort(name="Third year", term="2026-27")
+    with database.engine.begin() as connection:
+        for student in ("A001", "A002"):
+            connection.execute(
+                text("""INSERT INTO students (student_id, status, cohort_id, first_seen_at, last_seen_at, updated_at)
+                        VALUES (:id, 'in_portal', :cohort, 'now', 'now', 'now')"""),
+                {"id": student, "cohort": cohort["id"]},
+            )
+    cm = database.add_scope(cohort["id"], code="CM", name="Lectures", term_id=HUB_TERM)
+    algebra = database.add_course(cm, code="MATH-351")
+    group_a = database.add_group(cm, label="A")
+    database.set_cell(group_id=group_a, course_id=algebra, crn="23436", teacher="Grace Younes", part=1)
+    database.set_cell(group_id=group_a, course_id=algebra, crn="24311", teacher="Sudarshan Shinde", part=2)
+    database.assign(student_id="A001", scope_id=cm, group_id=group_a)
+    database.assign(student_id="A002", scope_id=cm, group_id=group_a)
+    return cohort["id"]
+
+
+def test_both_halves_of_a_split_section_are_expected_of_the_students_in_it(
+    client: TestClient, database: StudentDatabase
+):
+    """The registrar enrols them in both from the start, and so do we.
+
+    Measured on production the day parts were built: eleven students registered in all four
+    of MATH-351's CRNs in September, months before the second half begins.
+    """
+    cohort_id = cohort_with_a_split_section(database)
+    client.put(f"{BASE}/term-links/{HUB_TERM}", json={"portalTermCode": TERM})
+    registrations(
+        client,
+        [
+            {"studentId": "A001", "crn": "23436", "courseCode": "MATH-351"},
+            {"studentId": "A001", "crn": "24311", "courseCode": "MATH-351"},
+            {"studentId": "A002", "crn": "23436", "courseCode": "MATH-351"},
+        ],
+    )
+
+    found = client.get(f"{BASE}/cohorts/{cohort_id}/registration-check").json()["mismatches"]
+
+    # A001 holds both halves and is right. A002 holds the first only, and the second is
+    # the half nobody would have noticed before: it was not ours to expect.
+    assert [m for m in found if m["studentId"] == "A001"] == []
+    theirs = [m for m in found if m["studentId"] == "A002"]
+    assert len(theirs) == 1
+    assert theirs[0]["kind"] == "missing"
+    assert theirs[0]["expected"] == ["23436", "24311"]
+
+
+def test_every_part_counts_as_a_section_of_ours(client: TestClient, database: StudentDatabase):
+    """`live_crns` is our planning's own list of what it teaches, and both halves are it.
+
+    It is what the Meets column measures its blindness against: a part missing from this
+    list would be a half-semester reported as "no days" rather than as "nobody asked", and
+    a filter excluding a day would quietly exclude it.
+    """
+    cohort_id = cohort_with_a_split_section(database)
+    client.put(f"{BASE}/term-links/{HUB_TERM}", json={"portalTermCode": TERM})
+    assert cohort_id
+
+    answer = client.get(f"{BASE}/terms/{TERM}/section-days").json()
+
+    assert sorted(answer["blind"]) == ["23436", "24311"]
+
+
+def test_the_halves_of_one_section_do_not_clash_with_each_other(
+    client: TestClient, database: StudentDatabase
+):
+    """Same room, same hour, different weeks — which is the point of dating the meetings.
+
+    A group's own CRNs meeting at one hour is normally a clash with itself, and a section
+    taught in two stretches would trip exactly that rule if the halves were not dated.
+    """
+    cohort_id = cohort_with_a_split_section(database)
+    client.put(f"{BASE}/term-links/{HUB_TERM}", json={"portalTermCode": TERM})
+    timetable(client, {"23436": (-60, -10), "24311": (-5, 40)})
+
+    clashes = client.get(f"{BASE}/terms/{HUB_TERM}/clashes").json()
+
+    assert [clash for cohort in clashes["cohorts"] for clash in cohort["clashes"]] == []

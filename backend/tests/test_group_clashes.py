@@ -5,10 +5,10 @@ from __future__ import annotations
 from sorbonne.services.enrolment_resolution import Group
 from sorbonne.services.group_clashes import Session, clashes
 
-CM_A = Group(id="g-cm-a", scope_id="s-cm", label="A", crns={"MATH-001": "22151"})
-TD_1 = Group(id="g-td-1", scope_id="s-td", label="1", crns={"MATH-011": "23652"})
-TD_2 = Group(id="g-td-2", scope_id="s-td", label="2", crns={"MATH-011": "23653"})
-LANG_F1 = Group(id="g-lang-f1", scope_id="s-lang", label="F1", crns={"SCEN-101": "23302"})
+CM_A = Group(id="g-cm-a", scope_id="s-cm", label="A", crns={"MATH-001": ["22151"]})
+TD_1 = Group(id="g-td-1", scope_id="s-td", label="1", crns={"MATH-011": ["23652"]})
+TD_2 = Group(id="g-td-2", scope_id="s-td", label="2", crns={"MATH-011": ["23653"]})
+LANG_F1 = Group(id="g-lang-f1", scope_id="s-lang", label="F1", crns={"SCEN-101": ["23302"]})
 
 MONDAY = "2026-08-31"
 NEXT_MONDAY = "2026-09-07"
@@ -86,7 +86,7 @@ def test_a_weekly_slot_is_one_window_that_happens_every_week():
 
 
 def test_a_group_whose_own_crns_overlap_is_a_clash_with_itself():
-    both = Group(id="g-cm-b", scope_id="s-cm", label="B", crns={"MATH-001": "22151", "PHYS-001": "22160"})
+    both = Group(id="g-cm-b", scope_id="s-cm", label="B", crns={"MATH-001": ["22151"], "PHYS-001": ["22160"]})
 
     found = clashes(
         groups=[both],

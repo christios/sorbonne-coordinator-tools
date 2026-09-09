@@ -126,7 +126,8 @@ async def read_publication(  # noqa: PLR0913 - one dependency per record it read
             crn
             for cohort in cohorts
             for group in [*cohort["groups"], *cohort.get("sharedGroups", [])]
-            for crn in group["crns"].values()
+            for crns in group["crns"].values()
+            for crn in crns
             if crn
         }
     )

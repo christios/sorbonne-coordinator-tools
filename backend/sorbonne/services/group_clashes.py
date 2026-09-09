@@ -81,10 +81,14 @@ def _pairs(groups: list[Group]):
 
 
 def _windows(left: Group, right: Group, by_crn: dict[str, list[Session]]) -> list[dict[str, Any]]:
+    # Every CRN of every course, parts included: the two halves of a split section are two
+    # CRNs of one course, and the registrar's dates already keep them from overlapping.
+    mine = [crn for crns in left.crns.values() for crn in crns if crn]
     if left is right:
-        crn_pairs = list(combinations(sorted(set(left.crns.values())), 2))
+        crn_pairs = list(combinations(sorted(set(mine)), 2))
     else:
-        crn_pairs = [(a, b) for a in left.crns.values() for b in right.crns.values() if a and b]
+        theirs = [crn for crns in right.crns.values() for crn in crns if crn]
+        crn_pairs = [(a, b) for a in mine for b in theirs]
 
     folded: dict[tuple[int, int, int, str, str], dict[str, Any]] = {}
     for crn_a, crn_b in crn_pairs:

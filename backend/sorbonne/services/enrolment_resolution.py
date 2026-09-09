@@ -41,7 +41,9 @@ class Group:
     id: str
     scope_id: str
     label: str
-    crns: dict[str, str] = field(default_factory=dict)  # course code -> CRN
+    # course code -> its CRNs, one per part. A list because a course split between two
+    # professors is taught under a CRN each, and both are this group's.
+    crns: dict[str, list[str]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -71,7 +73,9 @@ def resolve(
         group = groups_by_id.get(group_id)
         if group is None:
             continue
-        enrolments.setdefault(student, set()).update(crn for crn in group.crns.values() if crn)
+        enrolments.setdefault(student, set()).update(
+            crn for crns in group.crns.values() for crn in crns if crn
+        )
 
     return {student: sorted(crns) for student, crns in sorted(enrolments.items()) if crns}
 
@@ -145,31 +149,41 @@ def validate(*, groups: list[Group], sections: list[Section]) -> dict[str, dict[
     verdicts: dict[str, dict[str, Any]] = {}
 
     for group in groups:
-        for course_code, crn in group.crns.items():
+        for course_code, crns in group.crns.items():
             key = f"{group.id}|{course_code}"
-            if not crn:
-                verdicts[key] = {"status": "missing", "detail": "No CRN yet."}
-                continue
-            section = by_crn.get(crn)
-            if section is None:
-                verdicts[key] = {
-                    "status": "unknown",
-                    "detail": (
-                        f"No timetable for CRN {crn} yet — the registrar has not been asked "
-                        "about it, or has booked no room for it."
-                    ),
-                }
-                continue
-            if not _codes_agree(section.code, course_code):
-                verdicts[key] = {
-                    "status": "mismatched",
-                    "detail": f"CRN {crn} is {section.code} in the timetable, not {course_code}.",
-                    "section": _section_payload(section),
-                }
-                continue
-            verdicts[key] = {"status": "matched", "detail": "", "section": _section_payload(section)}
+            # One verdict per section, over every part of it. A section taught in two
+            # halves has a CRN for each and the pill sits on the section, so the first
+            # thing wrong with any part is what it reports — a section is not settled
+            # while half of it is unaccounted for.
+            verdicts[key] = _verdict_of(crns, course_code, by_crn)
 
     return verdicts
+
+
+def _verdict_of(crns: list[str], course_code: str, by_crn: dict[str, Section]) -> dict[str, Any]:
+    """The worst thing true of any part, and the matching section when all of them agree."""
+    if not crns:
+        return {"status": "missing", "detail": "No CRN yet."}
+    settled: Section | None = None
+    for crn in crns:
+        section = by_crn.get(crn)
+        if section is None:
+            return {
+                "status": "unknown",
+                "detail": (
+                    f"No timetable for CRN {crn} yet — the registrar has not been asked "
+                    "about it, or has booked no room for it."
+                ),
+            }
+        if not _codes_agree(section.code, course_code):
+            return {
+                "status": "mismatched",
+                "detail": f"CRN {crn} is {section.code} in the timetable, not {course_code}.",
+                "section": _section_payload(section),
+            }
+        settled = settled or section
+    assert settled is not None
+    return {"status": "matched", "detail": "", "section": _section_payload(settled)}
 
 
 def _section_payload(section: Section) -> dict[str, str]:

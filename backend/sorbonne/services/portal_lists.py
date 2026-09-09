@@ -1543,7 +1543,9 @@ class PortalListStore:
                 (entry for entry in database.term_publication(term_id) if entry["cohortId"] == cohort_id), None
             )
             groups = {group["id"]: group for group in cohort["groups"]} if cohort else {}
-            ours = sorted({crn for group in groups.values() for crn in group["crns"].values() if crn})
+            ours = sorted(
+                {crn for group in groups.values() for crns in group["crns"].values() for crn in crns if crn}
+            )
             # When the registrar's timetable is on hand, a section that is not running is
             # not expected. When it is not, every section stays expected and the coverage
             # says which ones that fallback applied to.
@@ -1576,12 +1578,14 @@ class PortalListStore:
                 group = groups.get(row["groupId"])
                 if group is None:
                     continue
-                for code, crn in group["crns"].items():
-                    if crn:
-                        # A student is in several sets at once — a lecture group and a
-                        # tutorial group — and each may carry the same course. All of
-                        # their sections are expected, not whichever was read last.
-                        expected.setdefault(row["studentId"], {}).setdefault(code, set()).add(crn)
+                for code, crns in group["crns"].items():
+                    # A student is in several sets at once — a lecture group and a tutorial
+                    # group — and each may carry the same course. All of their sections are
+                    # expected, not whichever was read last; and a section taught in two
+                    # halves is two CRNs of one course, both of which they are in.
+                    expected.setdefault(row["studentId"], {}).setdefault(code, set()).update(
+                        crn for crn in crns if crn
+                    )
             registered = self.registered_in(term_code)
             pulled = self.pulled_students(term_code)
             for student in cohort["students"]:

@@ -29,6 +29,7 @@ from sorbonne.services.student_database import (
     FilterNotFound,
     GroupNotFound,
     InvalidFilter,
+    MAX_PARTS,
     SavedSearch,
     ScopeNotFound,
     StudentDatabase,
@@ -145,6 +146,9 @@ class CourseInput(BaseModel):
 class SectionInput(BaseModel):
     """What the timetabler's workbook says about one section, beyond its CRN."""
 
+    #: Which stretch of the section this is about. 1 unless the course is handed from one
+    #: professor to another mid-semester, in which case each half is a part of its own.
+    part: int = Field(default=1, ge=1, le=MAX_PARTS)
     teacherId: str = Field(default="", max_length=80)
     hours: str = Field(default="", max_length=40)
     # Free text from the workbook — "Weeks 2,5, 1-hour sessions; weeks 4,6,7,8,10,14, 2 2h-sessions; …"
@@ -171,10 +175,11 @@ class GroupInput(BaseModel):
 
 
 class CellInput(BaseModel):
-    """An empty CRN clears the cell, which is how a group drops a course."""
+    """An empty CRN clears the part, which is how a group drops a course or undoes a split."""
 
     crn: str = Field(default="", max_length=20)
     teacher: str = Field(default="", max_length=160)
+    part: int = Field(default=1, ge=1, le=MAX_PARTS)
 
 
 def _missing(exc: Exception, what: str) -> HTTPException:
@@ -710,6 +715,7 @@ async def update_section(
         database.update_section(
             group_id=group_id,
             course_id=course_id,
+            part=body.part,
             teacher_id=body.teacherId,
             hours=body.hours,
             sessions_per_week=body.sessionsPerWeek,
@@ -740,5 +746,7 @@ async def course_cards(database: StudentDatabase = Depends(get_database)) -> dic
 async def set_cell(
     group_id: str, course_id: str, body: CellInput, database: StudentDatabase = Depends(get_database)
 ) -> dict[str, bool]:
-    database.set_cell(group_id=group_id, course_id=course_id, crn=body.crn, teacher=body.teacher)
+    database.set_cell(
+        group_id=group_id, course_id=course_id, crn=body.crn, teacher=body.teacher, part=body.part
+    )
     return {"saved": True}
