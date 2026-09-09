@@ -14,7 +14,7 @@ import { TableFilterBar } from "@/components/TableFilterBar";
 import { useRemembered } from "@/components/useRemembered";
 import { WorkbookTools } from "@/components/WorkbookTools";
 import { afterPlacement } from "@/services/afterPlacement";
-import { buildCards, cardColumns, type Card } from "@/services/courseCards";
+import { buildCards, cardColumns, rowsPerPart, type Card } from "@/services/courseCards";
 import { fetchActiveCourses, fetchActiveCrns, fetchActiveTeachers, fetchRegisterCheck, fetchTermCrns } from "@/services/portalLists";
 import { fetchPublication } from "@/services/publication";
 import { clashName, clashesIn, describeClashCoverage } from "@/services/publicationView";
@@ -206,7 +206,11 @@ export function CourseCards({
    */
   const troubled = listed.flatMap((card) =>
     card.sets.flatMap((set) =>
+      // Per part, because "Taught in another part" opens an empty one on purpose: the
+      // half a coordinator has declared and not yet given a CRN is exactly the thing this
+      // count exists to chase, and counting sections would never see it.
       set.rows
+        .flatMap((row) => rowsPerPart(row))
         .filter((row) => !row.section?.retired && !row.section?.crn)
         .map((row) => ({ card, set, row })),
     ),
