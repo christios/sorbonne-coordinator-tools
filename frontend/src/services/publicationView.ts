@@ -16,6 +16,7 @@ import type {
   GroupClash,
   Publication,
   PublicationPreview,
+  TimetableCoverage,
 } from "@/services/publication";
 
 /** How serious a thing standing in the way is. */
@@ -126,6 +127,30 @@ export type VerdictTone = "settled" | "unasked" | "fault";
 export function toneOf(verdict?: CrnVerdict): VerdictTone {
   if (!verdict || verdict.status === "matched") return "settled";
   return verdict.status === "unknown" ? "unasked" : "fault";
+}
+
+/**
+ * What a clash count does not cover, as a sentence — or "" when it covers everything.
+ *
+ * A clash is found by comparing hours, so a section nobody has hours for cannot produce
+ * one. That makes every count on this page a floor: "2 clashes" and "2 clashes, and ten
+ * sections nobody has asked the registrar about" are the same words for very different
+ * situations, and only one of them means the semester is nearly clean.
+ *
+ * Said beside the count rather than as a warning of its own. Not having asked is not a
+ * fault, and a coordinator cannot clear it from here — they clear it by syncing.
+ */
+export function describeClashCoverage(coverage: TimetableCoverage | undefined): string {
+  if (!coverage) return "";
+  if (!coverage.linked) {
+    return "No portal term is linked to this semester, so the registrar has never been asked when any of it meets.";
+  }
+  if (!coverage.pulledAt && !coverage.timetabled) {
+    return "Nobody has pulled the registrar's timetable for this semester, so no clash can be found in any of it.";
+  }
+  const blind = coverage.blind.length;
+  if (!blind) return "";
+  return `${coverage.timetabled} of ${coverage.asked} sections have hours; a clash cannot be found in the other ${blind}.`;
 }
 
 /** Cohorts worth showing first: the ones with something wrong. */

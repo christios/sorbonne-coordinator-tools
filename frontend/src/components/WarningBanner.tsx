@@ -21,6 +21,15 @@ export type WarningKind = {
   severity: "serious" | "caution";
   /** What opens when this kind is chosen. Rendered inside the band. */
   detail: ReactNode;
+  /**
+   * A qualification on the count, shown whenever this kind is open — the error bar on the
+   * number in the pill, not another thing that has gone wrong.
+   *
+   * A clash count is the clearest case: it counts overlaps among the sections somebody has
+   * hours for and says nothing about the rest, so a count with no note beside it reads as
+   * the whole truth about the semester when it may be a tenth of it.
+   */
+  note?: string;
 };
 
 const SKIN = {
@@ -76,7 +85,12 @@ export function WarningBanner({ title, kinds }: { title: string; kinds: WarningK
       </div>
 
       {open ? (
-        <div className={`mt-3 overflow-hidden rounded-md border bg-white ${skin.panel}`}>{open.detail}</div>
+        <div className={`mt-3 overflow-hidden rounded-md border bg-white ${skin.panel}`}>
+          {open.note ? (
+            <p className="border-b border-[#f2f4f7] px-4 py-2 text-xs text-[#667085]">{open.note}</p>
+          ) : null}
+          {open.detail}
+        </div>
       ) : null}
     </section>
   );

@@ -17,7 +17,7 @@ import { afterPlacement } from "@/services/afterPlacement";
 import { buildCards, cardColumns, type Card } from "@/services/courseCards";
 import { fetchActiveCourses, fetchActiveCrns, fetchActiveTeachers, fetchRegisterCheck, fetchTermCrns } from "@/services/portalLists";
 import { fetchPublication } from "@/services/publication";
-import { clashName, clashesIn } from "@/services/publicationView";
+import { clashName, clashesIn, describeClashCoverage } from "@/services/publicationView";
 import { type Cohort, fetchCourseCards } from "@/services/studentDatabase";
 import { optionsFor, plainCellText } from "@/services/studentColumns";
 import { COHORT } from "@/services/remembered";
@@ -242,6 +242,9 @@ export function CourseCards({
            */
           severity: "serious" as const,
           label: `${caught.size} student${caught.size === 1 ? " is" : "s are"} in two groups at the same hour`,
+          // The floor's error bar. A clash is found by comparing hours, so a section with
+          // none cannot produce one — and without this the count reads as the whole truth.
+          note: describeClashCoverage(shownPublication?.coverage),
           detail: (
             <WarningRows more={Math.max(0, trapped.length - 8)}>
               {trapped.slice(0, 8).map((clash) => (

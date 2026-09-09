@@ -35,7 +35,7 @@ const READY: Publication = {
     },
   ],
   validation: {},
-  unmatchedCrns: 0,
+  unmatchedCrns: 0, coverage: { linked: true, portalTermCode: "262710", pulledAt: "now", asked: 2, timetabled: 2, blind: [], hubReachable: null },
   sections: 43,
   resolved: { students: 24, enrolments: 168 },
   isReady: true,
@@ -100,7 +100,7 @@ describe("before anything is sent", () => {
     // The real case: TD group 7 pointing at sections the export no longer has.
     vi.mocked(publication.fetchPublication).mockResolvedValue({
       ...READY,
-      unmatchedCrns: 3,
+      unmatchedCrns: 3, coverage: { linked: true, portalTermCode: "262710", pulledAt: "now", asked: 2, timetabled: 2, blind: [], hubReachable: null },
       isReady: false,
     });
     renderScreen();

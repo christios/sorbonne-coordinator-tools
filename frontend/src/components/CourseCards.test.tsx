@@ -57,7 +57,7 @@ beforeEach(() => {
   vi.spyOn(publication, "fetchPublication").mockResolvedValue({
     cohorts: [{ cohortId: "c1", cohort: "Foundation Year", students: 12, studentsResolved: 10, unassigned: { TD: ["A9", "A10"] }, warnings: [], clashes: [], isReady: false }],
     validation: { "td-1|MATH001": { status: "matched", detail: "" } },
-    unmatchedCrns: 0, sections: 40, resolved: { students: 10, enrolments: 20 }, isReady: false,
+    unmatchedCrns: 0, sections: 40, resolved: { students: 10, enrolments: 20 }, isReady: false, coverage: { linked: true, portalTermCode: "262710", pulledAt: "now", asked: 2, timetabled: 2, blind: [], hubReachable: null },
   });
 });
 
@@ -197,3 +197,28 @@ describe("the course cards", () => {
   });
 });
 
+
+describe("the clash count says what it could not see", () => {
+  it("puts the blind sections beside the number, not in a warning of their own", async () => {
+    /*
+     * Not having asked the registrar is not a fault and cannot be cleared from this page.
+     * But a count with nothing beside it reads as the whole truth about the semester, when
+     * it may be a tenth of it.
+     */
+    vi.spyOn(publication, "fetchPublication").mockResolvedValue({
+      cohorts: [{
+        cohortId: "c1", cohort: "Foundation Year", students: 12, studentsResolved: 10,
+        unassigned: {}, warnings: [], isReady: false,
+        clashes: [{ groups: [{ id: "td-1", scopeId: "s", scopeCode: "TD", label: "1" }], windows: [], students: ["A1"] }],
+      }],
+      validation: {}, unmatchedCrns: 0, sections: 40,
+      coverage: { linked: true, portalTermCode: "262710", pulledAt: "now", asked: 120, timetabled: 110, blind: ["1", "2"], hubReachable: null },
+      resolved: { students: 10, enrolments: 20 }, isReady: false,
+    } as never);
+
+    show();
+    fireEvent.click(await screen.findByRole("button", { name: /1 student is in two groups/ }));
+
+    expect(await screen.findByText(/110 of 120 sections have hours/)).toBeTruthy();
+  });
+});

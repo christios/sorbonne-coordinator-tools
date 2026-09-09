@@ -51,6 +51,15 @@ export type Publication = {
   /** Keyed "groupId|courseCode", the same key the catalogue can look itself up by. */
   validation: Record<string, CrnVerdict>;
   unmatchedCrns: number;
+  /**
+   * How much of the semester the reading above could see.
+   *
+   * A clash count is a floor with its own error bar: it counts overlaps among the sections
+   * somebody has times for, and says nothing about the rest. Without this beside it, "2
+   * clashes" and "2 clashes out of 10 sections nobody has asked the registrar about" are
+   * the same sentence.
+   */
+  coverage: TimetableCoverage;
   sections: number;
   resolved: { students: number; enrolments: number };
   isReady: boolean;
@@ -95,6 +104,22 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
   return (await response.json()) as T;
 }
+
+export type TimetableCoverage = {
+  /** False when no portal term is linked, so the registrar cannot be asked at all. */
+  linked: boolean;
+  portalTermCode: string;
+  /** When the registrar's timetable was last swept, or "" if never. */
+  pulledAt: string;
+  /** Our live CRNs on this semester. */
+  asked: number;
+  /** How many of them anybody has hours for. */
+  timetabled: number;
+  /** The rest, by CRN: no clash can be found in a section nobody has times for. */
+  blind: string[];
+  /** Null when the Hub was not consulted; false when it was and would not answer. */
+  hubReachable: boolean | null;
+};
 
 export function fetchPublication(termId: string): Promise<Publication> {
   return request<Publication>(`/terms/${termId}`);
