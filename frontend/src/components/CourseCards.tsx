@@ -14,7 +14,7 @@ import { TableFilterBar } from "@/components/TableFilterBar";
 import { useRemembered } from "@/components/useRemembered";
 import { WorkbookTools } from "@/components/WorkbookTools";
 import { buildCards, cardColumns, type Card } from "@/services/courseCards";
-import { fetchActiveCourses, fetchActiveCrns, fetchActiveTeachers, fetchTermCrns } from "@/services/portalLists";
+import { fetchActiveCourses, fetchActiveCrns, fetchActiveTeachers, fetchRegisterCheck, fetchTermCrns } from "@/services/portalLists";
 import { fetchPublication } from "@/services/publication";
 import { clashName, clashesIn } from "@/services/publicationView";
 import { type Cohort, fetchCourseCards } from "@/services/studentDatabase";
@@ -84,6 +84,19 @@ export function CourseCards({
   const activeCourses = useQuery({ queryKey: ["active-courses"], queryFn: fetchActiveCourses });
   // The register: what each CRN hangs from, which the workbook's Parent CRN column is.
   const registered = useQuery({ queryKey: ["active-crns"], queryFn: () => fetchActiveCrns() });
+  /*
+   * Which sections the registrar staffs differently from our planning — the server's
+   * verdict, fetched once for the list rather than decided per card.
+   *
+   * `retry: false`, and an empty set when it cannot be had: a card that cannot reach this
+   * shows no "Portal: …" line, which is the same thing it showed before there was one.
+   * Being unable to check must not look like having checked.
+   */
+  const drift = useQuery({ queryKey: ["register-check", ""], queryFn: () => fetchRegisterCheck(), retry: false });
+  const teacherDrift = useMemo(
+    () => new Set((drift.data?.teacherDiffers ?? []).map((row) => row.crn)),
+    [drift.data],
+  );
   const parentOf = useMemo(
     () => new Map((registered.data ?? []).filter((row) => row.parentCrn).map((row) => [row.crn, row.parentCrn])),
     [registered.data],
@@ -404,6 +417,7 @@ export function CourseCards({
               cohort={cohorts.find((cohort) => cohort.id === chosenCard.cohortId) ?? null}
               teachers={teachers.data ?? []}
               portal={portalOf(chosenCard.termId)}
+              teacherDrift={teacherDrift}
               action={
                 /*
                  * The request is the whole semester's — a sheet per cohort, the CRN table,

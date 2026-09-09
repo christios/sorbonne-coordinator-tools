@@ -341,6 +341,26 @@ export type RegisterCheck = {
   arrived: { termCode: string; crn: string; courseCode: string; title: string; teacherName: string; registered: number }[];
   /** Taught on a course card under a CRN the register does not hold. */
   unregistered: { crn: string; courseCode: string }[];
+  /**
+   * Our planning and the registrar naming different people on one section.
+   *
+   * Compared on the server through the same rule that decides whether two spellings are
+   * one person, so what arrives here is already the list worth reading — not every
+   * section where the two sides break a surname's spaces differently.
+   */
+  teacherDiffers: TeacherDrift[];
+  /** The registrar has staffed it and our planning has not. A line to copy, not an argument. */
+  teacherUnnamed: TeacherDrift[];
+};
+
+export type TeacherDrift = {
+  crn: string;
+  courseCode: string;
+  groupLabel: string;
+  ours: string;
+  theirs: string;
+  /** planned · named · unplanned — see `_planning_state` on the server. */
+  planning: "planned" | "named" | "unplanned";
 };
 
 export async function fetchActiveCrns(term = ""): Promise<ActiveCrn[]> {

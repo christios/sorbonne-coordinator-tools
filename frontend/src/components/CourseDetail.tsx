@@ -175,17 +175,20 @@ function SectionBlock({
   row,
   teacherName,
   portal,
+  teacherDrift,
   onEdit,
 }: {
   row: SectionRow;
   teacherName: (id: string) => string;
   portal: TermCrns | null;
+  teacherDrift: Set<string>;
   onEdit: () => void;
 }) {
   const held = row.section ?? EMPTY_SECTION;
   const label = `${row.scope.code} ${row.group.label} ${row.course.code}`;
   const portalRow = portal && held.crn ? (portal.crns[held.crn] ?? null) : undefined;
   const chosen = held.teacherId ? teacherName(held.teacherId) : "";
+  const drifted = Boolean(held.crn) && teacherDrift.has(held.crn);
   const asked = asks(held);
 
   return (
@@ -267,7 +270,7 @@ function SectionBlock({
       {held.crn && portalRow === null ? (
         <p className="mt-1 text-[11px] text-[#a6292f]">Not in the portal&apos;s list for this semester.</p>
       ) : null}
-      {portalRow?.teacherName && portalRow.teacherName !== chosen ? (
+      {portalRow?.teacherName && drifted ? (
         <p className="mt-1 text-[11px] text-[#98a2b3]">Portal: {portalRow.teacherName}</p>
       ) : null}
 
@@ -298,6 +301,7 @@ export function CourseDetail({
   cohort,
   teachers,
   portal,
+  teacherDrift,
   unassigned,
   clashes,
   action,
@@ -311,6 +315,18 @@ export function CourseDetail({
   action?: ReactNode;
   teachers: ActiveTeacher[];
   portal: TermCrns | null;
+  /**
+   * The CRNs where the registrar names somebody other than our planning does — the
+   * server's verdict, not a string compare made here.
+   *
+   * This card used to decide for itself, by asking whether the portal's teacher column
+   * was character-for-character what we had chosen. On the real data that says "Portal:
+   * ..." under twenty-six sections, and five of the eleven distinct pairs behind them are
+   * nothing but where the space falls in a surname. The rule that knows better lives on
+   * the server because the register check needs it too, and two copies of a rule like
+   * that drift apart.
+   */
+  teacherDrift: Set<string>;
   unassigned: Record<string, string[]>;
   clashes: GroupClash[] | null;
   onChanged: () => void;
@@ -429,7 +445,7 @@ export function CourseDetail({
 
               <div className="grid gap-2.5 sm:grid-cols-2 2xl:grid-cols-3">
                 {live.map((row) => (
-                  <SectionBlock key={row.group.id} row={row} teacherName={teacherName} portal={portal} onEdit={() => setEditing(row)} />
+                  <SectionBlock key={row.group.id} row={row} teacherName={teacherName} portal={portal} teacherDrift={teacherDrift} onEdit={() => setEditing(row)} />
                 ))}
               </div>
 
@@ -447,7 +463,7 @@ export function CourseDetail({
                   {showingRetired[set.scope.id] ? (
                     <div className="mt-2 grid gap-2.5 sm:grid-cols-2 2xl:grid-cols-3">
                       {retired.map((row) => (
-                        <SectionBlock key={row.group.id} row={row} teacherName={teacherName} portal={portal} onEdit={() => setEditing(row)} />
+                        <SectionBlock key={row.group.id} row={row} teacherName={teacherName} portal={portal} teacherDrift={teacherDrift} onEdit={() => setEditing(row)} />
                       ))}
                     </div>
                   ) : null}

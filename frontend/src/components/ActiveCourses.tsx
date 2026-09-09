@@ -13,6 +13,7 @@ import {
   type Mutualized,
   MUTUALIZED_WORDS,
   type ActiveCrn,
+  type RegisterCheck,
   addActiveCourses,
   addActiveCrns,
   fetchActiveCourses,
@@ -167,7 +168,11 @@ export function ActiveCourses() {
 
   const report = check.data;
   const attention =
-    (report?.gone.length ?? 0) + (report?.arrived.length ?? 0) + (report?.unregistered.length ?? 0);
+    (report?.gone.length ?? 0) +
+    (report?.arrived.length ?? 0) +
+    (report?.unregistered.length ?? 0) +
+    (report?.teacherDiffers.length ?? 0) +
+    (report?.teacherUnnamed.length ?? 0);
 
   return (
     <section>
@@ -277,11 +282,7 @@ function RegisterBanner({
   busy,
   onTakeIn,
 }: {
-  report: {
-    gone: { crn: string; courseCode: string; usedBy: number }[];
-    arrived: { crn: string; courseCode: string; title: string; teacherName: string }[];
-    unregistered: { crn: string; courseCode: string }[];
-  };
+  report: RegisterCheck;
   busy: boolean;
   onTakeIn: () => void;
 }) {
@@ -290,6 +291,10 @@ function RegisterBanner({
     report.gone.length ? `${report.gone.length} CRN${report.gone.length === 1 ? "" : "s"} we hold, gone from the portal` : "",
     report.arrived.length ? `${report.arrived.length} CRN${report.arrived.length === 1 ? "" : "s"} the portal lists for our courses, not registered` : "",
     report.unregistered.length ? `${report.unregistered.length} CRN${report.unregistered.length === 1 ? "" : "s"} on a course card, not registered` : "",
+    // Said as sections, not CRNs, because that is the unit somebody goes and fixes. One
+    // teacher misspelled across six sections is six lines to change.
+    report.teacherDiffers.length ? `${report.teacherDiffers.length} section${report.teacherDiffers.length === 1 ? "" : "s"} the registrar staffs differently` : "",
+    report.teacherUnnamed.length ? `${report.teacherUnnamed.length} the registrar staffs and we have not` : "",
   ].filter(Boolean);
 
   return (
@@ -316,6 +321,19 @@ function RegisterBanner({
           <Column title="Gone from the portal" rows={report.gone.map((row) => `${row.crn} ${row.courseCode}${row.usedBy ? ` — on ${row.usedBy} card row(s)` : ""}`)} />
           <Column title="New in the portal" rows={report.arrived.map((row) => `${row.crn} ${row.courseCode} — ${row.title}${row.teacherName ? `, ${row.teacherName}` : ""}`)} />
           <Column title="On a card, unregistered" rows={report.unregistered.map((row) => `${row.crn} ${row.courseCode}`)} />
+          {/*
+            * Both sides of every teacher line, always. "Ours differs from theirs" is not
+            * something anybody can act on without seeing which is which — and a good half
+            * of these are two spellings of one person, where the answer is to pick one.
+            */}
+          <Column
+            title="Staffed differently"
+            rows={report.teacherDiffers.map((row) => `${row.crn} ${row.courseCode} ${row.groupLabel} — we say ${row.ours}, the registrar says ${row.theirs}`)}
+          />
+          <Column
+            title="Staffed only by the registrar"
+            rows={report.teacherUnnamed.map((row) => `${row.crn} ${row.courseCode} ${row.groupLabel} — ${row.theirs}`)}
+          />
         </div>
       ) : null}
     </div>
