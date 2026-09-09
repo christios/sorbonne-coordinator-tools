@@ -619,6 +619,22 @@ class StudentDatabase:
                 .mappings()
                 .all()
             )
+            # How many of each group's students do not take each of its courses. The
+            # group's own count is unchanged by an exemption — they are still in it, and
+            # still take everything else — so this is per section, which is the number a
+            # room is booked against.
+            exempt = dict(
+                connection.execute(
+                    text("""SELECT a.group_id || '|' || e.course_id, count(*)
+                            FROM course_exemptions e
+                            JOIN scope_courses c ON c.id = e.course_id
+                            JOIN group_assignments a
+                              ON a.scope_id = c.scope_id AND a.student_id = e.student_id
+                            WHERE c.scope_id = ANY(:ids)
+                            GROUP BY a.group_id, e.course_id"""),
+                    {"ids": scope_ids or [""]},
+                ).all()
+            )
             # A set open to every cohort counts everyone in it, wherever they come from;
             # any other set holds only this cohort's students anyway.
             counts = dict(
@@ -633,6 +649,9 @@ class StudentDatabase:
             )
 
         crns = _sections_of(list(cells))
+        for group_id, sections in crns.items():
+            for course_id, section in sections.items():
+                section["exempt"] = int(exempt.get(f"{group_id}|{course_id}", 0))
 
         return {
             "scopes": [
@@ -1155,6 +1174,91 @@ class StudentDatabase:
             }
             for cohort_id in cohort_ids
         ]
+
+    # ------------------------------------------------------------- exemptions
+
+    def set_exemption(self, *, student_id: str, course_id: str, reason: str = "") -> None:
+        """This student is in the group and does not take this course of its set.
+
+        Credit from elsewhere, a course already passed, a waiver. Recorded rather than
+        dismissed, because a dismissal lives in one browser's storage and this is the
+        department's decision: the next coordinator to open the page must see it too.
+        """
+        with self.engine.begin() as connection:
+            course = connection.execute(
+                text("SELECT scope_id FROM scope_courses WHERE id = :id"), {"id": course_id}
+            ).scalar()
+            if course is None:
+                raise CourseNotFound(course_id)
+            connection.execute(
+                text("""INSERT INTO course_exemptions (student_id, course_id, reason, created_at)
+                        VALUES (:student, :course, :reason, :now)
+                        ON CONFLICT (student_id, course_id) DO UPDATE SET reason = :reason"""),
+                {"student": _text(student_id), "course": course_id, "reason": _text(reason), "now": _now()},
+            )
+
+    def clear_exemption(self, *, student_id: str, course_id: str) -> None:
+        with self.engine.begin() as connection:
+            connection.execute(
+                text("DELETE FROM course_exemptions WHERE student_id = :student AND course_id = :course"),
+                {"student": _text(student_id), "course": course_id},
+            )
+
+    def exemptions_of(self, cohort_id: str) -> list[dict[str, Any]]:
+        """Every exemption held against a course of this cohort's sets.
+
+        By the course's set rather than by the student's cohort: a set open to every cohort
+        is filed under whichever cohort holds its row, so a language exemption belongs to
+        the set and would be invisible to three cohorts out of four if this asked whose
+        student it was.
+        """
+        with self.engine.connect() as connection:
+            rows = (
+                connection.execute(
+                    text("""SELECT e.student_id, e.course_id, e.reason, c.code AS course_code,
+                                   c.scope_id, s.code AS scope_code, s.term_id
+                            FROM course_exemptions e
+                            JOIN scope_courses c ON c.id = e.course_id
+                            JOIN cohort_scopes s ON s.id = c.scope_id
+                            WHERE s.cohort_id = :id
+                            ORDER BY e.student_id, c.code"""),
+                    {"id": cohort_id},
+                )
+                .mappings()
+                .all()
+            )
+        return [
+            {
+                "studentId": row["student_id"],
+                "courseId": row["course_id"],
+                "courseCode": row["course_code"],
+                "scopeId": row["scope_id"],
+                "scopeCode": row["scope_code"],
+                "termId": row["term_id"],
+                "reason": row["reason"],
+            }
+            for row in rows
+        ]
+
+    def exempt_codes(self, term_id: str) -> dict[str, set[str]]:
+        """`{student id: {course code}}` for one semester — what the register must not expect.
+
+        Every set of the semester, whichever cohort's row holds it, for the same reason
+        `exemptions_of` reads by set: the languages belong to one cohort's row and are
+        taken by all of them.
+        """
+        with self.engine.connect() as connection:
+            rows = connection.execute(
+                text("""SELECT e.student_id, c.code FROM course_exemptions e
+                        JOIN scope_courses c ON c.id = e.course_id
+                        JOIN cohort_scopes s ON s.id = c.scope_id
+                        WHERE s.term_id = :term"""),
+                {"term": term_id},
+            ).all()
+        found: dict[str, set[str]] = {}
+        for student, code in rows:
+            found.setdefault(student, set()).add(code)
+        return found
 
     def scope_terms(self, cohort_id: str) -> list[str]:
         """Every semester this cohort is present on, linked to a portal term or not.

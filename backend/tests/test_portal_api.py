@@ -50,6 +50,10 @@ def empty_tables() -> None:
             "active_course_crns",
             "student_registrations",
             "term_links",
+            # An exemption is keyed on a course id, which is new every run — but the check
+            # reads them by SEMESTER, and the semester here is a constant. Left behind,
+            # they silence a course a later test is asserting a difference about.
+            "course_exemptions",
             "students",
             "student_cohorts",
         ):
@@ -1556,3 +1560,66 @@ def test_the_halves_of_one_section_do_not_clash_with_each_other(
     clashes = client.get(f"{BASE}/terms/{HUB_TERM}/clashes").json()
 
     assert [clash for cohort in clashes["cohorts"] for clash in cohort["clashes"]] == []
+
+
+# ------------------------------------- a student in the group, exempt from a course
+
+
+def test_a_student_exempt_from_a_course_is_not_reported_as_missing_from_it(
+    client: TestClient, database: StudentDatabase
+):
+    """Credit from elsewhere, a course already passed — a decision, not a difference.
+
+    It read identically to a real fault before this. On the copied production data one
+    student was missing one course of five and three others were missing all five, and only
+    a human knew which was which.
+    """
+    cohort_id = build_cohort(database)
+    client.put(f"{BASE}/term-links/{HUB_TERM}", json={"portalTermCode": TERM})
+    # A002 is in the same two groups and is registered the same way, so the only thing
+    # that can tell the two of them apart afterwards is the exemption.
+    registrations(
+        client,
+        [
+            {"studentId": "A001", "crn": "22151", "courseCode": "MATH-001"},
+            {"studentId": "A002", "crn": "22151", "courseCode": "MATH-001"},
+        ],
+    )
+    course = _course_named(database, cohort_id, "MATH-011")
+
+    before = client.get(f"{BASE}/cohorts/{cohort_id}/registration-check").json()["mismatches"]
+    assert [m["courseCode"] for m in before if m["studentId"] == "A001"] == ["MATH-011"]
+    assert [m["courseCode"] for m in before if m["studentId"] == "A002"] == ["MATH-011"]
+
+    client.put(
+        f"/api/v1/student-database/students/A001/exemptions/{course['id']}",
+        json={"reason": "Passed it at SUAD"},
+    )
+
+    after = client.get(f"{BASE}/cohorts/{cohort_id}/registration-check").json()["mismatches"]
+    assert [m for m in after if m["studentId"] == "A001"] == []
+    # And nobody else's verdict moved: A002 sits in the same group and is not exempt.
+    assert [m["courseCode"] for m in after if m["studentId"] == "A002"] == ["MATH-011"]
+
+
+def test_lifting_an_exemption_brings_the_difference_back(client: TestClient, database: StudentDatabase):
+    # It is a decision, and decisions are reversed. Silence that could not be undone would
+    # be worse than the warning.
+    cohort_id = build_cohort(database)
+    client.put(f"{BASE}/term-links/{HUB_TERM}", json={"portalTermCode": TERM})
+    registrations(client, [{"studentId": "A001", "crn": "22151", "courseCode": "MATH-001"}])
+    course = _course_named(database, cohort_id, "MATH-011")
+    client.put(f"/api/v1/student-database/students/A001/exemptions/{course['id']}", json={"reason": ""})
+
+    client.delete(f"/api/v1/student-database/students/A001/exemptions/{course['id']}")
+
+    found = client.get(f"{BASE}/cohorts/{cohort_id}/registration-check").json()["mismatches"]
+    assert [m["courseCode"] for m in found if m["studentId"] == "A001"] == ["MATH-011"]
+
+
+def _course_named(database: StudentDatabase, cohort_id: str, code: str) -> dict:
+    for scope in database.read_catalogue(cohort_id)["scopes"]:
+        for course in scope["courses"]:
+            if course["code"] == code:
+                return course
+    raise AssertionError(f"no course {code}")

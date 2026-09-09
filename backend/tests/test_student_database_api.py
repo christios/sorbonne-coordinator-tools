@@ -1105,3 +1105,75 @@ def test_a_part_is_numbered_from_one_and_a_typo_is_refused(client: TestClient, c
 
     assert set_part(client, group_id, course_id, "23436", part=0).status_code == 422
     assert set_part(client, group_id, course_id, "23436", part=99).status_code == 422
+
+
+# ------------------------------------------------------------------ exemptions
+
+
+def test_an_exemption_counts_against_the_section_and_not_against_the_group(
+    client: TestClient, cohort_id: str, view_id: str
+):
+    """They are still in the group; they just do not take one of its courses.
+
+    So the group's own count is untouched — it is the same people at the same seats for
+    everything else in the set — and it is the section that teaches one fewer, which is
+    the number a room is booked against.
+    """
+    scope_id, group_id = block_with_a_group(client, cohort_id)
+    course_id = course_in(client, scope_id, code="MATH-011")
+    set_part(client, group_id, course_id, "23652")
+    in_cohort(client, view_id, cohort_id, STUDENTS)
+    place(client, scope_id, STUDENTS, group_id)
+
+    client.put(
+        f"/api/v1/student-database/students/{STUDENTS[0]}/exemptions/{course_id}",
+        json={"reason": "Credit from SUAD"},
+    )
+
+    catalogue = client.get(f"/api/v1/student-database/cohorts/{cohort_id}/catalogue").json()
+    group = catalogue["scopes"][0]["groups"][0]
+    assert group["assigned"] == len(STUDENTS)
+    assert group["crns"][course_id]["exempt"] == 1
+
+
+def test_an_exemption_is_listed_with_the_reason_it_was_given(client: TestClient, cohort_id: str, view_id: str):
+    # A reason in the coordinator's own words, because the reasons vary and an enumeration
+    # of them would be wrong within a year — and an exemption nobody can account for later
+    # is one nobody dares lift.
+    scope_id, group_id = block_with_a_group(client, cohort_id)
+    course_id = course_in(client, scope_id, code="MATH-011")
+    in_cohort(client, view_id, cohort_id, STUDENTS)
+    place(client, scope_id, STUDENTS, group_id)
+    client.put(
+        f"/api/v1/student-database/students/{STUDENTS[0]}/exemptions/{course_id}",
+        json={"reason": "Credit from SUAD"},
+    )
+
+    listed = client.get(f"/api/v1/student-database/cohorts/{cohort_id}/exemptions").json()["exemptions"]
+
+    assert [(row["studentId"], row["courseCode"], row["reason"]) for row in listed] == [
+        (STUDENTS[0], "MATH-011", "Credit from SUAD")
+    ]
+
+
+def test_an_exemption_survives_a_move_between_groups_of_the_same_set(
+    client: TestClient, cohort_id: str, view_id: str
+):
+    # It is about the student and the course, not about where they sit. Moving somebody
+    # from TD 1 to TD 2 does not change what they have credit for, and an exemption that
+    # evaporated on a move would come back as a warning nobody could explain.
+    scope_id, first = block_with_a_group(client, cohort_id)
+    second = client.post(f"/api/v1/student-database/scopes/{scope_id}/groups", json={"label": "2"}).json()["id"]
+    course_id = course_in(client, scope_id, code="MATH-011")
+    set_part(client, first, course_id, "23652")
+    set_part(client, second, course_id, "23653")
+    in_cohort(client, view_id, cohort_id, STUDENTS)
+    place(client, scope_id, STUDENTS[:1], first)
+    client.put(f"/api/v1/student-database/students/{STUDENTS[0]}/exemptions/{course_id}", json={"reason": ""})
+
+    place(client, scope_id, STUDENTS[:1], second)
+
+    catalogue = client.get(f"/api/v1/student-database/cohorts/{cohort_id}/catalogue").json()
+    groups = {group["id"]: group for group in catalogue["scopes"][0]["groups"]}
+    assert groups[second]["crns"][course_id]["exempt"] == 1
+    assert groups[first]["crns"][course_id]["exempt"] == 0

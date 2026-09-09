@@ -35,6 +35,14 @@ export type SectionRow = {
    * answering one.
    */
   parts?: number;
+  /**
+   * How many of the group's students do not take this course.
+   *
+   * On the row rather than read off `section`, because a row may carry a single part and a
+   * part has no count of its own: an exemption is from the COURSE, so both halves of a
+   * handover teach the same people and are short the same ones.
+   */
+  exempt?: number;
   /** What this section's CRN hangs from, as the register says. Empty when unregistered. */
   parentCrn: string;
 };
@@ -108,7 +116,14 @@ export function buildCards(
           course,
           rows: scope.groups.map((group) => {
             const section = group.crns[course.id] ?? null;
-            return { scope, group, course, section, parentCrn: (section?.crn && parentOf.get(section.crn)) || "" };
+            return {
+              scope,
+              group,
+              course,
+              section,
+              exempt: section?.exempt ?? 0,
+              parentCrn: (section?.crn && parentOf.get(section.crn)) || "",
+            };
           }),
         });
       }

@@ -104,6 +104,14 @@ export type SectionPart = Request & {
  */
 export type Section = SectionPart & {
   parts: SectionPart[];
+  /**
+   * How many of the group's students do not take this course — see `Exemption`.
+   *
+   * On the section rather than on the group: they are still in the group and still take
+   * everything else in the set, so it is this one class that teaches fewer, and this one
+   * room that can be booked smaller.
+   */
+  exempt: number;
 };
 
 export const EMPTY_PART: SectionPart = { ...EMPTY_REQUEST, part: 1, crn: "", teacher: "", retired: false };
@@ -116,7 +124,7 @@ export const EMPTY_PART: SectionPart = { ...EMPTY_REQUEST, part: 1, crn: "", tea
  * thing at the top level and the opposite in its own list. `partsOf` treats an empty list
  * as "this object is its own only part", which makes every such spread self-consistent.
  */
-export const EMPTY_SECTION: Section = { ...EMPTY_PART, parts: [] };
+export const EMPTY_SECTION: Section = { ...EMPTY_PART, parts: [], exempt: 0 };
 
 /**
  * Every part of a section, in order.
@@ -473,6 +481,38 @@ export function setGroupCrn(
   input: { crn: string; teacher?: string; part?: number },
 ): Promise<void> {
   return send<void>(`${BASE}/groups/${groupId}/courses/${courseId}`, "PUT", { teacher: "", part: 1, ...input });
+}
+
+/**
+ * A student who is in the group and does not take one of the courses its set teaches.
+ *
+ * Credit from elsewhere, a course already passed, a waiver. Held on the server and not as
+ * a dismissed warning, because a dismissal lives in one browser: this is the department's
+ * decision and the next person to open the page has to see it.
+ */
+export type Exemption = {
+  studentId: string;
+  courseId: string;
+  courseCode: string;
+  scopeId: string;
+  scopeCode: string;
+  termId: string;
+  reason: string;
+};
+
+export async function fetchExemptions(cohortId: string): Promise<Exemption[]> {
+  const answer = await request<{ exemptions: Exemption[] }>(`${BASE}/cohorts/${encodeURIComponent(cohortId)}/exemptions`);
+  return answer.exemptions;
+}
+
+export function setExemption(studentId: string, courseId: string, reason = ""): Promise<void> {
+  return send<void>(`${BASE}/students/${encodeURIComponent(studentId)}/exemptions/${courseId}`, "PUT", { reason });
+}
+
+export function clearExemption(studentId: string, courseId: string): Promise<void> {
+  return request<void>(`${BASE}/students/${encodeURIComponent(studentId)}/exemptions/${courseId}`, {
+    method: "DELETE",
+  });
 }
 
 /** One student, as our side knows them: an id, a status, and the cohort they are in. */

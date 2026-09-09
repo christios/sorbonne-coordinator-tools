@@ -7,7 +7,7 @@ import * as lists from "@/services/portalLists";
 import * as store from "@/services/rosterStore";
 import * as database from "@/services/studentDatabase";
 
-function show() {
+function show(courses: { id: string; code: string }[] = []) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
@@ -19,6 +19,7 @@ function show() {
         scopeCode="TD"
         groupId="td-1"
         groupLabel="1"
+        courses={courses}
         onClose={() => {}}
       />
     </QueryClientProvider>,
@@ -131,5 +132,69 @@ describe("looking one of them up", () => {
 
     expect(await screen.findByLabelText("Search this group")).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "Amira Haddad" })).toBeNull();
+  });
+});
+
+describe("a student in the group who does not take one of its courses", () => {
+  beforeEach(() => {
+    vi.spyOn(store, "namesHeld").mockResolvedValue({ A001: "Amira Haddad", A003: "Rana Aziz" });
+  });
+
+  const COURSES = [{ id: "c-math", code: "MATH-011" }, { id: "c-cpsc", code: "CPSC-100" }];
+
+  it("shows who is excused from what, down the list rather than under the pointer", async () => {
+    /*
+     * "Who is exempt from what" is read down a roster, and a control that only appears on
+     * hover cannot be read down anything. So every member carries a chip per course, and
+     * the pressed ones are the exemptions.
+     */
+    vi.spyOn(database, "fetchExemptions").mockResolvedValue([
+      { studentId: "A001", courseId: "c-math", courseCode: "MATH-011", scopeId: "scope-td", scopeCode: "TD", termId: "t1", reason: "Credit from SUAD" },
+    ]);
+
+    show(COURSES);
+
+    const amira = (await screen.findByText("Amira Haddad")).closest("li") as HTMLElement;
+    expect(within(amira).getByRole("button", { name: /MATH-011/ })).toHaveProperty("ariaPressed", "true");
+    expect(within(amira).getByRole("button", { name: /CPSC-100/ })).toHaveProperty("ariaPressed", "false");
+    const rana = (await screen.findByText("Rana Aziz")).closest("li") as HTMLElement;
+    expect(within(rana).getByRole("button", { name: /MATH-011/ })).toHaveProperty("ariaPressed", "false");
+  });
+
+  it("records the exemption on the server rather than dismissing a warning", async () => {
+    // A dismissal lives in one browser's storage. This is the department's decision, and
+    // the next person to open the page has to see it.
+    vi.spyOn(database, "fetchExemptions").mockResolvedValue([]);
+    const wrote = vi.spyOn(database, "setExemption").mockResolvedValue(undefined);
+
+    show(COURSES);
+    const amira = (await screen.findByText("Amira Haddad")).closest("li") as HTMLElement;
+    fireEvent.click(within(amira).getByRole("button", { name: /MATH-011/ }));
+
+    await waitFor(() => expect(wrote).toHaveBeenCalledWith("A001", "c-math"));
+  });
+
+  it("puts somebody back into a course, because a decision can be reversed", async () => {
+    vi.spyOn(database, "fetchExemptions").mockResolvedValue([
+      { studentId: "A001", courseId: "c-math", courseCode: "MATH-011", scopeId: "scope-td", scopeCode: "TD", termId: "t1", reason: "" },
+    ]);
+    const lifted = vi.spyOn(database, "clearExemption").mockResolvedValue(undefined);
+
+    show(COURSES);
+    const amira = (await screen.findByText("Amira Haddad")).closest("li") as HTMLElement;
+    fireEvent.click(within(amira).getByRole("button", { name: /MATH-011/ }));
+
+    await waitFor(() => expect(lifted).toHaveBeenCalledWith("A001", "c-math"));
+  });
+
+  it("shows no chips at all for a set whose courses it was not given", async () => {
+    // The roster is opened from other places too, and a column of nothing would read as
+    // "this set teaches no courses" rather than as "this caller did not say".
+    vi.spyOn(database, "fetchExemptions").mockResolvedValue([]);
+
+    show();
+
+    const amira = (await screen.findByText("Amira Haddad")).closest("li") as HTMLElement;
+    expect(within(amira).queryByRole("button", { name: /MATH-011/ })).toBeNull();
   });
 });

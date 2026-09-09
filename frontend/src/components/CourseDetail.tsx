@@ -47,6 +47,15 @@ const FIGURES = {
     number: "text-[#5b4d8a]",
     word: "text-[#9089b8]",
   },
+  // Amber, and the same round shape as "expected", because it is a count of the same
+  // people — the ones this class will not have in it.
+  exempt: {
+    icon: UserRound,
+    shape: "rounded-full",
+    said: "border-[#e8d9ac] bg-[#fdf9ee]",
+    number: "text-[#8a6116]",
+    word: "text-[#b99a52]",
+  },
 } as const;
 
 function Figure({ label, value, dim }: { label: keyof typeof FIGURES; value: string; dim: boolean }) {
@@ -293,6 +302,9 @@ function SectionBlock({
       <div className="mt-2 flex flex-wrap gap-1.5">
         <Figure label="hours" value={held.hours} dim={held.retired} />
         <Figure label="expected" value={held.anticipated ? String(held.anticipated) : ""} dim={held.retired} />
+        {/* Said only when there is one. A section nobody is excused from is the ordinary
+            case and does not need a figure to say so. */}
+        {row.exempt ? <Figure label="exempt" value={String(row.exempt)} dim={held.retired} /> : null}
         {/* The seats are the group's, not this stretch's: the same people sit in both
             halves, so saying it twice would read as twice as many students. */}
         {held.part > 1 ? null : <Seats placed={row.group.assigned} seats={row.group.capacity} dim={held.retired} />}
@@ -603,6 +615,18 @@ export function CourseDetail({
           scopeCode={showingGroup.scope.code}
           groupId={showingGroup.group.id}
           groupLabel={showingGroup.group.label}
+          /*
+           * The courses of the set this group belongs to, not of the card on screen.
+           *
+           * The card is one course; a set teaches several, and a student exempt from one
+           * of them is in the group for the rest. Reading the set means the roster can be
+           * used for the whole of it in one pass rather than a course at a time.
+           */
+          courses={
+            card.sets
+              .find((entry) => entry.scope.id === showingGroup.scope.id)
+              ?.scope.courses.map((course) => ({ id: course.id, code: course.code })) ?? []
+          }
           onClose={() => setShowingGroup(null)}
         />
       ) : null}

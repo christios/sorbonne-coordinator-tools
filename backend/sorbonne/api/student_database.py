@@ -742,6 +742,44 @@ async def course_cards(database: StudentDatabase = Depends(get_database)) -> dic
     return {"cohorts": database.list_catalogues()}
 
 
+class ExemptionInput(BaseModel):
+    """Why this student does not take this course of their set, in the coordinator's words."""
+
+    reason: str = Field(default="", max_length=400)
+
+
+@router.get("/cohorts/{cohort_id}/exemptions")
+async def list_exemptions(cohort_id: str, database: StudentDatabase = Depends(get_database)) -> dict[str, Any]:
+    """Who, in this cohort's sets, does not take one of the courses their group teaches."""
+    return {"exemptions": database.exemptions_of(cohort_id)}
+
+
+@router.put("/students/{student_id}/exemptions/{course_id}")
+async def set_exemption(
+    student_id: str,
+    course_id: str,
+    body: ExemptionInput,
+    database: StudentDatabase = Depends(get_database),
+) -> dict[str, bool]:
+    """Record that a student in the group does not take this course of its set.
+
+    A fact on the server rather than a dismissal in a browser: the register stops expecting
+    that section of them for everybody who looks, not only on the laptop that said so.
+    """
+    try:
+        database.set_exemption(student_id=student_id, course_id=course_id, reason=body.reason)
+    except CourseNotFound as exc:
+        raise _missing(exc, "course") from exc
+    return {"saved": True}
+
+
+@router.delete("/students/{student_id}/exemptions/{course_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def clear_exemption(
+    student_id: str, course_id: str, database: StudentDatabase = Depends(get_database)
+) -> None:
+    database.clear_exemption(student_id=student_id, course_id=course_id)
+
+
 @router.put("/groups/{group_id}/courses/{course_id}")
 async def set_cell(
     group_id: str, course_id: str, body: CellInput, database: StudentDatabase = Depends(get_database)

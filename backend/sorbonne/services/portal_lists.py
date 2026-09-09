@@ -1573,6 +1573,12 @@ class PortalListStore:
             if cohort is None:
                 continue
             course_codes = sorted({code for group in groups.values() for code in group["crns"]})
+            # A student in the group who does not take one of its courses — credit from
+            # elsewhere, a course already passed. Their absence from that section is a
+            # decision of ours, not a difference to report, and it reads identically to a
+            # real one: on the copied production data one student was missing one course of
+            # five and another was missing all five.
+            exempt = database.exempt_codes(term_id)
             expected: dict[str, dict[str, set[str]]] = {}
             for row in cohort["assignments"]:
                 group = groups.get(row["groupId"])
@@ -1591,6 +1597,7 @@ class PortalListStore:
             for student in cohort["students"]:
                 if student not in pulled:
                     continue
+                excused = exempt.get(student, set())
                 found.extend(
                     _judge(
                         student,
@@ -1602,6 +1609,7 @@ class PortalListStore:
                         registered.get(student, {}).get(code, []),
                     )
                     for code in course_codes
+                    if code not in excused
                 )
         return RegistrationReport(
             mismatches=[mismatch for mismatch in found if mismatch is not None],

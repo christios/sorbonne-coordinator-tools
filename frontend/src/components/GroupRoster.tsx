@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronRight, Copy, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 
@@ -10,7 +10,14 @@ import { EMPTY_HISTORY } from "@/services/pullHistory";
 import { namesHeld, rowsHeld } from "@/services/rosterStore";
 import { studentRows } from "@/services/rosterView";
 import type { RosterRow } from "@/services/scenRosters";
-import { fetchAssignments, fetchCohorts, fetchStudents } from "@/services/studentDatabase";
+import {
+  clearExemption,
+  fetchAssignments,
+  fetchCohorts,
+  fetchExemptions,
+  fetchStudents,
+  setExemption,
+} from "@/services/studentDatabase";
 
 /**
  * Who is actually in this group, and who each of them is.
@@ -32,6 +39,7 @@ export function GroupRoster({
   scopeCode,
   groupId,
   groupLabel,
+  courses = [],
   onClose,
 }: {
   open: boolean;
@@ -41,8 +49,16 @@ export function GroupRoster({
   scopeCode: string;
   groupId: string;
   groupLabel: string;
+  /**
+   * The courses this group's set teaches, so a member can be marked as not taking one.
+   *
+   * Passed in rather than fetched: the page that opens this already holds the catalogue,
+   * and a second read of it here would be a second answer to the same question.
+   */
+  courses?: { id: string; code: string }[];
   onClose: () => void;
 }) {
+  const client = useQueryClient();
   const [copied, setCopied] = useState(false);
   const [query, setQuery] = useState("");
   /** Whose record is open over the list, if any. */
@@ -94,6 +110,35 @@ export function GroupRoster({
     );
     return rows[0] ?? null;
   }, [chosen, students.data, portal.data]);
+
+  /*
+   * Who in this group does not take one of its courses.
+   *
+   * Read from the server, not from a dismissed warning: an exemption is the department's
+   * decision and has to be the same for whoever opens the page next.
+   */
+  const exemptions = useQuery({
+    queryKey: ["exemptions", cohortId],
+    queryFn: () => fetchExemptions(cohortId),
+    enabled: open && Boolean(cohortId),
+  });
+  const excused = useMemo(() => {
+    const held = new Set<string>();
+    for (const row of exemptions.data ?? []) held.add(`${row.studentId}|${row.courseId}`);
+    return held;
+  }, [exemptions.data]);
+
+  const toggle = useMutation({
+    mutationFn: ({ studentId, courseId, on }: { studentId: string; courseId: string; on: boolean }) =>
+      on ? setExemption(studentId, courseId) : clearExemption(studentId, courseId),
+    onSuccess: () => {
+      // The catalogue carries the count per section and the register's verdicts change
+      // with it, so both are asked again rather than left to go stale on screen.
+      void client.invalidateQueries({ queryKey: ["exemptions", cohortId] });
+      void client.invalidateQueries({ queryKey: ["course-cards"] });
+      void client.invalidateQueries({ queryKey: ["registration-check"] });
+    },
+  });
 
   const copy = () => {
     const text = [rowText(["Id", "Student"]), ...shown.map((member) => rowText([member.studentId, member.name]))].join("\n");
@@ -173,6 +218,45 @@ export function GroupRoster({
                         <ChevronRight size={13} className="text-transparent group-hover:text-[#98a2b3]" aria-hidden="true" />
                       </span>
                     </button>
+                    {/*
+                      * One chip per course of the set: pressed means they do not take it.
+                      *
+                      * Outside the button above, which opens their record — a chip inside
+                      * it would open the record on every press. Shown for every member
+                      * rather than on hover, because "who is exempt from what" is read
+                      * down the list, and a control that appears under the pointer cannot
+                      * be read down anything.
+                      */}
+                    {courses.length ? (
+                      <div className="flex flex-wrap gap-1 pb-1.5">
+                        {courses.map((course) => {
+                          const off = excused.has(`${member.studentId}|${course.id}`);
+                          return (
+                            <button
+                              key={course.id}
+                              type="button"
+                              aria-pressed={off}
+                              disabled={toggle.isPending}
+                              title={
+                                off
+                                  ? `${member.name || member.studentId} does not take ${course.code}. Press to put them back in it.`
+                                  : `Mark ${member.name || member.studentId} as not taking ${course.code}`
+                              }
+                              onClick={() =>
+                                toggle.mutate({ studentId: member.studentId, courseId: course.id, on: !off })
+                              }
+                              className={`rounded px-1.5 py-0.5 text-[11px] font-semibold ${
+                                off
+                                  ? "bg-[#fdf9ee] text-[#8a6116] line-through"
+                                  : "text-[#c8d0da] hover:bg-[#f2f4f7] hover:text-[#667085]"
+                              }`}
+                            >
+                              {course.code}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : null}
                   </li>
                 ))}
               </ul>

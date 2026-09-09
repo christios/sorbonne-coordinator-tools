@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, ArrowRightCircle, Check, ChevronDown, EyeOff } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
@@ -27,7 +27,16 @@ import { allChanges, historyFor, type PullHistory } from "@/services/pullHistory
 import { reconcile, tally } from "@/services/registrationLists";
 import type { StudentRow } from "@/services/rosterView";
 import { fetchSchema } from "@/services/scenRosters";
-import { fetchAssignments, fetchCatalogue, fetchDiscrepancyRules, partsOf, type Cohort } from "@/services/studentDatabase";
+import {
+  clearExemption,
+  fetchAssignments,
+  fetchCatalogue,
+  fetchDiscrepancyRules,
+  fetchExemptions,
+  partsOf,
+  setExemption,
+  type Cohort,
+} from "@/services/studentDatabase";
 import { fetchTimetableTerms } from "@/services/timetables";
 
 /*
@@ -184,12 +193,43 @@ export function StudentRecord({
         crns: scope.courses.flatMap((course) => {
           const parts = partsOf(group?.crns[course.id]).filter((part) => part.crn);
           return parts.length
-            ? parts.map((part) => ({ courseCode: course.code, crn: part.crn }))
-            : [{ courseCode: course.code, crn: "" }];
+            ? parts.map((part) => ({ courseId: course.id, courseCode: course.code, crn: part.crn }))
+            : [{ courseId: course.id, courseCode: course.code, crn: "" }];
         }),
       };
     });
+  const client = useQueryClient();
   const registered = new Set((registrations.data ?? []).filter((r) => r.status === "in_portal").map((r) => r.crn));
+  /*
+   * Which of their group's courses this student does not take.
+   *
+   * A course they hold credit for elsewhere, or have already passed. Without it the
+   * register reports them as missing from a section that was never theirs to be in, in the
+   * same words it uses for a real fault.
+   */
+  const exemptions = useQuery({
+    queryKey: ["exemptions", cohortId ?? ""],
+    queryFn: () => fetchExemptions(cohortId ?? ""),
+    enabled: open && Boolean(cohortId),
+  });
+  const excused = useMemo(
+    () =>
+      new Set(
+        (exemptions.data ?? [])
+          .filter((entry) => entry.studentId === row.studentId)
+          .map((entry) => entry.courseId),
+      ),
+    [exemptions.data, row.studentId],
+  );
+  const exempt = useMutation({
+    mutationFn: ({ courseId, on }: { courseId: string; on: boolean }) =>
+      on ? setExemption(row.studentId, courseId) : clearExemption(row.studentId, courseId),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ["exemptions", cohortId ?? ""] });
+      void client.invalidateQueries({ queryKey: ["course-cards"] });
+      void client.invalidateQueries({ queryKey: ["registration-check"] });
+    },
+  });
   /*
    * The two lists side by side: what the groups come to, and what the registrar has.
    *
@@ -336,14 +376,39 @@ export function StudentRecord({
                     </span>
                     <span className="pt-0.5 text-xs text-[#98a2b3]">{termName(scope.termId ?? "")}</span>
                     <ul className="flex basis-full flex-wrap gap-x-4 gap-y-0.5 pl-1 text-xs text-[#667085]">
-                      {crns.map((cell) => (
-                        <li key={cell.courseCode} className="inline-flex items-center gap-1 tabular-nums">
-                          <span className="text-[#344054]">{cell.courseCode}</span> {cell.crn || "—"}
-                          {cell.crn && registered.has(cell.crn) ? (
-                            <Check size={12} className="text-[#2f6b3d]" aria-label="registered" />
-                          ) : null}
-                        </li>
-                      ))}
+                      {crns.map((cell) => {
+                        // A course handed over mid-semester is two CRNs of one course, so
+                        // the code alone is no longer unique down this list.
+                        const off = excused.has(cell.courseId);
+                        return (
+                          <li key={`${cell.courseId}|${cell.crn}`} className="inline-flex items-center gap-1 tabular-nums">
+                            <span className={off ? "text-[#c8d0da] line-through" : "text-[#344054]"}>{cell.courseCode}</span>{" "}
+                            <span className={off ? "text-[#c8d0da]" : ""}>{cell.crn || "—"}</span>
+                            {cell.crn && registered.has(cell.crn) && !off ? (
+                              <Check size={12} className="text-[#2f6b3d]" aria-label="registered" />
+                            ) : null}
+                            {/*
+                              * Marked here as well as on the group's roster: this is the
+                              * one surface organised by student, so somebody's whole
+                              * situation — every set, every course — is settled in one pass.
+                              */}
+                            <button
+                              type="button"
+                              aria-pressed={off}
+                              disabled={exempt.isPending}
+                              title={
+                                off
+                                  ? `Exempt from ${cell.courseCode}. Press to put them back in it.`
+                                  : `Mark as not taking ${cell.courseCode}`
+                              }
+                              onClick={() => exempt.mutate({ courseId: cell.courseId, on: !off })}
+                              className="rounded px-1 text-[10px] font-semibold text-[#c8d0da] hover:bg-[#f2f4f7] hover:text-[#8a6116]"
+                            >
+                              {off ? "exempt" : "exempt?"}
+                            </button>
+                          </li>
+                        );
+                      })}
                     </ul>
                   </li>
                 ))}
