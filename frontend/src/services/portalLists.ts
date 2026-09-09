@@ -351,7 +351,65 @@ export type RegisterCheck = {
   teacherDiffers: TeacherDrift[];
   /** The registrar has staffed it and our planning has not. A line to copy, not an argument. */
   teacherUnnamed: TeacherDrift[];
+  /** One of ours sharing an hour with a section we do not own. */
+  collides: SectionCollision[];
+  /** The same, accepted or referred, kept visible with the reason. */
+  settledCollisions: SettledCollision[];
+  /**
+   * Whether the registrar's timetable has ever been swept for this term.
+   *
+   * Without it an empty `collides` says two different things — nothing collides, or nobody
+   * has looked — and only one of them is good news.
+   */
+  swept: boolean;
 };
+
+/**
+ * One of our sections sharing an hour with one we do not own.
+ *
+ * A fact about a SECTION and not about a student, which is what makes it useful. Five of
+ * our SCEN-101 sections sit in the university's Tuesday 16:30 option block against ENGL,
+ * ARAB and SPAN; reported per student that is a wall of identical red lines whose only
+ * offered remedy — "move this student out of Arabic" — nobody would ever take.
+ */
+export type SectionCollision = {
+  ourCrn: string;
+  ourCourse: string;
+  weekday: string;
+  startsAt: string;
+  endsAt: string;
+  /** How many dates the two share this hour on. */
+  dates: number;
+  theirs: { crn: string; courseCode: string }[];
+  /** How many students the registrar has in ours and in one of theirs. A count only. */
+  students: number;
+};
+
+export type SettledCollision = SectionCollision & {
+  disposition: "accepted" | "referred" | "";
+  note: string;
+  settledAt: string;
+  settledBy: string;
+};
+
+export function settleCollision(input: {
+  termCode: string;
+  ourCrn: string;
+  weekday: string;
+  startsAt: string;
+  endsAt: string;
+  /** "" puts it back on the list. */
+  disposition: "accepted" | "referred" | "";
+  note?: string;
+}): Promise<void> {
+  return send<void>("/section-collisions/settle", "POST", { note: "", ...input });
+}
+
+/** "Tue 16:30–18:00, 14 times" — where and how often the two sit together. */
+export function describeCollisionSlot(collision: SectionCollision): string {
+  const often = collision.dates > 1 ? `, ${collision.dates} times` : "";
+  return `${collision.weekday} ${collision.startsAt}–${collision.endsAt}${often}`;
+}
 
 export type TeacherDrift = {
   crn: string;

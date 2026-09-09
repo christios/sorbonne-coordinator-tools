@@ -28,6 +28,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Connection
 from sqlalchemy.exc import IntegrityError
 
+from sorbonne.services.section_collisions import collisions
 from sorbonne.services.student_database import (
     DuplicateFilterName,
     FilterNotFound,
@@ -170,6 +171,10 @@ class RegistrationReport:
 
     mismatches: list[Mismatch]
     coverage: list[TermCoverage]
+
+
+class UnknownDisposition(Exception):
+    """A collision can be accepted or referred, and nothing else."""
 
 
 class PortalListStore:
@@ -1028,6 +1033,117 @@ class PortalListStore:
             ).rowcount
         if removed == 0:
             raise ActiveCourseNotFound(crn_id)
+
+    def section_collisions(self, term_code: str) -> dict[str, list[dict[str, Any]]]:
+        """Our sections sharing an hour with a section we do not own — see `section_collisions`.
+
+        Empty when nobody has swept the registrar's timetable for this term, which is
+        *blind* rather than *none*: the caller says which, since a page that reported "no
+        collisions" from an empty record would be making the same claim about a question
+        nobody has asked that this whole record exists to stop.
+        """
+        if not term_code:
+            return {"collides": [], "settledCollisions": []}
+        with self.engine.connect() as connection:
+            meetings = [
+                (row[0], row[1], row[2], row[3])
+                for row in connection.execute(
+                    text("""SELECT m.crn, m.meets_on, m.starts_at, m.ends_at
+                            FROM facility_meetings m
+                            JOIN facility_sections s ON s.term_code = m.term_code AND s.crn = m.crn
+                            WHERE m.term_code = :t AND s.schedule_state <> 'gone'"""),
+                    {"t": term_code},
+                )
+            ]
+            ours = {
+                row[0]
+                for row in connection.execute(
+                    text("SELECT crn FROM active_course_crns WHERE term_code = :t"), {"t": term_code}
+                )
+            }
+            courses = dict(
+                connection.execute(
+                    text("""SELECT crn, coalesce(nullif(course_code, ''), '') FROM facility_sections
+                            WHERE term_code = :t"""),
+                    {"t": term_code},
+                ).all()
+            )
+            registered: dict[str, set[str]] = {}
+            for crn, student in connection.execute(
+                text("""SELECT crn, student_id FROM student_registrations
+                        WHERE term_code = :t AND status = 'in_portal'"""),
+                {"t": term_code},
+            ):
+                registered.setdefault(crn, set()).add(student)
+            settled = {
+                (row["our_crn"], row["weekday"], row["starts_at"], row["ends_at"]): dict(row)
+                for row in connection.execute(
+                    text("SELECT * FROM section_collision_notes WHERE term_code = :t"), {"t": term_code}
+                ).mappings()
+            }
+        return collisions(
+            meetings=meetings, ours=ours, courses=courses, registered=registered, settled=settled
+        )
+
+    def has_facility_pull(self, term_code: str) -> bool:
+        """Whether the registrar's timetable has ever been swept for this term.
+
+        The difference between "no collisions" and "nobody has looked", which are the same
+        empty list and very different sentences.
+        """
+        if not term_code:
+            return False
+        with self.engine.connect() as connection:
+            return bool(
+                connection.execute(
+                    text("SELECT 1 FROM facility_pulls WHERE term_code = :t LIMIT 1"), {"t": term_code}
+                ).scalar()
+            )
+
+    def settle_collision(  # noqa: PLR0913 - one argument per part of the key, plus the verdict
+        self,
+        *,
+        term_code: str,
+        our_crn: str,
+        weekday: str,
+        starts_at: str,
+        ends_at: str,
+        disposition: str,
+        note: str = "",
+        actor: str = "",
+    ) -> None:
+        """Accept a collision, or record that it has been referred. Empty disposition unsettles it.
+
+        Keyed on our own section's slot, so the note expires by itself when the registrar
+        moves that section: the slot it was about stops existing and the row stops matching.
+        The same fact-shaped-key discipline as a warning's, with no expiry to keep track of.
+
+        Server-side rather than in the browser's dismissal store, and deliberately: every
+        input here is the server's and identical for every coordinator, so a decision one
+        of them takes is a decision the department has taken.
+        """
+        if disposition and disposition not in {"accepted", "referred"}:
+            raise UnknownDisposition(disposition)
+        with self.engine.begin() as connection:
+            if not disposition:
+                connection.execute(
+                    text("""DELETE FROM section_collision_notes
+                            WHERE term_code = :t AND our_crn = :crn AND weekday = :d
+                              AND starts_at = :s AND ends_at = :e"""),
+                    {"t": term_code, "crn": our_crn, "d": weekday, "s": starts_at, "e": ends_at},
+                )
+                return
+            connection.execute(
+                text("""INSERT INTO section_collision_notes
+                            (term_code, our_crn, their_crn, weekday, starts_at, ends_at,
+                             disposition, note, settled_at, settled_by)
+                        VALUES (:t, :crn, '', :d, :s, :e, :disposition, :note, :at, :by)
+                        ON CONFLICT (term_code, our_crn, their_crn, weekday, starts_at, ends_at)
+                        DO UPDATE SET disposition = excluded.disposition, note = excluded.note,
+                                      settled_at = excluded.settled_at, settled_by = excluded.settled_by"""),
+                {"t": term_code, "crn": our_crn, "d": weekday, "s": starts_at, "e": ends_at,
+                 "disposition": disposition, "note": _text(note)[:400], "at": _now(), "by": actor},
+            )
 
     def teacher_drift(self, term_code: str = "") -> dict[str, list[dict[str, Any]]]:
         """Who our planning says teaches a section, against who the registrar has on it.

@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ActiveCourses } from "@/components/ActiveCourses";
@@ -11,6 +11,9 @@ const EMPTY: lists.RegisterCheck = {
   unregistered: [],
   teacherDiffers: [],
   teacherUnnamed: [],
+  collides: [],
+  settledCollisions: [],
+  swept: true,
 };
 
 const drift = (over: Partial<lists.TeacherDrift>): lists.TeacherDrift => ({
@@ -81,5 +84,76 @@ describe("who the registrar says teaches a section", () => {
     expect(screen.queryByText(/staffs differently/)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /Show them/ }));
     expect(screen.getByText(/24071 PHYS-118 1 — Valerie LE GUYON/)).toBeTruthy();
+  });
+});
+
+const collision = (over: Partial<lists.SectionCollision> = {}): lists.SectionCollision => ({
+  ourCrn: "23302", ourCourse: "SCEN-101", weekday: "Tue", startsAt: "16:30", endsAt: "18:00",
+  dates: 14, theirs: [{ crn: "20581", courseCode: "ENGL-604" }], students: 2, ...over,
+});
+
+/*
+ * The third kind of overlap. Two of ours is a student clash and belongs to the cohort's
+ * page; neither ours is nobody's business; exactly one is this, and its remedies are about
+ * the SECTION — move ours, accept it, or refer it once about the slot.
+ */
+describe("our sections sharing an hour with another department's", () => {
+  it("names both sides, the slot, and how many students are caught", async () => {
+    vi.spyOn(lists, "fetchRegisterCheck").mockResolvedValue({ ...EMPTY, collides: [collision()] });
+
+    show();
+    fireEvent.click(await screen.findByRole("button", { name: /Show them/ }));
+
+    expect(screen.getByText(/SCEN-101 23302/)).toBeTruthy();
+    expect(screen.getByText(/Tue 16:30–18:00, 14 times/)).toBeTruthy();
+    expect(screen.getByText(/vs ENGL-604/)).toBeTruthy();
+    expect(screen.getByText("2 in both")).toBeTruthy();
+  });
+
+  it("offers accepting and referring, which are the remedies that exist", async () => {
+    // Moving OUR section is the third and the real one, but it is a timetable request
+    // rather than a button — there is nothing here that could carry it out.
+    vi.spyOn(lists, "fetchRegisterCheck").mockResolvedValue({ ...EMPTY, collides: [collision()] });
+    const settle = vi.spyOn(lists, "settleCollision").mockResolvedValue(undefined);
+
+    show();
+    fireEvent.click(await screen.findByRole("button", { name: /Show them/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Accept" }));
+
+    await waitFor(() => expect(settle).toHaveBeenCalled());
+    expect(settle).toHaveBeenCalledWith(
+      expect.objectContaining({ ourCrn: "23302", weekday: "Tue", startsAt: "16:30", disposition: "accepted" }),
+    );
+  });
+
+  it("keeps a settled one visible with its reason, and can put it back", async () => {
+    vi.spyOn(lists, "fetchRegisterCheck").mockResolvedValue({
+      ...EMPTY,
+      // Settled rows deliberately do NOT demand attention — that is how the page reaches
+      // zero — so something else has to be open for them to be reviewed beneath it.
+      unregistered: [{ crn: "1", courseCode: "X" }],
+      settledCollisions: [{ ...collision(), disposition: "referred", note: "asked the option block owner", settledAt: "", settledBy: "" }],
+    });
+    const settle = vi.spyOn(lists, "settleCollision").mockResolvedValue(undefined);
+
+    show();
+    fireEvent.click(await screen.findByRole("button", { name: /Show them/ }));
+
+    expect(screen.getByText(/referred — asked the option block owner/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Put it back" }));
+    await waitFor(() => expect(settle).toHaveBeenCalledWith(expect.objectContaining({ disposition: "" })));
+  });
+
+  it("says nobody has looked, rather than that nothing collides", async () => {
+    // An empty list from an empty record is the exact claim this whole record exists to
+    // stop being made.
+    vi.spyOn(lists, "fetchRegisterCheck").mockResolvedValue({
+      ...EMPTY, swept: false, unregistered: [{ crn: "1", courseCode: "X" }],
+    });
+
+    show();
+    fireEvent.click(await screen.findByRole("button", { name: /Show them/ }));
+
+    expect(screen.getByText(/no collision can be found in any of it/)).toBeTruthy();
   });
 });

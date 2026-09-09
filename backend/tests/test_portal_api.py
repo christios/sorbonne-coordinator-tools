@@ -39,6 +39,9 @@ def empty_tables() -> None:
             "facility_meetings",
             "facility_sections",
             "facility_pulls",
+            # A settled collision outlives the pull it was about, which is the point — and
+            # exactly why a test that settles one must not leave it for the next.
+            "section_collision_notes",
             "portal_filters",
             "portal_courses",
             "portal_teachers",
@@ -1356,3 +1359,69 @@ def test_our_planning_says_how_firmly_it_names_a_teacher(client: TestClient, dat
     found = client.get(f"{BASE}/register-check").json()
 
     assert found["teacherDiffers"][0]["planning"] == "named"
+
+
+# ------------------------------- our sections against somebody else's, at one hour
+
+
+def test_collisions_are_blind_rather_than_none_before_the_registrar_is_swept(client: TestClient):
+    """An empty list from an empty record is not "no collisions"; it is "nobody looked"."""
+    found = client.get(f"{BASE}/register-check?term={TERM}").json()
+
+    assert found["collides"] == []
+    assert found["swept"] is False
+
+
+def test_a_collision_is_reported_once_per_slot_and_can_be_settled(
+    client: TestClient, database: StudentDatabase
+):
+    cohort = database.create_cohort(name="Foundation Year", term="2026-27")
+    cm = database.add_scope(cohort["id"], code="CM", name="Lectures", term_id=HUB_TERM)
+    database.set_cell(
+        group_id=database.add_group(cm, label="A"),
+        course_id=database.add_course(cm, code="SCEN-101"),
+        crn="23302",
+    )
+    # Ours is on the register; the option is not, which is the whole discriminator. Put
+    # straight in rather than through the register's own onboarding, which wants the course
+    # to exist in the portal's list first and is a different test's subject.
+    with PortalListStore(TEST_DATABASE_URL).engine.begin() as connection:
+        connection.execute(
+            text("""INSERT INTO active_course_crns (id, term_code, crn, course_code, added_at, added_by)
+                    VALUES ('c1', :t, '23302', 'SCEN-101', 'now', '')"""),
+            {"t": TERM},
+        )
+    # Two dates a week apart, so both fall on one weekday and fold into one slot — which
+    # is the grain the whole thing is about.
+    timetable(client, {"23302": (-14, -7), "20581": (-14, -7)})
+
+    found = client.get(f"{BASE}/register-check?term={TERM}").json()
+    assert found["swept"] is True
+    [row] = found["collides"]
+    assert row["ourCrn"] == "23302"
+    assert [t["crn"] for t in row["theirs"]] == ["20581"]
+    assert row["dates"] == 2
+
+    # Accepted once, about the slot — and it leaves the list so the page can reach zero.
+    settled = client.post(
+        f"{BASE}/section-collisions/settle",
+        json={"termCode": TERM, "ourCrn": "23302", "weekday": row["weekday"],
+              "startsAt": row["startsAt"], "endsAt": row["endsAt"],
+              "disposition": "accepted", "note": "protected option block"},
+    )
+    assert settled.status_code == status.HTTP_204_NO_CONTENT
+
+    after = client.get(f"{BASE}/register-check?term={TERM}").json()
+    assert after["collides"] == []
+    assert after["settledCollisions"][0]["note"] == "protected option block"
+
+
+def test_a_collision_can_only_be_accepted_or_referred(client: TestClient):
+    refused = client.post(
+        f"{BASE}/section-collisions/settle",
+        json={"termCode": TERM, "ourCrn": "23302", "weekday": "Tue", "startsAt": "16:30",
+              "endsAt": "18:00", "disposition": "ignored"},
+    )
+
+    assert refused.status_code == status.HTTP_400_BAD_REQUEST
+    assert "ignored" in refused.json()["detail"]

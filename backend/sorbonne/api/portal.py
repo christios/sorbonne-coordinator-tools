@@ -25,6 +25,7 @@ from sorbonne.services.portal_lists import (
     ActiveTeacherNotFound,
     InvalidParent,
     PortalListStore,
+    UnknownDisposition,
     UnknownKind,
     names_agree,
 )
@@ -419,7 +420,59 @@ async def register_check(term: str = "", store: PortalListStore = Depends(get_st
     question — what has moved since we wrote it down — asked of a different column, and one
     page shows the answer.
     """
-    return {**store.register_check(term), **store.teacher_drift(term)}
+    # Collisions need a portal term to have been swept, so they travel with the term code
+    # rather than the whole register — and their absence is blind, not clean, which the
+    # `swept` flag says out loud.
+    return {
+        **store.register_check(term),
+        **store.teacher_drift(term),
+        **store.section_collisions(term),
+        # Asked separately from whether any collision was found, because those are
+        # different facts and only one is good news: with no pull, no collision can be
+        # found in any section, and calling that "none" is the mistake this record exists
+        # to stop.
+        "swept": store.has_facility_pull(term),
+    }
+
+
+class CollisionVerdict(BaseModel):
+    """What a coordinator decided about one of our sections sharing an hour with somebody's."""
+
+    termCode: str = Field(min_length=1, max_length=20)
+    ourCrn: str = Field(min_length=1, max_length=20)
+    weekday: str = Field(min_length=3, max_length=3)
+    startsAt: str = Field(min_length=4, max_length=5)
+    endsAt: str = Field(min_length=4, max_length=5)
+    #: accepted · referred · "" to unsettle it again.
+    disposition: str = Field(default="", max_length=20)
+    note: str = Field(default="", max_length=400)
+
+
+@router.post("/section-collisions/settle", status_code=status.HTTP_204_NO_CONTENT)
+async def settle_collision(
+    body: CollisionVerdict,
+    request: Request,
+    store: PortalListStore = Depends(get_store),
+) -> None:
+    """Accept a collision or record that it has been referred; an empty disposition undoes it.
+
+    Server-side rather than in the browser's dismissal store: every input is the server's
+    and identical for every coordinator, so this is the department deciding rather than one
+    person hiding a line on their own machine.
+    """
+    try:
+        store.settle_collision(
+            term_code=body.termCode,
+            our_crn=body.ourCrn,
+            weekday=body.weekday,
+            starts_at=body.startsAt,
+            ends_at=body.endsAt,
+            disposition=body.disposition,
+            note=body.note,
+            actor=_actor(request),
+        )
+    except UnknownDisposition as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=f"Unknown disposition: {exc}") from exc
 
 
 @router.delete("/active-courses/{active_id}", status_code=status.HTTP_204_NO_CONTENT)

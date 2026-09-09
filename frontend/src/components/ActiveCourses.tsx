@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, BookPlus, Link2Off, Plus, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
+import { CollisionList } from "@/components/CollisionList";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { removeEach, stillSelected } from "@/services/bulkRemove";
 import { ListGrid, StatePill } from "@/components/ListGrid";
@@ -172,7 +173,8 @@ export function ActiveCourses() {
     (report?.arrived.length ?? 0) +
     (report?.unregistered.length ?? 0) +
     (report?.teacherDiffers.length ?? 0) +
-    (report?.teacherUnnamed.length ?? 0);
+    (report?.teacherUnnamed.length ?? 0) +
+    (report?.collides.length ?? 0);
 
   return (
     <section>
@@ -186,6 +188,8 @@ export function ActiveCourses() {
             <RegisterBanner
               report={report}
               busy={takeIn.isPending}
+              term={term}
+              onSettled={() => client.invalidateQueries({ queryKey: ["register-check"] })}
               onTakeIn={() =>
                 takeIn.mutate(report.arrived.map((row) => ({ termCode: row.termCode, crn: row.crn, courseCode: row.courseCode })))
               }
@@ -280,11 +284,15 @@ export function ActiveCourses() {
 function RegisterBanner({
   report,
   busy,
+  term,
   onTakeIn,
+  onSettled,
 }: {
   report: RegisterCheck;
   busy: boolean;
+  term: string;
   onTakeIn: () => void;
+  onSettled: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const lines = [
@@ -295,6 +303,9 @@ function RegisterBanner({
     // teacher misspelled across six sections is six lines to change.
     report.teacherDiffers.length ? `${report.teacherDiffers.length} section${report.teacherDiffers.length === 1 ? "" : "s"} the registrar staffs differently` : "",
     report.teacherUnnamed.length ? `${report.teacherUnnamed.length} the registrar staffs and we have not` : "",
+    // Said as slots, because that is what gets moved. Five of our sections in one option
+    // block is five lines here and one conversation with whoever owns the block.
+    report.collides.length ? `${report.collides.length} of our sections share an hour with another department's` : "",
   ].filter(Boolean);
 
   return (
@@ -335,6 +346,22 @@ function RegisterBanner({
             rows={report.teacherUnnamed.map((row) => `${row.crn} ${row.courseCode} ${row.groupLabel} — ${row.theirs}`)}
           />
         </div>
+      ) : null}
+
+      {/*
+        * The collisions get their own block rather than a fourth <Column>, because unlike
+        * the three above each one has a decision attached and needs room for it.
+        */}
+      {/* Rendered whenever the band is open, including with nothing in it: saying "nobody
+          has looked" is as much its job as listing what was found. */}
+      {open ? (
+        <CollisionList
+          term={term}
+          collides={report.collides}
+          settled={report.settledCollisions}
+          swept={report.swept}
+          onSettled={onSettled}
+        />
       ) : null}
     </div>
   );
