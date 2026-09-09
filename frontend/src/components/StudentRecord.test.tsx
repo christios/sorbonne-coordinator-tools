@@ -48,7 +48,7 @@ const report = (mismatches: lists.Mismatch[] = [], coverage: lists.TermCoverage[
 
 /** A semester the register was fully asked about, with this student among those it saw. */
 const checked = (over: Partial<lists.TermCoverage> = {}): lists.TermCoverage => ({
-  termId: "term-1", termCode: "262710", members: 2, judged: 2, blind: 0, skipped: [], pulledInTerm: 2, ...over,
+  termId: "term-1", termCode: "262710", members: 2, judged: 2, blind: 0, skipped: [], pulledInTerm: 2, undatedCrns: [], ...over,
 });
 
 beforeEach(() => {

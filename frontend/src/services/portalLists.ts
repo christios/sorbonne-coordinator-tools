@@ -432,6 +432,14 @@ export type TermCoverage = {
   skipped: string[];
   /** Students of any cohort this term's pulls returned. */
   pulledInTerm: number;
+  /**
+   * Our own sections the registrar has given no timetable for.
+   *
+   * A section with no dates cannot be told to be over, so it goes on being expected all
+   * year — which is the old, date-blind behaviour, kept deliberately because narrowing on
+   * no evidence is worse. These name where that fallback applied.
+   */
+  undatedCrns: string[];
 };
 
 /**
@@ -475,6 +483,26 @@ export function describeCoverage(coverage: TermCoverage, termName = ""): string 
     return `${term}: ${coverage.judged} of ${coverage.members} students checked — ${coverage.blind} no pull has returned.`;
   }
   return "";
+}
+
+/**
+ * Where the check could not tell whether a section was still running, and so kept
+ * expecting it.
+ *
+ * A course taught in two halves puts a student in one section until the handover and
+ * another after it. The check only knows which half is current from the registrar's own
+ * timetable; without it, both halves are expected every day of the year and a student
+ * correctly registered in one is reported missing from the other. That fallback is
+ * deliberate — narrowing with no evidence would be far worse — but it must not be silent,
+ * or the fix looks as though it is working when nothing has been pulled for it to work on.
+ *
+ * Nothing to say for a semester with no portal term: it has a line of its own already.
+ */
+export function describeSectionDates(coverage: TermCoverage, termName = ""): string {
+  if (!coverage.termCode || !coverage.undatedCrns.length) return "";
+  const term = termName || `Semester ${coverage.termCode}`;
+  const sections = coverage.undatedCrns.length;
+  return `${term}: the registrar has given no timetable for ${sections} of this cohort's sections, so a course taught in two halves is expected in both all year.`;
 }
 
 // ---------------------------------------------- the part-time teacher database

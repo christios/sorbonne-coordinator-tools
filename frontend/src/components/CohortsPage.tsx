@@ -32,6 +32,7 @@ import { dismiss, loadDismissed, pruneDismissed, restore, restoreMany } from "@/
 import {
   describeCoverage,
   describeMismatch,
+  describeSectionDates,
   fetchRegistrationCheck,
   type Mismatch,
   type RegistrationReport,
@@ -418,11 +419,17 @@ export function CohortsPage({
   const mismatches = registrationsBy.get(cohortId) ?? [];
   const check = checks[cohorts.findIndex((candidate) => candidate.id === cohortId)];
   const coverage: TermCoverage[] = reportsBy.get(cohortId)?.coverage ?? [];
-  // One line per semester that has something to say. A semester fully checked says
-  // nothing, and that silence is the only silence here that has been earned.
-  const gaps = coverage
-    .map((term) => ({ term, said: describeCoverage(term, nameOfTerm(term.termId)) }))
-    .filter((entry) => entry.said);
+  /*
+   * What the check could not see, semester by semester: how much of the cohort, and how
+   * much of its timetable. Up to two lines each, and none at all for a semester seen
+   * whole — the only silence here that has been earned.
+   */
+  const gaps = coverage.flatMap((term) => {
+    const name = nameOfTerm(term.termId);
+    return [describeCoverage(term, name), describeSectionDates(term, name)]
+      .filter(Boolean)
+      .map((said, index) => ({ key: `${term.termId}:${index}`, said }));
+  });
   const anyChecked = coverage.some((term) => term.judged > 0);
   const registerSays = check?.isError
     ? "The register could not be asked about this cohort at all."
@@ -548,8 +555,8 @@ export function CohortsPage({
         */}
       {gaps.length ? (
         <ul role="status" className="mt-2 space-y-0.5 text-xs text-[#98a2b3]">
-          {gaps.map(({ term, said }) => (
-            <li key={term.termId} className="flex items-start gap-1.5">
+          {gaps.map(({ key, said }) => (
+            <li key={key} className="flex items-start gap-1.5">
               <EyeOff size={12} className="mt-0.5 shrink-0" aria-hidden="true" />
               <span>{said}</span>
             </li>

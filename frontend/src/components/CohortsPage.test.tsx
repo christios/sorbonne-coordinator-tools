@@ -49,7 +49,7 @@ const report = (mismatches: lists.Mismatch[] = [], coverage: lists.TermCoverage[
  * that is not about coverage does not accidentally assert a cohort nobody has checked.
  */
 const checked = (over: Partial<lists.TermCoverage> = {}): lists.TermCoverage => ({
-  termId: "t1", termCode: "262710", members: 2, judged: 2, blind: 0, skipped: [], pulledInTerm: 2, ...over,
+  termId: "t1", termCode: "262710", members: 2, judged: 2, blind: 0, skipped: [], pulledInTerm: 2, undatedCrns: [], ...over,
 });
 
 const mismatch = (over: Partial<lists.Mismatch>): lists.Mismatch => ({
@@ -540,6 +540,28 @@ describe("the register half of the Cohorts page", () => {
     expect(document.querySelectorAll("[data-source]")).toHaveLength(0);
     expect(screen.queryByRole("button", { name: /^Register/ })).toBeNull();
     expect(screen.queryByText(/flagged/)).toBeNull();
+  });
+
+  it("says when it has no timetable to tell the halves of a course apart", async () => {
+    /*
+     * The date-aware expectation only works on the registrar's own timetable. Without it
+     * both halves of a handover are expected every day of the year — the old behaviour,
+     * kept on purpose because narrowing on no evidence is worse — and if that is not said
+     * out loud the fix looks as though it is working when nothing has been pulled.
+     */
+    vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue(
+      report([], [checked({ undatedCrns: ["22151", "23652", "23820"] })]),
+    );
+    await twoStudents();
+
+    renderPage();
+
+    expect(
+      await screen.findByText(/no timetable for 3 of this cohort's sections, so a course taught in two halves/),
+    ).toBeTruthy();
+    // Still not a flag: nobody is warned, and the students were all checked.
+    expect(document.querySelectorAll("[data-source]")).toHaveLength(0);
+    expect(screen.queryByText(/students checked/)).toBeNull();
   });
 
   it("says nothing at all about a semester it saw all of", async () => {
