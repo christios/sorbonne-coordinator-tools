@@ -344,3 +344,69 @@ describe("a step that is many requests, not one", () => {
     await screen.findByText(/^Synced/);
   });
 });
+
+/*
+ * A run that ends with a warning icon has something to say, and the only way to ask what
+ * it was used to destroy the answer: the click that opened the panel also started a fresh
+ * run, so by the time the report appeared every step was back to waiting.
+ */
+describe("reading what the last sync said", () => {
+  const warned = async () => {
+    // A pull that returned far fewer rows than the view expected. The extension decides
+    // that and names it; here the mock stands in for the extension.
+    vi.spyOn(rosters, "pullFilter").mockImplementation(async (_filter, meta) =>
+      meta?.kind === "courses"
+        ? COURSE_ROWS
+        : { ...STUDENTS, count: 1, expect: 40, rows: [STUDENTS.rows[0]], warning: "count_drift" },
+    );
+    show();
+    await sync();
+  };
+
+  it("opens the report instead of starting another sync", async () => {
+    await warned();
+    const pulls = vi.mocked(rosters.pullFilter).mock.calls.length;
+    // Put the panel away, the way clicking off it does, and come back to ask.
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    fireEvent.click(screen.getByRole("button", { name: /portal sync/i }));
+
+    // The warning is legible, and nothing was asked for again to make it so.
+    expect(await screen.findByText(/where about 40 was expected/)).toBeTruthy();
+    expect(vi.mocked(rosters.pullFilter).mock.calls.length).toBe(pulls);
+    expect(screen.getByText(/^Synced/)).toBeTruthy();
+  });
+
+  it("keeps every step's result, rather than putting them back to waiting", async () => {
+    await warned();
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    fireEvent.click(screen.getByRole("button", { name: /portal sync/i }));
+
+    expect(await screen.findByText(/2 of 2 synced/)).toBeTruthy();
+  });
+
+  it("syncs again from inside the report, where it cannot be pressed by accident", async () => {
+    await warned();
+    const pulls = vi.mocked(rosters.pullFilter).mock.calls.length;
+
+    fireEvent.click(screen.getByRole("button", { name: "Sync again" }));
+
+    await waitFor(() => expect(vi.mocked(rosters.pullFilter).mock.calls.length).toBeGreaterThan(pulls));
+    // Waited out. The run is module state shared by every test in this file, so leaving
+    // one in flight means the next test's `startRun` finds `driving` still true and does
+    // nothing — which fails somewhere else, intermittently, for no visible reason.
+    await screen.findByText(/of 2 synced/);
+  });
+
+  it("still syncs on the first click when there is nothing to show", async () => {
+    // The very first press of a session must not need two clicks to do anything.
+    show();
+    const button = await screen.findByRole("button", { name: /portal sync/i });
+    await waitFor(() => expect(button).toHaveProperty("disabled", false));
+
+    fireEvent.click(button);
+
+    expect(await screen.findByText(/^Synced/)).toBeTruthy();
+  });
+});

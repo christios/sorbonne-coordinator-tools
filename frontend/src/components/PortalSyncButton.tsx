@@ -132,14 +132,34 @@ export function PortalSyncButton() {
         <button
           type="button"
           onClick={() => {
-            // While a run is going the button is how you look at it; only an idle one
-            // starts another. Either way the report opens, rather than being gone looking for.
+            /*
+             * A finished run is opened, never overwritten.
+             *
+             * This used to start a new sync whenever one was not already going — including
+             * the click somebody made to find out what the warning icon meant. The panel
+             * opened, and by the time it did, the run it would have shown had been replaced
+             * by a fresh one with every step back to waiting. The warning was unreadable by
+             * construction: the only way to ask what it said destroyed the answer.
+             *
+             * So: a run in flight toggles the report, a finished one opens it, and only
+             * having nothing to show starts a sync on the first click. Syncing again is a
+             * button inside, next to Clear, where it cannot be pressed by accident.
+             */
             if (running || !ready) return setOpen((was) => !was);
+            if (steps.length) return setOpen((was) => !was);
             setOpen(true);
             void begin();
           }}
           disabled={!ready && !running}
-          title={ready ? "Ask the registrar portal for every list" : "Nothing to sync yet: no views or portal filters"}
+          title={
+            !ready
+              ? "Nothing to sync yet: no views or portal filters"
+              : running
+                ? "See how the sync is going"
+                : steps.length
+                  ? "See what the last sync did"
+                  : "Ask the registrar portal for every list"
+          }
           className="inline-flex items-center gap-2 rounded-md border border-[#d9dee7] bg-white px-3 py-2 text-sm font-semibold text-[#1f4e79] shadow-sm hover:bg-[#f2f7fb] disabled:opacity-50"
         >
           {running ? (
@@ -214,9 +234,24 @@ export function PortalSyncButton() {
                 Give up
               </button>
             ) : (
-              <button type="button" onClick={() => { clearRun(); setOpen(false); }} className="text-xs text-[#667085] underline">
-                Clear
-              </button>
+              <span className="flex items-center gap-3">
+                {/*
+                  * Where syncing again lives now that the button above shows the report
+                  * instead of replacing it. Beside Clear rather than in place of it: one
+                  * runs it again, the other puts the report away, and after a run with
+                  * trouble a coordinator wants both to be a deliberate choice.
+                  */}
+                <button
+                  type="button"
+                  onClick={() => void begin()}
+                  className="text-xs font-semibold text-[#1f4e79] underline"
+                >
+                  Sync again
+                </button>
+                <button type="button" onClick={() => { clearRun(); setOpen(false); }} className="text-xs text-[#667085] underline">
+                  Clear
+                </button>
+              </span>
             )}
           </div>
           {missing ? (
