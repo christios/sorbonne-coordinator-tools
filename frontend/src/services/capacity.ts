@@ -14,7 +14,7 @@
  * Retired sections are left out. Nobody is in them and nobody will be.
  */
 
-import type { CohortCatalogue } from "@/services/studentDatabase";
+import { partsOf, type CohortCatalogue } from "@/services/studentDatabase";
 import type { ActiveCourse } from "@/services/portalLists";
 import type { GridColumn } from "@/services/studentColumns";
 
@@ -67,32 +67,42 @@ export function capacityRows(
       const termId = scope.termId ?? "";
       for (const course of scope.courses) {
         for (const group of scope.groups) {
-          const section = group.crns[course.id];
-          if (!section || section.retired) continue;
-          // The group's seats; a group that never had a capacity falls back to what the
-          // timetable was told to expect for this section.
-          const capacity = group.capacity || Number(section.anticipated) || 0;
-          const enrolled = group.assigned;
-          rows.push({
-            key: `${held.cohort.id}|${scope.id}|${group.id}|${course.id}`,
-            cohortId: held.cohort.id,
-            cohortName: held.cohort.name,
-            termId,
-            termName: termName(termId),
-            set: scope.code,
-            shared: scope.openToAll,
-            group: group.label,
-            courseCode: course.code,
-            courseTitle: course.name,
-            component: course.component,
-            ue: ue.get(course.code.toUpperCase()) ?? "",
-            crn: section.crn,
-            teacher: (section.teacherId && teacherName(section.teacherId)) || section.teacher,
-            capacity,
-            enrolled,
-            free: capacity ? capacity - enrolled : 0,
-            status: statusOf(capacity, enrolled),
-          });
+          /*
+           * A row per PART, not per section.
+           *
+           * This is a sheet of CRNs — one line for each thing the registrar has to seat —
+           * and a course handed from one professor to another at mid-semester is booked
+           * under a CRN per half. Reading the section alone gave the first half a line and
+           * left the second with none, so half a term's teaching had no seats anywhere on
+           * the page that exists to count them.
+           */
+          for (const section of partsOf(group.crns[course.id])) {
+            if (section.retired) continue;
+            // The group's seats; a group that never had a capacity falls back to what the
+            // timetable was told to expect for this section.
+            const capacity = group.capacity || Number(section.anticipated) || 0;
+            const enrolled = group.assigned;
+            rows.push({
+              key: `${held.cohort.id}|${scope.id}|${group.id}|${course.id}|${section.part}`,
+              cohortId: held.cohort.id,
+              cohortName: held.cohort.name,
+              termId,
+              termName: termName(termId),
+              set: scope.code,
+              shared: scope.openToAll,
+              group: group.label,
+              courseCode: course.code,
+              courseTitle: course.name,
+              component: course.component,
+              ue: ue.get(course.code.toUpperCase()) ?? "",
+              crn: section.crn,
+              teacher: (section.teacherId && teacherName(section.teacherId)) || section.teacher,
+              capacity,
+              enrolled,
+              free: capacity ? capacity - enrolled : 0,
+              status: statusOf(capacity, enrolled),
+            });
+          }
         }
       }
     }

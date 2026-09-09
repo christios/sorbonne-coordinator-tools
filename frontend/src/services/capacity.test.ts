@@ -171,3 +171,58 @@ describe("how full every group is", () => {
     });
   });
 });
+
+describe("a course handed from one professor to another at mid-semester", () => {
+  /** MATH-351: 23436 to late October, 24311 after it — one group, one course, two CRNs. */
+  const SPLIT: CohortCatalogue = {
+    cohort: { id: "c3", name: "Third year", term: "2026-27" },
+    scopes: [
+      {
+        id: "s-cm", code: "CM", name: "Lectures", note: "", termId: "term-1", kind: "shared", parentScopeId: "",
+        openToAll: false,
+        courses: [{ id: "cm-alg", code: "MATH-351", name: "Algebra & Cryptography", component: "CM", request: EMPTY_REQUEST }],
+        groups: [
+          group("cm-a", "Mathematics", 0, 8, {
+            "cm-alg": {
+              ...section("23436", { teacher: "Grace Younes", anticipated: 6 }),
+              parts: [
+                { ...EMPTY_SECTION, part: 1, crn: "23436", teacher: "Grace Younes", anticipated: 6 },
+                { ...EMPTY_SECTION, part: 2, crn: "24311", teacher: "Sudarshan Shinde", anticipated: 6 },
+              ],
+            },
+          }),
+        ],
+      },
+    ],
+  };
+
+  it("gives every CRN a line, because every CRN is a thing the registrar has to seat", () => {
+    /*
+     * A row per part, not per section. Reading the section alone gave the first half a
+     * line and left the second with none, so half a term's teaching had no seats anywhere
+     * on the page that exists to count them.
+     */
+    const rows = capacityRows([SPLIT], () => "Semester 1");
+
+    expect(rows.map((row) => row.crn)).toEqual(["23436", "24311"]);
+    expect(rows.map((row) => row.teacher)).toEqual(["Grace Younes", "Sudarshan Shinde"]);
+  });
+
+  it("counts the group once, however many stretches it is taught in", () => {
+    // The same eight people sit in both halves. Counting them twice would report a class
+    // of sixteen and, on a group with a capacity, invent an overflow that is not there.
+    const [only] = capacityByGroup(capacityRows([SPLIT], () => "Semester 1"));
+
+    expect(only.enrolled).toBe(8);
+    expect(only.sections.map((row) => row.crn)).toEqual(["23436", "24311"]);
+  });
+
+  it("leaves a retired half out and keeps the one still running", () => {
+    const half: CohortCatalogue = JSON.parse(JSON.stringify(SPLIT));
+    half.scopes[0].groups[0].crns["cm-alg"].parts[0].retired = true;
+
+    const rows = capacityRows([half], () => "Semester 1");
+
+    expect(rows.map((row) => row.crn)).toEqual(["24311"]);
+  });
+});
