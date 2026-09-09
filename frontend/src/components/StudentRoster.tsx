@@ -20,6 +20,7 @@ import { TableFilterBar } from "@/components/TableFilterBar";
 import { costOfMove, describeCost } from "@/services/cohortMove";
 import { copyToClipboard, tableText } from "@/services/copyCells";
 import { presetText, rowsForCopy } from "@/services/copyPresets";
+import { afterPlacement } from "@/services/afterPlacement";
 import { forgetHistory, loadHistory, type PullHistory } from "@/services/pullHistory";
 import { fetchSchema, type RosterRow } from "@/services/scenRosters";
 import { fetchTimetableTerms } from "@/services/timetables";
@@ -305,10 +306,7 @@ export function StudentRoster({
       setNaming(false);
       setNewName("");
       setSelected(new Set());
-      client.invalidateQueries({ queryKey: ["students"] });
-      client.invalidateQueries({ queryKey: ["cohorts"] });
-      client.invalidateQueries({ queryKey: ["catalogue"] });
-      client.invalidateQueries({ queryKey: ["publication"] });
+      afterPlacement(client);
     },
   });
 
@@ -323,11 +321,9 @@ export function StudentRoster({
     onSuccess: () => {
       setSelected(new Set());
       setConfirmMove(null);
-      client.invalidateQueries({ queryKey: ["students"] });
-      client.invalidateQueries({ queryKey: ["cohorts"] });
-      // A move drops every group they held, so both cohorts' counts have changed.
-      client.invalidateQueries({ queryKey: ["catalogue"] });
-      client.invalidateQueries({ queryKey: ["publication"] });
+      // A move drops every group they held, so both cohorts' counts have changed — and
+      // with the groups goes what the register was expected to hold for them.
+      afterPlacement(client);
     },
   });
 
@@ -524,11 +520,9 @@ export function StudentRoster({
             setPlaced(report);
             setPlacing(false);
             setSelected(new Set());
-            client.invalidateQueries({ queryKey: ["students"] });
-            client.invalidateQueries({ queryKey: ["catalogue"] });
             // Placing somebody is the commonest way the "nobody has placed them" count
-            // changes, and that count is the publication's, not the catalogue's.
-            client.invalidateQueries({ queryKey: ["publication"] });
+            // changes, and the commonest way a registration warning becomes stale.
+            afterPlacement(client);
           }}
         />
       ) : null}

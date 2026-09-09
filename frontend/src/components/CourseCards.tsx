@@ -13,6 +13,7 @@ import { ScreenLoading } from "@/components/ScreenLoading";
 import { TableFilterBar } from "@/components/TableFilterBar";
 import { useRemembered } from "@/components/useRemembered";
 import { WorkbookTools } from "@/components/WorkbookTools";
+import { afterPlacement } from "@/services/afterPlacement";
 import { buildCards, cardColumns, type Card } from "@/services/courseCards";
 import { fetchActiveCourses, fetchActiveCrns, fetchActiveTeachers, fetchRegisterCheck, fetchTermCrns } from "@/services/portalLists";
 import { fetchPublication } from "@/services/publication";
@@ -151,13 +152,14 @@ export function CourseCards({
   const [filled, setFilled] = useState<FillReport | null>(null);
 
   const refresh = () => {
+    // What this page's own edits change — a CRN, a course joining the register, a card.
     client.invalidateQueries({ queryKey: ["course-cards"] });
     client.invalidateQueries({ queryKey: ["active-courses"] });
     client.invalidateQueries({ queryKey: ["active-crns"] });
-    client.invalidateQueries({ queryKey: ["catalogue"] });
-    client.invalidateQueries({ queryKey: ["publication"] });
-    client.invalidateQueries({ queryKey: ["assignments"] });
-    client.invalidateQueries({ queryKey: ["students"] });
+    // And everything a change of placement changes, since Fill places students. The
+    // register's verdict is in there: filling a group changes which sections those
+    // students are expected to be registered in.
+    afterPlacement(client);
   };
   // The one chosen, or the first with courses on it — landing on an empty year would look
   // like the page had nothing at all.
