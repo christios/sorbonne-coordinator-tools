@@ -78,17 +78,58 @@ export const EMPTY_REQUEST: Request = {
 };
 
 /**
- * One section: what one group holds for one course — a CRN, and everything the
- * timetabler's workbook says about that row.
+ * One stretch of a section's teaching: a CRN, and everything asked of that row.
+ *
+ * `part` is 1 for a section taught by one person from the first week to the last, which is
+ * nearly all of them. A course handed from one professor to another at mid-semester is
+ * published by the registrar as a CRN per half, and carries a part for each.
  */
-export type Section = Request & {
+export type SectionPart = Request & {
+  part: number;
   crn: string;
   teacher: string;
   /** Marked rather than deleted: the fill skips it and the workbook says so. */
   retired: boolean;
 };
 
-export const EMPTY_SECTION: Section = { ...EMPTY_REQUEST, crn: "", teacher: "", retired: false };
+/**
+ * One section: what one group holds for one course.
+ *
+ * The first part's fields stand at the top level and `parts` lists every one of them, the
+ * first included. A section with one part therefore reads exactly as it did before parts
+ * existed — which is why nothing that shows a section's CRN or teacher had to change to go
+ * on being right about it. Anything that needs EVERY CRN of a section — what a student is
+ * expected to be registered in, whose hours these are, what the registrar is asked about —
+ * reads `parts`.
+ */
+export type Section = SectionPart & {
+  parts: SectionPart[];
+};
+
+export const EMPTY_PART: SectionPart = { ...EMPTY_REQUEST, part: 1, crn: "", teacher: "", retired: false };
+
+/**
+ * An empty section, whose `parts` is deliberately EMPTY rather than a list of one.
+ *
+ * Because this is spread — `{ ...EMPTY_SECTION, crn, retired }` — and a `parts` holding a
+ * copy of the blank part would survive that spread untouched, so the section would say one
+ * thing at the top level and the opposite in its own list. `partsOf` treats an empty list
+ * as "this object is its own only part", which makes every such spread self-consistent.
+ */
+export const EMPTY_SECTION: Section = { ...EMPTY_PART, parts: [] };
+
+/**
+ * Every part of a section, in order.
+ *
+ * A section the server built always carries at least one. Anything else — a section built
+ * by hand, or one from a caller that predates parts — is its own only part, which is what
+ * an empty or absent `parts` means here.
+ */
+export function partsOf(section: SectionPart | Section | null | undefined): SectionPart[] {
+  if (!section) return [];
+  const parts = (section as Section).parts;
+  return parts?.length ? parts : [section];
+}
 
 export type CatalogueGroup = {
   id: string;
@@ -413,22 +454,25 @@ export function updateCourseRequest(courseId: string, input: Request): Promise<v
   return send<void>(`${BASE}/courses/${courseId}/request`, "PATCH", input);
 }
 
-/** Everything the workbook says about a section but its CRN, which setGroupCrn sets. */
+/**
+ * Everything the workbook says about one PART of a section but its CRN, which setGroupCrn
+ * sets. Part 1 unless said otherwise, which is the section itself for all but a handover.
+ */
 export function updateSection(
   groupId: string,
   courseId: string,
-  input: Omit<Section, "crn" | "teacher">,
+  input: Omit<SectionPart, "crn" | "teacher" | "part"> & { part?: number },
 ): Promise<void> {
-  return send<void>(`${BASE}/groups/${groupId}/courses/${courseId}`, "PATCH", input);
+  return send<void>(`${BASE}/groups/${groupId}/courses/${courseId}`, "PATCH", { part: 1, ...input });
 }
 
-/** One cell of the matrix. An empty CRN clears it. */
+/** One part of one cell. An empty CRN clears that part, not the whole section. */
 export function setGroupCrn(
   groupId: string,
   courseId: string,
-  input: { crn: string; teacher?: string },
+  input: { crn: string; teacher?: string; part?: number },
 ): Promise<void> {
-  return send<void>(`${BASE}/groups/${groupId}/courses/${courseId}`, "PUT", { teacher: "", ...input });
+  return send<void>(`${BASE}/groups/${groupId}/courses/${courseId}`, "PUT", { teacher: "", part: 1, ...input });
 }
 
 /** One student, as our side knows them: an id, a status, and the cohort they are in. */
@@ -537,6 +581,8 @@ export async function setCohort(
  * which would quietly hide every brand-new group from the fill and the placement dialog.
  */
 export function groupIsRetired(group: Pick<CatalogueGroup, "crns">): boolean {
-  const sections = Object.values(group.crns ?? {});
-  return sections.length > 0 && sections.every((section) => section.retired);
+  // Down to the part: a group whose first half is retired and whose second half still runs
+  // is a group that still teaches, and hiding it from the fill would strand its students.
+  const parts = Object.values(group.crns ?? {}).flatMap((section) => partsOf(section));
+  return parts.length > 0 && parts.every((part) => part.retired);
 }

@@ -12,7 +12,7 @@
  * the server holds none.
  */
 
-import type { CatalogueScope } from "@/services/studentDatabase";
+import { partsOf, type CatalogueScope } from "@/services/studentDatabase";
 import { SPREADSHEET_TYPE } from "@/services/workbookExport";
 
 /**
@@ -261,9 +261,12 @@ export async function buildHandoutBuffer(input: Handout): Promise<ArrayBuffer> {
       paint(mark, skin.mid);
 
       scope.courses.forEach((course, offset) => {
-        const held = group?.crns[course.id];
+        // One block per part. A course handed from one professor to another at
+        // mid-semester is two CRNs and two names, and a handout showing one of them sends
+        // half the class to the wrong room for half the term.
+        const parts = partsOf(group?.crns[course.id]).filter((part) => part.crn);
         const cell = sheet.getCell(row, at + offset + 1);
-        cell.value = held ? classCell(held.crn, named(held)) : "—";
+        cell.value = parts.length ? parts.map((part) => classCell(part.crn, named(part))).join("\n") : "—";
         cell.font = { size: 10 };
         cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
         cell.border = ruled();

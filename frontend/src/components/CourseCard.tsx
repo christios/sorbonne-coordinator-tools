@@ -9,7 +9,7 @@ import type { Card, CardSet, SectionRow } from "@/services/courseCards";
 import { MUTUALIZED_WORDS, type ActiveTeacher, type TermCrns } from "@/services/portalLists";
 import type { CrnVerdict, GroupClash } from "@/services/publication";
 import { toneOf, verdictFor, type VerdictTone } from "@/services/publicationView";
-import { EMPTY_SECTION, setGroupCrn, updateSection, type Cohort, type Section } from "@/services/studentDatabase";
+import { EMPTY_PART, setGroupCrn, updateSection, type Cohort, type SectionPart } from "@/services/studentDatabase";
 
 const KIND_WORD = { shared: "own groups", nested: "nested" } as const;
 
@@ -215,7 +215,7 @@ export function CourseCard({
 }
 
 /** What a section asks of the timetable, in one short line. */
-function asks(section: Section): string {
+function asks(section: SectionPart): string {
   return [
     section.roomPref ? `room ${section.roomPref}` : "",
     section.dayPref ? `day ${section.dayPref}` : "",
@@ -241,7 +241,7 @@ function SectionLine({
   verdict?: CrnVerdict;
   onEdit: () => void;
 }) {
-  const held = row.section ?? EMPTY_SECTION;
+  const held = row.section ?? EMPTY_PART;
   const label = `${row.scope.code} ${row.group.label} ${row.course.code}`;
   const portalRow = portal && held.crn ? (portal.crns[held.crn] ?? null) : undefined;
   const chosen = held.teacherId ? teacherName(held.teacherId) : "";
@@ -362,10 +362,10 @@ export function SectionDialog({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const held = row.section ?? EMPTY_SECTION;
-  const [draft, setDraft] = useState<Section>({ ...held });
+  const held = row.section ?? EMPTY_PART;
+  const [draft, setDraft] = useState<SectionPart>({ ...held });
   const label = `${row.scope.code} ${row.group.label} ${row.course.code}`;
-  const set = (patch: Partial<Section>) => setDraft((current) => ({ ...current, ...patch }));
+  const set = (patch: Partial<SectionPart>) => setDraft((current) => ({ ...current, ...patch }));
 
   // The portal's CRNs of this course in this semester, the one already held first.
   const crnOptions = portal
@@ -385,14 +385,41 @@ export function SectionDialog({
   }
   const portalTeacher = portal && draft.crn ? (portal.crns[draft.crn]?.teacherName ?? "") : "";
 
+  /*
+   * Hand the rest of the semester to somebody else.
+   *
+   * MATH-351 is Grace Younes to late October and Sudarshan Shinde after it, and the
+   * registrar publishes a CRN for each half. Before this the only ways to hold the second
+   * one were a group nobody is in or a line of free text — and the free text is what was
+   * there, saying "nobody is registered in 24311 and 24313" about eleven students who are.
+   *
+   * It writes an empty part rather than asking for its CRN here: the next part opens as a
+   * card of its own beside this one, filled in the same way as every other section.
+   */
+  const split = useMutation({
+    mutationFn: async () => {
+      const next = (row.parts ?? 1) + 1;
+      await updateSection(row.group.id, row.course.id, { ...EMPTY_PART, part: next });
+    },
+    onSuccess: () => {
+      onSaved();
+      onClose();
+    },
+  });
+
   const save = useMutation({
     mutationFn: async () => {
       const crn = draft.crn.trim();
-      if (crn !== held.crn) await setGroupCrn(row.group.id, row.course.id, { crn, teacher: held.teacher });
-      const details: Partial<Section> = { ...draft };
+      // The part being edited, so a handover's second half is written to its own row
+      // rather than over the first professor's.
+      const part = held.part || 1;
+      if (crn !== held.crn) {
+        await setGroupCrn(row.group.id, row.course.id, { crn, teacher: held.teacher, part });
+      }
+      const details: Partial<SectionPart> = { ...draft, part };
       delete details.crn;
       delete details.teacher;
-      await updateSection(row.group.id, row.course.id, details as Omit<Section, "crn" | "teacher">);
+      await updateSection(row.group.id, row.course.id, details as Omit<SectionPart, "crn" | "teacher">);
     },
     onSuccess: onSaved,
   });
@@ -411,6 +438,19 @@ export function SectionDialog({
             Retired — kept on the workbook, marked, and the fill skips it
           </label>
           <div className="flex items-center gap-3">
+            {/* Offered on the last part only, so a three-way split is made one hand-over
+                at a time rather than from whichever card happened to be open. */}
+            {held.part === (row.parts ?? 1) ? (
+              <button
+                type="button"
+                disabled={split.isPending}
+                onClick={() => split.mutate()}
+                title="For a course handed from one professor to another partway through the semester"
+                className="text-sm font-semibold text-[#1f4e79] disabled:text-[#9ba8b5]"
+              >
+                {split.isPending ? "Adding…" : "Taught in another part"}
+              </button>
+            ) : null}
             <button type="button" onClick={onClose} className="text-sm font-semibold text-[#667085]">Cancel</button>
             <button
               type="button"

@@ -13,7 +13,7 @@
  */
 
 import { filled } from "@/services/courseRequest";
-import type { Card } from "@/services/courseCards";
+import { rowsPerPart, type Card } from "@/services/courseCards";
 import type { ActiveTeacher } from "@/services/portalLists";
 import type { GridColumn } from "@/services/studentColumns";
 import type { RequestSheet } from "@/services/timetableExport";
@@ -130,7 +130,9 @@ export function sectionsTaughtBy(cards: Card[], teacherId: string, teacherName =
   const taught: TaughtSection[] = [];
   for (const card of cards) {
     for (const set of card.sets) {
-      for (const row of set.rows) {
+      // Per part: a section taught in two halves is two stretches of teaching, and the
+      // second belongs to whoever is named on it rather than to whoever took the first.
+      for (const row of set.rows.flatMap((entry) => rowsPerPart(entry))) {
         if (!row.section) continue;
         const section = filled(row.section, set.course.request);
         const mine = section.teacherId

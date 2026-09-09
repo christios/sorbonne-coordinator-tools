@@ -200,3 +200,67 @@ describe("the table's rows and columns", () => {
     expect(shown).not.toContain("email");
   });
 });
+
+describe("a course handed from one professor to another at mid-semester", () => {
+  /**
+   * MATH-351 is Grace Younes to late October and Sudarshan Shinde after it, under a CRN
+   * each. The two halves are one section of one group — the same students sit in both —
+   * so they are parts of one cell rather than two cells, two groups or two sets.
+   */
+  const SPLIT: CohortCatalogue[] = [
+    {
+      cohort: { id: "c3", name: "Third year", term: "2026-27" },
+      scopes: [
+        {
+          id: "s-cm", code: "CM", name: "Lectures", note: "", termId: "term-1", kind: "shared",
+          parentScopeId: "", openToAll: false,
+          courses: [{ id: "cm-alg", code: "MATH351", name: "Algebra & Cryptography", component: "CM", request: EMPTY_REQUEST }],
+          groups: [
+            {
+              id: "cm-a", label: "A", capacity: 12, note: "", program: "", parentGroupId: "", assigned: 11,
+              crns: {
+                "cm-alg": {
+                  ...EMPTY_SECTION,
+                  crn: "23436", teacherId: "act-grace", hours: "15", weeks: "1-8",
+                  parts: [
+                    { ...EMPTY_SECTION, part: 1, crn: "23436", teacherId: "act-grace", hours: "15", weeks: "1-8" },
+                    { ...EMPTY_SECTION, part: 2, crn: "24311", teacherId: "act-sudarshan", hours: "15", weeks: "7-14" },
+                  ],
+                },
+              },
+            },
+          ],
+        },
+      ],
+    },
+  ];
+
+  const cards = buildCards(SPLIT, () => "Semester 1", [], new Map());
+
+  it("gives each professor the half they teach, not the whole course or none of it", () => {
+    /*
+     * The whole reason the halves are told apart. Held as one section, whoever was named
+     * on it carried all 30 hours and the other carried nothing; held as two cells, the
+     * group would have had to be duplicated for a class that is not split at all.
+     */
+    const sheets = requestSheets(cards, "term-1", "Semester 1", () => "", (id) => id);
+
+    const [grace, sudarshan] = teacherLoads(sheets).sort((left, right) => left.teacher.localeCompare(right.teacher));
+    expect(grace.total).toBe(15);
+    expect(sudarshan.total).toBe(15);
+    expect(grace.sections).toBe(1);
+  });
+
+  it("sends the timetabler a line per CRN, because that is what they are asked to book", () => {
+    const [sheet] = requestSheets(cards, "term-1", "Semester 1", () => "", (id) => id);
+
+    expect(sheet.rows.map((entry) => entry.crn)).toEqual(["23436", "24311"]);
+    expect(sheet.rows.map((entry) => entry.weeks)).toEqual(["1-8", "7-14"]);
+  });
+
+  it("counts a teacher's section once, in the half they actually teach", () => {
+    // Not both halves: Grace does not teach after October, and a record saying she has two
+    // sections of one course would double her in every count that matters.
+    expect(sectionsTaughtBy(cards, "act-sudarshan").map((entry) => entry.crn)).toEqual(["24311"]);
+  });
+});

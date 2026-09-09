@@ -10,6 +10,7 @@
 
 import type { Card, SectionRow } from "@/services/courseCards";
 import { filled } from "@/services/courseRequest";
+import { rowsPerPart } from "@/services/courseCards";
 import { hoursColumn, teacherLoads } from "@/services/teacherLoad";
 
 export { hoursColumn } from "@/services/teacherLoad";
@@ -99,7 +100,13 @@ export function requestSheets(
     const held = byCohort.get(card.cohortId) ?? { name: card.cohortName, rows: [] };
     const code = splitCourseCode(card.code);
     for (const set of card.sets) {
-      for (const row of set.rows) {
+      /*
+       * One line per PART of each section. A course handed from one professor to another
+       * at mid-semester is two stretches of teaching under a CRN each, and the timetabler
+       * is being sent a request per CRN — so the sheet carries both, and the hours on each
+       * belong to the person named on it.
+       */
+      for (const row of set.rows.flatMap((entry) => rowsPerPart(entry))) {
         // What this group says, and what its course said for every group that says nothing.
         const section = row.section ? filled(row.section, set.course.request) : null;
         if (!section) continue;

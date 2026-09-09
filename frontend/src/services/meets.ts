@@ -1,5 +1,5 @@
 import { shortTerm } from "@/services/rosterView";
-import type { Catalogue } from "@/services/studentDatabase";
+import { partsOf, type Catalogue } from "@/services/studentDatabase";
 
 /** What a group holds, from the cohort-blind course-cards read. */
 export type GroupCrns = Record<string, string[]>;
@@ -78,9 +78,13 @@ export function groupCrns(catalogues: Catalogue[]): GroupCrns {
   for (const catalogue of catalogues) {
     for (const scope of catalogue.scopes ?? []) {
       for (const group of scope.groups ?? []) {
+        // Every part, not every section: a course taught in two halves meets on the days
+        // of both, and a column that saw only the first would report a student as free on
+        // an afternoon they are in a lecture.
         const crns = Object.values(group.crns ?? {})
-          .filter((section) => section.crn && !section.retired)
-          .map((section) => section.crn);
+          .flatMap((section) => partsOf(section))
+          .filter((part) => part.crn && !part.retired)
+          .map((part) => part.crn);
         if (crns.length) held[group.id] = [...new Set([...(held[group.id] ?? []), ...crns])];
       }
     }

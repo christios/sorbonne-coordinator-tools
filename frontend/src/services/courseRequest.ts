@@ -15,7 +15,7 @@
  * touching one that did.
  */
 
-import type { Request, Section } from "@/services/studentDatabase";
+import type { Request } from "@/services/studentDatabase";
 
 /** True when nobody has asked this course for anything yet. */
 export function isSilent(request: Request): boolean {
@@ -60,7 +60,7 @@ export function preferences(request: Request): string {
  * Blank is the only thing that inherits. A zero anticipated is a blank, because the field
  * has no way to say "none": it is a count nobody has given.
  */
-export function filled(section: Section, course: Request): Section {
+export function filled<T extends Request & { teacher: string }>(section: T, course: Request): T {
   return {
     ...section,
     // The course only names a teacher for a section that names nobody at all. A row

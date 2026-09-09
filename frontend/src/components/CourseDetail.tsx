@@ -7,10 +7,10 @@ import { SectionDialog } from "@/components/CourseCard";
 import { CourseRequestDialog, CourseRequestLine } from "@/components/CourseRequest";
 import { PortalTermLink } from "@/components/PortalTermLink";
 import { YearPill } from "@/components/YearPill";
-import type { Card, CardSet, SectionRow } from "@/services/courseCards";
+import { rowsPerPart, type Card, type CardSet, type SectionRow } from "@/services/courseCards";
 import { MUTUALIZED_WORDS, type ActiveTeacher, type TermCrns } from "@/services/portalLists";
 import type { GroupClash } from "@/services/publication";
-import { EMPTY_SECTION, type Cohort, type Section } from "@/services/studentDatabase";
+import { EMPTY_PART, type Cohort, type SectionPart } from "@/services/studentDatabase";
 
 const chip = "rounded-full px-2 py-0.5 text-xs font-semibold";
 
@@ -159,7 +159,7 @@ function Fullness({ placed, seats, dim }: { placed: number; seats: number; dim: 
 }
 
 /** "room 12 · avoid Fridays" — what a section asks of the timetable, in one line. */
-function asks(section: Section): string {
+function asks(section: SectionPart): string {
   return [section.roomPref, section.dayPref, section.timePref, section.constraints, section.comments]
     .filter(Boolean)
     .join(" · ");
@@ -188,7 +188,8 @@ function SectionBlock({
   onEdit: () => void;
   onShowGroup?: () => void;
 }) {
-  const held = row.section ?? EMPTY_SECTION;
+  const held = row.section ?? EMPTY_PART;
+  const parts = row.parts ?? 1;
   const label = `${row.scope.code} ${row.group.label} ${row.course.code}`;
   const portalRow = portal && held.crn ? (portal.crns[held.crn] ?? null) : undefined;
   const chosen = held.teacherId ? teacherName(held.teacherId) : "";
@@ -224,6 +225,16 @@ function SectionBlock({
         <h4 className={`text-sm font-semibold ${held.retired ? "text-[#c8d0da]" : "text-[#171717]"}`}>
           {row.scope.code} {row.group.label}
         </h4>
+        {/*
+          * Only when there is more than one, because "part 1 of 1" is noise on every card
+          * in the department. Two cards headed "CM A" with nothing to tell them apart
+          * would be worse than no parts at all.
+          */}
+        {parts > 1 ? (
+          <span className={`${chip} bg-[#eef4fa] text-[#1f4e79]`} title="This section is taught in more than one stretch">
+            part {held.part} of {parts}
+          </span>
+        ) : null}
         {held.retired ? <span className={`${chip} bg-[#f8fafc] text-[#c8d0da]`}>retired</span> : null}
         {/*
           * The CRN, and nothing about it.
@@ -282,7 +293,9 @@ function SectionBlock({
       <div className="mt-2 flex flex-wrap gap-1.5">
         <Figure label="hours" value={held.hours} dim={held.retired} />
         <Figure label="expected" value={held.anticipated ? String(held.anticipated) : ""} dim={held.retired} />
-        <Seats placed={row.group.assigned} seats={row.group.capacity} dim={held.retired} />
+        {/* The seats are the group's, not this stretch's: the same people sit in both
+            halves, so saying it twice would read as twice as many students. */}
+        {held.part > 1 ? null : <Seats placed={row.group.assigned} seats={row.group.capacity} dim={held.retired} />}
       </div>
 
       {held.sessionsPerWeek || held.duration || held.weeks ? (
@@ -311,7 +324,7 @@ function SectionBlock({
         * Keeping Fullness's mt-3 preserves the 12px gap on every card.
         */}
       <span aria-hidden="true" className="flex-1" />
-      <Fullness placed={row.group.assigned} seats={row.group.capacity} dim={held.retired} />
+      {held.part > 1 ? null : <Fullness placed={row.group.assigned} seats={row.group.capacity} dim={held.retired} />}
     </article>
   );
 }
@@ -426,9 +439,17 @@ export function CourseDetail({
            * A retired section is kept, because it is a fact about the year, and folded
            * away, because it is not a thing to read.
            */
-          const live = set.rows.filter((row) => row.section && !row.section.retired);
-          const retired = set.rows.filter((row) => row.section?.retired);
-          const spare = set.rows.filter((row) => !row.section);
+          /*
+           * A card per PART. A section handed from one professor to another at mid-semester
+           * is two stretches of teaching under a CRN each, and one card could only ever
+           * show one of them — which is how the second half came to live in a comment.
+           *
+           * A section with one part yields one card, so nothing moves for almost every set.
+           */
+          const shown = set.rows.flatMap((row) => rowsPerPart(row));
+          const live = shown.filter((row) => row.section && !row.section.retired);
+          const retired = shown.filter((row) => row.section?.retired);
+          const spare = shown.filter((row) => !row.section);
           return (
             <div key={set.scope.id}>
               <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
@@ -485,7 +506,7 @@ export function CourseDetail({
 
               <div className="grid gap-2.5 sm:grid-cols-2 2xl:grid-cols-3">
                 {live.map((row) => (
-                  <SectionBlock key={row.group.id} row={row} teacherName={teacherName} portal={portal} teacherDrift={teacherDrift} onEdit={() => setEditing(row)} onShowGroup={() => setShowingGroup(row)} />
+                  <SectionBlock key={`${row.group.id}|${row.section?.part ?? 1}`} row={row} teacherName={teacherName} portal={portal} teacherDrift={teacherDrift} onEdit={() => setEditing(row)} onShowGroup={() => setShowingGroup(row)} />
                 ))}
               </div>
 
@@ -503,7 +524,7 @@ export function CourseDetail({
                   {showingRetired[set.scope.id] ? (
                     <div className="mt-2 grid gap-2.5 sm:grid-cols-2 2xl:grid-cols-3">
                       {retired.map((row) => (
-                        <SectionBlock key={row.group.id} row={row} teacherName={teacherName} portal={portal} teacherDrift={teacherDrift} onEdit={() => setEditing(row)} onShowGroup={() => setShowingGroup(row)} />
+                        <SectionBlock key={`${row.group.id}|${row.section?.part ?? 1}`} row={row} teacherName={teacherName} portal={portal} teacherDrift={teacherDrift} onEdit={() => setEditing(row)} onShowGroup={() => setShowingGroup(row)} />
                       ))}
                     </div>
                   ) : null}

@@ -27,7 +27,7 @@ import { allChanges, historyFor, type PullHistory } from "@/services/pullHistory
 import { reconcile, tally } from "@/services/registrationLists";
 import type { StudentRow } from "@/services/rosterView";
 import { fetchSchema } from "@/services/scenRosters";
-import { fetchAssignments, fetchCatalogue, fetchDiscrepancyRules, type Cohort } from "@/services/studentDatabase";
+import { fetchAssignments, fetchCatalogue, fetchDiscrepancyRules, partsOf, type Cohort } from "@/services/studentDatabase";
 import { fetchTimetableTerms } from "@/services/timetables";
 
 /*
@@ -175,7 +175,18 @@ export function StudentRecord({
       return {
         scope,
         group,
-        crns: scope.courses.map((course) => ({ courseCode: course.code, crn: group?.crns[course.id]?.crn ?? "" })),
+        /*
+         * One line per PART, not per course. A course handed from one professor to
+         * another at mid-semester is taught under a CRN per half, and both are this
+         * student's — a list carrying only the first would show the registrar's second
+         * half as a registration nobody placed them in.
+         */
+        crns: scope.courses.flatMap((course) => {
+          const parts = partsOf(group?.crns[course.id]).filter((part) => part.crn);
+          return parts.length
+            ? parts.map((part) => ({ courseCode: course.code, crn: part.crn }))
+            : [{ courseCode: course.code, crn: "" }];
+        }),
       };
     });
   const registered = new Set((registrations.data ?? []).filter((r) => r.status === "in_portal").map((r) => r.crn));

@@ -113,7 +113,11 @@ describe("the course cards", () => {
     fireEvent.click(await screen.findByRole("option", { name: "Jad Tarsissi" }));
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
-    await waitFor(() => expect(saveCrn).toHaveBeenCalledWith("td-2", "td-math", { crn: "23999", teacher: "" }));
+    // Part 1: the section is taught by one person start to finish, which is the ordinary
+    // case. A course handed over at mid-semester writes each half to a part of its own.
+    await waitFor(() =>
+      expect(saveCrn).toHaveBeenCalledWith("td-2", "td-math", { crn: "23999", teacher: "", part: 1 }),
+    );
     await waitFor(() => expect(saveDetails).toHaveBeenCalledWith("td-2", "td-math", expect.objectContaining({ teacherId: "act-2" })));
   });
 

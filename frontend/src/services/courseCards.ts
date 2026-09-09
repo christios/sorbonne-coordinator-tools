@@ -9,7 +9,8 @@
  */
 
 import type { ActiveCourse } from "@/services/portalLists";
-import type { CatalogueCourse, CatalogueGroup, CatalogueScope, CohortCatalogue, Section } from "@/services/studentDatabase";
+import { partsOf } from "@/services/studentDatabase";
+import type { CatalogueCourse, CatalogueGroup, CatalogueScope, CohortCatalogue, SectionPart } from "@/services/studentDatabase";
 import type { GridColumn } from "@/services/studentColumns";
 
 export type SectionRow = {
@@ -17,7 +18,23 @@ export type SectionRow = {
   group: CatalogueGroup;
   course: CatalogueCourse;
   /** Null when this group holds nothing for the course yet — a row that can be started. */
-  section: Section | null;
+  /**
+   * The section this group holds for this course, or one part of it.
+   *
+   * `buildCards` puts the whole section here, first part at the top level and `parts`
+   * beside it. `rowsPerPart` hands back a row per part, and those carry a part — which is
+   * a section minus its list of siblings, so everything that reads a CRN, a teacher or a
+   * request field is right either way. Use `partsOf` rather than `.parts` to be sure.
+   */
+  section: SectionPart | null;
+  /**
+   * How many parts the section this row came from has — 1 unless `rowsPerPart` split it.
+   *
+   * Carried on the row because a part does not know how many siblings it has, and a card
+   * headed "part 2" with no "of 2" beside it is a card that raises a question rather than
+   * answering one.
+   */
+  parts?: number;
   /** What this section's CRN hangs from, as the register says. Empty when unregistered. */
   parentCrn: string;
 };
@@ -107,6 +124,23 @@ export function buildCards(
 
 export function sectionsOf(card: Card): SectionRow[] {
   return card.sets.flatMap((set) => set.rows);
+}
+
+/**
+ * One row per stretch of teaching, rather than one per (group, course).
+ *
+ * A card row is a section, and a section handed from one professor to another at
+ * mid-semester is taught in two parts under a CRN each. Anything that is really about the
+ * teaching — the request the timetabler is sent, whose hours these are — wants a row for
+ * each; anything about the group — its seats, its fill, who is in it — wants the section
+ * whole, and keeps using `rows`.
+ *
+ * A section with one part yields itself, so this is a no-op for almost every card.
+ */
+export function rowsPerPart(row: SectionRow): SectionRow[] {
+  const parts = partsOf(row.section);
+  if (parts.length < 2) return [row];
+  return parts.map((part) => ({ ...row, section: part, parts: parts.length }));
 }
 
 /** The teachers a card's sections name, for the filter and the collapsed line. */
