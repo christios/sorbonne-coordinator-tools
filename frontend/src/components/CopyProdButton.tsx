@@ -3,7 +3,7 @@ import { CloudDownload, Loader2 } from "lucide-react";
 import { useState } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
-import { apiFetch } from "@/services/http";
+import { API_BASE_URL, apiFetch } from "@/services/http";
 
 /**
  * Bring production's data down to this machine, for people developing against it.
@@ -23,20 +23,28 @@ export function CopyProdButton() {
 
   const copy = useMutation({
     mutationFn: async () => {
-      const answer = await apiFetch("/api/v1/dev/copy-from-production", {
+      const answer = await apiFetch(`${API_BASE_URL}/api/v1/dev/copy-from-production`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ replace: true, teachers: false }),
       });
-      // Read the body once. A Response can only be consumed once, so asking for .json()
-      // in both branches throws on the error path and hides what actually went wrong.
-      const body = (await answer.json()) as { detail?: string } & Record<string, number>;
-      if (!answer.ok) throw new Error(body.detail ?? "That did not work.");
+      /*
+       * Read the body once, as text. A Response can only be consumed once, so asking for
+       * .json() in both branches throws on the error path and hides what actually went
+       * wrong — and an answer with no body at all is not a fact about JSON, it is a fact
+       * about the address, so say the status rather than let the parser speak.
+       */
+      const text = await answer.text();
+      const body = (text ? JSON.parse(text) : {}) as { detail?: string } & Record<string, number>;
+      if (!answer.ok) throw new Error(body.detail ?? `The API answered ${answer.status} and said nothing.`);
       return body;
     },
     onSettled: () => setAsking(false),
     onSuccess: (report) => {
-      setDone(`${report.cohorts} cohorts, ${report.students} students, ${report.placements} placements, ${report.rules} rules.`);
+      setDone(
+        `${report.cohorts} cohorts, ${report.students} students, ${report.placements} placements, ` +
+          `${report.sections} sections with a request, ${report.rules} rules.`,
+      );
       // Everything on screen was read from the database this just replaced.
       client.invalidateQueries();
     },
