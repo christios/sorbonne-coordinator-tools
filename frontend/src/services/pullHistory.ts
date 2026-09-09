@@ -137,6 +137,15 @@ function packStore(store: HistoryStore): PackedStore {
 
 const EMPTY: PullHistory = { pulls: [], latest: {}, present: [] };
 
+/**
+ * What a history is before anything has been read into it.
+ *
+ * Exported because more than one screen shows a record without a view's history behind it
+ * — the Cohorts table and the group roster both do — and each inventing its own empty
+ * shape is one more place for the shape to drift.
+ */
+export const EMPTY_HISTORY: PullHistory = EMPTY;
+
 /*
  * The history moved to IndexedDB with the rosters, and for the same reason: recording a
  * whole term is over two megabytes on its own, which localStorage refused — silently,
