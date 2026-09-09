@@ -320,7 +320,7 @@ describe("a step that is many requests, not one", () => {
     vi.spyOn(lists, "fetchTimetableTargets").mockResolvedValue({ ours: ["22151", "23652"], registered: [] });
     vi.spyOn(lists, "recordFacilityPull").mockResolvedValue({ asked: 2, answered: 2, silent: 0, failed: 0, complete: true });
     // A sweep that reports its way through and then waits to be let finish.
-    let finish = (_: rosters.TimetablePull) => {};
+    let finish: (pull: rosters.TimetablePull) => void = () => {};
     vi.spyOn(rosters, "pullTimetable").mockImplementation(async (_term, _crns, onProgress) => {
       onProgress?.({ fetched: 1, total: 2 });
       return new Promise((resolve) => {
