@@ -496,17 +496,25 @@ def _loose(name: str) -> str:
 # ------------------------------------------------------------ the comparison
 
 
+def get_facilities() -> FacilityTimetableStore:
+    return FacilityTimetableStore(config.database_url)
+
+
 @router.get("/cohorts/{cohort_id}/registration-check")
 async def registration_check(
     cohort_id: str,
     store: PortalListStore = Depends(get_store),
     database: StudentDatabase = Depends(get_database),
+    facilities: FacilityTimetableStore = Depends(get_facilities),
 ) -> dict[str, Any]:
     try:
         database.get_cohort(cohort_id)
     except CohortNotFound as exc:
         raise _missing("cohort") from exc
-    report = store.registration_check(cohort_id, database)
+    # The registrar's own timetable, so a section that is not running today is not expected
+    # today. Without it the check is date-blind and reports both halves of a half-semester
+    # handover as missing all year — which it did, for ten students, every day.
+    report = store.registration_check(cohort_id, database, facilities=facilities)
     # Coverage travels with the differences, never separately. A caller that can fetch the
     # verdicts without the floor they rest on will eventually report "nothing wrong" about
     # a cohort nobody has asked the registrar about.
@@ -517,10 +525,6 @@ async def registration_check(
 
 
 # -------------------------------------------------- the registrar's own schedule
-
-
-def get_facilities() -> FacilityTimetableStore:
-    return FacilityTimetableStore(config.database_url)
 
 
 class FacilityMeeting(BaseModel):

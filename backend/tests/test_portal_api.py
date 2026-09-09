@@ -7,6 +7,8 @@ where the registrar's registrations differ from the groups we placed a cohort in
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 import pytest
 from fastapi import status
 from fastapi.testclient import TestClient
@@ -16,7 +18,7 @@ from sorbonne.api import portal as api
 from sorbonne.api import student_database as student_api
 from sorbonne.main import app
 from sorbonne.services.facility_timetable import FacilityTimetableStore
-from sorbonne.services.portal_lists import _SECTION_TITLE, PortalListStore
+from sorbonne.services.portal_lists import _SECTION_TITLE, _expected_on, PortalListStore
 from sorbonne.services.student_database import StudentDatabase
 from tests.conftest import TEST_DATABASE_URL
 
@@ -643,6 +645,45 @@ def build_cohort(database: StudentDatabase, maths_in_tutorials: str = "") -> str
     return cohort["id"]
 
 
+def day(offset: int) -> str:
+    """A date relative to the day the check judges, which is today in UTC."""
+    return (datetime.now(timezone.utc).date() + timedelta(days=offset)).isoformat()
+
+
+def timetable(client: TestClient, windows: dict[str, tuple[int, int]]) -> None:
+    """Tell the store when each of these sections runs, as a complete pull would.
+
+    Two meetings per section — the first and the last day — because the window is all the
+    expectation rule reads and a section with one meeting would not have one.
+    """
+    client.post(
+        f"{BASE}/facility-timetable",
+        json={
+            "termCode": TERM,
+            "asked": sorted(windows),
+            "sections": [
+                {
+                    "crn": crn,
+                    "ours": True,
+                    "meetings": [
+                        {"meetsOn": day(first), "startsAt": "08:30", "endsAt": "10:00"},
+                        {"meetsOn": day(last), "startsAt": "08:30", "endsAt": "10:00"},
+                    ],
+                }
+                for crn, (first, last) in sorted(windows.items())
+            ],
+            "silent": [],
+            "failed": [],
+            "complete": True,
+        },
+    )
+
+
+def registrations(client: TestClient, rows: list[dict[str, str]]) -> None:
+    made = make_filter(client, "registrations")
+    client.post(f"{BASE}/filters/{made['id']}/sync/registrations", json={"termCode": TERM, "rows": rows})
+
+
 def test_the_check_says_where_the_registrar_differs_from_our_groups(client: TestClient, database: StudentDatabase):
     cohort_id = build_cohort(database)
     client.put(f"{BASE}/term-links/{HUB_TERM}", json={"portalTermCode": TERM})
@@ -791,6 +832,9 @@ def test_a_student_no_pull_has_returned_is_not_judged(client: TestClient, databa
             "blind": 3,
             "skipped": ["A001", "A002", "A003"],
             "pulledInTerm": 0,
+            # Nobody has pulled the registrar's timetable, so no section can be told to be
+            # over and all of them go on being expected. Named, so the fallback is visible.
+            "undatedCrns": ["22151", "23652"],
         }
     ]
 
@@ -826,6 +870,7 @@ def test_the_check_says_how_many_students_it_could_not_see(client: TestClient, d
             "blind": 1,
             "skipped": ["A003"],
             "pulledInTerm": 2,
+            "undatedCrns": ["22151", "23652"],
         }
     ]
 
@@ -872,6 +917,9 @@ def test_without_a_term_link_there_is_no_comparison(client: TestClient, database
             "blind": 3,
             "skipped": ["A001", "A002", "A003"],
             "pulledInTerm": 0,
+            # Nobody has pulled the registrar's timetable, so no section can be told to be
+            # over and all of them go on being expected. Named, so the fallback is visible.
+            "undatedCrns": ["22151", "23652"],
         }
     ]
 
@@ -1035,3 +1083,170 @@ def test_a_section_with_no_published_times_is_named_as_blind_not_counted_as_clea
 
     assert payload["coverage"]["blind"] == ["22151"]
     assert payload["cohorts"][0]["clashes"] == []
+
+
+# ------------------------------------------- a course taught in two halves
+
+
+"""
+`expected` used to be every section our planning holds for a course code, all year.
+
+MATH-351 runs as one CRN until 26 October and another from 2 November; both were expected
+every day, so ten students were reported missing from a section that had not started, and
+would later be reported missing from one that had finished. Wrong every day, in both
+directions, and the loudest wrong thing on the page.
+"""
+
+
+def test_a_section_that_has_finished_is_not_still_expected(client: TestClient, database: StudentDatabase):
+    cohort_id = build_cohort(database, maths_in_tutorials="23820")
+    client.put(f"{BASE}/term-links/{HUB_TERM}", json={"portalTermCode": TERM})
+    # 22151 ran and is over; 23820 is running now. The students moved with the course.
+    timetable(client, {"22151": (-60, -10), "23820": (-5, 40), "23652": (-60, 40)})
+    registrations(
+        client,
+        [
+            {"studentId": "A001", "crn": "23820", "courseCode": "MATH-001"},
+            {"studentId": "A001", "crn": "23652", "courseCode": "MATH-011"},
+        ],
+    )
+
+    found = client.get(f"{BASE}/cohorts/{cohort_id}/registration-check").json()["mismatches"]
+
+    # A001 is registered in exactly the half that is running. Nothing is missing.
+    assert [m for m in found if m["studentId"] == "A001"] == []
+
+
+def test_the_two_halves_of_a_handover_are_never_both_expected_on_one_day(
+    client: TestClient, database: StudentDatabase
+):
+    cohort_id = build_cohort(database, maths_in_tutorials="23820")
+    client.put(f"{BASE}/term-links/{HUB_TERM}", json={"portalTermCode": TERM})
+    # The week between the halves: the first has finished, the second has not begun.
+    timetable(client, {"22151": (-60, -10), "23820": (10, 60), "23652": (-60, 60)})
+    registrations(client, [{"studentId": "A001", "crn": "23652", "courseCode": "MATH-011"}])
+
+    found = client.get(f"{BASE}/cohorts/{cohort_id}/registration-check").json()["mismatches"]
+    maths = [m for m in found if m["studentId"] == "A001" and m["courseCode"] == "MATH-001"]
+
+    # One verdict about the course, naming the half to be registered in — not both.
+    assert len(maths) == 1
+    assert maths[0]["expected"] == ["23820"]
+
+
+def test_a_crn_the_registrar_has_not_timetabled_stays_expected_and_is_counted(
+    client: TestClient, database: StudentDatabase
+):
+    """Fail open, and say so. A section we have no dates for cannot be told to be over."""
+    cohort_id = build_cohort(database, maths_in_tutorials="23820")
+    client.put(f"{BASE}/term-links/{HUB_TERM}", json={"portalTermCode": TERM})
+    # 23820 is not in the pull at all.
+    timetable(client, {"22151": (-60, 40), "23652": (-60, 40)})
+    registrations(
+        client,
+        [
+            {"studentId": "A001", "crn": "22151", "courseCode": "MATH-001"},
+            {"studentId": "A001", "crn": "23652", "courseCode": "MATH-011"},
+        ],
+    )
+
+    answer = client.get(f"{BASE}/cohorts/{cohort_id}/registration-check").json()
+    maths = [m for m in answer["mismatches"] if m["studentId"] == "A001" and m["courseCode"] == "MATH-001"]
+
+    # Still expected — we have no grounds to drop it — and named, so the fallback is not silent.
+    assert maths and maths[0]["expected"] == ["22151", "23820"]
+    assert answer["coverage"][0]["undatedCrns"] == ["23820"]
+
+
+def test_a_course_whose_sections_have_all_finished_does_not_turn_everyone_unplaced(
+    client: TestClient, database: StudentDatabase
+):
+    """The fall-through that matters most, because narrowing here inverts every verdict.
+
+    An empty `expected` makes `_judge` call every registration `unplaced`. So a term that
+    has ended — or one the registrar's timetable has run past — would fill the screen with
+    warnings about students who are placed exactly right.
+    """
+    cohort_id = build_cohort(database)
+    client.put(f"{BASE}/term-links/{HUB_TERM}", json={"portalTermCode": TERM})
+    timetable(client, {"22151": (-90, -30), "23652": (-90, -30)})
+    registrations(
+        client,
+        [
+            {"studentId": "A001", "crn": "22151", "courseCode": "MATH-001"},
+            {"studentId": "A001", "crn": "23652", "courseCode": "MATH-011"},
+        ],
+    )
+
+    found = client.get(f"{BASE}/cohorts/{cohort_id}/registration-check").json()["mismatches"]
+
+    assert [m for m in found if m["studentId"] == "A001"] == []
+
+
+def test_the_expectation_ladder_falls_through_in_order():
+    """The three tiers on their own, since two of them only show at the edges of a term."""
+    windows = {"first": ("2026-09-01", "2026-10-26"), "second": ("2026-11-02", "2026-12-20")}
+    both = ["first", "second"]
+
+    # Running today wins.
+    assert _expected_on(both, windows, "2026-09-15") == ["first"]
+    assert _expected_on(both, windows, "2026-11-10") == ["second"]
+    # In the gap, the half still to come — never both.
+    assert _expected_on(both, windows, "2026-10-29") == ["second"]
+    # Once everything has finished, everything again: narrowing to nothing is far worse.
+    assert _expected_on(both, windows, "2027-01-05") == ["first", "second"]
+    # A section with no dates is kept whichever tier wins.
+    assert _expected_on([*both, "undated"], windows, "2026-09-15") == ["first", "undated"]
+    # And with no dates at all, nothing is narrowed.
+    assert _expected_on(both, {}, "2026-09-15") == ["first", "second"]
+
+
+def test_a_finished_section_a_student_is_still_registered_in_is_not_a_surplus(
+    client: TestClient, database: StudentDatabase
+):
+    """The trap the first version of this fell into, found by running it on real data.
+
+    Narrowing `expected` to what is running today and then judging BOTH sides against it
+    turns everyone who has come through a handover into an `extra`: the registrar keeps a
+    student registered in the finished half for the grade, and that half is no longer
+    expected, so it reads as a section that is no group of theirs. Sixteen students on one
+    real course. Swapping one false warning for another is not a fix.
+    """
+    cohort_id = build_cohort(database, maths_in_tutorials="23820")
+    client.put(f"{BASE}/term-links/{HUB_TERM}", json={"portalTermCode": TERM})
+    timetable(client, {"22151": (-60, -10), "23820": (-5, 40), "23652": (-60, 40)})
+    registrations(
+        client,
+        [
+            # Both halves, which is what a student who has come through a handover has.
+            {"studentId": "A001", "crn": "22151", "courseCode": "MATH-001"},
+            {"studentId": "A001", "crn": "23820", "courseCode": "MATH-001"},
+            {"studentId": "A001", "crn": "23652", "courseCode": "MATH-011"},
+        ],
+    )
+
+    found = client.get(f"{BASE}/cohorts/{cohort_id}/registration-check").json()["mismatches"]
+
+    assert [m for m in found if m["studentId"] == "A001"] == []
+
+
+def test_a_section_that_was_never_ours_is_still_a_surplus(client: TestClient, database: StudentDatabase):
+    """The other side of that: `ever` must not become a licence to register anywhere."""
+    cohort_id = build_cohort(database, maths_in_tutorials="23820")
+    client.put(f"{BASE}/term-links/{HUB_TERM}", json={"portalTermCode": TERM})
+    timetable(client, {"22151": (-60, -10), "23820": (-5, 40), "23652": (-60, 40)})
+    registrations(
+        client,
+        [
+            {"studentId": "A001", "crn": "23820", "courseCode": "MATH-001"},
+            {"studentId": "A001", "crn": "99999", "courseCode": "MATH-001"},
+            {"studentId": "A001", "crn": "23652", "courseCode": "MATH-011"},
+        ],
+    )
+
+    found = client.get(f"{BASE}/cohorts/{cohort_id}/registration-check").json()["mismatches"]
+    maths = [m for m in found if m["studentId"] == "A001" and m["courseCode"] == "MATH-001"]
+
+    assert len(maths) == 1
+    assert maths[0]["kind"] == "extra"
+    assert "99999" in maths[0]["registered"]

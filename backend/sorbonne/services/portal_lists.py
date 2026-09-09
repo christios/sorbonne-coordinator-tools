@@ -19,8 +19,9 @@ from __future__ import annotations
 import json
 import re
 import unicodedata
-from dataclasses import dataclass
-from typing import Any
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from typing import Any, Protocol
 from uuid import uuid4
 
 from sqlalchemy import create_engine, text
@@ -96,6 +97,17 @@ class Mismatch:
         }
 
 
+class FacilityWindows(Protocol):
+    """Just enough of the registrar's timetable to know when a section runs.
+
+    A protocol rather than the store itself, so this module does not depend on the
+    facilities one and a test can hand in a dict of dates. It is also the honest size of
+    the dependency: the check wants two dates per section and nothing else.
+    """
+
+    def windows_for(self, term_code: str, crns: list[str]) -> dict[str, tuple[str, str]]: ...
+
+
 @dataclass(frozen=True)
 class TermCoverage:
     """How much of a cohort the register could be asked about at all, one semester.
@@ -129,6 +141,11 @@ class TermCoverage:
     #: Students of ANY cohort the term's registration pulls have returned. It separates
     #: "nothing has been pulled" from "something was, and none of it was ours".
     pulled_in_term: int
+    #: Our own sections the registrar has given no timetable for. A section with no dates
+    #: cannot be told to be over, so it goes on being expected all year — which is the old
+    #: behaviour, kept deliberately, and named here so it is a declared fallback rather
+    #: than a silent one. Both halves of a handover among these are still both expected.
+    undated_crns: list[str] = field(default_factory=list)
 
     def as_payload(self) -> dict[str, Any]:
         return {
@@ -139,6 +156,7 @@ class TermCoverage:
             "blind": self.blind,
             "skipped": self.skipped,
             "pulledInTerm": self.pulled_in_term,
+            "undatedCrns": self.undated_crns,
         }
 
 
@@ -1254,7 +1272,13 @@ class PortalListStore:
 
     # ---------------------------------------------------------- the comparison
 
-    def registration_check(self, cohort_id: str, database: StudentDatabase) -> RegistrationReport:
+    def registration_check(
+        self,
+        cohort_id: str,
+        database: StudentDatabase,
+        facilities: FacilityWindows | None = None,
+        on: str = "",
+    ) -> RegistrationReport:
         """Where the portal's registrations differ from the groups we placed a cohort in.
 
         Judged per course of our blocks, per student the registrations pull has returned:
@@ -1277,7 +1301,13 @@ class PortalListStore:
         Coverage, though, is reported only for the semesters the cohort is actually on: a
         linked semester it has no part in has nothing to say, and "0 of 145 checked" about
         a semester a cohort is not taught in is a false alarm, not a floor.
+
+        `facilities` makes the expectation date-aware — see `_expected_on`. Optional, and
+        absent it behaves exactly as before: every section our planning holds for a course
+        code is expected every day, which is wrong for anything taught in two halves. `on`
+        is the day being judged, today unless a caller says otherwise.
         """
+        today = on or _today()
         links = self.term_links()
         present = set(database.scope_terms(cohort_id))
         members = database.cohort_members(cohort_id)
@@ -1285,6 +1315,17 @@ class PortalListStore:
         coverage: list[TermCoverage] = []
         for term_id in sorted(present | set(links)):
             term_code = links.get(term_id, "")
+            # Two sections of one set, before anything about placement is asked.
+            found.extend(self._doubled_in_a_set(cohort_id, term_id, term_code, database))
+            cohort = next(
+                (entry for entry in database.term_publication(term_id) if entry["cohortId"] == cohort_id), None
+            )
+            groups = {group["id"]: group for group in cohort["groups"]} if cohort else {}
+            ours = sorted({crn for group in groups.values() for crn in group["crns"].values() if crn})
+            # When the registrar's timetable is on hand, a section that is not running is
+            # not expected. When it is not, every section stays expected and the coverage
+            # says which ones that fallback applied to.
+            windows = facilities.windows_for(term_code, ours) if facilities and term_code else {}
             if term_id in present:
                 # Every student of the cohort, against everyone the term's pulls returned.
                 # Not `cohort["students"]`: a cohort with no sets of its own on this
@@ -1302,16 +1343,11 @@ class PortalListStore:
                         blind=len(skipped),
                         skipped=skipped,
                         pulled_in_term=len(pulled_here),
+                        undated_crns=[crn for crn in ours if crn not in windows],
                     )
                 )
-            # Two sections of one set, before anything about placement is asked.
-            found.extend(self._doubled_in_a_set(cohort_id, term_id, term_code, database))
-            cohort = next(
-                (entry for entry in database.term_publication(term_id) if entry["cohortId"] == cohort_id), None
-            )
             if cohort is None:
                 continue
-            groups = {group["id"]: group for group in cohort["groups"]}
             course_codes = sorted({code for group in groups.values() for code in group["crns"]})
             expected: dict[str, dict[str, set[str]]] = {}
             for row in cohort["assignments"]:
@@ -1335,6 +1371,7 @@ class PortalListStore:
                         term_id,
                         term_code,
                         code,
+                        _expected_on(sorted(expected.get(student, {}).get(code, set())), windows, today),
                         sorted(expected.get(student, {}).get(code, set())),
                         registered.get(student, {}).get(code, []),
                     )
@@ -1405,8 +1442,60 @@ class PortalListStore:
         return found
 
 
+def _today() -> str:
+    """The day being judged, as the ISO date the meetings are stored as.
+
+    UTC, because that is what the rest of this file stamps with and the university is four
+    hours ahead of it — so this can only ever be a few hours behind local midnight, and a
+    section's window is weeks wide. A timezone would be precision the data does not have.
+    """
+    return datetime.now(timezone.utc).date().isoformat()
+
+
+def _expected_on(crns: list[str], windows: dict[str, tuple[str, str]], on: str) -> list[str]:
+    """Which sections of one course a student is expected in on one day.
+
+    `expected` used to be every section our planning holds for a course code, all year.
+    For a course taught in two halves — MATH-351 runs as 23436 until 26 October and 23820
+    from 2 November — that meant both were expected every day of the year, so before the
+    handover ten students were reported missing from a section that had not started and
+    after it from one that had finished. Wrong every single day, in both directions.
+
+    Three tiers, in order, and the fall-through is what keeps it safe:
+
+    1. **Running today** — the ordinary answer, and the one that ends the handover problem.
+    2. **Not yet started**, when nothing is running. That is the week between two halves:
+       the first has finished, the second has not begun, and the one to be registered in
+       is plainly the second. It is never *both*.
+    3. **Everything**, when neither tier has anything to offer. That is a course whose
+       sections have all finished, or one nobody has pulled a timetable for. Narrowing
+       here would be far worse than not narrowing: an empty `expected` turns every
+       registration into `unplaced`, so a term that has ended, or a registrar we have not
+       asked, would fill the screen with warnings about students who are perfectly placed.
+
+    A section with no window is kept whatever tier wins — fail open. We have not asked the
+    registrar about it, or the registrar said nothing, and neither is a reason to stop
+    expecting a section our own planning holds. `TermCoverage.undated_crns` says which
+    ones, so the fail-open is declared rather than silent.
+    """
+    dated = [crn for crn in crns if crn in windows]
+    undated = [crn for crn in crns if crn not in windows]
+    running = [crn for crn in dated if windows[crn][0] <= on <= windows[crn][1]]
+    upcoming = [crn for crn in dated if windows[crn][0] > on]
+    chosen = running or upcoming
+    if not chosen:
+        return sorted(crns)
+    return sorted({*chosen, *undated})
+
+
 def _judge(  # noqa: PLR0913 - one argument per part of the verdict
-    student: str, term_id: str, term_code: str, code: str, expected: list[str], registered: list[str]
+    student: str,
+    term_id: str,
+    term_code: str,
+    code: str,
+    now: list[str],
+    ever: list[str],
+    registered: list[str],
 ) -> Mismatch | None:
     """One student, one course: what we placed them in against what the registrar has.
 
@@ -1414,12 +1503,28 @@ def _judge(  # noqa: PLR0913 - one argument per part of the verdict
     student in two of its sections and the registrar registers them in both. What matters
     is the difference either way: a section of ours they are not registered in, and a
     section they are registered in that is not one of ours.
+
+    The two sides are asked of DIFFERENT lists, and that asymmetry is the whole of the
+    handover fix:
+
+    - **absent** is judged against `now`, the sections running today. A half that has not
+      started is not something to be missing from.
+    - **surplus** is judged against `ever`, every section our planning holds for this
+      student. A half that has finished is still one of ours, and the registrar keeps them
+      registered in it for the grade — so it is not a section "that is no group of theirs".
+
+    Judging both against `now` was the first version of this and it was no better than
+    being date-blind: it turned every student who had come through a handover into an
+    `extra`, sixteen of them on a single course in the real data. One false warning for
+    another is not a fix.
     """
-    ours = sorted(set(expected))
+    current = sorted(set(now))
+    mine = sorted(set(ever))
     held = sorted(set(registered))
-    absent = [crn for crn in ours if crn not in held]
-    surplus = [crn for crn in held if crn not in ours]
-    if not ours:
+    absent = [crn for crn in current if crn not in held]
+    surplus = [crn for crn in held if crn not in mine]
+    if not mine:
+        # Placed in nothing at all, ever — not merely nothing that is running today.
         kind = "unplaced" if held else ""
     elif absent and surplus:
         kind = "wrong"
@@ -1431,7 +1536,8 @@ def _judge(  # noqa: PLR0913 - one argument per part of the verdict
         kind = ""
     if not kind:
         return None
-    return Mismatch(student, term_id, term_code, code, kind, ours, held)
+    # The sections they should be in NOW, because that is what the sentence is about.
+    return Mismatch(student, term_id, term_code, code, kind, current, held)
 
 
 def _kind(kind: str) -> None:

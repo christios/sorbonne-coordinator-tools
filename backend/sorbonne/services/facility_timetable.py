@@ -231,6 +231,32 @@ class FacilityTimetableStore:
             ).all()
         return [Session(crn=row[0], date=row[1], start=row[2], end=row[3]) for row in rows]
 
+    def windows_for(self, term_code: str, crns: list[str]) -> dict[str, tuple[str, str]]:
+        """First and last date each of these sections meets, for the ones we have dates for.
+
+        A section absent from the answer has no window at all — nobody has asked the
+        registrar about it, or the registrar said nothing — and every caller must treat
+        that as "no opinion" rather than as "never meets". A `gone` section contributes
+        nothing, exactly as `sessions_for` treats it: it is the one state where we believe
+        the classes are not happening.
+
+        Two dates rather than the meetings themselves because that is the whole question a
+        half-semester handover asks — was this section running on that day — and answering
+        it from the endpoints costs one row per section instead of thirty.
+        """
+        if not crns:
+            return {}
+        with self.engine.connect() as connection:
+            rows = connection.execute(
+                text("""SELECT m.crn, min(m.meets_on), max(m.meets_on)
+                        FROM facility_meetings m
+                        JOIN facility_sections s ON s.term_code = m.term_code AND s.crn = m.crn
+                        WHERE m.term_code = :t AND m.crn = ANY(:crns) AND s.schedule_state <> 'gone'
+                        GROUP BY m.crn"""),
+                {"t": term_code, "crns": crns},
+            ).all()
+        return {row[0]: (row[1], row[2]) for row in rows}
+
     def coverage_for(self, term_code: str, crns: list[str]) -> Coverage:
         """What this store can and cannot say about these sections."""
         if not crns:
