@@ -63,18 +63,22 @@ export function collapse(rows) {
   return { meetings: [...meetings.values()], malformed, section };
 }
 
-/**
- * How many students the registrar shows in a section, when that is a single number.
+/*
+ * There is no head count here, and there cannot be.
  *
- * Per meeting rather than per section, and then reconciled: a meeting key exists only
- * because a row produced it, so there is never a division and never a zero to divide by.
- * Meetings that disagree — somebody added mid-term — give no single number at all rather
- * than an average nobody could act on. Null means "not a single number", never none.
+ * One was designed and built: the service answers one row per (student, meeting), so
+ * counting the rows that fall into each meeting key gives how many people are in it. That
+ * is true of `p_UCategory=Student`. It is NOT true of `CRN`, which is the only category
+ * this extension will ask for — that one answers a section's own schedule, one row per
+ * meeting, so the count is always exactly 1.
+ *
+ * Measured rather than assumed: 110 sections, every one of them "1", against a portal
+ * course list that says 54 registered in the largest. A number that is always 1 is worse
+ * than no number, because `head_count` is NULL-able precisely so that consumers can skip
+ * what is not known, and a confident 1 defeats that.
+ *
+ * So sections carry no head count, `facility_sections.head_count` stays NULL, and anything
+ * that wants enrolment reads `portal_courses.registered`, which is the registrar's own
+ * count and is right.
  */
-export function headCount(meetings) {
-  const counts = [...new Set(meetings.map(meeting => meeting.seen))];
-  if (counts.length === 0) return { headCount: null, headCountLow: null, headCountHigh: null };
-  if (counts.length === 1) return { headCount: counts[0], headCountLow: null, headCountHigh: null };
-  return { headCount: null, headCountLow: Math.min(...counts), headCountHigh: Math.max(...counts) };
-}
 

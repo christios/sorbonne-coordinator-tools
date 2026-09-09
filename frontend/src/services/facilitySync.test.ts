@@ -115,3 +115,52 @@ describe("what a finished sweep is worth saying", () => {
     expect(said).toContain("4 rows whose times could not be read");
   });
 });
+
+describe("saying which of the answers are ours", () => {
+  const section = (crn: string, room = "5.111") => ({
+    crn, courseCode: "MATH-001", title: "", teacherName: "",
+
+    meetings: [{ meetsOn: "2026-09-01", startsAt: "08:30", endsAt: "10:00", room }],
+  });
+
+  it("marks our own sections and not the other departments'", async () => {
+    /*
+     * The extension has no idea which CRNs the department teaches, and teaching it would
+     * put a second copy of that boundary somewhere nobody reviews. The page asked for both
+     * lists, so the page says which is which on the way back — and it is not decoration:
+     * the store keeps a head count only for a section that is ours, because another
+     * department's enrolment is a fact about them.
+     */
+    vi.spyOn(lists, "fetchTimetableTargets").mockResolvedValue({ ours: ["22151"], registered: ["24001"] });
+    vi.spyOn(rosters, "pullTimetable").mockResolvedValue(
+      pull({ asked: ["22151", "24001"], sections: [section("22151"), section("24001")] as never }),
+    );
+    const wrote = vi.spyOn(lists, "recordFacilityPull").mockResolvedValue(REPORT);
+
+    await sweepFacilityTimetable("262710");
+
+    const sent = wrote.mock.calls[0][0].sections as { crn: string; ours: boolean; rooms: string[] }[];
+    expect(sent.map((s) => [s.crn, s.ours])).toEqual([["22151", true], ["24001", false]]);
+  });
+
+  it("gathers each section's rooms from the meetings that name them", async () => {
+    vi.spyOn(lists, "fetchTimetableTargets").mockResolvedValue({ ours: ["22151"], registered: [] });
+    vi.spyOn(rosters, "pullTimetable").mockResolvedValue(
+      pull({
+        asked: ["22151"],
+        sections: [{ ...section("22151"), meetings: [
+          { meetsOn: "2026-09-01", startsAt: "08:30", endsAt: "10:00", room: "5.111" },
+          { meetsOn: "2026-09-08", startsAt: "08:30", endsAt: "10:00", room: "5.112" },
+          { meetsOn: "2026-09-15", startsAt: "08:30", endsAt: "10:00", room: "" },
+        ] }] as never,
+      }),
+    );
+    const wrote = vi.spyOn(lists, "recordFacilityPull").mockResolvedValue(REPORT);
+
+    await sweepFacilityTimetable("262710");
+
+    const [sent] = wrote.mock.calls[0][0].sections as { rooms: string[] }[];
+    // Each once, and a meeting with no room booked contributes nothing rather than "".
+    expect(sent.rooms).toEqual(["5.111", "5.112"]);
+  });
+});

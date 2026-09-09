@@ -11,7 +11,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { test } from "node:test";
 
-import { collapse, headCount } from "./timetable.js";
+import { collapse } from "./timetable.js";
 
 /** One row as the service answers: a student, and a meeting they are in. */
 const row = (over = {}) => ({
@@ -103,29 +103,21 @@ test("a section with nothing readable produces no meetings and no section body",
   assert.equal(section, null);
 });
 
-test("the head count is how many rows a meeting was returned for", () => {
-  const three = collapse([row(), row(), row()]).meetings;
-  assert.deepEqual(headCount(three), { headCount: 3, headCountLow: null, headCountHigh: null });
-});
+test("a section carries no head count, because a CRN pull cannot have one", () => {
+  /*
+   * One was designed and built. The service answers one row per (student, meeting) for
+   * `p_UCategory=Student`, so counting rows per meeting gives how many people are in it —
+   * but `CRN` is the only category this extension will ask for, and that answers a
+   * section's own schedule, one row per meeting. Measured on 110 real sections: every
+   * count was exactly 1, against a portal course list saying 54 registered in the largest.
+   *
+   * A number that is always 1 is worse than no number: `head_count` is NULL-able precisely
+   * so consumers can skip what is not known, and a confident 1 defeats that.
+   */
+  const { meetings } = collapse([row(), row(), row()]);
 
-test("meetings that disagree give no single number rather than an average", () => {
-  // Somebody added mid-term: 3 in the first meeting, 2 in the second. There is no one
-  // number that is true of the section, and inventing one is worse than saying so.
-  const rows = [
-    row(), row(), row(),
-    row({ EVEN_START: "2026-11-02 08:15:00", EVENT_END: "2026-11-02 10:15:00" }),
-    row({ EVEN_START: "2026-11-02 08:15:00", EVENT_END: "2026-11-02 10:15:00" }),
-  ];
-  const { meetings } = collapse(rows);
-
-  assert.equal(meetings.length, 2);
-  assert.deepEqual(headCount(meetings), { headCount: null, headCountLow: 2, headCountHigh: 3 });
-});
-
-test("no meetings means no head count, and no division to get wrong", () => {
-  // A meeting key exists only because a row produced it, so a zero denominator is
-  // structurally impossible rather than guarded against.
-  assert.deepEqual(headCount([]), { headCount: null, headCountLow: null, headCountHigh: null });
+  assert.equal(meetings.length, 1);
+  assert.equal("headCount" in meetings[0], false);
 });
 
 test("the section is described from the first readable row", () => {

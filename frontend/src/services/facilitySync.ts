@@ -48,6 +48,26 @@ export async function sweepFacilityTimetable(
 
   const pull = await pullTimetable(termCode, crns, onProgress);
   /*
+   * Which of the answers are OUR sections, marked here rather than in the extension.
+   *
+   * The extension asks the registrar about a list of CRNs and has no idea which of them
+   * the department teaches — that is the register's business, and teaching it to a browser
+   * extension would put a second copy of the boundary somewhere nobody reviews. So the
+   * page, which asked for both lists and knows which is which, says so on the way back.
+   *
+   * It is not decoration: the store keeps a head count only for a section that is ours,
+   * deliberately, because another department's enrolment is a fact about them. Without
+   * this every head count was dropped — 145 sections, none with a count.
+   */
+  const mine = new Set(targets.ours);
+  const sections = pull.sections.map((section) => ({
+    ...section,
+    ours: mine.has(section.crn),
+    // The rooms a section uses, from the meetings that name them. Display only; the
+    // meetings keep their own, which is what a room change is actually seen in.
+    rooms: [...new Set(section.meetings.map((meeting) => meeting.room).filter(Boolean))],
+  }));
+  /*
    * The store refuses a sweep it cannot account for, so `asked` travels exactly as the
    * extension reported it rather than as the list we sent. They are the same list, and
    * saying so twice is how they would come to differ.
@@ -55,7 +75,7 @@ export async function sweepFacilityTimetable(
   const report = await recordFacilityPull({
     termCode: pull.termCode,
     asked: pull.asked,
-    sections: pull.sections,
+    sections,
     silent: pull.silent,
     failed: pull.failed,
     complete: pull.complete,

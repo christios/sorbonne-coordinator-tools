@@ -16,7 +16,7 @@
 
 import { checkFilter, mayReturn } from './filter-schema.js';
 import { fieldsFor, gridOf, TIMETABLE } from './grids.js';
-import { collapse, headCount } from './timetable.js';
+import { collapse } from './timetable.js';
 
 const PORTAL = 'https://reg.psuad.ac.ae/PSUADPortal/';
 const ENDPOINT = PORTAL + 'Services/StudentSearch/Enrollment/List';
@@ -394,11 +394,15 @@ async function fetchTimetables(msg) {
         // with no classes, which is what an empty body would mean.
         silent.push(crn);
       } else {
-        sections.push(Object.assign(
-          { crn, courseCode: section?.courseCode || '', title: section?.title || '', teacherName: section?.teacherName || '' },
-          headCount(meetings),
-          { meetings: meetings.map(({ seen, ...meeting }) => meeting) },
-        ));
+        sections.push({
+          crn,
+          courseCode: section?.courseCode || '',
+          title: section?.title || '',
+          teacherName: section?.teacherName || '',
+          // No head count: `cat=CRN` answers one row per MEETING, so counting rows gives 1
+          // for every section in the term. See timetable.js.
+          meetings: meetings.map(({ seen, ...meeting }) => meeting),
+        });
       }
       done += 1;
       onProgress({ name: 'Timetable' }, done, asked.length);

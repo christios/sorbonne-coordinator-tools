@@ -318,10 +318,11 @@ export type FacilitySection = {
   courseCode: string;
   title: string;
   teacherName: string;
-  /** How many students the registrar shows in it, when that is a single number. */
-  headCount: number | null;
-  headCountLow: number | null;
-  headCountHigh: number | null;
+  /*
+   * No head count. `cat=CRN` answers one row per MEETING, not one per student, so any
+   * count derived from it is 1 for every section in the term — measured, on 110 of them.
+   * Enrolment comes from `portal_courses.registered`, which is the registrar's own count.
+   */
   meetings: { meetsOn: string; startsAt: string; endsAt: string; room: string }[];
 };
 
