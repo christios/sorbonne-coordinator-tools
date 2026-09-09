@@ -208,9 +208,13 @@ export function StudentRoster({
       if (!next) return;
       event.preventDefault();
       setHistoryOf(next);
-      document
-        .querySelector(`[data-row-id="${CSS.escape(next.studentId)}"]`)
-        ?.scrollIntoView({ block: "nearest" });
+      // Scanned rather than selected: the id never reaches a selector, so this needs no
+      // `CSS.escape` — which jsdom, and older browsers, do not have.
+      for (const row of document.querySelectorAll<HTMLElement>("[data-row-id]")) {
+        if (row.dataset.rowId !== next.studentId) continue;
+        row.scrollIntoView({ block: "nearest" });
+        break;
+      }
     };
     document.addEventListener("keydown", walk);
     return () => document.removeEventListener("keydown", walk);
