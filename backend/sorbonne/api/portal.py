@@ -615,6 +615,28 @@ class FacilityPull(BaseModel):
     complete: bool = Field(default=False)
 
 
+@router.get("/terms/{term_code}/section-days")
+async def section_days(
+    term_code: str,
+    store: PortalListStore = Depends(get_store),
+    facilities: FacilityTimetableStore = Depends(get_facilities),
+) -> dict[str, Any]:
+    """Which weekdays each section meets on, and which sections nobody knows about.
+
+    On this router deliberately, so it carries no `Depends(require_client)`: the question
+    is the registrar's to answer and a Student Hub that is down must not take the Meets
+    column away with it.
+
+    `blind` is the other half of the answer and the half that is easy to leave out. A
+    section with no facility row is not a section that meets on no days — it is one nobody
+    has asked about — and a column that silently omitted it would let "Meets exclude LANG
+    Tue" quietly select students whose language hour is simply unknown.
+    """
+    days = facilities.weekdays_for(term_code)
+    ours = store.live_crns()
+    return {"days": days, "blind": sorted(crn for crn in ours if crn not in days)}
+
+
 @router.get("/terms/{term_code}/timetable-targets")
 async def timetable_targets(term_code: str, store: PortalListStore = Depends(get_store)) -> dict[str, Any]:
     """Which CRNs the extension should ask the registrar's timetable about.

@@ -1425,3 +1425,42 @@ def test_a_collision_can_only_be_accepted_or_referred(client: TestClient):
 
     assert refused.status_code == status.HTTP_400_BAD_REQUEST
     assert "ignored" in refused.json()["detail"]
+
+
+def test_section_days_answers_without_the_student_hub(client: TestClient, database: StudentDatabase):
+    """The registrar's own answer, on a router that needs no Hub — see `section_days`."""
+    cohort = database.create_cohort(name="Foundation Year", term="2026-27")
+    cm = database.add_scope(cohort["id"], code="CM", name="Lectures", term_id=HUB_TERM)
+    database.set_cell(
+        group_id=database.add_group(cm, label="A"),
+        course_id=database.add_course(cm, code="MATH-001"),
+        crn="22151",
+    )
+    timetable(client, {"22151": (-14, -7)})
+
+    answer = client.get(f"{BASE}/terms/{TERM}/section-days").json()
+
+    # Two dates a week apart are one weekday.
+    assert len(answer["days"]["22151"]) == 1
+    assert answer["blind"] == []
+
+
+def test_section_days_reports_a_crn_with_no_facility_row_as_blind_not_absent(
+    client: TestClient, database: StudentDatabase
+):
+    """A section nobody asked about is not a section that meets on no days.
+
+    Left out of the answer entirely, "Meets exclude LANG Tue" would quietly select students
+    whose language hour is simply unknown.
+    """
+    cohort = database.create_cohort(name="Foundation Year", term="2026-27")
+    cm = database.add_scope(cohort["id"], code="CM", name="Lectures", term_id=HUB_TERM)
+    course = database.add_course(cm, code="MATH-001")
+    database.set_cell(group_id=database.add_group(cm, label="A"), course_id=course, crn="22151")
+    database.set_cell(group_id=database.add_group(cm, label="B"), course_id=course, crn="99999")
+    timetable(client, {"22151": (-14, -7)})
+
+    answer = client.get(f"{BASE}/terms/{TERM}/section-days").json()
+
+    assert "22151" in answer["days"]
+    assert answer["blind"] == ["99999"]

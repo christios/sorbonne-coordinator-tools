@@ -12,6 +12,7 @@
 
 import type { Warning } from "@/services/discrepancies";
 import type { FieldChange } from "@/services/pullHistory";
+import { meetsTokens, setTokens, type GroupCrns } from "@/services/meets";
 import { displayNameOf, studentIdOf, type RosterRow } from "@/services/scenRosters";
 import type { Student } from "@/services/studentDatabase";
 
@@ -42,6 +43,13 @@ export type StudentRow = {
   warnings: Warning[];
   /** The blocks they sit in, as a coordinator says them: "TD 1", or "S2 · TD 3". */
   groups: string[];
+  /**
+   * The distinct SETS, and the set-and-day pairs. Both left off `groups`, which every
+   * existing filter, copy preset and test reads: adding to it would change what a saved
+   * arrangement means, and these answer different questions.
+   */
+  sets: string[];
+  meets: string[];
 };
 
 export type SortKey = "name" | "studentId" | "yearLevel" | "major" | "status" | "cohortName";
@@ -150,6 +158,9 @@ export function studentRows(
   syncedAt = "",
   termNames: Record<string, string> = {},
   warningsFor: (studentId: string) => Warning[] = () => [],
+  /** What each group holds, and what the registrar says those meet on. Empty is fine. */
+  crnsOf: GroupCrns = {},
+  days: Record<string, string[]> = {},
 ): StudentRow[] {
   const pulled = new Map<string, RosterRow>();
   for (const row of portal) {
@@ -175,6 +186,13 @@ export function studentRows(
       cohortName: student.cohortName,
       cohortSince: student.cohortSince,
       groups: groupLabels(student.groups ?? [], termNames),
+      sets: setTokens(student.groups ?? [], termNames),
+      meets: meetsTokens(
+        (student.groups ?? []).filter((group) => group.groupId).map((group) => ({ ...group, groupId: group.groupId ?? "" })),
+        crnsOf,
+        days,
+        termNames,
+      ),
       firstSeenAt: student.firstSeenAt,
       lastSeenAt: student.lastSeenAt,
       portal,

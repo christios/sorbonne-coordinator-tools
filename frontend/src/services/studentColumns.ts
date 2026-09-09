@@ -171,6 +171,35 @@ export const WARNINGS_COLUMN: StudentColumn = {
   defaultWidth: 360,
 };
 
+/**
+ * The sets a student is in, and the set-and-day pairs.
+ *
+ * Neither joins `DEFAULT_SHOWN`. `reconcileLayout`'s stored-layout branch would otherwise
+ * push a new column onto every coordinator's existing table unannounced; these behave like
+ * the forty-odd hidden portal columns and are turned on by whoever wants them.
+ *
+ * `Set` is flat and correct because it is NOT correlated: "for languages" is a membership
+ * question, and two membership columns ANDed are a conjunction. `Meets` is correlated for
+ * exactly the opposite reason — see `services/meets.ts`.
+ */
+const SET_COLUMN: StudentColumn = {
+  id: "sets",
+  displayName: "Set",
+  type: "multiOption",
+  accessor: (row) => row.sets,
+  display: (row) => row.sets.join(" · "),
+  defaultWidth: 160,
+};
+
+const MEETS_COLUMN: StudentColumn = {
+  id: "meets",
+  displayName: "Meets",
+  type: "multiOption",
+  accessor: (row) => row.meets,
+  display: (row) => row.meets.join(" · "),
+  defaultWidth: 220,
+};
+
 /** Portal fields we already have a column of our own for, or that say nothing useful. */
 const SKIP_PORTAL_FIELDS = new Set(["SPRIDEN_ID", "ROWNUM", "ROW_NUM"]);
 
@@ -212,6 +241,7 @@ export function buildColumns(
   // a table that is one cohort's, the Cohort column would say the same thing on every row.
   const own = withoutCohort ? OWN_COLUMNS.filter((column) => column.id !== "cohortName") : OWN_COLUMNS;
   const columns = withWarnings ? [own[0], WARNINGS_COLUMN, ...own.slice(1)] : [...own];
+  columns.push(SET_COLUMN, MEETS_COLUMN);
   for (const column of portal) {
     if (SKIP_PORTAL_FIELDS.has(column.key.toUpperCase())) continue;
     columns.push(portalColumn(column, filterable));

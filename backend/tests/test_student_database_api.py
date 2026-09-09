@@ -532,7 +532,9 @@ def test_a_student_carries_the_groups_they_are_in_by_name(client: TestClient, co
 
     held = {row["studentId"]: row["groups"] for row in students_of(client)}
 
-    assert held[STUDENTS[0]] == [{"termId": "", "scopeCode": "TD", "groupLabel": "1"}]
+    # The id travels too, and only for the Meets column: the label alone cannot be joined
+    # to the CRNs a group holds, and "TD 1" is a different group in a different set.
+    assert held[STUDENTS[0]] == [{"termId": "", "scopeCode": "TD", "groupLabel": "1", "groupId": group_id}]
     assert held[STUDENTS[1]] == []
 
 

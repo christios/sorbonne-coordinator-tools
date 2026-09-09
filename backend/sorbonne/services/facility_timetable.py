@@ -15,12 +15,15 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
+from datetime import date as dt_date
 from typing import Any
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 
 from sorbonne.services.group_clashes import Session
+
+_WEEKDAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 
 #: A section is only believed dead after this many consecutive complete pulls said nothing
 #: about it. One bad pull must not retire a term's teaching.
@@ -274,6 +277,33 @@ class FacilityTimetableStore:
                 {"t": term_code, "crns": crns},
             ).all()
         return [(row[0], row[1]) for row in rows]
+
+    def weekdays_for(self, term_code: str) -> dict[str, list[str]]:
+        """`crn -> ["Mon", "Tue"]` for every section the registrar has timetabled.
+
+        Folded to weekdays here rather than in the browser because that is the shape the
+        question is asked in — "who has languages on a Tuesday" — while the dates stay
+        underneath for everything that needs them. Derived from the date rather than
+        stored, so a coordinator's own timezone can never move a class to another day.
+        """
+        if not term_code:
+            return {}
+        with self.engine.connect() as connection:
+            rows = connection.execute(
+                text("""SELECT m.crn, m.meets_on FROM facility_meetings m
+                        JOIN facility_sections s ON s.term_code = m.term_code AND s.crn = m.crn
+                        WHERE m.term_code = :t AND s.schedule_state <> 'gone'"""),
+                {"t": term_code},
+            ).all()
+        held: dict[str, set[str]] = {}
+        for crn, meets_on in rows:
+            try:
+                weekday = _WEEKDAYS[dt_date.fromisoformat(meets_on).weekday()]
+            except ValueError:
+                # Reported by the pull that carried it; never turned into a day.
+                continue
+            held.setdefault(crn, set()).add(weekday)
+        return {crn: sorted(days, key=_WEEKDAYS.index) for crn, days in held.items()}
 
     def coverage_for(self, term_code: str, crns: list[str]) -> Coverage:
         """What this store can and cannot say about these sections."""

@@ -26,7 +26,7 @@ const ROW: StudentRow = {
   isNew: false,
   changes: [],
   warnings: [],
-  groups: ["TD 1"],
+  groups: ["TD 1"], sets: [], meets: [],
 };
 
 const COHORT: database.Cohort = {

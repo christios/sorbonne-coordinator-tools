@@ -1085,6 +1085,21 @@ class PortalListStore:
             meetings=meetings, ours=ours, courses=courses, registered=registered, settled=settled
         )
 
+    def live_crns(self) -> list[str]:
+        """Every CRN a live section of our planning holds, whichever cohort or semester.
+
+        Term-blind and cohort-blind, exactly as `used_by` is: a CRN is the portal's own
+        identifier and matching it on anything else would lose the sets open to every
+        cohort, which is the whole class of thing this keeps failing to see.
+        """
+        with self.engine.connect() as connection:
+            return sorted(
+                row[0]
+                for row in connection.execute(
+                    text("SELECT DISTINCT crn FROM group_crns WHERE crn <> '' AND retired = false")
+                )
+            )
+
     def has_facility_pull(self, term_code: str) -> bool:
         """Whether the registrar's timetable has ever been swept for this term.
 

@@ -413,7 +413,12 @@ class StudentDatabase:
         groups = """LEFT JOIN (
                         SELECT a.student_id,
                                json_agg(json_build_object(
-                                   'termId', sc.term_id, 'scopeCode', sc.code, 'groupLabel', g.label)
+                                   'termId', sc.term_id, 'scopeCode', sc.code, 'groupLabel', g.label,
+                                   -- Additive, and the only server change the Meets column
+                                   -- needs: the label alone cannot be joined to the CRNs the
+                                   -- group holds, and "TD 1" means different groups in
+                                   -- different sets and different semesters.
+                                   'groupId', g.id)
                                    ORDER BY sc.code, g.label) AS groups
                         FROM group_assignments a
                         JOIN scope_groups g ON g.id = a.group_id

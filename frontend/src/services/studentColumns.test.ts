@@ -1,19 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
-import {
-  buildColumns,
-  defaultLayout,
-  loadLayout,
-  moveColumn,
-  optionsFor,
-  reconcileLayout,
-  reorderColumn,
-  resizeColumn,
-  saveLayout,
-  toggleColumn,
-  visibleColumns,
-  widthOf,
-} from "@/services/studentColumns";
+import { buildColumns, defaultLayout, loadLayout, moveColumn, optionsFor, reconcileLayout, reorderColumn, resizeColumn, saveLayout, toggleColumn, visibleColumns, widthOf } from "@/services/studentColumns";
 import type { StudentRow } from "@/services/rosterView";
 import type { PortalColumn, PortalField } from "@/services/scenRosters";
 
@@ -55,7 +42,7 @@ const row = (over: Partial<StudentRow> = {}): StudentRow => ({
   isNew: false,
   changes: [],
   warnings: [],
-  groups: [],
+  groups: [], sets: [], meets: [],
   ...over,
 });
 
@@ -239,5 +226,29 @@ describe("the values a column offers to the filter bar", () => {
     expect(optionsFor([row(), row({ cohortName: "L1" })], cohort)).toEqual([
       { value: "L1", label: "L1" },
     ]);
+  });
+});
+
+describe("the Set and Meets columns", () => {
+  const columns = () => buildColumns([], []);
+
+  it("are offered, but neither is shown by default", () => {
+    /*
+     * `reconcileLayout`'s stored-layout branch would otherwise push a new column onto every
+     * coordinator's existing table unannounced. These behave like the forty-odd hidden
+     * portal columns: available, and turned on by whoever wants them.
+     */
+    const ids = columns().map((column) => column.id);
+    expect(ids).toContain("sets");
+    expect(ids).toContain("meets");
+
+    const layout = reconcileLayout({ order: ["studentId"], hidden: [], widths: {} }, columns());
+    expect(layout.hidden).toContain("sets");
+    expect(layout.hidden).toContain("meets");
+  });
+
+  it("filter as a set of values, so one tick is one question", () => {
+    const meets = columns().find((column) => column.id === "meets");
+    expect(meets?.type).toBe("multiOption");
   });
 });

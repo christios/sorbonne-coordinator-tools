@@ -443,7 +443,8 @@ export type Student = {
   firstSeenAt: string;
   lastSeenAt: string;
   /** The blocks this student sits in, labelled — one entry per (semester, block). */
-  groups: { termId: string; scopeCode: string; groupLabel: string }[];
+  /** `groupId` is what the Meets column joins on: a label cannot find a group's sections. */
+  groups: { termId: string; scopeCode: string; groupLabel: string; groupId?: string }[];
 };
 
 export type SyncReport = {

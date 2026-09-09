@@ -597,6 +597,13 @@ export type TimetableTargets = {
   registered: string[];
 };
 
+/** `crn -> weekdays`, and the sections nobody has asked the registrar about. */
+export type SectionDays = { days: Record<string, string[]>; blind: string[] };
+
+export function fetchSectionDays(termCode: string): Promise<SectionDays> {
+  return request<SectionDays>(`/terms/${encodeURIComponent(termCode)}/section-days`);
+}
+
 export function fetchTimetableTargets(termCode: string): Promise<TimetableTargets> {
   return request<TimetableTargets>(`/terms/${encodeURIComponent(termCode)}/timetable-targets`);
 }

@@ -21,6 +21,9 @@ import { costOfMove, describeCost } from "@/services/cohortMove";
 import { copyToClipboard, tableText } from "@/services/copyCells";
 import { presetText, rowsForCopy } from "@/services/copyPresets";
 import { afterPlacement } from "@/services/afterPlacement";
+import { groupCrns } from "@/services/meets";
+import { fetchCourseCards } from "@/services/studentDatabase";
+import { fetchSectionDays, fetchTermLinks } from "@/services/portalLists";
 import { forgetHistory, loadHistory, type PullHistory } from "@/services/pullHistory";
 import { fetchSchema, type RosterRow } from "@/services/scenRosters";
 import { fetchTimetableTerms } from "@/services/timetables";
@@ -146,6 +149,15 @@ export function StudentRoster({
     () => Object.fromEntries((terms.data ?? []).map((term) => [term.id, term.name])),
     [terms.data],
   );
+  /*
+   * Which portal term the registrar's weekdays are asked for.
+   *
+   * The first linked one, because the Meets column is about the semester being worked on
+   * and every roster page here shows one. `retry: false`: an unlinked deployment must not
+   * spend the table's first render retrying a question that has no answer.
+   */
+  const links = useQuery({ queryKey: ["term-links"], queryFn: fetchTermLinks, retry: false });
+  const portalTerm = Object.values(links.data ?? {}).find(Boolean) ?? "";
 
   // The table offers the portal's own fields, so the columns follow the harvested schema.
   const allColumns = useMemo(
@@ -351,9 +363,33 @@ export function StudentRoster({
     if (newest) return changesFromRecord(newest);
     return changesSince(stored.previous?.rows ?? [], stored.current?.rows ?? []);
   }, [history, stored]);
+  /*
+   * What the Meets column joins on: which sections each group holds, and which weekdays
+   * the registrar says those meet. Both `retry: false` and both optional — a table that
+   * cannot reach either still lists every student, with the column reading "day unknown".
+   */
+  const catalogues = useQuery({ queryKey: ["course-cards"], queryFn: fetchCourseCards, retry: false });
+  const sectionDays = useQuery({
+    queryKey: ["section-days", portalTerm],
+    queryFn: () => fetchSectionDays(portalTerm),
+    enabled: Boolean(portalTerm),
+    retry: false,
+  });
+  const crnsOf = useMemo(() => groupCrns(catalogues.data ?? []), [catalogues.data]);
+
   const everyRow = useMemo(
-    () => studentRows(students.data ?? [], portalRows, changes, syncedAt, termNames, warningsFor),
-    [students.data, portalRows, changes, syncedAt, termNames, warningsFor],
+    () =>
+      studentRows(
+        students.data ?? [],
+        portalRows,
+        changes,
+        syncedAt,
+        termNames,
+        warningsFor,
+        crnsOf,
+        sectionDays.data?.days ?? {},
+      ),
+    [students.data, portalRows, changes, syncedAt, termNames, warningsFor, crnsOf, sectionDays.data],
   );
   const rows = useMemo(() => {
     // The population first: a scope is not a filter chip, it is who the page is about —
