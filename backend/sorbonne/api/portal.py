@@ -506,7 +506,14 @@ async def registration_check(
         database.get_cohort(cohort_id)
     except CohortNotFound as exc:
         raise _missing("cohort") from exc
-    return {"mismatches": [mismatch.as_payload() for mismatch in store.registration_check(cohort_id, database)]}
+    report = store.registration_check(cohort_id, database)
+    # Coverage travels with the differences, never separately. A caller that can fetch the
+    # verdicts without the floor they rest on will eventually report "nothing wrong" about
+    # a cohort nobody has asked the registrar about.
+    return {
+        "mismatches": [mismatch.as_payload() for mismatch in report.mismatches],
+        "coverage": [term.as_payload() for term in report.coverage],
+    }
 
 
 # -------------------------------------------------- the registrar's own schedule

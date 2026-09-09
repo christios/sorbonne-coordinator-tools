@@ -1111,6 +1111,33 @@ class StudentDatabase:
             for cohort_id in cohort_ids
         ]
 
+    def scope_terms(self, cohort_id: str) -> list[str]:
+        """Every semester this cohort is present on, linked to a portal term or not.
+
+        There are two ways to be present and coverage needs both. Usually the cohort has
+        sets of its own on the semester. But a set open to every cohort sits on ONE
+        cohort's row, so a cohort whose only presence in a semester is the shared language
+        hour has no `cohort_scopes` row for it at all — and reading `cohort_scopes WHERE
+        cohort_id = :id` alone would lose exactly the semester nobody would think to check.
+        Its placements are still its own: `group_assignments` carries the cohort.
+
+        The unlinked semesters are the whole point. `registration_check` walks the linked
+        terms, so a semester nobody has joined to a portal term produced no mismatches and
+        no message — a clean Warnings column for a cohort that had never been asked about.
+        """
+        with self.engine.connect() as connection:
+            return sorted(
+                row[0]
+                for row in connection.execute(
+                    text("""SELECT DISTINCT term_id FROM cohort_scopes WHERE cohort_id = :id
+                            UNION
+                            SELECT DISTINCT s.term_id FROM group_assignments a
+                              JOIN cohort_scopes s ON s.id = a.scope_id
+                             WHERE a.cohort_id = :id"""),
+                    {"id": cohort_id},
+                )
+            )
+
     def cohort_members(self, cohort_id: str) -> set[str]:
         """Who belongs to this cohort — the ids only, which is all a check needs."""
         with self.engine.connect() as connection:

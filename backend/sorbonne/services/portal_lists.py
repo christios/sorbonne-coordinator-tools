@@ -96,6 +96,64 @@ class Mismatch:
         }
 
 
+@dataclass(frozen=True)
+class TermCoverage:
+    """How much of a cohort the register could be asked about at all, one semester.
+
+    A check that reports no differences has said one of two very different things: that
+    the registrar agrees with us, or that nobody has ever asked it. The old check could not
+    tell them apart — it walked the linked semesters and skipped every student no pull had
+    returned, counting nothing either time — so a cohort nobody had ever checked showed
+    exactly the clean Warnings column of a cohort that was perfectly registered.
+
+    Three integers rather than a verdict, because the three cases want different actions:
+
+    - `pulled_in_term == 0` — no registrations pull covers this semester at all. Sync.
+    - `pulled_in_term > 0` and `judged == 0` — pulls exist and returned nobody from this
+      cohort, which means the filter they ran under is scoped to another population.
+    - `0 < blind < members` — stragglers. N students the last pull did not return.
+
+    `blind` is stored rather than derived. It equals `len(skipped)`, but the wire carries
+    the integer so nothing on the far side has to size a list to tell the cases apart.
+    """
+
+    term_id: str
+    #: Empty when nobody has linked this semester to a portal term — the first case, and
+    #: the one that used to be silent.
+    term_code: str
+    members: int
+    judged: int
+    blind: int
+    #: By id only. A name never reaches this server, and coverage is not the place to start.
+    skipped: list[str]
+    #: Students of ANY cohort the term's registration pulls have returned. It separates
+    #: "nothing has been pulled" from "something was, and none of it was ours".
+    pulled_in_term: int
+
+    def as_payload(self) -> dict[str, Any]:
+        return {
+            "termId": self.term_id,
+            "termCode": self.term_code,
+            "members": self.members,
+            "judged": self.judged,
+            "blind": self.blind,
+            "skipped": self.skipped,
+            "pulledInTerm": self.pulled_in_term,
+        }
+
+
+@dataclass(frozen=True)
+class RegistrationReport:
+    """The differences, and how much of the cohort they were looked for in.
+
+    One record rather than two returns, so that every caller is forced by the type to have
+    seen the coverage. A list of mismatches on its own is a number without its error bar.
+    """
+
+    mismatches: list[Mismatch]
+    coverage: list[TermCoverage]
+
+
 class PortalListStore:
     def __init__(self, database_url: str) -> None:
         self.engine = create_engine(database_url, pool_pre_ping=False, pool_recycle=300)
@@ -1196,17 +1254,56 @@ class PortalListStore:
 
     # ---------------------------------------------------------- the comparison
 
-    def registration_check(self, cohort_id: str, database: StudentDatabase) -> list[Mismatch]:
+    def registration_check(self, cohort_id: str, database: StudentDatabase) -> RegistrationReport:
         """Where the portal's registrations differ from the groups we placed a cohort in.
 
         Judged per course of our blocks, per student the registrations pull has returned:
         placed and not registered is *missing*; registered in another section is *wrong*;
         registered in ours and another is *extra*; registered while in no group of ours is
         *unplaced*. A CRN outside our blocks — a language course, say — is not our business
-        and is not mentioned. A student no pull has returned is not judged at all.
+        and is not mentioned. A student no pull has returned is still not judged.
+
+        But now they are COUNTED. The silence is unchanged and the verdicts are unchanged;
+        what is new is that the answer says how much of the cohort it rests on. Two things
+        used to vanish without a word: a semester nobody had linked to a portal term, which
+        this walked straight past, and a student no pull had returned, which it skipped
+        without recording. Both produced the same clean Warnings column as a cohort that
+        was genuinely correct.
+
+        The walk is the union of the semesters this cohort is on and the linked ones. Both
+        halves earn their place: `scope_terms` adds the unlinked semesters, which is the
+        point, and the links are kept so that every mismatch found today is still found —
+        `_doubled_in_a_set` reads the whole semester, not just this cohort's part of it.
+        Coverage, though, is reported only for the semesters the cohort is actually on: a
+        linked semester it has no part in has nothing to say, and "0 of 145 checked" about
+        a semester a cohort is not taught in is a false alarm, not a floor.
         """
+        links = self.term_links()
+        present = set(database.scope_terms(cohort_id))
+        members = database.cohort_members(cohort_id)
         found: list[Mismatch] = []
-        for term_id, term_code in self.term_links().items():
+        coverage: list[TermCoverage] = []
+        for term_id in sorted(present | set(links)):
+            term_code = links.get(term_id, "")
+            if term_id in present:
+                # Every student of the cohort, against everyone the term's pulls returned.
+                # Not `cohort["students"]`: a cohort with no sets of its own on this
+                # semester has no entry below at all, and it is precisely that cohort whose
+                # coverage nobody has ever seen.
+                pulled_here = self.pulled_students(term_code)
+                judged = sorted(members & pulled_here)
+                skipped = sorted(members - pulled_here)
+                coverage.append(
+                    TermCoverage(
+                        term_id=term_id,
+                        term_code=term_code,
+                        members=len(members),
+                        judged=len(judged),
+                        blind=len(skipped),
+                        skipped=skipped,
+                        pulled_in_term=len(pulled_here),
+                    )
+                )
             # Two sections of one set, before anything about placement is asked.
             found.extend(self._doubled_in_a_set(cohort_id, term_id, term_code, database))
             cohort = next(
@@ -1243,7 +1340,10 @@ class PortalListStore:
                     )
                     for code in course_codes
                 )
-        return [mismatch for mismatch in found if mismatch is not None]
+        return RegistrationReport(
+            mismatches=[mismatch for mismatch in found if mismatch is not None],
+            coverage=coverage,
+        )
 
     def _doubled_in_a_set(
         self, cohort_id: str, term_id: str, term_code: str, database: StudentDatabase

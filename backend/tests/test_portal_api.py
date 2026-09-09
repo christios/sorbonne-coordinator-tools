@@ -778,8 +778,76 @@ def test_one_group_of_a_set_is_several_registrations_and_no_fault(
 def test_a_student_no_pull_has_returned_is_not_judged(client: TestClient, database: StudentDatabase):
     cohort_id = build_cohort(database)
     client.put(f"{BASE}/term-links/{HUB_TERM}", json={"portalTermCode": TERM})
-    # No registrations pull at all: nothing to hold anyone against.
-    assert client.get(f"{BASE}/cohorts/{cohort_id}/registration-check").json() == {"mismatches": []}
+    # No registrations pull at all: nothing to hold anyone against. The silence stands —
+    # and it is now counted, so it can no longer be read as agreement.
+    answer = client.get(f"{BASE}/cohorts/{cohort_id}/registration-check").json()
+    assert answer["mismatches"] == []
+    assert answer["coverage"] == [
+        {
+            "termId": HUB_TERM,
+            "termCode": TERM,
+            "members": 3,
+            "judged": 0,
+            "blind": 3,
+            "skipped": ["A001", "A002", "A003"],
+            "pulledInTerm": 0,
+        }
+    ]
+
+
+def test_the_check_says_how_many_students_it_could_not_see(client: TestClient, database: StudentDatabase):
+    """A pull that returned two of three students is not a clean bill of health for three."""
+    cohort_id = build_cohort(database)
+    client.put(f"{BASE}/term-links/{HUB_TERM}", json={"portalTermCode": TERM})
+    made = make_filter(client, "registrations")
+    client.post(
+        f"{BASE}/filters/{made['id']}/sync/registrations",
+        json={
+            "termCode": TERM,
+            "rows": [
+                {"studentId": "A001", "crn": "22151", "courseCode": "MATH-001"},
+                {"studentId": "A001", "crn": "23652", "courseCode": "MATH-011"},
+                {"studentId": "A002", "crn": "22151", "courseCode": "MATH-001"},
+                {"studentId": "A002", "crn": "23652", "courseCode": "MATH-011"},
+            ],
+        },
+    )
+    answer = client.get(f"{BASE}/cohorts/{cohort_id}/registration-check").json()
+
+    # The two the pull returned are registered in exactly what we placed them in.
+    assert answer["mismatches"] == []
+    # And the third is not a third clean student. It is a student nobody asked about.
+    assert answer["coverage"] == [
+        {
+            "termId": HUB_TERM,
+            "termCode": TERM,
+            "members": 3,
+            "judged": 2,
+            "blind": 1,
+            "skipped": ["A003"],
+            "pulledInTerm": 2,
+        }
+    ]
+
+
+def test_a_pull_that_returned_somebody_elses_cohort_is_not_a_check_of_this_one(
+    client: TestClient, database: StudentDatabase
+):
+    """`pulledInTerm` separates "nothing was pulled" from "something was, and none of it ours"."""
+    cohort_id = build_cohort(database)
+    client.put(f"{BASE}/term-links/{HUB_TERM}", json={"portalTermCode": TERM})
+    made = make_filter(client, "registrations")
+    client.post(
+        f"{BASE}/filters/{made['id']}/sync/registrations",
+        json={"termCode": TERM, "rows": [{"studentId": "Z999", "crn": "22151", "courseCode": "MATH-001"}]},
+    )
+    coverage = client.get(f"{BASE}/cohorts/{cohort_id}/registration-check").json()["coverage"]
+
+    # A filter scoped to the wrong population reads exactly like a filter that was never
+    # run, unless the count of who it DID return is on the wire.
+    assert coverage[0]["judged"] == 0
+    assert coverage[0]["blind"] == 3
+    assert coverage[0]["pulledInTerm"] == 1
 
 
 def test_without_a_term_link_there_is_no_comparison(client: TestClient, database: StudentDatabase):
@@ -789,7 +857,65 @@ def test_without_a_term_link_there_is_no_comparison(client: TestClient, database
         f"{BASE}/filters/{made['id']}/sync/registrations",
         json={"termCode": TERM, "rows": [{"studentId": "A001", "crn": "22151", "courseCode": "MATH-001"}]},
     )
-    assert client.get(f"{BASE}/cohorts/{cohort_id}/registration-check").json() == {"mismatches": []}
+    answer = client.get(f"{BASE}/cohorts/{cohort_id}/registration-check").json()
+
+    assert answer["mismatches"] == []
+    # No comparison, and — the point of this — it says so. An unlinked semester used to be
+    # walked straight past, so a cohort nobody had ever checked was indistinguishable from
+    # one the registrar agreed with entirely.
+    assert answer["coverage"] == [
+        {
+            "termId": HUB_TERM,
+            "termCode": "",
+            "members": 3,
+            "judged": 0,
+            "blind": 3,
+            "skipped": ["A001", "A002", "A003"],
+            "pulledInTerm": 0,
+        }
+    ]
+
+
+def test_a_cohort_present_only_through_a_shared_set_is_still_covered(
+    client: TestClient, database: StudentDatabase
+):
+    """The language hour is the case that hides. A set open to every cohort sits on ONE
+    cohort's row, so a cohort whose only presence in a semester is that set has no
+    `cohort_scopes` row for it — and reading the cohort's own sets alone would report
+    nothing about the semester, which is exactly how the languages went unchecked.
+    """
+    owner = build_cohort(database)
+    other = database.create_cohort(name="L1 Maths", term="2026-27")
+    with database.engine.begin() as connection:
+        connection.execute(
+            text("""INSERT INTO students (student_id, status, cohort_id, first_seen_at, last_seen_at, updated_at)
+                    VALUES ('B001', 'in_portal', :cohort, 'now', 'now', 'now')"""),
+            {"cohort": other["id"]},
+        )
+    lang = database.add_scope(owner, code="LANG", name="Languages", term_id=HUB_TERM, open_to_all=True)
+    french = database.add_group(lang, label="F1")
+    database.set_cell(group_id=french, course_id=database.add_course(lang, code="FREN-101"), crn="24001")
+    database.assign(student_id="B001", scope_id=lang, group_id=french)
+
+    # L1 Maths has no set of its own anywhere, and is still on this semester.
+    coverage = client.get(f"{BASE}/cohorts/{other['id']}/registration-check").json()["coverage"]
+
+    assert [term["termId"] for term in coverage] == [HUB_TERM]
+    assert coverage[0]["members"] == 1
+    assert coverage[0]["blind"] == 1
+
+
+def test_a_semester_the_cohort_is_not_taught_in_says_nothing_at_all(
+    client: TestClient, database: StudentDatabase
+):
+    """A floor is not a flag, and "0 of 3 checked" about a semester we do not teach is neither."""
+    cohort_id = build_cohort(database)
+    client.put(f"{BASE}/term-links/{HUB_TERM}", json={"portalTermCode": TERM})
+    client.put(f"{BASE}/term-links/some-other-semester", json={"portalTermCode": "262720"})
+
+    coverage = client.get(f"{BASE}/cohorts/{cohort_id}/registration-check").json()["coverage"]
+
+    assert [term["termId"] for term in coverage] == [HUB_TERM]
 
 
 # ------------------------------------------- the registrar's own timetable
