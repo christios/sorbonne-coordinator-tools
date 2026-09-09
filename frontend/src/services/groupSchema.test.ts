@@ -14,8 +14,8 @@ const scope = (over: Partial<CatalogueScope>): CatalogueScope => ({
 
 describe("the shape of a semester", () => {
   it("counts what each set holds, and puts the department's sets last", () => {
-    const own = scope({ id: "s1", code: "TD", courses: [{ id: "c1", code: "MATH-001", name: "", component: "", request: EMPTY_REQUEST }], groups: [group("g1", "1", 30), group("g2", "2", 28)] });
-    const shared = scope({ id: "s2", code: "LANG", openToAll: true, groups: [group("g3", "A1", 24)], courses: [{ id: "c2", code: "SCEN-101", name: "", component: "", request: EMPTY_REQUEST }] });
+    const own = scope({ id: "s1", code: "TD", courses: [{ id: "c1", code: "MATH-001", name: "", component: "", program: "", request: EMPTY_REQUEST }], groups: [group("g1", "1", 30), group("g2", "2", 28)] });
+    const shared = scope({ id: "s2", code: "LANG", openToAll: true, groups: [group("g3", "A1", 24)], courses: [{ id: "c2", code: "SCEN-101", name: "", component: "", program: "", request: EMPTY_REQUEST }] });
 
     const readings = readSets([shared, own], "c-fys");
 
@@ -37,12 +37,12 @@ describe("the shape of a semester", () => {
 
     // A nested set with no parent set at all, and one whose group sits in no parent group.
     expect(troubleWith(scope({ kind: "nested", parentScopeId: "" }), byId)).toContain("no parent set");
-    const adrift = scope({ kind: "nested", parentScopeId: "p", groups: [group("g", "1A", 0, "gone")], courses: [{ id: "c", code: "X", name: "", component: "", request: EMPTY_REQUEST }] });
+    const adrift = scope({ kind: "nested", parentScopeId: "p", groups: [group("g", "1A", 0, "gone")], courses: [{ id: "c", code: "X", name: "", component: "", program: "", request: EMPTY_REQUEST }] });
     expect(troubleWith(adrift, byId)).toEqual(["groups adrift"]);
 
     // Idle rather than broken: nothing to teach, or nobody to teach it to.
     expect(troubleWith(scope({ groups: [group("g", "1")] }), byId)).toEqual(["no course"]);
-    expect(troubleWith(scope({ courses: [{ id: "c", code: "X", name: "", component: "", request: EMPTY_REQUEST }] }), byId)).toEqual(["no group"]);
+    expect(troubleWith(scope({ courses: [{ id: "c", code: "X", name: "", component: "", program: "", request: EMPTY_REQUEST }] }), byId)).toEqual(["no group"]);
     expect(troubleWith(parent, byId)).toEqual(["no course"]);
   });
 

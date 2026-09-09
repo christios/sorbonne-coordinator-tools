@@ -16,7 +16,7 @@ import { EMPTY_REQUEST, EMPTY_SECTION, type CatalogueScope } from "@/services/st
 const scope = (over: Partial<CatalogueScope>): CatalogueScope => ({
   id: "s-cm", code: "CM", name: "Lectures", note: "", termId: "t1", kind: "shared", parentScopeId: "",
   openToAll: false, cohortId: "c1", tab: "", groupColumn: "", columnIndex: 0,
-  courses: [{ id: "c1", code: "MATH001", name: "Pre-calculus 1", component: "CM", request: EMPTY_REQUEST }],
+  courses: [{ id: "c1", code: "MATH001", name: "Pre-calculus 1", component: "CM", program: "", request: EMPTY_REQUEST }],
   groups: [{ id: "g1", label: "1", capacity: 0, note: "", program: "", parentGroupId: "", assigned: 0, crns: { c1: { ...EMPTY_SECTION, crn: "22151", teacher: "Bilal Maaz" } } }],
   ...over,
 });

@@ -77,7 +77,7 @@ const CATALOGUE: CohortCatalogue[] = [
     scopes: [
       {
         id: "s-td", code: "TD", name: "Tutorials", note: "", termId: "term-1", kind: "shared", parentScopeId: "", openToAll: false,
-        courses: [{ id: "td-math", code: "MATH001", name: "Pre-calculus 1", component: "TD", request: { ...EMPTY_REQUEST, hours: "36", teacherId: "act-2" } }],
+        courses: [{ id: "td-math", code: "MATH001", name: "Pre-calculus 1", component: "TD", program: "", request: { ...EMPTY_REQUEST, hours: "36", teacherId: "act-2" } }],
         groups: [
           { id: "td-1", label: "1", capacity: 33, note: "", program: "", parentGroupId: "", assigned: 30, crns: { "td-math": { ...EMPTY_SECTION, crn: "23223", teacherId: "act-1", hours: "50" } } },
           // Says nothing of its own, so its course answers for it — teacher included.
@@ -214,7 +214,7 @@ describe("a course handed from one professor to another at mid-semester", () => 
         {
           id: "s-cm", code: "CM", name: "Lectures", note: "", termId: "term-1", kind: "shared",
           parentScopeId: "", openToAll: false,
-          courses: [{ id: "cm-alg", code: "MATH351", name: "Algebra & Cryptography", component: "CM", request: EMPTY_REQUEST }],
+          courses: [{ id: "cm-alg", code: "MATH351", name: "Algebra & Cryptography", component: "CM", program: "", request: EMPTY_REQUEST }],
           groups: [
             {
               id: "cm-a", label: "A", capacity: 12, note: "", program: "", parentGroupId: "", assigned: 11,

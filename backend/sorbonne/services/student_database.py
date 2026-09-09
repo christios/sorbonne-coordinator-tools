@@ -1490,13 +1490,15 @@ class StudentDatabase:
             connection.execute(text("DELETE FROM cohort_scopes WHERE id = :id"), {"id": scope_id})
             self._touch(connection, cohort_id)
 
-    def add_course(self, scope_id: str, *, code: str, name: str = "", component: str = "") -> str:
+    def add_course(  # noqa: PLR0913 - one argument per column of the course being made
+        self, scope_id: str, *, code: str, name: str = "", component: str = "", program: str = ""
+    ) -> str:
         course_id = str(uuid4())
         with self.engine.begin() as connection:
             cohort_id = self._cohort_of_scope(connection, scope_id)
             connection.execute(
-                text("""INSERT INTO scope_courses (id, scope_id, code, name, component, position)
-                        VALUES (:id, :scope_id, :code, :name, :component,
+                text("""INSERT INTO scope_courses (id, scope_id, code, name, component, program, position)
+                        VALUES (:id, :scope_id, :code, :name, :component, :program,
                                 (SELECT coalesce(max(position), 0) + 1 FROM scope_courses
                                  WHERE scope_id = :scope_id))
                         ON CONFLICT (scope_id, code) DO NOTHING"""),
@@ -1506,21 +1508,24 @@ class StudentDatabase:
                     "code": _text(code),
                     "name": _text(name),
                     "component": _text(component),
+                    "program": _text(program),
                 },
             )
             self._touch(connection, cohort_id)
         return course_id
 
-    def update_course(self, course_id: str, *, code: str, name: str, component: str) -> None:
+    def update_course(self, course_id: str, *, code: str, name: str, component: str, program: str = "") -> None:
         with self.engine.begin() as connection:
             updated = connection.execute(
-                text("""UPDATE scope_courses SET code = :code, name = :name, component = :component
+                text("""UPDATE scope_courses
+                        SET code = :code, name = :name, component = :component, program = :program
                         WHERE id = :id"""),
                 {
                     "id": course_id,
                     "code": _text(code),
                     "name": _text(name),
                     "component": _text(component),
+                    "program": _text(program),
                 },
             )
             if updated.rowcount == 0:
@@ -2051,6 +2056,9 @@ def _course(row) -> dict[str, Any]:
         "code": row["code"],
         "name": row["name"],
         "component": row["component"],
+        # Which programme of the cohort takes it; empty means all of them. Paired with
+        # `scope_groups.program`, in the registrar's own vocabulary — see migration 0041.
+        "program": row["program"],
         # What the course asks of the timetable, as against what each section asks.
         "request": _request(row),
     }

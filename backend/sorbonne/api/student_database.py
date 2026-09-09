@@ -141,6 +141,10 @@ class CourseInput(BaseModel):
     code: str = Field(min_length=1, max_length=40)
     name: str = Field(default="", max_length=160)
     component: str = Field(default="", max_length=40)
+    #: Which programme of the cohort takes it, as the registrar spells it. Empty means all
+    #: of them, which is what every set that is split by group number rather than by
+    #: programme wants — and what every existing course carries.
+    program: str = Field(default="", max_length=160)
 
 
 class SectionInput(BaseModel):
@@ -525,7 +529,9 @@ async def add_course(
 ) -> dict[str, str]:
     try:
         return {
-            "id": database.add_course(scope_id, code=body.code, name=body.name, component=body.component)
+            "id": database.add_course(
+                scope_id, code=body.code, name=body.name, component=body.component, program=body.program
+            )
         }
     except ScopeNotFound as exc:
         raise _missing(exc, "block") from exc
@@ -536,7 +542,9 @@ async def update_course(
     course_id: str, body: CourseInput, database: StudentDatabase = Depends(get_database)
 ) -> dict[str, bool]:
     try:
-        database.update_course(course_id, code=body.code, name=body.name, component=body.component)
+        database.update_course(
+            course_id, code=body.code, name=body.name, component=body.component, program=body.program
+        )
     except CourseNotFound as exc:
         raise _missing(exc, "course") from exc
     return {"saved": True}

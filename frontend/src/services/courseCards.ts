@@ -137,6 +137,29 @@ export function buildCards(
   );
 }
 
+/**
+ * Whether this group is one of the ones this course is taught to.
+ *
+ * The matrix's own assumption is that every group of a set teaches every course of it, and
+ * in a set split by group number that is exactly right: Foundation Year's TD 1, 2 and 3 all
+ * take everything the set carries, so a blank cell there is a section nobody has a CRN for.
+ *
+ * A set split by PROGRAMME is the other case. L3's CM set carries four Maths courses and
+ * six Physics ones and holds a group called "Mathematics" and one called "Physics"; the
+ * matrix duly asked the Physics group for a CRN in MATH-330. Counted on production the day
+ * this was written: 25 such cells in L2 and 20 in L3, and every one of the 45 sections
+ * those pages called "without a CRN" was one of them. Not one was real.
+ *
+ * Blank on either side means everyone, so a set that says nothing behaves as it always did.
+ * The vocabulary is the registrar's — `scope_groups.program` is matched against a student's
+ * MAJOR_CODE_DESC by the fill, and this is the other half of the same idea.
+ */
+export function teaches(group: { program?: string }, course: { program?: string }): boolean {
+  const theirs = (group.program ?? "").trim().toLowerCase();
+  const its = (course.program ?? "").trim().toLowerCase();
+  return !theirs || !its || theirs === its;
+}
+
 export function sectionsOf(card: Card): SectionRow[] {
   return card.sets.flatMap((set) => set.rows);
 }

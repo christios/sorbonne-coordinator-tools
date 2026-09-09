@@ -15,7 +15,7 @@ function scope(
     name: "",
     note: "",
     kind: "shared", parentScopeId: "", openToAll: false,
-    courses: courses.map((id) => ({ id, code: id, name: id, component: "", request: EMPTY_REQUEST, ue: "", parentCrn: "" })),
+    courses: courses.map((id) => ({ id, code: id, name: id, component: "", program: "", request: EMPTY_REQUEST, ue: "", parentCrn: "" })),
     groups: groups.map((group, index) => ({
       id: `g-${code}-${index}`,
       label: group.label,

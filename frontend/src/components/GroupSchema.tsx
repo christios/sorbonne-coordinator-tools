@@ -9,6 +9,7 @@ import { SelectMenu } from "@/components/SelectMenu";
 import { useRemembered } from "@/components/useRemembered";
 import { WarningBanner, WarningRows, type WarningKind } from "@/components/WarningBanner";
 import { fetchActiveCourses } from "@/services/portalLists";
+import { fieldHeld } from "@/services/rosterStore";
 import { COHORT, SCHEMA_TERM } from "@/services/remembered";
 import { labelsFrom, readSets, totalsOf, type SetReading } from "@/services/groupSchema";
 import {
@@ -20,8 +21,10 @@ import {
   deleteScope,
   fetchCatalogue,
   moveScope,
+  updateCourse,
   updateGroup,
   updateScope,
+  type CatalogueCourse,
   type CatalogueGroup,
   type CatalogueScope,
   type Cohort,
@@ -129,6 +132,24 @@ export function GroupSchema({
 
   const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, retry: false });
   const active = useQuery({ queryKey: ["active-courses"], queryFn: fetchActiveCourses });
+  /*
+   * The programmes the registrar has for this browser's students, which is the vocabulary
+   * both pickers below must speak: `scope_groups.program` is matched against a student's
+   * MAJOR_CODE_DESC by the fill, so a programme typed by hand would be a programme that
+   * matches nobody. Offered as a list for the same reason.
+   *
+   * From what this browser holds, like every other student fact. A browser that has never
+   * synced offers nothing, and both pickers stay out of the way until it has.
+   */
+  const majors = useQuery({
+    queryKey: ["field-held", "MAJOR_CODE_DESC"],
+    queryFn: () => fieldHeld("MAJOR_CODE_DESC"),
+    staleTime: 60_000,
+  });
+  const programmes = useMemo(
+    () => [...new Set(Object.values(majors.data ?? {}).filter(Boolean))].sort((a, b) => a.localeCompare(b)),
+    [majors.data],
+  );
   const catalogue = useQuery({
     queryKey: ["catalogue", cohortId, termId, "with-shared"],
     queryFn: () => fetchCatalogue(cohortId, termId, true),
@@ -272,6 +293,7 @@ export function GroupSchema({
                 reading={chosen}
                 scopes={scopes}
                 activeCourses={(active.data ?? []).map((course) => ({ code: course.courseCode, title: course.title }))}
+                programmes={programmes}
                 onChanged={refresh}
                 onRemoved={() => {
                   setChosenId("");
@@ -355,12 +377,15 @@ function SetEditor({
   reading,
   scopes,
   activeCourses,
+  programmes,
   onChanged,
   onRemoved,
 }: {
   reading: SetReading;
   scopes: CatalogueScope[];
   activeCourses: { code: string; title: string }[];
+  /** The programmes the portal has for this cohort's students, for the two pickers below. */
+  programmes: string[];
   onChanged: () => void;
   onRemoved: () => void;
 }) {
@@ -396,6 +421,15 @@ function SetEditor({
     },
   });
   const dropCourse = useMutation({ mutationFn: deleteCourse, onSuccess: onChanged });
+  /*
+   * Which programme takes a course, when a set is split by programme rather than by
+   * number. Blank is "all of them" and is what every set that is not so split holds.
+   */
+  const setCourseProgramme = useMutation({
+    mutationFn: ({ course, program }: { course: CatalogueCourse; program: string }) =>
+      updateCourse(course.id, { code: course.code, name: course.name, component: course.component, program }),
+    onSuccess: onChanged,
+  });
   const makeGroups = useMutation({
     mutationFn: async (text: string) => {
       for (const label of labelsFrom(text)) await addGroup(scope.id, { label });
@@ -528,12 +562,36 @@ function SetEditor({
           <Layers size={15} className="text-[#98a2b3]" aria-hidden="true" /> Courses this set carries
         </p>
         <p className="mt-0.5 text-xs text-[#667085]">
-          Every group of the set gets a section of each. A set with no course produces nothing to timetable.
+          Every group of the set gets a section of each — unless the course and the group name different
+          programmes, in which case the course is not taught to that group and no CRN is expected.
         </p>
         <ul className="mt-2 flex flex-wrap gap-2">
           {scope.courses.map((course) => (
             <li key={course.id} className="inline-flex items-center gap-1.5 rounded-full border border-[#d9dee7] bg-white py-1 pl-3 pr-1.5 text-sm">
               <span className="tabular-nums text-[#344054]">{course.code}</span>
+              {/*
+                * Only when there is something to choose between. A department whose
+                * students are all one programme has no use for the question, and a picker
+                * offering one answer is a control that can only be got wrong.
+                */}
+              {programmes.length > 1 ? (
+                <select
+                  aria-label={`Programme taking ${course.code}`}
+                  title="Which programme of the cohort takes this course. Everyone, unless you say otherwise."
+                  value={course.program}
+                  onChange={(event) => setCourseProgramme.mutate({ course, program: event.target.value })}
+                  className={`max-w-36 truncate rounded-full border-0 bg-transparent py-0 pl-1 pr-4 text-xs ${
+                    course.program ? "text-[#1f4e79]" : "text-[#c8d0da]"
+                  }`}
+                >
+                  <option value="">everyone</option>
+                  {programmes.map((programme) => (
+                    <option key={programme} value={programme}>
+                      {programme}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
               <button
                 type="button"
                 aria-label={`Remove ${course.code} from ${scope.code}`}
@@ -587,6 +645,7 @@ function SetEditor({
                 <tr>
                   <th className="py-2 pl-4 pr-3 font-semibold">Group</th>
                   <th className="py-2 pr-3 font-semibold">Seats</th>
+                  {programmes.length > 1 ? <th className="py-2 pr-3 font-semibold">Programme</th> : null}
                   {scope.kind === "nested" ? <th className="py-2 pr-3 font-semibold">Inside</th> : null}
                   <th className="py-2 pr-3 text-right font-semibold">Placed</th>
                   <th className="py-2 pr-4" />
@@ -598,6 +657,7 @@ function SetEditor({
                     key={group.id}
                     group={group}
                     nested={scope.kind === "nested"}
+                    programmes={programmes}
                     parentGroups={parentGroups}
                     onChanged={onChanged}
                     onRemove={() => setRemovingGroup(group)}
@@ -689,12 +749,14 @@ function SetEditor({
 function GroupRow({
   group,
   nested,
+  programmes,
   parentGroups,
   onChanged,
   onRemove,
 }: {
   group: CatalogueGroup;
   nested: boolean;
+  programmes: string[];
   parentGroups: CatalogueGroup[];
   onChanged: () => void;
   onRemove: () => void;
@@ -702,12 +764,12 @@ function GroupRow({
   const [label, setLabel] = useState(group.label);
   const [capacity, setCapacity] = useState(String(group.capacity || ""));
   const save = useMutation({
-    mutationFn: (next: Partial<{ label: string; capacity: number; parentGroupId: string }>) =>
+    mutationFn: (next: Partial<{ label: string; capacity: number; parentGroupId: string; program: string }>) =>
       updateGroup(group.id, {
         label: next.label ?? label,
         capacity: next.capacity ?? Number(capacity || 0),
         note: group.note,
-        program: group.program,
+        program: next.program ?? group.program,
         parentGroupId: next.parentGroupId ?? group.parentGroupId,
       }),
     onSuccess: onChanged,
@@ -735,6 +797,30 @@ function GroupRow({
           className="w-20 rounded-md border border-transparent px-2 py-1 text-sm tabular-nums hover:border-[#cbd5e1] focus:border-[#cbd5e1]"
         />
       </td>
+      {/*
+        * The programme this group is, which is two things at once and both are the
+        * registrar's vocabulary: the fill seats a student of that programme here first,
+        * and a course named for another programme is not taught here at all.
+        */}
+      {programmes.length > 1 ? (
+        <td className="py-1.5 pr-3">
+          <select
+            aria-label={`Programme of ${group.label}`}
+            value={group.program}
+            onChange={(event) => save.mutate({ program: event.target.value })}
+            className={`w-40 truncate rounded-md border border-transparent px-2 py-1 text-sm hover:border-[#cbd5e1] focus:border-[#cbd5e1] ${
+              group.program ? "text-[#344054]" : "text-[#c8d0da]"
+            }`}
+          >
+            <option value="">any</option>
+            {programmes.map((programme) => (
+              <option key={programme} value={programme}>
+                {programme}
+              </option>
+            ))}
+          </select>
+        </td>
+      ) : null}
       {nested ? (
         <td className="py-1.5 pr-3">
           <div className="w-40">

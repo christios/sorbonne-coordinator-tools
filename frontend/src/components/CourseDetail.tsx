@@ -7,7 +7,7 @@ import { SectionDialog } from "@/components/CourseCard";
 import { CourseRequestDialog, CourseRequestLine } from "@/components/CourseRequest";
 import { PortalTermLink } from "@/components/PortalTermLink";
 import { YearPill } from "@/components/YearPill";
-import type { Card, CardSet, SectionRow } from "@/services/courseCards";
+import { teaches, type Card, type CardSet, type SectionRow } from "@/services/courseCards";
 import { MUTUALIZED_WORDS, type ActiveTeacher, type TermCrns } from "@/services/portalLists";
 import type { GroupClash } from "@/services/publication";
 import { EMPTY_PART, partsOf, type Cohort, type SectionPart } from "@/services/studentDatabase";
@@ -569,7 +569,9 @@ export function CourseDetail({
            */
           const live = set.rows.filter((row) => row.section && !partsOf(row.section).every((part) => part.retired));
           const retired = set.rows.filter((row) => row.section && partsOf(row.section).every((part) => part.retired));
-          const spare = set.rows.filter((row) => !row.section);
+          // Offering to add a section in a group the course is not taught to is how the
+          // empty cell got there in the first place.
+          const spare = set.rows.filter((row) => !row.section && teaches(row.group, row.course));
           return (
             <div key={set.scope.id}>
               <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">

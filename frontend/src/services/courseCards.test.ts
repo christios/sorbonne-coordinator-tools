@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildCards, cardColumns, sectionsOf, teachersOf } from "@/services/courseCards";
+import { teaches, buildCards, cardColumns, sectionsOf, teachersOf } from "@/services/courseCards";
 import { EMPTY_REQUEST, EMPTY_SECTION, type CohortCatalogue } from "@/services/studentDatabase";
 
 const section = (crn: string, teacherId = "") => ({ ...EMPTY_SECTION, crn, teacherId });
@@ -10,14 +10,14 @@ const FYS: CohortCatalogue = {
   scopes: [
     {
       id: "s-cm", code: "CM", name: "Lectures", note: "", termId: "term-1", kind: "shared", parentScopeId: "", openToAll: false,
-      courses: [{ id: "cm-math", code: "MATH001", name: "Pre-calculus 1", component: "CM", request: EMPTY_REQUEST }],
+      courses: [{ id: "cm-math", code: "MATH001", name: "Pre-calculus 1", component: "CM", program: "", request: EMPTY_REQUEST }],
       groups: [{ id: "cm-a", label: "A", capacity: 0, note: "", program: "", parentGroupId: "", assigned: 98, crns: { "cm-math": section("22151", "t-maaz") } }],
     },
     {
       id: "s-td", code: "TD", name: "Tutorials", note: "", termId: "term-1", kind: "shared", parentScopeId: "", openToAll: false,
       courses: [
-        { id: "td-math", code: "MATH001", name: "", component: "TD", request: EMPTY_REQUEST },
-        { id: "td-algo", code: "MATH011", name: "Algorithms", component: "TD", request: EMPTY_REQUEST },
+        { id: "td-math", code: "MATH001", name: "", component: "TD", program: "", request: EMPTY_REQUEST },
+        { id: "td-algo", code: "MATH011", name: "Algorithms", component: "TD", program: "", request: EMPTY_REQUEST },
       ],
       groups: [
         { id: "td-1", label: "1", capacity: 33, note: "", program: "", parentGroupId: "", assigned: 33, crns: { "td-math": section("23223", "t-ghantous"), "td-algo": section("23652") } },
@@ -66,5 +66,39 @@ describe("cards from the catalogue", () => {
     expect(columns.types.accessor(maths)).toEqual(["CM", "TD"]);
     expect(columns.crns.accessor(maths)).toEqual(["22151", "23223", "23224"]);
     expect(columns.missing.accessor(maths)).toBe("All set");
+  });
+});
+
+describe("a set split by programme rather than by group number", () => {
+  /*
+   * L3's CM set carries the Maths courses and the Physics courses and holds a group called
+   * "Mathematics" and one called "Physics". The matrix's assumption — every group teaches
+   * every course of its set — is right for Foundation Year's numbered groups and wrong
+   * here, and it produced 45 sections "without a CRN" across L2 and L3, none of them real.
+   */
+  const maths = { program: "Mathematics" };
+  const physics = { program: "Physics" };
+
+  it("says a course is taught to the group of its own programme", () => {
+    expect(teaches(maths, { program: "Mathematics" })).toBe(true);
+    expect(teaches(physics, { program: "Physics" })).toBe(true);
+  });
+
+  it("says it is not taught to the other one, which is the whole point", () => {
+    expect(teaches(physics, { program: "Mathematics" })).toBe(false);
+    expect(teaches(maths, { program: "Physics" })).toBe(false);
+  });
+
+  it("treats a blank on either side as everyone, so a set that says nothing is unchanged", () => {
+    // Every set in the department says nothing today, and none of them may change
+    // behaviour because this exists.
+    expect(teaches({ program: "" }, { program: "Mathematics" })).toBe(true);
+    expect(teaches(maths, { program: "" })).toBe(true);
+    expect(teaches({}, {})).toBe(true);
+  });
+
+  it("compares past the case and the spaces the two were typed with", () => {
+    // The two are typed on different pages, months apart, by the same person.
+    expect(teaches({ program: " mathematics " }, { program: "Mathematics" })).toBe(true);
   });
 });

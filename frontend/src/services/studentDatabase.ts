@@ -37,6 +37,15 @@ export type CatalogueCourse = {
   code: string;
   name: string;
   component: string;
+  /**
+   * Which programme of the cohort takes this course, as the registrar spells it.
+   *
+   * Empty means all of them, which is what a set split by group NUMBER wants — Foundation
+   * Year's TD 1, 2, 3 all take everything the set carries. A set split by PROGRAMME is the
+   * other case: L3's CM set carries the Maths courses and the Physics courses and holds one
+   * group for each, and the Physics group is not short a CRN for MATH-330.
+   */
+  program: string;
   /** What this course asks of the timetable, for every section of it in this set. */
   request: Request;
 };
@@ -448,7 +457,10 @@ export function deleteGroup(groupId: string): Promise<void> {
   return request<void>(`${BASE}/groups/${groupId}`, { method: "DELETE" });
 }
 
-export function updateCourse(courseId: string, input: { code: string; name: string; component: string }): Promise<void> {
+export function updateCourse(
+  courseId: string,
+  input: { code: string; name: string; component: string; program?: string },
+): Promise<void> {
   return send<void>(`${BASE}/courses/${courseId}`, "PATCH", input);
 }
 

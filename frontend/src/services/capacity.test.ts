@@ -23,8 +23,8 @@ const FYS: CohortCatalogue = {
       id: "s-td", code: "TD", name: "Tutorials", note: "", termId: "term-1", kind: "shared", parentScopeId: "",
       openToAll: false,
       courses: [
-        { id: "td-math", code: "MATH-001", name: "Pre-calculus 1", component: "TD", request: EMPTY_REQUEST },
-        { id: "td-algo", code: "MATH-011", name: "Algorithms", component: "TD", request: EMPTY_REQUEST },
+        { id: "td-math", code: "MATH-001", name: "Pre-calculus 1", component: "TD", program: "", request: EMPTY_REQUEST },
+        { id: "td-algo", code: "MATH-011", name: "Algorithms", component: "TD", program: "", request: EMPTY_REQUEST },
       ],
       groups: [
         group("td-1", "1", 33, 34, { "td-math": section("23223", { teacherId: "t1" }), "td-algo": section("23652") }),
@@ -36,7 +36,7 @@ const FYS: CohortCatalogue = {
     {
       id: "s-lang", code: "LANG", name: "Languages", note: "", termId: "term-1", kind: "shared", parentScopeId: "",
       openToAll: true,
-      courses: [{ id: "lang", code: "SCEN-101", name: "Languages", component: "TD", request: EMPTY_REQUEST }],
+      courses: [{ id: "lang", code: "SCEN-101", name: "Languages", component: "TD", program: "", request: EMPTY_REQUEST }],
       groups: [group("a1", "A1-G1", 24, 22, { lang: section("23304") })],
     },
   ],
@@ -180,7 +180,7 @@ describe("a course handed from one professor to another at mid-semester", () => 
       {
         id: "s-cm", code: "CM", name: "Lectures", note: "", termId: "term-1", kind: "shared", parentScopeId: "",
         openToAll: false,
-        courses: [{ id: "cm-alg", code: "MATH-351", name: "Algebra & Cryptography", component: "CM", request: EMPTY_REQUEST }],
+        courses: [{ id: "cm-alg", code: "MATH-351", name: "Algebra & Cryptography", component: "CM", program: "", request: EMPTY_REQUEST }],
         groups: [
           group("cm-a", "Mathematics", 0, 8, {
             "cm-alg": {

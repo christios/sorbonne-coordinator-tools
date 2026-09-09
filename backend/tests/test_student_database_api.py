@@ -665,7 +665,7 @@ def test_a_section_carries_the_timetable_request_beyond_its_crn(client: TestClie
     assert response.status_code == status.HTTP_200_OK, response.text
     block = scope_of(catalogue(client, cohort_id), "TD")
     # The UE and parent CRN are the active course's, not the set's — see test_portal_api.
-    assert set(block["courses"][0]) == {"id", "code", "name", "component", "request"}
+    assert set(block["courses"][0]) == {"id", "code", "name", "component", "program", "request"}
     # Nothing has been asked of the course itself, so its own request is empty.
     assert block["courses"][0]["request"]["hours"] == ""
     section = block["groups"][0]["crns"][course["id"]]

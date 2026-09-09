@@ -22,8 +22,8 @@ const CATALOGUES: database.CohortCatalogue[] = [
       {
         id: "s-td", code: "TD", name: "Tutorials", note: "", termId: "term-1", kind: "shared", parentScopeId: "", openToAll: false,
         courses: [
-          { id: "td-math", code: "MATH001", name: "Pre-calculus 1", component: "TD", request: EMPTY_REQUEST },
-          { id: "td-algo", code: "MATH011", name: "Algorithms", component: "TD", request: EMPTY_REQUEST },
+          { id: "td-math", code: "MATH001", name: "Pre-calculus 1", component: "TD", program: "", request: EMPTY_REQUEST },
+          { id: "td-algo", code: "MATH011", name: "Algorithms", component: "TD", program: "", request: EMPTY_REQUEST },
         ],
         groups: [
           { id: "td-1", label: "1", capacity: 33, note: "", program: "", parentGroupId: "", assigned: 30, crns: { "td-math": { ...EMPTY_SECTION, crn: "23223", teacherId: "act-1", hours: "50" }, "td-algo": { ...EMPTY_SECTION, crn: "23652" } } },
@@ -306,5 +306,55 @@ describe("a section taught in more than one stretch", () => {
     // The weeks are what tell the two halves apart in the form; the CRN is chosen from a
     // list, so it has no display value of its own to read.
     expect(await screen.findByDisplayValue("7-14")).toBeTruthy();
+  });
+});
+
+describe("a set whose groups are programmes, not numbers", () => {
+  /**
+   * One set carrying a Maths course and a Physics course, with a group for each programme
+   * — the shape of every L2 and L3 set. The matrix asks all four cells for a CRN.
+   */
+  const byProgramme = (courseProgrammes: boolean): database.CohortCatalogue[] => [
+    {
+      cohort: { id: "c1", name: "Foundation Year", term: "2026-27" },
+      scopes: [
+        {
+          id: "s-cm", code: "CM", name: "Lectures", note: "", termId: "term-1", kind: "shared",
+          parentScopeId: "", openToAll: false,
+          courses: [
+            { id: "c-math", code: "MATH001", name: "Analysis", component: "CM", program: courseProgrammes ? "Mathematics" : "", request: EMPTY_REQUEST },
+            { id: "c-phys", code: "PHYS001", name: "Mechanics", component: "CM", program: courseProgrammes ? "Physics" : "", request: EMPTY_REQUEST },
+          ],
+          groups: [
+            { id: "g-math", label: "Mathematics", capacity: 0, note: "", program: "Mathematics", parentGroupId: "", assigned: 8, crns: { "c-math": { ...EMPTY_SECTION, crn: "23436" } } },
+            { id: "g-phys", label: "Physics", capacity: 0, note: "", program: "Physics", parentGroupId: "", assigned: 9, crns: { "c-phys": { ...EMPTY_SECTION, crn: "23437" } } },
+          ],
+        },
+      ],
+    },
+  ];
+
+  it("reports the empty cells while nobody has said which programme takes what", async () => {
+    // The state every set is in today, and it must not change: two blanks, because as far
+    // as the page knows both groups teach both courses.
+    vi.spyOn(database, "fetchCourseCards").mockResolvedValue(byProgramme(false));
+
+    show();
+
+    expect(await screen.findByRole("button", { name: /2 sections without a CRN/ })).toBeTruthy();
+  });
+
+  it("stops reporting them once the courses name their programme", async () => {
+    /*
+     * The Physics group is not short a CRN for the Maths course. Counted on production the
+     * day this was written: 25 such cells in L2-S1 and 20 in L3-S1, every one of them a
+     * section the page said was missing and nobody intended to teach.
+     */
+    vi.spyOn(database, "fetchCourseCards").mockResolvedValue(byProgramme(true));
+
+    show();
+
+    expect(await screen.findByText(/2 courses/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /sections without a CRN/ })).toBeNull();
   });
 });
