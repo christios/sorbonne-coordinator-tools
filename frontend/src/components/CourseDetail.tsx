@@ -1,7 +1,8 @@
-import { AlertTriangle, Armchair, ChevronDown, ChevronRight, Clock3, Pencil, UserRound, Wand2 } from "lucide-react";
+import { AlertTriangle, Armchair, ChevronDown, ChevronRight, Clock3, Eye, Pencil, UserRound, Wand2 } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
 import { FillBlock, type FillReport } from "@/components/FillBlock";
+import { GroupRoster } from "@/components/GroupRoster";
 import { SectionDialog } from "@/components/CourseCard";
 import { CourseRequestDialog, CourseRequestLine } from "@/components/CourseRequest";
 import { YearPill } from "@/components/YearPill";
@@ -177,12 +178,14 @@ function SectionBlock({
   portal,
   teacherDrift,
   onEdit,
+  onShowGroup,
 }: {
   row: SectionRow;
   teacherName: (id: string) => string;
   portal: TermCrns | null;
   teacherDrift: Set<string>;
   onEdit: () => void;
+  onShowGroup?: () => void;
 }) {
   const held = row.section ?? EMPTY_SECTION;
   const label = `${row.scope.code} ${row.group.label} ${row.course.code}`;
@@ -236,6 +239,30 @@ function SectionBlock({
             <span className={`${chip} bg-[#fdf3f3] text-[#a6292f]`}>no CRN</span>
           )}
         </span>
+        {/*
+          * Who is in this group — the first question anybody asks about one, and until now
+          * the only one this card could not answer. It needed the Students page, a cohort
+          * filter and a group filter to read eighteen names off a table built for three
+          * thousand rows.
+          *
+          * Its own button rather than part of the card's own press, which opens the editor:
+          * looking at a group is not editing it, and a roster appearing over a form
+          * somebody had just opened would be worse than the walk to the other page.
+          */}
+        {onShowGroup ? (
+          <button
+            type="button"
+            aria-label={`Who is in ${row.scope.code} ${row.group.label}`}
+            title="Who is in this group"
+            onClick={(event) => {
+              event.stopPropagation();
+              onShowGroup();
+            }}
+            className="shrink-0 rounded p-0.5 text-[#c8d0da] hover:bg-[#eef1f5] hover:text-[#1f4e79]"
+          >
+            <Eye size={13} aria-hidden="true" />
+          </button>
+        ) : null}
         <Pencil size={13} className="shrink-0 text-transparent group-hover:text-[#98a2b3]" aria-hidden="true" />
       </header>
 
@@ -335,6 +362,8 @@ export function CourseDetail({
   onPlaceStudents?: (cohortId: string, studentIds: string[]) => void;
 }) {
   const [editing, setEditing] = useState<SectionRow | null>(null);
+  // Which group's students are being looked at, if any.
+  const [showingGroup, setShowingGroup] = useState<SectionRow | null>(null);
   const [filling, setFilling] = useState<CardSet | null>(null);
   // Which set's course line is being written, if any: one per set, as the hours differ.
   const [asking, setAsking] = useState<CardSet | null>(null);
@@ -445,7 +474,7 @@ export function CourseDetail({
 
               <div className="grid gap-2.5 sm:grid-cols-2 2xl:grid-cols-3">
                 {live.map((row) => (
-                  <SectionBlock key={row.group.id} row={row} teacherName={teacherName} portal={portal} teacherDrift={teacherDrift} onEdit={() => setEditing(row)} />
+                  <SectionBlock key={row.group.id} row={row} teacherName={teacherName} portal={portal} teacherDrift={teacherDrift} onEdit={() => setEditing(row)} onShowGroup={() => setShowingGroup(row)} />
                 ))}
               </div>
 
@@ -463,7 +492,7 @@ export function CourseDetail({
                   {showingRetired[set.scope.id] ? (
                     <div className="mt-2 grid gap-2.5 sm:grid-cols-2 2xl:grid-cols-3">
                       {retired.map((row) => (
-                        <SectionBlock key={row.group.id} row={row} teacherName={teacherName} portal={portal} teacherDrift={teacherDrift} onEdit={() => setEditing(row)} />
+                        <SectionBlock key={row.group.id} row={row} teacherName={teacherName} portal={portal} teacherDrift={teacherDrift} onEdit={() => setEditing(row)} onShowGroup={() => setShowingGroup(row)} />
                       ))}
                     </div>
                   ) : null}
@@ -530,6 +559,19 @@ export function CourseDetail({
             setEditing(null);
             onChanged();
           }}
+        />
+      ) : null}
+
+      {showingGroup && cohort ? (
+        <GroupRoster
+          open
+          cohortId={cohort.id}
+          cohortName={cohort.name}
+          scopeId={showingGroup.scope.id}
+          scopeCode={showingGroup.scope.code}
+          groupId={showingGroup.group.id}
+          groupLabel={showingGroup.group.label}
+          onClose={() => setShowingGroup(null)}
         />
       ) : null}
     </section>
