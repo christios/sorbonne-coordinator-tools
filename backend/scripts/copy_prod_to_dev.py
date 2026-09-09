@@ -11,7 +11,10 @@ by `dev_session.py`, so no production database URL is needed and none is created
 **No student names travel, because the server holds none.** `students` is ids and status;
 `sync_registrations` states and enforces "only ids and CRNs are written". Names live in the
 coordinator's browser, and this copies the server, so there is nothing to redact. Staff
-names are a different matter and are left behind unless `--teachers` is passed.
+names are a different matter. The department's own list — Active teachers, with their
+e-mail addresses — is left behind unless `--teachers` is passed. The name typed on a
+section always travels, because it is part of the timetabler's request and a copy without
+it cannot show the request at all; it is a name and it is worth knowing that it moves.
 
 What it copies, in the order the writes depend on one another:
 
@@ -22,8 +25,10 @@ What it copies, in the order the writes depend on one another:
   4. their cohorts      because a view's sync writes cohort_id NULL
   5. discrepancy rules  without them every cohort reads "Nothing to flag", which looks
                         like good news and is an empty rulebook
-  6. sets, courses,     one cohort at a time, keeping a production id -> local id map
-     groups, CRNs
+  6. sets, courses,     one cohort at a time, keeping a production id -> local id map.
+     groups, sections     A section travels with its request as well as its CRN — the
+                          teacher the department confirmed, the hours, the anticipated
+                          size, the room, day and time asked for, the constraints
   7. placements         which need every group above to exist first
   8. the register       active courses and CRNs, and the term link — what the checks
                         decide is "ours", and without them Active Courses is empty
@@ -177,7 +182,7 @@ def copy_everything(  # noqa: PLR0913 - one keyword per thing the caller may cho
     # row holds it, and the other three place their students into those same groups. Doing
     # a cohort end to end would drop those placements, because the group they name belongs
     # to a cohort that has not been reached yet, or was reached and forgotten.
-    sets, group_id, placed = _copy_plans(
+    sets, group_id, placed, requests = _copy_plans(
         read, write, here, write_headers, cohorts, cohort_id, terms, say, dry_run=dry_run
     )
 
@@ -204,6 +209,7 @@ def copy_everything(  # noqa: PLR0913 - one keyword per thing the caller may cho
         "sets": sets,
         "groups": len(group_id),
         "placements": placed,
+        "sections": requests,
         "rules": len(rules),
         "teachers": teachers,
         "dryRun": dry_run,
@@ -238,7 +244,7 @@ def main() -> int:
 
 def _copy_plans(  # noqa: PLR0913 - the map it threads through is the point
     read, write, here, write_headers, cohorts, cohort_id, terms, say, *, dry_run: bool
-):
+) -> tuple[int, dict[str, str], int, int]:
     """Every catalogue, then every placement — in that order, and never per cohort.
 
     A set open to every cohort is created once, under the cohort whose row holds it, and
@@ -249,14 +255,17 @@ def _copy_plans(  # noqa: PLR0913 - the map it threads through is the point
     say("")
     group_id: dict[str, str] = {}
     sets = 0
+    requests = 0
     for cohort in cohorts:
         catalogue = read(f"/cohorts/{cohort['id']}/catalogue")["scopes"]
         sets += len(catalogue)
         say(f"{cohort['name']}: {len(catalogue)} sets, {sum(len(s['groups']) for s in catalogue)} groups")
         if not dry_run:
-            group_id.update(_copy_catalogue(write, catalogue, cohort_id[cohort["id"]], terms))
+            requests += _copy_catalogue(write, catalogue, cohort_id[cohort["id"]], terms, group_id)
+    if requests:
+        say(f"\nsections carrying a request: {requests}")
     if dry_run:
-        return sets, group_id, 0
+        return sets, group_id, 0, 0
 
     say("")
     placed = 0
@@ -265,7 +274,7 @@ def _copy_plans(  # noqa: PLR0913 - the map it threads through is the point
         here_placed = _copy_placements(here, write, write_headers, assignments, group_id)
         placed += here_placed
         say(f"{cohort['name']}: placed {here_placed}")
-    return sets, group_id, placed
+    return sets, group_id, placed, requests
 
 
 def _copy_cohorts(write, cohorts: list[dict[str, Any]]) -> dict[str, str]:
@@ -471,10 +480,47 @@ def _term_map(
     return mapped
 
 
-def _copy_catalogue(write, catalogue: list[dict[str, Any]], here_cohort: str, terms: dict[str, str]) -> dict[str, str]:
-    """The sets, their courses, their groups and the CRNs in them. Returns prod id -> local id."""
-    group_id: dict[str, str] = {}
-    # Parents before children, so a nested set's parent already exists.
+#: Everything a section carries beyond its CRN and the name on it — the timetabler's
+#: request. `PUT` on the cell writes the CRN and the name; the rest is a `PATCH`, and
+#: leaving it out copied production as a grid of CRNs with the request stripped out of it.
+#: Measured on production the day this was fixed: 141 sections, of which 81 named a teacher
+#: the department had confirmed, 139 a duration, 134 an anticipated size and 25 a
+#: constraint. None of it arrived, so Teacher hours read "Not confirmed" for everybody.
+REQUEST_FIELDS = (
+    "teacherId",
+    "hours",
+    "sessionsPerWeek",
+    "duration",
+    "weeks",
+    "anticipated",
+    "roomPref",
+    "dayPref",
+    "timePref",
+    "constraints",
+    "comments",
+    "retired",
+)
+
+
+def _request_of(cell: dict[str, Any]) -> dict[str, Any]:
+    """The section's request, as the PATCH takes it — only what is actually said."""
+    return {field: cell[field] for field in REQUEST_FIELDS if cell.get(field) not in ("", 0, False, None)}
+
+
+def _copy_catalogue(
+    write, catalogue: list[dict[str, Any]], here_cohort: str, terms: dict[str, str], group_id: dict[str, str]
+) -> int:
+    """The sets, their courses, their groups and the CRNs in them.
+
+    Fills `group_id` (production id -> local id) and returns how many sections carried a
+    request. A set, a course, a group and a section each travel with everything the API
+    will take: the nesting, the component, and the timetabler's request. Anything left
+    behind here is silently missing from the copy, and reads on screen as a fact about
+    production rather than as a gap in this script.
+    """
+    scope_id: dict[str, str] = {}
+    requests = 0
+    # Parents before children, so a nested set's parent already exists to be named.
     for scope in sorted(catalogue, key=lambda row: bool(row.get("parentScopeId"))):
         made = write(
             f"/cohorts/{here_cohort}/scopes",
@@ -485,12 +531,20 @@ def _copy_catalogue(write, catalogue: list[dict[str, Any]], here_cohort: str, te
                 "termId": terms.get(scope.get("termId", ""), scope.get("termId", "")),
                 "kind": scope.get("kind", "shared"),
                 "openToAll": bool(scope.get("openToAll")),
+                "parentScopeId": scope_id.get(scope.get("parentScopeId", ""), ""),
             },
         )
+        scope_id[scope["id"]] = made["id"]
         course_id = {
             course["id"]: write(
                 f"/scopes/{made['id']}/courses",
-                {"code": course["code"], "name": course.get("name", "")},
+                {
+                    "code": course["code"],
+                    "name": course.get("name", ""),
+                    # Which of the course's parts this set is — CM, TD, TP. Every course in
+                    # production carries one, and without it a card cannot say what it is.
+                    "component": course.get("component", ""),
+                },
             )["id"]
             for course in scope["courses"]
         }
@@ -502,17 +556,21 @@ def _copy_catalogue(write, catalogue: list[dict[str, Any]], here_cohort: str, te
                     "capacity": group.get("capacity", 0),
                     "note": group.get("note", ""),
                     "program": group.get("program", ""),
+                    # A nested set's group sits inside one of the parent's, which was
+                    # written above — the parent set comes first in the loop.
+                    "parentGroupId": group_id.get(group.get("parentGroupId", ""), ""),
                 },
             )["id"]
             group_id[group["id"]] = here_group
             for prod_course, cell in (group.get("crns") or {}).items():
                 if cell.get("crn") and prod_course in course_id:
-                    write(
-                        f"/groups/{here_group}/courses/{course_id[prod_course]}",
-                        {"crn": cell["crn"], "teacher": cell.get("teacher", "")},
-                        method="PUT",
-                    )
-    return group_id
+                    at = f"/groups/{here_group}/courses/{course_id[prod_course]}"
+                    write(at, {"crn": cell["crn"], "teacher": cell.get("teacher", "")}, method="PUT")
+                    request = _request_of(cell)
+                    if request:
+                        write(at, request, method="PATCH")
+                        requests += 1
+    return requests
 
 
 def _copy_placements(
