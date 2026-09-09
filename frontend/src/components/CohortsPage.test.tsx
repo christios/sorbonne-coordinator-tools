@@ -420,12 +420,23 @@ describe("the register half of the Cohorts page", () => {
     ]);
 
     renderPage();
+    /*
+     * Both records, before the order is read.
+     *
+     * They arrive from different places — the register from a query, the withdrawal from
+     * this browser's own evidence — and waiting for only one of them read the order at a
+     * moment when the table honestly had only half the warnings. Which made the test pass
+     * or fail depending on how loaded the machine was.
+     */
     await screen.findByText("MATH-001: not registered in 23223");
+    await screen.findByText(/student status is WD/);
 
-    const rows = screen.getAllByRole("row").map((row) => row.textContent ?? "");
-    expect(rows.findIndex((text) => text.includes("Amira Haddad"))).toBeLessThan(
-      rows.findIndex((text) => text.includes("Karim Nasser")),
-    );
+    await waitFor(() => {
+      const rows = screen.getAllByRole("row").map((row) => row.textContent ?? "");
+      expect(rows.findIndex((text) => text.includes("Amira Haddad"))).toBeLessThan(
+        rows.findIndex((text) => text.includes("Karim Nasser")),
+      );
+    });
   });
 
   it("counts a student once however many of their courses differ, and says what kind", async () => {
