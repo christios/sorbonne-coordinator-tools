@@ -103,6 +103,15 @@ export function StudentRoster({
   const client = useQueryClient();
   // The scoped table has its own arrangement; see studentColumns.loadLayout.
   const layoutKey = scope ? "scen-student-columns:cohorts:v1" : undefined;
+  /*
+   * Whether the table is showing everybody or only the population it is about.
+   *
+   * It means two different things depending on the page, and both are "widen the search":
+   * on the Students page it stops narrowing to the chosen portal filter, and on a scoped
+   * page — the Cohorts table — it stops narrowing to the cohort. The question a
+   * coordinator is asking is the same either way, "where is this person", and it was
+   * unanswerable on a scoped page without knowing the answer first.
+   */
   const [everywhere, setEverywhere] = useState(false);
   // Searching everywhere asks for the whole record rather than this view's population.
   // A scoped table is always everywhere: a cohort's students come from every view.
@@ -142,9 +151,12 @@ export function StudentRoster({
     () =>
       buildColumns(schema.data?.columns ?? [], schema.data?.fields ?? [], {
         withWarnings: Boolean(warningsFor),
-        withoutCohort: Boolean(scope),
+        // Dropped on a scoped table, where every row would say the same thing — and back
+        // the moment the scope is lifted, because "which cohort is she in" is the whole
+        // reason for looking outside it.
+        withoutCohort: Boolean(scope) && !everywhere,
       }),
-    [schema.data, warningsFor, scope],
+    [schema.data, warningsFor, scope, everywhere],
   );
 
   const [stored, setStored] = useState<StoredPreset>({});
@@ -334,14 +346,16 @@ export function StudentRoster({
     [students.data, portalRows, changes, syncedAt, termNames, warningsFor],
   );
   const rows = useMemo(() => {
-    // The population first: a scope is not a filter chip, it is who the page is about.
-    const population = scope
-      ? everyRow.filter((row) => (scope.cohortId === null ? !row.cohortId : row.cohortId === scope.cohortId))
-      : everyRow;
+    // The population first: a scope is not a filter chip, it is who the page is about —
+    // until somebody asks to look past it, which is what the toggle beside the search is.
+    const population =
+      scope && !everywhere
+        ? everyRow.filter((row) => (scope.cohortId === null ? !row.cohortId : row.cohortId === scope.cohortId))
+        : everyRow;
     if (focus.length === 0) return population;
     const wanted = new Set(focus);
     return population.filter((row) => wanted.has(row.studentId));
-  }, [everyRow, focus, scope]);
+  }, [everyRow, focus, scope, everywhere]);
 
   const columns = useMemo(
     () => (layout ? visibleColumns(layout, allColumns) : []),
@@ -571,15 +585,18 @@ export function StudentRoster({
           />
         </label>
 
-        {scope ? null : (
         <button
           type="button"
           aria-pressed={everywhere}
           onClick={() => setEverywhere((current) => !current)}
           title={
-            everywhere
-              ? "Searching every student we hold. Click to go back to this portal filter."
-              : "Search every student we hold, not only this portal filter"
+            scope
+              ? everywhere
+                ? "Searching every cohort. Click to go back to this one."
+                : "Search every cohort, not only this one"
+              : everywhere
+                ? "Searching every student we hold. Click to go back to this portal filter."
+                : "Search every student we hold, not only this portal filter"
           }
           className={`inline-flex shrink-0 items-center gap-2 rounded-md border px-3 py-2 text-sm font-semibold ${
             everywhere
@@ -588,9 +605,8 @@ export function StudentRoster({
           }`}
         >
           <Globe size={15} aria-hidden="true" />
-          {everywhere ? "All students" : "This filter"}
+          {scope ? (everywhere ? "All cohorts" : "This cohort") : everywhere ? "All students" : "This filter"}
         </button>
-        )}
 
         <ColumnMenu layout={layout} columns={allColumns} onChange={arrange} />
 

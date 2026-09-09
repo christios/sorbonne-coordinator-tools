@@ -335,14 +335,29 @@ export function CohortsPage({
     return out;
   }, [cohorts, judged, registrationsBy]);
 
+  /*
+   * Every cohort's warnings by student, not only the cohort on screen.
+   *
+   * The table is normally narrowed to one cohort, so this reads the same — a student
+   * belongs to one cohort and is judged by that cohort's rules, so there is nothing to
+   * collide. It matters when the search beside the table is widened to every cohort: a row
+   * from elsewhere must carry its own warnings, or looking outside the cohort would
+   * quietly report everybody else as clean.
+   */
   const byStudent = useMemo(() => {
     const out = new Map<string, Warning[]>();
-    for (const warning of byCohort.get(cohortId) ?? []) {
+    for (const warning of [...byCohort.values()].flat()) {
       const marked = dismissed.has(warning.key) ? { ...warning, dismissed: true } : warning;
       out.set(warning.studentId, [...(out.get(warning.studentId) ?? []), marked]);
     }
     return out;
-  }, [byCohort, cohortId, dismissed]);
+  }, [byCohort, dismissed]);
+
+  /** This cohort's own, which is what every count and sentence on the page is about. */
+  const mine = useMemo(() => {
+    const keys = new Set((byCohort.get(cohortId) ?? []).map((warning) => warning.key));
+    return [...byStudent.values()].flat().filter((warning) => keys.has(warning.key));
+  }, [byStudent, byCohort, cohortId]);
 
   /*
    * Dismissals that no longer point at anything are let go, so the store stays small.
@@ -422,7 +437,7 @@ export function CohortsPage({
         .map((warning) => warning.studentId),
     ).size;
 
-  const all = [...byStudent.values()].flat();
+  const all = mine;
   const flaggedStudents = flaggedIn(all);
   const counts: Record<Showing, number> = {
     all: flaggedStudents,
