@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, ArrowRightCircle, Check, ChevronDown } from "lucide-react";
+import { AlertTriangle, ArrowRightCircle, Check, ChevronDown, EyeOff } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { Modal } from "@/components/Modal";
@@ -188,7 +188,20 @@ export function StudentRecord({
    */
   const lines = reconcile(placements, registrations.data ?? []);
   const counted = tally(lines);
-  const mismatches: Mismatch[] = (check.data ?? []).filter((mismatch) => mismatch.studentId === row.studentId);
+  const mismatches: Mismatch[] = (check.data?.mismatches ?? []).filter(
+    (mismatch) => mismatch.studentId === row.studentId,
+  );
+  /*
+   * Whether the check actually looked at THIS student, rather than merely not complaining.
+   *
+   * A student the registrations pull did not return is skipped by the check — deliberately,
+   * since there is nothing to hold them against — and used to come out the far end looking
+   * exactly like a student whose registrations were perfect. The coverage names them, so
+   * the difference can be said out loud.
+   */
+  const seenByTheCheck = (check.data?.coverage ?? []).some(
+    (term) => term.judged > 0 && !term.skipped.includes(row.studentId),
+  );
   const parentOf = (crn: string) => (register.data ?? []).find((entry) => entry.crn === crn)?.parentCrn ?? "";
   const families = registrationFamilies(registrations.data ?? [], parentOf, mismatches);
   const entries = historyFor(history, row.studentId);
@@ -458,9 +471,17 @@ export function StudentRecord({
             )}
 
             {!mismatches.length && cohortId && check.data && (registrations.data ?? []).length ? (
-              <p className="mt-3 inline-flex items-center gap-1.5 text-sm text-[#2f6b3d]">
-                <Check size={14} aria-hidden="true" /> Registrations agree with the groups.
-              </p>
+              seenByTheCheck ? (
+                <p className="mt-3 inline-flex items-center gap-1.5 text-sm text-[#2f6b3d]">
+                  <Check size={14} aria-hidden="true" /> Registrations agree with the groups.
+                </p>
+              ) : (
+                <p className="mt-3 inline-flex items-start gap-1.5 text-xs text-[#98a2b3]">
+                  <EyeOff size={13} className="mt-0.5 shrink-0" aria-hidden="true" />
+                  No registrations pull has returned this student for their semester, so nothing above has been
+                  compared against their groups. Sync a Registrations filter that covers them.
+                </p>
+              )
             ) : null}
             {noLink && cohortId ? (
               <p className="mt-3 text-xs text-[#98a2b3]">

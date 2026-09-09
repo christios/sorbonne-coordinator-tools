@@ -413,8 +413,68 @@ export function fetchTermCheck(termId: string): Promise<TermCheck> {
   return request<TermCheck>(`/terms/${encodeURIComponent(termId)}/check`);
 }
 
-export async function fetchRegistrationCheck(cohortId: string): Promise<Mismatch[]> {
-  return (await request<{ mismatches: Mismatch[] }>(`/cohorts/${encodeURIComponent(cohortId)}/registration-check`)).mismatches;
+/**
+ * How much of a cohort the register could be asked about at all, one semester.
+ *
+ * Three integers rather than a verdict, because the three cases want different actions:
+ * no portal term linked, no pull covering this semester, a pull that returned nobody from
+ * this cohort, or N stragglers. `blind` arrives as its own integer so nothing here has to
+ * size `skipped` to tell them apart.
+ */
+export type TermCoverage = {
+  termId: string;
+  /** Empty when nobody has linked this semester to a portal term. */
+  termCode: string;
+  members: number;
+  judged: number;
+  blind: number;
+  /** By id. The server holds no names. */
+  skipped: string[];
+  /** Students of any cohort this term's pulls returned. */
+  pulledInTerm: number;
+};
+
+/**
+ * The differences and the ground they were looked for on, in one value.
+ *
+ * Deliberately not unwrapped to `.mismatches` here. A caller that could take the verdicts
+ * without the coverage would sooner or later report "nothing wrong" about a cohort the
+ * registrar has never been asked about, so the type makes that impossible to do by
+ * accident: you have to name the half you want.
+ */
+export type RegistrationReport = {
+  mismatches: Mismatch[];
+  coverage: TermCoverage[];
+};
+
+export function fetchRegistrationCheck(cohortId: string): Promise<RegistrationReport> {
+  return request<RegistrationReport>(`/cohorts/${encodeURIComponent(cohortId)}/registration-check`);
+}
+
+/**
+ * What one semester's coverage means, said so it can be acted on — or "" when there is
+ * nothing to say because the semester was fully checked.
+ *
+ * Worded to blame our pull rather than the student: a student the registrations filter did
+ * not return has done nothing wrong, and phrasing it as their absence sends a coordinator
+ * chasing the wrong person.
+ */
+export function describeCoverage(coverage: TermCoverage, termName = ""): string {
+  const term = termName || (coverage.termCode ? `Semester ${coverage.termCode}` : "This semester");
+  if (!coverage.members) return "";
+  if (!coverage.termCode) {
+    return `${term} is not linked to a portal term, so none of its ${coverage.members} students have been checked.`;
+  }
+  if (!coverage.pulledInTerm) {
+    return `Nothing has been pulled for ${term}, so none of its ${coverage.members} students have been checked.`;
+  }
+  if (!coverage.judged) {
+    return `${term}: registrations have been pulled, but none of this cohort's ${coverage.members} students were among them — the filter that ran covers another population.`;
+  }
+  if (coverage.blind) {
+    return `${term}: ${coverage.judged} of ${coverage.members} students checked — ${coverage.blind} no pull has returned.`;
+  }
+  return "";
 }
 
 // ---------------------------------------------- the part-time teacher database

@@ -1,5 +1,5 @@
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { AlertTriangle, ArrowRightCircle, ClipboardList, Layers, Settings2, X } from "lucide-react";
+import { AlertTriangle, ArrowRightCircle, ClipboardList, EyeOff, Layers, Settings2, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { CohortActions } from "@/components/CohortActions";
@@ -30,14 +30,18 @@ import {
 } from "@/services/discrepancies";
 import { dismiss, loadDismissed, pruneDismissed, restore, restoreMany } from "@/services/dismissals";
 import {
+  describeCoverage,
   describeMismatch,
   fetchRegistrationCheck,
   type Mismatch,
+  type RegistrationReport,
+  type TermCoverage,
 } from "@/services/portalLists";
 import { allChanges } from "@/services/pullHistory";
 import { describeAge, latestPullAt, rowsHeld } from "@/services/rosterStore";
 import { displayNameOf, fetchSchema, studentIdOf, type RosterRow } from "@/services/scenRosters";
 import { fetchDiscrepancyRules, fetchStudents, type Cohort, type Student } from "@/services/studentDatabase";
+import { fetchTimetableTerms } from "@/services/timetables";
 
 /** This browser's evidence: what the portal last said, and every change it has recorded. */
 type Evidence = {
@@ -209,10 +213,33 @@ export function CohortsPage({
       retry: false,
     })),
   });
-  const registrationsBy = useMemo(
-    () => new Map(cohorts.map((cohort, index) => [cohort.id, (checks[index]?.data ?? []) as Mismatch[]])),
+  const reportsBy = useMemo(
+    () =>
+      new Map(
+        cohorts.map((cohort, index) => [
+          cohort.id,
+          (checks[index]?.data ?? { mismatches: [], coverage: [] }) as RegistrationReport,
+        ]),
+      ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [cohorts, checks.map((check) => check.dataUpdatedAt).join("|")],
+  );
+  const registrationsBy = useMemo(
+    () => new Map([...reportsBy].map(([cohortId, report]) => [cohortId, report.mismatches])),
+    [reportsBy],
+  );
+  /*
+   * The semesters' names, when the Student Hub can be reached.
+   *
+   * Cosmetic and only cosmetic: a semester with no name falls back to its portal term
+   * code, and the coverage line is the same sentence either way. The Hub being down must
+   * not be able to hide the fact that a cohort has not been checked, which is the one
+   * thing this page is now for.
+   */
+  const termNames = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, retry: false });
+  const nameOfTerm = useCallback(
+    (termId: string) => (termNames.data ?? []).find((term) => term.id === termId)?.name ?? "",
+    [termNames.data],
   );
   // This browser's evidence: read once per visit. It has nothing to do with the rules.
   const [evidence, setEvidence] = useState<Evidence | null>(null);
@@ -384,20 +411,28 @@ export function CohortsPage({
   /*
    * What the register says about this cohort — including when it has said nothing.
    *
-   * A cohort whose check failed has no linked semester, or the request fell over; either
-   * way it has not been checked, and "no differences" would be a lie of exactly the kind
-   * this page exists to stop. So the four cases are told apart, and only one of them is
-   * good news.
+   * "No differences" is two different facts wearing one sentence: the registrar agrees
+   * with us, or nobody has ever asked it. The check now reports the ground it stood on, so
+   * the cases can be told apart instead of hedged over.
    */
   const mismatches = registrationsBy.get(cohortId) ?? [];
   const check = checks[cohorts.findIndex((candidate) => candidate.id === cohortId)];
+  const coverage: TermCoverage[] = reportsBy.get(cohortId)?.coverage ?? [];
+  // One line per semester that has something to say. A semester fully checked says
+  // nothing, and that silence is the only silence here that has been earned.
+  const gaps = coverage
+    .map((term) => ({ term, said: describeCoverage(term, nameOfTerm(term.termId)) }))
+    .filter((entry) => entry.said);
+  const anyChecked = coverage.some((term) => term.judged > 0);
   const registerSays = check?.isError
-    ? "The register has not been checked here: this cohort has no linked semester, or the check could not be made."
+    ? "The register could not be asked about this cohort at all."
     : check?.isPending
       ? "Still asking the register…"
       : mismatches.length
         ? `The register differs about ${counts.registration} of them — ${describeKinds(mismatches)}.`
-        : "The register has every student in exactly the sections their groups give them — or nothing has been pulled for this cohort's semester yet.";
+        : anyChecked
+          ? `The register has every student ${gaps.length ? "it could see " : ""}in exactly the sections their groups give them.`
+          : "Nobody has asked the register about this cohort yet.";
   const arrivals = cohort ? (judged?.arrivals.get(cohort.id) ?? []).filter((arrival) => !dismissed.has(arrival.key)) : [];
   const applied = cohort ? rulesFor(rules.data ?? [], cohort.id) : sharedRules(rules.data ?? []);
   const ownRules = cohort ? (rules.data ?? []).filter((rule) => rule.cohortId === cohort.id) : [];
@@ -503,6 +538,24 @@ export function CohortsPage({
           </>
         ) : null}
       </p>
+
+      {/*
+        * How much of the cohort the register was actually asked about.
+        *
+        * Muted and never a warning: a floor is not a flag. It must not enter the flagged
+        * count nor the cohort picker's alert, because "we have not looked" is not a thing
+        * a coordinator can clear — it is a thing they can go and fix by syncing.
+        */}
+      {gaps.length ? (
+        <ul role="status" className="mt-2 space-y-0.5 text-xs text-[#98a2b3]">
+          {gaps.map(({ term, said }) => (
+            <li key={term.termId} className="flex items-start gap-1.5">
+              <EyeOff size={12} className="mt-0.5 shrink-0" aria-hidden="true" />
+              <span>{said}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
 
       {silent.length ? (
         <p role="status" className="mt-3 rounded-md border border-[#e8d9ac] bg-[#fdf9ee] px-4 py-2.5 text-sm text-[#8a6116]">

@@ -40,6 +40,17 @@ const HISTORY: PullHistory = {
   present: [],
 } as unknown as PullHistory;
 
+/** A check's answer: the differences, and the ground they were looked for on. */
+const report = (mismatches: lists.Mismatch[] = [], coverage: lists.TermCoverage[] = []): lists.RegistrationReport => ({
+  mismatches,
+  coverage,
+});
+
+/** A semester the register was fully asked about, with this student among those it saw. */
+const checked = (over: Partial<lists.TermCoverage> = {}): lists.TermCoverage => ({
+  termId: "term-1", termCode: "262710", members: 2, judged: 2, blind: 0, skipped: [], pulledInTerm: 2, ...over,
+});
+
 beforeEach(() => {
   vi.spyOn(lists, "fetchRegistrations").mockResolvedValue([
     { termCode: "262710", crn: "22151", courseCode: "MATH-001", title: "Pre-calculus", teacherName: "Dr Maaz", status: "in_portal", lastSeenAt: "" },
@@ -51,10 +62,10 @@ beforeEach(() => {
     { id: "r1", crn: "23223", parentCrn: "22151", courseCode: "MATH-001" },
     { id: "r2", crn: "22151", parentCrn: "", courseCode: "MATH-001" },
   ] as unknown as lists.ActiveCrn[]);
-  vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue([
+  vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue(report([
     { studentId: "A001", termId: "term-1", termCode: "262710", courseCode: "MATH-011", kind: "wrong", expected: ["23652"], registered: ["23653"] },
     { studentId: "A002", termId: "term-1", termCode: "262710", courseCode: "MATH-001", kind: "missing", expected: ["22151"], registered: [] },
-  ]);
+  ], [checked()]));
   vi.spyOn(lists, "fetchTermLinks").mockResolvedValue({ "term-1": "262710" });
   vi.spyOn(timetables, "fetchTimetableTerms").mockResolvedValue([
     { id: "term-1", name: "Semester 1", slug: "s1", isPublished: true, courseCount: 1, sessionCount: 1, studentCount: 1 } as unknown as timetables.TimetableTerm,
@@ -114,17 +125,48 @@ describe("a student's record", () => {
   });
 });
 
+/*
+ * The green tick is a claim about evidence, and it used to be made without any.
+ *
+ * The check skips a student no registrations pull has returned — correctly, there is
+ * nothing to hold them against — and the record then found no differences about them and
+ * said the registrations agreed with the groups. It was the confident version of "we did
+ * not look".
+ */
+describe("a student the check never saw", () => {
+  it("does not tell them their registrations agree", async () => {
+    vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue(
+      report([], [checked({ judged: 1, blind: 1, skipped: ["A001"] })]),
+    );
+
+    show();
+    await screen.findByLabelText("Registrations");
+
+    expect(screen.queryByText(/Registrations agree with the groups/)).toBeNull();
+    expect(screen.getByText(/No registrations pull has returned this student for their semester/)).toBeTruthy();
+  });
+
+  it("still says they agree when the check did see them", async () => {
+    vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue(report([], [checked()]));
+
+    show();
+    await screen.findByLabelText("Registrations");
+
+    expect(screen.getByText(/Registrations agree with the groups/)).toBeTruthy();
+  });
+});
+
 describe("a course the registrar has not touched", () => {
   it("says so, rather than looking like one it has", async () => {
     vi.spyOn(lists, "fetchRegistrations").mockResolvedValue([
       { crn: "23644", courseCode: "CPSC-100", title: "Computer Science G.1-TD", termCode: "262710", status: "in_portal" },
     ] as never);
-    vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue([
+    vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue(report([
       // Registered in one of the two sections we expect: the course is partly there.
       { studentId: "A001", termId: "term-1", termCode: "262710", courseCode: "CPSC-100", kind: "missing", expected: ["22155", "23644"], registered: ["23644"] },
       // Registered in nothing at all — the heading exists only to carry the warning.
       { studentId: "A001", termId: "term-1", termCode: "262710", courseCode: "PHYS-118", kind: "missing", expected: ["22150"], registered: [] },
-    ] as never);
+    ] as never, [checked()]));
 
     show();
 

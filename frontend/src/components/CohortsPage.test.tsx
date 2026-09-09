@@ -38,6 +38,20 @@ const WITHDRAWN: DiscrepancyRule = { id: "r1", field: "STST_CODE", kind: "change
 const MAJOR: DiscrepancyRule = { id: "r2", field: "MAJOR_CODE_DESC", kind: "differs", values: [], cohortId: "" };
 const IS_WITHDRAWN: DiscrepancyRule = { id: "r3", field: "STST_CODE", kind: "is", values: ["WD"], cohortId: "" };
 
+/** A check's answer: the differences, and the ground they were looked for on. */
+const report = (mismatches: lists.Mismatch[] = [], coverage: lists.TermCoverage[] = []): lists.RegistrationReport => ({
+  mismatches,
+  coverage,
+});
+
+/**
+ * A semester the register was fully asked about — the default everywhere below, so a test
+ * that is not about coverage does not accidentally assert a cohort nobody has checked.
+ */
+const checked = (over: Partial<lists.TermCoverage> = {}): lists.TermCoverage => ({
+  termId: "t1", termCode: "262710", members: 2, judged: 2, blind: 0, skipped: [], pulledInTerm: 2, ...over,
+});
+
 const mismatch = (over: Partial<lists.Mismatch>): lists.Mismatch => ({
   studentId: "A001", termId: "t1", termCode: "262710", courseCode: "MATH-001",
   kind: "missing", expected: ["23223"], registered: [], ...over,
@@ -75,7 +89,7 @@ beforeEach(async () => {
   // The register agrees unless a test says otherwise. Left unmocked it would reach the
   // network, fail, and put every check in error — which switches the registration prune
   // off, so a test about pruning would pass without the prune ever running.
-  vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue([]);
+  vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue(report([], [checked()]));
   vi.spyOn(rosters, "fetchSchema").mockResolvedValue({
     ok: true,
     source: "built-in",
@@ -311,7 +325,7 @@ describe("dismissals belong to the coordinator, not to the page on screen", () =
     // pruned for being dead rather than kept for belonging to somebody else.
     const theirs = mismatch({ studentId: "A003", courseCode: "PHYS-118", expected: ["22150"] });
     vi.spyOn(lists, "fetchRegistrationCheck").mockImplementation(async (cohortId: string) =>
-      cohortId === "c2" ? [theirs] : [],
+      report(cohortId === "c2" ? [theirs] : [], [checked()]),
     );
     await twoCohorts();
     await screen.findByText(/major is Physics/);
@@ -351,7 +365,7 @@ describe("the register half of the Cohorts page", () => {
   const pillOf = (text: RegExp | string) => screen.getByText(text).closest("[data-source]") as HTMLElement;
 
   it("carries the register's differences on the same rows as the record's", async () => {
-    vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue([mismatch({ studentId: "A001" })]);
+    vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue(report([mismatch({ studentId: "A001" })], [checked()]));
     await twoStudents([MAJOR]);
 
     renderPage();
@@ -366,7 +380,7 @@ describe("the register half of the Cohorts page", () => {
   });
 
   it("says which record each warning came out of, so one cannot be read as the other", async () => {
-    vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue([mismatch({ studentId: "A001" })]);
+    vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue(report([mismatch({ studentId: "A001" })], [checked()]));
     await twoStudents([MAJOR]);
 
     renderPage();
@@ -381,7 +395,7 @@ describe("the register half of the Cohorts page", () => {
   });
 
   it("shows one record at a time when asked, counting the students in each", async () => {
-    vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue([mismatch({ studentId: "A002" })]);
+    vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue(report([mismatch({ studentId: "A002" })], [checked()]));
     await twoStudents([MAJOR]);
 
     renderPage();
@@ -406,12 +420,12 @@ describe("the register half of the Cohorts page", () => {
   it("puts a withdrawal above any number of registration differences", async () => {
     // Karim has four differences and Amira has withdrawn. A count would sort Karim first,
     // which is the whole reason the column stopped sorting on the count.
-    vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue([
+    vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue(report([
       mismatch({ studentId: "A002", courseCode: "MATH-001" }),
       mismatch({ studentId: "A002", courseCode: "MATH-009" }),
       mismatch({ studentId: "A002", courseCode: "PHYS-118" }),
       mismatch({ studentId: "A002", courseCode: "CHEM-101" }),
-    ]);
+    ], [checked()]));
     vi.spyOn(database, "fetchStudents").mockResolvedValue([student("A001", "c1"), student("A002", "c1")]);
     vi.spyOn(database, "fetchDiscrepancyRules").mockResolvedValue([IS_WITHDRAWN]);
     await portalSays([
@@ -440,10 +454,10 @@ describe("the register half of the Cohorts page", () => {
   });
 
   it("counts a student once however many of their courses differ, and says what kind", async () => {
-    vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue([
+    vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue(report([
       mismatch({ studentId: "A001", courseCode: "MATH-001" }),
       mismatch({ studentId: "A001", courseCode: "MATH-009", kind: "wrong", expected: ["23365"], registered: ["23366"] }),
-    ]);
+    ], [checked()]));
     await twoStudents();
 
     renderPage();
@@ -454,20 +468,94 @@ describe("the register half of the Cohorts page", () => {
     expect(screen.getByText(/1 registered in another section/)).toBeTruthy();
   });
 
-  it("says the register has not been checked, rather than that it agrees", async () => {
-    // A cohort with no linked semester has no answer to give. Reporting that as "every
-    // student is registered correctly" is the exact mistake this page exists to prevent.
+  it("says the register could not be asked, rather than that it agrees", async () => {
+    // The request itself fell over. Reporting that as "every student is registered
+    // correctly" is the exact mistake this page exists to prevent.
     vi.spyOn(lists, "fetchRegistrationCheck").mockRejectedValue(new Error("no semester"));
     await twoStudents();
 
     renderPage();
 
-    expect(await screen.findByText(/The register has not been checked here/)).toBeTruthy();
+    expect(await screen.findByText(/The register could not be asked about this cohort at all/)).toBeTruthy();
     expect(screen.queryByText(/exactly the sections their groups give them/)).toBeNull();
   });
 
+  /*
+   * The four things "no differences" can mean, and the three of them that are not
+   * agreement. Each is a separate sentence because each is a separate thing to go and do.
+   */
+  it("names a semester nobody has linked to a portal term", async () => {
+    vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue(
+      report([], [checked({ termCode: "", judged: 0, blind: 2, skipped: ["A001", "A002"], pulledInTerm: 0 })]),
+    );
+    await twoStudents();
+
+    renderPage();
+
+    expect(
+      await screen.findByText(/is not linked to a portal term, so none of its 2 students have been checked/),
+    ).toBeTruthy();
+    expect(screen.getByText(/Nobody has asked the register about this cohort yet/)).toBeTruthy();
+    expect(screen.queryByText(/exactly the sections their groups give them/)).toBeNull();
+  });
+
+  it("names a semester nothing has been pulled for", async () => {
+    vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue(
+      report([], [checked({ judged: 0, blind: 2, skipped: ["A001", "A002"], pulledInTerm: 0 })]),
+    );
+    await twoStudents();
+
+    renderPage();
+
+    expect(await screen.findByText(/Nothing has been pulled for .*so none of its 2 students have been checked/)).toBeTruthy();
+  });
+
+  it("tells a filter scoped to the wrong population from one that never ran", async () => {
+    // Registrations were pulled — just nobody from here. Without `pulledInTerm` on the
+    // wire this reads exactly like a sync that was never done, and the fix is different.
+    vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue(
+      report([], [checked({ judged: 0, blind: 2, skipped: ["A001", "A002"], pulledInTerm: 400 })]),
+    );
+    await twoStudents();
+
+    renderPage();
+
+    expect(await screen.findByText(/the filter that ran covers another population/)).toBeTruthy();
+  });
+
+  it("counts the stragglers a pull did not return, without flagging them", async () => {
+    vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue(
+      report([], [checked({ judged: 1, blind: 1, skipped: ["A002"] })]),
+    );
+    await twoStudents();
+
+    renderPage();
+
+    expect(await screen.findByText(/1 of 2 students checked — 1 no pull has returned/)).toBeTruthy();
+    /*
+     * A floor is not a flag. The straggler must not become a warning on a row, must not
+     * raise the source filter — which only appears when there is something to choose
+     * between — and must not put "N flagged" beside the cohort in the picker.
+     */
+    expect(document.querySelectorAll("[data-source]")).toHaveLength(0);
+    expect(screen.queryByRole("button", { name: /^Register/ })).toBeNull();
+    expect(screen.queryByText(/flagged/)).toBeNull();
+  });
+
+  it("says nothing at all about a semester it saw all of", async () => {
+    vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue(report([], [checked()]));
+    await twoStudents();
+
+    renderPage();
+
+    expect(await screen.findByText(/exactly the sections their groups give them/)).toBeTruthy();
+    // The one silence on this page that has been earned.
+    expect(screen.queryByText(/students checked/)).toBeNull();
+    expect(screen.queryByText(/it could see/)).toBeNull();
+  });
+
   it("lets a difference be dismissed, and keeps it dismissed", async () => {
-    vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue([mismatch({ studentId: "A001" })]);
+    vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue(report([mismatch({ studentId: "A001" })], [checked()]));
     await twoStudents();
 
     renderPage();
@@ -486,7 +574,7 @@ describe("the register half of the Cohorts page", () => {
       "scen-discrepancy-dismissed:v1",
       JSON.stringify(["registration|A001|262710|GONE-001|missing|11111|"]),
     );
-    vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue([]);
+    vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue(report([], [checked()]));
     await twoStudents();
 
     renderPage();
@@ -515,7 +603,7 @@ describe("the register half of the Cohorts page", () => {
       "scen-discrepancy-dismissed:v1",
       JSON.stringify([liveRegistration, deadRegistration, liveRule, deadRule]),
     );
-    vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue([mismatch({ studentId: "A001" })]);
+    vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue(report([mismatch({ studentId: "A001" })], [checked()]));
     await twoStudents([MAJOR]);
 
     renderPage();
