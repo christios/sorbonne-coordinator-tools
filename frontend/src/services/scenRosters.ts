@@ -271,6 +271,19 @@ function messageFor(code: string, detail = ""): string {
       return `The registrar portal answered with an error${detail ? ` (${detail})` : ""}.`;
     case "internal":
       return `The SCEN Rosters extension failed${detail ? `: ${detail}` : ""}.`;
+    case "unknown_message":
+      /*
+       * The extension is older than this page and does not know what was asked of it.
+       *
+       * It answers this to anything it has no case for, which is exactly what happens to
+       * the timetable sweep on a build before 1.8.0 — and without a sentence of its own it
+       * arrived as "the registrar portal returned an unexpected error", blaming the portal
+       * for a version skew and sending somebody to look at the wrong thing entirely.
+       */
+      return (
+        "The SCEN Rosters extension is older than this page and does not know how to do " +
+        "that yet. Update it in chrome://extensions and reload."
+      );
     default:
       return `The registrar portal returned an unexpected error${detail ? `: ${detail}` : ""}.`;
   }
