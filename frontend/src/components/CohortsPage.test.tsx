@@ -283,6 +283,52 @@ describe("the Cohorts page", () => {
   });
 });
 
+describe("the cohort a coordinator is working on", () => {
+  const L2: Cohort = { ...L1, id: "c2", name: "L2 Maths", yearLevel: "L2" };
+
+  async function twoCohorts() {
+    vi.spyOn(database, "fetchStudents").mockResolvedValue([student("A001", "c1"), student("A002", "c2")]);
+    vi.spyOn(database, "fetchDiscrepancyRules").mockResolvedValue([]);
+    await portalSays([
+      { SPRIDEN_ID: "A001", FULL_NAME: "Amira Haddad" },
+      { SPRIDEN_ID: "A002", FULL_NAME: "Karim Nasser" },
+    ]);
+  }
+
+  it("opens on the cohort the other pages are on, not the first in the list", async () => {
+    // The shared contract in remembered.ts. This was the one cohort picker that kept its
+    // own opinion, so moving between the pages silently reset the year at every step.
+    window.localStorage.setItem("scen-remembered:cohort", "c2");
+    await twoCohorts();
+
+    renderPage([L1, L2]);
+
+    expect(await screen.findByText("Karim Nasser")).toBeTruthy();
+    expect(screen.queryByText("Amira Haddad")).toBeNull();
+  });
+
+  it("tells the other pages when the cohort is changed here", async () => {
+    await twoCohorts();
+
+    renderPage([L1, L2]);
+    await screen.findByText("Amira Haddad");
+    fireEvent.click(screen.getByRole("combobox", { name: "Cohort" }));
+    fireEvent.click(await screen.findByRole("option", { name: /L2 Maths/ }));
+
+    await waitFor(() => expect(window.localStorage.getItem("scen-remembered:cohort")).toBe("c2"));
+  });
+
+  it("falls back to the first when the remembered cohort is gone", async () => {
+    // Deleted since, or belonging to another deployment's data. The page must not be empty.
+    window.localStorage.setItem("scen-remembered:cohort", "a-cohort-that-was-deleted");
+    await twoCohorts();
+
+    renderPage([L1, L2]);
+
+    expect(await screen.findByText("Amira Haddad")).toBeTruthy();
+  });
+});
+
 describe("dismissals belong to the coordinator, not to the page on screen", () => {
   const L2: Cohort = { ...L1, id: "c2", name: "L2 Maths", yearLevel: "L2", memberCount: 1 };
 

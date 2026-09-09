@@ -9,6 +9,7 @@ import { NewCohort } from "@/components/NewCohort";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { SelectMenu } from "@/components/SelectMenu";
 import { StudentRoster } from "@/components/StudentRoster";
+import { useRemembered } from "@/components/useRemembered";
 import {
   STATUS_FIELD,
   STATUS_OPTIONS,
@@ -39,6 +40,7 @@ import {
   type TermCoverage,
 } from "@/services/portalLists";
 import { allChanges } from "@/services/pullHistory";
+import { COHORT } from "@/services/remembered";
 import { describeAge, latestPullAt, rowsHeld } from "@/services/rosterStore";
 import { displayNameOf, fetchSchema, studentIdOf, type RosterRow } from "@/services/scenRosters";
 import { fetchDiscrepancyRules, fetchStudents, type Cohort, type Student } from "@/services/studentDatabase";
@@ -183,12 +185,32 @@ export function CohortsPage({
    */
   focus?: { cohortId: string; studentIds: string[] } | null;
 }) {
-  const [cohortId, setCohortId] = useState(focus?.cohortId ?? "");
+  /*
+   * The cohort, shared with every other page that asks for one.
+   *
+   * A coordinator works a year at a time — open L2 here, see what Capacity makes of it,
+   * go to Groups & CRNs, come back — and this was the one cohort picker that kept its own
+   * opinion, so the year was silently reset on the way in and on the way out. The contract
+   * is `remembered.ts`, and this page had simply never joined it.
+   */
+  const [remembered, setRemembered] = useRemembered(COHORT);
+  const [cohortId, setCohortId] = useState(focus?.cohortId ?? remembered);
+  const chooseCohort = useCallback(
+    (next: string) => {
+      setCohortId(next);
+      setRemembered(next);
+    },
+    // `setRemembered` is rebuilt on every render by `useRemembered`, and naming it here
+    // would rebuild this callback with it — which remounts the table, since it is keyed on
+    // the cohort. The write is a localStorage put with no state of its own to go stale.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
   const [editingRules, setEditingRules] = useState(false);
   const sent = focus?.studentIds.join(",") ?? "";
   useEffect(() => {
-    if (focus?.cohortId) setCohortId(focus.cohortId);
-  }, [focus?.cohortId, sent]);
+    if (focus?.cohortId) chooseCohort(focus.cohortId);
+  }, [focus?.cohortId, sent, chooseCohort]);
   const [showDismissed, setShowDismissed] = useState(false);
   const [showing, setShowing] = useState<Showing>("all");
   const [dismissed, setDismissed] = useState<Set<string>>(() => loadDismissed());
@@ -270,11 +292,13 @@ export function CohortsPage({
     };
   }, []);
 
-  // Land on a cohort rather than on nothing.
+  // Land on a cohort rather than on nothing — the remembered one when it still exists,
+  // and the first otherwise, so a deleted cohort does not leave the page empty for ever.
   useEffect(() => {
-    if (cohortId) return;
-    if (cohorts.length) setCohortId(cohorts[0].id);
-  }, [cohorts, cohortId]);
+    if (!cohorts.length) return;
+    if (cohorts.some((candidate) => candidate.id === cohortId)) return;
+    chooseCohort(cohorts[0].id);
+  }, [cohorts, cohortId, chooseCohort]);
 
   const cohort = cohorts.find((candidate) => candidate.id === cohortId) ?? null;
 
@@ -468,7 +492,7 @@ export function CohortsPage({
           <SelectMenu
             label="Cohort"
             value={cohortId}
-            onChange={setCohortId}
+            onChange={chooseCohort}
             options={[
               ...cohorts.map((candidate) => {
                 const flagged = flaggedIn(byCohort.get(candidate.id) ?? []);
@@ -487,7 +511,7 @@ export function CohortsPage({
         {/* The cohort's own settings — name, year, and what it expects — beside the cohort they act on. */}
         {cohort ? <CohortActions key={cohort.id} cohort={cohort} /> : null}
         {/* Making one, which until now could only happen as a side effect of moving students. */}
-        <NewCohort onCreated={(created) => setCohortId(created.id)} />
+        <NewCohort onCreated={(created) => chooseCohort(created.id)} />
 
         {/* This cohort's own rules; the shared ones have their button at the page's title. */}
         {cohort ? (
