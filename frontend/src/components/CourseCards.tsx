@@ -10,11 +10,12 @@ import type { FillReport } from "@/components/FillBlock";
 import { Modal } from "@/components/Modal";
 import { SelectMenu } from "@/components/SelectMenu";
 import { ScreenLoading } from "@/components/ScreenLoading";
+import { TimetableSweepButton } from "@/components/TimetableSweepButton";
 import { TableFilterBar } from "@/components/TableFilterBar";
 import { useRemembered } from "@/components/useRemembered";
 import { WorkbookTools } from "@/components/WorkbookTools";
 import { buildCards, cardColumns, type Card } from "@/services/courseCards";
-import { fetchActiveCourses, fetchActiveCrns, fetchActiveTeachers, fetchRegisterCheck, fetchTermCrns } from "@/services/portalLists";
+import { fetchActiveCourses, fetchActiveCrns, fetchActiveTeachers, fetchRegisterCheck, fetchTermCrns, fetchTermLinks } from "@/services/portalLists";
 import { fetchPublication } from "@/services/publication";
 import { clashName, clashesIn } from "@/services/publicationView";
 import { type Cohort, fetchCourseCards } from "@/services/studentDatabase";
@@ -93,6 +94,8 @@ export function CourseCards({
    * Being unable to check must not look like having checked.
    */
   const drift = useQuery({ queryKey: ["register-check", ""], queryFn: () => fetchRegisterCheck(), retry: false });
+  // Which portal term a semester is, so the registrar can be asked about it at all.
+  const links = useQuery({ queryKey: ["term-links"], queryFn: fetchTermLinks });
   const teacherDrift = useMemo(
     () => new Set((drift.data?.teacherDiffers ?? []).map((row) => row.crn)),
     [drift.data],
@@ -435,6 +438,18 @@ export function CourseCards({
                 >
                   <Download size={13} aria-hidden="true" /> Timetable request
                 </button>
+              }
+              /*
+               * Beside the request, because it is the other half of the same conversation:
+               * one hands the timetabler what we are asking for, the other reads back what
+               * they booked. Whole-semester, like the request, which is why it stands where
+               * the semester is named rather than on a course.
+               */
+              sweep={
+                <TimetableSweepButton
+                  termCode={links.data?.[chosenCard.termId] ?? ""}
+                  termName={termName(chosenCard.termId)}
+                />
               }
               unassigned={unassignedOf(chosenCard)}
               clashes={clashes}

@@ -525,6 +525,44 @@ export function describeSectionDates(coverage: TermCoverage, termName = ""): str
   return `${term}: the registrar has given no timetable for ${sections} of this cohort's sections, so a course taught in two halves is expected in both all year.`;
 }
 
+// ------------------------------------------- the registrar's own timetable
+
+/** Which sections the registrar should be asked about, and whose they are. */
+export type TimetableTargets = {
+  /** Ours: the CRNs our own planning holds. */
+  ours: string[];
+  /**
+   * Other departments' sections our students are registered in — the language hours, the
+   * options. A collision there is invisible to us and is exactly what nobody has ever
+   * been able to see, so asking about them is the point rather than a nicety.
+   */
+  registered: string[];
+};
+
+export function fetchTimetableTargets(termCode: string): Promise<TimetableTargets> {
+  return request<TimetableTargets>(`/terms/${encodeURIComponent(termCode)}/timetable-targets`);
+}
+
+/** What one sweep changed, as the store reports it back. */
+export type FacilityPullReport = {
+  asked: number;
+  answered: number;
+  silent: number;
+  failed: number;
+  complete: boolean;
+};
+
+export function recordFacilityPull(body: {
+  termCode: string;
+  asked: string[];
+  sections: unknown[];
+  silent: string[];
+  failed: string[];
+  complete: boolean;
+}): Promise<FacilityPullReport> {
+  return send<FacilityPullReport>("/facility-timetable", "POST", body);
+}
+
 // ---------------------------------------------- the part-time teacher database
 
 export type PartTimeTeacher = { id: string; fullName: string; email: string };

@@ -299,6 +299,69 @@ export async function pullFilter(
   return run({ filter, meta: rest, kind }, "", onProgress);
 }
 
+/** One section as the registrar has it booked, collapsed by the extension. */
+export type FacilitySection = {
+  crn: string;
+  courseCode: string;
+  title: string;
+  teacherName: string;
+  /** How many students the registrar shows in it, when that is a single number. */
+  headCount: number | null;
+  headCountLow: number | null;
+  headCountHigh: number | null;
+  meetings: { meetsOn: string; startsAt: string; endsAt: string; room: string }[];
+};
+
+/** One sweep of the registrar's timetable, exactly as the store on the far side takes it. */
+export type TimetablePull = {
+  termCode: string;
+  asked: string[];
+  sections: FacilitySection[];
+  /** Asked, and told nothing. A fact of its own, never a section with no classes. */
+  silent: string[];
+  failed: string[];
+  /** Whether the sweep reached the end of its own list. Only a complete one may retire a section. */
+  complete: boolean;
+  /** Rows whose times could not be read. Reported, never dropped in silence. */
+  malformed: number;
+  warning: string | null;
+  fetchedAt: number;
+};
+
+/**
+ * Ask the registrar what it has booked for these sections.
+ *
+ * One call per CRN inside the extension, two at a time — the portal answers an empty list
+ * for about one call in seven when pushed harder, and an empty list is what a section with
+ * nothing booked looks like. So this is slow by construction: a hundred and sixty CRNs is
+ * minutes, not seconds, and the timeout is the long one for exactly that reason.
+ *
+ * No category crosses the bridge. The extension will only ask about a CRN; Student and
+ * Teacher would return a named person's whole week, which is not a question about a room.
+ */
+export async function pullTimetable(
+  termCode: string,
+  crns: string[],
+  onProgress?: (progress: PullProgress) => void,
+): Promise<TimetablePull> {
+  const reply = await ask("timetable", { termCode, crns }, FETCH_TIMEOUT_MS, onProgress);
+  if (!reply.ok) {
+    const detail = String(reply.message ?? reply.detail ?? reply.status ?? "");
+    throw new PortalError(await diagnose(String(reply.error ?? "unknown")), detail);
+  }
+  return {
+    termCode: String(reply.termCode ?? termCode),
+    asked: (reply.asked as string[]) ?? [],
+    sections: (reply.sections as FacilitySection[]) ?? [],
+    silent: (reply.silent as string[]) ?? [],
+    failed: (reply.failed as string[]) ?? [],
+    complete: Boolean(reply.complete),
+    malformed: Number(reply.malformed ?? 0),
+    warning: (reply.warning as string | null) ?? null,
+    fetchedAt: Number(reply.fetchedAt ?? Date.now()),
+  };
+}
+
 async function run(
   request: Record<string, unknown>,
   presetId: string,
