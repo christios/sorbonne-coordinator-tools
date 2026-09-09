@@ -329,6 +329,63 @@ describe("the cohort a coordinator is working on", () => {
   });
 });
 
+/*
+ * Groups & CRNs hands the cohort page a handful of students to place. The table narrows to
+ * them, and "Show everyone again" puts the rest back — the rest of THE COHORT, which is
+ * what the page is about.
+ */
+describe("students sent over from Groups & CRNs", () => {
+  const L2: Cohort = { ...L1, id: "c2", name: "L2 Maths", yearLevel: "L2" };
+
+  async function twoCohorts() {
+    vi.spyOn(database, "fetchStudents").mockResolvedValue([
+      student("A001", "c1"), student("A002", "c1"), student("A003", "c2"),
+    ]);
+    vi.spyOn(database, "fetchDiscrepancyRules").mockResolvedValue([]);
+    await portalSays([
+      { SPRIDEN_ID: "A001", FULL_NAME: "Amira Haddad" },
+      { SPRIDEN_ID: "A002", FULL_NAME: "Karim Nasser" },
+      { SPRIDEN_ID: "A003", FULL_NAME: "Rana Aziz" },
+    ]);
+  }
+
+  const renderFocused = (ids: string[]) => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <CohortsPage cohorts={[L1, L2]} focus={{ cohortId: "c1", studentIds: ids }} />
+      </QueryClientProvider>,
+    );
+  };
+
+  it("shows only the ones sent", async () => {
+    await twoCohorts();
+
+    renderFocused(["A001"]);
+
+    expect(await screen.findByText("Amira Haddad")).toBeTruthy();
+    expect(screen.queryByText("Karim Nasser")).toBeNull();
+  });
+
+  it("comes back to the cohort, not to every student in the database", async () => {
+    /*
+     * The arriving selection used to widen the search as well as narrow it — harmless when
+     * `everywhere` only meant "ignore the chosen portal filter", and not harmless once it
+     * also meant "ignore the cohort". Showing everyone again then showed all three
+     * thousand students rather than this cohort's two.
+     */
+    await twoCohorts();
+
+    renderFocused(["A001"]);
+    await screen.findByText("Amira Haddad");
+    fireEvent.click(screen.getByRole("button", { name: /Show everyone again/ }));
+
+    expect(await screen.findByText("Karim Nasser")).toBeTruthy();
+    // A002 is this cohort's. A003 is L2's, and must not appear.
+    expect(screen.queryByText("Rana Aziz")).toBeNull();
+  });
+});
+
 describe("dismissals belong to the coordinator, not to the page on screen", () => {
   const L2: Cohort = { ...L1, id: "c2", name: "L2 Maths", yearLevel: "L2", memberCount: 1 };
 

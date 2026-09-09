@@ -281,7 +281,21 @@ export function StudentRoster({
     const ids = sent.split(",");
     setFocus(ids);
     setSelected(new Set(ids));
-    setEverywhere(true);
+    /*
+     * Widen the VIEW, never the scope — and on a scoped table there is nothing to widen.
+     *
+     * This was written when `everywhere` meant one thing: ignore whichever portal filter
+     * the Students page happens to be showing, because somebody with no group need not be
+     * in it. It now means a second thing as well — on a scoped table it lifts the cohort —
+     * and setting it here quietly unscoped the Cohorts page. Nothing looked wrong while
+     * the focus held the rows down to the handful sent over; pressing "Show everyone
+     * again" then revealed all three thousand students instead of the cohort's.
+     *
+     * A scoped table needs none of it anyway: `asked` is already "" whenever `scope` is
+     * set, so the view is out of the picture with or without this.
+     */
+    if (!scope) setEverywhere(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sent]);
 
   /*
