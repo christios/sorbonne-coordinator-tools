@@ -1250,3 +1250,109 @@ def test_a_section_that_was_never_ours_is_still_a_surplus(client: TestClient, da
     assert len(maths) == 1
     assert maths[0]["kind"] == "extra"
     assert "99999" in maths[0]["registered"]
+
+
+# ------------------------------------------- who we say teaches it, and who they say
+
+
+def test_two_spellings_of_one_surname_are_not_a_disagreement():
+    """Five of the eleven real disagreements were nothing but where the space falls."""
+    from sorbonne.services.portal_lists import names_agree
+
+    assert names_agree("Safaa El Sayed", "Safaa Elsayed")
+    assert names_agree("Omar El Dakkak", "Omar ElDakkak")
+    assert names_agree("Giulia De Masi", "Giulia Demasi")
+    # A middle name only one side carries.
+    assert names_agree("Claude Vishnu Spaak", "Claude Spaak")
+    # Family name first, which is how the registrar writes some people.
+    assert names_agree("LE GUYON Valerie", "Valerie Le Guyon")
+    # A section really can be taught by two people, and the registrar writes a list.
+    assert names_agree("Mai El Sawy", "Mai Elsawy, Smail Kourta")
+    # Titles are not part of a name.
+    assert names_agree("Dr Omar El Dakkak", "omar eldakkak")
+
+
+def test_two_different_people_are_still_a_disagreement():
+    """The rules only ever merge names, and must not merge these."""
+    from sorbonne.services.portal_lists import names_agree
+
+    assert not names_agree("Sara Khaled", "Diaa Mereib")
+    assert not names_agree("Suzanne Abdelhamid", "Suzanne El chehaly")
+    # One letter, and almost certainly one person — but no distance that accepts this while
+    # refusing "Sara Khaled" against "Diaa Mereib" is one to trust with a timetable. It
+    # stays on the list for a person to settle.
+    assert not names_agree("Wafaa Ahmed", "Wafa Ahmed")
+    # Anagrams are not the same person. A sorted multiset of letters would say they were.
+    assert not names_agree("Amir Sala", "Maria Alas")
+
+
+def test_a_section_nobody_has_been_assigned_to_is_not_a_disagreement():
+    from sorbonne.services.portal_lists import named, names_agree
+
+    assert not named("TBD")
+    assert not named("  tba ")
+    assert not named("")
+    assert named("Valerie LE GUYON")
+    # So "TBD" against a real name is unnamed, never a difference of opinion.
+    assert not names_agree("TBD", "Valerie LE GUYON")
+
+
+def teach(database: StudentDatabase, client: TestClient, ours: str, theirs: str) -> None:
+    """One section, staffed by our planning one way and by the registrar another."""
+    cohort = database.create_cohort(name="Foundation Year", term="2026-27")
+    cm = database.add_scope(cohort["id"], code="CM", name="Lectures", term_id=HUB_TERM)
+    course = database.add_course(cm, code="MATH-001")
+    group = database.add_group(cm, label="A")
+    database.set_cell(group_id=group, course_id=course, crn="22151", teacher=ours)
+    made = make_filter(client, "courses")
+    client.post(
+        f"{BASE}/filters/{made['id']}/sync/courses",
+        json={"rows": [{"crn": "22151", "termCode": TERM, "courseCode": "MATH-001", "teacherName": theirs}]},
+    )
+
+
+def test_the_register_check_says_where_the_teacher_has_drifted(client: TestClient, database: StudentDatabase):
+    teach(database, client, ours="Sara Khaled", theirs="Diaa Mereib")
+
+    found = client.get(f"{BASE}/register-check").json()
+
+    assert [(row["crn"], row["ours"], row["theirs"]) for row in found["teacherDiffers"]] == [
+        ("22151", "Sara Khaled", "Diaa Mereib")
+    ]
+    assert found["teacherUnnamed"] == []
+
+
+def test_a_section_the_registrar_staffs_and_we_have_not_is_its_own_list(
+    client: TestClient, database: StudentDatabase
+):
+    # A line to copy across, not a conversation to have. Different problem, different list.
+    teach(database, client, ours="TBD", theirs="Valerie LE GUYON")
+
+    found = client.get(f"{BASE}/register-check").json()
+
+    assert found["teacherDiffers"] == []
+    assert [(row["crn"], row["theirs"]) for row in found["teacherUnnamed"]] == [("22151", "Valerie LE GUYON")]
+
+
+def test_a_surname_the_two_sides_space_differently_is_reported_as_neither(
+    client: TestClient, database: StudentDatabase
+):
+    teach(database, client, ours="Safaa El Sayed", theirs="Safaa Elsayed")
+
+    found = client.get(f"{BASE}/register-check").json()
+
+    assert found["teacherDiffers"] == []
+    assert found["teacherUnnamed"] == []
+
+
+def test_our_planning_says_how_firmly_it_names_a_teacher(client: TestClient, database: StudentDatabase):
+    """Three states, because a boolean reads "not in our planning" for almost every section.
+
+    Nothing in the real data carries a linked teacher and 137 sections carry free text, so
+    the middle state IS the worklist — and calling it "not planned" would look like a bug.
+    """
+    teach(database, client, ours="Sara Khaled", theirs="Diaa Mereib")
+
+    found = client.get(f"{BASE}/register-check").json()
+
+    assert found["teacherDiffers"][0]["planning"] == "named"

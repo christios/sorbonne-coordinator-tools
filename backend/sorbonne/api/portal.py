@@ -26,6 +26,7 @@ from sorbonne.services.portal_lists import (
     InvalidParent,
     PortalListStore,
     UnknownKind,
+    names_agree,
 )
 from sorbonne.services.term_clashes import cohort_clashes, groups_of
 from sorbonne.services.student_database import (
@@ -412,8 +413,13 @@ async def remove_active_crn(crn_id: str, store: PortalListStore = Depends(get_st
 
 @router.get("/register-check")
 async def register_check(term: str = "", store: PortalListStore = Depends(get_store)) -> dict[str, Any]:
-    """Where the registrar's list and the department's register have moved apart."""
-    return store.register_check(term)
+    """Where the registrar's list and the department's register have moved apart.
+
+    Teacher drift travels with the rest rather than on a route of its own: it is the same
+    question — what has moved since we wrote it down — asked of a different column, and one
+    page shows the answer.
+    """
+    return {**store.register_check(term), **store.teacher_drift(term)}
 
 
 @router.delete("/active-courses/{active_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -472,7 +478,10 @@ async def term_check(
             hub_only.append({"crn": crn, "code": section.get("code", ""), "staff": section.get("staff", "")})
             continue
         staff = " ".join(str(section.get("staff", "")).split())
-        if staff and course["teacherName"] and _loose(staff) != _loose(course["teacherName"]):
+        # `names_agree`, not a string compare: the Hub and the portal break a surname's
+        # spaces differently just as our planning and the portal do, and this used to report
+        # every one of those as a difference.
+        if staff and course["teacherName"] and not names_agree(staff, course["teacherName"]):
             differs.append({"crn": crn, "code": section.get("code", ""), "hub": staff, "portal": course["teacherName"]})
     return {
         "portalTermCode": held["portalTermCode"],
@@ -481,16 +490,6 @@ async def term_check(
         "hubOnly": hub_only,
         "teacherDiffers": differs,
     }
-
-
-def _loose(name: str) -> str:
-    """Names as the eye compares them: case and titles aside, the words in any order."""
-    words = {
-        word
-        for word in "".join(ch if ch.isalnum() else " " for ch in name.lower()).split()
-        if word not in {"dr", "pr", "prof", "mr", "mrs", "ms", "mme", "m", "phd", "post", "doc"}
-    }
-    return " ".join(sorted(words))
 
 
 # ------------------------------------------------------------ the comparison

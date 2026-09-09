@@ -1029,6 +1029,68 @@ class PortalListStore:
         if removed == 0:
             raise ActiveCourseNotFound(crn_id)
 
+    def teacher_drift(self, term_code: str = "") -> dict[str, list[dict[str, Any]]]:
+        """Who our planning says teaches a section, against who the registrar has on it.
+
+        Two questions, not one, because they are cleared differently. A section the
+        registrar staffs and our planning does not is a line to copy across; a section
+        where the two name different people is a conversation with somebody.
+
+        Names are compared through `names_agree` rather than as strings. On the real data a
+        plain comparison reports twenty-six disagreements, and five of the eleven distinct
+        pairs among them are nothing but where the space falls in a surname — "El Sayed"
+        against "Elsayed". Reporting those would bury the four that are real, one of which
+        is two entirely different people on one section.
+
+        `TBD` and its friends are not names. A section our planning has not staffed yet is
+        `unnamed`, never a disagreement: it is a different problem with a different answer.
+        """
+        term = _text(term_code)
+        with self.engine.connect() as connection:
+            rows = (
+                connection.execute(
+                    text("""SELECT gc.crn, c.code AS course_code, g.label AS group_label,
+                                   coalesce(t.full_name, '') AS linked,
+                                   coalesce(gc.teacher, '') AS written,
+                                   coalesce(p.teacher_name, '') AS theirs,
+                                   p.crn IS NOT NULL AS in_portal
+                            FROM group_crns gc
+                            JOIN scope_courses c ON c.id = gc.course_id
+                            JOIN scope_groups g ON g.id = gc.group_id
+                            LEFT JOIN active_teachers t ON t.id = gc.teacher_id
+                            LEFT JOIN portal_courses p
+                                   ON p.crn = gc.crn AND p.status = 'in_portal'
+                                  AND (:term = '' OR p.term_code = :term)
+                            WHERE gc.crn <> '' AND gc.retired = false
+                            ORDER BY c.code, gc.crn"""),
+                    {"term": term},
+                )
+                .mappings()
+                .all()
+            )
+
+        differs: list[dict[str, Any]] = []
+        unnamed: list[dict[str, Any]] = []
+        for row in rows:
+            # A linked teacher is the department's answer; free text is the department
+            # still writing it down. Either is "who we say", and the state says which.
+            ours = row["linked"] or row["written"]
+            if not row["in_portal"] or not named(row["theirs"]):
+                continue
+            entry = {
+                "crn": row["crn"],
+                "courseCode": row["course_code"],
+                "groupLabel": row["group_label"],
+                "ours": ours,
+                "theirs": row["theirs"],
+                "planning": _planning_state(row["linked"], row["written"]),
+            }
+            if not named(ours):
+                unnamed.append(entry)
+            elif not names_agree(ours, row["theirs"]):
+                differs.append(entry)
+        return {"teacherDiffers": differs, "teacherUnnamed": unnamed}
+
     def register_check(self, term_code: str = "") -> dict[str, list[dict[str, Any]]]:
         """Where the registrar's list and the department's register have moved apart.
 
@@ -1723,6 +1785,117 @@ def _active_course(row: Any, parent: Any = None) -> dict[str, Any]:
 _TITLES = {"dr", "pr", "prof", "professor", "mr", "ms", "mrs", "mme", "m"}
 
 
+#: What people write in a teacher column when there is no teacher yet. Not names, and
+#: treating them as names turns "nobody has been assigned" into "the registrar disagrees",
+#: which is a different problem with a different answer.
+_PLACEHOLDERS = {"tbd", "tba", "na", "n a", "none", "unknown", "vacant", "staff", "?", "-", "--"}
+
+
+def named(name: str) -> bool:
+    """Whether this teacher column actually names somebody."""
+    key = _name_key(name)
+    return bool(key) and key not in _PLACEHOLDERS
+
+
+def _runs(name: str) -> set[str]:
+    """The name's letters with every space closed up, in both orders the two sides use it.
+
+    The registrar and the department disagree about where the space falls in a good half of
+    the Arabic and French surnames here — El Sayed/Elsayed, El Dakkak/ElDakkak, De
+    Masi/Demasi, El Rifai/ElRifai, El Sawy/Elsawy. Five of the eleven disagreements in the
+    real data are nothing but that, and reporting them would bury the four that are real.
+
+    Closing the spaces has to happen BEFORE the words are sorted, or it does not work at
+    all: "Omar El Dakkak" sorts to `dakkak el omar` and "Omar ElDakkak" to `eldakkak omar`,
+    and joining those gives two different strings. So the letters are kept in the order
+    they were written, and the reversed order is offered as well — which is the one
+    reordering that actually happens, the registrar writing some people family-name-first.
+
+    Deliberately not a sorted multiset of letters. That would match these and every anagram
+    besides, and a rule that can silently declare two different teachers to be one person
+    has no business in a timetable.
+    """
+    # From `_name_words`, not `_name_key`: the key SORTS, and sorting before the spaces
+    # close up is exactly what stops this working — "Safaa El Sayed" sorts to
+    # `el safaa sayed` and "Safaa Elsayed" to `elsayed safaa`, which join to two different
+    # strings however they are compared afterwards.
+    words = _name_words(name)
+    return {"".join(words), "".join(reversed(words))} if words else set()
+
+
+def _words(name: str) -> set[str]:
+    return set(_name_key(name).split())
+
+
+def names_agree(ours: str, theirs: str) -> bool:
+    """Whether two teacher columns name the same person, allowing for how each spells it.
+
+    Both sides are LISTS: the registrar ends a teacher column with a comma whether or not
+    anybody follows, and a section really can be taught by two people. So this asks whether
+    the two lists have anyone in common, not whether they are equal.
+
+    Three ways to be the same person, and each earns its place on the real data:
+
+    - the same key outright;
+    - the same letters with the spaces closed up, for the surnames the two sides break
+      differently;
+    - one name's words inside the other's, for a middle name only one side carries —
+      "Claude Vishnu Spaak" is "Claude Spaak".
+
+    What it deliberately does NOT do is measure how close two spellings are. "Wafaa Ahmed"
+    against "Wafa Ahmed" is one letter and almost certainly one person; "Sara Khaled"
+    against "Diaa Mereib" is two people, and no distance that accepts the first while
+    refusing the second is one anybody should trust with a timetable. Those stay on the
+    list for a person to settle.
+    """
+    mine = [part for part in ours.split(",") if named(part)]
+    yours = [part for part in theirs.split(",") if named(part)]
+    if not mine or not yours:
+        return False
+    if {_name_key(part) for part in mine} & {_name_key(part) for part in yours}:
+        return True
+    if {run for part in mine for run in _runs(part)} & {run for part in yours for run in _runs(part)}:
+        return True
+    return any(
+        _words(a) <= _words(b) or _words(b) <= _words(a)
+        for a in mine
+        for b in yours
+        if _words(a) and _words(b)
+    )
+
+
+def _planning_state(linked: str, written: str) -> str:
+    """How firmly our own planning names a teacher for a section. Three states, not two.
+
+    *planned* — linked to a row in the department's own teacher list, so the name follows
+    the person when the registrar corrects it.
+    *named* — written down as text and nobody has joined it to that list yet. This is the
+    worklist, and on the real data it is 137 sections against 0 linked ones.
+    *unplanned* — nobody at all.
+
+    A boolean would report "not in our planning" for essentially every section in the
+    department and read as a bug rather than as a backlog.
+    """
+    if named(linked):
+        return "planned"
+    return "named" if named(written) else "unplanned"
+
+
+def _name_words(name: str) -> list[str]:
+    """The words of a name, folded and stripped of titles, IN THE ORDER THEY WERE WRITTEN.
+
+    Split out from `_name_key` because two different questions are asked of the same
+    folding: which words a name has, and which order they came in. The key wants the first
+    and sorts them; `_runs` wants the second and cannot use a sorted list at all.
+    """
+    folded = unicodedata.normalize("NFKD", _text(name).casefold())
+    stripped = "".join(character for character in folded if not unicodedata.combining(character))
+    # Split on anything that is not a letter or a digit, so "PR.Simone" is two words and
+    # the title comes off with the rest.
+    words = [word for word in re.split(r"[^\w]+", stripped) if word]
+    return [word for word in words if word not in _TITLES]
+
+
 def _name_key(name: str) -> str:
     """A name reduced to what two spellings of the same person have in common.
 
@@ -1730,12 +1903,7 @@ def _name_key(name: str) -> str:
     writes some people family-name-first and the part-time database does not. It is a key
     for offering a match, never for making one.
     """
-    folded = unicodedata.normalize("NFKD", _text(name).casefold())
-    stripped = "".join(character for character in folded if not unicodedata.combining(character))
-    # Split on anything that is not a letter or a digit, so "PR.Simone" is two words and
-    # the title comes off with the rest.
-    words = [word for word in re.split(r"[^\w]+", stripped) if word]
-    return " ".join(sorted(word for word in words if word not in _TITLES))
+    return " ".join(sorted(_name_words(name)))
 
 
 def _active(row: Any) -> dict[str, Any]:
