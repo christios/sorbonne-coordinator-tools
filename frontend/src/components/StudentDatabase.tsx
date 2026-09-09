@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Blocks, BookMarked, BookOpen, CalendarDays, ClipboardList, Clock3, GaugeCircle, GraduationCap, ListChecks, ListTree, Megaphone, UserCheck, Users } from "lucide-react";
+import { Blocks, BookMarked, BookOpen, CalendarDays, Clock3, GaugeCircle, GraduationCap, ListChecks, ListTree, Megaphone, UserCheck, Users } from "lucide-react";
 import { Globe } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
@@ -15,8 +15,6 @@ import { CourseCards } from "@/components/CourseCards";
 import { DiscrepancyRulesEditor } from "@/components/DiscrepancyRulesEditor";
 import { PlatformNotConfigured } from "@/components/PlatformNotConfigured";
 import { PortalCourses } from "@/components/PortalCourses";
-import { PortalFilterBar } from "@/components/PortalFilterBar";
-import { PortalRegistrations } from "@/components/PortalRegistrations";
 import { PortalTeachers } from "@/components/PortalTeachers";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { SemesterList } from "@/components/SemesterList";
@@ -39,10 +37,11 @@ const PAGES = [
    */
   { id: "students", name: "Students", icon: Users, group: "Registrar validation" },
   // Directly under Students, as its sub-tab: the pane draws a child beneath its parent.
+  // Both halves of the registrar check: whether admissions still agrees with us about who
+  // a student is, and whether the registrar registered them in the sections we placed them
+  // in. Course Registration was a page of its own; it was the same table over the same
+  // students, so it is a filter on this one now.
   { id: "cohorts", name: "Cohorts", icon: ListChecks, group: "Registrar validation", parent: "students" },
-  // The other half of the Cohorts check: whether the registrar registered each student in
-  // the sections we placed them in.
-  { id: "registrations", name: "Course Registration", icon: ClipboardList, group: "Registrar validation", parent: "students" },
   { id: "courses", name: "Courses", icon: BookOpen, group: "Registrar validation" },
   // The department's own list, chosen from the portal's, where a course gets its UE and parent CRN.
   { id: "active-courses", name: "Active courses", icon: BookMarked, group: "Registrar validation", parent: "courses" },
@@ -66,15 +65,23 @@ const PAGES = [
 
 type PageId = (typeof PAGES)[number]["id"];
 
+/**
+ * Pages that were folded into another one, and the address that still points at them.
+ *
+ * A link somebody sent, or a tab left open, must not land on Students as though it had
+ * asked for nothing. Course Registration is now the register half of Cohorts, so that is
+ * where its address goes.
+ */
+const MOVED: Record<string, PageId> = { registrations: "cohorts" };
+
 /** The page the address names, or the one to open when it names none we know. */
 function pageOf(hash: string): PageId {
   const named = pageFromLocation(hash);
-  return PAGES.some((candidate) => candidate.id === named) ? (named as PageId) : "students";
+  if (PAGES.some((candidate) => candidate.id === named)) return named as PageId;
+  return MOVED[named] ?? "students";
 }
 
 // A blurb is optional: the Students page explains itself through the view picker.
-/** Where the Course Registration page's portal filter is remembered, as its page had it. */
-const REGISTRATION_FILTER = "scen-portal-filter:registrations";
 
 /** The pages whose panes fill the screen rather than letting the page scroll. */
 const FILLS = new Set<PageId>(["groups", "group-schema"]);
@@ -89,11 +96,7 @@ const TITLES: Record<PageId, { title: string; blurb?: string }> = {
   },
   cohorts: {
     title: "Cohorts",
-    blurb: "Where what admissions says about a student has drifted from where the department put them.",
-  },
-  registrations: {
-    title: "Course Registration",
-    blurb: "Whether the registrar has each student registered in the sections we placed them in.",
+    blurb: "Where admissions has drifted from where the department put a student, and where the registrar has them in other sections than we did.",
   },
   "group-schema": {
     title: "Group schema",
@@ -186,19 +189,6 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
   const [viewId, setViewId] = useState("");
   // The slot beside the page's title, for a page with controls of its own to put there.
   const [pageHeader, setPageHeader] = useState<HTMLDivElement | null>(null);
-  /*
-   * Which portal filter Course Registration reads.
-   *
-   * Held here rather than on that page because the control that chooses it belongs on the
-   * title's line, beside the page's name, and that line is this component's.
-   */
-  const [registrationFilter, setRegistrationFilter] = useState(() => {
-    try {
-      return window.localStorage.getItem(REGISTRATION_FILTER) ?? "";
-    } catch {
-      return "";
-    }
-  });
   // The teacher whose record is open, whichever list or page asked for it.
   const [teacherRecord, setTeacherRecord] = useState<TeacherRef | null>(null);
   // A cohort and some of its students, when Groups & CRNs sends them to be placed.
@@ -282,20 +272,6 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
             ) : null}
             {/* Filled by Groups & CRNs, which puts its cohort and its files here. */}
             <div ref={setPageHeader} className="empty:hidden" />
-            {page === "registrations" ? (
-              <PortalFilterBar
-                kind="registrations"
-                filterId={registrationFilter}
-                onChoose={(id) => {
-                  setRegistrationFilter(id);
-                  try {
-                    window.localStorage.setItem(REGISTRATION_FILTER, id);
-                  } catch {
-                    // A filter that cannot be remembered is still a filter.
-                  }
-                }}
-              />
-            ) : null}
             {page === "cohorts" ? (
               <button
                 type="button"
@@ -344,10 +320,6 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
           {page === "active-courses" ? <ActiveCourses /> : null}
           {page === "teachers" ? <PortalTeachers onOpenTeacher={setTeacherRecord} /> : null}
           {page === "active-teachers" ? <ActiveTeachers onOpenTeacher={setTeacherRecord} /> : null}
-          {page === "registrations" && !cohorts.isLoading ? (
-            <PortalRegistrations cohorts={knownCohorts} filterId={registrationFilter} />
-          ) : null}
-          {page === "registrations" && cohorts.isLoading ? <ScreenLoading label="Loading cohorts…" /> : null}
           {page === "group-schema" && cohorts.isLoading ? <ScreenLoading label="Loading cohorts…" /> : null}
           {page === "group-schema" && !cohorts.isLoading ? (
             <GroupSchema cohorts={knownCohorts} onOpenGroups={() => openPage("groups")} />

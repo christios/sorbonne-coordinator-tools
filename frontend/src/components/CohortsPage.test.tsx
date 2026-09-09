@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CohortsPage } from "@/components/CohortsPage";
+import * as lists from "@/services/portalLists";
 import { forgetHistory, recordPull } from "@/services/pullHistory";
 import { forgetRosters, rememberPull } from "@/services/rosterStore";
 import * as rosters from "@/services/scenRosters";
@@ -37,6 +38,11 @@ const WITHDRAWN: DiscrepancyRule = { id: "r1", field: "STST_CODE", kind: "change
 const MAJOR: DiscrepancyRule = { id: "r2", field: "MAJOR_CODE_DESC", kind: "differs", values: [], cohortId: "" };
 const IS_WITHDRAWN: DiscrepancyRule = { id: "r3", field: "STST_CODE", kind: "is", values: ["WD"], cohortId: "" };
 
+const mismatch = (over: Partial<lists.Mismatch>): lists.Mismatch => ({
+  studentId: "A001", termId: "t1", termCode: "262710", courseCode: "MATH-001",
+  kind: "missing", expected: ["23223"], registered: [], ...over,
+});
+
 /** What the portal said, as this browser holds it. */
 async function portalSays(rows: Record<string, string>[]) {
   await rememberPull({
@@ -66,6 +72,10 @@ beforeEach(async () => {
   window.localStorage.clear();
   await forgetRosters();
   await forgetHistory();
+  // The register agrees unless a test says otherwise. Left unmocked it would reach the
+  // network, fail, and put every check in error — which switches the registration prune
+  // off, so a test about pruning would pass without the prune ever running.
+  vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue([]);
   vi.spyOn(rosters, "fetchSchema").mockResolvedValue({
     ok: true,
     source: "built-in",
@@ -296,21 +306,216 @@ describe("dismissals belong to the coordinator, not to the page on screen", () =
   });
 
   it("brings back exactly the dismissed warnings on screen, and nobody else's", async () => {
+    // The other cohort's live registration difference. This page owns that family now —
+    // it prunes it — so the key has to be one the register really reports, or it would be
+    // pruned for being dead rather than kept for belonging to somebody else.
+    const theirs = mismatch({ studentId: "A003", courseCode: "PHYS-118", expected: ["22150"] });
+    vi.spyOn(lists, "fetchRegistrationCheck").mockImplementation(async (cohortId: string) =>
+      cohortId === "c2" ? [theirs] : [],
+    );
     await twoCohorts();
     await screen.findByText(/major is Physics/);
     fireEvent.click(screen.getByRole("button", { name: /^Dismiss: major is Physics/ }));
     await waitFor(() => expect(held()).toContain("A001:r2:"));
 
-    // A dismissal from another family, which this page must not touch.
-    window.localStorage.setItem(
-      "scen-discrepancy-dismissed:v1",
-      JSON.stringify([...JSON.parse(held()), "registration|A009|262710|PHYS-118|missing|22150|"]),
-    );
+    const theirKey = "registration|A003|262710|PHYS-118|missing|22150|";
+    window.localStorage.setItem("scen-discrepancy-dismissed:v1", JSON.stringify([...JSON.parse(held()), theirKey]));
 
     fireEvent.click(await screen.findByRole("button", { name: /Bring 1 back/ }));
 
     expect(await screen.findByText(/major is Physics/)).toBeTruthy();
     expect(held()).not.toContain("A001:r2:");
-    expect(held()).toContain("registration|A009");
+    // L2's, so not on screen, so not brought back — and not pruned either.
+    expect(held()).toContain(theirKey);
+  });
+});
+
+/*
+ * Course Registration was a page of its own until it was folded in here.
+ *
+ * These are that page's tests, kept, plus the ones the merge itself needs: that the two
+ * records are told apart on the row, that either can be looked at alone, and that a count
+ * of nothing from the register is not reported as agreement.
+ */
+describe("the register half of the Cohorts page", () => {
+  async function twoStudents(rules: DiscrepancyRule[] = []) {
+    vi.spyOn(database, "fetchStudents").mockResolvedValue([student("A001", "c1"), student("A002", "c1")]);
+    vi.spyOn(database, "fetchDiscrepancyRules").mockResolvedValue(rules);
+    await portalSays([
+      { SPRIDEN_ID: "A001", FULL_NAME: "Amira Haddad", MAJOR_CODE_DESC: "Physics", STST_CODE: "AS" },
+      { SPRIDEN_ID: "A002", FULL_NAME: "Karim Nasser", MAJOR_CODE_DESC: "Applied Mathematics and Physics", STST_CODE: "AS" },
+    ]);
+  }
+
+  /** The pill a warning is drawn in, so the test can ask which record it came from. */
+  const pillOf = (text: RegExp | string) => screen.getByText(text).closest("[data-source]") as HTMLElement;
+
+  it("carries the register's differences on the same rows as the record's", async () => {
+    vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue([mismatch({ studentId: "A001" })]);
+    await twoStudents([MAJOR]);
+
+    renderPage();
+
+    expect(await screen.findByText("Amira Haddad")).toBeTruthy();
+    const row = within(rowOf("Amira Haddad"));
+    // Both records, one row, one column.
+    expect(row.getByText(/major is Physics, cohort expects/)).toBeTruthy();
+    expect(row.getByText("MATH-001: not registered in 23223")).toBeTruthy();
+    // The student both records agree about carries neither.
+    expect(within(rowOf("Karim Nasser")).queryByText(/MATH-001/)).toBeNull();
+  });
+
+  it("says which record each warning came out of, so one cannot be read as the other", async () => {
+    vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue([mismatch({ studentId: "A001" })]);
+    await twoStudents([MAJOR]);
+
+    renderPage();
+    await screen.findByText("MATH-001: not registered in 23223");
+
+    expect(pillOf("MATH-001: not registered in 23223").dataset.source).toBe("registration");
+    expect(pillOf(/major is Physics, cohort expects/).dataset.source).toBe("record");
+    // And not only in the markup: the two are drawn in different colours.
+    expect(pillOf("MATH-001: not registered in 23223").className).not.toEqual(
+      pillOf(/major is Physics, cohort expects/).className,
+    );
+  });
+
+  it("shows one record at a time when asked, counting the students in each", async () => {
+    vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue([mismatch({ studentId: "A002" })]);
+    await twoStudents([MAJOR]);
+
+    renderPage();
+    await screen.findByText("MATH-001: not registered in 23223");
+
+    // One student flagged by each record, two between them.
+    expect(screen.getByRole("button", { name: "All 2" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Admissions 1" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Register 1" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Register 1" }));
+
+    await waitFor(() => expect(screen.queryByText(/major is Physics, cohort expects/)).toBeNull());
+    expect(screen.getByText("MATH-001: not registered in 23223")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Admissions 1" }));
+
+    await waitFor(() => expect(screen.queryByText("MATH-001: not registered in 23223")).toBeNull());
+    expect(screen.getByText(/major is Physics, cohort expects/)).toBeTruthy();
+  });
+
+  it("puts a withdrawal above any number of registration differences", async () => {
+    // Karim has four differences and Amira has withdrawn. A count would sort Karim first,
+    // which is the whole reason the column stopped sorting on the count.
+    vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue([
+      mismatch({ studentId: "A002", courseCode: "MATH-001" }),
+      mismatch({ studentId: "A002", courseCode: "MATH-009" }),
+      mismatch({ studentId: "A002", courseCode: "PHYS-118" }),
+      mismatch({ studentId: "A002", courseCode: "CHEM-101" }),
+    ]);
+    vi.spyOn(database, "fetchStudents").mockResolvedValue([student("A001", "c1"), student("A002", "c1")]);
+    vi.spyOn(database, "fetchDiscrepancyRules").mockResolvedValue([IS_WITHDRAWN]);
+    await portalSays([
+      { SPRIDEN_ID: "A001", FULL_NAME: "Amira Haddad", STST_CODE: "WD" },
+      { SPRIDEN_ID: "A002", FULL_NAME: "Karim Nasser", STST_CODE: "AS" },
+    ]);
+
+    renderPage();
+    await screen.findByText("MATH-001: not registered in 23223");
+
+    const rows = screen.getAllByRole("row").map((row) => row.textContent ?? "");
+    expect(rows.findIndex((text) => text.includes("Amira Haddad"))).toBeLessThan(
+      rows.findIndex((text) => text.includes("Karim Nasser")),
+    );
+  });
+
+  it("counts a student once however many of their courses differ, and says what kind", async () => {
+    vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue([
+      mismatch({ studentId: "A001", courseCode: "MATH-001" }),
+      mismatch({ studentId: "A001", courseCode: "MATH-009", kind: "wrong", expected: ["23365"], registered: ["23366"] }),
+    ]);
+    await twoStudents();
+
+    renderPage();
+    await screen.findByText("Amira Haddad");
+
+    expect(screen.getByText(/The register differs about 1 of them/)).toBeTruthy();
+    expect(screen.getByText(/1 not registered in a section we placed them in/)).toBeTruthy();
+    expect(screen.getByText(/1 registered in another section/)).toBeTruthy();
+  });
+
+  it("says the register has not been checked, rather than that it agrees", async () => {
+    // A cohort with no linked semester has no answer to give. Reporting that as "every
+    // student is registered correctly" is the exact mistake this page exists to prevent.
+    vi.spyOn(lists, "fetchRegistrationCheck").mockRejectedValue(new Error("no semester"));
+    await twoStudents();
+
+    renderPage();
+
+    expect(await screen.findByText(/The register has not been checked here/)).toBeTruthy();
+    expect(screen.queryByText(/exactly the sections their groups give them/)).toBeNull();
+  });
+
+  it("lets a difference be dismissed, and keeps it dismissed", async () => {
+    vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue([mismatch({ studentId: "A001" })]);
+    await twoStudents();
+
+    renderPage();
+    await screen.findByText("MATH-001: not registered in 23223");
+    fireEvent.click(screen.getByRole("button", { name: /^Dismiss: MATH-001/ }));
+
+    await waitFor(() => expect(screen.queryByText("MATH-001: not registered in 23223")).toBeNull());
+    expect(screen.getByText(/Show 1 dismissed/)).toBeTruthy();
+    expect(window.localStorage.getItem("scen-discrepancy-dismissed:v1")).toContain("registration|A001");
+  });
+
+  it("forgets a dismissed difference the register no longer reports", async () => {
+    // The counterpart of keeping another cohort's: a key that is genuinely dead goes, or
+    // the store grows for ever. It has to be the register's own prune that does it.
+    window.localStorage.setItem(
+      "scen-discrepancy-dismissed:v1",
+      JSON.stringify(["registration|A001|262710|GONE-001|missing|11111|"]),
+    );
+    vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue([]);
+    await twoStudents();
+
+    renderPage();
+    await screen.findByText("Amira Haddad");
+
+    await waitFor(() =>
+      expect(window.localStorage.getItem("scen-discrepancy-dismissed:v1")).not.toContain("GONE-001"),
+    );
+  });
+
+  it("prunes each record's dismissals against its own evidence, and only its own", async () => {
+    /*
+     * Two prunes now run on one page over one store, and each must keep to its family.
+     * Seeded BEFORE the render, so both prunes really see all four keys — a dismissal
+     * written afterwards is never offered to them, which is how a test can pass while the
+     * families are crossed.
+     *
+     * Dead of each family must go; live of each family must stay. Point either prune at
+     * the other's family and one of these four goes the wrong way.
+     */
+    const liveRegistration = "registration|A001|262710|MATH-001|missing|23223|";
+    const deadRegistration = "registration|A001|262710|GONE-001|missing|11111|";
+    const liveRule = "A001:r2:Physics≠Applied Mathematics and Physics";
+    const deadRule = "A001:r99:whatever";
+    window.localStorage.setItem(
+      "scen-discrepancy-dismissed:v1",
+      JSON.stringify([liveRegistration, deadRegistration, liveRule, deadRule]),
+    );
+    vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue([mismatch({ studentId: "A001" })]);
+    await twoStudents([MAJOR]);
+
+    renderPage();
+    await screen.findByText("Amira Haddad");
+
+    // Both dismissals are in force, so the row shows nothing until they are asked for.
+    await waitFor(() => expect(screen.getByText(/Show 2 dismissed/)).toBeTruthy());
+    const held = () => JSON.parse(window.localStorage.getItem("scen-discrepancy-dismissed:v1") ?? "[]") as string[];
+    await waitFor(() => expect(held()).not.toContain(deadRegistration));
+    expect(held()).not.toContain(deadRule);
+    expect(held()).toContain(liveRegistration);
+    expect(held()).toContain(liveRule);
   });
 });

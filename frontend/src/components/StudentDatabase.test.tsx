@@ -316,6 +316,16 @@ describe("keeping your place", () => {
     expect(await screen.findByRole("combobox", { name: "View" })).toBeTruthy();
   });
 
+  it("lands a link to a page that was folded into another on the page that absorbed it", async () => {
+    // Course Registration is the register half of Cohorts now. A link somebody sent, or a
+    // tab left open, must not arrive on Students as though it had asked for nothing.
+    await startAt("#/database/registrations");
+    renderApp();
+
+    expect(await screen.findByRole("heading", { name: "Cohorts" })).toBeTruthy();
+    expect(screen.queryByRole("combobox", { name: "View" })).toBeNull();
+  });
+
   it("follows the back button", async () => {
     await startAt("#/database/announcements");
     renderApp();

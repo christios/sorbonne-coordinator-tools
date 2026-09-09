@@ -1,5 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
-import { ArrowRightCircle, Settings2, X } from "lucide-react";
+import { useQueries, useQuery } from "@tanstack/react-query";
+import { AlertTriangle, ArrowRightCircle, ClipboardList, Layers, Settings2, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { CohortActions } from "@/components/CohortActions";
@@ -15,8 +15,10 @@ import {
   arrivalsFor,
   liveKeysOf,
   labelOf,
+  registrationWarnings,
   rulesFor,
   sharedRules,
+  sourceOf,
   unjudgeable,
   warningsForCohort,
   type Arrival,
@@ -24,8 +26,14 @@ import {
   type Options,
   type Rule,
   type Warning,
+  type WarningSource,
 } from "@/services/discrepancies";
 import { dismiss, loadDismissed, pruneDismissed, restore, restoreMany } from "@/services/dismissals";
+import {
+  describeMismatch,
+  fetchRegistrationCheck,
+  type Mismatch,
+} from "@/services/portalLists";
 import { allChanges } from "@/services/pullHistory";
 import { describeAge, latestPullAt, rowsHeld } from "@/services/rosterStore";
 import { displayNameOf, fetchSchema, studentIdOf, type RosterRow } from "@/services/scenRosters";
@@ -72,13 +80,91 @@ function judge(
   return { byCohort, arrivals };
 }
 
+/** Which sources of warning the table is showing. */
+type Showing = "all" | WarningSource;
+
+/** "5 not registered · 2 in another section" — what the register's differences are. */
+function describeKinds(mismatches: Mismatch[]): string {
+  const said: Record<Mismatch["kind"], string> = {
+    missing: "not registered in a section we placed them in",
+    wrong: "registered in another section",
+    extra: "registered in a section that is no group of theirs",
+    unplaced: "registered in a course we have not placed them in",
+    doubled: "registered in two groups of one set",
+  };
+  const counted = new Map<Mismatch["kind"], number>();
+  for (const mismatch of mismatches) counted.set(mismatch.kind, (counted.get(mismatch.kind) ?? 0) + 1);
+  return [...counted.entries()].map(([kind, count]) => `${count} ${said[kind]}`).join(" · ");
+}
+
 /**
- * Where the portal and the department disagree, cohort by cohort.
+ * Which of the two records the table is showing, with how many students each has flagged.
+ *
+ * Not a tidying-up: the two questions are chased with different people, and a coordinator
+ * working through the register's differences does not want thirty major-code warnings in
+ * the way. The counts are of STUDENTS, so they do not add up — somebody can be flagged by
+ * both, and is counted under both.
+ */
+function SourceFilter({
+  showing,
+  onShow,
+  counts,
+}: {
+  showing: Showing;
+  onShow: (next: Showing) => void;
+  counts: Record<Showing, number>;
+}) {
+  const options: { id: Showing; name: string; icon: typeof Layers; hint: string }[] = [
+    { id: "all", name: "All", icon: Layers, hint: "Both records" },
+    { id: "record", name: "Admissions", icon: AlertTriangle, hint: "Where the portal's record and ours have drifted apart" },
+    { id: "registration", name: "Register", icon: ClipboardList, hint: "Where the registrar has them in other sections than we placed them in" },
+  ];
+  return (
+    <div
+      role="group"
+      aria-label="Which warnings to show"
+      title="A student flagged by both records is counted under both, so these do not add up"
+      className="inline-flex rounded-md border border-[#d3d9e2] bg-white p-0.5"
+    >
+      {options.map(({ id, name, icon: Icon, hint }) => (
+        <button
+          key={id}
+          type="button"
+          aria-pressed={showing === id}
+          title={hint}
+          onClick={() => onShow(id)}
+          className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-semibold ${
+            showing === id ? "bg-[#e8edf3] text-[#1f4e79]" : "text-[#667085] hover:bg-[#f6f8fb]"
+          }`}
+        >
+          <Icon size={12} aria-hidden="true" />
+          {name}
+          <span className="tabular-nums font-normal text-[#98a2b3]">{counts[id]}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Where the portal and the department disagree about a cohort — in either record.
  *
  * The same table as the Students page — columns, filters, search, copy presets, moving —
  * narrowed to one cohort and given a Warnings column. The rules are shared and live on
  * the server; the evidence is this browser's, because the server is never told a name.
  * So the page is only as fresh as this browser's last sync, and says so.
+ *
+ * It carries BOTH halves of the registrar check, which used to be two pages:
+ *
+ *   - whether admissions still agrees with us about who this student is, and
+ *   - whether the registrar has them registered in the sections we placed them in.
+ *
+ * One page because it is one question — "is this cohort right?" — and because they were
+ * answered from the same table over the same students, so a coordinator was reading one
+ * roster twice and holding the differences in their head. The two are told apart by
+ * colour and icon in the cell, and can be looked at one at a time with the source filter;
+ * the Warnings column ranks by the severity of the worst one rather than by how many
+ * there are, so the register's small differences cannot bury a withdrawal.
  */
 export function CohortsPage({
   cohorts,
@@ -99,6 +185,7 @@ export function CohortsPage({
     if (focus?.cohortId) setCohortId(focus.cohortId);
   }, [focus?.cohortId, sent]);
   const [showDismissed, setShowDismissed] = useState(false);
+  const [showing, setShowing] = useState<Showing>("all");
   const [dismissed, setDismissed] = useState<Set<string>>(() => loadDismissed());
 
   // The same query the roster makes, so React Query answers both from one fetch.
@@ -106,6 +193,27 @@ export function CohortsPage({
   const rules = useQuery({ queryKey: ["discrepancy-rules"], queryFn: fetchDiscrepancyRules });
   // The portal's code tables, so a rule on DEPT_CODE can read a row that carries DEPT_DESC.
   const schema = useQuery({ queryKey: ["portal-schema"], queryFn: fetchSchema, staleTime: 60_000 });
+  /*
+   * The register's own verdict, per cohort. The comparison is the server's, because it
+   * holds both the groups and the registrations as ids and CRNs and needs no name to make
+   * it — unlike the rules above, which have to be judged in this browser.
+   *
+   * Every cohort, not only the one on screen, so the picker can say which ones need
+   * attention. `retry: false` because a cohort with no linked semester has no answer to
+   * give, and one refusal is enough to know that.
+   */
+  const checks = useQueries({
+    queries: cohorts.map((cohort) => ({
+      queryKey: ["registration-check", cohort.id],
+      queryFn: () => fetchRegistrationCheck(cohort.id),
+      retry: false,
+    })),
+  });
+  const registrationsBy = useMemo(
+    () => new Map(cohorts.map((cohort, index) => [cohort.id, (checks[index]?.data ?? []) as Mismatch[]])),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [cohorts, checks.map((check) => check.dataUpdatedAt).join("|")],
+  );
   // This browser's evidence: read once per visit. It has nothing to do with the rules.
   const [evidence, setEvidence] = useState<Evidence | null>(null);
   useEffect(() => {
@@ -156,16 +264,33 @@ export function CohortsPage({
     return judge(cohorts, students.data, rules.data, evidence, options);
   }, [cohorts, evidence, students.data, rules.data, options]);
 
+  /**
+   * Every cohort's warnings from both records, folded into one list per cohort.
+   *
+   * One list rather than two side by side, because the table takes one — and because the
+   * cohort picker's "N flagged" has to mean a student who needs attention for any reason,
+   * not a student who needs attention for one of the two reasons this page happens to be
+   * looking at. The source survives on each warning, so nothing is lost by folding.
+   */
+  const byCohort = useMemo(() => {
+    const out = new Map<string, Warning[]>();
+    for (const cohort of cohorts) {
+      out.set(cohort.id, [
+        ...(judged?.byCohort.get(cohort.id) ?? []),
+        ...registrationWarnings(registrationsBy.get(cohort.id) ?? [], describeMismatch),
+      ]);
+    }
+    return out;
+  }, [cohorts, judged, registrationsBy]);
+
   const byStudent = useMemo(() => {
     const out = new Map<string, Warning[]>();
-    if (!judged) return out;
-    const own = judged.byCohort.get(cohortId) ?? [];
-    for (const warning of own) {
+    for (const warning of byCohort.get(cohortId) ?? []) {
       const marked = dismissed.has(warning.key) ? { ...warning, dismissed: true } : warning;
       out.set(warning.studentId, [...(out.get(warning.studentId) ?? []), marked]);
     }
     return out;
-  }, [judged, cohortId, dismissed]);
+  }, [byCohort, cohortId, dismissed]);
 
   /*
    * Dismissals that no longer point at anything are let go, so the store stays small.
@@ -188,6 +313,32 @@ export function CohortsPage({
   }, [liveKeys]);
 
   /*
+   * And the register's family, pruned separately.
+   *
+   * Separately because the two rest on different evidence and can be incomplete at
+   * different moments: the rules wait for this browser's pull history, the checks are one
+   * request per cohort. `pruneDismissed` only ever removes keys of the family it is given,
+   * so the two effects cannot undo each other however they interleave.
+   *
+   * And only once EVERY check has answered. A check is fetched per cohort with no retry,
+   * so one that failed returns nothing at all — exactly the shape of a cohort with no
+   * differences. Pruning on that reading would forget the coordinator's own decisions
+   * because a request fell over. Absent is not gone.
+   */
+  const liveRegistrationKeys = useMemo(() => {
+    if (checks.some((check) => check.isPending || check.isError)) return null;
+    return [...registrationsBy.values()]
+      .flat()
+      .flatMap((mismatch) => registrationWarnings([mismatch], describeMismatch).map((warning) => warning.key));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [registrationsBy, checks.map((check) => `${check.isPending}${check.isError}`).join("|")]);
+
+  useEffect(() => {
+    if (!liveRegistrationKeys) return;
+    setDismissed(pruneDismissed(liveRegistrationKeys, "registration"));
+  }, [liveRegistrationKeys]);
+
+  /*
    * What the row carries. "Placed before placement was recorded" is true of everyone
    * placed before the moment was kept, so it is said once in the summary rather than on
    * every row; a dismissed warning is shown, struck through, only when asked for.
@@ -195,24 +346,58 @@ export function CohortsPage({
   const warningsFor = useCallback(
     (studentId: string) =>
       (byStudent.get(studentId) ?? []).filter(
-        (warning) => warning.kind !== "no_baseline" && (showDismissed || !warning.dismissed),
+        (warning) =>
+          warning.kind !== "no_baseline" &&
+          (showDismissed || !warning.dismissed) &&
+          (showing === "all" || sourceOf(warning) === showing),
       ),
-    [byStudent, showDismissed],
+    [byStudent, showDismissed, showing],
   );
   const onDismissWarning = useCallback(
     (key: string, toDismiss: boolean) => setDismissed(toDismiss ? dismiss(key) : restore(key)),
     [],
   );
 
-  /** Students flagged in a cohort, not counting dismissed warnings or the no-baseline note. */
-  const flaggedIn = (warnings: Warning[]) =>
-    new Set(warnings.filter((warning) => warning.kind !== "no_baseline" && !dismissed.has(warning.key)).map((warning) => warning.studentId)).size;
+  /**
+   * Students flagged in a cohort, not counting dismissed warnings or the no-baseline note.
+   * With a source, only that record's; without one, either.
+   */
+  const flaggedIn = (warnings: Warning[], source?: WarningSource) =>
+    new Set(
+      warnings
+        .filter((warning) => warning.kind !== "no_baseline" && !dismissed.has(warning.key))
+        .filter((warning) => !source || sourceOf(warning) === source)
+        .map((warning) => warning.studentId),
+    ).size;
 
   const all = [...byStudent.values()].flat();
   const flaggedStudents = flaggedIn(all);
+  const counts: Record<Showing, number> = {
+    all: flaggedStudents,
+    record: flaggedIn(all, "record"),
+    registration: flaggedIn(all, "registration"),
+  };
   const unjudged = new Set(all.filter((warning) => warning.kind === "no_baseline").map((w) => w.studentId)).size;
   const dismissedCount = all.filter((warning) => warning.dismissed).length;
   const population = students.data ? students.data.filter((student) => student.cohortId === cohortId).length : 0;
+
+  /*
+   * What the register says about this cohort — including when it has said nothing.
+   *
+   * A cohort whose check failed has no linked semester, or the request fell over; either
+   * way it has not been checked, and "no differences" would be a lie of exactly the kind
+   * this page exists to stop. So the four cases are told apart, and only one of them is
+   * good news.
+   */
+  const mismatches = registrationsBy.get(cohortId) ?? [];
+  const check = checks[cohorts.findIndex((candidate) => candidate.id === cohortId)];
+  const registerSays = check?.isError
+    ? "The register has not been checked here: this cohort has no linked semester, or the check could not be made."
+    : check?.isPending
+      ? "Still asking the register…"
+      : mismatches.length
+        ? `The register differs about ${counts.registration} of them — ${describeKinds(mismatches)}.`
+        : "The register has every student in exactly the sections their groups give them — or nothing has been pulled for this cohort's semester yet.";
   const arrivals = cohort ? (judged?.arrivals.get(cohort.id) ?? []).filter((arrival) => !dismissed.has(arrival.key)) : [];
   const applied = cohort ? rulesFor(rules.data ?? [], cohort.id) : sharedRules(rules.data ?? []);
   const ownRules = cohort ? (rules.data ?? []).filter((rule) => rule.cohortId === cohort.id) : [];
@@ -244,7 +429,7 @@ export function CohortsPage({
             onChange={setCohortId}
             options={[
               ...cohorts.map((candidate) => {
-                const flagged = flaggedIn(judged?.byCohort.get(candidate.id) ?? []);
+                const flagged = flaggedIn(byCohort.get(candidate.id) ?? []);
                 return {
                   value: candidate.id,
                   label: candidate.name,
@@ -292,6 +477,7 @@ export function CohortsPage({
           : applied.length
             ? `Nothing to flag among ${population}.`
             : "No rules apply here — nothing counts as a discrepancy until you add one."}
+        {cohort ? <> {registerSays}</> : null}
         {unjudged ? (
           <>
             {" "}
@@ -334,6 +520,18 @@ export function CohortsPage({
           names={evidence.names}
           onDismiss={(key) => setDismissed(dismiss(key))}
         />
+      ) : null}
+
+      {/*
+        * Which record to look at, directly above the table it narrows.
+        *
+        * Only once there is something to choose between — on a cohort with nothing wrong
+        * it would be three zeroes and a question nobody asked.
+        */}
+      {counts.all ? (
+        <div className="mt-3">
+          <SourceFilter showing={showing} onShow={setShowing} counts={counts} />
+        </div>
       ) : null}
 
       <div className="mt-3">
