@@ -10,9 +10,10 @@
 
 import { useQueries, type QueryClient } from "@tanstack/react-query";
 
-import { fetchPortalFilters, type ListKind } from "@/services/portalLists";
+import { fetchPortalFilters, fetchTermLinks, type ListKind } from "@/services/portalLists";
 import type { SyncTarget } from "@/services/portalSync";
 import { fetchViews } from "@/services/studentDatabase";
+import { fetchTimetableTerms } from "@/services/timetables";
 
 const LISTS: ListKind[] = ["courses", "teachers", "registrations"];
 
@@ -37,6 +38,19 @@ export function useSyncTargets(): SyncTargets {
       ...LISTS.map((kind) => ({ queryKey: ["portal-filters", kind], queryFn: () => fetchPortalFilters(kind) })),
     ],
   });
+  /*
+   * Which semesters have a portal term to ask about, and what they are called.
+   *
+   * `retry: false` on both, and a run goes ahead without them: the timetable is the one
+   * step whose absence costs the others nothing, and a Student Hub that is down must not
+   * stop a coordinator syncing their students.
+   */
+  const [links, terms] = useQueries({
+    queries: [
+      { queryKey: ["term-links"], queryFn: fetchTermLinks, retry: false },
+      { queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, retry: false },
+    ],
+  });
 
   // The students first: the cohorts, the rules and the registration check are all read
   // against them, so a run that did the others first would check yesterday's population.
@@ -56,6 +70,27 @@ export function useSyncTargets(): SyncTargets {
       })),
     ),
   ];
+
+  /*
+   * The registrar's timetable last, and it has to be last.
+   *
+   * Which sections to ask about comes from the registrations we hold, so a sweep run
+   * before them would ask about last week's list. It is also much the longest step — one
+   * call per section, two at a time, minutes rather than the minute the rest take — so
+   * ending on it means everything else is already in by the time the waiting starts.
+   *
+   * One per linked semester. A semester with no portal term cannot be asked about at all.
+   */
+  for (const [termId, portalTermCode] of Object.entries(links.data ?? {})) {
+    if (!portalTermCode) continue;
+    const named = (terms.data ?? []).find((term) => term.id === termId)?.name;
+    targets.push({
+      kind: "timetable",
+      id: portalTermCode,
+      name: named ? `${named} timetable` : `Timetable ${portalTermCode}`,
+      filter: {},
+    });
+  }
 
   const ages = [
     ...((views.data ?? []) as { lastSyncedAt?: string }[]),
@@ -83,6 +118,10 @@ export function freshen(client: QueryClient): void {
     "active-teachers",
     "active-courses",
     "course-cards",
+    // What a timetable sweep changes: the clash counts, the coverage lines, and the
+    // date-aware expectation that is inert until one has landed.
+    "term-clashes",
+    "facility-coverage",
   ]) {
     client.invalidateQueries({ queryKey: [key] });
   }

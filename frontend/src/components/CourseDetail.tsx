@@ -332,7 +332,6 @@ export function CourseDetail({
   unassigned,
   clashes,
   action,
-  sweep,
   onChanged,
   onFilled,
   onPlaceStudents,
@@ -341,8 +340,6 @@ export function CourseDetail({
   cohort: Cohort | null;
   /** Something the whole semester's request needs, shown where the semester is named. */
   action?: ReactNode;
-  /** Reading the registrar's answer back, beside the asking. Whole-semester, like `action`. */
-  sweep?: ReactNode;
   teachers: ActiveTeacher[];
   portal: TermCrns | null;
   /**
@@ -399,7 +396,6 @@ export function CourseDetail({
             <YearPill year={cohort?.term ?? ""} />
           </span>
           {action}
-          {sweep}
         </span>
       </header>
 

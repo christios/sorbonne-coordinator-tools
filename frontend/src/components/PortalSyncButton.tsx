@@ -13,6 +13,9 @@ const WORDS = {
   courses: "Courses",
   teachers: "Teachers",
   registrations: "Course registration",
+  // Last, and much the longest: one call per section against the registrar's own
+  // timetable. It reads the registrations above, so it cannot run before them.
+  timetable: "Registrar timetable",
 } as const;
 const ORDER = Object.keys(WORDS) as (keyof typeof WORDS)[];
 
@@ -241,7 +244,12 @@ export function PortalSyncButton() {
                         <span className="text-[#98a2b3]"> — {step.seen?.toLocaleString() ?? 0} returned</span>
                       ) : null}
                       {step.state === "running" && step.startedAt ? (
-                        <span className="text-[#98a2b3]"> — {since(step.startedAt, now)}</span>
+                        <span className="text-[#98a2b3]">
+                          {" — "}
+                          {/* A step that is many requests says how many; the rest say how long. */}
+                          {step.of ? `${step.seen ?? 0} of ${step.of}, ` : ""}
+                          {since(step.startedAt, now)}
+                        </span>
                       ) : null}
                       {step.warning ? <span className="block text-[#8a6116]">{step.warning}</span> : null}
                       {step.error && !oneReason ? <span className="block text-[#a6292f]">{step.error}</span> : null}
@@ -252,7 +260,15 @@ export function PortalSyncButton() {
           </ul>
           <p className="mt-2 border-t border-[#eef1f5] pt-2 text-[11px] text-[#98a2b3]">
             {running
-              ? `${current ? `${current.name} is with the portal now — one slow request, with nothing to count until it lands. ` : ""}This keeps going if you change page, and picks up where it was if you reload.`
+              ? `${
+                  current
+                    ? `${current.name} is with the portal now${
+                        current.of
+                          ? ` — one request per section, two at a time, so this is the long one. `
+                          : " — one slow request, with nothing to count until it lands. "
+                      }`
+                    : ""
+                }This keeps going if you change page, and picks up where it was if you reload.`
               : `${done} of ${steps.length} synced${failed.length ? `, ${failed.length} did not` : ""}.`}
           </p>
         </div>

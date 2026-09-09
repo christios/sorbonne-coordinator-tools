@@ -9,6 +9,7 @@ import { forgetHistory } from "@/services/pullHistory";
 import { forgetRosters } from "@/services/rosterStore";
 import * as rosters from "@/services/scenRosters";
 import * as database from "@/services/studentDatabase";
+import * as timetables from "@/services/timetables";
 
 const VIEW: database.StudentView = {
   id: "view-1", name: "Foundation Year", description: "", filter: { YEARLEVEL_CODE: ["FY"] },
@@ -222,5 +223,124 @@ describe("before anything is asked for", () => {
 
     expect(pull).toHaveBeenCalled();
     expect(screen.queryByText(/extension did not answer/)).toBeNull();
+  });
+});
+
+describe("the registrar's timetable in the run", () => {
+  beforeEach(() => {
+    vi.spyOn(lists, "fetchTermLinks").mockResolvedValue({ "term-1": "262710" });
+    vi.spyOn(timetables, "fetchTimetableTerms").mockResolvedValue([
+      { id: "term-1", name: "Semester 1" } as unknown as timetables.TimetableTerm,
+    ]);
+    vi.spyOn(lists, "fetchTimetableTargets").mockResolvedValue({ ours: ["22151"], registered: ["24001"] });
+    vi.spyOn(rosters, "pullTimetable").mockResolvedValue({
+      termCode: "262710", asked: ["22151", "24001"], sections: [], silent: ["24001"],
+      failed: [], complete: true, malformed: 0, warning: null, fetchedAt: 0,
+    });
+    vi.spyOn(lists, "recordFacilityPull").mockResolvedValue({
+      asked: 2, answered: 1, silent: 1, failed: 0, complete: true,
+    });
+  });
+
+  it("asks the registrar last, after the registrations it reads", async () => {
+    /*
+     * Which sections to ask about comes from the registrations we hold, so a sweep run
+     * before them asks about last week's list. It is also much the longest step, so
+     * ending on it means everything else is in by the time the waiting starts.
+     *
+     * Asserted on the order things were actually DONE in, not the order they are drawn
+     * in: the panel groups steps by a fixed list of kinds, so it shows the timetable last
+     * whatever the run does, and an assertion about the rendering would pass with the
+     * sweep running first.
+     */
+    const ran: string[] = [];
+    vi.mocked(database.syncView).mockImplementation(async () => {
+      ran.push("students");
+      return { seen: 2, added: 2, missing: 0, syncedAt: "now" };
+    });
+    vi.mocked(lists.syncCourses).mockImplementation(async () => {
+      ran.push("courses");
+      return { seen: 1, added: 1, missing: 0, syncedAt: "now" };
+    });
+    vi.mocked(rosters.pullTimetable).mockImplementation(async () => {
+      ran.push("timetable");
+      return {
+        termCode: "262710", asked: ["22151", "24001"], sections: [], silent: ["24001"],
+        failed: [], complete: true, malformed: 0, warning: null, fetchedAt: 0,
+      };
+    });
+
+    show();
+    await sync();
+
+    expect(ran).toEqual(["students", "courses", "timetable"]);
+  });
+
+  it("counts the sections answered, and calls silence silence", async () => {
+    show();
+    await sync();
+
+    // One of the two answered; the other was asked and said nothing, which is a section
+    // with no room booked rather than a failure.
+    expect(screen.getByText(/1 with nothing booked/)).toBeTruthy();
+    expect(screen.queryByText(/would not answer/)).toBeNull();
+  });
+
+  it("asks about the other departments' sections our students take", async () => {
+    show();
+    await sync();
+
+    expect(rosters.pullTimetable).toHaveBeenCalledWith("262710", ["22151", "24001"], expect.any(Function));
+  });
+
+  it("leaves the run alone when no semester is linked to a portal term", async () => {
+    // Nothing to ask about, and no step for it. A run that showed a step it could never
+    // finish would look permanently half-done.
+    vi.spyOn(lists, "fetchTermLinks").mockResolvedValue({});
+
+    show();
+    await sync();
+
+    expect(screen.queryByText(/Registrar timetable/)).toBeNull();
+  });
+});
+
+describe("a step that is many requests, not one", () => {
+  it("counts its way through instead of only showing a clock", async () => {
+    /*
+     * Every other step is one slow request with nothing to report until it lands, and the
+     * panel says so. The timetable is a hundred and sixty, and over minutes an elapsed
+     * clock alone is indistinguishable from a hang — which is precisely the reading that
+     * had a working sync reported as a missing extension.
+     */
+    vi.spyOn(lists, "fetchTermLinks").mockResolvedValue({ "term-1": "262710" });
+    vi.spyOn(timetables, "fetchTimetableTerms").mockResolvedValue([
+      { id: "term-1", name: "Semester 1" } as unknown as timetables.TimetableTerm,
+    ]);
+    vi.spyOn(lists, "fetchTimetableTargets").mockResolvedValue({ ours: ["22151", "23652"], registered: [] });
+    vi.spyOn(lists, "recordFacilityPull").mockResolvedValue({ asked: 2, answered: 2, silent: 0, failed: 0, complete: true });
+    // A sweep that reports its way through and then waits to be let finish.
+    let finish = (_: rosters.TimetablePull) => {};
+    vi.spyOn(rosters, "pullTimetable").mockImplementation(async (_term, _crns, onProgress) => {
+      onProgress?.({ fetched: 1, total: 2 });
+      return new Promise((resolve) => {
+        finish = resolve;
+      });
+    });
+
+    show();
+    const button = await screen.findByRole("button", { name: /portal sync/i });
+    await waitFor(() => expect(button).toHaveProperty("disabled", false));
+    fireEvent.click(button);
+
+    expect(await screen.findByText(/1 of 2,/)).toBeTruthy();
+    // And the footer stops claiming there is nothing to count.
+    expect(screen.getByText(/one request per section, two at a time/)).toBeTruthy();
+
+    finish({
+      termCode: "262710", asked: ["22151", "23652"], sections: [], silent: [],
+      failed: [], complete: true, malformed: 0, warning: null, fetchedAt: 0,
+    });
+    await screen.findByText(/^Synced/);
   });
 });

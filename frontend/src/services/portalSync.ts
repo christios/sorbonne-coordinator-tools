@@ -26,16 +26,26 @@ import {
 } from "@/services/portalLists";
 import { recordPull } from "@/services/pullHistory";
 import { rememberPull, rememberSync, storageReport, type StorageReport } from "@/services/rosterStore";
+import { describeSweep, sweepFacilityTimetable } from "@/services/facilitySync";
 import { pullFilter, studentIdOf, type PortalRoster, type PullProgress } from "@/services/scenRosters";
 import { syncView } from "@/services/studentDatabase";
 
 /** The four lists this application syncs: the students, and the three portal lists. */
-export type SyncKind = "students" | ListKind;
+/**
+ * `timetable` is not a portal filter and has no rows: it is one sweep of the registrar's
+ * own timetable, a section at a time. It rides in the run all the same, because a
+ * coordinator asking "is everything up to date" means everything.
+ */
+export type SyncKind = "students" | ListKind | "timetable";
 
-/** One thing that can be synced: a student view, or a portal filter of one of the lists. */
+/** One thing that can be synced: a student view, a portal filter, or a semester's timetable. */
 export type SyncTarget = {
   kind: SyncKind;
-  /** The view's or portal filter's id — what the server files the result under. */
+  /**
+   * The view's or portal filter's id — what the server files the result under. For a
+   * timetable it is the PORTAL TERM CODE, which is what the sweep is keyed on and what
+   * the store files its sections under.
+   */
   id: string;
   name: string;
   filter: Record<string, string[]>;
@@ -43,7 +53,8 @@ export type SyncTarget = {
 
 export type SyncOutcome = {
   report: SyncReport;
-  roster: PortalRoster;
+  /** Absent for a timetable sweep, which pulls meetings rather than a roster of people. */
+  roster?: PortalRoster;
   /** What the pull was worth saying about itself, when it was not simply fine. */
   warning: string;
   /** Students only: whether the names reached this browser, and the copy on disk. */
@@ -138,6 +149,22 @@ export async function syncTarget(
       throw error;
     }
   };
+
+  /*
+   * The timetable first, because it is not a filter pull at all and everything below
+   * assumes one. It has its own budget too: `pullTimetable` is a hundred and sixty calls
+   * inside the extension, and wrapping it in the ninety seconds our own server gets would
+   * abandon a sweep that is working perfectly.
+   */
+  if (target.kind === "timetable") {
+    const sweep = await sweepFacilityTimetable(target.id, { theirsToo: true }, onProgress);
+    return {
+      // `seen` is what the step shows: sections the registrar answered for. Silences are
+      // not failures and not absences, so they travel in the warning instead of the count.
+      report: { seen: sweep.answered, added: 0, missing: 0, syncedAt: new Date().toISOString() },
+      warning: sweep.warning === "nothing_to_ask" ? "" : describeSweep(sweep),
+    };
+  }
 
   const roster = await pullFilter(target.filter, { name: target.name, kind: target.kind }, onProgress);
   const warning = describePullWarning(roster.warning, roster.count, roster.expect);

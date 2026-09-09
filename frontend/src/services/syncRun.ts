@@ -39,6 +39,13 @@ export type SyncStep = {
   startedAt?: number;
   /** What the sync reported, once it has: how many rows the portal returned. */
   seen?: number;
+  /**
+   * How many there are to get through, for a step that is several requests.
+   *
+   * Only the timetable sets it — one call per section — and its absence is what tells the
+   * panel that `seen` is a final count rather than a running one.
+   */
+  of?: number;
   /** Said out loud, because a pull that is quietly incomplete is the worst kind. */
   warning?: string;
   error?: string;
@@ -263,7 +270,21 @@ async function drive(targets: SyncTarget[], onStep?: (step: SyncStep) => void): 
       }
       patch(next.key, { state: "running", startedAt: Date.now() });
       try {
-        const outcome = await syncTarget(target);
+        /*
+         * Count what can be counted, while it is happening.
+         *
+         * Every other step is one slow request with nothing to report until it lands. The
+         * timetable is a hundred and sixty, and over minutes an elapsed clock alone is
+         * indistinguishable from a hang — which is the exact reading that had a working
+         * sync reported as a missing extension.
+         *
+         * `patch` and not `settle`: the listeners are told (the panel redraws), but the
+         * run's own onStep is not, because that re-reads every page's data and doing it
+         * a hundred and sixty times would be worse than saying nothing.
+         */
+        const outcome = await syncTarget(target, (at) => {
+          if (at.total) patch(next.key, { seen: at.fetched, of: at.total });
+        });
         settle(patch(next.key, { state: "done", seen: outcome.report.seen, warning: outcome.warning }), onStep);
       } catch (error) {
         settle(
