@@ -18,35 +18,51 @@
  */
 
 import type { ColumnDataType, FilterColumn } from "@/services/tableFilter";
+import { describeWarning, warningRank } from "@/services/discrepancies";
 import type { StudentRow } from "@/services/rosterView";
 import type { PortalColumn, PortalField } from "@/services/scenRosters";
 
 const KEY = "scen-student-columns:v1";
 
-export type StudentColumn = FilterColumn<StudentRow> & {
+/** What every menu needs to know about a column, whatever the rows are. */
+export type ColumnMeta = {
+  id: string;
+  displayName: string;
   type: ColumnDataType;
-  /** How the cell reads on screen, which is not always how it filters. */
-  display?: (row: StudentRow) => string;
-  /**
-   * How the column ranks when sorted, when that is not how it filters or displays.
-   *
-   * Status is the case: it shows three separate signals in one cell, and none of them is
-   * the value it filters by.
-   */
-  sortValue?: (row: StudentRow) => string | number;
   /** Columns that carry the row's identity and would make the table unreadable if hidden. */
   required?: boolean;
   defaultWidth: number;
 };
 
 /**
- * The narrowest a column may be dragged.
+ * A column of any of the tables: how it filters, how it reads, how it ranks.
  *
- * Not a judgement about how wide a column ought to be — a coordinator can squeeze any of
- * them down to a sliver — only enough that the resize handle stays catchable. At zero the
- * column vanishes and there is nothing left to grab to bring it back.
+ * The student table was the only one for a year; the portal's courses, teachers and
+ * registrations are the same table with other rows, so the column is generic over them.
  */
-export const MIN_WIDTH = 28;
+export type GridColumn<T> = FilterColumn<T> &
+  ColumnMeta & {
+    /** How the cell reads on screen, which is not always how it filters. */
+    display?: (row: T) => string;
+    /**
+     * How the column ranks when sorted, when that is not how it filters or displays.
+     *
+     * Status is the case: it shows three separate signals in one cell, and none of them
+     * is the value it filters by.
+     */
+    sortValue?: (row: T) => string | number;
+  };
+
+export type StudentColumn = GridColumn<StudentRow>;
+
+/*
+ * A column may be squeezed to nothing, and there is no floor to stop it.
+ *
+ * There used to be one, so that the edge stayed catchable — but the edge overhangs the
+ * column it belongs to, so it is still there to grab at zero, and double-clicking it fits
+ * the column back to what is in it. The floor only stopped somebody putting a column out
+ * of the way without hiding it, which is a reasonable thing to want.
+ */
 
 /** Exactly what the Status cell shows, in the order it shows them. */
 export function statusPills(row: StudentRow): string[] {
@@ -67,6 +83,7 @@ const STATUS_RANK: ((row: StudentRow) => boolean)[] = [
 /** The columns a coordinator sees before they have arranged anything. */
 const DEFAULT_SHOWN = [
   "status",
+  "warnings",
   "portal:FULL_NAME",
   "studentId",
   "portal:YEARLEVEL_CODE",
@@ -135,6 +152,54 @@ const OWN_COLUMNS: StudentColumn[] = [
   },
 ];
 
+/**
+ * Where the portal and the cohort disagree. Only offered on the Cohorts page, which is
+ * the one place rows carry warnings; elsewhere it would be a column of dashes.
+ */
+export const WARNINGS_COLUMN: StudentColumn = {
+  id: "warnings",
+  displayName: "Warnings",
+  // Several per student, each an option of its own — so "show me everyone whose major
+  // differs" is one tick, the way "everyone in TD 1" is on the Groups column.
+  type: "multiOption",
+  accessor: (row) => row.warnings.map((warning) => describeWarning(warning)),
+  display: (row) => row.warnings.map((warning) => describeWarning(warning)).join(" · "),
+  // Worst first when sorted descending, which is how the Cohorts page opens — ranked by
+  // the severity of the worst warning on the row, not by how many there are. A raw count
+  // put six registration nits above one withdrawal.
+  sortValue: (row) => warningRank(row.warnings),
+  defaultWidth: 360,
+};
+
+/**
+ * The sets a student is in, and the set-and-day pairs.
+ *
+ * Neither joins `DEFAULT_SHOWN`. `reconcileLayout`'s stored-layout branch would otherwise
+ * push a new column onto every coordinator's existing table unannounced; these behave like
+ * the forty-odd hidden portal columns and are turned on by whoever wants them.
+ *
+ * `Set` is flat and correct because it is NOT correlated: "for languages" is a membership
+ * question, and two membership columns ANDed are a conjunction. `Meets` is correlated for
+ * exactly the opposite reason — see `services/meets.ts`.
+ */
+const SET_COLUMN: StudentColumn = {
+  id: "sets",
+  displayName: "Set",
+  type: "multiOption",
+  accessor: (row) => row.sets,
+  display: (row) => row.sets.join(" · "),
+  defaultWidth: 160,
+};
+
+const MEETS_COLUMN: StudentColumn = {
+  id: "meets",
+  displayName: "Meets",
+  type: "multiOption",
+  accessor: (row) => row.meets,
+  display: (row) => row.meets.join(" · "),
+  defaultWidth: 220,
+};
+
 /** Portal fields we already have a column of our own for, or that say nothing useful. */
 const SKIP_PORTAL_FIELDS = new Set(["SPRIDEN_ID", "ROWNUM", "ROW_NUM"]);
 
@@ -165,10 +230,18 @@ function portalColumn(column: PortalColumn, filterable: Map<string, PortalField>
  * to our own plus the handful the roster always carries — otherwise the first visit would
  * show nothing but ids.
  */
-export function buildColumns(portalColumns: PortalColumn[], fields: PortalField[] = []): StudentColumn[] {
+export function buildColumns(
+  portalColumns: PortalColumn[],
+  fields: PortalField[] = [],
+  { withWarnings = false, withoutCohort = false }: { withWarnings?: boolean; withoutCohort?: boolean } = {},
+): StudentColumn[] {
   const filterable = new Map(fields.map((field) => [field.key.toUpperCase(), field]));
   const portal = portalColumns.length ? portalColumns : FALLBACK_COLUMNS;
-  const columns = [...OWN_COLUMNS];
+  // The warnings sit beside the name, where the eye goes, rather than at the far end. On
+  // a table that is one cohort's, the Cohort column would say the same thing on every row.
+  const own = withoutCohort ? OWN_COLUMNS.filter((column) => column.id !== "cohortName") : OWN_COLUMNS;
+  const columns = withWarnings ? [own[0], WARNINGS_COLUMN, ...own.slice(1)] : [...own];
+  columns.push(SET_COLUMN, MEETS_COLUMN);
   for (const column of portal) {
     if (SKIP_PORTAL_FIELDS.has(column.key.toUpperCase())) continue;
     columns.push(portalColumn(column, filterable));
@@ -202,11 +275,11 @@ export type ColumnLayout = {
   widths: Record<string, number>;
 };
 
-export function defaultLayout(columns: StudentColumn[]): ColumnLayout {
+export function defaultLayout(columns: ColumnMeta[], shown: string[] = DEFAULT_SHOWN): ColumnLayout {
   return {
     order: columns.map((column) => column.id),
     hidden: columns
-      .filter((column) => !column.required && !DEFAULT_SHOWN.includes(column.id))
+      .filter((column) => !column.required && !shown.includes(column.id))
       .map((column) => column.id),
     widths: {},
   };
@@ -221,10 +294,11 @@ export function defaultLayout(columns: StudentColumn[]): ColumnLayout {
  */
 export function reconcileLayout(
   stored: Partial<ColumnLayout> | null,
-  columns: StudentColumn[],
+  columns: ColumnMeta[],
+  shown: string[] = DEFAULT_SHOWN,
 ): ColumnLayout {
   const known = new Map(columns.map((column) => [column.id, column]));
-  const fallback = defaultLayout(columns);
+  const fallback = defaultLayout(columns, shown);
   const order = (stored?.order ?? []).filter((id) => known.has(id));
   for (const column of columns) {
     if (!order.includes(column.id)) order.push(column.id);
@@ -238,47 +312,56 @@ export function reconcileLayout(
   if (stored) {
     for (const column of columns) {
       if (!carriedOver.includes(column.id) && !hidden.includes(column.id) && !column.required) {
-        if (!DEFAULT_SHOWN.includes(column.id)) hidden.push(column.id);
+        if (!shown.includes(column.id)) hidden.push(column.id);
       }
     }
   }
   const widths: Record<string, number> = {};
   for (const [id, width] of Object.entries(stored?.widths ?? {})) {
     const column = known.get(id);
-    if (column && Number.isFinite(width)) widths[id] = Math.max(MIN_WIDTH, Number(width));
+    if (column && Number.isFinite(width)) widths[id] = Math.max(0, Number(width));
   }
   return { order, hidden, widths };
 }
 
-export function loadLayout(columns: StudentColumn[]): ColumnLayout {
+/**
+ * The layout is per table, not per browser: the Cohorts page has columns the Students
+ * page does not and lacks one it has, and a coordinator arranging one should not find
+ * the other rearranged. `storageKey` names which.
+ */
+export function loadLayout(
+  columns: ColumnMeta[],
+  storageKey: string = KEY,
+  shown: string[] = DEFAULT_SHOWN,
+): ColumnLayout {
   try {
-    const raw = window.localStorage.getItem(KEY);
-    return reconcileLayout(raw ? (JSON.parse(raw) as ColumnLayout) : null, columns);
+    const raw = window.localStorage.getItem(storageKey);
+    return reconcileLayout(raw ? (JSON.parse(raw) as ColumnLayout) : null, columns, shown);
   } catch {
     // Private browsing, or something that is not ours: fall back to the default.
-    return reconcileLayout(null, columns);
+    return reconcileLayout(null, columns, shown);
   }
 }
 
-export function saveLayout(layout: ColumnLayout): void {
+export function saveLayout(layout: ColumnLayout, storageKey: string = KEY): void {
   try {
-    window.localStorage.setItem(KEY, JSON.stringify(layout));
+    window.localStorage.setItem(storageKey, JSON.stringify(layout));
   } catch {
     // A preference that cannot be remembered must never break the table.
   }
 }
 
 /** The columns on screen, in the order they are shown. */
-export function visibleColumns(layout: ColumnLayout, columns: StudentColumn[]): StudentColumn[] {
+export function visibleColumns<C extends ColumnMeta>(layout: ColumnLayout, columns: C[]): C[] {
   const known = new Map(columns.map((column) => [column.id, column]));
   return layout.order
     .filter((id) => !layout.hidden.includes(id))
     .map((id) => known.get(id))
-    .filter((column): column is StudentColumn => Boolean(column));
+    .filter((column): column is C => Boolean(column));
 }
 
-export function widthOf(layout: ColumnLayout, column: StudentColumn): number {
-  return Math.max(MIN_WIDTH, layout.widths[column.id] ?? column.defaultWidth);
+export function widthOf(layout: ColumnLayout, column: ColumnMeta): number {
+  return Math.max(0, layout.widths[column.id] ?? column.defaultWidth);
 }
 
 /** Move a column one place along the order, skipping over nothing. */
@@ -303,7 +386,7 @@ export function reorderColumn(layout: ColumnLayout, id: string, beforeId: string
   return { ...layout, order };
 }
 
-export function toggleColumn(layout: ColumnLayout, id: string, columns: StudentColumn[]): ColumnLayout {
+export function toggleColumn(layout: ColumnLayout, id: string, columns: ColumnMeta[]): ColumnLayout {
   const column = columns.find((candidate) => candidate.id === id);
   if (!column || column.required) return layout;
   const hidden = layout.hidden.includes(id)
@@ -312,10 +395,10 @@ export function toggleColumn(layout: ColumnLayout, id: string, columns: StudentC
   return { ...layout, hidden };
 }
 
-export function resizeColumn(layout: ColumnLayout, id: string, width: number, columns: StudentColumn[]): ColumnLayout {
+export function resizeColumn(layout: ColumnLayout, id: string, width: number, columns: ColumnMeta[]): ColumnLayout {
   const column = columns.find((candidate) => candidate.id === id);
   if (!column) return layout;
-  return { ...layout, widths: { ...layout.widths, [id]: Math.max(MIN_WIDTH, Math.round(width)) } };
+  return { ...layout, widths: { ...layout.widths, [id]: Math.max(0, Math.round(width)) } };
 }
 
 /** A day, written the way a coordinator reads one. */
@@ -327,7 +410,9 @@ function asDay(value: string): string {
 }
 
 /** The values a column actually holds, for the filter bar to offer as options. */
-export function optionsFor(rows: StudentRow[], column: StudentColumn): { value: string; label: string }[] {
+const OPTION_COLLATOR = new Intl.Collator(undefined, { numeric: true, sensitivity: "accent" });
+
+export function optionsFor<T>(rows: T[], column: GridColumn<T>): { value: string; label: string }[] {
   const seen = new Map<string, string>();
   for (const row of rows) {
     // A multiOption column holds several values per row, and each is an option of its own:
@@ -342,5 +427,57 @@ export function optionsFor(rows: StudentRow[], column: StudentColumn): { value: 
   // Same collation as the table: case ignored, accents kept, "10" after "9".
   return [...seen]
     .map(([value, label]) => ({ value, label }))
-    .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: "accent" }));
+    .sort((a, b) => OPTION_COLLATOR.compare(a.label, b.label));
+}
+
+// Case is noise — "MARTIN" and "Martin" are one name — but accents still count: at
+// Sorbonne, é is not e. Built once: a sort of three thousand rows makes thirty-odd
+// thousand comparisons.
+const SORT_COLLATOR = new Intl.Collator(undefined, { numeric: true, sensitivity: "accent" });
+
+/**
+ * Rows in the order a heading asks for.
+ *
+ * The accessor rather than the displayed text, because a date displays as "23 Aug 2026"
+ * and that sorts alphabetically by month. A column may rank differently from how it
+ * reads — Status shows three signals and none is the value it filters by — so its own
+ * ranking wins where it has one. Blanks go last however the sort runs, and ties are
+ * broken by the row's id so the order holds still.
+ */
+export function sortByColumn<T>(
+  rows: T[],
+  sort: { key: string; ascending: boolean },
+  columns: GridColumn<T>[],
+  idOf: (row: T) => string,
+): T[] {
+  const direction = sort.ascending ? 1 : -1;
+  const column = columns.find((candidate) => candidate.id === sort.key);
+
+  if (column?.sortValue) {
+    const rank = column.sortValue;
+    return [...rows].sort((left, right) => {
+      const a = rank(left);
+      const b = rank(right);
+      const compared =
+        typeof a === "number" && typeof b === "number" ? a - b : SORT_COLLATOR.compare(String(a), String(b));
+      return (compared || SORT_COLLATOR.compare(idOf(left), idOf(right))) * direction;
+    });
+  }
+
+  const valueOf = (row: T) => {
+    const held = column?.accessor(row);
+    return Array.isArray(held) ? held.join(" ") : String(held ?? "");
+  };
+  return [...rows].sort((left, right) => {
+    const a = valueOf(left);
+    const b = valueOf(right);
+    if (!a !== !b) return a ? -1 : 1;
+    const compared = SORT_COLLATOR.compare(a, b);
+    return (compared || SORT_COLLATOR.compare(idOf(left), idOf(right))) * direction;
+  });
+}
+
+/** How a cell reads as text, for the clipboard and the search box. */
+export function plainCellText<T>(row: T, column: GridColumn<T>): string {
+  return column.display ? column.display(row) : String(column.accessor(row) ?? "");
 }

@@ -109,15 +109,21 @@ def diff_reference(*, held: Catalogue, incoming) -> list[dict[str, Any]]:
                         "groupLabel": group.label,
                         "capacity": group.capacity,
                         "note": group.note,
-                        "crns": {code: crn for code, (crn, _) in group.crns.items()},
+                        "crns": {code: crn for code, (crn, _) in group.crns.items()},  # the workbook's, one per course
                         "teachers": {code: teacher for code, (_, teacher) in group.crns.items()},
                     }
                 )
                 continue
 
             for course_code, (crn, teacher) in sorted(group.crns.items()):
-                before = held_group.get("crns", {}).get(course_code, "")
-                if before == crn:
+                # What we hold for this course, which may be several CRNs — a section
+                # taught in two halves carries one per part. The workbook has a column per
+                # course and no notion of a part, so it can only ever speak about one of
+                # them: a CRN we already hold anywhere in the section is not a change, and
+                # anything else is offered against the first part.
+                held_crns = held_group.get("crns", {}).get(course_code, [])
+                before = held_crns[0] if held_crns else ""
+                if crn in held_crns:
                     unchanged += 1
                     continue
                 rows.append(

@@ -1,0 +1,229 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { FillBlock } from "@/components/FillBlock";
+import * as roster from "@/services/rosterStore";
+import * as database from "@/services/studentDatabase";
+
+const COHORT: database.Cohort = {
+  id: "cohort-1",
+  name: "Foundation Year",
+  term: "S1 2026-27",
+  notes: "",
+  majors: [], terms: [],
+  yearLevel: "", workbookTab: "", firstSemester: 0,
+  memberCount: 3,
+  scopeCount: 1,
+  createdAt: "",
+  updatedAt: "",
+};
+
+const student = (studentId: string): database.Student => ({
+  studentId,
+  status: "in_portal",
+  cohortId: "cohort-1",
+  cohortName: "Foundation Year",
+  cohortSince: "",
+  firstSeenAt: "",
+  lastSeenAt: "",
+  groups: [],
+});
+
+const TD: database.CatalogueScope = {
+  id: "scope-td",
+  code: "TD",
+  name: "Tutorials",
+  note: "",
+  kind: "shared", parentScopeId: "", openToAll: false,
+  courses: [],
+  groups: [
+    { id: "td-1", label: "1", capacity: 2, note: "", program: "", parentGroupId: "", assigned: 1, crns: {} },
+    { id: "td-2", label: "2", capacity: 2, note: "", program: "Physics", parentGroupId: "", assigned: 0, crns: {} },
+  ],
+};
+
+function show(clashes: Parameters<typeof FillBlock>[0]["clashes"] = []) {
+  const onFilled = vi.fn();
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(
+    <QueryClientProvider client={queryClient}>
+      <FillBlock open cohort={COHORT} scope={TD} clashes={clashes} onClose={() => {}} onFilled={onFilled} />
+    </QueryClientProvider>,
+  );
+  return onFilled;
+}
+
+beforeEach(() => {
+  // A1 already sits in TD 1; A2 and A3 are in the cohort and not yet in TD; B9 is somebody else's.
+  vi.spyOn(database, "fetchStudents").mockResolvedValue([
+    student("A1"),
+    student("A2"),
+    student("A3"),
+    { ...student("B9"), cohortId: "cohort-2" },
+  ]);
+  vi.spyOn(database, "fetchAssignments").mockResolvedValue({ A1: { "scope-td": "td-1" }, A3: { "scope-rdns": "rdns-8" } });
+  vi.spyOn(roster, "namesHeld").mockResolvedValue({ A2: "Amira Haddad", A3: "Bilal Saleh" });
+  vi.spyOn(roster, "fieldHeld").mockImplementation(async (field) =>
+    field === "MAJOR_CODE_DESC" ? { A2: "Physics", A3: "Maths" } : field === "FIRST_NAME" ? { A2: "Amira", A3: "Bilal" } : { A2: "Haddad", A3: "Saleh" },
+  );
+});
+
+afterEach(() => vi.restoreAllMocks());
+
+describe("filling a block", () => {
+  it("previews who goes where before anything is written, and then writes exactly that", async () => {
+    vi.spyOn(database, "placeStudents").mockResolvedValue({ assigned: 2, skipped: [] });
+    const onFilled = show();
+
+    const list = await screen.findByLabelText("Who goes where");
+    // Amira is Physics, and TD 2 prefers Physics: she goes there first. Bilal balances to TD 1's empty seat.
+    expect(within(list).getByText("Amira Haddad").closest("li")?.textContent).toContain("→ 2 · preferred");
+    expect(within(list).getByText("Bilal Saleh").closest("li")?.textContent).toContain("→ 1");
+    expect(database.placeStudents).not.toHaveBeenCalled();
+
+    const sizes = screen.getByLabelText("Group sizes after the fill");
+    expect(within(sizes).getAllByRole("row").map((row) => row.textContent)).toEqual([
+      "GroupNowAfterCapacityPrefers",
+      "1122",
+      "2012Physics",
+    ]);
+
+    fireEvent.click(screen.getByText("Place 2"));
+    await waitFor(() => expect(database.placeStudents).toHaveBeenCalledWith("scope-td", { "td-2": ["A2"], "td-1": ["A3"] }));
+    expect(onFilled).toHaveBeenCalledWith({ assigned: 2, skipped: [], scopeCode: "TD", unplaced: 0 });
+  });
+
+  it("keeps a student out of a group that meets at the same hour as one they hold, and says so", async () => {
+    show([
+      {
+        groups: [
+          { id: "rdns-8", scopeId: "scope-rdns", scopeCode: "RDNS", label: "8" },
+          { id: "td-1", scopeId: "scope-td", scopeCode: "TD", label: "1" },
+        ],
+        windows: [],
+        students: [],
+      },
+    ]);
+
+    const list = await screen.findByLabelText("Who goes where");
+    // Bilal holds RDNS 8, which clashes with TD 1 — so he goes to TD 2 despite it being the fuller choice now.
+    expect(within(list).getByText("Bilal Saleh").closest("li")?.textContent).toContain("→ 2");
+  });
+
+  it("will not fill while the timetable's word on clashes is not in", async () => {
+    show(null);
+
+    await screen.findByLabelText("Who goes where");
+    expect(screen.getByText(/could not be reached/)).toBeTruthy();
+    expect((screen.getByText("Place 2") as HTMLButtonElement).disabled).toBe(true);
+  });
+});
+
+describe("choosing who a fill acts on", () => {
+  /** The Who menu is the branded one, so it is opened and an option pressed. */
+  const chooseOnly = () => {
+    fireEvent.click(screen.getByRole("combobox", { name: "Who" }));
+    fireEvent.click(screen.getByRole("option", { name: "Only the students I choose" }));
+  };
+
+  it("fills everyone not yet in the set when nobody is chosen, which is what it did before", async () => {
+    // Pinned first, so the rest of this is provably an addition and not a change.
+    show();
+
+    const list = await screen.findByLabelText("Who goes where");
+    expect(within(list).getAllByRole("listitem")).toHaveLength(2);
+    expect(screen.queryByLabelText("Who to place")).toBeNull();
+  });
+
+  it("fills only the students ticked", async () => {
+    vi.spyOn(database, "placeStudents").mockResolvedValue({ assigned: 1, skipped: [] });
+    show();
+    await screen.findByLabelText("Who goes where");
+
+    chooseOnly();
+    const choices = await screen.findByLabelText("Who to place");
+    fireEvent.click(within(choices).getByText("Bilal Saleh").closest("label")?.querySelector("input") as HTMLElement);
+
+    // Amira was going to TD 2 and is not asked for; Bilal is, and lands where the plan says.
+    await waitFor(() => expect(within(screen.getByLabelText("Who goes where")).getAllByRole("listitem")).toHaveLength(1));
+    fireEvent.click(screen.getByText("Place 1"));
+    await waitFor(() => expect(database.placeStudents).toHaveBeenCalledWith("scope-td", { "td-2": ["A3"] }));
+  });
+
+  it("says there is nobody to place rather than showing an empty plan", async () => {
+    show();
+    await screen.findByLabelText("Who goes where");
+
+    chooseOnly();
+
+    expect(await screen.findByText(/Nobody chosen yet/)).toBeTruthy();
+    expect((screen.getByText("Place 0") as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("leaves out a student who only appears because a shared set is filed under this cohort", async () => {
+    /*
+     * The regression this replaces a test for. Holding a group filed under a cohort looks
+     * like a second way of belonging to it, and is not: an assignment is filed under the
+     * cohort that owns the SET. The languages are open to every cohort and live on one
+     * cohort's row, so every language student in the department is filed under whichever
+     * cohort holds that set — and on the real data admitting them turned Foundation Year's
+     * lecture fill from one candidate into seventy-eight.
+     */
+    vi.spyOn(database, "fetchStudents").mockResolvedValue([student("A2"), { ...student("C7"), cohortId: "" }]);
+    vi.spyOn(database, "fetchAssignments").mockResolvedValue({ C7: { "scope-lang": "lang-1" } });
+    show();
+
+    const list = await screen.findByLabelText("Who goes where");
+    expect(within(list).getAllByRole("listitem")).toHaveLength(1);
+    expect(within(list).queryByText("C7")).toBeNull();
+  });
+
+  it("still leaves out somebody who belongs to another cohort entirely", async () => {
+    // B9 is cohort-2's and holds nothing here. The widening is about a missing record,
+    // not about opening the fill to the rest of the university.
+    show();
+
+    const list = await screen.findByLabelText("Who goes where");
+    expect(within(list).queryByText("B9")).toBeNull();
+  });
+});
+
+describe("the fill and retired groups", () => {
+  const section = (retired: boolean): database.Section => ({ ...database.EMPTY_SECTION, crn: "23456", retired });
+
+  function withGroups(groups: database.CatalogueGroup[]) {
+    const onFilled = vi.fn();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <FillBlock open cohort={COHORT} scope={{ ...TD, groups }} clashes={[]} onClose={() => {}} onFilled={onFilled} />
+      </QueryClientProvider>,
+    );
+    return onFilled;
+  }
+
+  it("does not fill a group whose every section is retired", async () => {
+    // The checkbox beside a retired section already promises it teaches nobody. Seating
+    // the fill's overflow there is the one way somebody lands in a set that has stopped.
+    withGroups([
+      { id: "td-1", label: "1", capacity: 1, note: "", program: "", parentGroupId: "", assigned: 0, crns: { "course-a": section(false) } },
+      { id: "td-9", label: "9", capacity: 9, note: "", program: "", parentGroupId: "", assigned: 0, crns: { "course-a": section(true) } },
+    ]);
+
+    const sizes = await screen.findByLabelText("Group sizes after the fill");
+    const labels = within(sizes).getAllByRole("row").slice(1).map((row) => row.textContent?.[0]);
+    expect(labels).toContain("1");
+    expect(labels).not.toContain("9");
+  });
+
+  it("still fills a group retired for one course of the set and live for another", async () => {
+    withGroups([
+      { id: "td-3", label: "3", capacity: 9, note: "", program: "", parentGroupId: "", assigned: 0, crns: { "course-a": section(true), "course-b": section(false) } },
+    ]);
+
+    const sizes = await screen.findByLabelText("Group sizes after the fill");
+    const labels = within(sizes).getAllByRole("row").slice(1).map((row) => row.textContent?.[0]);
+    expect(labels).toContain("3");
+  });
+});

@@ -14,6 +14,8 @@
  * they are per-machine, and a colleague's browser knows nothing about them.
  */
 
+import * as browser from "@/services/browserStore";
+import { allLatest } from "@/services/pullHistory";
 import { displayNameOf, studentIdOf, type PortalRoster, type RosterRow } from "@/services/scenRosters";
 
 // v2 packs the rows: the field names are written once per pull instead of once per
@@ -113,42 +115,57 @@ function isPacked(pull: unknown): pull is PackedPull {
   return Boolean(pull && Array.isArray((pull as PackedPull).fields));
 }
 
-function readPacked(): PackedStore {
-  try {
-    const raw = window.localStorage.getItem(KEY);
-    if (raw) return JSON.parse(raw) as PackedStore;
-  } catch {
-    // Private browsing, a full disk, or something that is not ours: behave as if empty.
-    return {};
-  }
+async function readPacked(): Promise<PackedStore> {
+  const held = await browser.read<PackedStore>(KEY);
+  if (held) return held;
 
   /*
-   * Nothing under the new key. Carry the old store over rather than making a coordinator
-   * re-sync every view they have: the names are only in this browser, so losing them
-   * costs a trip to the portal for each one.
+   * Nothing in the database yet. Carry over whatever localStorage still holds — a v2
+   * store written before the move, or a v1 one written before the rows were packed —
+   * rather than making a coordinator re-sync every view they have. The names are only in
+   * this browser, so losing them costs a trip to the portal for each one.
    */
+  const packed = readLocal<PackedStore>(KEY);
+  if (packed) {
+    if (await browser.write(KEY, packed)) dropLocal(KEY);
+    return packed;
+  }
+
+  const old = readLocal<Store>(OLD_KEY);
+  if (!old) return {};
+  const migrated: PackedStore = {};
+  for (const [id, preset] of Object.entries(old)) {
+    migrated[id] = {
+      current: preset.current ? pack(preset.current) : undefined,
+      previous: preset.previous ? pack(preset.previous) : undefined,
+    };
+  }
+  // Only drop the old copy once the new one is safely down. If the write is refused
+  // there is nothing to gain by having deleted the only copy.
+  if (await browser.write(KEY, migrated)) dropLocal(OLD_KEY);
+  return migrated;
+}
+
+function readLocal<T>(key: string): T | null {
   try {
-    const raw = window.localStorage.getItem(OLD_KEY);
-    if (!raw) return {};
-    const old = JSON.parse(raw) as Store;
-    const migrated: PackedStore = {};
-    for (const [id, preset] of Object.entries(old)) {
-      migrated[id] = {
-        current: preset.current ? pack(preset.current) : undefined,
-        previous: preset.previous ? pack(preset.previous) : undefined,
-      };
-    }
-    // Only drop the old copy once the new one is safely down. If the write is refused
-    // there is nothing to gain by having deleted the only copy.
-    if (write(migrated)) window.localStorage.removeItem(OLD_KEY);
-    return migrated;
+    const raw = window.localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : null;
   } catch {
-    return {};
+    // Private browsing, or something that is not ours: behave as if empty.
+    return null;
   }
 }
 
-function read(): Store {
-  const packed = readPacked();
+function dropLocal(key: string): void {
+  try {
+    window.localStorage.removeItem(key);
+  } catch {
+    // What cannot be removed could not have been written.
+  }
+}
+
+async function read(): Promise<Store> {
+  const packed = await readPacked();
   const store: Store = {};
   for (const [id, preset] of Object.entries(packed)) {
     store[id] = {
@@ -184,14 +201,8 @@ export function storageReport(): StorageReport {
 }
 
 /** True if it went in. False means the quota refused it, or storage is unavailable. */
-function write(store: PackedStore): boolean {
-  try {
-    window.localStorage.setItem(KEY, JSON.stringify(store));
-    return true;
-  } catch {
-    // Private browsing, a full disk, or — the usual one — the origin's quota.
-    return false;
-  }
+function write(store: PackedStore): Promise<boolean> {
+  return browser.write(KEY, store);
 }
 
 /**
@@ -251,11 +262,11 @@ function shrink(store: PackedStore, keep: string): { store: PackedStore; gave: s
  * syncs a whole term should not silently lose the four views they were working with when
  * dropping one comparison point would have been enough.
  */
-function writeFitting(store: PackedStore, keep: string): StorageReport {
+async function writeFitting(store: PackedStore, keep: string): Promise<StorageReport> {
   const shed: string[] = [];
   let current = store;
   for (;;) {
-    if (write(current)) return { stored: true, shed };
+    if (await write(current)) return { stored: true, shed };
     const smaller = shrink(current, keep);
     // Nothing left to give up and it still will not fit: say so rather than pretend.
     if (!smaller) return { stored: false, shed };
@@ -264,13 +275,13 @@ function writeFitting(store: PackedStore, keep: string): StorageReport {
   }
 }
 
-export function loadPull(presetId: string): StoredPreset {
-  return read()[presetId] ?? {};
+export async function loadPull(presetId: string): Promise<StoredPreset> {
+  return (await read())[presetId] ?? {};
 }
 
 /** Keep this pull, and demote the one it replaces to "previous". */
-export function rememberPull(roster: PortalRoster): StoredPreset {
-  const store = readPacked();
+export async function rememberPull(roster: PortalRoster): Promise<StoredPreset> {
+  const store = await readPacked();
   const existing = store[roster.presetId] ?? {};
   const kept = pack({
     presetId: roster.presetId,
@@ -279,12 +290,15 @@ export function rememberPull(roster: PortalRoster): StoredPreset {
     fetchedAt: roster.fetchedAt,
     rows: roster.rows,
   });
-  // Pulling twice in quick succession should not throw away the comparison point.
-  const previous = existing.current && existing.current.fetchedAt !== kept.fetchedAt
-    ? existing.current
-    : existing.previous;
-  store[roster.presetId] = { current: kept, previous };
-  lastReport = writeFitting(store, roster.presetId);
+  /*
+   * Only the pull itself. What changed since the last one is the history's answer and
+   * always was — keeping the whole previous roster here stored 45 fields a student so
+   * that six of them could be compared, and a term's worth of that did not fit beside
+   * the views a coordinator already had. A `previous` written by an older version is
+   * still read, so nothing a coordinator already has stops working.
+   */
+  store[roster.presetId] = { current: kept, previous: existing.previous };
+  lastReport = await writeFitting(store, roster.presetId);
   try {
     window.localStorage.setItem(LAST, roster.presetId);
   } catch {
@@ -307,6 +321,61 @@ function syncTimes(): Record<string, string> {
 }
 
 /** When this view last synced, so a student first seen then shows as newly arrived. */
+/** Every pull held, oldest first, so a newer one overwrites an older one's answer. */
+async function heldPulls(): Promise<StoredPull[]> {
+  const store = await read();
+  return Object.values(store)
+    .flatMap((preset) => [preset.previous, preset.current])
+    .filter((pull): pull is StoredPull => Boolean(pull))
+    .sort((left, right) => left.fetchedAt - right.fetchedAt);
+}
+
+/** When this browser last heard from the portal, whichever view asked. Null when never. */
+export async function latestPullAt(): Promise<number | null> {
+  // The packed store, not the unpacked rows: this wants one number, and unpacking every
+  // view's roster to get it was most of the Cohorts page's load time.
+  const store = await readPacked();
+  let latest: number | null = null;
+  for (const preset of Object.values(store)) {
+    for (const pull of [preset.previous, preset.current]) {
+      if (pull && (latest === null || pull.fetchedAt > latest)) latest = pull.fetchedAt;
+    }
+  }
+  return latest;
+}
+
+/**
+ * What the portal last said about each student, whoever asked.
+ *
+ * A view is a question about *which* students, not a separate account of what is true
+ * about them: a student in the L1 view and the whole-term view is one student, and the
+ * more recent answer is the better one wherever they are shown. Reading only the view's
+ * own pull meant syncing one view left the same student stale in every other — and it
+ * disagreed with the workbook export, which has always taken the newest across views.
+ *
+ * Newest wins, which is why the pulls are walked oldest first. The history goes in
+ * underneath: it holds the last known values of students no view returns any more, so
+ * somebody who has left still reads rather than emptying out.
+ */
+export async function rowsHeld(): Promise<RosterRow[]> {
+  const merged = new Map<string, RosterRow>();
+
+  for (const { values } of await allLatest()) {
+    for (const [id, fields] of Object.entries(values)) {
+      if (id) merged.set(id, fields as RosterRow);
+    }
+  }
+
+  for (const pull of await heldPulls()) {
+    for (const row of pull.rows) {
+      const id = studentIdOf(row);
+      if (id) merged.set(id, row);
+    }
+  }
+
+  return [...merged.values()];
+}
+
 /**
  * Every name this browser holds, across every view it has pulled.
  *
@@ -314,15 +383,20 @@ function syncTimes(): Record<string, string> {
  * extension and go no further than this tab. A student may appear in more than one view;
  * the most recent pull wins, since that is the one whose spelling the registrar last used.
  */
-export function namesHeld(): Record<string, string> {
-  const store = read();
+export async function namesHeld(): Promise<Record<string, string>> {
   const names: Record<string, string> = {};
-  const pulls = Object.values(store)
-    .flatMap((preset) => [preset.previous, preset.current])
-    .filter((pull): pull is StoredPull => Boolean(pull))
-    .sort((left, right) => left.fetchedAt - right.fetchedAt);
 
-  for (const pull of pulls) {
+  // The history first: it keeps a student's last known values after the portal stops
+  // returning them, so a departed student still has a name in an export.
+  for (const { values } of await allLatest()) {
+    for (const [id, fields] of Object.entries(values)) {
+      const name = displayNameOf(fields as RosterRow);
+      if (id && name) names[id] = name;
+    }
+  }
+
+  // Then the pulls themselves, which are newer and win.
+  for (const pull of await heldPulls()) {
     for (const row of pull.rows) {
       const id = studentIdOf(row);
       const name = displayNameOf(row);
@@ -338,15 +412,17 @@ export function namesHeld(): Record<string, string> {
  * The same rule as the names: most recent pull wins, and nothing leaves the browser. Used
  * for the workbook's Program column, which is the registrar's word rather than ours.
  */
-export function fieldHeld(field: string): Record<string, string> {
-  const store = read();
+export async function fieldHeld(field: string): Promise<Record<string, string>> {
   const values: Record<string, string> = {};
-  const pulls = Object.values(store)
-    .flatMap((preset) => [preset.previous, preset.current])
-    .filter((pull): pull is StoredPull => Boolean(pull))
-    .sort((left, right) => left.fetchedAt - right.fetchedAt);
 
-  for (const pull of pulls) {
+  for (const { values: held } of await allLatest()) {
+    for (const [id, fields] of Object.entries(held)) {
+      const value = String(fields[field] ?? "").trim();
+      if (id && value) values[id] = value;
+    }
+  }
+
+  for (const pull of await heldPulls()) {
     for (const row of pull.rows) {
       const id = studentIdOf(row);
       const value = String(row[field] ?? "").trim();
@@ -368,7 +444,8 @@ export function rememberSync(viewId: string, syncedAt: string): void {
   }
 }
 
-export function forgetRosters(): void {
+export async function forgetRosters(): Promise<void> {
+  await browser.drop(KEY);
   try {
     window.localStorage.removeItem(KEY);
     window.localStorage.removeItem(OLD_KEY);

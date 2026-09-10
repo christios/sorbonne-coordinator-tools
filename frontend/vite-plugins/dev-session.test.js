@@ -2,7 +2,7 @@ import { resolve } from "node:path";
 
 import { describe, expect, it, vi } from "vitest";
 
-import { cookieFrom, devSession, hostMismatch } from "./dev-session.js";
+import { cookieFrom, devSession, expiryOf, hostMismatch, needsRenewal } from "./dev-session.js";
 
 const COOKIE = "sorbonne_staff_session=header.signature";
 const SCRIPT_OUTPUT = `${COOKIE}\n\n# signed in as coordinator@sorbonne.ae, valid for 12 hours\n`;
@@ -89,5 +89,73 @@ describe("dev session", () => {
       api: "localhost",
     });
     expect(hostMismatch("localhost:3000", "http://localhost:8000")).toBeNull();
+  });
+});
+
+/** A cookie whose session ends at `exp` seconds since the epoch, shaped like the real one. */
+function cookieEndingAt(exp) {
+  const payload = Buffer.from(JSON.stringify({ email: "c@sorbonne.ae", exp })).toString("base64url");
+  return `sorbonne_staff_session=${payload}.signature`;
+}
+
+/*
+ * A session lasts twelve hours; a dev server under the keeper runs for days. The cookie
+ * minted at start-up went stale while the server was still serving, and every page load
+ * then handed the browser a dying token — which read as "sign in" on a machine where
+ * sign-in is supposed to be automatic.
+ */
+describe("a dev session that outlives its cookie", () => {
+  const NOW = 1_700_000_000;
+
+  it("reads when a cookie's session ends", () => {
+    expect(expiryOf(cookieEndingAt(NOW + 100))).toBe(NOW + 100);
+    expect(expiryOf("sorbonne_staff_session=not.a.token")).toBe(0);
+  });
+
+  it("wants a fresh one an hour before the end, and not before", () => {
+    expect(needsRenewal(cookieEndingAt(NOW + 3 * 3600), NOW)).toBe(false);
+    expect(needsRenewal(cookieEndingAt(NOW + 30 * 60), NOW)).toBe(true);
+    expect(needsRenewal(cookieEndingAt(NOW - 1), NOW)).toBe(true);
+    // Unreadable is treated as stale rather than trusted for ever.
+    expect(needsRenewal("sorbonne_staff_session=garbage", NOW)).toBe(true);
+  });
+
+  it("mints again on the page load that finds the cookie stale", () => {
+    const stale = cookieEndingAt(Math.floor(Date.now() / 1000) - 10);
+    const fresh = cookieEndingAt(Math.floor(Date.now() / 1000) + 12 * 3600);
+    const outputs = [`${stale}\n`, `${fresh}\n`];
+    const run = vi.fn(() => outputs.shift());
+    const { middleware } = start({ run });
+
+    const { set } = request(middleware);
+
+    expect(run).toHaveBeenCalledTimes(2);
+    expect(set["Set-Cookie"]).toBe(`${fresh}; Path=/; SameSite=Lax`);
+  });
+
+  it("does not mint again while the cookie is still good", () => {
+    const fresh = cookieEndingAt(Math.floor(Date.now() / 1000) + 12 * 3600);
+    const run = vi.fn(() => `${fresh}\n`);
+    const { middleware } = start({ run });
+
+    request(middleware);
+    request(middleware);
+
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the old cookie when a re-mint fails, rather than serving none", () => {
+    const stale = cookieEndingAt(Math.floor(Date.now() / 1000) - 10);
+    let calls = 0;
+    const run = vi.fn(() => {
+      calls += 1;
+      if (calls > 1) throw new Error("uv: backend went away");
+      return `${stale}\n`;
+    });
+    const { middleware } = start({ run });
+
+    const { set } = request(middleware);
+
+    expect(set["Set-Cookie"]).toBe(`${stale}; Path=/; SameSite=Lax`);
   });
 });

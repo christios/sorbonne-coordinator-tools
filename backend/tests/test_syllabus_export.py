@@ -153,7 +153,8 @@ def test_builds_a_filled_template_with_repeatable_course_content(tmp_path) -> No
     assert document.tables[7].cell(1, 1).text == "Week 1"
     assert (
         document.tables[7].cell(1, 3).text
-        == "Session details:\nInstitutions, actors, and implementation pathways.\n\nPre-class learning activities:\nRead chapter 1\n\nAssessments:\nShort quiz"
+        == "Session details:\nInstitutions, actors, and implementation pathways.\n\n"
+        "Pre-class learning activities:\nRead chapter 1\n\nAssessments:\nShort quiz"
     )
     assert "A. Author" in document.tables[8].cell(0, 1).text
     assert document.tables[9].cell(1, 1).text == "Policy brief"

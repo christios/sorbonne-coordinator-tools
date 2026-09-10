@@ -15,10 +15,14 @@ from fastapi import status
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 
+from sorbonne.api import deps
+from sorbonne.api import portal as portal_api
 from sorbonne.api import publication as api
 from sorbonne.api import student_database as student_api
 from sorbonne.api import timetables as timetables_api
 from sorbonne.main import app
+from sorbonne.services.facility_timetable import FacilityTimetableStore
+from sorbonne.services.portal_lists import PortalListStore
 from sorbonne.services.student_database import StudentDatabase
 from sorbonne.services.student_timetables import StudentPlatformClient
 from tests.conftest import TEST_DATABASE_URL
@@ -26,9 +30,10 @@ from tests.conftest import TEST_DATABASE_URL
 TERM = "term-1"
 OTHER_TERM = "term-2"
 
+MONDAY = {"date": "2026-08-31", "start": "08:30:00", "end": "10:00:00", "isExam": False}
 SECTIONS = [
-    {"crn": "22151", "code": "MATH-001-CM-GR.A", "kind": "Lecture", "groupLabel": "Gr. A"},
-    {"crn": "23652", "code": "MATH-011-TD-Gr.1", "kind": "Tutorial", "groupLabel": "Gr. 1"},
+    {"crn": "22151", "code": "MATH-001-CM-GR.A", "kind": "Lecture", "groupLabel": "Gr. A", "sessions": [MONDAY]},
+    {"crn": "23652", "code": "MATH-011-TD-Gr.1", "kind": "Tutorial", "groupLabel": "Gr. 1", "sessions": [MONDAY]},
     {"crn": "23653", "code": "MATH-011-TD-Gr.2", "kind": "Tutorial", "groupLabel": "Gr. 2"},
 ]
 
@@ -43,6 +48,13 @@ def empty_shared_tables() -> None:
     with StudentDatabase(TEST_DATABASE_URL).engine.begin() as connection:
         connection.execute(text("DELETE FROM students"))
         connection.execute(text("DELETE FROM student_cohorts"))
+        # The term link and the registrar's record outlive a cohort, so a test that made
+        # one leaks into the next — and "this semester has no portal term" is a thing
+        # several tests below assert about.
+        connection.execute(text("DELETE FROM term_links"))
+        connection.execute(text("DELETE FROM facility_meetings"))
+        connection.execute(text("DELETE FROM facility_sections"))
+        connection.execute(text("DELETE FROM facility_pulls"))
 
 
 @pytest.fixture
@@ -50,6 +62,13 @@ def client(database: StudentDatabase) -> TestClient:
     # Publishing reads one database and assigning writes it; both must be the test's.
     app.dependency_overrides[api.get_database] = lambda: database
     app.dependency_overrides[student_api.get_database] = lambda: database
+    # And every store the publication route now reads, pointed at the test's database.
+    # Left alone they are built from `config.database_url` — which is a developer's own dev
+    # database, and a test suite that reads and writes one is how fifteen stray rows once
+    # ended up in it.
+    app.dependency_overrides[portal_api.get_store] = lambda: PortalListStore(TEST_DATABASE_URL)
+    app.dependency_overrides[portal_api.get_facilities] = lambda: FacilityTimetableStore(TEST_DATABASE_URL)
+    app.dependency_overrides[deps.optional_client] = lambda: None
     try:
         yield TestClient(app)
     finally:
@@ -61,7 +80,16 @@ def platform(handler) -> StudentPlatformClient:
 
 
 def use(client: TestClient, handler) -> TestClient:
+    """Give this test a Student Hub, for both the routes that require one and those that don't.
+
+    `read_publication` takes the Hub through `optional_client` now, because the registrar's
+    own timetable answers it and the Hub is only consulted for what the registrar is blind
+    to. Overriding `require_client` alone leaves that route asking the real `get_client`,
+    which is unconfigured in a test — so the Hub silently vanishes and every CRN reads as
+    "not in this semester's timetable".
+    """
     app.dependency_overrides[timetables_api.require_client] = lambda: platform(handler)
+    app.dependency_overrides[deps.optional_client] = lambda: platform(handler)
     return client
 
 
@@ -125,9 +153,7 @@ def test_a_fully_assigned_cohort_is_ready(client: TestClient, database: StudentD
     assert payload["resolved"] == {"students": 2, "enrolments": 4}
 
 
-def test_students_in_no_group_stop_it_being_ready_and_are_named(
-    client: TestClient, database: StudentDatabase
-):
+def test_students_in_no_group_stop_it_being_ready_and_are_named(client: TestClient, database: StudentDatabase):
     build_cohort(database, assign=False)
     payload = use(client, sections_then({})).get(f"/api/v1/publication/terms/{TERM}").json()
 
@@ -137,9 +163,25 @@ def test_students_in_no_group_stop_it_being_ready_and_are_named(
     assert report["unassigned"]["CM"] == ["A001", "A002"]
 
 
-def test_a_cohort_set_up_for_another_semester_is_not_this_ones_business(
+def test_groups_that_meet_at_the_same_hour_are_named_with_who_sits_in_both(
     client: TestClient, database: StudentDatabase
 ):
+    # CM A and TD 1 both meet Monday 08:30, and both students are in both. Not a blocker —
+    # the timetable is what it is — but it is said where the placing happens.
+    build_cohort(database)
+
+    report = use(client, sections_then({})).get(f"/api/v1/publication/terms/{TERM}").json()
+
+    [clash] = report["cohorts"][0]["clashes"]
+    assert [f"{group['scopeCode']} {group['label']}" for group in clash["groups"]] == ["CM A", "TD 1"]
+    assert clash["windows"] == [
+        {"weekday": "Mon", "start": "08:30", "end": "10:00", "crns": ["22151", "23652"], "dates": 1}
+    ]
+    assert clash["students"] == ["A001", "A002"]
+    assert report["isReady"] is True
+
+
+def test_a_cohort_set_up_for_another_semester_is_not_this_ones_business(client: TestClient, database: StudentDatabase):
     build_cohort(database, term_id=OTHER_TERM)
     payload = use(client, sections_then({})).get(f"/api/v1/publication/terms/{TERM}").json()
 
@@ -188,9 +230,7 @@ def _course_of(database: StudentDatabase, scope_id: str) -> str:
 # ------------------------------------------------------------ preview and publish
 
 
-def test_the_preview_sends_what_was_resolved_and_writes_nothing_here(
-    client: TestClient, database: StudentDatabase
-):
+def test_the_preview_sends_what_was_resolved_and_writes_nothing_here(client: TestClient, database: StudentDatabase):
     build_cohort(database)
     seen = {}
 
@@ -265,9 +305,7 @@ def test_a_stale_publish_keeps_the_platforms_own_refusal(client: TestClient, dat
         status.HTTP_409_CONFLICT,
     )
 
-    response = use(client, handler).post(
-        f"/api/v1/publication/terms/{TERM}/publish", json={"base_updated_at": "stale"}
-    )
+    response = use(client, handler).post(f"/api/v1/publication/terms/{TERM}/publish", json={"base_updated_at": "stale"})
 
     assert response.status_code == status.HTTP_409_CONFLICT
     assert "changed by somebody else" in response.json()["detail"]
@@ -283,9 +321,7 @@ def put_assignment(client: TestClient, scope_id: str, group_id: str | None, stud
 # ------------------------------------------------------------------- assigning
 
 
-def test_assigning_puts_a_student_in_a_group_and_replaces_what_they_had(
-    client: TestClient, database: StudentDatabase
-):
+def test_assigning_puts_a_student_in_a_group_and_replaces_what_they_had(client: TestClient, database: StudentDatabase):
     """One group per scope: assigning again moves them rather than adding a second."""
     built = build_cohort(database, assign=False)
     other = database.add_group(built["cm"], label="B")
@@ -296,9 +332,7 @@ def test_assigning_puts_a_student_in_a_group_and_replaces_what_they_had(
     assert database.assignments_of(built["cohort"]["id"])["A001"] == {built["cm"]: other}
 
 
-def test_assigning_to_nothing_leaves_them_undecided_rather_than_enrolled(
-    client: TestClient, database: StudentDatabase
-):
+def test_assigning_to_nothing_leaves_them_undecided_rather_than_enrolled(client: TestClient, database: StudentDatabase):
     built = build_cohort(database)
     put_assignment(client, built["cm"], None)
 
@@ -312,9 +346,7 @@ def test_a_group_from_another_scope_is_refused(client: TestClient, database: Stu
     assert response.status_code == status.HTTP_404_NOT_FOUND
 
 
-def test_publishing_tells_the_platform_which_cohort_each_student_is_in(
-    client: TestClient, database: StudentDatabase
-):
+def test_publishing_tells_the_platform_which_cohort_each_student_is_in(client: TestClient, database: StudentDatabase):
     """The platform has no notion of cohorts otherwise, and a notice addressed to one has
     to reach the right people."""
     build_cohort(database)
@@ -335,9 +367,7 @@ def test_publishing_tells_the_platform_which_cohort_each_student_is_in(
     assert {entry["name"] for entry in cohorts.values()} == {"Foundation Year"}
 
 
-def test_a_student_nobody_has_placed_still_gets_a_cohort(
-    client: TestClient, database: StudentDatabase
-):
+def test_a_student_nobody_has_placed_still_gets_a_cohort(client: TestClient, database: StudentDatabase):
     """They resolve to no enrolments at all, and are the likeliest to need telling why."""
     build_cohort(database)
     cohort = database.list_cohorts()[0]
@@ -361,3 +391,300 @@ def test_a_student_nobody_has_placed_still_gets_a_cohort(
 
     assert "A-unplaced" not in seen["body"]["enrolments"]
     assert seen["body"]["cohorts"]["A-unplaced"]["name"] == "Foundation Year"
+
+
+def test_a_section_without_a_crn_or_retired_enrols_nobody(client: TestClient, database: StudentDatabase):
+    built = build_cohort(database)
+    # A third course in the TD block whose section has details but no CRN yet, and a
+    # retired section for a fourth: neither may reach the platform as an enrolment.
+    pending = database.add_course(built["td"], code="PHYS-001")
+    database.update_section(group_id=built["group1"], course_id=pending, hours="30")
+    retired = database.add_course(built["td"], code="CHEM-001")
+    database.set_cell(group_id=built["group1"], course_id=retired, crn="29999")
+    database.update_section(group_id=built["group1"], course_id=retired, retired=True)
+
+    resolved = api._resolve_term(database.term_publication(TERM))
+
+    assert resolved["A001"] == ["22151", "23652"]
+
+
+# --------------------------------------------------- sets open to every cohort
+
+
+def build_shared_language(database: StudentDatabase, owner: dict) -> dict:
+    """A LANG set on Foundation Year's row, open to every cohort, and an L1 student in it.
+
+    The languages are set up this way in production: one cohort holds the row, everybody
+    uses it. L1's own lecture and the language group meet at the same hour, and B001 sits
+    in both — which is a clash of L1's, not of Foundation Year's.
+    """
+    lang = database.add_scope(owner["cohort"]["id"], code="LANG", name="Languages", term_id=TERM, open_to_all=True)
+    french = database.add_course(lang, code="MATH-011")
+    a1 = database.add_group(lang, label="A1")
+    database.set_cell(group_id=a1, course_id=french, crn="23652")
+
+    l1 = database.create_cohort(name="L1", term="2026-27")
+    with database.engine.begin() as connection:
+        connection.execute(
+            text("""INSERT INTO students (student_id, status, cohort_id, first_seen_at,
+                                          last_seen_at, updated_at)
+                    VALUES ('B001', 'in_portal', :cohort, 'now', 'now', 'now')"""),
+            {"cohort": l1["id"]},
+        )
+    cm = database.add_scope(l1["id"], code="CM", name="Lectures", term_id=TERM)
+    maths = database.add_course(cm, code="MATH-001")
+    group_a = database.add_group(cm, label="A")
+    database.set_cell(group_id=group_a, course_id=maths, crn="22151")
+
+    database.assign(student_id="B001", scope_id=cm, group_id=group_a)
+    database.assign(student_id="B001", scope_id=lang, group_id=a1)
+    return {"l1": l1, "lang": lang, "cm": cm, "a1": a1, "groupA": group_a}
+
+
+def test_a_shared_set_clashes_with_every_cohorts_blocks_not_only_its_owners(
+    client: TestClient, database: StudentDatabase
+):
+    # The third recurrence of the same quirk: a set open to every cohort lives on ONE
+    # cohort's row, and everything that reads a semester cohort by cohort loses it for
+    # everybody else. B001 is L1's, sits in Foundation Year's language group, and that
+    # group meets at the same hour as L1's own lecture. Nobody was checking.
+    owner = build_cohort(database)
+    build_shared_language(database, owner)
+
+    report = use(client, sections_then({})).get(f"/api/v1/publication/terms/{TERM}").json()
+    l1 = next(cohort for cohort in report["cohorts"] if cohort["cohort"] == "L1")
+
+    [clash] = l1["clashes"]
+    assert sorted(f"{group['scopeCode']} {group['label']}" for group in clash["groups"]) == ["CM A", "LANG A1"]
+    assert clash["students"] == ["B001"]
+
+
+def test_a_shared_sets_clash_names_only_the_cohorts_own_students(client: TestClient, database: StudentDatabase):
+    # Foundation Year's own students are in the same language group. They are Foundation
+    # Year's to report, and must not appear on L1's line.
+    owner = build_cohort(database)
+    shared = build_shared_language(database, owner)
+    database.assign(student_id="A001", scope_id=shared["lang"], group_id=shared["a1"])
+
+    report = use(client, sections_then({})).get(f"/api/v1/publication/terms/{TERM}").json()
+    l1 = next(cohort for cohort in report["cohorts"] if cohort["cohort"] == "L1")
+
+    assert l1["clashes"][0]["students"] == ["B001"]
+
+
+def test_a_shared_set_does_not_change_what_the_semester_publishes(client: TestClient, database: StudentDatabase):
+    # The keys are additive: resolution and readiness read the cohort's own sets exactly as
+    # before, so nothing about publishing moves.
+    owner = build_cohort(database)
+    build_shared_language(database, owner)
+
+    report = use(client, sections_then({})).get(f"/api/v1/publication/terms/{TERM}").json()
+    l1 = next(cohort for cohort in report["cohorts"] if cohort["cohort"] == "L1")
+
+    # Readiness still counts only L1's own set: one student, one CM group, nothing missing.
+    assert l1["students"] == 1
+    assert l1["unassigned"] == {}
+    assert l1["isReady"] is True
+
+
+def test_two_cohorts_own_blocks_at_the_same_hour_are_still_not_a_clash(
+    client: TestClient, database: StudentDatabase
+):
+    # Guards the shape of the fix against being "simplified" into a term-wide comparison.
+    # Foundation Year's CM and L1's CM both meet Monday 08:30 — and that is not a clash for
+    # anybody, because no student is in both. Only sets open to every cohort cross the line.
+    owner = build_cohort(database)
+    shared = build_shared_language(database, owner)
+    database.assign(student_id="B001", scope_id=shared["lang"], group_id=shared["a1"])
+
+    report = use(client, sections_then({})).get(f"/api/v1/publication/terms/{TERM}").json()
+    fy = next(cohort for cohort in report["cohorts"] if cohort["cohort"] == "Foundation Year")
+
+    # Foundation Year sees its own CM/TD clash, and nothing of L1's.
+    for clash in fy["clashes"]:
+        assert set(clash["students"]) <= {"A001", "A002"}
+        assert all(group["scopeCode"] in {"CM", "TD", "LANG"} for group in clash["groups"])
+
+
+# ------------------------------------- the registrar's timetable, not an uploaded file
+
+
+"""
+The Student Hub's sessions are a registrar export somebody put through a spreadsheet at
+the start of term: a photograph, out of date the moment a room moves, and covering only
+the cohorts whose file was made. Against 141 live CRNs it had times for the 43 courses of
+one file — which is why three of four cohorts reported no clashes and meant nothing by it.
+"""
+
+
+def timetabled(term_code: str, sections: list[dict]) -> None:
+    """Say what the registrar has booked, the way a sweep of it does."""
+    FacilityTimetableStore(TEST_DATABASE_URL).record_pull(
+        term_code=term_code,
+        asked=[section["crn"] for section in sections],
+        sections=sections,
+        silent=[],
+        failed=[],
+        complete=True,
+    )
+
+
+def link(client: TestClient, term_code: str = "262710") -> None:
+    client.put(f"/api/v1/portal/term-links/{TERM}", json={"portalTermCode": term_code})
+
+
+def test_the_registrars_own_timetable_answers_the_clashes(client: TestClient, database: StudentDatabase):
+    build_cohort(database)
+    link(client)
+    # Both meet Tuesday 08:30, which the uploaded file below knows nothing about.
+    timetabled("262710", [
+        {"crn": "22151", "courseCode": "MATH-001", "ours": True,
+         "meetings": [{"meetsOn": "2026-09-01", "startsAt": "08:30", "endsAt": "10:00"}]},
+        {"crn": "23652", "courseCode": "MATH-011", "ours": True,
+         "meetings": [{"meetsOn": "2026-09-01", "startsAt": "08:30", "endsAt": "10:00"}]},
+    ])
+
+    report = use(client, sections_then({})).get(f"/api/v1/publication/terms/{TERM}").json()
+
+    [clash] = report["cohorts"][0]["clashes"]
+    # Tuesday, from the registrar — not the Monday the uploaded file says.
+    assert clash["windows"][0]["weekday"] == "Tue"
+    assert report["coverage"]["timetabled"] == 2
+    assert report["coverage"]["blind"] == []
+
+
+def test_a_section_the_registrar_has_not_timetabled_falls_back_to_the_hub(
+    client: TestClient, database: StudentDatabase
+):
+    """Where the registrar is blind, a stale answer beats none — and only there."""
+    build_cohort(database)
+    link(client)
+    # The registrar knows 22151 and says exactly what the uploaded file says. 23652 it has
+    # never been asked about, so only the Hub can answer for it.
+    timetabled("262710", [
+        {"crn": "22151", "courseCode": "MATH-001", "ours": True,
+         "meetings": [{"meetsOn": "2026-08-31", "startsAt": "08:30", "endsAt": "10:00"}]},
+    ])
+
+    report = use(client, sections_then({})).get(f"/api/v1/publication/terms/{TERM}").json()
+
+    # Both are timetabled between them, and nothing is left blind.
+    assert report["coverage"]["timetabled"] == 2
+    assert report["coverage"]["blind"] == []
+    # `dates: 1` is the assertion that matters. Both sources describe 22151 identically,
+    # so a union would give it the same meeting twice and fold the pair to `dates: 2` —
+    # one class silently counted as two. The Hub is asked ONLY for what the registrar is
+    # blind to, so 22151 arrives once.
+    [clash] = report["cohorts"][0]["clashes"]
+    assert clash["windows"] == [
+        {"weekday": "Mon", "start": "08:30", "end": "10:00", "crns": ["22151", "23652"], "dates": 1}
+    ]
+
+
+def test_with_no_portal_term_linked_every_section_is_blind_to_the_registrar(
+    client: TestClient, database: StudentDatabase
+):
+    # Nothing to ask the registrar about, so the Hub answers it all — and the coverage
+    # says so, which is what stops "no clashes" being read as "nothing wrong".
+    build_cohort(database)
+
+    report = use(client, sections_then({})).get(f"/api/v1/publication/terms/{TERM}").json()
+
+    assert report["coverage"]["linked"] is False
+    assert report["coverage"]["portalTermCode"] == ""
+    assert report["coverage"]["timetabled"] == 2
+
+
+def test_without_a_hub_the_registrar_answers_alone(client: TestClient, database: StudentDatabase):
+    """The point of the change: no Student Hub, and the page still works."""
+    build_cohort(database)
+    link(client)
+    timetabled("262710", [
+        {"crn": "22151", "courseCode": "MATH-001", "ours": True,
+         "meetings": [{"meetsOn": "2026-09-01", "startsAt": "08:30", "endsAt": "10:00"}]},
+        {"crn": "23652", "courseCode": "MATH-011", "ours": True,
+         "meetings": [{"meetsOn": "2026-09-01", "startsAt": "08:30", "endsAt": "10:00"}]},
+    ])
+
+    # No `use(...)`: `optional_client` is None, so there is no Hub at all.
+    report = client.get(f"/api/v1/publication/terms/{TERM}").json()
+
+    assert [f"{g['scopeCode']} {g['label']}" for g in report["cohorts"][0]["clashes"][0]["groups"]] == ["CM A", "TD 1"]
+    # Every CRN validated against the registrar's sections, so the semester is publishable.
+    assert report["unmatchedCrns"] == 0
+    assert report["coverage"]["hubReachable"] is None
+
+
+def test_a_set_taught_to_one_programme_does_not_want_the_other_programme_in_it(
+    client: TestClient, database: StudentDatabase
+):
+    """L2's practicals teach one course, for physicists, and the cohort is half mathematicians.
+
+    Counted on production the day this was fixed: 36 of L2's 44 students and 11 of L3's 16
+    were reported missing from a set that is not for them. That is not a worklist, it is a
+    wall of noise standing in front of one — the single real gap in L2 was invisible behind
+    thirty-five names that were never going to be placed.
+    """
+    cohort = database.create_cohort(name="Second year", term="2026-27")
+    with database.engine.begin() as connection:
+        for student in ("A001", "A002"):
+            connection.execute(
+                text("""INSERT INTO students (student_id, status, cohort_id, first_seen_at,
+                                              last_seen_at, updated_at)
+                        VALUES (:id, 'in_portal', :cohort, 'now', 'now', 'now')"""),
+                {"id": student, "cohort": cohort["id"]},
+            )
+    cm = database.add_scope(cohort["id"], code="CM", name="Lectures", term_id=TERM)
+    tp = database.add_scope(cohort["id"], code="TP", name="Practicals", term_id=TERM)
+    algebra = database.add_course(cm, code="MATH-223", program="Mathematics")
+    practical = database.add_course(tp, code="PHYS-208", program="Physics")
+    maths_group = database.add_group(cm, label="Mathematics", program="Mathematics")
+    physics_group = database.add_group(cm, label="Physics", program="Physics")
+    practicals = database.add_group(tp, label="Physics", program="Physics")
+    database.set_cell(group_id=maths_group, course_id=algebra, crn="24087")
+    database.set_cell(group_id=physics_group, course_id=algebra, crn="24088")
+    database.set_cell(group_id=practicals, course_id=practical, crn="24240")
+    database.assign(student_id="A001", scope_id=cm, group_id=maths_group)
+    database.assign(student_id="A002", scope_id=cm, group_id=physics_group)
+    database.assign(student_id="A002", scope_id=tp, group_id=practicals)
+
+    report = next(
+        entry
+        for entry in use(client, sections_then({})).get(f"/api/v1/publication/terms/{TERM}").json()["cohorts"]
+        if entry["cohort"] == "Second year"
+    )
+
+    # The mathematician is not asked for a physics practical, and nothing else changes.
+    assert "TP" not in report["unassigned"]
+    assert not any("Practicals" in warning for warning in report["warnings"])
+
+
+def test_a_student_of_that_programme_missing_from_it_is_still_named(
+    client: TestClient, database: StudentDatabase
+):
+    # The difference between not asking a mathematician, and quietly forgetting a physicist.
+    cohort = database.create_cohort(name="Second year", term="2026-27")
+    with database.engine.begin() as connection:
+        connection.execute(
+            text("""INSERT INTO students (student_id, status, cohort_id, first_seen_at,
+                                          last_seen_at, updated_at)
+                    VALUES ('A002', 'in_portal', :cohort, 'now', 'now', 'now')"""),
+            {"cohort": cohort["id"]},
+        )
+    cm = database.add_scope(cohort["id"], code="CM", name="Lectures", term_id=TERM)
+    tp = database.add_scope(cohort["id"], code="TP", name="Practicals", term_id=TERM)
+    algebra = database.add_course(cm, code="MATH-223", program="Physics")
+    practical = database.add_course(tp, code="PHYS-208", program="Physics")
+    physics_group = database.add_group(cm, label="Physics", program="Physics")
+    practicals = database.add_group(tp, label="Physics", program="Physics")
+    database.set_cell(group_id=physics_group, course_id=algebra, crn="24088")
+    database.set_cell(group_id=practicals, course_id=practical, crn="24240")
+    database.assign(student_id="A002", scope_id=cm, group_id=physics_group)
+
+    report = next(
+        entry
+        for entry in use(client, sections_then({})).get(f"/api/v1/publication/terms/{TERM}").json()["cohorts"]
+        if entry["cohort"] == "Second year"
+    )
+
+    assert report["unassigned"]["TP"] == ["A002"]

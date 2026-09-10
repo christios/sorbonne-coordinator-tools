@@ -22,11 +22,14 @@ from sorbonne.services.workbook_diff import (
 from sorbonne.services.group_reference_import import ReferenceImportError, parse_group_reference
 from sorbonne.services.student_database import (
     CohortNotFound,
+    CourseNotFound,
+    InvalidRule,
     DuplicateFilterName,
     DuplicateLabel,
     FilterNotFound,
     GroupNotFound,
     InvalidFilter,
+    MAX_PARTS,
     SavedSearch,
     ScopeNotFound,
     StudentDatabase,
@@ -45,6 +48,37 @@ class CohortInput(BaseModel):
     name: str = Field(min_length=1, max_length=160)
     term: str = Field(default="", max_length=80)
     notes: str = Field(default="", max_length=2000)
+    # What the cohort expects of its students, as the portal codes it: the majors and the
+    # portal terms it spans, and a year level. Optional: a cohort that states none of them
+    # is judged on status alone.
+    majors: list[str] = Field(default_factory=list, max_length=20)
+    terms: list[str] = Field(default_factory=list, max_length=20)
+    yearLevel: str = Field(default="", max_length=40)
+    # What this cohort's sheet is called in the timetable workbook — "BSc-L2" — and the
+    # number that workbook gives its first semester, which for Licence 2 is 3.
+    workbookTab: str = Field(default="", max_length=24)
+    firstSemester: int = Field(default=0, ge=0, le=12)
+
+
+class MoveInput(BaseModel):
+    """Which way along the order, and never further than one place at a time."""
+
+    by: int = Field(ge=-1, le=1)
+
+
+class RuleInput(BaseModel):
+    """One thing that counts as a discrepancy — see services.student_database._clean_rule."""
+
+    id: str = Field(default="", max_length=80)
+    field: str = Field(min_length=1, max_length=64)
+    kind: str = Field(min_length=1, max_length=20)
+    values: list[str] = Field(default_factory=list, max_length=100)
+    # The cohort the rule is for; empty for every cohort.
+    cohortId: str = Field(default="", max_length=80)
+
+
+class RulesInput(BaseModel):
+    rules: list[RuleInput] = Field(default_factory=list, max_length=50)
 
 
 class SyncInput(BaseModel):
@@ -72,6 +106,9 @@ class CohortAssignment(BaseModel):
 
     student_ids: list[str] = Field(default_factory=list, max_length=20_000, alias="studentIds")
     cohort_id: str | None = Field(default=None, alias="cohortId")
+    #: Keep the placements in sets open to EVERY cohort — the languages, which are not the
+    #: leaving cohort's matrix. Defaults to false so every existing caller is unchanged.
+    keep_shared: bool = Field(default=False, alias="keepShared")
 
 
 class FilterInput(BaseModel):
@@ -92,25 +129,61 @@ class ScopeInput(BaseModel):
     # Which semester the block belongs to. Blank means "not said yet", which is what the
     # rows migrated from before blocks had semesters carry.
     term_id: str = Field(default="", alias="termId", max_length=80)
+    # shared across its courses, or nested inside another set.
+    kind: str = Field(default="shared", max_length=20)
+    # True for a set the whole department shares — the languages, where the level decides
+    # the group and the degree does not.
+    openToAll: bool = False
+    parent_scope_id: str = Field(default="", alias="parentScopeId", max_length=80)
 
 
 class CourseInput(BaseModel):
     code: str = Field(min_length=1, max_length=40)
     name: str = Field(default="", max_length=160)
     component: str = Field(default="", max_length=40)
+    #: Which programme of the cohort takes it, as the registrar spells it. Empty means all
+    #: of them, which is what every set that is split by group number rather than by
+    #: programme wants — and what every existing course carries.
+    program: str = Field(default="", max_length=160)
+
+
+class SectionInput(BaseModel):
+    """What the timetabler's workbook says about one section, beyond its CRN."""
+
+    #: Which stretch of the section this is about. 1 unless the course is handed from one
+    #: professor to another mid-semester, in which case each half is a part of its own.
+    part: int = Field(default=1, ge=1, le=MAX_PARTS)
+    teacherId: str = Field(default="", max_length=80)
+    hours: str = Field(default="", max_length=40)
+    # Free text from the workbook — "Weeks 2,5, 1-hour sessions; weeks 4,6,7,8,10,14, 2 2h-sessions; …"
+    sessionsPerWeek: str = Field(default="", max_length=240)
+    duration: str = Field(default="", max_length=40)
+    weeks: str = Field(default="", max_length=240)
+    anticipated: int = Field(default=0, ge=0, le=10_000)
+    roomPref: str = Field(default="", max_length=200)
+    dayPref: str = Field(default="", max_length=200)
+    timePref: str = Field(default="", max_length=200)
+    constraints: str = Field(default="", max_length=400)
+    comments: str = Field(default="", max_length=400)
+    retired: bool = False
 
 
 class GroupInput(BaseModel):
     label: str = Field(min_length=1, max_length=40)
     capacity: int = Field(default=0, ge=0, le=10_000)
     note: str = Field(default="", max_length=400)
+    # The programme this group takes first, as the registrar spells it. Empty means any.
+    program: str = Field(default="", max_length=160)
+    # For a group of a nested set: the group of the parent set it sits inside.
+    parent_group_id: str = Field(default="", alias="parentGroupId", max_length=80)
 
 
 class CellInput(BaseModel):
-    """An empty CRN clears the cell, which is how a group drops a course."""
+    """An empty CRN clears the part, which is how a group drops a course or undoes a split."""
 
     crn: str = Field(default="", max_length=20)
     teacher: str = Field(default="", max_length=160)
+    part: int = Field(default=1, ge=1, le=MAX_PARTS)
 
 
 def _missing(exc: Exception, what: str) -> HTTPException:
@@ -118,9 +191,7 @@ def _missing(exc: Exception, what: str) -> HTTPException:
 
 
 def _duplicate(exc: DuplicateLabel, what: str) -> HTTPException:
-    return HTTPException(
-        status_code=status.HTTP_409_CONFLICT, detail=f"There is already a {what} called {exc}."
-    )
+    return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"There is already a {what} called {exc}.")
 
 
 # ----------------------------------------------------------------- cohorts
@@ -132,10 +203,15 @@ async def list_cohorts(database: StudentDatabase = Depends(get_database)) -> dic
 
 
 @router.post("/cohorts", status_code=status.HTTP_201_CREATED)
-async def create_cohort(
-    body: CohortInput, database: StudentDatabase = Depends(get_database)
-) -> dict[str, Any]:
-    return database.create_cohort(name=body.name, term=body.term, notes=body.notes)
+async def create_cohort(body: CohortInput, database: StudentDatabase = Depends(get_database)) -> dict[str, Any]:
+    return database.create_cohort(
+        name=body.name,
+        term=body.term,
+        notes=body.notes,
+        majors=body.majors,
+        terms=body.terms,
+        year_level=body.yearLevel,
+    )
 
 
 @router.patch("/cohorts/{cohort_id}")
@@ -143,7 +219,17 @@ async def update_cohort(
     cohort_id: str, body: CohortInput, database: StudentDatabase = Depends(get_database)
 ) -> dict[str, Any]:
     try:
-        return database.update_cohort(cohort_id, name=body.name, term=body.term, notes=body.notes)
+        return database.update_cohort(
+            cohort_id,
+            name=body.name,
+            term=body.term,
+            notes=body.notes,
+            majors=body.majors,
+            terms=body.terms,
+            year_level=body.yearLevel,
+            workbook_tab=body.workbookTab,
+            first_semester=body.firstSemester,
+        )
     except CohortNotFound as exc:
         raise _missing(exc, "cohort") from exc
 
@@ -156,13 +242,29 @@ async def delete_cohort(cohort_id: str, database: StudentDatabase = Depends(get_
         raise _missing(exc, "cohort") from exc
 
 
+# ----------------------------------------------------------- discrepancies
+
+
+@router.get("/discrepancy-rules")
+async def list_discrepancy_rules(database: StudentDatabase = Depends(get_database)) -> dict[str, Any]:
+    return {"rules": database.list_discrepancy_rules()}
+
+
+@router.put("/discrepancy-rules")
+async def replace_discrepancy_rules(
+    body: RulesInput, database: StudentDatabase = Depends(get_database)
+) -> dict[str, Any]:
+    try:
+        return {"rules": database.replace_discrepancy_rules([rule.model_dump() for rule in body.rules])}
+    except InvalidRule as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+
+
 # ---------------------------------------------------------------- students
 
 
 @router.get("/students")
-async def list_students(
-    view: str = "", database: StudentDatabase = Depends(get_database)
-) -> dict[str, Any]:
+async def list_students(view: str = "", database: StudentDatabase = Depends(get_database)) -> dict[str, Any]:
     """One view's students, or everyone we hold when no view is named."""
     return {"students": database.list_students(view)}
 
@@ -208,9 +310,7 @@ async def create_view(
 
 
 @router.delete("/views/{view_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_view(
-    view_id: str, request: Request, database: StudentDatabase = Depends(get_database)
-) -> None:
+async def delete_view(view_id: str, request: Request, database: StudentDatabase = Depends(get_database)) -> None:
     _may_define_views(request)
     try:
         database.delete_filter(view_id)
@@ -219,9 +319,7 @@ async def delete_view(
 
 
 @router.post("/views/{view_id}/sync")
-async def sync_view(
-    view_id: str, body: SyncInput, database: StudentDatabase = Depends(get_database)
-) -> dict[str, Any]:
+async def sync_view(view_id: str, body: SyncInput, database: StudentDatabase = Depends(get_database)) -> dict[str, Any]:
     try:
         return database.sync_view(view_id, body.student_ids)
     except FilterNotFound as exc:
@@ -229,11 +327,9 @@ async def sync_view(
 
 
 @router.post("/students/cohort")
-async def set_cohort(
-    body: CohortAssignment, database: StudentDatabase = Depends(get_database)
-) -> dict[str, int]:
+async def set_cohort(body: CohortAssignment, database: StudentDatabase = Depends(get_database)) -> dict[str, int]:
     try:
-        return {"moved": database.set_cohort(body.student_ids, body.cohort_id)}
+        return {"moved": database.set_cohort(body.student_ids, body.cohort_id, body.keep_shared)}
     except CohortNotFound as exc:
         raise _missing(exc, "cohort") from exc
 
@@ -251,11 +347,17 @@ async def list_members(cohort_id: str, database: StudentDatabase = Depends(get_d
 
 @router.get("/cohorts/{cohort_id}/catalogue")
 async def read_catalogue(
-    cohort_id: str, term_id: str | None = None, database: StudentDatabase = Depends(get_database)
+    cohort_id: str,
+    term_id: str | None = None,
+    with_shared: bool = False,
+    database: StudentDatabase = Depends(get_database),
 ) -> dict[str, Any]:
-    """One cohort's blocks, for one semester when asked — they differ between them."""
+    """One cohort's blocks, for one semester when asked — they differ between them.
+
+    `with_shared` adds the semester's sets open to every cohort, whoever holds them.
+    """
     try:
-        return database.read_catalogue(cohort_id, term_id)
+        return database.read_catalogue(cohort_id, term_id, with_shared=with_shared)
     except CohortNotFound as exc:
         raise _missing(exc, "cohort") from exc
 
@@ -313,9 +415,7 @@ async def preview_workbook(
         raise _missing(exc, "cohort") from exc
 
     # Placements are compared by block code, which is how the workbook names them.
-    scope_code_of = {
-        group_id: code for code, labels in groups.items() for group_id in labels.values()
-    }
+    scope_code_of = {group_id: code for code, labels in groups.items() for group_id in labels.values()}
     held_placements: dict[str, dict[str, str]] = {}
     for student, by_scope in assigned.items():
         for _, group_id in by_scope.items():
@@ -378,7 +478,14 @@ async def add_scope(
     try:
         return {
             "id": database.add_scope(
-                cohort_id, code=body.code, name=body.name, note=body.note, term_id=body.term_id
+                cohort_id,
+                code=body.code,
+                name=body.name,
+                note=body.note,
+                term_id=body.term_id,
+                kind=body.kind,
+                parent_scope_id=body.parent_scope_id,
+                open_to_all=body.openToAll,
             )
         }
     except CohortNotFound as exc:
@@ -392,9 +499,19 @@ async def update_scope(
     scope_id: str, body: ScopeInput, database: StudentDatabase = Depends(get_database)
 ) -> dict[str, bool]:
     try:
-        database.update_scope(scope_id, code=body.code, name=body.name, note=body.note)
+        database.update_scope(
+            scope_id,
+            code=body.code,
+            name=body.name,
+            note=body.note,
+            kind=body.kind,
+            parent_scope_id=body.parent_scope_id,
+            open_to_all=body.openToAll,
+        )
     except ScopeNotFound as exc:
         raise _missing(exc, "block") from exc
+    except DuplicateLabel as exc:
+        raise _duplicate(exc, "block") from exc
     return {"saved": True}
 
 
@@ -411,9 +528,63 @@ async def add_course(
     scope_id: str, body: CourseInput, database: StudentDatabase = Depends(get_database)
 ) -> dict[str, str]:
     try:
-        return {"id": database.add_course(scope_id, code=body.code, name=body.name, component=body.component)}
+        return {
+            "id": database.add_course(
+                scope_id, code=body.code, name=body.name, component=body.component, program=body.program
+            )
+        }
     except ScopeNotFound as exc:
         raise _missing(exc, "block") from exc
+
+
+@router.patch("/courses/{course_id}")
+async def update_course(
+    course_id: str, body: CourseInput, database: StudentDatabase = Depends(get_database)
+) -> dict[str, bool]:
+    try:
+        database.update_course(
+            course_id, code=body.code, name=body.name, component=body.component, program=body.program
+        )
+    except CourseNotFound as exc:
+        raise _missing(exc, "course") from exc
+    return {"saved": True}
+
+
+@router.post("/scopes/{scope_id}/move")
+async def move_scope(
+    scope_id: str, body: MoveInput, database: StudentDatabase = Depends(get_database)
+) -> dict[str, bool]:
+    """One place up or down the order its cohort's sets are read in."""
+    try:
+        database.move_scope(scope_id, body.by)
+    except ScopeNotFound as exc:
+        raise _missing(exc, "block") from exc
+    return {"saved": True}
+
+
+@router.patch("/courses/{course_id}/request")
+async def update_course_request(
+    course_id: str, body: SectionInput, database: StudentDatabase = Depends(get_database)
+) -> dict[str, bool]:
+    """What the course asks of the timetable, which its sections may each answer differently."""
+    try:
+        database.update_course_request(
+            course_id,
+            teacher_id=body.teacherId,
+            hours=body.hours,
+            sessions_per_week=body.sessionsPerWeek,
+            duration=body.duration,
+            weeks=body.weeks,
+            anticipated=body.anticipated,
+            room_pref=body.roomPref,
+            day_pref=body.dayPref,
+            time_pref=body.timePref,
+            constraints=body.constraints,
+            comments=body.comments,
+        )
+    except CourseNotFound as exc:
+        raise _missing(exc, "course") from exc
+    return {"saved": True}
 
 
 @router.delete("/courses/{course_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -456,10 +627,41 @@ async def assign_students(
         raise _missing(exc, "group") from exc
 
 
-@router.get("/cohorts/{cohort_id}/assignments")
-async def read_assignments(
-    cohort_id: str, database: StudentDatabase = Depends(get_database)
+MAX_PLACEMENTS = 20_000
+
+
+class PlacementsInput(BaseModel):
+    """A whole fill: which students go in which group of the block."""
+
+    placements: dict[str, list[str]] = Field(default_factory=dict)
+
+
+@router.put("/scopes/{scope_id}/placements")
+async def place_students(
+    scope_id: str,
+    body: PlacementsInput,
+    request: Request,
+    database: StudentDatabase = Depends(get_database),
 ) -> dict[str, Any]:
+    """Write a previewed fill, all of it or none of it.
+
+    The fill itself is worked out in the browser, which is where the names and programmes
+    it orders by are held; only `id -> group` arrives here.
+    """
+    if sum(len(students) for students in body.placements.values()) > MAX_PLACEMENTS:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="That is too many students at once.")
+    staff = getattr(request.state, "staff_user", None)
+    actor = getattr(staff, "email", "") or ""
+    try:
+        return database.place_many(scope_id=scope_id, placements=body.placements, actor=actor)
+    except ScopeNotFound as exc:
+        raise _missing(exc, "block") from exc
+    except GroupNotFound as exc:
+        raise _missing(exc, "group") from exc
+
+
+@router.get("/cohorts/{cohort_id}/assignments")
+async def read_assignments(cohort_id: str, database: StudentDatabase = Depends(get_database)) -> dict[str, Any]:
     try:
         return {"assignments": database.assignments_of(cohort_id)}
     except CohortNotFound as exc:
@@ -471,7 +673,16 @@ async def add_group(
     scope_id: str, body: GroupInput, database: StudentDatabase = Depends(get_database)
 ) -> dict[str, str]:
     try:
-        return {"id": database.add_group(scope_id, label=body.label, capacity=body.capacity, note=body.note)}
+        return {
+            "id": database.add_group(
+                scope_id,
+                label=body.label,
+                capacity=body.capacity,
+                note=body.note,
+                program=body.program,
+                parent_group_id=body.parent_group_id,
+            )
+        }
     except ScopeNotFound as exc:
         raise _missing(exc, "block") from exc
     except DuplicateLabel as exc:
@@ -483,9 +694,18 @@ async def update_group(
     group_id: str, body: GroupInput, database: StudentDatabase = Depends(get_database)
 ) -> dict[str, bool]:
     try:
-        database.update_group(group_id, label=body.label, capacity=body.capacity, note=body.note)
+        database.update_group(
+            group_id,
+            label=body.label,
+            capacity=body.capacity,
+            note=body.note,
+            program=body.program,
+            parent_group_id=body.parent_group_id,
+        )
     except GroupNotFound as exc:
         raise _missing(exc, "group") from exc
+    except DuplicateLabel as exc:
+        raise _duplicate(exc, "group") from exc
     return {"saved": True}
 
 
@@ -494,9 +714,85 @@ async def delete_group(group_id: str, database: StudentDatabase = Depends(get_da
     database.delete_group(group_id)
 
 
+@router.patch("/groups/{group_id}/courses/{course_id}")
+async def update_section(
+    group_id: str, course_id: str, body: SectionInput, database: StudentDatabase = Depends(get_database)
+) -> dict[str, bool]:
+    """Everything the workbook says about a section but its CRN, which `PUT` sets."""
+    try:
+        database.update_section(
+            group_id=group_id,
+            course_id=course_id,
+            part=body.part,
+            teacher_id=body.teacherId,
+            hours=body.hours,
+            sessions_per_week=body.sessionsPerWeek,
+            duration=body.duration,
+            weeks=body.weeks,
+            anticipated=body.anticipated,
+            room_pref=body.roomPref,
+            day_pref=body.dayPref,
+            time_pref=body.timePref,
+            constraints=body.constraints,
+            comments=body.comments,
+            retired=body.retired,
+        )
+    except GroupNotFound as exc:
+        raise _missing(exc, "group") from exc
+    except CourseNotFound as exc:
+        raise _missing(exc, "course") from exc
+    return {"saved": True}
+
+
+@router.get("/course-cards")
+async def course_cards(database: StudentDatabase = Depends(get_database)) -> dict[str, Any]:
+    """Every cohort's blocks, every semester: the one list the cards page shows."""
+    return {"cohorts": database.list_catalogues()}
+
+
+class ExemptionInput(BaseModel):
+    """Why this student does not take this course of their set, in the coordinator's words."""
+
+    reason: str = Field(default="", max_length=400)
+
+
+@router.get("/cohorts/{cohort_id}/exemptions")
+async def list_exemptions(cohort_id: str, database: StudentDatabase = Depends(get_database)) -> dict[str, Any]:
+    """Who, in this cohort's sets, does not take one of the courses their group teaches."""
+    return {"exemptions": database.exemptions_of(cohort_id)}
+
+
+@router.put("/students/{student_id}/exemptions/{course_id}")
+async def set_exemption(
+    student_id: str,
+    course_id: str,
+    body: ExemptionInput,
+    database: StudentDatabase = Depends(get_database),
+) -> dict[str, bool]:
+    """Record that a student in the group does not take this course of its set.
+
+    A fact on the server rather than a dismissal in a browser: the register stops expecting
+    that section of them for everybody who looks, not only on the laptop that said so.
+    """
+    try:
+        database.set_exemption(student_id=student_id, course_id=course_id, reason=body.reason)
+    except CourseNotFound as exc:
+        raise _missing(exc, "course") from exc
+    return {"saved": True}
+
+
+@router.delete("/students/{student_id}/exemptions/{course_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def clear_exemption(
+    student_id: str, course_id: str, database: StudentDatabase = Depends(get_database)
+) -> None:
+    database.clear_exemption(student_id=student_id, course_id=course_id)
+
+
 @router.put("/groups/{group_id}/courses/{course_id}")
 async def set_cell(
     group_id: str, course_id: str, body: CellInput, database: StudentDatabase = Depends(get_database)
 ) -> dict[str, bool]:
-    database.set_cell(group_id=group_id, course_id=course_id, crn=body.crn, teacher=body.teacher)
+    database.set_cell(
+        group_id=group_id, course_id=course_id, crn=body.crn, teacher=body.teacher, part=body.part
+    )
     return {"saved": True}

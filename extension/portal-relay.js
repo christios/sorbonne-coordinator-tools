@@ -20,6 +20,7 @@ window.addEventListener('message', event => {
   try {
     chrome.runtime.sendMessage({
       type: 'fields:harvest',
+      kind: String(message.kind || 'students'),
       fields: Array.isArray(message.fields) ? message.fields : [],
       columns: Array.isArray(message.columns) ? message.columns : [],
       url: message.url,

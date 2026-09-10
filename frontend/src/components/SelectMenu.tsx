@@ -1,16 +1,74 @@
 import { Popover } from "radix-ui";
 import { ChevronDown } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ComponentType } from "react";
+
+import { YearPill } from "@/components/YearPill";
 
 export type SelectOption = {
   value: string;
   label: string;
   searchText?: string;
+  /** An academic year — "2026-27" — shown as its own pill, so the label need not carry it. */
+  year?: string;
   /** A count or short status, shown as a pill beside the label. */
   badge?: string;
   /** "muted" for a badge that means nothing yet — a view nobody has synced. */
   badgeTone?: "accent" | "muted";
+  /**
+   * What wants attention on this option, counted by kind rather than added up.
+   *
+   * It was one red number — "9 flagged" — which said that something is wrong nine times
+   * and nothing about what. Nine records drifting from admissions and nine hours a student
+   * cannot attend are different afternoons' work, and the choice of which cohort to open
+   * is often a choice of which kind of work to do.
+   */
+  flags?: OptionFlag[];
 };
+
+export type OptionFlag = {
+  key: string;
+  count: number;
+  /** What it means, since an icon on its own is a shape somebody has to learn. */
+  title: string;
+  icon: ComponentType<{ size?: number; className?: string; "aria-hidden"?: boolean | "true" }>;
+  /** The colours of the record it belongs to, so the picker matches the pills. */
+  className: string;
+};
+
+/**
+ * The counts, one pill per kind.
+ *
+ * `columns` holds a place for a kind with nothing to say, which is what the open menu
+ * wants: dropping the pill closes the gap and shifts every pill to its right, so the same
+ * kind sits somewhere different on each row and the numbers cannot be compared without
+ * reading every label — the one thing a column of figures should never ask. A fixed width
+ * per column, since a column that resized to its widest row still moves when the data does.
+ *
+ * The trigger is one row and has nothing to line up with, so it packs them: three columns
+ * of air beside a closed picker is space spent saying nothing.
+ */
+function Flags({ flags, columns = false }: { flags: OptionFlag[]; columns?: boolean }) {
+  const shown = columns ? flags : flags.filter((flag) => flag.count > 0);
+  if (!shown.length) return null;
+  return (
+    <span className="ml-1.5 inline-flex shrink-0 items-center gap-1">
+      {shown.map((flag) => {
+        const Icon = flag.icon;
+        if (!flag.count) return <span key={flag.key} aria-hidden="true" className="inline-block w-9" />;
+        return (
+          <span
+            key={flag.key}
+            title={`${flag.count} ${flag.title}`}
+            className={`inline-flex items-center justify-center gap-0.5 rounded-full px-1.5 py-0.5 text-xs font-semibold tabular-nums ${columns ? "w-9" : ""} ${flag.className}`}
+          >
+            <Icon size={10} className="shrink-0" aria-hidden="true" />
+            {flag.count}
+          </span>
+        );
+      })}
+    </span>
+  );
+}
 
 function Badge({ text, tone }: { text: string; tone: SelectOption["badgeTone"] }) {
   return (
@@ -43,9 +101,19 @@ type Props = {
   searchPlaceholder?: string;
   disabled?: boolean;
   required?: boolean;
+  /**
+   * "tinted" marks a control that chooses *how* rather than *what* — the condition beside a
+   * field, say — so two dropdowns side by side do not read as two of the same thing.
+   */
+  variant?: "default" | "tinted";
+  /**
+   * False when the page shows the chosen values itself, beside the control: the trigger
+   * then only says what pressing it does, rather than repeating them.
+   */
+  showSelection?: boolean;
 };
 
-export function SelectMenu({ label, value, onChange, options, placeholder, trailing, multiple = false, itemNoun = "item", searchable = false, searchPlaceholder = "Search options", disabled = false, required = false }: Props) {
+export function SelectMenu({ label, value, onChange, options, placeholder, trailing, multiple = false, itemNoun = "item", searchable = false, searchPlaceholder = "Search options", disabled = false, required = false, variant = "default", showSelection = true }: Props) {
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState("");
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -53,12 +121,14 @@ export function SelectMenu({ label, value, onChange, options, placeholder, trail
   const [placement, setPlacement] = useState<MenuPlacement | null>(null);
   const selectedValues = multiple ? value.split("\n").filter(Boolean) : [value];
   const selected = options.filter((option) => selectedValues.includes(option.value));
-  const selectedLabel = multiple
-    ? selected.length ? `${selected.length} ${itemNoun}${selected.length === 1 ? "" : "s"} selected` : placeholder
-    : selected[0]?.label ?? placeholder;
+  // The values themselves, not a count: "FY, L1" says what the filter is doing, and
+  // "2 values selected" makes a coordinator open it to find out. Past a few, the rest
+  // become "+N" so the control stays a control.
+  const SHOWN = 3;
+  const selectedLabel = multiple ? placeholder : (selected[0]?.label ?? placeholder);
   const normalizedQuery = normalizeSearch(query);
   const visibleOptions = searchable
-    ? normalizedQuery ? options.filter((option) => normalizeSearch(`${option.label} ${option.searchText ?? ""}`).includes(normalizedQuery)) : options.slice(0, 50)
+    ? normalizedQuery ? options.filter((option) => normalizeSearch(`${option.label} ${option.year ?? ""} ${option.searchText ?? ""}`).includes(normalizedQuery)) : options.slice(0, 50)
     : options;
   const hasMoreSearchResults = searchable && !normalizedQuery && options.length > visibleOptions.length;
 
@@ -128,13 +198,45 @@ export function SelectMenu({ label, value, onChange, options, placeholder, trail
         aria-expanded={isOpen}
         aria-haspopup="listbox"
         disabled={disabled}
-        className={`flex h-10 w-full items-center rounded-md border border-[#b7bec8] bg-white px-3 py-2 ${trailing ? "pr-20" : "pr-10"} text-left font-normal text-[#344054] transition-colors hover:border-[#98a2b3] hover:bg-[#f8fafc] focus:border-[#1f4e79] focus:outline-none focus:ring-2 focus:ring-[#d7e5f3] disabled:cursor-not-allowed disabled:bg-[#f7f8fa] disabled:text-[#98a2b3]`}
+        className={`flex ${multiple && selected.length ? "min-h-10" : "h-10"} w-full items-center rounded-md border px-3 py-2 ${trailing ? "pr-20" : "pr-10"} text-left transition-colors focus:outline-none focus:ring-2 focus:ring-[#d7e5f3] disabled:cursor-not-allowed disabled:bg-[#f7f8fa] disabled:text-[#98a2b3] ${
+          variant === "tinted"
+            ? "border-[#cfe0ee] bg-[#eef4fa] font-semibold text-[#1f4e79] hover:border-[#9fbfdc] hover:bg-[#e4eef7] focus:border-[#1f4e79]"
+            : "border-[#b7bec8] bg-white font-normal text-[#344054] hover:border-[#98a2b3] hover:bg-[#f8fafc] focus:border-[#1f4e79]"
+        }`}
       >
-        <span className={`flex min-w-0 flex-1 items-center ${selected.length || value ? "" : "text-[#667085]"}`}>
-          <span className="truncate">{selectedLabel}</span>
+        <span className={`flex min-w-0 flex-1 items-center ${(selected.length || value) && showSelection ? "" : "text-[#667085]"}`}>
+          {multiple && selected.length && showSelection ? (
+            /*
+             * Each chosen value as a pill, so the control shows what it is doing at a
+             * glance rather than as a sentence to read. Past a few, the rest fold into
+             * one "+N" pill and the full list sits in the tooltip.
+             */
+            <span
+              className="flex min-w-0 flex-wrap items-center gap-1"
+              title={`${selected.length} ${itemNoun}${selected.length === 1 ? "" : "s"}: ${selected.map((option) => option.label).join(", ")}`}
+            >
+              {selected.slice(0, SHOWN).map((option) => (
+                <span
+                  key={option.value}
+                  className="inline-flex max-w-[10rem] items-center truncate rounded-full bg-[#e8edf3] px-2 py-0.5 text-xs font-semibold text-[#1f4e79]"
+                >
+                  {option.label}
+                </span>
+              ))}
+              {selected.length > SHOWN ? (
+                <span className="inline-flex items-center rounded-full bg-[#eef1f5] px-2 py-0.5 text-xs font-semibold tabular-nums text-[#667085]">
+                  +{selected.length - SHOWN}
+                </span>
+              ) : null}
+            </span>
+          ) : (
+            <span className="truncate">{selectedLabel}</span>
+          )}
+          {selected.length === 1 && selected[0].year ? <YearPill year={selected[0].year} className="ml-2" /> : null}
           {selected.length === 1 && selected[0].badge !== undefined ? (
             <Badge text={selected[0].badge} tone={selected[0].badgeTone} />
           ) : null}
+          {selected.length === 1 && selected[0].flags ? <Flags flags={selected[0].flags} /> : null}
         </span>
       </button>
       </Popover.Trigger>
@@ -142,7 +244,7 @@ export function SelectMenu({ label, value, onChange, options, placeholder, trail
       {trailing}
       <Popover.Portal>
       {isOpen ? (
-        <Popover.Content ref={contentRef} role="listbox" aria-label={label} side={placement?.side ?? "bottom"} sideOffset={MENU_GAP} avoidCollisions={false} data-select-menu-placement={placement?.side ?? "bottom"} style={{ width: "var(--radix-popover-trigger-width)", ...(placement ? { maxHeight: placement.maxHeight } : {}) }} className="z-[100] isolate overflow-y-auto rounded-lg border border-[#d9dee7] bg-white p-1 opacity-100 shadow-lg outline-none">
+        <Popover.Content ref={contentRef} role="listbox" aria-label={label} side={placement?.side ?? "bottom"} sideOffset={MENU_GAP} avoidCollisions={false} data-select-menu-placement={placement?.side ?? "bottom"} style={{ minWidth: "var(--radix-popover-trigger-width)", maxWidth: "min(36rem, calc(100vw - 2rem))", ...(placement ? { maxHeight: placement.maxHeight } : {}) }} className="z-[100] isolate overflow-y-auto rounded-lg border border-[#d9dee7] bg-white p-1 opacity-100 shadow-lg outline-none">
           {searchable ? <input aria-label={`Search ${label}`} value={query} onChange={(event) => setQuery(event.target.value)} placeholder={searchPlaceholder} className="mb-1 h-9 w-full rounded-md border border-[#b7bec8] px-3 text-sm font-normal focus:border-[#1f4e79] focus:outline-none focus:ring-2 focus:ring-[#d7e5f3]" autoFocus /> : null}
           {visibleOptions.map((option) => (
             <button
@@ -154,8 +256,13 @@ export function SelectMenu({ label, value, onChange, options, placeholder, trail
               className={`flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm font-normal transition-colors ${selectedValues.includes(option.value) ? "bg-[#e8edf3] font-semibold text-[#1f4e79]" : "text-[#344054] hover:bg-[#f7f8fa]"}`}
             >
               {multiple ? <span aria-hidden="true" className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border ${selectedValues.includes(option.value) ? "border-[#1f4e79] bg-[#1f4e79] text-white" : "border-[#98a2b3] bg-white"}`}>{selectedValues.includes(option.value) ? "✓" : ""}</span> : null}
-              <span className="min-w-0 flex-1 truncate">{option.label}</span>
+              {/* Wrapped, never clipped: an option a coordinator cannot read is one they cannot choose. */}
+              <span className="min-w-0 flex-1 whitespace-normal break-words">
+                {option.label}
+                {option.year ? <YearPill year={option.year} className="ml-2 align-[0.05em]" /> : null}
+              </span>
               {option.badge !== undefined ? <Badge text={option.badge} tone={option.badgeTone} /> : null}
+              {option.flags ? <Flags flags={option.flags} columns /> : null}
             </button>
           ))}
           {!visibleOptions.length ? <p className="px-3 py-2 text-sm text-[#667085]">No options match your search.</p> : null}

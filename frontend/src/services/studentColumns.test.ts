@@ -1,20 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
-import {
-  MIN_WIDTH,
-  buildColumns,
-  defaultLayout,
-  loadLayout,
-  moveColumn,
-  optionsFor,
-  reconcileLayout,
-  reorderColumn,
-  resizeColumn,
-  saveLayout,
-  toggleColumn,
-  visibleColumns,
-  widthOf,
-} from "@/services/studentColumns";
+import { buildColumns, defaultLayout, loadLayout, moveColumn, optionsFor, reconcileLayout, reorderColumn, resizeColumn, saveLayout, toggleColumn, visibleColumns, widthOf } from "@/services/studentColumns";
 import type { StudentRow } from "@/services/rosterView";
 import type { PortalColumn, PortalField } from "@/services/scenRosters";
 
@@ -49,12 +35,14 @@ const row = (over: Partial<StudentRow> = {}): StudentRow => ({
   status: "in_portal",
   cohortId: null,
   cohortName: "",
+  cohortSince: "",
   firstSeenAt: "2026-08-01T09:00:00+00:00",
   lastSeenAt: "2026-08-22T09:00:00+00:00",
   portal: { FULL_NAME: "Amira Haddad", YEARLEVEL_CODE: "FY", MAJOR_CODE_DESC: "Mathematics" },
   isNew: false,
   changes: [],
-  groups: [],
+  warnings: [],
+  groups: [], sets: [], meets: [],
   ...over,
 });
 
@@ -153,16 +141,15 @@ describe("the stored arrangement", () => {
     expect(reconcileLayout({ hidden: ["studentId"] }, COLUMNS).hidden).not.toContain("studentId");
   });
 
-  it("lets a column be squeezed to a sliver, but not to nothing", () => {
+  it("lets a column be squeezed all the way to nothing", () => {
     const column = COLUMNS.find((candidate) => candidate.id === "portal:MAJOR_CODE_DESC")!;
 
-    // No column has a width of its own to defend any more — the only floor is the one
-    // that keeps the resize handle catchable.
+    // No column has a width of its own to defend, and no floor either: the edge overhangs
+    // the column it belongs to, so it is still there to grab at zero.
     expect(widthOf(resizeColumn(LAYOUT, "portal:MAJOR_CODE_DESC", 40, COLUMNS), column)).toBe(40);
-    expect(widthOf(resizeColumn(LAYOUT, "portal:MAJOR_CODE_DESC", 5, COLUMNS), column)).toBe(MIN_WIDTH);
-    expect(reconcileLayout({ widths: { "portal:MAJOR_CODE_DESC": 10 } }, COLUMNS).widths["portal:MAJOR_CODE_DESC"]).toBe(
-      MIN_WIDTH,
-    );
+    expect(widthOf(resizeColumn(LAYOUT, "portal:MAJOR_CODE_DESC", 0, COLUMNS), column)).toBe(0);
+    expect(widthOf(resizeColumn(LAYOUT, "portal:MAJOR_CODE_DESC", -20, COLUMNS), column)).toBe(0);
+    expect(reconcileLayout({ widths: { "portal:MAJOR_CODE_DESC": 0 } }, COLUMNS).widths["portal:MAJOR_CODE_DESC"]).toBe(0);
   });
 
   it("falls back to the default when storage holds nonsense", () => {
@@ -239,5 +226,29 @@ describe("the values a column offers to the filter bar", () => {
     expect(optionsFor([row(), row({ cohortName: "L1" })], cohort)).toEqual([
       { value: "L1", label: "L1" },
     ]);
+  });
+});
+
+describe("the Set and Meets columns", () => {
+  const columns = () => buildColumns([], []);
+
+  it("are offered, but neither is shown by default", () => {
+    /*
+     * `reconcileLayout`'s stored-layout branch would otherwise push a new column onto every
+     * coordinator's existing table unannounced. These behave like the forty-odd hidden
+     * portal columns: available, and turned on by whoever wants them.
+     */
+    const ids = columns().map((column) => column.id);
+    expect(ids).toContain("sets");
+    expect(ids).toContain("meets");
+
+    const layout = reconcileLayout({ order: ["studentId"], hidden: [], widths: {} }, columns());
+    expect(layout.hidden).toContain("sets");
+    expect(layout.hidden).toContain("meets");
+  });
+
+  it("filter as a set of values, so one tick is one question", () => {
+    const meets = columns().find((column) => column.id === "meets");
+    expect(meets?.type).toBe("multiOption");
   });
 });

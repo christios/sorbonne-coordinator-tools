@@ -125,7 +125,9 @@ def test_a_corrected_crn_shows_both_values_and_is_not_applied_until_ticked(
     held = database.catalogue_for_diff(cohort["id"], TERM)
     scope = held["CM"]
     group = next(iter(scope["groups"].values()))
-    course_code, original = next(iter(group["crns"].items()))
+    # A cell holds a CRN per part, and the workbook speaks about the first of them.
+    course_code, parts = next(iter(group["crns"].items()))
+    original = parts[0]
     database.apply_workbook_changes(
         cohort["id"],
         TERM,
@@ -149,12 +151,12 @@ def test_a_corrected_crn_shows_both_values_and_is_not_applied_until_ticked(
     # Left unticked, the coordinator's correction survives.
     apply(client, cohort["id"], [])
     still = database.catalogue_for_diff(cohort["id"], TERM)["CM"]["groups"][group["label"]]
-    assert still["crns"][course_code] == "99999"
+    assert still["crns"][course_code] == ["99999"]
 
     # Ticked, the workbook's value lands — the whole value, not an empty cell.
     apply(client, cohort["id"], changed)
     landed = database.catalogue_for_diff(cohort["id"], TERM)["CM"]["groups"][group["label"]]
-    assert landed["crns"][course_code] == original
+    assert landed["crns"][course_code] == [original]
 
 
 def test_approving_nothing_is_refused(client: TestClient, database, content):

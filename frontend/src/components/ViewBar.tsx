@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, Loader2, Plus, Settings2, Trash2 } from "lucide-react";
+import { Plus, Settings2, Trash2 } from "lucide-react";
 import { useState } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -8,27 +8,19 @@ import { Modal } from "@/components/Modal";
 import { SelectMenu } from "@/components/SelectMenu";
 import { useStaffUser } from "@/components/useStaffUser";
 import { describeFilter, filterLines, type Filter } from "@/services/filterSummary";
-import { recordPull } from "@/services/pullHistory";
-import { rememberPull, rememberSync, storageReport, type StorageReport } from "@/services/rosterStore";
-import {
-  PortalError,
-  fetchSchema,
-  pullFilter,
-  studentIdOf,
-  type PortalField,
-  type PullProgress,
-} from "@/services/scenRosters";
-import { createView, deleteView, syncView, type StudentView } from "@/services/studentDatabase";
+import { fetchSchema, type PortalField } from "@/services/scenRosters";
+import { createView, deleteView, type StudentView } from "@/services/studentDatabase";
 
 /**
- * Which population the Students page is showing, and the one button that refreshes it.
+ * Which population the Students page is showing, and what that view asks the portal.
  *
  * A view's filter was fixed when the view was made, so syncing asks the same question it
  * has always asked — which is the only reason "no longer in the portal" can be trusted.
  * There is deliberately no way to edit a filter: a different question is a different view.
  *
  * Making one and throwing one away are an administrator's, because both settle what a
- * population is. Syncing is everybody's: it re-asks a question already settled.
+ * population is. Asking the portal is Portal sync's, at the foot of the pane: one button
+ * that syncs every list, so no page can be refreshed while the rest go stale.
  */
 export function ViewBar({
   views,
@@ -47,13 +39,6 @@ export function ViewBar({
   const [name, setName] = useState("");
   const [pendingDelete, setPendingDelete] = useState<StudentView | null>(null);
   const [showingFilter, setShowingFilter] = useState(false);
-  // How far the pull has got. A whole term is thousands of students and several minutes;
-  // a button that only says "Syncing…" for that long is indistinguishable from a hang.
-  const [pulled, setPulled] = useState<PullProgress | null>(null);
-  // Whether the names actually reached this browser's storage. They are read back from
-  // there, so a refused write is a table with no names in it rather than a slower page.
-  const [storage, setStorage] = useState<StorageReport | null>(null);
-
   const fields = schema.data?.fields ?? [];
   const view = views.find((candidate) => candidate.id === viewId) ?? null;
   const isAdmin = Boolean(user?.isAdmin);
@@ -63,26 +48,6 @@ export function ViewBar({
     client.invalidateQueries({ queryKey: ["students"] });
     client.invalidateQueries({ queryKey: ["cohorts"] });
   };
-
-  const sync = useMutation({
-    mutationFn: async (target: StudentView) => {
-      setPulled(null);
-      const roster = await pullFilter(
-        target.filter as Filter,
-        { name: target.name, expect: null },
-        setPulled,
-      );
-      const report = await syncView(target.id, roster.rows.map(studentIdOf).filter(Boolean));
-      rememberPull({ ...roster, presetId: target.id });
-      setStorage(storageReport());
-      rememberSync(target.id, report.syncedAt);
-      // One history per view, so a student's changes read against the same question.
-      recordPull(target.id, roster.rows, roster.fetchedAt);
-      return report;
-    },
-    onSettled: () => setPulled(null),
-    onSuccess: refresh,
-  });
 
   const make = useMutation({
     mutationFn: () => createView({ name: name.trim(), filter: composing ?? {} }),
@@ -102,16 +67,18 @@ export function ViewBar({
     },
   });
 
-  const report = sync.data;
-
   return (
     <div className="flex flex-col items-end gap-1">
-      <div className="flex flex-wrap items-center justify-end gap-2">
+      {/* Aligned to the bottom: the picker carries a label above it, the buttons do not. */}
+      <div className="flex flex-wrap items-end justify-end gap-2">
+        {/* Whose list this is: the same words as the button at the foot of the pane, so
+            the filter chosen here is plainly the one that button will ask about. */}
         <div className="w-64">
+          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[#1f4e79]">Portal sync</p>
           <SelectMenu
             label="View"
             value={viewId}
-            placeholder={views.length ? "Choose a view…" : "No views yet"}
+            placeholder={views.length ? "Choose a portal filter…" : "No portal filters yet"}
             searchable={views.length > 12}
             options={views.map((candidate) => ({
               value: candidate.id,
@@ -126,31 +93,11 @@ export function ViewBar({
           />
         </div>
 
-        <button
-          type="button"
-          disabled={!view || sync.isPending}
-          onClick={() => view && sync.mutate(view)}
-          className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-3.5 py-2 text-sm font-semibold text-white disabled:opacity-50"
-        >
-          {sync.isPending ? (
-            <Loader2 size={16} className="animate-spin" aria-hidden="true" />
-          ) : (
-            <Download size={16} aria-hidden="true" />
-          )}
-          {sync.isPending
-            ? pulled
-              ? `${pulled.fetched.toLocaleString()}${pulled.total ? ` of ${pulled.total.toLocaleString()}` : ""}…`
-              : "Syncing…"
-            : view?.lastSyncedAt
-              ? "Sync this view"
-              : "Seed this view"}
-        </button>
-
         {view ? (
           <button
             type="button"
-            aria-label={`The filter behind ${view.name}`}
-            title={`The filter behind ${view.name}`}
+            aria-label={`What ${view.name} asks the portal`}
+            title={`What ${view.name} asks the portal`}
             onClick={() => setShowingFilter(true)}
             className="rounded-md border border-[#b7bec8] bg-white p-2 text-[#667085] hover:bg-[#f8fafc] hover:text-[#344054]"
           >
@@ -161,8 +108,8 @@ export function ViewBar({
         {isAdmin ? (
           <button
             type="button"
-            aria-label="New view"
-            title="New view"
+            aria-label="New portal filter"
+            title="New portal filter"
             onClick={() => {
               setComposing({});
               setName("");
@@ -186,27 +133,7 @@ export function ViewBar({
         ) : null}
       </div>
 
-      {sync.error ? (
-        <p role="alert" className="max-w-md text-right text-xs text-[#a6292f]">
-          {sync.error instanceof PortalError ? sync.error.message : (sync.error as Error).message}
-        </p>
-      ) : storage && !storage.stored ? (
-        <p role="alert" className="max-w-md text-right text-xs text-[#a6292f]">
-          The students synced, but this browser had no room to keep their names, so the
-          table will show ids only. Use “Forget stored rosters” on the Students page to
-          clear the older pulls, then sync again.
-        </p>
-      ) : storage && storage.shed.length ? (
-        <p className="max-w-md text-right text-xs text-[#98a2b3]">
-          Synced. This browser was full, so it gave up {storage.shed[0]}
-          {storage.shed.length > 1 ? ` and ${storage.shed.length - 1} more` : ""} to keep
-          this roster.
-        </p>
-      ) : report ? (
-        <p className="text-xs text-[#98a2b3]">
-          {report.seen} returned · {report.added} added · {report.missing} no longer in this view
-        </p>
-      ) : view ? (
+      {view ? (
         <p className="max-w-md text-right text-xs text-[#98a2b3]">
           {describeFilter(view.filter as Filter, fields)}
           {view.gone ? ` · ${view.gone} no longer returned` : ""}
@@ -216,7 +143,7 @@ export function ViewBar({
       <Modal
         open={showingFilter && view !== null}
         title={view ? `What ${view.name} asks the portal` : ""}
-        description="Fixed when the view was made and never edited since, which is what lets it tell you who has left. A different question would be a different view."
+        description="Fixed when the portal filter was made and never edited since, which is what lets it tell you who has left. A different question would be a different portal filter."
         onClose={() => setShowingFilter(false)}
       >
         {view ? <FilterReading filter={view.filter as Filter} fields={fields} /> : null}
@@ -224,8 +151,8 @@ export function ViewBar({
 
       <Modal
         open={composing !== null}
-        title="New view"
-        description="A view is a population. Its filter is fixed now and cannot be changed afterwards — that is what lets it tell you who has left."
+        title="New portal filter"
+        description="A portal filter is a population. What it asks the portal is fixed now and cannot be changed afterwards — that is what lets it tell you who has left."
         onClose={() => setComposing(null)}
         footer={
           <>
@@ -233,7 +160,7 @@ export function ViewBar({
               aria-label="View name"
               value={name}
               onChange={(event) => setName(event.target.value)}
-              placeholder="Name this view"
+              placeholder="Name this portal filter"
               className="w-56 rounded-md border border-[#cbd5e1] px-3 py-2 text-sm"
             />
             <button
@@ -249,7 +176,7 @@ export function ViewBar({
               onClick={() => make.mutate()}
               className="rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
             >
-              {make.isPending ? "Creating…" : "Create view"}
+              {make.isPending ? "Creating…" : "Create portal filter"}
             </button>
           </>
         }
@@ -276,13 +203,13 @@ export function ViewBar({
 
       <ConfirmDialog
         open={pendingDelete !== null}
-        title="Delete this view?"
+        title="Delete this portal filter?"
         description={
           pendingDelete
-            ? `${pendingDelete.name} and its record of who it returned will be removed for every coordinator. The students themselves stay — they are held whether or not a view returns them.`
+            ? `${pendingDelete.name} and its record of who it returned will be removed for every coordinator. The students themselves stay — they are held whether or not a portal filter returns them.`
             : ""
         }
-        confirmLabel="Delete view"
+        confirmLabel="Delete portal filter"
         onConfirm={() => {
           if (pendingDelete) remove.mutate(pendingDelete);
           setPendingDelete(null);

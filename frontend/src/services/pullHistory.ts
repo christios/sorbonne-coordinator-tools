@@ -21,6 +21,7 @@
  * like a mass departure from whichever view you were looking at.
  */
 
+import * as browser from "@/services/browserStore";
 import { studentIdOf, type RosterRow } from "@/services/scenRosters";
 
 // v1 was a single shared history. It cannot be split after the fact — a pull did not
@@ -65,31 +66,165 @@ export type PullHistory = {
 
 type HistoryStore = Record<string, PullHistory>;
 
+/**
+ * A history as it is stored and written to the backup file.
+ *
+ * `latest` holds every field of every student the view has seen, and as a map of maps
+ * it repeats every field name once per student — 41% of the whole file, measured on a
+ * real one. Packed, the names are written once and each student is a row of values
+ * aligned to them, the way the rosters are kept. `pulls` and `present` are small and
+ * stay as they are, so a backup file is still readable where it matters.
+ */
+type PackedHistory = {
+  pulls: PullRecord[];
+  present: string[];
+  fields: string[];
+  /** student id -> values aligned to `fields`; a field the student lacks is null. */
+  rows: Record<string, (string | null)[]>;
+};
+
+type PackedStore = Record<string, PackedHistory>;
+
+function isPacked(history: unknown): history is PackedHistory {
+  return Boolean(history && Array.isArray((history as PackedHistory).fields) && (history as PackedHistory).rows);
+}
+
+export function packHistory(history: PullHistory): PackedHistory {
+  const fields: string[] = [];
+  const seen = new Set<string>();
+  for (const student of Object.values(history.latest)) {
+    for (const field of Object.keys(student)) {
+      if (!seen.has(field)) {
+        seen.add(field);
+        fields.push(field);
+      }
+    }
+  }
+  const rows: Record<string, (string | null)[]> = {};
+  for (const [id, student] of Object.entries(history.latest)) {
+    rows[id] = fields.map((field) => (field in student ? student[field] : null));
+  }
+  return { pulls: history.pulls, present: history.present, fields, rows };
+}
+
+export function unpackHistory(packed: PackedHistory): PullHistory {
+  const latest: Record<string, Record<string, string>> = {};
+  for (const [id, values] of Object.entries(packed.rows)) {
+    const student: Record<string, string> = {};
+    packed.fields.forEach((field, at) => {
+      const value = values[at];
+      if (value !== null && value !== undefined) student[field] = value;
+    });
+    latest[id] = student;
+  }
+  return { pulls: packed.pulls ?? [], present: packed.present ?? [], latest };
+}
+
+/** Either shape, as found: a store or file written before packing is read as it was. */
+function unpackStore(held: Record<string, PackedHistory | PullHistory>): HistoryStore {
+  const out: HistoryStore = {};
+  for (const [viewId, history] of Object.entries(held)) {
+    out[viewId] = isPacked(history) ? unpackHistory(history) : (history as PullHistory);
+  }
+  return out;
+}
+
+function packStore(store: HistoryStore): PackedStore {
+  const out: PackedStore = {};
+  for (const [viewId, history] of Object.entries(store)) out[viewId] = packHistory(history);
+  return out;
+}
+
 const EMPTY: PullHistory = { pulls: [], latest: {}, present: [] };
 
-function read(): HistoryStore {
+/**
+ * What a history is before anything has been read into it.
+ *
+ * Exported because more than one screen shows a record without a view's history behind it
+ * — the Cohorts table and the group roster both do — and each inventing its own empty
+ * shape is one more place for the shape to drift.
+ */
+export const EMPTY_HISTORY: PullHistory = EMPTY;
+
+/*
+ * The history moved to IndexedDB with the rosters, and for the same reason: recording a
+ * whole term is over two megabytes on its own, which localStorage refused — silently,
+ * so the term view simply had no history and nothing said why.
+ */
+/*
+ * Keys nothing reads any more, left behind by a migration that returned before it got to
+ * them. v1 held a single shared history that could not be split into per-view ones, so it
+ * was superseded rather than converted — and then stranded, because once the database
+ * holds the history this function returns before it ever looks at localStorage again.
+ * Small, but it is a coordinator's disk and 0.17 MB of it was going to sit there for good.
+ */
+const DEAD_KEYS = [OLD_KEY, "scen-rosters:synced"];
+let swept = false;
+
+/** Only for tests: the sweep runs once per page, and a test needs that once. */
+export function resetSweepForTests(): void {
+  swept = false;
+}
+
+function sweep(): void {
+  if (swept) return;
+  swept = true;
+  try {
+    for (const key of DEAD_KEYS) window.localStorage.removeItem(key);
+  } catch {
+    // What cannot be removed could not have been written.
+  }
+}
+
+async function read(): Promise<HistoryStore> {
+  sweep();
+  const held = await browser.read<Record<string, PackedHistory | PullHistory>>(KEY);
+  if (held) return unpackStore(held);
+
+  // Carry over whatever localStorage still holds, then stop keeping two copies.
   try {
     const raw = window.localStorage.getItem(KEY);
-    return raw ? (JSON.parse(raw) as HistoryStore) : {};
+    if (!raw) return {};
+    const old = unpackStore(JSON.parse(raw) as Record<string, PackedHistory | PullHistory>);
+    if (await browser.write(KEY, packStore(old))) window.localStorage.removeItem(KEY);
+    return old;
   } catch {
     // Private browsing, a full disk, or something that is not ours.
     return {};
   }
 }
 
-export function loadHistory(viewId: string): PullHistory {
-  const held = read()[viewId];
+export async function loadHistory(viewId: string): Promise<PullHistory> {
+  const held = (await read())[viewId];
   if (!held || !Array.isArray(held.pulls) || !held.latest) return EMPTY;
   return { ...held, present: Array.isArray(held.present) ? held.present : Object.keys(held.latest) };
 }
 
-function put(store: Record<string, PullHistory>): boolean {
+/**
+ * Every value this browser holds, view by view, newest view last.
+ *
+ * The history keeps a student's last known values even after the portal stops returning
+ * them, which is what the roster store used to keep a whole second copy of the previous
+ * pull for. This is that copy, without the duplication.
+ */
+export async function allLatest(): Promise<{ at: number; values: Record<string, Record<string, string>> }[]> {
+  let store: Record<string, PullHistory>;
   try {
-    window.localStorage.setItem(KEY, JSON.stringify(store));
-    return true;
+    store = await read();
   } catch {
-    return false;
+    return [];
   }
+  return Object.values(store)
+    .filter((history) => history?.latest)
+    .map((history) => ({
+      at: history.pulls?.[history.pulls.length - 1]?.at ?? 0,
+      values: history.latest,
+    }))
+    .sort((left, right) => left.at - right.at);
+}
+
+function put(store: Record<string, PullHistory>): Promise<boolean> {
+  return browser.write(KEY, packStore(store));
 }
 
 /**
@@ -121,16 +256,16 @@ function shrink(store: Record<string, PullHistory>, keep: string): Record<string
   return null;
 }
 
-function write(viewId: string, history: PullHistory): void {
+async function write(viewId: string, history: PullHistory): Promise<void> {
   let store: Record<string, PullHistory>;
   try {
-    store = read();
+    store = await read();
   } catch {
     return;
   }
   store[viewId] = history;
   for (;;) {
-    if (put(store)) return;
+    if (await put(store)) return;
     const smaller = shrink(store, viewId);
     // A history that cannot be written must never break the sync it was recording.
     if (!smaller) return;
@@ -139,19 +274,103 @@ function write(viewId: string, history: PullHistory): void {
 }
 
 /** Every view's history, or one view's when it is named. */
-export function forgetHistory(viewId?: string): void {
+export async function forgetHistory(viewId?: string): Promise<void> {
   try {
-    window.localStorage.removeItem(OLD_KEY);
-    if (viewId === undefined) {
-      window.localStorage.removeItem(KEY);
-      return;
-    }
-    const store = read();
-    delete store[viewId];
-    window.localStorage.setItem(KEY, JSON.stringify(store));
+    for (const key of DEAD_KEYS) window.localStorage.removeItem(key);
+    window.localStorage.removeItem(KEY);
   } catch {
     // If it cannot be removed it could not have been written either.
   }
+  if (viewId === undefined) return browser.drop(KEY);
+  const store = await read();
+  delete store[viewId];
+  await put(store);
+}
+
+/**
+ * Two accounts of the same view's history, brought together.
+ *
+ * A restored backup and whatever this browser has are both partial: the backup may be
+ * older, the browser may have been wiped and re-synced since, and either may hold pulls
+ * the other never saw. Pulls are identified by when they happened, so the union of them
+ * is the fuller history and restoring the same file twice changes nothing.
+ *
+ * `latest` and `present` are not unioned — they are a snapshot of one moment, and mixing
+ * two would invent a state that never existed. The side whose newest pull is newer wins
+ * them whole.
+ */
+export function mergeHistories(mine: PullHistory, theirs: PullHistory): PullHistory {
+  const byId = new Map<string, PullRecord>();
+  for (const pull of theirs.pulls ?? []) byId.set(pull.id, pull);
+  // Ours second: where both saw a pull, this browser's account of it stands.
+  for (const pull of mine.pulls ?? []) byId.set(pull.id, pull);
+  const pulls = [...byId.values()].sort((left, right) => left.at - right.at).slice(-MAX_PULLS);
+
+  const newestOf = (history: PullHistory) => history.pulls?.[history.pulls.length - 1]?.at ?? -1;
+  const fresher = newestOf(theirs) > newestOf(mine) ? theirs : mine;
+  return { pulls, latest: fresher.latest ?? {}, present: fresher.present ?? [] };
+}
+
+/**
+ * Every view's history, for writing out; and the shape a backup file carries.
+ *
+ * Version 2 carries histories packed. A version 1 file, with `latest` as a map of maps,
+ * is still restored: the reader takes either shape as it finds it.
+ */
+export type HistoryBackup = {
+  kind: "scen-pull-history";
+  version: 1 | 2;
+  savedAt: number;
+  histories: Record<string, PullHistory | PackedHistory>;
+};
+
+export async function historyForBackup(): Promise<Record<string, PackedHistory>> {
+  return packStore(await read());
+}
+
+/** Put a restored file's histories in alongside what this browser holds. */
+export async function restoreHistories(histories: Record<string, PullHistory | PackedHistory>): Promise<number> {
+  const store = await read();
+  let touched = 0;
+  for (const [viewId, found] of Object.entries(unpackStore(histories))) {
+    const theirs = found;
+    if (!theirs || !Array.isArray(theirs.pulls)) continue;
+    const mine = store[viewId] ?? EMPTY;
+    const merged = mergeHistories(mine, theirs);
+    if (merged.pulls.length !== mine.pulls.length) touched += 1;
+    store[viewId] = merged;
+  }
+  await put(store);
+  return touched;
+}
+
+/**
+ * Every change recorded for every student, whichever view recorded it.
+ *
+ * A change is a fact about the student, not about the view that noticed it: the L1 view
+ * and the whole-term view seeing the same status flip are one event, which is why entries
+ * are de-duplicated by moment, field and values rather than listed once per view.
+ */
+export async function allChanges(): Promise<Map<string, { at: number; field: string; from: string; to: string }[]>> {
+  const store = await read();
+  const seen = new Set<string>();
+  const out = new Map<string, { at: number; field: string; from: string; to: string }[]>();
+  for (const history of Object.values(store)) {
+    for (const pull of history?.pulls ?? []) {
+      for (const [studentId, moved] of Object.entries(pull.changed ?? {})) {
+        for (const change of moved) {
+          const key = `${studentId}|${pull.at}|${change.field}|${change.from}|${change.to}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          const list = out.get(studentId) ?? [];
+          list.push({ at: pull.at, field: change.field, from: change.from, to: change.to });
+          out.set(studentId, list);
+        }
+      }
+    }
+  }
+  for (const list of out.values()) list.sort((left, right) => left.at - right.at);
+  return out;
 }
 
 /** A pull's rows, flattened to `id -> field -> value`, blanks dropped. */
@@ -177,8 +396,8 @@ function valuesOf(rows: RosterRow[]): Record<string, Record<string, string>> {
  * The first pull is the baseline: everybody has arrived, and nobody has changed, because
  * there is nothing yet to have changed from.
  */
-export function recordPull(viewId: string, rows: RosterRow[], at: number = Date.now()): PullHistory {
-  const history = loadHistory(viewId);
+export async function recordPull(viewId: string, rows: RosterRow[], at: number = Date.now()): Promise<PullHistory> {
+  const history = await loadHistory(viewId);
   const now = valuesOf(rows);
   const before = history.latest;
   const first = history.pulls.length === 0;
@@ -221,7 +440,9 @@ export function recordPull(viewId: string, rows: RosterRow[], at: number = Date.
     present: Object.keys(now),
     pulls: [...history.pulls, record].slice(-MAX_PULLS),
   };
-  write(viewId, next);
+  // Awaited: the next pull reads this back, and a write still in flight reads as no
+  // history at all — which makes the pull after it look like a first pull.
+  await write(viewId, next);
   return next;
 }
 

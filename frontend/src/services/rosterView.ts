@@ -10,6 +10,9 @@
  * they live.
  */
 
+import type { Warning } from "@/services/discrepancies";
+import type { FieldChange } from "@/services/pullHistory";
+import { meetsTokens, setTokens, type GroupCrns } from "@/services/meets";
 import { displayNameOf, studentIdOf, type RosterRow } from "@/services/scenRosters";
 import type { Student } from "@/services/studentDatabase";
 
@@ -25,6 +28,8 @@ export type StudentRow = {
   status: StudentStatus;
   cohortId: string | null;
   cohortName: string;
+  /** When they were placed in that cohort; empty for a placement made before this was kept. */
+  cohortSince: string;
   /** When we first held this student, and when the portal last returned them. */
   firstSeenAt: string;
   lastSeenAt: string;
@@ -34,8 +39,17 @@ export type StudentRow = {
   isNew: boolean;
   /** What the portal says differently from the previous pull: "year FY → L1". */
   changes: string[];
+  /** Where the portal and the cohort disagree — see services/discrepancies.ts. Empty off the Cohorts page. */
+  warnings: Warning[];
   /** The blocks they sit in, as a coordinator says them: "TD 1", or "S2 · TD 3". */
   groups: string[];
+  /**
+   * The distinct SETS, and the set-and-day pairs. Both left off `groups`, which every
+   * existing filter, copy preset and test reads: adding to it would change what a saved
+   * arrangement means, and these answer different questions.
+   */
+  sets: string[];
+  meets: string[];
 };
 
 export type SortKey = "name" | "studentId" | "yearLevel" | "major" | "status" | "cohortName";
@@ -70,6 +84,33 @@ export function changesSince(previous: RosterRow[], current: RosterRow[]): Map<s
       return was && now && was !== now ? [`${label} ${was} → ${now}`] : [];
     });
     if (moved.length) changes.set(id, moved);
+  }
+  return changes;
+}
+
+/**
+ * What changed, taken from the history rather than worked out again.
+ *
+ * The history already records every pull's changes, field by field, against the values
+ * the pull before it left behind. Keeping a second full copy of the previous roster just
+ * to recompute the same answer stored it twice — 45 fields a student to look at six.
+ *
+ * The history watches every field; this table shows the six worth a coordinator's
+ * attention, so the rest are dropped here rather than at the point they were recorded.
+ */
+export function changesFromRecord(record: { changed: Record<string, FieldChange[]> } | null): Map<string, string[]> {
+  const changes = new Map<string, string[]>();
+  if (!record) return changes;
+  const watched = new Map(WATCHED.map(({ column, label }) => [String(column), label]));
+
+  for (const [id, moved] of Object.entries(record.changed)) {
+    const shown = moved.flatMap(({ field, from, to }) => {
+      const label = watched.get(field);
+      // Same rule as before: an arrival is not a change, so a value appearing from
+      // nothing is not worth a line.
+      return label && from && to ? [`${label} ${from} → ${to}`] : [];
+    });
+    if (shown.length) changes.set(id, shown);
   }
   return changes;
 }
@@ -116,6 +157,10 @@ export function studentRows(
   changes: Map<string, string[]> = new Map(),
   syncedAt = "",
   termNames: Record<string, string> = {},
+  warningsFor: (studentId: string) => Warning[] = () => [],
+  /** What each group holds, and what the registrar says those meet on. Empty is fine. */
+  crnsOf: GroupCrns = {},
+  days: Record<string, string[]> = {},
 ): StudentRow[] {
   const pulled = new Map<string, RosterRow>();
   for (const row of portal) {
@@ -139,12 +184,21 @@ export function studentRows(
       status: student.status,
       cohortId: student.cohortId,
       cohortName: student.cohortName,
+      cohortSince: student.cohortSince,
       groups: groupLabels(student.groups ?? [], termNames),
+      sets: setTokens(student.groups ?? [], termNames),
+      meets: meetsTokens(
+        (student.groups ?? []).filter((group) => group.groupId).map((group) => ({ ...group, groupId: group.groupId ?? "" })),
+        crnsOf,
+        days,
+        termNames,
+      ),
       firstSeenAt: student.firstSeenAt,
       lastSeenAt: student.lastSeenAt,
       portal,
       isNew: Boolean(syncedAt) && student.firstSeenAt >= syncedAt,
       changes: changes.get(student.studentId) ?? [],
+      warnings: warningsFor(student.studentId),
     };
   });
 }
@@ -191,11 +245,18 @@ export function filterRows(rows: StudentRow[], filters: Filters): StudentRow[] {
   );
 }
 
+/**
+ * One collator for every comparison. `localeCompare` with an options object builds a
+ * collator each time it is called, and a sort of three thousand rows calls it thirty-odd
+ * thousand times — which was most of the pause when a filter changed.
+ */
+export const COLLATOR = new Intl.Collator(undefined, { numeric: true });
+
 export function sortRows(rows: StudentRow[], key: SortKey, ascending: boolean): StudentRow[] {
   const direction = ascending ? 1 : -1;
   return [...rows].sort((left, right) => {
-    const compared = String(left[key]).localeCompare(String(right[key]), undefined, { numeric: true });
-    return (compared || left.studentId.localeCompare(right.studentId)) * direction;
+    const compared = COLLATOR.compare(String(left[key]), String(right[key]));
+    return (compared || COLLATOR.compare(left.studentId, right.studentId)) * direction;
   });
 }
 

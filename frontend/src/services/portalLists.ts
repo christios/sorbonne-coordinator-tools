@@ -1,0 +1,949 @@
+/**
+ * The portal's courses, teachers and a student's registrations, as this application keeps them.
+ *
+ * Three lists behind three other pages of the registrar portal, pulled the way students
+ * are — a saved filter, the extension, a sync — and kept on the server the way each
+ * deserves: a course and a teacher whole, minus anything personal; a registration as a
+ * student id against a CRN. The mappers at the bottom are where a portal row becomes
+ * exactly that and nothing more, so a name in a registrations pull ends here.
+ */
+
+import { apiFetch } from "@/services/http";
+import type { RosterRow } from "@/services/scenRosters";
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
+const BASE = `${API_BASE_URL}/api/v1/portal`;
+
+export type ListKind = "courses" | "teachers" | "registrations";
+
+export type PortalFilter = {
+  id: string;
+  kind: ListKind;
+  name: string;
+  filter: Record<string, string[]>;
+  /** How many the filter still returns, and how many it has stopped returning. */
+  held: number;
+  gone: number;
+  lastSyncedAt: string;
+  createdAt: string;
+  updatedBy: string;
+};
+
+export type PortalCourse = {
+  termCode: string;
+  crn: string;
+  courseCode: string;
+  title: string;
+  subject: string;
+  sequence: string;
+  partOfTerm: string;
+  partOfTermDesc: string;
+  credits: string;
+  department: string;
+  level: string;
+  college: string;
+  contactHours: string;
+  teacherName: string;
+  registered: number;
+  begins: string;
+  ends: string;
+  status: "in_portal" | "not_in_portal";
+  firstSeenAt: string;
+  lastSeenAt: string;
+};
+
+export type PortalTeacher = {
+  teacherId: string;
+  fullName: string;
+  teacherStatus: string;
+  category: string;
+  type: string;
+  lastTerm: string;
+  credits: string;
+  coursesCount: string;
+  periodsCount: string;
+  studentsCount: string;
+  department: string;
+  rank: string;
+  courses: string;
+  institution: string;
+  psuadEmail: string;
+  status: "in_portal" | "not_in_portal";
+  firstSeenAt: string;
+  lastSeenAt: string;
+};
+
+export type Registration = {
+  termCode: string;
+  crn: string;
+  courseCode: string;
+  title: string;
+  teacherName: string;
+  status: "in_portal" | "not_in_portal";
+  lastSeenAt: string;
+};
+
+/** One way a student's registration differs from the group we placed them in. */
+export type Mismatch = {
+  studentId: string;
+  termId: string;
+  termCode: string;
+  courseCode: string;
+  kind: "missing" | "wrong" | "extra" | "unplaced" | "doubled" | "collides";
+  /** The set a `doubled` verdict is about; empty for the verdicts that are about a course. */
+  scopeCode?: string;
+  /** Every section of this course our blocks give the student — a lecture and a tutorial. */
+  expected: string[];
+  registered: string[];
+};
+
+export type SyncReport = { seen: number; added: number; missing: number; syncedAt: string; rows?: number };
+
+export type TermCheck = {
+  portalTermCode: string;
+  linked: boolean;
+  portalCourses: number;
+  hubOnly: { crn: string; code: string; staff: string }[];
+  teacherDiffers: { crn: string; code: string; hub: string; portal: string }[];
+};
+
+async function readError(response: Response): Promise<string> {
+  try {
+    const body = (await response.json()) as { detail?: unknown };
+    if (typeof body.detail === "string" && body.detail.trim()) return body.detail;
+  } catch {
+    // fall through
+  }
+  return "That could not be completed. Try again in a moment.";
+}
+
+/**
+ * A failed call, carrying the status the server answered with.
+ *
+ * The message on its own cannot be reasoned about: "that teacher is already gone"
+ * and "the server is having a moment" arrive as the same shape of Error, so a caller
+ * that wants to treat the first as success would have to match on the wording of a
+ * sentence written in `api/portal.py`.
+ */
+export class ApiError extends Error {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
+/** True when the thing we asked the server to forget had already been forgotten. */
+export function alreadyGone(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 404;
+}
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await apiFetch(`${BASE}${path}`, init);
+  if (!response.ok) throw new ApiError(await readError(response), response.status);
+  if (response.status === 204) return undefined as T;
+  return (await response.json()) as T;
+}
+
+function send<T>(path: string, method: string, body: unknown, signal?: AbortSignal): Promise<T> {
+  return request<T>(path, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal });
+}
+
+// ------------------------------------------------------------------ filters
+
+export async function fetchPortalFilters(kind: ListKind): Promise<PortalFilter[]> {
+  return (await request<{ filters: PortalFilter[] }>(`/filters?kind=${kind}`)).filters;
+}
+
+export function createPortalFilter(input: { kind: ListKind; name: string; filter: Record<string, string[]> }): Promise<PortalFilter> {
+  return send<PortalFilter>("/filters", "POST", input);
+}
+
+export function deletePortalFilter(filterId: string): Promise<void> {
+  return request<void>(`/filters/${filterId}`, { method: "DELETE" });
+}
+
+export function syncCourses(filterId: string, rows: CourseRow[], signal?: AbortSignal): Promise<SyncReport> {
+  return send<SyncReport>(`/filters/${filterId}/sync/courses`, "POST", { rows }, signal);
+}
+
+export function syncTeachers(filterId: string, rows: TeacherRow[], signal?: AbortSignal): Promise<SyncReport> {
+  return send<SyncReport>(`/filters/${filterId}/sync/teachers`, "POST", { rows }, signal);
+}
+
+export function syncRegistrations(filterId: string, termCode: string, rows: RegistrationRow[], signal?: AbortSignal): Promise<SyncReport> {
+  return send<SyncReport>(`/filters/${filterId}/sync/registrations`, "POST", { termCode, rows }, signal);
+}
+
+// ------------------------------------------------------------------ reading
+
+export async function fetchPortalCourses(term = "", filter = ""): Promise<{ terms: string[]; courses: PortalCourse[] }> {
+  const query = new URLSearchParams();
+  if (term) query.set("term", term);
+  if (filter) query.set("filter", filter);
+  const suffix = query.toString();
+  return request(`/courses${suffix ? `?${suffix}` : ""}`);
+}
+
+export async function fetchPortalTeachers(filter = ""): Promise<PortalTeacher[]> {
+  return (await request<{ teachers: PortalTeacher[] }>(`/teachers${filter ? `?filter=${encodeURIComponent(filter)}` : ""}`)).teachers;
+}
+
+/**
+ * One of the department's active teachers: chosen from the portal, brought from the
+ * part-time database, or both when the two turned out to be one person.
+ */
+export type ActiveTeacher = {
+  id: string;
+  portalTeacherId: string;
+  partTimeTeacherId: string;
+  fullName: string;
+  email: string;
+  source: "portal" | "part-time" | "both";
+  addedAt: string;
+  addedBy: string;
+  teacherStatus: string;
+  category: string;
+  type: string;
+  lastTerm: string;
+  department: string;
+  rank: string;
+  courses: string;
+  institution: string;
+  portalStatus: string;
+  /**
+   * How many live sections our own planning has them on, and how many of those do it by a
+   * chosen id rather than free text.
+   *
+   * Two numbers because the gap between them IS the worklist: 137 sections carry a written
+   * name and none carries a chosen one, so a single count would report every teacher in the
+   * department as absent from the planning.
+   */
+  sections?: number;
+  linkedSections?: number;
+};
+
+/**
+ * An active teacher who came from the part-time database and looks like a portal profile.
+ *
+ * Offered, never applied: a name is not proof, and joining two records is not something to
+ * do to somebody behind their back.
+ */
+export type TeacherMatch = {
+  activeId: string;
+  activeName: string;
+  activeEmail: string;
+  portalTeacherId: string;
+  portalName: string;
+  portalEmail: string;
+  portalStatus: string;
+};
+
+/** The other way round: chosen from the portal, and in the part-time database all along. */
+export type PartTimeMatch = {
+  activeId: string;
+  activeName: string;
+  activeEmail: string;
+  partTimeTeacherId: string;
+  partTimeName: string;
+  partTimeEmail: string;
+};
+
+/** A teacher our own sections name, whom the department's list does not hold at all. */
+export type UnnamedTeacher = {
+  name: string;
+  sections: number;
+  portalTeacherId: string;
+  portalName: string;
+  portalEmail: string;
+  portalDepartment: string;
+};
+
+export type TeacherMatches = {
+  matches: TeacherMatch[];
+  partTime: PartTimeMatch[];
+  unnamed: UnnamedTeacher[];
+};
+
+export async function fetchTeacherMatches(): Promise<TeacherMatches> {
+  const body = await request<Partial<TeacherMatches>>("/active-teachers/matches");
+  return { matches: body.matches ?? [], partTime: body.partTime ?? [], unnamed: body.unnamed ?? [] };
+}
+
+/** Say that this active teacher is that portal profile. The profile leads from then on. */
+export async function linkActiveTeacher(activeId: string, portalTeacherId: string): Promise<void> {
+  await send<void>(`/active-teachers/${encodeURIComponent(activeId)}/link`, "POST", { portalTeacherId });
+}
+
+/** Say that this active teacher is that part-time record. What is shown does not change. */
+export async function linkPartTimeTeacher(activeId: string, partTimeTeacherId: string): Promise<void> {
+  await send<void>(`/active-teachers/${encodeURIComponent(activeId)}/link-part-time`, "POST", { partTimeTeacherId });
+}
+
+export async function fetchActiveTeachers(): Promise<ActiveTeacher[]> {
+  return (await request<{ teachers: ActiveTeacher[] }>("/active-teachers")).teachers;
+}
+
+export function addActiveTeachers(input: {
+  portalTeacherIds?: string[];
+  partTime?: { id: string; fullName: string; email: string }[];
+}): Promise<{ added: number; linked: number; skipped: number }> {
+  return send("/active-teachers", "POST", { portalTeacherIds: [], partTime: [], ...input });
+}
+
+export function removeActiveTeacher(activeId: string): Promise<void> {
+  return request<void>(`/active-teachers/${encodeURIComponent(activeId)}`, { method: "DELETE" });
+}
+
+/**
+ * One of the department's active courses: chosen from the portal's list or added by
+ * hand, and carrying what the timetabler's workbook needs to know about the course
+ * itself — its Sorbonne UE and the parent CRN its sections hang from.
+ */
+export type Mutualized = "" | "yes" | "no";
+
+/** What the register says about a course being shared, as a coordinator reads it. */
+export const MUTUALIZED_WORDS: Record<Mutualized, string> = {
+  "": "not said",
+  yes: "Mutualized",
+  no: "One degree only",
+};
+
+export type ActiveCourse = {
+  id: string;
+  courseCode: string;
+  title: string;
+  ue: string;
+  /**
+   * Whether the course is taught to the mathematicians and the physicists at once.
+   *
+   * "yes" mutualized · "no" one degree's alone · "" nobody has said, which is where every
+   * course starts and is not the same as "no".
+   */
+  mutualized: Mutualized;
+  addedAt: string;
+  addedBy: string;
+  /** How many of its CRNs the register holds, and how many the portal lists. */
+  crnCount: number;
+  portalCrnCount: number;
+  termCount: number;
+  lastTerm: string;
+  /**
+   * The CRN of the portal's own row for this course — the one with the plain title, no
+   * teacher and nobody registered — which the register offers as each section's parent.
+   * Empty when the portal has no such row, or more than one.
+   */
+  portalParentCrn: string;
+};
+
+/**
+ * One CRN of the department's register: ours, linked to the portal's entry for it, and
+ * to the portal's entry for the parent it hangs from.
+ */
+export type ActiveCrn = {
+  id: string;
+  termCode: string;
+  crn: string;
+  courseCode: string;
+  /** The CRN this section hangs from, as an entry of the portal's own list. */
+  parentCrn: string;
+  /** What the course says, the same on every CRN of it. */
+  courseTitle: string;
+  ue: string;
+  /** Whether both degrees sit in it together — the course's own fact, on every CRN of it. */
+  mutualized: Mutualized;
+  /** What the portal says about this CRN; blank when it lists it no longer. */
+  portalTitle: string;
+  teacherName: string;
+  registered: number;
+  portalStatus: "in_portal" | "not_in_portal" | "not_listed";
+  sequence: string;
+  partOfTerm: string;
+  credits: string;
+  contactHours: string;
+  /** The parent as the portal knows it, so a link leading nowhere shows as one. */
+  parentTitle: string;
+  parentStatus: "" | "in_portal" | "not_in_portal" | "not_listed";
+  parentCourseCode: string;
+  /** How many of the register's CRNs hang from this one, which is what makes it a parent. */
+  childCount: number;
+  /** How many sections of a course card teach under this CRN. */
+  usedBy: number;
+  addedAt: string;
+  addedBy: string;
+};
+
+/** Where the registrar's list and the department's register have moved apart. */
+export type RegisterCheck = {
+  /** Ours, that the portal has stopped listing. */
+  gone: { id: string; termCode: string; crn: string; courseCode: string; usedBy: number }[];
+  /** The portal's, for a course of ours, that nobody has taken in. */
+  arrived: { termCode: string; crn: string; courseCode: string; title: string; teacherName: string; registered: number }[];
+  /** Taught on a course card under a CRN the register does not hold. */
+  unregistered: { crn: string; courseCode: string }[];
+  /**
+   * Our planning and the registrar naming different people on one section.
+   *
+   * Compared on the server through the same rule that decides whether two spellings are
+   * one person, so what arrives here is already the list worth reading — not every
+   * section where the two sides break a surname's spaces differently.
+   */
+  teacherDiffers: TeacherDrift[];
+  /** The registrar has staffed it and our planning has not. A line to copy, not an argument. */
+  teacherUnnamed: TeacherDrift[];
+  /** One of ours sharing an hour with a section we do not own. */
+  collides: SectionCollision[];
+  /** The same, accepted or referred, kept visible with the reason. */
+  settledCollisions: SettledCollision[];
+  /**
+   * Whether the registrar's timetable has ever been swept for this term.
+   *
+   * Without it an empty `collides` says two different things — nothing collides, or nobody
+   * has looked — and only one of them is good news.
+   */
+  swept: boolean;
+};
+
+/**
+ * One of our sections sharing an hour with one we do not own.
+ *
+ * A fact about a SECTION and not about a student, which is what makes it useful. Five of
+ * our SCEN-101 sections sit in the university's Tuesday 16:30 option block against ENGL,
+ * ARAB and SPAN; reported per student that is a wall of identical red lines whose only
+ * offered remedy — "move this student out of Arabic" — nobody would ever take.
+ */
+export type SectionCollision = {
+  ourCrn: string;
+  ourCourse: string;
+  weekday: string;
+  startsAt: string;
+  endsAt: string;
+  /** How many dates the two share this hour on. */
+  dates: number;
+  /**
+   * How long the two actually overlap.
+   *
+   * The difference between a class somebody misses and a quarter of an hour at the end of
+   * one — SCEN-102 running to 18:15 against sport starting at 18:00 is a tail, a section
+   * in the Tuesday option block loses the whole ninety minutes — and the two are drawn
+   * alike until one of them says so.
+   */
+  minutes: number;
+  theirs: { crn: string; courseCode: string }[];
+  /**
+   * The students the registrar has in ours and in one of theirs, by id.
+   *
+   * Ids, never names: the server has never held a name. The page shows how many and links
+   * to them, the same way the clash panel does — the remedy is still about the section,
+   * but "2 in both" raises "which two?" and a bare number could not answer it.
+   */
+  students: string[];
+};
+
+export type SettledCollision = SectionCollision & {
+  disposition: "accepted" | "referred" | "";
+  note: string;
+  settledAt: string;
+  settledBy: string;
+};
+
+export function settleCollision(input: {
+  termCode: string;
+  ourCrn: string;
+  weekday: string;
+  startsAt: string;
+  endsAt: string;
+  /** "" puts it back on the list. */
+  disposition: "accepted" | "referred" | "";
+  note?: string;
+}): Promise<void> {
+  return send<void>("/section-collisions/settle", "POST", { note: "", ...input });
+}
+
+/** "Tue 16:30–18:00, 14 times" — where and how often the two sit together. */
+export function describeCollisionSlot(collision: SectionCollision): string {
+  const often = collision.dates > 1 ? `, ${collision.dates} times` : "";
+  return `${collision.weekday} ${collision.startsAt}–${collision.endsAt}${often}`;
+}
+
+/** "1 h 30" — the overlap itself, which is what says whether it is worth an argument. */
+export function describeOverlap(minutes: number): string {
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest ? `${hours} h ${String(rest).padStart(2, "0")}` : `${hours} h`;
+}
+
+export type TeacherDrift = {
+  crn: string;
+  courseCode: string;
+  groupLabel: string;
+  ours: string;
+  theirs: string;
+  /** planned · named · unplanned — see `_planning_state` on the server. */
+  planning: "planned" | "named" | "unplanned";
+};
+
+export async function fetchActiveCrns(term = ""): Promise<ActiveCrn[]> {
+  return (await request<{ crns: ActiveCrn[] }>(`/active-crns${term ? `?term=${encodeURIComponent(term)}` : ""}`)).crns;
+}
+
+export function addActiveCrns(input: {
+  courseCodes?: string[];
+  crns?: { termCode: string; crn: string; courseCode?: string }[];
+}): Promise<{ added: number; skipped: number }> {
+  return send("/active-crns", "POST", { courseCodes: [], crns: [], ...input });
+}
+
+export function setParentCrn(crnId: string, parentCrn: string): Promise<ActiveCrn> {
+  return send(`/active-crns/${encodeURIComponent(crnId)}`, "PATCH", { parentCrn });
+}
+
+export function removeActiveCrn(crnId: string): Promise<void> {
+  return request<void>(`/active-crns/${encodeURIComponent(crnId)}`, { method: "DELETE" });
+}
+
+/**
+ * One of the department's checks, and the answer that applies where it was asked.
+ *
+ * The list is the CODE's register of checks, not the table's: a check deleted from the
+ * code stops being listed even though its row survives, and one added is listed with its
+ * default before anybody has opened the panel. So `enabled` and `threshold` are always the
+ * answer in force, and the `default…` pair is what it would be if nobody had said.
+ */
+export type Check = {
+  name: string;
+  title: string;
+  /** What the threshold counts — "minutes of overlap". Empty when it has no size to it. */
+  measures: string;
+  enabled: boolean;
+  threshold: number;
+  defaultEnabled: boolean;
+  defaultThreshold: number;
+};
+
+export async function fetchChecks(cohortId = ""): Promise<Check[]> {
+  const where = cohortId ? `?cohortId=${encodeURIComponent(cohortId)}` : "";
+  return (await request<{ checks: Check[] }>(`/checks${where}`)).checks;
+}
+
+export function setCheck(
+  name: string,
+  input: { enabled: boolean; threshold?: number; cohortId?: string },
+): Promise<void> {
+  return send<void>(`/checks/${encodeURIComponent(name)}`, "PUT", { threshold: 0, cohortId: "", ...input });
+}
+
+/** Drop a cohort's own answer, so it follows the department's again. */
+export function clearCheck(name: string, cohortId: string): Promise<void> {
+  return request<void>(`/checks/${encodeURIComponent(name)}?cohortId=${encodeURIComponent(cohortId)}`, {
+    method: "DELETE",
+  });
+}
+
+export function fetchRegisterCheck(term = ""): Promise<RegisterCheck> {
+  return request<RegisterCheck>(`/register-check${term ? `?term=${encodeURIComponent(term)}` : ""}`);
+}
+
+export async function fetchActiveCourses(): Promise<ActiveCourse[]> {
+  return (await request<{ courses: ActiveCourse[] }>("/active-courses")).courses;
+}
+
+export function addActiveCourses(input: {
+  courseCodes?: string[];
+  byHand?: { courseCode: string; title: string }[];
+}): Promise<{ added: number; skipped: number }> {
+  return send("/active-courses", "POST", { courseCodes: [], byHand: [], ...input });
+}
+
+export function updateActiveCourse(
+  activeId: string,
+  input: { title: string; ue: string; mutualized?: Mutualized },
+): Promise<ActiveCourse> {
+  return send(`/active-courses/${encodeURIComponent(activeId)}`, "PATCH", input);
+}
+
+export function removeActiveCourse(activeId: string): Promise<void> {
+  return request<void>(`/active-courses/${encodeURIComponent(activeId)}`, { method: "DELETE" });
+}
+
+export async function fetchRegistrations(studentId: string): Promise<Registration[]> {
+  return (await request<{ registrations: Registration[] }>(`/students/${encodeURIComponent(studentId)}/registrations`)).registrations;
+}
+
+export async function fetchTermLinks(): Promise<Record<string, string>> {
+  return (await request<{ links: Record<string, string> }>("/term-links")).links;
+}
+
+export function linkTerm(termId: string, portalTermCode: string): Promise<{ termId: string; portalTermCode: string }> {
+  return send(`/term-links/${encodeURIComponent(termId)}`, "PUT", { portalTermCode });
+}
+
+export type TermCrns = {
+  portalTermCode: string;
+  crns: Record<string, { courseCode: string; title: string; teacherName: string; status: string }>;
+};
+
+export function fetchTermCrns(termId: string): Promise<TermCrns> {
+  return request<TermCrns>(`/terms/${encodeURIComponent(termId)}/crns`);
+}
+
+export function fetchTermCheck(termId: string): Promise<TermCheck> {
+  return request<TermCheck>(`/terms/${encodeURIComponent(termId)}/check`);
+}
+
+/**
+ * How much of a cohort the register could be asked about at all, one semester.
+ *
+ * Three integers rather than a verdict, because the three cases want different actions:
+ * no portal term linked, no pull covering this semester, a pull that returned nobody from
+ * this cohort, or N stragglers. `blind` arrives as its own integer so nothing here has to
+ * size `skipped` to tell them apart.
+ */
+export type TermCoverage = {
+  termId: string;
+  /** Empty when nobody has linked this semester to a portal term. */
+  termCode: string;
+  members: number;
+  judged: number;
+  blind: number;
+  /** By id. The server holds no names. */
+  skipped: string[];
+  /** Students of any cohort this term's pulls returned. */
+  pulledInTerm: number;
+  /**
+   * Our own sections the registrar has given no timetable for.
+   *
+   * A section with no dates cannot be told to be over, so it goes on being expected all
+   * year — which is the old, date-blind behaviour, kept deliberately because narrowing on
+   * no evidence is worse. These name where that fallback applied.
+   */
+  undatedCrns: string[];
+};
+
+/**
+ * The differences and the ground they were looked for on, in one value.
+ *
+ * Deliberately not unwrapped to `.mismatches` here. A caller that could take the verdicts
+ * without the coverage would sooner or later report "nothing wrong" about a cohort the
+ * registrar has never been asked about, so the type makes that impossible to do by
+ * accident: you have to name the half you want.
+ */
+export type RegistrationReport = {
+  mismatches: Mismatch[];
+  coverage: TermCoverage[];
+};
+
+export function fetchRegistrationCheck(cohortId: string): Promise<RegistrationReport> {
+  return request<RegistrationReport>(`/cohorts/${encodeURIComponent(cohortId)}/registration-check`);
+}
+
+/**
+ * What one semester's coverage means, said so it can be acted on — or "" when there is
+ * nothing to say because the semester was fully checked.
+ *
+ * Worded to blame our pull rather than the student: a student the registrations filter did
+ * not return has done nothing wrong, and phrasing it as their absence sends a coordinator
+ * chasing the wrong person.
+ */
+export function describeCoverage(coverage: TermCoverage, termName = ""): string {
+  const term = termName || (coverage.termCode ? `Semester ${coverage.termCode}` : "This semester");
+  if (!coverage.members) return "";
+  if (!coverage.termCode) {
+    return `${term} is not linked to a portal term, so none of its ${coverage.members} students have been checked.`;
+  }
+  if (!coverage.pulledInTerm) {
+    return `Nothing has been pulled for ${term}, so none of its ${coverage.members} students have been checked.`;
+  }
+  if (!coverage.judged) {
+    return `${term}: registrations have been pulled, but none of this cohort's ${coverage.members} students were among them — the filter that ran covers another population.`;
+  }
+  if (coverage.blind) {
+    return `${term}: ${coverage.judged} of ${coverage.members} students checked — ${coverage.blind} no pull has returned.`;
+  }
+  return "";
+}
+
+/**
+ * Where the check could not tell whether a section was still running, and so kept
+ * expecting it.
+ *
+ * A course taught in two halves puts a student in one section until the handover and
+ * another after it. The check only knows which half is current from the registrar's own
+ * timetable; without it, both halves are expected every day of the year and a student
+ * correctly registered in one is reported missing from the other. That fallback is
+ * deliberate — narrowing with no evidence would be far worse — but it must not be silent,
+ * or the fix looks as though it is working when nothing has been pulled for it to work on.
+ *
+ * Nothing to say for a semester with no portal term: it has a line of its own already.
+ */
+export function describeSectionDates(coverage: TermCoverage, termName = ""): string {
+  if (!coverage.termCode || !coverage.undatedCrns.length) return "";
+  const term = termName || `Semester ${coverage.termCode}`;
+  const sections = coverage.undatedCrns.length;
+  return `${term}: the registrar has given no timetable for ${sections} of this cohort's sections, so a course taught in two halves is expected in both all year.`;
+}
+
+// ------------------------------------------- the registrar's own timetable
+
+/** Which sections the registrar should be asked about, and whose they are. */
+export type TimetableTargets = {
+  /** Ours: the CRNs our own planning holds. */
+  ours: string[];
+  /**
+   * Other departments' sections our students are registered in — the language hours, the
+   * options. A collision there is invisible to us and is exactly what nobody has ever
+   * been able to see, so asking about them is the point rather than a nicety.
+   */
+  registered: string[];
+};
+
+/** `crn -> weekdays`, and the sections nobody has asked the registrar about. */
+export type SectionDays = { days: Record<string, string[]>; blind: string[] };
+
+export function fetchSectionDays(termCode: string): Promise<SectionDays> {
+  return request<SectionDays>(`/terms/${encodeURIComponent(termCode)}/section-days`);
+}
+
+export function fetchTimetableTargets(termCode: string): Promise<TimetableTargets> {
+  return request<TimetableTargets>(`/terms/${encodeURIComponent(termCode)}/timetable-targets`);
+}
+
+/** What one sweep changed, as the store reports it back. */
+export type FacilityPullReport = {
+  asked: number;
+  answered: number;
+  silent: number;
+  failed: number;
+  complete: boolean;
+};
+
+export function recordFacilityPull(body: {
+  termCode: string;
+  asked: string[];
+  sections: unknown[];
+  silent: string[];
+  failed: string[];
+  complete: boolean;
+}): Promise<FacilityPullReport> {
+  return send<FacilityPullReport>("/facility-timetable", "POST", body);
+}
+
+// ---------------------------------------------- the part-time teacher database
+
+export type PartTimeTeacher = { id: string; fullName: string; email: string };
+
+export async function fetchPartTimeTeachers(): Promise<PartTimeTeacher[]> {
+  const response = await apiFetch(`${API_BASE_URL}/api/v1/teachers`);
+  if (!response.ok) throw new Error(await readError(response));
+  const body = (await response.json()) as { items?: PartTimeTeacher[]; teachers?: PartTimeTeacher[] };
+  return body.items ?? body.teachers ?? [];
+}
+
+
+// ---------------------------------------------------------- the mappers
+
+export type CourseRow = {
+  termCode: string;
+  crn: string;
+  courseCode: string;
+  title: string;
+  subject: string;
+  sequence: string;
+  partOfTerm: string;
+  partOfTermDesc: string;
+  credits: string;
+  department: string;
+  level: string;
+  college: string;
+  contactHours: string;
+  teacherName: string;
+  registered: number;
+  begins: string;
+  ends: string;
+};
+
+export type TeacherRow = {
+  teacherId: string;
+  fullName: string;
+  status: string;
+  category: string;
+  type: string;
+  lastTerm: string;
+  credits: string;
+  coursesCount: string;
+  periodsCount: string;
+  studentsCount: string;
+  department: string;
+  rank: string;
+  courses: string;
+  institution: string;
+  psuadEmail: string;
+};
+
+/** What the server is told about a registration: no name, no absence, nothing else. */
+export type RegistrationRow = { studentId: string; crn: string; courseCode: string };
+
+const text = (row: RosterRow, field: string) => String(row[field] ?? "").trim();
+
+export function courseRowOf(row: RosterRow): CourseRow {
+  return {
+    termCode: text(row, "TERM_CODE"),
+    crn: text(row, "COURSE_CRN"),
+    courseCode: text(row, "COURSE_CODE"),
+    title: text(row, "COURSE_TITLE"),
+    subject: text(row, "COURSE_SUBJ"),
+    sequence: text(row, "SEQ_NUMB"),
+    partOfTerm: text(row, "PTERM_CODE"),
+    partOfTermDesc: text(row, "PTERM_DESC"),
+    credits: text(row, "CREDIT_HRS_NUM"),
+    department: text(row, "DEPT_CODE"),
+    level: text(row, "LEVEL_CODE"),
+    college: text(row, "COLLEGE_CODE"),
+    contactHours: text(row, "CONTACT_HRS_NUM"),
+    teacherName: text(row, "TEACHER_NAME"),
+    registered: Number(row.NUM_REG_STUD ?? 0) || 0,
+    begins: text(row, "BEGIN_DATE"),
+    ends: text(row, "END_DATE"),
+  };
+}
+
+export function teacherRowOf(row: RosterRow): TeacherRow {
+  return {
+    teacherId: text(row, "SPRIDEN_ID").toUpperCase(),
+    fullName: text(row, "FULL_NAME"),
+    status: text(row, "TEACHER_STATUS"),
+    category: text(row, "TEACHER_CAT_DESC"),
+    type: text(row, "TEACHER_TYPE_DESC"),
+    lastTerm: text(row, "LAST_TERM_CODE"),
+    credits: text(row, "TOTAL_CREDITS"),
+    coursesCount: text(row, "TEACHING_COURSES_COUNT"),
+    periodsCount: text(row, "TEACHING_PERIODS_COUNT"),
+    studentsCount: text(row, "TEACHING_STUDENT_COUNT"),
+    department: text(row, "TEACHING_DEPT"),
+    rank: text(row, "TEACHER_RANK"),
+    courses: text(row, "TEACHING_COURSES"),
+    institution: text(row, "ACADEMIC_INSTITUTION"),
+    psuadEmail: text(row, "PSUAD_EMAIL"),
+  };
+}
+
+export function registrationRowOf(row: RosterRow): RegistrationRow {
+  return {
+    studentId: text(row, "SPRIDEN_ID").toUpperCase(),
+    crn: text(row, "COURSE_CRN"),
+    courseCode: text(row, "COURSE_CODE"),
+  };
+}
+
+/** The portal term a registrations pull was about: the extension's word, else the rows'. */
+export function termCodeOf(term: { code: string } | null | undefined, rows: RosterRow[]): string {
+  return term?.code || (rows.length ? text(rows[0], "TERM_CODE") : "");
+}
+
+/** What a pull's warning means, in words a coordinator can act on. */
+export function describePullWarning(warning: string | null, count: number, expected: number | null): string {
+  switch (warning) {
+    case "zero_rows":
+      return "The portal answered with nobody at all. A filter code it does not recognise returns an empty list rather than an error, so check the codes.";
+    case "short_answer":
+      return `The portal said there were more than the ${count.toLocaleString()} it sent. This pull is incomplete — sync it again before trusting it.`;
+    case "truncated":
+      return `More rows than this tool will hold; the first ${count.toLocaleString()} were kept. Narrow the filter.`;
+    case "count_drift":
+      return `${count.toLocaleString()} rows, where about ${expected?.toLocaleString() ?? "another number"} was expected. Worth a look before it is relied on.`;
+    default:
+      return "";
+  }
+}
+
+/**
+ * "MATH-001: not registered in 23223" — one mismatch as a sentence.
+ *
+ * Both sides are lists: a course taught as a lecture and a tutorial gives a student two
+ * sections and the registrar registers them in both. So the sentence names the sections
+ * that differ rather than reciting every CRN either side holds, which is what made a
+ * correctly registered student read as a problem.
+ */
+export function describeMismatch(mismatch: Mismatch): string {
+  const absent = mismatch.expected.filter((crn) => !mismatch.registered.includes(crn));
+  const surplus = mismatch.registered.filter((crn) => !mismatch.expected.includes(crn));
+  switch (mismatch.kind) {
+    case "missing":
+      return `${mismatch.courseCode}: not registered in ${absent.join(" or ")}`;
+    case "wrong":
+      return `${mismatch.courseCode}: registered in ${surplus.join(" and ")}, we placed them in ${absent.join(" and ")}`;
+    case "extra":
+      return `${mismatch.courseCode}: registered in ${surplus.join(" and ")} as well, which is no group of theirs`;
+    case "unplaced":
+      return `${mismatch.courseCode}: registered in ${mismatch.registered.join(", ")}, but in no group of ours`;
+    // `courseCode` carries the group labels here — the set is the scope, and what is wrong
+    // is that there are two of its groups against one name.
+    case "doubled":
+      return `${mismatch.scopeCode}: registered in two groups at once — ${mismatch.courseCode} (${mismatch.registered.join(", ")})`;
+    // `scopeCode` carries the slot here — the weekday and the hour the two share.
+    case "collides":
+      return `${mismatch.courseCode} (${mismatch.expected.join(", ")}) is at the same hour as ${mismatch.registered.join(", ")} — ${mismatch.scopeCode}`;
+  }
+}
+
+/**
+ * A student's registrations as the register shapes them: sections under the course row
+ * they hang from, and the differences for that course folded in with them.
+ *
+ * The registrar answers with a flat list, in which the lecture a course is built around
+ * and the tutorial group a student actually sits in are the same kind of line. The
+ * register knows which CRN hangs from which, so the reading can say so: one block per
+ * course, the parent first, its sections indented beneath, and any warning about that
+ * course underneath the thing it is about rather than in a heap at the bottom.
+ *
+ * A registration in a course the register has never heard of still gets its own block —
+ * being unknown to us is not a reason to hide it.
+ */
+export type RegistrationFamily<R, M> = {
+  courseCode: string;
+  title: string;
+  /** The row the others hang from, when the student is registered in it. */
+  parent: R | null;
+  children: R[];
+  warnings: M[];
+};
+
+export function registrationFamilies<
+  R extends { crn: string; courseCode: string; title: string },
+  M extends { courseCode: string },
+>(registrations: R[], parentOf: (crn: string) => string, warnings: M[] = []): RegistrationFamily<R, M>[] {
+  const byCourse = new Map<string, R[]>();
+  for (const registration of registrations) {
+    const code = registration.courseCode || "—";
+    byCourse.set(code, [...(byCourse.get(code) ?? []), registration]);
+  }
+
+  const families: RegistrationFamily<R, M>[] = [];
+  for (const [courseCode, rows] of byCourse) {
+    // The parent is the one nothing of this course hangs from and that something does —
+    // or, failing that, whichever CRN the register names as the others' parent.
+    const named = new Set(rows.map((row) => parentOf(row.crn)).filter(Boolean));
+    const parent = rows.find((row) => named.has(row.crn) && !parentOf(row.crn)) ?? null;
+    const children = rows.filter((row) => row !== parent);
+    families.push({
+      courseCode,
+      title: (parent ?? rows[0])?.title ?? "",
+      parent,
+      children,
+      warnings: warnings.filter((warning) => warning.courseCode === courseCode),
+    });
+  }
+
+  // A course the student is registered in nowhere still has warnings worth reading.
+  for (const warning of warnings) {
+    if (byCourse.has(warning.courseCode)) continue;
+    const family = families.find((candidate) => candidate.courseCode === warning.courseCode);
+    if (family) family.warnings.push(warning);
+    else families.push({ courseCode: warning.courseCode, title: "", parent: null, children: [], warnings: [warning] });
+  }
+
+  return families.sort((left, right) => left.courseCode.localeCompare(right.courseCode));
+}

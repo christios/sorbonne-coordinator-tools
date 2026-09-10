@@ -302,9 +302,11 @@ def _write_roster_sheet(sheet: Any, rows: list[RosterRow]) -> None:
 
     sheet.freeze_panes = "A2"
     sheet.auto_filter.ref = sheet.dimensions
+    # Only the names run past their column, so they are the only ones worth wrapping.
+    name_column = headers.index("Student Name") + 1
     for row in sheet.iter_rows():
         for cell in row:
-            cell.alignment = Alignment(vertical="top", wrap_text=cell.column == 3)
+            cell.alignment = Alignment(vertical="top", wrap_text=cell.column == name_column)
             cell.border = Border(bottom=Side(style="thin", color="E5E7EB"))
 
 

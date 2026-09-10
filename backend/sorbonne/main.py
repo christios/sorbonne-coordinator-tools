@@ -8,7 +8,10 @@ from fastapi.staticfiles import StaticFiles
 
 from sorbonne.api.auth import router as auth_router
 from sorbonne.api.bibliography_lookup import router as bibliography_lookup_router
+from sorbonne.api.dev_tools import is_local as dev_is_local
+from sorbonne.api.dev_tools import router as dev_router
 from sorbonne.api.rosters import router as rosters_router
+from sorbonne.api.portal import router as portal_router
 from sorbonne.api.publication import router as publication_router
 from sorbonne.api.student_database import router as student_database_router
 from sorbonne.api.syllabus_catalogues import router as syllabus_catalogues_router
@@ -50,6 +53,7 @@ app.add_middleware(
 app.include_router(auth_router, prefix="/api/v1")
 app.include_router(rosters_router, prefix="/api/v1")
 app.include_router(teachers_router, prefix="/api/v1")
+app.include_router(portal_router, prefix="/api/v1")
 app.include_router(teacher_requisitions_router, prefix="/api/v1")
 app.include_router(teacher_documents_router, prefix="/api/v1")
 app.include_router(workflow_router, prefix="/api/v1")
@@ -60,6 +64,13 @@ app.include_router(timetables_router, prefix="/api/v1")
 app.include_router(users_router, prefix="/api/v1")
 app.include_router(student_database_router, prefix="/api/v1")
 app.include_router(publication_router, prefix="/api/v1")
+
+# Developer conveniences, mounted ONLY when the database is on this machine — so in
+# production they are a 404 rather than a guarded 403. A guard inside a mounted route is
+# one bad condition away from replaying production into production; a route that was never
+# added cannot be reached at all. See sorbonne/api/dev_tools.py.
+if dev_is_local(config.database_url):
+    app.include_router(dev_router, prefix="/api/v1")
 app.mount("/handbook", StaticFiles(directory="handbook-dist", html=True, check_dir=False), name="handbook")
 app.frontend("/", directory="frontend-dist", fallback="index.html", check_dir=False)
 

@@ -14,6 +14,8 @@ export function Modal({
   footer,
   onClose,
   children,
+  size = "default",
+  header,
 }: {
   open: boolean;
   title: string;
@@ -21,6 +23,10 @@ export function Modal({
   footer?: ReactNode;
   onClose: () => void;
   children: ReactNode;
+  /** "wide" for a screen that lays things side by side, like a student's record. */
+  size?: "default" | "wide";
+  /** Something to sit under the title — pills, a summary line. */
+  header?: ReactNode;
 }) {
   const titleId = useId();
 
@@ -45,7 +51,9 @@ export function Modal({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="flex max-h-[85vh] w-full max-w-3xl flex-col rounded-lg border border-[#d9dee7] bg-white shadow-xl"
+        className={`flex max-h-[85vh] w-full flex-col rounded-lg border border-[#d9dee7] bg-white shadow-xl ${
+          size === "wide" ? "max-w-5xl" : "max-w-3xl"
+        }`}
         onMouseDown={(event) => event.stopPropagation()}
       >
         <header className="border-b border-[#e4e8ef] px-5 py-4">
@@ -53,6 +61,7 @@ export function Modal({
             {title}
           </h2>
           {description ? <p className="mt-1 text-sm text-[#667085]">{description}</p> : null}
+          {header}
         </header>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">{children}</div>

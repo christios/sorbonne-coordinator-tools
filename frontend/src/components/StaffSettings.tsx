@@ -1,25 +1,34 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Pencil, Shield, ShieldCheck, Trash2, UserPlus, Users } from "lucide-react";
+import { Copy, KeyRound, Loader2, Pencil, Shield, ShieldCheck, Trash2, UserPlus, Users } from "lucide-react";
 import { useState } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { useStaffUser } from "@/components/useStaffUser";
 import {
+  type ApiToken,
   CoordinatorAccount,
   type Owner,
+  createApiToken,
+  fetchApiTokens,
   fetchStaffList,
   inviteCoordinator,
   removeCoordinator,
+  revokeApiToken,
   updateCoordinator,
 } from "@/services/staffDirectory";
 
 /**
- * Settings for the application itself. Users is the only page so far, and it is
- * where the staff list is kept: invite a colleague, promote them, suspend them,
- * or remove them. The people named in COORDINATOR_ACCESS_EMAILS are shown but not
- * editable — they are the way back in if this list is ever emptied by mistake.
+ * Settings for the application itself: who may sign in, and the tokens a coordinator
+ * makes so a program can act as them. The people named in COORDINATOR_ACCESS_EMAILS are
+ * shown but not editable — they are the way back in if the list is ever emptied.
  */
 export function StaffSettings() {
+  const [page, setPage] = useState<"users" | "tokens">("users");
+  const tab = (active: boolean) =>
+    `-mb-px inline-flex items-center gap-2 border-b-2 px-3 py-2 text-sm font-semibold ${
+      active ? "border-[#1f4e79] text-[#1f4e79]" : "border-transparent text-[#667085] hover:text-[#1f4e79]"
+    }`;
+
   return (
     <div className="mx-auto max-w-[70rem] px-4 py-8 sm:px-6 lg:px-8">
       <header>
@@ -30,13 +39,201 @@ export function StaffSettings() {
       </header>
 
       <nav className="mt-6 flex gap-1 border-b border-[#d9dee7]">
-        <span className="-mb-px inline-flex items-center gap-2 border-b-2 border-[#1f4e79] px-3 py-2 text-sm font-semibold text-[#1f4e79]">
+        <button type="button" onClick={() => setPage("users")} className={tab(page === "users")}>
           <Users size={15} aria-hidden="true" /> Users
-        </span>
+        </button>
+        <button type="button" onClick={() => setPage("tokens")} className={tab(page === "tokens")}>
+          <KeyRound size={15} aria-hidden="true" /> API tokens
+        </button>
       </nav>
 
-      <StaffDirectory />
+      {page === "users" ? <StaffDirectory /> : <ApiTokens />}
     </div>
+  );
+}
+
+/**
+ * Tokens for programs.
+ *
+ * A coordinator at a keyboard is carried by the Google sign-in cookie, which a script
+ * cannot hold: it is HttpOnly, so nothing outside the browser can read it. A token is
+ * the way in for a script, and it carries the identity of whoever made it and no more —
+ * lose your access here and your tokens lose it with you.
+ *
+ * The token is shown once, on the screen that makes it. Afterwards only its first
+ * characters are known, which is enough to tell two apart and not enough to use.
+ */
+function ApiTokens() {
+  const queryClient = useQueryClient();
+  const tokens = useQuery({ queryKey: ["api-tokens"], queryFn: fetchApiTokens });
+  const [name, setName] = useState("");
+  const [days, setDays] = useState(90);
+  const [made, setMade] = useState<{ token: string; record: ApiToken } | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [pendingRevoke, setPendingRevoke] = useState<ApiToken | null>(null);
+
+  const refresh = () => queryClient.invalidateQueries({ queryKey: ["api-tokens"] });
+  const create = useMutation({
+    mutationFn: () => createApiToken({ name: name.trim(), days }),
+    onSuccess: (result) => {
+      setMade(result);
+      setCopied(false);
+      setName("");
+      refresh();
+    },
+  });
+  const revoke = useMutation({
+    mutationFn: (token: ApiToken) => revokeApiToken(token.id),
+    onSuccess: () => {
+      setPendingRevoke(null);
+      refresh();
+    },
+  });
+
+  const live = (token: ApiToken) => !token.revokedAt && (!token.expiresAt || token.expiresAt > new Date().toISOString());
+  const day = (value: string) => (value ? value.slice(0, 10) : "—");
+
+  return (
+    <section className="mt-6 space-y-5">
+      <p className="max-w-2xl text-sm leading-6 text-[#667085]">
+        A token lets a program call this application as you — the same access, from a script or a terminal. Send it as
+        an <code className="rounded bg-[#f2f4f7] px-1">Authorization: Bearer</code> header. Keep it as you would a
+        password: anyone holding it can do what you can do, until it expires or you revoke it.
+      </p>
+
+      <form
+        className="flex flex-wrap items-end gap-3 rounded-lg border border-[#e5e9f0] bg-[#f8fafc] p-4"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (name.trim()) create.mutate();
+        }}
+      >
+        <label className="text-sm font-semibold text-[#344054]">
+          What it is for
+          <input
+            aria-label="Token name"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            placeholder="Timetable data load"
+            className="mt-1.5 block w-64 rounded-md border border-[#cbd5e1] px-3 py-2 text-sm font-normal"
+          />
+        </label>
+        <label className="text-sm font-semibold text-[#344054]">
+          Lasts
+          <select
+            aria-label="How long the token lasts"
+            value={days}
+            onChange={(event) => setDays(Number(event.target.value))}
+            className="mt-1.5 block rounded-md border border-[#cbd5e1] px-3 py-2 text-sm font-normal"
+          >
+            <option value={7}>7 days</option>
+            <option value={30}>30 days</option>
+            <option value={90}>90 days</option>
+            <option value={365}>a year</option>
+          </select>
+        </label>
+        <button
+          type="submit"
+          disabled={!name.trim() || create.isPending}
+          className="rounded-md bg-[#1f4e79] px-4 py-2 text-sm font-semibold text-white disabled:bg-[#9ba8b5]"
+        >
+          {create.isPending ? "Making…" : "Make a token"}
+        </button>
+        {create.error ? (
+          <p role="alert" className="basis-full text-sm text-[#a6292f]">{(create.error as Error).message}</p>
+        ) : null}
+      </form>
+
+      {made ? (
+        <div className="rounded-lg border border-[#bfdcc6] bg-[#f4faf5] p-4">
+          <p className="text-sm font-semibold text-[#2f6b3d]">
+            Copy {made.record.name} now — this is the only time it is shown.
+          </p>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <code className="min-w-0 flex-1 break-all rounded-md border border-[#bfdcc6] bg-white px-3 py-2 font-mono text-xs text-[#171717]">
+              {made.token}
+            </code>
+            <button
+              type="button"
+              onClick={() => {
+                void navigator.clipboard?.writeText(made.token);
+                setCopied(true);
+              }}
+              className="inline-flex items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#344054]"
+            >
+              <Copy size={14} aria-hidden="true" /> {copied ? "Copied" : "Copy"}
+            </button>
+            <button type="button" onClick={() => setMade(null)} className="text-sm font-semibold text-[#667085]">
+              Done
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {tokens.isLoading ? (
+        <p className="inline-flex items-center gap-2 text-sm text-[#667085]">
+          <Loader2 size={15} className="animate-spin" aria-hidden="true" /> Loading tokens…
+        </p>
+      ) : tokens.error ? (
+        <p role="alert" className="text-sm text-[#a6292f]">{(tokens.error as Error).message}</p>
+      ) : (tokens.data ?? []).length === 0 ? (
+        <p className="text-sm text-[#667085]">No tokens yet.</p>
+      ) : (
+        <table className="w-full text-left text-sm">
+          <thead className="text-xs uppercase tracking-wide text-[#667085]">
+            <tr>
+              <th className="py-2 pr-4 font-semibold">Name</th>
+              <th className="py-2 pr-4 font-semibold">Token</th>
+              <th className="py-2 pr-4 font-semibold">Whose</th>
+              <th className="py-2 pr-4 font-semibold">Made</th>
+              <th className="py-2 pr-4 font-semibold">Expires</th>
+              <th className="py-2 pr-4 font-semibold">Last used</th>
+              <th className="py-2" />
+            </tr>
+          </thead>
+          <tbody>
+            {(tokens.data ?? []).map((token) => (
+              <tr key={token.id} className={`border-t border-[#e4e8ef] ${live(token) ? "" : "text-[#98a2b3]"}`}>
+                <td className="py-2.5 pr-4 font-semibold text-[#171717]">{token.name}</td>
+                <td className="py-2.5 pr-4 font-mono text-xs">{token.prefix}…</td>
+                <td className="py-2.5 pr-4">{token.email}</td>
+                <td className="py-2.5 pr-4 tabular-nums">{day(token.createdAt)}</td>
+                <td className="py-2.5 pr-4 tabular-nums">{day(token.expiresAt)}</td>
+                <td className="py-2.5 pr-4 tabular-nums">{day(token.lastUsedAt)}</td>
+                <td className="py-2.5 text-right">
+                  {token.revokedAt ? (
+                    <span className="text-xs">Revoked {day(token.revokedAt)}</span>
+                  ) : !live(token) ? (
+                    <span className="text-xs">Expired</span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setPendingRevoke(token)}
+                      className="inline-flex items-center gap-1.5 rounded-md border border-[#e5b7b9] bg-white px-2.5 py-1.5 text-xs font-semibold text-[#a6292f] hover:bg-[#fdf3f3]"
+                    >
+                      <Trash2 size={13} aria-hidden="true" /> Revoke
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      <ConfirmDialog
+        open={pendingRevoke !== null}
+        title="Revoke this token?"
+        description={
+          pendingRevoke
+            ? `Anything using ${pendingRevoke.name} stops working at once. This cannot be undone; make another if you need one.`
+            : ""
+        }
+        confirmLabel="Revoke"
+        onConfirm={() => pendingRevoke && revoke.mutate(pendingRevoke)}
+        onClose={() => setPendingRevoke(null)}
+      />
+    </section>
   );
 }
 

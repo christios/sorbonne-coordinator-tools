@@ -77,8 +77,30 @@ def test_import_marks_courses_absent_from_the_next_catalogue_as_obsolete() -> No
     first_crn = f"CRN-{uuid4()}"
     second_crn = f"CRN-{uuid4()}"
     rows = [
-        {"crn": first_crn, "term": "262710", "courseCode": "PHY-101", "courseTitle": "Physics", "sequence": "1", "credit": "4", "department": "PHY", "level": "L1", "college": "P4", "contactHours": "30"},
-        {"crn": second_crn, "term": "262710", "courseCode": "MAT-101", "courseTitle": "Mathematics", "sequence": "1", "credit": "4", "department": "MAT", "level": "L1", "college": "P4", "contactHours": "30"},
+        {
+            "crn": first_crn,
+            "term": "262710",
+            "courseCode": "PHY-101",
+            "courseTitle": "Physics",
+            "sequence": "1",
+            "credit": "4",
+            "department": "PHY",
+            "level": "L1",
+            "college": "P4",
+            "contactHours": "30",
+        },
+        {
+            "crn": second_crn,
+            "term": "262710",
+            "courseCode": "MAT-101",
+            "courseTitle": "Mathematics",
+            "sequence": "1",
+            "credit": "4",
+            "department": "MAT",
+            "level": "L1",
+            "college": "P4",
+            "contactHours": "30",
+        },
     ]
     store.import_course_catalogue(rows)
 

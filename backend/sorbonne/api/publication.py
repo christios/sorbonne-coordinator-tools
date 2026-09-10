@@ -18,11 +18,27 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 
+from sorbonne.api.deps import optional_client
+from sorbonne.api.portal import get_facilities, get_store
 from sorbonne.api.timetables import require_client
+from sorbonne.services.facility_timetable import FacilityTimetableStore
+from sorbonne.services.portal_lists import PortalListStore
 from sorbonne.config import config
-from sorbonne.services.enrolment_resolution import Group, Scope, Section, readiness, resolve, validate
+from sorbonne.services.enrolment_resolution import Section, readiness, resolve, validate
+from sorbonne.services.term_clashes import (
+    assignments_of as _assignments,
+)
+from sorbonne.services.term_clashes import (
+    cohort_clashes as _clashes,
+)
+from sorbonne.services.term_clashes import (
+    groups_of as _groups,
+)
+from sorbonne.services.term_clashes import (
+    scopes_of as _scopes,
+)
 from sorbonne.services.student_database import StudentDatabase
-from sorbonne.services.student_timetables import StudentPlatformClient, StudentPlatformError
+from sorbonne.services.student_timetables import StudentPlatformClient, StudentPlatformError, sessions_of
 
 router = APIRouter(prefix="/publication", tags=["publication"])
 
@@ -39,24 +55,6 @@ class PublishInput(BaseModel):
 
 def _forward(error: StudentPlatformError) -> HTTPException:
     return HTTPException(status_code=error.status_code, detail=str(error))
-
-
-def _scopes(cohort: dict[str, Any]) -> list[Scope]:
-    return [
-        Scope(id=row["id"], cohort_id=cohort["cohortId"], code=row["code"], name=row["name"])
-        for row in cohort["scopes"]
-    ]
-
-
-def _groups(cohort: dict[str, Any]) -> list[Group]:
-    return [
-        Group(id=row["id"], scope_id=row["scopeId"], label=row["label"], crns=row["crns"])
-        for row in cohort["groups"]
-    ]
-
-
-def _assignments(cohort: dict[str, Any]) -> dict[tuple[str, str], str]:
-    return {(row["studentId"], row["scopeId"]): row["groupId"] for row in cohort["assignments"]}
 
 
 def _sections(rows: list[dict[str, Any]]) -> list[Section]:
@@ -98,17 +96,59 @@ def _cohort_members(cohorts: list[dict[str, Any]]) -> dict[str, dict[str, str]]:
 
 
 @router.get("/terms/{term_id}")
-async def read_publication(
+async def read_publication(  # noqa: PLR0913 - one dependency per record it reads
     term_id: str,
     database: StudentDatabase = Depends(get_database),
-    client: StudentPlatformClient = Depends(require_client),
+    store: PortalListStore = Depends(get_store),
+    facilities: FacilityTimetableStore = Depends(get_facilities),
+    client: StudentPlatformClient | None = Depends(optional_client),
 ) -> dict[str, Any]:
-    """What stands between this semester and being published. Writes nothing."""
+    """What stands between this semester and being published. Writes nothing.
+
+    **The registrar's own timetable answers this now, not an uploaded file.** The Student
+    Hub's sessions are a registrar export somebody put through a spreadsheet at the start
+    of term: a photograph, out of date the moment a room moved, and covering only the
+    cohorts whose file was made. Against 141 live CRNs it had times for the 43 courses of
+    one file, which is why three of four cohorts reported no clashes and meant nothing by
+    it. The facilities record is pulled from the registrar per section and covers 110.
+
+    The Hub is still read, but only for the sections facilities is blind to, and only if
+    one is configured. Where they disagree the live one wins; where facilities has nothing,
+    a stale answer beats none. Never both for one CRN — a section described twice would
+    contribute two spellings of one meeting and clash with itself.
+
+    `coverage` is returned beside the verdicts so a clash count is never read as clean when
+    it is only unexamined.
+    """
     cohorts = database.term_publication(term_id)
-    try:
-        sections = _sections(await client.list_sections(term_id))
-    except StudentPlatformError as exc:
-        raise _forward(exc) from exc
+    crns = sorted(
+        {
+            crn
+            for cohort in cohorts
+            for group in [*cohort["groups"], *cohort.get("sharedGroups", [])]
+            for crns in group["crns"].values()
+            for crn in crns
+            if crn
+        }
+    )
+    term_code = store.term_links().get(term_id, "")
+    coverage = facilities.coverage_for(term_code, crns) if term_code else None
+    sessions = facilities.sessions_for(term_code, crns) if term_code else []
+    known = facilities.sections_for(term_code, crns) if term_code else []
+    sections = [Section(crn=crn, code=code) for crn, code in known]
+
+    blind = coverage.blind if coverage else crns
+    hub_reachable: bool | None = None
+    if blind and client is not None:
+        hub_reachable = True
+        try:
+            rows = await client.list_sections(term_id)
+            wanted = set(blind)
+            sessions = [*sessions, *[row for row in sessions_of(rows) if row.crn in wanted]]
+            sections = [*sections, *[row for row in _sections(rows) if row.crn in wanted]]
+        except StudentPlatformError:
+            # A Hub that will not answer degrades the coverage; it never fails the reading.
+            hub_reachable = False
 
     reports = []
     verdicts: dict[str, dict[str, Any]] = {}
@@ -124,7 +164,11 @@ async def read_publication(
                     groups=groups,
                     course_codes=cohort["courseCodes"],
                     assignments=_assignments(cohort),
+                    scope_programs=cohort.get("scopePrograms"),
                 ),
+                # A warning rather than a blocker: the timetable is what it is, and the
+                # coordinator may well know. But it must be said where the placing happens.
+                "clashes": _clashes(cohort, groups, sessions),
             }
         )
         verdicts.update(validate(groups=groups, sections=sections))
@@ -138,6 +182,16 @@ async def read_publication(
         "validation": verdicts,
         "unmatchedCrns": len(unmatched),
         "sections": len(sections),
+        # What the reading above could and could not see. A floor, never a flag.
+        "coverage": {
+            "linked": bool(term_code),
+            "portalTermCode": term_code,
+            "pulledAt": coverage.pulled_at if coverage else "",
+            "asked": len(crns),
+            "timetabled": len({session.crn for session in sessions}),
+            "blind": sorted(set(crns) - {session.crn for session in sessions}),
+            "hubReachable": hub_reachable,
+        },
         "resolved": {"students": len(resolved), "enrolments": sum(len(crns) for crns in resolved.values())},
         "isReady": bool(cohorts) and all(report["isReady"] for report in reports) and not unmatched,
     }

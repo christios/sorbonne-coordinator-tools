@@ -41,7 +41,7 @@ function show(views = [VIEW], viewId = VIEW.id) {
 }
 
 const openCog = async () =>
-  fireEvent.click(await screen.findByRole("button", { name: /The filter behind FY 262710/ }));
+  fireEvent.click(await screen.findByRole("button", { name: /What FY 262710/ }));
 
 beforeEach(() => {
   vi.spyOn(rosters, "fetchSchema").mockResolvedValue(SCHEMA as never);
@@ -53,7 +53,7 @@ describe("reading the filter behind a view", () => {
   it("offers it beside the sync button, for anybody, not just an administrator", async () => {
     show();
 
-    expect(await screen.findByRole("button", { name: /The filter behind FY 262710/ })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: /What FY 262710/ })).toBeTruthy();
   });
 
   it("names each field the way the portal names it, with the code beneath", async () => {
@@ -78,14 +78,14 @@ describe("reading the filter behind a view", () => {
     show();
     await openCog();
 
-    expect(await screen.findByText(/Fixed when the view was made/)).toBeTruthy();
+    expect(await screen.findByText(/Fixed when the portal filter was made/)).toBeTruthy();
   });
 
   it("says plainly when a view filters on nothing at all", async () => {
     const everyone: StudentView = { ...VIEW, id: "all", name: "All students", filter: {} };
     show([everyone], "all");
 
-    fireEvent.click(await screen.findByRole("button", { name: /The filter behind All students/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /What All students/ }));
 
     expect(await screen.findByText(/asks for every student the portal will return/)).toBeTruthy();
   });

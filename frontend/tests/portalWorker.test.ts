@@ -52,7 +52,8 @@ async function loadWorker(): Promise<void> {
     const total = population ?? 1;
     const skip = Number(body.Skip ?? 0);
     const take = Number(body.Take ?? total);
-    const entities = Array.from({ length: Math.max(0, Math.min(take, total - skip)) }, (_, i) => ({
+    const sending = Math.min(sends ?? total, Math.max(0, Math.min(take || total, total - skip)));
+    const entities = Array.from({ length: sending }, (_, i) => ({
       SPRIDEN_ID: `A${String(skip + i).padStart(3, "0")}`,
       FULL_NAME: "Amira",
       PASSPORT_ID: "SECRET",
@@ -71,9 +72,12 @@ async function loadWorker(): Promise<void> {
 
 /** How many students the fake portal holds. Null keeps the one-row default. */
 let population: number | null = null;
+/** How many it actually sends, when that is fewer than it claims to hold. */
+let sends: number | null = null;
 
 afterEach(() => {
   population = null;
+  sends = null;
 });
 
 const send = (message: unknown): Promise<Record<string, unknown>> =>
@@ -132,53 +136,49 @@ describe("the extension's service worker", () => {
     expect(requests[0].body).toMatchObject({
       EqualityFilter: { TERM_CODE: "262710", YEARLEVEL_CODE: ["FY"] },
       Skip: 0,
-      Take: 500,
+      Take: 0,
     });
     // The portal returns 45 columns including passports; only the allowlist survives.
     expect(reply.rows).toEqual([{ SPRIDEN_ID: "A000", FULL_NAME: "Amira" }]);
   });
 
   /*
-   * A whole term used to be one request with `Take: 0`. The first term is 2876 students,
-   * and one request that large is a single point of failure with nothing to show while it
-   * runs — the page could not tell a slow success from a hang, and abandoned it.
+   * The portal cannot be paged. Asking in slices of 500 returns the same person twice and
+   * somebody else never — 1,486 active staff came back as 913 distinct people, and 2,966
+   * students as 1,193. So a pull is one request, and these tests are the guard against
+   * anybody reintroducing the pages.
    */
-  describe("a term that does not fit in one answer", () => {
-    it("walks the pages and returns every student once", async () => {
+  describe("a whole term in one answer", () => {
+    it("asks once, for everything, and keeps every row", async () => {
       population = 1150;
 
       const reply = await send({ type: "fetch", filter: {} });
 
-      expect(reply.rows).toHaveLength(1150);
-      expect(new Set(reply.rows.map((r: { SPRIDEN_ID: string }) => r.SPRIDEN_ID)).size).toBe(1150);
-    });
-
-    it("asks for each page in turn", async () => {
-      population = 1150;
-
-      await send({ type: "fetch", filter: {} });
-
       const portal = requests.filter((r) => r.url.startsWith("http"));
-      expect(portal.map((r) => r.body.Skip)).toEqual([0, 500, 1000]);
-      expect(portal.every((r) => r.body.Take === 500)).toBe(true);
+      expect(portal).toHaveLength(1);
+      expect(portal[0].body).toMatchObject({ Skip: 0, Take: 0 });
+      expect(reply.rows).toHaveLength(1150);
+      expect(new Set((reply.rows as { SPRIDEN_ID: string }[]).map((r) => r.SPRIDEN_ID)).size).toBe(1150);
     });
 
-    it("stops on the short page rather than asking for ever", async () => {
-      population = 300;
+    it("says so when the portal sends fewer than it says it holds", async () => {
+      // The failure that hid a third of the department: an answer that is quietly short.
+      population = 1486;
+      sends = 913;
 
-      await send({ type: "fetch", filter: {} });
+      const reply = await send({ type: "fetch", filter: {} });
 
-      expect(requests.filter((r) => r.url.startsWith("http"))).toHaveLength(1);
+      expect(reply.warning).toBe("short_answer");
+      expect(reply.rows).toHaveLength(913);
     });
 
-    it("says so rather than quietly returning half a term", async () => {
-      // A portal that never returns a short page would otherwise spin here for ever.
+    it("stops at the ceiling rather than holding a whole university", async () => {
       population = 25000;
 
       const reply = await send({ type: "fetch", filter: {} });
 
       expect(reply.warning).toBe("truncated");
-      expect(reply.rows.length).toBeLessThan(25000);
+      expect((reply.rows as unknown[]).length).toBeLessThan(25000);
     });
   });
 

@@ -73,3 +73,19 @@ describe("telling a slow extension from an absent one", () => {
     expect(new PortalError(silenceMeans(false)).message).toMatch(/Install it/);
   });
 });
+
+describe("an extension older than the page", () => {
+  it("says so, rather than blaming the portal", async () => {
+    /*
+     * A build before 1.8.0 has no case for the timetable sweep, so it answers
+     * `unknown_message` — which without a sentence of its own arrived as "the registrar
+     * portal returned an unexpected error" and sent somebody to look at the portal.
+     */
+    const { PortalError } = await import("@/services/scenRosters");
+    const error = new PortalError("unknown_message");
+
+    expect(error.message).toMatch(/older than this page/);
+    expect(error.message).toMatch(/chrome:\/\/extensions/);
+    expect(error.message).not.toMatch(/registrar portal returned/);
+  });
+});

@@ -98,7 +98,7 @@ export function SemesterImport({
           </p>
           <p className="mt-1 leading-6">
             {imported.courseCount} courses and {imported.sessionCount} sessions, with{" "}
-            {imported.studentCount} student(s) on it. Give its blocks their groups in Groups &amp;
+            {imported.studentCount} student(s) on it. Give its sets their groups in Groups &amp;
             CRNs, place the cohort, then publish — students see nothing until you do.
           </p>
         </div>
@@ -129,7 +129,7 @@ export function SemesterImport({
           </label>
 
           <p className="text-sm leading-6 text-[#667085]">
-            It arrives with nobody on it: define the blocks in Groups &amp; CRNs, place the cohort,
+            It arrives with nobody on it: define the sets on Group schema, place the cohort,
             then publish.
             {host ? (
               <>

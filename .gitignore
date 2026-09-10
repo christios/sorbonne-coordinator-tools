@@ -31,3 +31,4 @@ data/*.sqlite3
 handbook/_site/
 handbook/handbook-dist/
 handbook/search/node_modules/
+docs/plans/*.html

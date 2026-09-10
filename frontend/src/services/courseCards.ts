@@ -1,0 +1,227 @@
+/**
+ * The Groups & CRNs page as cards: one per course, its sections inside.
+ *
+ * The server keeps blocks — a group set with courses across and groups down — because
+ * that is how students are placed. The timetabler's workbook, and the coordinator's
+ * eye, go course by course: Pre-calculus 1, and under it every section anybody teaches
+ * of it, whichever group set it belongs to. This turns the one into the other, purely,
+ * so the page can be filtered and searched the way the tables are.
+ */
+
+import type { ActiveCourse } from "@/services/portalLists";
+import { partsOf } from "@/services/studentDatabase";
+import type { CatalogueCourse, CatalogueGroup, CatalogueScope, CohortCatalogue, SectionPart } from "@/services/studentDatabase";
+import type { GridColumn } from "@/services/studentColumns";
+
+export type SectionRow = {
+  scope: CatalogueScope;
+  group: CatalogueGroup;
+  course: CatalogueCourse;
+  /** Null when this group holds nothing for the course yet — a row that can be started. */
+  /**
+   * The section this group holds for this course, or one part of it.
+   *
+   * `buildCards` puts the whole section here, first part at the top level and `parts`
+   * beside it. `rowsPerPart` hands back a row per part, and those carry a part — which is
+   * a section minus its list of siblings, so everything that reads a CRN, a teacher or a
+   * request field is right either way. Use `partsOf` rather than `.parts` to be sure.
+   */
+  section: SectionPart | null;
+  /**
+   * How many parts the section this row came from has — 1 unless `rowsPerPart` split it.
+   *
+   * Carried on the row because a part does not know how many siblings it has, and a card
+   * headed "part 2" with no "of 2" beside it is a card that raises a question rather than
+   * answering one.
+   */
+  parts?: number;
+  /**
+   * How many of the group's students do not take this course.
+   *
+   * On the row rather than read off `section`, because a row may carry a single part and a
+   * part has no count of its own: an exemption is from the COURSE, so both halves of a
+   * handover teach the same people and are short the same ones.
+   */
+  exempt?: number;
+  /** What this section's CRN hangs from, as the register says. Empty when unregistered. */
+  parentCrn: string;
+};
+
+export type CardSet = {
+  scope: CatalogueScope;
+  /** The course row of this set the card is about. */
+  course: CatalogueCourse;
+  rows: SectionRow[];
+};
+
+export type Card = {
+  /** Cohort, semester and course code together: one card per course per semester. */
+  key: string;
+  cohortId: string;
+  cohortName: string;
+  termId: string;
+  termName: string;
+  code: string;
+  name: string;
+  /** The active course this card is, when the code is on the department's list. */
+  active: ActiveCourse | null;
+  /** Its UE, read from the active course — empty when the code is not on the list. */
+  ue: string;
+  sets: CardSet[];
+};
+
+/**
+ * Cards from every cohort's catalogue.
+ *
+ * A course appears once per cohort and semester, however many group sets carry it: the
+ * CM set's MATH001 and the TD set's MATH001 are one card with two sets inside. The title,
+ * UE and parent CRN are the active course's, since that is the one place they are kept;
+ * a card whose code is not on that list keeps the title typed on its rows and has no UE.
+ */
+export function buildCards(
+  cohorts: CohortCatalogue[],
+  termName: (termId: string) => string,
+  activeCourses: ActiveCourse[] = [],
+  /** CRN -> the parent CRN the register holds for it. */
+  parentOf: Map<string, string> = new Map(),
+): Card[] {
+  const active = new Map(activeCourses.map((course) => [course.courseCode.toUpperCase(), course]));
+  const cards = new Map<string, Card>();
+  for (const held of cohorts) {
+    for (const scope of held.scopes) {
+      const termId = scope.termId ?? "";
+      for (const course of scope.courses) {
+        const code = course.code.toUpperCase();
+        const key = `${held.cohort.id}|${termId}|${code}`;
+        let card = cards.get(key);
+        if (!card) {
+          const known = active.get(code) ?? null;
+          card = {
+            key,
+            cohortId: held.cohort.id,
+            cohortName: held.cohort.name,
+            termId,
+            termName: termName(termId),
+            code: course.code,
+            name: known?.title || course.name,
+            active: known,
+            ue: known?.ue ?? "",
+            sets: [],
+          };
+          cards.set(key, card);
+        }
+        card.name ||= course.name;
+        card.sets.push({
+          scope,
+          course,
+          rows: scope.groups.map((group) => {
+            const section = group.crns[course.id] ?? null;
+            return {
+              scope,
+              group,
+              course,
+              section,
+              exempt: section?.exempt ?? 0,
+              parentCrn: (section?.crn && parentOf.get(section.crn)) || "",
+            };
+          }),
+        });
+      }
+    }
+  }
+  return [...cards.values()].sort(
+    (left, right) =>
+      left.cohortName.localeCompare(right.cohortName) ||
+      left.termName.localeCompare(right.termName) ||
+      left.code.localeCompare(right.code, undefined, { numeric: true }),
+  );
+}
+
+/**
+ * Whether this group is one of the ones this course is taught to.
+ *
+ * The matrix's own assumption is that every group of a set teaches every course of it, and
+ * in a set split by group number that is exactly right: Foundation Year's TD 1, 2 and 3 all
+ * take everything the set carries, so a blank cell there is a section nobody has a CRN for.
+ *
+ * A set split by PROGRAMME is the other case. L3's CM set carries four Maths courses and
+ * six Physics ones and holds a group called "Mathematics" and one called "Physics"; the
+ * matrix duly asked the Physics group for a CRN in MATH-330. Counted on production the day
+ * this was written: 25 such cells in L2 and 20 in L3, and every one of the 45 sections
+ * those pages called "without a CRN" was one of them. Not one was real.
+ *
+ * Blank on either side means everyone, so a set that says nothing behaves as it always did.
+ * The vocabulary is the registrar's — `scope_groups.program` is matched against a student's
+ * MAJOR_CODE_DESC by the fill, and this is the other half of the same idea.
+ */
+export function teaches(group: { program?: string }, course: { program?: string }): boolean {
+  const theirs = (group.program ?? "").trim().toLowerCase();
+  const its = (course.program ?? "").trim().toLowerCase();
+  return !theirs || !its || theirs === its;
+}
+
+export function sectionsOf(card: Card): SectionRow[] {
+  return card.sets.flatMap((set) => set.rows);
+}
+
+/**
+ * One row per stretch of teaching, rather than one per (group, course).
+ *
+ * A card row is a section, and a section handed from one professor to another at
+ * mid-semester is taught in two parts under a CRN each. Anything that is really about the
+ * teaching — the request the timetabler is sent, whose hours these are — wants a row for
+ * each; anything about the group — its seats, its fill, who is in it — wants the section
+ * whole, and keeps using `rows`.
+ *
+ * A section with one part yields itself, so this is a no-op for almost every card.
+ */
+export function rowsPerPart(row: SectionRow): SectionRow[] {
+  const parts = partsOf(row.section);
+  if (parts.length < 2) return [row];
+  return parts.map((part) => ({ ...row, section: part, parts: parts.length }));
+}
+
+/** The teachers a card's sections name, for the filter and the collapsed line. */
+export function teachersOf(card: Card, nameOf: (teacherId: string) => string): string[] {
+  const names = new Set<string>();
+  for (const row of sectionsOf(card)) {
+    const name = row.section?.teacherId ? nameOf(row.section.teacherId) : row.section?.teacher ?? "";
+    if (name) names.add(name);
+  }
+  return [...names].sort();
+}
+
+/** What the filter bar and the search box may ask of a card. */
+export function cardColumns(nameOf: (teacherId: string) => string): GridColumn<Card>[] {
+  return [
+    { id: "termName", displayName: "Semester", type: "option", accessor: (card) => card.termName, defaultWidth: 160 },
+    { id: "cohortName", displayName: "Cohort", type: "option", accessor: (card) => card.cohortName, defaultWidth: 160 },
+    { id: "code", displayName: "Course", type: "text", accessor: (card) => card.code, defaultWidth: 120 },
+    { id: "name", displayName: "Title", type: "text", accessor: (card) => card.name, defaultWidth: 200 },
+    {
+      id: "active",
+      displayName: "On the active list",
+      type: "option",
+      accessor: (card) => (card.active ? "Active" : "Not active"),
+      defaultWidth: 120,
+    },
+    { id: "sets", displayName: "Group set", type: "multiOption", accessor: (card) => card.sets.map((set) => set.scope.code), defaultWidth: 120 },
+    { id: "types", displayName: "Type", type: "multiOption", accessor: (card) => [...new Set(card.sets.map((set) => set.course.component).filter(Boolean))], defaultWidth: 100 },
+    { id: "teachers", displayName: "Teacher", type: "multiOption", accessor: (card) => teachersOf(card, nameOf), defaultWidth: 200 },
+    { id: "crns", displayName: "CRN", type: "multiOption", accessor: (card) => sectionsOf(card).map((row) => row.section?.crn ?? "").filter(Boolean), defaultWidth: 120 },
+    {
+      id: "retired",
+      displayName: "Retired sections",
+      type: "option",
+      accessor: (card) => (sectionsOf(card).some((row) => row.section?.retired) ? "Has retired" : "None"),
+      defaultWidth: 120,
+    },
+    {
+      id: "missing",
+      displayName: "CRN missing",
+      type: "option",
+      accessor: (card) => (sectionsOf(card).some((row) => !row.section?.crn && !row.section?.retired) ? "Some missing" : "All set"),
+      defaultWidth: 120,
+    },
+  ];
+}

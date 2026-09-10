@@ -3,6 +3,24 @@
 One click gives a coordinator a filtered student roster. **No portal
 navigation, no page, no filter setting** — and no stored password.
 
+## What it reads
+
+Four Serenity grids — students, courses, teachers, a student's registrations —
+and one thing that is not a grid at all: **the registrar's timetable**, which is
+`Timetable/GetTimeTable`, form-urlencoded, one call per CRN.
+
+That last one is deliberately slow. At six calls at a time roughly one in seven
+comes back with an empty list, and an empty list is exactly what a section with no
+classes booked looks like — so hurrying it would report a term's teaching as
+cancelled. It runs two at a time, and a whole semester takes minutes.
+
+The answer is one row per *student per meeting* — a term is 43,463 rows — and it
+is collapsed to one row per meeting inside the extension, where the head counts
+still exist. `timetable.js` does that and has its own tests:
+
+    cd ~/Documents/sorbonne-timetable-update
+    node --test extension/timetable.test.mjs
+
 ## Why this works
 
 The portal is a Serenity Platform app whose grid endpoint accepts filters in
@@ -24,10 +42,40 @@ lets the extension attach it with `credentials: 'include'`. Consequences:
   portal would already show them. This grants nobody new access.
 * The extension can talk to `reg.psuad.ac.ae` and nothing else.
 
+## Two builds
+
+There are two: one for the deployed Coordinator Tools and one for a laptop. Each
+matches exactly **one** platform origin, so a coordinator who is also developing
+can have both loaded without them fighting over the same page — with one manifest
+listing both origins, the same content script is injected twice, two bridges
+answer one `ping`, and nothing on screen says which of them just pulled three
+thousand students.
+
+    cd ~/Documents/sorbonne-timetable-update
+    node extension/build.mjs      # writes extension/dist/prod and extension/dist/dev
+
+(The path matters: a shell that opens in the iCloud `Sorbonne/work` folder is not
+in this repository, and the error you get is a bare `MODULE_NOT_FOUND`.)
+
+| | matches | name |
+|---|---|---|
+| `dist/prod` | the deployed Coordinator Tools | SCEN Rosters |
+| `dist/dev`  | `localhost` / `127.0.0.1`      | SCEN Rosters (dev) |
+
+The development build says so in its popup, every time it is opened. Both talk to
+the same registrar — the portal host permission is identical — so a pull from the
+dev build is a real pull, landing in a database on this machine.
+
+Run the build again after changing anything in `extension/`: the `dist` folders
+are what Chrome reads, and editing a file beside this README changes neither of
+them until you do. Then press **Reload** on the extension in `chrome://extensions`.
+
 ## Install (per coordinator)
 
-1. `chrome://extensions` → enable **Developer mode**
-2. **Load unpacked** → choose this `extension/` folder
+1. Build them: `cd ~/Documents/sorbonne-timetable-update && node extension/build.mjs`
+2. `chrome://extensions` → enable **Developer mode**
+3. **Load unpacked** → choose `~/Documents/sorbonne-timetable-update/extension/dist/prod`
+   (developers: load `.../extension/dist/dev` as well — both can be installed at once)
 3. Pin "SCEN Rosters" to the toolbar
 
 For more than a couple of people, publish it unlisted on the Chrome Web Store

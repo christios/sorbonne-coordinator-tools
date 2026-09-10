@@ -23,6 +23,7 @@ const SCHEMA: rosters.PortalSchema = {
 };
 
 const PORTAL: rosters.PortalRoster = {
+  kind: "students",
   presetId: "view-1",
   name: "Foundation Year",
   count: 2,
@@ -61,13 +62,6 @@ function renderApp(user: typeof ADMIN | null = ADMIN, onOpenSettings = () => {})
   );
 }
 
-/** The sync waits on the views query, so it is briefly disabled after the page appears. */
-async function clickSync() {
-  const button = await screen.findByRole("button", { name: /sync this view/i });
-  await waitFor(() => expect(button).toHaveProperty("disabled", false));
-  fireEvent.click(button);
-}
-
 beforeEach(() => {
   window.localStorage.clear();
   vi.spyOn(database, "fetchCohorts").mockResolvedValue([]);
@@ -93,39 +87,17 @@ afterEach(() => {
   window.localStorage.clear();
 });
 
-describe("syncing a view", () => {
-  it("offers the view picker and one sync in the header", async () => {
+describe("the pages themselves no longer sync", () => {
+  it("offers the view picker, and no sync of its own", async () => {
     renderApp();
 
     expect(await screen.findByRole("combobox", { name: "View" })).toBeTruthy();
-    // The label waits on the views query, which says whether this one has been synced.
-    expect(await screen.findByRole("button", { name: /sync this view/i })).toBeTruthy();
+    // One way to ask the portal — Portal sync, in the header — not one per page.
+    expect(screen.queryByRole("button", { name: /sync this filter|seed this filter/i })).toBeNull();
   });
+});
 
-  it("asks the portal for the view's own fixed filter, and sends back only ids", async () => {
-    renderApp();
-
-    await clickSync();
-
-    await waitFor(() => expect(database.syncView).toHaveBeenCalled());
-    expect((rosters.pullFilter as ReturnType<typeof vi.fn>).mock.calls[0][0]).toEqual({
-      YEARLEVEL_CODE: ["FY"],
-    });
-    const [view, ids] = (database.syncView as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(view).toBe("view-1");
-    expect(ids).toEqual(["A001", "A002"]);
-    // The privacy rule, pinned: no name may cross to our API.
-    expect(JSON.stringify(ids)).not.toContain("Amira");
-  });
-
-  it("says what the sync did to this view", async () => {
-    renderApp();
-
-    await clickSync();
-
-    expect(await screen.findByText(/2 returned · 2 added · 0 no longer in this view/)).toBeTruthy();
-  });
-
+describe("a view is a fixed question", () => {
   it("offers no way to change a view's filter", async () => {
     // The filter is fixed at creation — that is what makes "no longer in the view" mean
     // something — so there is deliberately no edit control and no shared settings dialog.
@@ -138,7 +110,7 @@ describe("syncing a view", () => {
 
   it("warns that a new view's filter cannot be changed afterwards", async () => {
     renderApp();
-    fireEvent.click(await screen.findByRole("button", { name: "New view" }));
+    fireEvent.click(await screen.findByRole("button", { name: "New portal filter" }));
 
     expect(await screen.findByText(/fixed now and cannot be changed afterwards/i)).toBeTruthy();
   });
@@ -147,7 +119,7 @@ describe("syncing a view", () => {
     vi.spyOn(database, "fetchViews").mockResolvedValue([]);
     renderApp();
 
-    expect(await screen.findByText(/No views yet/)).toBeTruthy();
+    expect(await screen.findByText(/No portal filters yet/)).toBeTruthy();
   });
 });
 
@@ -167,19 +139,22 @@ describe("changing view", () => {
 
   it("asks the server once per view, and not again on the way back", async () => {
     vi.spyOn(database, "fetchViews").mockResolvedValue([VIEW, SECOND]);
-    const fetched = vi.spyOn(database, "fetchStudents").mockResolvedValue([]);
+    const spy = vi.spyOn(database, "fetchStudents").mockResolvedValue([]);
+    // The everyone-list is prefetched for the Cohorts page as soon as the app opens; what
+    // this test guards is the per-view fetch, so only calls that name a view are counted.
+    const fetched = { calls: () => spy.mock.calls.filter(([view]) => Boolean(view)).length };
     renderApp();
     await screen.findByRole("combobox", { name: "View" });
-    await waitFor(() => expect(fetched).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(fetched.calls()).toBe(1));
 
     await switchToL1();
-    await waitFor(() => expect(fetched).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(fetched.calls()).toBe(2));
 
     // Back to the first: its answer is minutes old and still good.
     fireEvent.click(await screen.findByRole("combobox", { name: "View" }));
     fireEvent.click(await screen.findByRole("option", { name: /Foundation Year/ }));
     await waitFor(() => expect(screen.getByRole("combobox", { name: "View" }).textContent).toContain("Foundation Year"));
-    expect(fetched).toHaveBeenCalledTimes(2);
+    expect(fetched.calls()).toBe(2);
   });
 
   it("keeps the table on screen instead of a loading page", async () => {
@@ -215,7 +190,7 @@ describe("who may define a view", () => {
   it("offers making and deleting one to an administrator", async () => {
     renderApp(ADMIN);
 
-    expect(await screen.findByRole("button", { name: "New view" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "New portal filter" })).toBeTruthy();
     // The delete button waits for a view to be chosen, which happens once they load.
     expect(await screen.findByRole("button", { name: `Delete ${VIEW.name}` })).toBeTruthy();
   });
@@ -224,15 +199,11 @@ describe("who may define a view", () => {
     renderApp(COLLEAGUE);
     await screen.findByRole("combobox", { name: "View" });
 
-    expect(screen.queryByRole("button", { name: "New view" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "New portal filter" })).toBeNull();
     expect(screen.queryByRole("button", { name: `Delete ${VIEW.name}` })).toBeNull();
   });
 
-  it("still lets them sync the view they are looking at", async () => {
-    renderApp(COLLEAGUE);
 
-    expect(await screen.findByRole("button", { name: /Sync this view/ })).toBeTruthy();
-  });
 });
 
 describe("the account menu", () => {
@@ -273,7 +244,8 @@ describe("students and their timetables in one place", () => {
     await open(/^Semesters$/);
 
     expect(await screen.findByText(/Semesters on the Student Hub/)).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Import a timetable/ })).toBeTruthy();
+    // Uploading one is retired: the hours now come from the registrar's own timetable.
+    expect(screen.queryByRole("button", { name: /Import a timetable/ })).toBeNull();
   });
 
   it("says the timetable pages need a platform, and leaves the roster pages alone", async () => {
@@ -285,7 +257,7 @@ describe("students and their timetables in one place", () => {
 
     // The roster is this application's own, so a missing platform must not close it.
     await open(/^Students$/);
-    expect(await screen.findByRole("button", { name: /sync this view/i })).toBeTruthy();
+    expect(await screen.findByRole("combobox", { name: "View" })).toBeTruthy();
   });
 });
 
@@ -343,6 +315,16 @@ describe("keeping your place", () => {
     renderApp();
 
     expect(await screen.findByRole("combobox", { name: "View" })).toBeTruthy();
+  });
+
+  it("lands a link to a page that was folded into another on the page that absorbed it", async () => {
+    // Course Registration is the register half of Cohorts now. A link somebody sent, or a
+    // tab left open, must not arrive on Students as though it had asked for nothing.
+    await startAt("#/database/registrations");
+    renderApp();
+
+    expect(await screen.findByRole("heading", { name: "Cohorts" })).toBeTruthy();
+    expect(screen.queryByRole("combobox", { name: "View" })).toBeNull();
   });
 
   it("follows the back button", async () => {

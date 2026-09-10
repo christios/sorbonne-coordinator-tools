@@ -1,8 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CalendarDays, FileSpreadsheet } from "lucide-react";
+import { CalendarDays, Pencil } from "lucide-react";
 import { useState } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { Modal } from "@/components/Modal";
+import { PortalTermLink } from "@/components/PortalTermLink";
 import { SemesterImport } from "@/components/SemesterImport";
 import { SemesterPublish } from "@/components/SemesterPublish";
 import { SemesterUpdate } from "@/components/SemesterUpdate";
@@ -10,6 +12,7 @@ import {
   TimetableTerm,
   deleteTimetableTerm,
   fetchTimetableTerms,
+  renameTimetableTerm,
   setTimetableTermPublished,
 } from "@/services/timetables";
 
@@ -28,6 +31,8 @@ export function SemesterList({ host }: { host: string | null }) {
   const [updating, setUpdating] = useState<TimetableTerm | null>(null);
   const [importing, setImporting] = useState(false);
   const [publishing, setPublishing] = useState<TimetableTerm | null>(null);
+  const [renaming, setRenaming] = useState<TimetableTerm | null>(null);
+  const [newName, setNewName] = useState("");
   // An update starts as a dialog over this list and takes the screen once it has a diff.
   const [updateStage, setUpdateStage] = useState<"pick" | "review">("pick");
 
@@ -40,6 +45,13 @@ export function SemesterList({ host }: { host: string | null }) {
   const deleteMutation = useMutation({
     mutationFn: (term: TimetableTerm) => deleteTimetableTerm(term.id),
     onSuccess: refresh,
+  });
+  const renameMutation = useMutation({
+    mutationFn: ({ term, name }: { term: TimetableTerm; name: string }) => renameTimetableTerm(term.id, name),
+    onSuccess: () => {
+      setRenaming(null);
+      refresh();
+    },
   });
 
   const error = publishMutation.error?.message ?? deleteMutation.error?.message ?? null;
@@ -77,15 +89,21 @@ export function SemesterList({ host }: { host: string | null }) {
                   <CalendarDays size={18} className="text-[#1f4e79]" aria-hidden="true" />
                   <h2 className="text-base font-semibold text-[#171717]">Semesters on the Student Hub</h2>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setImporting(true)}
-                  className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white hover:bg-[#183f63]"
-                >
-                  <FileSpreadsheet size={16} aria-hidden="true" />
-                  Import a timetable
-                </button>
+                {/*
+                  * Retired, not deleted. `SemesterImport` and `SemesterUpdate` are still
+                  * here with their tests, and bringing them back is uncommenting two
+                  * buttons — see the note below for why they went away.
+                  */}
               </header>
+
+              <p className="border-b border-[#e4e8ef] bg-[#fdf9ee] px-6 py-3 text-sm text-[#8a6116]">
+                <strong className="font-semibold">Uploading a timetable is retired.</strong> The hours a clash is
+                worked out from come from the registrar&apos;s own timetable now, swept section by section as the
+                last step of Portal sync. An uploaded file was a photograph taken in week one: out of date the
+                moment a room moved, and only ever covering the cohorts whose file somebody made — 43 courses of
+                141 sections, which is why three cohorts in four reported no clashes and meant nothing by it.
+                What is listed below is whatever was last uploaded, kept so nothing is lost.
+              </p>
 
               {terms.isLoading ? (
                 <p className="px-6 py-8 text-sm text-[#667085]">Loading semesters…</p>
@@ -95,11 +113,11 @@ export function SemesterList({ host }: { host: string | null }) {
                 </p>
               ) : (terms.data ?? []).length === 0 ? (
                 <p className="px-6 py-8 text-sm text-[#667085]">
-                  Nothing uploaded yet. Import a timetable to give students a semester.
+                  No semester here. Uploading one is retired — see above.
                 </p>
               ) : (
                 <div className="overflow-x-auto">
-                  <table className="w-full min-w-[46rem] text-left text-sm">
+                  <table className="w-full min-w-[56rem] text-left text-sm">
                     <thead className="text-xs uppercase tracking-wide text-[#667085]">
                       <tr>
                         <th scope="col" className="px-6 py-3 font-semibold">Semester</th>
@@ -107,6 +125,7 @@ export function SemesterList({ host }: { host: string | null }) {
                         <th scope="col" className="px-4 py-3 text-right font-semibold">Sessions</th>
                         <th scope="col" className="px-4 py-3 text-right font-semibold">Students</th>
                         <th scope="col" className="px-4 py-3 font-semibold">Students can see it</th>
+                        <th scope="col" className="px-4 py-3 font-semibold">Portal term</th>
                         <th scope="col" className="px-6 py-3" />
                       </tr>
                     </thead>
@@ -114,7 +133,22 @@ export function SemesterList({ host }: { host: string | null }) {
                       {(terms.data ?? []).map((term) => (
                         <tr key={term.id} className="border-t border-[#e4e8ef]">
                           <td className="px-6 py-4">
-                            <span className="font-semibold text-[#171717]">{term.name}</span>
+                            <span className="inline-flex items-center gap-1.5">
+                              <span className="font-semibold text-[#171717]">{term.name}</span>
+                              <button
+                                type="button"
+                                aria-label={`Rename ${term.name}`}
+                                title="Rename this semester"
+                                onClick={() => {
+                                  setNewName(term.name);
+                                  renameMutation.reset();
+                                  setRenaming(term);
+                                }}
+                                className="rounded p-1 text-[#98a2b3] hover:bg-[#f2f7fb] hover:text-[#1f4e79]"
+                              >
+                                <Pencil size={13} aria-hidden="true" />
+                              </button>
+                            </span>
                             <span className="mt-0.5 block text-xs text-[#667085]">{term.timetableFilename}</span>
                           </td>
                           <td className="px-4 py-4 text-right tabular-nums">{term.courseCount}</td>
@@ -134,6 +168,9 @@ export function SemesterList({ host }: { host: string | null }) {
                               {term.isPublished ? "Published" : "Hidden"}
                             </button>
                           </td>
+                          <td className="px-4 py-4">
+                            <PortalTermLink termId={term.id} />
+                          </td>
                           <td className="px-6 py-4">
                             <div className="flex justify-end gap-2">
                               <button
@@ -142,16 +179,6 @@ export function SemesterList({ host }: { host: string | null }) {
                                 className="rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc]"
                               >
                                 Publish
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setUpdateStage("pick");
-                                  setUpdating(term);
-                                }}
-                                className="rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc]"
-                              >
-                                Update timetable
                               </button>
                               <button
                                 type="button"
@@ -180,6 +207,45 @@ export function SemesterList({ host }: { host: string | null }) {
           onStage={setUpdateStage}
         />
       ) : null}
+
+      <Modal
+        open={renaming !== null}
+        title="Rename this semester"
+        description="What coordinators and students see it called. Its address for students stays the same, so links keep working."
+        onClose={() => setRenaming(null)}
+        footer={
+          <div className="flex items-center justify-end gap-3">
+            <button type="button" onClick={() => setRenaming(null)} className="text-sm font-semibold text-[#667085]">
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={!newName.trim() || renameMutation.isPending}
+              onClick={() => renaming && renameMutation.mutate({ term: renaming, name: newName.trim() })}
+              className="rounded-md bg-[#1f4e79] px-4 py-2 text-sm font-semibold text-white disabled:bg-[#9ba8b5]"
+            >
+              {renameMutation.isPending ? "Saving…" : "Rename"}
+            </button>
+          </div>
+        }
+      >
+        <label className="block text-sm font-semibold text-[#344054]">
+          Name
+          <input
+            aria-label="Semester name"
+            autoFocus
+            value={newName}
+            onChange={(event) => setNewName(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && newName.trim() && renaming) renameMutation.mutate({ term: renaming, name: newName.trim() });
+            }}
+            className="mt-1.5 block w-full rounded-md border border-[#cbd5e1] px-3 py-2 text-sm font-normal"
+          />
+        </label>
+        {renameMutation.error ? (
+          <p role="alert" className="mt-3 text-sm text-[#a6292f]">{(renameMutation.error as Error).message}</p>
+        ) : null}
+      </Modal>
 
       <ConfirmDialog
         open={pendingDelete !== null}

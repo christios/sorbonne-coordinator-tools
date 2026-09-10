@@ -8,12 +8,16 @@ import { FileDropzone } from "@/components/FileDropzone";
 import { RosterTable } from "@/components/RosterTable";
 import { StaffMenu } from "@/components/StaffMenu";
 import { StaffSettings } from "@/components/StaffSettings";
+import { CopyProdButton } from "@/components/CopyProdButton";
+import { PortalSyncButton } from "@/components/PortalSyncButton";
 import { SyllabusBuilder } from "@/components/SyllabusBuilder";
+import { SyncRunDriver } from "@/components/SyncRunDriver";
 import { TeacherDatabase } from "@/components/TeacherDatabase";
 import { StudentDatabase } from "@/components/StudentDatabase";
 import { COORDINATOR_APPS } from "@/routes/apps";
 import { handbookUrl } from "@/routes/handbookRoute";
 import { ToolId, toolFromLocation } from "@/routes/toolRoute";
+import { getRun, isRunning, subscribe } from "@/services/syncRun";
 import {
   BatchRosterPreview,
   BatchRosterPreviewItem,
@@ -117,6 +121,10 @@ export function App() {
   }
 
   const compactSyllabusHeader = activeTool === "syllabus" && syllabusHeaderCollapsed;
+  // Whether a portal sync is still going, so its button stays in sight even after the
+  // coordinator has left the pages it refreshes.
+  const [syncing, setSyncing] = useState(() => isRunning(getRun()));
+  useEffect(() => subscribe((run) => setSyncing(isRunning(run))), []);
   const isPicker = activeTool === null;
   // Any screen with a left pane needs the pane to end where the window does, so the
   // account menu at its foot is reachable. Guessing the header's height got that wrong;
@@ -132,9 +140,28 @@ export function App() {
 
   return (
     <main className={`${shell} bg-[#f7f8fa]`}>
+      {/* A portal sync outlives the page that started it, so something above every page
+          has to pick an unfinished one up. It draws nothing. */}
+      <SyncRunDriver />
       <header className={`shrink-0 border-b border-[#d9dee7] bg-white ${compactSyllabusHeader ? "hidden" : ""}`}>
-        <div data-testid="app-header" className={`mx-auto flex max-w-[98rem] flex-col items-start gap-3 px-4 transition-[padding,gap] duration-200 sm:px-6 lg:flex-row lg:items-center lg:justify-between lg:px-8 ${compactSyllabusHeader ? "py-2" : "py-5"}`}>
+        {/*
+          * Full width, not a centred column: the panes below the header run to the edges
+          * of the window, and a header that stopped short of them left the way back
+          * floating in the middle of nothing on a wide screen. The padding is the pane's
+          * own, so All apps starts where "Students and timetables" starts.
+          */}
+        <div data-testid="app-header" className={`flex flex-col items-start gap-3 px-6 transition-[padding,gap] duration-200 lg:flex-row lg:items-center lg:justify-between ${compactSyllabusHeader ? "py-2" : "py-5"}`}>
           <div className="flex items-center gap-3.5">
+            {/* The way back stands before everything, where a way back is looked for. */}
+            {activeTool ? (
+              <button
+                type="button"
+                onClick={showAllApps}
+                className="mr-1 inline-flex items-center gap-2 rounded-md border border-[#d9dee7] bg-white px-3 py-2 text-sm font-semibold text-[#1f4e79] shadow-sm hover:bg-[#f2f7fb]"
+              >
+                <span aria-hidden="true">←</span> All apps
+              </button>
+            ) : null}
             {/*
               * The SCEN mark stands beside the university's name, never merged into it:
               * they are two identities, and the guidance is explicit that the Sorbonne
@@ -152,16 +179,20 @@ export function App() {
             </div>
           </div>
           <div className="flex items-center gap-3">
-            {activeTool ? (
-              <button
-                type="button"
-                onClick={showAllApps}
-                className="inline-flex items-center gap-2 rounded-md border border-[#d9dee7] bg-white px-3 py-2 text-sm font-semibold text-[#1f4e79] shadow-sm hover:bg-[#f2f7fb]"
-              >
-                <span aria-hidden="true">←</span> All apps
-              </button>
-            ) : null}
-            <div className={isPicker ? "lg:hidden" : ""}>
+            {/*
+              * Portal sync belongs to the student pages, and stays in sight anywhere while
+              * a run it started is still going, so its report can be read wherever the
+              * coordinator has gone since.
+              */}
+            {activeTool === "database" || syncing ? <PortalSyncButton /> : null}
+            {/* Development only, and gone from a production build entirely. */}
+            {activeTool === "database" ? <CopyProdButton /> : null}
+            {/*
+              * Who is signed in lives at the foot of the pane. The header keeps a copy
+              * only where the pane is not on screen at all — below `lg`, where it hides —
+              * so the account is reachable there and duplicated nowhere else.
+              */}
+            <div className="lg:hidden">
               <StaffMenu onOpenSettings={() => openTool("settings")} />
             </div>
           </div>

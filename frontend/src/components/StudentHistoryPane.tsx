@@ -2,7 +2,6 @@ import { PanelRightClose } from "lucide-react";
 import { useEffect, useMemo, useRef } from "react";
 
 import { CopyButton } from "@/components/CopyButton";
-import { tableText } from "@/services/copyCells";
 import {
   historyFor,
   historySummary,
@@ -100,22 +99,20 @@ export function StudentHistoryPane({
         <div className="flex items-center gap-1">
           <CopyButton
             label="Copy this history"
-            text={() =>
-              tableText(
-                ["When", "What", "Field", "From", "To"],
-                entries.flatMap((entry) =>
-                  entry.changes.length
-                    ? entry.changes.map((change) => [
-                        when(entry.at),
-                        "changed",
-                        labelFor(change.field),
-                        change.from,
-                        change.to,
-                      ])
-                    : [[when(entry.at), entry.kind, "", "", ""]],
-                ),
-              )
-            }
+            text={() => ({
+              headers: ["When", "What", "Field", "From", "To"],
+              rows: entries.flatMap((entry) =>
+                entry.changes.length
+                  ? entry.changes.map((change) => [
+                      when(entry.at),
+                      "changed",
+                      labelFor(change.field),
+                      change.from,
+                      change.to,
+                    ])
+                  : [[when(entry.at), entry.kind, "", "", ""]],
+              ),
+            })}
           />
           <button
             type="button"

@@ -1,40 +1,52 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Filter, FolderInput, Globe, LayoutGrid, Search } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Filter, Globe, Search } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { ColumnMenu } from "@/components/ColumnMenu";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Modal } from "@/components/Modal";
 import { CopyButton } from "@/components/CopyButton";
+import { CopyPresetMenu } from "@/components/CopyPresetMenu";
+import { FilterTabs } from "@/components/FilterTabs";
+import { HistoryBackup } from "@/components/HistoryBackup";
 import { PlaceInBlock } from "@/components/PlaceInBlock";
 import { ScreenLoading } from "@/components/ScreenLoading";
-import { SelectMenu } from "@/components/SelectMenu";
 import { StudentHistoryPane } from "@/components/StudentHistoryPane";
+import { StudentRecord } from "@/components/StudentRecord";
 import { StudentTable, cellText, type Sort } from "@/components/StudentTable";
+import { MoveToCohort } from "@/components/MoveToCohort";
+import { SelectionFloating, type SelectionActionsProps } from "@/components/SelectionActions";
 import { TableFilterBar } from "@/components/TableFilterBar";
 import { costOfMove, describeCost } from "@/services/cohortMove";
-import { tableText } from "@/services/copyCells";
+import { copyTable } from "@/services/copyCells";
+import { presetBlock, rowsForCopy } from "@/services/copyPresets";
+import { afterPlacement } from "@/services/afterPlacement";
+import { groupCrns } from "@/services/meets";
+import { fetchCourseCards } from "@/services/studentDatabase";
+import { fetchSectionDays, fetchTermLinks } from "@/services/portalLists";
 import { forgetHistory, loadHistory, type PullHistory } from "@/services/pullHistory";
-import { fetchSchema } from "@/services/scenRosters";
+import { fetchSchema, type RosterRow } from "@/services/scenRosters";
 import { fetchTimetableTerms } from "@/services/timetables";
-import { changesSince, sharedCohort, studentRows, type StudentRow } from "@/services/rosterView";
+import type { Warning } from "@/services/discrepancies";
+import { changesFromRecord, changesSince, sharedCohort, studentRows, type StudentRow } from "@/services/rosterView";
 import { PortalError } from "@/services/scenRosters";
 import {
   forgetRosters,
   lastSync,
   loadPull,
+  rowsHeld,
   type StoredPreset,
 } from "@/services/rosterStore";
 import {
   buildColumns,
   loadLayout,
+  sortByColumn,
   optionsFor,
   reorderColumn,
   resizeColumn,
   saveLayout,
   visibleColumns,
   type ColumnLayout,
-  type StudentColumn,
 } from "@/services/studentColumns";
 import { applyFilters, type FilterModel } from "@/services/tableFilter";
 import {
@@ -46,7 +58,6 @@ import {
 } from "@/services/studentDatabase";
 
 /** Where a student goes when the picker is used, with "no cohort" as a real choice. */
-const NO_COHORT = "__none__";
 /** Making one is a way of moving into one, so it lives in the same picker. */
 const NEW_COHORT = "__new__";
 
@@ -61,23 +72,67 @@ const NEW_COHORT = "__new__";
  * Names, e-mail addresses and year levels come from the SCEN Rosters extension and are
  * kept in this browser alone — see services/rosterStore.ts.
  */
+/** What a view's history is before it has been read, and after it has been forgotten. */
+const NO_HISTORY: PullHistory = { pulls: [], latest: {}, present: [] };
+
+const studentIdOf = (row: StudentRow) => row.studentId;
+
 export function StudentRoster({
   cohorts,
   viewId,
   preselect = [],
+  tools,
+  onPreselectTaken,
   filterCohort = "",
+  scope,
+  warningsFor,
+  onDismissWarning,
+  defaultSort,
 }: {
   cohorts: Cohort[];
   viewId: string;
   /** Ids another page sent here — the table opens showing everybody, with these ticked. */
   preselect?: string[];
+  /** A page's own control, shown beside Copy. */
+  tools?: ReactNode;
+  /**
+   * Said once those ids are on screen, so the page that sent them can forget that it did.
+   *
+   * A handover is an arrival, not a setting. Without this the sender goes on holding the
+   * list for the rest of the session, and every table built from it opens narrowed —
+   * including the one you get back by leaving the cohort and returning to it, which is
+   * how a coordinator meets a handover they answered ten minutes ago.
+   */
+  onPreselectTaken?: () => void;
   /** A cohort whose members to show — arrives as an ordinary filter chip, clearable. */
   filterCohort?: string;
+  /**
+   * The Cohorts page: the table is narrowed to one cohort's students (or to those in
+   * none, with `cohortId: null`) as a population rather than a clearable chip, every
+   * student we hold is fetched rather than a portal filter's, and each row carries the
+   * warnings the page worked out for it.
+   */
+  scope?: { cohortId: string | null };
+  warningsFor?: (studentId: string) => Warning[];
+  onDismissWarning?: (key: string, dismissed: boolean) => void;
+  defaultSort?: Sort;
 }) {
   const client = useQueryClient();
+  // The scoped table has its own arrangement; see studentColumns.loadLayout.
+  const layoutKey = scope ? "scen-student-columns:cohorts:v1" : undefined;
+  /*
+   * Whether the table is showing everybody or only the population it is about.
+   *
+   * It means two different things depending on the page, and both are "widen the search":
+   * on the Students page it stops narrowing to the chosen portal filter, and on a scoped
+   * page — the Cohorts table — it stops narrowing to the cohort. The question a
+   * coordinator is asking is the same either way, "where is this person", and it was
+   * unanswerable on a scoped page without knowing the answer first.
+   */
   const [everywhere, setEverywhere] = useState(false);
   // Searching everywhere asks for the whole record rather than this view's population.
-  const asked = everywhere ? "" : viewId;
+  // A scoped table is always everywhere: a cohort's students come from every view.
+  const asked = everywhere || scope ? "" : viewId;
   const students = useQuery({
     queryKey: ["students", asked],
     queryFn: () => fetchStudents(asked),
@@ -89,7 +144,7 @@ export function StudentRoster({
      * and then immediately fetching again for the view it had just chosen. The first
      * answer was the larger of the two and nobody ever saw it.
      */
-    enabled: everywhere || asked !== "",
+    enabled: everywhere || Boolean(scope) || asked !== "",
     /*
      * A view's students are worth keeping. Switching views refetched thousands of rows
      * behind a full-screen loader every time, including views visited a moment ago; now
@@ -107,36 +162,101 @@ export function StudentRoster({
     () => Object.fromEntries((terms.data ?? []).map((term) => [term.id, term.name])),
     [terms.data],
   );
+  /*
+   * Which portal term the registrar's weekdays are asked for.
+   *
+   * The first linked one, because the Meets column is about the semester being worked on
+   * and every roster page here shows one. `retry: false`: an unlinked deployment must not
+   * spend the table's first render retrying a question that has no answer.
+   */
+  const links = useQuery({ queryKey: ["term-links"], queryFn: fetchTermLinks, retry: false });
+  const portalTerm = Object.values(links.data ?? {}).find(Boolean) ?? "";
 
   // The table offers the portal's own fields, so the columns follow the harvested schema.
   const allColumns = useMemo(
-    () => buildColumns(schema.data?.columns ?? [], schema.data?.fields ?? []),
-    [schema.data],
+    () =>
+      buildColumns(schema.data?.columns ?? [], schema.data?.fields ?? [], {
+        withWarnings: Boolean(warningsFor),
+        // Dropped on a scoped table, where every row would say the same thing — and back
+        // the moment the scope is lifted, because "which cohort is she in" is the whole
+        // reason for looking outside it.
+        withoutCohort: Boolean(scope) && !everywhere,
+      }),
+    [schema.data, warningsFor, scope, everywhere],
   );
 
   const [stored, setStored] = useState<StoredPreset>({});
   const [syncedAt, setSyncedAt] = useState("");
-  const [history, setHistory] = useState<PullHistory>(() => loadHistory(viewId));
+  const [history, setHistory] = useState<PullHistory>(NO_HISTORY);
   const [historyOf, setHistoryOf] = useState<StudentRow | null>(null);
+  // The one student whose whole record is open: a click anywhere on their row.
+  const [recordOf, setRecordOf] = useState<StudentRow | null>(null);
   const [layout, setLayout] = useState<ColumnLayout | null>(null);
   const [filters, setFilters] = useState<FilterModel[]>([]);
   const [query, setQuery] = useState("");
-  const [sort, setSort] = useState<Sort>({ key: "studentId", ascending: true });
+  const [sort, setSort] = useState<Sort>(defaultSort ?? { key: "studentId", ascending: true });
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [moveTo, setMoveTo] = useState("");
   const [confirmForget, setConfirmForget] = useState(false);
+  /*
+   * What the portal last said about each student, from whichever view asked most
+   * recently. A view chooses which students, not what is true about them.
+   */
+  const [portalRows, setPortalRows] = useState<RosterRow[]>([]);
 
-  // The names and the history live in this browser, so they are read back on mount
-  // rather than fetched — and again after a sync, which is what changes them. All three
-  // are this view's: another view's pull answered a different question.
+  /*
+   * The names and the history live in this browser, so they are read back on mount
+   * rather than fetched — and again after a sync, which is what changes them. All three
+   * are this view's: another view's pull answered a different question.
+   *
+   * The browser answers for its own disk asynchronously now that these are held in a
+   * drawer big enough for a term, so a read that arrives after the view has moved on is
+   * discarded rather than shown against the wrong view.
+   */
   useEffect(() => {
-    setStored(loadPull(viewId));
+    let current = true;
     setSyncedAt(lastSync(viewId));
-    setHistory(loadHistory(viewId));
+    void Promise.all([loadPull(viewId), loadHistory(viewId), rowsHeld()]).then(([pull, past, held]) => {
+      if (!current) return;
+      setStored(pull);
+      setHistory(past);
+      setPortalRows(held);
+    });
+    return () => {
+      current = false;
+    };
   }, [students.dataUpdatedAt, viewId]);
 
   // The arrangement can only be reconciled once the columns are known.
-  useEffect(() => setLayout(loadLayout(allColumns)), [allColumns]);
+  useEffect(() => setLayout(loadLayout(allColumns, layoutKey)), [allColumns, layoutKey]);
+
+  /*
+   * With a student's history open, the arrow keys read the next and the previous row's —
+   * the table is the list and the pane is the detail, so walking one should walk the
+   * other. The row is scrolled into view, since it may well be off the screen.
+   */
+  useEffect(() => {
+    if (!historyOf) return;
+    const walk = (event: KeyboardEvent) => {
+      if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+      const target = event.target as HTMLElement | null;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) return;
+      const shown = visibleRef.current;
+      const at = shown.findIndex((row) => row.studentId === historyOf.studentId);
+      const next = shown[at + (event.key === "ArrowDown" ? 1 : -1)];
+      if (!next) return;
+      event.preventDefault();
+      setHistoryOf(next);
+      // Scanned rather than selected: the id never reaches a selector, so this needs no
+      // `CSS.escape` — which jsdom, and older browsers, do not have.
+      for (const row of document.querySelectorAll<HTMLElement>("[data-row-id]")) {
+        if (row.dataset.rowId !== next.studentId) continue;
+        row.scrollIntoView({ block: "nearest" });
+        break;
+      }
+    };
+    document.addEventListener("keydown", walk);
+    return () => document.removeEventListener("keydown", walk);
+  }, [historyOf]);
 
   /*
    * A selection belongs to the view it was made in.
@@ -161,12 +281,14 @@ export function StudentRoster({
    */
   const arrange = useCallback((next: ColumnLayout) => {
     setLayout(next);
-    saveLayout(next);
-  }, []);
+    saveLayout(next, layoutKey);
+  }, [layoutKey]);
 
   const [naming, setNaming] = useState(false);
   const [newName, setNewName] = useState("");
   const [placing, setPlacing] = useState(false);
+  // Which cohort these students should be in — asked in a dialog, like where they sit.
+  const [moving, setMoving] = useState(false);
   const [placed, setPlaced] = useState<(PlacementReport & { removed: boolean }) | null>(null);
 
   /*
@@ -184,7 +306,23 @@ export function StudentRoster({
     const ids = sent.split(",");
     setFocus(ids);
     setSelected(new Set(ids));
-    setEverywhere(true);
+    /*
+     * Widen the VIEW, never the scope — and on a scoped table there is nothing to widen.
+     *
+     * This was written when `everywhere` meant one thing: ignore whichever portal filter
+     * the Students page happens to be showing, because somebody with no group need not be
+     * in it. It now means a second thing as well — on a scoped table it lifts the cohort —
+     * and setting it here quietly unscoped the Cohorts page. Nothing looked wrong while
+     * the focus held the rows down to the handful sent over; pressing "Show everyone
+     * again" then revealed all three thousand students instead of the cohort's.
+     *
+     * A scoped table needs none of it anyway: `asked` is already "" whenever `scope` is
+     * set, so the view is out of the picture with or without this.
+     */
+    if (!scope) setEverywhere(true);
+    // Delivered. The ids live in `focus` from here on, which "Show everyone again" clears.
+    onPreselectTaken?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sent]);
 
   /*
@@ -202,18 +340,14 @@ export function StudentRoster({
   const createAndMove = useMutation({
     mutationFn: async () => {
       const created = await createCohort({ name: newName.trim() });
-      await setCohort([...selected], created.id);
+      await setCohort([...selected], created.id, true);
       return created;
     },
-    onSuccess: (created) => {
+    onSuccess: () => {
       setNaming(false);
       setNewName("");
-      setMoveTo(created.id);
       setSelected(new Set());
-      client.invalidateQueries({ queryKey: ["students"] });
-      client.invalidateQueries({ queryKey: ["cohorts"] });
-      client.invalidateQueries({ queryKey: ["catalogue"] });
-      client.invalidateQueries({ queryKey: ["publication"] });
+      afterPlacement(client);
     },
   });
 
@@ -224,37 +358,85 @@ export function StudentRoster({
 
   const move = useMutation({
     mutationFn: ({ ids, cohortId }: { ids: string[]; cohortId: string | null }) =>
-      setCohort(ids, cohortId),
+      // Keeping the shared sets: the languages are the university's, not the cohort's, and
+      // dropping them was a silent loss nobody knew to redo.
+      setCohort(ids, cohortId, true),
     onSuccess: () => {
       setSelected(new Set());
-      setMoveTo("");
       setConfirmMove(null);
-      client.invalidateQueries({ queryKey: ["students"] });
-      client.invalidateQueries({ queryKey: ["cohorts"] });
-      // A move drops every group they held, so both cohorts' counts have changed.
-      client.invalidateQueries({ queryKey: ["catalogue"] });
-      client.invalidateQueries({ queryKey: ["publication"] });
+      // A move drops every group they held, so both cohorts' counts have changed — and
+      // with the groups goes what the register was expected to hold for them.
+      afterPlacement(client);
     },
   });
 
-  const changes = useMemo(
-    () => changesSince(stored.previous?.rows ?? [], stored.current?.rows ?? []),
-    [stored],
-  );
+  /*
+   * What changed comes from the history, which records it pull by pull. A `previous`
+   * roster is only read when there is no history to read — a view last synced by a
+   * version that kept one, which the next sync replaces.
+   */
+  const changes = useMemo(() => {
+    const newest = history.pulls[history.pulls.length - 1] ?? null;
+    if (newest) return changesFromRecord(newest);
+    return changesSince(stored.previous?.rows ?? [], stored.current?.rows ?? []);
+  }, [history, stored]);
+  /*
+   * What the Meets column joins on: which sections each group holds, and which weekdays
+   * the registrar says those meet. Both `retry: false` and both optional — a table that
+   * cannot reach either still lists every student, with the column reading "day unknown".
+   */
+  const catalogues = useQuery({ queryKey: ["course-cards"], queryFn: fetchCourseCards, retry: false });
+  const sectionDays = useQuery({
+    queryKey: ["section-days", portalTerm],
+    queryFn: () => fetchSectionDays(portalTerm),
+    enabled: Boolean(portalTerm),
+    retry: false,
+  });
+  const crnsOf = useMemo(() => groupCrns(catalogues.data ?? []), [catalogues.data]);
+
   const everyRow = useMemo(
-    () => studentRows(students.data ?? [], stored.current?.rows ?? [], changes, syncedAt, termNames),
-    [students.data, stored, changes, syncedAt, termNames],
+    () =>
+      studentRows(
+        students.data ?? [],
+        portalRows,
+        changes,
+        syncedAt,
+        termNames,
+        warningsFor,
+        crnsOf,
+        sectionDays.data?.days ?? {},
+      ),
+    [students.data, portalRows, changes, syncedAt, termNames, warningsFor, crnsOf, sectionDays.data],
   );
   const rows = useMemo(() => {
-    if (focus.length === 0) return everyRow;
+    /*
+     * The population first: a scope is not a filter chip, it is who the page is about —
+     * until somebody asks to look past it, which is what the toggle beside the search is.
+     *
+     * Looking past ONE cohort lands on all of them, and all of them is not everyone. A
+     * student the department holds no cohort for is in none of the cohorts, so "All
+     * cohorts" was showing a population its own label excluded — and on the real data that
+     * is not a rounding error: 315 of the 2,982 students on file are in a cohort, so the
+     * button buried the three hundred it was about under two and a half thousand it was not.
+     *
+     * They are still reachable, on the page that is about them: the Cohorts picker has a
+     * population for students in no cohort, and this same toggle looks past that one too.
+     */
+    const population = !scope
+      ? everyRow
+      : everywhere
+        ? everyRow.filter((row) => Boolean(row.cohortId))
+        : everyRow.filter((row) => (scope.cohortId === null ? !row.cohortId : row.cohortId === scope.cohortId));
+    if (focus.length === 0) return population;
     const wanted = new Set(focus);
-    return everyRow.filter((row) => wanted.has(row.studentId));
-  }, [everyRow, focus]);
+    return population.filter((row) => wanted.has(row.studentId));
+  }, [everyRow, focus, scope, everywhere]);
 
   const columns = useMemo(
     () => (layout ? visibleColumns(layout, allColumns) : []),
     [layout, allColumns],
   );
+  const columnIds = useMemo(() => new Set(allColumns.map((column) => column.id)), [allColumns]);
   const visibleRef = useRef<StudentRow[]>([]);
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -265,7 +447,7 @@ export function StudentRoster({
           columns.some((column) => cellText(row, column).toLowerCase().includes(needle)),
         )
       : rows;
-    return sortRows(applyFilters(searched, columns, filters), sort, allColumns);
+    return sortByColumn(applyFilters(searched, columns, filters), sort, allColumns, studentIdOf);
   }, [rows, columns, filters, sort, query]);
 
   visibleRef.current = visible;
@@ -350,6 +532,18 @@ export function StudentRoster({
   const cohortOfSelection = cohorts.find((candidate) => candidate.id === placeInto) ?? null;
   const error = move.error ?? students.error;
 
+  /** What the bar over the foot of the table offers, and what each of them opens. */
+  const selectionActions: SelectionActionsProps = {
+    count: chosen.length,
+    onMove: () => setMoving(true),
+    canPlace: Boolean(cohortOfSelection),
+    onPlace: () => {
+      setPlaced(null);
+      setPlacing(true);
+    },
+    onClear: () => setSelected(new Set()),
+  };
+
   return (
     <>
       {error ? (
@@ -358,73 +552,25 @@ export function StudentRoster({
         </p>
       ) : null}
 
-      {/*
-        * Always here, dimmed until there is something to move. A control that appears on
-        * selection moves everything below it down at the moment you click a row, and it
-        * does not answer "what can I do with these?" until after you have chosen.
-        */}
-      <div
-        className={`flex flex-wrap items-center gap-3 rounded-md border px-4 py-2.5 text-sm transition-opacity ${
-          chosen.length
-            ? "border-[#cfe0ef] bg-[#f2f7fb]"
-            : "border-[#e4e8ee] bg-[#fafbfc] opacity-60"
-        }`}
-      >
-          <span className={chosen.length ? "font-semibold text-[#1f4e79]" : "font-semibold text-[#98a2b3]"}>
-            {chosen.length ? `${chosen.length} selected` : "None selected"}
-          </span>
-          <div className="w-56">
-            <SelectMenu
-              label="Move to cohort"
-              value={moveTo}
-              placeholder="Move to cohort…"
-              searchable={cohorts.length > 12}
-              options={[
-                ...cohorts.map((cohort) => ({ value: cohort.id, label: cohort.name })),
-                { value: NEW_COHORT, label: "New cohort…" },
-                { value: NO_COHORT, label: "Take out of their cohort" },
-              ]}
-              onChange={(value) => {
-                if (value === NEW_COHORT) {
-                  setNewName("");
-                  setNaming(true);
-                  return;
-                }
-                setMoveTo(value);
-              }}
-              disabled={!chosen.length}
-            />
-          </div>
-          <button
-            type="button"
-            disabled={!chosen.length || !moveTo || move.isPending}
-            onClick={() => requestMove(moveTo === NO_COHORT ? null : moveTo)}
-            className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-3 py-1.5 font-semibold text-white disabled:opacity-50"
-          >
-            <FolderInput size={15} aria-hidden="true" /> {chosen.length ? `Move ${chosen.length}` : "Move"}
-          </button>
-          <button
-            type="button"
-            disabled={!cohortOfSelection}
-            title={
-              chosen.length && !cohortOfSelection
-                ? "Blocks belong to one cohort — select students who share one"
-                : undefined
-            }
-            onClick={() => {
-              setPlaced(null);
-              setPlacing(true);
-            }}
-            className="inline-flex items-center gap-2 rounded-md border border-[#b7bec8] bg-white px-3 py-1.5 font-semibold text-[#344054] disabled:opacity-50"
-          >
-            <LayoutGrid size={15} aria-hidden="true" /> Place in a block…
-          </button>
-          {chosen.length ? (
-            <button type="button" onClick={() => setSelected(new Set())} className="text-[#667085] underline">
-              Clear
-            </button>
-          ) : null}
-      </div>
+      <SelectionFloating {...selectionActions} />
+
+      <MoveToCohort
+        open={moving}
+        count={chosen.length}
+        cohorts={cohorts}
+        describe={(cohortId) => describeCost(moveCost(cohortId))}
+        busy={move.isPending}
+        onMove={(cohortId) => {
+          setMoving(false);
+          requestMove(cohortId);
+        }}
+        onNewCohort={() => {
+          setMoving(false);
+          setNewName("");
+          setNaming(true);
+        }}
+        onClose={() => setMoving(false)}
+      />
 
       {placed ? (
         <p className="mt-2 rounded-md border border-[#bfdcc6] bg-[#f4faf5] px-4 py-2.5 text-sm text-[#2f6b3d]">
@@ -439,6 +585,10 @@ export function StudentRoster({
         </p>
       ) : null}
 
+      {recordOf ? (
+        <StudentRecord open row={recordOf} cohorts={cohorts} history={history} onClose={() => setRecordOf(null)} />
+      ) : null}
+
       {cohortOfSelection ? (
         <PlaceInBlock
           open={placing}
@@ -449,13 +599,29 @@ export function StudentRoster({
             setPlaced(report);
             setPlacing(false);
             setSelected(new Set());
-            client.invalidateQueries({ queryKey: ["students"] });
-            client.invalidateQueries({ queryKey: ["catalogue"] });
             // Placing somebody is the commonest way the "nobody has placed them" count
-            // changes, and that count is the publication's, not the catalogue's.
-            client.invalidateQueries({ queryKey: ["publication"] });
+            // changes, and the commonest way a registration warning becomes stale.
+            afterPlacement(client);
           }}
         />
+      ) : null}
+
+      {/*
+        * Saved ways of looking, on the Students page only: the Cohorts page is already
+        * one way of looking, and its filters are its own.
+        */}
+      {!scope ? (
+        <div className="mt-3">
+          <FilterTabs
+            filters={filters}
+            sort={sort}
+            columnIds={columnIds}
+            onApply={(nextFilters, nextSort) => {
+              setFilters(nextFilters);
+              setSort(nextSort);
+            }}
+          />
+        </div>
       ) : null}
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -466,7 +632,29 @@ export function StudentRoster({
           onChange={setFilters}
         />
 
-        <label className="relative ml-auto block w-full sm:w-60">
+        {/*
+          * A slot beside Copy, for a page with an export of its own to offer.
+          *
+          * The Cohorts page puts the registrar's worklist here — a table of CRNs to add
+          * and drop — because it is the same gesture as copying the table and belongs
+          * beside it rather than in a corner of its own.
+          */}
+        {tools ? <div className="ml-auto">{tools}</div> : null}
+
+        {/* The margin lives here rather than on the search box, so the two travel
+            together as a pair on the right instead of the button sitting by the filters. */}
+        <div className={tools ? "" : "ml-auto"}>
+          <CopyPresetMenu
+            columns={allColumns}
+            onCopy={async (chosen, withHeader) => {
+              if (chosen.length === 0) return false;
+              const block = presetBlock(chosen, rowsForCopy(visible, selected), cellText, withHeader);
+              return copyTable(block.headers, block.rows);
+            }}
+          />
+        </div>
+
+        <label className="relative block w-full sm:w-60">
           <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#667085]" />
           <input
             aria-label="Search students"
@@ -483,9 +671,13 @@ export function StudentRoster({
           aria-pressed={everywhere}
           onClick={() => setEverywhere((current) => !current)}
           title={
-            everywhere
-              ? "Searching every student we hold. Click to go back to this view."
-              : "Search every student we hold, not only this view"
+            scope
+              ? everywhere
+                ? "Searching every cohort. Click to go back to this one."
+                : "Search every cohort, not only this one"
+              : everywhere
+                ? "Searching every student we hold. Click to go back to this portal filter."
+                : "Search every student we hold, not only this portal filter"
           }
           className={`inline-flex shrink-0 items-center gap-2 rounded-md border px-3 py-2 text-sm font-semibold ${
             everywhere
@@ -494,19 +686,17 @@ export function StudentRoster({
           }`}
         >
           <Globe size={15} aria-hidden="true" />
-          {everywhere ? "All students" : "This view"}
+          {scope ? (everywhere ? "All cohorts" : "This cohort") : everywhere ? "All students" : "This filter"}
         </button>
 
         <ColumnMenu layout={layout} columns={allColumns} onChange={arrange} />
 
         <CopyButton
           label="Copy the whole table"
-          text={() =>
-            tableText(
-              columns.map((column) => column.displayName),
-              visible.map((row) => columns.map((column) => cellText(row, column))),
-            )
-          }
+          text={() => ({
+            headers: columns.map((column) => column.displayName),
+            rows: visible.map((row) => columns.map((column) => cellText(row, column))),
+          })}
           className="border border-[#b7bec8] bg-white p-2 hover:bg-[#f8fafc]"
         />
       </div>
@@ -576,7 +766,7 @@ export function StudentRoster({
       <p className="mt-2 text-xs text-[#98a2b3]">
         {rows.length} student{rows.length === 1 ? "" : "s"} held
         {visible.length !== rows.length ? `, ${visible.length} shown` : ""}
-        {stored.current ? (
+        {portalRows.length ? (
           <>
             {". Names came from the portal in this browser. "}
             <button type="button" onClick={() => setConfirmForget(true)} className="underline">
@@ -586,6 +776,14 @@ export function StudentRoster({
         ) : (
           ". No names held in this browser yet — sync to fill them in."
         )}
+        {". "}
+        <HistoryBackup
+          onRestored={() => {
+            // A restore changes the history behind the changed column, so read it again.
+            void loadHistory(viewId).then(setHistory);
+          }}
+        />
+        {"."}
       </p>
 
       <StudentTable
@@ -598,12 +796,19 @@ export function StudentRoster({
         onResize={resize}
         onReorder={reorder}
         onOpenHistory={setHistoryOf}
+        onDismissWarning={onDismissWarning}
+        highlightedId={historyOf?.studentId}
+        onRowClick={setRecordOf}
         onToggle={toggle}
         onToggleAll={toggleAll}
         empty={
           rows.length
             ? "Nobody matches those filters."
-            : "No students yet. Sync with the portal to build the list."
+            : scope
+              ? scope.cohortId === null
+                ? "Every student we hold is in a cohort."
+                : "Nobody is in this cohort yet."
+              : "No students yet. Sync with the portal to build the list."
         }
       />
 
@@ -637,11 +842,14 @@ export function StudentRoster({
         }
         confirmLabel="Forget rosters"
         onConfirm={() => {
-          forgetRosters();
-          forgetHistory();
-          setStored({});
-          setHistory(loadHistory(viewId));
-          setSyncedAt("");
+          void Promise.all([forgetRosters(), forgetHistory()]).then(() => {
+            setStored({});
+            setHistory(NO_HISTORY);
+            // The names on screen come from every view now, not this one's pull, so
+            // forgetting has to take them away here too or they sit there until reload.
+            setPortalRows([]);
+            setSyncedAt("");
+          });
           setConfirmForget(false);
         }}
         onClose={() => setConfirmForget(false)}
@@ -657,56 +865,4 @@ export function StudentRoster({
   );
 }
 
-/**
- * How every sorted list of text in this table compares.
- *
- * `numeric` so "10" follows "9" rather than "1". `sensitivity: "accent"` so case is
- * ignored — the registrar returns names and codes in whatever case it happens to hold,
- * and "MARTIN", "Martin" and "martin" are one name to a coordinator reading the list.
- * Accents still count: at Sorbonne, é is not e, and collapsing them would put French
- * names somewhere nobody expects. Values that differ only by case tie-break on the
- * student id, so the order never wobbles between renders.
- */
-const COLLATION: Intl.CollatorOptions = { numeric: true, sensitivity: "accent" };
 
-/**
- * Sort by what the column reads, whatever the column is.
- *
- * A column is not a property of the row: the portal's are reached through `portal`, under
- * ids like `portal:FULL_NAME`. Indexing the row by the column id worked for the handful
- * that happen to be properties and silently did nothing for the rest, which sorted every
- * portal column into id order.
- *
- * The accessor rather than the displayed text, because a date displays as "23 Aug 2026"
- * and that sorts alphabetically by month.
- */
-function sortRows(rows: StudentRow[], sort: Sort, columns: StudentColumn[]): StudentRow[] {
-  const direction = sort.ascending ? 1 : -1;
-  const column = columns.find((candidate) => candidate.id === sort.key);
-
-  // A column may rank differently from how it reads — Status shows three signals and none
-  // of them is the value it filters by — so its own ranking wins where it has one.
-  if (column?.sortValue) {
-    const rank = column.sortValue;
-    return [...rows].sort((left, right) => {
-      const a = rank(left);
-      const b = rank(right);
-      const compared = typeof a === "number" && typeof b === "number" ? a - b : String(a).localeCompare(String(b), undefined, COLLATION);
-      return (compared || left.studentId.localeCompare(right.studentId)) * direction;
-    });
-  }
-
-  const valueOf = (row: StudentRow) => {
-    const held = column?.accessor(row);
-    return Array.isArray(held) ? held.join(" ") : String(held ?? "");
-  };
-  return [...rows].sort((left, right) => {
-    // Blanks last however the sort runs: a student with no major is not the first thing
-    // you want to see when sorting by major.
-    const a = valueOf(left);
-    const b = valueOf(right);
-    if (!a !== !b) return a ? -1 : 1;
-    const compared = a.localeCompare(b, undefined, COLLATION);
-    return (compared || left.studentId.localeCompare(right.studentId)) * direction;
-  });
-}

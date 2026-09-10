@@ -1,14 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { CohortReadiness, Publication, PublicationPreview } from "@/services/publication";
-import {
-  blockersOf,
-  describeChange,
-  isDestructive,
-  sortCohorts,
-  unplacedIn,
-  verdictFor,
-} from "@/services/publicationView";
+import { blockersOf, describeChange, describeClashCoverage, isDestructive, sortCohorts, toneOf, unplacedIn, verdictFor } from "@/services/publicationView";
 
 function cohort(overrides: Partial<CohortReadiness> = {}): CohortReadiness {
   return {
@@ -18,6 +11,7 @@ function cohort(overrides: Partial<CohortReadiness> = {}): CohortReadiness {
     studentsResolved: 24,
     unassigned: {},
     warnings: [],
+    clashes: [],
     isReady: true,
     ...overrides,
   };
@@ -27,7 +21,7 @@ function publication(overrides: Partial<Publication> = {}): Publication {
   return {
     cohorts: [cohort()],
     validation: {},
-    unmatchedCrns: 0,
+    unmatchedCrns: 0, coverage: { linked: true, portalTermCode: "262710", pulledAt: "now", asked: 2, timetabled: 2, blind: [], hubReachable: null },
     sections: 43,
     resolved: { students: 24, enrolments: 168 },
     isReady: true,
@@ -64,7 +58,7 @@ describe("what stands in the way", () => {
 
   it("blocks on a CRN the timetable does not have", () => {
     // The real case: TD group 7 pointing at sections that no longer exist.
-    const [blocker] = blockersOf(publication({ unmatchedCrns: 3, isReady: false }));
+    const [blocker] = blockersOf(publication({ unmatchedCrns: 3, coverage: { linked: true, portalTermCode: "262710", pulledAt: "now", asked: 2, timetabled: 2, blind: [], hubReachable: null }, isReady: false }));
     expect(blocker.severity).toBe("blocking");
     expect(blocker.label).toContain("3 CRNs not in the timetable");
   });
@@ -93,7 +87,7 @@ describe("what stands in the way", () => {
   it("puts what blocks above what merely warns", () => {
     const blockers = blockersOf(
       publication({
-        unmatchedCrns: 1,
+        unmatchedCrns: 1, coverage: { linked: true, portalTermCode: "262710", pulledAt: "now", asked: 2, timetabled: 2, blind: [], hubReachable: null },
         isReady: false,
         cohorts: [cohort({ isReady: false, warnings: ["no groups yet"] })],
       }),
@@ -180,5 +174,68 @@ describe("the students nobody has placed", () => {
 
   it("says nothing about a cohort this semester has no blocks for", () => {
     expect(unplacedIn(held({ CM: ["A1"] }), "another-cohort").total).toBe(0);
+  });
+});
+
+/*
+ * Three verdicts on a CRN, and only one of them is ours to fix.
+ *
+ * `mismatched` is a typo in our planning: the CRN is real and belongs to another course.
+ * `unknown` is not — the registrar's timetable says nothing about that section, because
+ * the sweep has not been asked about it or no room is booked — and since the sweep
+ * replaced the uploaded file that is true of twenty-seven live sections, none of them a
+ * mistake. Drawing them alike sent somebody hunting a typo that was not there, which is
+ * the particular cost of an alarm nobody can clear: it teaches people to ignore alarms.
+ */
+describe("how much a CRN's verdict is our problem", () => {
+  it("does not call an untimetabled section a fault", () => {
+    expect(toneOf({ status: "unknown", detail: "No timetable for CRN 23223 yet" })).toBe("unasked");
+  });
+
+  it("does call a CRN belonging to another course one", () => {
+    expect(toneOf({ status: "mismatched", detail: "CRN 23223 is MATH-011, not MATH-001" })).toBe("fault");
+  });
+
+  it("says nothing about a section the timetable agrees with, or one it has no verdict on", () => {
+    expect(toneOf({ status: "matched", detail: "" })).toBe("settled");
+    expect(toneOf(undefined)).toBe("settled");
+  });
+});
+
+/*
+ * A clash is found by comparing hours, so a section nobody has hours for cannot produce
+ * one. Every count on the page is therefore a floor, and "2 clashes" beside "ten sections
+ * nobody has asked about" is a very different situation from "2 clashes" alone.
+ */
+describe("what a clash count does not cover", () => {
+  const covered = {
+    linked: true, portalTermCode: "262710", pulledAt: "2026-09-09T07:45:23+00:00",
+    asked: 120, timetabled: 120, blind: [] as string[], hubReachable: null,
+  };
+
+  it("says nothing when every section has hours", () => {
+    expect(describeClashCoverage(covered)).toBe("");
+  });
+
+  it("counts the sections a clash could not have been found in", () => {
+    expect(describeClashCoverage({ ...covered, timetabled: 110, blind: ["1", "2"] })).toBe(
+      "110 of 120 sections have hours; a clash cannot be found in the other 2.",
+    );
+  });
+
+  it("says the semester was never asked about, rather than counting sections", () => {
+    // Before the first sweep the number of blind sections is every section, and reciting
+    // it is less use than saying nobody has asked.
+    expect(describeClashCoverage({ ...covered, pulledAt: "", timetabled: 0, blind: ["1"] })).toMatch(
+      /Nobody has pulled the registrar's timetable/,
+    );
+  });
+
+  it("says a semester with no portal term cannot be asked at all", () => {
+    expect(describeClashCoverage({ ...covered, linked: false, blind: ["1"] })).toMatch(/No portal term is linked/);
+  });
+
+  it("says nothing at all when there is no coverage to speak of", () => {
+    expect(describeClashCoverage(undefined)).toBe("");
   });
 });

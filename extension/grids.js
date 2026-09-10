@@ -1,0 +1,194 @@
+/*
+ * The portal grids this extension may read, and what each one may say.
+ *
+ * Students was the only one for a year. Courses, teachers and a student's registrations
+ * are the same Serenity `ListRequest` behind three other pages of the portal, so they
+ * are read the same way — and bounded the same way: which rows may be asked for is a
+ * filter checked against the grid's own fields, and which columns may come back is a
+ * list, never "everything the service returns". A teacher's personal e-mail and Oracle
+ * id are in the service's answer; they are not in this list, so they never leave.
+ *
+ * Field values marked verified were read from the portal's own filter widgets on
+ * 5 September 2026. The rest are shape-checked only (a code, not a sentence).
+ *
+ * There is a second family below, TIMETABLE, which is not a ListRequest at all. It lives
+ * in this file rather than beside its handler for the reason above: what may come back is
+ * decided here, and one list is reviewable where two are not.
+ */
+
+export const GRIDS = {
+  students: {
+    path: 'StudentSearch/Enrollment/List',
+    /* The Student Search page, for the sign-in prompt. */
+    page: 'StudentSearch/Enrollment',
+    sort: ['FULL_NAME'],
+    term: true,
+    idField: 'SPRIDEN_ID',
+  },
+  courses: {
+    path: 'Courses/CoursesSearch/List',
+    page: 'Courses/CoursesSearch',
+    sort: ['COURSE_CODE', 'COURSE_CRN'],
+    term: true,
+    idField: 'COURSE_CRN',
+    fields: [
+      { key: 'DEPT_CODE', label: 'Department', options: [], verified: false },
+      { key: 'LEVEL_CODE', label: 'Level', options: [], verified: false },
+      { key: 'COLLEGE_CODE', label: 'College', options: [], verified: false },
+      { key: 'PTERM_CODE', label: 'Part of term', options: [], verified: false },
+      { key: 'COURSE_CODE', label: 'Course code', options: [], verified: false },
+    ],
+    columns: [
+      'TERM_CODE', 'COURSE_CRN', 'COURSE_CODE', 'COURSE_TITLE', 'COURSE_SUBJ', 'SEQ_NUMB',
+      'PTERM_CODE', 'PTERM_DESC', 'CREDIT_HRS_NUM', 'DEPT_CODE', 'LEVEL_CODE', 'COLLEGE_CODE',
+      'CONTACT_HRS_NUM', 'TEACHER_NAME', 'NUM_REG_STUD', 'BEGIN_DATE', 'END_DATE', 'GRADE_MODE',
+    ],
+  },
+  teachers: {
+    path: 'StaffSearch/List',
+    page: 'StaffSearch',
+    sort: ['FULL_NAME'],
+    term: false,
+    idField: 'SPRIDEN_ID',
+    fields: [
+      {
+        key: 'TEACHER_STATUS',
+        label: 'Status',
+        options: [{ value: 'AC', label: 'Active' }],
+        verified: false,
+      },
+      {
+        key: 'TEACHER_TYPE_DESC',
+        label: 'Type',
+        options: [
+          { value: 'Full Time', label: 'Full time' },
+          { value: 'Part-Time', label: 'Part-time' },
+          { value: 'Flying-Professional Assignment', label: 'Flying professional' },
+          { value: 'Local-Professional Assignment', label: 'Local professional' },
+          { value: 'VP Visiting Professor', label: 'Visiting professor' },
+        ],
+        verified: false,
+      },
+      { key: 'LAST_TERM_CODE', label: 'Last term taught', options: [], verified: false },
+      {
+        key: 'TEACHING_DEPT',
+        label: 'Department',
+        /*
+         * Verified on 5 September 2026 against the 1,486 active staff. Somebody who
+         * teaches for two departments has both codes in one field — "CEED,SCEN" — and
+         * the portal matches this filter exactly, so three such people are missed by a
+         * search for SCEN. Narrowing to 49 from 1,486 is worth that, with eyes open.
+         */
+        options: [
+          { value: 'SCEN', label: 'Science and Engineering' },
+          { value: 'SCAI', label: 'Artificial Intelligence' },
+          { value: 'SCMA', label: 'Mathematics (SCMA)' },
+          { value: 'MATH', label: 'Mathematics' },
+          { value: 'PHYS', label: 'Physics' },
+          { value: 'AHA', label: 'Art History and Archaeology' },
+          { value: 'HIST', label: 'History' },
+          { value: 'GEOG', label: 'Geography' },
+          { value: 'LEA', label: 'Applied Foreign Languages' },
+          { value: 'LPEM', label: 'Languages' },
+          { value: 'PHSS', label: 'Philosophy and Sociology' },
+          { value: 'FRCL', label: 'French as a Foreign Language' },
+          { value: 'FREN', label: 'French Literature' },
+          { value: 'LBUS', label: 'Business' },
+          { value: 'CEIN', label: 'Information and Communication' },
+          { value: 'CEED', label: 'Education' },
+          { value: 'SPRT', label: 'Sport' },
+          { value: 'ARCI', label: 'Archaeology' },
+          { value: 'MMCM', label: 'Music and Musicology' },
+        ],
+        verified: true,
+      },
+      {
+        key: 'TEACHER_CAT_DESC',
+        label: 'Category',
+        options: [
+          { value: 'Professor', label: 'Professor' },
+          { value: 'Lecturer', label: 'Lecturer' },
+          { value: 'MDC', label: 'MDC' },
+          { value: 'Academic Coordinator', label: 'Academic Coordinator' },
+          { value: 'Head of Department', label: 'Head of Department' },
+        ],
+        verified: true,
+      },
+    ],
+    columns: [
+      'SPRIDEN_ID', 'FULL_NAME', 'TEACHER_STATUS', 'TEACHER_CAT_DESC', 'TEACHER_TYPE_DESC',
+      'LAST_TERM_CODE', 'TOTAL_CREDITS', 'TEACHING_COURSES_COUNT', 'TEACHING_PERIODS_COUNT',
+      'TEACHING_STUDENT_COUNT', 'TEACHING_DEPT', 'TEACHER_RANK', 'TEACHING_COURSES',
+      'ACADEMIC_INSTITUTION', 'PSUAD_EMAIL',
+    ],
+  },
+  registrations: {
+    path: 'StudentSearch/StudentCourses/List',
+    page: 'StudentSearch/StudentCourses',
+    sort: ['SPRIDEN_ID', 'COURSE_CRN'],
+    term: true,
+    idField: 'SPRIDEN_ID',
+    fields: [
+      { key: 'DEPT_CODE', label: 'Department', options: [], verified: false },
+      { key: 'MAJOR_CODE', label: 'Major', options: [], verified: false },
+      { key: 'COLLEGE_CODE', label: 'College', options: [], verified: false },
+      { key: 'LEVEL_CODE', label: 'Level', options: [], verified: false },
+      { key: 'YEARLEVEL_CODE', label: 'Year', options: [], verified: false },
+    ],
+    /* Attendance is out of scope, so ABSENCE_PER and JUSTIFY_ATTENDANCE_IND stay behind. */
+    columns: [
+      'TERM_CODE', 'SPRIDEN_ID', 'FULL_NAME', 'DEPT_CODE', 'MAJOR_CODE', 'COLLEGE_CODE',
+      'LEVEL_CODE', 'YEARLEVEL_CODE', 'COURSE_CRN', 'COURSE_CODE', 'COURSE_TITLE', 'TEACHER_NAME',
+    ],
+  },
+};
+
+/*
+ * A second family. GetTimeTable is not a Serenity ListRequest: form-urlencoded, one call
+ * per CRN, GetScheduleEventsList back. It is declared here anyway, because this file is
+ * where what may come back is decided, and a boundary in two files is a boundary nobody
+ * reviews.
+ *
+ * Deliberately NOT in GRIDS. `KINDS` and `gridOf` are built from that object, so
+ * `gridOf('timetable')` stays null and the ListRequest path can never be reached with a
+ * request this shape.
+ */
+export const TIMETABLE = {
+  path: 'Timetable/GetTimeTable',
+  page: 'Timetable',
+  form: true,
+  perCrn: true,
+  /* The only category this extension will ask for. Student and Teacher would return a
+     named person's whole week, which is not a question about a room booking. */
+  category: 'CRN',
+  list: 'GetScheduleEventsList',
+  /* EVEN_START, one N. The portal's typo, and it is the wire's spelling — not ours to
+     correct, only to read. */
+  columns: [
+    'COURSE_CRN', 'COURSE_CODE', 'COURSE_TITLE', 'ROOM_CODE',
+    'EVEN_START', 'EVENT_END', 'TEACHER_NAME',
+  ],
+};
+
+export const KINDS = Object.keys(GRIDS);
+
+export function gridOf(kind) {
+  return GRIDS[kind] || null;
+}
+
+/**
+ * A grid's filter fields, with values borrowed from the student grid where the field is
+ * the same code table: DEPT_CODE is DEPT_CODE whichever page asks. The student grid is
+ * the one the portal probe harvests, so its lists are the live ones.
+ */
+export function fieldsFor(kind, studentFields) {
+  const grid = gridOf(kind);
+  if (!grid || !grid.fields) return studentFields || [];
+  const known = new Map((studentFields || []).map(field => [field.key, field]));
+  return grid.fields.map(field => {
+    const shared = known.get(field.key);
+    return shared && (shared.options || []).length
+      ? { ...field, options: shared.options, verified: Boolean(shared.verified) }
+      : field;
+  });
+}

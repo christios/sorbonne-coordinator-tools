@@ -1,4 +1,4 @@
-import { Filter as FilterIcon, Plus, X } from "lucide-react";
+import { FunnelPlus, FunnelX, X } from "lucide-react";
 import { Popover } from "radix-ui";
 import { useState } from "react";
 
@@ -11,7 +11,7 @@ import {
   type ColumnOption,
   type FilterModel,
 } from "@/services/tableFilter";
-import type { StudentColumn } from "@/services/studentColumns";
+import type { ColumnMeta } from "@/services/studentColumns";
 
 /**
  * Column filters as a row of chips, after the Aralytics call-reports table.
@@ -21,15 +21,15 @@ import type { StudentColumn } from "@/services/studentColumns";
  * The operators on offer come from the column's kind, and the operator moves between its
  * singular and plural form on its own as values are added or removed.
  */
-export function TableFilterBar({
+export function TableFilterBar<C extends ColumnMeta>({
   columns,
   filters,
   optionsFor,
   onChange,
 }: {
-  columns: StudentColumn[];
+  columns: C[];
   filters: FilterModel[];
-  optionsFor: (column: StudentColumn) => ColumnOption[];
+  optionsFor: (column: C) => ColumnOption[];
   onChange: (filters: FilterModel[]) => void;
 }) {
   const used = new Set(filters.map((filter) => filter.columnId));
@@ -40,7 +40,7 @@ export function TableFilterBar({
       filters.map((filter) => (filter.columnId === columnId ? { ...filter, ...next } : filter)),
     );
 
-  const add = (column: StudentColumn) =>
+  const add = (column: C) =>
     onChange([
       ...filters,
       {
@@ -84,22 +84,24 @@ export function TableFilterBar({
         <button
           type="button"
           onClick={() => onChange([])}
-          className="rounded-md px-2 py-1.5 text-sm text-[#667085] underline hover:text-[#344054]"
+          aria-label="Clear filters"
+          title="Clear all filters"
+          className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-[#b7bec8] bg-white text-[#344054] hover:border-[#e5b7b9] hover:bg-[#fdf3f3] hover:text-[#a6292f]"
         >
-          Clear filters
+          <FunnelX size={16} aria-hidden="true" />
         </button>
       ) : null}
     </div>
   );
 }
 
-function AddFilter({
+function AddFilter<C extends ColumnMeta>({
   columns,
   onAdd,
   hasFilters,
 }: {
-  columns: StudentColumn[];
-  onAdd: (column: StudentColumn) => void;
+  columns: C[];
+  onAdd: (column: C) => void;
   hasFilters: boolean;
 }) {
   const [open, setOpen] = useState(false);
@@ -109,10 +111,12 @@ function AddFilter({
       <Popover.Trigger asChild>
         <button
           type="button"
-          className="inline-flex items-center gap-1.5 rounded-md border border-dashed border-[#b7bec8] px-2.5 py-1.5 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc]"
+          aria-label={hasFilters ? "Add filter" : "Filter"}
+          title={hasFilters ? "Add a filter" : "Filter the table"}
+          className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-dashed border-[#b7bec8] text-[#344054] hover:bg-[#f8fafc]"
         >
-          {hasFilters ? <Plus size={14} aria-hidden="true" /> : <FilterIcon size={14} aria-hidden="true" />}
-          {hasFilters ? "Add filter" : "Filter"}
+          {/* The funnel with a plus, as a spreadsheet draws it: the shape says it without the word. */}
+          <FunnelPlus size={16} aria-hidden="true" />
         </button>
       </Popover.Trigger>
       <Popover.Portal>
@@ -143,7 +147,7 @@ function AddFilter({
   );
 }
 
-function FilterChip({
+function FilterChip<C extends ColumnMeta>({
   column,
   filter,
   options,
@@ -151,7 +155,7 @@ function FilterChip({
   onValues,
   onRemove,
 }: {
-  column: StudentColumn;
+  column: C;
   filter: FilterModel;
   options: ColumnOption[];
   onOperator: (operator: string) => void;
@@ -246,13 +250,13 @@ function ChipMenu({
  * `is between` wants two values and `is` wants one, so the number of inputs follows the
  * operator's target rather than the column.
  */
-function ChipValue({
+function ChipValue<C extends ColumnMeta>({
   column,
   filter,
   options,
   onValues,
 }: {
-  column: StudentColumn;
+  column: C;
   filter: FilterModel;
   options: ColumnOption[];
   onValues: (values: string[]) => void;
@@ -260,8 +264,9 @@ function ChipValue({
   const pair = OPERATORS[filter.type][filter.operator]?.target === "multiple";
 
   if (column.type === "option" || column.type === "multiOption") {
+    // Sized to what it holds, within reason: the chip is there to be read.
     return (
-      <span className="w-48 py-0.5">
+      <span className="inline-block min-w-[11rem] max-w-[24rem] py-0.5">
         <SelectMenu
           label={`${column.displayName} value`}
           multiple

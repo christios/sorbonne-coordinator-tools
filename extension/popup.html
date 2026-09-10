@@ -21,8 +21,13 @@
                 border: 1px solid rgba(128,128,128,.35); background: transparent;
                 color: inherit; cursor: pointer; }
   .hide { display: none; }
+  /* Loud on purpose: the two builds are otherwise identical to look at, and pulling a
+     term into the wrong platform is not something you notice from the popup. */
+  .flavour { margin: -4px 0 8px; padding: 5px 8px; border-radius: 5px; font-size: 11px;
+             background: rgba(220,160,40,.22); }
 </style>
-<h1>SCEN Rosters</h1>
+<h1 id="title">SCEN Rosters</h1>
+<div class="flavour hide" id="flavour"></div>
 <div class="term" id="term"></div>
 <div id="list"></div>
 <div class="status hide" id="status"></div>
@@ -30,4 +35,5 @@
   <button id="csv">Download CSV</button>
   <button id="copy">Copy JSON</button>
 </div>
+<script src="flavour.js"></script>
 <script src="popup.js"></script>

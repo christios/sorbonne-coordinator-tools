@@ -40,6 +40,10 @@ class PublishInput(BaseModel):
     published: bool
 
 
+class RenameInput(BaseModel):
+    name: str = Field(min_length=1, max_length=160)
+
+
 class AnnouncementInput(BaseModel):
     # Passed straight through. The id is how the platform recognises a notice it already
     # holds, and the level is how loudly it lands for a student; this application only
@@ -165,6 +169,16 @@ async def publish_term(
 ) -> dict[str, Any]:
     try:
         return await client.set_published(term_id, body.published)
+    except StudentPlatformError as exc:
+        raise _forward(exc) from exc
+
+
+@router.patch("/terms/{term_id}")
+async def rename_term(
+    term_id: str, body: RenameInput, client: StudentPlatformClient = Depends(require_client)
+) -> dict[str, Any]:
+    try:
+        return await client.rename_term(term_id, body.name)
     except StudentPlatformError as exc:
         raise _forward(exc) from exc
 

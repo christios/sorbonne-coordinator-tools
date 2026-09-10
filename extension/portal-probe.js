@@ -108,11 +108,29 @@ function harvestColumns() {
   return [...seen.values()].sort((left, right) => left.key.localeCompare(right.key));
 }
 
+/**
+ * Which of the extension's grids this page is, by its path.
+ *
+ * The service worker keeps one harvest per grid: the Courses Search page's filters are
+ * departments and parts of term, the Teachers page's are statuses and types, and neither
+ * must overwrite what was learned about students.
+ */
+function gridOfPage() {
+  const path = location.pathname.toLowerCase();
+  if (path.includes('/studentsearch/studentcourses')) return 'registrations';
+  if (path.includes('/studentsearch/enrollment')) return 'students';
+  if (path.includes('/courses/coursessearch')) return 'courses';
+  if (path.includes('/staffsearch')) return 'teachers';
+  return '';
+}
+
 function report() {
+  const kind = gridOfPage();
+  if (!kind) return;
   const fields = harvest();
   const columns = harvestColumns();
   if (!fields.length && !columns.length) return;
-  window.postMessage({ channel: CHANNEL, fields, columns, url: location.href }, window.location.origin);
+  window.postMessage({ channel: CHANNEL, kind, fields, columns, url: location.href }, window.location.origin);
 }
 
 // The grid renders after the page settles, and the lookups fill in after that, so look

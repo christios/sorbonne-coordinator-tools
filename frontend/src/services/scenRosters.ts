@@ -21,6 +21,16 @@ const CHANNEL = "scen-rosters";
  * genuinely stopped hits the limit. A minute without a word is stopped.
  */
 const FETCH_TIMEOUT_MS = 60_000;
+/*
+ * And a limit on the whole thing.
+ *
+ * The clock above is for silence, and the extension beats every five seconds while it
+ * waits on the portal — so a request the portal never answers is a page that waits for
+ * ever, looking exactly like one that is working. Ten minutes is far longer than the
+ * slowest real pull (a whole term of students is about a minute) and short enough that
+ * nobody sits watching a spinner that will never stop.
+ */
+const PULL_LIMIT_MS = 10 * 60_000;
 const PING_TIMEOUT_MS = 1_500;
 
 export type RosterRow = {
@@ -43,12 +53,27 @@ export type RosterPreset = {
   filter?: Record<string, string[]>;
 };
 
+/**
+ * Which portal grid a pull reads. Students was the only one for a year; courses,
+ * teachers and a student's registrations are the same request behind other pages.
+ */
+export type PullKind = "students" | "courses" | "teachers" | "registrations";
+
 export type PortalRoster = {
+  kind: PullKind;
+  /** The portal term the extension asked about, for lists that are per term. */
+  term?: { code: string; label: string } | null;
   presetId: string;
   name: string;
   count: number;
   expect: number | null;
-  /** "zero_rows" when a filter code matched nothing; "count_drift" when the size moved a lot. */
+  /**
+   * What the extension noticed about the answer: "zero_rows" when a filter code matched
+   * nothing, "count_drift" when the size moved a lot, "short_answer" when the portal
+   * said how many there were and then sent fewer, "truncated" when there were too many
+   * to hold. A pull that is quietly incomplete is the worst kind, so these are said out
+   * loud on the page rather than kept here.
+   */
   warning: string | null;
   fetchedAt: number;
   rows: RosterRow[];
@@ -76,6 +101,7 @@ function ask(
       settled = true;
       window.removeEventListener("message", onMessage);
       clearTimeout(timer);
+      clearTimeout(limit);
       resolve(payload);
     };
 
@@ -83,6 +109,8 @@ function ask(
     // did not answer *in time*, which is not the same as it not being there — and telling
     // a coordinator to install what they already have sends them somewhere useless.
     let timer = setTimeout(() => finish({ ok: false, error: "timed_out" }), timeout);
+    // Not restarted by progress: this one is the whole pull's length, not its silence.
+    const limit = setTimeout(() => finish({ ok: false, error: "gave_up" }), PULL_LIMIT_MS);
 
     const onMessage = (event: MessageEvent) => {
       if (event.source !== window || event.origin !== window.location.origin) return;
@@ -183,8 +211,13 @@ export type PortalSchema = {
  * the portal changes. Until somebody visits the portal it falls back to the codes
  * verified by hand, which is worth showing plainly rather than hiding.
  */
-export async function fetchSchema(): Promise<PortalSchema> {
-  const reply = await ask("schema", {}, 5_000);
+export function fetchSchema(): Promise<PortalSchema> {
+  return fetchGridSchema("students");
+}
+
+/** The same, for one of the other grids: its own fields, its own columns. */
+export async function fetchGridSchema(kind: PullKind): Promise<PortalSchema> {
+  const reply = await ask("schema", { kind }, 5_000);
   const error = reply.ok ? "" : await diagnose(String(reply.error ?? "unknown"));
   return {
     ok: Boolean(reply.ok),
@@ -209,6 +242,11 @@ export class PortalError extends Error {
 
 function messageFor(code: string, detail = ""): string {
   switch (code) {
+    case "gave_up":
+      return (
+        "The registrar portal was still answering after ten minutes, so this list was " +
+        "given up on. The portal is not well; try again later, or narrow the filter."
+      );
     case "timed_out":
       return (
         "The registrar portal did not finish answering. A whole term is thousands of " +
@@ -233,6 +271,19 @@ function messageFor(code: string, detail = ""): string {
       return `The registrar portal answered with an error${detail ? ` (${detail})` : ""}.`;
     case "internal":
       return `The SCEN Rosters extension failed${detail ? `: ${detail}` : ""}.`;
+    case "unknown_message":
+      /*
+       * The extension is older than this page and does not know what was asked of it.
+       *
+       * It answers this to anything it has no case for, which is exactly what happens to
+       * the timetable sweep on a build before 1.8.0 — and without a sentence of its own it
+       * arrived as "the registrar portal returned an unexpected error", blaming the portal
+       * for a version skew and sending somebody to look at the wrong thing entirely.
+       */
+      return (
+        "The SCEN Rosters extension is older than this page and does not know how to do " +
+        "that yet. Update it in chrome://extensions and reload."
+      );
     default:
       return `The registrar portal returned an unexpected error${detail ? `: ${detail}` : ""}.`;
   }
@@ -254,10 +305,75 @@ export async function pullRoster(
  */
 export async function pullFilter(
   filter: Record<string, string[]>,
-  meta: { name?: string; expect?: number | null } = {},
+  meta: { name?: string; expect?: number | null; kind?: PullKind } = {},
   onProgress?: (progress: PullProgress) => void,
 ): Promise<PortalRoster> {
-  return run({ filter, meta }, "", onProgress);
+  const { kind = "students", ...rest } = meta;
+  return run({ filter, meta: rest, kind }, "", onProgress);
+}
+
+/** One section as the registrar has it booked, collapsed by the extension. */
+export type FacilitySection = {
+  crn: string;
+  courseCode: string;
+  title: string;
+  teacherName: string;
+  /*
+   * No head count. `cat=CRN` answers one row per MEETING, not one per student, so any
+   * count derived from it is 1 for every section in the term — measured, on 110 of them.
+   * Enrolment comes from `portal_courses.registered`, which is the registrar's own count.
+   */
+  meetings: { meetsOn: string; startsAt: string; endsAt: string; room: string }[];
+};
+
+/** One sweep of the registrar's timetable, exactly as the store on the far side takes it. */
+export type TimetablePull = {
+  termCode: string;
+  asked: string[];
+  sections: FacilitySection[];
+  /** Asked, and told nothing. A fact of its own, never a section with no classes. */
+  silent: string[];
+  failed: string[];
+  /** Whether the sweep reached the end of its own list. Only a complete one may retire a section. */
+  complete: boolean;
+  /** Rows whose times could not be read. Reported, never dropped in silence. */
+  malformed: number;
+  warning: string | null;
+  fetchedAt: number;
+};
+
+/**
+ * Ask the registrar what it has booked for these sections.
+ *
+ * One call per CRN inside the extension, two at a time — the portal answers an empty list
+ * for about one call in seven when pushed harder, and an empty list is what a section with
+ * nothing booked looks like. So this is slow by construction: a hundred and sixty CRNs is
+ * minutes, not seconds, and the timeout is the long one for exactly that reason.
+ *
+ * No category crosses the bridge. The extension will only ask about a CRN; Student and
+ * Teacher would return a named person's whole week, which is not a question about a room.
+ */
+export async function pullTimetable(
+  termCode: string,
+  crns: string[],
+  onProgress?: (progress: PullProgress) => void,
+): Promise<TimetablePull> {
+  const reply = await ask("timetable", { termCode, crns }, FETCH_TIMEOUT_MS, onProgress);
+  if (!reply.ok) {
+    const detail = String(reply.message ?? reply.detail ?? reply.status ?? "");
+    throw new PortalError(await diagnose(String(reply.error ?? "unknown")), detail);
+  }
+  return {
+    termCode: String(reply.termCode ?? termCode),
+    asked: (reply.asked as string[]) ?? [],
+    sections: (reply.sections as FacilitySection[]) ?? [],
+    silent: (reply.silent as string[]) ?? [],
+    failed: (reply.failed as string[]) ?? [],
+    complete: Boolean(reply.complete),
+    malformed: Number(reply.malformed ?? 0),
+    warning: (reply.warning as string | null) ?? null,
+    fetchedAt: Number(reply.fetchedAt ?? Date.now()),
+  };
 }
 
 async function run(
@@ -272,6 +388,8 @@ async function run(
     throw new PortalError(await diagnose(String(reply.error ?? "unknown")), detail);
   }
   return {
+    kind: (reply.kind as PullKind) ?? "students",
+    term: (reply.term as PortalRoster["term"]) ?? null,
     presetId: String(reply.presetId ?? presetId),
     name: String(reply.name ?? presetId),
     count: Number(reply.count ?? 0),

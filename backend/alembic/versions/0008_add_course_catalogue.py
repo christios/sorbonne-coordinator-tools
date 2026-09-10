@@ -34,7 +34,9 @@ def upgrade() -> None:
         sa.Column("obsolete_at", sa.Text(), nullable=True),
     )
     op.create_index("course_catalogue_entries_active_crn", "course_catalogue_entries", ["is_obsolete", "crn"])
-    op.create_index("course_catalogue_entries_search", "course_catalogue_entries", ["crn", "course_code", "course_title"])
+    op.create_index(
+        "course_catalogue_entries_search", "course_catalogue_entries", ["crn", "course_code", "course_title"]
+    )
 
 
 def downgrade() -> None:

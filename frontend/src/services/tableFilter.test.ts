@@ -151,3 +151,46 @@ describe("applying several filters at once", () => {
     expect(applyFilters(rows, columns, [filter({ columnId: "gone", values: ["x"] })])).toHaveLength(3);
   });
 });
+
+/*
+ * The regression that proves the rejected design wrong, kept as a test because it is the
+ * whole argument for a correlated column and would otherwise be re-litigated.
+ */
+describe("two flat columns cannot correlate a set with a day", () => {
+  type Row = { sets: string[]; days: string[]; meets: string[] };
+  const flat = [
+    { id: "sets", displayName: "Set", type: "multiOption" as const, accessor: (row: Row) => row.sets, defaultWidth: 0 },
+    { id: "days", displayName: "Day", type: "multiOption" as const, accessor: (row: Row) => row.days, defaultWidth: 0 },
+  ];
+  const paired = [
+    { id: "meets", displayName: "Meets", type: "multiOption" as const, accessor: (row: Row) => row.meets, defaultWidth: 0 },
+  ];
+  // Takes languages, and separately has maths on Tuesday. Languages are on Thursday.
+  const rows: Row[] = [{ sets: ["LANG", "TD"], days: ["Tue", "Thu"], meets: ["LANG Thu", "TD Tue"] }];
+
+  it("matches somebody whose two facts are unrelated", () => {
+    const wrong = applyFilters(rows, flat, [
+      { columnId: "sets", type: "multiOption", operator: "include", values: ["LANG"] },
+      { columnId: "days", type: "multiOption", operator: "include", values: ["Tue"] },
+    ]);
+
+    // Nobody has languages on Tuesday, and yet here they are.
+    expect(wrong).toHaveLength(1);
+  });
+
+  it("and one paired column does not", () => {
+    const right = applyFilters(rows, paired, [
+      { columnId: "meets", type: "multiOption", operator: "include", values: ["LANG Tue"] },
+    ]);
+
+    expect(right).toHaveLength(0);
+  });
+
+  it("answers two correlated clauses at once with include all of", () => {
+    const both = applyFilters(rows, paired, [
+      { columnId: "meets", type: "multiOption", operator: "include all of", values: ["LANG Thu", "TD Tue"] },
+    ]);
+
+    expect(both).toHaveLength(1);
+  });
+});

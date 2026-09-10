@@ -1,0 +1,704 @@
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { AlertTriangle, BookPlus, Link2Off, Plus, SlidersHorizontal, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+
+import { ChecksPanel } from "@/components/ChecksPanel";
+import { CourseRecord } from "@/components/CourseRecord";
+import { CrnRecord } from "@/components/CrnRecord";
+import { CollisionList } from "@/components/CollisionList";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { removeEach, stillSelected } from "@/services/bulkRemove";
+import { warningsByCrn, worstOf, WORDS, type CrnWarning, type CrnWarningKind } from "@/services/registerWarnings";
+import { ListGrid, StatePill } from "@/components/ListGrid";
+import { Modal } from "@/components/Modal";
+import { ScreenLoading } from "@/components/ScreenLoading";
+import { SelectMenu } from "@/components/SelectMenu";
+import {
+  type ActiveCourse,
+  type Mutualized,
+  MUTUALIZED_WORDS,
+  type ActiveCrn,
+  type RegisterCheck,
+  addActiveCourses,
+  addActiveCrns,
+  fetchActiveCourses,
+  fetchActiveCrns,
+  fetchRegisterCheck,
+  removeActiveCrn,
+  setParentCrn,
+  updateActiveCourse,
+} from "@/services/portalLists";
+import type { GridColumn } from "@/services/studentColumns";
+
+const COLUMNS: GridColumn<ActiveCrn>[] = [
+  { id: "crn", displayName: "CRN", type: "text", accessor: (row) => row.crn, required: true, defaultWidth: 90 },
+  { id: "courseCode", displayName: "Course", type: "option", accessor: (row) => row.courseCode, required: true, defaultWidth: 120 },
+  { id: "portalTitle", displayName: "Section", type: "text", accessor: (row) => row.portalTitle, defaultWidth: 240 },
+  { id: "parentCrn", displayName: "Parent CRN", type: "text", accessor: (row) => row.parentCrn, defaultWidth: 130 },
+  {
+    id: "role",
+    displayName: "Role",
+    type: "option",
+    accessor: (row) => rolesOf(row)[0] ?? "On its own",
+    defaultWidth: 130,
+  },
+  { id: "ue", displayName: "UE", type: "option", accessor: (row) => row.ue, defaultWidth: 110 },
+  // Whether the mathematicians and the physicists sit in it together, which is what
+  // decides whether a course needs one group or two.
+  {
+    id: "mutualized",
+    displayName: "Mutualized",
+    type: "option",
+    accessor: (row) => MUTUALIZED_WORDS[row.mutualized],
+    defaultWidth: 140,
+  },
+  { id: "teacherName", displayName: "Teacher", type: "option", accessor: (row) => row.teacherName, defaultWidth: 190 },
+  { id: "registered", displayName: "Registered", type: "number", accessor: (row) => row.registered, defaultWidth: 100 },
+  { id: "usedBy", displayName: "On cards", type: "number", accessor: (row) => row.usedBy, defaultWidth: 90 },
+  {
+    id: "portalStatus",
+    displayName: "Portal",
+    type: "option",
+    accessor: (row) => (row.portalStatus === "in_portal" ? "Listed" : "Gone from the portal"),
+    defaultWidth: 150,
+  },
+  /*
+   * What is wrong with this CRN, on the CRN.
+   *
+   * Sorted and filtered on the WORST kind's own word rather than on a count, because
+   * "show me the rows the registrar staffs differently" is the question somebody narrows
+   * this column to ask, and a number cannot be narrowed to it.
+   */
+  {
+    id: "warnings",
+    displayName: "Needs attention",
+    type: "option",
+    accessor: (row) => WORDS[worstOf(WARNINGS.get(row.crn) ?? []) as CrnWarningKind] ?? "",
+    defaultWidth: 220,
+  },
+  { id: "courseTitle", displayName: "Course title", type: "text", accessor: (row) => row.courseTitle, defaultWidth: 220 },
+  { id: "sequence", displayName: "Seq.", type: "text", accessor: (row) => row.sequence, defaultWidth: 70 },
+  { id: "partOfTerm", displayName: "Part of term", type: "option", accessor: (row) => row.partOfTerm, defaultWidth: 150 },
+  { id: "credits", displayName: "Credits", type: "text", accessor: (row) => row.credits, defaultWidth: 80 },
+  { id: "contactHours", displayName: "Contact hrs", type: "text", accessor: (row) => row.contactHours, defaultWidth: 100 },
+  { id: "termCode", displayName: "Term", type: "option", accessor: (row) => row.termCode, defaultWidth: 90 },
+  { id: "addedAt", displayName: "Added", type: "date", accessor: (row) => row.addedAt, display: (row) => row.addedAt.slice(0, 10), defaultWidth: 110 },
+  { id: "addedBy", displayName: "Added by", type: "text", accessor: (row) => row.addedBy, defaultWidth: 190 },
+];
+const SHOWN = ["crn", "courseCode", "portalTitle", "warnings", "role", "parentCrn", "ue", "mutualized", "teacherName", "registered", "usedBy", "portalStatus"];
+
+/*
+ * The warnings the columns above read, which are a page's state and not a column's.
+ *
+ * A GridColumn is a plain object built once at module load, and its accessor is handed
+ * only the row — so the only way for it to see what the register said is a binding it can
+ * close over. Written by the page on every render, read by the accessor a moment later,
+ * and never by anything else.
+ */
+let WARNINGS: Map<string, CrnWarning[]> = new Map();
+
+/**
+ * What this CRN is within the course: the one the sections hang from, one of those
+ * sections, or neither — a CRN nobody has linked either way yet. Never both, since the
+ * register is two deep: a parent has no parent of its own.
+ */
+function rolesOf(row: ActiveCrn): string[] {
+  if (row.childCount) return ["Parent"];
+  return row.parentCrn ? ["Child"] : [];
+}
+
+const idOf = (row: ActiveCrn) => row.id;
+const labelOf = (row: ActiveCrn) => `${row.courseCode} ${row.crn}`;
+
+/**
+ * The department's register of CRNs.
+ *
+ * The portal's Courses page is the registrar's list; this is ours, drawn from it. One row
+ * per CRN we teach under: which course it belongs to, what it hangs from, and the UE of
+ * the course. Every row is a link — to the portal's entry for the CRN, and to the portal's
+ * entry for its parent — so a link that leads nowhere shows as one, and the banner says
+ * where the registrar's list has moved away from the register since anyone last looked.
+ */
+export function ActiveCourses({ onShowStudents }: { onShowStudents?: (ids: string[]) => void } = {}) {
+  const client = useQueryClient();
+  const [term, setTerm] = useState("");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState<ActiveCrn | null>(null);
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  const [settingChecks, setSettingChecks] = useState(false);
+  /** Which course's record is open over the list, if any. */
+  const [showingCourse, setShowingCourse] = useState("");
+  const [showingCollisions, setShowingCollisions] = useState(false);
+
+  const crns = useQuery({ queryKey: ["active-crns"], queryFn: () => fetchActiveCrns() });
+  const courses = useQuery({ queryKey: ["active-courses"], queryFn: fetchActiveCourses });
+  const check = useQuery({ queryKey: ["register-check", term], queryFn: () => fetchRegisterCheck(term), retry: false });
+
+  const refresh = () => {
+    client.invalidateQueries({ queryKey: ["active-crns"] });
+    client.invalidateQueries({ queryKey: ["active-courses"] });
+    client.invalidateQueries({ queryKey: ["register-check"] });
+    client.invalidateQueries({ queryKey: ["course-cards"] });
+  };
+  const addCourse = useMutation({
+    mutationFn: (course: { courseCode: string; title: string }) => addActiveCourses({ byHand: [course] }),
+    onSuccess: () => {
+      setAdding(false);
+      refresh();
+    },
+  });
+  const takeIn = useMutation({
+    mutationFn: (rows: { termCode: string; crn: string; courseCode: string }[]) => addActiveCrns({ crns: rows }),
+    onSuccess: refresh,
+  });
+  const remove = useMutation({
+    mutationFn: (ids: string[]) => removeEach(ids, removeActiveCrn),
+    // Settled, not success — see ActiveTeachers. Selections here run to three figures,
+    // so a run that half-lands and leaves every id ticked is worse, not better.
+    onSettled: (_removed, error) => {
+      setSelected(stillSelected(error));
+      setConfirmRemove(false);
+      refresh();
+    },
+  });
+
+  const held = useMemo(() => crns.data ?? [], [crns.data]);
+  const terms = useMemo(() => [...new Set(held.map((row) => row.termCode))].sort().reverse(), [held]);
+  useEffect(() => {
+    if (terms.length && !terms.includes(term)) setTerm(terms[0]);
+  }, [terms, term]);
+  const rows = useMemo(() => held.filter((row) => !term || row.termCode === term), [held, term]);
+
+  const renderCell = (row: ActiveCrn, column: GridColumn<ActiveCrn>) => {
+    if (column.id === "portalStatus") {
+      return row.portalStatus === "in_portal" ? (
+        <StatePill tone="good">Listed</StatePill>
+      ) : (
+        <StatePill tone="bad">Gone from the portal</StatePill>
+      );
+    }
+    if (column.id === "parentCrn") {
+      if (!row.parentCrn) return <span className="text-[#c8d0da]">— none yet</span>;
+      return (
+        <span className="inline-flex items-center gap-1 tabular-nums" title={row.parentTitle || undefined}>
+          {row.parentCrn}
+          {row.parentStatus !== "in_portal" ? (
+            <Link2Off size={12} className="text-[#a6292f]" aria-label="Not a CRN the portal lists" />
+          ) : null}
+        </span>
+      );
+    }
+    if (column.id === "role") {
+      if (row.childCount) return <StatePill tone="accent">Parent of {row.childCount}</StatePill>;
+      if (row.parentCrn) return <StatePill tone="muted">Child</StatePill>;
+      return <span className="text-[#c8d0da]">On its own</span>;
+    }
+    if (column.id === "warnings") {
+      const mine = warnings.get(row.crn) ?? [];
+      if (!mine.length) return <span className="text-[#c8d0da]">—</span>;
+      return (
+        <span className="flex flex-wrap gap-1">
+          {mine.map((warning) => (
+            <span
+              key={`${warning.kind}|${warning.text}`}
+              title={warning.text}
+              className={`inline-flex max-w-full items-center truncate rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                warning.kind === "gone" || warning.kind === "unregistered"
+                  ? "bg-[#fdf3f3] text-[#a6292f]"
+                  : "bg-[#fdf9ee] text-[#8a6116]"
+              }`}
+            >
+              {WORDS[warning.kind]}
+            </span>
+          ))}
+        </span>
+      );
+    }
+    if (column.id === "ue" && !row.ue) return <span className="text-[#c8d0da]">—</span>;
+    /*
+     * The course code opens the course, the way a student's name opens the student.
+     *
+     * The row is a CRN and pressing it opens what a CRN hangs from, which is right and is
+     * not the same question. "What is the state of MATH-351" used to mean three pages.
+     */
+    if (column.id === "courseCode" && row.courseCode) {
+      return (
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            setShowingCourse(row.courseCode);
+          }}
+          className="font-medium text-[#1f4e79] underline-offset-2 hover:underline"
+        >
+          {row.courseCode}
+        </button>
+      );
+    }
+    return undefined;
+  };
+
+  const report = check.data;
+  const warnings = useMemo(() => warningsByCrn(report), [report]);
+  WARNINGS = warnings;
+  /*
+   * The band is for what has no row. Five of the six checks are about a CRN the department
+   * holds and are pills on it now; the sixth is about a CRN we have NOT taken in, which by
+   * definition is not in the table below and cannot be a pill on anything.
+   */
+  const attention = report?.arrived.length ?? 0;
+
+  return (
+    <section>
+      {crns.isLoading ? (
+        <ScreenLoading label="Reading the register…" />
+      ) : crns.error ? (
+        <p role="alert" className="text-sm text-[#a6292f]">{(crns.error as Error).message}</p>
+      ) : (
+        <>
+          {report && attention ? (
+            <RegisterBanner
+              report={report}
+              busy={takeIn.isPending}
+              onTakeIn={() =>
+                takeIn.mutate(report.arrived.map((row) => ({ termCode: row.termCode, crn: row.crn, courseCode: row.courseCode })))
+              }
+            />
+          ) : null}
+
+          {/*
+            * The collisions, in a place of their own above the table.
+            *
+            * They used to live inside the band, which is now only about CRNs nobody has
+            * taken in — so a department with none of those would have had no way to reach
+            * a settle button at all. And they never belonged to that band: each one has a
+            * decision attached and needs room for it, which a counted line does not give.
+            *
+            * The rows carry a pill saying WHICH of our sections is in one; this is where
+            * the slot is argued about.
+            */}
+          {report ? (
+            <section className="mt-4 rounded-md border border-[#e8d9ac] bg-[#fdf9ee] py-3">
+              <div className="flex flex-wrap items-center gap-2 px-6">
+                <h3 className="text-sm font-semibold text-[#8a6116]">Sharing an hour with another department</h3>
+                <button
+                  type="button"
+                  onClick={() => setShowingCollisions((current) => !current)}
+                  className="text-xs font-semibold text-[#1f4e79] underline"
+                >
+                  {showingCollisions ? "Hide" : "Show"}
+                </button>
+              </div>
+              {showingCollisions ? (
+                <CollisionList
+                  term={term}
+                  collides={report.collides}
+                  settled={report.settledCollisions}
+                  swept={report.swept}
+                  onSettled={() => client.invalidateQueries({ queryKey: ["register-check"] })}
+                  onShowStudents={onShowStudents}
+                />
+              ) : null}
+            </section>
+          ) : null}
+
+          <ListGrid
+            columns={COLUMNS}
+            rows={rows}
+            idOf={idOf}
+            labelOf={labelOf}
+            layoutKey="scen-columns:active-crns:v1"
+            presetKey="scen-copy-presets:active-crns:v1"
+            shown={SHOWN}
+            initialSort={{ key: "courseCode", ascending: true }}
+            searchLabel="Search the register"
+            noun="CRNs"
+            selected={selected}
+            onSelectedChange={setSelected}
+            renderCell={renderCell}
+            onRowClick={setEditing}
+            empty="Nothing registered yet. Choose the department's courses on the Courses page and their CRNs come with them."
+            toolbar={
+              <>
+                {terms.length > 1 ? (
+                  <div className="w-40">
+                    <SelectMenu label="Term" value={term} onChange={setTerm} options={terms.map((code) => ({ value: code, label: code }))} />
+                  </div>
+                ) : null}
+                {/* The department's answer, since this page is not a cohort's. A cohort
+                    that wants a different one says so in its own rules dialog. */}
+                <button
+                  type="button"
+                  onClick={() => setSettingChecks(true)}
+                  className="inline-flex items-center gap-2 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc]"
+                >
+                  <SlidersHorizontal size={15} aria-hidden="true" /> Checks
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    addCourse.reset();
+                    setAdding(true);
+                  }}
+                  className="inline-flex items-center gap-2 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc]"
+                >
+                  <BookPlus size={15} aria-hidden="true" /> Add a course by hand
+                </button>
+                <button
+                  type="button"
+                  disabled={selected.size === 0 || remove.isPending}
+                  onClick={() => setConfirmRemove(true)}
+                  className="inline-flex items-center gap-2 rounded-md border border-[#e5b7b9] bg-white px-3 py-2 text-sm font-semibold text-[#a6292f] hover:bg-[#fdf3f3] disabled:opacity-50"
+                >
+                  <Trash2 size={15} aria-hidden="true" /> {selected.size ? `Remove ${selected.size}` : "Remove"}
+                </button>
+                {remove.error ? <span role="alert" className="text-sm text-[#a6292f]">{(remove.error as Error).message}</span> : null}
+              </>
+            }
+          />
+
+          {showingCourse ? (
+            <CourseRecord open courseCode={showingCourse} onClose={() => setShowingCourse("")} />
+          ) : null}
+
+          <Modal
+            open={settingChecks}
+            title="Checks"
+            description="What the department looks for beyond its register. These save as you change them, and apply to every cohort unless one says otherwise in its own rules."
+            onClose={() => setSettingChecks(false)}
+          >
+            <ChecksPanel />
+          </Modal>
+
+          <p className="mt-2 text-xs text-[#98a2b3]">
+            {(courses.data ?? []).length} course{(courses.data ?? []).length === 1 ? "" : "s"} on the department&apos;s list,
+            {" "}
+            {rows.length} of their CRNs registered{term ? ` for ${term}` : ""}. Press a row to say what it hangs from.
+          </p>
+        </>
+      )}
+
+      <ByHandDialog open={adding} busy={addCourse.isPending} onAdd={(course) => addCourse.mutate(course)} onClose={() => setAdding(false)} />
+
+      {editing ? (
+        <CrnRecord
+          open
+          row={editing}
+          siblings={held.filter((row) => row.courseCode === editing.courseCode && row.termCode === editing.termCode)}
+          onClose={() => setEditing(null)}
+          onSaved={refresh}
+          onShowCourse={(code: string) => {
+            setEditing(null);
+            setShowingCourse(code);
+          }}
+        />
+      ) : null}
+
+      <ConfirmDialog
+        open={confirmRemove}
+        title={`Remove ${selected.size} CRN(s) from the register?`}
+        description="They stay in the portal's list, and their course stays on the department's. A course card still teaching under one will be flagged as unregistered."
+        confirmLabel="Remove"
+        busy={remove.isPending}
+        onConfirm={() => remove.mutate([...selected])}
+        onClose={() => setConfirmRemove(false)}
+      />
+    </section>
+  );
+}
+
+/**
+ * The one difference that has no row of its own: a CRN the portal lists for our courses
+ * that nobody has taken in.
+ *
+ * It was six counted lines; five of them were about a CRN the department holds and are
+ * pills on its row now. This one cannot be, because the whole point of it is that the
+ * table below does not have the row yet — which is also why the button that takes it in
+ * lives here rather than anywhere else.
+ */
+function RegisterBanner({ report, busy, onTakeIn }: { report: RegisterCheck; busy: boolean; onTakeIn: () => void }) {
+  const [open, setOpen] = useState(false);
+  const lines = [
+    report.arrived.length
+      ? `${report.arrived.length} CRN${report.arrived.length === 1 ? "" : "s"} the portal lists for our courses, not registered`
+      : "",
+  ].filter(Boolean);
+
+  return (
+    <div role="status" className="mb-3 rounded-md border border-[#e8d9ac] bg-[#fdf9ee] px-4 py-3 text-sm text-[#8a6116]">
+      <p className="flex flex-wrap items-center gap-2 font-semibold">
+        <AlertTriangle size={16} aria-hidden="true" />
+        {lines.join(" · ")}
+        <button type="button" onClick={() => setOpen((current) => !current)} className="text-xs font-semibold underline">
+          {open ? "Hide" : "Show"} them
+        </button>
+        {report.arrived.length ? (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onTakeIn}
+            className="ml-auto inline-flex items-center gap-1.5 rounded-md bg-[#1f4e79] px-2.5 py-1 text-xs font-semibold text-white disabled:opacity-50"
+          >
+            <Plus size={13} aria-hidden="true" /> {busy ? "Taking in…" : `Take in the ${report.arrived.length} new CRN(s)`}
+          </button>
+        ) : null}
+      </p>
+      {open ? (
+        <div className="mt-2 pl-6 text-xs">
+          <Column
+            title="New in the portal"
+            rows={report.arrived.map((row) => `${row.crn} ${row.courseCode} — ${row.title}${row.teacherName ? `, ${row.teacherName}` : ""}`)}
+          />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function Column({ title, rows }: { title: string; rows: string[] }) {
+  if (!rows.length) return null;
+  return (
+    <div>
+      <h4 className="font-semibold uppercase tracking-wide text-[#b08a2e]">{title}</h4>
+      <ul className="mt-0.5 space-y-0.5">
+        {rows.slice(0, 12).map((row) => (
+          <li key={row}>{row}</li>
+        ))}
+        {rows.length > 12 ? <li className="text-[#b08a2e]">…and {rows.length - 12} more</li> : null}
+      </ul>
+    </div>
+  );
+}
+
+const field = "mt-1.5 block w-full rounded-md border border-[#cbd5e1] px-3 py-2 text-sm font-normal";
+
+/** A course the portal does not list yet, said by code and title. */
+function ByHandDialog({
+  open,
+  busy,
+  onAdd,
+  onClose,
+}: {
+  open: boolean;
+  busy: boolean;
+  onAdd: (course: { courseCode: string; title: string }) => void;
+  onClose: () => void;
+}) {
+  const [code, setCode] = useState("");
+  const [title, setTitle] = useState("");
+  useEffect(() => {
+    if (open) {
+      setCode("");
+      setTitle("");
+    }
+  }, [open]);
+  return (
+    <Modal
+      open={open}
+      title="Add a course by hand"
+      description="For a course the portal has not made CRNs for yet. When it does, choosing it on the Courses page brings its CRNs into the register."
+      onClose={onClose}
+      footer={
+        <div className="flex items-center justify-end gap-3">
+          <button type="button" onClick={onClose} className="text-sm font-semibold text-[#667085]">Cancel</button>
+          <button
+            type="button"
+            disabled={!code.trim() || busy}
+            onClick={() => onAdd({ courseCode: code.trim().toUpperCase(), title: title.trim() })}
+            className="rounded-md bg-[#1f4e79] px-4 py-2 text-sm font-semibold text-white disabled:bg-[#9ba8b5]"
+          >
+            Add
+          </button>
+        </div>
+      }
+    >
+      <div className="grid gap-4 sm:grid-cols-[10rem_1fr]">
+        <label className="block text-sm font-semibold text-[#344054]">
+          Course code
+          <input aria-label="Course code" autoFocus value={code} onChange={(event) => setCode(event.target.value)} placeholder="MATH-001" className={field} />
+        </label>
+        <label className="block text-sm font-semibold text-[#344054]">
+          Title
+          <input aria-label="Course title" value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Pre-calculus 1" className={field} />
+        </label>
+      </div>
+    </Modal>
+  );
+}
+
+/**
+ * One CRN of the register: what it hangs from, and the UE of the course it belongs to.
+ *
+ * The parent is chosen from the CRNs of the same course, never typed, so the register
+ * holds a link rather than a number somebody remembered. The portal's own row for the
+ * course — plain title, no teacher, nobody registered — is offered first, because that
+ * is what the timetable workbook's Parent CRN column has always meant.
+ */
+export function CrnDialog({
+  row,
+  course,
+  siblings,
+  onClose,
+  onSaved,
+  inline = false,
+}: {
+  row: ActiveCrn;
+  course: ActiveCourse | null;
+  siblings: ActiveCrn[];
+  onClose: () => void;
+  onSaved: () => void;
+  /**
+   * Render the fields alone, for a caller that already has a dialog of its own.
+   *
+   * The CRN's record holds these as one of its sections — they are the one thing about a
+   * CRN that is ours to change, and they belong where the CRN is looked at rather than
+   * behind a second press somewhere else. A modal inside a modal is not an option.
+   */
+  inline?: boolean;
+}) {
+  const [parent, setParent] = useState(row.parentCrn);
+  const [ue, setUe] = useState(row.ue);
+  const [mutualized, setMutualized] = useState<Mutualized>(course?.mutualized ?? "");
+  const suggested = course?.portalParentCrn ?? "";
+
+  const save = useMutation({
+    mutationFn: async () => {
+      if (parent !== row.parentCrn) await setParentCrn(row.id, parent);
+      if (course && (ue.trim() !== row.ue || mutualized !== course.mutualized)) {
+        await updateActiveCourse(course.id, { title: course.title, ue: ue.trim(), mutualized });
+      }
+    },
+    onSuccess: () => {
+      onSaved();
+      onClose();
+    },
+  });
+
+  // The register is two deep, so a CRN that already hangs from something cannot be a
+  // parent, and this row cannot have one if things hang from it.
+  const isParent = row.childCount > 0;
+  const options = [
+    { value: "", label: "None yet" },
+    ...siblings
+      .filter((candidate) => candidate.crn !== row.crn && !candidate.parentCrn)
+      .map((candidate) => ({
+        value: candidate.crn,
+        label: candidate.crn === suggested ? `${candidate.crn} — the portal's row for the course` : candidate.crn,
+        searchText: candidate.portalTitle,
+        badge: candidate.portalTitle || undefined,
+        badgeTone: "muted" as const,
+      })),
+  ];
+  if (parent && !options.some((option) => option.value === parent)) {
+    options.push({ value: parent, label: `${parent} — not one of this course's CRNs`, searchText: "", badge: undefined, badgeTone: "muted" as const });
+  }
+
+  const body = (
+    <>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div>
+          <span className="block text-sm font-semibold text-[#344054]">Parent CRN</span>
+          <span className="block text-xs font-normal text-[#98a2b3]">
+            {isParent
+              ? `${row.childCount} CRN(s) hang from this one, so it is the top of the course and has no parent itself.`
+              : "Chosen from this course's CRNs that are not sections themselves, so the register holds a link."}
+          </span>
+          <div className="mt-1.5">
+            <SelectMenu
+              label={`Parent CRN for ${row.crn}`}
+              value={parent}
+              onChange={setParent}
+              searchable={options.length > 8}
+              disabled={isParent}
+              placeholder={isParent ? "The top of the course" : "None yet"}
+              options={options}
+            />
+          </div>
+          {!isParent && suggested && parent !== suggested ? (
+            <button type="button" onClick={() => setParent(suggested)} className="mt-1 text-xs font-semibold text-[#1f4e79] underline">
+              Use {suggested}, the portal&apos;s row for this course
+            </button>
+          ) : null}
+        </div>
+        <label className="block text-sm font-semibold text-[#344054]">
+          UE
+          <span className="block text-xs font-normal text-[#98a2b3]">
+            The course&apos;s, so it changes for every CRN of {row.courseCode}.
+          </span>
+          <input aria-label={`UE of ${row.courseCode}`} value={ue} onChange={(event) => setUe(event.target.value)} placeholder="UL1MA001" disabled={!course} className={field} />
+        </label>
+      </div>
+
+      {/*
+        * Whether the mathematicians and the physicists sit in it together.
+        *
+        * Licence 2 and Licence 3 are one cohort reading two degrees, and this is what
+        * decides whether a course needs one group or two. It belongs to the course, so it
+        * changes for every CRN of it.
+        */}
+      <div className="mt-4">
+        <span className="block text-sm font-semibold text-[#344054]">Mutualized</span>
+        <span className="block text-xs font-normal text-[#98a2b3]">
+          Whether {row.courseCode} is taught to the mathematicians and the physicists at once.
+        </span>
+        <div className="mt-1.5 max-w-xs">
+          <SelectMenu
+            label={`Whether ${row.courseCode} is mutualized`}
+            value={mutualized}
+            onChange={(value) => setMutualized(value as Mutualized)}
+            disabled={!course}
+            options={[
+              { value: "", label: "Nobody has said" },
+              { value: "yes", label: "Mutualized — both degrees together" },
+              { value: "no", label: "One degree only" },
+            ]}
+          />
+        </div>
+      </div>
+      {row.usedBy ? (
+        <p className="mt-3 text-xs text-[#667085]">
+          {row.usedBy} section{row.usedBy === 1 ? "" : "s"} of a course card teach{row.usedBy === 1 ? "es" : ""} under this CRN.
+        </p>
+      ) : null}
+      {save.error ? <p role="alert" className="mt-3 text-sm text-[#a6292f]">{(save.error as Error).message}</p> : null}
+    </>
+  );
+
+  const keep = (
+    <button
+      type="button"
+      disabled={save.isPending}
+      onClick={() => save.mutate()}
+      className="rounded-md bg-[#1f4e79] px-4 py-2 text-sm font-semibold text-white disabled:bg-[#9ba8b5]"
+    >
+      {save.isPending ? "Saving…" : "Save"}
+    </button>
+  );
+
+  if (inline) {
+    return (
+      <>
+        {body}
+        <div className="mt-3 flex justify-end">{keep}</div>
+      </>
+    );
+  }
+
+  return (
+    <Modal
+      open
+      title={`${row.courseCode} · CRN ${row.crn}`}
+      description={row.portalTitle ? `The portal calls it “${row.portalTitle}”${row.teacherName ? `, taught by ${row.teacherName}` : ""}.` : "The portal no longer lists this CRN."}
+      onClose={onClose}
+      footer={
+        <div className="flex items-center justify-end gap-3">
+          <button type="button" onClick={onClose} className="text-sm font-semibold text-[#667085]">Cancel</button>
+          {keep}
+        </div>
+      }
+    >
+      {body}
+    </Modal>
+  );
+}

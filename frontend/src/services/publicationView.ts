@@ -9,7 +9,15 @@
  * remove a cohort I forgot to fill", which look identical if you only count what was added.
  */
 
-import type { CohortReadiness, CrnVerdict, Publication, PublicationPreview } from "@/services/publication";
+import type {
+  ClashWindow,
+  CohortReadiness,
+  CrnVerdict,
+  GroupClash,
+  Publication,
+  PublicationPreview,
+  TimetableCoverage,
+} from "@/services/publication";
 
 /** How serious a thing standing in the way is. */
 export type Severity = "blocking" | "warning" | "clear";
@@ -102,6 +110,49 @@ export function verdictFor(
   return validation[`${groupId}|${courseCode}`];
 }
 
+/**
+ * How much a CRN's verdict is our problem. Three answers, not two.
+ *
+ * `mismatched` is a fault of ours: the CRN is real and belongs to another course, which is
+ * a typo in the planning and wants finding. `unknown` is not — the registrar's timetable
+ * says nothing about that section, because the sweep has not been asked about it or no
+ * room has been booked for it — and since the sweep replaced the uploaded file that is
+ * true of twenty-seven live sections, not one of them a mistake.
+ *
+ * Drawing the two alike sent somebody looking for a typo that was not there, which is the
+ * particular cost of an alarm that cannot be cleared: it teaches people to ignore alarms.
+ */
+export type VerdictTone = "settled" | "unasked" | "fault";
+
+export function toneOf(verdict?: CrnVerdict): VerdictTone {
+  if (!verdict || verdict.status === "matched") return "settled";
+  return verdict.status === "unknown" ? "unasked" : "fault";
+}
+
+/**
+ * What a clash count does not cover, as a sentence — or "" when it covers everything.
+ *
+ * A clash is found by comparing hours, so a section nobody has hours for cannot produce
+ * one. That makes every count on this page a floor: "2 clashes" and "2 clashes, and ten
+ * sections nobody has asked the registrar about" are the same words for very different
+ * situations, and only one of them means the semester is nearly clean.
+ *
+ * Said beside the count rather than as a warning of its own. Not having asked is not a
+ * fault, and a coordinator cannot clear it from here — they clear it by syncing.
+ */
+export function describeClashCoverage(coverage: TimetableCoverage | undefined): string {
+  if (!coverage) return "";
+  if (!coverage.linked) {
+    return "No portal term is linked to this semester, so the registrar has never been asked when any of it meets.";
+  }
+  if (!coverage.pulledAt && !coverage.timetabled) {
+    return "Nobody has pulled the registrar's timetable for this semester, so no clash can be found in any of it.";
+  }
+  const blind = coverage.blind.length;
+  if (!blind) return "";
+  return `${coverage.timetabled} of ${coverage.asked} sections have hours; a clash cannot be found in the other ${blind}.`;
+}
+
 /** Cohorts worth showing first: the ones with something wrong. */
 export function sortCohorts(cohorts: CohortReadiness[]): CohortReadiness[] {
   return [...cohorts].sort((left, right) => {
@@ -141,4 +192,21 @@ export function unplacedIn(publication: Publication, cohortId: string): Unplaced
 
   const ids = [...new Set(Object.values(cohort.unassigned).flat())].sort();
   return { total: ids.length, byBlock, ids };
+}
+
+/** The groups of one cohort that meet at the same hour, worst first — as the report has them. */
+export function clashesIn(publication: Publication, cohortId: string): GroupClash[] {
+  return publication.cohorts.find((candidate) => candidate.cohortId === cohortId)?.clashes ?? [];
+}
+
+/** "CM A × TD 1", or "TD 1 (its own CRNs)" when a group clashes with itself. */
+export function clashName(clash: GroupClash): string {
+  const names = clash.groups.map((group) => `${group.scopeCode} ${group.label}`.trim());
+  return names.length === 1 ? `${names[0]} (its own CRNs)` : names.join(" × ");
+}
+
+/** "Mon 08:30–10:00 (22151 / 23652) ×14" — the hour, the two CRNs, and how often. */
+export function describeClashWindow(window: ClashWindow): string {
+  const often = window.dates > 1 ? ` ×${window.dates}` : "";
+  return `${window.weekday} ${window.start}–${window.end} (${window.crns.join(" / ")})${often}`;
 }

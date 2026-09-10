@@ -22,7 +22,7 @@ def held_catalogue(crn: str = "22151") -> dict:
         "CM": {
             "name": "Lectures",
             "courses": {"MATH001": "Pre-calculus"},
-            "groups": {"1": {"id": "g1", "label": "1", "capacity": 0, "note": "", "crns": {"MATH001": crn}}},
+            "groups": {"1": {"id": "g1", "label": "1", "capacity": 0, "note": "", "crns": {"MATH001": [crn]}}},
         }
     }
 
@@ -108,7 +108,7 @@ def test_a_group_the_workbook_has_stopped_mentioning_is_left_alone():
 
 def test_block_and_group_names_are_matched_regardless_of_case():
     held = held_catalogue()
-    held["CM"]["groups"] = {"a": {"id": "g1", "label": "a", "capacity": 0, "note": "", "crns": {"MATH001": "22151"}}}
+    held["CM"]["groups"] = {"a": {"id": "g1", "label": "a", "capacity": 0, "note": "", "crns": {"MATH001": ["22151"]}}}
     incoming = workbook(groups=[ImportedGroup(label="A", crns={"MATH001": ("22151", "")})])
     assert diff_reference(held=held, incoming=incoming)[0]["rows"] == []
 
