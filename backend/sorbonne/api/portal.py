@@ -308,13 +308,18 @@ async def list_active_teachers(store: PortalListStore = Depends(get_store)) -> d
 
 @router.get("/active-teachers/matches")
 async def teacher_matches(store: PortalListStore = Depends(get_store)) -> dict[str, Any]:
-    """The two sides of one person that nothing has joined yet, each way round.
+    """Every way the department's list and the people actually teaching fail to line up.
 
     `matches` are rows brought from the part-time database that the portal now lists;
     `partTime` are rows chosen from the portal that the part-time database has held all
-    along. Both are offered and neither is acted on.
+    along; `unnamed` are teachers our own planning names whom the list does not hold at
+    all. Every one of them is offered and none is acted on.
     """
-    return {"matches": store.unlinked_portal_matches(), "partTime": store.unlinked_part_time_matches()}
+    return {
+        "matches": store.unlinked_portal_matches(),
+        "partTime": store.unlinked_part_time_matches(),
+        "unnamed": store.unnamed_in_the_list(),
+    }
 
 
 @router.post("/active-teachers/{active_id}/link")

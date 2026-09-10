@@ -1918,3 +1918,118 @@ def test_the_swept_timetable_can_be_read_back_in_the_shape_it_was_written(client
     assert read == pull
     # And the route the extension writes through accepts it back unchanged.
     assert client.post(f"{BASE}/facility-timetable", json=read).status_code == status.HTTP_200_OK
+
+
+# --------------------------------------- teachers our planning names and the list does not
+
+
+def teaching(database: StudentDatabase, *names: str) -> None:
+    """One section per name, so a gap has a section count to report."""
+    cohort = database.create_cohort(name="Third year", term="2026-27")
+    scope = database.add_scope(cohort["id"], code="CM", name="Lectures", term_id=HUB_TERM)
+    course = database.add_course(scope, code="MATH-351")
+    for at, name in enumerate(names, start=1):
+        group = database.add_group(scope, label=f"A{at}")
+        database.set_cell(group_id=group, course_id=course, crn=f"2340{at}", teacher=name, part=1)
+
+
+def test_a_teacher_our_sections_name_and_the_list_does_not_hold_is_reported(
+    client: TestClient, database: StudentDatabase
+):
+    """Every count on the page is short by that person's teaching, and nothing says so."""
+    seed_teachers(client)
+    teaching(database, "Wafaa Ahmed")
+
+    [gap] = client.get(f"{BASE}/active-teachers/matches").json()["unnamed"]
+
+    assert gap["name"] == "Wafaa Ahmed"
+    assert gap["sections"] == 1
+
+
+def test_a_name_one_letter_from_a_portal_profile_is_offered_that_profile(
+    client: TestClient, database: StudentDatabase
+):
+    """The three on production are each one letter or one surname away.
+
+    `names_agree` refuses them on purpose and still does; this measures only to offer, and
+    the offer is what a person presses or ignores.
+    """
+    client.post(
+        f"{BASE}/filters/{make_filter(client, 'teachers', name='Profs')['id']}/sync/teachers",
+        json={"rows": [{"teacherId": "A007", "fullName": "Wafa Ahmed", "psuadEmail": "wafa.ahmed@sorbonne.ae"}]},
+    )
+    teaching(database, "Wafaa Ahmed")
+
+    [gap] = client.get(f"{BASE}/active-teachers/matches").json()["unnamed"]
+
+    assert (gap["portalTeacherId"], gap["portalName"]) == ("A007", "Wafa Ahmed")
+    assert gap["portalEmail"] == "wafa.ahmed@sorbonne.ae"
+
+
+def test_two_people_a_name_could_be_are_reported_with_no_candidate(
+    client: TestClient, database: StudentDatabase
+):
+    client.post(
+        f"{BASE}/filters/{make_filter(client, 'teachers', name='Profs')['id']}/sync/teachers",
+        json={
+            "rows": [
+                {"teacherId": "A007", "fullName": "Wafa Ahmed"},
+                {"teacherId": "A008", "fullName": "Wafae Ahmed"},
+            ]
+        },
+    )
+    teaching(database, "Wafaa Ahmed")
+
+    [gap] = client.get(f"{BASE}/active-teachers/matches").json()["unnamed"]
+
+    # Named, because six sections taught by somebody nobody holds is worth saying. Not
+    # matched, because which of the two is a question for a person.
+    assert gap["sections"] == 1
+    assert gap["portalTeacherId"] == ""
+
+
+def test_two_different_people_are_never_offered_for_one_another(
+    client: TestClient, database: StudentDatabase
+):
+    """The case the whole rule exists to refuse, and the one `names_agree` names."""
+    client.post(
+        f"{BASE}/filters/{make_filter(client, 'teachers', name='Profs')['id']}/sync/teachers",
+        json={"rows": [{"teacherId": "A009", "fullName": "Diaa Mereib"}]},
+    )
+    teaching(database, "Sara Khaled")
+
+    [gap] = client.get(f"{BASE}/active-teachers/matches").json()["unnamed"]
+
+    assert gap["portalTeacherId"] == ""
+
+
+def test_a_teacher_already_on_the_list_is_not_a_gap(client: TestClient, database: StudentDatabase):
+    seed_teachers(client)
+    client.post(f"{BASE}/active-teachers", json={"portalTeacherIds": ["A001"]})
+    teaching(database, "Ahlem Trabelsi", "TBD")
+
+    # And TBD is not a person, so it is not a gap either.
+    assert client.get(f"{BASE}/active-teachers/matches").json()["unnamed"] == []
+
+
+def test_a_section_written_under_the_part_time_spelling_still_counts(
+    client: TestClient, database: StudentDatabase
+):
+    """A person on both lists has two names, and our planning may have used either.
+
+    On production the registrar issues an address for "Suzanne El chehaly" while the
+    department writes "Suzanne Abdelhamid" — the part-time record is the only thing holding
+    both halves, so counting the portal's spelling alone reports no sections for somebody
+    teaching one.
+    """
+    seed_teachers(client)
+    record = part_time(client, "Ahlem Trabelsi Ben Salah")
+    client.post(f"{BASE}/active-teachers", json={"portalTeacherIds": ["A001"]})
+    active_id = client.get(f"{BASE}/active-teachers").json()["teachers"][0]["id"]
+    client.post(f"{BASE}/active-teachers/{active_id}/link-part-time", json={"partTimeTeacherId": record})
+    teaching(database, "Ahlem Ben Salah")
+
+    [held] = client.get(f"{BASE}/active-teachers").json()["teachers"]
+
+    assert held["sections"] == 1
+    assert client.get(f"{BASE}/active-teachers/matches").json()["unnamed"] == []

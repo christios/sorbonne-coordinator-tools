@@ -696,6 +696,11 @@ class PortalListStore:
                 connection.execute(
                     text("""SELECT a.*, p.teacher_status, p.category, p.type, p.last_term, p.department,
                                    p.rank, p.courses, p.institution, p.status AS portal_status,
+                                   -- The name the part-time database holds, which can be the
+                                   -- longer one: the registrar issues an address for "Suzanne
+                                   -- El chehaly" and the department wrote "Suzanne Abdelhamid",
+                                   -- and only the part-time record carries both halves.
+                                   coalesce(t.full_name, '') AS part_time_name,
                                    -- The portal first, and what was stored only where it is silent.
                                    -- A row linked to a portal profile is that profile: the registrar
                                    -- is where a name is corrected and where an address is issued, and
@@ -704,6 +709,7 @@ class PortalListStore:
                                    coalesce(nullif(p.psuad_email, ''), nullif(a.email, ''), '') AS shown_email
                             FROM active_teachers a
                             LEFT JOIN portal_teachers p ON p.teacher_id = a.portal_teacher_id
+                            LEFT JOIN part_time_teachers t ON t.id = a.part_time_teacher_id
                             ORDER BY shown_name, a.id""")
                 )
                 .mappings()
@@ -734,7 +740,17 @@ class PortalListStore:
             teacher = _active(row)
             # Named-but-not-linked is matched through `names_agree`, the same rule the
             # register drift uses, so "El Sayed" and "Elsayed" are one person here too.
-            named = sum(count for name, count in written if names_agree(teacher["fullName"], name))
+            #
+            # Against BOTH of the row's names. A person on both lists has two spellings and
+            # our planning may have used either: the registrar issues an address for a
+            # shortened surname, the department writes the whole one, and counting only the
+            # portal's spelling reports "no sections" about somebody teaching three.
+            named = sum(
+                count
+                for name, count in written
+                if names_agree(teacher["fullName"], name)
+                or (row["part_time_name"] and names_agree(row["part_time_name"], name))
+            )
             teacher["linkedSections"] = linked_by_id.get(row["id"], 0)
             teacher["sections"] = teacher["linkedSections"] + named
             held.append(teacher)
@@ -864,6 +880,80 @@ class PortalListStore:
                 }
             )
         return sorted(found, key=lambda entry: entry["activeName"].casefold())
+
+    def unnamed_in_the_list(self) -> list[dict[str, Any]]:
+        """Teachers our own planning names, whom the department's list does not hold.
+
+        The third gap, and the one that costs a coordinator the most: a section carries a
+        typed name, nobody on the list answers to it, and every count on the page — hours,
+        load, who is teaching what — is silently short by that person's teaching.
+
+        On production there are three, and each is one letter or one surname away from a
+        portal profile: "Wafaa Ahmed" against the registrar's "Wafa Ahmed", "Sarah Lotfi"
+        against "Sara Lotfi", "Suzanne Abdelhamid" against "Suzanne El chehaly". `names_agree`
+        refuses all three on purpose — it will not measure how close two spellings are,
+        because no distance that accepts "Wafaa" for "Wafa" refuses "Sara Khaled" for "Diaa
+        Mereib". So this does not decide either. It measures only to OFFER, under a rule
+        narrow enough to state in a sentence: the same number of words, and exactly one of
+        them differing by a single character. Everything else is listed with no candidate,
+        which is still worth saying — six sections taught by somebody the list has never
+        heard of is a fact a coordinator wants.
+        """
+        with self.engine.connect() as connection:
+            written = [
+                (row[0], row[1])
+                for row in connection.execute(
+                    text("""SELECT coalesce(gc.teacher, ''), count(*) FROM group_crns gc
+                            WHERE gc.crn <> '' AND gc.retired = false AND coalesce(gc.teacher, '') <> ''
+                            GROUP BY coalesce(gc.teacher, '')""")
+                )
+            ]
+            portal = (
+                connection.execute(
+                    text("""SELECT teacher_id, full_name, psuad_email, department, status
+                            FROM portal_teachers""")
+                )
+                .mappings()
+                .all()
+            )
+            # Both of a row's names, for the same reason the section count reads both: our
+            # planning may have written either.
+            held = [
+                [name for name in row if named(name)]
+                for row in connection.execute(
+                    text("""SELECT coalesce(nullif(p.full_name, ''), a.full_name, ''), coalesce(t.full_name, '')
+                            FROM active_teachers a
+                            LEFT JOIN portal_teachers p ON p.teacher_id = a.portal_teacher_id
+                            LEFT JOIN part_time_teachers t ON t.id = a.part_time_teacher_id""")
+                )
+            ]
+
+        # A teacher column is a LIST — the registrar's spelling and ours both end one with a
+        # comma whether or not anybody follows — so each name in it is asked about separately.
+        counted: dict[str, int] = {}
+        for column, count in written:
+            for part in column.split(","):
+                if named(part):
+                    counted[_text(part)] = counted.get(_text(part), 0) + count
+
+        found: list[dict[str, Any]] = []
+        for name, sections in counted.items():
+            if any(names_agree(theirs, name) for row in held for theirs in row):
+                continue
+            near = [row for row in portal if _one_letter_apart(name, row["full_name"])]
+            found.append(
+                {
+                    "name": name,
+                    "sections": sections,
+                    # One candidate only, as everywhere else here: two people a name could
+                    # be is a question for a person, and none is an honest answer too.
+                    "portalTeacherId": near[0]["teacher_id"] if len(near) == 1 else "",
+                    "portalName": near[0]["full_name"] if len(near) == 1 else "",
+                    "portalEmail": (near[0]["psuad_email"] or "") if len(near) == 1 else "",
+                    "portalDepartment": (near[0]["department"] or "") if len(near) == 1 else "",
+                }
+            )
+        return sorted(found, key=lambda entry: (-entry["sections"], entry["name"].casefold()))
 
     def link_part_time_teacher(self, active_id: str, part_time_teacher_id: str) -> None:
         """Say that this active teacher is that part-time record.
@@ -2256,6 +2346,42 @@ def names_agree(ours: str, theirs: str) -> bool:
         for b in yours
         if _words(a) and _words(b)
     )
+
+
+def _one_letter_apart(ours: str, theirs: str) -> bool:
+    """Whether two names differ by a single character in a single word, and nothing else.
+
+    Deliberately the narrowest rule that catches what production actually has. Not a
+    distance over the whole name: "Sara Khaled" and "Diaa Mereib" are two edits apart per
+    word and eight overall, and any threshold loose enough to be interesting starts merging
+    people. Same word count, same words but one, and that one off by a letter.
+
+    It decides nothing. Its whole output is a suggestion a person presses or ignores.
+    """
+    mine, yours = _name_words(ours), _name_words(theirs)
+    if len(mine) != len(yours) or not mine:
+        return False
+    differing = [(a, b) for a, b in zip(mine, yours, strict=True) if a != b]
+    if len(differing) != 1:
+        return False
+    return _one_edit(*differing[0])
+
+
+def _one_edit(ours: str, theirs: str) -> bool:
+    """One insertion, one deletion or one substitution — never two, never a transposition.
+
+    A transposition ("Ronda"/"Rodna") is two edits here and stays a question for a person:
+    it is also exactly how two different names look.
+    """
+    if abs(len(ours) - len(theirs)) > 1:
+        return False
+    if len(ours) == len(theirs):
+        return sum(a != b for a, b in zip(ours, theirs, strict=True)) == 1
+    longer, shorter = (ours, theirs) if len(ours) > len(theirs) else (theirs, ours)
+    for at in range(len(longer)):
+        if longer[:at] + longer[at + 1 :] == shorter:
+            return True
+    return False
 
 
 def _planning_state(linked: str, written: str) -> str:

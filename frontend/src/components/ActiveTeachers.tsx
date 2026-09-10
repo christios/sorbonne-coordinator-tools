@@ -11,6 +11,7 @@ import {
   type ActiveTeacher,
   type PartTimeMatch,
   type PartTimeTeacher,
+  type UnnamedTeacher,
   type TeacherMatch,
   addActiveTeachers,
   fetchActiveTeachers,
@@ -121,7 +122,7 @@ export function ActiveTeachers({ onOpenTeacher }: { onOpenTeacher?: (teacher: Te
     onSettled: () => refresh(),
   });
   const add = useMutation({
-    mutationFn: (records: PartTimeTeacher[]) => addActiveTeachers({ partTime: records }),
+    mutationFn: (input: { partTime?: PartTimeTeacher[]; portalTeacherIds?: string[] }) => addActiveTeachers(input),
     onSuccess: () => {
       setPicking(false);
       refresh();
@@ -163,6 +164,12 @@ export function ActiveTeachers({ onOpenTeacher }: { onOpenTeacher?: (teacher: Te
         matches={matches.data?.partTime ?? []}
         busy={linkPartTime.isPending}
         onLink={(joins) => linkPartTime.mutate(joins)}
+      />
+
+      <NotOnTheList
+        gaps={matches.data?.unnamed ?? []}
+        busy={add.isPending}
+        onAdd={(ids) => add.mutate({ portalTeacherIds: ids })}
       />
 
       {active.isLoading ? (
@@ -212,7 +219,7 @@ export function ActiveTeachers({ onOpenTeacher }: { onOpenTeacher?: (teacher: Te
         open={picking}
         already={new Set((active.data ?? []).map((row) => row.partTimeTeacherId).filter(Boolean))}
         busy={add.isPending}
-        onAdd={(records) => add.mutate(records)}
+        onAdd={(records) => add.mutate({ partTime: records })}
         onClose={() => setPicking(false)}
       />
 
@@ -226,6 +233,88 @@ export function ActiveTeachers({ onOpenTeacher }: { onOpenTeacher?: (teacher: Te
         onClose={() => setConfirmRemove(false)}
       />
     </section>
+  );
+}
+
+/**
+ * Teachers our own sections name, whom the department's list does not hold at all.
+ *
+ * The gap that costs the most, because nothing else shows it: a section carries a typed
+ * name, nobody on the list answers to it, and every count on this page and the hours page
+ * is quietly short by that person's teaching. Three of them on the real data, each one
+ * letter or one surname from a portal profile — "Wafaa Ahmed" against the registrar's
+ * "Wafa Ahmed", "Sarah Lotfi" against "Sara Lotfi".
+ *
+ * The candidate is a suggestion and nothing more. `names_agree` refuses these spellings on
+ * purpose and still does; the server measures how close two names are only to put one in
+ * front of a person, under a rule narrow enough to state in a sentence. A gap with no
+ * candidate is still listed, because six sections taught by somebody nobody holds is worth
+ * knowing even when the answer is not obvious.
+ */
+function NotOnTheList({
+  gaps,
+  busy,
+  onAdd,
+}: {
+  gaps: UnnamedTeacher[];
+  busy: boolean;
+  onAdd: (portalTeacherIds: string[]) => void;
+}) {
+  if (!gaps.length) return null;
+  const offered = gaps.filter((gap) => gap.portalTeacherId);
+  return (
+    <div className="mb-3 rounded-lg border border-[#e5b7b9] bg-[#fdf3f3] px-4 py-3">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <p className="flex items-center gap-2 text-sm font-semibold text-[#a6292f]">
+          <AlertTriangle size={15} aria-hidden="true" />
+          {gaps.length} {gaps.length === 1 ? "teacher is" : "teachers are"} named on our sections and not on this list
+        </p>
+        {offered.length > 1 ? (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => onAdd(offered.map((gap) => gap.portalTeacherId))}
+            className="ml-auto inline-flex items-center gap-1.5 rounded-md bg-[#1f4e79] px-2.5 py-1 text-xs font-semibold text-white hover:bg-[#1a4267] disabled:opacity-50"
+          >
+            <UserPlus size={13} aria-hidden="true" /> Add all {offered.length}
+          </button>
+        ) : null}
+      </div>
+      <p className="mt-1 text-xs text-[#a6292f]">
+        Their teaching is missing from every count here and on Teacher hours. Where the registrar has somebody by
+        almost the same name, that profile is offered — a spelling is a suggestion, not proof.
+      </p>
+      <ul className="mt-2 divide-y divide-[#f0d9da]">
+        {gaps.map((gap) => (
+          <li key={gap.name} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 py-2 text-sm">
+            <span className="font-medium text-[#171717]">{gap.name}</span>
+            <span className="text-xs text-[#98a2b3]">
+              {gap.sections} {gap.sections === 1 ? "section" : "sections"}
+            </span>
+            {gap.portalTeacherId ? (
+              <>
+                <ArrowRight size={13} className="text-[#c98f92]" aria-hidden="true" />
+                <span className="text-[#344054]">
+                  {gap.portalName}
+                  {gap.portalDepartment ? <span className="ml-1.5 text-xs text-[#98a2b3]">{gap.portalDepartment}</span> : null}
+                </span>
+                <span className="text-xs text-[#98a2b3]">{gap.portalEmail || "no address in the portal"}</span>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => onAdd([gap.portalTeacherId])}
+                  className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-2.5 py-1 text-xs font-semibold text-[#1f4e79] hover:bg-[#f2f7fb] disabled:opacity-50"
+                >
+                  <UserPlus size={13} aria-hidden="true" /> Add them
+                </button>
+              </>
+            ) : (
+              <span className="ml-auto text-xs text-[#98a2b3]">Nobody in the portal is close enough to offer</span>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 

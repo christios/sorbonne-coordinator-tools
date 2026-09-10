@@ -14,7 +14,7 @@ beforeEach(() => {
       type: "Part-Time", lastTerm: "262710", department: "LPEM", rank: "", courses: "ECON-101", institution: "", portalStatus: "in_portal",
     },
   ]);
-  vi.spyOn(lists, "fetchTeacherMatches").mockResolvedValue({ matches: [], partTime: [] });
+  vi.spyOn(lists, "fetchTeacherMatches").mockResolvedValue({ matches: [], partTime: [], unnamed: [] });
   vi.spyOn(lists, "fetchPartTimeTeachers").mockResolvedValue([
     { id: "pt-1", fullName: "Ahlem Trabelsi", email: "ahlem@sorbonne.ae" },
     { id: "pt-2", fullName: "Carla Nasr", email: "carla@example.org" },
@@ -78,6 +78,7 @@ describe("somebody the portal has started listing", () => {
         },
       ],
       partTime: [],
+      unnamed: [],
     });
     const link = vi.spyOn(lists, "linkActiveTeacher").mockResolvedValue();
     show();
@@ -91,7 +92,7 @@ describe("somebody the portal has started listing", () => {
 
   it("says nothing when nobody looks like anybody", async () => {
     vi.spyOn(lists, "fetchActiveTeachers").mockResolvedValue([]);
-    vi.spyOn(lists, "fetchTeacherMatches").mockResolvedValue({ matches: [], partTime: [] });
+    vi.spyOn(lists, "fetchTeacherMatches").mockResolvedValue({ matches: [], partTime: [], unnamed: [] });
     show();
 
     await screen.findByRole("button", { name: /Add from part-time database/ });
@@ -109,6 +110,7 @@ describe("somebody the part-time database has held all along", () => {
           partTimeTeacherId: "pt-1", partTimeName: "Ahlem Trabelsi", partTimeEmail: "ahlem@gmail.com",
         },
       ],
+      unnamed: [],
     });
     const link = vi.spyOn(lists, "linkPartTimeTeacher").mockResolvedValue();
     show();
@@ -136,6 +138,7 @@ describe("somebody the part-time database has held all along", () => {
           partTimeTeacherId: "pt-2", partTimeName: "Cécile Paillot", partTimeEmail: "",
         },
       ],
+      unnamed: [],
     });
     const link = vi.spyOn(lists, "linkPartTimeTeacher").mockResolvedValue();
     show();
@@ -164,6 +167,7 @@ describe("somebody the part-time database has held all along", () => {
           partTimeTeacherId: "pt-2", partTimeName: "Cécile Paillot", partTimeEmail: "",
         },
       ],
+      unnamed: [],
     });
     const link = vi
       .spyOn(lists, "linkPartTimeTeacher")
@@ -182,6 +186,46 @@ describe("somebody the part-time database has held all along", () => {
 
     await screen.findByRole("button", { name: /Add from part-time database/ });
     expect(screen.queryByText(/also in the part-time database/)).toBeNull();
+  });
+});
+
+describe("teachers our sections name and the list does not hold", () => {
+  it("names them with their section count, and offers the profile the registrar has", async () => {
+    vi.spyOn(lists, "fetchTeacherMatches").mockResolvedValue({
+      matches: [],
+      partTime: [],
+      unnamed: [
+        {
+          name: "Wafaa Ahmed", sections: 6, portalTeacherId: "A007", portalName: "Wafa Ahmed",
+          portalEmail: "wafa.ahmed@sorbonne.ae", portalDepartment: "SCEN",
+        },
+      ],
+    });
+    const add = vi.spyOn(lists, "addActiveTeachers").mockResolvedValue({ added: 1, linked: 0, skipped: 0 });
+    show();
+
+    expect(await screen.findByText(/1 teacher is named on our sections/)).toBeTruthy();
+    expect(screen.getByText("6 sections")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Add them/ }));
+
+    await waitFor(() => expect(add).toHaveBeenCalledWith({ portalTeacherIds: ["A007"] }));
+  });
+
+  it("still names a gap the registrar has nobody close to, rather than hiding it", async () => {
+    // Six sections taught by somebody nobody holds is worth knowing even when the answer
+    // is not obvious — and a guess between two people is not an answer.
+    vi.spyOn(lists, "fetchTeacherMatches").mockResolvedValue({
+      matches: [],
+      partTime: [],
+      unnamed: [
+        { name: "Sara Khaled", sections: 2, portalTeacherId: "", portalName: "", portalEmail: "", portalDepartment: "" },
+      ],
+    });
+    show();
+
+    expect(await screen.findByText("Sara Khaled")).toBeTruthy();
+    expect(screen.getByText(/Nobody in the portal is close enough/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Add them/ })).toBeNull();
   });
 });
 

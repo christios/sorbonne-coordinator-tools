@@ -251,11 +251,25 @@ export type PartTimeMatch = {
   partTimeEmail: string;
 };
 
-export type TeacherMatches = { matches: TeacherMatch[]; partTime: PartTimeMatch[] };
+/** A teacher our own sections name, whom the department's list does not hold at all. */
+export type UnnamedTeacher = {
+  name: string;
+  sections: number;
+  portalTeacherId: string;
+  portalName: string;
+  portalEmail: string;
+  portalDepartment: string;
+};
+
+export type TeacherMatches = {
+  matches: TeacherMatch[];
+  partTime: PartTimeMatch[];
+  unnamed: UnnamedTeacher[];
+};
 
 export async function fetchTeacherMatches(): Promise<TeacherMatches> {
   const body = await request<Partial<TeacherMatches>>("/active-teachers/matches");
-  return { matches: body.matches ?? [], partTime: body.partTime ?? [] };
+  return { matches: body.matches ?? [], partTime: body.partTime ?? [], unnamed: body.unnamed ?? [] };
 }
 
 /** Say that this active teacher is that portal profile. The profile leads from then on. */
