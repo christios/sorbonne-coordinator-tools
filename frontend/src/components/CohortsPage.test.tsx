@@ -1035,3 +1035,33 @@ describe("copying one record at a time", () => {
     expect(copied[0]).toContain("Physics");
   });
 });
+
+describe("the cohort picker says what kind of trouble each cohort has", () => {
+  it("counts each record on its own, rather than adding them into one number", async () => {
+    /*
+     * "9 flagged" said that something is wrong nine times and nothing about what. Nine
+     * records drifting from admissions, nine registrations to key in and nine hours a
+     * student cannot attend are three different afternoons' work, and choosing which
+     * cohort to open is often choosing which of them to do.
+     */
+    vi.spyOn(database, "fetchStudents").mockResolvedValue([student("A001", "c1"), student("A002", "c1")]);
+    vi.spyOn(database, "fetchDiscrepancyRules").mockResolvedValue([MAJOR]);
+    vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue(
+      report([mismatch({ studentId: "A002", kind: "collides" })], [checked()]),
+    );
+    await portalSays([
+      { SPRIDEN_ID: "A001", FULL_NAME: "Amira Haddad", MAJOR_CODE_DESC: "Physics" },
+      { SPRIDEN_ID: "A002", FULL_NAME: "Karim Nasser" },
+    ]);
+
+    renderPage();
+
+    // One student with a drifted record, one booked into two places at one hour, and
+    // nothing the registrar disagrees about — three counts, not a total of two.
+    expect(await screen.findByTitle("1 with a record that has drifted from admissions")).toBeTruthy();
+    expect(screen.getByTitle("1 booked into two places at one hour")).toBeTruthy();
+    expect(
+      screen.queryByTitle(/the registrar has in other sections/),
+    ).toBeNull();
+  });
+});

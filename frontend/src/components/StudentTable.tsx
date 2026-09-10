@@ -119,13 +119,13 @@ function studentLabel(row: StudentRow): string {
  * one column, so the cell has to say which is which before it is read. The icon carries
  * the same distinction for anyone who cannot use the colour.
  */
-const WARNING_TONES: Record<WarningSource, string> = {
+export const WARNING_TONES: Record<WarningSource, string> = {
   record: "bg-[#fff1e3] text-[#8a4b00]",
   registration: "bg-[#e6edfa] text-[#2b4a8b]",
   timetabling: "bg-[#f3ecfb] text-[#5b3a8a]",
 };
 
-const WARNING_ICONS: Record<WarningSource, typeof AlertTriangle> = {
+export const WARNING_ICONS: Record<WarningSource, typeof AlertTriangle> = {
   record: AlertTriangle,
   registration: ClipboardList,
   timetabling: CalendarClock,

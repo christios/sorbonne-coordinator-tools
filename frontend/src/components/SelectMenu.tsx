@@ -1,6 +1,6 @@
 import { Popover } from "radix-ui";
 import { ChevronDown } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ComponentType } from "react";
 
 import { YearPill } from "@/components/YearPill";
 
@@ -14,14 +14,45 @@ export type SelectOption = {
   badge?: string;
   /** "muted" for a badge that means nothing yet — a view nobody has synced. */
   badgeTone?: "accent" | "muted";
-  /** Something that wants attention beside the badge — "3 flagged" — shown in red. */
-  alert?: string;
+  /**
+   * What wants attention on this option, counted by kind rather than added up.
+   *
+   * It was one red number — "9 flagged" — which said that something is wrong nine times
+   * and nothing about what. Nine records drifting from admissions and nine hours a student
+   * cannot attend are different afternoons' work, and the choice of which cohort to open
+   * is often a choice of which kind of work to do.
+   */
+  flags?: OptionFlag[];
 };
 
-function Alert({ text }: { text: string }) {
+export type OptionFlag = {
+  key: string;
+  count: number;
+  /** What it means, since an icon on its own is a shape somebody has to learn. */
+  title: string;
+  icon: ComponentType<{ size?: number; className?: string; "aria-hidden"?: boolean | "true" }>;
+  /** The colours of the record it belongs to, so the picker matches the pills. */
+  className: string;
+};
+
+function Flags({ flags }: { flags: OptionFlag[] }) {
+  const shown = flags.filter((flag) => flag.count > 0);
+  if (!shown.length) return null;
   return (
-    <span className="ml-1.5 shrink-0 rounded-full bg-[#fdf3f3] px-2 py-0.5 text-xs font-semibold tabular-nums text-[#a6292f]">
-      {text}
+    <span className="ml-1.5 inline-flex shrink-0 items-center gap-1">
+      {shown.map((flag) => {
+        const Icon = flag.icon;
+        return (
+          <span
+            key={flag.key}
+            title={`${flag.count} ${flag.title}`}
+            className={`inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-xs font-semibold tabular-nums ${flag.className}`}
+          >
+            <Icon size={10} aria-hidden="true" />
+            {flag.count}
+          </span>
+        );
+      })}
     </span>
   );
 }
@@ -192,7 +223,7 @@ export function SelectMenu({ label, value, onChange, options, placeholder, trail
           {selected.length === 1 && selected[0].badge !== undefined ? (
             <Badge text={selected[0].badge} tone={selected[0].badgeTone} />
           ) : null}
-          {selected.length === 1 && selected[0].alert ? <Alert text={selected[0].alert} /> : null}
+          {selected.length === 1 && selected[0].flags ? <Flags flags={selected[0].flags} /> : null}
         </span>
       </button>
       </Popover.Trigger>
@@ -218,7 +249,7 @@ export function SelectMenu({ label, value, onChange, options, placeholder, trail
                 {option.year ? <YearPill year={option.year} className="ml-2 align-[0.05em]" /> : null}
               </span>
               {option.badge !== undefined ? <Badge text={option.badge} tone={option.badgeTone} /> : null}
-              {option.alert ? <Alert text={option.alert} /> : null}
+              {option.flags ? <Flags flags={option.flags} /> : null}
             </button>
           ))}
           {!visibleOptions.length ? <p className="px-3 py-2 text-sm text-[#667085]">No options match your search.</p> : null}

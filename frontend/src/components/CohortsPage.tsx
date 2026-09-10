@@ -10,6 +10,7 @@ import { ScreenLoading } from "@/components/ScreenLoading";
 import { SelectMenu } from "@/components/SelectMenu";
 import { RegistrationChangesButton } from "@/components/RegistrationChangesButton";
 import { StudentRoster } from "@/components/StudentRoster";
+import { WARNING_ICONS, WARNING_TONES } from "@/components/StudentTable";
 import { useRemembered } from "@/components/useRemembered";
 import {
   STATUS_FIELD,
@@ -90,6 +91,18 @@ function judge(
 
 /** Which sources of warning the table is showing. */
 type Showing = "all" | WarningSource;
+
+/**
+ * The three records, in the order the page's filter offers them.
+ *
+ * Named once here because two things read the list: the filter above the table, and the
+ * cohort picker's per-record counts. Two lists would be two lists to keep in step.
+ */
+const RECORDS: { id: WarningSource; counted: string }[] = [
+  { id: "record", counted: "with a record that has drifted from admissions" },
+  { id: "registration", counted: "the registrar has in other sections than we placed them in" },
+  { id: "timetabling", counted: "booked into two places at one hour" },
+];
 
 /**
  * The pill's few words for one verdict, and which record it belongs to.
@@ -548,14 +561,30 @@ export function CohortsPage({
             onChange={chooseCohort}
             options={[
               ...cohorts.map((candidate) => {
-                const flagged = flaggedIn(byCohort.get(candidate.id) ?? []);
+                const held = byCohort.get(candidate.id) ?? [];
                 return {
                   value: candidate.id,
                   label: candidate.name,
                   year: candidate.term,
                   badge: String(candidate.memberCount),
                   badgeTone: candidate.memberCount ? ("accent" as const) : ("muted" as const),
-                  alert: flagged ? `${flagged} flagged` : undefined,
+                  /*
+                   * Counted by record rather than added up. "9 flagged" said that
+                   * something is wrong nine times and nothing about what — and nine
+                   * records drifting from admissions, nine registrations to key in and
+                   * nine hours a student cannot attend are three different afternoons.
+                   * Which cohort to open is often a choice of which of them to do.
+                   *
+                   * The counts are of STUDENTS, per record, so they do not add up: one
+                   * person flagged by two records is counted under both.
+                   */
+                  flags: RECORDS.map((record) => ({
+                    key: record.id,
+                    count: flaggedIn(held, record.id),
+                    title: record.counted,
+                    icon: WARNING_ICONS[record.id],
+                    className: WARNING_TONES[record.id],
+                  })),
                 };
               }),
             ]}
