@@ -98,16 +98,29 @@ type Showing = "all" | WarningSource;
  * them: it is not a fault of the register, it is not chased with the registrar, and a
  * coordinator clearing registrations does not want it in the way. It is timetabling.
  */
-const SAID: Record<Mismatch["kind"], { label: string; source: WarningSource }> = {
-  missing: { label: "not registered", source: "registration" },
-  wrong: { label: "in another section", source: "registration" },
-  extra: { label: "extra section", source: "registration" },
-  unplaced: { label: "in no group of ours", source: "registration" },
-  doubled: { label: "two groups at once", source: "registration" },
-  collides: { label: "clashing hour", source: "timetabling" },
+const SAID: Record<Mismatch["kind"], { say: (mismatch: Mismatch) => string; source: WarningSource }> = {
+  missing: { say: (m) => `${m.courseCode} not registered`, source: "registration" },
+  wrong: { say: (m) => `${m.courseCode} elsewhere`, source: "registration" },
+  extra: { say: (m) => `${m.courseCode} extra`, source: "registration" },
+  unplaced: { say: (m) => `${m.courseCode} in no group`, source: "registration" },
+  // The SET is what is doubled, and the course code here is the two group labels.
+  doubled: { say: (m) => `${m.scopeCode} twice`, source: "registration" },
+  // Which of ours, and when — the two things that tell one clash from another.
+  collides: { say: (m) => `${m.courseCode} ${m.scopeCode}`, source: "timetabling" },
 };
 
-const readMismatch = (mismatch: Mismatch) => SAID[mismatch.kind];
+/**
+ * The few words a verdict's pill shows: the kind, and the one thing that identifies it.
+ *
+ * Not the bare kind — six rows all reading "not registered" say only that something is
+ * wrong six times — and not the whole sentence, which the cell has no room for. The course
+ * code or the slot is what tells one from another at a glance; everything else is a hover
+ * or a click into the record away.
+ */
+const readMismatch = (mismatch: Mismatch) => ({
+  label: SAID[mismatch.kind].say(mismatch),
+  source: SAID[mismatch.kind].source,
+});
 
 /** "5 not registered · 2 in another section" — what the register's differences are. */
 function describeKinds(mismatches: Mismatch[]): string {

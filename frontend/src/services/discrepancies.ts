@@ -468,14 +468,17 @@ export function labelWarning(warning: Warning): string {
   if (warning.label) return warning.label;
   const field = labelOf(warning.field);
   switch (warning.kind) {
+    // The value, not just the fact of a change: "status → WD" is the whole of what a
+    // coordinator needs from the pill, and "status changed" sends them hunting for it.
     case "changed":
+      return `${field}: ${warning.from || "—"} → ${warning.to || "—"}`;
     case "changed_to":
-      return `${field} changed`;
+      return `${field} → ${warning.to}`;
     case "is":
     case "is_not":
       return `${field} is ${warning.value}`;
     case "differs":
-      return `${field} differs`;
+      return `${field}: ${warning.value}`;
     case "belongs":
       return "belongs to the cohort";
     case "unplaced":

@@ -935,13 +935,17 @@ describe("three records, three kinds of trouble", () => {
 
     renderPage();
 
-    const pill = (await screen.findByText("clashing hour")).closest("[data-source]") as HTMLElement;
+    // Which of ours, and when — the two things that tell one clash from another.
+    const pill = (await screen.findByText("MATH-001 Tue 16:30–18:00")).closest("[data-source]") as HTMLElement;
     expect(pill.dataset.source).toBe("timetabling");
   });
 
-  it("says the kind on the pill and keeps the sentence for the record", async () => {
-    // The cell sits beside eleven other columns. A sentence truncated to "SCEN-101 (23302)
-    // is at th…" has said nothing and taken the room of something that would have.
+  it("says the kind and the one thing that identifies it, not the whole sentence", async () => {
+    /*
+     * The cell sits beside eleven other columns, so the whole sentence truncated to
+     * nothing useful. The bare kind is no better: six rows reading "major differs" say
+     * only that something is wrong six times. The value is what tells them apart.
+     */
     vi.spyOn(database, "fetchStudents").mockResolvedValue([student("A001", "c1")]);
     vi.spyOn(database, "fetchDiscrepancyRules").mockResolvedValue([MAJOR]);
     vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue(report([], [checked()]));
@@ -949,7 +953,7 @@ describe("three records, three kinds of trouble", () => {
 
     renderPage();
 
-    expect(await screen.findByText("major differs")).toBeTruthy();
+    expect(await screen.findByText("major: Physics")).toBeTruthy();
     // And the whole of it is still one hover away, and still what a dismissal names.
     expect(screen.getByTitle(/major is Physics, cohort expects/)).toBeTruthy();
   });
@@ -968,8 +972,8 @@ describe("three records, three kinds of trouble", () => {
     renderPage();
     fireEvent.click(await screen.findByRole("button", { name: /Timetabling/ }));
 
-    expect(await screen.findByText("clashing hour")).toBeTruthy();
-    expect(screen.queryByText("major differs")).toBeNull();
+    expect(await screen.findByText(/MATH-001/)).toBeTruthy();
+    expect(screen.queryByText("major: Physics")).toBeNull();
   });
 });
 
