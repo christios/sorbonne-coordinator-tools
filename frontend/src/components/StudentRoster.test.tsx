@@ -1192,3 +1192,46 @@ describe("proposing groups for a whole selection", () => {
     expect(within(dialog).getByRole("combobox", { name: "Groups" })).toBeTruthy();
   });
 });
+
+describe("looking past one cohort", () => {
+  /** The Cohorts page: the table is one cohort's population, not a filter chip. */
+  function renderScoped(cohortId: string | null) {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return render(
+      <QueryClientProvider client={queryClient}>
+        <StudentRoster cohorts={COHORTS} viewId={VIEW_ID} scope={{ cohortId }} />
+      </QueryClientProvider>,
+    );
+  }
+
+  it("shows every cohort, and not the students in none of them", async () => {
+    /*
+     * "All cohorts" is every cohort, which is not every student: somebody the department
+     * holds no cohort for is in none of them. On the real data 315 of 2,982 students are in
+     * a cohort, so the button was burying the three hundred it is about under two and a
+     * half thousand it is not.
+     */
+    await withNames();
+    renderScoped("cohort-1");
+    await screen.findByText("Amira Haddad");
+
+    fireEvent.click(screen.getByRole("button", { name: "This cohort" }));
+
+    await screen.findByRole("button", { name: "All cohorts" });
+    // A001 and A999 are Foundation Year; A002 and A003 are in no cohort at all.
+    await waitFor(() => expect(screen.queryByText("A002")).toBeNull());
+    expect(screen.queryByText("A003")).toBeNull();
+    expect(screen.getByText("A999")).toBeTruthy();
+  });
+
+  it("still reaches them from the population that is about them", async () => {
+    // They are not hidden, they are somewhere else: the Cohorts picker has a population for
+    // students in no cohort, and this is that page.
+    await withNames();
+    renderScoped(null);
+
+    expect(await screen.findByText("A002")).toBeTruthy();
+    expect(screen.getByText("A003")).toBeTruthy();
+    expect(screen.queryByText("A999")).toBeNull();
+  });
+});

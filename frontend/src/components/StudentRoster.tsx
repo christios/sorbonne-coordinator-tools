@@ -409,12 +409,24 @@ export function StudentRoster({
     [students.data, portalRows, changes, syncedAt, termNames, warningsFor, crnsOf, sectionDays.data],
   );
   const rows = useMemo(() => {
-    // The population first: a scope is not a filter chip, it is who the page is about —
-    // until somebody asks to look past it, which is what the toggle beside the search is.
-    const population =
-      scope && !everywhere
-        ? everyRow.filter((row) => (scope.cohortId === null ? !row.cohortId : row.cohortId === scope.cohortId))
-        : everyRow;
+    /*
+     * The population first: a scope is not a filter chip, it is who the page is about —
+     * until somebody asks to look past it, which is what the toggle beside the search is.
+     *
+     * Looking past ONE cohort lands on all of them, and all of them is not everyone. A
+     * student the department holds no cohort for is in none of the cohorts, so "All
+     * cohorts" was showing a population its own label excluded — and on the real data that
+     * is not a rounding error: 315 of the 2,982 students on file are in a cohort, so the
+     * button buried the three hundred it was about under two and a half thousand it was not.
+     *
+     * They are still reachable, on the page that is about them: the Cohorts picker has a
+     * population for students in no cohort, and this same toggle looks past that one too.
+     */
+    const population = !scope
+      ? everyRow
+      : everywhere
+        ? everyRow.filter((row) => Boolean(row.cohortId))
+        : everyRow.filter((row) => (scope.cohortId === null ? !row.cohortId : row.cohortId === scope.cohortId));
     if (focus.length === 0) return population;
     const wanted = new Set(focus);
     return population.filter((row) => wanted.has(row.studentId));
