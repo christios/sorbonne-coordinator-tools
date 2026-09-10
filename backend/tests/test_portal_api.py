@@ -16,10 +16,12 @@ from sqlalchemy import text
 
 from sorbonne.api import portal as api
 from sorbonne.api import student_database as student_api
+from sorbonne.api import teachers as teachers_api
 from sorbonne.main import app
 from sorbonne.services.facility_timetable import FacilityTimetableStore
 from sorbonne.services.portal_lists import _SECTION_TITLE, _expected_on, named, names_agree, PortalListStore
 from sorbonne.services.student_database import StudentDatabase
+from sorbonne.services.teacher_store import TeacherStore
 from tests.conftest import TEST_DATABASE_URL
 
 BASE = "/api/v1/portal"
@@ -58,6 +60,12 @@ def empty_tables() -> None:
             "course_exemptions",
             "students",
             "student_cohorts",
+            # The part-time database, because the two sides of one teacher are matched on
+            # the name and nothing else: a record another module left behind under a name
+            # a test here uses would be a second candidate, and two candidates are never
+            # offered. Requisitions first — they hold the record back with a RESTRICT.
+            "teacher_requisitions",
+            "part_time_teachers",
         ):
             connection.execute(text(f"DELETE FROM {table}"))  # noqa: S608
 
@@ -72,6 +80,10 @@ def client(database: StudentDatabase) -> TestClient:
     app.dependency_overrides[api.get_facilities] = lambda: FacilityTimetableStore(TEST_DATABASE_URL)
     app.dependency_overrides[api.get_database] = lambda: database
     app.dependency_overrides[student_api.get_database] = lambda: database
+    # Matching the two sides of a teacher needs both lists, so these tests put records in
+    # the part-time database — and that router builds its store from config.database_url,
+    # which is the developer's own. Without this the fixtures land in real local data.
+    app.dependency_overrides[teachers_api.get_store] = lambda: TeacherStore(TEST_DATABASE_URL)
     try:
         yield TestClient(app)
     finally:
@@ -315,6 +327,147 @@ def test_a_portal_profile_can_only_be_one_person_on_the_list(client: TestClient)
     nobody = client.post(f"{BASE}/active-teachers/nope/link", json={"portalTeacherId": "A001"})
     assert unknown.status_code == status.HTTP_404_NOT_FOUND
     assert nobody.status_code == status.HTTP_404_NOT_FOUND
+
+
+def part_time(client: TestClient, full_name: str, email: str = "") -> str:
+    """A record in the part-time database, which is a different list from this one."""
+    body = {"fullName": full_name, "email": email, "phone": "", "notes": ""}
+    return client.post("/api/v1/teachers", json=body).json()["id"]
+
+
+def test_a_professor_the_part_time_database_already_held_is_offered_as_a_match(client: TestClient):
+    """The mirror of the case above, and the one the real data is full of.
+
+    Somebody fills the department's list from the portal, because that is where everybody
+    is. Nothing then says that eleven of them have been in the part-time database all
+    along, so the page calls them "Portal" and the part-time side goes unmentioned.
+    """
+    seed_teachers(client)
+    record = part_time(client, "Ahlem Trabelsi", "ahlem@gmail.com")
+    client.post(f"{BASE}/active-teachers", json={"portalTeacherIds": ["A001"]})
+
+    [match] = client.get(f"{BASE}/active-teachers/matches").json()["partTime"]
+
+    assert match["activeName"] == "Ahlem Trabelsi"
+    assert match["partTimeTeacherId"] == record
+    # The addresses are exactly what does not match, which is why the names are matched.
+    assert match["activeEmail"] == "ahlem@sorbonne.ae"
+    assert match["partTimeEmail"] == "ahlem@gmail.com"
+
+    active_id = client.get(f"{BASE}/active-teachers").json()["teachers"][0]["id"]
+    linked = client.post(f"{BASE}/active-teachers/{active_id}/link-part-time", json={"partTimeTeacherId": record})
+    assert linked.status_code == status.HTTP_200_OK
+
+    [held] = client.get(f"{BASE}/active-teachers").json()["teachers"]
+    assert held["source"] == "both"
+    assert held["partTimeTeacherId"] == record
+    # Joining says who the department pays through a requisition, not what their name is:
+    # the portal goes on leading everything shown.
+    assert held["fullName"] == "Ahlem Trabelsi"
+    assert held["email"] == "ahlem@sorbonne.ae"
+    assert client.get(f"{BASE}/active-teachers/matches").json()["partTime"] == []
+
+
+def test_the_portal_spelling_is_what_the_part_time_database_is_matched_against(client: TestClient):
+    """A row linked to a portal profile is that profile, here as everywhere else.
+
+    The name stored when somebody was added can be a year old; the registrar is where a
+    name is corrected, and a later sync brings the correction. Matching the stored one
+    would miss exactly the people whose spelling has since been fixed.
+    """
+    seed_teachers(client)
+    client.post(f"{BASE}/active-teachers", json={"portalTeacherIds": ["A001"]})
+    # The registrar corrects the spelling, and a sync brings it. Our stored copy is stale.
+    client.post(
+        f"{BASE}/filters/{make_filter(client, 'teachers', name='Again')['id']}/sync/teachers",
+        json={"rows": [{"teacherId": "A001", "fullName": "Ahlem Ben Trabelsi", "psuadEmail": "ahlem@sorbonne.ae"}]},
+    )
+    record = part_time(client, "Ahlem Ben Trabelsi", "ahlem@gmail.com")
+
+    [match] = client.get(f"{BASE}/active-teachers/matches").json()["partTime"]
+
+    assert match["partTimeTeacherId"] == record
+    assert match["activeName"] == "Ahlem Ben Trabelsi"
+
+
+def test_a_surname_the_part_time_database_carries_in_full_is_still_the_same_person(client: TestClient):
+    """The registrar shortens the name it issues an address for; the department wrote it out.
+
+    On the real data this is one of the eleven: the portal has "Suzanne El chehaly" and the
+    part-time database "Suzanne El Chehaly Abdelhamid". Matching on the whole name refuses
+    it; `names_agree` — the rule the register drift already runs on — reads one as the
+    other, and no other candidate exists to make it a question.
+    """
+    seed_teachers(client)
+    record = part_time(client, "Ahlem Trabelsi Ben Salah", "ahlem@gmail.com")
+    client.post(f"{BASE}/active-teachers", json={"portalTeacherIds": ["A001"]})
+
+    [match] = client.get(f"{BASE}/active-teachers/matches").json()["partTime"]
+
+    assert match["partTimeTeacherId"] == record
+    assert match["partTimeName"] == "Ahlem Trabelsi Ben Salah"
+
+
+def test_one_part_time_record_two_rows_answer_to_is_not_offered(client: TestClient):
+    """The single-candidate rule has to hold both ways round.
+
+    Reading it one way only, a record that fits two of the department's rows would be
+    offered to each of them, and pressing both would fail on the second — after the first
+    had already joined the wrong person.
+    """
+    seed_teachers(client)
+    part_time(client, "Ahlem Trabelsi", "ahlem@gmail.com")
+    second = make_filter(client, "teachers", name="Another list")
+    client.post(
+        f"{BASE}/filters/{second['id']}/sync/teachers",
+        json={"rows": [{"teacherId": "A003", "fullName": "Ahlem Trabelsi", "psuadEmail": "ahlem2@sorbonne.ae"}]},
+    )
+    client.post(f"{BASE}/active-teachers", json={"portalTeacherIds": ["A001", "A003"]})
+
+    assert client.get(f"{BASE}/active-teachers/matches").json()["partTime"] == []
+
+
+def test_a_name_two_part_time_records_answer_to_is_not_offered(client: TestClient):
+    seed_teachers(client)
+    part_time(client, "Ahlem Trabelsi", "ahlem@gmail.com")
+    part_time(client, "Ahlem Trabelsi", "a.trabelsi@outlook.com")
+    client.post(f"{BASE}/active-teachers", json={"portalTeacherIds": ["A001"]})
+
+    # Two people of that name in the part-time database: a question for a person.
+    assert client.get(f"{BASE}/active-teachers/matches").json()["partTime"] == []
+
+
+def test_a_part_time_record_can_only_be_one_person_on_the_list(client: TestClient):
+    seed_teachers(client)
+    record = part_time(client, "Ahlem Trabelsi", "ahlem@gmail.com")
+    client.post(f"{BASE}/active-teachers", json={"portalTeacherIds": ["A001", "A002"]})
+    held = {row["fullName"]: row for row in client.get(f"{BASE}/active-teachers").json()["teachers"]}
+    client.post(
+        f"{BASE}/active-teachers/{held['Ahlem Trabelsi']['id']}/link-part-time", json={"partTimeTeacherId": record}
+    )
+
+    answer = client.post(
+        f"{BASE}/active-teachers/{held['Bilal Maaz']['id']}/link-part-time", json={"partTimeTeacherId": record}
+    )
+
+    assert answer.status_code == status.HTTP_409_CONFLICT
+    # A record the part-time database does not hold, and a teacher the list does not hold.
+    unknown = client.post(
+        f"{BASE}/active-teachers/{held['Bilal Maaz']['id']}/link-part-time", json={"partTimeTeacherId": "pt-404"}
+    )
+    nobody = client.post(f"{BASE}/active-teachers/nope/link-part-time", json={"partTimeTeacherId": record})
+    assert unknown.status_code == status.HTTP_404_NOT_FOUND
+    assert nobody.status_code == status.HTTP_404_NOT_FOUND
+
+
+def test_an_archived_part_time_record_is_not_offered(client: TestClient):
+    """Taken out of the part-time database is an answer, not an absence."""
+    seed_teachers(client)
+    record = part_time(client, "Ahlem Trabelsi", "ahlem@gmail.com")
+    client.post(f"/api/v1/teachers/{record}/archive")
+    client.post(f"{BASE}/active-teachers", json={"portalTeacherIds": ["A001"]})
+
+    assert client.get(f"{BASE}/active-teachers/matches").json()["partTime"] == []
 
 
 def test_an_active_teacher_can_be_removed(client: TestClient):

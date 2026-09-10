@@ -9,6 +9,7 @@ import { Modal } from "@/components/Modal";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import {
   type ActiveTeacher,
+  type PartTimeMatch,
   type PartTimeTeacher,
   type TeacherMatch,
   addActiveTeachers,
@@ -16,6 +17,7 @@ import {
   fetchPartTimeTeachers,
   fetchTeacherMatches,
   linkActiveTeacher,
+  linkPartTimeTeacher,
   removeActiveTeacher,
 } from "@/services/portalLists";
 import { removeEach, stillSelected } from "@/services/bulkRemove";
@@ -100,6 +102,11 @@ export function ActiveTeachers({ onOpenTeacher }: { onOpenTeacher?: (teacher: Te
       linkActiveTeacher(activeId, portalTeacherId),
     onSuccess: () => refresh(),
   });
+  const linkPartTime = useMutation({
+    mutationFn: ({ activeId, partTimeTeacherId }: { activeId: string; partTimeTeacherId: string }) =>
+      linkPartTimeTeacher(activeId, partTimeTeacherId),
+    onSuccess: () => refresh(),
+  });
   const add = useMutation({
     mutationFn: (records: PartTimeTeacher[]) => addActiveTeachers({ partTime: records }),
     onSuccess: () => {
@@ -118,7 +125,8 @@ export function ActiveTeachers({ onOpenTeacher }: { onOpenTeacher?: (teacher: Te
     },
   });
 
-  const error = add.error?.message ?? remove.error?.message ?? link.error?.message ?? null;
+  const error =
+    add.error?.message ?? remove.error?.message ?? link.error?.message ?? linkPartTime.error?.message ?? null;
 
   return (
     <section>
@@ -133,9 +141,17 @@ export function ActiveTeachers({ onOpenTeacher }: { onOpenTeacher?: (teacher: Te
       ) : null}
 
       <SameSomebody
-        matches={matches.data ?? []}
+        matches={matches.data?.matches ?? []}
         busy={link.isPending}
         onLink={(match) => link.mutate({ activeId: match.activeId, portalTeacherId: match.portalTeacherId })}
+      />
+
+      <AlsoPartTime
+        matches={matches.data?.partTime ?? []}
+        busy={linkPartTime.isPending}
+        onLink={(match) =>
+          linkPartTime.mutate({ activeId: match.activeId, partTimeTeacherId: match.partTimeTeacherId })
+        }
       />
 
       {active.isLoading ? (
@@ -199,6 +215,63 @@ export function ActiveTeachers({ onOpenTeacher }: { onOpenTeacher?: (teacher: Te
         onClose={() => setConfirmRemove(false)}
       />
     </section>
+  );
+}
+
+/**
+ * People the department pays through a requisition, on a row that only mentions the portal.
+ *
+ * The mirror of `SameSomebody`, and the case the real data is full of: the list gets filled
+ * from the Teachers page, because the portal is where everybody is, and nothing then says
+ * that a dozen of them have been in the part-time database all along. The row reads
+ * "Portal", the part-time side goes unmentioned, and whoever is preparing requisitions has
+ * to hold the overlap in their head.
+ *
+ * The names are matched here too, and for the same reason: the part-time database holds a
+ * personal address or none at all, and the portal holds the university one it issued.
+ * Joining says who is paid how — it changes nothing on screen, because the portal's profile
+ * goes on leading the name, the address and the department.
+ */
+function AlsoPartTime({
+  matches,
+  busy,
+  onLink,
+}: {
+  matches: PartTimeMatch[];
+  busy: boolean;
+  onLink: (match: PartTimeMatch) => void;
+}) {
+  if (!matches.length) return null;
+  return (
+    <div className="mb-3 rounded-lg border border-[#cbd9e6] bg-[#f2f7fb] px-4 py-3">
+      <p className="flex items-center gap-2 text-sm font-semibold text-[#1f4e79]">
+        <Link2 size={15} aria-hidden="true" />
+        {matches.length} {matches.length === 1 ? "teacher is" : "teachers are"} also in the part-time database
+      </p>
+      <p className="mt-1 text-xs text-[#3d6c96]">
+        They were chosen from the portal, so nothing here says the department also holds them as a part-time record.
+        Joining the two adds the tag and changes nothing else — the portal&apos;s profile still leads.
+      </p>
+      <ul className="mt-2 divide-y divide-[#dce7f1]">
+        {matches.map((match) => (
+          <li key={match.activeId} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 py-2 text-sm">
+            <span className="font-medium text-[#171717]">{match.activeName}</span>
+            <span className="text-xs text-[#98a2b3]">{match.activeEmail || "no address here"}</span>
+            <ArrowRight size={13} className="text-[#7ba3c9]" aria-hidden="true" />
+            <span className="text-[#344054]">{match.partTimeName}</span>
+            <span className="text-xs text-[#98a2b3]">{match.partTimeEmail || "no address in the part-time database"}</span>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => onLink(match)}
+              className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-2.5 py-1 text-xs font-semibold text-[#1f4e79] hover:bg-[#f2f7fb] disabled:opacity-50"
+            >
+              <Link2 size={13} aria-hidden="true" /> Same person
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 

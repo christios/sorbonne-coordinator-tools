@@ -241,13 +241,31 @@ export type TeacherMatch = {
   portalStatus: string;
 };
 
-export async function fetchTeacherMatches(): Promise<TeacherMatch[]> {
-  return (await request<{ matches: TeacherMatch[] }>("/active-teachers/matches")).matches;
+/** The other way round: chosen from the portal, and in the part-time database all along. */
+export type PartTimeMatch = {
+  activeId: string;
+  activeName: string;
+  activeEmail: string;
+  partTimeTeacherId: string;
+  partTimeName: string;
+  partTimeEmail: string;
+};
+
+export type TeacherMatches = { matches: TeacherMatch[]; partTime: PartTimeMatch[] };
+
+export async function fetchTeacherMatches(): Promise<TeacherMatches> {
+  const body = await request<Partial<TeacherMatches>>("/active-teachers/matches");
+  return { matches: body.matches ?? [], partTime: body.partTime ?? [] };
 }
 
 /** Say that this active teacher is that portal profile. The profile leads from then on. */
 export async function linkActiveTeacher(activeId: string, portalTeacherId: string): Promise<void> {
   await send<void>(`/active-teachers/${encodeURIComponent(activeId)}/link`, "POST", { portalTeacherId });
+}
+
+/** Say that this active teacher is that part-time record. What is shown does not change. */
+export async function linkPartTimeTeacher(activeId: string, partTimeTeacherId: string): Promise<void> {
+  await send<void>(`/active-teachers/${encodeURIComponent(activeId)}/link-part-time`, "POST", { partTimeTeacherId });
 }
 
 export async function fetchActiveTeachers(): Promise<ActiveTeacher[]> {

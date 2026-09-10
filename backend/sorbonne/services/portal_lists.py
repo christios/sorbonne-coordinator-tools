@@ -63,6 +63,14 @@ class PortalTeacherAlreadyLinked(Exception):
     """Somebody else on the department's list is already that portal profile."""
 
 
+class PartTimeTeacherNotFound(Exception):
+    pass
+
+
+class PartTimeTeacherAlreadyLinked(Exception):
+    pass
+
+
 class ActiveTeacherNotFound(Exception):
     pass
 
@@ -783,6 +791,119 @@ class PortalListStore:
                 }
             )
         return sorted(found, key=lambda entry: entry["activeName"].casefold())
+
+    def unlinked_part_time_matches(self) -> list[dict[str, Any]]:
+        """Active teachers chosen from the portal who also have a part-time record.
+
+        The mirror of `unlinked_portal_matches`, and needed for the same reason read the
+        other way round. Somebody joins the department as a part-time teacher and is later
+        chosen from the portal — or, far more often, is chosen from the portal by whoever
+        was filling in the department's list and nobody thinks to say that the part-time
+        database has held them all along. Either way the row carries no part-time id, so
+        the page says "Portal" about a person the department pays through a requisition.
+
+        The addresses cannot settle it: the part-time database holds a personal address, or
+        none at all — ten of the fourteen on the real data — and the portal holds the
+        university one it issued. So the names are matched, one candidate only, and offered
+        rather than acted on.
+        """
+        with self.engine.connect() as connection:
+            # The name the page shows, which for a linked row is the portal's and not the
+            # one stored when somebody first added them.
+            active = (
+                connection.execute(
+                    text("""SELECT a.id, a.part_time_teacher_id,
+                                   coalesce(nullif(p.full_name, ''), nullif(a.full_name, ''), '') AS full_name,
+                                   coalesce(nullif(p.psuad_email, ''), nullif(a.email, ''), '') AS email
+                            FROM active_teachers a
+                            LEFT JOIN portal_teachers p ON p.teacher_id = a.portal_teacher_id""")
+                )
+                .mappings()
+                .all()
+            )
+            part_time = (
+                connection.execute(
+                    text("""SELECT id, full_name, email FROM part_time_teachers
+                            WHERE archived_at IS NULL""")
+                )
+                .mappings()
+                .all()
+            )
+        taken = {row["part_time_teacher_id"] for row in active if row["part_time_teacher_id"]}
+        free = [row for row in part_time if row["id"] not in taken]
+        waiting = [row for row in active if not row["part_time_teacher_id"]]
+
+        # `names_agree`, the same rule that decides whether the registrar's teacher column
+        # and ours name one person — so "El Chehaly" is met by "El Chehaly Abdelhamid" here
+        # too, which on the real data is the difference between ten offers and eleven.
+        found: list[dict[str, Any]] = []
+        for row in waiting:
+            shown = _text(row["full_name"])
+            # One candidate only, each way round. Two people of one name — or one record two
+            # rows answer to — is a question for a person, not a guess to make on their
+            # behalf.
+            candidates = [record for record in free if names_agree(shown, _text(record["full_name"]))]
+            if len(candidates) != 1:
+                continue
+            match = candidates[0]
+            others = [
+                other
+                for other in waiting
+                if other["id"] != row["id"] and names_agree(_text(other["full_name"]), _text(match["full_name"]))
+            ]
+            if others:
+                continue
+            found.append(
+                {
+                    "activeId": row["id"],
+                    "activeName": shown,
+                    "activeEmail": _text(row["email"]),
+                    "partTimeTeacherId": match["id"],
+                    "partTimeName": _text(match["full_name"]),
+                    "partTimeEmail": _text(match["email"]),
+                }
+            )
+        return sorted(found, key=lambda entry: entry["activeName"].casefold())
+
+    def link_part_time_teacher(self, active_id: str, part_time_teacher_id: str) -> None:
+        """Say that this active teacher is that part-time record.
+
+        The row keeps its portal id, and the portal profile goes on leading what is shown:
+        joining the two says who the department pays through a requisition, not what their
+        name is.
+        """
+        teacher_id = _text(part_time_teacher_id)
+        with self.engine.begin() as connection:
+            row = (
+                connection.execute(text("SELECT id FROM active_teachers WHERE id = :id"), {"id": active_id})
+                .mappings()
+                .first()
+            )
+            if row is None:
+                raise ActiveTeacherNotFound(active_id)
+            part_time = (
+                connection.execute(
+                    text("SELECT id FROM part_time_teachers WHERE id = :t"), {"t": teacher_id}
+                )
+                .mappings()
+                .first()
+            )
+            if part_time is None:
+                raise PartTimeTeacherNotFound(teacher_id)
+            already = (
+                connection.execute(
+                    text("SELECT id FROM active_teachers WHERE part_time_teacher_id = :t AND id <> :id"),
+                    {"t": teacher_id, "id": active_id},
+                )
+                .mappings()
+                .first()
+            )
+            if already is not None:
+                raise PartTimeTeacherAlreadyLinked(teacher_id)
+            connection.execute(
+                text("UPDATE active_teachers SET part_time_teacher_id = :t WHERE id = :id"),
+                {"t": teacher_id, "id": active_id},
+            )
 
     def link_active_teacher(self, active_id: str, portal_teacher_id: str) -> None:
         """Say that this active teacher is that portal profile, and let the profile lead.

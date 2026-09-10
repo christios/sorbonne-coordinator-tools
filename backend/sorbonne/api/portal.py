@@ -19,6 +19,8 @@ from sorbonne.api.deps import optional_client
 from sorbonne.services.facility_timetable import ContradictoryPull, FacilityTimetableStore
 from sorbonne.services.checks import CHECKS
 from sorbonne.services.portal_lists import (
+    PartTimeTeacherAlreadyLinked,
+    PartTimeTeacherNotFound,
     PortalTeacherAlreadyLinked,
     PortalTeacherNotFound,
     KINDS,
@@ -131,6 +133,12 @@ class LinkTeacherInput(BaseModel):
     """Which portal profile an active teacher is."""
 
     portalTeacherId: str = Field(min_length=1)  # noqa: N815 - the wire is camelCase
+
+
+class LinkPartTimeInput(BaseModel):
+    """Which part-time record an active teacher is."""
+
+    partTimeTeacherId: str = Field(min_length=1)  # noqa: N815 - the wire is camelCase
 
 
 class ActiveTeachersInput(BaseModel):
@@ -300,8 +308,13 @@ async def list_active_teachers(store: PortalListStore = Depends(get_store)) -> d
 
 @router.get("/active-teachers/matches")
 async def teacher_matches(store: PortalListStore = Depends(get_store)) -> dict[str, Any]:
-    """Active teachers who came from the part-time database and look like a portal profile."""
-    return {"matches": store.unlinked_portal_matches()}
+    """The two sides of one person that nothing has joined yet, each way round.
+
+    `matches` are rows brought from the part-time database that the portal now lists;
+    `partTime` are rows chosen from the portal that the part-time database has held all
+    along. Both are offered and neither is acted on.
+    """
+    return {"matches": store.unlinked_portal_matches(), "partTime": store.unlinked_part_time_matches()}
 
 
 @router.post("/active-teachers/{active_id}/link")
@@ -319,6 +332,25 @@ async def link_active_teacher(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Somebody else on the department's list is already that portal profile.",
+        ) from exc
+    return {"linked": True}
+
+
+@router.post("/active-teachers/{active_id}/link-part-time")
+async def link_part_time_teacher(
+    active_id: str, body: LinkPartTimeInput, store: PortalListStore = Depends(get_store)
+) -> dict[str, bool]:
+    """Say that this active teacher is that part-time record."""
+    try:
+        store.link_part_time_teacher(active_id, body.partTimeTeacherId)
+    except ActiveTeacherNotFound as exc:
+        raise _missing("active teacher") from exc
+    except PartTimeTeacherNotFound as exc:
+        raise _missing("part-time teacher") from exc
+    except PartTimeTeacherAlreadyLinked as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Somebody else on the department's list is already that part-time record.",
         ) from exc
     return {"linked": True}
 

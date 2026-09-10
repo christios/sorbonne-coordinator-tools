@@ -14,7 +14,7 @@ beforeEach(() => {
       type: "Part-Time", lastTerm: "262710", department: "LPEM", rank: "", courses: "ECON-101", institution: "", portalStatus: "in_portal",
     },
   ]);
-  vi.spyOn(lists, "fetchTeacherMatches").mockResolvedValue([]);
+  vi.spyOn(lists, "fetchTeacherMatches").mockResolvedValue({ matches: [], partTime: [] });
   vi.spyOn(lists, "fetchPartTimeTeachers").mockResolvedValue([
     { id: "pt-1", fullName: "Ahlem Trabelsi", email: "ahlem@sorbonne.ae" },
     { id: "pt-2", fullName: "Carla Nasr", email: "carla@example.org" },
@@ -69,13 +69,16 @@ describe("somebody the portal has started listing", () => {
         category: "", type: "", lastTerm: "", department: "", rank: "", courses: "", institution: "", portalStatus: "",
       },
     ]);
-    vi.spyOn(lists, "fetchTeacherMatches").mockResolvedValue([
-      {
-        activeId: "act-1", activeName: "Dr Ahlem TRABELSI", activeEmail: "ahlem@gmail.com",
-        portalTeacherId: "A001", portalName: "Ahlem Trabelsi", portalEmail: "ahlem@sorbonne.ae",
-        portalStatus: "in_portal",
-      },
-    ]);
+    vi.spyOn(lists, "fetchTeacherMatches").mockResolvedValue({
+      matches: [
+        {
+          activeId: "act-1", activeName: "Dr Ahlem TRABELSI", activeEmail: "ahlem@gmail.com",
+          portalTeacherId: "A001", portalName: "Ahlem Trabelsi", portalEmail: "ahlem@sorbonne.ae",
+          portalStatus: "in_portal",
+        },
+      ],
+      partTime: [],
+    });
     const link = vi.spyOn(lists, "linkActiveTeacher").mockResolvedValue();
     show();
 
@@ -88,11 +91,41 @@ describe("somebody the portal has started listing", () => {
 
   it("says nothing when nobody looks like anybody", async () => {
     vi.spyOn(lists, "fetchActiveTeachers").mockResolvedValue([]);
-    vi.spyOn(lists, "fetchTeacherMatches").mockResolvedValue([]);
+    vi.spyOn(lists, "fetchTeacherMatches").mockResolvedValue({ matches: [], partTime: [] });
     show();
 
     await screen.findByRole("button", { name: /Add from part-time database/ });
     expect(screen.queryByText(/now in the portal/)).toBeNull();
+  });
+});
+
+describe("somebody the part-time database has held all along", () => {
+  it("is offered as a match, and linking only adds the tag", async () => {
+    vi.spyOn(lists, "fetchTeacherMatches").mockResolvedValue({
+      matches: [],
+      partTime: [
+        {
+          activeId: "act-1", activeName: "Ahlem Trabelsi", activeEmail: "ahlem@sorbonne.ae",
+          partTimeTeacherId: "pt-1", partTimeName: "Ahlem Trabelsi", partTimeEmail: "ahlem@gmail.com",
+        },
+      ],
+    });
+    const link = vi.spyOn(lists, "linkPartTimeTeacher").mockResolvedValue();
+    show();
+
+    expect(await screen.findByText(/1 teacher is also in the part-time database/)).toBeTruthy();
+    // Both addresses are shown, because the two of them are the reason a name had to do.
+    expect(screen.getByText("ahlem@gmail.com")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Same person/ }));
+
+    await waitFor(() => expect(link).toHaveBeenCalledWith("act-1", "pt-1"));
+  });
+
+  it("says nothing when every row already knows both sides", async () => {
+    show();
+
+    await screen.findByRole("button", { name: /Add from part-time database/ });
+    expect(screen.queryByText(/also in the part-time database/)).toBeNull();
   });
 });
 
