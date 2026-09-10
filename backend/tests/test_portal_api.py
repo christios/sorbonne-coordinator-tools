@@ -2104,3 +2104,56 @@ def test_agreement_is_tried_before_the_letters_are_counted(client: TestClient):
     offered = {m["activeName"]: m["partTimeTeacherId"] for m in matches}
 
     assert offered["Ahlem Trabelsi"] == exact
+
+
+def test_removing_a_teacher_lets_go_of_the_sections_that_chose_them(
+    client: TestClient, database: StudentDatabase
+):
+    """A link to nothing does not read as an empty one — it reads as the old typed name.
+
+    `group_crns.teacher_id` names a row of this list and no key enforces that the row is
+    still there. Left behind, the card cannot resolve the link, falls back to the name typed
+    on the row — normally invisible, and possibly a year old — and goes on naming a teacher
+    who was deliberately removed. On production one section did exactly that.
+    """
+    seed_teachers(client)
+    client.post(f"{BASE}/active-teachers", json={"portalTeacherIds": ["A001"]})
+    [active] = client.get(f"{BASE}/active-teachers").json()["teachers"]
+
+    cohort = database.create_cohort(name="Second year", term="2026-27")
+    scope = database.add_scope(cohort["id"], code="CM", name="Lectures", term_id=HUB_TERM)
+    course = database.add_course(scope, code="PHYS-105")
+    group = database.add_group(scope, label="A")
+    database.set_cell(group_id=group, course_id=course, crn="24075", teacher="Mai El Sawy", part=1)
+    database.update_section(group_id=group, course_id=course, part=1, teacher_id=active["id"])
+
+    assert client.delete(f"{BASE}/active-teachers/{active['id']}").status_code == status.HTTP_204_NO_CONTENT
+
+    with database.engine.connect() as connection:
+        held = connection.execute(
+            text("SELECT teacher_id, teacher FROM group_crns WHERE crn = '24075'")
+        ).mappings().one()
+    # The link is let go; the typed name is not touched, because nobody asked for that.
+    assert held["teacher_id"] == ""
+    assert held["teacher"] == "Mai El Sawy"
+
+
+def test_removing_a_teacher_leaves_everybody_elses_sections_alone(
+    client: TestClient, database: StudentDatabase
+):
+    seed_teachers(client)
+    client.post(f"{BASE}/active-teachers", json={"portalTeacherIds": ["A001", "A002"]})
+    held = {row["fullName"]: row["id"] for row in client.get(f"{BASE}/active-teachers").json()["teachers"]}
+
+    cohort = database.create_cohort(name="Second year", term="2026-27")
+    scope = database.add_scope(cohort["id"], code="CM", name="Lectures", term_id=HUB_TERM)
+    course = database.add_course(scope, code="PHYS-105")
+    group = database.add_group(scope, label="A")
+    database.set_cell(group_id=group, course_id=course, crn="24075", part=1)
+    database.update_section(group_id=group, course_id=course, part=1, teacher_id=held["Bilal Maaz"])
+
+    client.delete(f"{BASE}/active-teachers/{held['Ahlem Trabelsi']}")
+
+    with database.engine.connect() as connection:
+        kept = connection.execute(text("SELECT teacher_id FROM group_crns WHERE crn = '24075'")).scalar()
+    assert kept == held["Bilal Maaz"]

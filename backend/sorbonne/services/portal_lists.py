@@ -1132,11 +1132,31 @@ class PortalListStore:
                 added += 1
         return {"added": added, "linked": linked, "skipped": skipped}
 
-    def remove_active_teacher(self, active_id: str) -> None:
+    def remove_active_teacher(self, active_id: str) -> int:
+        """Take somebody off the department's list, and off the sections that chose them.
+
+        Both, in one transaction, because a section's `teacher_id` names a row of this list
+        and nothing enforces that it still exists. Left behind, the link dangles: the card
+        cannot resolve it, falls back to the name typed on the row — which may be a year old
+        and is normally invisible — and goes on showing a teacher who was deliberately
+        removed. That is how PHYS-105 kept saying Mai El Sawy after she was taken off.
+
+        A foreign key would be the better guarantee and cannot be had: the column is NOT
+        NULL and uses the empty string for "nobody chosen", which is not a row of any table
+        for a key to point at. Widening it to NULL is a change to every reader of a section.
+        So the invariant lives here, at the one place that deletes, and the count it returns
+        is what the page warned about before asking.
+        """
         with self.engine.begin() as connection:
-            removed = connection.execute(text("DELETE FROM active_teachers WHERE id = :id"), {"id": active_id}).rowcount
-        if removed == 0:
-            raise ActiveTeacherNotFound(active_id)
+            loosened = connection.execute(
+                text("UPDATE group_crns SET teacher_id = '' WHERE teacher_id = :id"), {"id": active_id}
+            ).rowcount
+            removed = connection.execute(
+                text("DELETE FROM active_teachers WHERE id = :id"), {"id": active_id}
+            ).rowcount
+            if removed == 0:
+                raise ActiveTeacherNotFound(active_id)
+        return loosened
 
     # ---------------------------------------------------------- active courses
 

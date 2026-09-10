@@ -230,6 +230,29 @@ describe("teachers our sections name and the list does not hold", () => {
 });
 
 describe("removing teachers from the active list", () => {
+  it("says how many sections will be left with no teacher chosen", async () => {
+    // Removing somebody clears the sections that chose them, because a link to nothing
+    // reads as the old typed name rather than as an empty cell. So it is said before, not
+    // discovered after.
+    vi.spyOn(lists, "fetchActiveTeachers").mockResolvedValue([
+      {
+        id: "act-1", portalTeacherId: "A001", partTimeTeacherId: "", fullName: "Ahlem Trabelsi",
+        email: "ahlem@sorbonne.ae", source: "portal", addedAt: "", addedBy: "", teacherStatus: "",
+        category: "", type: "", lastTerm: "", department: "", rank: "", courses: "", institution: "",
+        portalStatus: "in_portal", linkedSections: 6,
+      } as unknown as lists.ActiveTeacher,
+    ]);
+    show();
+    await screen.findByText("Ahlem Trabelsi");
+    const row = screen.getByText("Ahlem Trabelsi").closest("tr");
+    fireEvent.click(row?.querySelector("input[type=checkbox]") as HTMLElement);
+    fireEvent.click(screen.getByText("Remove 1"));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText(/6 sections have them chosen/)).toBeTruthy();
+  });
+
+
   async function pickOneAndPressRemove() {
     show();
     await screen.findByText("Ahlem Trabelsi");

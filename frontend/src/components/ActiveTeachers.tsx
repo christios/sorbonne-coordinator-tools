@@ -70,6 +70,10 @@ const COLUMNS: GridColumn<ActiveTeacher>[] = [
 const SHOWN = ["fullName", "email", "source", "type", "department", "courses", "lastTerm"];
 
 const idOf = (row: ActiveTeacher) => row.id;
+
+/** How many sections have chosen the teachers about to be removed. */
+const chosenOn = (rows: ActiveTeacher[] | undefined, selected: ReadonlySet<string>) =>
+  (rows ?? []).filter((row) => selected.has(row.id)).reduce((count, row) => count + (row.linkedSections ?? 0), 0);
 const labelOf = (row: ActiveTeacher) => row.fullName || row.email || row.id;
 const renderCell = (row: ActiveTeacher, column: GridColumn<ActiveTeacher>) =>
   column.id === "source" ? (
@@ -226,7 +230,22 @@ export function ActiveTeachers({ onOpenTeacher }: { onOpenTeacher?: (teacher: Te
       <ConfirmDialog
         open={confirmRemove}
         title={`Remove ${selected.size} from active teachers?`}
-        description="They stay in the portal's list and in the part-time database; only the department's list forgets them."
+        /*
+         * The sections are said out loud, because removing somebody clears them.
+         *
+         * A section that has chosen a teacher points at their row on this list, so removing
+         * the row has to let those sections go — the alternative is a link to nothing, and a
+         * link to nothing does not read as an empty one: the card falls back to whatever
+         * name was typed on the row, which may be a year old, and goes on naming somebody
+         * who was deliberately taken off.
+         */
+        description={
+          chosenOn(active.data, selected)
+            ? `They stay in the portal's list and in the part-time database. ${chosenOn(active.data, selected)} ${
+                chosenOn(active.data, selected) === 1 ? "section has" : "sections have"
+              } them chosen and will be left with no teacher chosen.`
+            : "They stay in the portal's list and in the part-time database; only the department's list forgets them."
+        }
         confirmLabel="Remove"
         busy={remove.isPending}
         onConfirm={() => remove.mutate([...selected])}
