@@ -479,6 +479,59 @@ class TeacherStore:
             ).scalar_one()
         return {"imported": imported, "retained": retained, "obsoleted": obsoleted, "totalActive": total_active}
 
+    def list_courses_by_code(self, *, query: str = "") -> list[dict[str, Any]]:
+        """One row per course, not per section.
+
+        A syllabus is the course's document: PHYS-118 has one however many CRNs run it.
+        Credit, level and contact hours are taken from the sections, which agree; the
+        CRNs and terms are carried so a course can still be traced back to them.
+        """
+        filters = ["is_obsolete = FALSE"]
+        params: dict[str, str] = {}
+        if query.strip():
+            filters.append("(course_code ILIKE :query OR course_title ILIKE :query)")
+            params["query"] = f"%{query.strip()}%"
+        where = f"WHERE {' AND '.join(filters)}"
+        with self.engine.connect() as connection:
+            rows = (
+                connection.execute(
+                    text(
+                        f"""
+                    SELECT course_code,
+                           MIN(course_title) AS course_title,
+                           MIN(NULLIF(credit, '')) AS credit,
+                           MIN(NULLIF(level, '')) AS level,
+                           MIN(NULLIF(department, '')) AS department,
+                           MIN(NULLIF(college, '')) AS college,
+                           MIN(NULLIF(contact_hours, '')) AS contact_hours,
+                           ARRAY_AGG(DISTINCT term) AS terms,
+                           ARRAY_AGG(DISTINCT crn) AS crns
+                    FROM course_catalogue_entries
+                    {where}
+                    GROUP BY course_code
+                    ORDER BY MIN(course_title) ASC, course_code ASC
+                    """
+                    ),
+                    params,
+                )
+                .mappings()
+                .all()
+            )
+        return [
+            {
+                "courseCode": row["course_code"],
+                "courseTitle": row["course_title"] or "",
+                "credit": row["credit"] or "",
+                "level": row["level"] or "",
+                "department": row["department"] or "",
+                "college": row["college"] or "",
+                "contactHours": row["contact_hours"] or "",
+                "terms": sorted(term for term in (row["terms"] or []) if term),
+                "crns": sorted(crn for crn in (row["crns"] or []) if crn),
+            }
+            for row in rows
+        ]
+
     def list_course_catalogue(self, *, query: str = "", include_obsolete: bool = False) -> list[dict[str, Any]]:
         filters = [] if include_obsolete else ["is_obsolete = FALSE"]
         params: dict[str, str] = {}

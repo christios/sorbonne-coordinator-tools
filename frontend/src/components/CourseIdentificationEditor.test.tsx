@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { CourseIdentificationEditor } from "./CourseIdentificationEditor";
 
 describe("CourseIdentificationEditor", () => {
-  it("preserves legacy prerequisites and equipment as editable list entries", () => {
+  it("keeps a legacy prerequisite readable now that prerequisites are chosen courses", () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(<QueryClientProvider client={queryClient}><CourseIdentificationEditor
       value={{ prerequisites: "Foundational statistics", equipment: "Laptop computer" }}
@@ -19,13 +19,15 @@ describe("CourseIdentificationEditor", () => {
       onOpenHistory={vi.fn()}
     /></QueryClientProvider>);
 
-    expect(screen.getByLabelText("Prerequisites and co-requisites 1")).toHaveProperty("value", "Foundational statistics");
+    // Prerequisites are now picked from the course catalogue, so a legacy free-text
+    // value is shown as a selected entry rather than an editable box.
+    expect(screen.getByText("Foundational statistics")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Remove Foundational statistics from prerequisites" })).toBeTruthy();
     expect(screen.getByLabelText("Equipment 1")).toHaveProperty("value", "Laptop computer");
-    expect(screen.getByRole("button", { name: "Add prerequisite or co-requisite" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Add equipment item" })).toBeTruthy();
   });
 
-  it("uses direct-entry contact-hour fields without native number steppers", () => {
+  it("gives contact hours a number stepper", () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(<QueryClientProvider client={queryClient}><CourseIdentificationEditor
       value={{ contactHours: { Lectures: "20" } }}
@@ -39,9 +41,11 @@ describe("CourseIdentificationEditor", () => {
       onOpenHistory={vi.fn()}
     /></QueryClientProvider>);
 
-    const lectures = screen.getByRole("textbox", { name: "Lectures" });
-    expect(lectures.getAttribute("type")).toBe("text");
-    expect(lectures.getAttribute("inputmode")).toBe("decimal");
+    // Arrows are wanted; HistoryTextField stops the wheel changing a focused number,
+    // which is what made the old stepper feel twitchy.
+    const lectures = screen.getByRole("spinbutton", { name: "Lectures" });
+    expect(lectures.getAttribute("type")).toBe("number");
+    expect(lectures.getAttribute("step")).toBe("1");
     expect(lectures).toHaveProperty("value", "20");
   });
 

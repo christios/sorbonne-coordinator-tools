@@ -43,6 +43,7 @@ import { ScheduleEditor } from "@/components/ScheduleEditor";
 import { SelectMenu } from "@/components/SelectMenu";
 import { AssessmentTabs } from "@/components/AssessmentTabs";
 import { AddEntryButton } from "@/components/AddEntryButton";
+import { listCoursesByCode } from "@/services/courses";
 import { PloAlignmentField } from "@/components/PloAlignmentField";
 import { SectionEditorShell } from "@/components/SectionEditorShell";
 import { SyllabusSubsection } from "@/components/SyllabusSubsection";
@@ -476,6 +477,10 @@ function SectionForm({
     queryKey: ["syllabus-catalogues", "assessment-types", "editor"],
     queryFn: () => listCatalogueEntries("assessment-types"),
   });
+  const catalogueCourses = useQuery({
+    queryKey: ["course-catalogue", "by-code"],
+    queryFn: () => listCoursesByCode(),
+  });
   const aiPolicies = useQuery({
     queryKey: ["syllabus-catalogues", "ai-policies", "editor"],
     queryFn: () => listCatalogueEntries("ai-policies"),
@@ -713,6 +718,7 @@ function SectionForm({
           value: programme.id,
           label: programme.label,
         }))}
+        courses={catalogueCourses.data ?? []}
       />
     );
   if (active === "contacts")
