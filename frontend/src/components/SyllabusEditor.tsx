@@ -502,10 +502,13 @@ function SectionForm({
     queryKey: ["syllabus-catalogues", "assessment-types", "editor"],
     queryFn: () => listCatalogueEntries("assessment-types"),
   });
+  const boundCourseCode = stringify(sectionFrom(content.identification).catalogueCourseCode);
   const catalogueCourses = useQuery({
     queryKey: ["course-catalogue", "by-code"],
     queryFn: () => listCoursesByCode(),
   });
+  const courseTeachers =
+    (catalogueCourses.data ?? []).find((course) => course.courseCode === boundCourseCode)?.teachers ?? [];
   const aiPolicies = useQuery({
     queryKey: ["syllabus-catalogues", "ai-policies", "editor"],
     queryFn: () => listCatalogueEntries("ai-policies"),
@@ -755,6 +758,7 @@ function SectionForm({
         revision={draft.revision}
         onOpenHistory={onOpenHistory}
         people={people.data ?? []}
+          courseTeachers={courseTeachers}
       />
     );
   if (active === "description")

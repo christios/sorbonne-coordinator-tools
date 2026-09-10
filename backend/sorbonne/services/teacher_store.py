@@ -486,10 +486,10 @@ class TeacherStore:
         Credit, level and contact hours are taken from the sections, which agree; the
         CRNs and terms are carried so a course can still be traced back to them.
         """
-        filters = ["is_obsolete = FALSE"]
+        filters = ["course_catalogue_entries.is_obsolete = FALSE"]
         params: dict[str, str] = {}
         if query.strip():
-            filters.append("(course_code ILIKE :query OR course_title ILIKE :query)")
+            filters.append("(course_catalogue_entries.course_code ILIKE :query OR course_title ILIKE :query)")
             params["query"] = f"%{query.strip()}%"
         where = f"WHERE {' AND '.join(filters)}"
         with self.engine.connect() as connection:
@@ -497,7 +497,7 @@ class TeacherStore:
                 connection.execute(
                     text(
                         f"""
-                    SELECT course_code,
+                    SELECT course_catalogue_entries.course_code AS course_code,
                            MIN(course_title) AS course_title,
                            MIN(NULLIF(credit, '')) AS credit,
                            MIN(NULLIF(level, '')) AS level,
@@ -505,11 +505,13 @@ class TeacherStore:
                            MIN(NULLIF(college, '')) AS college,
                            MIN(NULLIF(contact_hours, '')) AS contact_hours,
                            ARRAY_AGG(DISTINCT term) AS terms,
-                           ARRAY_AGG(DISTINCT crn) AS crns
+                           ARRAY_AGG(DISTINCT course_catalogue_entries.crn) AS crns,
+                           ARRAY_AGG(DISTINCT NULLIF(sections.teacher, '')) AS teachers
                     FROM course_catalogue_entries
+                    LEFT JOIN group_crns AS sections ON sections.crn = course_catalogue_entries.crn
                     {where}
-                    GROUP BY course_code
-                    ORDER BY MIN(course_title) ASC, course_code ASC
+                    GROUP BY course_catalogue_entries.course_code
+                    ORDER BY MIN(course_title) ASC, course_catalogue_entries.course_code ASC
                     """
                     ),
                     params,
@@ -528,6 +530,8 @@ class TeacherStore:
                 "contactHours": row["contact_hours"] or "",
                 "terms": sorted(term for term in (row["terms"] or []) if term),
                 "crns": sorted(crn for crn in (row["crns"] or []) if crn),
+                # Who teaches its sections, when Students and Timetables knows.
+                "teachers": sorted(name for name in (row["teachers"] or []) if name),
             }
             for row in rows
         ]

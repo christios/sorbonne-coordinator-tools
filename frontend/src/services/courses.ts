@@ -11,6 +11,8 @@ export type CatalogueCourse = {
   contactHours: string;
   terms: string[];
   crns: string[];
+  /** Who teaches its sections, when Students and Timetables knows. */
+  teachers: string[];
 };
 
 export async function listCoursesByCode(query = ""): Promise<CatalogueCourse[]> {
