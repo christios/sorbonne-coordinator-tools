@@ -1,5 +1,40 @@
 # Three sources of truth: the plan, second draft
 
+> ## Where this stands — 10 September 2026
+>
+> **All 24 items are shipped, and so is every stage but one half of Stage 4.** This document
+> is now a record of why the platform is shaped the way it is, not a list of work to pick up.
+> Read it for the reasoning; do not read the stages as a queue.
+>
+> Checked against the running code and against production on the day this was written, item by
+> item, rather than assumed. Two of the stages turned out to be already built when the check
+> was made — Stage 4's `expected` half and the whole of Stage 5 — which is precisely the failure
+> this note exists to prevent: the previous version of this table would have had a later
+> session re-planning finished work.
+>
+> **What is genuinely not built:**
+>
+> - **Stage 4's handover *note*** — the half-day tail that would say "these two CRNs look like
+>   a handover: same room, sequential dates". Never written. Its value dropped sharply once
+>   `_expected_on` made the dates load-bearing, because the thing the note was going to explain
+>   no longer produces a warning to explain.
+> - **D3** — the French students in two groups of one set. The `doubled` verdict is built and
+>   reports them; the policy question behind it ("is this ever legitimate, and if so how is it
+>   said?") was never answered.
+> - **D8** — should a shared set count toward the readiness of cohorts that do not own it?
+>   Today it does not. Nobody decided that; it is what the code happened to do.
+>
+> **What the plan predicted and production did not confirm.** Stage 4 says `expected` being
+> date-blind was wrong "for ten students, every single day". That was true when written and is
+> now fixed, but the shape of the data is worth recording: of the 24 course codes the registrar
+> publishes under more than one CRN this term, almost all are a CM and a TD running *side by
+> side* all semester — not a handover at all. Only MATH-351 is genuinely sequential
+> (24313 to 9 October, then 24311 from 19 October). A future reader should not assume "two CRNs
+> for one course" means "handover"; on this data it usually means "lecture and tutorial".
+>
+> **The one open decision the code cannot make.** Everything above is a choice about the
+> department, not about the software. They are listed in §6 and none of them is blocking.
+
 This is the third pass. Draft one was torn apart by a completeness critic; draft two closed
 those sixteen holes and a second reviewer then found ten more, six of them specification defects
 that would have failed on first implementation. All ten are corrected here — the route that
@@ -937,7 +972,7 @@ Seven stages. Each is independently shippable, each names the items it closes an
 make it done, and **nothing depends on a later stage**. Per working agreement #4, every test
 against a confirmed bug is written and seen to fail before its fix.
 
-### Stage 0 — Clear the decks (0a ~3 days, 0b ~3 days)
+### Stage 0 — Clear the decks (0a ~3 days, 0b ~3 days) · **SHIPPED**
 
 > **On the estimates in this plan.** They are relative sizings, not commitments, and the second
 > reviewer was right that the first draft's were fiction: eleven items, ~40 named tests, a
@@ -1048,7 +1083,7 @@ fixtures that already exist. Its value is rehearsal on real shapes. Blocked on D
 column), I23, I24 (halves A), I17 (items 1–5), plus the three structural prerequisites (§3.4, §3.5,
 §3.10's family predicate). Marks I02 already-built. I01 waits on you.
 
-### Stage 1 — The registrar's schedule, stored (5 days)
+### Stage 1 — The registrar's schedule, stored (5 days) · **SHIPPED**
 
 Useful alone, without the Hub and without any later stage: it answers *which of our CRNs has the
 registrar not put on a timetable?* — 30 of 165 in the pilot, each one a class with no room booked.
@@ -1111,7 +1146,7 @@ registrar not put on a timetable?* — 30 of 165 in the pilot, each one a class 
 **Closes:** I08, I24 (age + version gate), the ingestion half of the three-source model.
 **Depends on:** Stage 0 only for the card layout fix and the dismissal families.
 
-### Stage 2 — Clashes start telling the truth (2 days)
+### Stage 2 — Clashes start telling the truth (2 days) · **SHIPPED**
 
 - **First commit:** `FillBlock`/`CourseDetail`/`CourseCards` switch from `clashes` to
   `ClashReport` and gate on evidence (§3.7) — before ClashPanel is relabelled and before any new
@@ -1187,7 +1222,7 @@ today.
 
 **Closes:** I05, I19 (part 2). **Depends on:** Stages 0 and 1.
 
-### Stage 3 — The 31 clashing students, and the collisions nobody owns (2 days)
+### Stage 3 — The 31 clashing students, and the collisions nobody owns (2 days) · **SHIPPED**
 
 - `student_clashes(sessions, registrations)` beside `clashes()` in the same module, sharing
   `_overlap`/`_windows`. Not `clashes()` itself — an elective belongs to no group.
@@ -1265,7 +1300,7 @@ more expensive. With four cohorts that is fine; the moment a fifth appears, or t
 computation shows up in a profile, the fix is to key the clash half on the term rather than the
 cohort and let the four cohorts share one computation. Not pre-emptively.
 
-### Stage 3b — The Meets column (1 day)
+### Stage 3b — The Meets column (1 day) · **SHIPPED**
 
 §3.9's correlated column. It consumes `facility_meetings` so it cannot precede Stage 1, and it is
 the one surface where the facilities pull pays you back on a question you actually ask rather than
@@ -1283,7 +1318,23 @@ hidden"`; `test_portal_api.py::test_section_days_answers_without_the_student_hub
 
 **Closes:** I22 (second half). **Depends on:** Stage 1.
 
-### Stage 4 — Date-aware `expected`, and the handover note (2 days)
+### Stage 4 — Date-aware `expected`, and the handover note (2 days) · **`expected` SHIPPED, note NOT BUILT**
+
+> **Since:** the date-aware half is built, as `_expected_on` in `portal_lists.py` — three
+> tiers (running today, else not-yet-started, else everything) with an undated section kept
+> whatever tier wins, and `TermCoverage.undated_crns` declaring the fail-open rather than
+> hiding it. Verified on production: MATH-351's real handover produces no false warnings, and
+> the only `missing` verdicts in the department are three genuine ones about a student who
+> registered for their lectures and not their tutorials.
+>
+> The **note** was never written, and is worth less than it looks. It was to explain a pair a
+> coordinator would otherwise puzzle over — but once the dates decide which half is expected,
+> the pair stops producing anything to puzzle over.
+>
+> One correction to the paragraph below, from the data rather than from reasoning: of the 24
+> course codes the registrar publishes under more than one CRN this term, almost all are a
+> lecture and a tutorial running **side by side all semester**. Only MATH-351 is genuinely
+> sequential. "Two CRNs for one course" is not a synonym for "handover".
 
 **This moves ahead of the teacher work, and the PK change leaves the plan entirely.**
 
@@ -1325,7 +1376,7 @@ Presented as a note, never a warning.
 
 **Depends on:** Stage 1 (the meeting windows). Nothing else.
 
-### Stage 5 — Teacher and register drift (1½ days)
+### Stage 5 — Teacher and register drift (1½ days) · **SHIPPED**
 
 - Fifth/sixth `register_check` buckets: `teacherDiffers` (ours from `group_crns.teacher_id` →
   `active_teachers`, theirs from `portal_courses.teacher_name`, compared through `_name_key` at
@@ -1346,7 +1397,7 @@ Presented as a note, never a warning.
 **Closes:** I10, I18, I15 (planning half). **Depends on:** Stage 1 for the facilities teacher name;
 the portal-vs-planning half could ship earlier if you want it sooner.
 
-### Stage 6 — Optional, on demand
+### Stage 6 — Optional, on demand · **SHIPPED** (I16 and I17 were done alongside the rest)
 
 - I16, the group roster modal.
 - I17 items 8–9, and here is the argument rather than the default. **No automatic retry of a failed
@@ -1370,30 +1421,30 @@ the portal-vs-planning half could ship earlier if you want it sooner.
 
 | id | One line | Verdict | Size | Stage | Primary file |
 |---|---|---|---|---|---|
-| I01 | Copy prod data into local dev | feature-work — **blocked on D1** | small | 0 (chore, blocks nothing) | `backend/scripts/copy_prod_to_dev.py` (new) |
-| I02 | Row highlight + arrow keys on the history pane | **already fixed** (040bdf7, test passes) | trivial | — | `frontend/src/components/StudentRoster.tsx:199` |
-| I03 | Circle-plus / circle-x filter icons | feature-work — **needs D5** | trivial | 0 | `frontend/src/components/TableFilterBar.tsx:119` |
-| I04 | Bulk restore dismissed warnings, and stop the prune eating them | **confirmed bug** + feature | small | 0 | `frontend/src/services/dismissals.ts:54` |
-| I05 | One-click "place this student in every set" | feature-work | medium | 2 | `frontend/src/components/StudentRecord.tsx:281` |
-| I06 | Retired groups excluded from `PlaceInBlock` | feature-work | small | 0 | `frontend/src/components/PlaceInBlock.tsx:121` |
-| I07 | Shared/openToAll sets missing from `PlaceInBlock` | **confirmed bug** (3rd recurrence) | small | 0 | `frontend/src/components/PlaceInBlock.tsx:49` |
-| I08 | Choose which students a fill acts on | feature-work | small | 1 | `frontend/src/components/FillBlock.tsx:93` |
-| I09 | Retired groups excluded from the fill | **confirmed bug** (the checkbox already promises it) | small | 0 | `frontend/src/components/FillBlock.tsx:119` |
-| I10 | Portal teacher vs our teacher | feature-work | medium | 5 | `backend/sorbonne/services/portal_lists.py:932` |
-| I11 | Fullness bar not flush on some cards | **confirmed bug** | trivial | 0 | `frontend/src/components/CourseDetail.tsx:203` |
-| I12 | No warning when the registrar has a student in nothing | feature-work | medium | 3 | `backend/sorbonne/services/portal_lists.py:1208` |
-| I13 | `PlaceInBlock` handles only one set at a time | feature-work | medium | 0 | `frontend/src/components/PlaceInBlock.tsx:103` |
-| I14 | Active Teachers removal freezes the dialog | **confirmed bug** | small | 0 | `frontend/src/components/ConfirmDialog.tsx:62` |
-| I15 | Students in two groups of one set (French) | **confirmed bug** — **needs D3** | medium | 3 (registrar) + 5 (planning) | `backend/sorbonne/services/portal_lists.py:1224` |
-| I16 | Eye icon → who is in this group | feature-work | medium | 6 | `frontend/src/components/CourseDetail.tsx:227` |
-| I17 | Sync timeouts, retries, cancel | feature-work | medium | 0 (items 1–5) + 6 (retry button, Stop) | `frontend/src/services/syncRun.ts:213` |
-| I18 | Teacher/CRN validation on Active Courses | feature-work | medium | 5 | `backend/sorbonne/services/portal_lists.py:932` |
-| I19 | Cohort move warned about groups, removed none | **confirmed bug — misdiagnosed**: the server retains, the warning lies | small | 0 (the warning) + 2 (`keepShared`) | `frontend/src/services/cohortMove.ts:38` |
-| I20 | Merge Course Registration into Cohorts | **needs D4** | medium | 0 (furniture only) | `frontend/src/components/CohortsPage.tsx:94` |
-| I21 | Small-print labels on record pills | feature-work | trivial | 0 | `frontend/src/components/StudentRecord.tsx:216` |
-| I22 | Ad-hoc queries ("physics, L3, Tuesday, languages") | feature-work — **first draft's design was wrong** | medium | 0 (`Set`) + 3b (`Meets`) | `frontend/src/services/studentColumns.ts:128` |
-| I23 | Search bar above the cohort dropdown | **needs D6** | small | 0 | `frontend/src/components/StudentRoster.tsx:557` |
-| I24 | One clear sync message + age on the button | feature-work | small | 0 (the message) + 1 (the age) | `frontend/src/components/PortalSyncButton.tsx:146` |
+| I01 | Copy prod data into local dev | **shipped** — and now carries the sweep and the part-time database too | small | 0 (chore, blocks nothing) | `backend/scripts/copy_prod_to_dev.py` (new) |
+| I02 | Row highlight + arrow keys on the history pane | **shipped** (040bdf7) | trivial | — | `frontend/src/components/StudentRoster.tsx:199` |
+| I03 | Circle-plus / circle-x filter icons | **shipped** — funnel-plus / funnel-x, not circles | trivial | 0 | `frontend/src/components/TableFilterBar.tsx:119` |
+| I04 | Bulk restore dismissed warnings, and stop the prune eating them | **shipped** | small | 0 | `frontend/src/services/dismissals.ts:54` |
+| I05 | One-click "place this student in every set" | **shipped** — `groupWalk` around an unchanged `planFill`, two mounts | medium | 2 | `frontend/src/components/StudentRecord.tsx:281` |
+| I06 | Retired groups excluded from `PlaceInBlock` | **shipped** | small | 0 | `frontend/src/components/PlaceInBlock.tsx:121` |
+| I07 | Shared/openToAll sets missing from `PlaceInBlock` | **shipped** | small | 0 | `frontend/src/components/PlaceInBlock.tsx:49` |
+| I08 | Choose which students a fill acts on | **shipped** — a Who control on the fill, default unchanged and pinned first | small | 1 | `frontend/src/components/FillBlock.tsx:93` |
+| I09 | Retired groups excluded from the fill | **shipped** | small | 0 | `frontend/src/components/FillBlock.tsx:119` |
+| I10 | Portal teacher vs our teacher | **shipped** — `teacherDiffers` / `teacherUnnamed` | medium | 5 | `backend/sorbonne/services/portal_lists.py:932` |
+| I11 | Fullness bar not flush on some cards | **shipped** | trivial | 0 | `frontend/src/components/CourseDetail.tsx:203` |
+| I12 | No warning when the registrar has a student in nothing | **shipped** — the `unplaced` bucket | medium | 3 | `backend/sorbonne/services/portal_lists.py:1208` |
+| I13 | `PlaceInBlock` handles only one set at a time | **shipped** — one row per set | medium | 0 | `frontend/src/components/PlaceInBlock.tsx:103` |
+| I14 | Active Teachers removal freezes the dialog | **shipped** — `onSettled`, not `onSuccess` | small | 0 | `frontend/src/components/ConfirmDialog.tsx:62` |
+| I15 | Students in two groups of one set (French) | **shipped** — `_doubled_in_a_set`, read across the semester | medium | 3 (registrar) + 5 (planning) | `backend/sorbonne/services/portal_lists.py:1224` |
+| I16 | Eye icon → who is in this group | **shipped** | medium | 6 | `frontend/src/components/CourseDetail.tsx:227` |
+| I17 | Sync timeouts, retries, cancel | **shipped** — `retryFailed` and a Stop | medium | 0 (items 1–5) + 6 (retry button, Stop) | `frontend/src/services/syncRun.ts:213` |
+| I18 | Teacher/CRN validation on Active Courses | **shipped** — accept / refer, with a note | medium | 5 | `backend/sorbonne/services/portal_lists.py:932` |
+| I19 | Cohort move warned about groups, removed none | **shipped** — both parts, `keepShared` included | small | 0 (the warning) + 2 (`keepShared`) | `frontend/src/services/cohortMove.ts:38` |
+| I20 | Merge Course Registration into Cohorts | **shipped** — one page; Course Registration is the register half of Cohorts | medium | 0 (furniture only) | `frontend/src/components/CohortsPage.tsx:94` |
+| I21 | Small-print labels on record pills | **shipped** | trivial | 0 | `frontend/src/components/StudentRecord.tsx:216` |
+| I22 | Ad-hoc queries ("physics, L3, Tuesday, languages") | **shipped** — `Set` and the `Meets` column | medium | 0 (`Set`) + 3b (`Meets`) | `frontend/src/services/studentColumns.ts:128` |
+| I23 | Search bar above the cohort dropdown | **shipped** | small | 0 | `frontend/src/components/StudentRoster.tsx:557` |
+| I24 | One clear sync message + age on the button | **shipped** — one message, and the age on the button | small | 0 (the message) + 1 (the age) | `frontend/src/components/PortalSyncButton.tsx:146` |
 
 **Already fixed:** I02 only. **Blocked on you:** I01 (D1), I03 (D5), I15 (D3), I20 (D4), I23 (D6),
 plus the elective pull (D2) which gates part of Stage 1 and all of Stage 3's `collides` bucket.
@@ -1402,7 +1453,7 @@ plus the elective pull (D2) which gates part of Stage 1 and all of Stage 3's `co
 
 ## 6. Decisions I need from you
 
-### D1 — The prod→dev copy is a constraint waiver, not a recommendation
+### D1 — The prod→dev copy is a constraint waiver, not a recommendation · **TAKEN: built, with the waiver written into the script**
 
 Your stated rule is that **production data loads go through the app's own API, never direct DB
 access to prod**. A copy is a read, so the rule is not literally engaged — but the real question is
@@ -1465,7 +1516,7 @@ pytest run destroys the copy.**
 - `test_copy_from_prod.py::test_it_refuses_to_write_to_anything_but_a_local_database` (new — the script's only real hazard is a mis-set target)
 - `test_copy_from_prod.py::test_it_never_reads_a_list_that_carries_a_person_s_name_unless_asked`
 
-### D2 — May the extension ask the registrar about sections that are not ours?
+### D2 — May the extension ask the registrar about sections that are not ours? · **TAKEN: yes, and it is how the department-vs-department collisions are found**
 
 May the SCEN Rosters extension pull the room schedule of the ~44 elective and option sections our
 own students are registered in (SPRT, ENGL, SPAN, ARAB, GERM, ECON, SOCI, MGMT this term), or
@@ -1494,7 +1545,7 @@ If the answer is no, the fix is one clause in the timetable-targets query (drop 
 clash stays invisible. That is a defensible outcome — we would simply not be able to see a clash we
 could only fix by moving our own section anyway — but it costs the 6 students in the pilot.
 
-### D3 — The French students in two groups
+### D3 — The French students in two groups · **OPEN** — the `doubled` verdict reports them; the policy behind it was never settled
 
 Is the registrar registering them in two French CRNs, or do *our* `group_assignments` hold them in
 two French groups?
@@ -1504,7 +1555,7 @@ Registration.** The registrar-side check already exists and fires per student (`
 CRNs yet (`term_scope_crns` filters `gc.crn <> ''`). The planning-side check does not exist at all
 and is Stage 5 either way. One look decides which half is real.
 
-### D4 — Cohorts + Course Registration: one page or two?
+### D4 — Cohorts + Course Registration: one page or two? · **TAKEN: one page**
 
 → **Recommendation: two pages, shared furniture.** You split them on measurement three days ago and
 a third source is now arriving. Stage 0 does the six-line remembered-cohort fix; re-ask in a month.
@@ -1512,21 +1563,21 @@ If you want them merged, merge as a segmented control that swaps *which family f
 column*, never as one column with two sources — the count-based sort (`studentColumns.ts:168`) will
 lead the page with volume regardless of colour.
 
-### D5 — Filter icons: green/red at rest, or on hover only?
+### D5 — Filter icons: green/red at rest, or on hover only? · **TAKEN: funnel-plus and funnel-x, at rest**
 
 → **Recommendation: hover only, as the clear button does today (`TableFilterBar.tsx:89`).**
 `AGENTS.md:34` and the binding `ui-ux-decisions.md` reserve red for destructive actions, and
 clearing filters destroys nothing. If you want them worn at rest, add a dated line to AGENTS.md
 recording the exception, or the next session will revert it.
 
-### D6 — "Search on top wherever there is a cohort dropdown"
+### D6 — "Search on top wherever there is a cohort dropdown" · **TAKEN: built, and it says which it is searching**
 
 → **Recommendation: the two roster pages only, via an opt-in prop.** On Groups & CRNs this reverses
 commit 138c600, whose comment at `CourseCards.tsx:330-342` records that the search was deliberately
 moved *down* to sit over the list it narrows. Two of the five cohort-dropdown pages (Capacity, Group
 schema) have no search at all.
 
-### D7 — `PortalTermLink` on Groups & CRNs
+### D7 — `PortalTermLink` on Groups & CRNs · **TAKEN: mounted there**
 
 The Hub-free clash report needs a `term_link` to reach the facilities rows, and `PortalTermLink` is
 mounted only at `SemesterList.tsx:166` — on a Hub-gated page. So today a deployment with no Hub
@@ -1536,7 +1587,7 @@ placeholder.** It adds a control to a page you reorganised on 2026-09-05 (`0c931
 I am asking. The fallback if you would rather not is a sentence on the coverage line linking to
 Semesters — worse only when the Hub is down, which is exactly the case this is for.
 
-### D8 — Should a shared set count toward the readiness of cohorts that do not own it?
+### D8 — Should a shared set count toward the readiness of cohorts that do not own it? · **OPEN** — today it does not, which nobody decided
 
 I.e. should "L1 has 40 students with no language group" block L1's publish, the way it already
 blocks Foundation Year's because Foundation Year happens to hold the row?

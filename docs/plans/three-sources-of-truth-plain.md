@@ -4,6 +4,28 @@
 
 ---
 
+> ## It is all built — 10 September 2026
+>
+> Every one of the twenty-four requests below is now on the platform, and so is every phase.
+> Read this for **why** things work the way they do; it is no longer a description of work to
+> come. Checked against the running platform and against the live data, request by request.
+>
+> Three things are genuinely not done, and none of them is code waiting to be written:
+>
+> - **A note explaining a handover.** Two CRNs for one course, one after the other, were going
+>   to get a line saying "these two look like the same class handed over". They no longer need
+>   one: the platform now reads the dates and only expects the half that is actually running,
+>   so there is nothing left to explain.
+> - **The French students in two groups of one set.** The platform reports them. What it should
+>   *do* about them is a decision about the department, and nobody has taken it.
+> - **Whether a language set counts toward another year's readiness.** Today it does not. That
+>   was never decided — it is simply what the code does.
+>
+> One thing the plan got wrong that the data corrected: it assumed that a course published
+> under two CRNs meant a professor handing over mid-semester. Of the twenty-four such courses
+> this term, nearly all are simply a lecture and a tutorial running side by side all term. Only
+> MATH-351 is a real handover.
+
 ## The problem
 
 Three separate records describe where our students are supposed to be, and no two of them are
@@ -224,10 +246,12 @@ There is one this semester, it affects one student, and neither section is ours 
 
 ### Phase F — The remaining comparisons
 
-**Half-semester handovers stop producing false warnings.** Today both halves of a handover count as
-expected all year, so ten students are reported as missing a registration every single day — the
-second half before it has started, the first half after it has ended. That is wrong now, not
-wrong-in-future, and the fix needs nothing new stored: it uses the dates Phase C already brings in.
+**Half-semester handovers stop producing false warnings.** Both halves of a handover used to count
+as expected all year, so ten students were reported as missing a registration every single day —
+the second half before it had started, the first half after it had ended. Fixed, using the dates
+Phase C brings in and nothing newly stored. On the live data the only registration warnings left in
+the whole department are three real ones, about one student who signed up for their lectures and
+not their tutorials.
 
 Questions that depend on the day of the week become answerable — *"do we have any physics student
 in L3 with languages on a Tuesday?"* is the shape, and it is unanswerable today at any price
@@ -268,10 +292,14 @@ retries · one clear message when the portal is not signed in · labels on the p
 day-of-week questions · copying live data into testing · filter icons · merging Course Registration
 into Cohorts · search bar placement.
 
-Five of these wait on a decision from you — copying live data into testing, the filter icons, the
+Five of these waited on a decision from you — copying live data into testing, the filter icons, the
 French groups question, merging Course Registration into Cohorts, and the search bar. Decisions 2,
-7 and 8 below arose from the plan rather than from your list, which is why there are eight
+7 and 8 below arose from the plan rather than from your list, which is why there were eight
 decisions and five blocked requests.
+
+**All sixteen are built.** Six of the eight decisions were taken and are marked below; the two
+still open are the French groups question and whether a language set should count toward another
+year's readiness. Neither is holding anything up.
 
 ---
 
@@ -280,7 +308,7 @@ decisions and five blocked requests.
 Each has a recommendation, so you can accept or overrule rather than design from scratch. Only
 decisions 1, 5 and 6 hold up Phase A; the rest can wait weeks without stalling anything.
 
-**1. Copying live data into the test environment.** *Blocks nothing — it is rehearsal on real
+**1. Copying live data into the test environment.** · *TAKEN — the first way, built as Copy prod.* *Blocks nothing — it is rehearsal on real
 shapes, not a prerequisite.* Three ways to do it.
 
 *Replaying the platform's own read requests* uses the access token already on this machine. It
@@ -299,7 +327,7 @@ request.
 **Recommendation: the first.** If you want the direct copy, say so explicitly; it is a real change
 in what this laptop holds.
 
-**2. May the extension ask the registrar about other departments' sections?** *Blocks part of Phase
+**2. May the extension ask the registrar about other departments' sections?** · *TAKEN — yes, and it is how the collisions with other departments are found.* *Blocks part of Phase
 C and all of Phase E's Tuesday-slot work; the rest of Phase C ships without it.*
 
 The trial already pulled those 44 sections once, on your own portal session, which is how we know
@@ -312,7 +340,7 @@ enrolments. Whoever answers this decision is the person who would write to the r
 is built so this part stays switched off until you have an answer, so nothing waits on it. If the
 answer is no, we lose sight of six students' Tuesday collisions and nothing else.
 
-**3. The French students in two groups.** *Blocks nothing immediately, but it decides where the
+**3. The French students in two groups.** · *STILL OPEN — the platform reports them; what to do about them is yours.* *Blocks nothing immediately, but it decides where the
 larger half of Phase F's work goes.* This is 24 of the 31 clashes, so it is the biggest single
 number in this report.
 
@@ -326,28 +354,28 @@ on Course Registration. If the warning is there, it is the registrar's side and 
 it is not reaching you; if the Groups cell shows two French groups and no warning fires, it is
 ours. Most likely cause of a silent check: the French groups have no CRNs recorded against them yet.
 
-**4. Merge Course Registration into Cohorts?** **Recommendation: keep them as two pages, but make
+**4. Merge Course Registration into Cohorts?** · *TAKEN — merged; Course Registration is the register half of Cohorts.* **Recommendation: keep them as two pages, but make
 them behave alike** — the same remembered cohort, the same search, the same layout. You split them
 on evidence on 5 September and a third record is about to arrive. Take the remembered-cohort fix
 now and revisit in a month.
 
-**5. Filter icons in green and red.** *Blocks one Phase A item.* **Recommendation: coloured on
+**5. Filter icons in green and red.** · *TAKEN — a funnel with a plus and a funnel with a cross, visible at rest.* *Blocks one Phase A item.* **Recommendation: coloured on
 hover only.** The house rule reserves red for destructive actions, and clearing a filter destroys
 nothing. If you want them coloured at rest that is a fine call — but write the exception down, or
 the next time someone tidies the styling it will quietly go back.
 
-**6. Search bar above the cohort dropdown.** *Blocks one Phase A item.* **Recommendation: the two
+**6. Search bar above the cohort dropdown.** · *TAKEN — built, and it says whether it is searching this cohort or every one.* *Blocks one Phase A item.* **Recommendation: the two
 roster pages only.** On Groups & CRNs this reverses a deliberate change that moved the search
 *down*, to sit directly over the list it filters. Two of the five screens with a cohort dropdown
 have no search at all.
 
-**7. A small control needs a second home.** The link between our semesters and the registrar's
+**7. A small control needs a second home.** · *TAKEN — it is on Groups & CRNs too.* The link between our semesters and the registrar's
 terms can currently only be set on a page that switches itself off when the Student Hub is
 unavailable — and the new timetable work is specifically designed to keep working without the Hub.
 **Recommendation: add it** to Groups & CRNs next to the semester picker, as a second place to set
 the same link. It stays where it is on Semesters; nothing is taken away.
 
-**8. Should a shared language set block another cohort's publish?** Today a missing language group
+**8. Should a shared language set block another cohort's publish?** · *STILL OPEN — today it does not, which nobody decided.* Today a missing language group
 blocks Foundation Year's publish simply because the language set was created under Foundation Year.
 **Recommendation: no.** Nothing records who is *expected* to take a language, so turning this on
 would block every publish on day one.
