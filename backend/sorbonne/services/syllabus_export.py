@@ -118,6 +118,25 @@ def _fill_fys_assessments(document: Document, assessment: dict[str, Any]) -> Non
                 _set_cell_text(cell, value)
 
 
+def template_sections(template_id: str) -> list[str]:
+    """The headings of the approved template, in the order it prints them.
+
+    The export preview renders against this rather than against a list kept by hand,
+    so a section added to the template cannot go missing from the preview unnoticed.
+    """
+    document = Document(get_template(template_id).document_path)
+    headings: list[str] = []
+    for paragraph in document.paragraphs:
+        text = paragraph.text.strip()
+        if not text or text == "COURSE SYLLABUS":
+            continue
+        # The template numbers its subsections and styles its top-level headings as
+        # list paragraphs. Case is not a reliable signal: one of them ends "(if any)".
+        if re.match(r"^\d+\.\d*\.?\s+\S", text) or paragraph.style.name in {"List Paragraph", "Footer"}:
+            headings.append(text)
+    return headings
+
+
 def _fill_identification(table: Table, syllabus: dict[str, Any], identification: dict[str, Any]) -> None:
     values = [
         _text(syllabus.get("academicYear")),

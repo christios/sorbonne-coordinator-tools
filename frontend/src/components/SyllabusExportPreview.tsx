@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { API_BASE_URL, apiFetch } from "@/services/http";
 
-type Resolved = { courseTitle: string; courseCode: string; academicYear: string; content: Record<string, unknown> };
+type Resolved = { courseTitle: string; courseCode: string; academicYear: string; content: Record<string, unknown>; sections: string[] };
 
 /**
  * The exported document, before it is a document.
@@ -33,6 +33,9 @@ export function SyllabusExportPreview({ syllabusId }: { syllabusId: string }) {
   const assessment = record(content.assessment);
   const byWeek = text(assessment.scheduleBy) === "week";
 
+  const sections = preview.data.sections ?? [];
+  const missing = sections.filter((heading) => !RENDERED.some((prefix) => heading.startsWith(prefix)));
+
   return (
     <article className="mx-auto max-w-[52rem] rounded-lg border border-[#d9dee7] bg-white p-8 text-[#1f2937] shadow-sm">
       <header className="border-b border-[#d9dee7] pb-4">
@@ -41,49 +44,78 @@ export function SyllabusExportPreview({ syllabusId }: { syllabusId: string }) {
         <p className="mt-1 text-sm text-[#667085]">{preview.data.courseCode} · {preview.data.academicYear}</p>
       </header>
 
-      <Block heading="1. Course identification">
+      {missing.length ? (
+        <p role="status" className="mt-4 rounded-md border border-[#f0d8a8] bg-[#fdf8ee] px-3 py-2 text-sm text-[#8a6116]">
+          The template also prints {missing.join(", ")}. Those are not shown here yet.
+        </p>
+      ) : null}
+
+      <Block heading="1. COURSE IDENTIFICATION">
         <Rows rows={[
-          ["Programme", text(identification.programmeTitle)],
+          ["Programme title", text(identification.programmeTitle)],
           ["Degree level and semester", text(identification.degreeLevelAndSemester)],
           ["Number of ECTS", text(identification.ects)],
+          ...Object.entries(record(identification.contactHours)).map(([label, value]) => [`Contact hours — ${label}`, text(value)] as [string, string]),
+          ["Prerequisites", listText(identification.prerequisiteItems, identification.prerequisites)],
+          ["Co-requisites", listText(identification.corequisiteItems, identification.corequisites)],
+          ["Equipment", listText(identification.equipmentItems, identification.equipment)],
         ]} />
-        <Rows rows={Object.entries(record(identification.contactHours)).map(([label, value]) => [`Contact hours — ${label}`, text(value)])} />
       </Block>
 
-      <Block heading="2. Academic contacts">
-        <Rows rows={rows(contacts.instructors, contacts.instructor).map((person, index) => [`Instructor ${index + 1}`, [text(person.Name), text(person["Academic rank / status"]), text(person.Email)].filter(Boolean).join(" · ")])} />
+      <Block heading="2.1. Course instructor">
+        <Rows rows={rows(contacts.instructors, contacts.instructor).map((person, index) => [`Instructor ${index + 1}`, [text(person.Name), text(person["Academic rank / status"]), text(person.Email)].filter(Boolean).join(" · ")] as [string, string])} />
+      </Block>
+      <Block heading="2.2. Administrative contact point">
+        <Rows rows={[["Academic coordinator", [text(record(contacts.administrativeContact).name), text(record(contacts.administrativeContact).contactDetails)].filter(Boolean).join(" · ") || text(contacts.administrativeContact)]]} />
       </Block>
 
-      <Block heading="5.1 Programme learning outcomes">
+      <Block heading="3. COURSE DESCRIPTION">
+        <Prose value={text(record(content.description).overview)} />
+      </Block>
+
+      <Block heading="4. COURSE DELIVERY">
+        <Rows rows={[
+          ["Mode", text(record(content.delivery).mode)],
+          ["Face-to-face (%)", text(record(content.delivery).faceToFacePercent)],
+          ["Online (%)", text(record(content.delivery).onlinePercent)],
+        ]} />
+      </Block>
+
+      <Block heading="5.1. Programme Learning Outcomes">
         <Table headers={["Code", "Outcome"]} body={rows(outcomes.plos).map((plo) => [text(plo.code), text(plo.outcome) || text(plo.legacyText)])} />
       </Block>
 
-      <Block heading="5.2 Course learning outcomes">
+      <Block heading="5.2. Course learning outcomes linked to programme learning outcomes and Graduate Skills and Competencies">
         <Table
-          headers={["Course learning outcome", "Aligned PLO", "SCEN competencies", "SUAD competencies"]}
+          headers={["Course learning outcome", "Aligned PLO", "SCEN Graduate Competencies", "SUAD Graduate Competencies"]}
           body={rows(outcomes.clos).map((clo, index) => [numbered(text(clo.clo), index), text(clo.plo), text(clo.skills), text(clo.suadSkills)])}
         />
       </Block>
 
-      <Block heading="6. Course schedule">
-        <Table
-          headers={["Week", "Session", "Topic", "Assessment", "Date"]}
-          body={sessions(rows(content.schedule))}
-        />
+      <Block heading="6. COURSE SCHEDULE">
+        <Table headers={["Week", "Session", "Topic", "Assessment", "Date"]} body={sessions(rows(content.schedule))} />
       </Block>
 
-      <Block heading="8. Teaching and learning approach">
+      <Block heading="7. SUPPLEMENTAL BIBLIOGRAPHICAL RESOURCES RECOMMENDED (if any)">
+        <Rows rows={[
+          ["Books", resources(record(content.bibliography).books)],
+          ["Websites", resources(record(content.bibliography).websites)],
+          ["Journal articles", resources(record(content.bibliography).articles)],
+        ]} />
+      </Block>
+
+      <Block heading="8. TEACHING AND LEARNING APPROACH">
         {(["methods", "engagement", "feedback"] as const).map((key) => (
           <div key={key} className="mt-3">
             <p className="text-sm font-semibold">{SUBSECTION[key]}</p>
-            <p className="mt-1 whitespace-pre-line text-sm leading-6 text-[#374151]">{text(approach[key]) || "—"}</p>
+            <Prose value={text(approach[key])} />
           </div>
         ))}
       </Block>
 
-      <Block heading="9.1 Summary of graded activities">
+      <Block heading="9.1. Summary of all course assessments (graded learning activities)">
         <Table
-          headers={[byWeek ? "Week" : "Date", "Assessment", "Weight", "CLOs assessed", "AI policy"]}
+          headers={[byWeek ? "Week" : "Assessment date", "Assessment type", "Weight (%)", "CLO's assessed", "Applicable AI policy"]}
           body={rows(assessment.items).map((item) => [
             byWeek ? text(item.week) : text(item.date),
             text(item.name) || text(item.type),
@@ -94,19 +126,79 @@ export function SyllabusExportPreview({ syllabusId }: { syllabusId: string }) {
         />
       </Block>
 
-      <Block heading="9.5 Grading rubrics">
+      <Block heading="9.2. Table of Grade Equivalence">
+        <Prose value={GRADE_EQUIVALENCE} />
+      </Block>
+
+      <Block heading="9.3. AI Policy">
+        <Rows rows={[
+          ["Course-level policy", text(assessment.aiPolicy)],
+          ["Additional instructions regarding AI", text(assessment.aiInstructions)],
+        ]} />
+      </Block>
+
+      <Block heading="9.4. Assessment Methodologies:">
+        <Prose value={text(assessment.methodologies)} />
+      </Block>
+
+      <Block heading="9.5. Grading Rubrics for Evaluating All Categories of Assignment(s)">
         {rows(assessment.rubrics).length ? rows(assessment.rubrics).map((rubric, index) => (
           <div key={index} className="mt-4">
-            <p className="text-sm font-semibold">{text(rubric.assignment)}</p>
+            <p className="text-sm font-semibold">Assessment type: {text(rubric.assignment)}</p>
             <Table
-              headers={["Criteria", "Inadequate (0–9)", "Meets (10–15)", "Exceeds (16–20)"]}
+              headers={["Criteria", "Inadequate (0–9 points)", "Meets expectations (10–15 points)", "Exceeds expectations (16–20 points)"]}
               body={rows(rubric.criteria).map((criterion) => [text(criterion.criterion), text(criterion.inadequate), text(criterion.meets), text(criterion.exceeds)])}
             />
           </div>
         )) : <p className="mt-2 text-sm text-[#667085]">No rubric yet.</p>}
       </Block>
+
+      <Block heading="9.6. Late submission policy:">
+        <Prose value={text(assessment.lateSubmissionPolicy)} />
+      </Block>
+
+      <Block heading="INTEGRITY POLICY">
+        <p className="mt-2 text-sm text-[#667085]">Printed by the template, the same in every syllabus.</p>
+      </Block>
+      <Block heading="CLASSROOM ETIQUETTE">
+        <p className="mt-2 text-sm text-[#667085]">Printed by the template, the same in every syllabus.</p>
+      </Block>
+
+      <Block heading="DOCUMENT CONTROL">
+        <Rows rows={[
+          ["Document creation date", text(record(content.documentControl).creationDate)],
+          ["Department name", text(record(content.documentControl).department)],
+          ["Syllabus approval date", text(record(content.documentControl).approvalDate)],
+          ["Version number", text(record(content.documentControl).version)],
+          ["Name and status of the approver", text(record(content.documentControl).approver)],
+        ]} />
+      </Block>
     </article>
   );
+}
+
+/** Section headings the preview renders, matched against the template's own list. */
+export const RENDERED = [
+  "COURSE IDENTIFICATION", "ACADEMIC CONTACTS", "2.1.", "2.2.", "COURSE DESCRIPTION", "COURSE DELIVERY",
+  "LEARNING OUTCOMES", "5.1.", "5.2.", "COURSE SCHEDULE", "SUPPLEMENTAL BIBLIOGRAPHICAL RESOURCES",
+  "TEACHING AND LEARNING APPROACH", "8.1.", "8.2.", "8.3.", "COURSE ASSESSMENT", "9.1.", "9.2.", "9.3.",
+  "9.4.", "9.5.", "9.6.", "INTEGRITY POLICY", "CLASSROOM ETIQUETTE", "DOCUMENT CONTROL",
+];
+
+const GRADE_EQUIVALENCE =
+  "SUAD uses the French grading system, in which grades are awarded on a scale from 0 to 20, with 0 representing the lowest achievable mark.";
+
+function Prose({ value }: { value: string }) {
+  return <p className="mt-2 whitespace-pre-line text-sm leading-6 text-[#374151]">{value || "—"}</p>;
+}
+
+function listText(items: unknown, legacy: unknown) {
+  if (Array.isArray(items)) return items.map((item) => text(record(item).text)).filter(Boolean).join("\n");
+  return text(legacy);
+}
+
+function resources(value: unknown) {
+  return rows(value).map((item) => [text(item.title), text(item.authors), text(item.freeformText), text(item.legacyText)].filter(Boolean).join(" · ")).filter(Boolean).join("\n");
 }
 
 const SUBSECTION = {

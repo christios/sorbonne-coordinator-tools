@@ -1,7 +1,9 @@
+from pathlib import Path
+
 from docx import Document
 
 from sorbonne.api.syllabi import _export_filename
-from sorbonne.services.syllabus_export import build_syllabus_docx
+from sorbonne.services.syllabus_export import build_syllabus_docx, template_sections
 
 
 EXPANDED_PLO_TABLE_ROW_COUNT = 8
@@ -285,3 +287,24 @@ def test_export_filename_leads_with_the_course_code() -> None:
     )
 
     assert name == "PHYS125-Mechanics-Physics-1-2026-2027.docx"
+
+
+def test_the_template_prints_the_sections_the_preview_claims_to_cover() -> None:
+    """The export preview is a second rendering of one document, so it must not fall behind it.
+
+    RENDERED in SyllabusExportPreview.tsx lists the headings the preview draws. If a
+    section is added to the approved template and not to the preview, this fails rather
+    than the preview quietly omitting it.
+    """
+    rendered = _rendered_preview_sections()
+
+    for heading in template_sections("scen-en-v1"):
+        assert any(heading.startswith(prefix) for prefix in rendered), f"the preview does not render {heading!r}"
+
+
+def _rendered_preview_sections() -> list[str]:
+    source = (
+        Path(__file__).resolve().parents[2] / "frontend" / "src" / "components" / "SyllabusExportPreview.tsx"
+    ).read_text(encoding="utf-8")
+    block = source.split("export const RENDERED = [", 1)[1].split("];", 1)[0]
+    return [item.strip().strip('",') for item in block.replace("\n", " ").split(",") if item.strip().strip('",')]

@@ -7,7 +7,8 @@ from pydantic import BaseModel, Field
 from starlette.responses import FileResponse
 
 from sorbonne.config import config
-from sorbonne.services.syllabus_export import build_syllabus_docx
+from sorbonne.services.syllabus_export import build_syllabus_docx, template_sections
+from sorbonne.services.syllabus_templates import DEFAULT_TEMPLATE_ID
 from sorbonne.services.syllabus_catalogue_store import SyllabusCatalogueStore
 from sorbonne.services.syllabus_store import (
     ComparisonNotAllowed,
@@ -273,7 +274,11 @@ def export_preview(
         syllabus = store.get(syllabus_id)
     except SyllabusNotFound as exc:
         raise HTTPException(status_code=404, detail="Syllabus not found.") from exc
-    return {**syllabus, "content": _resolved_content(catalogue_store, syllabus)}
+    return {
+        **syllabus,
+        "content": _resolved_content(catalogue_store, syllabus),
+        "sections": template_sections(str(syllabus.get("templateId") or DEFAULT_TEMPLATE_ID)),
+    }
 
 
 def _resolved_content(catalogue_store: SyllabusCatalogueStore, syllabus: dict[str, Any]) -> dict[str, Any]:
