@@ -39,6 +39,7 @@ export function RegistrationChangesButton({
   cohortId,
   cohortName,
   nameOf,
+  yearOf,
   warningsIn,
 }: {
   cohorts: Cohort[];
@@ -46,6 +47,8 @@ export function RegistrationChangesButton({
   cohortId: string;
   cohortName: string;
   nameOf: (studentId: string) => string;
+  /** The student's own year level, as the portal has it — not the cohort's. */
+  yearOf: (studentId: string) => string;
   /**
    * The warnings the page has already judged, per cohort — where the admissions and
    * timetabling lines come from. Asking the checks again here would be a second answer to
@@ -74,8 +77,8 @@ export function RegistrationChangesButton({
   const ready = open && checks.every((check) => !check.isPending);
   const byCohort = cohorts.map((cohort, index) =>
     [
-      ...registrationChanges(checks[index]?.data?.mismatches ?? [], nameOf, cohort.name),
-      ...noteChanges(warningsIn(cohort.id), nameOf, cohort.name),
+      ...registrationChanges(checks[index]?.data?.mismatches ?? [], nameOf, cohort.name, yearOf),
+      ...noteChanges(warningsIn(cohort.id), nameOf, cohort.name, yearOf),
     ].filter((change) => records === "all" || change.source === records),
   );
   const mine = byCohort[cohorts.findIndex((cohort) => cohort.id === cohortId)] ?? [];

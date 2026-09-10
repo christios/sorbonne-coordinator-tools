@@ -29,6 +29,13 @@ const ACTIONABLE = new Set(["missing", "wrong", "extra"]);
 export type RegistrationChange = {
   studentId: string;
   studentName: string;
+  /**
+   * The student's own year level, as the portal has it — not the cohort's.
+   *
+   * The two usually agree and the registrar acts on the student's. Where they do not, it
+   * is exactly the line somebody should look at twice before keying it in.
+   */
+  year: string;
   cohortName: string;
   /** Which record it came out of, so the table can be narrowed to one of them. */
   source: WarningSource;
@@ -52,6 +59,7 @@ export function registrationChanges(
   mismatches: Mismatch[],
   nameOf: (studentId: string) => string,
   cohortName: string,
+  yearOf: (studentId: string) => string = () => "",
 ): RegistrationChange[] {
   const changes: RegistrationChange[] = [];
   for (const mismatch of mismatches) {
@@ -61,6 +69,7 @@ export function registrationChanges(
     const line = (action: "Add" | "Remove", crn: string): RegistrationChange => ({
       studentId: mismatch.studentId,
       studentName: nameOf(mismatch.studentId),
+      year: yearOf(mismatch.studentId),
       cohortName,
       source: "registration",
       action,
@@ -111,12 +120,14 @@ export function noteChanges(
   warnings: Warning[],
   nameOf: (studentId: string) => string,
   cohortName: string,
+  yearOf: (studentId: string) => string = () => "",
 ): RegistrationChange[] {
   return warnings
     .filter((warning) => warning.kind !== "no_baseline" && sourceOf(warning) !== "registration")
     .map((warning) => ({
       studentId: warning.studentId,
       studentName: nameOf(warning.studentId),
+      year: yearOf(warning.studentId),
       cohortName,
       source: sourceOf(warning),
       action: "" as const,
@@ -131,6 +142,7 @@ export function noteChanges(
 export const CHANGE_COLUMNS = [
   "Student ID",
   "Student",
+  "Year",
   "Cohort",
   "Action",
   "Remove CRN",
@@ -155,6 +167,7 @@ export function changesRows(changes: RegistrationChange[]): string[][] {
     rows.push([
       first ? change.studentId : "",
       first ? change.studentName : "",
+      first ? change.year : "",
       first ? change.cohortName : "",
       change.action,
       change.action === "Remove" ? change.crn : "",

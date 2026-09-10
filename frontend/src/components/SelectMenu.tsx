@@ -35,20 +35,33 @@ export type OptionFlag = {
   className: string;
 };
 
-function Flags({ flags }: { flags: OptionFlag[] }) {
-  const shown = flags.filter((flag) => flag.count > 0);
+/**
+ * The counts, one pill per kind.
+ *
+ * `columns` holds a place for a kind with nothing to say, which is what the open menu
+ * wants: dropping the pill closes the gap and shifts every pill to its right, so the same
+ * kind sits somewhere different on each row and the numbers cannot be compared without
+ * reading every label — the one thing a column of figures should never ask. A fixed width
+ * per column, since a column that resized to its widest row still moves when the data does.
+ *
+ * The trigger is one row and has nothing to line up with, so it packs them: three columns
+ * of air beside a closed picker is space spent saying nothing.
+ */
+function Flags({ flags, columns = false }: { flags: OptionFlag[]; columns?: boolean }) {
+  const shown = columns ? flags : flags.filter((flag) => flag.count > 0);
   if (!shown.length) return null;
   return (
     <span className="ml-1.5 inline-flex shrink-0 items-center gap-1">
       {shown.map((flag) => {
         const Icon = flag.icon;
+        if (!flag.count) return <span key={flag.key} aria-hidden="true" className="inline-block w-9" />;
         return (
           <span
             key={flag.key}
             title={`${flag.count} ${flag.title}`}
-            className={`inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-xs font-semibold tabular-nums ${flag.className}`}
+            className={`inline-flex items-center justify-center gap-0.5 rounded-full px-1.5 py-0.5 text-xs font-semibold tabular-nums ${columns ? "w-9" : ""} ${flag.className}`}
           >
-            <Icon size={10} aria-hidden="true" />
+            <Icon size={10} className="shrink-0" aria-hidden="true" />
             {flag.count}
           </span>
         );
@@ -249,7 +262,7 @@ export function SelectMenu({ label, value, onChange, options, placeholder, trail
                 {option.year ? <YearPill year={option.year} className="ml-2 align-[0.05em]" /> : null}
               </span>
               {option.badge !== undefined ? <Badge text={option.badge} tone={option.badgeTone} /> : null}
-              {option.flags ? <Flags flags={option.flags} /> : null}
+              {option.flags ? <Flags flags={option.flags} columns /> : null}
             </button>
           ))}
           {!visibleOptions.length ? <p className="px-3 py-2 text-sm text-[#667085]">No options match your search.</p> : null}

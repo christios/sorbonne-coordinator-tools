@@ -80,21 +80,22 @@ describe("the registrar's worklist", () => {
         ],
         named,
         "FYS-S1",
+        () => "FY",
       ),
     );
 
     const [header, first, second] = table.split("\n");
-    expect(header.split("\t")).toEqual(["Student ID", "Student", "Cohort", "Action", "Remove CRN", "Add CRN", "Course", "Note"]);
-    expect(first.split("\t")).toEqual(["A00027997", "Amira Haddad", "FYS-S1", "Add", "", "23561", "MATH-001", ""]);
-    expect(second.split("\t")).toEqual(["", "", "", "Add", "", "23564", "MATH-009", ""]);
+    expect(header.split("\t")).toEqual(["Student ID", "Student", "Year", "Cohort", "Action", "Remove CRN", "Add CRN", "Course", "Note"]);
+    expect(first.split("\t")).toEqual(["A00027997", "Amira Haddad", "FY", "FYS-S1", "Add", "", "23561", "MATH-001", ""]);
+    expect(second.split("\t")).toEqual(["", "", "", "", "Add", "", "23564", "MATH-009", ""]);
   });
 
   it("puts a removal's CRN in the remove column and an addition's in the add column", () => {
     const table = changesTable(
-      registrationChanges([mismatch({ kind: "extra", expected: [], registered: ["23999"] })], named, "FYS-S1"),
+      registrationChanges([mismatch({ kind: "extra", expected: [], registered: ["23999"] })], named, "FYS-S1", () => "FY"),
     );
 
-    expect(table.split("\n")[1].split("\t")).toEqual(["A00027997", "Amira Haddad", "FYS-S1", "Remove", "23999", "", "MATH-001", ""]);
+    expect(table.split("\n")[1].split("\t")).toEqual(["A00027997", "Amira Haddad", "FY", "FYS-S1", "Remove", "23999", "", "MATH-001", ""]);
   });
 
   it("orders by cohort then by the name somebody will read down", () => {
@@ -138,5 +139,24 @@ describe("the lines with no CRN to act on", () => {
   it("says nothing about a student whose changes cannot be judged", () => {
     // `no_baseline` is the absence of an answer, not an answer.
     expect(noteChanges([warning({ kind: "no_baseline" })], named, "FYS-S1")).toEqual([]);
+  });
+});
+
+describe("the student's own year", () => {
+  it("is the portal's, and is written once per block like the name", () => {
+    /*
+     * Not the cohort's. The two usually agree and the registrar acts on the student's;
+     * where they differ it is exactly the line to look at twice before keying it in.
+     */
+    const [change] = registrationChanges([mismatch({})], named, "FYS-S1", () => "L1");
+
+    expect(change.year).toBe("L1");
+  });
+
+  it("is blank rather than guessed when this browser has never seen the student", () => {
+    // Year comes from the portal's last answer, which lives in the browser like the names.
+    const [change] = registrationChanges([mismatch({})], named, "FYS-S1");
+
+    expect(change.year).toBe("");
   });
 });

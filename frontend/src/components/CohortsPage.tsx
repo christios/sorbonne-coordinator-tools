@@ -720,6 +720,9 @@ export function CohortsPage({
               cohortId={cohortId}
               cohortName={cohort?.name ?? ""}
               nameOf={(studentId) => evidence.names.get(studentId) ?? ""}
+              // The portal's own year level for the student, which is not always the
+              // cohort's — and where the two differ, that is the line to look at twice.
+              yearOf={(studentId) => evidence.current.get(studentId)?.YEARLEVEL_CODE ?? ""}
               /*
                * The warnings this page has already judged, per cohort — including the
                * cohorts it is not showing, which is what makes "all cohorts" possible
