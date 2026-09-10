@@ -752,6 +752,26 @@ async def record_facility_pull(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
+@router.get("/facility-timetable")
+async def list_facility_terms(facilities: FacilityTimetableStore = Depends(get_facilities)) -> dict[str, Any]:
+    """Which terms the registrar's timetable has been swept for."""
+    return {"terms": facilities.terms()}
+
+
+@router.get("/facility-timetable/{term_code}")
+async def read_facility_sweep(
+    term_code: str, facilities: FacilityTimetableStore = Depends(get_facilities)
+) -> dict[str, Any]:
+    """One term's swept timetable, in the shape the POST above accepts.
+
+    So that a copy between instances is the same write the extension makes. Nothing else
+    can put this in a developer's database: the registrar is reached through an extension
+    signed in as a coordinator, so without this a local copy of prod is blind to every
+    clash and every collision until somebody sits down and runs a sync.
+    """
+    return facilities.sweep(term_code)
+
+
 @router.get("/terms/{term_id}/clashes")
 async def read_term_clashes(
     term_id: str,

@@ -160,3 +160,73 @@ def test_the_same_meeting_twice_in_one_pull_is_stored_once(store: FacilityTimeta
                       silent=[], failed=[], complete=True)
 
     assert len(store.sessions_for(TERM, ["23425"])) == 1
+
+
+def test_a_sweep_read_back_and_replayed_lands_the_same_timetable(store: FacilityTimetableStore):
+    """The copy between instances is the same write the extension makes, so it must round-trip.
+
+    Nothing else can put this in a developer's database: the registrar is reached through a
+    browser extension signed in as a coordinator. Reading it back in the pull's own shape is
+    what makes a local copy of production able to answer a clash at all.
+    """
+    store.record_pull(
+        term_code=TERM,
+        asked=["23436", "24311", "99999"],
+        sections=[section("23436", meetings=[MONDAY, TUESDAY]), section("24311", meetings=[MONDAY], ours=False)],
+        silent=["99999"],
+        failed=[],
+        complete=True,
+    )
+
+    sweep = store.sweep(TERM)
+    elsewhere = FacilityTimetableStore(TEST_DATABASE_URL)
+    with elsewhere.engine.begin() as connection:
+        connection.execute(text("DELETE FROM facility_meetings"))
+        connection.execute(text("DELETE FROM facility_sections"))
+    elsewhere.record_pull(
+        term_code=sweep["termCode"],
+        asked=sweep["asked"],
+        sections=sweep["sections"],
+        silent=sweep["silent"],
+        failed=sweep["failed"],
+        complete=sweep["complete"],
+    )
+
+    assert elsewhere.sweep(TERM) == sweep
+    # And what the clash reader asks of it survives, which is the point of copying it.
+    assert len(elsewhere.sessions_for(TERM, ["23436"])) == 2
+    assert elsewhere.coverage_for(TERM, ["23436", "24311", "99999"]).silent == ["99999"]
+
+
+def test_a_sweep_names_every_section_it_accounts_for_so_a_replay_adds_up(store: FacilityTimetableStore):
+    """`asked` must cover answered and quiet alike, or `record_pull` refuses the replay.
+
+    A sweep naming only the sections that answered would read, on arrival, as the registrar
+    having cancelled the rest.
+    """
+    store.record_pull(
+        term_code=TERM,
+        asked=["23436", "99999"],
+        sections=[section("23436")],
+        silent=["99999"],
+        failed=[],
+        complete=True,
+    )
+
+    sweep = store.sweep(TERM)
+
+    assert sweep["asked"] == ["23436", "99999"]
+    assert [row["crn"] for row in sweep["sections"]] == ["23436"]
+    assert sweep["silent"] == ["99999"]
+
+
+def test_a_term_never_swept_reads_as_nothing_asked_rather_than_as_an_empty_timetable(store: FacilityTimetableStore):
+    assert store.sweep("999999") == {
+        "termCode": "999999",
+        "asked": [],
+        "sections": [],
+        "silent": [],
+        "failed": [],
+        "complete": True,
+    }
+    assert store.terms() == []

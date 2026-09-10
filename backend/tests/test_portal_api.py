@@ -1879,3 +1879,42 @@ def test_the_panel_lists_what_the_code_knows_with_the_answer_that_applies(client
     [collision] = [check for check in listed if check["name"] == "collision"]
     assert collision["measures"] == "minutes of overlap"
     assert (collision["enabled"], collision["threshold"]) == (True, 30)
+
+
+# ------------------------------------------- the registrar's timetable, read back
+
+
+def test_the_swept_timetable_can_be_read_back_in_the_shape_it_was_written(client: TestClient):
+    """So a copy between instances is the same write the extension makes.
+
+    Without this route a developer's copy of production is blind to every clash and every
+    collision until somebody sits down and runs a sync against it — which is why the
+    facilities tables were the one thing Copy prod could not carry.
+    """
+    pull = {
+        "termCode": TERM,
+        "asked": ["23436", "99999"],
+        "sections": [
+            {
+                "crn": "23436",
+                "courseCode": "MATH-001",
+                "title": "Pre-Calculus 1",
+                "teacherName": "Cecile Paillot",
+                "rooms": ["5.101"],
+                "ours": True,
+                "headCount": 24,
+                "meetings": [{"meetsOn": "2026-09-07", "startsAt": "08:30", "endsAt": "10:00", "room": "5.101"}],
+            }
+        ],
+        "silent": ["99999"],
+        "failed": [],
+        "complete": True,
+    }
+    client.post(f"{BASE}/facility-timetable", json=pull)
+
+    assert client.get(f"{BASE}/facility-timetable").json() == {"terms": [TERM]}
+    read = client.get(f"{BASE}/facility-timetable/{TERM}").json()
+
+    assert read == pull
+    # And the route the extension writes through accepts it back unchanged.
+    assert client.post(f"{BASE}/facility-timetable", json=read).status_code == status.HTTP_200_OK

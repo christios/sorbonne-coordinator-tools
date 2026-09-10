@@ -199,21 +199,17 @@ def copy_everything(  # noqa: PLR0913 - one keyword per thing the caller may cho
     if not dry_run:
         exempt = _copy_exemptions(source, into, read_headers, write_headers, cohorts, course_ids, say)
         _copy_checks(source, into, read_headers, write_headers, cohort_id, say)
+        _copy_sweeps(source, into, read_headers, write_headers, say)
         _copy_settled_collisions(source, into, read_headers, write_headers, terms, say)
     else:
         exempt = 0
 
     if teachers and not dry_run:
-        say("\nactive teachers: copying (this step carries staff names and e-mail addresses)")
-        for row in call(f"{source}/api/v1/portal/active-teachers", headers=read_headers)["teachers"]:
-            call(
-                f"{into}/api/v1/portal/active-teachers",
-                headers=write_headers,
-                method="POST",
-                body={"portalTeacherIds": [row["portalTeacherId"]] if row.get("portalTeacherId") else []},
-            )
+        say("\nteachers: copying (this step carries staff names and e-mail addresses)")
+        part_time_ids = _copy_part_time_teachers(source, into, read_headers, write_headers, say)
+        _copy_active_teachers(source, into, read_headers, write_headers, part_time_ids, say)
     elif not teachers:
-        say("\nactive teachers: skipped (they carry names)")
+        say("\nteachers: skipped (they carry names)")
 
     say("\nDone. Run a Portal sync against localhost to fill this browser's side.")
     return {
@@ -229,6 +225,135 @@ def copy_everything(  # noqa: PLR0913 - one keyword per thing the caller may cho
         "teachers": teachers,
         "dryRun": dry_run,
     }
+
+
+def _copy_part_time_teachers(
+    source: str, into: str, read: dict[str, str], write: dict[str, str], say
+) -> dict[str, str]:
+    """The department's own teacher records, and the folders they are filed in.
+
+    Nothing else carries these: a part-time teacher is somebody the department hired, not
+    somebody the portal returned, so no sync will ever put them back. A dev database
+    without them reports every teacher as "Portal" and hides the whole half of the page
+    that is about matching the two lists — which is exactly how the missing part-time tag
+    stayed invisible locally while it was plain on prod.
+
+    Returns prod id -> local id, because the active list points at these by id.
+    """
+    folders: dict[str, str] = {}
+    # Parents before children: a folder cannot be filed inside one that is not there yet,
+    # and the list is flat, so this walks it until nothing more can be placed.
+    waiting = list(call(f"{source}/api/v1/teachers/folders", headers=read)["items"])
+    while waiting:
+        placed = False
+        for folder in list(waiting):
+            parent = folder.get("parentId") or ""
+            if parent and parent not in folders:
+                continue
+            made = call(
+                f"{into}/api/v1/teachers/folders",
+                headers=write,
+                method="POST",
+                body={"name": folder["name"], "parentId": folders.get(parent) or None},
+            )
+            folders[folder["id"]] = made["id"]
+            waiting.remove(folder)
+            placed = True
+        if not placed:
+            # A parent nobody returned. File its children at the top rather than dropping them.
+            say(f"  {len(waiting)} folder(s) whose parent is missing: filed at the top")
+            for folder in waiting:
+                made = call(
+                    f"{into}/api/v1/teachers/folders",
+                    headers=write,
+                    method="POST",
+                    body={"name": folder["name"], "parentId": None},
+                )
+                folders[folder["id"]] = made["id"]
+            break
+
+    records: dict[str, str] = {}
+    listed = call(f"{source}/api/v1/teachers?includeArchived=true", headers=read)["items"]
+    for record in listed:
+        made = call(
+            f"{into}/api/v1/teachers",
+            headers=write,
+            method="POST",
+            body={
+                "fullName": record["fullName"],
+                "email": record.get("email", ""),
+                "phone": record.get("phone", ""),
+                "notes": record.get("notes", ""),
+            },
+        )
+        records[record["id"]] = made["id"]
+        here_folder = folders.get(record.get("folderId") or "")
+        if here_folder:
+            call(
+                f"{into}/api/v1/teachers/{made['id']}/folder",
+                headers=write,
+                method="PATCH",
+                body={"folderId": here_folder},
+            )
+    say(f"  part-time teachers: {len(records)} in {len(folders)} folder(s)")
+    return records
+
+
+def _copy_active_teachers(  # noqa: PLR0913 - one argument per thing the copy is about
+    source: str, into: str, read: dict[str, str], write: dict[str, str], part_time_ids: dict[str, str], say
+) -> None:
+    """The department's list, with both sides of anybody who is on both.
+
+    A row is added from whichever side it has, and then joined to the other explicitly.
+    Joining is not left to `add_active_teachers` to work out, because that matches on the
+    e-mail address and the two sides hold different ones — which is the whole reason the
+    part-time tag has to be linked rather than inferred.
+    """
+    rows = call(f"{source}/api/v1/portal/active-teachers", headers=read)["teachers"]
+    joined = 0
+    for row in rows:
+        here_part_time = part_time_ids.get(row.get("partTimeTeacherId") or "")
+        if row.get("portalTeacherId"):
+            call(
+                f"{into}/api/v1/portal/active-teachers",
+                headers=write,
+                method="POST",
+                body={"portalTeacherIds": [row["portalTeacherId"]]},
+            )
+        elif here_part_time:
+            call(
+                f"{into}/api/v1/portal/active-teachers",
+                headers=write,
+                method="POST",
+                body={
+                    "partTime": [
+                        {"id": here_part_time, "fullName": row["fullName"], "email": row.get("email", "")}
+                    ]
+                },
+            )
+            continue
+        else:
+            continue
+        if not here_part_time:
+            continue
+        here = next(
+            (
+                held
+                for held in call(f"{into}/api/v1/portal/active-teachers", headers=read)["teachers"]
+                if held["portalTeacherId"] == row["portalTeacherId"]
+            ),
+            None,
+        )
+        if here is None:
+            continue
+        call(
+            f"{into}/api/v1/portal/active-teachers/{here['id']}/link-part-time",
+            headers=write,
+            method="POST",
+            body={"partTimeTeacherId": here_part_time},
+        )
+        joined += 1
+    say(f"  active teachers: {len(rows)}, {joined} joined to a part-time record")
 
 
 def main() -> int:
@@ -353,6 +478,26 @@ def _copy_settled_collisions(  # noqa: PLR0913 - one argument per part of the ke
             written += 1
     if written:
         say(f"settled collisions: {written}")
+
+
+def _copy_sweeps(source: str, into: str, read: dict[str, str], write: dict[str, str], say) -> None:
+    """The registrar's own timetable, as swept.
+
+    The one record here that no local action can rebuild: the registrar is reached through
+    a browser extension signed in as a coordinator, so a developer's copy of production was
+    blind to every clash and every collision until somebody sat down and ran a sync against
+    it. Replayed as the same pull the extension writes, so there is no second way into
+    those tables.
+    """
+    swept = 0
+    for term_code in call(f"{source}/api/v1/portal/facility-timetable", headers=read)["terms"]:
+        sweep = call(f"{source}/api/v1/portal/facility-timetable/{term_code}", headers=read)
+        if not sweep["asked"]:
+            continue
+        call(f"{into}/api/v1/portal/facility-timetable", headers=write, method="POST", body=sweep)
+        swept += len(sweep["sections"])
+        say(f"  {term_code}: {len(sweep['sections'])} section(s), {len(sweep['silent'])} silent")
+    say(f"\nregistrar's timetable: {swept} section(s) copied" if swept else "\nregistrar's timetable: nothing swept")
 
 
 def _term_codes(source: str, read: dict[str, str]) -> set[str]:

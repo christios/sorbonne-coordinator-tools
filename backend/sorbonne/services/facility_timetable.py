@@ -332,6 +332,87 @@ class FacilityTimetableStore:
         )
 
 
+    def sweep(self, term_code: str) -> dict[str, Any]:
+        """Everything one term's sweep holds, in the shape a pull is written in.
+
+        For copying a term's timetable from one instance to another, which nothing else can
+        do: the registrar is reached through a browser extension signed in as a coordinator,
+        so a developer's database can only get this by somebody sitting down and running a
+        sync. Reading it back in the pull's own shape means the copy is the same write the
+        extension makes, with no second path into these tables to keep honest.
+
+        `asked` is every section the sweep accounted for — answered, silent and gone alike —
+        because a pull that named fewer would read as the registrar having cancelled the
+        rest, and `record_pull` refuses a pull that does not add up.
+        """
+        with self.engine.connect() as connection:
+            sections = (
+                connection.execute(
+                    text("""SELECT crn, course_code, title, teacher_name, rooms, schedule_state, ours, head_count
+                            FROM facility_sections WHERE term_code = :t ORDER BY crn"""),
+                    {"t": term_code},
+                )
+                .mappings()
+                .all()
+            )
+            meetings = (
+                connection.execute(
+                    text("""SELECT crn, meets_on, starts_at, ends_at, room FROM facility_meetings
+                            WHERE term_code = :t ORDER BY crn, meets_on, starts_at"""),
+                    {"t": term_code},
+                )
+                .mappings()
+                .all()
+            )
+        by_crn: dict[str, list[dict[str, str]]] = {}
+        for row in meetings:
+            by_crn.setdefault(row["crn"], []).append(
+                {
+                    "meetsOn": row["meets_on"],
+                    "startsAt": row["starts_at"],
+                    "endsAt": row["ends_at"],
+                    "room": row["room"] or "",
+                }
+            )
+        answered, quiet = [], []
+        for row in sections:
+            if row["schedule_state"] != "published":
+                # Silent and gone are both "asked, answered nothing". The difference is how
+                # many times over, which the receiving store counts for itself.
+                quiet.append(row["crn"])
+                continue
+            answered.append(
+                {
+                    "crn": row["crn"],
+                    "courseCode": row["course_code"] or "",
+                    "title": row["title"] or "",
+                    "teacherName": row["teacher_name"] or "",
+                    "rooms": [room for room in (row["rooms"] or "").split(",") if room],
+                    "ours": bool(row["ours"]),
+                    "headCount": row["head_count"],
+                    "meetings": by_crn.get(row["crn"], []),
+                }
+            )
+        return {
+            "termCode": term_code,
+            "asked": sorted({row["crn"] for row in sections}),
+            "sections": answered,
+            "silent": sorted(quiet),
+            "failed": [],
+            "complete": True,
+        }
+
+    def terms(self) -> list[str]:
+        """The terms this store has been swept for, newest first."""
+        with self.engine.connect() as connection:
+            return [
+                row[0]
+                for row in connection.execute(
+                    text("SELECT DISTINCT term_code FROM facility_sections ORDER BY term_code DESC")
+                )
+            ]
+
+
 def _now() -> str:
     from datetime import datetime, timezone  # noqa: PLC0415 - one caller, and it is here
 

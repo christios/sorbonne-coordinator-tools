@@ -241,3 +241,122 @@ def test_a_check_answered_the_same_as_the_default_is_not_written(monkeypatch):
 
     assert [body["enabled"] for body in wire.sent("/checks/")] == [False]
     assert not wire.sent("/checks/collision")
+
+
+def test_the_registrars_swept_timetable_travels_as_the_pull_that_wrote_it(monkeypatch):
+    """The one record no local action can rebuild.
+
+    The registrar is reached through a browser extension signed in as a coordinator, so a
+    developer's copy of production was blind to every clash and every collision until
+    somebody sat down and ran a sync against it. Replayed as the same POST the extension
+    makes, so there is no second way into those tables to keep honest.
+    """
+    sweep = {
+        "termCode": "262710",
+        "asked": ["23436", "24311"],
+        "sections": [{"crn": "23436", "courseCode": "MATH-351", "meetings": [], "ours": True}],
+        "silent": ["24311"],
+        "failed": [],
+        "complete": True,
+    }
+    wire = Wire({"/facility-timetable/262710": sweep, "/facility-timetable": {"terms": ["262710"]}})
+    monkeypatch.setattr(copy, "call", wire)
+
+    copy._copy_sweeps("https://prod", "http://localhost:8000", {}, {}, say=lambda *_: None)
+
+    [written] = wire.sent("/facility-timetable")
+    assert written == sweep
+
+
+def test_a_term_nothing_was_ever_asked_about_is_not_written_as_an_empty_sweep(monkeypatch):
+    # An empty pull is not nothing: it says the registrar answered for no section, which
+    # `record_pull` would read as every section having gone quiet.
+    wire = Wire(
+        {
+            "/facility-timetable/262710": {"asked": [], "sections": []},
+            "/facility-timetable": {"terms": ["262710"]},
+        }
+    )
+    monkeypatch.setattr(copy, "call", wire)
+
+    copy._copy_sweeps("https://prod", "http://localhost:8000", {}, {}, say=lambda *_: None)
+
+    assert wire.sent("/facility-timetable") == []
+
+
+def test_the_part_time_database_travels_with_its_folders(monkeypatch):
+    """Nothing else carries these: a part-time teacher is somebody the department hired.
+
+    A dev database without them calls every teacher "Portal" and hides the half of the page
+    that is about matching the two lists — which is how a missing tag stayed invisible
+    locally while it was plain on production.
+    """
+    wire = Wire(
+        {
+            "/teachers/folders": {"items": [{"id": "f1", "name": "Physics", "parentId": ""}]},
+            "/teachers?includeArchived=true": {
+                "items": [
+                    {
+                        "id": "pt-1",
+                        "fullName": "Cécile Paillot",
+                        "email": "",
+                        "phone": "",
+                        "notes": "",
+                        "folderId": "f1",
+                    }
+                ]
+            },
+        }
+    )
+    monkeypatch.setattr(copy, "call", wire)
+
+    made = copy._copy_part_time_teachers(
+        "https://prod", "http://localhost:8000", {}, {}, say=lambda *_: None
+    )
+
+    assert made == {"pt-1": "made"}
+    assert wire.sent("/teachers/folders") == [{"name": "Physics", "parentId": None}]
+    # Filed where it was filed, under the id the folder has here.
+    assert wire.sent("/teachers/made/folder") == [{"folderId": "made"}]
+
+
+def test_a_teacher_on_both_lists_arrives_joined_rather_than_left_to_an_email(monkeypatch):
+    """`add_active_teachers` joins on the e-mail, and the two sides hold different ones.
+
+    Which is the whole reason the part-time tag has to be linked: the part-time database
+    holds a personal address or none at all, and the portal holds the university one.
+    """
+    # Keyed on the whole URL, because the two sides ask the same path of different hosts.
+    wire = Wire(
+        {
+            "https://prod/api/v1/portal/active-teachers": {
+                "teachers": [
+                    {
+                        "id": "prod-1",
+                        "portalTeacherId": "A001",
+                        "partTimeTeacherId": "pt-1",
+                        "fullName": "Cécile Paillot",
+                        "email": "cecile.paillot@sorbonne.ae",
+                    }
+                ]
+            },
+            # The row just written here, found again by the portal id it was added under.
+            "http://localhost:8000/api/v1/portal/active-teachers": {
+                "teachers": [{"id": "here-1", "portalTeacherId": "A001", "partTimeTeacherId": ""}]
+            },
+        }
+    )
+    monkeypatch.setattr(copy, "call", wire)
+
+    copy._copy_active_teachers(
+        "https://prod", "http://localhost:8000", {}, {}, {"pt-1": "here-pt"}, say=lambda *_: None
+    )
+
+    assert [url for _, url, _ in wire.writes] == [
+        "http://localhost:8000/api/v1/portal/active-teachers",
+        "http://localhost:8000/api/v1/portal/active-teachers/here-1/link-part-time",
+    ]
+    assert [body for _, _, body in wire.writes] == [
+        {"portalTeacherIds": ["A001"]},
+        {"partTimeTeacherId": "here-pt"},
+    ]
