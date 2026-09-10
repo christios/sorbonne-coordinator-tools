@@ -150,12 +150,16 @@ def test_builds_a_filled_template_with_repeatable_course_content(tmp_path) -> No
     assert document.tables[1].cell(0, 1).text == "M. Modele Syllabus"
     assert document.tables[5].cell(1, 1).text == "Evaluate climate policy."
     assert document.tables[6].cell(1, 0).text == "CLO 1: Analyse climate law."
-    assert document.tables[7].cell(1, 0).text == "1 CM"
-    assert document.tables[7].cell(1, 1).text == "Week 1"
+    # Week leads and the session carries its kind, as the department writes it.
+    assert document.tables[7].cell(0, 0).text == "Week"
+    assert document.tables[7].cell(1, 0).text == "1"
+    assert document.tables[7].cell(1, 1).text == "CM 1"
+    assert document.tables[7].cell(1, 2).text == (
+        "Climate governance\nInstitutions, actors, and implementation pathways."
+    )
     assert (
         document.tables[7].cell(1, 3).text
-        == "Session details:\nInstitutions, actors, and implementation pathways.\n\n"
-        "Pre-class learning activities:\nRead chapter 1\n\nAssessments:\nShort quiz"
+        == "Pre-class learning activities:\nRead chapter 1\n\nAssessments:\nShort quiz"
     )
     assert "A. Author" in document.tables[8].cell(0, 1).text
     assert document.tables[9].cell(1, 1).text == "Policy brief"

@@ -207,31 +207,50 @@ def _numbered_clo(text: str, index: int) -> str:
     return text if re.match(r"^\s*CLO\s*\d", text, re.IGNORECASE) else f"CLO {index + 1}: {text}"
 
 
-def _ensure_column(table: Table, heading: str) -> None:
+def _ensure_column(table: Table, heading: str, *, index: int = CLO_SUAD_COLUMN) -> None:
     """Widen an approved template table by one column, once."""
-    if len(table.columns) > CLO_SUAD_COLUMN:
+    if len(table.columns) > index:
         return
     table.add_column(table.columns[-1].width)
-    _set_cell_text(table.rows[0].cells[CLO_SUAD_COLUMN], heading)
+    _set_cell_text(table.rows[0].cells[index], heading)
 
 
 def _fill_schedule(table: Table, schedule: list[dict[str, Any]]) -> None:
-    # Lectures, tutorials and labs are counted separately, so the column reads
-    # 1 CM, 2 CM, 1 TD, 3 CM rather than one running total across all of them.
+    """Lay the schedule out the way the department writes it.
+
+    Week leads, because several sessions share one; the session column carries the
+    kind and its own count; and an assessment is its description beside the date it
+    is due, which is usually said in words ("Next Friday") rather than as a date.
+    """
     counts: dict[str, int] = {}
     numbers: list[str] = []
     for source in schedule:
         session_type = _text(source.get("sessionType")) or DEFAULT_SESSION_TYPE
         counts[session_type] = counts.get(session_type, 0) + 1
-        numbers.append(f"{counts[session_type]} {session_type}")
+        numbers.append(f"{session_type} {counts[session_type]}")
+
+    _ensure_column(table, "", index=SCHEDULE_DEADLINE_COLUMN)
+    for column, heading in enumerate(("Week", "Session", "Topic", "Assessment", "Date")):
+        _set_cell_text(table.rows[0].cells[column], heading)
 
     _ensure_data_rows(table, header_rows=1, required_rows=max(16, len(schedule)))
     for index, row in enumerate(table.rows[1:]):
         source = schedule[index] if index < len(schedule) else {}
-        _set_cell_text(row.cells[0], numbers[index] if index < len(numbers) else "")
-        _set_cell_text(row.cells[1], _week(source.get("week")) or _display_date(source.get("date")))
-        _set_cell_text(row.cells[2], _text(source.get("topic")))
+        _set_cell_text(row.cells[0], _text(source.get("week")))
+        _set_cell_text(row.cells[1], numbers[index] if index < len(numbers) else "")
+        _set_cell_text(row.cells[2], _schedule_topic(source))
         _set_cell_text(row.cells[3], _schedule_learning_details(source))
+        if len(row.cells) > SCHEDULE_DEADLINE_COLUMN:
+            _set_cell_text(row.cells[SCHEDULE_DEADLINE_COLUMN], _text(source.get("deadline")))
+
+
+SCHEDULE_DEADLINE_COLUMN = 4
+
+
+def _schedule_topic(row: dict[str, Any]) -> str:
+    topic = _text(row.get("topic"))
+    details = _text(row.get("details"))
+    return f"{topic}\n{details}" if topic and details else topic or details
 
 
 DEFAULT_SESSION_TYPE = "CM"
@@ -262,19 +281,25 @@ def _fill_assessment(document: Document, assessment: dict[str, Any], learning_ou
     assessment_table = document.tables[9]
     items = _rows(assessment.get("items"))
     _ensure_data_rows(assessment_table, header_rows=1, required_rows=max(14, len(items)))
-    clo_by_id = {row.get("id"): _text(row.get("clo")) for row in _rows(learning_outcomes.get("clos"))}
+    clo_numbers = {
+        row.get("id"): f"CLO {position}" for position, row in enumerate(_rows(learning_outcomes.get("clos")), start=1)
+    }
+    by_week = _text(assessment.get("scheduleBy")) == "week"
     for index, row in enumerate(assessment_table.rows[1:]):
         source = items[index] if index < len(items) else {}
-        aligned_clos = _text(source.get("clos")) or ", ".join(
-            value
-            for value in (
-                clo_by_id.get(item) for item in source.get("cloIds", []) if isinstance(source.get("cloIds"), list)
+        # The table has a column per assessment: the outcome's number identifies it,
+        # and its wording is already printed in full in section 5.
+        aligned_clos = ", ".join(
+            number
+            for number in (
+                clo_numbers.get(item) for item in source.get("cloIds", []) if isinstance(source.get("cloIds"), list)
             )
-            if value
-        )
+            if number
+        ) or _clo_numbers_from_text(_text(source.get("clos")))
+        when = _week(source.get("week")) if by_week else _display_date(source.get("date"))
         values = [
-            _display_date(source.get("date")),
-            _text(source.get("type")),
+            when,
+            _text(source.get("name")) or _text(source.get("type")),
             _percentage(source.get("weight")),
             aligned_clos,
             _text(source.get("aiPolicy")) or _text(source.get("ai")),
@@ -291,6 +316,12 @@ def _fill_assessment(document: Document, assessment: dict[str, Any], learning_ou
     _set_paragraph_after(document, "9.4. Assessment Methodologies:", _text(assessment.get("methodologies")))
     _fill_rubrics(document, _rows(assessment.get("rubrics")))
     _set_paragraph_after(document, "9.6. Late submission policy:", _text(assessment.get("lateSubmissionPolicy")))
+
+
+def _clo_numbers_from_text(value: str) -> str:
+    """Legacy rows stored the outcome's full wording; keep only its number."""
+    numbers = re.findall(r"CLO\s*\d+", value, re.IGNORECASE)
+    return ", ".join(dict.fromkeys(number.replace("  ", " ") for number in numbers))
 
 
 def _fill_ai_policy(table: Table, assessment: dict[str, Any]) -> None:
@@ -491,15 +522,12 @@ def _list_or_legacy(container: dict[str, Any], list_key: str, legacy_key: str, *
 
 
 def _schedule_learning_details(row: dict[str, Any]) -> str:
+    # The session's own detail belongs beside its topic; this column is the assessment.
     parts = []
-    if details := _text(row.get("details")):
-        parts.append(f"Session details:\n{details}")
     if pre_class := _text(row.get("preClass") or row.get("activities")):
         parts.append(f"Pre-class learning activities:\n{pre_class}")
     if assessments := _text(row.get("assessments")):
         parts.append(f"Assessments:\n{assessments}")
-    if deadline := _text(row.get("deadline")):
-        parts.append(f"Deadline:\n{deadline}")
     return "\n\n".join(parts)
 
 
