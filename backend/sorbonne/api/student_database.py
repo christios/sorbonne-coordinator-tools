@@ -257,7 +257,7 @@ async def replace_discrepancy_rules(
     try:
         return {"rules": database.replace_discrepancy_rules([rule.model_dump() for rule in body.rules])}
     except InvalidRule as exc:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
 
 
 # ---------------------------------------------------------------- students

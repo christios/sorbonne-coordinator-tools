@@ -7,6 +7,8 @@ from sqlalchemy import text
 
 from sorbonne.api import student_database as api
 from sorbonne.main import app
+from sorbonne.services import auth_gate
+from sorbonne.services.staff_auth import StaffUser
 from sorbonne.services.student_database import StudentDatabase
 from tests.conftest import TEST_DATABASE_URL
 from tests.test_group_reference_import import COHORT_HEADERS, COHORT_ROWS, workbook
@@ -391,9 +393,6 @@ def test_syncing_a_view_is_open_to_any_coordinator(client: TestClient, view_id: 
 
 def _as_ordinary_coordinator(monkeypatch: pytest.MonkeyPatch) -> None:
     """Sign the rest of the test in as somebody who is not an administrator."""
-    from sorbonne.services import auth_gate
-    from sorbonne.services.staff_auth import StaffUser
-
     monkeypatch.setattr(
         auth_gate,
         "user_for_request",
@@ -565,7 +564,7 @@ def test_a_rule_that_cannot_mean_anything_says_why(client: TestClient) -> None:
         json={"rules": [{"field": "STST_CODE", "kind": "differs"}]},
     )
 
-    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
     assert "differ from" in response.json()["detail"]
 
 
@@ -595,7 +594,8 @@ def test_sets_are_read_in_the_order_the_coordinator_puts_them_in(client: TestCli
 
     # CM up twice puts the lectures first, where the page should read them.
     for _ in range(2):
-        assert client.post(f"/api/v1/student-database/scopes/{made[2]}/move", json={"by": -1}).status_code == status.HTTP_200_OK
+        moved = client.post(f"/api/v1/student-database/scopes/{made[2]}/move", json={"by": -1})
+        assert moved.status_code == status.HTTP_200_OK
     assert codes() == ["CM", "TD", "RDNS"]
 
     client.post(f"/api/v1/student-database/scopes/{made[0]}/move", json={"by": 1})
@@ -607,12 +607,14 @@ def test_a_set_at_the_end_of_the_order_stays_there(client: TestClient, cohort_id
     client.post(f"/api/v1/student-database/cohorts/{cohort_id}/scopes", json={"code": "TD"})
 
     # Nothing above it, so nothing happens — rather than an error the page has to handle.
-    assert client.post(f"/api/v1/student-database/scopes/{first}/move", json={"by": -1}).status_code == status.HTTP_200_OK
+    unmoved = client.post(f"/api/v1/student-database/scopes/{first}/move", json={"by": -1})
+    assert unmoved.status_code == status.HTTP_200_OK
     assert [scope["code"] for scope in catalogue(client, cohort_id)["scopes"]] == ["CM", "TD"]
 
 
 def test_a_set_that_is_not_there_cannot_be_moved(client: TestClient):
-    assert client.post("/api/v1/student-database/scopes/nope/move", json={"by": 1}).status_code == status.HTTP_404_NOT_FOUND
+    missing = client.post("/api/v1/student-database/scopes/nope/move", json={"by": 1})
+    assert missing.status_code == status.HTTP_404_NOT_FOUND
 
 
 def test_a_cohort_says_what_its_sheet_in_the_timetable_workbook_is_called(client: TestClient, cohort_id: str):
@@ -1046,8 +1048,8 @@ def test_a_course_handed_over_mid_semester_holds_a_crn_for_each_professor(
     scope_id, group_id = block_with_a_group(client, cohort_id, code="CM")
     course_id = course_in(client, scope_id)
 
-    assert set_part(client, group_id, course_id, "23436", "Grace Younes", part=1).status_code == 200
-    assert set_part(client, group_id, course_id, "24311", "Sudarshan Shinde", part=2).status_code == 200
+    assert set_part(client, group_id, course_id, "23436", "Grace Younes", part=1).status_code == status.HTTP_200_OK
+    assert set_part(client, group_id, course_id, "24311", "Sudarshan Shinde", part=2).status_code == status.HTTP_200_OK
 
     cell = cell_of(client, cohort_id, group_id, course_id)
     assert [(part["part"], part["crn"], part["teacher"]) for part in cell["parts"]] == [
@@ -1073,7 +1075,7 @@ def test_each_part_carries_its_own_hours_and_weeks(client: TestClient, cohort_id
             f"/api/v1/student-database/groups/{group_id}/courses/{course_id}",
             json={"part": part, "hours": hours, "weeks": weeks},
         )
-        assert answer.status_code == 200, answer.text
+        assert answer.status_code == status.HTTP_200_OK, answer.text
 
     cell = cell_of(client, cohort_id, group_id, course_id)
     assert [(part["hours"], part["weeks"]) for part in cell["parts"]] == [
@@ -1103,8 +1105,8 @@ def test_a_part_is_numbered_from_one_and_a_typo_is_refused(client: TestClient, c
     scope_id, group_id = block_with_a_group(client, cohort_id, code="CM")
     course_id = course_in(client, scope_id)
 
-    assert set_part(client, group_id, course_id, "23436", part=0).status_code == 422
-    assert set_part(client, group_id, course_id, "23436", part=99).status_code == 422
+    assert set_part(client, group_id, course_id, "23436", part=0).status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+    assert set_part(client, group_id, course_id, "23436", part=99).status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
 
 # ------------------------------------------------------------------ exemptions
@@ -1197,7 +1199,9 @@ def test_an_exemption_from_a_shared_set_reaches_every_cohort_taught_in_it(
         json={"code": "LANG", "openToAll": True},
     ).json()
     course_id = course_in(client, shared["id"], code="SCEN-101")
-    group_id = client.post(f"/api/v1/student-database/scopes/{shared['id']}/groups", json={"label": "A0-F1"}).json()["id"]
+    group_id = client.post(
+        f"/api/v1/student-database/scopes/{shared['id']}/groups", json={"label": "A0-F1"}
+    ).json()["id"]
     set_part(client, group_id, course_id, "23302")
     in_cohort(client, view_id, theirs["id"], STUDENTS)
     place(client, shared["id"], STUDENTS[:1], group_id)

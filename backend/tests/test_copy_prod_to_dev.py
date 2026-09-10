@@ -164,8 +164,16 @@ def test_the_register_carries_what_the_department_said_about_it(monkeypatch):
     """
     wire = Wire(
         {
-            "/active-courses": {"courses": [{"id": "p1", "courseCode": "MATH-351", "title": "Algebra", "ue": "LU3MA276", "mutualized": "yes"}]},
-            "/active-crns": {"crns": [{"id": "p2", "termCode": "262710", "crn": "24311", "courseCode": "MATH-351", "parentCrn": "24264"}]},
+            "/active-courses": {
+                "courses": [
+                    {"id": "p1", "courseCode": "MATH-351", "title": "Algebra", "ue": "LU3MA276", "mutualized": "yes"}
+                ]
+            },
+            "/active-crns": {
+                "crns": [
+                    {"id": "p2", "termCode": "262710", "crn": "24311", "courseCode": "MATH-351", "parentCrn": "24264"}
+                ]
+            },
             "/term-links": {"links": {}},
         }
     )
@@ -190,7 +198,11 @@ def test_an_exemption_travels_under_the_id_the_course_has_here(monkeypatch):
     A shared set is filed under whichever cohort holds its row, so every cohort's listing
     carries the languages — hence one write, not four.
     """
-    listed = {"exemptions": [{"studentId": "A001", "courseId": "p-lang", "courseCode": "SCEN-101", "reason": "Native speaker"}]}
+    listed = {
+        "exemptions": [
+            {"studentId": "A001", "courseId": "p-lang", "courseCode": "SCEN-101", "reason": "Native speaker"}
+        ]
+    }
     wire = Wire({"/cohorts/c1/exemptions": listed, "/cohorts/c2/exemptions": listed})
     monkeypatch.setattr(copy, "call", wire)
 
@@ -211,7 +223,13 @@ def test_a_check_answered_the_same_as_the_default_is_not_written(monkeypatch):
         {
             "/checks": {
                 "checks": [
-                    {"name": "collision", "enabled": True, "threshold": 30, "defaultEnabled": True, "defaultThreshold": 30},
+                    {
+                        "name": "collision",
+                        "enabled": True,
+                        "threshold": 30,
+                        "defaultEnabled": True,
+                        "defaultThreshold": 30,
+                    },
                     {"name": "other", "enabled": False, "threshold": 0, "defaultEnabled": True, "defaultThreshold": 0},
                 ]
             }

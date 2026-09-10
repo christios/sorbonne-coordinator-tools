@@ -18,7 +18,7 @@ from sorbonne.api import portal as api
 from sorbonne.api import student_database as student_api
 from sorbonne.main import app
 from sorbonne.services.facility_timetable import FacilityTimetableStore
-from sorbonne.services.portal_lists import _SECTION_TITLE, _expected_on, PortalListStore
+from sorbonne.services.portal_lists import _SECTION_TITLE, _expected_on, named, names_agree, PortalListStore
 from sorbonne.services.student_database import StudentDatabase
 from tests.conftest import TEST_DATABASE_URL
 
@@ -479,16 +479,16 @@ def test_a_parent_cannot_have_a_parent_and_a_child_cannot_be_one(client: TestCli
 
     # The register is two deep: the top of the course cannot hang from one of its sections…
     refused = client.patch(f"{BASE}/active-crns/{register['24226']['id']}", json={"parentCrn": "22152"})
-    assert refused.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    assert refused.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
     assert "parent of 1" in refused.json()["detail"]
 
     # …and nothing may hang from a section that already hangs from something.
     chained = client.patch(f"{BASE}/active-crns/{register['22152']['id']}", json={"parentCrn": "22151"})
-    assert chained.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    assert chained.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
     assert "hangs from 24226 itself" in chained.json()["detail"]
 
     itself = client.patch(f"{BASE}/active-crns/{register['22152']['id']}", json={"parentCrn": "22152"})
-    assert itself.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    assert itself.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
     # Clearing a parent is always allowed, which is how a mistake is undone.
     cleared = client.patch(f"{BASE}/active-crns/{register['22151']['id']}", json={"parentCrn": ""})
@@ -535,7 +535,7 @@ def test_a_course_says_whether_it_is_taught_to_both_degrees_at_once(client: Test
     refused = client.patch(
         f"{BASE}/active-courses/{held['id']}", json={"title": "", "ue": "", "mutualized": "sometimes"}
     )
-    assert refused.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    assert refused.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
 
 def test_an_active_course_can_be_added_by_hand_and_given_its_ue(client: TestClient):
@@ -1266,8 +1266,6 @@ def test_a_section_that_was_never_ours_is_still_a_surplus(client: TestClient, da
 
 def test_two_spellings_of_one_surname_are_not_a_disagreement():
     """Five of the eleven real disagreements were nothing but where the space falls."""
-    from sorbonne.services.portal_lists import names_agree
-
     assert names_agree("Safaa El Sayed", "Safaa Elsayed")
     assert names_agree("Omar El Dakkak", "Omar ElDakkak")
     assert names_agree("Giulia De Masi", "Giulia Demasi")
@@ -1283,8 +1281,6 @@ def test_two_spellings_of_one_surname_are_not_a_disagreement():
 
 def test_two_different_people_are_still_a_disagreement():
     """The rules only ever merge names, and must not merge these."""
-    from sorbonne.services.portal_lists import names_agree
-
     assert not names_agree("Sara Khaled", "Diaa Mereib")
     assert not names_agree("Suzanne Abdelhamid", "Suzanne El chehaly")
     # One letter, and almost certainly one person — but no distance that accepts this while
@@ -1296,8 +1292,6 @@ def test_two_different_people_are_still_a_disagreement():
 
 
 def test_a_section_nobody_has_been_assigned_to_is_not_a_disagreement():
-    from sorbonne.services.portal_lists import named, names_agree
-
     assert not named("TBD")
     assert not named("  tba ")
     assert not named("")
@@ -1555,7 +1549,7 @@ def test_the_halves_of_one_section_do_not_clash_with_each_other(
     A group's own CRNs meeting at one hour is normally a clash with itself, and a section
     taught in two stretches would trip exactly that rule if the halves were not dated.
     """
-    cohort_id = cohort_with_a_split_section(database)
+    cohort_with_a_split_section(database)
     client.put(f"{BASE}/term-links/{HUB_TERM}", json={"portalTermCode": TERM})
     timetable(client, {"23436": (-60, -10), "24311": (-5, 40)})
 

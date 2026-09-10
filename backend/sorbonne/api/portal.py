@@ -371,7 +371,7 @@ async def update_active_course(
     except ActiveCourseNotFound as exc:
         raise _missing("active course") from exc
     except ValueError as exc:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
 
 
 # ------------------------------------------------------- the register of CRNs
@@ -403,7 +403,7 @@ async def update_active_crn(
     except ActiveCourseNotFound as exc:
         raise _missing("registered CRN") from exc
     except InvalidParent as exc:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
 
 
 @router.delete("/active-crns/{crn_id}", status_code=status.HTTP_204_NO_CONTENT)

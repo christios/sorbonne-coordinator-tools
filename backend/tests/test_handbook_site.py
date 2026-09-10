@@ -3,6 +3,7 @@ from pathlib import Path
 
 import httpx
 import pytest
+from fastapi import status
 
 from sorbonne.main import app
 
@@ -26,5 +27,5 @@ def test_serves_the_built_coordinator_handbook() -> None:
 
     response = asyncio.run(request_handbook())
 
-    assert response.status_code == 200
+    assert response.status_code == status.HTTP_200_OK
     assert "SCEN Coordinator Handbook" in response.text
