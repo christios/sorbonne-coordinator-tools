@@ -103,9 +103,22 @@ export function ActiveTeachers({ onOpenTeacher }: { onOpenTeacher?: (teacher: Te
     onSuccess: () => refresh(),
   });
   const linkPartTime = useMutation({
-    mutationFn: ({ activeId, partTimeTeacherId }: { activeId: string; partTimeTeacherId: string }) =>
-      linkPartTimeTeacher(activeId, partTimeTeacherId),
-    onSuccess: () => refresh(),
+    /*
+     * A list, because joining these is worth doing in one press.
+     *
+     * Unlike the portal direction, this changes nothing anybody reads: the portal profile
+     * goes on leading the name, the address and the department, and all that arrives is the
+     * tag saying the department also pays this person through a requisition. Eleven of the
+     * forty-four on the real data want it, every one of them under the same name on both
+     * sides — eleven presses to correct a tag is a chore, not a safeguard.
+     *
+     * In order and not at once: they are separate writes, and one that fails should not
+     * take the ones before it with it.
+     */
+    mutationFn: async (joins: PartTimeMatch[]) => {
+      for (const join of joins) await linkPartTimeTeacher(join.activeId, join.partTimeTeacherId);
+    },
+    onSettled: () => refresh(),
   });
   const add = useMutation({
     mutationFn: (records: PartTimeTeacher[]) => addActiveTeachers({ partTime: records }),
@@ -149,9 +162,7 @@ export function ActiveTeachers({ onOpenTeacher }: { onOpenTeacher?: (teacher: Te
       <AlsoPartTime
         matches={matches.data?.partTime ?? []}
         busy={linkPartTime.isPending}
-        onLink={(match) =>
-          linkPartTime.mutate({ activeId: match.activeId, partTimeTeacherId: match.partTimeTeacherId })
-        }
+        onLink={(joins) => linkPartTime.mutate(joins)}
       />
 
       {active.isLoading ? (
@@ -239,15 +250,27 @@ function AlsoPartTime({
 }: {
   matches: PartTimeMatch[];
   busy: boolean;
-  onLink: (match: PartTimeMatch) => void;
+  onLink: (joins: PartTimeMatch[]) => void;
 }) {
   if (!matches.length) return null;
   return (
     <div className="mb-3 rounded-lg border border-[#cbd9e6] bg-[#f2f7fb] px-4 py-3">
-      <p className="flex items-center gap-2 text-sm font-semibold text-[#1f4e79]">
-        <Link2 size={15} aria-hidden="true" />
-        {matches.length} {matches.length === 1 ? "teacher is" : "teachers are"} also in the part-time database
-      </p>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <p className="flex items-center gap-2 text-sm font-semibold text-[#1f4e79]">
+          <Link2 size={15} aria-hidden="true" />
+          {matches.length} {matches.length === 1 ? "teacher is" : "teachers are"} also in the part-time database
+        </p>
+        {matches.length > 1 ? (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => onLink(matches)}
+            className="ml-auto inline-flex items-center gap-1.5 rounded-md bg-[#1f4e79] px-2.5 py-1 text-xs font-semibold text-white hover:bg-[#1a4267] disabled:opacity-50"
+          >
+            <Link2 size={13} aria-hidden="true" /> Same person, all {matches.length}
+          </button>
+        ) : null}
+      </div>
       <p className="mt-1 text-xs text-[#3d6c96]">
         They were chosen from the portal, so nothing here says the department also holds them as a part-time record.
         Joining the two adds the tag and changes nothing else — the portal&apos;s profile still leads.
@@ -263,7 +286,7 @@ function AlsoPartTime({
             <button
               type="button"
               disabled={busy}
-              onClick={() => onLink(match)}
+              onClick={() => onLink([match])}
               className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-2.5 py-1 text-xs font-semibold text-[#1f4e79] hover:bg-[#f2f7fb] disabled:opacity-50"
             >
               <Link2 size={13} aria-hidden="true" /> Same person

@@ -119,6 +119,62 @@ describe("somebody the part-time database has held all along", () => {
     fireEvent.click(screen.getByRole("button", { name: /Same person/ }));
 
     await waitFor(() => expect(link).toHaveBeenCalledWith("act-1", "pt-1"));
+    // One of them is not a list to offer joining in one press.
+    expect(screen.queryByRole("button", { name: /all 1/ })).toBeNull();
+  });
+
+  it("joins the whole list in one press, because the tag is all that changes", async () => {
+    vi.spyOn(lists, "fetchTeacherMatches").mockResolvedValue({
+      matches: [],
+      partTime: [
+        {
+          activeId: "act-1", activeName: "Ahlem Trabelsi", activeEmail: "ahlem@sorbonne.ae",
+          partTimeTeacherId: "pt-1", partTimeName: "Ahlem Trabelsi", partTimeEmail: "",
+        },
+        {
+          activeId: "act-2", activeName: "Cecile Paillot", activeEmail: "cecile@sorbonne.ae",
+          partTimeTeacherId: "pt-2", partTimeName: "Cécile Paillot", partTimeEmail: "",
+        },
+      ],
+    });
+    const link = vi.spyOn(lists, "linkPartTimeTeacher").mockResolvedValue();
+    show();
+
+    fireEvent.click(await screen.findByRole("button", { name: /Same person, all 2/ }));
+
+    await waitFor(() => expect(link).toHaveBeenCalledTimes(2));
+    expect(link.mock.calls).toEqual([
+      ["act-1", "pt-1"],
+      ["act-2", "pt-2"],
+    ]);
+  });
+
+  it("keeps the joins it managed when one of them fails", async () => {
+    // Separate writes: one that fails must not take the ones before it with it, and the
+    // banner must come back showing what is left rather than an empty success.
+    vi.spyOn(lists, "fetchTeacherMatches").mockResolvedValue({
+      matches: [],
+      partTime: [
+        {
+          activeId: "act-1", activeName: "Ahlem Trabelsi", activeEmail: "",
+          partTimeTeacherId: "pt-1", partTimeName: "Ahlem Trabelsi", partTimeEmail: "",
+        },
+        {
+          activeId: "act-2", activeName: "Cecile Paillot", activeEmail: "",
+          partTimeTeacherId: "pt-2", partTimeName: "Cécile Paillot", partTimeEmail: "",
+        },
+      ],
+    });
+    const link = vi
+      .spyOn(lists, "linkPartTimeTeacher")
+      .mockResolvedValueOnce()
+      .mockRejectedValueOnce(new ApiError("Somebody else on the department's list is already that record.", 409));
+    show();
+
+    fireEvent.click(await screen.findByRole("button", { name: /Same person, all 2/ }));
+
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(link).toHaveBeenCalledTimes(2);
   });
 
   it("says nothing when every row already knows both sides", async () => {
