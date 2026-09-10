@@ -972,3 +972,62 @@ describe("three records, three kinds of trouble", () => {
     expect(screen.queryByText("major differs")).toBeNull();
   });
 });
+
+describe("copying one record at a time", () => {
+  const copied: string[] = [];
+  beforeEach(() => {
+    copied.length = 0;
+    Object.assign(navigator, {
+      clipboard: { writeText: (text: string) => { copied.push(text); return Promise.resolve(); } },
+    });
+  });
+
+  async function bothKinds() {
+    vi.spyOn(database, "fetchStudents").mockResolvedValue([student("A001", "c1"), student("A002", "c1")]);
+    vi.spyOn(database, "fetchDiscrepancyRules").mockResolvedValue([MAJOR]);
+    vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue(
+      report([mismatch({ studentId: "A002", kind: "missing", expected: ["23561"], registered: [] })], [checked()]),
+    );
+    await portalSays([
+      { SPRIDEN_ID: "A001", FULL_NAME: "Amira Haddad", MAJOR_CODE_DESC: "Physics" },
+      { SPRIDEN_ID: "A002", FULL_NAME: "Karim Nasser" },
+    ]);
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Registrations to change" }));
+    return screen.findByRole("dialog");
+  }
+
+  it("narrows the lines to one record, not the students", async () => {
+    // The same reading as the page's filter: a student flagged by two records appears
+    // under each, carrying only that record's lines.
+    const dialog = await bothKinds();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Register" }));
+    fireEvent.click(within(dialog).getAllByRole("button", { name: "Copy" })[0]);
+
+    await waitFor(() => expect(copied).toHaveLength(1));
+    expect(copied[0]).toContain("23561");
+    expect(copied[0]).not.toContain("Physics");
+  });
+
+  it("copies what is wrong instead of a CRN for an admissions line", async () => {
+    const dialog = await bothKinds();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Admissions" }));
+    fireEvent.click(within(dialog).getAllByRole("button", { name: "Copy" })[0]);
+
+    await waitFor(() => expect(copied).toHaveLength(1));
+    expect(copied[0]).toContain("Physics");
+    expect(copied[0]).not.toContain("23561");
+  });
+
+  it("copies both when neither is chosen", async () => {
+    const dialog = await bothKinds();
+
+    fireEvent.click(within(dialog).getAllByRole("button", { name: "Copy" })[0]);
+
+    await waitFor(() => expect(copied).toHaveLength(1));
+    expect(copied[0]).toContain("23561");
+    expect(copied[0]).toContain("Physics");
+  });
+});

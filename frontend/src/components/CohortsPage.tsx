@@ -678,6 +678,12 @@ export function CohortsPage({
               cohortId={cohortId}
               cohortName={cohort?.name ?? ""}
               nameOf={(studentId) => evidence.names.get(studentId) ?? ""}
+              /*
+               * The warnings this page has already judged, per cohort — including the
+               * cohorts it is not showing, which is what makes "all cohorts" possible
+               * without judging anything a second time.
+               */
+              warningsIn={(id) => (byCohort.get(id) ?? []).filter((warning) => !dismissed.has(warning.key))}
             />
           }
           onPreselectTaken={onFocusTaken}

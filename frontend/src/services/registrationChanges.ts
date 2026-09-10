@@ -11,6 +11,7 @@
  * a verdict belongs here at all.
  */
 
+import { describeWarning, sourceOf, type Warning, type WarningSource } from "@/services/discrepancies";
 import type { Mismatch } from "@/services/portalLists";
 
 /**
@@ -29,10 +30,22 @@ export type RegistrationChange = {
   studentId: string;
   studentName: string;
   cohortName: string;
-  action: "Add" | "Remove";
+  /** Which record it came out of, so the table can be narrowed to one of them. */
+  source: WarningSource;
+  /** Empty for a line that is not a registration to key in. */
+  action: "Add" | "Remove" | "";
   crn: string;
   /** The course the CRN is for, so the line can be read without a lookup. */
   courseCode: string;
+  /**
+   * What is wrong, for a line with no CRN to act on.
+   *
+   * An admissions warning — "major is Physics, cohort expects Mathematics" — has nothing
+   * to add or drop, and a line saying so with four blank columns would read as a mistake.
+   * The sentence goes here and the reader can see at a glance which lines are
+   * registrations to key in and which are records to look at.
+   */
+  note: string;
 };
 
 export function registrationChanges(
@@ -45,13 +58,15 @@ export function registrationChanges(
     if (!ACTIONABLE.has(mismatch.kind)) continue;
     const held = new Set(mismatch.registered);
     const wanted = new Set(mismatch.expected);
-    const line = (action: "Add" | "Remove", crn: string) => ({
+    const line = (action: "Add" | "Remove", crn: string): RegistrationChange => ({
       studentId: mismatch.studentId,
       studentName: nameOf(mismatch.studentId),
       cohortName,
+      source: "registration",
       action,
       crn,
       courseCode: mismatch.courseCode,
+      note: "",
     });
     // Removes first for each course: a registrar working down the list frees the seat
     // before filling it, which is the order the two lines have to be done in.
@@ -85,6 +100,33 @@ function byStudentThenByAction(left: RegistrationChange, right: RegistrationChan
   return left.crn.localeCompare(right.crn);
 }
 
+/**
+ * The lines that have no CRN to act on: admissions, and the timetabling clashes.
+ *
+ * Built from the warnings the page has already judged rather than from the checks again,
+ * because those are what the coordinator is looking at and a second answer to the same
+ * question would be a second answer to disagree with.
+ */
+export function noteChanges(
+  warnings: Warning[],
+  nameOf: (studentId: string) => string,
+  cohortName: string,
+): RegistrationChange[] {
+  return warnings
+    .filter((warning) => warning.kind !== "no_baseline" && sourceOf(warning) !== "registration")
+    .map((warning) => ({
+      studentId: warning.studentId,
+      studentName: nameOf(warning.studentId),
+      cohortName,
+      source: sourceOf(warning),
+      action: "" as const,
+      crn: "",
+      courseCode: "",
+      note: describeWarning(warning),
+    }))
+    .sort(byStudentThenByAction);
+}
+
 /** The header of the table the registrar is sent. */
 export const CHANGE_COLUMNS = [
   "Student ID",
@@ -94,6 +136,7 @@ export const CHANGE_COLUMNS = [
   "Remove CRN",
   "Add CRN",
   "Course",
+  "Note",
 ] as const;
 
 /**
@@ -118,6 +161,7 @@ export function changesTable(changes: RegistrationChange[]): string {
         change.action === "Remove" ? change.crn : "",
         change.action === "Add" ? change.crn : "",
         change.courseCode,
+        change.note,
       ].join("\t"),
     );
   }

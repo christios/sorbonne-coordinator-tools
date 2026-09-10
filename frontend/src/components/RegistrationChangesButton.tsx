@@ -5,8 +5,19 @@ import { useState } from "react";
 import { Modal } from "@/components/Modal";
 import { copyToClipboard } from "@/services/copyCells";
 import { fetchRegistrationCheck } from "@/services/portalLists";
-import { changesTable, registrationChanges } from "@/services/registrationChanges";
+import { changesTable, noteChanges, registrationChanges } from "@/services/registrationChanges";
+import type { Warning, WarningSource } from "@/services/discrepancies";
 import type { Cohort } from "@/services/studentDatabase";
+
+/** Which record to copy. The same three the page's own filter narrows to, plus all. */
+type Records = "all" | WarningSource;
+
+const RECORDS: { id: Records; name: string }[] = [
+  { id: "all", name: "All" },
+  { id: "record", name: "Admissions" },
+  { id: "registration", name: "Register" },
+  { id: "timetabling", name: "Timetabling" },
+];
 
 /**
  * The registrar's worklist, copied: which CRNs to add and which to drop, per student.
@@ -28,15 +39,23 @@ export function RegistrationChangesButton({
   cohortId,
   cohortName,
   nameOf,
+  warningsIn,
 }: {
   cohorts: Cohort[];
   /** The cohort on screen, which is what "this cohort" means. */
   cohortId: string;
   cohortName: string;
   nameOf: (studentId: string) => string;
+  /**
+   * The warnings the page has already judged, per cohort — where the admissions and
+   * timetabling lines come from. Asking the checks again here would be a second answer to
+   * a question the page has answered, and two answers are two things to disagree.
+   */
+  warningsIn: (cohortId: string) => Warning[];
 }) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState("");
+  const [records, setRecords] = useState<Records>("all");
 
   /*
    * Every cohort is asked as soon as the dialog opens, because both answers are shown
@@ -54,7 +73,10 @@ export function RegistrationChangesButton({
   });
   const ready = open && checks.every((check) => !check.isPending);
   const byCohort = cohorts.map((cohort, index) =>
-    registrationChanges(checks[index]?.data?.mismatches ?? [], nameOf, cohort.name),
+    [
+      ...registrationChanges(checks[index]?.data?.mismatches ?? [], nameOf, cohort.name),
+      ...noteChanges(warningsIn(cohort.id), nameOf, cohort.name),
+    ].filter((change) => records === "all" || change.source === records),
   );
   const mine = byCohort[cohorts.findIndex((cohort) => cohort.id === cohortId)] ?? [];
   const everyone = byCohort.flat();
@@ -84,9 +106,30 @@ export function RegistrationChangesButton({
       <Modal
         open={open}
         title="Registrations to change"
-        description="The CRNs to add and to drop so that every student holds the sections their groups give them. Copied as a table: the id and the name once per student, then a line for each CRN."
+        description="One table for whoever acts on it: the id and the name once per student, then a line each. A register line carries the CRN to add or drop; an admissions or timetabling line carries what is wrong with them instead."
         onClose={() => setOpen(false)}
       >
+        {/*
+          * Which record, narrowing the LINES rather than the students — the same reading
+          * as the page's own filter. A student flagged by two records appears under each,
+          * carrying only that record's lines.
+          */}
+        <div role="group" aria-label="Which records to copy" className="mb-3 inline-flex rounded-md border border-[#d3d9e2] bg-white p-0.5">
+          {RECORDS.map((option) => (
+            <button
+              key={option.id}
+              type="button"
+              aria-pressed={records === option.id}
+              onClick={() => setRecords(option.id)}
+              className={`rounded px-2.5 py-1 text-sm font-semibold ${
+                records === option.id ? "bg-[#1f4e79] text-white" : "text-[#344054] hover:bg-[#f2f4f7]"
+              }`}
+            >
+              {option.name}
+            </button>
+          ))}
+        </div>
+
         {!ready ? (
           <p className="text-sm text-[#667085]">Reading the register…</p>
         ) : (

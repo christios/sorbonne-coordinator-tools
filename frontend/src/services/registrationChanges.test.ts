@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import type { Mismatch } from "@/services/portalLists";
-import { changesTable, registrationChanges } from "@/services/registrationChanges";
+import type { Warning } from "@/services/discrepancies";
+import { changesTable, noteChanges, registrationChanges } from "@/services/registrationChanges";
 
 const mismatch = (over: Partial<Mismatch>): Mismatch => ({
   studentId: "A00027997", termId: "t1", termCode: "262710", courseCode: "MATH-001",
@@ -83,9 +84,9 @@ describe("the registrar's worklist", () => {
     );
 
     const [header, first, second] = table.split("\n");
-    expect(header.split("\t")).toEqual(["Student ID", "Student", "Cohort", "Action", "Remove CRN", "Add CRN", "Course"]);
-    expect(first.split("\t")).toEqual(["A00027997", "Amira Haddad", "FYS-S1", "Add", "", "23561", "MATH-001"]);
-    expect(second.split("\t")).toEqual(["", "", "", "Add", "", "23564", "MATH-009"]);
+    expect(header.split("\t")).toEqual(["Student ID", "Student", "Cohort", "Action", "Remove CRN", "Add CRN", "Course", "Note"]);
+    expect(first.split("\t")).toEqual(["A00027997", "Amira Haddad", "FYS-S1", "Add", "", "23561", "MATH-001", ""]);
+    expect(second.split("\t")).toEqual(["", "", "", "Add", "", "23564", "MATH-009", ""]);
   });
 
   it("puts a removal's CRN in the remove column and an addition's in the add column", () => {
@@ -93,7 +94,7 @@ describe("the registrar's worklist", () => {
       registrationChanges([mismatch({ kind: "extra", expected: [], registered: ["23999"] })], named, "FYS-S1"),
     );
 
-    expect(table.split("\n")[1].split("\t")).toEqual(["A00027997", "Amira Haddad", "FYS-S1", "Remove", "23999", "", "MATH-001"]);
+    expect(table.split("\n")[1].split("\t")).toEqual(["A00027997", "Amira Haddad", "FYS-S1", "Remove", "23999", "", "MATH-001", ""]);
   });
 
   it("orders by cohort then by the name somebody will read down", () => {
@@ -108,5 +109,34 @@ describe("the registrar's worklist", () => {
 
     // The named student first; the unnamed sort under their id, after every name.
     expect(changes.map((row) => row.studentId)).toEqual(["A00027997", "A00099999"]);
+  });
+});
+
+describe("the lines with no CRN to act on", () => {
+  const warning = (over: Partial<Warning> = {}): Warning => ({
+    key: "k1", studentId: "A00027997", ruleId: "r1", kind: "differs",
+    field: "MAJOR_CODE_DESC", value: "Physics", expected: "Mathematics", ...over,
+  });
+
+  it("carries what is wrong instead of a CRN, so four blank columns are not a mistake", () => {
+    const [line] = noteChanges([warning()], named, "FYS-S1");
+
+    expect(line.action).toBe("");
+    expect(line.crn).toBe("");
+    expect(line.source).toBe("record");
+    expect(line.note).toContain("Physics");
+  });
+
+  it("leaves the register's own verdicts to the arithmetic that can act on them", () => {
+    // A registration warning has CRNs to add and drop; saying it twice, once as a note
+    // and once as a pair of lines, would be one fact in two shapes.
+    const lines = noteChanges([warning({ kind: "registration", field: "registration" })], named, "FYS-S1");
+
+    expect(lines).toEqual([]);
+  });
+
+  it("says nothing about a student whose changes cannot be judged", () => {
+    // `no_baseline` is the absence of an answer, not an answer.
+    expect(noteChanges([warning({ kind: "no_baseline" })], named, "FYS-S1")).toEqual([]);
   });
 });
