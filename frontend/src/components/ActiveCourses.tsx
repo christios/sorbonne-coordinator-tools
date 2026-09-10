@@ -7,6 +7,7 @@ import { CourseRecord } from "@/components/CourseRecord";
 import { CollisionList } from "@/components/CollisionList";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { removeEach, stillSelected } from "@/services/bulkRemove";
+import { warningsByCrn, worstOf, WORDS, type CrnWarning, type CrnWarningKind } from "@/services/registerWarnings";
 import { ListGrid, StatePill } from "@/components/ListGrid";
 import { Modal } from "@/components/Modal";
 import { ScreenLoading } from "@/components/ScreenLoading";
@@ -60,6 +61,20 @@ const COLUMNS: GridColumn<ActiveCrn>[] = [
     accessor: (row) => (row.portalStatus === "in_portal" ? "Listed" : "Gone from the portal"),
     defaultWidth: 150,
   },
+  /*
+   * What is wrong with this CRN, on the CRN.
+   *
+   * Sorted and filtered on the WORST kind's own word rather than on a count, because
+   * "show me the rows the registrar staffs differently" is the question somebody narrows
+   * this column to ask, and a number cannot be narrowed to it.
+   */
+  {
+    id: "warnings",
+    displayName: "Needs attention",
+    type: "option",
+    accessor: (row) => WORDS[worstOf(WARNINGS.get(row.crn) ?? []) as CrnWarningKind] ?? "",
+    defaultWidth: 220,
+  },
   { id: "courseTitle", displayName: "Course title", type: "text", accessor: (row) => row.courseTitle, defaultWidth: 220 },
   { id: "sequence", displayName: "Seq.", type: "text", accessor: (row) => row.sequence, defaultWidth: 70 },
   { id: "partOfTerm", displayName: "Part of term", type: "option", accessor: (row) => row.partOfTerm, defaultWidth: 150 },
@@ -69,7 +84,17 @@ const COLUMNS: GridColumn<ActiveCrn>[] = [
   { id: "addedAt", displayName: "Added", type: "date", accessor: (row) => row.addedAt, display: (row) => row.addedAt.slice(0, 10), defaultWidth: 110 },
   { id: "addedBy", displayName: "Added by", type: "text", accessor: (row) => row.addedBy, defaultWidth: 190 },
 ];
-const SHOWN = ["crn", "courseCode", "portalTitle", "role", "parentCrn", "ue", "mutualized", "teacherName", "registered", "usedBy", "portalStatus"];
+const SHOWN = ["crn", "courseCode", "portalTitle", "warnings", "role", "parentCrn", "ue", "mutualized", "teacherName", "registered", "usedBy", "portalStatus"];
+
+/*
+ * The warnings the columns above read, which are a page's state and not a column's.
+ *
+ * A GridColumn is a plain object built once at module load, and its accessor is handed
+ * only the row — so the only way for it to see what the register said is a binding it can
+ * close over. Written by the page on every render, read by the accessor a moment later,
+ * and never by anything else.
+ */
+let WARNINGS: Map<string, CrnWarning[]> = new Map();
 
 /**
  * What this CRN is within the course: the one the sections hang from, one of those
@@ -103,6 +128,7 @@ export function ActiveCourses({ onShowStudents }: { onShowStudents?: (ids: strin
   const [settingChecks, setSettingChecks] = useState(false);
   /** Which course's record is open over the list, if any. */
   const [showingCourse, setShowingCourse] = useState("");
+  const [showingCollisions, setShowingCollisions] = useState(false);
 
   const crns = useQuery({ queryKey: ["active-crns"], queryFn: () => fetchActiveCrns() });
   const courses = useQuery({ queryKey: ["active-courses"], queryFn: fetchActiveCourses });
@@ -168,6 +194,27 @@ export function ActiveCourses({ onShowStudents }: { onShowStudents?: (ids: strin
       if (row.parentCrn) return <StatePill tone="muted">Child</StatePill>;
       return <span className="text-[#c8d0da]">On its own</span>;
     }
+    if (column.id === "warnings") {
+      const mine = warnings.get(row.crn) ?? [];
+      if (!mine.length) return <span className="text-[#c8d0da]">—</span>;
+      return (
+        <span className="flex flex-wrap gap-1">
+          {mine.map((warning) => (
+            <span
+              key={`${warning.kind}|${warning.text}`}
+              title={warning.text}
+              className={`inline-flex max-w-full items-center truncate rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                warning.kind === "gone" || warning.kind === "unregistered"
+                  ? "bg-[#fdf3f3] text-[#a6292f]"
+                  : "bg-[#fdf9ee] text-[#8a6116]"
+              }`}
+            >
+              {WORDS[warning.kind]}
+            </span>
+          ))}
+        </span>
+      );
+    }
     if (column.id === "ue" && !row.ue) return <span className="text-[#c8d0da]">—</span>;
     /*
      * The course code opens the course, the way a student's name opens the student.
@@ -193,13 +240,14 @@ export function ActiveCourses({ onShowStudents }: { onShowStudents?: (ids: strin
   };
 
   const report = check.data;
-  const attention =
-    (report?.gone.length ?? 0) +
-    (report?.arrived.length ?? 0) +
-    (report?.unregistered.length ?? 0) +
-    (report?.teacherDiffers.length ?? 0) +
-    (report?.teacherUnnamed.length ?? 0) +
-    (report?.collides.length ?? 0);
+  const warnings = useMemo(() => warningsByCrn(report), [report]);
+  WARNINGS = warnings;
+  /*
+   * The band is for what has no row. Five of the six checks are about a CRN the department
+   * holds and are pills on it now; the sixth is about a CRN we have NOT taken in, which by
+   * definition is not in the table below and cannot be a pill on anything.
+   */
+  const attention = report?.arrived.length ?? 0;
 
   return (
     <section>
@@ -213,9 +261,6 @@ export function ActiveCourses({ onShowStudents }: { onShowStudents?: (ids: strin
             <RegisterBanner
               report={report}
               busy={takeIn.isPending}
-              term={term}
-              onSettled={() => client.invalidateQueries({ queryKey: ["register-check"] })}
-              onShowStudents={onShowStudents}
               onTakeIn={() =>
                 takeIn.mutate(report.arrived.map((row) => ({ termCode: row.termCode, crn: row.crn, courseCode: row.courseCode })))
               }
@@ -290,6 +335,42 @@ export function ActiveCourses({ onShowStudents }: { onShowStudents?: (ids: strin
             <ChecksPanel />
           </Modal>
 
+          {/*
+            * The collisions, in a place of their own below the table.
+            *
+            * They used to live inside the band, which is now only about CRNs nobody has
+            * taken in — so a department with none of those would have had no way to reach
+            * a settle button at all. And they never belonged to that band: each one has a
+            * decision attached and needs room for it, which a counted line does not give.
+            *
+            * The rows carry a pill saying WHICH of our sections is in one; this is where
+            * the slot is argued about.
+            */}
+          {report ? (
+            <section className="mt-4 rounded-md border border-[#e8d9ac] bg-[#fdf9ee] py-3">
+              <div className="flex flex-wrap items-center gap-2 px-6">
+                <h3 className="text-sm font-semibold text-[#8a6116]">Sharing an hour with another department</h3>
+                <button
+                  type="button"
+                  onClick={() => setShowingCollisions((current) => !current)}
+                  className="text-xs font-semibold text-[#1f4e79] underline"
+                >
+                  {showingCollisions ? "Hide" : "Show"}
+                </button>
+              </div>
+              {showingCollisions ? (
+                <CollisionList
+                  term={term}
+                  collides={report.collides}
+                  settled={report.settledCollisions}
+                  swept={report.swept}
+                  onSettled={() => client.invalidateQueries({ queryKey: ["register-check"] })}
+                  onShowStudents={onShowStudents}
+                />
+              ) : null}
+            </section>
+          ) : null}
+
           <p className="mt-2 text-xs text-[#98a2b3]">
             {(courses.data ?? []).length} course{(courses.data ?? []).length === 1 ? "" : "s"} on the department&apos;s list,
             {" "}
@@ -324,39 +405,20 @@ export function ActiveCourses({ onShowStudents }: { onShowStudents?: (ids: strin
 }
 
 /**
- * Where the registrar's list and the register disagree — the same idea as the Cohorts
- * page's banner, for CRNs rather than students: what we hold that the portal has dropped,
- * what it has made for our courses that nobody has taken in, and what a card teaches
- * under a CRN nobody registered.
+ * The one difference that has no row of its own: a CRN the portal lists for our courses
+ * that nobody has taken in.
+ *
+ * It was six counted lines; five of them were about a CRN the department holds and are
+ * pills on its row now. This one cannot be, because the whole point of it is that the
+ * table below does not have the row yet — which is also why the button that takes it in
+ * lives here rather than anywhere else.
  */
-function RegisterBanner({
-  report,
-  busy,
-  term,
-  onTakeIn,
-  onSettled,
-  onShowStudents,
-}: {
-  report: RegisterCheck;
-  busy: boolean;
-  term: string;
-  onTakeIn: () => void;
-  onSettled: () => void;
-  /** Open the students table on exactly these ids — where their names are. */
-  onShowStudents?: (ids: string[]) => void;
-}) {
+function RegisterBanner({ report, busy, onTakeIn }: { report: RegisterCheck; busy: boolean; onTakeIn: () => void }) {
   const [open, setOpen] = useState(false);
   const lines = [
-    report.gone.length ? `${report.gone.length} CRN${report.gone.length === 1 ? "" : "s"} we hold, gone from the portal` : "",
-    report.arrived.length ? `${report.arrived.length} CRN${report.arrived.length === 1 ? "" : "s"} the portal lists for our courses, not registered` : "",
-    report.unregistered.length ? `${report.unregistered.length} CRN${report.unregistered.length === 1 ? "" : "s"} on a course card, not registered` : "",
-    // Said as sections, not CRNs, because that is the unit somebody goes and fixes. One
-    // teacher misspelled across six sections is six lines to change.
-    report.teacherDiffers.length ? `${report.teacherDiffers.length} section${report.teacherDiffers.length === 1 ? "" : "s"} the registrar staffs differently` : "",
-    report.teacherUnnamed.length ? `${report.teacherUnnamed.length} the registrar staffs and we have not` : "",
-    // Said as slots, because that is what gets moved. Five of our sections in one option
-    // block is five lines here and one conversation with whoever owns the block.
-    report.collides.length ? `${report.collides.length} of our sections share an hour with another department's` : "",
+    report.arrived.length
+      ? `${report.arrived.length} CRN${report.arrived.length === 1 ? "" : "s"} the portal lists for our courses, not registered`
+      : "",
   ].filter(Boolean);
 
   return (
@@ -379,41 +441,12 @@ function RegisterBanner({
         ) : null}
       </p>
       {open ? (
-        <div className="mt-2 grid gap-3 pl-6 text-xs sm:grid-cols-3">
-          <Column title="Gone from the portal" rows={report.gone.map((row) => `${row.crn} ${row.courseCode}${row.usedBy ? ` — on ${row.usedBy} card row(s)` : ""}`)} />
-          <Column title="New in the portal" rows={report.arrived.map((row) => `${row.crn} ${row.courseCode} — ${row.title}${row.teacherName ? `, ${row.teacherName}` : ""}`)} />
-          <Column title="On a card, unregistered" rows={report.unregistered.map((row) => `${row.crn} ${row.courseCode}`)} />
-          {/*
-            * Both sides of every teacher line, always. "Ours differs from theirs" is not
-            * something anybody can act on without seeing which is which — and a good half
-            * of these are two spellings of one person, where the answer is to pick one.
-            */}
+        <div className="mt-2 pl-6 text-xs">
           <Column
-            title="Staffed differently"
-            rows={report.teacherDiffers.map((row) => `${row.crn} ${row.courseCode} ${row.groupLabel} — we say ${row.ours}, the registrar says ${row.theirs}`)}
-          />
-          <Column
-            title="Staffed only by the registrar"
-            rows={report.teacherUnnamed.map((row) => `${row.crn} ${row.courseCode} ${row.groupLabel} — ${row.theirs}`)}
+            title="New in the portal"
+            rows={report.arrived.map((row) => `${row.crn} ${row.courseCode} — ${row.title}${row.teacherName ? `, ${row.teacherName}` : ""}`)}
           />
         </div>
-      ) : null}
-
-      {/*
-        * The collisions get their own block rather than a fourth <Column>, because unlike
-        * the three above each one has a decision attached and needs room for it.
-        */}
-      {/* Rendered whenever the band is open, including with nothing in it: saying "nobody
-          has looked" is as much its job as listing what was found. */}
-      {open ? (
-        <CollisionList
-          term={term}
-          collides={report.collides}
-          settled={report.settledCollisions}
-          swept={report.swept}
-          onSettled={onSettled}
-          onShowStudents={onShowStudents}
-        />
       ) : null}
     </div>
   );

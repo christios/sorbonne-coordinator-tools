@@ -54,25 +54,30 @@ describe("who the registrar says teaches a section", () => {
     expect(screen.queryByText(/staffs differently/)).toBeNull();
   });
 
-  it("counts the sections staffed differently, and shows both names", async () => {
-    vi.spyOn(lists, "fetchRegisterCheck").mockResolvedValue({
-      ...EMPTY,
-      teacherDiffers: [drift({}), drift({ crn: "23652", courseCode: "MATH-011", ours: "Wafaa Ahmed", theirs: "Wafa Ahmed" })],
-    });
+  it("marks the CRN's own row, with both names in reach", async () => {
+    /*
+     * These were counted lines in a band — "2 sections the registrar staffs differently" —
+     * which said how many and left the reader to open a list and match CRNs by eye against
+     * the rows below. A fact about a row belongs on the row.
+     *
+     * Both sides are still there, on the pill's title: "ours differs from theirs" cannot be
+     * acted on without seeing which is which, and half of them are two spellings of one
+     * person where the whole job is to pick one.
+     */
+    vi.spyOn(lists, "fetchActiveCrns").mockResolvedValue([crnRow({ crn: "23638", courseCode: "PHYS-125" })]);
+    vi.spyOn(lists, "fetchRegisterCheck").mockResolvedValue({ ...EMPTY, teacherDiffers: [drift({})] });
 
     show();
 
-    expect(await screen.findByText(/2 sections the registrar staffs differently/)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /Show them/ }));
-
-    // Both sides, because "ours differs from theirs" cannot be acted on without them.
-    expect(screen.getByText(/23638 PHYS-125 1 — we say Sara Khaled, the registrar says Diaa Mereib/)).toBeTruthy();
-    expect(screen.getByText(/23652 MATH-011 1 — we say Wafaa Ahmed, the registrar says Wafa Ahmed/)).toBeTruthy();
+    const pill = await screen.findByTitle(/We say Sara Khaled, the registrar says Diaa Mereib/);
+    expect(pill.textContent).toBe("Staffed differently");
+    expect(pill.closest("tr")?.textContent).toContain("23638");
   });
 
-  it("keeps a section the registrar staffs and we have not on its own list", async () => {
+  it("keeps a section the registrar staffs and we have not apart from a disagreement", async () => {
     // A line to copy across, not a conversation to have. Counting it with the
     // disagreements would send somebody to argue about a name nobody has written yet.
+    vi.spyOn(lists, "fetchActiveCrns").mockResolvedValue([crnRow({ crn: "24071", courseCode: "PHYS-118" })]);
     vi.spyOn(lists, "fetchRegisterCheck").mockResolvedValue({
       ...EMPTY,
       teacherUnnamed: [drift({ crn: "24071", courseCode: "PHYS-118", ours: "", theirs: "Valerie LE GUYON", planning: "unplanned" })],
@@ -80,12 +85,21 @@ describe("who the registrar says teaches a section", () => {
 
     show();
 
-    expect(await screen.findByText(/1 the registrar staffs and we have not/)).toBeTruthy();
-    expect(screen.queryByText(/staffs differently/)).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: /Show them/ }));
-    expect(screen.getByText(/24071 PHYS-118 1 — Valerie LE GUYON/)).toBeTruthy();
+    expect(await screen.findByText("Staffed only by the registrar")).toBeTruthy();
+    expect(screen.queryByText("Staffed differently")).toBeNull();
   });
 });
+
+/** One row of the register, for the pills to land on. */
+const crnRow = (over: Partial<lists.ActiveCrn> = {}): lists.ActiveCrn =>
+  ({
+    id: over.crn ?? "1", termCode: "262710", crn: "23638", courseCode: "PHYS-125", parentCrn: "",
+    courseTitle: "", ue: "", mutualized: "", portalTitle: "", teacherName: "", registered: 0,
+    usedBy: 0, portalStatus: "in_portal", sequence: "", partOfTerm: "", credits: "",
+    contactHours: "", addedAt: "", addedBy: "", childCount: 0, parentStatus: "in_portal",
+    parentTitle: "",
+    ...over,
+  }) as unknown as lists.ActiveCrn;
 
 const collision = (over: Partial<lists.SectionCollision> = {}): lists.SectionCollision => ({
   ourCrn: "23302", ourCourse: "SCEN-101", weekday: "Tue", startsAt: "16:30", endsAt: "18:00",
@@ -102,7 +116,7 @@ describe("our sections sharing an hour with another department's", () => {
     vi.spyOn(lists, "fetchRegisterCheck").mockResolvedValue({ ...EMPTY, collides: [collision()] });
 
     show();
-    fireEvent.click(await screen.findByRole("button", { name: /Show them/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Show" }));
 
     expect(screen.getByText(/SCEN-101 23302/)).toBeTruthy();
     expect(screen.getByText(/Tue 16:30–18:00, 14 times/)).toBeTruthy();
@@ -117,7 +131,7 @@ describe("our sections sharing an hour with another department's", () => {
     const settle = vi.spyOn(lists, "settleCollision").mockResolvedValue(undefined);
 
     show();
-    fireEvent.click(await screen.findByRole("button", { name: /Show them/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Show" }));
     fireEvent.click(screen.getByRole("button", { name: "Accept" }));
 
     await waitFor(() => expect(settle).toHaveBeenCalled());
@@ -137,7 +151,7 @@ describe("our sections sharing an hour with another department's", () => {
     const settle = vi.spyOn(lists, "settleCollision").mockResolvedValue(undefined);
 
     show();
-    fireEvent.click(await screen.findByRole("button", { name: /Show them/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Show" }));
 
     expect(screen.getByText(/referred — asked the option block owner/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Put it back" }));
@@ -152,7 +166,7 @@ describe("our sections sharing an hour with another department's", () => {
     });
 
     show();
-    fireEvent.click(await screen.findByRole("button", { name: /Show them/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Show" }));
 
     expect(screen.getByText(/no collision can be found in any of it/)).toBeTruthy();
   });
@@ -167,7 +181,7 @@ describe("a collision list that leads with what is at stake", () => {
     vi.spyOn(lists, "fetchRegisterCheck").mockResolvedValue({ ...EMPTY, collides: [collision()] });
 
     show();
-    fireEvent.click(await screen.findByRole("button", { name: /Show them/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Show" }));
 
     expect(screen.getByText("1 h 30")).toBeTruthy();
   });
@@ -188,7 +202,7 @@ describe("a collision list that leads with what is at stake", () => {
     });
 
     show();
-    fireEvent.click(await screen.findByRole("button", { name: /Show them/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Show" }));
 
     expect(screen.getByText(/1 in both/)).toBeTruthy();
     expect(screen.queryByText(/nobody in both/)).toBeNull();
@@ -207,7 +221,7 @@ describe("a collision list that leads with what is at stake", () => {
     });
 
     show();
-    fireEvent.click(await screen.findByRole("button", { name: /Show them/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Show" }));
 
     expect(screen.getByText(/None of them catches a student of ours/)).toBeTruthy();
   });
@@ -227,7 +241,7 @@ describe("opening the students a collision catches", () => {
     const shown = vi.fn();
 
     show({ onShowStudents: shown });
-    fireEvent.click(await screen.findByRole("button", { name: /Show them/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Show" }));
     fireEvent.click(screen.getByRole("button", { name: "2 in both" }));
 
     expect(shown).toHaveBeenCalledWith(["A00028377", "A00028382"]);
@@ -242,9 +256,44 @@ describe("opening the students a collision catches", () => {
     });
 
     show();
-    fireEvent.click(await screen.findByRole("button", { name: /Show them/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Show" }));
 
     expect(screen.getByText("2 in both")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "2 in both" })).toBeNull();
+  });
+});
+
+describe("what has a row, and what has none", () => {
+  it("keeps the band for the one difference the table cannot hold", async () => {
+    /*
+     * Five of the six checks are about a CRN the department holds and are pills on it. The
+     * sixth is about a CRN we have NOT taken in, so by definition there is no row for it —
+     * which is also why the button that takes it in lives up there.
+     */
+    vi.spyOn(lists, "fetchRegisterCheck").mockResolvedValue({
+      ...EMPTY,
+      arrived: [{ id: "9", termCode: "262710", crn: "99999", courseCode: "PHYS-303", title: "Quantum", teacherName: "" }],
+      gone: [{ id: "1", termCode: "262710", crn: "23638", courseCode: "PHYS-125", usedBy: 0 }],
+    } as never);
+    vi.spyOn(lists, "fetchActiveCrns").mockResolvedValue([crnRow({ crn: "23638", courseCode: "PHYS-125" })]);
+
+    show();
+
+    expect(await screen.findByText(/1 CRN the portal lists for our courses, not registered/)).toBeTruthy();
+    // And the one that HAS a row is not counted up there any more.
+    expect(screen.queryByText(/we hold, gone from the portal/)).toBeNull();
+    expect(await screen.findByText("Gone from the portal")).toBeTruthy();
+  });
+
+  it("reaches the collisions even when nothing has arrived from the portal", async () => {
+    // They used to live inside that band, so a department with nothing newly listed had no
+    // way to reach a settle button at all.
+    vi.spyOn(lists, "fetchRegisterCheck").mockResolvedValue({ ...EMPTY, collides: [collision()] });
+
+    show();
+    fireEvent.click(await screen.findByRole("button", { name: "Show" }));
+
+    expect(screen.getByText(/1 h 30/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Accept" })).toBeTruthy();
   });
 });
