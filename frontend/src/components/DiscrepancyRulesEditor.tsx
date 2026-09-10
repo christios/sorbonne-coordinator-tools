@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp, Plus, Trash2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import { ChecksPanel } from "@/components/ChecksPanel";
 import { Modal } from "@/components/Modal";
 import { SelectMenu } from "@/components/SelectMenu";
 import { STATUS_FIELD, STATUS_OPTIONS, labelOf, type RuleKind } from "@/services/discrepancies";
@@ -140,6 +141,30 @@ export function DiscrepancyRulesEditor({ open, scope, onClose }: { open: boolean
         </div>
       }
     >
+      {/*
+        * The checks first, and above the rules rather than beside them.
+        *
+        * They are the shorter list and the one a coordinator is likelier to be here for:
+        * a rule is written once a year, a check is switched off the afternoon it starts
+        * shouting. They save on the spot, which is why they sit outside the form the
+        * Save button below belongs to.
+        */}
+      <section className="mb-5">
+        <h3 className="text-sm font-semibold text-[#344054]">Checks</h3>
+        <p className="mb-2 mt-0.5 text-xs text-[#667085]">
+          What the department looks for, beyond the rules below. These save as you change them.
+        </p>
+        <ChecksPanel
+          cohortId={scope.kind === "cohort" ? scope.cohort.id : ""}
+          cohortName={scope.kind === "cohort" ? scope.cohort.name : ""}
+        />
+      </section>
+
+      <h3 className="text-sm font-semibold text-[#344054]">Rules</h3>
+      <p className="mb-2 mt-0.5 text-xs text-[#667085]">
+        What counts as a discrepancy in a student&apos;s record. These save with the button below.
+      </p>
+
       {drafts.length === 0 ? (
         <p className="rounded-md border border-dashed border-[#cbd5e1] px-4 py-6 text-center text-sm text-[#667085]">
           {scope.kind === "shared"

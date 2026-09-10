@@ -473,6 +473,44 @@ export function removeActiveCrn(crnId: string): Promise<void> {
   return request<void>(`/active-crns/${encodeURIComponent(crnId)}`, { method: "DELETE" });
 }
 
+/**
+ * One of the department's checks, and the answer that applies where it was asked.
+ *
+ * The list is the CODE's register of checks, not the table's: a check deleted from the
+ * code stops being listed even though its row survives, and one added is listed with its
+ * default before anybody has opened the panel. So `enabled` and `threshold` are always the
+ * answer in force, and the `default…` pair is what it would be if nobody had said.
+ */
+export type Check = {
+  name: string;
+  title: string;
+  /** What the threshold counts — "minutes of overlap". Empty when it has no size to it. */
+  measures: string;
+  enabled: boolean;
+  threshold: number;
+  defaultEnabled: boolean;
+  defaultThreshold: number;
+};
+
+export async function fetchChecks(cohortId = ""): Promise<Check[]> {
+  const where = cohortId ? `?cohortId=${encodeURIComponent(cohortId)}` : "";
+  return (await request<{ checks: Check[] }>(`/checks${where}`)).checks;
+}
+
+export function setCheck(
+  name: string,
+  input: { enabled: boolean; threshold?: number; cohortId?: string },
+): Promise<void> {
+  return send<void>(`/checks/${encodeURIComponent(name)}`, "PUT", { threshold: 0, cohortId: "", ...input });
+}
+
+/** Drop a cohort's own answer, so it follows the department's again. */
+export function clearCheck(name: string, cohortId: string): Promise<void> {
+  return request<void>(`/checks/${encodeURIComponent(name)}?cohortId=${encodeURIComponent(cohortId)}`, {
+    method: "DELETE",
+  });
+}
+
 export function fetchRegisterCheck(term = ""): Promise<RegisterCheck> {
   return request<RegisterCheck>(`/register-check${term ? `?term=${encodeURIComponent(term)}` : ""}`);
 }
