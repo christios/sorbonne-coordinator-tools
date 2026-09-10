@@ -4,7 +4,7 @@ import { useState } from "react";
 
 import { FieldHistoryControl, HistoryField } from "@/components/FieldHistory";
 import { HistoryTextField } from "@/components/HistoryTextField";
-import { SelectMenu } from "@/components/SelectMenu";
+import { SelectMenu, type SelectOption } from "@/components/SelectMenu";
 import { SyllabusSubsection } from "@/components/SyllabusSubsection";
 import { TimeField } from "@/components/TimeField";
 import { CatalogueEntry } from "@/services/syllabusCatalogues";
@@ -19,14 +19,15 @@ const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"
 export function AcademicContactsEditor({ value, onChange, people = [], ...history }: Props & { people?: CatalogueEntry[] }) {
   const instructor = record(value.instructor);
   const administrativeContact = typeof value.administrativeContact === "string" ? { contactDetails: value.administrativeContact } : record(value.administrativeContact);
-  const updateInstructor = (next: Record<string, unknown>) => onChange({ ...value, instructor: next });
+  const instructors = instructorEntries(value.instructors, instructor);
+  const saveInstructors = (next: Array<Record<string, unknown> & { id: string }>) =>
+    onChange({ ...value, instructors: next, instructor: next[0] ? { ...next[0] } : {} });
   const field = (label: string, fieldPath: string) => ({ path: fieldPath, label });
-  const instructorPerson = people.find((person) => person.id === stringValue(instructor.personId));
   const coordinatorPerson = people.find((person) => person.id === stringValue(administrativeContact.personId));
   const instructorOptions = people.filter((person) => Array.isArray(person.payload.roles) && person.payload.roles.includes("instructor")).map((person) => ({ value: person.id, label: person.label }));
   const coordinatorOptions = people.filter((person) => Array.isArray(person.payload.roles) && person.payload.roles.includes("coordinator")).map((person) => ({ value: person.id, label: person.label }));
 
-  return <div className="grid gap-4"><SyllabusSubsection title="Course instructor">{people.length ? <label className="grid gap-1 text-sm font-medium text-[#344054]"><span>Instructor from People directory <span className="font-normal text-[#667085]">(optional)</span></span><SelectMenu label="Instructor from People directory" value={stringValue(instructor.personId)} onChange={(personId) => updateInstructor({ ...instructor, personId: personId || undefined })} placeholder="Enter contact details manually" searchable options={[{ value: "", label: "Enter contact details manually" }, ...instructorOptions]} /></label> : null}{instructorPerson ? <LivePersonCard person={instructorPerson} /> : <><ContactField label="Name" value={stringValue(instructor.Name)} onChange={(Name) => updateInstructor({ ...instructor, Name })} field={field("Name", "contacts.instructor.Name")} {...history} /><ContactField label="Academic rank / status" value={stringValue(instructor["Academic rank / status"])} onChange={(rank) => updateInstructor({ ...instructor, "Academic rank / status": rank })} field={field("Academic rank / status", "contacts.instructor.Academic rank / status")} {...history} /><AffiliationsEditor instructor={instructor} onChange={updateInstructor} {...history} /><OfficeHoursEditor instructor={instructor} onChange={updateInstructor} {...history} /><ContactField label="Email" value={stringValue(instructor.Email)} onChange={(Email) => updateInstructor({ ...instructor, Email })} field={field("Email", "contacts.instructor.Email")} {...history} /></>}</SyllabusSubsection><SyllabusSubsection title="Academic coordinator">{people.length ? <label className="grid gap-1 text-sm font-medium text-[#344054]"><span>Academic coordinator from People directory <span className="font-normal text-[#667085]">(optional)</span></span><SelectMenu label="Academic coordinator from People directory" value={stringValue(administrativeContact.personId)} onChange={(personId) => onChange({ ...value, administrativeContact: { ...administrativeContact, personId: personId || undefined } })} placeholder="Enter coordinator details manually" searchable options={[{ value: "", label: "Enter coordinator details manually" }, ...coordinatorOptions]} /></label> : null}{coordinatorPerson ? <LivePersonCard person={coordinatorPerson} /> : <><ContactField label="Academic coordinator name" value={stringValue(administrativeContact.name)} onChange={(name) => onChange({ ...value, administrativeContact: { ...administrativeContact, name } })} field={field("Academic coordinator name", "contacts.administrativeContact.name")} {...history} /><ContactField label="Academic coordinator contact details" value={stringValue(administrativeContact.contactDetails)} onChange={(contactDetails) => onChange({ ...value, administrativeContact: { ...administrativeContact, contactDetails } })} multiline field={field("Academic coordinator contact details", "contacts.administrativeContact.contactDetails")} {...history} /></>}</SyllabusSubsection></div>;
+  return <div className="grid gap-4"><SyllabusSubsection title="Course instructors"><p className="text-sm text-[#667085]">A course may be taught by more than one instructor. The first is the one the syllabus names as its contact.</p><div className="mt-3 grid gap-3">{instructors.map((entry, index) => <InstructorCard key={entry.id} entry={entry} index={index} people={people} options={instructorOptions} onChange={(next) => saveInstructors(instructors.map((item) => item.id === entry.id ? next : item))} onRemove={instructors.length > 1 ? () => saveInstructors(instructors.filter((item) => item.id !== entry.id)) : undefined} {...history} />)}</div><AddEntryButton onClick={() => saveInstructors([...instructors, { id: crypto.randomUUID() }])} label="Add instructor" /></SyllabusSubsection><SyllabusSubsection title="Academic coordinator">{people.length ? <label className="grid gap-1 text-sm font-medium text-[#344054]"><span>Academic coordinator from People directory <span className="font-normal text-[#667085]">(optional)</span></span><SelectMenu label="Academic coordinator from People directory" value={stringValue(administrativeContact.personId)} onChange={(personId) => onChange({ ...value, administrativeContact: { ...administrativeContact, personId: personId || undefined } })} placeholder="Enter coordinator details manually" searchable options={[{ value: "", label: "Enter coordinator details manually" }, ...coordinatorOptions]} /></label> : null}{coordinatorPerson ? <LivePersonCard person={coordinatorPerson} /> : <><ContactField label="Academic coordinator name" value={stringValue(administrativeContact.name)} onChange={(name) => onChange({ ...value, administrativeContact: { ...administrativeContact, name } })} field={field("Academic coordinator name", "contacts.administrativeContact.name")} {...history} /><ContactField label="Academic coordinator contact details" value={stringValue(administrativeContact.contactDetails)} onChange={(contactDetails) => onChange({ ...value, administrativeContact: { ...administrativeContact, contactDetails } })} multiline field={field("Academic coordinator contact details", "contacts.administrativeContact.contactDetails")} {...history} /></>}</SyllabusSubsection></div>;
 }
 
 function LivePersonCard({ person }: { person: CatalogueEntry }) { const payload = person.payload; return <div className="rounded-md border border-[#d9dee7] bg-[#f8fafc] p-4 text-sm text-[#475467]"><p className="font-semibold text-[#344054]">{person.label}</p><p className="mt-1">{[stringValue(payload.academicRank), stringValue(payload.affiliations), stringValue(payload.officeHours), stringValue(payload.email)].filter(Boolean).join(" · ") || "Directory details will appear here."}</p><p className="mt-2 text-xs text-[#667085]">Live directory details are read-only in the syllabus. Update them in Manage catalogues.</p></div>; }
@@ -75,3 +76,37 @@ function officeHourSummary(entry: OfficeHour) {
 
 function record(value: unknown): Record<string, unknown> { return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
 function stringValue(value: unknown): string { return typeof value === "string" ? value : ""; }
+
+type InstructorEntry = Record<string, unknown> & { id: string };
+
+/** One course, possibly several instructors; a legacy syllabus has exactly one. */
+function instructorEntries(value: unknown, legacy: Record<string, unknown>): InstructorEntry[] {
+  if (Array.isArray(value) && value.length) {
+    return value.flatMap((item, index) =>
+      item && typeof item === "object"
+        ? [{ ...(item as Record<string, unknown>), id: typeof (item as Record<string, unknown>).id === "string" ? (item as Record<string, string>).id : `instructor-${index}` }]
+        : [],
+    );
+  }
+  return [{ ...legacy, id: "instructor-0" }];
+}
+
+function InstructorCard({ entry, index, people, options, onChange, onRemove, ...history }: HistoryContext & { entry: InstructorEntry; index: number; people: CatalogueEntry[]; options: SelectOption[]; onChange: (value: InstructorEntry) => void; onRemove?: () => void }) {
+  const person = people.find((item) => item.id === stringValue(entry.personId));
+  const path = `contacts.instructors[${entry.id}]`;
+  const field = (label: string, suffix: string) => ({ path: `${path}.${suffix}`, label: `Instructor ${index + 1} · ${label}` });
+  return <article className="rounded-lg border border-[#d9dee7] bg-[#fdfdfd] p-4">
+    <div className="mb-3 flex items-center justify-between gap-3">
+      <p className="text-sm font-semibold text-[#344054]">Instructor {index + 1}</p>
+      {onRemove ? <button type="button" onClick={onRemove} className="rounded p-1 text-[#a6292f] hover:bg-[#fff1f2]" aria-label={`Remove instructor ${index + 1}`}><X size={17} /></button> : null}
+    </div>
+    {options.length ? <label className="grid gap-1 text-sm font-medium text-[#344054]"><span>From People directory <span className="font-normal text-[#667085]">(optional)</span></span><SelectMenu label={`Instructor ${index + 1} from People directory`} value={stringValue(entry.personId)} onChange={(personId) => onChange({ ...entry, personId: personId || undefined })} placeholder="Enter contact details manually" searchable options={[{ value: "", label: "Enter contact details manually" }, ...options]} /></label> : null}
+    {person ? <div className="mt-3"><LivePersonCard person={person} /></div> : <div className="mt-3 grid gap-4">
+      <ContactField label="Name" value={stringValue(entry.Name)} onChange={(Name) => onChange({ ...entry, Name })} field={field("Name", "Name")} {...history} />
+      <ContactField label="Academic rank / status" value={stringValue(entry["Academic rank / status"])} onChange={(rank) => onChange({ ...entry, "Academic rank / status": rank })} field={field("Academic rank / status", "rank")} {...history} />
+      <AffiliationsEditor instructor={entry} onChange={(next) => onChange({ ...next, id: entry.id })} {...history} />
+      <OfficeHoursEditor instructor={entry} onChange={(next) => onChange({ ...next, id: entry.id })} {...history} />
+      <ContactField label="Email" value={stringValue(entry.Email)} onChange={(Email) => onChange({ ...entry, Email })} field={field("Email", "Email")} {...history} />
+    </div>}
+  </article>;
+}

@@ -6,7 +6,7 @@ from copy import deepcopy
 from datetime import date, datetime
 from pathlib import Path
 import re
-from typing import Any
+from typing import Any, Callable
 
 from docx import Document
 from docx.table import _Cell, Table
@@ -141,14 +141,19 @@ def _fill_identification(table: Table, syllabus: dict[str, Any], identification:
 
 
 def _fill_contacts(instructor_table: Table, administrative_table: Table, contacts: dict[str, Any]) -> None:
-    instructor = _record(contacts.get("instructor"))
-    _set_cell_text(instructor_table.cell(0, 1), _text(instructor.get("Name")))
-    _set_cell_text(instructor_table.cell(1, 1), _text(instructor.get("Academic rank / status")))
+    # A course may be taught by several people; the table has one row per detail, so
+    # each instructor contributes a line to it.
+    instructors = [item for item in _rows(contacts.get("instructors")) if item] or [_record(contacts.get("instructor"))]
+    _set_cell_text(instructor_table.cell(0, 1), _joined(instructors, lambda item: _text(item.get("Name"))))
     _set_cell_text(
-        instructor_table.cell(2, 1), _list_or_legacy(instructor, "affiliations", "Affiliation(s)", field="name")
+        instructor_table.cell(1, 1), _joined(instructors, lambda item: _text(item.get("Academic rank / status")))
     )
-    _set_cell_text(instructor_table.cell(3, 1), _office_hours(instructor))
-    _set_cell_text(instructor_table.cell(4, 1), _text(instructor.get("Email")))
+    _set_cell_text(
+        instructor_table.cell(2, 1),
+        _joined(instructors, lambda item: _list_or_legacy(item, "affiliations", "Affiliation(s)", field="name")),
+    )
+    _set_cell_text(instructor_table.cell(3, 1), _joined(instructors, _office_hours))
+    _set_cell_text(instructor_table.cell(4, 1), _joined(instructors, lambda item: _text(item.get("Email"))))
 
     administrative = contacts.get("administrativeContact")
     if isinstance(administrative, str):
@@ -160,6 +165,11 @@ def _fill_contacts(instructor_table: Table, administrative_table: Table, contact
         f"Contact details: {_text(admin.get('contactDetails'))}" if _text(admin.get("contactDetails")) else "",
     ]
     _set_cell_text(administrative_table.cell(0, 1), "\n".join(part for part in parts if part))
+
+
+def _joined(items: list[dict[str, Any]], read: Callable[[dict[str, Any]], str]) -> str:
+    """One line per instructor, skipping the ones with nothing to say."""
+    return "\n".join(value for value in (read(item) for item in items) if value)
 
 
 def _fill_delivery(table: Table, delivery: dict[str, Any]) -> None:
