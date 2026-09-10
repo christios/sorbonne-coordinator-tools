@@ -803,3 +803,51 @@ describe("the register half of the Cohorts page", () => {
     expect(held()).toContain(liveRule);
   });
 });
+
+describe("a student caught between our hour and another department's", () => {
+  it("is a warning on their row, like every other thing wrong with them", async () => {
+    /*
+     * The same fact Active Courses reports per SECTION, said once per student here. There
+     * the question is "what do we do about this slot" and the remedies belong to the
+     * section; here it is "is anything wrong with this student", and a coordinator working
+     * down a cohort wants to know this one loses their language hour every Tuesday.
+     */
+    vi.spyOn(database, "fetchStudents").mockResolvedValue([student("A001", "c1")]);
+    vi.spyOn(database, "fetchDiscrepancyRules").mockResolvedValue([]);
+    vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue(
+      report(
+        [
+          mismatch({
+            studentId: "A001",
+            kind: "collides",
+            courseCode: "SCEN-101",
+            expected: ["23302"],
+            registered: ["22590"],
+            scopeCode: "Tue 16:30–18:00",
+          }),
+        ],
+        [checked()],
+      ),
+    );
+    await portalSays([{ SPRIDEN_ID: "A001", FULL_NAME: "Amira Haddad" }]);
+
+    renderPage();
+
+    expect(await screen.findByText(/SCEN-101 \(23302\) is at the same hour as 22590 — Tue 16:30–18:00/)).toBeTruthy();
+  });
+
+  it("is counted among the register's differences, in its own words", async () => {
+    vi.spyOn(database, "fetchStudents").mockResolvedValue([student("A001", "c1")]);
+    vi.spyOn(database, "fetchDiscrepancyRules").mockResolvedValue([]);
+    vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue(
+      report([mismatch({ studentId: "A001", kind: "collides" })], [checked()]),
+    );
+    await portalSays([{ SPRIDEN_ID: "A001", FULL_NAME: "Amira Haddad" }]);
+
+    renderPage();
+
+    expect(
+      await screen.findByText(/1 in one of our hours and another department's at once/),
+    ).toBeTruthy();
+  });
+});

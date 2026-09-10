@@ -98,6 +98,7 @@ function describeKinds(mismatches: Mismatch[]): string {
     extra: "registered in a section that is no group of theirs",
     unplaced: "registered in a course we have not placed them in",
     doubled: "registered in two groups of one set",
+    collides: "in one of our hours and another department's at once",
   };
   const counted = new Map<Mismatch["kind"], number>();
   for (const mismatch of mismatches) counted.set(mismatch.kind, (counted.get(mismatch.kind) ?? 0) + 1);

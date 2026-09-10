@@ -50,6 +50,8 @@ def empty_tables() -> None:
             "active_course_crns",
             "student_registrations",
             "term_links",
+            # A switch set by one test is the department's answer for every later one.
+            "check_settings",
             # An exemption is keyed on a course id, which is new every run — but the check
             # reads them by SEMESTER, and the semester here is a constant. Left behind,
             # they silence a course a later test is asserting a difference about.
@@ -1623,3 +1625,110 @@ def _course_named(database: StudentDatabase, cohort_id: str, code: str) -> dict:
             if course["code"] == code:
                 return course
     raise AssertionError(f"no course {code}")
+
+
+# ------------------------- a collision, said once per student, and switchable
+
+
+def a_collision(client: TestClient, database: StudentDatabase) -> str:
+    """A001 in one of ours and a department's we do not own, overlapping by 90 minutes."""
+    cohort_id = build_cohort(database)
+    client.put(f"{BASE}/term-links/{HUB_TERM}", json={"portalTermCode": TERM})
+    # Which sections are OURS is the register's answer, never a subject prefix — so the
+    # course has to be taken in, or nothing in the term belongs to us and nothing collides.
+    client.post(
+        f"{BASE}/active-crns",
+        json={"courseCodes": [], "crns": [{"termCode": TERM, "crn": "22151", "courseCode": "MATH-001"}]},
+    )
+    client.post(
+        f"{BASE}/facility-timetable",
+        json={
+            "termCode": TERM,
+            "asked": ["22151", "99001"],
+            "complete": True,
+            "sections": [
+                {"crn": "22151", "courseCode": "MATH-001", "ours": True,
+                 "meetings": [{"meetsOn": day(-7), "startsAt": "16:30", "endsAt": "18:00"}]},
+                {"crn": "99001", "courseCode": "ENGL-604", "ours": False,
+                 "meetings": [{"meetsOn": day(-7), "startsAt": "16:30", "endsAt": "18:00"}]},
+            ],
+        },
+    )
+    registrations(
+        client,
+        [
+            {"studentId": "A001", "crn": "22151", "courseCode": "MATH-001"},
+            {"studentId": "A001", "crn": "99001", "courseCode": "ENGL-604"},
+            {"studentId": "A001", "crn": "23652", "courseCode": "MATH-011"},
+        ],
+    )
+    return cohort_id
+
+
+def test_a_student_caught_between_our_hour_and_another_departments_is_told_about(
+    client: TestClient, database: StudentDatabase
+):
+    """The same fact Active Courses reports per SECTION, said once per student here.
+
+    The two pages ask different questions. There it is "what do we do about this slot",
+    and the remedies belong to the section; here it is "is anything wrong with this
+    student", and a coordinator down a cohort wants to know this one loses their hour.
+    """
+    cohort_id = a_collision(client, database)
+
+    found = client.get(f"{BASE}/cohorts/{cohort_id}/registration-check").json()["mismatches"]
+    theirs = [m for m in found if m["kind"] == "collides"]
+
+    assert len(theirs) == 1
+    assert theirs[0]["studentId"] == "A001"
+    assert theirs[0]["expected"] == ["22151"]
+    assert theirs[0]["registered"] == ["99001"]
+    # The slot rides in the field a `doubled` verdict uses for its set: what it is about.
+    assert "16:30" in theirs[0]["scopeCode"]
+
+
+def test_a_check_switched_off_says_nothing_at_all(client: TestClient, database: StudentDatabase):
+    cohort_id = a_collision(client, database)
+
+    client.put(f"{BASE}/checks/collision", json={"enabled": False, "threshold": 0})
+
+    found = client.get(f"{BASE}/cohorts/{cohort_id}/registration-check").json()["mismatches"]
+    assert [m for m in found if m["kind"] == "collides"] == []
+
+
+def test_an_overlap_under_the_floor_is_a_fact_about_the_timetable_and_not_a_warning(
+    client: TestClient, database: StudentDatabase
+):
+    # Four of the seven students caught on the real semester were caught by a quarter of
+    # an hour at the end of a class against a sport session. Nobody moves a lecture for it.
+    cohort_id = a_collision(client, database)
+
+    client.put(f"{BASE}/checks/collision", json={"enabled": True, "threshold": 120})
+
+    found = client.get(f"{BASE}/cohorts/{cohort_id}/registration-check").json()["mismatches"]
+    assert [m for m in found if m["kind"] == "collides"] == []
+
+
+def test_a_cohort_may_answer_differently_from_the_department(client: TestClient, database: StudentDatabase):
+    cohort_id = a_collision(client, database)
+
+    client.put(f"{BASE}/checks/collision", json={"enabled": False, "threshold": 0})
+    client.put(f"{BASE}/checks/collision", json={"enabled": True, "threshold": 30, "cohortId": cohort_id})
+
+    found = client.get(f"{BASE}/cohorts/{cohort_id}/registration-check").json()["mismatches"]
+    assert [m["kind"] for m in found if m["kind"] == "collides"] == ["collides"]
+
+
+def test_a_check_the_code_does_not_know_is_refused_rather_than_stored(client: TestClient):
+    # Its row would sit in the table for ever, invisible to the panel listing what exists.
+    answer = client.put(f"{BASE}/checks/a_check_that_never_was", json={"enabled": False})
+
+    assert answer.status_code == status.HTTP_404_NOT_FOUND
+
+
+def test_the_panel_lists_what_the_code_knows_with_the_answer_that_applies(client: TestClient):
+    listed = client.get(f"{BASE}/checks").json()["checks"]
+
+    [collision] = [check for check in listed if check["name"] == "collision"]
+    assert collision["measures"] == "minutes of overlap"
+    assert (collision["enabled"], collision["threshold"]) == (True, 30)

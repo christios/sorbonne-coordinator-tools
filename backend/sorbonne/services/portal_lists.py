@@ -28,6 +28,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Connection
 from sqlalchemy.exc import IntegrityError
 
+from sorbonne.services.checks import BY_NAME, Setting, settled
 from sorbonne.services.section_collisions import collisions
 from sorbonne.services.student_database import (
     DuplicateFilterName,
@@ -66,6 +67,10 @@ class ActiveTeacherNotFound(Exception):
     pass
 
 
+class UnknownCheck(ValueError):
+    """A check name the code does not know. Storing it would hide a row for ever."""
+
+
 @dataclass(frozen=True)
 class Mismatch:
     """One way a student's registration differs from the group we placed them in."""
@@ -76,7 +81,8 @@ class Mismatch:
     course_code: str
     # missing: placed, not registered · wrong: registered elsewhere · extra: registered in
     # a section we did not place them in · unplaced: registered, but in no group of ours ·
-    # doubled: registered in two sections of one set, which no student can attend
+    # doubled: registered in two sections of one set, which no student can attend ·
+    # collides: in one of ours and another department's at the same hour
     kind: str
     # Every section of this course our blocks give the student: a course taught as a
     # lecture and a tutorial gives them two, and both are right.
@@ -1063,6 +1069,49 @@ class PortalListStore:
         if removed == 0:
             raise ActiveCourseNotFound(crn_id)
 
+    def check_settings(self, cohort_id: str = "") -> dict[str, Setting]:
+        """Which checks are on for this cohort, and the floor each says nothing below."""
+        with self.engine.connect() as connection:
+            rows = [
+                dict(row)
+                for row in connection.execute(
+                    text("SELECT name, cohort_id, enabled, threshold FROM check_settings")
+                ).mappings()
+            ]
+        return settled(rows, cohort_id)
+
+    def set_check(self, *, name: str, cohort_id: str = "", enabled: bool, threshold: int = 0) -> None:
+        """The department's answer, or one cohort's. Unknown names are refused, not stored.
+
+        A row for a check the code has forgotten would sit in the table for ever, invisible
+        to the panel that lists what exists — so the name is checked against the register
+        of checks rather than taken on trust.
+        """
+        if name not in BY_NAME:
+            raise UnknownCheck(name)
+        with self.engine.begin() as connection:
+            connection.execute(
+                text("""INSERT INTO check_settings (name, cohort_id, enabled, threshold, updated_at)
+                        VALUES (:name, :cohort, :enabled, :threshold, :now)
+                        ON CONFLICT (name, cohort_id) DO UPDATE
+                        SET enabled = :enabled, threshold = :threshold, updated_at = :now"""),
+                {
+                    "name": name,
+                    "cohort": _text(cohort_id),
+                    "enabled": bool(enabled),
+                    "threshold": max(0, int(threshold or 0)),
+                    "now": _now(),
+                },
+            )
+
+    def clear_check(self, *, name: str, cohort_id: str) -> None:
+        """Drop a cohort's own answer, so it follows the department's again."""
+        with self.engine.begin() as connection:
+            connection.execute(
+                text("DELETE FROM check_settings WHERE name = :name AND cohort_id = :cohort"),
+                {"name": name, "cohort": _text(cohort_id)},
+            )
+
     def section_collisions(self, term_code: str) -> dict[str, list[dict[str, Any]]]:
         """Our sections sharing an hour with a section we do not own — see `section_collisions`.
 
@@ -1530,6 +1579,7 @@ class PortalListStore:
         is the day being judged, today unless a caller says otherwise.
         """
         today = on or _today()
+        switches = self.check_settings(cohort_id)
         links = self.term_links()
         present = set(database.scope_terms(cohort_id))
         members = database.cohort_members(cohort_id)
@@ -1539,6 +1589,9 @@ class PortalListStore:
             term_code = links.get(term_id, "")
             # Two sections of one set, before anything about placement is asked.
             found.extend(self._doubled_in_a_set(cohort_id, term_id, term_code, database))
+            # And the students caught between one of our sections and a department's we do
+            # not own. Switched on and floored by the department — see services/checks.py.
+            found.extend(self._collided(cohort_id, term_id, term_code, database, switches))
             cohort = next(
                 (entry for entry in database.term_publication(term_id) if entry["cohortId"] == cohort_id), None
             )
@@ -1615,6 +1668,54 @@ class PortalListStore:
             mismatches=[mismatch for mismatch in found if mismatch is not None],
             coverage=coverage,
         )
+
+    def _collided(  # noqa: PLR0913 - one argument per thing the verdict is about
+        self,
+        cohort_id: str,
+        term_id: str,
+        term_code: str,
+        database: StudentDatabase,
+        switches: dict[str, Setting],
+    ) -> list[Mismatch]:
+        """Students in one of our sections and another department's at the same hour.
+
+        The same fact `section_collisions` reports per SECTION on Active Courses, said once
+        per student here — because the two pages answer different questions. There the
+        question is "what do we do about this slot", and the remedies are the section's:
+        move ours, accept it, refer it. Here it is "is anything wrong with this student",
+        and a coordinator working down a cohort wants to know that this one loses their
+        language hour every Tuesday.
+
+        Floored, because most of them are not worth saying. On the semester this was
+        written against, seven students were caught and four of them by a quarter of an
+        hour at the end of a class against a sport session — true, and not a thing anybody
+        will ever move a lecture over.
+        """
+        setting = switches.get("collision")
+        if not setting or not setting.enabled or not term_code:
+            return []
+        rows = self.section_collisions(term_code)["collides"]
+        if not rows:
+            return []
+        members = database.cohort_members(cohort_id)
+        found: list[Mismatch] = []
+        for row in rows:
+            if row["minutes"] < setting.threshold:
+                continue
+            for student in sorted(set(row["students"]) & members):
+                found.append(
+                    Mismatch(
+                        student_id=student,
+                        term_id=term_id,
+                        term_code=term_code,
+                        course_code=row["ourCourse"] or row["ourCrn"],
+                        kind="collides",
+                        expected=[row["ourCrn"]],
+                        registered=[other["crn"] for other in row["theirs"]],
+                        scope_code=f"{row['weekday']} {row['startsAt']}–{row['endsAt']}",
+                    )
+                )
+        return found
 
     def _doubled_in_a_set(
         self, cohort_id: str, term_id: str, term_code: str, database: StudentDatabase

@@ -17,6 +17,7 @@ from sorbonne.api.timetables import require_client
 from sorbonne.config import config
 from sorbonne.api.deps import optional_client
 from sorbonne.services.facility_timetable import ContradictoryPull, FacilityTimetableStore
+from sorbonne.services.checks import CHECKS
 from sorbonne.services.portal_lists import (
     PortalTeacherAlreadyLinked,
     PortalTeacherNotFound,
@@ -25,6 +26,7 @@ from sorbonne.services.portal_lists import (
     ActiveTeacherNotFound,
     InvalidParent,
     PortalListStore,
+    UnknownCheck,
     UnknownDisposition,
     UnknownKind,
     names_agree,
@@ -410,6 +412,55 @@ async def remove_active_crn(crn_id: str, store: PortalListStore = Depends(get_st
         store.remove_active_crn(crn_id)
     except ActiveCourseNotFound as exc:
         raise _missing("registered CRN") from exc
+
+
+class CheckInput(BaseModel):
+    """Whether a named check runs, and the floor below which it says nothing."""
+
+    enabled: bool = True
+    threshold: int = Field(default=0, ge=0, le=100_000)
+    #: Empty is the department's answer; a cohort id is that cohort's, and wins over it.
+    cohortId: str = Field(default="", max_length=80)
+
+
+@router.get("/checks")
+async def list_checks(cohortId: str = "", store: PortalListStore = Depends(get_store)) -> dict[str, Any]:
+    """Every check the code knows, with the answer that applies to this cohort.
+
+    The register of checks is the code's, not the table's: a check removed from the code
+    stops being listed even if its row survives, and one added starts being listed with
+    its default before anybody has opened the panel.
+    """
+    settings = store.check_settings(cohortId)
+    return {
+        "checks": [
+            {
+                "name": check.name,
+                "title": check.title,
+                "measures": check.measures,
+                "enabled": settings[check.name].enabled,
+                "threshold": settings[check.name].threshold,
+                "defaultEnabled": check.enabled,
+                "defaultThreshold": check.threshold,
+            }
+            for check in CHECKS
+        ]
+    }
+
+
+@router.put("/checks/{name}")
+async def set_check(name: str, body: CheckInput, store: PortalListStore = Depends(get_store)) -> dict[str, bool]:
+    try:
+        store.set_check(name=name, cohort_id=body.cohortId, enabled=body.enabled, threshold=body.threshold)
+    except UnknownCheck as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail=f"There is no check called {exc}.") from exc
+    return {"saved": True}
+
+
+@router.delete("/checks/{name}", status_code=status.HTTP_204_NO_CONTENT)
+async def clear_check(name: str, cohortId: str = "", store: PortalListStore = Depends(get_store)) -> None:
+    """Drop a cohort's own answer, so it follows the department's again."""
+    store.clear_check(name=name, cohort_id=cohortId)
 
 
 @router.get("/register-check")

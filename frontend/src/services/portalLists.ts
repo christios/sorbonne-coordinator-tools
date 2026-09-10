@@ -89,7 +89,7 @@ export type Mismatch = {
   termId: string;
   termCode: string;
   courseCode: string;
-  kind: "missing" | "wrong" | "extra" | "unplaced" | "doubled";
+  kind: "missing" | "wrong" | "extra" | "unplaced" | "doubled" | "collides";
   /** The set a `doubled` verdict is about; empty for the verdicts that are about a course. */
   scopeCode?: string;
   /** Every section of this course our blocks give the student — a lecture and a tutorial. */
@@ -813,6 +813,9 @@ export function describeMismatch(mismatch: Mismatch): string {
     // is that there are two of its groups against one name.
     case "doubled":
       return `${mismatch.scopeCode}: registered in two groups at once — ${mismatch.courseCode} (${mismatch.registered.join(", ")})`;
+    // `scopeCode` carries the slot here — the weekday and the hour the two share.
+    case "collides":
+      return `${mismatch.courseCode} (${mismatch.expected.join(", ")}) is at the same hour as ${mismatch.registered.join(", ")} — ${mismatch.scopeCode}`;
   }
 }
 
