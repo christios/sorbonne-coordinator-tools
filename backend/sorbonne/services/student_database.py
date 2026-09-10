@@ -1205,12 +1205,18 @@ class StudentDatabase:
             )
 
     def exemptions_of(self, cohort_id: str) -> list[dict[str, Any]]:
-        """Every exemption held against a course of this cohort's sets.
+        """Every exemption against a course of a set this cohort's students are taught in.
 
-        By the course's set rather than by the student's cohort: a set open to every cohort
-        is filed under whichever cohort holds its row, so a language exemption belongs to
-        the set and would be invisible to three cohorts out of four if this asked whose
-        student it was.
+        Its own sets AND every set open to every cohort — which is the whole of the fix
+        here, and the third time this exact shape has been got wrong. A shared set is filed
+        under whichever cohort happens to hold its row: the languages sit on Foundation
+        Year's, so an L1 student's language exemption is stored against FYS. Asking for
+        "L1's exemptions" by the set's owning cohort found none of them, and their record
+        showed the course as one they still take.
+
+        The register never had the bug, because it reads exemptions by SEMESTER — which is
+        why the warning stopped and the strikethrough did not appear, and why the two
+        disagreed on screen about the same fact.
         """
         with self.engine.connect() as connection:
             rows = (
@@ -1220,7 +1226,7 @@ class StudentDatabase:
                             FROM course_exemptions e
                             JOIN scope_courses c ON c.id = e.course_id
                             JOIN cohort_scopes s ON s.id = c.scope_id
-                            WHERE s.cohort_id = :id
+                            WHERE s.cohort_id = :id OR s.open_to_all
                             ORDER BY e.student_id, c.code"""),
                     {"id": cohort_id},
                 )

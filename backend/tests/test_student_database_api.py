@@ -1177,3 +1177,39 @@ def test_an_exemption_survives_a_move_between_groups_of_the_same_set(
     groups = {group["id"]: group for group in catalogue["scopes"][0]["groups"]}
     assert groups[second]["crns"][course_id]["exempt"] == 1
     assert groups[first]["crns"][course_id]["exempt"] == 0
+
+
+def test_an_exemption_from_a_shared_set_reaches_every_cohort_taught_in_it(
+    client: TestClient, cohort_id: str, view_id: str
+):
+    """The third time this exact shape has been got wrong, so it is pinned.
+
+    A set open to every cohort is filed under whichever cohort happens to hold its row —
+    the languages sit on Foundation Year's. Reading exemptions by the set's OWNING cohort
+    therefore found none of an L1 student's language exemptions, and their record showed a
+    course they no longer take as one they still do. The register never had the bug: it
+    reads exemptions by semester, which is why the warning stopped and the strikethrough
+    did not, and the two disagreed on screen about one fact.
+    """
+    theirs = client.post("/api/v1/student-database/cohorts", json={"name": "Another year"}).json()
+    shared = client.post(
+        f"/api/v1/student-database/cohorts/{cohort_id}/scopes",
+        json={"code": "LANG", "openToAll": True},
+    ).json()
+    course_id = course_in(client, shared["id"], code="SCEN-101")
+    group_id = client.post(f"/api/v1/student-database/scopes/{shared['id']}/groups", json={"label": "A0-F1"}).json()["id"]
+    set_part(client, group_id, course_id, "23302")
+    in_cohort(client, view_id, theirs["id"], STUDENTS)
+    place(client, shared["id"], STUDENTS[:1], group_id)
+
+    client.put(
+        f"/api/v1/student-database/students/{STUDENTS[0]}/exemptions/{course_id}",
+        json={"reason": "Native speaker"},
+    )
+
+    # Asked for the OTHER cohort — the one the student is in, which does not own the set.
+    listed = client.get(f"/api/v1/student-database/cohorts/{theirs['id']}/exemptions").json()["exemptions"]
+
+    assert [(row["studentId"], row["scopeCode"], row["courseCode"]) for row in listed] == [
+        (STUDENTS[0], "LANG", "SCEN-101")
+    ]
