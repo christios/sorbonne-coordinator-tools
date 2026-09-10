@@ -6,6 +6,7 @@ export type CatalogueCategory =
   | "competencies"
   | "graduate-competencies"
   | "ai-policies"
+  | "curriculum-mapping"
   | "teaching-presets"
   | "assessment-types"
   | "bibliography-types";

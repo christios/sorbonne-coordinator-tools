@@ -461,6 +461,11 @@ function SectionForm({
       }),
     enabled: Boolean(catalogueProgrammeId),
   });
+  const curriculumMap = useQuery({
+    queryKey: ["syllabus-catalogues", "curriculum-mapping", catalogueProgrammeId],
+    queryFn: () => listCatalogueEntries("curriculum-mapping", { parentId: catalogueProgrammeId }),
+    enabled: Boolean(catalogueProgrammeId),
+  });
   const scenCompetencies = useQuery({
     queryKey: ["syllabus-catalogues", "competencies", "editor"],
     queryFn: () => listCatalogueEntries("competencies", { includeRetired: true }),
@@ -795,6 +800,7 @@ function SectionForm({
         onOpenHistory={onOpenHistory}
         cataloguePlos={cataloguePlos.data ?? []}
         catalogueProgrammeId={catalogueProgrammeId}
+        requiredPlos={requiredPloIds(curriculumMap.data ?? [], draft.courseCode)}
         scenCompetencies={scenCompetencies.data ?? []}
         graduateCompetencies={graduateCompetencies.data ?? []}
       />
@@ -1037,6 +1043,7 @@ function LearningOutcomesEditor({
   onOpenHistory,
   cataloguePlos,
   catalogueProgrammeId,
+  requiredPlos,
   scenCompetencies,
   graduateCompetencies,
 }: {
@@ -1047,6 +1054,7 @@ function LearningOutcomesEditor({
   onOpenHistory: (field: HistoryField) => void;
   cataloguePlos: CatalogueEntry[];
   catalogueProgrammeId: string;
+  requiredPlos: string[];
   scenCompetencies: CatalogueEntry[];
   graduateCompetencies: CatalogueEntry[];
 }) {
@@ -1064,6 +1072,17 @@ function LearningOutcomesEditor({
   });
   const graduateById = new Map(graduateCompetencies.map((entry) => [entry.id, entry]));
   const rows = (section.clos as Row[]) ?? [];
+  // Guidance, never a gate: a professor is told what is still uncovered and decides.
+  const alignedPloIds = new Set(
+    rows.flatMap((row) => String(row.ploIds ?? "").split("\n").filter(Boolean)),
+  );
+  const uncovered = requiredPlos
+    .filter((id) => !alignedPloIds.has(id))
+    .map((id) => {
+      const plo = cataloguePlos.find((entry) => entry.id === id);
+      return plo ? stringify(plo.payload.code) || plo.label : "";
+    })
+    .filter(Boolean);
   return (
     <section className="min-w-0 rounded-lg border border-[#d9dee7] bg-white p-5">
       <h3 className="text-lg font-semibold text-[#171717]">Learning outcomes</h3>
@@ -1080,6 +1099,15 @@ function LearningOutcomesEditor({
           approved programme learning outcomes come from the programme.
         </p>
       )}
+      {uncovered.length ? (
+        <p
+          role="status"
+          className="mt-4 rounded-md border border-[#f0d8a8] bg-[#fdf8ee] px-3 py-2 text-sm text-[#8a6116]"
+        >
+          The curriculum map expects this course to address {uncovered.join(", ")}. No course
+          outcome aligns to {uncovered.length === 1 ? "it" : "them"} yet.
+        </p>
+      ) : null}
       <div className="mt-5 min-w-0">
         <RowsEditor
           title="Course learning outcomes and alignment"
@@ -1699,4 +1727,13 @@ function record(value: unknown): Record<string, unknown> {
 }
 function sectionFrom(value: unknown): Record<string, unknown> {
   return record(value);
+}
+
+/** The PLOs the curriculum map expects of a course, by its code. */
+function requiredPloIds(mapping: CatalogueEntry[], courseCode: string): string[] {
+  const wanted = courseCode.replace(/[^a-z0-9]/gi, "").toUpperCase();
+  if (!wanted) return [];
+  const entry = mapping.find((item) => item.label.replace(/[^a-z0-9]/gi, "").toUpperCase() === wanted);
+  const ids = entry?.payload.ploIds;
+  return Array.isArray(ids) ? ids.filter((id): id is string => typeof id === "string") : [];
 }

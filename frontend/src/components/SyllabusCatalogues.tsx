@@ -1,3 +1,4 @@
+import { SelectMenu } from "@/components/SelectMenu";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FilePlus2, Loader2, Pencil, Search, Trash2 } from "lucide-react";
 import { FormEvent, useState } from "react";
@@ -16,7 +17,7 @@ import {
   updateCatalogueEntry,
 } from "@/services/syllabusCatalogues";
 
-type CatalogueSection = "people" | "programmes" | "competencies" | "graduate-competencies" | "teaching-presets" | "assessment" | "ai-policies" | "bibliography";
+type CatalogueSection = "people" | "programmes" | "curriculum-mapping" | "competencies" | "graduate-competencies" | "teaching-presets" | "assessment" | "ai-policies" | "bibliography";
 
 const sections = [
   { id: "people", label: "People" },
@@ -24,6 +25,7 @@ const sections = [
   { id: "competencies", label: "SCEN competencies" },
   { id: "graduate-competencies", label: "SUAD graduate competencies" },
   { id: "teaching-presets", label: "Teaching presets" },
+  { id: "curriculum-mapping", label: "Curriculum mapping" },
   { id: "assessment", label: "Assessment types & rubrics" },
   { id: "ai-policies", label: "AI policies" },
   { id: "bibliography", label: "Bibliography" },
@@ -47,6 +49,7 @@ export function SyllabusCatalogues({ onBack }: { onBack: () => void }) {
     {activeSection === "competencies" ? <CompetenciesCatalogue /> : null}
     {activeSection === "graduate-competencies" ? <SimpleCatalogue category="graduate-competencies" title="SUAD graduate competencies" description="The institution's graduate competencies. Each SCEN competency points at the ones it develops." createLabel="New graduate competency" /> : null}
     {activeSection === "teaching-presets" ? <TeachingPresetsCatalogue /> : null}
+    {activeSection === "curriculum-mapping" ? <CurriculumMappingCatalogue /> : null}
     {activeSection === "assessment" ? <AssessmentCatalogue /> : null}
     {activeSection === "ai-policies" ? <SimpleCatalogue category="ai-policies" title="AI policies" description="The policies a graded activity may apply. Courses choose from these; they do not write their own." createLabel="New AI policy" /> : null}
     {activeSection === "bibliography" ? <BibliographyCatalogue /> : null}
@@ -291,5 +294,31 @@ function GraduateCompetencyPicker({ entry, graduate }: { entry: CatalogueEntry; 
       }}
     />
     {save.isError ? <p role="alert" className="mt-2 text-sm text-[#8f1f25]">That change could not be saved. Reload and try again.</p> : null}
+  </div>;
+}
+
+/** Which programme outcomes each course is expected to carry, as submitted to the CAA. */
+function CurriculumMappingCatalogue() {
+  const programmes = useCatalogue("programmes");
+  const [programmeId, setProgrammeId] = useState("");
+  const chosen = programmeId || programmes.data?.[0]?.id || "";
+  const mapping = useQuery({
+    queryKey: ["syllabus-catalogues", "curriculum-mapping", chosen],
+    queryFn: () => listCatalogueEntries("curriculum-mapping", { parentId: chosen }),
+    enabled: Boolean(chosen),
+  });
+  const plos = useQuery({
+    queryKey: ["syllabus-catalogues", "plos", chosen],
+    queryFn: () => listCatalogueEntries("plos", { parentId: chosen }),
+    enabled: Boolean(chosen),
+  });
+  const ploLabel = (id: string) => {
+    const plo = plos.data?.find((entry) => entry.id === id);
+    return plo ? stringValue(plo.payload.code) || plo.label : "";
+  };
+  return <div className="rounded-lg border border-[#d9dee7] bg-white p-5">
+    <CatalogueHeader title="Curriculum mapping" description="Which programme learning outcomes each course is expected to address. A syllabus shows its professor what is still uncovered; it never blocks them." />
+    {(programmes.data ?? []).length > 1 ? <label className="mt-4 grid gap-1 text-sm font-medium text-[#344054]">Programme<SelectMenu label="Programme" value={chosen} onChange={setProgrammeId} options={(programmes.data ?? []).map((item) => ({ value: item.id, label: item.label }))} /></label> : null}
+    {mapping.isLoading ? <p className="mt-4 text-sm text-[#667085]">Loading…</p> : (mapping.data ?? []).length ? <div className="mt-4 overflow-x-auto"><table className="w-full min-w-[34rem] border-collapse text-left text-sm"><thead><tr className="text-[#344054]"><th className="border-b border-[#d9dee7] py-2 pr-3 font-semibold">Course</th><th className="border-b border-[#d9dee7] py-2 pr-3 font-semibold">Semester</th><th className="border-b border-[#d9dee7] py-2 font-semibold">Expected outcomes</th></tr></thead><tbody>{(mapping.data ?? []).map((entry) => <tr key={entry.id} className="align-top text-[#475467]"><td className="border-b border-[#eef1f5] py-2 pr-3 font-medium text-[#344054]">{entry.label}<span className="block font-normal text-[#667085]">{stringValue(entry.payload.courseTitle)}</span></td><td className="border-b border-[#eef1f5] py-2 pr-3">{stringValue(entry.payload.semester)}</td><td className="border-b border-[#eef1f5] py-2">{(Array.isArray(entry.payload.ploIds) ? (entry.payload.ploIds as string[]) : []).map(ploLabel).filter(Boolean).join(", ") || "—"}</td></tr>)}</tbody></table></div> : <p className="mt-4 rounded-md border border-dashed border-[#d0d5dd] px-3 py-3 text-sm text-[#667085]">No curriculum map for this programme yet.</p>}
   </div>;
 }
