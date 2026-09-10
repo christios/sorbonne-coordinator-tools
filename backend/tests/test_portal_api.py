@@ -2060,3 +2060,47 @@ def test_two_courses_of_different_programmes_are_not_reported_as_clashing(
     clashes = client.get(f"{BASE}/terms/{HUB_TERM}/clashes").json()
 
     assert [clash for entry in clashes["cohorts"] for clash in entry["clashes"]] == []
+
+
+def test_a_part_time_record_one_letter_from_the_registrars_spelling_is_offered(client: TestClient):
+    """The registrar writes "Wafa Ahmed"; the department wrote "Wafaa Ahmed".
+
+    No amount of agreement will ever join those two — they are one letter apart, and
+    `names_agree` refuses that on purpose so that "Sara Khaled" and "Diaa Mereib" stay
+    refused. The second tier measures, but only to put a candidate in front of a person.
+    """
+    seed_teachers(client)
+    record = part_time(client, "Ahlem Trabelso", "ahlem@gmail.com")
+    client.post(f"{BASE}/active-teachers", json={"portalTeacherIds": ["A001"]})
+
+    [match] = client.get(f"{BASE}/active-teachers/matches").json()["partTime"]
+
+    assert match["activeName"] == "Ahlem Trabelsi"
+    assert match["partTimeTeacherId"] == record
+
+
+def test_the_looser_tier_never_offers_two_different_people_for_each_other(client: TestClient):
+    """The case the whole measure exists to refuse, and the one `names_agree` names."""
+    seed_teachers(client)
+    part_time(client, "Diaa Mereib", "diaa@gmail.com")
+    client.post(f"{BASE}/active-teachers", json={"portalTeacherIds": ["A001"]})
+
+    assert client.get(f"{BASE}/active-teachers/matches").json()["partTime"] == []
+
+
+def test_agreement_is_tried_before_the_letters_are_counted(client: TestClient):
+    """Order matters: a record that agrees outright must not lose to a near-miss.
+
+    "Ahlem Trabelsi" agrees with the portal's spelling of itself; "Ahlem Trabelso" is one
+    letter away. Counting letters first could hand the row to the wrong record and leave the
+    right one unjoined, with nothing on screen to say so.
+    """
+    seed_teachers(client)
+    exact = part_time(client, "Dr Ahlem TRABELSI", "ahlem@gmail.com")
+    part_time(client, "Bilal Maazo", "bilal@gmail.com")
+    client.post(f"{BASE}/active-teachers", json={"portalTeacherIds": ["A001"]})
+
+    matches = client.get(f"{BASE}/active-teachers/matches").json()["partTime"]
+    offered = {m["activeName"]: m["partTimeTeacherId"] for m in matches}
+
+    assert offered["Ahlem Trabelsi"] == exact

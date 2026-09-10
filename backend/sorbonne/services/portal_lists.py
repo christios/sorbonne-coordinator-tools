@@ -849,25 +849,28 @@ class PortalListStore:
         free = [row for row in part_time if row["id"] not in taken]
         waiting = [row for row in active if not row["part_time_teacher_id"]]
 
-        # `names_agree`, the same rule that decides whether the registrar's teacher column
-        # and ours name one person — so "El Chehaly" is met by "El Chehaly Abdelhamid" here
-        # too, which on the real data is the difference between ten offers and eleven.
+        # Two tiers, and the order is the whole safeguard.
+        #
+        # First `names_agree`, the same rule that decides whether the registrar's teacher
+        # column and ours name one person — so "El Chehaly" is met by "El Chehaly Abdelhamid"
+        # here too, which on the real data is the difference between ten offers and eleven.
+        #
+        # Then, only for a row that agreement could not place, the same one-letter measure
+        # `unnamed_in_the_list` uses. "Wafa Ahmed" is the registrar's spelling and "Wafaa
+        # Ahmed" the department's, and no amount of agreement will ever join them: they are
+        # one letter apart, which `names_agree` refuses on purpose because "Sara Khaled" and
+        # "Diaa Mereib" must stay refused. Measuring only to OFFER is what makes the looser
+        # tier safe — nothing here decides anything.
         found: list[dict[str, Any]] = []
         for row in waiting:
             shown = _text(row["full_name"])
-            # One candidate only, each way round. Two people of one name — or one record two
-            # rows answer to — is a question for a person, not a guess to make on their
-            # behalf.
-            candidates = [record for record in free if names_agree(shown, _text(record["full_name"]))]
-            if len(candidates) != 1:
-                continue
-            match = candidates[0]
-            others = [
-                other
-                for other in waiting
-                if other["id"] != row["id"] and names_agree(_text(other["full_name"]), _text(match["full_name"]))
-            ]
-            if others:
+            # One candidate only, each way round, in whichever tier answers. Two people of
+            # one name — or one record two rows answer to — is a question for a person, not a
+            # guess to make on their behalf.
+            match = _sole(shown, free, waiting, row["id"], names_agree) or _sole(
+                shown, free, waiting, row["id"], _one_letter_apart
+            )
+            if match is None:
                 continue
             found.append(
                 {
@@ -2346,6 +2349,31 @@ def names_agree(ours: str, theirs: str) -> bool:
         for b in yours
         if _words(a) and _words(b)
     )
+
+
+def _sole(
+    shown: str,
+    free: list[Any],
+    waiting: list[Any],
+    row_id: str,
+    same: Any,
+) -> Any | None:
+    """The one part-time record this row could be, under one rule, or nothing.
+
+    Both directions, because reading it one way only would offer a record that fits two of
+    the department's rows to each of them — and pressing both would fail on the second, after
+    the first had already joined the wrong person.
+    """
+    candidates = [record for record in free if same(shown, _text(record["full_name"]))]
+    if len(candidates) != 1:
+        return None
+    match = candidates[0]
+    if any(
+        other["id"] != row_id and same(_text(other["full_name"]), _text(match["full_name"]))
+        for other in waiting
+    ):
+        return None
+    return match
 
 
 def _one_letter_apart(ours: str, theirs: str) -> bool:
