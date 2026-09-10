@@ -8,7 +8,7 @@ import { downloadAdmissionsList } from "@/services/admissionsExport";
 import { downloadHandout, handoutName } from "@/services/studentHandout";
 import { fetchActiveCourses, fetchActiveTeachers } from "@/services/portalLists";
 import { fieldHeld, namesHeld } from "@/services/rosterStore";
-import { type Cohort, fetchAssignments, fetchCatalogue } from "@/services/studentDatabase";
+import { type Cohort, fetchAssignments, fetchCatalogue, fetchMemberIds } from "@/services/studentDatabase";
 import type { TimetableTerm } from "@/services/timetables";
 import { sheetTitle, semesterLabel } from "@/services/timetableExport";
 import { downloadWorkbook, prefixOf, shortYear } from "@/services/workbookExport";
@@ -25,6 +25,22 @@ import { downloadWorkbook, prefixOf, shortYear } from "@/services/workbookExport
  * waits until it matches on something a rename cannot break. The route, the diff and the
  * review screen are untouched; only the way in is gone.
  */
+/**
+ * Where this cohort's own students are placed — and nobody else's.
+ *
+ * An assignment is filed under the cohort that owns the SET, not the cohort of the student,
+ * so a set open to every cohort files every language student in the department under
+ * whichever cohort happens to hold that set. All three exports read the placements, and all
+ * three used to hand out a workbook, an admissions list and a student handout naming
+ * seventy-eight people where Foundation Year has one to name.
+ *
+ * The records say who is in a cohort. The placements say where they sit.
+ */
+async function placementsOfMembers(cohortId: string): Promise<Record<string, Record<string, string>>> {
+  const [placements, members] = await Promise.all([fetchAssignments(cohortId), fetchMemberIds(cohortId)]);
+  return Object.fromEntries(Object.entries(placements).filter(([studentId]) => members.has(studentId)));
+}
+
 export function WorkbookTools({
   open,
   cohorts,
@@ -72,7 +88,7 @@ export function WorkbookTools({
     try {
       const held = await namesHeld();
       const programs = await fieldHeld("MAJOR_CODE_DESC");
-      const placements = await fetchAssignments(cohort.id);
+      const placements = await placementsOfMembers(cohort.id);
       const byScope = new Map(scopes.map((scope) => [scope.id, scope.code]));
       const labelOf = new Map(scopes.flatMap((scope) => scope.groups.map((group) => [group.id, group.label] as const)));
       const students = Object.entries(placements)
@@ -110,7 +126,7 @@ export function WorkbookTools({
     setExporting("list");
     try {
       const held = await namesHeld();
-      const placements = await fetchAssignments(cohort.id);
+      const placements = await placementsOfMembers(cohort.id);
       await downloadAdmissionsList(
         { prefix: prefixOf(cohort.name), year: shortYear(cohort.term), scopes, students: Object.entries(placements).map(([studentId, groups]) => ({ studentId, name: held[studentId] ?? "", groups })) },
         `${cohort.name.replace(/[^A-Za-z0-9]+/g, "-")}-admissions.xlsx`,
@@ -134,7 +150,7 @@ export function WorkbookTools({
       const programs = await fieldHeld("MAJOR_CODE_DESC");
       const family = await fieldHeld("LAST_NAME");
       const first = await fieldHeld("FIRST_NAME");
-      const placements = await fetchAssignments(cohort.id);
+      const placements = await placementsOfMembers(cohort.id);
       const labelOf = new Map(scopes.flatMap((scope) => scope.groups.map((group) => [group.id, group.label] as const)));
       const students = Object.entries(placements).map(([studentId, byScopeId]) => ({
         studentId,

@@ -161,20 +161,22 @@ describe("choosing who a fill acts on", () => {
     expect((screen.getByText("Place 0") as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it("offers a student the cohort holds no record of but whose groups are filed under it", async () => {
+  it("leaves out a student who only appears because a shared set is filed under this cohort", async () => {
     /*
-     * Somebody arriving from another department mid-term: their own record names no
-     * cohort, and they already sit in one of its sets. Reading only the record left them
-     * out of every fill with nothing on screen to say why — and once a fill can be pointed
-     * at named students, "why is this person not offered" becomes a support question.
+     * The regression this replaces a test for. Holding a group filed under a cohort looks
+     * like a second way of belonging to it, and is not: an assignment is filed under the
+     * cohort that owns the SET. The languages are open to every cohort and live on one
+     * cohort's row, so every language student in the department is filed under whichever
+     * cohort holds that set — and on the real data admitting them turned Foundation Year's
+     * lecture fill from one candidate into seventy-eight.
      */
-    vi.spyOn(database, "fetchStudents").mockResolvedValue([{ ...student("C7"), cohortId: "" }]);
-    vi.spyOn(database, "fetchAssignments").mockResolvedValue({ C7: { "scope-rdns": "rdns-8" } });
+    vi.spyOn(database, "fetchStudents").mockResolvedValue([student("A2"), { ...student("C7"), cohortId: "" }]);
+    vi.spyOn(database, "fetchAssignments").mockResolvedValue({ C7: { "scope-lang": "lang-1" } });
     show();
 
     const list = await screen.findByLabelText("Who goes where");
-    // No name is held for them, so the row shows the id where a name would be and again beside it.
-    expect(within(list).getAllByText("C7").length).toBeGreaterThan(0);
+    expect(within(list).getAllByRole("listitem")).toHaveLength(1);
+    expect(within(list).queryByText("C7")).toBeNull();
   });
 
   it("still leaves out somebody who belongs to another cohort entirely", async () => {

@@ -115,19 +115,21 @@ export function FillBlock({
   /**
    * Everyone this fill could seat: in the cohort, and not already in a group of this set.
    *
-   * "In the cohort" is two things, not one. A student whose own record names the cohort,
-   * and a student whose record names none but who already holds groups filed under it —
-   * which is how somebody arrives from another department mid-term. Reading only the first
-   * left them out of every fill with nothing on screen to say why.
+   * "In the cohort" means the student's own record says so, and nothing else.
+   *
+   * This briefly also admitted anyone appearing in `fetchAssignments(cohort.id)`, on the
+   * reasoning that holding a group filed under a cohort is a second way of belonging to it.
+   * That reasoning is wrong, and the way it is wrong is worth keeping written down: an
+   * assignment is filed under the cohort that owns the SET, not the cohort of the student.
+   * A set open to every cohort — the languages — lives on one cohort's row and takes
+   * everybody, so every language student in the department is filed under whichever cohort
+   * happens to hold that set. On the real data that turned Foundation Year's lecture fill
+   * from one candidate into seventy-eight.
    */
   const everyone = useMemo<FillCandidate[]>(() => {
     if (!students.data || !assignments.data || !held.data) return [];
     return students.data
-      .filter(
-        (student) =>
-          (student.cohortId === cohort.id || assignments.data[student.studentId] !== undefined) &&
-          !assignments.data[student.studentId]?.[scope.id],
-      )
+      .filter((student) => student.cohortId === cohort.id && !assignments.data[student.studentId]?.[scope.id])
       .map((student) => {
         const others = { ...(assignments.data[student.studentId] ?? {}) };
         delete others[scope.id];

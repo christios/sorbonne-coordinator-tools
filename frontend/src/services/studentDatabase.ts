@@ -331,6 +331,19 @@ export function placeStudents(scopeId: string, placements: Record<string, string
 }
 
 /** Who is in which group, as `{student id: {scope id: group id}}`. */
+/**
+ * The student ids this cohort's own records claim, which is not who its assignments name.
+ *
+ * An assignment is filed under the cohort that owns the SET, so a set open to every cohort
+ * — the languages — files every language student in the department under whichever cohort
+ * happens to hold that set. Anything asking "who is in this cohort" has to ask the records,
+ * not the placements.
+ */
+export async function fetchMemberIds(cohortId: string): Promise<Set<string>> {
+  const payload = await request<{ members: { studentId: string }[] }>(`${BASE}/cohorts/${cohortId}/members`);
+  return new Set(payload.members.map((member) => member.studentId));
+}
+
 export async function fetchAssignments(cohortId: string): Promise<Record<string, Record<string, string>>> {
   const payload = await request<{ assignments: Record<string, Record<string, string>> }>(
     `${BASE}/cohorts/${cohortId}/assignments`,
