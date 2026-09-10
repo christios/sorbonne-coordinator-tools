@@ -3,6 +3,7 @@ import { AlertTriangle, BookPlus, Link2Off, Plus, SlidersHorizontal, Trash2 } fr
 import { useEffect, useMemo, useState } from "react";
 
 import { ChecksPanel } from "@/components/ChecksPanel";
+import { CourseRecord } from "@/components/CourseRecord";
 import { CollisionList } from "@/components/CollisionList";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { removeEach, stillSelected } from "@/services/bulkRemove";
@@ -100,6 +101,8 @@ export function ActiveCourses({ onShowStudents }: { onShowStudents?: (ids: strin
   const [editing, setEditing] = useState<ActiveCrn | null>(null);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [settingChecks, setSettingChecks] = useState(false);
+  /** Which course's record is open over the list, if any. */
+  const [showingCourse, setShowingCourse] = useState("");
 
   const crns = useQuery({ queryKey: ["active-crns"], queryFn: () => fetchActiveCrns() });
   const courses = useQuery({ queryKey: ["active-courses"], queryFn: fetchActiveCourses });
@@ -166,6 +169,26 @@ export function ActiveCourses({ onShowStudents }: { onShowStudents?: (ids: strin
       return <span className="text-[#c8d0da]">On its own</span>;
     }
     if (column.id === "ue" && !row.ue) return <span className="text-[#c8d0da]">—</span>;
+    /*
+     * The course code opens the course, the way a student's name opens the student.
+     *
+     * The row is a CRN and pressing it opens what a CRN hangs from, which is right and is
+     * not the same question. "What is the state of MATH-351" used to mean three pages.
+     */
+    if (column.id === "courseCode" && row.courseCode) {
+      return (
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            setShowingCourse(row.courseCode);
+          }}
+          className="font-medium text-[#1f4e79] underline-offset-2 hover:underline"
+        >
+          {row.courseCode}
+        </button>
+      );
+    }
     return undefined;
   };
 
@@ -253,6 +276,10 @@ export function ActiveCourses({ onShowStudents }: { onShowStudents?: (ids: strin
               </>
             }
           />
+
+          {showingCourse ? (
+            <CourseRecord open courseCode={showingCourse} onClose={() => setShowingCourse("")} />
+          ) : null}
 
           <Modal
             open={settingChecks}
