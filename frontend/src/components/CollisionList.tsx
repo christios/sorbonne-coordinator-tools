@@ -31,6 +31,7 @@ export function CollisionList({
   settled,
   swept,
   onSettled,
+  onShowStudents,
 }: {
   term: string;
   collides: SectionCollision[];
@@ -38,6 +39,8 @@ export function CollisionList({
   /** False when nobody has swept the registrar's timetable: blind, not clean. */
   swept: boolean;
   onSettled: () => void;
+  /** Open the students table on exactly these ids, where their names are. */
+  onShowStudents?: (ids: string[]) => void;
 }) {
   const [noting, setNoting] = useState<SectionCollision | null>(null);
   const [note, setNote] = useState("");
@@ -78,8 +81,8 @@ export function CollisionList({
    * alarm that cannot be cleared, and this page has already learnt what those do to the
    * eye. So they are kept, counted, and folded until asked for.
    */
-  const caught = collides.filter((row) => row.students > 0);
-  const quiet = collides.filter((row) => row.students === 0);
+  const caught = collides.filter((row) => row.students.length > 0);
+  const quiet = collides.filter((row) => row.students.length === 0);
   const shown = showingQuiet ? [...caught, ...quiet] : caught;
 
   return (
@@ -104,8 +107,24 @@ export function CollisionList({
                 </span>
                 {/* The count is the whole student side of it: the remedy is about the
                     section, and a list of names would only invite the wrong one. */}
-                {row.students ? (
-                  <span className="text-[#a6292f]">{row.students} in both</span>
+                {/*
+                  * "2 in both" is the first thing anybody wants opened, and a number could
+                  * not be opened. The ids are the server's; the names are this browser's,
+                  * which is why it hands them to the students table rather than listing
+                  * them here.
+                  */}
+                {row.students.length ? (
+                  onShowStudents ? (
+                    <button
+                      type="button"
+                      onClick={() => onShowStudents(row.students)}
+                      className="font-semibold text-[#a6292f] underline"
+                    >
+                      {row.students.length} in both
+                    </button>
+                  ) : (
+                    <span className="text-[#a6292f]">{row.students.length} in both</span>
+                  )
                 ) : (
                   <span className="text-[#b08a2e]">nobody in both</span>
                 )}

@@ -325,7 +325,14 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
             <TeacherHours onOpenTeacher={setTeacherRecord} />
           ) : null}
           {page === "courses" ? <PortalCourses /> : null}
-          {page === "active-courses" ? <ActiveCourses /> : null}
+          {page === "active-courses" ? (
+            <ActiveCourses
+              onShowStudents={(ids: string[]) => {
+                setPreselect(ids);
+                openPage("students");
+              }}
+            />
+          ) : null}
           {page === "teachers" ? <PortalTeachers onOpenTeacher={setTeacherRecord} /> : null}
           {page === "active-teachers" ? <ActiveTeachers onOpenTeacher={setTeacherRecord} /> : null}
           {page === "group-schema" && cohorts.isLoading ? <ScreenLoading label="Loading cohorts…" /> : null}

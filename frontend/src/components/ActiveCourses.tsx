@@ -91,7 +91,7 @@ const labelOf = (row: ActiveCrn) => `${row.courseCode} ${row.crn}`;
  * entry for its parent — so a link that leads nowhere shows as one, and the banner says
  * where the registrar's list has moved away from the register since anyone last looked.
  */
-export function ActiveCourses() {
+export function ActiveCourses({ onShowStudents }: { onShowStudents?: (ids: string[]) => void } = {}) {
   const client = useQueryClient();
   const [term, setTerm] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -190,6 +190,7 @@ export function ActiveCourses() {
               busy={takeIn.isPending}
               term={term}
               onSettled={() => client.invalidateQueries({ queryKey: ["register-check"] })}
+              onShowStudents={onShowStudents}
               onTakeIn={() =>
                 takeIn.mutate(report.arrived.map((row) => ({ termCode: row.termCode, crn: row.crn, courseCode: row.courseCode })))
               }
@@ -287,12 +288,15 @@ function RegisterBanner({
   term,
   onTakeIn,
   onSettled,
+  onShowStudents,
 }: {
   report: RegisterCheck;
   busy: boolean;
   term: string;
   onTakeIn: () => void;
   onSettled: () => void;
+  /** Open the students table on exactly these ids — where their names are. */
+  onShowStudents?: (ids: string[]) => void;
 }) {
   const [open, setOpen] = useState(false);
   const lines = [
@@ -361,6 +365,7 @@ function RegisterBanner({
           settled={report.settledCollisions}
           swept={report.swept}
           onSettled={onSettled}
+          onShowStudents={onShowStudents}
         />
       ) : null}
     </div>

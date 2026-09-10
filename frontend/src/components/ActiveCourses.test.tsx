@@ -21,11 +21,11 @@ const drift = (over: Partial<lists.TeacherDrift>): lists.TeacherDrift => ({
   ours: "Sara Khaled", theirs: "Diaa Mereib", planning: "named", ...over,
 });
 
-function show() {
+function show(props: { onShowStudents?: (ids: string[]) => void } = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
-      <ActiveCourses />
+      <ActiveCourses {...props} />
     </QueryClientProvider>,
   );
 }
@@ -89,7 +89,7 @@ describe("who the registrar says teaches a section", () => {
 
 const collision = (over: Partial<lists.SectionCollision> = {}): lists.SectionCollision => ({
   ourCrn: "23302", ourCourse: "SCEN-101", weekday: "Tue", startsAt: "16:30", endsAt: "18:00",
-  dates: 14, minutes: 90, theirs: [{ crn: "20581", courseCode: "ENGL-604" }], students: 2, ...over,
+  dates: 14, minutes: 90, theirs: [{ crn: "20581", courseCode: "ENGL-604" }], students: ["A001", "A002"], ...over,
 });
 
 /*
@@ -181,9 +181,9 @@ describe("a collision list that leads with what is at stake", () => {
     vi.spyOn(lists, "fetchRegisterCheck").mockResolvedValue({
       ...EMPTY,
       collides: [
-        collision({ students: 1 }),
-        collision({ ourCrn: "24006", students: 0 }),
-        collision({ ourCrn: "24008", students: 0 }),
+        collision({ students: ["A001"] }),
+        collision({ ourCrn: "24006", students: [] }),
+        collision({ ourCrn: "24008", students: [] }),
       ],
     });
 
@@ -203,12 +203,48 @@ describe("a collision list that leads with what is at stake", () => {
     // reads as a page that has broken rather than as good news.
     vi.spyOn(lists, "fetchRegisterCheck").mockResolvedValue({
       ...EMPTY,
-      collides: [collision({ students: 0 }), collision({ ourCrn: "24006", students: 0 })],
+      collides: [collision({ students: [] }), collision({ ourCrn: "24006", students: [] })],
     });
 
     show();
     fireEvent.click(await screen.findByRole("button", { name: /Show them/ }));
 
     expect(screen.getByText(/None of them catches a student of ours/)).toBeTruthy();
+  });
+});
+
+describe("opening the students a collision catches", () => {
+  it("hands their ids to the students table, where the names are", async () => {
+    /*
+     * "2 in both" is the first thing anybody wants opened, and a bare count could not be.
+     * The ids are the server's — it has never held a name — so the row hands them over
+     * rather than listing anybody here.
+     */
+    vi.spyOn(lists, "fetchRegisterCheck").mockResolvedValue({
+      ...EMPTY,
+      collides: [collision({ students: ["A00028377", "A00028382"] })],
+    });
+    const shown = vi.fn();
+
+    show({ onShowStudents: shown });
+    fireEvent.click(await screen.findByRole("button", { name: /Show them/ }));
+    fireEvent.click(screen.getByRole("button", { name: "2 in both" }));
+
+    expect(shown).toHaveBeenCalledWith(["A00028377", "A00028382"]);
+  });
+
+  it("still says how many when there is nowhere to send them", async () => {
+    // Mounted without the hook — the count is the fact, and it must not vanish with the
+    // link that happens to be able to open it.
+    vi.spyOn(lists, "fetchRegisterCheck").mockResolvedValue({
+      ...EMPTY,
+      collides: [collision({ students: ["A00028377", "A00028382"] })],
+    });
+
+    show();
+    fireEvent.click(await screen.findByRole("button", { name: /Show them/ }));
+
+    expect(screen.getByText("2 in both")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "2 in both" })).toBeNull();
   });
 });

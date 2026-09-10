@@ -95,8 +95,13 @@ def collisions(
     done: list[dict[str, Any]] = []
     for key, slot in sorted(slots.items()):
         mine_registered = registered.get(key[0], set())
-        # Students the registrar has in ours AND in one of theirs. A count, because the
-        # remedy is about the section and a list of names would only invite the wrong one.
+        # Students the registrar has in ours AND in one of theirs.
+        #
+        # Ids, and the page shows their number: the remedy is still about the SECTION, and
+        # a row that recited seven names would still be inviting the wrong one. But a
+        # coordinator looking at "2 in both" wants to know which two, and the sibling clash
+        # panel has always answered that — so the ids travel and the page links to them.
+        # Ids only. Names are the browser's, here as everywhere.
         caught = {
             student
             for crn in slot["theirs"]
@@ -115,7 +120,7 @@ def collisions(
             # the Tuesday option block loses the whole ninety. Drawn alike they read alike.
             "minutes": _minutes(slot["endsAt"]) - _minutes(slot["startsAt"]),
             "theirs": [{"crn": crn, "courseCode": code} for crn, code in sorted(slot["theirs"].items())],
-            "students": len(caught),
+            "students": sorted(caught),
         }
         note = settled.get(key)
         if note:
@@ -130,5 +135,5 @@ def collisions(
     # students beat one. What is at stake is minutes multiplied by people multiplied by
     # how often it recurs; a slot nobody is caught by scores nothing and sinks to the
     # bottom, which is where the page then folds it away.
-    live.sort(key=lambda row: (-(row["students"] * row["minutes"] * row["dates"]), -row["dates"], row["ourCrn"]))
+    live.sort(key=lambda row: (-(len(row["students"]) * row["minutes"] * row["dates"]), -row["dates"], row["ourCrn"]))
     return {"collides": live, "settledCollisions": done}

@@ -80,19 +80,28 @@ def test_sections_that_only_touch_are_not_a_collision():
     assert run(meetings=touching)["collides"] == []
 
 
-def test_the_student_count_is_who_the_registrar_has_in_both():
+def test_the_students_are_the_ones_the_registrar_has_in_both():
     found = run(registered={OURS: {"A1", "A2", "A3"}, THEIRS: {"A2", "A3", "Z9"}})
 
     # A2 and A3. Not A1, who is only in ours; not Z9, who is only in theirs.
-    assert found["collides"][0]["students"] == 2
+    assert found["collides"][0]["students"] == ["A2", "A3"]
 
 
-def test_the_count_carries_no_student_ids_beyond_a_number():
-    """The remedy is about the section. A list of names would only invite the wrong one."""
+def test_a_row_carries_ids_and_never_a_name():
+    """It used to carry a bare number, and the reasoning has changed rather than lapsed.
+
+    The remedy is still about the SECTION — move ours, accept it, refer it — and a row
+    reciting seven names would still be inviting the remedy nobody would take. What the
+    number could not do is answer "which two?", which is the first thing anybody asks of
+    it and which the sibling clash panel has always answered.
+
+    So the ids travel and the page links to them. Ids only: a name is the browser's, here
+    as everywhere, and the server has never held one.
+    """
     row = run(registered={OURS: {"A1"}, THEIRS: {"A1"}})["collides"][0]
 
-    assert row["students"] == 1
-    assert "A1" not in repr(row)
+    assert row["students"] == ["A1"]
+    assert all(key not in row for key in ("names", "studentNames", "fullNames"))
 
 
 def test_a_settled_collision_leaves_the_list_and_keeps_its_reason():
@@ -176,7 +185,7 @@ def test_the_worst_is_the_one_costing_the_most_teaching_time():
         },
     )["collides"]
 
-    assert [(row["ourCourse"], row["minutes"], row["students"]) for row in found] == [
+    assert [(row["ourCourse"], row["minutes"], len(row["students"])) for row in found] == [
         ("SCEN-101", 90, 1),
         ("SCEN-102", 15, 2),
     ]
@@ -200,4 +209,4 @@ def test_a_slot_nobody_is_caught_by_sorts_below_every_slot_somebody_is():
         registered={OURS: {"A3"}, THEIRS: {"A3"}},
     )["collides"]
 
-    assert [row["students"] for row in found] == [1, 0]
+    assert [len(row["students"]) for row in found] == [1, 0]

@@ -400,8 +400,14 @@ export type SectionCollision = {
    */
   minutes: number;
   theirs: { crn: string; courseCode: string }[];
-  /** How many students the registrar has in ours and in one of theirs. A count only. */
-  students: number;
+  /**
+   * The students the registrar has in ours and in one of theirs, by id.
+   *
+   * Ids, never names: the server has never held a name. The page shows how many and links
+   * to them, the same way the clash panel does — the remedy is still about the section,
+   * but "2 in both" raises "which two?" and a bare number could not answer it.
+   */
+  students: string[];
 };
 
 export type SettledCollision = SectionCollision & {
