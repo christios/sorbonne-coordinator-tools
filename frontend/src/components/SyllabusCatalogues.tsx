@@ -132,9 +132,67 @@ function TeachingPresetForm({ entry, onCancel, onSaved }: { entry?: CatalogueEnt
 }
 
 function AssessmentCatalogue() {
-  const [tab, setTab] = useState<"assessment-types" | "rubric-presets">("assessment-types");
-  return <div className="rounded-lg border border-[#d9dee7] bg-white p-5"><div className="flex border-b border-[#d9dee7]" role="tablist" aria-label="Assessment catalogues"><CatalogueTab active={tab === "assessment-types"} onClick={() => setTab("assessment-types")}>Assessment types</CatalogueTab><CatalogueTab active={tab === "rubric-presets"} onClick={() => setTab("rubric-presets")}>Rubric presets</CatalogueTab></div>{tab === "assessment-types" ? <SimpleCatalogue category="assessment-types" title="Assessment types" description="These choices appear on SCEN graded-activity cards. They do not automatically alter an assessment's rubric." createLabel="Add assessment type" /> : <SimpleCatalogue category="rubric-presets" title="Rubric presets" description="Maintain rubric references centrally. Applying a rubric automatically is intentionally deferred." createLabel="Add rubric preset" />}</div>;
+  const [showCreate, setShowCreate] = useState(false);
+  const data = useCatalogue("assessment-types");
+  return <div className="rounded-lg border border-[#d9dee7] bg-white p-5"><CatalogueHeader title="Assessment types" description="Every graded activity picks one of these. Each carries the grading rubric that appears in the syllabus and in the exported document." action={<button type="button" onClick={() => setShowCreate(true)} className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white"><FilePlus2 size={16} /> Add assessment type</button>} />{showCreate ? <AssessmentTypeForm onCancel={() => setShowCreate(false)} onSaved={() => setShowCreate(false)} /> : null}<CatalogueEntries category="assessment-types" entries={data.data ?? []} isLoading={data.isLoading} renderDetails={(entry) => <p className="mt-1 text-sm text-[#667085]">{criteriaOf(entry).length ? `${criteriaOf(entry).length} rubric criteria` : "No rubric yet"}</p>} /></div>;
 }
+
+type RubricCriterion = { name?: string; inadequate?: string; meets?: string; exceeds?: string };
+
+function criteriaOf(entry?: CatalogueEntry): RubricCriterion[] {
+  const value = entry?.payload.criteria;
+  return Array.isArray(value) ? (value as RubricCriterion[]) : [];
+}
+
+/** An assessment type and its rubric are one record: the type is what a graded activity picks. */
+function AssessmentTypeForm({ entry, onCancel, onSaved }: { entry?: CatalogueEntry; onCancel: () => void; onSaved: () => void }) {
+  const client = useQueryClient();
+  const [label, setLabel] = useState(entry?.label ?? "");
+  const [criteria, setCriteria] = useState<RubricCriterion[]>(criteriaOf(entry));
+  const save = useMutation({
+    mutationFn: () => {
+      const kept = criteria.filter((item) => (item.name ?? "").trim());
+      const input: CatalogueEntryInput = {
+        label: label.trim(),
+        payload: { ...entry?.payload, criteria: kept },
+        parentId: entry?.parentId,
+        sortOrder: entry?.sortOrder,
+      };
+      return entry
+        ? updateCatalogueEntry("assessment-types", entry.id, { ...input, expectedRevision: entry.revision })
+        : createCatalogueEntry("assessment-types", input);
+    },
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ["syllabus-catalogues", "assessment-types"] });
+      onSaved();
+    },
+  });
+  const update = (index: number, change: Partial<RubricCriterion>) =>
+    setCriteria((current) => current.map((item, position) => (position === index ? { ...item, ...change } : item)));
+  return <form onSubmit={(event) => { event.preventDefault(); if (label.trim()) save.mutate(); }} className="mt-5 grid gap-4 rounded-lg border border-[#cbd5e1] bg-[#f8fafc] p-4">
+    <Field label="Assessment type"><input autoFocus required value={label} onChange={(event) => setLabel(event.target.value)} className={inputClass} /></Field>
+    <div>
+      <p className="text-sm font-semibold text-[#344054]">Grading rubric</p>
+      <p className="mt-1 text-sm text-[#667085]">Shown in every syllabus that assesses this way, and written into the exported document.</p>
+      <div className="mt-3 grid gap-3">
+        {criteria.map((criterion, index) => <div key={index} className="rounded-md border border-[#e5e7eb] bg-white p-3">
+          <div className="mb-3 flex items-start justify-between gap-3">
+            <div className="min-w-0 flex-1"><Field label={`Criterion ${index + 1}`}><input value={criterion.name ?? ""} onChange={(event) => update(index, { name: event.target.value })} className={inputClass} /></Field></div>
+            <button type="button" onClick={() => setCriteria((current) => current.filter((_, position) => position !== index))} className="mt-7 shrink-0 text-sm font-semibold text-[#a6292f] hover:underline">Remove</button>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <Field label="Inadequate (0–9)"><AutoResizeTextarea minRows={2} value={criterion.inadequate ?? ""} onChange={(event) => update(index, { inadequate: event.target.value })} className={textareaClass} /></Field>
+            <Field label="Meets expectations (10–15)"><AutoResizeTextarea minRows={2} value={criterion.meets ?? ""} onChange={(event) => update(index, { meets: event.target.value })} className={textareaClass} /></Field>
+            <Field label="Exceeds expectations (16–20)"><AutoResizeTextarea minRows={2} value={criterion.exceeds ?? ""} onChange={(event) => update(index, { exceeds: event.target.value })} className={textareaClass} /></Field>
+          </div>
+        </div>)}
+      </div>
+      <button type="button" onClick={() => setCriteria((current) => [...current, {}])} className="mt-3 text-left text-sm font-semibold text-[#1f4e79] hover:underline">+ Add criterion</button>
+    </div>
+    <FormActions isSaving={save.isPending} error={save.error} onCancel={onCancel} submitLabel={entry ? "Save changes" : "Add to catalogue"} />
+  </form>;
+}
+
 
 function BibliographyCatalogue() {
   const categories = useCatalogue("bibliography-types");
@@ -143,7 +201,7 @@ function BibliographyCatalogue() {
 
 function SimpleCatalogue({ category, title, description, createLabel }: { category: CatalogueCategory; title: string; description: string; createLabel: string }) {
   const [showCreate, setShowCreate] = useState(false); const data = useCatalogue(category);
-  return <div className={category === "assessment-types" || category === "rubric-presets" ? "pt-5" : "rounded-lg border border-[#d9dee7] bg-white p-5"}><CatalogueHeader title={title} description={description} action={<button type="button" onClick={() => setShowCreate(true)} className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white"><FilePlus2 size={16} /> {createLabel}</button>} />{showCreate ? <SimpleEntryForm category={category} fieldLabel={category === "rubric-presets" ? "Rubric preset name" : "Name"} onCancel={() => setShowCreate(false)} onSaved={() => setShowCreate(false)} /> : null}<CatalogueEntries category={category} entries={data.data ?? []} isLoading={data.isLoading} /></div>;
+  return <div className="rounded-lg border border-[#d9dee7] bg-white p-5"><CatalogueHeader title={title} description={description} action={<button type="button" onClick={() => setShowCreate(true)} className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white"><FilePlus2 size={16} /> {createLabel}</button>} />{showCreate ? <SimpleEntryForm category={category} fieldLabel="Name" onCancel={() => setShowCreate(false)} onSaved={() => setShowCreate(false)} /> : null}<CatalogueEntries category={category} entries={data.data ?? []} isLoading={data.isLoading} /></div>;
 }
 
 function SimpleEntryForm({ category, entry, fieldLabel, onCancel, onSaved }: { category: CatalogueCategory; entry?: CatalogueEntry; fieldLabel: string; onCancel: () => void; onSaved: () => void }) {
@@ -182,7 +240,7 @@ function CatalogueEntries({ category, entries, isLoading, renderDetails, selecte
 }
 
 function EditEntry({ category, entry, onClose, onDirtyChange }: { category: CatalogueCategory; entry: CatalogueEntry; onClose: () => void; onDirtyChange: (dirty: boolean) => void }) {
-  const form = category === "people" ? <PersonForm entry={entry} onCancel={onClose} onSaved={onClose} /> : category === "teaching-presets" ? <TeachingPresetForm entry={entry} onCancel={onClose} onSaved={onClose} /> : category === "plos" ? <PloForm programme={{ ...entry, id: entry.parentId ?? "" }} entry={entry} onCancel={onClose} onSaved={onClose} /> : <SimpleEntryForm category={category} entry={entry} fieldLabel={category === "programmes" ? "Programme name" : category === "rubric-presets" ? "Rubric preset name" : "Name"} onCancel={onClose} onSaved={onClose} />;
+  const form = category === "people" ? <PersonForm entry={entry} onCancel={onClose} onSaved={onClose} /> : category === "teaching-presets" ? <TeachingPresetForm entry={entry} onCancel={onClose} onSaved={onClose} /> : category === "assessment-types" ? <AssessmentTypeForm entry={entry} onCancel={onClose} onSaved={onClose} /> : category === "plos" ? <PloForm programme={{ ...entry, id: entry.parentId ?? "" }} entry={entry} onCancel={onClose} onSaved={onClose} /> : <SimpleEntryForm category={category} entry={entry} fieldLabel={category === "programmes" ? "Programme name" : "Name"} onCancel={onClose} onSaved={onClose} />;
   return <div onInputCapture={() => onDirtyChange(true)} onChangeCapture={() => onDirtyChange(true)}>{form}</div>;
 }
 
@@ -190,7 +248,6 @@ function SearchField({ label, value, onChange }: { label: string; value: string;
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) { return <label className="grid gap-1 text-sm font-medium text-[#344054]"><span>{label}{hint ? <span className="ml-1 font-normal text-[#667085]">{hint}</span> : null}</span>{children}</label>; }
 function CheckBox({ label, checked, onChange }: { label: string; checked: boolean; onChange: (value: boolean) => void }) { return <label className="inline-flex items-center gap-2 text-sm text-[#344054]"><input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} className="h-4 w-4 rounded border-[#98a2b3] text-[#1f4e79] focus:ring-[#d7e5f3]" />{label}</label>; }
 function FormActions({ isSaving, error, onCancel, submitLabel }: { isSaving: boolean; error: Error | null; onCancel: () => void; submitLabel: string }) { return <div className="flex flex-wrap items-center gap-3"><button disabled={isSaving} className="rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white disabled:bg-[#9ba8b5]">{isSaving ? "Saving…" : submitLabel}</button><button type="button" onClick={onCancel} className="rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#344054]">Cancel</button>{error ? <p role="alert" className="text-sm text-[#8f1f25]">{error.message}</p> : null}</div>; }
-function CatalogueTab({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) { return <button type="button" role="tab" aria-selected={active} onClick={onClick} className={`border-b-2 px-3 py-3 text-sm font-semibold ${active ? "border-[#1f4e79] text-[#1f4e79]" : "border-transparent text-[#667085] hover:text-[#344054]"}`}>{children}</button>; }
 function Loading() { return <div className="mt-5 flex items-center gap-2 text-sm text-[#667085]"><Loader2 size={16} className="animate-spin" /> Loading catalogue…</div>; }
 function EmptyState({ children }: { children: React.ReactNode }) { return <p className="mt-5 rounded-md border border-dashed border-[#cbd5e1] bg-[#f8fafc] px-4 py-5 text-sm text-[#667085]">{children}</p>; }
 function stringValue(value: unknown) { return typeof value === "string" ? value : ""; }

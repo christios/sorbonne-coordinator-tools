@@ -177,14 +177,10 @@ def test_labels_each_teaching_approach_by_the_kind_of_session() -> None:
 def test_attaches_the_approved_rubric_for_each_assessment_type_used() -> None:
     """A course does not write rubrics; it uses the ones for the types it assesses."""
     store = make_store()
-    assessment_type = store.create("assessment-types", label=f"Quiz {uuid4()}", payload={})
-    store.create(
-        "rubric-presets",
-        label="Quiz rubric",
-        payload={
-            "assessmentTypeId": assessment_type["id"],
-            "criteria": [{"name": "Accuracy", "inadequate": "Poor.", "meets": "Sound.", "exceeds": "Excellent."}],
-        },
+    assessment_type = store.create(
+        "assessment-types",
+        label=f"Quiz {uuid4()}",
+        payload={"criteria": [{"name": "Accuracy", "inadequate": "Poor.", "meets": "Sound.", "exceeds": "Excellent."}]},
     )
     content = {
         "assessment": {
@@ -197,7 +193,7 @@ def test_attaches_the_approved_rubric_for_each_assessment_type_used() -> None:
 
     rubrics = store.resolve_rubrics(content)["assessment"]["rubrics"]
 
-    assert [rubric["assignment"] for rubric in rubrics] == ["Quiz rubric"]
+    assert [rubric["assignment"] for rubric in rubrics] == [assessment_type["label"]]
     assert rubrics[0]["criteria"] == [
         {"criterion": "Accuracy", "inadequate": "Poor.", "meets": "Sound.", "exceeds": "Excellent."}
     ]

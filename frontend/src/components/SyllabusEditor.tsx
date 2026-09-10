@@ -480,10 +480,7 @@ function SectionForm({
     queryKey: ["syllabus-catalogues", "ai-policies", "editor"],
     queryFn: () => listCatalogueEntries("ai-policies"),
   });
-  const rubricPresets = useQuery({
-    queryKey: ["syllabus-catalogues", "rubric-presets", "editor"],
-    queryFn: () => listCatalogueEntries("rubric-presets"),
-  });
+
   const section = (
     Array.isArray(content[active]) ? {} : (content[active] ?? {})
   ) as Record<string, unknown>;
@@ -849,7 +846,6 @@ function SectionForm({
             onOpenHistory={onOpenHistory}
             assessmentTypes={assessmentTypes.data ?? []}
             aiPolicies={aiPolicies.data ?? []}
-            rubricPresets={rubricPresets.data ?? []}
           />
         </SyllabusSubsection>
         <LockedSection

@@ -8,7 +8,6 @@ export type CatalogueCategory =
   | "ai-policies"
   | "teaching-presets"
   | "assessment-types"
-  | "rubric-presets"
   | "bibliography-types";
 
 export type CatalogueEntry = {

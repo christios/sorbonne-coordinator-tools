@@ -23,7 +23,6 @@ CATALOGUE_CATEGORIES = frozenset(
         "ai-policies",
         "teaching-presets",
         "assessment-types",
-        "rubric-presets",
         "bibliography-types",
     }
 )
@@ -361,13 +360,10 @@ class SyllabusCatalogueStore:
                 used.append(type_id)
         if not used:
             return resolved
-        presets = self.list("rubric-presets", include_retired=True)
+        types = {item["id"]: item for item in self.list("assessment-types", include_retired=True)}
         rubrics = []
         for type_id in used:
-            preset = next(
-                (item for item in presets if _text(_record(item.get("payload")).get("assessmentTypeId")) == type_id),
-                None,
-            )
+            preset = types.get(type_id)
             if preset is None:
                 continue
             criteria = _record(preset.get("payload")).get("criteria")
