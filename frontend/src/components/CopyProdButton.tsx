@@ -43,7 +43,8 @@ export function CopyProdButton() {
     onSuccess: (report) => {
       setDone(
         `${report.cohorts} cohorts, ${report.students} students, ${report.placements} placements, ` +
-          `${report.sections} sections with a request, ${report.rules} rules.`,
+          `${report.sections} sections with a request, ${report.rules} rules, ` +
+          `${report.exemptions} exemptions.`,
       );
       // Everything on screen was read from the database this just replaced.
       client.invalidateQueries();

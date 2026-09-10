@@ -30,8 +30,14 @@ What it copies, in the order the writes depend on one another:
                           teacher the department confirmed, the hours, the anticipated
                           size, the room, day and time asked for, the constraints
   7. placements         which need every group above to exist first
-  8. the register       active courses and CRNs, and the term link — what the checks
-                        decide is "ours", and without them Active Courses is empty
+  8. the register       active courses and CRNs, the UE and mutualized answer on each
+                        course, the parent CRN on each section, and the term link — what
+                        the checks decide is "ours", and without them Active Courses is
+                        empty
+  9. the decisions      exemptions, the checks answered by hand, and the collisions
+                        somebody accepted or referred. None of these is derivable from
+                        anywhere else, so a copy without them puts back every warning
+                        they were taken to answer
 
 Not copied: history, pull evidence, dismissals, timestamps and actors. Those live in the
 browser, not on the server, and this copies the server. So the Cohorts page will still say
@@ -182,12 +188,20 @@ def copy_everything(  # noqa: PLR0913 - one keyword per thing the caller may cho
     # row holds it, and the other three place their students into those same groups. Doing
     # a cohort end to end would drop those placements, because the group they name belongs
     # to a cohort that has not been reached yet, or was reached and forgotten.
+    course_ids: dict[str, str] = {}
     sets, group_id, placed, requests = _copy_plans(
-        read, write, here, write_headers, cohorts, cohort_id, terms, say, dry_run=dry_run
+        read, write, here, write_headers, cohorts, cohort_id, terms, say, course_ids, dry_run=dry_run
     )
 
     where = {"source": source, "into": into, "read": read_headers, "write": write_headers}
     _copy_register(where, terms, say, dry_run=dry_run)
+
+    if not dry_run:
+        exempt = _copy_exemptions(source, into, read_headers, write_headers, cohorts, course_ids, say)
+        _copy_checks(source, into, read_headers, write_headers, cohort_id, say)
+        _copy_settled_collisions(source, into, read_headers, write_headers, terms, say)
+    else:
+        exempt = 0
 
     if teachers and not dry_run:
         say("\nactive teachers: copying (this step carries staff names and e-mail addresses)")
@@ -211,6 +225,7 @@ def copy_everything(  # noqa: PLR0913 - one keyword per thing the caller may cho
         "placements": placed,
         "sections": requests,
         "rules": len(rules),
+        "exemptions": exempt,
         "teachers": teachers,
         "dryRun": dry_run,
     }
@@ -242,8 +257,112 @@ def main() -> int:
     return 0
 
 
-def _copy_plans(  # noqa: PLR0913 - the map it threads through is the point
-    read, write, here, write_headers, cohorts, cohort_id, terms, say, *, dry_run: bool
+def _copy_exemptions(  # noqa: PLR0913 - one argument per thing the decision is about
+    source: str, into: str, read: dict[str, str], write: dict[str, str],
+    cohorts: list[dict[str, Any]], course_ids: dict[str, str], say,
+) -> int:
+    """Who is in a group and does not take one of its courses.
+
+    A decision somebody took, and one nothing else carries: it is not derivable from the
+    portal, from the workbook, or from any other table. A copy without it puts the warning
+    it was taken to answer back on the page.
+
+    A shared set is filed under whichever cohort holds its row, so reading every cohort
+    would report the languages once per cohort — hence the seen-set.
+    """
+    seen: set[tuple[str, str]] = set()
+    written = 0
+    for cohort in cohorts:
+        listed = call(
+            f"{source}/api/v1/student-database/cohorts/{cohort['id']}/exemptions", headers=read
+        )["exemptions"]
+        for row in listed:
+            here_course = course_ids.get(row["courseId"])
+            key = (row["studentId"], row["courseId"])
+            if not here_course or key in seen:
+                continue
+            seen.add(key)
+            call(
+                f"{into}/api/v1/student-database/students/{row['studentId']}/exemptions/{here_course}",
+                headers=write,
+                method="PUT",
+                body={"reason": row.get("reason", "")},
+            )
+            written += 1
+    say(f"\nexemptions: {written}")
+    return written
+
+
+def _copy_checks(  # noqa: PLR0913 - one argument per scope the answer may be given at
+    source: str, into: str, read: dict[str, str], write: dict[str, str],
+    cohort_id: dict[str, str], say,
+) -> None:
+    """Which checks run, and the floor each says nothing below — department and per cohort.
+
+    Only where the answer differs from the code's default, because a row that agrees with
+    the default is a row that says nothing and would only have to be kept in step.
+    """
+    written = 0
+    scopes: list[tuple[str, str]] = [("", "")] + [(prod, here) for prod, here in cohort_id.items()]
+    for prod_cohort, here_cohort in scopes:
+        where = f"?cohortId={prod_cohort}" if prod_cohort else ""
+        for check in call(f"{source}/api/v1/portal/checks{where}", headers=read)["checks"]:
+            same = check["enabled"] == check["defaultEnabled"] and check["threshold"] == check["defaultThreshold"]
+            if same:
+                continue
+            call(
+                f"{into}/api/v1/portal/checks/{check['name']}",
+                headers=write,
+                method="PUT",
+                body={
+                    "enabled": check["enabled"],
+                    "threshold": check["threshold"],
+                    "cohortId": here_cohort,
+                },
+            )
+            written += 1
+    say(f"checks answered by hand: {written}")
+
+
+def _copy_settled_collisions(  # noqa: PLR0913 - one argument per part of the key
+    source: str, into: str, read: dict[str, str], write: dict[str, str], terms: dict[str, str], say,
+) -> None:
+    """Collisions the department has accepted or referred, with the reason.
+
+    Keyed on the slot rather than on any id, so it needs no map — and a note whose slot no
+    longer exists here simply matches nothing, which is what it does in production too.
+    """
+    written = 0
+    for portal_code in sorted({code for code in _term_codes(source, read)}):
+        rep = call(f"{source}/api/v1/portal/register-check?term={portal_code}", headers=read)
+        for row in rep.get("settledCollisions", []):
+            call(
+                f"{into}/api/v1/portal/section-collisions/settle",
+                headers=write,
+                method="POST",
+                body={
+                    "termCode": portal_code,
+                    "ourCrn": row["ourCrn"],
+                    "weekday": row["weekday"],
+                    "startsAt": row["startsAt"],
+                    "endsAt": row["endsAt"],
+                    "disposition": row.get("disposition", "accepted"),
+                    "note": row.get("note", ""),
+                },
+            )
+            written += 1
+    if written:
+        say(f"settled collisions: {written}")
+
+
+def _term_codes(source: str, read: dict[str, str]) -> set[str]:
+    """The portal term codes production has linked, which the collisions are keyed on."""
+    links = call(f"{source}/api/v1/portal/term-links", headers=read)["links"]
+    return {code for code in links.values() if code}
+
+
+def _copy_plans(  # noqa: PLR0913 - the maps it threads through are the point
+    read, write, here, write_headers, cohorts, cohort_id, terms, say, course_ids, *, dry_run: bool
 ) -> tuple[int, dict[str, str], int, int]:
     """Every catalogue, then every placement — in that order, and never per cohort.
 
@@ -261,7 +380,7 @@ def _copy_plans(  # noqa: PLR0913 - the map it threads through is the point
         sets += len(catalogue)
         say(f"{cohort['name']}: {len(catalogue)} sets, {sum(len(s['groups']) for s in catalogue)} groups")
         if not dry_run:
-            requests += _copy_catalogue(write, catalogue, cohort_id[cohort["id"]], terms, group_id)
+            requests += _copy_catalogue(write, catalogue, cohort_id[cohort["id"]], terms, group_id, course_ids)
     if requests:
         say(f"\nsections carrying a request: {requests}")
     if dry_run:
@@ -289,6 +408,10 @@ def _copy_cohorts(write, cohorts: list[dict[str, Any]]) -> dict[str, str]:
                 "majors": cohort.get("majors", []),
                 "terms": cohort.get("terms", []),
                 "yearLevel": cohort.get("yearLevel", ""),
+                # Which sheet of the timetable workbook is this cohort's, and the number
+                # that workbook gives its first semester. Nothing carries them but this.
+                "workbookTab": cohort.get("workbookTab", ""),
+                "firstSemester": cohort.get("firstSemester", 0),
             },
         )["id"]
         for cohort in cohorts
@@ -354,6 +477,37 @@ def _copy_register(where: dict[str, Any], terms: dict[str, str], say, *, dry_run
             ],
         },
     )
+    # The list was taken in above; these are the things the department has SAID about it,
+    # and every one of them is typed by hand and lost without this. Measured on production
+    # the day this was fixed: 25 courses with a UE, 31 with a mutualized answer, and 129
+    # CRNs hanging from a parent.
+    held_courses = call(f"{into}/api/v1/portal/active-courses", headers=write_headers)["courses"]
+    here_courses = {row["courseCode"]: row for row in held_courses}
+    for row in courses:
+        mine = here_courses.get(row.get("courseCode", ""))
+        if not mine:
+            continue
+        if row.get("ue") or row.get("mutualized") or row.get("title") != mine.get("title"):
+            call(
+                f"{into}/api/v1/portal/active-courses/{mine['id']}",
+                headers=write_headers,
+                method="PATCH",
+                body={"title": row.get("title", ""), "ue": row.get("ue", ""), "mutualized": row.get("mutualized", "")},
+            )
+    held_crns = call(f"{into}/api/v1/portal/active-crns", headers=write_headers)["crns"]
+    here_crns = {(row["termCode"], row["crn"]): row for row in held_crns}
+    for row in crns:
+        if not row.get("parentCrn"):
+            continue
+        mine = here_crns.get((row.get("termCode", ""), row["crn"]))
+        if mine:
+            call(
+                f"{into}/api/v1/portal/active-crns/{mine['id']}",
+                headers=write_headers,
+                method="PATCH",
+                body={"parentCrn": row["parentCrn"]},
+            )
+
     # `links` is {term id: portal term code}, and the term id is production's — so it
     # goes through the same name-matched map the sets do, or the link points at nothing.
     for prod_term, portal_code in links.items():
@@ -507,8 +661,13 @@ def _request_of(cell: dict[str, Any]) -> dict[str, Any]:
     return {field: cell[field] for field in REQUEST_FIELDS if cell.get(field) not in ("", 0, False, None)}
 
 
-def _copy_catalogue(
-    write, catalogue: list[dict[str, Any]], here_cohort: str, terms: dict[str, str], group_id: dict[str, str]
+def _copy_catalogue(  # noqa: PLR0913 - the two maps it fills are the point
+    write,
+    catalogue: list[dict[str, Any]],
+    here_cohort: str,
+    terms: dict[str, str],
+    group_id: dict[str, str],
+    course_ids: dict[str, str] | None = None,
 ) -> int:
     """The sets, their courses, their groups and the CRNs in them.
 
@@ -535,7 +694,10 @@ def _copy_catalogue(
             },
         )
         scope_id[scope["id"]] = made["id"]
-        course_id = {
+        # Filled for the caller as well as used here: an exemption names a course by id,
+        # and the ids change on the way over.
+        course_id: dict[str, str] = {}
+        course_id.update({
             course["id"]: write(
                 f"/scopes/{made['id']}/courses",
                 {
@@ -544,10 +706,25 @@ def _copy_catalogue(
                     # Which of the course's parts this set is — CM, TD, TP. Every course in
                     # production carries one, and without it a card cannot say what it is.
                     "component": course.get("component", ""),
+                    # Which programme of the cohort takes it. Blank means all of them, and
+                    # a copy that lost this turns 45 structural blanks back into warnings.
+                    "program": course.get("program", ""),
                 },
             )["id"]
             for course in scope["courses"]
-        }
+        })
+        if course_ids is not None:
+            course_ids.update(course_id)
+        # What the COURSE asks of the timetable, as against what each of its sections asks.
+        # Typed by hand, kept on `scope_courses`, and carried by nothing but this.
+        for course in scope["courses"]:
+            request = {
+                key: value
+                for key, value in (course.get("request") or {}).items()
+                if value not in ("", 0, False, None)
+            }
+            if request and course["id"] in course_id:
+                write(f"/courses/{course_id[course['id']]}/request", request, method="PATCH")
         for group in scope["groups"]:
             here_group = write(
                 f"/scopes/{made['id']}/groups",
