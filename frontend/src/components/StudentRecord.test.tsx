@@ -1,6 +1,6 @@
 import { EMPTY_REQUEST, EMPTY_SECTION } from "@/services/studentDatabase";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { StudentRecord } from "@/components/StudentRecord";
@@ -201,5 +201,21 @@ describe("the two lists of CRNs", () => {
     ]);
     expect(screen.getByText(/1 agree/)).toBeTruthy();
     expect(screen.getByText(/1 registered that is no group of theirs/)).toBeTruthy();
+  });
+});
+
+describe("placing one student from their own record", () => {
+  it("offers to propose a group in every set, which is the question this surface is about", async () => {
+    /*
+     * The record modal is the only surface organised BY STUDENT — every other one is
+     * organised by set or by cohort — and a student arriving in week three is a question
+     * about one person, not about a set.
+     */
+    show();
+    await screen.findByLabelText("Groups");
+
+    fireEvent.click(screen.getByRole("button", { name: /Place in every set/ }));
+
+    expect(await screen.findByText(/Propose groups for 1 student/)).toBeTruthy();
   });
 });

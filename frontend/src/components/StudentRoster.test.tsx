@@ -938,7 +938,7 @@ describe("the toolbar", () => {
     expect(screen.getByText("1 selected")).toBeTruthy();
     // Both are buttons onto a dialog: one kind of question, asked one way.
     expect(screen.getByRole("button", { name: "Move to cohort…" })).toHaveProperty("disabled", false);
-    expect(screen.getByRole("button", { name: "Place in a group…" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Place in groups…" })).toBeTruthy();
   });
 
   it("keeps making a cohort out of the list of them", async () => {
@@ -1002,7 +1002,7 @@ describe("students sent here from Groups & CRNs", () => {
 
     await screen.findByText("A001");
     expect(screen.getByText(/2 selected/)).toBeTruthy();
-    const place = screen.getByRole("button", { name: /Place in a group/ }) as HTMLButtonElement;
+    const place = screen.getByRole("button", { name: /Place in groups/ }) as HTMLButtonElement;
     // A001 is in a cohort and A003 is not, so this selection has no single block list.
     expect(place.disabled).toBe(true);
   });
@@ -1171,5 +1171,24 @@ describe("reading histories from the pane", () => {
 
     expect(await within(pane).findByText("Amira Haddad")).toBeTruthy();
     expect(lit()).toBe("A001");
+  });
+});
+
+describe("proposing groups for a whole selection", () => {
+  it("reaches the proposal from the placement dialog's second mode, not from a third button", async () => {
+    /*
+     * Naming the groups and having them proposed are one act — these students need
+     * somewhere to sit — differing only in who chooses. A third button on the bar would
+     * spend that decision one level too high.
+     */
+    await withNames();
+    renderRoster();
+    await screen.findByText("Amira Haddad");
+    fireEvent.click((screen.getAllByRole("checkbox")[1] ?? screen.getAllByRole("checkbox")[0]) as HTMLElement);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Place in groups/ }));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByRole("combobox", { name: "Groups" })).toBeTruthy();
   });
 });

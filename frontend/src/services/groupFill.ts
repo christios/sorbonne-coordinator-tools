@@ -76,7 +76,7 @@ export function planFill({
   groups: FillGroup[];
   candidates: FillCandidate[];
   /** `clashKey` of every pair of groups that overlap, across the whole cohort. */
-  clashes: Set<string>;
+  clashes: ReadonlySet<string>;
   order: FillOrder;
   policy: FillPolicy;
   /** For the random order, so a preview and what is written are the same draw. */

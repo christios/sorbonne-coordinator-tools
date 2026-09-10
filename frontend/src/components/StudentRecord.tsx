@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, ArrowRightCircle, Check, ChevronDown, EyeOff } from "lucide-react";
+import { AlertTriangle, ArrowRightCircle, Check, ChevronDown, EyeOff, Wand2 } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { Modal } from "@/components/Modal";
+import { PlaceInBlock } from "@/components/PlaceInBlock";
 import {
   STATUS_FIELD,
   STATUS_OPTIONS,
@@ -97,6 +98,12 @@ export function StudentRecord({
 }) {
   const cohortId = row.cohortId ?? "";
   const cohort = cohorts.find((candidate) => candidate.id === cohortId) ?? null;
+  /*
+   * The record modal is where a student's groups are proposed, because it is the only
+   * surface organised BY STUDENT — every other one is organised by set or by cohort — and
+   * a student arriving mid-term is a question about one person, not about a set.
+   */
+  const [placing, setPlacing] = useState(false);
   const registrations = useQuery({
     queryKey: ["registrations", row.studentId],
     queryFn: () => fetchRegistrations(row.studentId),
@@ -361,6 +368,15 @@ export function StudentRecord({
         <div className="space-y-5">
           {/* ------------------------------------------------------------ groups */}
           <Card title="Groups" note={cohort ? `Where ${cohort.name} put them, and the CRNs each group stands for.` : "Where the department put them."}>
+            {cohort ? (
+              <button
+                type="button"
+                onClick={() => setPlacing(true)}
+                className="mb-3 inline-flex items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-2.5 py-1 text-xs font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]"
+              >
+                <Wand2 size={13} aria-hidden="true" /> Place in every set…
+              </button>
+            ) : null}
             {!cohortId ? (
               <Empty>In no cohort, so in no group.</Empty>
             ) : catalogue.isLoading || assignments.isLoading ? (
@@ -414,6 +430,20 @@ export function StudentRecord({
                 ))}
               </ul>
             )}
+            {cohort ? (
+              <PlaceInBlock
+                open={placing}
+                cohort={cohort}
+                studentIds={[row.studentId]}
+                opens="proposed"
+                onClose={() => setPlacing(false)}
+                onPlaced={() => {
+                  setPlacing(false);
+                  void client.invalidateQueries({ queryKey: ["assignments", cohortId] });
+                  void client.invalidateQueries({ queryKey: ["catalogue"] });
+                }}
+              />
+            ) : null}
           </Card>
 
           {/* --------------------------------------------- ours against the portal */}

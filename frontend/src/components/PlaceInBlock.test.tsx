@@ -3,6 +3,8 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PlaceInBlock } from "@/components/PlaceInBlock";
+import * as publicationService from "@/services/publication";
+import * as roster from "@/services/rosterStore";
 import * as database from "@/services/studentDatabase";
 import * as timetables from "@/services/timetables";
 
@@ -336,5 +338,84 @@ describe("placing into several sets at once", () => {
     // One row again, so it loses its number too.
     expect(screen.queryByRole("combobox", { name: "Block 2" })).toBeNull();
     expect((screen.getByRole("combobox", { name: "Block" }) as HTMLElement).textContent).toContain("Which set");
+  });
+});
+
+describe("proposing the groups instead of naming them", () => {
+  const publication = (clashes: publicationService.GroupClash[] = []) =>
+    ({
+      termId: "term-1",
+      portalTermCode: "262710",
+      linked: true,
+      coverage: {},
+      cohorts: [{ cohortId: "cohort-1", cohortName: "Foundation Year", clashes, groups: [], unassigned: {} }],
+    }) as unknown as publicationService.Publication;
+
+  beforeEach(() => {
+    vi.spyOn(database, "fetchAssignments").mockResolvedValue({});
+    vi.spyOn(publicationService, "fetchPublication").mockResolvedValue(publication());
+    vi.spyOn(roster, "namesHeld").mockResolvedValue({ A00025735: "Amira Haddad" });
+    vi.spyOn(roster, "fieldHeld").mockResolvedValue({});
+  });
+
+  const propose = async () => {
+    await pick("Groups", "Propose them");
+    await pick("Semester", "Physics & Maths — Semester 1");
+  };
+
+  it("offers to place a student in every set of a semester from their record", async () => {
+    show(["A00025735"]);
+    await propose();
+
+    const list = await screen.findByLabelText("Proposed for TD");
+    expect(list.textContent).toContain("Amira Haddad");
+    // Group 2 is empty and group 1 holds twenty, so balanced sends them to the emptier one.
+    expect(list.textContent).toContain("→ Group 2");
+  });
+
+  it("writes one request per set, and reports the sets it could not place", async () => {
+    const place = vi.spyOn(database, "placeStudents").mockResolvedValue({ assigned: 1, skipped: [] });
+    const onPlaced = show(["A00025735"]);
+    await propose();
+    await screen.findByLabelText("Proposed for TD");
+
+    fireEvent.click(screen.getByRole("button", { name: /Place 1 in 1 set/ }));
+
+    await waitFor(() => expect(place).toHaveBeenCalledWith("scope-td", { "group-2": ["A00025735"] }));
+    await waitFor(() => expect(onPlaced).toHaveBeenCalledWith({ assigned: 1, skipped: [], removed: false }));
+  });
+
+  it("will not propose groups while the timetable's word on clashes is not in", async () => {
+    // Without it the walk could seat somebody in two rooms at once, so it waits exactly as
+    // a fill does rather than guessing.
+    vi.spyOn(publicationService, "fetchPublication").mockRejectedValue(new Error("no timetable"));
+    show(["A00025735"]);
+    await propose();
+
+    expect(await screen.findByText(/word on clashes is not in/)).toBeTruthy();
+    expect(screen.queryByLabelText("Proposed for TD")).toBeNull();
+  });
+
+  it("asks for the semester first here too, because a code means different groups in each", async () => {
+    show(["A00025735"]);
+    await pick("Groups", "Propose them");
+
+    expect(screen.getByText(/Choose a semester/)).toBeTruthy();
+  });
+
+  it("names a set where every group is full rather than failing the whole proposal", async () => {
+    vi.spyOn(database, "fetchCatalogue").mockResolvedValue({
+      scopes: [
+        {
+          ...CATALOGUE.scopes[0],
+          groups: [{ id: "group-1", label: "1", capacity: 1, note: "", program: "", parentGroupId: "", assigned: 1, crns: {} }],
+        },
+      ],
+    });
+    show(["A00025735"]);
+    await propose();
+
+    const stuck = await screen.findByLabelText("Sets with nowhere to put them");
+    expect(stuck.textContent).toContain("every group is full");
   });
 });

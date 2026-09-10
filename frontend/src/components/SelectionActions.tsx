@@ -18,6 +18,12 @@ const PLACE_HINT = "A group belongs to one cohort — select students who share 
  * One of them used to be a dropdown and a button, and the other a button — the same kind
  * of question asked two different ways, for no reason but the order they were written in.
  * Both open a dialog; neither decides anything from the bar itself.
+ *
+ * Still two, now that groups can be proposed as well as named. Naming the groups and having
+ * them proposed are one act — these students need somewhere to sit — differing only in who
+ * chooses, and that is a distinction better drawn one level down, inside the dialog that
+ * already holds the semester and the cohort. A third button here would spend the decision
+ * at the wrong level.
  */
 function Controls({ props }: { props: SelectionActionsProps }) {
   return (
@@ -37,7 +43,7 @@ function Controls({ props }: { props: SelectionActionsProps }) {
         onClick={props.onPlace}
         className="inline-flex items-center gap-2 rounded-md border border-[#b7bec8] bg-white px-3 py-1.5 font-semibold text-[#344054] disabled:opacity-50"
       >
-        <LayoutGrid size={15} aria-hidden="true" /> Place in a group…
+        <LayoutGrid size={15} aria-hidden="true" /> Place in groups…
       </button>
     </>
   );
