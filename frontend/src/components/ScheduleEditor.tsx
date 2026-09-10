@@ -9,7 +9,7 @@ import { type HistoryField } from "@/components/FieldHistory";
 
 type ScheduleRow = Record<string, string> & { id: string };
 type ScheduleField = {
-  key: "week" | "topic" | "details" | "preClass" | "assessments";
+  key: "week" | "deadline" | "topic" | "details" | "preClass" | "assessments";
   label: string;
   multiline?: boolean;
 };
@@ -26,6 +26,21 @@ export const SESSION_TYPES = [
 
 const DEFAULT_SESSION_TYPE = "CM";
 
+/** A week is a whole number from 1: anything else is a typo worth pointing at. */
+export function weekProblem(value: string): string {
+  const text = value.trim();
+  if (!text) return "";
+  if (!/^\d+$/.test(text)) return "Enter the week as a number, for example 3.";
+  return Number(text) >= 1 ? "" : "Weeks are numbered from 1.";
+}
+
+/** A deadline is usually anchored to a week, but some are simply prose. */
+export function deadlineForWeek(week: string): string {
+  const text = week.trim();
+  return /^\d+$/.test(text) ? `End of week ${text}` : "";
+}
+
+
 type Props = {
   rows: ScheduleRow[];
   onChange: (rows: ScheduleRow[]) => void;
@@ -36,6 +51,7 @@ type Props = {
 
 const fields: ScheduleField[] = [
   { key: "week", label: "Week" },
+  { key: "deadline", label: "Deadline" },
   { key: "topic", label: "Topic" },
   { key: "details", label: "Session details", multiline: true },
   { key: "preClass", label: "Pre-class learning activities", multiline: true },
@@ -93,7 +109,7 @@ export function ScheduleEditor({
     const id = crypto.randomUUID();
     onChange([
       ...rows,
-      { id, sessionType: DEFAULT_SESSION_TYPE, week: "", topic: "", details: "", preClass: "", assessments: "" },
+      { id, sessionType: DEFAULT_SESSION_TYPE, week: "", deadline: "", topic: "", details: "", preClass: "", assessments: "" },
     ]);
     setExpandedIds((current) => [...current, id]);
     window.requestAnimationFrame(() =>
@@ -145,18 +161,16 @@ export function ScheduleEditor({
                 leading={
                   <span className="mt-0.5 inline-flex shrink-0 items-center gap-1">
                     <span
-                      aria-label={`Session ${sessionNumbers.get(row.id) ?? index + 1} ${row.sessionType || DEFAULT_SESSION_TYPE}`}
-                      className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[#eef1f5] px-1.5 text-xs font-semibold text-[#344054]"
-                    >
-                      {sessionNumbers.get(row.id) ?? index + 1}
-                    </span>
-                    <span
+                      aria-label={`Session ${row.sessionType || DEFAULT_SESSION_TYPE} ${sessionNumbers.get(row.id) ?? index + 1}`}
                       className={`inline-flex h-5 items-center justify-center rounded-full px-2 text-xs font-semibold ${
                         SESSION_TYPES.find((item) => item.value === (row.sessionType || DEFAULT_SESSION_TYPE))?.pill ??
                         "bg-[#eef1f5] text-[#344054]"
                       }`}
                     >
                       {row.sessionType || DEFAULT_SESSION_TYPE}
+                    </span>
+                    <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[#eef1f5] px-1.5 text-xs font-semibold text-[#344054]">
+                      {sessionNumbers.get(row.id) ?? index + 1}
                     </span>
                   </span>
                 }
@@ -246,6 +260,46 @@ export function ScheduleEditor({
                       path: `schedule[${row.id}].${field.key}`,
                       label: `Course schedule · ${field.label}`,
                     };
+                    if (field.key === "week") {
+                      const problem = weekProblem(value);
+                      return (
+                        <div key={field.key}>
+                          <HistoryTextField
+                            label={field.label}
+                            value={value}
+                            onChange={(next) => updateRow(row.id, field.key, next)}
+                            type="number"
+                            min={1}
+                            step={1}
+                            invalid={Boolean(problem)}
+                            history={{ field: historyField, onOpenHistory }}
+                          />
+                          {problem ? <p role="alert" className="mt-1 text-sm text-[#a6292f]">{problem}</p> : null}
+                        </div>
+                      );
+                    }
+                    if (field.key === "deadline") {
+                      const suggestion = deadlineForWeek(row.week ?? "");
+                      return (
+                        <div key={field.key}>
+                          <HistoryTextField
+                            label={field.label}
+                            value={value}
+                            onChange={(next) => updateRow(row.id, field.key, next)}
+                            history={{ field: historyField, onOpenHistory }}
+                          />
+                          {!value.trim() && suggestion ? (
+                            <button
+                              type="button"
+                              onClick={() => updateRow(row.id, field.key, suggestion)}
+                              className="mt-1 text-left text-sm font-semibold text-[#1f4e79] hover:underline"
+                            >
+                              Use &ldquo;{suggestion}&rdquo;
+                            </button>
+                          ) : null}
+                        </div>
+                      );
+                    }
                     return (
                       <HistoryTextField
                         key={field.key}

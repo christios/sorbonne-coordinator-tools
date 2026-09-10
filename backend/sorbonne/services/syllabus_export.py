@@ -498,6 +498,8 @@ def _schedule_learning_details(row: dict[str, Any]) -> str:
         parts.append(f"Pre-class learning activities:\n{pre_class}")
     if assessments := _text(row.get("assessments")):
         parts.append(f"Assessments:\n{assessments}")
+    if deadline := _text(row.get("deadline")):
+        parts.append(f"Deadline:\n{deadline}")
     return "\n\n".join(parts)
 
 

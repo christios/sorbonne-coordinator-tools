@@ -908,37 +908,24 @@ function TeachingApproachSection({
     ? value.teachingPresetIds.filter((item): item is string => typeof item === "string")
     : [];
   const chosen = presets.filter((preset) => selected.includes(preset.id));
-  const subsections = [
-    ["methods", "8.1 Teaching methods and learning activities"],
-    ["engagement", "8.2 Student engagement"],
-    ["feedback", "8.3 Feedback and academic progress"],
-  ] as const;
   const toggle = (id: string) => {
-    const next = selected.includes(id)
-      ? selected.filter((item) => item !== id)
-      : [...selected, id];
+    const next = selected.includes(id) ? selected.filter((item) => item !== id) : [...selected, id];
     // Keep the catalogue's own order, so the syllabus reads lectures before tutorials.
-    const ordered = presets.filter((preset) => next.includes(preset.id)).map((preset) => preset.id);
-    onChange({ ...value, teachingPresetIds: ordered });
+    onChange({ ...value, teachingPresetIds: presets.filter((preset) => next.includes(preset.id)).map((preset) => preset.id) });
   };
   return (
     <div className="grid gap-4">
       <section className="rounded-lg border border-[#d9dee7] bg-white p-5">
         <h3 className="text-lg font-semibold text-[#171717]">Teaching and learning approach</h3>
         <p className="mt-1 text-sm text-[#667085]">
-          Choose the kinds of session this course uses. The three subsections are written by
-          the department and appear below exactly as they will in the syllabus.
+          Choose the kinds of session this course uses. Each one brings its own methods,
+          engagement and feedback, written by the department.
         </p>
         <div className="mt-4 grid gap-2">
           {presets.length ? (
             presets.map((preset) => (
               <label key={preset.id} className="flex items-start gap-2 text-sm text-[#344054]">
-                <input
-                  type="checkbox"
-                  className="mt-0.5"
-                  checked={selected.includes(preset.id)}
-                  onChange={() => toggle(preset.id)}
-                />
+                <input type="checkbox" className="mt-0.5" checked={selected.includes(preset.id)} onChange={() => toggle(preset.id)} />
                 <span>{preset.label}</span>
               </label>
             ))
@@ -947,31 +934,39 @@ function TeachingApproachSection({
           )}
         </div>
       </section>
-      {subsections.map(([key, heading]) => (
-        <section key={key} className="rounded-lg border border-[#d9dee7] bg-white p-5">
-          <h4 className="text-sm font-semibold text-[#344054]">{heading}</h4>
-          {chosen.length ? (
+      {chosen.length ? (
+        chosen.map((preset) => (
+          <section key={preset.id} className="rounded-lg border border-[#d9dee7] bg-white p-5">
+            <h4 className="text-base font-semibold text-[#171717]">{preset.label}</h4>
             <div className="mt-3 grid gap-3">
-              {chosen.map((preset) => (
-                <div key={preset.id} className="rounded-md border border-[#e5e7eb] bg-[#f8fafc] p-3">
-                  <p className="text-sm font-semibold text-[#344054]">{preset.label}</p>
+              {TEACHING_SUBSECTIONS.map(([key, heading]) => (
+                <div key={key} className="rounded-md border border-[#e5e7eb] bg-[#f8fafc] p-3">
+                  <p className="text-sm font-semibold text-[#344054]">{heading}</p>
                   <p className="mt-1 whitespace-pre-line text-sm leading-6 text-[#475467]">
-                    {stringify(preset.payload[key]) ||
-                      "The department has not written this section yet."}
+                    {stringify(preset.payload[key]) || "The department has not written this section yet."}
                   </p>
                 </div>
               ))}
             </div>
-          ) : (
-            <p className="mt-3 whitespace-pre-line rounded-md border border-dashed border-[#d0d5dd] px-3 py-3 text-sm text-[#667085]">
-              {stringify(value[key]) || "Select the kinds of session above."}
-            </p>
-          )}
+          </section>
+        ))
+      ) : (
+        <section className="rounded-lg border border-[#d9dee7] bg-white p-5">
+          <p className="rounded-md border border-dashed border-[#d0d5dd] px-3 py-3 text-sm text-[#667085]">
+            Select the kinds of session above to see what the syllabus will say.
+          </p>
         </section>
-      ))}
+      )}
     </div>
   );
 }
+
+/** Section 8's three subsections, in the order the approved template numbers them. */
+const TEACHING_SUBSECTIONS = [
+  ["methods", "8.1 Teaching methods and learning activities"],
+  ["engagement", "8.2 Student engagement"],
+  ["feedback", "8.3 Feedback and academic progress"],
+] as const;
 
 function FysFacultyDirectoryPicker({
   value,
