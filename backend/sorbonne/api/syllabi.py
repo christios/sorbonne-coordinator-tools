@@ -183,18 +183,7 @@ def export_syllabus(
 
     with NamedTemporaryFile(prefix="scen-syllabus-", suffix=".docx", delete=False) as file:
         output_path = Path(file.name)
-    # Everything the catalogue owns is applied to a copy of the content, so the document
-    # builder stays a pure function of what it is handed.
-    content = syllabus["content"]
-    for resolve in (
-        catalogue_store.resolve_people,
-        catalogue_store.resolve_plos,
-        catalogue_store.resolve_competencies,
-        catalogue_store.resolve_teaching_approach,
-        catalogue_store.resolve_rubrics,
-    ):
-        content = resolve(content)
-    build_syllabus_docx({**syllabus, "content": content}, output_path)
+    build_syllabus_docx({**syllabus, "content": _resolved_content(catalogue_store, syllabus)}, output_path)
     background_tasks.add_task(output_path.unlink, missing_ok=True)
     return FileResponse(
         output_path,
@@ -271,6 +260,38 @@ def compare_syllabi(
             status_code=422,
             detail="These templates do not yet have an approved comparison mapping.",
         ) from exc
+
+
+@router.get("/{syllabus_id}/export-preview")
+def export_preview(
+    syllabus_id: str,
+    store: SyllabusStore = Depends(get_store),
+    catalogue_store: SyllabusCatalogueStore = Depends(get_catalogue_store),
+) -> dict[str, Any]:
+    """What the exported document will say, before it is a document."""
+    try:
+        syllabus = store.get(syllabus_id)
+    except SyllabusNotFound as exc:
+        raise HTTPException(status_code=404, detail="Syllabus not found.") from exc
+    return {**syllabus, "content": _resolved_content(catalogue_store, syllabus)}
+
+
+def _resolved_content(catalogue_store: SyllabusCatalogueStore, syllabus: dict[str, Any]) -> dict[str, Any]:
+    """Everything the catalogue owns, applied to a copy of the syllabus's content.
+
+    The document builder and the export preview are both handed this, so what a
+    professor is shown cannot drift from what the Provost receives.
+    """
+    content = syllabus["content"]
+    for resolve in (
+        catalogue_store.resolve_people,
+        catalogue_store.resolve_plos,
+        catalogue_store.resolve_competencies,
+        catalogue_store.resolve_teaching_approach,
+        catalogue_store.resolve_rubrics,
+    ):
+        content = resolve(content)
+    return content
 
 
 def _export_filename(syllabus: dict[str, Any]) -> str:

@@ -43,6 +43,7 @@ import { ScheduleEditor } from "@/components/ScheduleEditor";
 import { SelectMenu } from "@/components/SelectMenu";
 import { AssessmentTabs } from "@/components/AssessmentTabs";
 import { AddEntryButton } from "@/components/AddEntryButton";
+import { SyllabusExportPreview } from "@/components/SyllabusExportPreview";
 import { listCoursesByCode } from "@/services/courses";
 import { PloAlignmentField } from "@/components/PloAlignmentField";
 import { SectionEditorShell } from "@/components/SectionEditorShell";
@@ -93,6 +94,7 @@ export function SyllabusEditor({
   const [saveState, setSaveState] = useState<SyllabusSaveState>("saved");
   const [saveError, setSaveError] = useState<string | null>(null);
   const [reloadConfirmationOpen, setReloadConfirmationOpen] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
   const [exportState, setExportState] = useState<
     "idle" | "exporting" | "error"
   >("idle");
@@ -316,6 +318,13 @@ export function SyllabusEditor({
               />
               <button
                 type="button"
+                onClick={() => setPreviewOpen(true)}
+                className="inline-flex items-center gap-2 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]"
+              >
+                <FileText size={17} /> Preview export
+              </button>
+              <button
+                type="button"
                 onClick={() => void exportDocx()}
                 disabled={exportState === "exporting"}
                 className="inline-flex items-center gap-2 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb] disabled:cursor-wait disabled:opacity-60"
@@ -368,6 +377,16 @@ export function SyllabusEditor({
           />
         </SectionEditorShell>
       </FieldHistoryProvider>
+      {previewOpen ? (
+        <div className="fixed inset-0 z-[120] overflow-y-auto bg-[#0f172a]/40 p-4" role="dialog" aria-label="Export preview" onClick={() => setPreviewOpen(false)}>
+          <div className="mx-auto max-w-[56rem]" onClick={(event) => event.stopPropagation()}>
+            <div className="mb-3 flex justify-end">
+              <button type="button" onClick={() => setPreviewOpen(false)} className="rounded-md bg-white px-3 py-2 text-sm font-semibold text-[#1f4e79] shadow-sm">Close preview</button>
+            </div>
+            <SyllabusExportPreview syllabusId={draft.id} />
+          </div>
+        </div>
+      ) : null}
     </FieldInfoProvider>
   );
 }
