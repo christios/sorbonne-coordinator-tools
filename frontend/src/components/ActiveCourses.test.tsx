@@ -89,7 +89,7 @@ describe("who the registrar says teaches a section", () => {
 
 const collision = (over: Partial<lists.SectionCollision> = {}): lists.SectionCollision => ({
   ourCrn: "23302", ourCourse: "SCEN-101", weekday: "Tue", startsAt: "16:30", endsAt: "18:00",
-  dates: 14, theirs: [{ crn: "20581", courseCode: "ENGL-604" }], students: 2, ...over,
+  dates: 14, minutes: 90, theirs: [{ crn: "20581", courseCode: "ENGL-604" }], students: 2, ...over,
 });
 
 /*
@@ -155,5 +155,60 @@ describe("our sections sharing an hour with another department's", () => {
     fireEvent.click(await screen.findByRole("button", { name: /Show them/ }));
 
     expect(screen.getByText(/no collision can be found in any of it/)).toBeTruthy();
+  });
+});
+
+describe("a collision list that leads with what is at stake", () => {
+  it("says how long the overlap is, not only when it starts and ends", async () => {
+    /*
+     * Fifteen minutes at the end of a class and ninety in the middle of one were drawn
+     * alike, and the reader was left to subtract two clock times to tell them apart.
+     */
+    vi.spyOn(lists, "fetchRegisterCheck").mockResolvedValue({ ...EMPTY, collides: [collision()] });
+
+    show();
+    fireEvent.click(await screen.findByRole("button", { name: /Show them/ }));
+
+    expect(screen.getByText("1 h 30")).toBeTruthy();
+  });
+
+  it("folds away the ones no student of ours is in, and says how many", async () => {
+    /*
+     * 26 of the 32 found on the real sweep caught nobody. They are true and worth keeping
+     * — somebody may register into one tomorrow — but twenty-six lines nobody will act on
+     * is an alarm that cannot be cleared, and this page has met those before.
+     */
+    vi.spyOn(lists, "fetchRegisterCheck").mockResolvedValue({
+      ...EMPTY,
+      collides: [
+        collision({ students: 1 }),
+        collision({ ourCrn: "24006", students: 0 }),
+        collision({ ourCrn: "24008", students: 0 }),
+      ],
+    });
+
+    show();
+    fireEvent.click(await screen.findByRole("button", { name: /Show them/ }));
+
+    expect(screen.getByText(/1 in both/)).toBeTruthy();
+    expect(screen.queryByText(/nobody in both/)).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /2 more, that no student of ours is in/ }));
+
+    expect(screen.getAllByText(/nobody in both/)).toHaveLength(2);
+  });
+
+  it("says so plainly when every collision it found catches nobody", async () => {
+    // Otherwise the band says "3 of our sections share an hour" over an empty list, which
+    // reads as a page that has broken rather than as good news.
+    vi.spyOn(lists, "fetchRegisterCheck").mockResolvedValue({
+      ...EMPTY,
+      collides: [collision({ students: 0 }), collision({ ourCrn: "24006", students: 0 })],
+    });
+
+    show();
+    fireEvent.click(await screen.findByRole("button", { name: /Show them/ }));
+
+    expect(screen.getByText(/None of them catches a student of ours/)).toBeTruthy();
   });
 });

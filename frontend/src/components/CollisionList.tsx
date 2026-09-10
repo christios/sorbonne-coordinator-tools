@@ -3,6 +3,7 @@ import { useState } from "react";
 
 import {
   describeCollisionSlot,
+  describeOverlap,
   settleCollision,
   type SectionCollision,
   type SettledCollision,
@@ -40,6 +41,7 @@ export function CollisionList({
 }) {
   const [noting, setNoting] = useState<SectionCollision | null>(null);
   const [note, setNote] = useState("");
+  const [showingQuiet, setShowingQuiet] = useState(false);
   const settle = useMutation({
     mutationFn: (input: { row: SectionCollision; disposition: "accepted" | "referred" | ""; note: string }) =>
       settleCollision({
@@ -67,6 +69,19 @@ export function CollisionList({
     );
   }
 
+  /*
+   * Split by whether anybody is actually caught in the middle of it.
+   *
+   * On the real sweep, 26 of 32 slots had nobody registered in both sides. They are true —
+   * our section and somebody else's really do share an hour, and a student may register
+   * into it tomorrow — but twenty-six lines nobody will ever act on is the shape of an
+   * alarm that cannot be cleared, and this page has already learnt what those do to the
+   * eye. So they are kept, counted, and folded until asked for.
+   */
+  const caught = collides.filter((row) => row.students > 0);
+  const quiet = collides.filter((row) => row.students === 0);
+  const shown = showingQuiet ? [...caught, ...quiet] : caught;
+
   return (
     <div className="mt-2 text-xs">
       {collides.length ? (
@@ -75,18 +90,25 @@ export function CollisionList({
             Sharing an hour with another department
           </h4>
           <ul className="mt-1 divide-y divide-[#f3ead2]">
-            {collides.map((row) => (
+            {shown.map((row) => (
               <li key={`${row.ourCrn}|${row.weekday}|${row.startsAt}`} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-6 py-2">
                 <span className="font-medium text-[#8a6116]">
                   {row.ourCourse || row.ourCrn} {row.ourCrn}
                 </span>
                 <span>{describeCollisionSlot(row)}</span>
+                {/* The overlap itself, which is what says whether it is worth an argument:
+                    fifteen minutes at the end of a class is not ninety in the middle. */}
+                <span className="font-medium text-[#8a6116]">{describeOverlap(row.minutes)}</span>
                 <span className="text-[#b08a2e]">
                   vs {row.theirs.map((other) => other.courseCode || other.crn).join(", ")}
                 </span>
                 {/* The count is the whole student side of it: the remedy is about the
                     section, and a list of names would only invite the wrong one. */}
-                {row.students ? <span className="text-[#a6292f]">{row.students} in both</span> : null}
+                {row.students ? (
+                  <span className="text-[#a6292f]">{row.students} in both</span>
+                ) : (
+                  <span className="text-[#b08a2e]">nobody in both</span>
+                )}
                 <span className="ml-auto flex items-center gap-2">
                   <button
                     type="button"
@@ -129,6 +151,20 @@ export function CollisionList({
               </li>
             ))}
           </ul>
+          {quiet.length ? (
+            <button
+              type="button"
+              onClick={() => setShowingQuiet((current) => !current)}
+              className="mt-1 px-6 font-semibold text-[#1f4e79] underline"
+            >
+              {showingQuiet
+                ? `Hide the ${quiet.length} no student of ours is in`
+                : `${quiet.length} more, that no student of ours is in`}
+            </button>
+          ) : null}
+          {!caught.length && !showingQuiet ? (
+            <p className="mt-1 px-6 text-[#b08a2e]">None of them catches a student of ours.</p>
+          ) : null}
         </>
       ) : null}
 

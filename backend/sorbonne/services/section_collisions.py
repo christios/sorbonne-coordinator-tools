@@ -109,6 +109,11 @@ def collisions(
             "startsAt": slot["startsAt"],
             "endsAt": slot["endsAt"],
             "dates": len(slot["dates"]),
+            # How long the two actually overlap. The difference between a class somebody
+            # misses and a quarter of an hour at the end of one: SCEN-102 runs to 18:15
+            # and sport starts at 18:00, which is a fifteen-minute tail, while a section in
+            # the Tuesday option block loses the whole ninety. Drawn alike they read alike.
+            "minutes": _minutes(slot["endsAt"]) - _minutes(slot["startsAt"]),
             "theirs": [{"crn": crn, "courseCode": code} for crn, code in sorted(slot["theirs"].items())],
             "students": len(caught),
         }
@@ -118,7 +123,12 @@ def collisions(
                          "settledAt": note.get("settled_at", ""), "settledBy": note.get("settled_by", "")})
         else:
             live.append(row)
-    # The busiest first: a slot five of our sections sit in is one conversation, and the
-    # one worth having.
-    live.sort(key=lambda row: (-row["students"], -row["dates"], row["ourCrn"]))
+    # Worst first, and "worst" is time lost rather than heads counted.
+    #
+    # Sorting by the number of students caught alone put a fifteen-minute overlap with
+    # sport above a section losing the whole ninety-minute language hour, because two
+    # students beat one. What is at stake is minutes multiplied by people multiplied by
+    # how often it recurs; a slot nobody is caught by scores nothing and sinks to the
+    # bottom, which is where the page then folds it away.
+    live.sort(key=lambda row: (-(row["students"] * row["minutes"] * row["dates"]), -row["dates"], row["ourCrn"]))
     return {"collides": live, "settledCollisions": done}

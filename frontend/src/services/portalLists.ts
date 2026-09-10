@@ -390,6 +390,15 @@ export type SectionCollision = {
   endsAt: string;
   /** How many dates the two share this hour on. */
   dates: number;
+  /**
+   * How long the two actually overlap.
+   *
+   * The difference between a class somebody misses and a quarter of an hour at the end of
+   * one — SCEN-102 running to 18:15 against sport starting at 18:00 is a tail, a section
+   * in the Tuesday option block loses the whole ninety minutes — and the two are drawn
+   * alike until one of them says so.
+   */
+  minutes: number;
   theirs: { crn: string; courseCode: string }[];
   /** How many students the registrar has in ours and in one of theirs. A count only. */
   students: number;
@@ -419,6 +428,14 @@ export function settleCollision(input: {
 export function describeCollisionSlot(collision: SectionCollision): string {
   const often = collision.dates > 1 ? `, ${collision.dates} times` : "";
   return `${collision.weekday} ${collision.startsAt}–${collision.endsAt}${often}`;
+}
+
+/** "1 h 30" — the overlap itself, which is what says whether it is worth an argument. */
+export function describeOverlap(minutes: number): string {
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest ? `${hours} h ${String(rest).padStart(2, "0")}` : `${hours} h`;
 }
 
 export type TeacherDrift = {

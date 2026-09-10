@@ -132,3 +132,72 @@ def test_an_unreadable_date_is_skipped_rather_than_landing_on_an_invented_day():
     broken = [("23302", "not-a-date", "16:30", "18:00"), (THEIRS, "not-a-date", "16:30", "18:00")]
 
     assert run(meetings=broken)["collides"] == []
+
+
+# ------------------------------------------ how much is at stake, not how many rows
+
+
+def test_a_row_says_how_long_the_two_actually_overlap():
+    """Fifteen minutes and ninety are drawn alike until one of them says so.
+
+    Our SCEN-102 runs to 18:15 and the sport session starts at 18:00, which is a tail;
+    a section in the Tuesday option block loses the whole ninety-minute language hour.
+    """
+    [row] = run()["collides"]
+
+    assert row["minutes"] == 90
+
+
+def test_the_worst_is_the_one_costing_the_most_teaching_time():
+    """Not the one catching the most heads, which is what this used to answer.
+
+    Measured on the real sweep: a fifteen-minute overlap with sport caught two students
+    and a ninety-minute one caught one, so counting heads put the quarter of an hour
+    nobody would ever act on above the class somebody actually misses.
+    """
+    tail = "24008"
+    meetings = [
+        *MEETINGS,
+        # Ours runs 16:45-18:15 on two Mondays; theirs starts at 18:00.
+        (tail, "2026-09-07", "16:45", "18:15"),
+        (tail, "2026-09-14", "16:45", "18:15"),
+        (ALSO_THEIRS, "2026-09-07", "18:00", "19:30"),
+        (ALSO_THEIRS, "2026-09-14", "18:00", "19:30"),
+    ]
+
+    found = run(
+        meetings=meetings,
+        ours={OURS, ANOTHER_OF_OURS, tail},
+        courses={**COURSES, tail: "SCEN-102"},
+        # Two students in the fifteen-minute one, one in the ninety-minute one.
+        registered={
+            tail: {"A1", "A2"}, ALSO_THEIRS: {"A1", "A2"},
+            OURS: {"A3"}, THEIRS: {"A3"},
+        },
+    )["collides"]
+
+    assert [(row["ourCourse"], row["minutes"], row["students"]) for row in found] == [
+        ("SCEN-101", 90, 1),
+        ("SCEN-102", 15, 2),
+    ]
+
+
+def test_a_slot_nobody_is_caught_by_sorts_below_every_slot_somebody_is():
+    # 26 of the 32 found on the real sweep catch nobody. They are true and worth keeping —
+    # somebody may register tomorrow — but they are not a worklist, and the page folds
+    # them away in the order they arrive in.
+    quiet = "24006"
+    meetings = [
+        *MEETINGS,
+        (quiet, "2026-09-07", "16:45", "18:15"),
+        (ALSO_THEIRS, "2026-09-07", "18:00", "19:30"),
+    ]
+
+    found = run(
+        meetings=meetings,
+        ours={OURS, ANOTHER_OF_OURS, quiet},
+        courses={**COURSES, quiet: "SCEN-102"},
+        registered={OURS: {"A3"}, THEIRS: {"A3"}},
+    )["collides"]
+
+    assert [row["students"] for row in found] == [1, 0]
