@@ -74,7 +74,16 @@ AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) copy_prod_to_dev"
 
 
 class Refused(Exception):
-    """A safety rule said no. Never caught; the message is the whole point."""
+    """A safety rule said no, or the far end would not answer.
+
+    Mostly never caught — the message is the whole point. `code` carries the HTTP status
+    where there was one, so the one caller that can go on without a record can tell "the
+    source has not got this" from "the source is broken".
+    """
+
+    def __init__(self, message: str, *, code: int | None = None) -> None:
+        super().__init__(message)
+        self.code = code
 
 
 def local_only(url: str) -> str:
@@ -114,7 +123,7 @@ def call(url: str, *, headers: dict[str, str], method: str = "GET", body: Any = 
             return json.loads(raw) if raw else None
     except urllib.error.HTTPError as error:
         detail = error.read().decode(errors="replace")[:300]
-        raise Refused(f"{method} {urlparse(url).path} -> {error.code}. {detail}") from error
+        raise Refused(f"{method} {urlparse(url).path} -> {error.code}. {detail}", code=error.code) from error
 
 
 def copy_everything(  # noqa: PLR0913 - one keyword per thing the caller may choose
@@ -480,6 +489,17 @@ def _copy_settled_collisions(  # noqa: PLR0913 - one argument per part of the ke
         say(f"settled collisions: {written}")
 
 
+def _older_than_this_script(refusal: Refused) -> bool:
+    """Whether the source simply does not have a route this script knows about.
+
+    The copy reads a running instance, and that instance can be older than the checkout
+    doing the reading — most obviously in the window between adding a read route here and
+    deploying it. 404 is the route not existing; 405 is the path existing for a different
+    method, which is what a GET added beside an older POST looks like from outside.
+    """
+    return refusal.code in (404, 405)
+
+
 def _copy_sweeps(source: str, into: str, read: dict[str, str], write: dict[str, str], say) -> None:
     """The registrar's own timetable, as swept.
 
@@ -489,8 +509,22 @@ def _copy_sweeps(source: str, into: str, read: dict[str, str], write: dict[str, 
     it. Replayed as the same pull the extension writes, so there is no second way into
     those tables.
     """
+    try:
+        terms = call(f"{source}/api/v1/portal/facility-timetable", headers=read)["terms"]
+    except Refused as refusal:
+        if not _older_than_this_script(refusal):
+            raise
+        # Everything else has already been copied and is worth keeping. Say what is missing
+        # and what it costs, rather than failing a copy over one absent record.
+        say(
+            "\nregistrar's timetable: skipped — the source does not offer it yet.\n"
+            "  Deploy this branch, or run a Portal sync against localhost, or clashes and\n"
+            "  collisions will be blank here."
+        )
+        return
+
     swept = 0
-    for term_code in call(f"{source}/api/v1/portal/facility-timetable", headers=read)["terms"]:
+    for term_code in terms:
         sweep = call(f"{source}/api/v1/portal/facility-timetable/{term_code}", headers=read)
         if not sweep["asked"]:
             continue

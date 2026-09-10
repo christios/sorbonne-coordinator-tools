@@ -360,3 +360,34 @@ def test_a_teacher_on_both_lists_arrives_joined_rather_than_left_to_an_email(mon
         {"portalTeacherIds": ["A001"]},
         {"partTimeTeacherId": "here-pt"},
     ]
+
+
+def test_a_source_without_the_sweep_route_costs_the_sweep_and_not_the_copy(monkeypatch):
+    """The copy reads a running instance, which can be older than the checkout reading it.
+
+    Most obviously in the window between adding a read route and deploying it: 405 is what
+    a GET added beside an older POST looks like from outside. Everything else has already
+    been copied and is worth keeping.
+    """
+    said: list[str] = []
+
+    def absent(url, *, headers, method="GET", body=None):
+        raise copy.Refused(f"GET {url} -> 405. Method Not Allowed", code=405)
+
+    monkeypatch.setattr(copy, "call", absent)
+
+    copy._copy_sweeps("https://prod", "http://localhost:8000", {}, {}, say=said.append)
+
+    assert "skipped" in " ".join(said)
+    assert "Portal sync" in " ".join(said)
+
+
+def test_a_source_that_is_broken_still_stops_the_copy(monkeypatch):
+    # Absent is a thing to work around; broken is a thing to be told about.
+    def broken(url, *, headers, method="GET", body=None):
+        raise copy.Refused("GET ... -> 500. it fell over", code=500)
+
+    monkeypatch.setattr(copy, "call", broken)
+
+    with pytest.raises(copy.Refused):
+        copy._copy_sweeps("https://prod", "http://localhost:8000", {}, {}, say=lambda *_: None)
