@@ -44,6 +44,10 @@ class Group:
     # course code -> its CRNs, one per part. A list because a course split between two
     # professors is taught under a CRN each, and both are this group's.
     crns: dict[str, list[str]] = field(default_factory=dict)
+    # The programme this group is for, where it is for one. In L2 and L3 the group IS the
+    # programme — "Mathematics" and "Physics" are group labels — which is the only record
+    # of a student's programme the platform holds. Blank means "anyone".
+    program: str = ""
 
 
 @dataclass(frozen=True)
@@ -80,6 +84,40 @@ def resolve(
     return {student: sorted(crns) for student, crns in sorted(enrolments.items()) if crns}
 
 
+def _programs_held(
+    groups: list[Group], assignments: dict[tuple[str, str], str]
+) -> dict[str, set[str]]:
+    """Which programmes each student is known to be in, from the groups they hold.
+
+    The platform stores no student's major of its own; what it has is that in L2 and L3 the
+    group IS the programme. So a student sitting in the CM group labelled "Mathematics" is a
+    mathematician, and that is the whole of the evidence.
+    """
+    program_of = {group.id: group.program.strip() for group in groups if group.program.strip()}
+    held: dict[str, set[str]] = {}
+    for (student, _scope), group_id in assignments.items():
+        program = program_of.get(group_id)
+        if program:
+            held.setdefault(student, set()).add(program)
+    return held
+
+
+def _belongs(student: str, program: str, held: dict[str, set[str]]) -> bool:
+    """Whether this student is somebody this set is for.
+
+    Fail open, twice over: a set with no programme is for everyone, and a student the groups
+    say nothing about is expected everywhere. Only a student positively known to be in a
+    DIFFERENT programme stops being expected — which is the difference between not asking a
+    mathematician for a physics group and quietly forgetting a physicist.
+    """
+    if not program:
+        return True
+    theirs = held.get(student)
+    if not theirs:
+        return True
+    return program.casefold() in {one.casefold() for one in theirs}
+
+
 def readiness(  # noqa: PLR0913 - one keyword per thing a cohort needs to be ready
     *,
     cohort_name: str,
@@ -88,15 +126,23 @@ def readiness(  # noqa: PLR0913 - one keyword per thing a cohort needs to be rea
     groups: list[Group],
     course_codes: dict[str, list[str]],
     assignments: dict[tuple[str, str], str],
+    scope_programs: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """What stands between this cohort and being publishable, in a coordinator's terms.
 
     `course_codes` is `scope id -> [course code]`, so a group can be told it is missing a CRN
     for a course its scope teaches.
+
+    `scope_programs` is `scope id -> the one programme its courses are taught to`, where they
+    are all taught to one. A set that teaches only Physics does not want every mathematician
+    in the cohort listed as missing from it — on the real data that was 36 of L2's 44 students
+    and 11 of L3's 16, which is not a worklist but a wall of noise in front of one.
     """
     groups_by_scope: dict[str, list[Group]] = {}
     for group in groups:
         groups_by_scope.setdefault(group.scope_id, []).append(group)
+    programs = scope_programs or {}
+    mine = _programs_held(groups, assignments)
 
     warnings: list[str] = []
     unassigned: dict[str, list[str]] = {}
@@ -109,7 +155,9 @@ def readiness(  # noqa: PLR0913 - one keyword per thing a cohort needs to be rea
             continue
 
         missing = [
-            student for student in students if (student, scope.id) not in assignments
+            student
+            for student in students
+            if (student, scope.id) not in assignments and _belongs(student, programs.get(scope.id, ""), mine)
         ]
         if missing:
             unassigned[scope.code] = sorted(missing)

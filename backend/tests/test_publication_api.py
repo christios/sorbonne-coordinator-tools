@@ -613,3 +613,78 @@ def test_without_a_hub_the_registrar_answers_alone(client: TestClient, database:
     # Every CRN validated against the registrar's sections, so the semester is publishable.
     assert report["unmatchedCrns"] == 0
     assert report["coverage"]["hubReachable"] is None
+
+
+def test_a_set_taught_to_one_programme_does_not_want_the_other_programme_in_it(
+    client: TestClient, database: StudentDatabase
+):
+    """L2's practicals teach one course, for physicists, and the cohort is half mathematicians.
+
+    Counted on production the day this was fixed: 36 of L2's 44 students and 11 of L3's 16
+    were reported missing from a set that is not for them. That is not a worklist, it is a
+    wall of noise standing in front of one — the single real gap in L2 was invisible behind
+    thirty-five names that were never going to be placed.
+    """
+    cohort = database.create_cohort(name="Second year", term="2026-27")
+    with database.engine.begin() as connection:
+        for student in ("A001", "A002"):
+            connection.execute(
+                text("""INSERT INTO students (student_id, status, cohort_id, first_seen_at,
+                                              last_seen_at, updated_at)
+                        VALUES (:id, 'in_portal', :cohort, 'now', 'now', 'now')"""),
+                {"id": student, "cohort": cohort["id"]},
+            )
+    cm = database.add_scope(cohort["id"], code="CM", name="Lectures", term_id=TERM)
+    tp = database.add_scope(cohort["id"], code="TP", name="Practicals", term_id=TERM)
+    algebra = database.add_course(cm, code="MATH-223", program="Mathematics")
+    practical = database.add_course(tp, code="PHYS-208", program="Physics")
+    maths_group = database.add_group(cm, label="Mathematics", program="Mathematics")
+    physics_group = database.add_group(cm, label="Physics", program="Physics")
+    practicals = database.add_group(tp, label="Physics", program="Physics")
+    database.set_cell(group_id=maths_group, course_id=algebra, crn="24087")
+    database.set_cell(group_id=physics_group, course_id=algebra, crn="24088")
+    database.set_cell(group_id=practicals, course_id=practical, crn="24240")
+    database.assign(student_id="A001", scope_id=cm, group_id=maths_group)
+    database.assign(student_id="A002", scope_id=cm, group_id=physics_group)
+    database.assign(student_id="A002", scope_id=tp, group_id=practicals)
+
+    report = next(
+        entry
+        for entry in use(client, sections_then({})).get(f"/api/v1/publication/terms/{TERM}").json()["cohorts"]
+        if entry["cohort"] == "Second year"
+    )
+
+    # The mathematician is not asked for a physics practical, and nothing else changes.
+    assert "TP" not in report["unassigned"]
+    assert not any("Practicals" in warning for warning in report["warnings"])
+
+
+def test_a_student_of_that_programme_missing_from_it_is_still_named(
+    client: TestClient, database: StudentDatabase
+):
+    # The difference between not asking a mathematician, and quietly forgetting a physicist.
+    cohort = database.create_cohort(name="Second year", term="2026-27")
+    with database.engine.begin() as connection:
+        connection.execute(
+            text("""INSERT INTO students (student_id, status, cohort_id, first_seen_at,
+                                          last_seen_at, updated_at)
+                    VALUES ('A002', 'in_portal', :cohort, 'now', 'now', 'now')"""),
+            {"cohort": cohort["id"]},
+        )
+    cm = database.add_scope(cohort["id"], code="CM", name="Lectures", term_id=TERM)
+    tp = database.add_scope(cohort["id"], code="TP", name="Practicals", term_id=TERM)
+    algebra = database.add_course(cm, code="MATH-223", program="Physics")
+    practical = database.add_course(tp, code="PHYS-208", program="Physics")
+    physics_group = database.add_group(cm, label="Physics", program="Physics")
+    practicals = database.add_group(tp, label="Physics", program="Physics")
+    database.set_cell(group_id=physics_group, course_id=algebra, crn="24088")
+    database.set_cell(group_id=practicals, course_id=practical, crn="24240")
+    database.assign(student_id="A002", scope_id=cm, group_id=physics_group)
+
+    report = next(
+        entry
+        for entry in use(client, sections_then({})).get(f"/api/v1/publication/terms/{TERM}").json()["cohorts"]
+        if entry["cohort"] == "Second year"
+    )
+
+    assert report["unassigned"]["TP"] == ["A002"]

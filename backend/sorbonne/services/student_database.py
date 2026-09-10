@@ -1135,6 +1135,9 @@ class StudentDatabase:
                         "id": group["id"],
                         "scopeId": group["scope_id"],
                         "label": group["label"],
+                        # In L2 and L3 the group IS the programme, and it is the only record
+                        # of a student's programme the platform holds.
+                        "program": group["program"],
                         "crns": crns.get(group["id"], {}),
                     }
                     for group in groups
@@ -1149,6 +1152,13 @@ class StudentDatabase:
                 # Physics ones, and a student takes the courses of their own programme and
                 # not the other's. Two courses named for different programmes therefore have
                 # no student in common, whatever hour they meet at.
+                # A set taught to one programme, where every course of it names the same
+                # one. Blank where they differ or any is silent, which is every set in
+                # Foundation Year and L1.
+                "scopePrograms": {
+                    scope_id: _one_program([row for row in courses if row["scope_id"] == scope_id])
+                    for scope_id in _ids_of(scopes, cohort_id)
+                },
                 "coursePrograms": {
                     row["code"]: row["program"]
                     for row in courses
@@ -1172,6 +1182,7 @@ class StudentDatabase:
                         "id": group["id"],
                         "scopeId": group["scope_id"],
                         "label": group["label"],
+                        "program": group["program"],
                         "crns": crns.get(group["id"], {}),
                     }
                     for group in groups
@@ -2079,6 +2090,17 @@ def _course(row) -> dict[str, Any]:
         # What the course asks of the timetable, as against what each section asks.
         "request": _request(row),
     }
+
+
+def _one_program(courses: list[Any]) -> str:
+    """The programme a set is taught to, when every course of it names the same one.
+
+    Blank the moment they differ or any is silent: "some of this set is for physicists" is
+    not a fact anybody can act on, and guessing which students it covers would be worse than
+    saying nothing.
+    """
+    named = {(row["program"] or "").strip() for row in courses}
+    return named.pop() if len(named) == 1 and "" not in named else ""
 
 
 def _request(row) -> dict[str, Any]:

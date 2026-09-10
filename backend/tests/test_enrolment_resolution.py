@@ -191,3 +191,69 @@ def test_codes_are_compared_past_the_separators_the_two_systems_disagree_about()
     # The workbook writes MATH001, the registrar writes MATH-001-CM-GR.A. Same course.
     loose = Group(id="g", scope_id="s-cm", label="A", crns={"math001": ["22151"]})
     assert validate(groups=[loose], sections=SECTIONS)["g|math001"]["status"] == "matched"
+
+
+# ------------------------------------- a set taught to one programme of the cohort
+
+
+TP = Scope(id="s-tp", cohort_id="c1", code="TP", name="Practicals")
+CM_MATHS = Group(id="g-cm-m", scope_id="s-cm", label="Mathematics", program="Mathematics")
+CM_PHYS = Group(id="g-cm-p", scope_id="s-cm", label="Physics", program="Physics")
+TP_PHYS = Group(id="g-tp", scope_id="s-tp", label="Physics", program="Physics", crns={"PHYS-208": ["24240"]})
+
+
+def physics_practicals(assignments: dict) -> dict:
+    return readiness(
+        cohort_name="L2",
+        students=["A001", "A002"],
+        scopes=[CM, TP],
+        groups=[CM_MATHS, CM_PHYS, TP_PHYS],
+        course_codes={"s-cm": [], "s-tp": ["PHYS-208"]},
+        assignments=assignments,
+        scope_programs={"s-tp": "Physics"},
+    )
+
+
+def test_a_mathematician_is_not_missing_from_a_physics_only_set():
+    """36 of L2's 44 students and 11 of L3's 16 were reported missing from the practicals.
+
+    They are mathematicians, and the practicals teach one course which is for physicists.
+    That is not a worklist; it is a wall of noise standing in front of one.
+    """
+    report = physics_practicals({("A001", "s-cm"): "g-cm-m", ("A002", "s-cm"): "g-cm-p", ("A002", "s-tp"): "g-tp"})
+
+    assert report["isReady"]
+    assert report["unassigned"] == {}
+
+
+def test_a_physicist_missing_from_it_is_still_missing():
+    # The difference between not asking a mathematician for a physics group and quietly
+    # forgetting a physicist.
+    report = physics_practicals({("A001", "s-cm"): "g-cm-m", ("A002", "s-cm"): "g-cm-p"})
+
+    assert report["unassigned"]["TP"] == ["A002"]
+    assert "1 with no Practicals group" in report["warnings"]
+
+
+def test_a_student_whose_programme_nothing_records_stays_expected():
+    """Fail open. On production exactly one student is in this position, and the honest
+    answer about them is "we do not know", not "not our problem".
+    """
+    report = physics_practicals({("A002", "s-cm"): "g-cm-p", ("A002", "s-tp"): "g-tp"})
+
+    assert report["unassigned"]["TP"] == ["A001"]
+
+
+def test_a_set_with_no_programme_still_expects_everybody():
+    # Every set in Foundation Year and L1 is this, and none of them changes.
+    report = readiness(
+        cohort_name="L1",
+        students=["A001", "A002"],
+        scopes=[TD],
+        groups=[TD_1],
+        course_codes={"s-td": ["MATH-011"]},
+        assignments={("A001", "s-td"): "g-td-1"},
+        scope_programs={},
+    )
+
+    assert report["unassigned"]["TD"] == ["A002"]

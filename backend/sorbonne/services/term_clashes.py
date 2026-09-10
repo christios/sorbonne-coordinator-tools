@@ -28,7 +28,13 @@ def scopes_of(cohort: dict[str, Any]) -> list[Scope]:
 
 def groups_of(cohort: dict[str, Any], key: str = "groups") -> list[Group]:
     return [
-        Group(id=row["id"], scope_id=row["scopeId"], label=row["label"], crns=row["crns"])
+        Group(
+            id=row["id"],
+            scope_id=row["scopeId"],
+            label=row["label"],
+            crns=row["crns"],
+            program=row.get("program", ""),
+        )
         for row in cohort.get(key, [])
     ]
 
