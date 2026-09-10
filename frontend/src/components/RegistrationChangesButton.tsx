@@ -9,11 +9,16 @@ import { CHANGE_COLUMNS, changesRows, noteChanges, registrationChanges } from "@
 import type { Warning, WarningSource } from "@/services/discrepancies";
 import type { Cohort } from "@/services/studentDatabase";
 
-/** Which record to copy. The same three the page's own filter narrows to, plus all. */
-type Records = "all" | WarningSource;
-
-const RECORDS: { id: Records; name: string }[] = [
-  { id: "all", name: "All" },
+/**
+ * Which records to copy — any combination of the three, not one of them.
+ *
+ * The page's own filter narrows to one at a time because a table shows one thing at a
+ * time. A copy is taken to somebody, and who that is decides the combination: the
+ * registrar wants the registrations and the clashes and not a word about majors;
+ * admissions want the opposite; a coordinator taking the whole picture into a meeting
+ * wants all three. One-at-a-time meant copying twice and pasting twice.
+ */
+const RECORDS: { id: WarningSource; name: string }[] = [
   { id: "record", name: "Admissions" },
   { id: "registration", name: "Register" },
   { id: "timetabling", name: "Timetabling" },
@@ -58,7 +63,15 @@ export function RegistrationChangesButton({
 }) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState("");
-  const [records, setRecords] = useState<Records>("all");
+  // All three to begin with, which is the old "All" and the commonest answer.
+  const [records, setRecords] = useState<Set<WarningSource>>(() => new Set(RECORDS.map((record) => record.id)));
+  const toggle = (id: WarningSource) =>
+    setRecords((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   /*
    * Every cohort is asked as soon as the dialog opens, because both answers are shown
@@ -79,7 +92,7 @@ export function RegistrationChangesButton({
     [
       ...registrationChanges(checks[index]?.data?.mismatches ?? [], nameOf, cohort.name, yearOf),
       ...noteChanges(warningsIn(cohort.id), nameOf, cohort.name, yearOf),
-    ].filter((change) => records === "all" || change.source === records),
+    ].filter((change) => records.has(change.source)),
   );
   const mine = byCohort[cohorts.findIndex((cohort) => cohort.id === cohortId)] ?? [];
   const everyone = byCohort.flat();
@@ -110,7 +123,7 @@ export function RegistrationChangesButton({
       <Modal
         open={open}
         title="Registrations to change"
-        description="One table for whoever acts on it: the id and the name once per student, then a line each. A register line carries the CRN to add or drop; an admissions or timetabling line carries what is wrong with them instead."
+        description="One table for whoever acts on it: the id and the name once per student, then a line each. A register line carries the CRN to add or drop; an admissions or timetabling line carries what is wrong with them instead. Choose the records that whoever receives it acts on."
         onClose={() => setOpen(false)}
       >
         {/*
@@ -118,21 +131,24 @@ export function RegistrationChangesButton({
           * as the page's own filter. A student flagged by two records appears under each,
           * carrying only that record's lines.
           */}
-        <div role="group" aria-label="Which records to copy" className="mb-3 inline-flex rounded-md border border-[#d3d9e2] bg-white p-0.5">
+        <div role="group" aria-label="Which records to copy" className="mb-3 inline-flex flex-wrap gap-1 rounded-md border border-[#d3d9e2] bg-white p-0.5">
           {RECORDS.map((option) => (
             <button
               key={option.id}
               type="button"
-              aria-pressed={records === option.id}
-              onClick={() => setRecords(option.id)}
+              aria-pressed={records.has(option.id)}
+              onClick={() => toggle(option.id)}
               className={`rounded px-2.5 py-1 text-sm font-semibold ${
-                records === option.id ? "bg-[#1f4e79] text-white" : "text-[#344054] hover:bg-[#f2f4f7]"
+                records.has(option.id) ? "bg-[#1f4e79] text-white" : "text-[#344054] hover:bg-[#f2f4f7]"
               }`}
             >
               {option.name}
             </button>
           ))}
         </div>
+        {records.size === 0 ? (
+          <p className="mb-3 text-xs text-[#98a2b3]">No record chosen, so there is nothing to copy.</p>
+        ) : null}
 
         {!ready ? (
           <p className="text-sm text-[#667085]">Reading the register…</p>
