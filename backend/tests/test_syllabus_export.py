@@ -1,5 +1,6 @@
 from docx import Document
 
+from sorbonne.api.syllabi import _export_filename
 from sorbonne.services.syllabus_export import build_syllabus_docx
 
 
@@ -275,8 +276,6 @@ def test_numbers_course_outcomes_that_are_not_numbered_already(tmp_path) -> None
 
 
 def test_export_filename_leads_with_the_course_code() -> None:
-    from sorbonne.api.syllabi import _export_filename
-
     name = _export_filename(
         {"courseTitle": "Mechanics Physics 1", "courseCode": "PHYS125", "academicYear": "2026-2027"}
     )
