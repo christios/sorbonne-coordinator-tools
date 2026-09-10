@@ -1972,39 +1972,42 @@ class PortalListStore:
         sets = database.term_scope_crns(term_id)
         if not sets:
             return []
-        # CRN -> which group of which set. A CRN in two places is a fault of ours rather
-        # than the registrar's, and not this check's to report; the first claim stands.
-        where: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {}
-        for entry in sets:
-            for group in entry["groups"]:
-                for crn in group["crns"]:
-                    where.setdefault(crn, (entry, group))
 
         registered = self.registered_in(term_code)
         pulled = self.pulled_students(term_code)
         found: list[Mismatch] = []
         for student in sorted(database.cohort_members(cohort_id) & pulled):
-            held: dict[str, dict[str, set[str]]] = {}
-            for crns in registered.get(student, {}).values():
-                for crn in crns:
-                    place = where.get(crn)
-                    if place is None:
-                        continue
-                    entry, group = place
-                    held.setdefault(entry["scopeId"], {}).setdefault(group["label"], set()).add(crn)
-            for scope_id, groups in held.items():
-                if len(groups) < 2:  # noqa: PLR2004 - one group of a set is the whole rule
+            theirs = {crn for crns in registered.get(student, {}).values() for crn in crns}
+            if not theirs:
+                continue
+            for entry in sets:
+                # Asked as containment, not as attribution.
+                #
+                # This used to file each CRN under one group — "the first claim stands" —
+                # and call two groups a contradiction. That reading holds only while every
+                # set teaches one course, because then no CRN can be in two of its groups.
+                # The moment a set carries a course every group of it teaches, the CRN they
+                # share is filed under whichever was read first, and everybody in the other
+                # group looks doubled: on the real data, every physics student in the year.
+                #
+                # What is actually wrong is a registration no single group could produce. So
+                # that is the question, and it answers the original one unchanged — two
+                # groups of one set are two groups no third one covers.
+                covered = {crn for group in entry["groups"] for crn in group["crns"]} & theirs
+                if not covered or any(covered <= set(group["crns"]) for group in entry["groups"]):
                     continue
-                entry = next(candidate for candidate in sets if candidate["scopeId"] == scope_id)
+                touched = sorted(
+                    group["label"] for group in entry["groups"] if set(group["crns"]) & covered
+                )
                 found.append(
                     Mismatch(
                         student_id=student,
                         term_id=term_id,
                         term_code=term_code,
-                        course_code=", ".join(sorted(groups)),
+                        course_code=", ".join(touched),
                         kind="doubled",
                         expected=[],
-                        registered=sorted({crn for crns in groups.values() for crn in crns}),
+                        registered=sorted(covered),
                         scope_code=entry["code"],
                     )
                 )

@@ -257,3 +257,67 @@ def test_a_set_with_no_programme_still_expects_everybody():
     )
 
     assert report["unassigned"]["TD"] == ["A002"]
+
+
+# ------------------- a set carrying two programmes' courses, which a merge creates
+
+
+LECTURE_MATHS = Group(id="g-cm-m", scope_id="s-cm", label="Mathematics", program="MATH - Mathematics",
+                 crns={"CPSC-100": ["22155"], "MATH-113": ["23307"]})
+LECTURE_PHYS = Group(id="g-cm-p", scope_id="s-cm", label="Physics", program="PHYS - Physics",
+                crns={"CPSC-100": ["22155"], "PHYS-118": ["22150"]})
+
+
+def merged_lectures():
+    return readiness(
+        cohort_name="L1",
+        students=["A001", "A002"],
+        scopes=[CM],
+        groups=[LECTURE_MATHS, LECTURE_PHYS],
+        course_codes={"s-cm": ["CPSC-100", "MATH-113", "PHYS-118"]},
+        assignments={("A001", "s-cm"): "g-cm-m", ("A002", "s-cm"): "g-cm-p"},
+        course_programs={"MATH-113": "MATH - Mathematics", "PHYS-118": "PHYS - Physics"},
+    )
+
+
+def test_a_group_is_not_asked_for_a_crn_in_another_programmes_course():
+    """The page has read it this way since programmes existed; this side never learned.
+
+    One lecture set holding the mathematicians' philosophy and the physicists' option is
+    what merging ten sets into three produces, and every blank cell in it was correct.
+    """
+    report = merged_lectures()
+
+    assert report["warnings"] == []
+    assert report["isReady"]
+
+
+def test_a_group_is_still_asked_for_a_crn_in_a_course_everybody_takes():
+    # The shared course sits in both groups. Take it out of one and that is a real gap.
+    report = readiness(
+        cohort_name="L1",
+        students=["A001"],
+        scopes=[CM],
+        groups=[LECTURE_MATHS, Group(id="g-cm-p", scope_id="s-cm", label="Physics",
+                                program="PHYS - Physics", crns={"PHYS-118": ["22150"]})],
+        course_codes={"s-cm": ["CPSC-100", "MATH-113", "PHYS-118"]},
+        assignments={("A001", "s-cm"): "g-cm-m"},
+        course_programs={"MATH-113": "MATH - Mathematics", "PHYS-118": "PHYS - Physics"},
+    )
+
+    assert "Lectures Physics has no CRN for CPSC-100" in report["warnings"]
+
+
+def test_a_course_for_everyone_is_asked_of_every_group():
+    # Blank means everyone, which is every set in Foundation Year and L1 today.
+    report = readiness(
+        cohort_name="L1",
+        students=["A001"],
+        scopes=[CM],
+        groups=[LECTURE_MATHS, LECTURE_PHYS],
+        course_codes={"s-cm": ["CPSC-100", "MATH-113", "PHYS-118"]},
+        assignments={("A001", "s-cm"): "g-cm-m"},
+        course_programs={},
+    )
+
+    assert any("has no CRN for" in warning for warning in report["warnings"])

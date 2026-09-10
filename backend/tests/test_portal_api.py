@@ -2157,3 +2157,107 @@ def test_removing_a_teacher_leaves_everybody_elses_sections_alone(
     with database.engine.connect() as connection:
         kept = connection.execute(text("SELECT teacher_id FROM group_crns WHERE crn = '24075'")).scalar()
     assert kept == held["Bilal Maaz"]
+
+
+# ------------- one set holding two programmes' courses, which merging sets creates
+
+
+def merged_lecture_set(database: StudentDatabase) -> str:
+    """One CM set, two groups: the mathematicians' bundle and the physicists'.
+
+    Both hold the lecture everybody attends, because everybody attends it. That is the
+    shape a merge produces, and the shape the old reading could not survive.
+    """
+    cohort = database.create_cohort(name="First year", term="2026-27")
+    with database.engine.begin() as connection:
+        for student in ("A001", "A002"):
+            connection.execute(
+                text("""INSERT INTO students (student_id, status, cohort_id, first_seen_at,
+                                              last_seen_at, updated_at)
+                        VALUES (:id, 'in_portal', :cohort, 'now', 'now', 'now')"""),
+                {"id": student, "cohort": cohort["id"]},
+            )
+    cm = database.add_scope(cohort["id"], code="CM", name="Lectures", term_id=HUB_TERM)
+    shared = database.add_course(cm, code="CPSC-100")
+    philosophy = database.add_course(cm, code="MATH-113", program="MATH - Mathematics")
+    option = database.add_course(cm, code="PHYS-118", program="PHYS - Physics")
+    maths = database.add_group(cm, label="Mathematics", program="MATH - Mathematics")
+    physics = database.add_group(cm, label="Physics", program="PHYS - Physics")
+    for group in (maths, physics):
+        database.set_cell(group_id=group, course_id=shared, crn="22155", part=1)
+    database.set_cell(group_id=maths, course_id=philosophy, crn="23307", part=1)
+    database.set_cell(group_id=physics, course_id=option, crn="22150", part=1)
+    database.assign(student_id="A001", scope_id=cm, group_id=maths)
+    database.assign(student_id="A002", scope_id=cm, group_id=physics)
+    return cohort["id"]
+
+
+def test_a_lecture_both_groups_attend_does_not_make_everyone_doubled(
+    client: TestClient, database: StudentDatabase
+):
+    """The physicist takes the shared lecture and their own option. That is one bundle.
+
+    Filing each CRN under one group put the shared lecture under whichever was read first,
+    so every student in the other group looked registered in two groups of one set. On the
+    real data that was every physics student in the year — a warning about the correct
+    configuration.
+    """
+    cohort_id = merged_lecture_set(database)
+    client.put(f"{BASE}/term-links/{HUB_TERM}", json={"portalTermCode": TERM})
+    registrations(
+        client,
+        [
+            {"studentId": "A001", "crn": "22155", "courseCode": "CPSC-100"},
+            {"studentId": "A001", "crn": "23307", "courseCode": "MATH-113"},
+            {"studentId": "A002", "crn": "22155", "courseCode": "CPSC-100"},
+            {"studentId": "A002", "crn": "22150", "courseCode": "PHYS-118"},
+        ],
+    )
+
+    found = client.get(f"{BASE}/cohorts/{cohort_id}/registration-check").json()["mismatches"]
+
+    assert [row for row in found if row["kind"] == "doubled"] == []
+
+
+def test_a_registration_no_single_group_could_produce_is_still_doubled(
+    client: TestClient, database: StudentDatabase
+):
+    """The rule the check exists for, asked the new way and answering the same.
+
+    Nobody can attend the mathematicians' philosophy AND the physicists' option: no one
+    bundle offers both, whichever group the shared lecture is filed under.
+    """
+    cohort_id = merged_lecture_set(database)
+    client.put(f"{BASE}/term-links/{HUB_TERM}", json={"portalTermCode": TERM})
+    registrations(
+        client,
+        [
+            {"studentId": "A001", "crn": "22155", "courseCode": "CPSC-100"},
+            {"studentId": "A001", "crn": "23307", "courseCode": "MATH-113"},
+            {"studentId": "A001", "crn": "22150", "courseCode": "PHYS-118"},
+        ],
+    )
+
+    [doubled] = [
+        row for row in client.get(f"{BASE}/cohorts/{cohort_id}/registration-check").json()["mismatches"]
+        if row["kind"] == "doubled"
+    ]
+
+    assert doubled["studentId"] == "A001"
+    assert doubled["scopeCode"] == "CM"
+    # Both bundles are named, because between them they are what the registration spans.
+    assert doubled["courseCode"] == "Mathematics, Physics"
+    assert doubled["registered"] == ["22150", "22155", "23307"]
+
+
+def test_a_student_registered_in_only_the_shared_lecture_is_not_doubled(
+    client: TestClient, database: StudentDatabase
+):
+    # It sits in both bundles, so either covers it. Not a contradiction.
+    cohort_id = merged_lecture_set(database)
+    client.put(f"{BASE}/term-links/{HUB_TERM}", json={"portalTermCode": TERM})
+    registrations(client, [{"studentId": "A002", "crn": "22155", "courseCode": "CPSC-100"}])
+
+    found = client.get(f"{BASE}/cohorts/{cohort_id}/registration-check").json()["mismatches"]
+
+    assert [row for row in found if row["kind"] == "doubled"] == []

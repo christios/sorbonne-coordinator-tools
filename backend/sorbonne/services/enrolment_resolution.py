@@ -84,6 +84,17 @@ def resolve(
     return {student: sorted(crns) for student, crns in sorted(enrolments.items()) if crns}
 
 
+def _teaches(group_program: str, course_program: str) -> bool:
+    """Whether this group is asked for a CRN in this course.
+
+    Blank on either side means everyone, so a set that names no programme behaves exactly
+    as it always did — which is every set in Foundation Year and L1. The same rule, and the
+    same words, as `teaches()` on the page.
+    """
+    theirs, its = group_program.strip().casefold(), course_program.strip().casefold()
+    return not theirs or not its or theirs == its
+
+
 def _programs_held(
     groups: list[Group], assignments: dict[tuple[str, str], str]
 ) -> dict[str, set[str]]:
@@ -127,6 +138,7 @@ def readiness(  # noqa: PLR0913 - one keyword per thing a cohort needs to be rea
     course_codes: dict[str, list[str]],
     assignments: dict[tuple[str, str], str],
     scope_programs: dict[str, str] | None = None,
+    course_programs: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """What stands between this cohort and being publishable, in a coordinator's terms.
 
@@ -137,6 +149,12 @@ def readiness(  # noqa: PLR0913 - one keyword per thing a cohort needs to be rea
     are all taught to one. A set that teaches only Physics does not want every mathematician
     in the cohort listed as missing from it — on the real data that was 36 of L2's 44 students
     and 11 of L3's 16, which is not a worklist but a wall of noise in front of one.
+
+    `course_programs` is `course code -> the programme it is taught to`, and answers the
+    other half: a group is only asked for a CRN in a course its own programme takes. The
+    page has read it this way since programmes existed — `teaches()` in `courseCards.ts` —
+    and this side never learned, so a set holding one programme's course beside another's
+    reported every cell it was right to leave blank.
     """
     groups_by_scope: dict[str, list[Group]] = {}
     for group in groups:
@@ -164,7 +182,11 @@ def readiness(  # noqa: PLR0913 - one keyword per thing a cohort needs to be rea
             warnings.append(f"{len(missing)} with no {label} group")
 
         for group in offered:
-            absent = [code for code in course_codes.get(scope.id, []) if not group.crns.get(code)]
+            absent = [
+                code
+                for code in course_codes.get(scope.id, [])
+                if not group.crns.get(code) and _teaches(group.program, (course_programs or {}).get(code, ""))
+            ]
             if absent:
                 warnings.append(f"{label} {group.label} has no CRN for {', '.join(sorted(absent))}")
 
