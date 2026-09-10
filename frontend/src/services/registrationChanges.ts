@@ -140,30 +140,33 @@ export const CHANGE_COLUMNS = [
 ] as const;
 
 /**
- * The table as text, tab separated, for pasting straight into a sheet.
+ * The table's rows, one array of cells each — the shape both flavours are built from.
  *
  * The id and the name are written on the FIRST line of each student's block and left blank
  * under it, which is what the sheet this replaces looks like: eight lines for one student
  * repeating their id eight times reads as eight students at a glance.
  */
-export function changesTable(changes: RegistrationChange[]): string {
-  const lines = [CHANGE_COLUMNS.join("\t")];
+export function changesRows(changes: RegistrationChange[]): string[][] {
+  const rows: string[][] = [];
   let last = "";
   for (const change of changes) {
     const first = change.studentId !== last;
     last = change.studentId;
-    lines.push(
-      [
-        first ? change.studentId : "",
-        first ? change.studentName : "",
-        first ? change.cohortName : "",
-        change.action,
-        change.action === "Remove" ? change.crn : "",
-        change.action === "Add" ? change.crn : "",
-        change.courseCode,
-        change.note,
-      ].join("\t"),
-    );
+    rows.push([
+      first ? change.studentId : "",
+      first ? change.studentName : "",
+      first ? change.cohortName : "",
+      change.action,
+      change.action === "Remove" ? change.crn : "",
+      change.action === "Add" ? change.crn : "",
+      change.courseCode,
+      change.note,
+    ]);
   }
-  return lines.join("\n");
+  return rows;
+}
+
+/** The table as tab-separated text, which is what a spreadsheet reads. */
+export function changesTable(changes: RegistrationChange[]): string {
+  return [[...CHANGE_COLUMNS], ...changesRows(changes)].map((row) => row.join("\t")).join("\n");
 }

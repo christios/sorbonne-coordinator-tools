@@ -3,9 +3,9 @@ import { ClipboardList } from "lucide-react";
 import { useState } from "react";
 
 import { Modal } from "@/components/Modal";
-import { copyToClipboard } from "@/services/copyCells";
+import { copyTable } from "@/services/copyCells";
 import { fetchRegistrationCheck } from "@/services/portalLists";
-import { changesTable, noteChanges, registrationChanges } from "@/services/registrationChanges";
+import { CHANGE_COLUMNS, changesRows, noteChanges, registrationChanges } from "@/services/registrationChanges";
 import type { Warning, WarningSource } from "@/services/discrepancies";
 import type { Cohort } from "@/services/studentDatabase";
 
@@ -86,7 +86,8 @@ export function RegistrationChangesButton({
 
   const copy = async (changes: typeof mine) => {
     if (!changes.length) return;
-    const done = await copyToClipboard(changesTable(changes));
+    // Both flavours: a table for the mail client, tab-separated text for the spreadsheet.
+    const done = await copyTable([...CHANGE_COLUMNS], changesRows(changes));
     setCopied(done ? `${changes.length} line${changes.length === 1 ? "" : "s"} copied` : "Could not copy");
     window.setTimeout(() => setCopied(""), 2000);
   };
