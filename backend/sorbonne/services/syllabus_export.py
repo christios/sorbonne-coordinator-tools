@@ -155,7 +155,12 @@ def _fill_identification(table: Table, syllabus: dict[str, Any], identification:
     ):
         _set_cell_text(table.cell(row_index, 3), _text(contact_hours.get(label)))
 
-    _set_cell_text(table.cell(12, 1), _list_or_legacy(identification, "prerequisiteItems", "prerequisites"))
+    # The template gives prerequisites and co-requisites one row between them.
+    requirements = [
+        _list_or_legacy(identification, "prerequisiteItems", "prerequisites"),
+        _list_or_legacy(identification, "corequisiteItems", "corequisites"),
+    ]
+    _set_cell_text(table.cell(12, 1), "\n".join(part for part in requirements if part))
     _set_cell_text(table.cell(13, 1), _list_or_legacy(identification, "equipmentItems", "equipment"))
 
 

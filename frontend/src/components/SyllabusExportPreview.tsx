@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { API_BASE_URL, apiFetch } from "@/services/http";
+import { previewProjection } from "@/services/syllabusProjection";
 
 type Resolved = { courseTitle: string; courseCode: string; academicYear: string; content: Record<string, unknown>; sections: string[] };
 
@@ -28,11 +29,12 @@ export function SyllabusExportPreview({ syllabusId }: { syllabusId: string }) {
   const { content } = preview.data;
   const identification = record(content.identification);
   const contacts = record(content.contacts);
-  const outcomes = record(content.learningOutcomes);
   const approach = record(content.teachingApproach);
   const assessment = record(content.assessment);
   const byWeek = text(assessment.scheduleBy) === "week";
 
+  // The tables below render the very data the parity test compares to the document.
+  const projection = previewProjection(preview.data);
   const sections = preview.data.sections ?? [];
   const missing = sections.filter((heading) => !RENDERED.some((prefix) => heading.startsWith(prefix)));
 
@@ -82,18 +84,18 @@ export function SyllabusExportPreview({ syllabusId }: { syllabusId: string }) {
       </Block>
 
       <Block heading="5.1. Programme Learning Outcomes">
-        <Table headers={["Code", "Outcome"]} body={rows(outcomes.plos).map((plo) => [text(plo.code), text(plo.outcome) || text(plo.legacyText)])} />
+        <Table headers={["Code", "Outcome"]} body={projection.plos} />
       </Block>
 
       <Block heading="5.2. Course learning outcomes linked to programme learning outcomes and Graduate Skills and Competencies">
         <Table
           headers={["Course learning outcome", "Aligned PLO", "SCEN Graduate Competencies", "SUAD Graduate Competencies"]}
-          body={rows(outcomes.clos).map((clo, index) => [numbered(text(clo.clo), index), text(clo.plo), text(clo.skills), text(clo.suadSkills)])}
+          body={projection.clos}
         />
       </Block>
 
       <Block heading="6. COURSE SCHEDULE">
-        <Table headers={["Week", "Session", "Topic", "Assessment", "Date"]} body={sessions(rows(content.schedule))} />
+        <Table headers={["Week", "Session", "Topic", "Assessment", "Date"]} body={projection.schedule} />
       </Block>
 
       <Block heading="7. SUPPLEMENTAL BIBLIOGRAPHICAL RESOURCES RECOMMENDED (if any)">
@@ -116,13 +118,7 @@ export function SyllabusExportPreview({ syllabusId }: { syllabusId: string }) {
       <Block heading="9.1. Summary of all course assessments (graded learning activities)">
         <Table
           headers={[byWeek ? "Week" : "Assessment date", "Assessment type", "Weight (%)", "CLO's assessed", "Applicable AI policy"]}
-          body={rows(assessment.items).map((item) => [
-            byWeek ? text(item.week) : text(item.date),
-            text(item.name) || text(item.type),
-            text(item.weight),
-            cloNumbers(item, rows(outcomes.clos)),
-            text(item.aiPolicy) || text(item.ai),
-          ])}
+          body={projection.assessments}
         />
       </Block>
 
@@ -147,7 +143,7 @@ export function SyllabusExportPreview({ syllabusId }: { syllabusId: string }) {
             <p className="text-sm font-semibold">Assessment type: {text(rubric.assignment)}</p>
             <Table
               headers={["Criteria", "Inadequate (0–9 points)", "Meets expectations (10–15 points)", "Exceeds expectations (16–20 points)"]}
-              body={rows(rubric.criteria).map((criterion) => [text(criterion.criterion), text(criterion.inadequate), text(criterion.meets), text(criterion.exceeds)])}
+              body={projection.rubrics.filter((row) => row[0] === text(rubric.assignment)).map((row) => row.slice(1))}
             />
           </div>
         )) : <p className="mt-2 text-sm text-[#667085]">No rubric yet.</p>}
@@ -206,33 +202,6 @@ const SUBSECTION = {
   engagement: "8.2 Student engagement",
   feedback: "8.3 Feedback and academic progress",
 } as const;
-
-/** Sessions are counted within their kind, exactly as the document counts them. */
-function sessions(schedule: Array<Record<string, unknown>>) {
-  const counts = new Map<string, number>();
-  return schedule.map((row) => {
-    const kind = text(row.sessionType) || "CM";
-    const next = (counts.get(kind) ?? 0) + 1;
-    counts.set(kind, next);
-    const topic = [text(row.topic), text(row.details)].filter(Boolean).join("\n");
-    const detail = [text(row.preClass), text(row.assessments)].filter(Boolean).join("\n");
-    return [text(row.week), `${kind} ${next}`, topic, detail, text(row.deadline)];
-  });
-}
-
-function numbered(value: string, index: number) {
-  if (!value) return "";
-  return /^\s*CLO\s*\d/i.test(value) ? value : `CLO ${index + 1}: ${value}`;
-}
-
-function cloNumbers(item: Record<string, unknown>, clos: Array<Record<string, unknown>>) {
-  const ids = Array.isArray(item.cloIds) ? (item.cloIds as string[]) : [];
-  const numbers = ids
-    .map((id) => clos.findIndex((clo) => clo.id === id))
-    .filter((position) => position >= 0)
-    .map((position) => `CLO ${position + 1}`);
-  return numbers.join(", ");
-}
 
 function Block({ heading, children }: { heading: string; children: React.ReactNode }) {
   return <section className="mt-6"><h3 className="text-base font-semibold text-[#111827]">{heading}</h3>{children}</section>;

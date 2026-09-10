@@ -1,9 +1,11 @@
+import json
 from pathlib import Path
 
 from docx import Document
 
 from sorbonne.api.syllabi import _export_filename
 from sorbonne.services.syllabus_export import build_syllabus_docx, template_sections
+from sorbonne.services.syllabus_projection import document_projection
 
 
 EXPANDED_PLO_TABLE_ROW_COUNT = 8
@@ -308,3 +310,18 @@ def _rendered_preview_sections() -> list[str]:
     ).read_text(encoding="utf-8")
     block = source.split("export const RENDERED = [", 1)[1].split("];", 1)[0]
     return [item.strip().strip('",') for item in block.replace("\n", " ").split(",") if item.strip().strip('",')]
+
+
+def test_the_document_says_what_the_shared_fixture_expects(tmp_path) -> None:
+    """The document is one of two renderings held against the same expectation.
+
+    The preview is the other (syllabusProjection.test.ts). Comparing both to this
+    fixture is what makes "the preview matches the template" checkable per cell.
+    """
+    fixture = json.loads((Path(__file__).resolve().parents[2] / "fixtures" / "syllabus-export-parity.json").read_text())
+    expected = fixture.pop("expected")
+    output = tmp_path / "syllabus.docx"
+
+    build_syllabus_docx(fixture, output)
+
+    assert document_projection(Document(output)) == expected

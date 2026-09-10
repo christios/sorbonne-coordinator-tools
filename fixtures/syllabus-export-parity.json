@@ -1,0 +1,259 @@
+{
+ "courseTitle": "Geometric Optics",
+ "courseCode": "PHYS-118",
+ "academicYear": "2026-2027",
+ "templateId": "scen-en-v1",
+ "content": {
+  "identification": {
+   "programmeTitle": "Bachelor in Physics",
+   "degreeLevelAndSemester": "Year 1 - semester 1",
+   "ects": "3",
+   "contactHours": {
+    "Lectures": "8",
+    "Tutorials": "10",
+    "Laboratory": "12"
+   },
+   "prerequisiteItems": [
+    {
+     "id": "p1",
+     "text": "MATH100 — Mathematics 1"
+    }
+   ],
+   "corequisiteItems": [
+    {
+     "id": "c1",
+     "text": "PHYS125 — Mechanics"
+    }
+   ],
+   "equipmentItems": [
+    {
+     "id": "e1",
+     "text": "Optical bench"
+    }
+   ]
+  },
+  "contacts": {
+   "instructors": [
+    {
+     "id": "i1",
+     "Name": "Dr Valerie Le Guyon",
+     "Academic rank / status": "Associate Professor",
+     "Email": "valerie@suad.ae"
+    }
+   ],
+   "administrativeContact": {
+    "name": "Christian Khairallah",
+    "contactDetails": "christian@suad.ae"
+   }
+  },
+  "description": {
+   "overview": "Geometrical optics from first principles."
+  },
+  "delivery": {
+   "mode": "Face-to-Face Delivery",
+   "faceToFacePercent": "100",
+   "onlinePercent": "0"
+  },
+  "learningOutcomes": {
+   "plos": [
+    {
+     "id": "plo1",
+     "code": "PLO 1",
+     "outcome": "Model and solve physics problems."
+    }
+   ],
+   "clos": [
+    {
+     "id": "clo1",
+     "clo": "Explain image formation.",
+     "plo": "PLO 1",
+     "skills": "SCEN-C1",
+     "suadSkills": "GradComp 1"
+    }
+   ]
+  },
+  "schedule": [
+   {
+    "id": "s1",
+    "sessionType": "CM",
+    "week": "1",
+    "topic": "Laws of optics",
+    "details": "Reflection and refraction.",
+    "preClass": "Read chapter 1",
+    "assessments": "Short quiz",
+    "deadline": "Next Friday"
+   }
+  ],
+  "bibliography": {
+   "books": [
+    {
+     "id": "b1",
+     "entryMode": "freeform",
+     "freeformText": "Mazur, Principles and Practice of Physics."
+    }
+   ]
+  },
+  "teachingApproach": {
+   "teachingPresetIds": [],
+   "methods": "Lectures / CM: Instructor-led.",
+   "engagement": "Lectures / CM: Prepare readings.",
+   "feedback": "Lectures / CM: In-class questioning."
+  },
+  "assessment": {
+   "scheduleBy": "date",
+   "items": [
+    {
+     "id": "a1",
+     "date": "2026-10-02",
+     "name": "Midterm",
+     "type": "Written test / examination",
+     "assessmentTypeId": "assessment-type-1",
+     "weight": "40",
+     "cloIds": [
+      "clo1"
+     ],
+     "aiPolicy": "AI Prohibited"
+    }
+   ],
+   "aiPolicy": "AI Prohibited",
+   "aiInstructions": "No generative tools.",
+   "methodologies": "Written examination under invigilation.",
+   "lateSubmissionPolicy": "Two marks per day.",
+   "rubrics": [
+    {
+     "id": "r1",
+     "assignment": "Written test / examination",
+     "criteria": [
+      {
+       "criterion": "Accuracy",
+       "inadequate": "Poor.",
+       "meets": "Sound.",
+       "exceeds": "Excellent."
+      }
+     ]
+    }
+   ]
+  },
+  "documentControl": {
+   "creationDate": "01/09/2026",
+   "department": "SCEN",
+   "approvalDate": "10/09/2026",
+   "version": "1",
+   "approver": "HoP"
+  }
+ },
+ "expected": {
+  "identification": [
+   [
+    "Academic Year",
+    "2026-2027"
+   ],
+   [
+    "Course Title",
+    "Geometric Optics"
+   ],
+   [
+    "Course Code",
+    "PHYS-118"
+   ],
+   [
+    "Degree Level and Semester",
+    "Year 1 - semester 1"
+   ],
+   [
+    "Programme Title",
+    "Bachelor in Physics"
+   ],
+   [
+    "Number of ECTS",
+    "3"
+   ],
+   [
+    "Prerequisites and Co-requisites (if any)",
+    "MATH100 — Mathematics 1 PHYS125 — Mechanics"
+   ],
+   [
+    "Equipment (if any)",
+    "Optical bench"
+   ]
+  ],
+  "instructor": [
+   [
+    "Name",
+    "Dr Valerie Le Guyon"
+   ],
+   [
+    "Academic Rank / Status",
+    "Associate Professor"
+   ],
+   [
+    "Email",
+    "valerie@suad.ae"
+   ]
+  ],
+  "coordinator": [
+   [
+    "Name: Christian Khairallah Contact details: christian@suad.ae"
+   ]
+  ],
+  "description": [
+   [
+    "Geometrical optics from first principles."
+   ]
+  ],
+  "delivery": [
+   [
+    "☒",
+    "100%",
+    "0%"
+   ]
+  ],
+  "plos": [
+   [
+    "PLO 1",
+    "Model and solve physics problems."
+   ]
+  ],
+  "clos": [
+   [
+    "CLO 1: Explain image formation.",
+    "PLO 1",
+    "SCEN-C1",
+    "GradComp 1"
+   ]
+  ],
+  "schedule": [
+   [
+    "1",
+    "CM 1",
+    "Laws of optics Reflection and refraction.",
+    "Pre-class learning activities: Read chapter 1 Assessments: Short quiz",
+    "Next Friday"
+   ]
+  ],
+  "bibliography": [
+   [
+    "Books",
+    "Mazur, Principles and Practice of Physics."
+   ]
+  ],
+  "assessments": [
+   [
+    "02/10/2026",
+    "Midterm",
+    "40%",
+    "CLO 1",
+    "AI Prohibited"
+   ]
+  ],
+  "rubrics": [
+   [
+    "Written test / examination",
+    "Accuracy",
+    "Poor.",
+    "Sound.",
+    "Excellent."
+   ]
+  ]
+ }
+}
