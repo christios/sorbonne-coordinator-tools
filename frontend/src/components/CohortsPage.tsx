@@ -656,6 +656,7 @@ export function CohortsPage({
             <RegistrationChangesButton
               cohorts={cohorts}
               cohortId={cohortId}
+              cohortName={cohort?.name ?? ""}
               nameOf={(studentId) => evidence.names.get(studentId) ?? ""}
             />
           }

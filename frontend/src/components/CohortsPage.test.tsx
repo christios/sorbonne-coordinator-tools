@@ -878,7 +878,12 @@ describe("the registrar's worklist, copied", () => {
     await portalSays([{ SPRIDEN_ID: "A001", FULL_NAME: "Amira Haddad" }]);
 
     renderPage();
-    fireEvent.click(await screen.findByRole("button", { name: /Registrations to change/ }));
+    // A small button in the toolbar; the choice of one cohort or all is inside it, taken
+    // at the moment of copying rather than asked of everybody who looks at the page.
+    fireEvent.click(await screen.findByRole("button", { name: "Registrations to change" }));
+    // Scoped to the dialog: the roster's own Copy menu is on the page behind it.
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getAllByRole("button", { name: "Copy" })[0]);
 
     await waitFor(() => expect(copied).toHaveLength(1));
     const [header, ...rows] = copied[0].split("\n");
@@ -898,8 +903,13 @@ describe("the registrar's worklist, copied", () => {
     await portalSays([{ SPRIDEN_ID: "A001", FULL_NAME: "Amira Haddad" }]);
 
     renderPage([L1, L2]);
+    fireEvent.click(await screen.findByRole("button", { name: "Registrations to change" }));
 
-    const button = await screen.findByRole("button", { name: /Registrations to change/ });
-    await waitFor(() => expect(button).toHaveProperty("disabled", true));
+    // Both answers shown before either is chosen, because the counts are the decision.
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getAllByText("nothing to change")).toHaveLength(2);
+    for (const copy of within(dialog).getAllByRole("button", { name: "Copy" })) {
+      expect(copy).toHaveProperty("disabled", true);
+    }
   });
 });
