@@ -5,6 +5,12 @@ groups in *different* blocks that meet at the same hour cannot share a student, 
 whose own CRNs meet at the same hour cannot hold anyone at all. Groups of the same block are
 never compared: a student is in one of them, not both.
 
+Nor are two courses taught to different programmes. In L2 and L3 the group IS the
+programme — one CM set carries the Maths courses and the Physics ones — and a student takes
+the courses of their own programme. Two such courses have no student in common, so their
+sections may sit on the same hour for ever and catch nobody. Those overlaps are not
+reported, because a clash nobody can be caught by is not a clash; it is a room booking.
+
 The timetable knows when every CRN meets; the coordinator built the groups. This is where
 the two meet, and it is pure — the publication route feeds it and the fill will lean on it.
 """
@@ -34,11 +40,18 @@ def clashes(
     groups: list[Group],
     sessions: list[Session],
     assignments: dict[tuple[str, str], str],
+    programs: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     """Every pair of groups that overlap, with the hours they overlap on and who sits in both.
 
     Weekly repetition is folded: fourteen Mondays at 08:30 are one window that happens
     fourteen times. The worst pairs come first — the ones with students already in both.
+
+    `programs` is CRN -> the programme its course is taught to, for the courses that name
+    one. Two CRNs named for different programmes are never compared: no student takes both,
+    so the hour they share is not one anybody can be caught by. A CRN with no programme is
+    for everyone and is compared with everything, which is every course in Foundation Year
+    and L1.
     """
     by_crn: dict[str, list[Session]] = {}
     for session in sessions:
@@ -50,7 +63,7 @@ def clashes(
 
     found: list[dict[str, Any]] = []
     for left, right in _pairs(groups):
-        windows = _windows(left, right, by_crn)
+        windows = _windows(left, right, by_crn, programs or {})
         if not windows:
             continue
         both = (
@@ -80,7 +93,9 @@ def _pairs(groups: list[Group]):
             yield left, right
 
 
-def _windows(left: Group, right: Group, by_crn: dict[str, list[Session]]) -> list[dict[str, Any]]:
+def _windows(
+    left: Group, right: Group, by_crn: dict[str, list[Session]], programs: dict[str, str]
+) -> list[dict[str, Any]]:
     # Every CRN of every course, parts included: the two halves of a split section are two
     # CRNs of one course, and the registrar's dates already keep them from overlapping.
     mine = [crn for crns in left.crns.values() for crn in crns if crn]
@@ -92,6 +107,8 @@ def _windows(left: Group, right: Group, by_crn: dict[str, list[Session]]) -> lis
 
     folded: dict[tuple[int, int, int, str, str], dict[str, Any]] = {}
     for crn_a, crn_b in crn_pairs:
+        if _different_programmes(programs.get(crn_a, ""), programs.get(crn_b, "")):
+            continue
         for one in by_crn.get(crn_a, []):
             for other in by_crn.get(crn_b, []):
                 window = _overlap(one, other)
@@ -112,6 +129,15 @@ def _windows(left: Group, right: Group, by_crn: dict[str, list[Session]]) -> lis
                     held["dates"] += 1
 
     return [folded[key] for key in sorted(folded)]
+
+
+def _different_programmes(ours: str, theirs: str) -> bool:
+    """Whether two courses are taught to programmes that share no student.
+
+    Blank means "everyone", on either side — which is how every set that does not use
+    programmes goes on behaving exactly as it did.
+    """
+    return bool(ours) and bool(theirs) and ours.strip().casefold() != theirs.strip().casefold()
 
 
 def _overlap(one: Session, other: Session) -> tuple[int, int, int] | None:

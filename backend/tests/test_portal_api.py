@@ -2033,3 +2033,30 @@ def test_a_section_written_under_the_part_time_spelling_still_counts(
 
     assert held["sections"] == 1
     assert client.get(f"{BASE}/active-teachers/matches").json()["unnamed"] == []
+
+
+def test_two_courses_of_different_programmes_are_not_reported_as_clashing(
+    client: TestClient, database: StudentDatabase
+):
+    """The end-to-end of it: a Physics lecture and a Maths tutorial on one hour.
+
+    In L2 and L3 the group IS the programme and a student takes their own courses, so this
+    pair has no student in common and the hour they share catches nobody. On production
+    these were most of what those two years' clash lists had to say.
+    """
+    cohort = database.create_cohort(name="Second year", term="2026-27")
+    cm = database.add_scope(cohort["id"], code="CM", name="Lectures", term_id=HUB_TERM)
+    td = database.add_scope(cohort["id"], code="TD", name="Tutorials", term_id=HUB_TERM)
+    physics = database.add_course(cm, code="PHYS-118", program="Physics")
+    maths = database.add_course(td, code="MATH-330", program="Mathematics")
+    lectures = database.add_group(cm, label="Physics")
+    tutorials = database.add_group(td, label="Mathematics")
+    database.set_cell(group_id=lectures, course_id=physics, crn="24070", teacher="", part=1)
+    database.set_cell(group_id=tutorials, course_id=maths, crn="24100", teacher="", part=1)
+
+    client.put(f"{BASE}/term-links/{HUB_TERM}", json={"portalTermCode": TERM})
+    timetable(client, {"24070": (0, 90), "24100": (0, 90)})
+
+    clashes = client.get(f"{BASE}/terms/{HUB_TERM}/clashes").json()
+
+    assert [clash for entry in clashes["cohorts"] for clash in entry["clashes"]] == []

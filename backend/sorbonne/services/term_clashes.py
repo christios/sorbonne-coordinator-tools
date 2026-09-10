@@ -37,6 +37,24 @@ def assignments_of(cohort: dict[str, Any], key: str = "assignments") -> dict[tup
     return {(row["studentId"], row["scopeId"]): row["groupId"] for row in cohort.get(key, [])}
 
 
+def programs_of(cohort: dict[str, Any], groups: list[Group]) -> dict[str, str]:
+    """CRN -> the programme its course is taught to, for the courses that name one.
+
+    Read off the groups rather than stored anywhere: a CRN belongs to a course, and it is
+    the course that says which programme it is for. Every CRN of a course inherits it,
+    parts included — the two halves of a split section are the same course.
+    """
+    by_code = cohort.get("coursePrograms") or {}
+    return {
+        crn: by_code[code]
+        for group in groups
+        for code, crns in group.crns.items()
+        if code in by_code
+        for crn in crns
+        if crn
+    }
+
+
 def cohort_clashes(cohort: dict[str, Any], groups: list[Group], sessions: list[Session]) -> list[dict[str, Any]]:
     """The cohort's clashing groups, each pair named the way the page lays the blocks out.
 
@@ -52,7 +70,9 @@ def cohort_clashes(cohort: dict[str, Any], groups: list[Group], sessions: list[S
     both = [*groups, *groups_of(cohort, key="sharedGroups")]
     assignments = {**assignments_of(cohort), **assignments_of(cohort, key="sharedAssignments")}
     named = []
-    for clash in clashes(groups=both, sessions=sessions, assignments=assignments):
+    for clash in clashes(
+        groups=both, sessions=sessions, assignments=assignments, programs=programs_of(cohort, both)
+    ):
         pair = sorted(clash["groups"], key=lambda group: order.get(group["scopeId"], 0))
         # A window's two CRNs are in the pair's order; keep them so when the pair is turned.
         turned = pair[0]["id"] != clash["groups"][0]["id"]

@@ -116,3 +116,87 @@ def test_the_pairs_with_students_already_in_both_come_first():
 
 def test_a_crn_the_timetable_has_no_hours_for_clashes_with_nothing():
     assert clashes(groups=[CM_A, TD_1], sessions=[], assignments={}) == []
+
+
+# ------------------------------- courses taught to one programme and not the other
+
+
+PHYS_CM = Group(id="g-cm-phys", scope_id="s-cm", label="Physics", crns={"PHYS-118": ["24070"]})
+MATH_TD = Group(id="g-td-math", scope_id="s-td", label="Mathematics", crns={"MATH-330": ["24100"]})
+
+
+def test_two_courses_taught_to_different_programmes_never_clash():
+    """In L2 and L3 the group IS the programme, and a student takes their own courses.
+
+    So a Physics lecture and a Maths tutorial may sit on the same hour for ever and catch
+    nobody. Reporting it is reporting a room booking as a problem, and on production these
+    were most of what the page had to say about those two years.
+    """
+    found = clashes(
+        groups=[PHYS_CM, MATH_TD],
+        sessions=[at("24070", MONDAY, "08:30", "10:00"), at("24100", MONDAY, "08:30", "10:00")],
+        assignments={},
+        programs={"24070": "Physics", "24100": "Mathematics"},
+    )
+
+    assert found == []
+
+
+def test_the_same_programme_on_both_sides_still_clashes():
+    # The rule rules out a pair with no student in common, not every pair with a programme.
+    found = clashes(
+        groups=[PHYS_CM, MATH_TD],
+        sessions=[at("24070", MONDAY, "08:30", "10:00"), at("24100", MONDAY, "08:30", "10:00")],
+        assignments={},
+        programs={"24070": "Physics", "24100": "physics "},
+    )
+
+    assert len(found) == 1
+
+
+def test_a_course_for_everyone_is_compared_with_everything():
+    """Blank means everyone, which is every course in Foundation Year and L1.
+
+    A named course against an unnamed one is a real clash: the unnamed one is taken by the
+    named one's students too.
+    """
+    found = clashes(
+        groups=[PHYS_CM, MATH_TD],
+        sessions=[at("24070", MONDAY, "08:30", "10:00"), at("24100", MONDAY, "08:30", "10:00")],
+        assignments={},
+        programs={"24070": "Physics"},
+    )
+
+    assert len(found) == 1
+
+
+def test_a_group_teaching_both_programmes_still_clashes_with_itself_where_it_should():
+    """One group, two courses of different programmes: not a clash, because nobody takes both.
+
+    The self-pair is where this could most easily go wrong — a group carrying a Maths and a
+    Physics course at one hour is exactly how L2's CM set is built, and calling that "cannot
+    hold anyone at all" would condemn a set that works.
+    """
+    both = Group(
+        id="g-cm", scope_id="s-cm", label="A", crns={"PHYS-118": ["24070"], "MATH-330": ["24100"]}
+    )
+
+    found = clashes(
+        groups=[both],
+        sessions=[at("24070", MONDAY, "08:30", "10:00"), at("24100", MONDAY, "08:30", "10:00")],
+        assignments={},
+        programs={"24070": "Physics", "24100": "Mathematics"},
+    )
+
+    assert found == []
+
+
+def test_without_programmes_nothing_changes():
+    # Every set that does not use them behaves exactly as it did.
+    found = clashes(
+        groups=[PHYS_CM, MATH_TD],
+        sessions=[at("24070", MONDAY, "08:30", "10:00"), at("24100", MONDAY, "08:30", "10:00")],
+        assignments={},
+    )
+
+    assert len(found) == 1

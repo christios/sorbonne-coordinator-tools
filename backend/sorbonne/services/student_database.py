@@ -1144,6 +1144,17 @@ class StudentDatabase:
                     scope_id: [row["code"] for row in courses if row["scope_id"] == scope_id]
                     for scope_id in _ids_of(scopes, cohort_id)
                 },
+                # Which programme each course is for, where it is for one. In L2 and L3 the
+                # group IS the programme: one CM set carries the Maths courses and the
+                # Physics ones, and a student takes the courses of their own programme and
+                # not the other's. Two courses named for different programmes therefore have
+                # no student in common, whatever hour they meet at.
+                "coursePrograms": {
+                    row["code"]: row["program"]
+                    for row in courses
+                    if row["program"]
+                    and (row["scope_id"] in _ids_of(scopes, cohort_id) or row["scope_id"] in shared_ids)
+                },
                 "assignments": [
                     {"studentId": row["student_id"], "scopeId": row["scope_id"], "groupId": row["group_id"]}
                     for row in assigned
