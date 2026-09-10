@@ -36,13 +36,19 @@ function escapeHtml(value: string): string {
   return (value ?? "").replace(/[&<>]/g, (character) => ESCAPES[character]);
 }
 
-/** The same block as HTML, so it arrives in an email as a table rather than as prose. */
-export function tableHtml(headers: string[], rows: string[][]): string {
+/**
+ * The same block as HTML, so it arrives in an email as a table rather than as prose.
+ *
+ * `headers` is null for the copies that deliberately have none — a preset saved with the
+ * header row turned off is pasted under a heading somebody has already written, and a
+ * thead of repeated column names underneath it is noise.
+ */
+export function tableHtml(headers: string[] | null, rows: string[][]): string {
   const cells = (values: string[], tag: "th" | "td") =>
     values.map((value) => `<${tag}>${escapeHtml(value) || "&nbsp;"}</${tag}>`).join("");
   return [
     '<table border="1" cellspacing="0" cellpadding="4" style="border-collapse:collapse">',
-    `<thead><tr>${cells(headers, "th")}</tr></thead>`,
+    headers ? `<thead><tr>${cells(headers, "th")}</tr></thead>` : "",
     `<tbody>${rows.map((row) => `<tr>${cells(row, "td")}</tr>`).join("")}</tbody>`,
     "</table>",
   ].join("");
@@ -61,8 +67,8 @@ export function tableHtml(headers: string[], rows: string[][]): string {
  * where the whole clipboard API is missing — it falls back to the text alone, which is
  * what this did before and is still right in a spreadsheet.
  */
-export async function copyTable(headers: string[], rows: string[][]): Promise<boolean> {
-  const text = tableText(headers, rows);
+export async function copyTable(headers: string[] | null, rows: string[][]): Promise<boolean> {
+  const text = headers ? tableText(headers, rows) : rows.map(rowText).join("\n");
   try {
     if (navigator.clipboard?.write && typeof ClipboardItem !== "undefined") {
       await navigator.clipboard.write([

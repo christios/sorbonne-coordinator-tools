@@ -14,7 +14,7 @@ import {
   type CapacityStatus,
   type GroupCapacity,
 } from "@/services/capacity";
-import { rowText } from "@/services/copyCells";
+import { copyTable } from "@/services/copyCells";
 import { COHORT } from "@/services/remembered";
 import { fetchActiveCourses, fetchActiveTeachers } from "@/services/portalLists";
 import { fetchCohorts, fetchCourseCards } from "@/services/studentDatabase";
@@ -204,13 +204,17 @@ export function CapacityPage() {
   const members = (known.data ?? []).find((cohort) => cohort.id === chosen?.id)?.memberCount ?? 0;
 
   const copy = () => {
-    const lines = [rowText(["Set", "Group", "Seats", "Enrolled", "Seats free", "Status"])];
-    for (const set of sets) {
-      for (const group of set.groups) {
-        lines.push(rowText([set.code, group.group, String(group.capacity), String(group.enrolled), String(group.free), group.status]));
-      }
-    }
-    void navigator.clipboard?.writeText(lines.join("\n"));
+    const rows = sets.flatMap((set) =>
+      set.groups.map((group) => [
+        set.code,
+        group.group,
+        String(group.capacity),
+        String(group.enrolled),
+        String(group.free),
+        group.status,
+      ]),
+    );
+    void copyTable(["Set", "Group", "Seats", "Enrolled", "Seats free", "Status"], rows);
   };
 
   if (catalogues.isLoading) return <ScreenLoading label="Counting the seats…" />;

@@ -739,6 +739,41 @@ describe("StudentRoster", () => {
       expect(written[0].split("\t")).toContain("Amira Haddad");
       expect(written[0]).not.toContain("\n");
     });
+
+    it("copies the whole table as a table, so it pastes into an email as one", async () => {
+      /*
+       * The row and the column above stay text: one line and one list have nothing a table
+       * would add. The whole table is the copy that ends up in a message, and text alone
+       * arrives there as a column of ragged lines.
+       */
+      const offered: Record<string, string>[] = [];
+      Object.assign(navigator, {
+        clipboard: {
+          write: (items: { types?: string[] }[]) => {
+            offered.push(Object.fromEntries((items[0].types ?? []).map((type) => [type, type])));
+            return Promise.resolve();
+          },
+          writeText: () => Promise.resolve(),
+        },
+      });
+      vi.stubGlobal(
+        "ClipboardItem",
+        class {
+          types: string[];
+          constructor(flavours: Record<string, Blob>) {
+            this.types = Object.keys(flavours);
+          }
+        },
+      );
+      await withNames();
+      renderRoster();
+      await screen.findByText("Amira Haddad");
+
+      fireEvent.click(screen.getByRole("button", { name: "Copy the whole table" }));
+
+      await waitFor(() => expect(offered).toHaveLength(1));
+      expect(Object.keys(offered[0]).sort()).toEqual(["text/html", "text/plain"]);
+    });
   });
 
   it("keeps every student when the stored rosters are forgotten", async () => {

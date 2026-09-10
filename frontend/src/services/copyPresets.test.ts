@@ -5,7 +5,7 @@ import {
   newPresetId,
   presetColumns,
   movePicked,
-  presetText,
+  presetBlock,
   reorderPicked,
   rowsForCopy,
   savePresets,
@@ -79,31 +79,36 @@ describe("what lands on the clipboard", () => {
   const chosen = [COLUMNS[0], COLUMNS[2]];
 
   it("is tab separated, one line per student, with no header by default", () => {
-    expect(presetText(chosen, rows, cell, false)).toBe(
-      "A001\tA001@psuad.ac.ae\nA002\tA002@psuad.ac.ae",
-    );
+    expect(presetBlock(chosen, rows, cell, false)).toEqual({
+      headers: null,
+      rows: [
+        ["A001", "A001@psuad.ac.ae"],
+        ["A002", "A002@psuad.ac.ae"],
+      ],
+    });
   });
 
   it("puts the column names on the first line when that is asked for", () => {
-    expect(presetText(chosen, rows, cell, true)).toBe(
-      "Id\tE-mail\nA001\tA001@psuad.ac.ae\nA002\tA002@psuad.ac.ae",
-    );
+    expect(presetBlock(chosen, rows, cell, true)).toEqual({
+      headers: ["Id", "E-mail"],
+      rows: [
+        ["A001", "A001@psuad.ac.ae"],
+        ["A002", "A002@psuad.ac.ae"],
+      ],
+    });
   });
 
-  it("quotes a value holding a tab or a newline, so it stays one cell", () => {
-    const awkward = presetText(
-      [COLUMNS[1]],
-      [{ studentId: "A001" }],
-      () => "Ada\tLovelace",
-      false,
-    );
+  it("leaves a value holding a tab alone, for the clipboard to quote when it writes text", () => {
+    // The block is cells, so nothing is escaped here — `tableText` quotes for a spreadsheet
+    // and `tableHtml` escapes for an email, each in the way its own reader needs.
+    const awkward = presetBlock([COLUMNS[1]], [{ studentId: "A001" }], () => "Ada\tLovelace", false);
 
-    expect(awkward).toBe('"Ada\tLovelace"');
+    expect(awkward.rows).toEqual([["Ada\tLovelace"]]);
   });
 
   it("copies nothing but a header when no student is left to copy", () => {
-    expect(presetText(chosen, [], cell, false)).toBe("");
-    expect(presetText(chosen, [], cell, true)).toBe("Id\tE-mail");
+    expect(presetBlock(chosen, [], cell, false)).toEqual({ headers: null, rows: [] });
+    expect(presetBlock(chosen, [], cell, true)).toEqual({ headers: ["Id", "E-mail"], rows: [] });
   });
 });
 

@@ -1,7 +1,16 @@
 import { Check, Copy } from "lucide-react";
 import { useEffect, useState } from "react";
 
-import { copyToClipboard } from "@/services/copyCells";
+import { copyTable, copyToClipboard } from "@/services/copyCells";
+
+/**
+ * What a copy is: a run of text, or a block of cells that is really a table.
+ *
+ * The difference is not decoration. A block goes on the clipboard as HTML as well, so it
+ * lands in an email as a table; a single row or a single column has nothing a table would
+ * add. Saying which at the call site is the only place that knows.
+ */
+export type Copyable = string | { headers: string[] | null; rows: string[][] };
 
 /**
  * Copy something to the clipboard, and say so.
@@ -16,7 +25,7 @@ export function CopyButton({
 }: {
   label: string;
   /** Computed on click, because building it for every row on every render is wasteful. */
-  text: () => string;
+  text: () => Copyable;
   className?: string;
 }) {
   const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
@@ -34,7 +43,9 @@ export function CopyButton({
       title={state === "failed" ? "This browser would not let us copy" : label}
       onClick={async (event) => {
         event.stopPropagation();
-        setState((await copyToClipboard(text())) ? "copied" : "failed");
+        const value = text();
+        const done = typeof value === "string" ? await copyToClipboard(value) : await copyTable(value.headers, value.rows);
+        setState(done ? "copied" : "failed");
       }}
       className={`rounded p-1 ${
         state === "copied"

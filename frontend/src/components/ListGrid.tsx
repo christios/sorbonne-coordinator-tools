@@ -6,8 +6,8 @@ import { CopyButton } from "@/components/CopyButton";
 import { CopyPresetMenu } from "@/components/CopyPresetMenu";
 import { DataTable, type Sort } from "@/components/DataTable";
 import { TableFilterBar } from "@/components/TableFilterBar";
-import { copyToClipboard, tableText } from "@/services/copyCells";
-import { presetText, rowsForCopy } from "@/services/copyPresets";
+import { copyTable } from "@/services/copyCells";
+import { presetBlock, rowsForCopy } from "@/services/copyPresets";
 import {
   loadLayout,
   optionsFor,
@@ -172,7 +172,8 @@ export function ListGrid<T>({
             storageKey={presetKey}
             onCopy={async (picked, withHeader) => {
               if (picked.length === 0) return false;
-              return copyToClipboard(presetText(picked, rowsForCopy(visible, chosen, idOf), plainCellText, withHeader));
+              const block = presetBlock(picked, rowsForCopy(visible, chosen, idOf), plainCellText, withHeader);
+              return copyTable(block.headers, block.rows);
             }}
           />
         </div>
@@ -190,12 +191,10 @@ export function ListGrid<T>({
         <ColumnMenu layout={layout} columns={columns} onChange={arrange} />
         <CopyButton
           label="Copy the whole table"
-          text={() =>
-            tableText(
-              shownColumns.map((column) => column.displayName),
-              visible.map((row) => shownColumns.map((column) => plainCellText(row, column))),
-            )
-          }
+          text={() => ({
+            headers: shownColumns.map((column) => column.displayName),
+            rows: visible.map((row) => shownColumns.map((column) => plainCellText(row, column))),
+          })}
           className="border border-[#b7bec8] bg-white p-2 hover:bg-[#f8fafc]"
         />
       </div>

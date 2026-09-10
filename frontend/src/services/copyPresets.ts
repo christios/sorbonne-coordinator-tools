@@ -12,7 +12,6 @@
  * of columns.
  */
 
-import { rowText, tableText } from "@/services/copyCells";
 import type { ColumnMeta } from "@/services/studentColumns";
 
 const KEY = "scen-copy-presets:v1";
@@ -139,14 +138,22 @@ export function movePicked(ids: string[], id: string, by: -1 | 1): string[] {
   return order;
 }
 
-/** The block a preset puts on the clipboard: rows down, the preset's columns across. */
-export function presetText<Row, C extends ColumnMeta>(
+/**
+ * The block a preset puts on the clipboard: rows down, the preset's columns across.
+ *
+ * Cells rather than text, because the clipboard now carries two flavours of the same block
+ * — tab-separated for a spreadsheet and a real table for an email — and building the text
+ * here would leave the second one with nothing to build from. `headers` is null when the
+ * preset was saved with the header row off, which every reader of a block understands.
+ */
+export function presetBlock<Row, C extends ColumnMeta>(
   columns: C[],
   rows: Row[],
   cell: (row: Row, column: C) => string,
   withHeader: boolean,
-): string {
-  const body = rows.map((row) => columns.map((column) => cell(row, column)));
-  if (withHeader) return tableText(columns.map((column) => column.displayName), body);
-  return body.map(rowText).join("\n");
+): { headers: string[] | null; rows: string[][] } {
+  return {
+    headers: withHeader ? columns.map((column) => column.displayName) : null,
+    rows: rows.map((row) => columns.map((column) => cell(row, column))),
+  };
 }

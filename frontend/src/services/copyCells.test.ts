@@ -50,6 +50,20 @@ describe("a block that pastes as a table in an email too", () => {
     expect(html).toContain("border-collapse:collapse");
   });
 
+  it("leaves out the header row when the copy was asked for without one", () => {
+    // A preset saved with the header off is pasted under a heading somebody has already
+    // written; repeating the column names underneath it is noise in both flavours.
+    const written: string[] = [];
+    vi.stubGlobal("ClipboardItem", undefined);
+    vi.stubGlobal("navigator", { clipboard: { writeText: async (text: string) => void written.push(text) } });
+
+    const html = tableHtml(null, [["A001", "Add"]]);
+
+    expect(html).not.toContain("<thead>");
+    expect(html).toContain("<td>A001</td>");
+    return copyTable(null, [["A001", "Add"]]).then(() => expect(written).toEqual(["A001\tAdd"]));
+  });
+
   it("escapes what would otherwise be markup, and keeps an empty cell a cell", () => {
     // A course note carrying "<" or "&" must not close the table it is inside, and a blank
     // cell with nothing in it collapses in a mail client unless it is given something.

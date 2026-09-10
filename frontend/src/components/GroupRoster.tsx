@@ -5,7 +5,7 @@ import { useMemo, useState } from "react";
 import { Modal } from "@/components/Modal";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { StudentRecord } from "@/components/StudentRecord";
-import { rowText } from "@/services/copyCells";
+import { copyTable } from "@/services/copyCells";
 import { EMPTY_HISTORY } from "@/services/pullHistory";
 import { namesHeld, rowsHeld } from "@/services/rosterStore";
 import { studentRows } from "@/services/rosterView";
@@ -141,8 +141,8 @@ export function GroupRoster({
   });
 
   const copy = () => {
-    const text = [rowText(["Id", "Student"]), ...shown.map((member) => rowText([member.studentId, member.name]))].join("\n");
-    void navigator.clipboard?.writeText(text).then(() => {
+    const rows = shown.map((member) => [member.studentId, member.name]);
+    void copyTable(["Id", "Student"], rows).then(() => {
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1500);
     });

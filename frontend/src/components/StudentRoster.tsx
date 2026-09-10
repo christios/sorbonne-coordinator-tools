@@ -18,8 +18,8 @@ import { MoveToCohort } from "@/components/MoveToCohort";
 import { SelectionFloating, type SelectionActionsProps } from "@/components/SelectionActions";
 import { TableFilterBar } from "@/components/TableFilterBar";
 import { costOfMove, describeCost } from "@/services/cohortMove";
-import { copyToClipboard, tableText } from "@/services/copyCells";
-import { presetText, rowsForCopy } from "@/services/copyPresets";
+import { copyTable } from "@/services/copyCells";
+import { presetBlock, rowsForCopy } from "@/services/copyPresets";
 import { afterPlacement } from "@/services/afterPlacement";
 import { groupCrns } from "@/services/meets";
 import { fetchCourseCards } from "@/services/studentDatabase";
@@ -636,9 +636,8 @@ export function StudentRoster({
             columns={allColumns}
             onCopy={async (chosen, withHeader) => {
               if (chosen.length === 0) return false;
-              return copyToClipboard(
-                presetText(chosen, rowsForCopy(visible, selected), cellText, withHeader),
-              );
+              const block = presetBlock(chosen, rowsForCopy(visible, selected), cellText, withHeader);
+              return copyTable(block.headers, block.rows);
             }}
           />
         </div>
@@ -682,12 +681,10 @@ export function StudentRoster({
 
         <CopyButton
           label="Copy the whole table"
-          text={() =>
-            tableText(
-              columns.map((column) => column.displayName),
-              visible.map((row) => columns.map((column) => cellText(row, column))),
-            )
-          }
+          text={() => ({
+            headers: columns.map((column) => column.displayName),
+            rows: visible.map((row) => columns.map((column) => cellText(row, column))),
+          })}
           className="border border-[#b7bec8] bg-white p-2 hover:bg-[#f8fafc]"
         />
       </div>
