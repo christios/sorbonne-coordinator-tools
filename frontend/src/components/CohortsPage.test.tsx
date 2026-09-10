@@ -851,3 +851,55 @@ describe("a student caught between our hour and another department's", () => {
     ).toBeTruthy();
   });
 });
+
+describe("the registrar's worklist, copied", () => {
+  const L2: Cohort = { ...L1, id: "c2", name: "L2 Maths", yearLevel: "L2" };
+  const copied: string[] = [];
+
+  beforeEach(() => {
+    copied.length = 0;
+    Object.assign(navigator, {
+      clipboard: { writeText: (text: string) => { copied.push(text); return Promise.resolve(); } },
+    });
+  });
+
+  it("copies a line per CRN to add or drop, with the student written once", async () => {
+    vi.spyOn(database, "fetchStudents").mockResolvedValue([student("A001", "c1")]);
+    vi.spyOn(database, "fetchDiscrepancyRules").mockResolvedValue([]);
+    vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue(
+      report(
+        [
+          mismatch({ studentId: "A001", kind: "missing", courseCode: "MATH-001", expected: ["23561"], registered: [] }),
+          mismatch({ studentId: "A001", kind: "wrong", courseCode: "MATH-009", expected: ["23564"], registered: ["23999"] }),
+        ],
+        [checked()],
+      ),
+    );
+    await portalSays([{ SPRIDEN_ID: "A001", FULL_NAME: "Amira Haddad" }]);
+
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: /Registrations to change/ }));
+
+    await waitFor(() => expect(copied).toHaveLength(1));
+    const [header, ...rows] = copied[0].split("\n");
+    expect(header.split("\t")).toContain("Remove CRN");
+    // The name and the id once, at the head of their block.
+    expect(rows[0]).toContain("A001\tAmira Haddad");
+    expect(rows[1].startsWith("\t\t\t")).toBe(true);
+    // Every CRN of theirs is in it, whichever verdict it came from.
+    expect(copied[0]).toContain("23561");
+    expect(copied[0]).toContain("23999");
+  });
+
+  it("says there is nothing to change rather than copying an empty table", async () => {
+    vi.spyOn(database, "fetchStudents").mockResolvedValue([student("A001", "c1")]);
+    vi.spyOn(database, "fetchDiscrepancyRules").mockResolvedValue([]);
+    vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue(report([], [checked()]));
+    await portalSays([{ SPRIDEN_ID: "A001", FULL_NAME: "Amira Haddad" }]);
+
+    renderPage([L1, L2]);
+
+    const button = await screen.findByRole("button", { name: /Registrations to change/ });
+    await waitFor(() => expect(button).toHaveProperty("disabled", true));
+  });
+});

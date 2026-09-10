@@ -1,6 +1,6 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Filter, Globe, Search } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { ColumnMenu } from "@/components/ColumnMenu";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -81,6 +81,7 @@ export function StudentRoster({
   cohorts,
   viewId,
   preselect = [],
+  tools,
   onPreselectTaken,
   filterCohort = "",
   scope,
@@ -92,6 +93,8 @@ export function StudentRoster({
   viewId: string;
   /** Ids another page sent here — the table opens showing everybody, with these ticked. */
   preselect?: string[];
+  /** A page's own control, shown beside Copy. */
+  tools?: ReactNode;
   /**
    * Said once those ids are on screen, so the page that sent them can forget that it did.
    *
@@ -617,9 +620,18 @@ export function StudentRoster({
           onChange={setFilters}
         />
 
+        {/*
+          * A slot beside Copy, for a page with an export of its own to offer.
+          *
+          * The Cohorts page puts the registrar's worklist here — a table of CRNs to add
+          * and drop — because it is the same gesture as copying the table and belongs
+          * beside it rather than in a corner of its own.
+          */}
+        {tools ? <div className="ml-auto">{tools}</div> : null}
+
         {/* The margin lives here rather than on the search box, so the two travel
             together as a pair on the right instead of the button sitting by the filters. */}
-        <div className="ml-auto">
+        <div className={tools ? "" : "ml-auto"}>
           <CopyPresetMenu
             columns={allColumns}
             onCopy={async (chosen, withHeader) => {

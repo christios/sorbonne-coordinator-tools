@@ -8,6 +8,7 @@ import { LabelledPicker } from "@/components/LabelledPicker";
 import { NewCohort } from "@/components/NewCohort";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { SelectMenu } from "@/components/SelectMenu";
+import { RegistrationChangesButton } from "@/components/RegistrationChangesButton";
 import { StudentRoster } from "@/components/StudentRoster";
 import { useRemembered } from "@/components/useRemembered";
 import {
@@ -647,6 +648,17 @@ export function CohortsPage({
           cohorts={cohorts}
           viewId=""
           preselect={cohortId === focus?.cohortId ? focus.studentIds : []}
+          /*
+           * The registrar's worklist, beside Copy because it is the same gesture: take
+           * what this page knows and hand it to somebody who acts on it.
+           */
+          tools={
+            <RegistrationChangesButton
+              cohorts={cohorts}
+              cohortId={cohortId}
+              nameOf={(studentId) => evidence.names.get(studentId) ?? ""}
+            />
+          }
           onPreselectTaken={onFocusTaken}
           scope={{ cohortId }}
           warningsFor={warningsFor}
