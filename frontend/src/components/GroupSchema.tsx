@@ -30,6 +30,7 @@ import {
   type Cohort,
   type ScopeKind,
 } from "@/services/studentDatabase";
+import { withStored } from "@/services/programmeOptions";
 import { fetchTimetableTerms } from "@/services/timetables";
 
 const KIND_WORDS: Record<ScopeKind, string> = {
@@ -574,7 +575,7 @@ function SetEditor({
                 * students are all one programme has no use for the question, and a picker
                 * offering one answer is a control that can only be got wrong.
                 */}
-              {programmes.length > 1 ? (
+              {programmes.length > 1 || course.program ? (
                 <select
                   aria-label={`Programme taking ${course.code}`}
                   title="Which programme of the cohort takes this course. Everyone, unless you say otherwise."
@@ -585,9 +586,9 @@ function SetEditor({
                   }`}
                 >
                   <option value="">everyone</option>
-                  {programmes.map((programme) => (
-                    <option key={programme} value={programme}>
-                      {programme}
+                  {withStored(programmes, course.program).map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
                     </option>
                   ))}
                 </select>
@@ -802,7 +803,7 @@ function GroupRow({
         * registrar's vocabulary: the fill seats a student of that programme here first,
         * and a course named for another programme is not taught here at all.
         */}
-      {programmes.length > 1 ? (
+      {programmes.length > 1 || group.program ? (
         <td className="py-1.5 pr-3">
           <select
             aria-label={`Programme of ${group.label}`}
@@ -813,9 +814,9 @@ function GroupRow({
             }`}
           >
             <option value="">any</option>
-            {programmes.map((programme) => (
-              <option key={programme} value={programme}>
-                {programme}
+            {withStored(programmes, group.program).map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
               </option>
             ))}
           </select>
