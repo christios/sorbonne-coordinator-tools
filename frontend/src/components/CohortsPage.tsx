@@ -1,5 +1,5 @@
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { AlertTriangle, ArrowRightCircle, ClipboardList, EyeOff, Layers, Settings2, X } from "lucide-react";
+import { AlertTriangle, ArrowRightCircle, CalendarClock, ClipboardList, EyeOff, Layers, Settings2, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { CohortActions } from "@/components/CohortActions";
@@ -91,6 +91,24 @@ function judge(
 /** Which sources of warning the table is showing. */
 type Showing = "all" | WarningSource;
 
+/**
+ * The pill's few words for one verdict, and which record it belongs to.
+ *
+ * The clash of hours comes out of the same check as the registrations and is not one of
+ * them: it is not a fault of the register, it is not chased with the registrar, and a
+ * coordinator clearing registrations does not want it in the way. It is timetabling.
+ */
+const SAID: Record<Mismatch["kind"], { label: string; source: WarningSource }> = {
+  missing: { label: "not registered", source: "registration" },
+  wrong: { label: "in another section", source: "registration" },
+  extra: { label: "extra section", source: "registration" },
+  unplaced: { label: "in no group of ours", source: "registration" },
+  doubled: { label: "two groups at once", source: "registration" },
+  collides: { label: "clashing hour", source: "timetabling" },
+};
+
+const readMismatch = (mismatch: Mismatch) => SAID[mismatch.kind];
+
 /** "5 not registered · 2 in another section" — what the register's differences are. */
 function describeKinds(mismatches: Mismatch[]): string {
   const said: Record<Mismatch["kind"], string> = {
@@ -124,9 +142,10 @@ function SourceFilter({
   counts: Record<Showing, number>;
 }) {
   const options: { id: Showing; name: string; icon: typeof Layers; hint: string }[] = [
-    { id: "all", name: "All", icon: Layers, hint: "Both records" },
+    { id: "all", name: "All", icon: Layers, hint: "Every record" },
     { id: "record", name: "Admissions", icon: AlertTriangle, hint: "Where the portal's record and ours have drifted apart" },
     { id: "registration", name: "Register", icon: ClipboardList, hint: "Where the registrar has them in other sections than we placed them in" },
+    { id: "timetabling", name: "Timetabling", icon: CalendarClock, hint: "Where the hours a student is booked into cannot all be attended" },
   ];
   return (
     <div
@@ -334,7 +353,7 @@ export function CohortsPage({
     for (const cohort of cohorts) {
       out.set(cohort.id, [
         ...(judged?.byCohort.get(cohort.id) ?? []),
-        ...registrationWarnings(registrationsBy.get(cohort.id) ?? [], describeMismatch),
+        ...registrationWarnings(registrationsBy.get(cohort.id) ?? [], describeMismatch, readMismatch),
       ]);
     }
     return out;
@@ -401,7 +420,7 @@ export function CohortsPage({
     if (checks.some((check) => check.isPending || check.isError)) return null;
     return [...registrationsBy.values()]
       .flat()
-      .flatMap((mismatch) => registrationWarnings([mismatch], describeMismatch).map((warning) => warning.key));
+      .flatMap((mismatch) => registrationWarnings([mismatch], describeMismatch, readMismatch).map((warning) => warning.key));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [registrationsBy, checks.map((check) => `${check.isPending}${check.isError}`).join("|")]);
 
@@ -448,6 +467,7 @@ export function CohortsPage({
     all: flaggedStudents,
     record: flaggedIn(all, "record"),
     registration: flaggedIn(all, "registration"),
+    timetabling: flaggedIn(all, "timetabling"),
   };
   const unjudged = new Set(all.filter((warning) => warning.kind === "no_baseline").map((w) => w.studentId)).size;
   const dismissedCount = all.filter((warning) => warning.dismissed).length;

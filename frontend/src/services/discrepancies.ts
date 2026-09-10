@@ -90,6 +90,13 @@ export type Warning = {
   /** For a state: what it is now; and for `differs`, what the cohort expected. */
   value?: string;
   expected?: string;
+  /**
+   * The few words the pill shows, when the kind alone does not say it. The whole sentence
+   * is always `describeWarning`; see `labelWarning`.
+   */
+  label?: string;
+  /** Which record it came out of, where the kind cannot say — see `sourceOf`. */
+  source?: WarningSource;
   /** Set by the page when the coordinator has dismissed it and asked to see the dismissed. */
   dismissed?: boolean;
 };
@@ -437,10 +444,47 @@ const ENROLMENT_FIELDS = new Set([STATUS_FIELD, "STST_CODE", "ESTS_CODE"]);
  * and a coordinator clearing one does not want the other in the way — so the source is a
  * thing to filter and colour by in its own right, not a detail of the kind.
  */
-export type WarningSource = "record" | "registration";
+export type WarningSource = "record" | "registration" | "timetabling";
 
 export function sourceOf(warning: Warning): WarningSource {
+  // Said by the builder where it knows better — a clash of hours comes out of the same
+  // check as the registrations and is not one, so it says so.
+  if (warning.source) return warning.source;
   return warning.kind === "registration" ? "registration" : "record";
+}
+
+/**
+ * The few words a pill shows.
+ *
+ * A pill used to carry the whole sentence — "SCEN-101 (23302) is at the same hour as 22590
+ * — Tue 16:30–18:00" — in a cell beside eleven other columns, where it truncated to
+ * something like "SCEN-101 (23302) is at th…". A pill that has to be truncated to fit is
+ * one that has said nothing and taken the room of something that would have.
+ *
+ * So the pill names the kind and the record is where the sentence lives. `describeWarning`
+ * is unchanged and is what the profile, the copy-out and the dismissal label all use.
+ */
+export function labelWarning(warning: Warning): string {
+  if (warning.label) return warning.label;
+  const field = labelOf(warning.field);
+  switch (warning.kind) {
+    case "changed":
+    case "changed_to":
+      return `${field} changed`;
+    case "is":
+    case "is_not":
+      return `${field} is ${warning.value}`;
+    case "differs":
+      return `${field} differs`;
+    case "belongs":
+      return "belongs to the cohort";
+    case "unplaced":
+      return "in no cohort";
+    case "no_baseline":
+      return "no baseline";
+    case "registration":
+      return "registration differs";
+  }
 }
 
 /**
@@ -512,16 +556,36 @@ export function registrationWarnings<
     expected: string[];
     registered: string[];
   },
->(mismatches: M[], describe: (mismatch: M) => string): Warning[] {
-  return mismatches.map((mismatch) => ({
-    key: `registration|${mismatch.studentId}|${mismatch.termCode}|${mismatch.courseCode}|${mismatch.kind}|${mismatch.expected.join("+")}|${mismatch.registered.join("+")}`,
-    studentId: mismatch.studentId,
-    ruleId: "registration",
-    kind: "registration",
-    field: "registration",
-    value: describe(mismatch),
-    expected: mismatch.expected.join(" and "),
-  }));
+>(
+  mismatches: M[],
+  describe: (mismatch: M) => string,
+  /**
+   * The pill's few words and which record the verdict belongs to.
+   *
+   * Both are the caller's, because both depend on what the check calls its verdicts and
+   * this function deliberately knows only that they have a `kind`. A clash of hours comes
+   * out of the registration check and is not a registration fault, so the caller says so
+   * rather than this guessing from a word it does not own.
+   */
+  read: (mismatch: M) => { label: string; source: WarningSource } = () => ({
+    label: "registration differs",
+    source: "registration",
+  }),
+): Warning[] {
+  return mismatches.map((mismatch) => {
+    const { label, source } = read(mismatch);
+    return {
+      key: `registration|${mismatch.studentId}|${mismatch.termCode}|${mismatch.courseCode}|${mismatch.kind}|${mismatch.expected.join("+")}|${mismatch.registered.join("+")}`,
+      studentId: mismatch.studentId,
+      ruleId: "registration",
+      kind: "registration" as const,
+      field: "registration",
+      value: describe(mismatch),
+      expected: mismatch.expected.join(" and "),
+      label,
+      source,
+    };
+  });
 }
 
 /** The whole list as a spreadsheet block, for handing to admissions. */

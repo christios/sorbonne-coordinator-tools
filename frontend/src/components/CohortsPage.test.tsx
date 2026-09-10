@@ -128,7 +128,7 @@ describe("the Cohorts page", () => {
     expect(screen.getByText("Karim Nasser")).toBeTruthy();
     expect(screen.queryByText("Nadia Newcomer")).toBeNull();
     // The warning sits on Amira's row; Karim's row has none.
-    expect(within(rowOf("Amira Haddad")).getByText(/major is Physics, cohort expects/)).toBeTruthy();
+    expect(within(rowOf("Amira Haddad")).getByTitle(/major is Physics, cohort expects/)).toBeTruthy();
     expect(within(rowOf("Karim Nasser")).queryByText(/cohort expects/)).toBeNull();
     expect(screen.getByText(/1 of 2 students flagged/)).toBeTruthy();
   });
@@ -215,7 +215,7 @@ describe("the Cohorts page", () => {
 
     renderPage();
 
-    expect(await screen.findByText(/student status changed to WD \(was AS\)/)).toBeTruthy();
+    expect(await screen.findByTitle(/student status changed to WD \(was AS\)/)).toBeTruthy();
   });
 
   it("says when the evidence is from, and what the cohort expects", async () => {
@@ -235,11 +235,11 @@ describe("the Cohorts page", () => {
     await portalSays([{ SPRIDEN_ID: "A001", FULL_NAME: "Amira Haddad", MAJOR_CODE_DESC: "Physics" }]);
 
     renderPage();
-    await screen.findByText(/major is Physics/);
+    await screen.findByTitle(/major is Physics/);
 
     fireEvent.click(screen.getByRole("button", { name: /^Dismiss: major is Physics/ }));
 
-    await waitFor(() => expect(screen.queryByText(/major is Physics/)).toBeNull());
+    await waitFor(() => expect(screen.queryByTitle(/major is Physics/)).toBeNull());
     expect(screen.getByText(/Nothing to flag among 1/)).toBeTruthy();
     expect(window.localStorage.getItem("scen-discrepancy-dismissed:v1")).toContain("A001:r2:");
 
@@ -471,14 +471,14 @@ describe("dismissals belong to the coordinator, not to the page on screen", () =
     // cohort on screen threw away every decision made about all the others — silently,
     // and on the first render after switching.
     await twoCohorts();
-    await screen.findByText(/major is Physics/);
+    await screen.findByTitle(/major is Physics/);
     fireEvent.click(screen.getByRole("button", { name: /^Dismiss: major is Physics/ }));
     await waitFor(() => expect(held()).toContain("A001:r2:"));
 
     fireEvent.click(screen.getByRole("combobox", { name: "Cohort" }));
     fireEvent.click(await screen.findByRole("option", { name: /L2 Maths/ }));
 
-    await screen.findByText(/major is Chemistry/);
+    await screen.findByTitle(/major is Chemistry/);
     expect(held()).toContain("A001:r2:");
   });
 
@@ -491,7 +491,7 @@ describe("dismissals belong to the coordinator, not to the page on screen", () =
       report(cohortId === "c2" ? [theirs] : [], [checked()]),
     );
     await twoCohorts();
-    await screen.findByText(/major is Physics/);
+    await screen.findByTitle(/major is Physics/);
     fireEvent.click(screen.getByRole("button", { name: /^Dismiss: major is Physics/ }));
     await waitFor(() => expect(held()).toContain("A001:r2:"));
 
@@ -500,7 +500,7 @@ describe("dismissals belong to the coordinator, not to the page on screen", () =
 
     fireEvent.click(await screen.findByRole("button", { name: /Bring 1 back/ }));
 
-    expect(await screen.findByText(/major is Physics/)).toBeTruthy();
+    expect(await screen.findByTitle(/major is Physics/)).toBeTruthy();
     expect(held()).not.toContain("A001:r2:");
     // L2's, so not on screen, so not brought back — and not pruned either.
     expect(held()).toContain(theirKey);
@@ -525,7 +525,12 @@ describe("the register half of the Cohorts page", () => {
   }
 
   /** The pill a warning is drawn in, so the test can ask which record it came from. */
-  const pillOf = (text: RegExp | string) => screen.getByText(text).closest("[data-source]") as HTMLElement;
+  /*
+   * The pill shows the KIND — "not registered" — and carries the whole sentence on its
+   * title, because a cell beside eleven columns truncated the sentence to nothing useful.
+   * So a pill is found by what it says in full, which is the thing worth asserting.
+   */
+  const pillOf = (text: RegExp | string) => screen.getByTitle(text).closest("[data-source]") as HTMLElement;
 
   it("carries the register's differences on the same rows as the record's", async () => {
     vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue(report([mismatch({ studentId: "A001" })], [checked()]));
@@ -536,8 +541,8 @@ describe("the register half of the Cohorts page", () => {
     expect(await screen.findByText("Amira Haddad")).toBeTruthy();
     const row = within(rowOf("Amira Haddad"));
     // Both records, one row, one column.
-    expect(row.getByText(/major is Physics, cohort expects/)).toBeTruthy();
-    expect(row.getByText("MATH-001: not registered in 23223")).toBeTruthy();
+    expect(row.getByTitle(/major is Physics, cohort expects/)).toBeTruthy();
+    expect(row.getByTitle("MATH-001: not registered in 23223")).toBeTruthy();
     // The student both records agree about carries neither.
     expect(within(rowOf("Karim Nasser")).queryByText(/MATH-001/)).toBeNull();
   });
@@ -547,7 +552,7 @@ describe("the register half of the Cohorts page", () => {
     await twoStudents([MAJOR]);
 
     renderPage();
-    await screen.findByText("MATH-001: not registered in 23223");
+    await screen.findByTitle("MATH-001: not registered in 23223");
 
     expect(pillOf("MATH-001: not registered in 23223").dataset.source).toBe("registration");
     expect(pillOf(/major is Physics, cohort expects/).dataset.source).toBe("record");
@@ -562,7 +567,7 @@ describe("the register half of the Cohorts page", () => {
     await twoStudents([MAJOR]);
 
     renderPage();
-    await screen.findByText("MATH-001: not registered in 23223");
+    await screen.findByTitle("MATH-001: not registered in 23223");
 
     // One student flagged by each record, two between them.
     expect(screen.getByRole("button", { name: "All 2" })).toBeTruthy();
@@ -571,13 +576,13 @@ describe("the register half of the Cohorts page", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Register 1" }));
 
-    await waitFor(() => expect(screen.queryByText(/major is Physics, cohort expects/)).toBeNull());
-    expect(screen.getByText("MATH-001: not registered in 23223")).toBeTruthy();
+    await waitFor(() => expect(screen.queryByTitle(/major is Physics, cohort expects/)).toBeNull());
+    expect(screen.getByTitle("MATH-001: not registered in 23223")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Admissions 1" }));
 
-    await waitFor(() => expect(screen.queryByText("MATH-001: not registered in 23223")).toBeNull());
-    expect(screen.getByText(/major is Physics, cohort expects/)).toBeTruthy();
+    await waitFor(() => expect(screen.queryByTitle("MATH-001: not registered in 23223")).toBeNull());
+    expect(screen.getByTitle(/major is Physics, cohort expects/)).toBeTruthy();
   });
 
   it("puts a withdrawal above any number of registration differences", async () => {
@@ -605,7 +610,7 @@ describe("the register half of the Cohorts page", () => {
      * moment when the table honestly had only half the warnings. Which made the test pass
      * or fail depending on how loaded the machine was.
      */
-    await screen.findByText("MATH-001: not registered in 23223");
+    await screen.findByTitle("MATH-001: not registered in 23223");
     await screen.findByText(/student status is WD/);
 
     await waitFor(() => {
@@ -744,10 +749,10 @@ describe("the register half of the Cohorts page", () => {
     await twoStudents();
 
     renderPage();
-    await screen.findByText("MATH-001: not registered in 23223");
+    await screen.findByTitle("MATH-001: not registered in 23223");
     fireEvent.click(screen.getByRole("button", { name: /^Dismiss: MATH-001/ }));
 
-    await waitFor(() => expect(screen.queryByText("MATH-001: not registered in 23223")).toBeNull());
+    await waitFor(() => expect(screen.queryByTitle("MATH-001: not registered in 23223")).toBeNull());
     expect(screen.getByText(/Show 1 dismissed/)).toBeTruthy();
     expect(window.localStorage.getItem("scen-discrepancy-dismissed:v1")).toContain("registration|A001");
   });
@@ -833,7 +838,7 @@ describe("a student caught between our hour and another department's", () => {
 
     renderPage();
 
-    expect(await screen.findByText(/SCEN-101 \(23302\) is at the same hour as 22590 — Tue 16:30–18:00/)).toBeTruthy();
+    expect(await screen.findByTitle(/SCEN-101 \(23302\) is at the same hour as 22590 — Tue 16:30–18:00/)).toBeTruthy();
   });
 
   it("is counted among the register's differences, in its own words", async () => {
@@ -911,5 +916,59 @@ describe("the registrar's worklist, copied", () => {
     for (const copy of within(dialog).getAllByRole("button", { name: "Copy" })) {
       expect(copy).toHaveProperty("disabled", true);
     }
+  });
+});
+
+describe("three records, three kinds of trouble", () => {
+  it("files a clash of hours under timetabling, not under the register", async () => {
+    /*
+     * It comes out of the same check as the registrations and is not one of them: not a
+     * fault of the register, not chased with the registrar, and not something a
+     * coordinator clearing registrations wants in the way.
+     */
+    vi.spyOn(database, "fetchStudents").mockResolvedValue([student("A001", "c1")]);
+    vi.spyOn(database, "fetchDiscrepancyRules").mockResolvedValue([]);
+    vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue(
+      report([mismatch({ studentId: "A001", kind: "collides", scopeCode: "Tue 16:30–18:00" })], [checked()]),
+    );
+    await portalSays([{ SPRIDEN_ID: "A001", FULL_NAME: "Amira Haddad" }]);
+
+    renderPage();
+
+    const pill = (await screen.findByText("clashing hour")).closest("[data-source]") as HTMLElement;
+    expect(pill.dataset.source).toBe("timetabling");
+  });
+
+  it("says the kind on the pill and keeps the sentence for the record", async () => {
+    // The cell sits beside eleven other columns. A sentence truncated to "SCEN-101 (23302)
+    // is at th…" has said nothing and taken the room of something that would have.
+    vi.spyOn(database, "fetchStudents").mockResolvedValue([student("A001", "c1")]);
+    vi.spyOn(database, "fetchDiscrepancyRules").mockResolvedValue([MAJOR]);
+    vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue(report([], [checked()]));
+    await portalSays([{ SPRIDEN_ID: "A001", FULL_NAME: "Amira Haddad", MAJOR_CODE_DESC: "Physics" }]);
+
+    renderPage();
+
+    expect(await screen.findByText("major differs")).toBeTruthy();
+    // And the whole of it is still one hover away, and still what a dismissal names.
+    expect(screen.getByTitle(/major is Physics, cohort expects/)).toBeTruthy();
+  });
+
+  it("narrows to one record at a time, timetabling included", async () => {
+    vi.spyOn(database, "fetchStudents").mockResolvedValue([student("A001", "c1"), student("A002", "c1")]);
+    vi.spyOn(database, "fetchDiscrepancyRules").mockResolvedValue([MAJOR]);
+    vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue(
+      report([mismatch({ studentId: "A002", kind: "collides" })], [checked()]),
+    );
+    await portalSays([
+      { SPRIDEN_ID: "A001", FULL_NAME: "Amira Haddad", MAJOR_CODE_DESC: "Physics" },
+      { SPRIDEN_ID: "A002", FULL_NAME: "Karim Nasser" },
+    ]);
+
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: /Timetabling/ }));
+
+    expect(await screen.findByText("clashing hour")).toBeTruthy();
+    expect(screen.queryByText("major differs")).toBeNull();
   });
 });

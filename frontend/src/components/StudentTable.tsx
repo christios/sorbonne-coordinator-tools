@@ -1,8 +1,8 @@
-import { AlertTriangle, ClipboardList, Clock3, RotateCcw, X } from "lucide-react";
+import { AlertTriangle, CalendarClock, ClipboardList, Clock3, RotateCcw, X } from "lucide-react";
 import { memo, useCallback } from "react";
 
 import { DataTable, type Sort } from "@/components/DataTable";
-import { describeWarning, sourceOf, type WarningSource } from "@/services/discrepancies";
+import { describeWarning, labelWarning, sourceOf, type WarningSource } from "@/services/discrepancies";
 import type { StudentRow } from "@/services/rosterView";
 import type { ColumnLayout, StudentColumn } from "@/services/studentColumns";
 
@@ -114,19 +114,21 @@ function studentLabel(row: StudentRow): string {
  * Which record a warning came out of, said in colour.
  *
  * Amber for admissions and the department drifting apart; blue for the registrar having a
- * student somewhere we did not put them. They are two different jobs chased with two
- * different people, and they now sit in one column, so the cell has to say which is which
- * before it is read. The icon carries the same distinction for anyone who cannot use the
- * colour, and the text of the warning names its own course either way.
+ * student somewhere we did not put them; violet for the timetable putting them in two
+ * places at one hour. Three different jobs chased with three different people, sitting in
+ * one column, so the cell has to say which is which before it is read. The icon carries
+ * the same distinction for anyone who cannot use the colour.
  */
 const WARNING_TONES: Record<WarningSource, string> = {
   record: "bg-[#fff1e3] text-[#8a4b00]",
   registration: "bg-[#e6edfa] text-[#2b4a8b]",
+  timetabling: "bg-[#f3ecfb] text-[#5b3a8a]",
 };
 
 const WARNING_ICONS: Record<WarningSource, typeof AlertTriangle> = {
   record: AlertTriangle,
   registration: ClipboardList,
+  timetabling: CalendarClock,
 };
 
 /** The cells only a student row has. Undefined hands the cell back to the table's text. */
@@ -145,14 +147,20 @@ function studentCell(
           return (
           <span
             key={warning.key}
-            title={describeWarning(warning)}
             data-source={source}
+            title={describeWarning(warning)}
             className={`inline-flex max-w-full items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${
               warning.dismissed ? "bg-[#f2f4f7] text-[#98a2b3] line-through" : WARNING_TONES[source]
             }`}
           >
             <Icon size={11} className="shrink-0" aria-hidden="true" />
-            <span className="min-w-0 truncate">{describeWarning(warning)}</span>
+            {/*
+              * The kind, not the sentence. This cell sits beside eleven other columns, so
+              * the whole sentence truncated to "SCEN-101 (23302) is at th…" — a pill that
+              * has to be cut to fit has said nothing and taken the room of something that
+              * would have. The sentence is on the row's title and in the student's record.
+              */}
+            <span className="min-w-0 truncate">{labelWarning(warning)}</span>
             {onDismissWarning && warning.kind !== "no_baseline" ? (
               <button
                 type="button"
