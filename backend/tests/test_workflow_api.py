@@ -6,6 +6,8 @@ from fastapi import status
 from fastapi.testclient import TestClient
 
 from sorbonne.api.workflow import get_store
+from sorbonne.services import auth_gate
+from sorbonne.services.staff_auth import StaffUser
 from sorbonne.main import app
 from sorbonne.services.workflow_store import WorkflowStore
 
@@ -161,3 +163,30 @@ def test_the_onboarding_bundle_endpoint_still_applies_its_three_tasks(client: Te
         "Requisition signature",
         "ID Issuance (for newcomers)",
     ]
+
+
+def test_a_coordinator_who_is_not_an_administrator_cannot_write_field_guidance(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Guidance on a field is read by everyone and written only by administrators."""
+    note = {
+        "resourceType": "syllabus-field",
+        "resourceId": "shared",
+        "fieldKey": "identification.ects",
+        "content": "Credits come from the course record.",
+    }
+    assert client.put("/api/v1/field-notes", json=note).status_code == status.HTTP_200_OK
+
+    monkeypatch.setattr(
+        auth_gate,
+        "user_for_request",
+        lambda *_args, **_kwargs: StaffUser(email="professor@sorbonne.ae", name="Professor", is_admin=False),
+    )
+
+    refused = client.put("/api/v1/field-notes", json=note)
+
+    assert refused.status_code == status.HTTP_403_FORBIDDEN
+    assert client.get(
+        "/api/v1/field-notes",
+        params={"resourceType": "syllabus-field", "resourceId": "shared"},
+    ).status_code == status.HTTP_200_OK

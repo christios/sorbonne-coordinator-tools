@@ -1,3 +1,4 @@
+import { useStaffUser } from "@/components/useStaffUser";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Info, X } from "lucide-react";
 import { createPortal } from "react-dom";
@@ -51,6 +52,7 @@ export function FieldInfoLabel({
   const source = useContext(FieldInfoContext);
   const notes = useContext(FieldInfoNotesContext);
   const [editorOpen, setEditorOpen] = useState(false);
+  const canEdit = Boolean(useStaffUser()?.isAdmin);
   const [previewOpen, setPreviewOpen] = useState(false);
   const note = notes.find((item) => item.fieldKey === fieldKey);
   const anchorRef = useRef<HTMLSpanElement>(null);
@@ -83,6 +85,7 @@ export function FieldInfoLabel({
         <FieldInfoPopover
           source={source}
           fieldKey={fieldKey}
+          canEdit={canEdit}
           content={note?.content ?? ""}
           anchorRef={anchorRef}
           onClose={() => setEditorOpen(false)}
@@ -116,12 +119,14 @@ function FieldInfoPreview({
 function FieldInfoPopover({
   source,
   fieldKey,
+  canEdit,
   content,
   anchorRef,
   onClose,
 }: {
   source: FieldInfoSource;
   fieldKey: string;
+  canEdit: boolean;
   content: string;
   anchorRef: React.RefObject<HTMLSpanElement | null>;
   onClose: () => void;
@@ -181,29 +186,37 @@ function FieldInfoPopover({
           <X size={15} />
         </button>
       </span>
-      <textarea
-        aria-label="Field information text"
-        value={draft}
-        onChange={(event) => setDraft(event.target.value)}
-        placeholder="Add guidance for coordinators"
-        className="min-h-24 rounded-md border border-[#b7bec8] px-3 py-2 text-sm font-normal text-[#344054] focus:border-[#1f4e79] focus:outline-none focus:ring-2 focus:ring-[#d7e5f3]"
-      />
+      {canEdit ? (
+        <textarea
+          aria-label="Field information text"
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          placeholder="Add guidance for coordinators"
+          className="min-h-24 rounded-md border border-[#b7bec8] px-3 py-2 text-sm font-normal text-[#344054] focus:border-[#1f4e79] focus:outline-none focus:ring-2 focus:ring-[#d7e5f3]"
+        />
+      ) : (
+        <p className="whitespace-pre-line text-sm font-normal leading-6 text-[#475467]">
+          {draft.trim() || "No guidance for this field yet."}
+        </p>
+      )}
       <span className="flex justify-end gap-2">
         <button
           type="button"
           onClick={onClose}
           className="rounded-md px-2 py-1 text-sm font-semibold text-[#475467]"
         >
-          Cancel
+          {canEdit ? "Cancel" : "Close"}
         </button>
-        <button
-          type="button"
-          disabled={save.isPending}
-          onClick={() => save.mutate()}
-          className="rounded-md bg-[#1f4e79] px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50"
-        >
-          {save.isPending ? "Saving…" : "Save information"}
-        </button>
+        {canEdit ? (
+          <button
+            type="button"
+            disabled={save.isPending}
+            onClick={() => save.mutate()}
+            className="rounded-md bg-[#1f4e79] px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50"
+          >
+            {save.isPending ? "Saving…" : "Save information"}
+          </button>
+        ) : null}
       </span>
     </span>,
     document.body,

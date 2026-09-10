@@ -273,9 +273,10 @@ export function SyllabusEditor({
     }
   }
 
+  // Guidance belongs to the field, not to one syllabus, so every syllabus shows it.
   return (
     <FieldInfoProvider
-      source={{ resourceType: "syllabus", resourceId: draft.id }}
+      source={{ resourceType: "syllabus-field", resourceId: "shared" }}
     >
       <FieldHistoryProvider
         enabled

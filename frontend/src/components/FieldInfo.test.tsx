@@ -1,3 +1,4 @@
+import { StaffContext } from "@/components/useStaffUser";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
@@ -26,11 +27,11 @@ describe("Field information", () => {
     ]);
     render(
       <QueryClientProvider client={new QueryClient()}>
-        <FieldInfoProvider
+        <StaffContext.Provider value={{ email: "a@b.c", name: "Admin", isAdmin: true }}><FieldInfoProvider
           source={{ resourceType: "teacher", resourceId: "teacher-1" }}
         >
           <FormFieldLabel fieldKey="email">Email</FormFieldLabel>
-        </FieldInfoProvider>
+        </FieldInfoProvider></StaffContext.Provider>
       </QueryClientProvider>,
     );
 
@@ -78,7 +79,7 @@ describe("Field information", () => {
   it("renders its editor in a document-level layer so an editor canvas cannot clip it", async () => {
     render(
       <QueryClientProvider client={new QueryClient()}>
-        <FieldInfoProvider
+        <StaffContext.Provider value={{ email: "a@b.c", name: "Admin", isAdmin: true }}><FieldInfoProvider
           source={{
             resourceType: "teacher-requisition",
             resourceId: "request-1",
@@ -89,7 +90,7 @@ describe("Field information", () => {
               Course number
             </FormFieldLabel>
           </div>
-        </FieldInfoProvider>
+        </FieldInfoProvider></StaffContext.Provider>
       </QueryClientProvider>,
     );
 
@@ -102,5 +103,24 @@ describe("Field information", () => {
     });
     expect(dialog.parentElement).toBe(document.body);
     expect(dialog.className).toContain("fixed");
+  });
+});
+
+describe("Field information for a reader", () => {
+  it("shows the guidance without offering to change it", () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <StaffContext.Provider value={{ email: "prof@suad.ae", name: "Professor", isAdmin: false }}>
+          <FieldInfoProvider source={{ resourceType: "syllabus-field", resourceId: "shared" }}>
+            <FormFieldLabel fieldKey="identification.ects">Number of ECTS</FormFieldLabel>
+          </FieldInfoProvider>
+        </StaffContext.Provider>
+      </QueryClientProvider>,
+    );
+
+    // Everyone can read guidance; only an administrator writes it.
+    expect(screen.queryByRole("textbox", { name: "Field information text" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Save information/ })).toBeNull();
   });
 });

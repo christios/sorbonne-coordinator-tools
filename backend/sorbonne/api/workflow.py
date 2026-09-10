@@ -5,6 +5,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, Field
 
+from sorbonne.api.users import StaffUser, require_admin
 from sorbonne.config import config
 from sorbonne.services.workflow_store import (
     QuickTemplateNotFound,
@@ -74,7 +75,12 @@ def list_field_notes(
 
 
 @router.put("/field-notes")
-def upsert_field_note(request: FieldNoteInput, store: WorkflowStore = Depends(get_store)) -> dict[str, Any]:
+def upsert_field_note(
+    request: FieldNoteInput,
+    store: WorkflowStore = Depends(get_store),
+    _: StaffUser = Depends(require_admin),
+) -> dict[str, Any]:
+    """Guidance on a field is written by an administrator and read by everyone."""
     return store.upsert_field_note(
         resource_type=request.resourceType,
         resource_id=request.resourceId,
