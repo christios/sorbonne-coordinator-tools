@@ -51,3 +51,37 @@ describe("AssessmentTabs", () => {
     expect(historyActions[0].closest("li")).toBeNull();
   });
 });
+
+describe("Choosing an assessment type", () => {
+  it("keeps the catalogue link and the label from discarding each other", () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const onChange = vi.fn();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <FieldHistoryProvider enabled source={{ resourceType: "syllabus", resourceId: "s1", revision: 1, loadHistory: vi.fn().mockResolvedValue([]) }}>
+          <AssessmentItemsEditor
+            value={{ items: [{ id: "a1" }] }}
+            outcomes={[]}
+            assessmentTypes={[
+              { id: "assessment-type-1", category: "assessment-types", parentId: null, label: "Written test", payload: {}, sortOrder: 1, isRetired: false, retiredAt: null, revision: 1, createdAt: "", updatedAt: "" },
+            ]}
+            onChange={onChange}
+            syllabusId="s1"
+            revision={1}
+            onOpenHistory={vi.fn()}
+          />
+        </FieldHistoryProvider>
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("combobox", { name: "Assessment 1 type" }));
+    fireEvent.click(screen.getByRole("option", { name: "Written test" }));
+
+    // Both fields have to travel in one update: two writes off the same render
+    // would leave only the second, losing the link the dropdown displays.
+    const calls = onChange.mock.calls;
+    const written = calls[calls.length - 1][0].items[0];
+    expect(written.assessmentTypeId).toBe("assessment-type-1");
+    expect(written.type).toBe("Written test");
+  });
+});
