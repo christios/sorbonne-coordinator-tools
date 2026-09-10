@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, within, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ActiveCourses } from "@/components/ActiveCourses";
@@ -295,5 +295,38 @@ describe("what has a row, and what has none", () => {
 
     expect(screen.getByText(/1 h 30/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Accept" })).toBeTruthy();
+  });
+});
+
+describe("a CRN gets a record of its own", () => {
+  it("opens on the whole CRN when the row is pressed, not on one field of it", async () => {
+    /*
+     * The row used to open a form about which CRN this one hangs from. That is a real
+     * question and it is not the question a row raises: "what is 23638" was answered by
+     * reading across eleven columns and then going to two other pages for the rest.
+     */
+    vi.spyOn(lists, "fetchActiveCrns").mockResolvedValue([crnRow({ crn: "23638", courseCode: "PHYS-125" })]);
+    vi.spyOn(lists, "fetchRegisterCheck").mockResolvedValue({ ...EMPTY, teacherDiffers: [drift({})] });
+
+    show();
+    fireEvent.click(await screen.findByText("23638"));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("CRN 23638")).toBeTruthy();
+    // The verdicts in full, since the pill on the row had room for the kind alone.
+    expect(await within(dialog).findByText(/We say Sara Khaled/)).toBeTruthy();
+    // And the one thing about a CRN that is ours to change is still here.
+    expect(within(dialog).getByText("What it hangs from")).toBeTruthy();
+  });
+
+  it("says plainly when nobody has asked the registrar about it", async () => {
+    // "No days" and "nobody asked" are the same empty answer and very different facts.
+    vi.spyOn(lists, "fetchActiveCrns").mockResolvedValue([crnRow({ crn: "23638" })]);
+    vi.spyOn(lists, "fetchSectionDays").mockResolvedValue({ days: {}, blind: ["23638"] } as never);
+
+    show();
+    fireEvent.click(await screen.findByText("23638"));
+
+    expect(await screen.findByText(/Nobody has asked the registrar about this CRN/)).toBeTruthy();
   });
 });

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { ChecksPanel } from "@/components/ChecksPanel";
 import { CourseRecord } from "@/components/CourseRecord";
+import { CrnRecord } from "@/components/CrnRecord";
 import { CollisionList } from "@/components/CollisionList";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { removeEach, stillSelected } from "@/services/bulkRemove";
@@ -168,7 +169,6 @@ export function ActiveCourses({ onShowStudents }: { onShowStudents?: (ids: strin
     if (terms.length && !terms.includes(term)) setTerm(terms[0]);
   }, [terms, term]);
   const rows = useMemo(() => held.filter((row) => !term || row.termCode === term), [held, term]);
-  const byCourse = useMemo(() => new Map((courses.data ?? []).map((course) => [course.courseCode, course])), [courses.data]);
 
   const renderCell = (row: ActiveCrn, column: GridColumn<ActiveCrn>) => {
     if (column.id === "portalStatus") {
@@ -267,6 +267,42 @@ export function ActiveCourses({ onShowStudents }: { onShowStudents?: (ids: strin
             />
           ) : null}
 
+          {/*
+            * The collisions, in a place of their own above the table.
+            *
+            * They used to live inside the band, which is now only about CRNs nobody has
+            * taken in — so a department with none of those would have had no way to reach
+            * a settle button at all. And they never belonged to that band: each one has a
+            * decision attached and needs room for it, which a counted line does not give.
+            *
+            * The rows carry a pill saying WHICH of our sections is in one; this is where
+            * the slot is argued about.
+            */}
+          {report ? (
+            <section className="mt-4 rounded-md border border-[#e8d9ac] bg-[#fdf9ee] py-3">
+              <div className="flex flex-wrap items-center gap-2 px-6">
+                <h3 className="text-sm font-semibold text-[#8a6116]">Sharing an hour with another department</h3>
+                <button
+                  type="button"
+                  onClick={() => setShowingCollisions((current) => !current)}
+                  className="text-xs font-semibold text-[#1f4e79] underline"
+                >
+                  {showingCollisions ? "Hide" : "Show"}
+                </button>
+              </div>
+              {showingCollisions ? (
+                <CollisionList
+                  term={term}
+                  collides={report.collides}
+                  settled={report.settledCollisions}
+                  swept={report.swept}
+                  onSettled={() => client.invalidateQueries({ queryKey: ["register-check"] })}
+                  onShowStudents={onShowStudents}
+                />
+              ) : null}
+            </section>
+          ) : null}
+
           <ListGrid
             columns={COLUMNS}
             rows={rows}
@@ -335,42 +371,6 @@ export function ActiveCourses({ onShowStudents }: { onShowStudents?: (ids: strin
             <ChecksPanel />
           </Modal>
 
-          {/*
-            * The collisions, in a place of their own below the table.
-            *
-            * They used to live inside the band, which is now only about CRNs nobody has
-            * taken in — so a department with none of those would have had no way to reach
-            * a settle button at all. And they never belonged to that band: each one has a
-            * decision attached and needs room for it, which a counted line does not give.
-            *
-            * The rows carry a pill saying WHICH of our sections is in one; this is where
-            * the slot is argued about.
-            */}
-          {report ? (
-            <section className="mt-4 rounded-md border border-[#e8d9ac] bg-[#fdf9ee] py-3">
-              <div className="flex flex-wrap items-center gap-2 px-6">
-                <h3 className="text-sm font-semibold text-[#8a6116]">Sharing an hour with another department</h3>
-                <button
-                  type="button"
-                  onClick={() => setShowingCollisions((current) => !current)}
-                  className="text-xs font-semibold text-[#1f4e79] underline"
-                >
-                  {showingCollisions ? "Hide" : "Show"}
-                </button>
-              </div>
-              {showingCollisions ? (
-                <CollisionList
-                  term={term}
-                  collides={report.collides}
-                  settled={report.settledCollisions}
-                  swept={report.swept}
-                  onSettled={() => client.invalidateQueries({ queryKey: ["register-check"] })}
-                  onShowStudents={onShowStudents}
-                />
-              ) : null}
-            </section>
-          ) : null}
-
           <p className="mt-2 text-xs text-[#98a2b3]">
             {(courses.data ?? []).length} course{(courses.data ?? []).length === 1 ? "" : "s"} on the department&apos;s list,
             {" "}
@@ -382,12 +382,16 @@ export function ActiveCourses({ onShowStudents }: { onShowStudents?: (ids: strin
       <ByHandDialog open={adding} busy={addCourse.isPending} onAdd={(course) => addCourse.mutate(course)} onClose={() => setAdding(false)} />
 
       {editing ? (
-        <CrnDialog
+        <CrnRecord
+          open
           row={editing}
-          course={byCourse.get(editing.courseCode) ?? null}
           siblings={held.filter((row) => row.courseCode === editing.courseCode && row.termCode === editing.termCode)}
           onClose={() => setEditing(null)}
           onSaved={refresh}
+          onShowCourse={(code: string) => {
+            setEditing(null);
+            setShowingCourse(code);
+          }}
         />
       ) : null}
 
@@ -537,12 +541,21 @@ export function CrnDialog({
   siblings,
   onClose,
   onSaved,
+  inline = false,
 }: {
   row: ActiveCrn;
   course: ActiveCourse | null;
   siblings: ActiveCrn[];
   onClose: () => void;
   onSaved: () => void;
+  /**
+   * Render the fields alone, for a caller that already has a dialog of its own.
+   *
+   * The CRN's record holds these as one of its sections — they are the one thing about a
+   * CRN that is ours to change, and they belong where the CRN is looked at rather than
+   * behind a second press somewhere else. A modal inside a modal is not an option.
+   */
+  inline?: boolean;
 }) {
   const [parent, setParent] = useState(row.parentCrn);
   const [ue, setUe] = useState(row.ue);
@@ -581,26 +594,8 @@ export function CrnDialog({
     options.push({ value: parent, label: `${parent} — not one of this course's CRNs`, searchText: "", badge: undefined, badgeTone: "muted" as const });
   }
 
-  return (
-    <Modal
-      open
-      title={`${row.courseCode} · CRN ${row.crn}`}
-      description={row.portalTitle ? `The portal calls it “${row.portalTitle}”${row.teacherName ? `, taught by ${row.teacherName}` : ""}.` : "The portal no longer lists this CRN."}
-      onClose={onClose}
-      footer={
-        <div className="flex items-center justify-end gap-3">
-          <button type="button" onClick={onClose} className="text-sm font-semibold text-[#667085]">Cancel</button>
-          <button
-            type="button"
-            disabled={save.isPending}
-            onClick={() => save.mutate()}
-            className="rounded-md bg-[#1f4e79] px-4 py-2 text-sm font-semibold text-white disabled:bg-[#9ba8b5]"
-          >
-            {save.isPending ? "Saving…" : "Save"}
-          </button>
-        </div>
-      }
-    >
+  const body = (
+    <>
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
           <span className="block text-sm font-semibold text-[#344054]">Parent CRN</span>
@@ -667,6 +662,43 @@ export function CrnDialog({
         </p>
       ) : null}
       {save.error ? <p role="alert" className="mt-3 text-sm text-[#a6292f]">{(save.error as Error).message}</p> : null}
+    </>
+  );
+
+  const keep = (
+    <button
+      type="button"
+      disabled={save.isPending}
+      onClick={() => save.mutate()}
+      className="rounded-md bg-[#1f4e79] px-4 py-2 text-sm font-semibold text-white disabled:bg-[#9ba8b5]"
+    >
+      {save.isPending ? "Saving…" : "Save"}
+    </button>
+  );
+
+  if (inline) {
+    return (
+      <>
+        {body}
+        <div className="mt-3 flex justify-end">{keep}</div>
+      </>
+    );
+  }
+
+  return (
+    <Modal
+      open
+      title={`${row.courseCode} · CRN ${row.crn}`}
+      description={row.portalTitle ? `The portal calls it “${row.portalTitle}”${row.teacherName ? `, taught by ${row.teacherName}` : ""}.` : "The portal no longer lists this CRN."}
+      onClose={onClose}
+      footer={
+        <div className="flex items-center justify-end gap-3">
+          <button type="button" onClick={onClose} className="text-sm font-semibold text-[#667085]">Cancel</button>
+          {keep}
+        </div>
+      }
+    >
+      {body}
     </Modal>
   );
 }
