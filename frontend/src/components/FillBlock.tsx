@@ -32,6 +32,11 @@ const ORDERS: { value: FillOrder; label: string }[] = [
   { value: "random", label: "Random draw" },
 ];
 
+const WHO: { value: "everyone" | "chosen"; label: string }[] = [
+  { value: "everyone", label: "Everyone not yet in this set" },
+  { value: "chosen", label: "Only the students I choose" },
+];
+
 const POLICIES: { value: FillPolicy; label: string }[] = [
   { value: "balanced", label: "Balanced — each to the least-full group" },
   { value: "packed", label: "Packed — fill each group to capacity, then the next" },
@@ -70,6 +75,24 @@ export function FillBlock({
   const [order, setOrder] = useState<FillOrder>("id");
   const [policy, setPolicy] = useState<FillPolicy>("balanced");
   const [seed, setSeed] = useState(() => Date.now());
+  /*
+   * Everyone, or the ones somebody names.
+   *
+   * "Everyone not yet in this set" is what this always did and stays the default, because
+   * it is the right answer at the start of a semester. It is the wrong one every time
+   * after: a student arrives in week three and a fill either moves nobody, or is run and
+   * its plan read line by line to check it moved only them. Naming them is the whole
+   * feature; the plan, the clash rule and the capacities are unchanged.
+   */
+  const [who, setWho] = useState<"everyone" | "chosen">("everyone");
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const pick = (studentId: string) =>
+    setPicked((held) => {
+      const next = new Set(held);
+      if (next.has(studentId)) next.delete(studentId);
+      else next.add(studentId);
+      return next;
+    });
 
   const students = useQuery({ queryKey: ["students", ""], queryFn: () => fetchStudents(""), enabled: open });
   const assignments = useQuery({
@@ -89,10 +112,22 @@ export function FillBlock({
     staleTime: 0,
   });
 
-  const candidates = useMemo<FillCandidate[]>(() => {
+  /**
+   * Everyone this fill could seat: in the cohort, and not already in a group of this set.
+   *
+   * "In the cohort" is two things, not one. A student whose own record names the cohort,
+   * and a student whose record names none but who already holds groups filed under it —
+   * which is how somebody arrives from another department mid-term. Reading only the first
+   * left them out of every fill with nothing on screen to say why.
+   */
+  const everyone = useMemo<FillCandidate[]>(() => {
     if (!students.data || !assignments.data || !held.data) return [];
     return students.data
-      .filter((student) => student.cohortId === cohort.id && !assignments.data[student.studentId]?.[scope.id])
+      .filter(
+        (student) =>
+          (student.cohortId === cohort.id || assignments.data[student.studentId] !== undefined) &&
+          !assignments.data[student.studentId]?.[scope.id],
+      )
       .map((student) => {
         const others = { ...(assignments.data[student.studentId] ?? {}) };
         delete others[scope.id];
@@ -105,6 +140,11 @@ export function FillBlock({
         };
       });
   }, [students.data, assignments.data, held.data, cohort.id, scope.id]);
+
+  const candidates = useMemo(
+    () => (who === "everyone" ? everyone : everyone.filter((candidate) => picked.has(candidate.studentId))),
+    [who, everyone, picked],
+  );
 
   const clashSet = useMemo(() => {
     const keys = new Set<string>();
@@ -159,7 +199,7 @@ export function FillBlock({
     <Modal
       open={open}
       title={`Fill ${scope.code}`}
-      description={`${cohort.name} · everyone not yet in this set. Nobody already placed moves.`}
+      description={`${cohort.name} · nobody already in a ${scope.code} group moves.`}
       onClose={onClose}
       footer={
         <div className="flex items-center justify-end gap-3">
@@ -180,9 +220,35 @@ export function FillBlock({
     >
       <div className="space-y-4">
         <div className="grid gap-4 sm:grid-cols-2">
+          <SelectMenu
+            label="Who"
+            value={who}
+            options={WHO}
+            onChange={(value) => setWho(value as "everyone" | "chosen")}
+          />
           <SelectMenu label="Order" value={order} options={ORDERS} onChange={(value) => setOrder(value as FillOrder)} />
           <SelectMenu label="Fill" value={policy} options={POLICIES} onChange={(value) => setPolicy(value as FillPolicy)} />
         </div>
+
+        {who === "chosen" && !loading && everyone.length > 0 ? (
+          <fieldset className="rounded-md border border-[#e4e8ee] px-3 py-2">
+            <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-[#667085]">
+              {picked.size} of {everyone.length} chosen
+            </legend>
+            <ul className="max-h-48 space-y-0.5 overflow-y-auto" aria-label="Who to place">
+              {everyone.map((candidate) => (
+                <li key={candidate.studentId}>
+                  <label className="flex cursor-pointer items-center gap-2 py-0.5 text-sm">
+                    <input type="checkbox" checked={picked.has(candidate.studentId)} onChange={() => pick(candidate.studentId)} />
+                    <span className="text-[#171717]">{nameOf(candidate.studentId)}</span>
+                    <span className="text-xs text-[#98a2b3]">{candidate.studentId}</span>
+                    {candidate.program ? <span className="text-xs text-[#98a2b3]">{candidate.program}</span> : null}
+                  </label>
+                </li>
+              ))}
+            </ul>
+          </fieldset>
+        ) : null}
         {order === "random" ? (
           <button
             type="button"
@@ -217,8 +283,10 @@ export function FillBlock({
 
         {loading ? (
           <p className="text-sm text-[#667085]">Reading who is in the cohort…</p>
-        ) : candidates.length === 0 ? (
+        ) : everyone.length === 0 ? (
           <p className="text-sm text-[#667085]">Everyone in {cohort.name} already sits in a {scope.code} group.</p>
+        ) : candidates.length === 0 ? (
+          <p className="text-sm text-[#667085]">Nobody chosen yet, so there is nobody to place.</p>
         ) : (
           <>
             <table className="w-full text-left text-sm" aria-label="Group sizes after the fill">

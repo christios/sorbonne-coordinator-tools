@@ -120,6 +120,73 @@ describe("filling a block", () => {
   });
 });
 
+describe("choosing who a fill acts on", () => {
+  /** The Who menu is the branded one, so it is opened and an option pressed. */
+  const chooseOnly = () => {
+    fireEvent.click(screen.getByRole("combobox", { name: "Who" }));
+    fireEvent.click(screen.getByRole("option", { name: "Only the students I choose" }));
+  };
+
+  it("fills everyone not yet in the set when nobody is chosen, which is what it did before", async () => {
+    // Pinned first, so the rest of this is provably an addition and not a change.
+    show();
+
+    const list = await screen.findByLabelText("Who goes where");
+    expect(within(list).getAllByRole("listitem")).toHaveLength(2);
+    expect(screen.queryByLabelText("Who to place")).toBeNull();
+  });
+
+  it("fills only the students ticked", async () => {
+    vi.spyOn(database, "placeStudents").mockResolvedValue({ assigned: 1, skipped: [] });
+    show();
+    await screen.findByLabelText("Who goes where");
+
+    chooseOnly();
+    const choices = await screen.findByLabelText("Who to place");
+    fireEvent.click(within(choices).getByText("Bilal Saleh").closest("label")?.querySelector("input") as HTMLElement);
+
+    // Amira was going to TD 2 and is not asked for; Bilal is, and lands where the plan says.
+    await waitFor(() => expect(within(screen.getByLabelText("Who goes where")).getAllByRole("listitem")).toHaveLength(1));
+    fireEvent.click(screen.getByText("Place 1"));
+    await waitFor(() => expect(database.placeStudents).toHaveBeenCalledWith("scope-td", { "td-2": ["A3"] }));
+  });
+
+  it("says there is nobody to place rather than showing an empty plan", async () => {
+    show();
+    await screen.findByLabelText("Who goes where");
+
+    chooseOnly();
+
+    expect(await screen.findByText(/Nobody chosen yet/)).toBeTruthy();
+    expect((screen.getByText("Place 0") as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("offers a student the cohort holds no record of but whose groups are filed under it", async () => {
+    /*
+     * Somebody arriving from another department mid-term: their own record names no
+     * cohort, and they already sit in one of its sets. Reading only the record left them
+     * out of every fill with nothing on screen to say why — and once a fill can be pointed
+     * at named students, "why is this person not offered" becomes a support question.
+     */
+    vi.spyOn(database, "fetchStudents").mockResolvedValue([{ ...student("C7"), cohortId: "" }]);
+    vi.spyOn(database, "fetchAssignments").mockResolvedValue({ C7: { "scope-rdns": "rdns-8" } });
+    show();
+
+    const list = await screen.findByLabelText("Who goes where");
+    // No name is held for them, so the row shows the id where a name would be and again beside it.
+    expect(within(list).getAllByText("C7").length).toBeGreaterThan(0);
+  });
+
+  it("still leaves out somebody who belongs to another cohort entirely", async () => {
+    // B9 is cohort-2's and holds nothing here. The widening is about a missing record,
+    // not about opening the fill to the rest of the university.
+    show();
+
+    const list = await screen.findByLabelText("Who goes where");
+    expect(within(list).queryByText("B9")).toBeNull();
+  });
+});
+
 describe("the fill and retired groups", () => {
   const section = (retired: boolean): database.Section => ({ ...database.EMPTY_SECTION, crn: "23456", retired });
 
