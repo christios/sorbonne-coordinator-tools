@@ -1,5 +1,5 @@
 import { Check, Copy } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import { copyTable, copyToClipboard } from "@/services/copyCells";
 
@@ -22,11 +22,14 @@ export function CopyButton({
   label,
   text,
   className = "",
+  children,
 }: {
   label: string;
   /** Computed on click, because building it for every row on every render is wasteful. */
   text: () => Copyable;
   className?: string;
+  /** Words beside the icon, for the one place an icon alone would not say enough. */
+  children?: ReactNode;
 }) {
   const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
 
@@ -47,7 +50,7 @@ export function CopyButton({
         const done = typeof value === "string" ? await copyToClipboard(value) : await copyTable(value.headers, value.rows);
         setState(done ? "copied" : "failed");
       }}
-      className={`rounded p-1 ${
+      className={`inline-flex items-center gap-1.5 rounded p-1 ${
         state === "copied"
           ? "text-[#256237]"
           : state === "failed"
@@ -60,6 +63,7 @@ export function CopyButton({
       ) : (
         <Copy size={13} aria-hidden="true" />
       )}
+      {children}
     </button>
   );
 }

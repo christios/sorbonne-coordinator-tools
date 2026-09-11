@@ -1184,7 +1184,8 @@ describe("proposing groups for a whole selection", () => {
     await withNames();
     renderRoster();
     await screen.findByText("Amira Haddad");
-    fireEvent.click((screen.getAllByRole("checkbox")[1] ?? screen.getAllByRole("checkbox")[0]) as HTMLElement);
+    // The first student's own box — by its label, since the headings carry boxes of their own.
+    fireEvent.click(screen.getAllByRole("checkbox", { name: /^Select (?!everyone shown)/ })[0]);
 
     fireEvent.click(await screen.findByRole("button", { name: /Place in groups/ }));
 

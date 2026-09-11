@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { ListGrid } from "@/components/ListGrid";
@@ -79,5 +79,67 @@ describe("a list on the shared table", () => {
     fireEvent.click(screen.getByLabelText("Select MATH-011"));
 
     expect(onSelectedChange).toHaveBeenCalledWith(new Set(["23652"]));
+  });
+});
+
+describe("picking columns from their headings", () => {
+  /*
+   * The presets' copy without naming a preset. A checkbox sits on every heading; tick one
+   * and the rest show, tick the ones wanted, copy. The same rows as a preset — the ticked
+   * ones, or everything shown — and the columns in the order the table shows them, not
+   * the order they were ticked in.
+   */
+  const clipboard = () => {
+    const written: string[] = [];
+    Object.assign(navigator, { clipboard: { writeText: (text: string) => (written.push(text), Promise.resolve()) } });
+    return written;
+  };
+  const pick = (name: string) => fireEvent.click(screen.getByLabelText(`Pick the ${name} column to copy`));
+
+  it("shows the bar once a column is ticked, and copies the ticked columns in table order", async () => {
+    const written = clipboard();
+    show();
+    expect(screen.queryByLabelText("Columns picked to copy")).toBeNull();
+
+    pick("Teacher");
+    pick("Course");
+
+    const bar = screen.getByLabelText("Columns picked to copy");
+    expect(bar.textContent).toContain("Course, Teacher");
+    fireEvent.click(within(bar).getByRole("button", { name: "Copy the 2 picked columns" }));
+
+    await waitFor(() => expect(written).toHaveLength(1));
+    expect(written[0].split("\n").map((line) => line.split("\t"))).toEqual([
+      ["Course", "Teacher"],
+      ["MATH-001", "Dr Maaz"],
+      ["SCEN-101", "Mme Bendjaballah"],
+      ["MATH-011", "Dr Ahmed"],
+    ]);
+  });
+
+  it("copies only the selected rows when some are, like a preset does", async () => {
+    const written = clipboard();
+    show();
+    fireEvent.click(screen.getByLabelText("Select MATH-011"));
+    pick("CRN");
+
+    const bar = screen.getByLabelText("Columns picked to copy");
+    expect(bar.textContent).toContain("1 selected row");
+    fireEvent.click(within(bar).getByRole("button", { name: "Copy the 1 picked column" }));
+
+    await waitFor(() => expect(written).toHaveLength(1));
+    expect(written[0]).toBe("CRN\n23652");
+  });
+
+  it("is done with Done, or with Escape", () => {
+    show();
+    pick("CRN");
+    fireEvent.click(within(screen.getByLabelText("Columns picked to copy")).getByRole("button", { name: "Done" }));
+    expect(screen.queryByLabelText("Columns picked to copy")).toBeNull();
+    expect((screen.getByLabelText("Pick the CRN column to copy") as HTMLInputElement).checked).toBe(false);
+
+    pick("CRN");
+    fireEvent.keyDown(screen.getByLabelText("Pick the CRN column to copy"), { key: "Escape" });
+    expect(screen.queryByLabelText("Columns picked to copy")).toBeNull();
   });
 });

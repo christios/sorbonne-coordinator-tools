@@ -4,6 +4,7 @@ import { memo, useCallback, useEffect, useRef, useState, type ReactNode } from "
 import { CopyButton } from "@/components/CopyButton";
 import { useFillHeight } from "@/components/useFillHeight";
 import { columnText, rowText } from "@/services/copyCells";
+import { presetBlock, rowsForCopy } from "@/services/copyPresets";
 import { plainCellText, widthOf, type ColumnLayout, type GridColumn } from "@/services/studentColumns";
 
 /** Rows mounted beyond each edge of the viewport, so a scroll has something to land on. */
@@ -95,6 +96,12 @@ export type DataTableProps<T> = {
  * columns are wider than the page the table scrolls inside its own box, so the rest of
  * the screen stays where it is. Generic over the row: students were the first rows, the
  * portal's courses, teachers and registrations are the same table with other rows.
+ *
+ * Every heading also carries a checkbox, shown while the pointer is on the column. Tick
+ * one and the rest appear, so a handful of columns can be ticked and copied together —
+ * the presets' copy without naming a preset: the same rows (the ticked ones, or everything
+ * shown), the same cell text, in the order the table shows them. Nothing is kept; the
+ * ticks go when the copy is done with.
  */
 export function DataTable<T>({
   rows,
@@ -117,6 +124,19 @@ export function DataTable<T>({
   empty,
 }: DataTableProps<T>) {
   const allShown = rows.length > 0 && rows.every((row) => selected.has(idOf(row)));
+  // Columns ticked to be copied together. Only the shown ones count, so a column hidden
+  // after being ticked neither copies nor keeps the bar open.
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const pickedColumns = columns.filter((column) => picked.has(column.id));
+  const picking = pickedColumns.length > 0;
+  const pick = useCallback((id: string) => {
+    setPicked((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
   const { ref: fitRef, box } = useFillHeight<HTMLElement>();
   const window_ = useWindow(box, rows.length);
   /*
@@ -133,7 +153,39 @@ export function DataTable<T>({
   const reorder = useReorder(columns, onReorder, headers);
 
   return (
-    <section ref={fitRef} className="always-scrollbar relative mt-3 min-h-[16rem] overflow-auto overscroll-none rounded-lg border border-[#d9dee7] bg-white">
+    <>
+      {picking ? (
+        <div
+          aria-label="Columns picked to copy"
+          className="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-[#bcd3ea] bg-[#eef5fb] px-3 py-1.5 text-xs text-[#1f4e79]"
+        >
+          <span>
+            {pickedColumns.map((column) => column.displayName).join(", ")}
+            {selected.size ? ` · ${selected.size} selected ${selected.size === 1 ? "row" : "rows"}` : ` · every row shown`}
+          </span>
+          <CopyButton
+            label={`Copy the ${pickedColumns.length} picked ${pickedColumns.length === 1 ? "column" : "columns"}`}
+            text={() => presetBlock(pickedColumns, rowsForCopy(rows, selected, idOf), cellText, true)}
+            className="border border-[#b7bec8] bg-white px-2 font-semibold"
+          >
+            Copy {pickedColumns.length} {pickedColumns.length === 1 ? "column" : "columns"}
+          </CopyButton>
+          <button
+            type="button"
+            onClick={() => setPicked(new Set())}
+            className="rounded px-2 py-1 hover:bg-white"
+          >
+            Done
+          </button>
+        </div>
+      ) : null}
+    <section
+      ref={fitRef}
+      onKeyDown={(event) => {
+        if (event.key === "Escape" && picking) setPicked(new Set());
+      }}
+      className="always-scrollbar relative mt-3 min-h-[16rem] overflow-auto overscroll-none rounded-lg border border-[#d9dee7] bg-white"
+    >
       <table className="text-left text-sm" style={{ tableLayout: "fixed", width: "max-content", minWidth: "100%" }}>
         <colgroup>
           <col style={{ width: 40 }} />
@@ -174,6 +226,9 @@ export function DataTable<T>({
                 }}
                 reorder={reorder}
                 copy={() => columnText(rows.map((row) => cellText(row, column)))}
+                picked={picked.has(column.id)}
+                picking={picking}
+                onPick={() => pick(column.id)}
               />
             ))}
             <th scope="col" className="bg-[#fbfcfe] px-2 py-2.5" />
@@ -219,6 +274,7 @@ export function DataTable<T>({
         </tbody>
       </table>
     </section>
+    </>
   );
 }
 
@@ -459,6 +515,9 @@ function HeaderCell<T>({
   fit,
   reorder,
   copy,
+  picked,
+  picking,
+  onPick,
 }: {
   column: GridColumn<T>;
   cell: (element: HTMLTableCellElement | null) => void;
@@ -472,6 +531,11 @@ function HeaderCell<T>({
   fit: () => void;
   reorder: Reorder;
   copy: () => string;
+  /** Ticked to be copied with the other ticked columns. */
+  picked: boolean;
+  /** Some column is ticked, so every heading shows its box rather than waiting for the pointer. */
+  picking: boolean;
+  onPick: () => void;
 }) {
   const active = sort.key === column.id;
   const lifted = reorder.carrying === column.id;
@@ -511,6 +575,13 @@ function HeaderCell<T>({
           // A press that travelled was a drag, and a drag does not also sort.
           if (!reorder.moved()) onSort(column.id);
         }}
+        /*
+         * A mouse click must not leave the heading focused. The copy controls show while
+         * anything in the heading has focus — so the keyboard can reach them — and a
+         * click that parked focus on this button left them showing on that one column
+         * until something else was clicked. Tab still focuses it; only the mouse does not.
+         */
+        onMouseDown={(event) => event.preventDefault()}
         aria-label={`Sort by ${column.displayName}`}
         className={`flex w-full min-w-0 items-center gap-1 text-left ${active ? "text-[#1f4e79]" : ""}`}
       >
@@ -530,8 +601,22 @@ function HeaderCell<T>({
 
       <span
         data-copy
-        className="absolute right-2 top-1/2 hidden -translate-y-1/2 rounded bg-[#f1f5fa] shadow-[0_0_0_4px_#f1f5fa] group-hover:inline-flex group-focus-within:inline-flex"
+        // The same for the controls themselves: ticking or copying with the mouse must not
+        // pin them open on this column once the pointer has moved on.
+        onMouseDown={(event) => event.preventDefault()}
+        // Clear of the sort arrow on the sorted column, so a click to sort is answered by
+        // the arrow and not hidden behind the controls the same hover brought up.
+        className={`absolute top-1/2 -translate-y-1/2 items-center gap-1 rounded bg-[#f1f5fa] shadow-[0_0_0_4px_#f1f5fa] ${
+          active ? "right-7" : "right-2"
+        } ${picking ? "inline-flex" : "hidden group-hover:inline-flex group-focus-within:inline-flex"}`}
       >
+        <input
+          type="checkbox"
+          aria-label={`Pick the ${column.displayName} column to copy`}
+          checked={picked}
+          onChange={onPick}
+          className="h-3.5 w-3.5 cursor-pointer accent-[#1f4e79]"
+        />
         <CopyButton label={`Copy the ${column.displayName} column`} text={copy} />
       </span>
 
