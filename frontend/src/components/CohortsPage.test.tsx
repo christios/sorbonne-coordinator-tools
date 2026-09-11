@@ -562,27 +562,34 @@ describe("the register half of the Cohorts page", () => {
     );
   });
 
-  it("shows one record at a time when asked, counting the students in each", async () => {
+  it("shows any combination of the records, counting the students in each", async () => {
     vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue(report([mismatch({ studentId: "A002" })], [checked()]));
     await twoStudents([MAJOR]);
 
     renderPage();
     await screen.findByTitle("MATH-001: not registered in 23223");
 
-    // One student flagged by each record, two between them.
-    expect(screen.getByRole("button", { name: "All 2" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Admissions 1" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Register 1" })).toBeTruthy();
+    // One student flagged by each record; all three records on to begin with, no "All".
+    const admissions = screen.getByRole("button", { name: "Admissions 1" });
+    const register = screen.getByRole("button", { name: "Register 1" });
+    expect(screen.getByRole("button", { name: "Timetabling 0" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^All / })).toBeNull();
+    expect(admissions.getAttribute("aria-pressed")).toBe("true");
+    expect(register.getAttribute("aria-pressed")).toBe("true");
 
-    fireEvent.click(screen.getByRole("button", { name: "Register 1" }));
-
+    // Turn admissions off: the register's warning stays, the admissions one goes.
+    fireEvent.click(admissions);
     await waitFor(() => expect(screen.queryByTitle(/major is Physics, cohort expects/)).toBeNull());
     expect(screen.getByTitle("MATH-001: not registered in 23223")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Admissions 1" }));
-
+    // Turn the register off too: nothing is shown, which is what nothing chosen means.
+    fireEvent.click(register);
     await waitFor(() => expect(screen.queryByTitle("MATH-001: not registered in 23223")).toBeNull());
-    expect(screen.getByTitle(/major is Physics, cohort expects/)).toBeTruthy();
+
+    // And back on, in any order.
+    fireEvent.click(admissions);
+    expect(await screen.findByTitle(/major is Physics, cohort expects/)).toBeTruthy();
+    expect(screen.queryByTitle("MATH-001: not registered in 23223")).toBeNull();
   });
 
   it("puts a withdrawal above any number of registration differences", async () => {
@@ -958,7 +965,7 @@ describe("three records, three kinds of trouble", () => {
     expect(screen.getByTitle(/major is Physics, cohort expects/)).toBeTruthy();
   });
 
-  it("narrows to one record at a time, timetabling included", async () => {
+  it("narrows to timetabling alone by turning the other two off", async () => {
     vi.spyOn(database, "fetchStudents").mockResolvedValue([student("A001", "c1"), student("A002", "c1")]);
     vi.spyOn(database, "fetchDiscrepancyRules").mockResolvedValue([MAJOR]);
     vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue(
@@ -970,10 +977,12 @@ describe("three records, three kinds of trouble", () => {
     ]);
 
     renderPage();
-    fireEvent.click(await screen.findByRole("button", { name: /Timetabling/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /Admissions/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Register/ }));
 
+    expect(screen.getByRole("button", { name: /Timetabling/ }).getAttribute("aria-pressed")).toBe("true");
     expect(await screen.findByText(/MATH-001/)).toBeTruthy();
-    expect(screen.queryByText("major: Physics")).toBeNull();
+    await waitFor(() => expect(screen.queryByText("major: Physics")).toBeNull());
   });
 });
 

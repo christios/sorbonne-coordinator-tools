@@ -1,5 +1,5 @@
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { AlertTriangle, ArrowRightCircle, CalendarClock, ClipboardList, EyeOff, Globe, Layers, Settings2, Users, X } from "lucide-react";
+import { AlertTriangle, ArrowRightCircle, CalendarClock, ClipboardList, EyeOff, Globe, Settings2, Users, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { CohortActions } from "@/components/CohortActions";
@@ -89,8 +89,8 @@ function judge(
   return { byCohort, arrivals };
 }
 
-/** Which sources of warning the table is showing. */
-type Showing = "all" | WarningSource;
+/** The three records to begin with — the old "All", and the commonest answer. */
+const EVERY_RECORD: readonly WarningSource[] = ["record", "registration", "timetabling"];
 
 /**
  * The three records, in the order the page's filter offers them.
@@ -160,15 +160,20 @@ function describeKinds(mismatches: Mismatch[]): string {
  */
 function SourceFilter({
   showing,
-  onShow,
+  onToggle,
   counts,
 }: {
-  showing: Showing;
-  onShow: (next: Showing) => void;
-  counts: Record<Showing, number>;
+  /** The records whose warnings are shown. Any combination; none shows nothing. */
+  showing: ReadonlySet<WarningSource>;
+  onToggle: (id: WarningSource) => void;
+  counts: Record<WarningSource, number>;
 }) {
-  const options: { id: Showing; name: string; icon: typeof Layers; hint: string }[] = [
-    { id: "all", name: "All", icon: Layers, hint: "Every record" },
+  /*
+   * Three toggles, any combination — the same control as the "Registrations to change"
+   * dialog, so the two read alike. There used to be an "All" beside them, which made the
+   * three a choice of one; two records at once was not something the page could show.
+   */
+  const options: { id: WarningSource; name: string; icon: typeof AlertTriangle; hint: string }[] = [
     { id: "record", name: "Admissions", icon: AlertTriangle, hint: "Where the portal's record and ours have drifted apart" },
     { id: "registration", name: "Register", icon: ClipboardList, hint: "Where the registrar has them in other sections than we placed them in" },
     { id: "timetabling", name: "Timetabling", icon: CalendarClock, hint: "Where the hours a student is booked into cannot all be attended" },
@@ -184,16 +189,16 @@ function SourceFilter({
         <button
           key={id}
           type="button"
-          aria-pressed={showing === id}
+          aria-pressed={showing.has(id)}
           title={hint}
-          onClick={() => onShow(id)}
-          className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-semibold ${
-            showing === id ? "bg-[#e8edf3] text-[#1f4e79]" : "text-[#667085] hover:bg-[#f6f8fb]"
+          onClick={() => onToggle(id)}
+          className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-semibold transition-colors ${
+            showing.has(id) ? "bg-[#1f4e79] text-white" : "text-[#667085] hover:bg-[#f6f8fb]"
           }`}
         >
           <Icon size={12} aria-hidden="true" />
           {name}
-          <span className="tabular-nums font-normal text-[#98a2b3]">{counts[id]}</span>
+          <span className={`tabular-nums font-normal ${showing.has(id) ? "text-white/75" : "text-[#98a2b3]"}`}>{counts[id]}</span>
         </button>
       ))}
     </div>
@@ -266,7 +271,15 @@ export function CohortsPage({
     if (focus?.cohortId) chooseCohort(focus.cohortId);
   }, [focus?.cohortId, sent, chooseCohort]);
   const [showDismissed, setShowDismissed] = useState(false);
-  const [showing, setShowing] = useState<Showing>("all");
+  const [showing, setShowing] = useState<Set<WarningSource>>(() => new Set(EVERY_RECORD));
+  const toggleShowing = useCallback((id: WarningSource) => {
+    setShowing((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
   const [dismissed, setDismissed] = useState<Set<string>>(() => loadDismissed());
 
   // The same query the roster makes, so React Query answers both from one fetch.
@@ -470,7 +483,7 @@ export function CohortsPage({
         (warning) =>
           warning.kind !== "no_baseline" &&
           (showDismissed || !warning.dismissed) &&
-          (showing === "all" || sourceOf(warning) === showing),
+          showing.has(sourceOf(warning)),
       ),
     [byStudent, showDismissed, showing],
   );
@@ -493,8 +506,7 @@ export function CohortsPage({
 
   const all = mine;
   const flaggedStudents = flaggedIn(all);
-  const counts: Record<Showing, number> = {
-    all: flaggedStudents,
+  const counts: Record<WarningSource, number> = {
     record: flaggedIn(all, "record"),
     registration: flaggedIn(all, "registration"),
     timetabling: flaggedIn(all, "timetabling"),
@@ -742,9 +754,9 @@ export function CohortsPage({
         * Only once there is something to choose between — on a cohort with nothing wrong
         * it would be three zeroes and a question nobody asked.
         */}
-      {counts.all ? (
+      {flaggedStudents ? (
         <div className="mt-3">
-          <SourceFilter showing={showing} onShow={setShowing} counts={counts} />
+          <SourceFilter showing={showing} onToggle={toggleShowing} counts={counts} />
         </div>
       ) : null}
 
