@@ -1,6 +1,6 @@
 import { EMPTY_REQUEST, EMPTY_SECTION } from "@/services/studentDatabase";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { StudentRecord } from "@/components/StudentRecord";
@@ -91,7 +91,17 @@ function show() {
       <StudentRecord open row={ROW} cohorts={[COHORT]} history={HISTORY} onClose={() => {}} />
     </QueryClientProvider>,
   );
+  return queryClient;
 }
+
+/** Open a picker once it is enabled, then choose. Each waits on the one before it. */
+const pick = async (label: string, option: string | RegExp) => {
+  await waitFor(() =>
+    expect((screen.getByRole("combobox", { name: label }) as HTMLButtonElement).disabled).toBe(false),
+  );
+  fireEvent.click(screen.getByRole("combobox", { name: label }));
+  fireEvent.click(await screen.findByRole("option", { name: option }));
+};
 
 describe("a student's record", () => {
   it("shows the portal's fields, the groups, the registrations and only this student's differences", async () => {
@@ -217,5 +227,29 @@ describe("placing one student from their own record", () => {
     fireEvent.click(screen.getByRole("button", { name: /Place in every set/ }));
 
     expect(await screen.findByText(/Propose groups for 1 student/)).toBeTruthy();
+  });
+});
+
+describe("after placing them from their own record", () => {
+  it("refreshes the roster row behind the record, not only the record", async () => {
+    /*
+     * The record invalidated the groups and the catalogue and nothing else, so the row it
+     * was opened from — whose Groups column comes from the students list, and whose
+     * warnings come from the register — read as before until the page was reloaded.
+     */
+    vi.spyOn(database, "assignStudents").mockResolvedValue({ assigned: 1, skipped: [] });
+    const client = show();
+    const invalidated = vi.spyOn(client, "invalidateQueries");
+    await screen.findByLabelText("Groups");
+    fireEvent.click(screen.getByRole("button", { name: /Place in every set/ }));
+
+    await pick("Groups", "I'll name the groups");
+    await pick("Semester", "Semester 1");
+    await pick("Block", /TD/);
+    await pick("Group", /Group 1/);
+    fireEvent.click(screen.getByRole("button", { name: /Place 1/ }));
+
+    await waitFor(() => expect(invalidated).toHaveBeenCalledWith({ queryKey: ["students"] }));
+    expect(invalidated).toHaveBeenCalledWith({ queryKey: ["registration-check"] });
   });
 });

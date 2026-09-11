@@ -39,6 +39,7 @@ import {
   type Cohort,
 } from "@/services/studentDatabase";
 import { fetchTimetableTerms } from "@/services/timetables";
+import { afterPlacement } from "@/services/afterPlacement";
 
 /*
  * The portal's fields, sorted into the questions a coordinator actually asks. Anything
@@ -439,8 +440,10 @@ export function StudentRecord({
                 onClose={() => setPlacing(false)}
                 onPlaced={() => {
                   setPlacing(false);
-                  void client.invalidateQueries({ queryKey: ["assignments", cohortId] });
-                  void client.invalidateQueries({ queryKey: ["catalogue"] });
+                  // The same list the roster uses after a placement. Invalidating only the
+                  // groups and the catalogue left the row behind this record — its Groups
+                  // column and its registration warnings — reading as before until reload.
+                  afterPlacement(client);
                 }}
               />
             ) : null}
