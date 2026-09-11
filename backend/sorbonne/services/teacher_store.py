@@ -3,6 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 from datetime import UTC, datetime
 import json
+import re
 from typing import Any
 from uuid import uuid4
 
@@ -494,38 +495,29 @@ class TeacherStore:
         return sorted(years, reverse=True)
 
     def list_courses_by_code(self, *, query: str = "") -> list[dict[str, Any]]:
-        """One row per course, not per section.
+        """The courses a syllabus may be written for.
 
-        A syllabus is the course's document: PHYS-118 has one however many CRNs run it.
-        Credit, level and contact hours are taken from the sections, which agree; the
-        CRNs and terms are carried so a course can still be traced back to them.
+        The registrar lists a course once per section, and a section's name often
+        carries its kind or group — "Computer Science -CM", "GESTION TD Gr1". Those
+        are trimmed so one course reads as one choice.
+
+        Where a code's sections disagree on more than that, they are different
+        subjects sharing a code, and each is offered separately. Nothing here invents
+        a name: every choice is one the registrar actually uses.
         """
-        filters = ["course_catalogue_entries.is_obsolete = FALSE"]
+        filters = ["is_obsolete = FALSE"]
         params: dict[str, str] = {}
         if query.strip():
-            filters.append("(course_catalogue_entries.course_code ILIKE :query OR course_title ILIKE :query)")
+            filters.append("(course_code ILIKE :query OR course_title ILIKE :query)")
             params["query"] = f"%{query.strip()}%"
-        where = f"WHERE {' AND '.join(filters)}"
         with self.engine.connect() as connection:
             rows = (
                 connection.execute(
                     text(
                         f"""
-                    SELECT course_catalogue_entries.course_code AS course_code,
-                           MIN(course_title) AS course_title,
-                           MIN(NULLIF(credit, '')) AS credit,
-                           MIN(NULLIF(level, '')) AS level,
-                           MIN(NULLIF(department, '')) AS department,
-                           MIN(NULLIF(college, '')) AS college,
-                           MIN(NULLIF(contact_hours, '')) AS contact_hours,
-                           ARRAY_AGG(DISTINCT term) AS terms,
-                           ARRAY_AGG(DISTINCT course_catalogue_entries.crn) AS crns,
-                           ARRAY_AGG(DISTINCT NULLIF(sections.teacher, '')) AS teachers
+                    SELECT course_code, course_title, credit, department, college, contact_hours, term, crn
                     FROM course_catalogue_entries
-                    LEFT JOIN group_crns AS sections ON sections.crn = course_catalogue_entries.crn
-                    {where}
-                    GROUP BY course_catalogue_entries.course_code
-                    ORDER BY MIN(course_title) ASC, course_catalogue_entries.course_code ASC
+                    WHERE {" AND ".join(filters)}
                     """
                     ),
                     params,
@@ -533,22 +525,44 @@ class TeacherStore:
                 .mappings()
                 .all()
             )
-        return [
-            {
-                "courseCode": row["course_code"],
-                "courseTitle": course_title_case(row["course_title"] or ""),
-                "credit": row["credit"] or "",
-                "level": row["level"] or "",
-                "department": row["department"] or "",
-                "college": row["college"] or "",
-                "contactHours": row["contact_hours"] or "",
-                "terms": sorted(term for term in (row["terms"] or []) if term),
-                "crns": sorted(crn for crn in (row["crns"] or []) if crn),
-                # Who teaches its sections, when Students and Timetables knows.
-                "teachers": sorted(name for name in (row["teachers"] or []) if name),
-            }
-            for row in rows
-        ]
+
+        grouped: dict[tuple[str, str], dict[str, Any]] = {}
+        for row in rows:
+            name = course_base_title(row["course_title"])
+            key = (row["course_code"], name.casefold())
+            course = grouped.setdefault(
+                key,
+                {
+                    "courseCode": row["course_code"],
+                    "courseTitle": name,
+                    "credit": "",
+                    "level": "",
+                    "department": row["department"] or "",
+                    "college": row["college"] or "",
+                    "contactHours": "",
+                    "terms": set(),
+                    "crns": set(),
+                    "_exact": False,
+                },
+            )
+            # Prefer the spelling that needed no trimming, so the name reads as written.
+            if not course["_exact"] and row["course_title"].strip() == name:
+                course["courseTitle"] = row["course_title"].strip()
+                course["_exact"] = True
+            course["credit"] = course["credit"] or (row["credit"] or "")
+            course["contactHours"] = course["contactHours"] or (row["contact_hours"] or "")
+            if row["term"]:
+                course["terms"].add(row["term"])
+            if row["crn"]:
+                course["crns"].add(row["crn"])
+
+        courses = []
+        for course in grouped.values():
+            course.pop("_exact")
+            course["terms"] = sorted(course["terms"])
+            course["crns"] = sorted(course["crns"])
+            courses.append(course)
+        return sorted(courses, key=lambda item: (item["courseTitle"].casefold(), item["courseCode"]))
 
     def list_course_catalogue(self, *, query: str = "", include_obsolete: bool = False) -> list[dict[str, Any]]:
         filters = [] if include_obsolete else ["is_obsolete = FALSE"]
@@ -772,4 +786,28 @@ def course_title_case(title: str) -> str:
             continue
         result.append(word[0].upper() + word[1:])
     return " ".join(result)
+
+
+# A section's name often ends with the kind of session or the group it is for:
+# "-CM", "TD Gr1", "GrpA", "G.B-TP". Those belong to the section, not the course.
+_SECTION_SUFFIX = re.compile(
+    r"""(?ix)
+    (
+      [\s\-\u2013:,]+
+      (?: G(?:r|rp|roup)?\s*\.?\s*[A-Z0-9]{1,3}
+        | CM | TD | TP | LAB
+      )
+      \s*
+    )+$
+    """
+)
+
+
+def course_base_title(title: str) -> str:
+    """The course's own name, with any section marker trimmed off the end."""
+    previous, current = None, str(title or "").strip()
+    while current != previous:
+        previous = current
+        current = _SECTION_SUFFIX.sub("", current).strip()
+    return current.strip(" -\u2013:,") or str(title or "").strip()
 
