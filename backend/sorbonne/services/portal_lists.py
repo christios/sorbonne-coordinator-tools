@@ -1866,7 +1866,9 @@ class PortalListStore:
             # real one: on the copied production data one student was missing one course of
             # five and another was missing all five.
             exempt = database.exempt_codes(term_id)
-            expected: dict[str, dict[str, set[str]]] = {}
+            # student -> course -> set -> its CRNs. Kept per SET, because the date rule may
+            # only ever choose between sections that stand in for one another.
+            expected: dict[str, dict[str, dict[str, set[str]]]] = {}
             for row in cohort["assignments"]:
                 group = groups.get(row["groupId"])
                 if group is None:
@@ -1876,9 +1878,9 @@ class PortalListStore:
                     # group — and each may carry the same course. All of their sections are
                     # expected, not whichever was read last; and a section taught in two
                     # halves is two CRNs of one course, both of which they are in.
-                    expected.setdefault(row["studentId"], {}).setdefault(code, set()).update(
-                        crn for crn in crns if crn
-                    )
+                    expected.setdefault(row["studentId"], {}).setdefault(code, {}).setdefault(
+                        group["scopeId"], set()
+                    ).update(crn for crn in crns if crn)
             registered = self.registered_in(term_code)
             pulled = self.pulled_students(term_code)
             for student in cohort["students"]:
@@ -1891,8 +1893,8 @@ class PortalListStore:
                         term_id,
                         term_code,
                         code,
-                        _expected_on(sorted(expected.get(student, {}).get(code, set())), windows, today),
-                        sorted(expected.get(student, {}).get(code, set())),
+                        _running_today(expected.get(student, {}).get(code, {}), windows, today),
+                        _every_section(expected.get(student, {}).get(code, {})),
                         registered.get(student, {}).get(code, []),
                     )
                     for code in course_codes
@@ -2058,6 +2060,25 @@ def _expected_on(crns: list[str], windows: dict[str, tuple[str, str]], on: str) 
     if not chosen:
         return sorted(crns)
     return sorted({*chosen, *undated})
+
+
+def _running_today(by_set: dict[str, set[str]], windows: dict[str, tuple[str, str]], on: str) -> list[str]:
+    """The sections of one course a student is expected in today — decided set by set.
+
+    The date rule chooses between sections that stand in for one another: the two halves
+    of a handover, which are two parts of one cell in one set. A course's lecture, tutorial
+    and practical are not alternatives — they sit in different sets and run side by side.
+    Tiered together under one course code, a tutorial that starts a week after its lecture
+    was quietly not expected: nobody was ever reported missing from it, and it never
+    reached the list of registrations to ask the registrar for. Two of one student's six
+    went that way.
+    """
+    return sorted({crn for crns in by_set.values() for crn in _expected_on(sorted(crns), windows, on)})
+
+
+def _every_section(by_set: dict[str, set[str]]) -> list[str]:
+    """Every section of one course our planning holds for a student, whenever it runs."""
+    return sorted({crn for crns in by_set.values() for crn in crns})
 
 
 def _judge(  # noqa: PLR0913 - one argument per part of the verdict

@@ -777,11 +777,13 @@ def test_the_crns_of_a_linked_semester_come_keyed_by_crn(client: TestClient):
 # ------------------------------------------------------------- the comparison
 
 
-def build_cohort(database: StudentDatabase, maths_in_tutorials: str = "") -> str:
+def build_cohort(database: StudentDatabase, maths_in_tutorials: str = "", second_half: str = "") -> str:
     """Foundation Year on term-1: CM A (22151) and TD 1 (23652); A001 and A002 placed in both.
 
     `maths_in_tutorials` gives the tutorial group a section of MATH-001 too, the way a
-    course taught as a lecture and a tutorial really is.
+    course taught as a lecture and a tutorial really is. `second_half` makes that tutorial
+    a handover — taught under `maths_in_tutorials` until mid-term and under this CRN after —
+    which is two parts of one cell, the one shape the date rule may choose between.
     """
     cohort = database.create_cohort(name="Foundation Year", term="2026-27")
     with database.engine.begin() as connection:
@@ -800,7 +802,10 @@ def build_cohort(database: StudentDatabase, maths_in_tutorials: str = "") -> str
     database.set_cell(group_id=group_a, course_id=maths, crn="22151")
     database.set_cell(group_id=group_1, course_id=algorithms, crn="23652")
     if maths_in_tutorials:
-        database.set_cell(group_id=group_1, course_id=database.add_course(td, code="MATH-001"), crn=maths_in_tutorials)
+        tutorial_maths = database.add_course(td, code="MATH-001")
+        database.set_cell(group_id=group_1, course_id=tutorial_maths, crn=maths_in_tutorials)
+        if second_half:
+            database.set_cell(group_id=group_1, course_id=tutorial_maths, crn=second_half, part=2)
     for student in ("A001", "A002"):
         database.assign(student_id=student, scope_id=cm, group_id=group_a)
         database.assign(student_id=student, scope_id=td, group_id=group_1)
@@ -1261,13 +1266,14 @@ directions, and the loudest wrong thing on the page.
 
 
 def test_a_section_that_has_finished_is_not_still_expected(client: TestClient, database: StudentDatabase):
-    cohort_id = build_cohort(database, maths_in_tutorials="23820")
+    cohort_id = build_cohort(database, maths_in_tutorials="23436", second_half="23820")
     client.put(f"{BASE}/term-links/{HUB_TERM}", json={"portalTermCode": TERM})
-    # 22151 ran and is over; 23820 is running now. The students moved with the course.
-    timetable(client, {"22151": (-60, -10), "23820": (-5, 40), "23652": (-60, 40)})
+    # 23436 ran and is over; 23820 is running now. The students moved with the course.
+    timetable(client, {"22151": (-60, 40), "23436": (-60, -10), "23820": (-5, 40), "23652": (-60, 40)})
     registrations(
         client,
         [
+            {"studentId": "A001", "crn": "22151", "courseCode": "MATH-001"},
             {"studentId": "A001", "crn": "23820", "courseCode": "MATH-001"},
             {"studentId": "A001", "crn": "23652", "courseCode": "MATH-011"},
         ],
@@ -1282,18 +1288,53 @@ def test_a_section_that_has_finished_is_not_still_expected(client: TestClient, d
 def test_the_two_halves_of_a_handover_are_never_both_expected_on_one_day(
     client: TestClient, database: StudentDatabase
 ):
-    cohort_id = build_cohort(database, maths_in_tutorials="23820")
+    cohort_id = build_cohort(database, maths_in_tutorials="23436", second_half="23820")
     client.put(f"{BASE}/term-links/{HUB_TERM}", json={"portalTermCode": TERM})
     # The week between the halves: the first has finished, the second has not begun.
-    timetable(client, {"22151": (-60, -10), "23820": (10, 60), "23652": (-60, 60)})
-    registrations(client, [{"studentId": "A001", "crn": "23652", "courseCode": "MATH-011"}])
+    timetable(client, {"22151": (-60, 60), "23436": (-60, -10), "23820": (10, 60), "23652": (-60, 60)})
+    registrations(
+        client,
+        [
+            {"studentId": "A001", "crn": "22151", "courseCode": "MATH-001"},
+            {"studentId": "A001", "crn": "23652", "courseCode": "MATH-011"},
+        ],
+    )
 
     found = client.get(f"{BASE}/cohorts/{cohort_id}/registration-check").json()["mismatches"]
     maths = [m for m in found if m["studentId"] == "A001" and m["courseCode"] == "MATH-001"]
 
     # One verdict about the course, naming the half to be registered in — not both.
     assert len(maths) == 1
-    assert maths[0]["expected"] == ["23820"]
+    assert maths[0]["expected"] == ["22151", "23820"]
+
+
+def test_a_tutorial_that_has_not_started_is_still_expected_while_its_lecture_runs(
+    client: TestClient, database: StudentDatabase
+):
+    """The date rule chooses between halves, never between a lecture and its tutorial.
+
+    Tiered together under one course code, a tutorial starting a week after its lecture
+    was not expected — so a student placed in it was never reported missing, and the
+    section never reached the list of registrations to ask for.
+    """
+    cohort_id = build_cohort(database, maths_in_tutorials="23820")
+    client.put(f"{BASE}/term-links/{HUB_TERM}", json={"portalTermCode": TERM})
+    # The lecture has begun; the tutorial starts next week.
+    timetable(client, {"22151": (-7, 90), "23820": (3, 90), "23652": (-7, 90)})
+    registrations(
+        client,
+        [
+            {"studentId": "A001", "crn": "22151", "courseCode": "MATH-001"},
+            {"studentId": "A001", "crn": "23652", "courseCode": "MATH-011"},
+        ],
+    )
+
+    found = client.get(f"{BASE}/cohorts/{cohort_id}/registration-check").json()["mismatches"]
+    maths = [m for m in found if m["studentId"] == "A001" and m["courseCode"] == "MATH-001"]
+
+    assert len(maths) == 1
+    assert maths[0]["kind"] == "missing"
+    assert maths[0]["expected"] == ["22151", "23820"]
 
 
 def test_a_crn_the_registrar_has_not_timetabled_stays_expected_and_is_counted(
@@ -1374,14 +1415,15 @@ def test_a_finished_section_a_student_is_still_registered_in_is_not_a_surplus(
     expected, so it reads as a section that is no group of theirs. Sixteen students on one
     real course. Swapping one false warning for another is not a fix.
     """
-    cohort_id = build_cohort(database, maths_in_tutorials="23820")
+    cohort_id = build_cohort(database, maths_in_tutorials="23436", second_half="23820")
     client.put(f"{BASE}/term-links/{HUB_TERM}", json={"portalTermCode": TERM})
-    timetable(client, {"22151": (-60, -10), "23820": (-5, 40), "23652": (-60, 40)})
+    timetable(client, {"22151": (-60, 40), "23436": (-60, -10), "23820": (-5, 40), "23652": (-60, 40)})
     registrations(
         client,
         [
             # Both halves, which is what a student who has come through a handover has.
             {"studentId": "A001", "crn": "22151", "courseCode": "MATH-001"},
+            {"studentId": "A001", "crn": "23436", "courseCode": "MATH-001"},
             {"studentId": "A001", "crn": "23820", "courseCode": "MATH-001"},
             {"studentId": "A001", "crn": "23652", "courseCode": "MATH-011"},
         ],
@@ -1394,12 +1436,13 @@ def test_a_finished_section_a_student_is_still_registered_in_is_not_a_surplus(
 
 def test_a_section_that_was_never_ours_is_still_a_surplus(client: TestClient, database: StudentDatabase):
     """The other side of that: `ever` must not become a licence to register anywhere."""
-    cohort_id = build_cohort(database, maths_in_tutorials="23820")
+    cohort_id = build_cohort(database, maths_in_tutorials="23436", second_half="23820")
     client.put(f"{BASE}/term-links/{HUB_TERM}", json={"portalTermCode": TERM})
-    timetable(client, {"22151": (-60, -10), "23820": (-5, 40), "23652": (-60, 40)})
+    timetable(client, {"22151": (-60, 40), "23436": (-60, -10), "23820": (-5, 40), "23652": (-60, 40)})
     registrations(
         client,
         [
+            {"studentId": "A001", "crn": "22151", "courseCode": "MATH-001"},
             {"studentId": "A001", "crn": "23820", "courseCode": "MATH-001"},
             {"studentId": "A001", "crn": "99999", "courseCode": "MATH-001"},
             {"studentId": "A001", "crn": "23652", "courseCode": "MATH-011"},
