@@ -69,6 +69,14 @@ class GroupNotFound(Exception):
     pass
 
 
+class CommentNotFound(Exception):
+    pass
+
+
+class NotTheAuthor(Exception):
+    """Only the one who wrote a line of a thread may take it back."""
+
+
 class CourseNotFound(Exception):
     pass
 
@@ -97,6 +105,17 @@ class SavedSearch:
 
 class InvalidFilter(Exception):
     """A saved search must be portal codes and nothing else."""
+
+
+def _comment(row: Any) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "studentId": row["student_id"],
+        "body": row["body"],
+        "authorEmail": row["author_email"],
+        "authorName": row["author_name"],
+        "createdAt": row["created_at"],
+    }
 
 
 def _now() -> str:
@@ -1196,6 +1215,67 @@ class StudentDatabase:
             }
             for cohort_id in cohort_ids
         ]
+
+    # --------------------------------------------------------------- comments
+    def comments_of(self, student_id: str) -> list[dict[str, Any]]:
+        """Everything said about one student, oldest first — a thread reads down."""
+        with self.engine.connect() as connection:
+            rows = (
+                connection.execute(
+                    text("""SELECT id, student_id, body, author_email, author_name, created_at
+                            FROM student_comments WHERE student_id = :student
+                            ORDER BY created_at, id"""),
+                    {"student": _text(student_id)},
+                )
+                .mappings()
+                .all()
+            )
+        return [_comment(row) for row in rows]
+
+    def add_comment(self, *, student_id: str, body: str, author_email: str, author_name: str) -> dict[str, Any]:
+        """One line on the student's thread, signed by whoever is signed in and dated now.
+
+        The body keeps its line breaks: a comment is prose, not a field.
+        """
+        row = {
+            "id": str(uuid4()),
+            "student_id": _text(student_id),
+            "body": str(body or "").strip(),
+            "author_email": _text(author_email),
+            "author_name": _text(author_name),
+            "created_at": _now(),
+        }
+        with self.engine.begin() as connection:
+            connection.execute(
+                text("""INSERT INTO student_comments (id, student_id, body, author_email, author_name, created_at)
+                        VALUES (:id, :student_id, :body, :author_email, :author_name, :created_at)"""),
+                row,
+            )
+        return _comment(row)
+
+    def remove_comment(self, comment_id: str, *, author_email: str) -> None:
+        with self.engine.begin() as connection:
+            held = connection.execute(
+                text("SELECT author_email FROM student_comments WHERE id = :id"), {"id": comment_id}
+            ).scalar()
+            if held is None:
+                raise CommentNotFound(comment_id)
+            if str(held).casefold() != _text(author_email).casefold():
+                raise NotTheAuthor(comment_id)
+            connection.execute(text("DELETE FROM student_comments WHERE id = :id"), {"id": comment_id})
+
+    def comment_counts(self) -> dict[str, dict[str, Any]]:
+        """How many lines each student carries, and when the last was written — for the rows."""
+        with self.engine.connect() as connection:
+            rows = (
+                connection.execute(
+                    text("""SELECT student_id, COUNT(*) AS lines, MAX(created_at) AS last_at
+                            FROM student_comments GROUP BY student_id""")
+                )
+                .mappings()
+                .all()
+            )
+        return {row["student_id"]: {"count": int(row["lines"]), "lastAt": row["last_at"]} for row in rows}
 
     # ------------------------------------------------------------- exemptions
 

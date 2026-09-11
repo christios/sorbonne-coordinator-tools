@@ -7,7 +7,7 @@ from sqlalchemy import text
 
 from sorbonne.api import student_database as api
 from sorbonne.main import app
-from sorbonne.services import auth_gate
+from sorbonne.services import auth_gate, coordinator_directory
 from sorbonne.services.staff_auth import StaffUser
 from sorbonne.services.student_database import StudentDatabase
 from tests.conftest import TEST_DATABASE_URL
@@ -38,6 +38,9 @@ def empty_shared_tables() -> None:
     """
     with StudentDatabase(TEST_DATABASE_URL).engine.begin() as connection:
         connection.execute(text("DELETE FROM student_views"))
+        # A thread is keyed on the student id, which the tests reuse; a line one test wrote
+        # would read as the next test's.
+        connection.execute(text("DELETE FROM student_comments"))
         connection.execute(text("DELETE FROM students"))
 
 
@@ -1217,3 +1220,84 @@ def test_an_exemption_from_a_shared_set_reaches_every_cohort_taught_in_it(
     assert [(row["studentId"], row["scopeCode"], row["courseCode"]) for row in listed] == [
         (STUDENTS[0], "LANG", "SCEN-101")
     ]
+
+
+# ------------------------------------------------------------------- comments
+
+
+def test_a_comment_is_signed_by_whoever_wrote_it_and_dated(client: TestClient):
+    made = client.post(
+        "/api/v1/student-database/students/A001/comments",
+        json={"body": "Spoke to the registrar; the transfer lands next week."},
+    )
+    assert made.status_code == status.HTTP_201_CREATED
+
+    listed = client.get("/api/v1/student-database/students/A001/comments").json()["comments"]
+    assert [(c["authorName"], c["authorEmail"], c["body"]) for c in listed] == [
+        ("Coordinator", "coordinator@sorbonne.ae", "Spoke to the registrar; the transfer lands next week.")
+    ]
+    assert listed[0]["createdAt"]
+    assert client.get("/api/v1/student-database/comments/summary").json()["counts"]["A001"]["count"] == 1
+
+
+def test_a_thread_reads_oldest_first_and_an_empty_line_is_refused(client: TestClient):
+    client.post("/api/v1/student-database/students/A001/comments", json={"body": "first"})
+    client.post("/api/v1/student-database/students/A001/comments", json={"body": "second"})
+
+    listed = client.get("/api/v1/student-database/students/A001/comments").json()["comments"]
+
+    assert [c["body"] for c in listed] == ["first", "second"]
+    assert client.post("/api/v1/student-database/students/A001/comments", json={"body": "   "}).status_code == 422
+
+
+def test_only_its_author_may_remove_a_comment(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    made = client.post("/api/v1/student-database/students/A001/comments", json={"body": "mine"}).json()
+
+    monkeypatch.setattr(
+        auth_gate,
+        "user_for_request",
+        lambda *_args, **_kwargs: StaffUser(email="colleague@sorbonne.ae", name="Colleague", is_admin=False),
+    )
+    assert client.delete(f"/api/v1/student-database/comments/{made['id']}").status_code == status.HTTP_403_FORBIDDEN
+
+    monkeypatch.setattr(
+        auth_gate,
+        "user_for_request",
+        lambda *_args, **_kwargs: StaffUser(email="coordinator@sorbonne.ae", name="Coordinator", is_admin=True),
+    )
+    assert client.delete(f"/api/v1/student-database/comments/{made['id']}").status_code == status.HTTP_204_NO_CONTENT
+    assert client.get("/api/v1/student-database/students/A001/comments").json()["comments"] == []
+
+
+def test_a_comment_is_signed_with_the_name_settings_gives_its_author(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+):
+    """The session carries whatever Google (or the local sign-in) calls the person; the
+    name an administrator set in Settings is what the department knows them by.
+
+    The directory is faked, as `test_users_api` fakes it: the real one opens whatever
+    database the process is configured for, which under the tests is not the test one.
+    """
+    names = {"coordinator@sorbonne.ae": "Christian Cayralat"}
+
+    class Settings:
+        def get(self, email: str) -> dict[str, str]:
+            if email not in names:
+                raise coordinator_directory.AccountNotFound(email)
+            return {"email": email, "name": names[email]}
+
+    monkeypatch.setattr(coordinator_directory, "directory", Settings)
+
+    client.post("/api/v1/student-database/students/A001/comments", json={"body": "signed"})
+    listed = client.get("/api/v1/student-database/students/A001/comments").json()["comments"]
+    assert listed[0]["authorName"] == "Christian Cayralat"
+
+    # A name changed in Settings later signs the old line too.
+    names["coordinator@sorbonne.ae"] = "C. Cayralat"
+    listed = client.get("/api/v1/student-database/students/A001/comments").json()["comments"]
+    assert listed[0]["authorName"] == "C. Cayralat"
+
+    # Somebody since taken off the list keeps the signature stamped when they wrote.
+    del names["coordinator@sorbonne.ae"]
+    listed = client.get("/api/v1/student-database/students/A001/comments").json()["comments"]
+    assert listed[0]["authorName"] == "Christian Cayralat"

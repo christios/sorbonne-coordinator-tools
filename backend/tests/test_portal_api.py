@@ -58,6 +58,7 @@ def empty_tables() -> None:
             # reads them by SEMESTER, and the semester here is a constant. Left behind,
             # they silence a course a later test is asserting a difference about.
             "course_exemptions",
+            "student_comments",
             "students",
             "student_cohorts",
             # The part-time database, because the two sides of one teacher are matched on

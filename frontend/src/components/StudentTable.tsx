@@ -1,4 +1,4 @@
-import { AlertTriangle, CalendarClock, ClipboardList, Clock3, RotateCcw, X } from "lucide-react";
+import { AlertTriangle, CalendarClock, ClipboardList, Clock3, MessageSquare, RotateCcw, X } from "lucide-react";
 import { memo, useCallback } from "react";
 
 import { DataTable, type Sort } from "@/components/DataTable";
@@ -35,6 +35,8 @@ export const StudentTable = memo(function StudentTable({
   onToggleAll,
   onOpenHistory,
   onDismissWarning,
+  commentCounts,
+  onOpenComments,
   highlightedId,
   onRowClick,
   empty,
@@ -53,6 +55,10 @@ export const StudentTable = memo(function StudentTable({
   onOpenHistory: (row: StudentRow) => void;
   /** Cohorts page only: put a warning away until the record changes, or bring it back. */
   onDismissWarning?: (key: string, dismissed: boolean) => void;
+  /** How many comments each student carries; a row with any shows the mark all the time. */
+  commentCounts?: ReadonlyMap<string, number>;
+  /** Open the student's thread from the row. Without it, no mark is drawn. */
+  onOpenComments?: (row: StudentRow) => void;
   /** The row whose history is open beside the table, so the eye can find it. */
   highlightedId?: string;
   /** A click anywhere on the row that is not a control: the student's record. */
@@ -62,6 +68,30 @@ export const StudentTable = memo(function StudentTable({
   const renderCell = useCallback(
     (row: StudentRow, column: StudentColumn) => studentCell(row, column, onDismissWarning),
     [onDismissWarning],
+  );
+  const rowLead = useCallback(
+    (row: StudentRow) => {
+      if (!onOpenComments) return null;
+      const count = commentCounts?.get(row.studentId) ?? 0;
+      const who = row.name || row.studentId;
+      return (
+        <button
+          type="button"
+          aria-label={count ? `${count} comment${count === 1 ? "" : "s"} on ${who}` : `Comment on ${who}`}
+          title={count ? "Read the comments on this student, or add one" : "Add a comment on this student"}
+          onClick={() => onOpenComments(row)}
+          // With comments it stays in view, since it is saying something; without, it
+          // waits for the pointer like the checkbox beside it.
+          className={`inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[11px] tabular-nums hover:bg-[#f2f7fb] ${
+            count ? "text-[#1f4e79]" : "text-[#98a2b3] opacity-0 focus-visible:opacity-100 group-hover:opacity-100"
+          }`}
+        >
+          <MessageSquare size={13} aria-hidden="true" />
+          {count ? <span>{count}</span> : null}
+        </button>
+      );
+    },
+    [commentCounts, onOpenComments],
   );
   const rowActions = useCallback(
     (row: StudentRow) => (
@@ -90,6 +120,7 @@ export const StudentTable = memo(function StudentTable({
       cellText={cellText}
       renderCell={renderCell}
       rowActions={rowActions}
+      rowLead={onOpenComments ? rowLead : undefined}
       onSort={onSort}
       onResize={onResize}
       onReorder={onReorder}

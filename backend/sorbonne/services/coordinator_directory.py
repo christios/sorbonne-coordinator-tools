@@ -215,6 +215,20 @@ class CoordinatorDirectory:
 _cache: dict[str, tuple[float, Access | None]] = {}
 
 
+def name_for(email: str, fallback: str = "") -> str:
+    """What to call the person behind an address: the name an administrator set in
+    Settings, else whatever the caller has (Google's name from the session), else the
+    address. Every place that signs something for a coordinator reads this, so a name
+    changed in Settings changes everywhere at once — the profile, and every line of a
+    thread they wrote.
+    """
+    try:
+        named = str(directory().get(email)["name"] or "").strip()
+    except Exception:  # noqa: BLE001 - a directory hiccup must not break a page
+        named = ""
+    return named or str(fallback or "").strip() or email
+
+
 @lru_cache(maxsize=1)
 def directory() -> CoordinatorDirectory:
     """The one directory this process talks to, opened on first use."""

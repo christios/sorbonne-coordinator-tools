@@ -6,6 +6,7 @@ import { StudentRoster } from "@/components/StudentRoster";
 import { forgetHistory, recordPull } from "@/services/pullHistory";
 import { forgetRosters, rememberPull, rememberSync } from "@/services/rosterStore";
 import * as rosters from "@/services/scenRosters";
+import * as comments from "@/services/studentComments";
 import * as database from "@/services/studentDatabase";
 
 /** The columns come from the portal's own grid, so the tests describe one. */
@@ -173,6 +174,8 @@ beforeEach(() => {
   window.localStorage.clear();
   vi.spyOn(database, "fetchStudents").mockResolvedValue(HELD);
   vi.spyOn(rosters, "fetchSchema").mockResolvedValue(SCHEMA);
+  vi.spyOn(comments, "fetchCommentSummary").mockResolvedValue({});
+  vi.spyOn(comments, "fetchComments").mockResolvedValue([]);
 });
 
 afterEach(async () => {
@@ -1232,5 +1235,25 @@ describe("looking past one cohort", () => {
     expect(await screen.findByText("A002")).toBeTruthy();
     expect(screen.getByText("A003")).toBeTruthy();
     expect(screen.queryByText("A999")).toBeNull();
+  });
+});
+
+describe("comments from the row", () => {
+  it("marks a row that carries comments with how many, and opens the thread from it", async () => {
+    vi.spyOn(comments, "fetchCommentSummary").mockResolvedValue({ A001: { count: 2, lastAt: "2026-09-11T09:15:00+00:00" } });
+    vi.spyOn(comments, "fetchComments").mockResolvedValue([
+      { id: "c1", studentId: "A001", body: "Spoke to the registrar.", authorEmail: "x@sorbonne.ae", authorName: "Colleague", createdAt: "2026-09-10T08:30:00+00:00" },
+    ]);
+    await withNames();
+    renderRoster();
+    await screen.findByText("Amira Haddad");
+
+    // Rows with nothing said offer the mark too; it only shows while the pointer is there.
+    expect(screen.getAllByRole("button", { name: /^Comment on / }).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: "2 comments on Amira Haddad" }));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(await within(dialog).findByText("Spoke to the registrar.")).toBeTruthy();
+    expect(within(dialog).getByLabelText("Add a comment on Amira Haddad")).toBeTruthy();
   });
 });

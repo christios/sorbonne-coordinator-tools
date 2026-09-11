@@ -7,6 +7,7 @@ import { StudentRecord } from "@/components/StudentRecord";
 import * as lists from "@/services/portalLists";
 import type { PullHistory } from "@/services/pullHistory";
 import type { StudentRow } from "@/services/rosterView";
+import * as comments from "@/services/studentComments";
 import * as database from "@/services/studentDatabase";
 import * as timetables from "@/services/timetables";
 
@@ -80,6 +81,7 @@ beforeEach(() => {
     ],
   });
   vi.spyOn(database, "fetchAssignments").mockResolvedValue({ A001: { "scope-td": "td-1" } });
+  vi.spyOn(comments, "fetchComments").mockResolvedValue([]);
 });
 
 afterEach(() => vi.restoreAllMocks());
@@ -251,5 +253,17 @@ describe("after placing them from their own record", () => {
 
     await waitFor(() => expect(invalidated).toHaveBeenCalledWith({ queryKey: ["students"] }));
     expect(invalidated).toHaveBeenCalledWith({ queryKey: ["registration-check"] });
+  });
+});
+
+describe("the thread on the record", () => {
+  it("is the same thread the row's mark opens, under the portal's card", async () => {
+    vi.spyOn(comments, "fetchComments").mockResolvedValue([
+      { id: "c1", studentId: "A001", body: "Spoke to the registrar.", authorEmail: "x@sorbonne.ae", authorName: "Colleague", createdAt: "2026-09-10T08:30:00+00:00" },
+    ]);
+    show();
+
+    expect(await screen.findByText("Spoke to the registrar.")).toBeTruthy();
+    expect(screen.getByLabelText("Add a comment on Amira Haddad")).toBeTruthy();
   });
 });

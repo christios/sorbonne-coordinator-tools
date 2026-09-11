@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, ArrowRightCircle, Check, ChevronDown, EyeOff, Wand2 } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
+import { CommentThread } from "@/components/CommentThread";
 import { Modal } from "@/components/Modal";
 import { PlaceInBlock } from "@/components/PlaceInBlock";
 import {
@@ -342,6 +343,7 @@ export function StudentRecord({
 
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
         {/* ------------------------------------------------------------ the portal */}
+        <div className="space-y-5">
         <Card title="From the portal" note="As this browser last saw it. Nothing here is on the server.">
           {Object.keys(portal).length === 0 ? (
             <Empty>No portal pull holds this student. Sync a portal filter on the Students page.</Empty>
@@ -365,6 +367,12 @@ export function StudentRecord({
             </div>
           )}
         </Card>
+
+          {/* ----------------------------------------------------------- comments */}
+          <Card title="Comments" note="On the server: every coordinator who opens this student reads the same thread.">
+            <CommentThread studentId={row.studentId} label={row.name || row.studentId} />
+          </Card>
+        </div>
 
         <div className="space-y-5">
           {/* ------------------------------------------------------------ groups */}

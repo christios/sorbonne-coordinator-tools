@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 
 import { ColumnMenu } from "@/components/ColumnMenu";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { CommentThread } from "@/components/CommentThread";
 import { Modal } from "@/components/Modal";
 import { CopyButton } from "@/components/CopyButton";
 import { CopyPresetMenu } from "@/components/CopyPresetMenu";
@@ -49,6 +50,7 @@ import {
   type ColumnLayout,
 } from "@/services/studentColumns";
 import { applyFilters, type FilterModel } from "@/services/tableFilter";
+import { fetchCommentSummary } from "@/services/studentComments";
 import {
   createCohort,
   fetchStudents,
@@ -198,6 +200,13 @@ export function StudentRoster({
   const [historyOf, setHistoryOf] = useState<StudentRow | null>(null);
   // The one student whose whole record is open: a click anywhere on their row.
   const [recordOf, setRecordOf] = useState<StudentRow | null>(null);
+  // The thread opened from a row's mark; the record has its own copy of the same thread.
+  const [commentingOn, setCommentingOn] = useState<StudentRow | null>(null);
+  const commentSummary = useQuery({ queryKey: ["comment-summary"], queryFn: fetchCommentSummary, retry: false });
+  const commentCounts = useMemo(
+    () => new Map(Object.entries(commentSummary.data ?? {}).map(([id, held]) => [id, held.count])),
+    [commentSummary.data],
+  );
   const [layout, setLayout] = useState<ColumnLayout | null>(null);
   const [filters, setFilters] = useState<FilterModel[]>([]);
   const [query, setQuery] = useState("");
@@ -592,6 +601,13 @@ export function StudentRoster({
         </p>
       ) : null}
 
+      <Modal
+        open={Boolean(commentingOn)}
+        title={commentingOn ? `Comments — ${commentingOn.name || commentingOn.studentId}` : "Comments"}
+        onClose={() => setCommentingOn(null)}
+      >
+        {commentingOn ? <CommentThread studentId={commentingOn.studentId} label={commentingOn.name || commentingOn.studentId} /> : null}
+      </Modal>
       {recordOf ? (
         <StudentRecord open row={recordOf} cohorts={cohorts} history={history} onClose={() => setRecordOf(null)} />
       ) : null}
@@ -802,6 +818,8 @@ export function StudentRoster({
         onResize={resize}
         onReorder={reorder}
         onOpenHistory={setHistoryOf}
+        commentCounts={commentCounts}
+        onOpenComments={setCommentingOn}
         onDismissWarning={onDismissWarning}
         highlightedId={historyOf?.studentId}
         onRowClick={setRecordOf}

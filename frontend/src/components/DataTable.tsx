@@ -75,6 +75,8 @@ export type DataTableProps<T> = {
   renderCell?: (row: T, column: GridColumn<T>) => ReactNode | undefined;
   /** Buttons at the end of the row, beside the copy-row button. */
   rowActions?: (row: T) => ReactNode;
+  /** Something small beside the row's checkbox, before the first column: a comment mark. */
+  rowLead?: (row: T) => ReactNode;
   onSort: (key: string) => void;
   onResize: (id: string, width: number) => void;
   onReorder: (id: string, beforeId: string) => void;
@@ -114,6 +116,7 @@ export function DataTable<T>({
   cellText = plainCellText,
   renderCell,
   rowActions,
+  rowLead,
   onSort,
   onResize,
   onReorder,
@@ -188,7 +191,7 @@ export function DataTable<T>({
     >
       <table className="text-left text-sm" style={{ tableLayout: "fixed", width: "max-content", minWidth: "100%" }}>
         <colgroup>
-          <col style={{ width: 40 }} />
+          <col style={{ width: rowLead ? 64 : 40 }} />
           {columns.map((column) => (
             <col
               key={column.id}
@@ -254,6 +257,7 @@ export function DataTable<T>({
                 cellText={cellText}
                 renderCell={renderCell}
                 rowActions={rowActions}
+                rowLead={rowLead}
                 onToggle={onToggle}
                 onRowClick={onRowClick}
                 highlighted={id === highlightedId}
@@ -288,6 +292,7 @@ type RowProps<T> = {
   cellText: (row: T, column: GridColumn<T>) => string;
   renderCell?: (row: T, column: GridColumn<T>) => ReactNode | undefined;
   rowActions?: (row: T) => ReactNode;
+  rowLead?: (row: T) => ReactNode;
   onToggle: (id: string, extend?: boolean) => void;
   onRowClick?: (row: T) => void;
   highlighted: boolean;
@@ -308,6 +313,7 @@ function DataTableRowInner<T>({
   cellText,
   renderCell,
   rowActions,
+  rowLead,
   onToggle,
   onRowClick,
   highlighted,
@@ -317,7 +323,7 @@ function DataTableRowInner<T>({
   return (
     <tr
       data-row-id={id}
-      className={`border-t border-[#eef1f5] ${highlighted ? "bg-[#eef4fa] shadow-[inset_3px_0_0_#1f4e79]" : ""} ${
+      className={`group border-t border-[#eef1f5] ${highlighted ? "bg-[#eef4fa] shadow-[inset_3px_0_0_#1f4e79]" : ""} ${
         onRowClick ? "cursor-pointer hover:bg-[#f8fafc]" : ""
       }`}
       onClick={
@@ -333,16 +339,24 @@ function DataTableRowInner<T>({
       }
     >
       <td className="px-3 py-2">
-        <input
-          type="checkbox"
-          aria-label={`Select ${label}`}
-          checked={selected}
-          // Only `click` carries the modifier, and only `change` should decide anything.
-          onClick={(event) => {
-            extend.current = event.shiftKey;
-          }}
-          onChange={() => onToggle(id, extend.current)}
-        />
+        {/*
+          * The box shows while the pointer is on the row, and stays once ticked. A column
+          * of empty boxes said nothing a row's hover cannot say, and drew the eye first.
+          */}
+        <span className="flex items-center gap-1.5">
+          <input
+            type="checkbox"
+            aria-label={`Select ${label}`}
+            checked={selected}
+            // Only `click` carries the modifier, and only `change` should decide anything.
+            onClick={(event) => {
+              extend.current = event.shiftKey;
+            }}
+            onChange={() => onToggle(id, extend.current)}
+            className={selected ? "" : "opacity-0 focus-visible:opacity-100 group-hover:opacity-100"}
+          />
+          {rowLead?.(row)}
+        </span>
       </td>
       {columns.map((column) => {
         const drawn = renderCell?.(row, column);

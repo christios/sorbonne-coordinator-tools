@@ -9,6 +9,7 @@ import { forgetHistory, recordPull } from "@/services/pullHistory";
 import { forgetRosters, rememberPull } from "@/services/rosterStore";
 import { clearRun } from "@/services/syncRun";
 import * as rosters from "@/services/scenRosters";
+import * as comments from "@/services/studentComments";
 import * as database from "@/services/studentDatabase";
 import type { Cohort, DiscrepancyRule, Student } from "@/services/studentDatabase";
 
@@ -92,6 +93,8 @@ beforeEach(async () => {
   // network, fail, and put every check in error — which switches the registration prune
   // off, so a test about pruning would pass without the prune ever running.
   vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue(report([], [checked()]));
+  vi.spyOn(comments, "fetchCommentSummary").mockResolvedValue({});
+  vi.spyOn(comments, "fetchComments").mockResolvedValue([]);
   vi.spyOn(rosters, "fetchSchema").mockResolvedValue({
     ok: true,
     source: "built-in",
