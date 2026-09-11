@@ -7,6 +7,7 @@ import { CohortsPage } from "@/components/CohortsPage";
 import * as lists from "@/services/portalLists";
 import { forgetHistory, recordPull } from "@/services/pullHistory";
 import { forgetRosters, rememberPull } from "@/services/rosterStore";
+import { clearRun } from "@/services/syncRun";
 import * as rosters from "@/services/scenRosters";
 import * as database from "@/services/studentDatabase";
 import type { Cohort, DiscrepancyRule, Student } from "@/services/studentDatabase";
@@ -1173,5 +1174,38 @@ describe("one cohort, or every cohort", () => {
     expect(screen.getByRole("combobox", { name: "Cohort" }).textContent).toContain("L2 Maths");
     expect(await screen.findByText("Karim Nasser")).toBeTruthy();
     await waitFor(() => expect(screen.queryByText("Amira Haddad")).toBeNull());
+  });
+});
+
+describe("who a cohort claims, after a sync", () => {
+  it("stops claiming a student once a portal sync says they have moved on", async () => {
+    /*
+     * The page read the browser's rows once, on mount. A sync from the header changed
+     * them underneath it, so a student the registrar had moved to L1 went on being
+     * claimed by Foundation Year from a row that said FY — while his own record, reading
+     * the fresh row, said L1. Reported from a real cohort.
+     */
+    const FYS: Cohort = { ...L1, id: "c1", name: "FYS-S1", yearLevel: "FY" };
+    const L1_COHORT: Cohort = { ...L1, id: "c2", name: "L1 Maths", yearLevel: "L1" };
+    const BELONGS: DiscrepancyRule = { id: "r4", field: "MAJOR_CODE", kind: "belongs", values: [], cohortId: "" };
+    vi.spyOn(database, "fetchStudents").mockResolvedValue([{ ...student("A001", "c2"), cohortName: "L1 Maths" }]);
+    vi.spyOn(database, "fetchDiscrepancyRules").mockResolvedValue([BELONGS]);
+    const samvel = (yearLevel: string) => ({
+      SPRIDEN_ID: "A001", FULL_NAME: "Samvel Martirosyan", MAJOR_CODE_DESC: "Applied Mathematics and Physics", YEARLEVEL_CODE: yearLevel,
+    });
+    await portalSays([samvel("FY")]);
+
+    renderPage([FYS, L1_COHORT]);
+    expect(await screen.findByText(/One student belongs to FYS-S1 by what it expects/)).toBeTruthy();
+
+    // The registrar has moved him: the next pull says L1. Then the sync run is put away,
+    // which is the last thing a finished sync does.
+    await rememberPull({
+      kind: "students", presetId: "view-1", name: "All", count: 1, expect: null, warning: null,
+      fetchedAt: Date.parse("2026-09-11T08:00:00Z"), rows: [samvel("L1")],
+    });
+    clearRun();
+
+    await waitFor(() => expect(screen.queryByText(/belongs to FYS-S1 by what it expects/)).toBeNull());
   });
 });

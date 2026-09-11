@@ -47,6 +47,7 @@ import { describeAge, latestPullAt, rowsHeld } from "@/services/rosterStore";
 import { displayNameOf, fetchSchema, studentIdOf, type RosterRow } from "@/services/scenRosters";
 import { fetchDiscrepancyRules, fetchStudents, type Cohort, type Student } from "@/services/studentDatabase";
 import { fetchTimetableTerms } from "@/services/timetables";
+import { isRunning, subscribe } from "@/services/syncRun";
 
 /** This browser's evidence: what the portal last said, and every change it has recorded. */
 type Evidence = {
@@ -335,27 +336,40 @@ export function CohortsPage({
   const [evidence, setEvidence] = useState<Evidence | null>(null);
   useEffect(() => {
     let live = true;
-    void Promise.all([rowsHeld(), allChanges(), latestPullAt()]).then(([rows, changes, asOf]) => {
-      if (!live) return;
-      const current = new Map<string, Record<string, string>>();
-      const names = new Map<string, string>();
-      const carried = new Set<string>();
-      for (const row of rows as RosterRow[]) {
-        const id = studentIdOf(row);
-        if (!id) continue;
-        const flat: Record<string, string> = {};
-        for (const [field, value] of Object.entries(row)) {
-          const text = String(value ?? "");
-          flat[field] = text;
-          if (text.trim()) carried.add(field);
+    const load = () =>
+      void Promise.all([rowsHeld(), allChanges(), latestPullAt()]).then(([rows, changes, asOf]) => {
+        if (!live) return;
+        const current = new Map<string, Record<string, string>>();
+        const names = new Map<string, string>();
+        const carried = new Set<string>();
+        for (const row of rows as RosterRow[]) {
+          const id = studentIdOf(row);
+          if (!id) continue;
+          const flat: Record<string, string> = {};
+          for (const [field, value] of Object.entries(row)) {
+            const text = String(value ?? "");
+            flat[field] = text;
+            if (text.trim()) carried.add(field);
+          }
+          current.set(id, flat);
+          names.set(id, displayNameOf(row));
         }
-        current.set(id, flat);
-        names.set(id, displayNameOf(row));
-      }
-      setEvidence({ current, names, changes, carried, asOf });
+        setEvidence({ current, names, changes, carried, asOf });
+      });
+    load();
+    /*
+     * Read again once a portal sync has finished. The sync runs from the header without
+     * remounting this page, and this was read once on mount — so a student the registrar
+     * had moved went on being claimed by the cohort they left, from a row the browser no
+     * longer held, until the page was reloaded. The student's own record, which reads the
+     * fresh row, said L1 while this said FY.
+     */
+    const stop = subscribe((run) => {
+      if (!isRunning(run)) load();
     });
     return () => {
       live = false;
+      stop();
     };
   }, []);
 
