@@ -200,8 +200,8 @@ export function StudentRecord({
         crns: scope.courses.flatMap((course) => {
           const parts = partsOf(group?.crns[course.id]).filter((part) => part.crn);
           return parts.length
-            ? parts.map((part) => ({ courseId: course.id, courseCode: course.code, crn: part.crn }))
-            : [{ courseId: course.id, courseCode: course.code, crn: "" }];
+            ? parts.map((part) => ({ courseId: course.id, courseCode: course.code, courseName: course.name, crn: part.crn }))
+            : [{ courseId: course.id, courseCode: course.code, courseName: course.name, crn: "" }];
         }),
       };
     });

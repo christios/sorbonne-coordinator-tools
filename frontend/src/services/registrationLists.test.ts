@@ -7,8 +7,8 @@ const PLACEMENTS = [
     scope: { id: "s-cm", code: "CM" },
     group: { label: "Mathematics" },
     crns: [
-      { courseCode: "MATH-100", crn: "22134" },
-      { courseCode: "PHYS-118", crn: "22150" },
+      { courseCode: "MATH-100", crn: "22134", courseName: "Mathematics 1" },
+      { courseCode: "PHYS-118", crn: "22150", courseName: "Geometric Optics" },
       // A section the group has no CRN for is not a CRN they hold.
       { courseCode: "MATH-113", crn: "" },
     ],
@@ -48,6 +48,10 @@ describe("the two lists", () => {
     ]);
     // A CRN both sides have keeps the registrar's name for it.
     expect(lines.find((line) => line.crn === "22134")?.title).toBe("Mathematics 1 CM");
+    // A CRN only we have is still named — by us, since the registrar has nothing to say.
+    expect(lines.find((line) => line.crn === "22150")?.title).toBe("Geometric Optics");
+    // A placement that never said a name stays blank rather than inventing one.
+    expect(lines.find((line) => line.crn === "23305")?.title).toBe("French A1.5");
     // And the group of ours it came from.
     expect(lines.find((line) => line.crn === "22150")?.from).toBe("CM Mathematics");
   });
