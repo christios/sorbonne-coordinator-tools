@@ -5,7 +5,7 @@ from sorbonne.services.teacher_store import TeacherStore
 import importlib.util as _importlib_util
 from pathlib import Path as _Path
 
-from sorbonne.services.teacher_store import _academic_year, course_base_title, course_title_case
+from sorbonne.services.teacher_store import _academic_year, _sequence_rank, course_title_case
 
 _spec = _importlib_util.spec_from_file_location(
     "sweep_titles",
@@ -153,15 +153,16 @@ def test_sweeps_only_a_bound_title_that_differs_by_capitalisation() -> None:
     assert corrected_title("", "Geometric optics") == ""
 
 
-def test_trims_a_section_marker_but_not_a_word_that_looks_like_one() -> None:
-    """A section's kind or group belongs to the section, not to the course."""
-    assert course_base_title("Geometric Optics -CM") == "Geometric Optics"
-    assert course_base_title("GESTION TD Gr1") == "GESTION"
-    assert course_base_title("Advanced Arabic course I GrpA") == "Advanced Arabic course I"
-    assert course_base_title("Geometric Optics") == "Geometric Optics"
-    # "EG" is part of this course's name; only the trailing "G1" is a group.
-    assert course_base_title("FLE for L1 EG G1") == "FLE for L1 EG"
-    # An abbreviation's full stop belongs to the name, not to the separator.
-    assert course_base_title("Computer Sc.- G3-TD") == "Computer Sc."
-    # Never trim a name down to nothing.
-    assert course_base_title("TD") == "TD"
+
+def test_the_course_takes_its_name_from_the_portal_s_lowest_numbered_row() -> None:
+    """The portal numbers a course's rows; the lowest is the course, the rest its sections."""
+    rows = [("1", "Geometric Optics -CM"), ("0", "Geometric Optics"), ("4", "Geometric Optics -TD")]
+    assert min(rows, key=lambda row: _sequence_rank(*row))[1] == "Geometric Optics"
+
+    # Where several rows share the lowest number, the shortest name is the course's.
+    shared = [("0", "Economie Publique GR1"), ("0", "Economie Publique"), ("0", "Economie Publique GR2")]
+    assert min(shared, key=lambda row: _sequence_rank(*row))[1] == "Economie Publique"
+
+    # A course whose rows start at 1 still resolves.
+    from_one = [("2", "GESTION TD Gr1"), ("1", "GESTION")]
+    assert min(from_one, key=lambda row: _sequence_rank(*row))[1] == "GESTION"

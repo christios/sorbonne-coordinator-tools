@@ -3,7 +3,6 @@ from __future__ import annotations
 from copy import deepcopy
 from datetime import UTC, datetime
 import json
-import re
 from typing import Any
 from uuid import uuid4
 
@@ -495,15 +494,13 @@ class TeacherStore:
         return sorted(years, reverse=True)
 
     def list_courses_by_code(self, *, query: str = "") -> list[dict[str, Any]]:
-        """The courses a syllabus may be written for.
+        """The courses a syllabus may be written for: one entry per course, not per section.
 
-        The registrar lists a course once per section, and a section's name often
-        carries its kind or group — "Computer Science -CM", "GESTION TD Gr1". Those
-        are trimmed so one course reads as one choice.
-
-        Where a code's sections disagree on more than that, they are different
-        subjects sharing a code, and each is offered separately. Nothing here invents
-        a name: every choice is one the registrar actually uses.
+        The portal numbers a course's rows in sequence. The lowest is the course itself
+        and carries its official name; the rest are its sections, whose names pick up
+        the kind of session or the group ("-CM", "TD Gr1"). Where several rows share the
+        lowest number the shortest name is the course's, the longer ones being sections
+        that were never numbered apart.
         """
         filters = ["is_obsolete = FALSE"]
         params: dict[str, str] = {}
@@ -515,7 +512,8 @@ class TeacherStore:
                 connection.execute(
                     text(
                         f"""
-                    SELECT course_code, course_title, credit, department, college, contact_hours, term, crn
+                    SELECT course_code, course_title, sequence, credit, department,
+                           college, contact_hours, term, crn
                     FROM course_catalogue_entries
                     WHERE {" AND ".join(filters)}
                     """
@@ -526,15 +524,13 @@ class TeacherStore:
                 .all()
             )
 
-        grouped: dict[tuple[str, str], dict[str, Any]] = {}
+        grouped: dict[str, dict[str, Any]] = {}
         for row in rows:
-            name = course_base_title(row["course_title"])
-            key = (row["course_code"], name.casefold())
             course = grouped.setdefault(
-                key,
+                row["course_code"],
                 {
                     "courseCode": row["course_code"],
-                    "courseTitle": name,
+                    "courseTitle": "",
                     "credit": "",
                     "level": "",
                     "department": row["department"] or "",
@@ -542,13 +538,13 @@ class TeacherStore:
                     "contactHours": "",
                     "terms": set(),
                     "crns": set(),
-                    "_exact": False,
+                    "_rank": None,
                 },
             )
-            # Prefer the spelling that needed no trimming, so the name reads as written.
-            if not course["_exact"] and row["course_title"].strip() == name:
-                course["courseTitle"] = row["course_title"].strip()
-                course["_exact"] = True
+            rank = _sequence_rank(row["sequence"], row["course_title"])
+            if course["_rank"] is None or rank < course["_rank"]:
+                course["_rank"] = rank
+                course["courseTitle"] = (row["course_title"] or "").strip()
             course["credit"] = course["credit"] or (row["credit"] or "")
             course["contactHours"] = course["contactHours"] or (row["contact_hours"] or "")
             if row["term"]:
@@ -558,7 +554,7 @@ class TeacherStore:
 
         courses = []
         for course in grouped.values():
-            course.pop("_exact")
+            course.pop("_rank")
             course["terms"] = sorted(course["terms"])
             course["crns"] = sorted(course["crns"])
             courses.append(course)
@@ -788,26 +784,15 @@ def course_title_case(title: str) -> str:
     return " ".join(result)
 
 
-# A section's name often ends with the kind of session or the group it is for:
-# "-CM", "TD Gr1", "GrpA", "G.B-TP". Those belong to the section, not the course.
-_SECTION_SUFFIX = re.compile(
-    r"""(?ix)
-    (
-      [\s\-\u2013:,]+
-      (?: G(?:r|rp|roup)?\s*\.?\s*[A-Z0-9]{1,3}
-        | CM | TD | TP | LAB
-      )
-      \s*
-    )+$
-    """
-)
+_UNNUMBERED = 9999
 
 
-def course_base_title(title: str) -> str:
-    """The course's own name, with any section marker trimmed off the end."""
-    previous, current = None, str(title or "").strip()
-    while current != previous:
-        previous = current
-        current = _SECTION_SUFFIX.sub("", current).strip()
-    return current.strip(" -\u2013:,") or str(title or "").strip()
+def _sequence_rank(sequence: str, title: str) -> tuple[int, int, str]:
+    """Order a course's rows so the lowest is the course itself."""
+    try:
+        number = int(str(sequence).strip())
+    except (TypeError, ValueError):
+        number = _UNNUMBERED
+    name = (title or "").strip()
+    return (number, len(name), name)
 
