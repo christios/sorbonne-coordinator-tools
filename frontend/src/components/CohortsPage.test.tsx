@@ -1150,5 +1150,16 @@ describe("one cohort, or every cohort", () => {
     expect(narrow.getAttribute("aria-pressed")).toBe("true");
     // No switch of its own on the table any more.
     expect(screen.queryByRole("button", { name: /All cohorts|This cohort/ })).toBeNull();
+    // And the picker stops naming a cohort the table is no longer about.
+    expect(screen.getByRole("combobox", { name: "Cohort" }).textContent).toContain("Every cohort");
+    expect(screen.getByText(/showing every cohort/)).toBeTruthy();
+
+    // Choosing a cohort is what brings the table back to one.
+    fireEvent.click(screen.getByRole("combobox", { name: "Cohort" }));
+    fireEvent.click(await screen.findByRole("option", { name: /L2 Maths/ }));
+    expect(screen.getByRole("button", { name: "Search every cohort" }).getAttribute("aria-pressed")).toBe("false");
+    expect(screen.getByRole("combobox", { name: "Cohort" }).textContent).toContain("L2 Maths");
+    expect(await screen.findByText("Karim Nasser")).toBeTruthy();
+    await waitFor(() => expect(screen.queryByText("Amira Haddad")).toBeNull());
   });
 });

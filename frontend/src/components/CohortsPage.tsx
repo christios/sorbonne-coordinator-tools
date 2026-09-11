@@ -560,6 +560,7 @@ export function CohortsPage({
       <div className="flex flex-wrap items-end gap-x-5 gap-y-3">
         <LabelledPicker
           label="Cohort"
+          hint={everywhere ? "showing every cohort" : undefined}
           beside={
             /*
              * One cohort, or all of them — asked where "which cohort" is asked. A globe
@@ -582,9 +583,15 @@ export function CohortsPage({
             </button>
           }
         >
+          {/*
+            * With every cohort showing, the picker must not go on naming one as if the
+            * table were still its: it reads "Every cohort" until a cohort is chosen, and
+            * choosing one is what brings the table back to a single cohort.
+            */}
           <SelectMenu
             label="Cohort"
-            value={cohortId}
+            value={everywhere ? "" : cohortId}
+            placeholder={everywhere ? "Every cohort" : undefined}
             onChange={chooseCohort}
             options={[
               ...cohorts.map((candidate) => {
