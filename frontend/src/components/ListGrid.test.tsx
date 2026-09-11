@@ -131,6 +131,18 @@ describe("picking columns from their headings", () => {
     expect(written[0]).toBe("CRN\n23652");
   });
 
+  it("copies a single column's selected rows only, like every other copy on the table", async () => {
+    const written = clipboard();
+    show();
+    fireEvent.click(screen.getByLabelText("Select MATH-011"));
+    fireEvent.click(screen.getByLabelText("Select SCEN-101"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy the Course column" }));
+
+    await waitFor(() => expect(written).toHaveLength(1));
+    expect(written[0]).toBe("SCEN-101\nMATH-011");
+  });
+
   it("is done with Done, or with Escape", () => {
     show();
     pick("CRN");

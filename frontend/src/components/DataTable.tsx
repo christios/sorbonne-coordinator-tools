@@ -225,7 +225,8 @@ export function DataTable<T>({
                   if (measured) onResize(column.id, measured);
                 }}
                 reorder={reorder}
-                copy={() => columnText(rows.map((row) => cellText(row, column)))}
+                // The ticked rows when some are, like every other copy on the table.
+                copy={() => columnText(rowsForCopy(rows, selected, idOf).map((row) => cellText(row, column)))}
                 picked={picked.has(column.id)}
                 picking={picking}
                 onPick={() => pick(column.id)}

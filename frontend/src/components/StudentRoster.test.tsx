@@ -1196,11 +1196,11 @@ describe("proposing groups for a whole selection", () => {
 
 describe("looking past one cohort", () => {
   /** The Cohorts page: the table is one cohort's population, not a filter chip. */
-  function renderScoped(cohortId: string | null) {
+  function renderScoped(cohortId: string | null, everywhere = false) {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     return render(
       <QueryClientProvider client={queryClient}>
-        <StudentRoster cohorts={COHORTS} viewId={VIEW_ID} scope={{ cohortId }} />
+        <StudentRoster cohorts={COHORTS} viewId={VIEW_ID} scope={{ cohortId }} everywhere={everywhere} />
       </QueryClientProvider>,
     );
   }
@@ -1213,12 +1213,10 @@ describe("looking past one cohort", () => {
      * half thousand it is not.
      */
     await withNames();
-    renderScoped("cohort-1");
+    // The switch is the page's, beside the cohort picker; the table is told.
+    renderScoped("cohort-1", true);
     await screen.findByText("Amira Haddad");
 
-    fireEvent.click(screen.getByRole("button", { name: "This cohort" }));
-
-    await screen.findByRole("button", { name: "All cohorts" });
     // A001 and A999 are Foundation Year; A002 and A003 are in no cohort at all.
     await waitFor(() => expect(screen.queryByText("A002")).toBeNull());
     expect(screen.queryByText("A003")).toBeNull();

@@ -1,5 +1,5 @@
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { AlertTriangle, ArrowRightCircle, CalendarClock, ClipboardList, EyeOff, Layers, Settings2, X } from "lucide-react";
+import { AlertTriangle, ArrowRightCircle, CalendarClock, ClipboardList, EyeOff, Globe, Layers, Settings2, Users, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { CohortActions } from "@/components/CohortActions";
@@ -245,10 +245,14 @@ export function CohortsPage({
    */
   const [remembered, setRemembered] = useRemembered(COHORT);
   const [cohortId, setCohortId] = useState(focus?.cohortId ?? remembered);
+  // Whether the table shows every cohort rather than the chosen one. Back to this one on
+  // every change of cohort, as it was when the table remounted with its own switch.
+  const [everywhere, setEverywhere] = useState(false);
   const chooseCohort = useCallback(
     (next: string) => {
       setCohortId(next);
       setRemembered(next);
+      setEverywhere(false);
     },
     // `setRemembered` is rebuilt on every render by `useRemembered`, and naming it here
     // would rebuild this callback with it — which remounts the table, since it is keyed on
@@ -554,7 +558,30 @@ export function CohortsPage({
   return (
     <section>
       <div className="flex flex-wrap items-end gap-x-5 gap-y-3">
-        <LabelledPicker label="Cohort">
+        <LabelledPicker
+          label="Cohort"
+          beside={
+            /*
+             * One cohort, or all of them — asked where "which cohort" is asked. A globe
+             * for every cohort, the cohort mark for this one: the icon is the state, and
+             * the label says what a click does.
+             */
+            <button
+              type="button"
+              aria-pressed={everywhere}
+              aria-label={everywhere ? "Back to this cohort" : "Search every cohort"}
+              title={everywhere ? "Showing every cohort. Click to go back to this one." : "Search every cohort, not only this one"}
+              onClick={() => setEverywhere((current) => !current)}
+              className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border ${
+                everywhere
+                  ? "border-[#1f4e79] bg-[#1f4e79] text-white"
+                  : "border-[#b7bec8] bg-white text-[#344054] hover:bg-[#f8fafc]"
+              }`}
+            >
+              {everywhere ? <Globe size={16} aria-hidden="true" /> : <Users size={16} aria-hidden="true" />}
+            </button>
+          }
+        >
           <SelectMenu
             label="Cohort"
             value={cohortId}
@@ -733,6 +760,7 @@ export function CohortsPage({
           }
           onPreselectTaken={onFocusTaken}
           scope={{ cohortId }}
+          everywhere={everywhere}
           warningsFor={warningsFor}
           onDismissWarning={onDismissWarning}
           defaultSort={{ key: "warnings", ascending: false }}

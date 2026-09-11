@@ -1128,3 +1128,27 @@ describe("choosing a combination of records", () => {
     expect(within(dialog).getByText(/No record chosen/)).toBeTruthy();
   });
 });
+
+describe("one cohort, or every cohort", () => {
+  it("has its switch beside the cohort picker: a cohort mark for this one, a globe for all of them", async () => {
+    vi.spyOn(database, "fetchStudents").mockResolvedValue([student("A001", "c1"), { ...student("A002", "c2"), cohortName: "L2 Maths" }]);
+    vi.spyOn(database, "fetchDiscrepancyRules").mockResolvedValue([]);
+    await portalSays([
+      { SPRIDEN_ID: "A001", FULL_NAME: "Amira Haddad" },
+      { SPRIDEN_ID: "A002", FULL_NAME: "Karim Nasser" },
+    ]);
+    renderPage([L1, { ...L1, id: "c2", name: "L2 Maths", yearLevel: "L2", memberCount: 1 }]);
+    await screen.findByText("Amira Haddad");
+    expect(screen.queryByText("Karim Nasser")).toBeNull();
+
+    const widen = screen.getByRole("button", { name: "Search every cohort" });
+    expect(widen.getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(widen);
+
+    expect(await screen.findByText("Karim Nasser")).toBeTruthy();
+    const narrow = screen.getByRole("button", { name: "Back to this cohort" });
+    expect(narrow.getAttribute("aria-pressed")).toBe("true");
+    // No switch of its own on the table any more.
+    expect(screen.queryByRole("button", { name: /All cohorts|This cohort/ })).toBeNull();
+  });
+});
