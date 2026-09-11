@@ -1789,8 +1789,11 @@ class PortalListStore:
         Judged per course of our blocks, per student the registrations pull has returned:
         placed and not registered is *missing*; registered in another section is *wrong*;
         registered in ours and another is *extra*; registered while in no group of ours is
-        *unplaced*. A CRN outside our blocks — a language course, say — is not our business
-        and is not mentioned. A student no pull has returned is still not judged.
+        *unplaced*. A CRN in no set of ours is not our business and is not mentioned — but
+        the shared sets count as ours: a language group on another cohort's row that this
+        cohort's student sits in is expected of them like any tutorial, which is the
+        seventh line a student's record showed and this list did not. A student no pull
+        has returned is still not judged.
 
         But now they are COUNTED. The silence is unchanged and the verdicts are unchanged;
         what is new is that the answer says how much of the cohort it rests on. Two things
@@ -1829,7 +1832,13 @@ class PortalListStore:
             cohort = next(
                 (entry for entry in database.term_publication(term_id) if entry["cohortId"] == cohort_id), None
             )
-            groups = {group["id"]: group for group in cohort["groups"]} if cohort else {}
+            # The cohort's own sets, and the shared ones it takes part in — the languages,
+            # which sit on one cohort's row and were never asked about for the others. A
+            # student placed in French A0-F6 is expected in its section like any other.
+            groups = (
+                {group["id"]: group for group in [*cohort["groups"], *cohort.get("sharedGroups", [])]} if cohort else {}
+            )
+            placements = [*cohort["assignments"], *cohort.get("sharedAssignments", [])] if cohort else []
             ours = sorted(
                 {crn for group in groups.values() for crns in group["crns"].values() for crn in crns if crn}
             )
@@ -1869,7 +1878,7 @@ class PortalListStore:
             # student -> course -> set -> its CRNs. Kept per SET, because the date rule may
             # only ever choose between sections that stand in for one another.
             expected: dict[str, dict[str, dict[str, set[str]]]] = {}
-            for row in cohort["assignments"]:
+            for row in placements:
                 group = groups.get(row["groupId"])
                 if group is None:
                     continue

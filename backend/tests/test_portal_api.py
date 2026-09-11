@@ -1120,6 +1120,41 @@ def test_a_cohort_present_only_through_a_shared_set_is_still_covered(
     assert coverage[0]["blind"] == 1
 
 
+def test_a_language_group_on_another_cohort_s_row_is_expected_of_the_student_in_it(
+    client: TestClient, database: StudentDatabase
+):
+    """The check read only the cohort's own sets, so the languages — one shared set on one
+    cohort's row — were never expected of anybody else's students. A student's record
+    listed seven sections the registrar did not have them in; the registrar's worklist
+    listed six.
+    """
+    owner = build_cohort(database)
+    other = database.create_cohort(name="L1 Maths", term="2026-27")
+    with database.engine.begin() as connection:
+        connection.execute(
+            text("""INSERT INTO students (student_id, status, cohort_id, first_seen_at, last_seen_at, updated_at)
+                    VALUES ('B001', 'in_portal', :cohort, 'now', 'now', 'now')"""),
+            {"cohort": other["id"]},
+        )
+    # A set of its own on the semester, as every real cohort has: a cohort with none is
+    # not published for the semester at all, and the check has nothing to judge it by.
+    database.add_scope(other["id"], code="TD", name="Tutorials", term_id=HUB_TERM)
+    lang = database.add_scope(owner, code="LANG", name="Languages", term_id=HUB_TERM, open_to_all=True)
+    french = database.add_group(lang, label="F1")
+    database.set_cell(group_id=french, course_id=database.add_course(lang, code="FREN-101"), crn="24001")
+    database.assign(student_id="B001", scope_id=lang, group_id=french)
+    client.put(f"{BASE}/term-links/{HUB_TERM}", json={"portalTermCode": TERM})
+    # The registrar has B001, but not in French.
+    registrations(client, [{"studentId": "B001", "crn": "22151", "courseCode": "MATH-001"}])
+
+    found = client.get(f"{BASE}/cohorts/{other['id']}/registration-check").json()["mismatches"]
+    french_lines = [m for m in found if m["studentId"] == "B001" and m["courseCode"] == "FREN-101"]
+
+    assert len(french_lines) == 1
+    assert french_lines[0]["kind"] == "missing"
+    assert french_lines[0]["expected"] == ["24001"]
+
+
 def test_a_semester_the_cohort_is_not_taught_in_says_nothing_at_all(
     client: TestClient, database: StudentDatabase
 ):
