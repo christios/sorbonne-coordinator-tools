@@ -243,7 +243,7 @@ function CatalogueEntries({ category, entries, isLoading, renderDetails, selecte
 }
 
 function EditEntry({ category, entry, onClose, onDirtyChange }: { category: CatalogueCategory; entry: CatalogueEntry; onClose: () => void; onDirtyChange: (dirty: boolean) => void }) {
-  const form = category === "people" ? <PersonForm entry={entry} onCancel={onClose} onSaved={onClose} /> : category === "teaching-presets" ? <TeachingPresetForm entry={entry} onCancel={onClose} onSaved={onClose} /> : category === "assessment-types" ? <AssessmentTypeForm entry={entry} onCancel={onClose} onSaved={onClose} /> : category === "plos" ? <PloForm programme={{ ...entry, id: entry.parentId ?? "" }} entry={entry} onCancel={onClose} onSaved={onClose} /> : <SimpleEntryForm category={category} entry={entry} fieldLabel={category === "programmes" ? "Programme name" : "Name"} onCancel={onClose} onSaved={onClose} />;
+  const form = category === "curriculum-mapping" ? <CurriculumMappingEditForm entry={entry} onCancel={onClose} onSaved={onClose} /> : category === "people" ? <PersonForm entry={entry} onCancel={onClose} onSaved={onClose} /> : category === "teaching-presets" ? <TeachingPresetForm entry={entry} onCancel={onClose} onSaved={onClose} /> : category === "assessment-types" ? <AssessmentTypeForm entry={entry} onCancel={onClose} onSaved={onClose} /> : category === "plos" ? <PloForm programme={{ ...entry, id: entry.parentId ?? "" }} entry={entry} onCancel={onClose} onSaved={onClose} /> : <SimpleEntryForm category={category} entry={entry} fieldLabel={category === "programmes" ? "Programme name" : "Name"} onCancel={onClose} onSaved={onClose} />;
   return <div onInputCapture={() => onDirtyChange(true)} onChangeCapture={() => onDirtyChange(true)}>{form}</div>;
 }
 
@@ -301,6 +301,7 @@ function GraduateCompetencyPicker({ entry, graduate }: { entry: CatalogueEntry; 
 function CurriculumMappingCatalogue() {
   const programmes = useCatalogue("programmes");
   const [programmeId, setProgrammeId] = useState("");
+  const [showCreate, setShowCreate] = useState(false);
   const chosen = programmeId || programmes.data?.[0]?.id || "";
   const mapping = useQuery({
     queryKey: ["syllabus-catalogues", "curriculum-mapping", chosen],
@@ -317,8 +318,73 @@ function CurriculumMappingCatalogue() {
     return plo ? stringValue(plo.payload.code) || plo.label : "";
   };
   return <div className="rounded-lg border border-[#d9dee7] bg-white p-5">
-    <CatalogueHeader title="Curriculum mapping" description="Which programme learning outcomes each course is expected to address. A syllabus shows its professor what is still uncovered; it never blocks them." />
+    <CatalogueHeader
+      title="Curriculum mapping"
+      description="Which programme learning outcomes each course is expected to address, as submitted to the CAA. A syllabus shows its professor what is still uncovered; it never blocks them."
+      action={chosen ? <button type="button" onClick={() => setShowCreate(true)} className="inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white"><FilePlus2 size={16} /> Add course</button> : undefined}
+    />
     {(programmes.data ?? []).length > 1 ? <label className="mt-4 grid gap-1 text-sm font-medium text-[#344054]">Programme<SelectMenu label="Programme" value={chosen} onChange={setProgrammeId} options={(programmes.data ?? []).map((item) => ({ value: item.id, label: item.label }))} /></label> : null}
-    {mapping.isLoading ? <p className="mt-4 text-sm text-[#667085]">Loading…</p> : (mapping.data ?? []).length ? <div className="mt-4 overflow-x-auto"><table className="w-full min-w-[34rem] border-collapse text-left text-sm"><thead><tr className="text-[#344054]"><th className="border-b border-[#d9dee7] py-2 pr-3 font-semibold">Course</th><th className="border-b border-[#d9dee7] py-2 pr-3 font-semibold">Semester</th><th className="border-b border-[#d9dee7] py-2 font-semibold">Expected outcomes</th></tr></thead><tbody>{(mapping.data ?? []).map((entry) => <tr key={entry.id} className="align-top text-[#475467]"><td className="border-b border-[#eef1f5] py-2 pr-3 font-medium text-[#344054]">{entry.label}<span className="block font-normal text-[#667085]">{stringValue(entry.payload.courseTitle)}</span></td><td className="border-b border-[#eef1f5] py-2 pr-3">{stringValue(entry.payload.semester)}</td><td className="border-b border-[#eef1f5] py-2">{(Array.isArray(entry.payload.ploIds) ? (entry.payload.ploIds as string[]) : []).map(ploLabel).filter(Boolean).join(", ") || "—"}</td></tr>)}</tbody></table></div> : <p className="mt-4 rounded-md border border-dashed border-[#d0d5dd] px-3 py-3 text-sm text-[#667085]">No curriculum map for this programme yet.</p>}
+    {showCreate && chosen ? <CurriculumMappingForm programmeId={chosen} plos={plos.data ?? []} onCancel={() => setShowCreate(false)} onSaved={() => setShowCreate(false)} /> : null}
+    {mapping.isLoading
+      ? <p className="mt-4 text-sm text-[#667085]">Loading…</p>
+      : (mapping.data ?? []).length
+        ? <div className="mt-4"><CatalogueEntries category="curriculum-mapping" entries={mapping.data ?? []} isLoading={false} renderDetails={(entry) => <p className="mt-1 text-sm text-[#667085]">{[stringValue(entry.payload.courseTitle), stringValue(entry.payload.semester), (Array.isArray(entry.payload.ploIds) ? (entry.payload.ploIds as string[]) : []).map(ploLabel).filter(Boolean).join(", ") || "No outcomes yet"].filter(Boolean).join(" · ")}</p>} /></div>
+        : <p className="mt-4 rounded-md border border-dashed border-[#d0d5dd] px-3 py-3 text-sm text-[#667085]">No curriculum map for this programme yet.</p>}
   </div>;
+}
+
+/** A course's row in the curriculum map: which outcomes it is expected to carry. */
+function CurriculumMappingForm({ programmeId, plos, entry, onCancel, onSaved }: { programmeId: string; plos: CatalogueEntry[]; entry?: CatalogueEntry; onCancel: () => void; onSaved: () => void }) {
+  const client = useQueryClient();
+  const [code, setCode] = useState(entry?.label ?? "");
+  const [title, setTitle] = useState(stringValue(entry?.payload.courseTitle));
+  const [semester, setSemester] = useState(stringValue(entry?.payload.semester));
+  const options = plos.map((plo) => ({ value: plo.id, label: stringValue(plo.payload.code) || plo.label }));
+  const initial = Array.isArray(entry?.payload.ploIds) ? (entry?.payload.ploIds as string[]) : [];
+  const [selected, setSelected] = useState<string[]>(initial);
+  const save = useMutation({
+    mutationFn: () => {
+      const input: CatalogueEntryInput = {
+        label: code.trim(),
+        payload: { ...entry?.payload, courseTitle: title.trim(), semester: semester.trim(), ploIds: selected },
+        parentId: programmeId,
+        sortOrder: entry?.sortOrder,
+      };
+      return entry
+        ? updateCatalogueEntry("curriculum-mapping", entry.id, { ...input, expectedRevision: entry.revision })
+        : createCatalogueEntry("curriculum-mapping", input);
+    },
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ["syllabus-catalogues", "curriculum-mapping"] });
+      onSaved();
+    },
+  });
+  const labelFor = (id: string) => options.find((option) => option.value === id)?.label ?? "";
+  return <form onSubmit={(event) => { event.preventDefault(); if (code.trim()) save.mutate(); }} className="mt-5 grid gap-4 rounded-lg border border-[#cbd5e1] bg-[#f8fafc] p-4">
+    <Field label="Course code"><input autoFocus required value={code} onChange={(event) => setCode(event.target.value)} className={inputClass} /></Field>
+    <Field label="Course title"><input value={title} onChange={(event) => setTitle(event.target.value)} className={inputClass} /></Field>
+    <Field label="Level and semester" hint="For example L1-S1"><input value={semester} onChange={(event) => setSemester(event.target.value)} className={inputClass} /></Field>
+    <PloAlignmentField
+      label="Expected programme learning outcomes"
+      pickerLabel={`Add an expected outcome to ${code || "this course"}`}
+      emptyText="No outcomes expected of this course yet."
+      addText="Add expected outcome"
+      value={selected.map(labelFor).filter(Boolean).join("\n")}
+      onChange={(next) => setSelected(next.split("\n").filter(Boolean).map((label) => options.find((option) => option.label === label)?.value).filter((id): id is string => Boolean(id)))}
+      options={options}
+    />
+    <FormActions isSaving={save.isPending} error={save.error} onCancel={onCancel} submitLabel={entry ? "Save changes" : "Add to the map"} />
+  </form>;
+}
+
+/** Editing a mapped course needs its programme's outcomes, which the row points at. */
+function CurriculumMappingEditForm({ entry, onCancel, onSaved }: { entry: CatalogueEntry; onCancel: () => void; onSaved: () => void }) {
+  const programmeId = entry.parentId ?? "";
+  const plos = useQuery({
+    queryKey: ["syllabus-catalogues", "plos", programmeId],
+    queryFn: () => listCatalogueEntries("plos", { parentId: programmeId }),
+    enabled: Boolean(programmeId),
+  });
+  if (plos.isLoading) return <p className="mt-5 text-sm text-[#667085]">Loading outcomes…</p>;
+  return <CurriculumMappingForm programmeId={programmeId} plos={plos.data ?? []} entry={entry} onCancel={onCancel} onSaved={onSaved} />;
 }

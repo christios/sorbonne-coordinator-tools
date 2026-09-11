@@ -2,7 +2,7 @@ import os
 from uuid import uuid4
 
 from sorbonne.services.teacher_store import TeacherStore
-from sorbonne.services.teacher_store import _academic_year
+from sorbonne.services.teacher_store import _academic_year, course_title_case
 
 
 TEST_DATABASE_URL = os.getenv(
@@ -120,3 +120,13 @@ def test_reads_the_academic_year_out_of_the_portal_term_code() -> None:
     assert _academic_year("252620") == "2025-2026"
     assert _academic_year("") == ""
     assert _academic_year("not-a-term") == ""
+
+
+def test_raises_a_course_title_without_disturbing_what_is_already_capitalised() -> None:
+    """A syllabus takes its title from here, so the registrar's inconsistency shows."""
+    assert course_title_case("Geometric optics") == "Geometric Optics"
+    assert course_title_case("AI and critical thinking") == "AI and Critical Thinking"
+    # Acronyms and deliberate capitals are the registrar's, and are left alone.
+    assert course_title_case("AI Law & Governance") == "AI Law & Governance"
+    assert course_title_case("CAO-DAO") == "CAO-DAO"
+    assert course_title_case("ADGM M2") == "ADGM M2"

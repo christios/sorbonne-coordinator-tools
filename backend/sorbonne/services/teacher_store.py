@@ -536,7 +536,7 @@ class TeacherStore:
         return [
             {
                 "courseCode": row["course_code"],
-                "courseTitle": row["course_title"] or "",
+                "courseTitle": course_title_case(row["course_title"] or ""),
                 "credit": row["credit"] or "",
                 "level": row["level"] or "",
                 "department": row["department"] or "",
@@ -746,4 +746,30 @@ def _academic_year(term_code: str) -> str:
 
 
 ACADEMIC_YEAR_DIGITS = 4
+
+# Words that stay lowercase inside a title, unless they open it.
+_TITLE_MINOR_WORDS = frozenset(
+    {"a", "an", "and", "as", "at", "by", "for", "from", "in", "of", "on", "or", "the", "to", "with"}
+)
+
+
+def course_title_case(title: str) -> str:
+    """Capitalise a title's own words without touching anything already capitalised.
+
+    The registrar's export is inconsistent — "Geometric optics" beside "Mechanics-Physics
+    1" — and a syllabus now takes its title from here, so the inconsistency shows. Only
+    words that are entirely lowercase are raised, which leaves AI, CAO-DAO and ADGM M2
+    exactly as the registrar wrote them.
+    """
+    words = title.split(" ")
+    result = []
+    for index, word in enumerate(words):
+        if not word or not word.islower():
+            result.append(word)
+            continue
+        if index and word in _TITLE_MINOR_WORDS:
+            result.append(word)
+            continue
+        result.append(word[0].upper() + word[1:])
+    return " ".join(result)
 
