@@ -2,6 +2,7 @@ import os
 from uuid import uuid4
 
 from sorbonne.services.teacher_store import TeacherStore
+from sorbonne.services.teacher_store import _academic_year
 
 
 TEST_DATABASE_URL = os.getenv(
@@ -111,3 +112,11 @@ def test_import_marks_courses_absent_from_the_next_catalogue_as_obsolete() -> No
     assert {entry["crn"] for entry in store.list_course_catalogue(query=first_crn)} == {first_crn}
     assert store.list_course_catalogue(query=second_crn) == []
     assert store.list_course_catalogue(query=second_crn, include_obsolete=True)[0]["isObsolete"] is True
+
+
+def test_reads_the_academic_year_out_of_the_portal_term_code() -> None:
+    """Nothing the portal sends says the year in words; the term code carries it."""
+    assert _academic_year("262710") == "2026-2027"
+    assert _academic_year("252620") == "2025-2026"
+    assert _academic_year("") == ""
+    assert _academic_year("not-a-term") == ""

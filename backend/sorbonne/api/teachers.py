@@ -108,6 +108,12 @@ def delete_folder(folder_id: str, store: TeacherStore = Depends(get_store)) -> R
     return Response(status_code=204)
 
 
+@router.get("/courses/academic-years")
+def list_academic_years(store: TeacherStore = Depends(get_store)) -> dict[str, list[str]]:
+    """The academic years a syllabus may be written for, read from the imported terms."""
+    return {"items": store.list_academic_years()}
+
+
 @router.get("/courses/by-code")
 def list_courses_by_code(
     query: str = Query(default="", max_length=200),

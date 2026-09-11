@@ -69,3 +69,27 @@ describe("CourseIdentificationEditor", () => {
     expect(screen.getByRole("heading", { name: "Requirements and equipment" })).toBeTruthy();
   });
 });
+
+describe("Course details taken from the other app", () => {
+  it("offers the academic year and the level, keeping whatever the syllabus already says", () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={queryClient}><CourseIdentificationEditor
+      value={{ degreeLevelAndSemester: "L1-S1" }}
+      courseTitle="Geometric Optics"
+      courseCode="PHYS-118"
+      academicYear="2024-2025"
+      academicYears={["2026-2027", "2025-2026"]}
+      semesters={["L1-S1", "L1-S2"]}
+      onChange={vi.fn()}
+      onMetadataChange={vi.fn()}
+      syllabusId="syllabus-1"
+      revision={1}
+      onOpenHistory={vi.fn()}
+    /></QueryClientProvider>);
+
+    // A year the imported terms no longer list must stay selectable, or opening an
+    // older syllabus would silently change what it says.
+    expect(screen.getByRole("combobox", { name: "Academic year" }).textContent).toContain("2024-2025");
+    expect(screen.getByRole("combobox", { name: "Degree level and semester" }).textContent).toContain("L1-S1");
+  });
+});

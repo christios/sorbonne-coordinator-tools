@@ -18,9 +18,12 @@ type Props = HistoryContext & {
   onMetadataChange: (field: "courseTitle" | "courseCode" | "academicYear", value: string) => void;
   programmes?: SelectOption[];
   courses?: CatalogueCourse[];
+  academicYears?: string[];
+  semesters?: string[];
+  semesterByCourse?: Record<string, string>;
 };
 
-export function CourseIdentificationEditor({ value, courseTitle, courseCode, academicYear, onChange, onMetadataChange, programmes = [], courses = [], ...history }: Props) {
+export function CourseIdentificationEditor({ value, courseTitle, courseCode, academicYear, onChange, onMetadataChange, programmes = [], courses = [], academicYears = [], semesters = [], semesterByCourse = {}, ...history }: Props) {
   const contactHours = record(value.contactHours);
   const update = (change: Record<string, unknown>) => onChange({ ...value, ...change });
   const programmeId = stringValue(value.catalogueProgrammeId);
@@ -43,7 +46,10 @@ export function CourseIdentificationEditor({ value, courseTitle, courseCode, aca
       catalogueCourseCode: course.courseCode,
       catalogueCourseCrns: course.crns,
       ects: course.credit || stringValue(value.ects),
-      degreeLevelAndSemester: course.level || stringValue(value.degreeLevelAndSemester),
+      // The imported course record carries no level; the curriculum map does.
+      degreeLevelAndSemester:
+        semesterByCourse[course.courseCode.replace(/[^a-z0-9]/gi, "").toUpperCase()] ||
+        stringValue(value.degreeLevelAndSemester),
     });
   };
   const courseOptions = courses.map((course) => ({ value: course.courseCode, label: courseLabel(course) }));
@@ -57,8 +63,12 @@ export function CourseIdentificationEditor({ value, courseTitle, courseCode, aca
       {bound
         ? <><ReadOnlyField label="Course title" value={bound.courseTitle} /><ReadOnlyField label="Course code" value={bound.courseCode} /></>
         : <><IdentificationField label="Course title" value={courseTitle} onChange={(next) => onMetadataChange("courseTitle", next)} field={{ path: "metadata.courseTitle", label: "Course title" }} {...history} /><IdentificationField label="Course code" value={courseCode} onChange={(next) => onMetadataChange("courseCode", next)} field={{ path: "metadata.courseCode", label: "Course code" }} {...history} /></>}
-      <IdentificationField label="Academic year" value={academicYear} onChange={(next) => onMetadataChange("academicYear", next)} field={{ path: "metadata.academicYear", label: "Academic year" }} {...history} />
-      <IdentificationField label="Degree level and semester" value={stringValue(value.degreeLevelAndSemester)} onChange={(degreeLevelAndSemester) => update({ degreeLevelAndSemester })} field={{ path: "identification.degreeLevelAndSemester", label: "Degree level and semester" }} {...history} />
+      {academicYears.length
+        ? <label className="grid gap-1 text-sm font-medium text-[#344054]"><span>Academic year <span className="font-normal text-[#667085]">from Students and Timetables</span></span><SelectMenu label="Academic year" value={academicYear} onChange={(next) => onMetadataChange("academicYear", next)} placeholder="Select the academic year" options={withCurrent(academicYears, academicYear)} /></label>
+        : <IdentificationField label="Academic year" value={academicYear} onChange={(next) => onMetadataChange("academicYear", next)} field={{ path: "metadata.academicYear", label: "Academic year" }} {...history} />}
+      {semesters.length
+        ? <label className="grid gap-1 text-sm font-medium text-[#344054]"><span>Degree level and semester <span className="font-normal text-[#667085]">from the curriculum map</span></span><SelectMenu label="Degree level and semester" value={stringValue(value.degreeLevelAndSemester)} onChange={(degreeLevelAndSemester) => update({ degreeLevelAndSemester })} placeholder="Select the level and semester" options={withCurrent(semesters, stringValue(value.degreeLevelAndSemester))} /></label>
+        : <IdentificationField label="Degree level and semester" value={stringValue(value.degreeLevelAndSemester)} onChange={(degreeLevelAndSemester) => update({ degreeLevelAndSemester })} field={{ path: "identification.degreeLevelAndSemester", label: "Degree level and semester" }} {...history} />}
     </SyllabusSubsection>
     <SyllabusSubsection title="Programme and credits">
       {programmes.length ? <label className="grid gap-1 text-sm font-medium text-[#344054]"><span>Programme <span className="font-normal text-[#667085]">(optional)</span></span><SelectMenu label="Programme" value={programmeId} onChange={chooseProgramme} placeholder="Use local programme learning outcomes" searchable options={[{ value: "", label: "Use local programme learning outcomes" }, ...programmes]} /></label> : null}
@@ -113,4 +123,10 @@ function CourseList({ title, hint, items, options, onChange }: { title: string; 
     {chosen.length ? <ul aria-label={`Selected ${title.toLowerCase()}`} className="mt-3 grid gap-2">{items.filter((item) => item.text).map((item) => <li key={item.id} className="flex min-w-0 items-center justify-between gap-2 rounded-md border border-[#d9dee7] bg-[#f8fafc] px-3 py-2 text-sm text-[#344054]"><span className="min-w-0 truncate">{item.text}</span><button type="button" onClick={() => onChange(items.filter((entry) => entry.id !== item.id))} className="shrink-0 rounded p-1 text-[#667085] hover:bg-[#e8edf3] hover:text-[#a6292f]" aria-label={`Remove ${item.text} from ${title.toLowerCase()}`}><X size={16} aria-hidden="true" /></button></li>)}</ul> : <p className="mt-3 rounded-md border border-dashed border-[#d0d5dd] px-3 py-2 text-sm text-[#667085]">None yet.</p>}
     <div className="mt-3"><SelectMenu label={`Add ${title.toLowerCase()}`} value="" onChange={add} placeholder={`Add ${title.toLowerCase().replace(/s$/, "")}`} searchable searchPlaceholder="Search by code or title" options={options.filter((option) => option.value && !chosen.includes(option.label))} /></div>
   </section>;
+}
+
+/** A syllabus keeps whatever it already says, even if the list no longer offers it. */
+function withCurrent(values: string[], current: string): SelectOption[] {
+  const all = current && !values.includes(current) ? [current, ...values] : values;
+  return all.map((value) => ({ value, label: value }));
 }

@@ -27,3 +27,11 @@ export async function listCoursesByCode(query = ""): Promise<CatalogueCourse[]> 
 export function courseLabel(course: CatalogueCourse) {
   return `${course.courseCode} — ${course.courseTitle}`;
 }
+
+/** The academic years a syllabus may be written for, from the imported terms. */
+export async function listAcademicYears(): Promise<string[]> {
+  const response = await apiFetch(`${API_BASE_URL}/api/v1/teachers/courses/academic-years`);
+  if (!response.ok) throw new Error("Could not load the academic years.");
+  const body = (await response.json()) as { items?: string[] };
+  return body.items ?? [];
+}

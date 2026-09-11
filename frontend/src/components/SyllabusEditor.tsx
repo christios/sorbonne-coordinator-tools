@@ -44,7 +44,7 @@ import { SelectMenu } from "@/components/SelectMenu";
 import { AssessmentTabs } from "@/components/AssessmentTabs";
 import { AddEntryButton } from "@/components/AddEntryButton";
 import { SyllabusExportPreview } from "@/components/SyllabusExportPreview";
-import { listCoursesByCode } from "@/services/courses";
+import { listAcademicYears, listCoursesByCode } from "@/services/courses";
 import { PloAlignmentField } from "@/components/PloAlignmentField";
 import { SectionEditorShell } from "@/components/SectionEditorShell";
 import { SyllabusSubsection } from "@/components/SyllabusSubsection";
@@ -507,6 +507,10 @@ function SectionForm({
     queryKey: ["course-catalogue", "by-code"],
     queryFn: () => listCoursesByCode(),
   });
+  const academicYears = useQuery({
+    queryKey: ["course-catalogue", "academic-years"],
+    queryFn: () => listAcademicYears(),
+  });
   const courseTeachers =
     (catalogueCourses.data ?? []).find((course) => course.courseCode === boundCourseCode)?.teachers ?? [];
   const aiPolicies = useQuery({
@@ -747,6 +751,9 @@ function SectionForm({
           label: programme.label,
         }))}
         courses={catalogueCourses.data ?? []}
+        academicYears={academicYears.data ?? []}
+        semesters={curriculumSemesters(curriculumMap.data ?? [])}
+        semesterByCourse={semesterByCourse(curriculumMap.data ?? [])}
       />
     );
   if (active === "contacts")
@@ -1760,4 +1767,25 @@ function requiredPloIds(mapping: CatalogueEntry[], courseCode: string): string[]
   const entry = mapping.find((item) => item.label.replace(/[^a-z0-9]/gi, "").toUpperCase() === wanted);
   const ids = entry?.payload.ploIds;
   return Array.isArray(ids) ? ids.filter((id): id is string => typeof id === "string") : [];
+}
+
+/** The levels and semesters this programme's curriculum map actually uses. */
+function curriculumSemesters(mapping: CatalogueEntry[]): string[] {
+  const seen = new Set<string>();
+  for (const entry of mapping) {
+    const semester = stringify(entry.payload.semester).trim();
+    if (semester) seen.add(semester);
+  }
+  return Array.from(seen).sort();
+}
+
+/** The curriculum map says which level and semester a course belongs to. */
+function semesterByCourse(mapping: CatalogueEntry[]): Record<string, string> {
+  const byCode: Record<string, string> = {};
+  for (const entry of mapping) {
+    const code = entry.label.replace(/[^a-z0-9]/gi, "").toUpperCase();
+    const semester = stringify(entry.payload.semester).trim();
+    if (code && semester) byCode[code] = semester;
+  }
+  return byCode;
 }

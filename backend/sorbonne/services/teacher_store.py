@@ -479,6 +479,20 @@ class TeacherStore:
             ).scalar_one()
         return {"imported": imported, "retained": retained, "obsoleted": obsoleted, "totalActive": total_active}
 
+    def list_academic_years(self) -> list[str]:
+        """The academic years the imported courses belong to.
+
+        The portal names a term by a code whose first four digits are the two years it
+        spans: 262710 is the 2026-2027 year. Nothing else the portal gives us says the
+        year in words, so it is read back out of the code.
+        """
+        with self.engine.connect() as connection:
+            codes = connection.execute(
+                text("SELECT DISTINCT term FROM course_catalogue_entries WHERE term <> ''")
+            ).scalars()
+        years = {year for year in (_academic_year(code) for code in codes) if year}
+        return sorted(years, reverse=True)
+
     def list_courses_by_code(self, *, query: str = "") -> list[dict[str, Any]]:
         """One row per course, not per section.
 
@@ -718,3 +732,18 @@ def _snake_case(field: str) -> str:
         "courseTitle": "course_title",
         "contactHours": "contact_hours",
     }.get(field, field)
+
+
+def _academic_year(term_code: str) -> str:
+    """262710 -> "2026-2027". Anything that is not a term code reads as nothing."""
+    digits = "".join(character for character in str(term_code or "") if character.isdigit())
+    if len(digits) < ACADEMIC_YEAR_DIGITS:
+        return ""
+    start, end = digits[:2], digits[2:4]
+    if not start.isdigit() or not end.isdigit():
+        return ""
+    return f"20{start}-20{end}"
+
+
+ACADEMIC_YEAR_DIGITS = 4
+
