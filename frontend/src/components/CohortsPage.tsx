@@ -563,24 +563,38 @@ export function CohortsPage({
           hint={everywhere ? "showing every cohort" : undefined}
           beside={
             /*
-             * One cohort, or all of them — asked where "which cohort" is asked. A globe
-             * for every cohort, the cohort mark for this one: the icon is the state, and
-             * the label says what a click does.
+             * One cohort, or all of them — asked where "which cohort" is asked, as a
+             * two-way switch with both answers in view: the cohort mark for this one, the
+             * globe for every one, and the chosen side filled in. One icon that swapped
+             * read as a state nobody could name without pressing it.
              */
-            <button
-              type="button"
-              aria-pressed={everywhere}
-              aria-label={everywhere ? "Back to this cohort" : "Search every cohort"}
-              title={everywhere ? "Showing every cohort. Click to go back to this one." : "Search every cohort, not only this one"}
-              onClick={() => setEverywhere((current) => !current)}
-              className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border ${
-                everywhere
-                  ? "border-[#1f4e79] bg-[#1f4e79] text-white"
-                  : "border-[#b7bec8] bg-white text-[#344054] hover:bg-[#f8fafc]"
-              }`}
+            <div
+              role="radiogroup"
+              aria-label="One cohort or every cohort"
+              className="inline-flex h-10 shrink-0 items-center rounded-md border border-[#b7bec8] bg-white p-0.5"
             >
-              {everywhere ? <Globe size={16} aria-hidden="true" /> : <Users size={16} aria-hidden="true" />}
-            </button>
+              {(
+                [
+                  { on: false, label: "This cohort", hint: "Only the chosen cohort's students", Icon: Users },
+                  { on: true, label: "Every cohort", hint: "Every cohort's students, whichever is chosen", Icon: Globe },
+                ] as const
+              ).map(({ on, label, hint, Icon }) => (
+                <button
+                  key={label}
+                  type="button"
+                  role="radio"
+                  aria-checked={everywhere === on}
+                  aria-label={label}
+                  title={hint}
+                  onClick={() => setEverywhere(on)}
+                  className={`inline-flex h-8 w-8 items-center justify-center rounded transition-colors ${
+                    everywhere === on ? "bg-[#1f4e79] text-white" : "text-[#667085] hover:bg-[#f5f7fa] hover:text-[#344054]"
+                  }`}
+                >
+                  <Icon size={15} aria-hidden="true" />
+                </button>
+              ))}
+            </div>
           }
         >
           {/*
