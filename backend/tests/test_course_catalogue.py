@@ -2,7 +2,18 @@ import os
 from uuid import uuid4
 
 from sorbonne.services.teacher_store import TeacherStore
+import importlib.util as _importlib_util
+from pathlib import Path as _Path
+
 from sorbonne.services.teacher_store import _academic_year, course_title_case
+
+_spec = _importlib_util.spec_from_file_location(
+    "sweep_titles",
+    _Path(__file__).resolve().parents[1] / "alembic" / "versions" / "0050_sweep_bound_syllabus_titles.py",
+)
+_module = _importlib_util.module_from_spec(_spec)
+_spec.loader.exec_module(_module)
+corrected_title = _module.corrected_title
 
 
 TEST_DATABASE_URL = os.getenv(
@@ -130,3 +141,13 @@ def test_raises_a_course_title_without_disturbing_what_is_already_capitalised() 
     assert course_title_case("AI Law & Governance") == "AI Law & Governance"
     assert course_title_case("CAO-DAO") == "CAO-DAO"
     assert course_title_case("ADGM M2") == "ADGM M2"
+
+
+def test_sweeps_only_a_bound_title_that_differs_by_capitalisation() -> None:
+    """A coordinator's own wording must survive the sweep untouched."""
+    assert corrected_title("geometric OPTICS", "Geometric optics") == "Geometric Optics"
+    # Already right, so nothing to write.
+    assert corrected_title("Geometric Optics", "Geometric optics") == ""
+    # A different title is the coordinator's, however the catalogue words it.
+    assert corrected_title("Optics for Engineers", "Geometric optics") == ""
+    assert corrected_title("", "Geometric optics") == ""
