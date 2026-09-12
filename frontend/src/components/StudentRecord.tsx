@@ -3,6 +3,7 @@ import { AlertTriangle, ArrowRightCircle, Check, ChevronDown, EyeOff, Wand2 } fr
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { CommentThread } from "@/components/CommentThread";
+import { CrnRecord } from "@/components/CrnRecord";
 import { Modal } from "@/components/Modal";
 import { PlaceInBlock } from "@/components/PlaceInBlock";
 import { SectionTimetable, type TimetableEntry } from "@/components/SectionTimetable";
@@ -24,7 +25,7 @@ import {
   fetchRegistrationCheck,
   fetchRegistrations,
   fetchTermLinks,
-  registrationFamilies,
+  type ActiveCrn,
 } from "@/services/portalLists";
 import { allChanges, historyFor, type PullHistory } from "@/services/pullHistory";
 import { reconcile, tally } from "@/services/registrationLists";
@@ -263,8 +264,13 @@ export function StudentRecord({
   const seenByTheCheck = (check.data?.coverage ?? []).some(
     (term) => term.judged > 0 && !term.skipped.includes(row.studentId),
   );
-  const parentOf = (crn: string) => (register.data ?? []).find((entry) => entry.crn === crn)?.parentCrn ?? "";
-  const families = registrationFamilies(registrations.data ?? [], parentOf, mismatches);
+  /*
+   * A class on the calendar opens its CRN's record, where the register holds one. An
+   * elective of another department is drawn — it is where the student will be — but is
+   * nothing of ours to open.
+   */
+  const [showingCrn, setShowingCrn] = useState<ActiveCrn | null>(null);
+  const inRegister = (crn: string) => (register.data ?? []).find((entry) => entry.crn === crn) ?? null;
   const entries = historyFor(history, row.studentId);
   const portal = Object.fromEntries(Object.entries(row.portal).filter(([, value]) => String(value ?? "").trim()));
   const rest = Object.keys(portal)
@@ -402,10 +408,20 @@ export function StudentRecord({
           )}
         </Card>
 
-          {/* ----------------------------------------------------------- comments */}
-          <Card title="Comments" note="On the server: every coordinator who opens this student reads the same thread.">
-            <CommentThread studentId={row.studentId} label={row.name || row.studentId} />
-          </Card>
+          {/* ---------------------------------------------------------- timetable */}
+        <Card
+          title="Timetable"
+          note="Their week as the registrar has booked it: the sections they are registered in, and the ones their groups stand for."
+        >
+          <SectionTimetable
+            entries={timetable}
+            compact
+            title={`${row.name || row.studentId} — timetable`}
+            openable={(crn) => Boolean(inRegister(crn))}
+            onOpenCrn={(crn) => setShowingCrn(inRegister(crn))}
+            emptyMessage="In no group and registered in nothing, so there is no week to show."
+          />
+        </Card>
         </div>
 
         <div className="space-y-5">
@@ -551,76 +567,25 @@ export function StudentRecord({
                 </table>
               </>
             )}
-          </Card>
-
-          {/* ------------------------------------------------------ registrations */}
-          <Card title="Registered in the portal" note="What the registrar actually registered, per term.">
-            {registrations.isLoading ? (
-              <Empty>Reading…</Empty>
-            ) : registrations.error ? (
-              <p className="text-sm text-[#a6292f]">{(registrations.error as Error).message}</p>
-            ) : (registrations.data ?? []).length === 0 ? (
-              <Empty>No registrations pulled for this student yet. Sync a Registrations filter that covers them.</Empty>
-            ) : (
-              /*
-               * One block per course: the row the sections hang from, then the sections,
-               * then whatever is wrong with that course. The registrar answers with a
-               * flat list in which a lecture and the tutorial group a student sits in
-               * look alike, and the register is what tells them apart.
-               */
-              <ul className="space-y-3" aria-label="Registrations">
-                {families.map((family) => {
-                  /*
-                   * A course under this heading that has nothing registered in it at all.
-                   *
-                   * It is here only because a warning has to be read somewhere, and the
-                   * heading it was given is the same heading a registered course gets —
-                   * so a course the registrar has not touched read as one it had, under a
-                   * panel that says "what the registrar actually registered". It says so
-                   * now, and it says it in the place the sections would have been.
-                   */
-                  const nothing = !family.parent && family.children.length === 0;
-                  return (
-                  <li key={family.courseCode}>
-                    <p className="text-sm">
-                      <span className={`font-semibold ${nothing ? "text-[#98a2b3]" : "text-[#171717]"}`}>
-                        {family.courseCode}
-                      </span>
-                      {family.title ? <span className="ml-2 text-[#667085]">{family.title}</span> : null}
-                      {nothing ? <span className="ml-2 text-xs text-[#98a2b3]">nothing registered</span> : null}
-                    </p>
-
-                    {nothing ? (
-                      <p className="ml-4 mt-1 text-xs text-[#98a2b3]">
-                        The registrar has this student in no section of this course.
-                      </p>
-                    ) : null}
-                    {family.parent ? <RegistrationLine registration={family.parent} parent /> : null}
-                    {family.children.length ? (
-                      <ul className={family.parent ? "ml-4 border-l border-[#eef1f5] pl-3" : ""}>
-                        {family.children.map((child) => (
-                          <li key={`${child.termCode}|${child.crn}`}>
-                            <RegistrationLine registration={child} />
-                          </li>
-                        ))}
-                      </ul>
-                    ) : null}
-
-                    {family.warnings.map((warning) => (
-                      <p
-                        key={`${warning.termCode}|${warning.courseCode}|${warning.kind}`}
-                        className="ml-4 mt-1 flex items-start gap-1.5 rounded-md border border-[#e8d9ac] bg-[#fdf9ee] px-2.5 py-1.5 text-xs text-[#8a6116]"
-                      >
-                        <AlertTriangle size={12} className="mt-0.5 shrink-0" aria-hidden="true" />
-                        <span>{describeMismatch(warning)}</span>
-                      </p>
-                    ))}
+            {registrations.error ? <p className="mt-2 text-sm text-[#a6292f]">{(registrations.error as Error).message}</p> : null}
+            {/*
+              * The check's own verdicts, in its own words. The table above says which CRNs
+              * are on one side only; the check says what that comes to for a course — a
+              * doubled group, a collision — which no one row of the table can.
+              */}
+            {mismatches.length ? (
+              <ul className="mt-3 space-y-1" aria-label="What the check says">
+                {mismatches.map((warning) => (
+                  <li
+                    key={`${warning.termCode}|${warning.courseCode}|${warning.kind}|${warning.scopeCode ?? ""}`}
+                    className="flex items-start gap-1.5 rounded-md border border-[#e8d9ac] bg-[#fdf9ee] px-2.5 py-1.5 text-xs text-[#8a6116]"
+                  >
+                    <AlertTriangle size={12} className="mt-0.5 shrink-0" aria-hidden="true" />
+                    <span>{describeMismatch(warning)}</span>
                   </li>
-                  );
-                })}
+                ))}
               </ul>
-            )}
-
+            ) : null}
             {!mismatches.length && cohortId && check.data && (registrations.data ?? []).length ? (
               seenByTheCheck ? (
                 <p className="mt-3 inline-flex items-center gap-1.5 text-sm text-[#2f6b3d]">
@@ -640,23 +605,23 @@ export function StudentRecord({
               </p>
             ) : null}
           </Card>
+
         </div>
       </div>
 
-      {/* -------------------------------------------------------------- timetable */}
-      <Card
-        className="mt-5"
-        title="Timetable"
-        note="Their week as the registrar has booked it: the sections they are registered in, and the ones their groups stand for."
-      >
-        <SectionTimetable
-          entries={timetable}
-          emptyMessage="In no group and registered in nothing, so there is no week to show."
-        />
-      </Card>
 
+      {/*
+        * The second row: what people have said, beside what the portal's record has done.
+        * Both are short and both are read after the facts, so they share a row rather than
+        * each taking a full one with half of it empty.
+        */}
+      <div className="mt-5 grid gap-5 lg:grid-cols-2">
+          {/* ----------------------------------------------------------- comments */}
+          <Card title="Comments" note="On the server: every coordinator who opens this student reads the same thread.">
+            <CommentThread studentId={row.studentId} label={row.name || row.studentId} />
+          </Card>
       {/* ---------------------------------------------------------------- history */}
-      <Card className="mt-5" title="History" note="What changed in the portal's record, from this browser's pull history.">
+      <Card title="History" note="What changed in the portal's record, from this browser's pull history.">
         {entries.length === 0 ? (
           <Empty>No changes recorded.</Empty>
         ) : (
@@ -682,32 +647,18 @@ export function StudentRecord({
           </ol>
         )}
       </Card>
-    </Modal>
-  );
-}
+      </div>
+      {showingCrn ? (
+        <CrnRecord
+          open
+          row={showingCrn}
+          siblings={(register.data ?? []).filter((entry) => entry.courseCode === showingCrn.courseCode && entry.termCode === showingCrn.termCode)}
+          onClose={() => setShowingCrn(null)}
+          onSaved={() => void client.invalidateQueries({ queryKey: ["active-crns"] })}
+        />
+      ) : null}
 
-/**
- * One registration: its CRN, what the portal calls it and who teaches it.
- *
- * The parent — the row the course is built around — is set in the ink of a heading; a
- * section is the lighter line under it. One the portal has stopped listing is struck
- * through rather than dropped, because a registration that has gone is news.
- */
-function RegistrationLine({
-  registration,
-  parent = false,
-}: {
-  registration: { crn: string; termCode: string; title: string; teacherName: string; status: string };
-  parent?: boolean;
-}) {
-  const gone = registration.status === "not_in_portal";
-  return (
-    <p className={`flex flex-wrap items-baseline gap-x-2 py-0.5 text-sm ${gone ? "text-[#98a2b3] line-through" : ""}`}>
-      <span className={`tabular-nums ${parent ? "font-semibold text-[#344054]" : "text-[#667085]"}`}>{registration.crn}</span>
-      <span className="text-[#667085]">{registration.title}</span>
-      {registration.teacherName ? <span className="text-xs text-[#98a2b3]">{registration.teacherName}</span> : null}
-      <span className="text-xs tabular-nums text-[#c8d0da]">{registration.termCode}</span>
-    </p>
+    </Modal>
   );
 }
 

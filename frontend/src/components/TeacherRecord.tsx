@@ -1,10 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 
+import { CrnRecord } from "@/components/CrnRecord";
 import { Modal } from "@/components/Modal";
 import { SectionTimetable, type TimetableEntry } from "@/components/SectionTimetable";
 import { buildCards } from "@/services/courseCards";
-import { fetchActiveCourses, fetchActiveCrns, fetchActiveTeachers, fetchTermLinks, type ActiveTeacher } from "@/services/portalLists";
+import { fetchActiveCourses, fetchActiveCrns, fetchActiveTeachers, fetchTermLinks, type ActiveCrn, type ActiveTeacher } from "@/services/portalLists";
 import { sameTeacher, sectionsTaughtBy } from "@/services/teacherLoad";
 import { fetchCourseCards } from "@/services/studentDatabase";
 import { fetchTimetableTerms } from "@/services/timetables";
@@ -98,6 +99,8 @@ export function TeacherRecord({
     .filter((row) => !named.has(row.crn) && row.portalStatus === "in_portal" && sameTeacher(row.teacherName, teacher.fullName))
     .map((row) => ({ termCode: row.termCode, crn: row.crn, code: row.courseCode, title: row.courseTitle || row.portalTitle }));
   const timetable = [...ours, ...theirs];
+  const [showingCrn, setShowingCrn] = useState<ActiveCrn | null>(null);
+  const inRegister = (crn: string) => (registered.data ?? []).find((row) => row.crn === crn) ?? null;
   const hours = live.reduce((sum, section) => sum + (Number(section.hours) || 0), 0);
   const students = live.reduce((sum, section) => sum + section.students, 0);
   const facts = held ?? teacher;
@@ -133,19 +136,40 @@ export function TeacherRecord({
         </div>
       </div>
 
-      <div className="mt-5 grid gap-4 rounded-lg border border-[#e4e8ef] bg-[#fbfcfe] px-4 py-3 sm:grid-cols-3">
-        <Fact label="E-mail" value={facts.email || teacher.psuadEmail || ""} />
-        <Fact label="Rank" value={facts.rank ?? ""} />
-        <Fact label="Category" value={facts.category ?? ""} />
-        <Fact label="Department" value={facts.department ?? ""} />
-        <Fact label="Institution" value={facts.institution ?? ""} />
-        <Fact label="Last term in the portal" value={facts.lastTerm ?? ""} />
-        <Fact label="Portal ID" value={facts.portalTeacherId ?? ""} />
-        <Fact
-          label="On the department's list"
-          value={held ? `yes, since ${held.addedAt.slice(0, 10)}` : "no — chosen on the Teachers page"}
-        />
-        <Fact label="Courses the portal lists" value={facts.courses ?? ""} />
+
+      {/*
+       * Who they are beside when they teach. The facts are nine short lines and the week
+       * is a small grid; each on a row of its own left half the width empty.
+       */}
+      <div className="mt-5 grid gap-4 lg:grid-cols-2">
+        <div className="grid gap-4 self-start rounded-lg border border-[#e4e8ef] bg-[#fbfcfe] px-4 py-3 sm:grid-cols-2">
+          <Fact label="E-mail" value={facts.email || teacher.psuadEmail || ""} />
+          <Fact label="Rank" value={facts.rank ?? ""} />
+          <Fact label="Category" value={facts.category ?? ""} />
+          <Fact label="Department" value={facts.department ?? ""} />
+          <Fact label="Institution" value={facts.institution ?? ""} />
+          <Fact label="Last term in the portal" value={facts.lastTerm ?? ""} />
+          <Fact label="Portal ID" value={facts.portalTeacherId ?? ""} />
+          <Fact
+            label="On the department's list"
+            value={held ? `yes, since ${held.addedAt.slice(0, 10)}` : "no — chosen on the Teachers page"}
+          />
+          <Fact label="Courses the portal lists" value={facts.courses ?? ""} />
+        </div>
+        <section>
+          <h4 className="text-sm font-semibold text-[#171717]">When they teach</h4>
+          <p className="mb-2 text-xs text-[#98a2b3]">
+            From the registrar&apos;s timetable: the sections above, and any the portal staffs with them.
+          </p>
+          <SectionTimetable
+            entries={timetable}
+            compact
+            title={`${teacher.fullName || "This teacher"} — timetable`}
+            openable={(crn) => Boolean(inRegister(crn))}
+            onOpenCrn={(crn) => setShowingCrn(inRegister(crn))}
+            emptyMessage="No section of theirs carries a CRN yet, so there is no week to show."
+          />
+        </section>
       </div>
 
       <h4 className="mt-6 text-sm font-semibold text-[#171717]">What they teach</h4>
@@ -194,11 +218,15 @@ export function TeacherRecord({
         </div>
       )}
 
-      <h4 className="mt-6 text-sm font-semibold text-[#171717]">When they teach</h4>
-      <p className="mb-2 text-xs text-[#98a2b3]">
-        From the registrar&apos;s timetable: the sections above, and any the portal staffs with them.
-      </p>
-      <SectionTimetable entries={timetable} emptyMessage="No section of theirs carries a CRN yet, so there is no week to show." />
+      {showingCrn ? (
+        <CrnRecord
+          open
+          row={showingCrn}
+          siblings={(registered.data ?? []).filter((row) => row.courseCode === showingCrn.courseCode && row.termCode === showingCrn.termCode)}
+          onClose={() => setShowingCrn(null)}
+          onSaved={() => void registered.refetch()}
+        />
+      ) : null}
     </Modal>
   );
 }

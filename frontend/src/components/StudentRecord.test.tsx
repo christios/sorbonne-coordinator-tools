@@ -126,16 +126,15 @@ describe("a student's record", () => {
     expect(groups.textContent).toContain("Semester 1");
     expect(groups.textContent).toContain("MATH-011 23652");
 
-    // One block per course, and the warning about a course sits with that course.
-    const registrations = await screen.findByLabelText("Registrations");
-    const courses = within(registrations).getAllByRole("listitem").filter((item) => item.parentElement === registrations);
-    expect(courses.map((item) => item.textContent?.slice(0, 8))).toEqual(["MATH-001", "MATH-011"]);
-    expect(registrations.textContent).toContain("Dr Ahmed");
-    expect(courses[1].textContent).toContain("MATH-011: registered in 23653, we placed them in 23652");
-    // The tutorial sits inside the lecture it hangs from, not beside it.
-    const nested = within(courses[0]).getAllByRole("listitem");
-    expect(nested).toHaveLength(1);
-    expect(nested[0].textContent).toContain("23223");
+    // The check's verdicts sit under the CRNs table, this student's only.
+    const verdicts = await screen.findByLabelText("What the check says");
+    expect(within(verdicts).getAllByRole("listitem").map((item) => item.textContent)).toEqual([
+      "MATH-011: registered in 23653, we placed them in 23652",
+    ]);
+    // What the registrar registered is a row of the CRNs table, not a card of its own.
+    expect(screen.queryByText("Registered in the portal")).toBeNull();
+    const table = screen.getByLabelText("CRNs");
+    expect(within(table).getByText("23223")).toBeTruthy();
   });
 
   it("reads the history from this browser", async () => {
@@ -161,7 +160,7 @@ describe("a student the check never saw", () => {
     );
 
     show();
-    await screen.findByLabelText("Registrations");
+    await screen.findByLabelText("CRNs");
 
     expect(screen.queryByText(/Registrations agree with the groups/)).toBeNull();
     expect(screen.getByText(/No registrations pull has returned this student for their semester/)).toBeTruthy();
@@ -171,14 +170,14 @@ describe("a student the check never saw", () => {
     vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue(report([], [checked()]));
 
     show();
-    await screen.findByLabelText("Registrations");
+    await screen.findByLabelText("CRNs");
 
-    expect(screen.getByText(/Registrations agree with the groups/)).toBeTruthy();
+    expect(await screen.findByText(/Registrations agree with the groups/)).toBeTruthy();
   });
 });
 
 describe("a course the registrar has not touched", () => {
-  it("says so, rather than looking like one it has", async () => {
+  it("is still a verdict under the CRNs, since no row of the table can carry it", async () => {
     vi.spyOn(lists, "fetchRegistrations").mockResolvedValue([
       { crn: "23644", courseCode: "CPSC-100", title: "Computer Science G.1-TD", termCode: "262710", status: "in_portal" },
     ] as never);
@@ -191,13 +190,9 @@ describe("a course the registrar has not touched", () => {
 
     show();
 
-    const list = await screen.findByLabelText("Registrations");
-    const phys = within(list).getByText("PHYS-118").closest("li") as HTMLElement;
-    expect(within(phys).getByText("nothing registered")).toBeTruthy();
-    expect(within(phys).getByText(/no section of this course/)).toBeTruthy();
-    // The course that does have a registration is not marked that way.
-    const cpsc = within(list).getByText("CPSC-100").closest("li") as HTMLElement;
-    expect(within(cpsc).queryByText("nothing registered")).toBeNull();
+    const verdicts = await screen.findByLabelText("What the check says");
+    const said = within(verdicts).getAllByRole("listitem").map((item) => item.textContent);
+    expect(said).toEqual(["CPSC-100: not registered in 22155", "PHYS-118: not registered in 22150"]);
   });
 });
 

@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
-import { type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
+import { CrnRecord } from "@/components/CrnRecord";
 import { Modal } from "@/components/Modal";
 import { SectionTimetable } from "@/components/SectionTimetable";
 import { buildCards, rowsPerPart, teaches, type Card as CourseCard } from "@/services/courseCards";
@@ -87,6 +88,8 @@ export function CourseRecord({
     colorKey: row.crn,
   }));
 
+  const [showingCrn, setShowingCrn] = useState<ActiveCrn | null>(null);
+
   const report = check.data;
   const differences = report
     ? [
@@ -115,49 +118,72 @@ export function CourseRecord({
         </dl>
       }
     >
-      <div className="space-y-3">
-        <Card title="In the register" note="The CRNs the department answers for, and what the portal says about each.">
-          {held.length === 0 ? (
-            <Empty>Not in the register. Take the course in on Active courses and its CRNs come with it.</Empty>
-          ) : (
-            <ul className="divide-y divide-[#f2f4f7] text-sm">
-              {held.map((row) => (
-                <RegisterLine key={row.id} row={row} portal={portal.data?.crns[row.crn] ?? null} />
-              ))}
-            </ul>
-          )}
-        </Card>
+      {/*
+       * Two columns, read down then across: the registrar's side — what it holds and what
+       * is wrong with it — and ours — where we teach it and when it meets.
+       */}
+      <div className="grid gap-3 lg:grid-cols-2 lg:items-start">
+        <div className="space-y-3">
+          <Card title="In the register" note="The CRNs the department answers for, and what the portal says about each.">
+            {held.length === 0 ? (
+              <Empty>Not in the register. Take the course in on Active courses and its CRNs come with it.</Empty>
+            ) : (
+              <ul className="divide-y divide-[#f2f4f7] text-sm">
+                {held.map((row) => (
+                  <RegisterLine key={row.id} row={row} portal={portal.data?.crns[row.crn] ?? null} />
+                ))}
+              </ul>
+            )}
+          </Card>
 
-        <Card title="Where we teach it" note="Every group of every set that holds a section of this course.">
-          {cards.length === 0 ? (
-            <Empty>On no course card yet. Add it to a set on Group schema.</Empty>
-          ) : (
-            <ul className="space-y-3 text-sm">
-              {cards.map((card) => (
-                <TaughtIn key={card.key} card={card} />
-              ))}
-            </ul>
-          )}
-        </Card>
+          <Card title="What is wrong with it" note="The differences that name this course, and nothing else's.">
+            {check.isLoading ? (
+              <Empty>Reading the register…</Empty>
+            ) : differences.length === 0 ? (
+              <Empty>Nothing. Every CRN it holds is registered, staffed as we have it, and clear of other departments.</Empty>
+            ) : (
+              <ul className="space-y-1 text-sm text-[#8a6116]">
+                {differences.map((line) => (
+                  <li key={line}>{line}</li>
+                ))}
+              </ul>
+            )}
+          </Card>
+        </div>
+        <div className="space-y-3">
+          <Card title="Where we teach it" note="Every group of every set that holds a section of this course.">
+            {cards.length === 0 ? (
+              <Empty>On no course card yet. Add it to a set on Group schema.</Empty>
+            ) : (
+              <ul className="space-y-3 text-sm">
+                {cards.map((card) => (
+                  <TaughtIn key={card.key} card={card} />
+                ))}
+              </ul>
+            )}
+          </Card>
 
-        <Card title="When it meets" note="Every section of it on the registrar's timetable, one colour per CRN.">
-          <SectionTimetable entries={timetable} emptyMessage="Not in the register, so the registrar has not been asked when it meets." />
-        </Card>
-
-        <Card title="What is wrong with it" note="The differences that name this course, and nothing else's.">
-          {check.isLoading ? (
-            <Empty>Reading the register…</Empty>
-          ) : differences.length === 0 ? (
-            <Empty>Nothing. Every CRN it holds is registered, staffed as we have it, and clear of other departments.</Empty>
-          ) : (
-            <ul className="space-y-1 text-sm text-[#8a6116]">
-              {differences.map((line) => (
-                <li key={line}>{line}</li>
-              ))}
-            </ul>
-          )}
-        </Card>
+          <Card title="When it meets" note="Every section of it on the registrar's timetable, one colour per CRN.">
+            <SectionTimetable
+              entries={timetable}
+              compact
+              title={`${code} — timetable`}
+              openable={(crn) => held.some((row) => row.crn === crn)}
+              onOpenCrn={(crn) => setShowingCrn(held.find((row) => row.crn === crn) ?? null)}
+              emptyMessage="Not in the register, so the registrar has not been asked when it meets."
+            />
+          </Card>
+        </div>
       </div>
+        {showingCrn ? (
+          <CrnRecord
+            open
+            row={showingCrn}
+            siblings={held.filter((row) => row.termCode === showingCrn.termCode)}
+            onClose={() => setShowingCrn(null)}
+            onSaved={() => void crns.refetch()}
+          />
+        ) : null}
     </Modal>
   );
 }

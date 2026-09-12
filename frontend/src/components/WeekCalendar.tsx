@@ -1,3 +1,4 @@
+import { MapPin, User } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import {
@@ -20,8 +21,6 @@ import {
 
 /** Narrower than this, the week is shown one day at a time behind a row of day buttons. */
 const ONE_DAY_BELOW = 520;
-/** The least a day column may be before the week scrolls sideways instead of squeezing. */
-const NARROWEST_DAY = 88;
 const TOP_PADDING = 10;
 
 type WeekCalendarProps = {
@@ -29,10 +28,17 @@ type WeekCalendarProps = {
   sessions: PlacedSession[];
   courses: Map<string, CalendarCourse>;
   today: string;
-  /** Pixels per hour. 44 reads well in a card; a full page can take more. */
+  /** Pixels per hour. 48 reads well full size; a card's preview takes half. */
   hourHeight?: number;
   /** The hours always drawn, whatever the week holds. */
   atLeast?: HourBounds;
+  /**
+   * A preview: a quarter of the size, boxes carrying their name and nothing else, and
+   * always the whole week — the one-day view is for a phone, not for a thumbnail.
+   */
+  compact?: boolean;
+  /** Pressing a box opens its CRN. Only boxes whose course says `openable` are buttons. */
+  onPick?: (crn: string) => void;
 };
 
 /**
@@ -46,7 +52,16 @@ type WeekCalendarProps = {
  * side, since a course's calendar holds every group's tutorial at once and on top of each
  * other they would read as one class.
  */
-export function WeekCalendar({ weekStart, sessions, courses, today, hourHeight = 44, atLeast }: WeekCalendarProps) {
+export function WeekCalendar({
+  weekStart,
+  sessions,
+  courses,
+  today,
+  hourHeight = 48,
+  atLeast,
+  compact = false,
+  onPick,
+}: WeekCalendarProps) {
   const days = weekDays(weekStart, sessions);
   const inWeek = sessionsInRange(sessions, days[0], days[days.length - 1]);
   const { startMinute, endMinute } = hourBounds(sessions, atLeast);
@@ -55,6 +70,8 @@ export function WeekCalendar({ weekStart, sessions, courses, today, hourHeight =
   const hours: number[] = [];
   for (let minute = startMinute; minute <= endMinute; minute += 60) hours.push(minute);
   const topOf = (minute: number) => (minute - startMinute) * pixelsPerMinute + TOP_PADDING;
+  const gutter = compact ? 30 : 44;
+  const narrowestDay = compact ? 56 : 88;
 
   const box = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
@@ -68,7 +85,7 @@ export function WeekCalendar({ weekStart, sessions, courses, today, hourHeight =
     return () => observer.disconnect();
   }, []);
   // Unmeasured — the first paint, or a test — is drawn as a week, which is the honest default.
-  const oneDayAtATime = width > 0 && width < ONE_DAY_BELOW;
+  const oneDayAtATime = !compact && width > 0 && width < ONE_DAY_BELOW;
 
   const [focusedDay, setFocusedDay] = useState(() => preferredDay(days, sessions, today));
   const weekKey = days[0];
@@ -114,20 +131,22 @@ export function WeekCalendar({ weekStart, sessions, courses, today, hourHeight =
         <div
           className="grid overflow-hidden rounded-lg border border-[#d9dee7] bg-white"
           style={{
-            gridTemplateColumns: `44px repeat(${visibleDays.length}, minmax(0, 1fr))`,
-            minWidth: oneDayAtATime ? undefined : 44 + visibleDays.length * NARROWEST_DAY,
+            gridTemplateColumns: `${gutter}px repeat(${visibleDays.length}, minmax(0, 1fr))`,
+            minWidth: oneDayAtATime ? undefined : gutter + visibleDays.length * narrowestDay,
           }}
         >
           <div className="border-b border-[#e4e8ef] bg-[#fbfcfe]" />
           {visibleDays.map((day) => (
             <div
               key={day}
-              className={`border-b border-l border-[#e4e8ef] bg-[#fbfcfe] px-1 py-1.5 text-center text-xs font-semibold ${
-                day === today ? "text-[#1f4e79]" : "text-[#344054]"
-              }`}
+              className={`border-b border-l border-[#e4e8ef] bg-[#fbfcfe] text-center font-semibold ${
+                compact ? "px-0.5 py-0.5 text-[9.5px]" : "px-1 py-1.5 text-xs"
+              } ${day === today ? "text-[#1f4e79]" : "text-[#344054]"}`}
             >
               {DAY_NAMES[parseIsoDate(day).getDay()]}
-              <span className="block text-[11px] font-normal text-[#98a2b3]">{formatDayAndMonth(day)}</span>
+              <span className={`block font-normal text-[#98a2b3] ${compact ? "text-[8.5px]" : "text-[11px]"}`}>
+                {formatDayAndMonth(day)}
+              </span>
             </div>
           ))}
 
@@ -135,7 +154,7 @@ export function WeekCalendar({ weekStart, sessions, courses, today, hourHeight =
             {hours.map((minute) => (
               <span
                 key={minute}
-                className="absolute right-1.5 -translate-y-1/2 text-[10.5px] tabular-nums text-[#98a2b3]"
+                className={`absolute right-1 -translate-y-1/2 tabular-nums text-[#98a2b3] ${compact ? "text-[8px]" : "text-[10.5px]"}`}
                 style={{ top: topOf(minute) }}
               >
                 {`${minute / 60}`.padStart(2, "0")}:00
@@ -153,7 +172,8 @@ export function WeekCalendar({ weekStart, sessions, courses, today, hourHeight =
               hours={hours}
               topOf={topOf}
               pixelsPerMinute={pixelsPerMinute}
-              roomy={oneDayAtATime}
+              compact={compact}
+              onPick={onPick}
             />
           ))}
         </div>
@@ -163,7 +183,7 @@ export function WeekCalendar({ weekStart, sessions, courses, today, hourHeight =
         <p className="mt-2 text-center text-xs text-[#98a2b3]">No classes on {formatLongDate(shownDay)}.</p>
       ) : null}
       {!oneDayAtATime && inWeek.length === 0 ? (
-        <p className="mt-2 text-center text-xs text-[#98a2b3]">No classes this week.</p>
+        <p className={`mt-1.5 text-center text-[#98a2b3] ${compact ? "text-[10px]" : "text-xs"}`}>No classes this week.</p>
       ) : null}
     </div>
   );
@@ -177,10 +197,11 @@ type DayColumnProps = {
   hours: number[];
   topOf: (minute: number) => number;
   pixelsPerMinute: number;
-  roomy: boolean;
+  compact: boolean;
+  onPick?: (crn: string) => void;
 };
 
-function DayColumn({ day, sessions, courses, height, hours, topOf, pixelsPerMinute, roomy }: DayColumnProps) {
+function DayColumn({ day, sessions, courses, height, hours, topOf, pixelsPerMinute, compact, onPick }: DayColumnProps) {
   return (
     <div className="relative border-l border-[#e4e8ef]" style={{ height }}>
       {hours.slice(1, -1).map((minute) => (
@@ -189,14 +210,14 @@ function DayColumn({ day, sessions, courses, height, hours, topOf, pixelsPerMinu
       {laneOut(sessions).map(({ session, lane, lanes }) => {
         const course = courses.get(session.crn);
         const minutes = minutesOf(session.end) - minutesOf(session.start);
-        const boxHeight = Math.max(22, minutes * pixelsPerMinute - 2);
-        const oneLine = boxHeight < 36;
+        const boxHeight = Math.max(compact ? 12 : 22, minutes * pixelsPerMinute - 2);
         const color = course?.color ?? "#1f4e79";
         const outline = course?.tone === "outline";
+        const label = course?.label || course?.code || session.crn;
         const details = [
           ...new Set(
             [
-              course?.label,
+              label,
               course?.title,
               course?.code,
               `CRN ${session.crn}`,
@@ -209,17 +230,28 @@ function DayColumn({ day, sessions, courses, height, hours, topOf, pixelsPerMinu
           ),
         ].join(" · ");
         const widthPercent = 100 / lanes;
+        const opens = Boolean(onPick && course?.openable);
+        const Box = opens ? "button" : "article";
+
+        /*
+         * What fits, by height, from the top down: the name, the hour, the room, the
+         * teacher. A box too short for a line drops the line rather than clipping it
+         * halfway, and the whole story is always in the tooltip.
+         */
+        const lines = compact ? 0 : boxHeight >= 66 ? 4 : boxHeight >= 50 ? 3 : boxHeight >= 34 ? 2 : 1;
 
         return (
-          <article
+          <Box
             key={`${day}-${session.crn}-${session.start}-${lane}`}
+            type={opens ? "button" : undefined}
+            onClick={opens ? () => onPick?.(session.crn) : undefined}
             title={details}
-            aria-label={details}
-            className={`absolute overflow-hidden rounded-md px-1.5 py-0.5 leading-tight ${
-              roomy ? "text-xs" : "text-[11px]"
+            aria-label={opens ? `Open CRN ${session.crn}: ${details}` : details}
+            className={`absolute flex flex-col overflow-hidden rounded-md text-left leading-tight ${
+              compact ? "px-1 py-px text-[8.5px]" : "px-1.5 py-1 text-[11px]"
             } ${outline ? "border-2 border-dashed bg-white" : "text-white"} ${
               session.clashes ? "outline-2 -outline-offset-2 outline-[#d9a441]" : ""
-            }`}
+            } ${opens ? "cursor-pointer hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#1f4e79]" : ""}`}
             style={{
               top: topOf(minutesOf(session.start)),
               height: boxHeight,
@@ -230,24 +262,34 @@ function DayColumn({ day, sessions, courses, height, hours, topOf, pixelsPerMinu
               color: outline ? color : undefined,
             }}
           >
-            <b className="block truncate font-semibold">
-              {course?.label || course?.code || session.crn}
-              {oneLine ? <span className="ml-1 font-normal opacity-85">{session.start}</span> : null}
-            </b>
-            {oneLine ? null : (
+            {compact ? (
+              <b className="block truncate font-semibold">{label}</b>
+            ) : (
               <>
-                <span className="block truncate opacity-90">
-                  {session.start}–{session.end}
-                </span>
-                {boxHeight >= 52 && session.room ? (
-                  <span className="block truncate opacity-80">{formatRoom(session.room)}</span>
+                <b className="flex items-baseline justify-between gap-1 font-semibold">
+                  <span className="truncate">{label}</span>
+                  {lines === 1 ? <span className="shrink-0 text-[10px] font-normal tabular-nums opacity-85">{session.start}</span> : null}
+                </b>
+                {lines >= 2 ? (
+                  <span className="block tabular-nums opacity-90">
+                    {session.start}–{session.end}
+                  </span>
                 ) : null}
-                {roomy && course?.staff && boxHeight >= 68 ? (
-                  <span className="block truncate opacity-80">{course.staff}</span>
+                {lines >= 3 && session.room ? (
+                  <span className="mt-0.5 flex items-center gap-1 truncate opacity-85">
+                    <MapPin size={9} className="shrink-0" aria-hidden="true" />
+                    <span className="truncate">{formatRoom(session.room)}</span>
+                  </span>
+                ) : null}
+                {lines >= 4 && course?.staff ? (
+                  <span className="flex items-center gap-1 truncate opacity-85">
+                    <User size={9} className="shrink-0" aria-hidden="true" />
+                    <span className="truncate">{course.staff}</span>
+                  </span>
                 ) : null}
               </>
             )}
-          </article>
+          </Box>
         );
       })}
     </div>

@@ -112,92 +112,101 @@ export function CrnRecord({
         </dl>
       }
     >
-      <div className="space-y-3">
-        <Card title="What is wrong with it" note="The register's own verdicts about this CRN, in full.">
-          {check.isLoading ? (
-            <Empty>Reading the register…</Empty>
-          ) : warnings.length === 0 ? (
-            <Empty>Nothing. It is registered, staffed as we have it, and clear of other departments.</Empty>
-          ) : (
-            <ul className="space-y-1 text-sm">
-              {warnings.map((warning) => (
-                <li key={`${warning.kind}|${warning.text}`}>
-                  <span className="font-semibold text-[#8a6116]">{WORDS[warning.kind]}</span>{" "}
-                  <span className="text-[#667085]">{warning.text}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Card>
+      {/*
+       * Two columns: what the section is — who teaches it and when — and what the register
+       * makes of it — its verdicts and the parent it hangs from.
+       */}
+      <div className="grid gap-3 lg:grid-cols-2 lg:items-start">
+        <div className="space-y-3">
+          <Card title="Who teaches it" note="The group of ours this CRN stands for, and what the timetabler was asked for.">
+            {taught.length === 0 ? (
+              <Empty>On no course card. Nothing of ours teaches under it.</Empty>
+            ) : (
+              <ul className="space-y-2 text-sm">
+                {taught.map(({ card, set, entry }) => {
+                  const section = entry.section ? filled(entry.section, set.course.request) : null;
+                  return (
+                    <li key={`${card.key}|${entry.group.id}|${entry.section?.part ?? 1}`}>
+                      <p className="font-medium text-[#344054]">
+                        {card.cohortName} · {set.scope.code} {entry.group.label}
+                        <span className="ml-2 text-xs font-normal text-[#98a2b3]">{card.termName}</span>
+                        {entry.parts && entry.parts > 1 ? (
+                          <span className="ml-2 text-xs font-normal text-[#1f4e79]">
+                            part {entry.section?.part} of {entry.parts}
+                          </span>
+                        ) : null}
+                      </p>
+                      <p className="text-[#667085]">
+                        {section?.teacher || <Nothing />}
+                        {section?.hours ? <span className="ml-3 tabular-nums text-xs">{section.hours} h</span> : null}
+                        {section?.weeks ? <span className="ml-3 text-xs">weeks {section.weeks}</span> : null}
+                      </p>
+                      {section?.constraints ? <p className="text-xs text-[#98a2b3]">{section.constraints}</p> : null}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </Card>
 
-        <Card title="Who teaches it" note="The group of ours this CRN stands for, and what the timetabler was asked for.">
-          {taught.length === 0 ? (
-            <Empty>On no course card. Nothing of ours teaches under it.</Empty>
-          ) : (
-            <ul className="space-y-2 text-sm">
-              {taught.map(({ card, set, entry }) => {
-                const section = entry.section ? filled(entry.section, set.course.request) : null;
-                return (
-                  <li key={`${card.key}|${entry.group.id}|${entry.section?.part ?? 1}`}>
-                    <p className="font-medium text-[#344054]">
-                      {card.cohortName} · {set.scope.code} {entry.group.label}
-                      <span className="ml-2 text-xs font-normal text-[#98a2b3]">{card.termName}</span>
-                      {entry.parts && entry.parts > 1 ? (
-                        <span className="ml-2 text-xs font-normal text-[#1f4e79]">
-                          part {entry.section?.part} of {entry.parts}
-                        </span>
-                      ) : null}
-                    </p>
-                    <p className="text-[#667085]">
-                      {section?.teacher || <Nothing />}
-                      {section?.hours ? <span className="ml-3 tabular-nums text-xs">{section.hours} h</span> : null}
-                      {section?.weeks ? <span className="ml-3 text-xs">weeks {section.weeks}</span> : null}
-                    </p>
-                    {section?.constraints ? <p className="text-xs text-[#98a2b3]">{section.constraints}</p> : null}
+          <Card title="When the registrar has it" note="From the sweep of their timetable, not from anything we asked for.">
+            {days.isLoading ? (
+              <Empty>Reading the sweep…</Empty>
+            ) : !days.data ? (
+              <Empty>No semester is linked to a portal term, so the registrar has not been asked.</Empty>
+            ) : !asked ? (
+              <Empty>Nobody has asked the registrar about this CRN. Run a portal sync.</Empty>
+            ) : meets.length === 0 ? (
+              <Empty>Asked, and the registrar has booked no room for it.</Empty>
+            ) : (
+              <>
+                <p className="text-sm text-[#344054]">{meets.join(" · ")}</p>
+                {/* The dates under those weekdays: a handover, a moved room, a week off. */}
+                <div className="mt-3">
+                  <SectionTimetable
+                    compact
+                    title={`CRN ${row.crn} — timetable`}
+                    entries={[
+                      {
+                        termCode: row.termCode,
+                        crn: row.crn,
+                        code: row.courseCode,
+                        title: row.courseTitle || row.portalTitle,
+                        staff: row.teacherName,
+                      },
+                    ]}
+                  />
+                </div>
+              </>
+            )}
+          </Card>
+        </div>
+        <div className="space-y-3">
+          <Card title="What is wrong with it" note="The register's own verdicts about this CRN, in full.">
+            {check.isLoading ? (
+              <Empty>Reading the register…</Empty>
+            ) : warnings.length === 0 ? (
+              <Empty>Nothing. It is registered, staffed as we have it, and clear of other departments.</Empty>
+            ) : (
+              <ul className="space-y-1 text-sm">
+                {warnings.map((warning) => (
+                  <li key={`${warning.kind}|${warning.text}`}>
+                    <span className="font-semibold text-[#8a6116]">{WORDS[warning.kind]}</span>{" "}
+                    <span className="text-[#667085]">{warning.text}</span>
                   </li>
-                );
-              })}
-            </ul>
-          )}
-        </Card>
+                ))}
+              </ul>
+            )}
+          </Card>
 
-        <Card title="When the registrar has it" note="From the sweep of their timetable, not from anything we asked for.">
-          {days.isLoading ? (
-            <Empty>Reading the sweep…</Empty>
-          ) : !days.data ? (
-            <Empty>No semester is linked to a portal term, so the registrar has not been asked.</Empty>
-          ) : !asked ? (
-            <Empty>Nobody has asked the registrar about this CRN. Run a portal sync.</Empty>
-          ) : meets.length === 0 ? (
-            <Empty>Asked, and the registrar has booked no room for it.</Empty>
-          ) : (
-            <>
-              <p className="text-sm text-[#344054]">{meets.join(" · ")}</p>
-              {/* The dates under those weekdays: a handover, a moved room, a week off. */}
-              <div className="mt-3">
-                <SectionTimetable
-                  entries={[
-                    {
-                      termCode: row.termCode,
-                      crn: row.crn,
-                      code: row.courseCode,
-                      title: row.courseTitle || row.portalTitle,
-                      staff: row.teacherName,
-                    },
-                  ]}
-                />
-              </div>
-            </>
-          )}
-        </Card>
-
-        {/*
-          * The one thing on a CRN that is ours to change, kept where the CRN is looked at
-          * rather than behind a second press somewhere else.
-          */}
-        <Card title="What it hangs from" note="The parent CRN the register holds it under, and the course's own facts.">
-          <CrnDialog row={row} course={course} siblings={siblings} onClose={onClose} onSaved={onSaved} inline />
-        </Card>
+          {/*
+            * The one thing on a CRN that is ours to change, kept where the CRN is looked at
+            * rather than behind a second press somewhere else.
+            */}
+          <Card title="What it hangs from" note="The parent CRN the register holds it under, and the course's own facts.">
+            <CrnDialog row={row} course={course} siblings={siblings} onClose={onClose} onSaved={onSaved} inline />
+          </Card>
+        </div>
       </div>
     </Modal>
   );

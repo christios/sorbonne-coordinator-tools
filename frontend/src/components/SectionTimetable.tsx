@@ -1,7 +1,8 @@
 import { useQueries } from "@tanstack/react-query";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Maximize2 } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
+import { Modal } from "@/components/Modal";
 import { WeekCalendar } from "@/components/WeekCalendar";
 import { fetchFacilitySections, type FacilitySection } from "@/services/portalLists";
 import {
@@ -30,6 +31,21 @@ export type TimetableEntry = {
   colorKey?: string;
 };
 
+type TimetableProps = {
+  entries: TimetableEntry[];
+  emptyMessage?: string;
+  /**
+   * Drawn small — a quarter of the size — with a button that opens it full size in a
+   * dialog. For a record, where the week is one card among several.
+   */
+  compact?: boolean;
+  /** What the full-size dialog is called: whose week this is. */
+  title?: string;
+  /** Pressing a box opens that CRN's record, where `openable` says there is one to open. */
+  onOpenCrn?: (crn: string) => void;
+  openable?: (crn: string) => boolean;
+};
+
 /**
  * The registrar's timetable for a handful of sections: a student's, a teacher's, a
  * course's, one CRN's.
@@ -40,15 +56,27 @@ export type TimetableEntry = {
  * registrar about is named under the grid rather than left off it, because a calendar is
  * read for its gaps as much as for its classes.
  */
-export function SectionTimetable({
+export function SectionTimetable(props: TimetableProps) {
+  const [expanded, setExpanded] = useState(false);
+  if (!props.compact) return <Timetable {...props} />;
+  return (
+    <>
+      <Timetable {...props} onExpand={() => setExpanded(true)} />
+      <Modal open={expanded} size="wide" title={props.title ?? "Timetable"} description="As the registrar has booked it." onClose={() => setExpanded(false)}>
+        <Timetable {...props} compact={false} />
+      </Modal>
+    </>
+  );
+}
+
+function Timetable({
   entries,
   emptyMessage = "Nothing to show a timetable for.",
-  hourHeight,
-}: {
-  entries: TimetableEntry[];
-  emptyMessage?: string;
-  hourHeight?: number;
-}) {
+  compact = false,
+  onOpenCrn,
+  openable,
+  onExpand,
+}: TimetableProps & { onExpand?: () => void }) {
   const today = isoToday();
   const byTerm = useMemo(() => {
     const held = new Map<string, string[]>();
@@ -79,8 +107,8 @@ export function SectionTimetable({
   });
 
   const { sessions, courses, unasked, gone, unbooked, unlinked } = useMemo(
-    () => assemble(entries, sections),
-    [entries, sections],
+    () => assemble(entries, sections, openable),
+    [entries, sections, openable],
   );
 
   const [weekStart, setWeekStart] = useState<Date | null>(null);
@@ -103,28 +131,52 @@ export function SectionTimetable({
 
   const legend = [...new Map([...courses.values()].map((course) => [course.colorKey, course])).values()];
   const shown = weekStart ?? defaultWeekStart(sessions, today);
+  const small = compact ? "text-[10px]" : "text-xs";
 
   return (
-    <div>
+    <div className={compact ? "max-w-[32rem]" : ""}>
       {sessions.length === 0 ? (
         <Empty>The registrar's sweep holds no meetings for {entries.length === 1 ? "this section" : "these sections"}.</Empty>
       ) : (
         <>
-          <div className="mb-2 flex flex-wrap items-center gap-2">
-            <button type="button" aria-label="Previous week" onClick={() => setWeekStart(shiftWeek(shown, -1))} className={NAV}>
-              <ChevronLeft size={14} aria-hidden="true" />
+          <div className={`flex flex-wrap items-center gap-1.5 ${compact ? "mb-1.5" : "mb-2"}`}>
+            <button type="button" aria-label="Previous week" onClick={() => setWeekStart(shiftWeek(shown, -1))} className={nav(compact)}>
+              <ChevronLeft size={compact ? 12 : 14} aria-hidden="true" />
             </button>
-            <button type="button" onClick={() => setWeekStart(defaultWeekStart(sessions, today))} className={`${NAV} px-2.5 text-xs font-semibold`}>
+            <button
+              type="button"
+              onClick={() => setWeekStart(defaultWeekStart(sessions, today))}
+              className={`${nav(compact)} px-2 font-semibold ${small}`}
+            >
               Current week
             </button>
-            <button type="button" aria-label="Next week" onClick={() => setWeekStart(shiftWeek(shown, 1))} className={NAV}>
-              <ChevronRight size={14} aria-hidden="true" />
+            <button type="button" aria-label="Next week" onClick={() => setWeekStart(shiftWeek(shown, 1))} className={nav(compact)}>
+              <ChevronRight size={compact ? 12 : 14} aria-hidden="true" />
             </button>
-            <span className="text-xs font-semibold text-[#344054]">{weekLabel(shown, sessions)}</span>
+            <span className={`font-semibold text-[#344054] ${small}`}>{weekLabel(shown, sessions)}</span>
+            {onExpand ? (
+              <button
+                type="button"
+                aria-label="Open the timetable full size"
+                title="Open full size"
+                onClick={onExpand}
+                className={`${nav(compact)} ml-auto`}
+              >
+                <Maximize2 size={12} aria-hidden="true" />
+              </button>
+            ) : null}
           </div>
-          <WeekCalendar weekStart={shown} sessions={sessions} courses={courses} today={today} hourHeight={hourHeight} />
+          <WeekCalendar
+            weekStart={shown}
+            sessions={sessions}
+            courses={courses}
+            today={today}
+            compact={compact}
+            hourHeight={compact ? 24 : 48}
+            onPick={onOpenCrn}
+          />
           {legend.length > 1 ? (
-            <ul className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-[#667085]" aria-label="Legend">
+            <ul className={`mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[#667085] ${small}`} aria-label="Legend">
               {legend.map((course) => (
                 <li key={course.colorKey} className="inline-flex items-center gap-1.5">
                   <span
@@ -138,18 +190,24 @@ export function SectionTimetable({
               ))}
             </ul>
           ) : null}
-          {courses.size > 0 && [...courses.values()].some((course) => course.tone === "outline") ? (
-            <p className="mt-1.5 text-xs text-[#98a2b3]">Dashed: in a group of theirs, and the registrar has not registered them for it.</p>
+          {[...courses.values()].some((course) => course.tone === "outline") ? (
+            <p className={`mt-1 text-[#98a2b3] ${small}`}>Dashed: in a group of theirs, and the registrar has not registered them for it.</p>
+          ) : null}
+          {onOpenCrn && [...courses.values()].some((course) => course.openable) ? (
+            <p className={`mt-1 text-[#98a2b3] ${small}`}>Press a class to open its CRN.</p>
           ) : null}
         </>
       )}
-      <Coverage unasked={unasked} gone={gone} unbooked={unbooked} unlinked={unlinked} />
+      <Coverage unasked={unasked} gone={gone} unbooked={unbooked} unlinked={unlinked} compact={compact} />
     </div>
   );
 }
 
-const NAV =
-  "inline-flex h-7 items-center justify-center rounded-md border border-[#d9dee7] bg-white px-1.5 text-[#344054] hover:bg-[#f8fafc]";
+function nav(compact: boolean): string {
+  return `inline-flex items-center justify-center rounded-md border border-[#d9dee7] bg-white text-[#344054] hover:bg-[#f8fafc] ${
+    compact ? "h-6 px-1" : "h-7 px-1.5"
+  }`;
+}
 
 type Assembled = {
   sessions: ReturnType<typeof placeSessions>;
@@ -161,7 +219,11 @@ type Assembled = {
 };
 
 /** The sweep's answer against what was asked: sessions to draw, and what could not be drawn. */
-function assemble(entries: TimetableEntry[], sections: (FacilitySection & { termCode: string })[]): Assembled {
+function assemble(
+  entries: TimetableEntry[],
+  sections: (FacilitySection & { termCode: string })[],
+  openable?: (crn: string) => boolean,
+): Assembled {
   const wanted = new Map<string, TimetableEntry>();
   for (const entry of entries) if (entry.crn) wanted.set(`${entry.termCode}|${entry.crn}`, entry);
   const colors = assignColors([...wanted.values()].map(keyOf));
@@ -180,10 +242,13 @@ function assemble(entries: TimetableEntry[], sections: (FacilitySection & { term
       code: entry.code || section.courseCode,
       title: entry.title || section.title,
       label: entry.label || entry.code || section.courseCode,
+      // The sweep names the teacher for every section it answered about, so a box has
+      // one even where the caller only knew the CRN.
       staff: entry.staff || section.teacherName,
       tone: entry.tone ?? "solid",
       color: colors.get(colorKey) ?? "#1f4e79",
       colorKey,
+      openable: openable ? openable(section.crn) : false,
     });
     if (section.state === "unchecked") unasked.push(section.crn);
     else if (section.state === "gone") gone.push(section.crn);
@@ -201,7 +266,7 @@ function keyOf(entry: TimetableEntry): string {
 }
 
 /** What the grid could not show, said rather than left as an empty afternoon. */
-function Coverage({ unasked, gone, unbooked, unlinked }: Pick<Assembled, "unasked" | "gone" | "unbooked" | "unlinked">) {
+function Coverage({ unasked, gone, unbooked, unlinked, compact }: Pick<Assembled, "unasked" | "gone" | "unbooked" | "unlinked"> & { compact: boolean }) {
   const lines = [
     unasked.length ? `Nobody has asked the registrar about ${list(unasked)} — run a portal sync.` : "",
     unbooked.length ? `Asked, and the registrar has booked no room for ${list(unbooked)}.` : "",
@@ -210,7 +275,7 @@ function Coverage({ unasked, gone, unbooked, unlinked }: Pick<Assembled, "unaske
   ].filter(Boolean);
   if (lines.length === 0) return null;
   return (
-    <ul className="mt-2 space-y-0.5 text-xs text-[#8a6116]" aria-label="What the timetable cannot show">
+    <ul className={`mt-1.5 space-y-0.5 text-[#8a6116] ${compact ? "text-[10px]" : "text-xs"}`} aria-label="What the timetable cannot show">
       {lines.map((line) => (
         <li key={line}>{line}</li>
       ))}

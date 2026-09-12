@@ -38,6 +38,8 @@ export type CalendarCourse = {
   tone: "solid" | "outline";
   /** A background colour, shared by everything the caller wants read as one thing. */
   color: string;
+  /** Whether pressing one of its boxes has somewhere to go — a CRN record of ours. */
+  openable: boolean;
 };
 
 /**
