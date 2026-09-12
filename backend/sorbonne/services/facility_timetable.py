@@ -305,6 +305,72 @@ class FacilityTimetableStore:
             held.setdefault(crn, set()).add(weekday)
         return {crn: sorted(days, key=_WEEKDAYS.index) for crn, days in held.items()}
 
+    def timetable_for(self, term_code: str, crns: list[str]) -> dict[str, Any]:
+        """These sections' meetings, with rooms and the state each section is in, for a calendar.
+
+        Every CRN asked for comes back, whatever is known about it. A calendar is read for
+        the gaps as much as for the classes — "is Tuesday afternoon free" — and one that
+        quietly dropped a section nobody has asked the registrar about would answer yes
+        about an afternoon that may well have a lecture in it. So an unchecked section is a
+        row with no meetings and the word `unchecked` on it, and the page says so.
+
+        `gone` contributes no meetings, `silent` keeps its last ones — exactly as
+        `sessions_for` reads them, so the calendar and the clash count never disagree
+        about whether a class is happening.
+        """
+        wanted = sorted({crn for crn in crns if crn})
+        if not wanted:
+            return {"termCode": term_code, "sections": [], "pulledAt": ""}
+        with self.engine.connect() as connection:
+            sections = {
+                row["crn"]: row
+                for row in connection.execute(
+                    text("""SELECT crn, course_code, title, teacher_name, schedule_state
+                            FROM facility_sections WHERE term_code = :t AND crn = ANY(:crns)"""),
+                    {"t": term_code, "crns": wanted},
+                ).mappings()
+            }
+            meetings = (
+                connection.execute(
+                    text("""SELECT m.crn, m.meets_on, m.starts_at, m.ends_at, m.room
+                            FROM facility_meetings m
+                            JOIN facility_sections s ON s.term_code = m.term_code AND s.crn = m.crn
+                            WHERE m.term_code = :t AND m.crn = ANY(:crns) AND s.schedule_state <> 'gone'
+                            ORDER BY m.meets_on, m.starts_at, m.crn"""),
+                    {"t": term_code, "crns": wanted},
+                )
+                .mappings()
+                .all()
+            )
+            pulled = connection.execute(
+                text("SELECT max(pulled_at) FROM facility_pulls WHERE term_code = :t"), {"t": term_code}
+            ).scalar()
+        by_crn: dict[str, list[dict[str, str]]] = {}
+        for row in meetings:
+            by_crn.setdefault(row["crn"], []).append(
+                {
+                    "meetsOn": row["meets_on"],
+                    "startsAt": row["starts_at"],
+                    "endsAt": row["ends_at"],
+                    "room": row["room"] or "",
+                }
+            )
+        return {
+            "termCode": term_code,
+            "sections": [
+                {
+                    "crn": crn,
+                    "courseCode": (sections[crn]["course_code"] if crn in sections else "") or "",
+                    "title": (sections[crn]["title"] if crn in sections else "") or "",
+                    "teacherName": (sections[crn]["teacher_name"] if crn in sections else "") or "",
+                    "state": sections[crn]["schedule_state"] if crn in sections else "unchecked",
+                    "meetings": by_crn.get(crn, []),
+                }
+                for crn in wanted
+            ],
+            "pulledAt": pulled or "",
+        }
+
     def coverage_for(self, term_code: str, crns: list[str]) -> Coverage:
         """What this store can and cannot say about these sections."""
         if not crns:

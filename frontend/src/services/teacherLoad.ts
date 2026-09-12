@@ -101,6 +101,8 @@ export type TaughtSection = {
   key: string;
   cohortName: string;
   termName: string;
+  /** The Hub semester the section is taught in; what links it to a portal term. */
+  termId: string;
   courseCode: string;
   courseName: string;
   scopeCode: string;
@@ -143,6 +145,7 @@ export function sectionsTaughtBy(cards: Card[], teacherId: string, teacherName =
           key: `${card.key}|${row.group.id}`,
           cohortName: card.cohortName,
           termName: card.termName,
+          termId: card.termId,
           courseCode: card.code,
           courseName: card.name,
           scopeCode: set.scope.code,
@@ -240,4 +243,24 @@ export function shownHoursColumns(sheetTitles: string[]): string[] {
     "total",
     "sections",
   ];
+}
+
+/**
+ * Whether two spellings name the same teacher: the same words in any order, whatever the
+ * case, the accents and the punctuation. The portal writes "YOUNES Grace" where the
+ * register writes "Grace Younes", and a section staffed under either is theirs.
+ */
+export function sameTeacher(left: string, right: string): boolean {
+  const words = (name: string) =>
+    name
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .filter(Boolean)
+      .sort()
+      .join(" ");
+  const a = words(left);
+  const b = words(right);
+  return Boolean(a) && a === b;
 }

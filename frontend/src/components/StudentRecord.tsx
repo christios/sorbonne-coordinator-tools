@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { CommentThread } from "@/components/CommentThread";
 import { Modal } from "@/components/Modal";
 import { PlaceInBlock } from "@/components/PlaceInBlock";
+import { SectionTimetable, type TimetableEntry } from "@/components/SectionTimetable";
 import {
   STATUS_FIELD,
   STATUS_OPTIONS,
@@ -270,6 +271,39 @@ export function StudentRecord({
     .filter((key) => !NAMED.has(key))
     .sort();
   const noLink = links.data && Object.keys(links.data).length === 0;
+  /*
+   * Their week, as the registrar has booked it.
+   *
+   * Two lists again, drawn as one: every section their groups stand for, and every one
+   * the registrar has registered them in. Where the two agree the box is solid. A group's
+   * section they are not registered for is dashed — the class we expect them at and the
+   * registrar does not — and a registration outside any group of theirs, a language or an
+   * option, is drawn like any other, because it is where they will be on that afternoon
+   * and it is exactly the class our groups cannot see a clash with.
+   */
+  const placedCrns = new Set(placements.flatMap(({ crns }) => crns.map((cell) => cell.crn)).filter(Boolean));
+  const timetable: TimetableEntry[] = [
+    ...placements.flatMap(({ scope, crns }) =>
+      crns
+        .filter((cell) => cell.crn && !excused.has(cell.courseId))
+        .map((cell) => ({
+          termCode: links.data?.[scope.termId ?? ""] ?? "",
+          crn: cell.crn,
+          code: cell.courseCode,
+          title: cell.courseName,
+          tone: registered.has(cell.crn) ? ("solid" as const) : ("outline" as const),
+        })),
+    ),
+    ...(registrations.data ?? [])
+      .filter((registration) => registration.status === "in_portal" && !placedCrns.has(registration.crn))
+      .map((registration) => ({
+        termCode: registration.termCode,
+        crn: registration.crn,
+        code: registration.courseCode,
+        title: registration.title,
+        staff: registration.teacherName,
+      })),
+  ];
 
   return (
     <Modal
@@ -608,6 +642,18 @@ export function StudentRecord({
           </Card>
         </div>
       </div>
+
+      {/* -------------------------------------------------------------- timetable */}
+      <Card
+        className="mt-5"
+        title="Timetable"
+        note="Their week as the registrar has booked it: the sections they are registered in, and the ones their groups stand for."
+      >
+        <SectionTimetable
+          entries={timetable}
+          emptyMessage="In no group and registered in nothing, so there is no week to show."
+        />
+      </Card>
 
       {/* ---------------------------------------------------------------- history */}
       <Card className="mt-5" title="History" note="What changed in the portal's record, from this browser's pull history.">

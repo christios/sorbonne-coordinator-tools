@@ -3,6 +3,7 @@ import { type ReactNode } from "react";
 
 import { CrnDialog } from "@/components/ActiveCourses";
 import { Modal } from "@/components/Modal";
+import { SectionTimetable } from "@/components/SectionTimetable";
 import { buildCards, rowsPerPart, teaches } from "@/services/courseCards";
 import { filled } from "@/services/courseRequest";
 import {
@@ -170,7 +171,23 @@ export function CrnRecord({
           ) : meets.length === 0 ? (
             <Empty>Asked, and the registrar has booked no room for it.</Empty>
           ) : (
-            <p className="text-sm text-[#344054]">{meets.join(" · ")}</p>
+            <>
+              <p className="text-sm text-[#344054]">{meets.join(" · ")}</p>
+              {/* The dates under those weekdays: a handover, a moved room, a week off. */}
+              <div className="mt-3">
+                <SectionTimetable
+                  entries={[
+                    {
+                      termCode: row.termCode,
+                      crn: row.crn,
+                      code: row.courseCode,
+                      title: row.courseTitle || row.portalTitle,
+                      staff: row.teacherName,
+                    },
+                  ]}
+                />
+              </div>
+            </>
           )}
         </Card>
 

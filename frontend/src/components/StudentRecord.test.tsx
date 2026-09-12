@@ -68,6 +68,15 @@ beforeEach(() => {
     { studentId: "A002", termId: "term-1", termCode: "262710", courseCode: "MATH-001", kind: "missing", expected: ["22151"], registered: [] },
   ], [checked()]));
   vi.spyOn(lists, "fetchTermLinks").mockResolvedValue({ "term-1": "262710" });
+  // The registrar's sweep, for the week at the foot of the record.
+  vi.spyOn(lists, "fetchFacilitySections").mockImplementation(async (termCode, crns) => ({
+    termCode,
+    pulledAt: "",
+    sections: crns.map((crn) => ({
+      crn, courseCode: "", title: "", teacherName: "", state: "published" as const,
+      meetings: [{ meetsOn: "2026-09-07", startsAt: "08:30", endsAt: "10:00", room: "5.101" }],
+    })),
+  }));
   vi.spyOn(timetables, "fetchTimetableTerms").mockResolvedValue([
     { id: "term-1", name: "Semester 1", slug: "s1", isPublished: true, courseCount: 1, sessionCount: 1, studentCount: 1 } as unknown as timetables.TimetableTerm,
   ]);
@@ -265,5 +274,23 @@ describe("the thread on the record", () => {
 
     expect(await screen.findByText("Spoke to the registrar.")).toBeTruthy();
     expect(screen.getByLabelText("Add a comment on Amira Haddad")).toBeTruthy();
+  });
+});
+
+describe("their week", () => {
+  it("draws the groups' sections and the registrations as one calendar, dashing what the registrar has not registered", async () => {
+    /*
+     * A student's timetable is two lists drawn as one: what their groups stand for, and
+     * what the registrar registered. The tutorial we placed them in and the registrar has
+     * not is the class we expect them at and nobody else does — dashed, not dropped.
+     */
+    show();
+
+    const card = (await screen.findByText("Timetable")).closest("section") as HTMLElement;
+    const boxes = await within(card).findAllByLabelText(/CRN \d+/);
+    // The group's 23652, plus the three registrations — one of them an elective in no group.
+    expect(boxes).toHaveLength(4);
+    expect(within(card).getByLabelText(/CRN 23652.*in their group, not registered/)).toBeTruthy();
+    expect(within(card).getByLabelText(/CRN 23653/).getAttribute("aria-label")).not.toMatch(/not registered/);
   });
 });

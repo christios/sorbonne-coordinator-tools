@@ -230,3 +230,47 @@ def test_a_term_never_swept_reads_as_nothing_asked_rather_than_as_an_empty_timet
         "complete": True,
     }
     assert store.terms() == []
+
+
+def test_a_calendar_read_answers_for_every_section_asked_about_and_says_which_it_cannot_see(
+    store: FacilityTimetableStore,
+):
+    """A calendar is read for the gaps, so a section nobody asked about must not look like one.
+
+    `gone` contributes no meetings and `silent` keeps its last ones, exactly as
+    `sessions_for` reads them — the calendar and the clash count never disagree about
+    whether a class is happening.
+    """
+    store.record_pull(
+        term_code=TERM,
+        asked=["23436", "24311", "55555"],
+        sections=[section("23436", meetings=[MONDAY, TUESDAY]), section("24311", meetings=[MONDAY])],
+        silent=["55555"],
+        failed=[],
+        complete=True,
+    )
+    for _ in range(2):
+        store.record_pull(term_code=TERM, asked=["24311"], sections=[], silent=["24311"], failed=[], complete=True)
+
+    read = store.timetable_for(TERM, ["24311", "23436", "55555", "99999", ""])
+
+    assert [(row["crn"], row["state"], len(row["meetings"])) for row in read["sections"]] == [
+        ("23436", "published", 2),
+        ("24311", "gone", 0),
+        ("55555", "silent", 0),
+        ("99999", "unchecked", 0),
+    ]
+    first = read["sections"][0]
+    assert first["courseCode"] == "MATH-001"
+    assert first["teacherName"] == "Cecile Paillot"
+    assert first["meetings"][0] == {
+        "meetsOn": "2026-09-07", "startsAt": "08:30", "endsAt": "10:00", "room": "5.101/.103",
+    }
+    assert read["pulledAt"]
+
+
+def test_a_calendar_read_with_nothing_asked_is_empty_rather_than_the_whole_term(store: FacilityTimetableStore):
+    store.record_pull(term_code=TERM, asked=["23436"], sections=[section("23436", meetings=[MONDAY])],
+                      silent=[], failed=[], complete=True)
+
+    assert store.timetable_for(TERM, []) == {"termCode": TERM, "sections": [], "pulledAt": ""}

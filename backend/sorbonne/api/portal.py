@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 
 from sorbonne.api.timetables import require_client
@@ -775,6 +775,21 @@ async def read_facility_sweep(
     clash and every collision until somebody sits down and runs a sync.
     """
     return facilities.sweep(term_code)
+
+
+@router.get("/facility-timetable/{term_code}/sections")
+async def read_facility_sections(
+    term_code: str,
+    crn: list[str] = Query(default=[], max_length=400),
+    facilities: FacilityTimetableStore = Depends(get_facilities),
+) -> dict[str, Any]:
+    """The registrar's dated meetings for a handful of sections, for a calendar.
+
+    A student's, a teacher's, a course's: the page names the CRNs and this answers with
+    every meeting the sweep holds for each, and the state of each — so a section nobody has
+    asked about is a row that says so rather than an afternoon that looks free.
+    """
+    return facilities.timetable_for(term_code, [value.strip() for value in crn if value.strip()])
 
 
 @router.get("/terms/{term_id}/clashes")

@@ -2,9 +2,10 @@ import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 
 import { Modal } from "@/components/Modal";
+import { SectionTimetable, type TimetableEntry } from "@/components/SectionTimetable";
 import { buildCards } from "@/services/courseCards";
-import { fetchActiveCourses, fetchActiveCrns, fetchActiveTeachers, type ActiveTeacher } from "@/services/portalLists";
-import { sectionsTaughtBy } from "@/services/teacherLoad";
+import { fetchActiveCourses, fetchActiveCrns, fetchActiveTeachers, fetchTermLinks, type ActiveTeacher } from "@/services/portalLists";
+import { sameTeacher, sectionsTaughtBy } from "@/services/teacherLoad";
 import { fetchCourseCards } from "@/services/studentDatabase";
 import { fetchTimetableTerms } from "@/services/timetables";
 
@@ -74,6 +75,29 @@ export function TeacherRecord({
   );
 
   const live = sections.filter((section) => !section.retired);
+  /*
+   * When they teach, from the registrar's sweep.
+   *
+   * Two ways a section is theirs: our planning names them on it, or the portal's own list
+   * staffs it with them. The second catches what the first has not been told yet — a CRN
+   * the registrar gave them that nobody has put on a card — and both are hours they are
+   * in a room, which is what a calendar is for.
+   */
+  const links = useQuery({ queryKey: ["term-links"], queryFn: fetchTermLinks, enabled: open, retry: false });
+  const ours: TimetableEntry[] = live
+    .filter((section) => section.crn)
+    .map((section) => ({
+      termCode: links.data?.[section.termId] ?? "",
+      crn: section.crn,
+      code: section.courseCode,
+      title: section.courseName,
+      label: section.courseCode,
+    }));
+  const named = new Set(ours.map((entry) => entry.crn));
+  const theirs: TimetableEntry[] = (registered.data ?? [])
+    .filter((row) => !named.has(row.crn) && row.portalStatus === "in_portal" && sameTeacher(row.teacherName, teacher.fullName))
+    .map((row) => ({ termCode: row.termCode, crn: row.crn, code: row.courseCode, title: row.courseTitle || row.portalTitle }));
+  const timetable = [...ours, ...theirs];
   const hours = live.reduce((sum, section) => sum + (Number(section.hours) || 0), 0);
   const students = live.reduce((sum, section) => sum + section.students, 0);
   const facts = held ?? teacher;
@@ -169,6 +193,12 @@ export function TeacherRecord({
           </table>
         </div>
       )}
+
+      <h4 className="mt-6 text-sm font-semibold text-[#171717]">When they teach</h4>
+      <p className="mb-2 text-xs text-[#98a2b3]">
+        From the registrar&apos;s timetable: the sections above, and any the portal staffs with them.
+      </p>
+      <SectionTimetable entries={timetable} emptyMessage="No section of theirs carries a CRN yet, so there is no week to show." />
     </Modal>
   );
 }

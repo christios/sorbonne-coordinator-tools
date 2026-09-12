@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { type ReactNode } from "react";
 
 import { Modal } from "@/components/Modal";
+import { SectionTimetable } from "@/components/SectionTimetable";
 import { buildCards, rowsPerPart, teaches, type Card as CourseCard } from "@/services/courseCards";
 import { filled } from "@/services/courseRequest";
 import {
@@ -63,6 +64,29 @@ export function CourseRecord({
     (card) => card.code.toUpperCase() === code,
   );
 
+  /*
+   * The group each CRN teaches, so the calendar's boxes say "TD 3" rather than a number
+   * — walked off the cards, since nothing indexes the matrix by CRN.
+   */
+  const groupOf = new Map<string, string>();
+  for (const card of cards) {
+    for (const set of card.sets) {
+      for (const entry of set.rows.filter((row) => teaches(row.group, row.course)).flatMap((row) => rowsPerPart(row))) {
+        if (entry.section?.crn) groupOf.set(entry.section.crn, `${set.scope.code} ${entry.group.label}`);
+      }
+    }
+  }
+  const timetable = held.map((row) => ({
+    termCode: row.termCode,
+    crn: row.crn,
+    code: row.courseCode,
+    title: `CRN ${row.crn}`,
+    label: groupOf.get(row.crn) ?? row.portalTitle ?? row.crn,
+    staff: portal.data?.crns[row.crn]?.teacherName || row.teacherName,
+    // One colour per section, not per course: every box here is the same course.
+    colorKey: row.crn,
+  }));
+
   const report = check.data;
   const differences = report
     ? [
@@ -114,6 +138,10 @@ export function CourseRecord({
               ))}
             </ul>
           )}
+        </Card>
+
+        <Card title="When it meets" note="Every section of it on the registrar's timetable, one colour per CRN.">
+          <SectionTimetable entries={timetable} emptyMessage="Not in the register, so the registrar has not been asked when it meets." />
         </Card>
 
         <Card title="What is wrong with it" note="The differences that name this course, and nothing else's.">

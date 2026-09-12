@@ -711,6 +711,26 @@ export function fetchTimetableTargets(termCode: string): Promise<TimetableTarget
   return request<TimetableTargets>(`/terms/${encodeURIComponent(termCode)}/timetable-targets`);
 }
 
+/** One section of the registrar's sweep, with every dated meeting it holds. */
+export type FacilitySection = {
+  crn: string;
+  courseCode: string;
+  title: string;
+  teacherName: string;
+  /** `unchecked` when nobody has asked the registrar about it; `gone` when they have stopped answering. */
+  state: "published" | "silent" | "gone" | "unchecked";
+  meetings: { meetsOn: string; startsAt: string; endsAt: string; room: string }[];
+};
+
+export type FacilityTimetable = { termCode: string; sections: FacilitySection[]; pulledAt: string };
+
+/** These sections' meetings, for a calendar. Every CRN asked for comes back, with its state. */
+export function fetchFacilitySections(termCode: string, crns: string[]): Promise<FacilityTimetable> {
+  const query = new URLSearchParams();
+  for (const crn of crns) query.append("crn", crn);
+  return request<FacilityTimetable>(`/facility-timetable/${encodeURIComponent(termCode)}/sections?${query.toString()}`);
+}
+
 /** What one sweep changed, as the store reports it back. */
 export type FacilityPullReport = {
   asked: number;

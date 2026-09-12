@@ -65,6 +65,14 @@ beforeEach(() => {
     },
   } as never);
   vi.spyOn(lists, "fetchRegisterCheck").mockResolvedValue(EMPTY_CHECK);
+  vi.spyOn(lists, "fetchFacilitySections").mockImplementation(async (termCode, crns) => ({
+    termCode,
+    pulledAt: "",
+    sections: crns.map((crn) => ({
+      crn, courseCode: "MATH-351", title: "", teacherName: "", state: "published" as const,
+      meetings: [{ meetsOn: "2026-09-07", startsAt: "08:30", endsAt: "10:00", room: "5.101" }],
+    })),
+  }));
   vi.spyOn(database, "fetchCourseCards").mockResolvedValue(CATALOGUE);
   vi.spyOn(timetables, "fetchTimetableTerms").mockResolvedValue([
     { id: "term-1", name: "Semester 1" } as unknown as timetables.TimetableTerm,
@@ -104,6 +112,17 @@ describe("a course, in full", () => {
     expect(within(taught).getByText("Grace Younes")).toBeTruthy();
     expect(within(taught).getByText("Sudarshan Shinde")).toBeTruthy();
     expect(within(taught).getByText(/part 2 of 2/)).toBeTruthy();
+  });
+
+  it("draws every section's week, one colour per CRN, named by the group that teaches it", async () => {
+    show();
+
+    const card = (await screen.findByText("When it meets")).closest("section") as HTMLElement;
+    expect(await within(card).findAllByLabelText(/CRN 2\d+/)).toHaveLength(2);
+    // Both halves of the handover are the same group, so the legend tells them apart by CRN.
+    const legend = within(card).getByLabelText("Legend");
+    expect(within(legend).getAllByText("CM Mathematics")).toHaveLength(2);
+    expect(within(legend).getByText("CRN 24311")).toBeTruthy();
   });
 
   it("says plainly when nothing is wrong with it", async () => {

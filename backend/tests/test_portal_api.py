@@ -1999,6 +1999,40 @@ def test_the_swept_timetable_can_be_read_back_in_the_shape_it_was_written(client
     assert client.post(f"{BASE}/facility-timetable", json=read).status_code == status.HTTP_200_OK
 
 
+def test_a_calendar_asks_for_its_sections_by_crn_and_is_told_which_are_unchecked(client: TestClient):
+    """The route a student's, a teacher's or a course's calendar reads — see `read_facility_sections`."""
+    client.post(
+        f"{BASE}/facility-timetable",
+        json={
+            "termCode": TERM,
+            "asked": ["23436"],
+            "sections": [
+                {
+                    "crn": "23436",
+                    "courseCode": "MATH-351",
+                    "title": "Algebra",
+                    "teacherName": "Grace Younes",
+                    "rooms": ["5.101"],
+                    "ours": True,
+                    "headCount": 8,
+                    "meetings": [{"meetsOn": "2026-09-07", "startsAt": "08:30", "endsAt": "10:00", "room": "5.101"}],
+                }
+            ],
+            "silent": [],
+            "failed": [],
+            "complete": True,
+        },
+    )
+
+    read = client.get(f"{BASE}/facility-timetable/{TERM}/sections", params=[("crn", "23436"), ("crn", "99999")]).json()
+
+    assert [(row["crn"], row["state"]) for row in read["sections"]] == [("23436", "published"), ("99999", "unchecked")]
+    assert read["sections"][0]["meetings"] == [
+        {"meetsOn": "2026-09-07", "startsAt": "08:30", "endsAt": "10:00", "room": "5.101"}
+    ]
+    assert read["sections"][0]["teacherName"] == "Grace Younes"
+
+
 # --------------------------------------- teachers our planning names and the list does not
 
 
