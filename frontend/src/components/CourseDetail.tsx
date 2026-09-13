@@ -107,7 +107,7 @@ function seatsVerdict(placed: number, seats: number): keyof typeof SEATS {
   return "room";
 }
 
-function Seats({ placed, seats, dim }: { placed: number; seats: number; dim: boolean }) {
+function Seats({ placed, seats, expected = 0, dim }: { placed: number; seats: number; expected?: number; dim: boolean }) {
   const verdict = seatsVerdict(placed, seats);
   const skin = SEATS[verdict];
   return (
@@ -123,6 +123,19 @@ function Seats({ placed, seats, dim }: { placed: number; seats: number; dim: boo
       <span className={`text-[10px] font-semibold uppercase leading-none tracking-wide ${dim ? "text-[#e4e9ef]" : skin.word}`}>
         seats
       </span>
+      {/* How many the timetabler was told to expect: a mark on the seats, not a pill of its own. */}
+      {expected ? (
+        <span
+          title={`${expected} expected, as the timetable request says`}
+          aria-label={`${expected} expected`}
+          className={`ml-1 inline-flex items-center gap-0.5 border-l pl-1.5 text-[11px] font-semibold tabular-nums ${
+            dim ? "border-[#f2f5f9] text-[#d5dce4]" : "border-[#d9d3e9] text-[#5b4d8a]"
+          }`}
+        >
+          <UserRound size={10} aria-hidden="true" />
+          {expected}
+        </span>
+      ) : null}
     </span>
   );
 }
@@ -236,9 +249,9 @@ function PartLine({
         )}
       </p>
 
+      {/* Hours only. How many are expected sits with the seats on the card's row. */}
       <div className="mt-2 flex flex-wrap gap-1.5">
         <Figure label="hours" value={part.hours} dim={part.retired} />
-        <Figure label="expected" value={part.anticipated ? String(part.anticipated) : ""} dim={part.retired} />
       </div>
 
       {part.sessionsPerWeek || part.duration || part.weeks ? (
@@ -429,7 +442,7 @@ function SectionBlock({
         */}
       <div className="mt-2 flex flex-wrap gap-1.5">
         {row.exempt ? <Figure label="exempt" value={String(row.exempt)} dim={dim} /> : null}
-        <Seats placed={row.group.assigned} seats={row.group.capacity} dim={dim} />
+        <Seats placed={row.group.assigned} seats={row.group.capacity} expected={row.section?.anticipated ?? 0} dim={dim} />
       </div>
 
       {/*

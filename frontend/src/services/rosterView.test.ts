@@ -6,6 +6,7 @@ import {
   countBy,
   filterRows,
   groupLabels,
+  groupSignature,
   sharedCohort,
   shortTerm,
   sortRows,
@@ -335,5 +336,16 @@ describe("what changed, taken from the history", () => {
 
   it("says nothing when there is no history yet", () => {
     expect(changesFromRecord(null).size).toBe(0);
+  });
+});
+
+describe("a student's group signature", () => {
+  const at = (termId: string, scopeCode: string, groupLabel: string) => ({ termId, scopeCode, groupLabel });
+  it("is every group in a fixed order, so two students in the same groups read the same", () => {
+    const one = groupSignature([at("t1", "TD", "3"), at("t1", "CM", "Maths"), at("t1", "PHIL-TD", "1")]);
+    const two = groupSignature([at("t1", "PHIL-TD", "1"), at("t1", "TD", "3"), at("t1", "CM", "Maths")]);
+    expect(one).toBe("CM Maths · PHIL-TD 1 · TD 3");
+    expect(two).toBe(one);
+    expect(groupSignature([])).toBe("");
   });
 });

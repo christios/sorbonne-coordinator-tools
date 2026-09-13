@@ -179,6 +179,8 @@ class GroupInput(BaseModel):
     program: str = Field(default="", max_length=160)
     # For a group of a nested set: the group of the parent set it sits inside.
     parent_group_id: str = Field(default="", alias="parentGroupId", max_length=80)
+    # The groups this one must be scheduled at the same hour as, for the timetabler.
+    parallel_with: list[str] = Field(default_factory=list, alias="parallelWith", max_length=40)
 
 
 class CellInput(BaseModel):
@@ -684,6 +686,7 @@ async def add_group(
                 note=body.note,
                 program=body.program,
                 parent_group_id=body.parent_group_id,
+            parallel_with=body.parallel_with,
             )
         }
     except ScopeNotFound as exc:
@@ -704,6 +707,7 @@ async def update_group(
             note=body.note,
             program=body.program,
             parent_group_id=body.parent_group_id,
+            parallel_with=body.parallel_with,
         )
     except GroupNotFound as exc:
         raise _missing(exc, "group") from exc

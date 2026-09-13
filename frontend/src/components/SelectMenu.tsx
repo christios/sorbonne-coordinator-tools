@@ -13,7 +13,7 @@ export type SelectOption = {
   /** A count or short status, shown as a pill beside the label. */
   badge?: string;
   /** "muted" for a badge that means nothing yet — a view nobody has synced. */
-  badgeTone?: "accent" | "muted";
+  badgeTone?: "accent" | "muted" | "bad";
   /**
    * Where the badge sits. A count or a status reads after the thing it counts; a code —
    * "SCEN-C1" — is what the option is called, and belongs in front of it.
@@ -79,7 +79,7 @@ function Badge({ text, tone }: { text: string; tone: SelectOption["badgeTone"] }
   return (
     <span
       className={`ml-2 shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums ${
-        tone === "muted" ? "bg-[#eef1f5] text-[#667085]" : "bg-[#e8edf3] text-[#1f4e79]"
+        tone === "muted" ? "bg-[#eef1f5] text-[#667085]" : tone === "bad" ? "bg-[#fdf3f3] text-[#a6292f]" : "bg-[#e8edf3] text-[#1f4e79]"
       }`}
     >
       {text}

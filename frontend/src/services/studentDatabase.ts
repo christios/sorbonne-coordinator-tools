@@ -157,6 +157,8 @@ export type CatalogueGroup = {
   program: string;
   /** For a group of a nested set: the group of the parent set it sits inside. */
   parentGroupId: string;
+  /** The groups this one must be scheduled at the same hour as. Ids, any set of the cohort. */
+  parallelWith?: string[];
   /** How many of the cohort's students sit in this group. */
   assigned: number;
   /** course id -> the section that group holds for it. */
@@ -461,7 +463,7 @@ export function addGroup(
 
 export function updateGroup(
   groupId: string,
-  input: { label: string; capacity: number; note: string; program: string; parentGroupId?: string },
+  input: { label: string; capacity: number; note: string; program: string; parentGroupId?: string; parallelWith?: string[] },
 ): Promise<void> {
   return send<void>(`${BASE}/groups/${groupId}`, "PATCH", input);
 }

@@ -122,6 +122,25 @@ def _now() -> str:
     return datetime.now(UTC).isoformat()
 
 
+def _ids(raw: Any) -> list[str]:
+    """A JSON list of ids as stored, or nothing for anything that is not one."""
+    try:
+        held = json.loads(raw or "[]")
+    except (TypeError, ValueError):
+        return []
+    return [str(item) for item in held if str(item).strip()] if isinstance(held, list) else []
+
+
+def _group_ids(ids: list[str] | None) -> list[str]:
+    """Group ids as given, once each, blanks dropped. Not `_clean_ids`: those are student ids and are upper-cased."""
+    seen: list[str] = []
+    for item in ids or []:
+        text_id = _text(item)
+        if text_id and text_id not in seen:
+            seen.append(text_id)
+    return seen
+
+
 # Blocks first, then what hangs off them, then the people placed in it.
 _WORKBOOK_ORDER = {"setLayout": 0, "addCourse": 1, "addGroup": 2, "setCell": 3, "place": 4}
 
@@ -702,6 +721,8 @@ class StudentDatabase:
                             "note": group["note"],
                             "program": group["program"],
                             "parentGroupId": group["parent_group_id"],
+                            # The groups this one must be scheduled at the same hour as.
+                            "parallelWith": _ids(group["parallel_with"]),
                             "assigned": counts.get(group["id"], 0),
                             "crns": crns.get(group["id"], {}),
                         }
@@ -1675,6 +1696,7 @@ class StudentDatabase:
         note: str = "",
         program: str = "",
         parent_group_id: str = "",
+        parallel_with: list[str] | None = None,
     ) -> str:
         group_id = str(uuid4())
         with self.engine.begin() as connection:
@@ -1687,8 +1709,8 @@ class StudentDatabase:
                 raise DuplicateLabel(label)
             connection.execute(
                 text("""INSERT INTO scope_groups
-                            (id, scope_id, label, capacity, note, program, parent_group_id, position)
-                        VALUES (:id, :scope_id, :label, :capacity, :note, :program, :parent,
+                            (id, scope_id, label, capacity, note, program, parent_group_id, parallel_with, position)
+                        VALUES (:id, :scope_id, :label, :capacity, :note, :program, :parent, :parallel,
                                 (SELECT coalesce(max(position), 0) + 1 FROM scope_groups
                                  WHERE scope_id = :scope_id))"""),
                 {
@@ -1699,6 +1721,7 @@ class StudentDatabase:
                     "note": _text(note),
                     "program": _text(program),
                     "parent": _text(parent_group_id),
+                    "parallel": json.dumps(_group_ids(parallel_with)),
                 },
             )
             self._touch(connection, cohort_id)
@@ -1713,6 +1736,7 @@ class StudentDatabase:
         note: str,
         program: str = "",
         parent_group_id: str = "",
+        parallel_with: list[str] | None = None,
     ) -> None:
         with self.engine.begin() as connection:
             # As above: renaming a group onto a sibling is a refusal, not a crash.
@@ -1727,7 +1751,8 @@ class StudentDatabase:
                 raise DuplicateLabel(label)
             updated = connection.execute(
                 text("""UPDATE scope_groups SET label = :label, capacity = :capacity, note = :note,
-                                                program = :program, parent_group_id = :parent
+                                                program = :program, parent_group_id = :parent,
+                                                parallel_with = :parallel
                         WHERE id = :id"""),
                 {
                     "id": group_id,
@@ -1736,6 +1761,7 @@ class StudentDatabase:
                     "note": _text(note),
                     "program": _text(program),
                     "parent": _text(parent_group_id),
+                    "parallel": json.dumps(_group_ids(parallel_with)),
                 },
             )
             if updated.rowcount == 0:

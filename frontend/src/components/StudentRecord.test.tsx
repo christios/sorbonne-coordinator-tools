@@ -28,7 +28,7 @@ const ROW: StudentRow = {
   isNew: false,
   changes: [],
   warnings: [],
-  groups: ["TD 1"], sets: [], meets: [],
+  groups: ["TD 1"], sets: [], meets: [], signature: "TD 1",
 };
 
 const COHORT: database.Cohort = {

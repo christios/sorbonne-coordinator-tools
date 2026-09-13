@@ -42,7 +42,7 @@ const row = (over: Partial<StudentRow> = {}): StudentRow => ({
   isNew: false,
   changes: [],
   warnings: [],
-  groups: [], sets: [], meets: [],
+  groups: [], sets: [], meets: [], signature: "",
   ...over,
 });
 

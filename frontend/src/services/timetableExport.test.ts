@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { buildCards } from "@/services/courseCards";
 import { EMPTY_REQUEST, EMPTY_SECTION, type CohortCatalogue } from "@/services/studentDatabase";
-import { REQUEST_COLUMNS, asNumber, buildTimetableWorkbook, hoursColumn, requestSheets, sectionName, semesterLabel, sheetPrefix, sheetTitle, shortSemester, splitCourseCode, teacherHours } from "@/services/timetableExport";
+import { REQUEST_COLUMNS, asNumber, buildTimetableWorkbook, groupLabelsOf, hoursColumn, parallelNote, requestSheets, sectionName, semesterLabel, sheetPrefix, sheetTitle, shortSemester, splitCourseCode, teacherHours } from "@/services/timetableExport";
 
 const FYS: CohortCatalogue = {
   cohort: { id: "c1", name: "Foundation Year", term: "2026-27" },
@@ -125,5 +125,23 @@ describe("the request sheets", () => {
     expect(sheet.getRow(5).values).toEqual([undefined, "Pre-calculus 1 G.1-TD", "FYS", "UL1MA001", 23223, 24226, "MATH", "001", 50, "TD", undefined, "Samar Ghantous", undefined, undefined, "Should NOT be in parallel with G.2", "2 sessions - weeks 2 to 14", 1.5, 33, "Mutualized with Maths"]);
     expect(book.getWorksheet("CRN-Table")!.getRow(4).values).toEqual([undefined, 23223, "Pre-calculus 1 G.1-TD", "Samar Ghantous"]);
     expect(book.getWorksheet("Teacher Hours")!.getRow(4).values).toEqual([undefined, "Samar Ghantous", 50, 0, 50, 0, 50]);
+  });
+});
+
+describe("groups that must run in parallel", () => {
+  it("travel to the timetabler as a constraint naming the other groups, and say nothing otherwise", () => {
+    const labelOf = (id: string) => ({ "g-td2": "TD 2", "g-phil1": "PHIL-TD 1" })[id] ?? "";
+    expect(parallelNote({ parallelWith: ["g-td2", "g-phil1", "gone"] }, labelOf)).toBe("In parallel with TD 2, PHIL-TD 1");
+    expect(parallelNote({ parallelWith: [] }, labelOf)).toBe("");
+    expect(parallelNote({}, labelOf)).toBe("");
+  });
+
+  it("names a group by its set and label, over every card", () => {
+    const cards = [
+      { sets: [{ scope: { code: "TD" }, rows: [{ group: { id: "g1", label: "1" } }, { group: { id: "g2", label: "2" } }] }] },
+      { sets: [{ scope: { code: "PHIL-TD" }, rows: [{ group: { id: "g3", label: "1" } }] }] },
+    ] as never;
+    const labelOf = groupLabelsOf(cards);
+    expect([labelOf("g2"), labelOf("g3"), labelOf("nope")]).toEqual(["TD 2", "PHIL-TD 1", ""]);
   });
 });

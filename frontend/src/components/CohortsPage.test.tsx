@@ -1180,6 +1180,27 @@ describe("one cohort, or every cohort", () => {
   });
 });
 
+describe("taking an arrival in from the banner", () => {
+  it("adds them to the cohort on screen, shared sets kept, after a word of confirmation", async () => {
+    const FYS: Cohort = { ...L1, id: "c1", name: "FYS-S1", yearLevel: "FY" };
+    const L1_COHORT: Cohort = { ...L1, id: "c2", name: "L1 Maths", yearLevel: "L1" };
+    const BELONGS: DiscrepancyRule = { id: "r4", field: "MAJOR_CODE", kind: "belongs", values: [], cohortId: "" };
+    vi.spyOn(database, "fetchStudents").mockResolvedValue([{ ...student("A001", "c2"), cohortName: "L1 Maths" }]);
+    vi.spyOn(database, "fetchDiscrepancyRules").mockResolvedValue([BELONGS]);
+    const moved = vi.spyOn(database, "setCohort").mockResolvedValue(1);
+    await portalSays([{ SPRIDEN_ID: "A001", FULL_NAME: "Samvel Martirosyan", MAJOR_CODE_DESC: "Applied Mathematics and Physics", YEARLEVEL_CODE: "FY" }]);
+
+    renderPage([FYS, L1_COHORT]);
+    fireEvent.click(await screen.findByRole("button", { name: "Add Samvel Martirosyan to FYS-S1" }));
+
+    // The move is said before it is made: he leaves L1 and the groups he held there.
+    expect(await screen.findByText(/leave L1 Maths/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Add to FYS-S1" }));
+
+    await waitFor(() => expect(moved).toHaveBeenCalledWith(["A001"], "c1", true));
+  });
+});
+
 describe("who a cohort claims, after a sync", () => {
   it("stops claiming a student once a portal sync says they have moved on", async () => {
     /*

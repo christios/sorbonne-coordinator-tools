@@ -145,7 +145,8 @@ describe("the course cards", () => {
     const one = (await screen.findByLabelText("Edit TD 1 MATH001")) as HTMLElement;
     // The three the timetable is built from, each with its own reading.
     expect(within(one).getByTitle("50 hours")).toBeTruthy();
-    expect(within(one).getByTitle("No expected set yet")).toBeTruthy();
+    // How many are expected is a mark on the seats now, and absent when nobody has said.
+    expect(within(one).queryByLabelText(/expected$/)).toBeNull();
     expect(within(one).getByTitle("30 of 33 seats taken")).toBeTruthy();
 
     // A section nobody has given hours to says so, rather than saying nothing.

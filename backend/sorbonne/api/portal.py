@@ -578,6 +578,12 @@ async def student_registrations(student_id: str, store: PortalListStore = Depend
     return {"registrations": store.registrations_of(student_id)}
 
 
+@router.get("/terms/{term_code}/crns/{crn}/students")
+async def crn_students(term_code: str, crn: str, store: PortalListStore = Depends(get_store)) -> dict[str, Any]:
+    """Who the registrar has in one section, with the cohort and the group of ours each sits in."""
+    return {"students": store.students_in_crn(term_code, crn)}
+
+
 # ---------------------------------------------------------------- term links
 
 

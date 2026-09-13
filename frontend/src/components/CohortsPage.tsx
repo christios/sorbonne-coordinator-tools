@@ -1,8 +1,9 @@
-import { useQueries, useQuery } from "@tanstack/react-query";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, ArrowRightCircle, CalendarClock, ClipboardList, EyeOff, Globe, Settings2, Users, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { CohortActions } from "@/components/CohortActions";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { DiscrepancyRulesEditor } from "@/components/DiscrepancyRulesEditor";
 import { LabelledPicker } from "@/components/LabelledPicker";
 import { NewCohort } from "@/components/NewCohort";
@@ -45,7 +46,8 @@ import { allChanges } from "@/services/pullHistory";
 import { COHORT } from "@/services/remembered";
 import { describeAge, latestPullAt, rowsHeld } from "@/services/rosterStore";
 import { displayNameOf, fetchSchema, studentIdOf, type RosterRow } from "@/services/scenRosters";
-import { fetchDiscrepancyRules, fetchStudents, type Cohort, type Student } from "@/services/studentDatabase";
+import { fetchDiscrepancyRules, fetchStudents, setCohort, type Cohort, type Student } from "@/services/studentDatabase";
+import { afterPlacement } from "@/services/afterPlacement";
 import { fetchTimetableTerms } from "@/services/timetables";
 import { isRunning, subscribe } from "@/services/syncRun";
 
@@ -382,6 +384,19 @@ export function CohortsPage({
   }, [cohorts, cohortId, chooseCohort]);
 
   const cohort = cohorts.find((candidate) => candidate.id === cohortId) ?? null;
+  /*
+   * Taking an arrival in, from the banner that says they are due. The same move as the
+   * Students table's, with the shared sets kept — the languages are the university's.
+   */
+  const client = useQueryClient();
+  const [addingArrival, setAddingArrival] = useState<Arrival | null>(null);
+  const addArrival = useMutation({
+    mutationFn: (arrival: Arrival) => setCohort([arrival.studentId], cohortId, true),
+    onSuccess: () => {
+      setAddingArrival(null);
+      afterPlacement(client);
+    },
+  });
 
   const options: Options = useCallback(
     (field: string) =>
@@ -759,6 +774,23 @@ export function CohortsPage({
           arrivals={arrivals}
           names={evidence.names}
           onDismiss={(key) => setDismissed(dismiss(key))}
+          onAdd={(arrival) => setAddingArrival(arrival)}
+          adding={addArrival.isPending}
+        />
+      ) : null}
+      {cohort && addingArrival ? (
+        <ConfirmDialog
+          open
+          title={`Add ${evidence.names.get(addingArrival.studentId) || addingArrival.studentId} to ${cohort.name}?`}
+          description={
+            addingArrival.cohortId
+              ? `They leave ${cohorts.find((candidate) => candidate.id === addingArrival.cohortId)?.name ?? "their cohort"} and lose the groups they held there. The shared sets stay.`
+              : "They are in no cohort now, so nothing is lost."
+          }
+          confirmLabel={`Add to ${cohort.name}`}
+          busy={addArrival.isPending}
+          onConfirm={() => addArrival.mutate(addingArrival)}
+          onClose={() => setAddingArrival(null)}
         />
       ) : null}
 
@@ -834,12 +866,17 @@ function ArrivalsBanner({
   arrivals,
   names,
   onDismiss,
+  onAdd,
+  adding,
 }: {
   cohort: Cohort;
   cohorts: Cohort[];
   arrivals: Arrival[];
   names: Map<string, string>;
   onDismiss: (key: string) => void;
+  /** Put this student into the cohort on screen, out of whatever cohort they are in. */
+  onAdd: (arrival: Arrival) => void;
+  adding: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const shown = open ? arrivals : arrivals.slice(0, 5);
@@ -863,6 +900,19 @@ function ArrivalsBanner({
                 : ""}
               , {where(arrival)}.
             </span>
+            {/*
+              * The move, from the line that says it is due. Finding them in their current
+              * cohort or on the Students table was the same gesture with three pages in it.
+              */}
+            <button
+              type="button"
+              disabled={adding}
+              aria-label={`Add ${names.get(arrival.studentId) || arrival.studentId} to ${cohort.name}`}
+              onClick={() => onAdd(arrival)}
+              className="shrink-0 rounded-md border border-[#bcd3ea] bg-white px-2 py-0.5 text-xs font-semibold text-[#1f4e79] hover:bg-[#f2f7fb] disabled:opacity-50"
+            >
+              Add to {cohort.name}
+            </button>
             <button
               type="button"
               aria-label={`Dismiss ${names.get(arrival.studentId) || arrival.studentId}`}
@@ -880,7 +930,7 @@ function ArrivalsBanner({
           {open ? "Show fewer" : `Show all ${arrivals.length}`}
         </button>
       ) : null}
-      <p className="mt-1.5 pl-6 text-xs text-[#5b7a9a]">Find them in their current cohort, or on the Students table where a blank Cohort column is a filter of its own, and move them from there — or dismiss the line if they are out on purpose.</p>
+      <p className="mt-1.5 pl-6 text-xs text-[#5b7a9a]">Adding moves them out of the cohort they are in and drops the groups they held there; the shared sets, the languages, stay. Dismiss the line if they are out on purpose.</p>
     </div>
   );
 }

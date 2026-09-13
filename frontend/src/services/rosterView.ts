@@ -50,6 +50,8 @@ export type StudentRow = {
    */
   sets: string[];
   meets: string[];
+  /** Every group token in a fixed order, as one string: students who share it share every class. */
+  signature: string;
 };
 
 export type SortKey = "name" | "studentId" | "yearLevel" | "major" | "status" | "cohortName";
@@ -151,6 +153,26 @@ export function groupLabels(
   });
 }
 
+/**
+ * "CM Maths · TD 3 · PHIL-TD 1 · MTP 3A": the student's whole placement as one token.
+ *
+ * In a fixed order — by set, then by group — whatever order the groups arrived in, so two
+ * students in the same groups read the same and a filter on the column finds everyone who
+ * shares every class: a handout, a room list, a bunch to move at once.
+ */
+export function groupSignature(
+  groups: { termId: string; scopeCode: string; groupLabel: string }[],
+  termNames: Record<string, string> = {},
+): string {
+  const ordered = [...groups].sort(
+    (left, right) =>
+      left.termId.localeCompare(right.termId) ||
+      left.scopeCode.localeCompare(right.scopeCode, undefined, { numeric: true }) ||
+      left.groupLabel.localeCompare(right.groupLabel, undefined, { numeric: true }),
+  );
+  return groupLabels(ordered, termNames).join(" · ");
+}
+
 export function studentRows(
   students: Student[],
   portal: RosterRow[],
@@ -186,6 +208,7 @@ export function studentRows(
       cohortName: student.cohortName,
       cohortSince: student.cohortSince,
       groups: groupLabels(student.groups ?? [], termNames),
+      signature: groupSignature(student.groups ?? [], termNames),
       sets: setTokens(student.groups ?? [], termNames),
       meets: meetsTokens(
         (student.groups ?? []).filter((group) => group.groupId).map((group) => ({ ...group, groupId: group.groupId ?? "" })),

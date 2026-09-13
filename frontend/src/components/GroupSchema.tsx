@@ -445,6 +445,10 @@ function SetEditor({
 
   const parents = scopes.filter((candidate) => candidate.id !== scope.id && candidate.kind !== "nested");
   const parentGroups = scopes.find((candidate) => candidate.id === parentScopeId)?.groups ?? [];
+  // Every group of the same semester, any set, that one of these could run in parallel with.
+  const siblings = scopes
+    .filter((candidate) => (candidate.termId ?? "") === (scope.termId ?? ""))
+    .flatMap((candidate) => candidate.groups.map((group) => ({ id: group.id, label: `${candidate.code} ${group.label}` })));
   const error = save.error ?? addOne.error ?? makeGroups.error ?? remove.error;
 
   return (
@@ -646,6 +650,7 @@ function SetEditor({
                 <tr>
                   <th className="py-2 pl-4 pr-3 font-semibold">Group</th>
                   <th className="py-2 pr-3 font-semibold">Seats</th>
+                  <th className="py-2 pr-3 font-semibold">In parallel with</th>
                   {programmes.length > 1 ? <th className="py-2 pr-3 font-semibold">Programme</th> : null}
                   {scope.kind === "nested" ? <th className="py-2 pr-3 font-semibold">Inside</th> : null}
                   <th className="py-2 pr-3 text-right font-semibold">Placed</th>
@@ -660,6 +665,7 @@ function SetEditor({
                     nested={scope.kind === "nested"}
                     programmes={programmes}
                     parentGroups={parentGroups}
+                    siblings={siblings}
                     onChanged={onChanged}
                     onRemove={() => setRemovingGroup(group)}
                   />
@@ -752,6 +758,7 @@ function GroupRow({
   nested,
   programmes,
   parentGroups,
+  siblings,
   onChanged,
   onRemove,
 }: {
@@ -759,19 +766,22 @@ function GroupRow({
   nested: boolean;
   programmes: string[];
   parentGroups: CatalogueGroup[];
+  /** Every other group of the same semester, any set, that this one could run in parallel with. */
+  siblings: { id: string; label: string }[];
   onChanged: () => void;
   onRemove: () => void;
 }) {
   const [label, setLabel] = useState(group.label);
   const [capacity, setCapacity] = useState(String(group.capacity || ""));
   const save = useMutation({
-    mutationFn: (next: Partial<{ label: string; capacity: number; parentGroupId: string; program: string }>) =>
+    mutationFn: (next: Partial<{ label: string; capacity: number; parentGroupId: string; program: string; parallelWith: string[] }>) =>
       updateGroup(group.id, {
         label: next.label ?? label,
         capacity: next.capacity ?? Number(capacity || 0),
         note: group.note,
         program: next.program ?? group.program,
         parentGroupId: next.parentGroupId ?? group.parentGroupId,
+        parallelWith: next.parallelWith ?? group.parallelWith,
       }),
     onSuccess: onChanged,
   });
@@ -797,6 +807,25 @@ function GroupRow({
           placeholder="—"
           className="w-20 rounded-md border border-transparent px-2 py-1 text-sm tabular-nums hover:border-[#cbd5e1] focus:border-[#cbd5e1]"
         />
+      </td>
+      {/*
+        * The groups this one must be scheduled at the same hour as — TD 1 with PHIL-TD 1,
+        * so both majors are busy at once. Any set of the semester; it travels with the
+        * timetable request as a constraint on the row.
+        */}
+      <td className="py-1.5 pr-3">
+        <div className="w-44">
+          <SelectMenu
+            label={`Groups ${group.label} runs in parallel with`}
+            multiple
+            itemNoun="group"
+            searchable={siblings.length > 12}
+            placeholder="—"
+            value={(group.parallelWith ?? []).filter((id) => siblings.some((sibling) => sibling.id === id)).join("\n")}
+            onChange={(next) => save.mutate({ parallelWith: next.split("\n").filter(Boolean) })}
+            options={siblings.filter((sibling) => sibling.id !== group.id).map((sibling) => ({ value: sibling.id, label: sibling.label }))}
+          />
+        </div>
       </td>
       {/*
         * The programme this group is, which is two things at once and both are the

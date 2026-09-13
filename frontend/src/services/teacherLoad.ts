@@ -255,10 +255,10 @@ export function hoursColumns(sheetTitles: string[]): GridColumn<LoadRow>[] {
   return [
     { id: "teacher", displayName: "Teacher", type: "text", accessor: (row) => row.teacher || "Nobody yet", required: true, defaultWidth: 240 },
     { id: "standing", displayName: "Standing", type: "option", accessor: (row) => row.standing, defaultWidth: 130 },
-    { id: "total", displayName: "Total", type: "number", accessor: (row) => row.total, defaultWidth: 90 },
+    { id: "total", displayName: "Total", type: "number", accessor: (row) => row.total, defaultWidth: 90, source: "planning" },
     // The registrar's count beside ours. A comparison with no warning on it: teachers and
     // hours move during a semester, and cover is normal.
-    { id: "registrarHours", displayName: "Registrar", type: "number", accessor: (row) => row.registrarHours, defaultWidth: 100 },
+    { id: "registrarHours", displayName: "Registrar", type: "number", accessor: (row) => row.registrarHours, defaultWidth: 100, source: "registrar" },
     ...sheetTitles.map((title, index) => ({
       id: `sheet:${title}`,
       displayName: hoursColumn(title),
@@ -273,18 +273,18 @@ export function hoursColumns(sheetTitles: string[]): GridColumn<LoadRow>[] {
       accessor: (row: LoadRow) => row.byType[type] ?? 0,
       defaultWidth: 80,
     })),
-    { id: "sections", displayName: "Sections", type: "number", accessor: (row) => row.sections, defaultWidth: 100 },
+    { id: "sections", displayName: "Sections", type: "number", accessor: (row) => row.sections, defaultWidth: 100, source: "planning" },
     /*
      * What the semester did to the plan, beside the plan rather than folded into it: hours
      * of theirs that were cancelled, hours somebody else taught for them, hours they taught
      * for somebody else. From the notes on the CRNs' calendars.
      */
-    { id: "cancelledHours", displayName: "Cancelled", type: "number", accessor: (row) => row.cancelledHours, defaultWidth: 100 },
-    { id: "coverTaken", displayName: "Covered by others", type: "number", accessor: (row) => row.coverTaken, defaultWidth: 140 },
-    { id: "coverGiven", displayName: "Covered for others", type: "number", accessor: (row) => row.coverGiven, defaultWidth: 150 },
-    { id: "type", displayName: "Type", type: "option", accessor: (row) => row.active?.type ?? "", defaultWidth: 190 },
-    { id: "category", displayName: "Category", type: "option", accessor: (row) => row.active?.category ?? "", defaultWidth: 120 },
-    { id: "department", displayName: "Dept.", type: "option", accessor: (row) => row.active?.department ?? "", defaultWidth: 110 },
+    { id: "cancelledHours", displayName: "Cancelled", type: "number", accessor: (row) => row.cancelledHours, defaultWidth: 100, source: "planning" },
+    { id: "coverTaken", displayName: "Covered by others", type: "number", accessor: (row) => row.coverTaken, defaultWidth: 140, source: "planning" },
+    { id: "coverGiven", displayName: "Covered for others", type: "number", accessor: (row) => row.coverGiven, defaultWidth: 150, source: "planning" },
+    { id: "type", displayName: "Type", type: "option", accessor: (row) => row.active?.type ?? "", defaultWidth: 190, source: "portal" },
+    { id: "category", displayName: "Category", type: "option", accessor: (row) => row.active?.category ?? "", defaultWidth: 120, source: "portal" },
+    { id: "department", displayName: "Dept.", type: "option", accessor: (row) => row.active?.department ?? "", defaultWidth: 110, source: "portal" },
     { id: "email", displayName: "E-mail", type: "text", accessor: (row) => row.active?.email ?? "", defaultWidth: 240 },
   ];
 }

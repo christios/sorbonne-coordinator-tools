@@ -169,7 +169,7 @@ def test_the_catalogue_carries_no_student_identity(database: StudentDatabase, co
     fields = {key for scope in catalogue["scopes"] for group in scope["groups"] for key in group}
 
     # A programme a group prefers is the group's, not any student's.
-    assert fields == {"id", "label", "capacity", "note", "program", "parentGroupId", "assigned", "crns"}
+    assert fields == {"id", "label", "capacity", "note", "program", "parentGroupId", "parallelWith", "assigned", "crns"}
 
 
 # ------------------------------------------------------------ discrepancies

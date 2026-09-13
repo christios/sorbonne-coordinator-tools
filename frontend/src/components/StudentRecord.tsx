@@ -289,7 +289,7 @@ export function StudentRecord({
    */
   const placedCrns = new Set(placements.flatMap(({ crns }) => crns.map((cell) => cell.crn)).filter(Boolean));
   const timetable: TimetableEntry[] = [
-    ...placements.flatMap(({ scope, crns }) =>
+    ...placements.flatMap(({ scope, group, crns }) =>
       crns
         .filter((cell) => cell.crn && !excused.has(cell.courseId))
         .map((cell) => ({
@@ -297,6 +297,7 @@ export function StudentRecord({
           crn: cell.crn,
           code: cell.courseCode,
           title: cell.courseName,
+          group: `${scope.code} ${group?.label ?? ""}`.trim(),
           tone: registered.has(cell.crn) ? ("solid" as const) : ("outline" as const),
         })),
     ),

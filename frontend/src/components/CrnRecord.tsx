@@ -7,11 +7,13 @@ import { SectionTimetable } from "@/components/SectionTimetable";
 import { SessionChangeDialog } from "@/components/SessionChangeDialog";
 import { SessionChangeList } from "@/components/SessionChangeList";
 import { fetchSessionChanges, noteOn, slotKey } from "@/services/sessionChanges";
+import { namesHeld } from "@/services/rosterStore";
 import type { PlacedSession } from "@/services/weekSchedule";
 import { buildCards, rowsPerPart, teaches } from "@/services/courseCards";
 import { filled } from "@/services/courseRequest";
 import {
   fetchActiveCourses,
+  fetchCrnStudents,
   fetchFacilitySections,
   fetchRegisterCheck,
   fetchSectionDays,
@@ -43,6 +45,7 @@ export function CrnRecord({
   onClose,
   onSaved,
   onShowCourse,
+  onShowStudents,
 }: {
   open: boolean;
   row: ActiveCrn;
@@ -51,6 +54,8 @@ export function CrnRecord({
   onClose: () => void;
   onSaved: () => void;
   onShowCourse?: (courseCode: string) => void;
+  /** Take these students to the Students table, where each row opens its record. */
+  onShowStudents?: (ids: string[]) => void;
 }) {
   const courses = useQuery({ queryKey: ["active-courses"], queryFn: fetchActiveCourses, enabled: open });
   const catalogues = useQuery({ queryKey: ["course-cards"], queryFn: fetchCourseCards, enabled: open });
@@ -116,6 +121,18 @@ export function CrnRecord({
     ),
   );
   const orphaned = new Set(mine.filter((note) => booked.size > 0 && !booked.has(slotKey(note))).map((note) => note.id));
+  /*
+   * Who the registrar has in it. Ids from the server; names from this browser, which is
+   * the only place they are. Beside each, the group of ours the CRN stands for — blank is
+   * the line worth reading, a student in a section none of their groups gives them.
+   */
+  const inIt = useQuery({
+    queryKey: ["crn-students", row.termCode, row.crn],
+    queryFn: () => fetchCrnStudents(row.termCode, row.crn),
+    enabled: open && Boolean(row.termCode),
+    retry: false,
+  });
+  const names = useQuery({ queryKey: ["names-held"], queryFn: namesHeld, enabled: open, staleTime: 60_000 });
   const plannedTeacher = taught[0]?.entry.section ? filled(taught[0].entry.section, taught[0].set.course.request).teacher : "";
 
   return (
@@ -212,6 +229,57 @@ export function CrnRecord({
                     ]}
                   />
                 </div>
+              </>
+            )}
+          </Card>
+
+          <Card
+            title={`Registered in it${inIt.data ? ` · ${inIt.data.length}` : ""}`}
+            note="Who the registrar has in this section, and the group of ours it stands for. Names are this browser's."
+          >
+            {!row.termCode ? (
+              <Empty>No portal term, so the registrar cannot be asked.</Empty>
+            ) : inIt.isLoading ? (
+              <Empty>Reading the registrations…</Empty>
+            ) : inIt.error ? (
+              <p className="text-sm text-[#a6292f]">{(inIt.error as Error).message}</p>
+            ) : !inIt.data?.length ? (
+              <Empty>Nobody, in the last registrations pull.</Empty>
+            ) : (
+              <>
+                <ul className="max-h-72 divide-y divide-[#f2f4f7] overflow-y-auto text-sm" aria-label="Registered students">
+                  {inIt.data.map((student) => (
+                    <li key={student.studentId} className="flex flex-wrap items-baseline gap-x-3 py-1">
+                      {onShowStudents ? (
+                        <button
+                          type="button"
+                          onClick={() => onShowStudents([student.studentId])}
+                          className="font-medium text-[#1f4e79] underline-offset-2 hover:underline"
+                        >
+                          {names.data?.[student.studentId] || student.studentId}
+                        </button>
+                      ) : (
+                        <span className="font-medium text-[#344054]">{names.data?.[student.studentId] || student.studentId}</span>
+                      )}
+                      {names.data?.[student.studentId] ? <span className="font-mono text-xs text-[#98a2b3]">{student.studentId}</span> : null}
+                      <span className="text-[#667085]">{student.cohortName || "no cohort"}</span>
+                      {student.group ? (
+                        <span className="text-[#667085]">{student.group}</span>
+                      ) : (
+                        <span className="text-xs text-[#a6292f]">no group of theirs stands for it</span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+                {onShowStudents ? (
+                  <button
+                    type="button"
+                    onClick={() => onShowStudents((inIt.data ?? []).map((student) => student.studentId))}
+                    className="mt-2 text-xs font-semibold text-[#1f4e79] hover:underline"
+                  >
+                    Show all {inIt.data.length} on the Students table
+                  </button>
+                ) : null}
               </>
             )}
           </Card>

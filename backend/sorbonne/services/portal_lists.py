@@ -1397,6 +1397,48 @@ class PortalListStore:
             meetings=meetings, ours=ours, courses=courses, registered=registered, settled=settled
         )
 
+    def students_in_crn(self, term_code: str, crn: str) -> list[dict[str, Any]]:
+        """Who the registrar has in one section, and where our planning has each of them.
+
+        Ids only, as everywhere on the server; the browser puts the names on. Beside each:
+        the cohort they are in, and the group of ours that holds this CRN — or nothing,
+        which is the interesting case, a student sitting in a section none of their groups
+        stands for. Registrations the portal has stopped listing are left out: the list is
+        who is in the room, not who has ever been.
+        """
+        with self.engine.connect() as connection:
+            rows = (
+                connection.execute(
+                    text("""SELECT r.student_id, coalesce(s.cohort_id, '') AS cohort_id,
+                                   coalesce(c.name, '') AS cohort_name,
+                                   coalesce((SELECT string_agg(cs.code || ' ' || sg.label, ', ' ORDER BY cs.code)
+                                             FROM group_assignments ga
+                                             JOIN scope_groups sg ON sg.id = ga.group_id
+                                             JOIN cohort_scopes cs ON cs.id = sg.scope_id
+                                             WHERE ga.student_id = r.student_id
+                                               AND EXISTS (SELECT 1 FROM group_crns gc
+                                                           WHERE gc.group_id = ga.group_id AND gc.crn = r.crn
+                                                             AND gc.retired = false)), '') AS held
+                            FROM student_registrations r
+                            LEFT JOIN students s ON s.student_id = r.student_id
+                            LEFT JOIN student_cohorts c ON c.id = s.cohort_id
+                            WHERE r.term_code = :t AND r.crn = :crn AND r.status = 'in_portal'
+                            ORDER BY r.student_id"""),
+                    {"t": term_code, "crn": crn},
+                )
+                .mappings()
+                .all()
+            )
+        return [
+            {
+                "studentId": row["student_id"],
+                "cohortId": row["cohort_id"],
+                "cohortName": row["cohort_name"],
+                "group": row["held"],
+            }
+            for row in rows
+        ]
+
     def live_crns(self) -> list[str]:
         """Every CRN a live section of our planning holds, whichever cohort or semester.
 

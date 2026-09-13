@@ -87,6 +87,13 @@ export function WeekCalendar({
   // Unmeasured — the first paint, or a test — is drawn as a week, which is the honest default.
   const oneDayAtATime = !compact && width > 0 && width < ONE_DAY_BELOW;
 
+  // Where the day has got to, for the line across today's column. Read each minute.
+  const [nowMinute, setNowMinute] = useState(() => minuteOfDay(new Date()));
+  useEffect(() => {
+    const tick = window.setInterval(() => setNowMinute(minuteOfDay(new Date())), 60_000);
+    return () => window.clearInterval(tick);
+  }, []);
+
   const [focusedDay, setFocusedDay] = useState(() => preferredDay(days, sessions, today));
   const weekKey = days[0];
   useEffect(() => {
@@ -174,6 +181,7 @@ export function WeekCalendar({
               pixelsPerMinute={pixelsPerMinute}
               compact={compact}
               onPick={onPick}
+              nowAt={day === today && nowMinute >= startMinute && nowMinute <= endMinute ? topOf(nowMinute) : null}
             />
           ))}
         </div>
@@ -199,14 +207,26 @@ type DayColumnProps = {
   pixelsPerMinute: number;
   compact: boolean;
   onPick?: (session: PlacedSession) => void;
+  /** Where the current time falls in this column, when the column is today and the hour is on the grid. */
+  nowAt: number | null;
 };
 
-function DayColumn({ day, sessions, courses, height, hours, topOf, pixelsPerMinute, compact, onPick }: DayColumnProps) {
+function DayColumn({ day, sessions, courses, height, hours, topOf, pixelsPerMinute, compact, onPick, nowAt }: DayColumnProps) {
   return (
     <div className="relative border-l border-[#e4e8ef]" style={{ height }}>
       {hours.slice(1, -1).map((minute) => (
         <div key={minute} className="absolute inset-x-0 border-t border-[#eef1f5]" style={{ top: topOf(minute) }} />
       ))}
+      {nowAt !== null ? (
+        <div
+          aria-label="Now"
+          role="img"
+          className="pointer-events-none absolute inset-x-0 z-10 border-t-2 border-[#d92d20]"
+          style={{ top: nowAt }}
+        >
+          <span aria-hidden className="absolute -left-1 -top-[5px] size-2 rounded-full bg-[#d92d20]" />
+        </div>
+      ) : null}
       {laneOut(sessions).map(({ session, lane, lanes }) => {
         const course = courses.get(session.crn);
         const minutes = minutesOf(session.end) - minutesOf(session.start);
@@ -243,7 +263,8 @@ function DayColumn({ day, sessions, courses, height, hours, topOf, pixelsPerMinu
          * teacher. A box too short for a line drops the line rather than clipping it
          * halfway, and the whole story is always in the tooltip.
          */
-        const lines = compact ? 0 : boxHeight >= 66 ? 4 : boxHeight >= 50 ? 3 : boxHeight >= 34 ? 2 : 1;
+        const lines = compact ? 0 : boxHeight >= 80 ? 5 : boxHeight >= 66 ? 4 : boxHeight >= 50 ? 3 : boxHeight >= 34 ? 2 : 1;
+        const where = [course?.group, `CRN ${session.crn}`].filter(Boolean).join(" · ");
 
         return (
           <Box
@@ -293,13 +314,14 @@ function DayColumn({ day, sessions, courses, height, hours, topOf, pixelsPerMinu
                     <span className="truncate">{formatRoom(session.room)}</span>
                   </span>
                 ) : null}
+                {lines >= 4 ? <span className="block truncate text-[10px] tabular-nums opacity-80">{where}</span> : null}
                 {/* Cover outranks the planned teacher for the line: it is who was in the room. */}
                 {covered && lines >= 3 ? (
                   <span className="flex items-center gap-1 truncate font-semibold">
                     <Repeat size={9} className="shrink-0" aria-hidden="true" />
                     <span className="truncate">{covered.coverTeacherName}</span>
                   </span>
-                ) : lines >= 4 && course?.staff ? (
+                ) : lines >= 5 && course?.staff ? (
                   <span className="flex items-center gap-1 truncate opacity-85">
                     <User size={9} className="shrink-0" aria-hidden="true" />
                     <span className="truncate">{course.staff}</span>
@@ -312,4 +334,8 @@ function DayColumn({ day, sessions, courses, height, hours, topOf, pixelsPerMinu
       })}
     </div>
   );
+}
+
+function minuteOfDay(date: Date): number {
+  return date.getHours() * 60 + date.getMinutes();
 }

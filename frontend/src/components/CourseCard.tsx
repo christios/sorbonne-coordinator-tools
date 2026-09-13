@@ -1,5 +1,5 @@
 import { useMutation } from "@tanstack/react-query";
-import { AlertTriangle, Check, ChevronDown, ChevronRight, HelpCircle, Pencil, Wand2 } from "lucide-react";
+import { AlertTriangle, Check, ChevronDown, ChevronRight, HelpCircle, Pencil, Wand2, UserRound } from "lucide-react";
 import { useState } from "react";
 
 import { FillBlock, type FillReport } from "@/components/FillBlock";
@@ -261,9 +261,20 @@ const empty = <span className="text-[#c8d0da]">—</span>;
       <td className="py-2 pr-3">
         <span className={`font-semibold ${held.retired ? "" : "text-[#171717]"}`}>{row.group.label}</span>
         {held.retired ? <span className="ml-1.5 rounded-full bg-[#f2f4f7] px-1.5 py-0.5 text-[10px] font-semibold uppercase text-[#98a2b3]">Retired</span> : null}
-        <span className="block text-[11px] text-[#98a2b3]">
-          {row.group.capacity ? `${row.group.assigned}/${row.group.capacity}` : `${row.group.assigned} placed`}
-          {row.group.program ? ` · ${row.group.program}` : ""}
+        <span className="flex items-center gap-1 text-[11px] text-[#98a2b3]">
+          <span>{row.group.capacity ? `${row.group.assigned}/${row.group.capacity}` : `${row.group.assigned} placed`}</span>
+          {/* How many the timetabler was told to expect, as a mark on the seats rather than a pill of its own. */}
+          {held.anticipated ? (
+            <span
+              className="inline-flex items-center gap-0.5 text-[#9089b8]"
+              title={`${held.anticipated} expected, as the timetable request says`}
+              aria-label={`${held.anticipated} expected`}
+            >
+              <UserRound size={10} aria-hidden="true" />
+              <span className="tabular-nums">{held.anticipated}</span>
+            </span>
+          ) : null}
+          {row.group.program ? <span>· {row.group.program}</span> : null}
         </span>
       </td>
       <td className="py-2 pr-3 tabular-nums">

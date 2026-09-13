@@ -419,3 +419,41 @@ describe("proposing the groups instead of naming them", () => {
     expect(stuck.textContent).toContain("every group is full");
   });
 });
+
+describe("naming a group that would clash", () => {
+  it("says so on the option, against the groups the students already hold", async () => {
+    /*
+     * The proposal already avoids a clash; naming a group by hand could still walk into
+     * one. The same report the proposal reads is put on the option, before the choice.
+     */
+    const withLectures: database.Catalogue = {
+      scopes: [
+        ...CATALOGUE.scopes,
+        {
+          id: "scope-cm", code: "CM", name: "Lectures", note: "", kind: "shared", parentScopeId: "", openToAll: false, courses: [],
+          groups: [{ id: "group-cm", label: "A", capacity: 0, note: "", program: "", parentGroupId: "", assigned: 40, crns: {} }],
+        },
+      ],
+    };
+    vi.spyOn(database, "fetchCatalogue").mockResolvedValue(withLectures);
+    vi.spyOn(database, "fetchAssignments").mockResolvedValue({ A00025735: { "scope-cm": "group-cm" } });
+    vi.spyOn(publicationService, "fetchPublication").mockResolvedValue({
+      termId: "term-1", portalTermCode: "262710", linked: true, coverage: {},
+      cohorts: [{
+        cohortId: "cohort-1", cohortName: "Foundation Year", groups: [], unassigned: {},
+        clashes: [{ groups: [{ id: "group-1", scopeId: "scope-td", scopeCode: "TD", label: "1" }, { id: "group-cm", scopeId: "scope-cm", scopeCode: "CM", label: "A" }], windows: [], students: [] }],
+      }],
+    } as unknown as publicationService.Publication);
+    vi.spyOn(roster, "namesHeld").mockResolvedValue({});
+    vi.spyOn(roster, "fieldHeld").mockResolvedValue({});
+    show(["A00025735"]);
+
+    await pick("Semester", "Physics & Maths — Semester 1");
+    await pick("Block", /TD/);
+    fireEvent.click(screen.getByRole("combobox", { name: "Group" }));
+
+    const one = await screen.findByRole("option", { name: /Group 1/ });
+    expect(one.textContent).toContain("would clash with CM A");
+    expect(screen.getByRole("option", { name: /Group 2/ }).textContent).not.toContain("clash");
+  });
+});

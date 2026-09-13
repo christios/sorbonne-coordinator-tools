@@ -2,6 +2,7 @@ import { useQueries, useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 
 import { CrnRecord } from "@/components/CrnRecord";
+import { SourceMark } from "@/components/DataTable";
 import { Modal } from "@/components/Modal";
 import { SectionTimetable, type TimetableEntry } from "@/components/SectionTimetable";
 import { SessionChangeList } from "@/components/SessionChangeList";
@@ -9,6 +10,7 @@ import { adjustmentsFor, fetchSessionChanges } from "@/services/sessionChanges";
 import { buildCards } from "@/services/courseCards";
 import { fetchActiveCourses, fetchActiveCrns, fetchActiveTeachers, fetchFacilityHours, fetchTermLinks, type ActiveCrn, type ActiveTeacher } from "@/services/portalLists";
 import { requisitionHours } from "@/services/requisitions";
+import type { ColumnSource } from "@/services/studentColumns";
 import { registrarHoursFor, sameTeacher, sectionsTaughtBy } from "@/services/teacherLoad";
 import { getTeacherRequisition, listTeacherRequisitions } from "@/services/teachers";
 import { fetchCourseCards } from "@/services/studentDatabase";
@@ -23,10 +25,13 @@ import { fetchTimetableTerms } from "@/services/timetables";
 export type TeacherRef = Pick<ActiveTeacher, "id" | "fullName"> & Partial<ActiveTeacher> & { psuadEmail?: string };
 
 /** One fact, with room for the answer to be missing. */
-function Fact({ label, value }: { label: string; value: string }) {
+function Fact({ label, value, source }: { label: string; value: string; source?: ColumnSource }) {
   return (
     <div>
-      <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8a94a4]">{label}</p>
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8a94a4]">
+        {label}
+        {source ? <SourceMark source={source} /> : null}
+      </p>
       <p className={`mt-0.5 text-sm ${value ? "text-[#344054]" : "text-[#c8d0da]"}`}>{value || "not said"}</p>
     </div>
   );
@@ -122,6 +127,7 @@ export function TeacherRecord({
       code: section.courseCode,
       title: section.courseName,
       label: section.courseCode,
+      group: `${section.scopeCode} ${section.groupLabel}`,
     }));
   const named = new Set(ours.map((entry) => entry.crn));
   const theirs: TimetableEntry[] = (registered.data ?? [])
@@ -204,17 +210,17 @@ export function TeacherRecord({
           </p>
         </div>
         <div className="rounded-lg border border-[#d9dee7] bg-white px-4 py-3">
-          <p className="text-xs font-semibold uppercase tracking-wide text-[#8a94a4]">Planned hours</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-[#8a94a4]">Planned hours <SourceMark source="planning" /></p>
           <p className="mt-1 text-2xl font-semibold tabular-nums text-[#171717]">{hours || "—"}</p>
           <p className="mt-0.5 text-xs text-[#98a2b3]">as the timetable request has them</p>
         </div>
         <div className="rounded-lg border border-[#d9dee7] bg-white px-4 py-3">
-          <p className="text-xs font-semibold uppercase tracking-wide text-[#8a94a4]">Registrar hours</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-[#8a94a4]">Registrar hours <SourceMark source="registrar" /></p>
           <p className="mt-1 text-2xl font-semibold tabular-nums text-[#171717]">{registrarHours || "—"}</p>
           <p className="mt-0.5 text-xs text-[#98a2b3]">booked on the portal&apos;s timetable</p>
         </div>
         <div className="rounded-lg border border-[#d9dee7] bg-white px-4 py-3">
-          <p className="text-xs font-semibold uppercase tracking-wide text-[#8a94a4]">Requisition hours</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-[#8a94a4]">Requisition hours <SourceMark source="part-time" /></p>
           <p className="mt-1 text-2xl font-semibold tabular-nums text-[#171717]" aria-label="Requisition hours">
             {partTimeId && contracted.total ? contracted.total : "—"}
           </p>
@@ -242,21 +248,22 @@ export function TeacherRecord({
        */}
       <div className="mt-5 grid gap-4 lg:grid-cols-2">
         <div className="grid gap-4 self-start rounded-lg border border-[#e4e8ef] bg-[#fbfcfe] px-4 py-3 sm:grid-cols-2">
-          <Fact label="E-mail" value={facts.email || teacher.psuadEmail || ""} />
-          <Fact label="Rank" value={facts.rank ?? ""} />
-          <Fact label="Category" value={facts.category ?? ""} />
-          <Fact label="Department" value={facts.department ?? ""} />
-          <Fact label="Institution" value={facts.institution ?? ""} />
-          <Fact label="Last term in the portal" value={facts.lastTerm ?? ""} />
-          <Fact label="Portal ID" value={facts.portalTeacherId ?? ""} />
+          <Fact label="E-mail" value={facts.email || teacher.psuadEmail || ""} source="portal" />
+          <Fact label="Rank" value={facts.rank ?? ""} source="portal" />
+          <Fact label="Category" value={facts.category ?? ""} source="portal" />
+          <Fact label="Department" value={facts.department ?? ""} source="portal" />
+          <Fact label="Institution" value={facts.institution ?? ""} source="portal" />
+          <Fact label="Last term in the portal" value={facts.lastTerm ?? ""} source="portal" />
+          <Fact label="Portal ID" value={facts.portalTeacherId ?? ""} source="portal" />
           <Fact
+            source="planning"
             label="On the department's list"
             value={held ? `yes, since ${held.addedAt.slice(0, 10)}` : "no — chosen on the Teachers page"}
           />
-          <Fact label="Courses the portal lists" value={facts.courses ?? ""} />
+          <Fact label="Courses the portal lists" value={facts.courses ?? ""} source="portal" />
         </div>
         <section>
-          <h4 className="text-sm font-semibold text-[#171717]">When they teach</h4>
+          <h4 className="text-sm font-semibold text-[#171717]">When they teach <SourceMark source="registrar" /></h4>
           <p className="mb-2 text-xs text-[#98a2b3]">
             From the registrar&apos;s timetable: the sections above, and any the portal staffs with them.
           </p>
@@ -271,7 +278,7 @@ export function TeacherRecord({
         </section>
       </div>
 
-      <h4 className="mt-6 text-sm font-semibold text-[#171717]">Changes to their classes</h4>
+      <h4 className="mt-6 text-sm font-semibold text-[#171717]">Changes to their classes <SourceMark source="planning" /></h4>
       <p className="mb-2 text-xs text-[#98a2b3]">
         Cancelled, covered by somebody else, or covered by them — as said on the CRNs&apos; calendars.
         {tally ? ` ${tally}.` : ""}
@@ -282,7 +289,7 @@ export function TeacherRecord({
         empty="Nothing noted on their classes this semester."
       />
 
-      <h4 className="mt-6 text-sm font-semibold text-[#171717]">What they teach</h4>
+      <h4 className="mt-6 text-sm font-semibold text-[#171717]">What they teach <SourceMark source="planning" /></h4>
       {catalogues.isLoading ? (
         <p className="mt-2 text-sm text-[#667085]">Reading the sections…</p>
       ) : sections.length === 0 ? (

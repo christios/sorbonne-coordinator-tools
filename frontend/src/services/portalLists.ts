@@ -738,6 +738,13 @@ export async function fetchFacilityHours(termCode: string): Promise<FacilityHour
   return (await request<{ sections: FacilityHours }>(`/facility-timetable/${encodeURIComponent(termCode)}/hours`)).sections;
 }
 
+/** One student the registrar has in a section: id, cohort, and the group of ours that holds the CRN. */
+export type CrnStudent = { studentId: string; cohortId: string; cohortName: string; group: string };
+
+export async function fetchCrnStudents(termCode: string, crn: string): Promise<CrnStudent[]> {
+  return (await request<{ students: CrnStudent[] }>(`/terms/${encodeURIComponent(termCode)}/crns/${encodeURIComponent(crn)}/students`)).students;
+}
+
 /** What one sweep changed, as the store reports it back. */
 export type FacilityPullReport = {
   asked: number;

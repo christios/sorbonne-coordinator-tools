@@ -25,6 +25,9 @@ import type { PortalColumn, PortalField } from "@/services/scenRosters";
 const KEY = "scen-student-columns:v1";
 
 /** What every menu needs to know about a column, whatever the rows are. */
+/** Where a column's facts come from, said on the heading where the two are easily confused. */
+export type ColumnSource = "portal" | "planning" | "part-time" | "registrar";
+
 export type ColumnMeta = {
   id: string;
   displayName: string;
@@ -32,6 +35,14 @@ export type ColumnMeta = {
   /** Columns that carry the row's identity and would make the table unreadable if hidden. */
   required?: boolean;
   defaultWidth: number;
+  source?: ColumnSource;
+};
+
+export const SOURCE_WORDS: Record<ColumnSource, string> = {
+  portal: "the portal",
+  planning: "our planning",
+  "part-time": "the part-time database",
+  registrar: "the registrar's timetable",
 };
 
 /**
@@ -191,6 +202,19 @@ const SET_COLUMN: StudentColumn = {
   defaultWidth: 160,
 };
 
+/**
+ * The whole placement as one value, so "who shares every class with this student" is one
+ * filter. An option column: its list is the distinct combinations, each a way of grouping
+ * the table.
+ */
+const SIGNATURE_COLUMN: StudentColumn = {
+  id: "signature",
+  displayName: "Group signature",
+  type: "option",
+  accessor: (row) => row.signature,
+  defaultWidth: 260,
+};
+
 const MEETS_COLUMN: StudentColumn = {
   id: "meets",
   displayName: "Meets",
@@ -241,7 +265,7 @@ export function buildColumns(
   // a table that is one cohort's, the Cohort column would say the same thing on every row.
   const own = withoutCohort ? OWN_COLUMNS.filter((column) => column.id !== "cohortName") : OWN_COLUMNS;
   const columns = withWarnings ? [own[0], WARNINGS_COLUMN, ...own.slice(1)] : [...own];
-  columns.push(SET_COLUMN, MEETS_COLUMN);
+  columns.push(SET_COLUMN, SIGNATURE_COLUMN, MEETS_COLUMN);
   for (const column of portal) {
     if (SKIP_PORTAL_FIELDS.has(column.key.toUpperCase())) continue;
     columns.push(portalColumn(column, filterable));

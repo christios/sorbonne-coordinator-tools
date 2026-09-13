@@ -83,6 +83,7 @@ export function CourseRecord({
     code: row.courseCode,
     title: `CRN ${row.crn}`,
     label: groupOf.get(row.crn) ?? row.portalTitle ?? row.crn,
+    group: groupOf.get(row.crn) ?? "",
     staff: portal.data?.crns[row.crn]?.teacherName || row.teacherName,
     // One colour per section, not per course: every box here is the same course.
     colorKey: row.crn,

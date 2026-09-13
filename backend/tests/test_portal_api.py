@@ -2035,6 +2035,29 @@ def test_a_calendar_asks_for_its_sections_by_crn_and_is_told_which_are_unchecked
     assert read["sections"][0]["teacherName"] == "Grace Younes"
 
 
+def test_a_crn_lists_who_the_registrar_has_in_it_and_where_our_planning_put_them(
+    client: TestClient, database: StudentDatabase
+):
+    """Ids only, with the cohort and the group of ours that holds the CRN — or nothing, which
+    is the interesting case: somebody in a section none of their groups stands for."""
+    build_cohort(database)
+    registrations(
+        client,
+        [
+            {"studentId": "A001", "crn": "22151", "courseCode": "MATH-001"},
+            {"studentId": "A003", "crn": "22151", "courseCode": "MATH-001"},
+            {"studentId": "A001", "crn": "23652", "courseCode": "MATH-011"},
+        ],
+    )
+
+    answer = client.get(f"{BASE}/terms/{TERM}/crns/22151/students").json()["students"]
+
+    assert [(row["studentId"], row["cohortName"], row["group"]) for row in answer] == [
+        ("A001", "Foundation Year", "CM A"),
+        ("A003", "Foundation Year", ""),
+    ]
+
+
 # --------------------------------------- teachers our planning names and the list does not
 
 

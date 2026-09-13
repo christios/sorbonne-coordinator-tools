@@ -1,3 +1,4 @@
+import { SourceMark } from "@/components/DataTable";
 import { ArrowDown, ArrowUp, Columns3, RotateCcw } from "lucide-react";
 import { Popover } from "radix-ui";
 import { useState } from "react";
@@ -80,6 +81,7 @@ export function ColumnMenu({
                     className={`flex-1 text-sm ${column.required ? "text-[#98a2b3]" : "text-[#344054]"}`}
                   >
                     {column.displayName}
+                    {column.source ? <SourceMark source={column.source} /> : null}
                     {column.required ? <span className="ml-1 text-xs">(always shown)</span> : null}
                   </label>
                   <button
