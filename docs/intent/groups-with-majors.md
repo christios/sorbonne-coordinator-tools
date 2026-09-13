@@ -34,3 +34,21 @@ Confirmed intent, 13 September 2026. Project 1 of three; built after the quick w
   behind a migration that turns today's tags into sub-rows.
 - **Out of scope:** two placements per student; a cap on one course inside a group
   (e.g. a smaller lab room) — asked and declined, seats per sub-row are enough.
+
+Built 13 September 2026 (local commits `f8ab9ea`, `f289138`; not yet deployed).
+
+- **Model:** `group_majors` (programme, seats, position), `group_crns.major_id` + `not_taught`,
+  `group_assignments.major_id`; migration 0047 converts the tags and drops them.
+- **Rules as built:** a placement on a sub-row is taught the shared cells with the sub-row's
+  own on top and its "not taught" courses struck out; a placement on no sub-row of a
+  sub-rowed group is taught the shared cells only. Readiness expects a student in a set only
+  where a group is open to their programme, and asks a group for a CRN only where some
+  sub-row is taught the course. The doubled-in-a-set check treats two sub-rows as two
+  bundles. The clash reading learns a CRN's programme from its cells.
+- **Fill:** own sub-row first; a group with no sub-row for the student is closed unless every
+  sub-row is taught the same sections; where they are, any seat will do.
+- **Labels:** a sub-row is named after its group only where the group has another
+  ("1 · Mathematics"); a group holding one major keeps its own label.
+- **L1:** the move script lives beside the snapshots
+  (`14_l1-groups/snapshots/move_l1_to_subrows.py`); rehearsed on dev, run on prod after
+  the deploy with a snapshot first.
