@@ -1,6 +1,6 @@
 import { SelectMenu } from "@/components/SelectMenu";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FilePlus2, Loader2, Pencil, Search, Trash2 } from "lucide-react";
+import { DownloadCloud, FilePlus2, Loader2, Pencil, Search, Trash2 } from "lucide-react";
 import { FormEvent, useState } from "react";
 
 import { AutoResizeTextarea } from "@/components/AutoResizeTextarea";
@@ -11,7 +11,9 @@ import {
   CatalogueCategory,
   CatalogueEntry,
   CatalogueEntryInput,
+  PeopleImportResult,
   createCatalogueEntry,
+  importPeopleFromPortal,
   listCatalogueEntries,
   retireCatalogueEntry,
   updateCatalogueEntry,
@@ -61,18 +63,37 @@ function CatalogueHeader({ title, description, action }: { title: string; descri
 }
 
 function useCatalogue(category: CatalogueCategory, query = "", parentId?: string) {
-  return useQuery({ queryKey: ["syllabus-catalogues", category, query, parentId ?? ""], queryFn: () => listCatalogueEntries(category, { query, parentId, includeRetired: true, limit: 100 }) });
+  return useQuery({ queryKey: ["syllabus-catalogues", category, query, parentId ?? ""], queryFn: () => listCatalogueEntries(category, { query, parentId, includeRetired: true, limit: 200 }) });
 }
 
 function PeopleCatalogue() {
   const [query, setQuery] = useState("");
   const [showCreate, setShowCreate] = useState(false);
   const catalogue = useCatalogue("people", query);
-  return <div className="rounded-lg border border-[#d9dee7] bg-white p-5"><CatalogueHeader title="People" description="A shared directory for instructors and academic coordinators. Linked contact details remain live in syllabi; retiring a person preserves existing links." action={<button type="button" onClick={() => setShowCreate(true)} className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white hover:bg-[#183f63]"><FilePlus2 size={16} /> Add person</button>} />
+  const client = useQueryClient();
+  const importFromPortal = useMutation({
+    mutationFn: importPeopleFromPortal,
+    onSuccess: () => client.invalidateQueries({ queryKey: ["syllabus-catalogues", "people"] }),
+  });
+  const imported = importFromPortal.data;
+  return <div className="rounded-lg border border-[#d9dee7] bg-white p-5"><CatalogueHeader title="People" description="A shared directory for instructors and academic coordinators. Linked contact details remain live in syllabi; retiring a person preserves existing links." action={<div className="flex flex-wrap gap-2"><button type="button" onClick={() => importFromPortal.mutate()} disabled={importFromPortal.isPending} className="inline-flex items-center gap-2 rounded-md border border-[#1f4e79] px-3 py-2 text-sm font-semibold text-[#1f4e79] hover:bg-[#eef4fa] disabled:opacity-60">{importFromPortal.isPending ? <Loader2 size={16} className="animate-spin" /> : <DownloadCloud size={16} />} Import teachers from the portal</button><button type="button" onClick={() => setShowCreate(true)} className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white hover:bg-[#183f63]"><FilePlus2 size={16} /> Add person</button></div>} />
+    {imported ? <p className="mt-3 rounded-md border border-[#cfe3d3] bg-[#f2f9f4] px-3 py-2 text-sm text-[#2f6b41]">{importSummary(imported)}</p> : null}
+    {importFromPortal.error ? <p className="mt-3 rounded-md border border-[#f0c6c6] bg-[#fdf3f3] px-3 py-2 text-sm text-[#a6292f]">{(importFromPortal.error as Error).message}</p> : null}
     <SearchField label="Search people" value={query} onChange={setQuery} />
     {showCreate ? <PersonForm onCancel={() => setShowCreate(false)} onSaved={() => setShowCreate(false)} /> : null}
     <CatalogueEntries category="people" entries={catalogue.data ?? []} isLoading={catalogue.isLoading} renderDetails={(entry) => <PersonDetails entry={entry} />} />
   </div>;
+}
+
+/** Says what the import did in the terms an administrator cares about. */
+function importSummary({ added, updated, unchanged, retired }: PeopleImportResult) {
+  const parts = [
+    added.length ? `${added.length} added` : "",
+    updated.length ? `${updated.length} updated` : "",
+    unchanged.length ? `${unchanged.length} already here` : "",
+    retired.length ? `${retired.length} left retired` : "",
+  ].filter(Boolean);
+  return parts.length ? `Teachers from Students and Timetables: ${parts.join(", ")}.` : "Nobody is listed as teaching yet.";
 }
 
 function PersonDetails({ entry }: { entry: CatalogueEntry }) {

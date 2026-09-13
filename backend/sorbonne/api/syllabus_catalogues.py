@@ -9,6 +9,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from sorbonne.config import config
+from sorbonne.services import syllabus_people_import
+from sorbonne.services.portal_lists import PortalListStore
 from sorbonne.services.syllabus_catalogue_store import (
     CATALOGUE_CATEGORIES,
     CatalogueNotFound,
@@ -39,6 +41,10 @@ def get_catalogue_store() -> SyllabusCatalogueStore:
     return SyllabusCatalogueStore(config.database_url)
 
 
+def get_portal_store() -> PortalListStore:
+    return PortalListStore(config.database_url)
+
+
 @router.get("/{category}")
 def list_catalogue_entries(
     category: str,
@@ -57,6 +63,15 @@ def list_catalogue_entries(
         "offset": offset,
         "limit": limit,
     }
+
+
+@router.post("/people/import-from-portal")
+def import_people_from_portal(
+    store: SyllabusCatalogueStore = Depends(get_catalogue_store),
+    portal: PortalListStore = Depends(get_portal_store),
+) -> dict[str, Any]:
+    """Bring everyone Students and Timetables lists as teaching into the directory."""
+    return syllabus_people_import.import_teachers(store, portal)
 
 
 @router.post("/{category}", status_code=201)

@@ -84,3 +84,10 @@ export function retireCatalogueEntry(category: CatalogueCategory, id: string, ex
     body: JSON.stringify({ expectedRevision }),
   });
 }
+
+export type PeopleImportResult = { added: string[]; updated: string[]; unchanged: string[]; retired: string[] };
+
+/** Copy everyone Students and Timetables lists as teaching into the People directory. */
+export function importPeopleFromPortal(): Promise<PeopleImportResult> {
+  return request<PeopleImportResult>("/syllabus-catalogues/people/import-from-portal", { method: "POST" });
+}

@@ -461,7 +461,8 @@ function SectionForm({
   const content = draft.content as Record<string, unknown>;
   const people = useQuery({
     queryKey: ["syllabus-catalogues", "people", "editor"],
-    queryFn: () => listCatalogueEntries("people", { includeRetired: true }),
+    // The directory now holds everyone teaching, not the handful somebody typed: ask for all of them.
+    queryFn: () => listCatalogueEntries("people", { includeRetired: true, limit: 200 }),
   });
   const programmes = useQuery({
     queryKey: ["syllabus-catalogues", "programmes", "editor"],
