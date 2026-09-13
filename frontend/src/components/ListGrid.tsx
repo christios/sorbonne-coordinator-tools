@@ -15,6 +15,7 @@ import {
   reorderColumn,
   resizeColumn,
   saveLayout,
+  showColumn,
   sortByColumn,
   visibleColumns,
   type ColumnLayout,
@@ -105,7 +106,8 @@ export function ListGrid<T>({
     const searched = needle
       ? rows.filter((row) => shownColumns.some((column) => plainCellText(row, column).toLowerCase().includes(needle)))
       : rows;
-    return sortByColumn(applyFilters(searched, shownColumns, filters), sort, columns, idOf);
+    // Filters run over every column, shown or not: a filter on a hidden column is still a filter.
+    return sortByColumn(applyFilters(searched, columns, filters), sort, columns, idOf);
   }, [rows, shownColumns, filters, sort, query, columns, idOf]);
   const visibleRef = useRef<T[]>([]);
   visibleRef.current = visible;
@@ -160,7 +162,9 @@ export function ListGrid<T>({
     <div>
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <TableFilterBar
-          columns={shownColumns}
+          columns={columns}
+          hidden={new Set(layout.hidden)}
+          onReveal={(id) => arrange(showColumn(layout, id))}
           filters={filters}
           optionsFor={(column) => optionsFor(rows, column)}
           onChange={setFilters}

@@ -395,6 +395,22 @@ export function toggleColumn(layout: ColumnLayout, id: string, columns: ColumnMe
   return { ...layout, hidden };
 }
 
+/**
+ * Show a column that was hidden, at the end of the table.
+ *
+ * What a filter on a hidden column does: the reader asked a question about a value they
+ * could not see, so the value comes into view — at the end, where it disturbs nothing
+ * they had arranged — and stays there until they hide it themselves.
+ */
+export function showColumn(layout: ColumnLayout, id: string): ColumnLayout {
+  if (!layout.hidden.includes(id)) return layout;
+  return {
+    ...layout,
+    hidden: layout.hidden.filter((kept) => kept !== id),
+    order: [...layout.order.filter((kept) => kept !== id), id],
+  };
+}
+
 export function resizeColumn(layout: ColumnLayout, id: string, width: number, columns: ColumnMeta[]): ColumnLayout {
   const column = columns.find((candidate) => candidate.id === id);
   if (!column) return layout;

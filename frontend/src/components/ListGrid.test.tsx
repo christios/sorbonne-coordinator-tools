@@ -155,3 +155,33 @@ describe("picking columns from their headings", () => {
     expect(screen.queryByLabelText("Columns picked to copy")).toBeNull();
   });
 });
+
+describe("filtering on what is not on screen", () => {
+  it("offers hidden columns, shows the one picked, and filters by it", async () => {
+    show();
+    expect(screen.queryByRole("button", { name: "Sort by Registered" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Filter" }));
+    const offer = await screen.findByRole("button", { name: /Registered/ });
+    expect(offer.textContent).toContain("hidden");
+    fireEvent.click(offer);
+
+    // The column is on screen now, and stays so.
+    expect(await screen.findByRole("button", { name: "Sort by Registered" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Type a Registered value instead" }));
+    fireEvent.change(screen.getByLabelText("Registered value"), { target: { value: "12" } });
+    await waitFor(() => expect(firstCells()).toEqual(["23652"]));
+  });
+
+  it("offers a text column's values to choose from, with a switch to typing", async () => {
+    show();
+    fireEvent.click(screen.getByRole("button", { name: "Filter" }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Course/ }));
+
+    // A list first — no spelling to get right.
+    expect(screen.getByRole("button", { name: /Course value/ })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Type a Course value instead" }));
+    fireEvent.change(screen.getByLabelText("Course value"), { target: { value: "scen" } });
+    await waitFor(() => expect(firstCells()).toEqual(["23302"]));
+  });
+});

@@ -276,6 +276,8 @@ describe("StudentRoster", () => {
       await addFilter("Year");
       await choose("Year value", "FY");
       await addFilter("Student");
+      // A text chip offers the column's values first; a fragment is typed after the switch.
+      fireEvent.click(screen.getByRole("button", { name: "Type a Student value instead" }));
       fireEvent.change(screen.getByLabelText("Student value"), { target: { value: "nadia" } });
       expect(screen.queryByText("Amira Haddad")).toBeNull();
 
