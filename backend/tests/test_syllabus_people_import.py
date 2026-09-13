@@ -105,3 +105,23 @@ def test_leaves_a_coordinator_who_is_not_teaching_alone() -> None:
     person = next(item for item in store.list("people", query="Valerie") if item["label"] == "Valerie Le Guyon")
     assert person["payload"]["roles"] == ["coordinator"]
     assert person["revision"] == 1
+
+
+def test_a_surname_the_registrar_shouts_arrives_written_normally() -> None:
+    store = make_store()
+    portal = FakePortal([teacher("Jeanine EL KHOURY"), teacher("Suzanne El chehaly")])
+
+    result = import_teachers(store, portal)
+
+    # The shouted one is calmed; the unusual one is the person's own and is left alone.
+    assert sorted(result["added"]) == ["Jeanine El Khoury", "Suzanne El chehaly"]
+
+
+def test_a_rank_the_registrar_repeats_is_written_once() -> None:
+    store = make_store()
+    portal = FakePortal([teacher("Grace Younes", rank="Instructor,Instructor,Instructor", category="Lecturer")])
+
+    import_teachers(store, portal)
+
+    person = next(item for item in store.list("people", query="Grace") if item["label"] == "Grace Younes")
+    assert person["payload"]["academicRank"] == "Instructor"

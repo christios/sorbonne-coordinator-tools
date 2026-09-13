@@ -38,9 +38,30 @@ def _all_people(catalogue: SyllabusCatalogueStore) -> list[dict[str, Any]]:
             return people
 
 
+def _display_name(name: str) -> str:
+    """The registrar shouts some surnames — "Charbel ELIAS" — and a syllabus should not.
+
+    Only a word that is entirely capitals is touched. "Khalid Ait ali" and "Suzanne El
+    chehaly" are left exactly as the registrar wrote them: how a name is capitalised is
+    the person's own, and guessing at one that is merely unusual does more harm than the
+    shouting does.
+    """
+    return " ".join(word.capitalize() if word.isupper() and len(word) > 1 else word for word in name.split(" "))
+
+
 def _rank(teacher: dict[str, Any]) -> str:
-    """The registrar records a rank for some and only a category for the rest."""
-    return str(teacher.get("rank") or teacher.get("category") or "").strip()
+    """The registrar records a rank for some and only a category for the rest.
+
+    A rank arrives joined across every row the registrar holds for the person, so one
+    lecturer's reads "Instructor,Instructor,Instructor,Instructor". Saying it once is
+    what was meant, and on the rare person who really does hold two it says both.
+    """
+    written = str(teacher.get("rank") or teacher.get("category") or "").strip()
+    seen: list[str] = []
+    for part in (piece.strip() for piece in written.split(",")):
+        if part and part not in seen:
+            seen.append(part)
+    return ", ".join(seen)
 
 
 def import_teachers(catalogue: SyllabusCatalogueStore, portal: PortalListStore) -> dict[str, Any]:
@@ -75,8 +96,9 @@ def import_teachers(catalogue: SyllabusCatalogueStore, portal: PortalListStore) 
                 "roles": ["instructor"],
                 "portalTeacherId": portal_id,
             }
-            catalogue.create("people", label=name, payload=payload, sort_order=0)
-            added.append(name)
+            shown = _display_name(name)
+            catalogue.create("people", label=shown, payload=payload, sort_order=0)
+            added.append(shown)
             continue
 
         if person["isRetired"]:
