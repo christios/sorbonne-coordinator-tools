@@ -58,6 +58,9 @@ export function teacherLoads(sheets: RequestSheet[]): TeacherLoad[] {
   const held = new Map<string, TeacherLoad>();
   sheets.forEach((sheet, index) => {
     for (const row of sheet.rows) {
+      // A retired group's hours are nobody's to teach. They stay on the sheet, marked, so
+      // the timetabler knows; here they would read as a class with nobody in front of it.
+      if (row.retired) continue;
       const named = row.teacher && row.teacher.toUpperCase() !== UNNAMED;
       const key = named ? `name:${row.teacher.trim().toLowerCase()}` : "";
       const load = held.get(key) ?? {
@@ -230,7 +233,7 @@ export function crnsByTeacher(sheets: RequestSheet[]): (teacher: string) => stri
   const held = new Map<string, Set<string>>();
   for (const sheet of sheets) {
     for (const row of sheet.rows) {
-      if (!row.crn) continue;
+      if (!row.crn || row.retired) continue;
       const key = row.teacher && row.teacher.toUpperCase() !== UNNAMED ? row.teacher.trim().toLowerCase() : "";
       const crns = held.get(key) ?? new Set<string>();
       crns.add(row.crn);

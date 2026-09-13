@@ -9,7 +9,7 @@ import { requestSheets, type RequestRow, type RequestSheet } from "@/services/ti
 const row = (over: Partial<RequestRow> = {}): RequestRow => ({
   courseName: "Pre-calculus 1 G.1-TD", degree: "", ue: "", crn: "23223", parentCrn: "", subject: "MATH",
   courseNumber: "001", hours: "50", type: "TD", roomPref: "", teacher: "Samar Ghantous", teacherId: "act-1",
-  timePref: "", dayPref: "", constraints: "", weeks: "", duration: "", anticipated: "", comments: "",
+  timePref: "", dayPref: "", constraints: "", weeks: "", duration: "", anticipated: "", comments: "", retired: false,
   ...over,
 });
 
@@ -278,5 +278,16 @@ describe("the registrar's hours beside ours", () => {
     };
     expect(registrarHoursFor(booked, "Grace Younes", sameTeacher)).toBe(52.5);
     expect(registrarHoursFor(booked, "", sameTeacher)).toBe(0);
+  });
+});
+
+describe("a retired group's hours", () => {
+  it("are nobody's to teach, so they are not counted as hours with no teacher", () => {
+    const sheets: RequestSheet[] = [
+      { title: "FYS-S1", heading: "", semester: "", rows: [row({ teacher: "", hours: "50", retired: true }), row({ teacher: "", hours: "20", crn: "23901" })] },
+    ];
+    const totals = loadTotals(teacherLoads(sheets));
+    expect(totals.unnamed).toBe(20);
+    expect(totals.sections).toBe(1);
   });
 });
