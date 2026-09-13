@@ -43,6 +43,9 @@ class Major:
     # course code -> its CRNs, already resolved: the group's shared cells, with this
     # sub-row's own on top and the courses it is not taught struck out.
     crns: dict[str, list[str]] = field(default_factory=dict)
+    # The courses this sub-row is not taught at all — its own word, so an absence here is
+    # not a CRN nobody has typed yet.
+    not_taught: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -165,12 +168,7 @@ def _teaches(group: Group, code: str) -> bool:
     """Whether this group is asked for a CRN in this course: unless every sub-row is not taught it."""
     if not group.majors:
         return True
-    return any(code in major.crns or code not in _struck(group, major) for major in group.majors)
-
-
-def _struck(group: Group, major: Major) -> set[str]:
-    """The courses a sub-row is not taught: shared cells it does not come to."""
-    return {code for code in group.crns if code not in major.crns}
+    return any(code not in major.not_taught for major in group.majors)
 
 
 def _has_crn(group: Group, code: str) -> bool:

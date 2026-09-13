@@ -35,7 +35,12 @@ def groups_of(cohort: dict[str, Any], key: str = "groups") -> list[Group]:
             label=row["label"],
             crns=row["crns"],
             majors=tuple(
-                Major(id=major["id"], program=major.get("program", ""), crns=major.get("crns", {}))
+                Major(
+                    id=major["id"],
+                    program=major.get("program", ""),
+                    crns=major.get("crns", {}),
+                    not_taught=frozenset(major.get("notTaught", [])),
+                )
                 for major in row.get("majors", [])
             ),
         )

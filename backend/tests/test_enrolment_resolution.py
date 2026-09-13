@@ -282,10 +282,21 @@ LECTURES = Group(
     # Shared by everybody in the group: the mutualized lecture.
     crns={"CPSC-100": ["22155"]},
     majors=(
-        # The mathematicians' sub-row takes the shared lecture and their own philosophy.
-        Major(id="m-maths", program="MATH - Mathematics", crns={"CPSC-100": ["22155"], "MATH-113": ["23307"]}),
+        # The mathematicians' sub-row takes the shared lecture and their own philosophy,
+        # and is not taught the physicists' option.
+        Major(
+            id="m-maths",
+            program="MATH - Mathematics",
+            crns={"CPSC-100": ["22155"], "MATH-113": ["23307"]},
+            not_taught=frozenset({"PHYS-118"}),
+        ),
         # The physicists' takes the shared lecture and their own option.
-        Major(id="m-phys", program="PHYS - Physics", crns={"CPSC-100": ["22155"], "PHYS-118": ["22150"]}),
+        Major(
+            id="m-phys",
+            program="PHYS - Physics",
+            crns={"CPSC-100": ["22155"], "PHYS-118": ["22150"]},
+            not_taught=frozenset({"MATH-113"}),
+        ),
     ),
 )
 
@@ -341,6 +352,35 @@ def test_a_group_is_still_asked_for_a_crn_in_a_course_a_sub_row_takes_and_has_no
     )
 
     assert "Lectures 1 has no CRN for CPSC-100" in report["warnings"]
+
+
+def test_a_group_whose_only_sub_row_is_not_taught_a_course_is_not_asked_for_its_crn():
+    """MTP 1A holds mathematicians alone and is not taught the physicists' practical: the
+    set carries it for the groups that are, and this group is no gap."""
+    maths_only = Group(
+        id="g-1a",
+        scope_id="s-tp",
+        label="1A",
+        crns={"PHYS-125": ["23639"]},
+        majors=(
+            Major(
+                id="m",
+                program="MATH - Mathematics",
+                crns={"PHYS-125": ["23639"]},
+                not_taught=frozenset({"PHYS-118"}),
+            ),
+        ),
+    )
+    report = readiness(
+        cohort_name="L1",
+        students=["A001"],
+        scopes=[TP],
+        groups=[maths_only],
+        course_codes={"s-tp": ["PHYS-125", "PHYS-118"]},
+        assignments={("A001", "s-tp"): ("g-1a", "m")},
+    )
+
+    assert report["warnings"] == []
 
 
 def test_a_group_with_no_sub_rows_is_asked_for_every_course():

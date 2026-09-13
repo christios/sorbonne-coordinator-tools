@@ -1310,6 +1310,10 @@ class StudentDatabase:
         # out by the sub-row's own cells. What a student on that sub-row is expected in.
         by_major = _crns_by_major(list(cells), code_of, majors_of)
         crn_programs = _crn_programs(list(cells), code_of, majors_of)
+        struck: dict[str, set[str]] = {}
+        for cell in cells:
+            if cell["major_id"] and cell["not_taught"] and code_of.get(cell["course_id"]):
+                struck.setdefault(cell["major_id"], set()).add(code_of[cell["course_id"]])
 
         def publish_group(group: Any) -> dict[str, Any]:
             return {
@@ -1322,6 +1326,8 @@ class StudentDatabase:
                         "id": major["id"],
                         "program": major["program"],
                         "crns": by_major.get(group["id"], {}).get(major["id"], {}),
+                        # The sub-row's own word: these courses are not its, so no CRN is wanted.
+                        "notTaught": sorted(struck.get(major["id"], set())),
                     }
                     for major in majors_of.get(group["id"], [])
                 ],
