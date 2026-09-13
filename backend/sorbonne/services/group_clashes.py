@@ -39,7 +39,7 @@ def clashes(
     *,
     groups: list[Group],
     sessions: list[Session],
-    assignments: dict[tuple[str, str], str],
+    assignments: dict[tuple[str, str], tuple[str, str]],
     programs: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     """Every pair of groups that overlap, with the hours they overlap on and who sits in both.
@@ -58,7 +58,7 @@ def clashes(
         by_crn.setdefault(session.crn, []).append(session)
 
     members: dict[str, set[str]] = {}
-    for (student, _scope), group_id in assignments.items():
+    for (student, _scope), (group_id, _major) in assignments.items():
         members.setdefault(group_id, set()).add(student)
 
     found: list[dict[str, Any]] = []
@@ -98,11 +98,11 @@ def _windows(
 ) -> list[dict[str, Any]]:
     # Every CRN of every course, parts included: the two halves of a split section are two
     # CRNs of one course, and the registrar's dates already keep them from overlapping.
-    mine = [crn for crns in left.crns.values() for crn in crns if crn]
+    mine = _every_crn(left)
     if left is right:
         crn_pairs = list(combinations(sorted(set(mine)), 2))
     else:
-        theirs = [crn for crns in right.crns.values() for crn in crns if crn]
+        theirs = _every_crn(right)
         crn_pairs = [(a, b) for a in mine for b in theirs]
 
     folded: dict[tuple[int, int, int, str, str], dict[str, Any]] = {}
@@ -163,3 +163,11 @@ def _clock(minutes: int) -> str:
 
 
 _WEEKDAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+
+
+def _every_crn(group: Group) -> list[str]:
+    """Every CRN anybody in the group is taught: the shared cells and every sub-row's own."""
+    held = [crn for crns in group.crns.values() for crn in crns if crn]
+    for major in group.majors:
+        held.extend(crn for crns in major.crns.values() for crn in crns if crn)
+    return sorted(set(held))

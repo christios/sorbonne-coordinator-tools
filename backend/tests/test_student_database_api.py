@@ -489,17 +489,77 @@ def test_a_fill_naming_a_group_of_another_block_writes_nothing(client: TestClien
     assert held == {}
 
 
-def test_a_group_remembers_the_programme_it_prefers(client: TestClient, cohort_id: str):
+def test_a_group_holds_seats_per_major_and_its_capacity_is_what_they_add_up_to(client: TestClient, cohort_id: str):
+    """A sub-row per major: the programme in the registrar's words, and its seats.
+
+    A group with sub-rows has as many seats as they add up to; its own number no longer
+    counts. A group with none is exactly what a group was.
+    """
     scope_id, group_id = block_with_a_group(client, cohort_id)
 
-    client.patch(
-        f"/api/v1/student-database/groups/{group_id}",
-        json={"label": "1", "capacity": 24, "note": "", "program": "Physics"},
-    )
+    majors_at = f"/api/v1/student-database/groups/{group_id}/majors"
+    maths = client.post(majors_at, json={"program": "MATH - Mathematics", "seats": 15})
+    assert maths.status_code == status.HTTP_201_CREATED, maths.text
+    physics = client.post(majors_at, json={"program": "PHYS - Physics", "seats": 2})
+    # The same programme twice is refused: a group holds each major once.
+    assert client.post(majors_at, json={"program": "PHYS - Physics"}).status_code == status.HTTP_409_CONFLICT
 
     group = scope_of(catalogue(client, cohort_id), "TD")["groups"][0]
-    assert group["program"] == "Physics"
-    assert group["capacity"] == SEATS
+    assert [(major["program"], major["seats"], major["assigned"]) for major in group["majors"]] == [
+        ("MATH - Mathematics", 15, 0),
+        ("PHYS - Physics", 2, 0),
+    ]
+    assert group["capacity"] == 17
+
+    resized = client.patch(
+        f"/api/v1/student-database/majors/{physics.json()['id']}", json={"program": "PHYS - Physics", "seats": 5}
+    )
+    assert resized.status_code == status.HTTP_200_OK
+    assert scope_of(catalogue(client, cohort_id), "TD")["groups"][0]["capacity"] == 20
+
+    gone = client.delete(f"/api/v1/student-database/majors/{maths.json()['id']}")
+    assert gone.status_code == status.HTTP_204_NO_CONTENT
+    group = scope_of(catalogue(client, cohort_id), "TD")["groups"][0]
+    assert [major["program"] for major in group["majors"]] == ["PHYS - Physics"]
+    assert group["capacity"] == 5
+
+
+def test_a_placement_takes_a_sub_row_and_a_cell_may_belong_to_one(client: TestClient, cohort_id: str, view_id: str):
+    """The seat decides the CRNs: a mathematician in the group is taught the shared cells and
+    the mathematics sub-row's own, and not a course the sub-row is not taught."""
+    scope_id, group_id = block_with_a_group(client, cohort_id)
+    in_cohort(client, view_id, cohort_id, STUDENTS)
+    majors_at = f"/api/v1/student-database/groups/{group_id}/majors"
+    maths = client.post(majors_at, json={"program": "MATH - Mathematics", "seats": 15}).json()["id"]
+    physics = client.post(majors_at, json={"program": "PHYS - Physics", "seats": 2}).json()["id"]
+    course_id = client.post(
+        f"/api/v1/student-database/scopes/{scope_id}/courses", json={"code": "MATH-001", "name": "Pre-calculus"}
+    ).json()["id"]
+    # Shared by everybody, then the physicists' own reading of it: not taught.
+    cell_at = f"/api/v1/student-database/groups/{group_id}/courses/{course_id}"
+    client.put(cell_at, json={"crn": "22155"})
+    client.put(cell_at, json={"crn": "", "majorId": physics, "notTaught": True})
+
+    placed = client.put(
+        f"/api/v1/student-database/scopes/{scope_id}/assignments",
+        json={"studentIds": STUDENTS[:2], "groupId": group_id, "majors": {STUDENTS[0]: maths, STUDENTS[1]: physics}},
+    )
+    assert placed.status_code == status.HTTP_200_OK, placed.text
+
+    block = scope_of(catalogue(client, cohort_id), "TD")
+    group = block["groups"][0]
+    assert {major["program"]: major["assigned"] for major in group["majors"]} == {
+        "MATH - Mathematics": 1,
+        "PHYS - Physics": 1,
+    }
+    assert group["crns"][course_id]["crn"] == "22155"
+    assert group["byMajor"][physics][course_id]["notTaught"] is True
+    held = client.get(f"/api/v1/student-database/cohorts/{cohort_id}/assignments").json()
+    assert held["majors"][STUDENTS[0]][scope_id] == maths
+    assert held["majors"][STUDENTS[1]][scope_id] == physics
+    # The row says which sub-row: "TD 1 · MATH - Mathematics" is what a coordinator reads.
+    rows = {row["studentId"]: row["groups"] for row in students_of(client)}
+    assert rows[STUDENTS[0]][0]["major"] == "MATH - Mathematics"
 
 
 def test_placing_nobody_in_a_group_takes_them_out_of_the_block(client: TestClient, cohort_id: str, view_id: str):
@@ -537,7 +597,7 @@ def test_a_student_carries_the_groups_they_are_in_by_name(client: TestClient, co
     # The id travels too, and only for the Meets column: the label alone cannot be joined
     # to the CRNs a group holds, and "TD 1" is a different group in a different set.
     assert held[STUDENTS[0]] == [
-        {"termId": "", "scopeCode": "TD", "groupLabel": "1", "groupId": group_id, "openToAll": False}
+        {"termId": "", "scopeCode": "TD", "groupLabel": "1", "major": "", "groupId": group_id, "openToAll": False}
     ]
     assert held[STUDENTS[1]] == []
 
@@ -670,7 +730,7 @@ def test_a_section_carries_the_timetable_request_beyond_its_crn(client: TestClie
     assert response.status_code == status.HTTP_200_OK, response.text
     block = scope_of(catalogue(client, cohort_id), "TD")
     # The UE and parent CRN are the active course's, not the set's — see test_portal_api.
-    assert set(block["courses"][0]) == {"id", "code", "name", "component", "program", "request"}
+    assert set(block["courses"][0]) == {"id", "code", "name", "component", "request"}
     # Nothing has been asked of the course itself, so its own request is empty.
     assert block["courses"][0]["request"]["hours"] == ""
     section = block["groups"][0]["crns"][course["id"]]

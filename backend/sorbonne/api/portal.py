@@ -910,7 +910,11 @@ async def read_term_clashes(
             crn
             for cohort in cohorts
             for group in [*cohort["groups"], *cohort.get("sharedGroups", [])]
-            for crns in group["crns"].values()
+            # Every cell anybody in the group is taught: the shared ones and each sub-row's own.
+            for crns in [
+                *group["crns"].values(),
+                *[held for major in group.get("majors", []) for held in major["crns"].values()],
+            ]
             for crn in crns
             if crn
         }

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from sorbonne.services.enrolment_resolution import (
     Group,
+    Major,
     Scope,
     Section,
     readiness,
@@ -37,13 +38,13 @@ def test_a_student_gets_the_crns_of_every_group_they_are_in():
     enrolments = resolve(
         scopes=[CM, TD],
         groups=[CM_A, TD_1],
-        assignments={("A001", "s-cm"): "g-cm-a", ("A001", "s-td"): "g-td-1"},
+        assignments={("A001", "s-cm"): ("g-cm-a", ""), ("A001", "s-td"): ("g-td-1", "")},
     )
     assert enrolments == {"A001": ["22151", "23652"]}
 
 
 def test_a_student_with_no_group_for_a_scope_simply_misses_those_courses():
-    enrolments = resolve(scopes=[CM, TD], groups=[CM_A, TD_1], assignments={("A001", "s-cm"): "g-cm-a"})
+    enrolments = resolve(scopes=[CM, TD], groups=[CM_A, TD_1], assignments={("A001", "s-cm"): ("g-cm-a", "")})
     assert enrolments == {"A001": ["22151"]}
 
 
@@ -56,18 +57,18 @@ def test_an_assignment_to_another_semesters_scope_is_ignored():
     enrolments = resolve(
         scopes=[CM],
         groups=[CM_A, TD_1],
-        assignments={("A001", "s-cm"): "g-cm-a", ("A001", "s-other"): "g-td-1"},
+        assignments={("A001", "s-cm"): ("g-cm-a", ""), ("A001", "s-other"): ("g-td-1", "")},
     )
     assert enrolments == {"A001": ["22151"]}
 
 
 def test_an_assignment_to_a_group_that_has_been_deleted_is_ignored():
-    assert resolve(scopes=[CM], groups=[], assignments={("A001", "s-cm"): "g-cm-a"}) == {}
+    assert resolve(scopes=[CM], groups=[], assignments={("A001", "s-cm"): ("g-cm-a", "")}) == {}
 
 
 def test_a_group_with_no_crn_yet_contributes_nothing():
     empty = Group(id="g-cm-b", scope_id="s-cm", label="B", crns={"MATH-001": []})
-    assert resolve(scopes=[CM], groups=[empty], assignments={("A001", "s-cm"): "g-cm-b"}) == {}
+    assert resolve(scopes=[CM], groups=[empty], assignments={("A001", "s-cm"): ("g-cm-b", "")}) == {}
 
 
 def test_two_cohorts_on_one_semester_both_appear():
@@ -76,7 +77,7 @@ def test_two_cohorts_on_one_semester_both_appear():
     enrolments = resolve(
         scopes=[CM, other],
         groups=[CM_A, other_group],
-        assignments={("A001", "s-cm"): "g-cm-a", ("A002", "s-cm2"): "g-cm2"},
+        assignments={("A001", "s-cm"): ("g-cm-a", ""), ("A002", "s-cm2"): ("g-cm2", "")},
     )
     assert enrolments == {"A001": ["22151"], "A002": ["24110"]}
 
@@ -91,7 +92,7 @@ def test_a_cohort_with_everybody_assigned_is_ready():
         scopes=[CM],
         groups=[CM_A],
         course_codes={"s-cm": ["MATH-001"]},
-        assignments={("A001", "s-cm"): "g-cm-a", ("A002", "s-cm"): "g-cm-a"},
+        assignments={("A001", "s-cm"): ("g-cm-a", ""), ("A002", "s-cm"): ("g-cm-a", "")},
     )
     assert report["isReady"]
     assert report["warnings"] == []
@@ -105,7 +106,7 @@ def test_students_with_no_group_are_counted_and_named():
         scopes=[TD],
         groups=[TD_1, TD_2],
         course_codes={"s-td": ["MATH-011"]},
-        assignments={("A001", "s-td"): "g-td-1"},
+        assignments={("A001", "s-td"): ("g-td-1", "")},
     )
     assert not report["isReady"]
     assert "2 with no Tutorials group" in report["warnings"]
@@ -134,7 +135,7 @@ def test_a_group_missing_a_crn_for_one_of_its_courses_is_reported():
         scopes=[TD],
         groups=[half],
         course_codes={"s-td": ["MATH-011", "PHYS-002"]},
-        assignments={("A001", "s-td"): "g-td-3"},
+        assignments={("A001", "s-td"): ("g-td-3", "")},
     )
     assert "Tutorials 3 has no CRN for PHYS-002" in report["warnings"]
 
@@ -193,13 +194,21 @@ def test_codes_are_compared_past_the_separators_the_two_systems_disagree_about()
     assert validate(groups=[loose], sections=SECTIONS)["g|math001"]["status"] == "matched"
 
 
-# ------------------------------------- a set taught to one programme of the cohort
+# ------------------------------------- a set whose groups hold one programme of the cohort
 
 
 TP = Scope(id="s-tp", cohort_id="c1", code="TP", name="Practicals")
-CM_MATHS = Group(id="g-cm-m", scope_id="s-cm", label="Mathematics", program="Mathematics")
-CM_PHYS = Group(id="g-cm-p", scope_id="s-cm", label="Physics", program="Physics")
-TP_PHYS = Group(id="g-tp", scope_id="s-tp", label="Physics", program="Physics", crns={"PHYS-208": ["24240"]})
+MATHS = Major(id="m-maths", program="Mathematics")
+PHYS = Major(id="m-phys", program="Physics")
+CM_MATHS = Group(id="g-cm-m", scope_id="s-cm", label="Mathematics", majors=(MATHS,))
+CM_PHYS = Group(id="g-cm-p", scope_id="s-cm", label="Physics", majors=(PHYS,))
+TP_PHYS = Group(
+    id="g-tp",
+    scope_id="s-tp",
+    label="Physics",
+    crns={"PHYS-208": ["24240"]},
+    majors=(Major(id="m-tp-phys", program="Physics", crns={"PHYS-208": ["24240"]}),),
+)
 
 
 def physics_practicals(assignments: dict) -> dict:
@@ -210,17 +219,22 @@ def physics_practicals(assignments: dict) -> dict:
         groups=[CM_MATHS, CM_PHYS, TP_PHYS],
         course_codes={"s-cm": [], "s-tp": ["PHYS-208"]},
         assignments=assignments,
-        scope_programs={"s-tp": "Physics"},
     )
 
 
-def test_a_mathematician_is_not_missing_from_a_physics_only_set():
+def test_a_mathematician_is_not_missing_from_a_set_closed_to_physicists():
     """36 of L2's 44 students and 11 of L3's 16 were reported missing from the practicals.
 
-    They are mathematicians, and the practicals teach one course which is for physicists.
-    That is not a worklist; it is a wall of noise standing in front of one.
+    They are mathematicians, and the practicals' one group holds physicists only. That is
+    not a worklist; it is a wall of noise standing in front of one.
     """
-    report = physics_practicals({("A001", "s-cm"): "g-cm-m", ("A002", "s-cm"): "g-cm-p", ("A002", "s-tp"): "g-tp"})
+    report = physics_practicals(
+        {
+            ("A001", "s-cm"): ("g-cm-m", "m-maths"),
+            ("A002", "s-cm"): ("g-cm-p", "m-phys"),
+            ("A002", "s-tp"): ("g-tp", "m-tp-phys"),
+        }
+    )
 
     assert report["isReady"]
     assert report["unassigned"] == {}
@@ -229,7 +243,7 @@ def test_a_mathematician_is_not_missing_from_a_physics_only_set():
 def test_a_physicist_missing_from_it_is_still_missing():
     # The difference between not asking a mathematician for a physics group and quietly
     # forgetting a physicist.
-    report = physics_practicals({("A001", "s-cm"): "g-cm-m", ("A002", "s-cm"): "g-cm-p"})
+    report = physics_practicals({("A001", "s-cm"): ("g-cm-m", "m-maths"), ("A002", "s-cm"): ("g-cm-p", "m-phys")})
 
     assert report["unassigned"]["TP"] == ["A002"]
     assert "1 with no Practicals group" in report["warnings"]
@@ -239,85 +253,105 @@ def test_a_student_whose_programme_nothing_records_stays_expected():
     """Fail open. On production exactly one student is in this position, and the honest
     answer about them is "we do not know", not "not our problem".
     """
-    report = physics_practicals({("A002", "s-cm"): "g-cm-p", ("A002", "s-tp"): "g-tp"})
+    report = physics_practicals({("A002", "s-cm"): ("g-cm-p", "m-phys"), ("A002", "s-tp"): ("g-tp", "m-tp-phys")})
 
     assert report["unassigned"]["TP"] == ["A001"]
 
 
-def test_a_set_with_no_programme_still_expects_everybody():
-    # Every set in Foundation Year and L1 is this, and none of them changes.
+def test_a_set_with_a_group_open_to_everybody_still_expects_everybody():
+    # Every set in Foundation Year is this, and none of them changes.
     report = readiness(
         cohort_name="L1",
         students=["A001", "A002"],
         scopes=[TD],
         groups=[TD_1],
         course_codes={"s-td": ["MATH-011"]},
-        assignments={("A001", "s-td"): "g-td-1"},
-        scope_programs={},
+        assignments={("A001", "s-td"): ("g-td-1", "")},
     )
 
     assert report["unassigned"]["TD"] == ["A002"]
 
 
-# ------------------- a set carrying two programmes' courses, which a merge creates
+# ------------------------- one group, two sub-rows: what mutualized teaching comes to
 
 
-LECTURE_MATHS = Group(id="g-cm-m", scope_id="s-cm", label="Mathematics", program="MATH - Mathematics",
-                 crns={"CPSC-100": ["22155"], "MATH-113": ["23307"]})
-LECTURE_PHYS = Group(id="g-cm-p", scope_id="s-cm", label="Physics", program="PHYS - Physics",
-                crns={"CPSC-100": ["22155"], "PHYS-118": ["22150"]})
+LECTURES = Group(
+    id="g-cm",
+    scope_id="s-cm",
+    label="1",
+    # Shared by everybody in the group: the mutualized lecture.
+    crns={"CPSC-100": ["22155"]},
+    majors=(
+        # The mathematicians' sub-row takes the shared lecture and their own philosophy.
+        Major(id="m-maths", program="MATH - Mathematics", crns={"CPSC-100": ["22155"], "MATH-113": ["23307"]}),
+        # The physicists' takes the shared lecture and their own option.
+        Major(id="m-phys", program="PHYS - Physics", crns={"CPSC-100": ["22155"], "PHYS-118": ["22150"]}),
+    ),
+)
 
 
-def merged_lectures():
-    return readiness(
+def test_a_student_on_a_sub_row_gets_what_the_sub_row_comes_to():
+    """The seat decides the CRNs: the shared lecture, plus the sub-row's own, minus what
+    it is not taught. A mathematician in CM 1 is not sent to the physicists' option."""
+    enrolments = resolve(
+        scopes=[CM],
+        groups=[LECTURES],
+        assignments={("A001", "s-cm"): ("g-cm", "m-maths"), ("A002", "s-cm"): ("g-cm", "m-phys")},
+    )
+
+    assert enrolments == {"A001": ["22155", "23307"], "A002": ["22150", "22155"]}
+
+
+def test_a_student_on_no_sub_row_of_such_a_group_gets_only_what_everybody_shares():
+    enrolments = resolve(scopes=[CM], groups=[LECTURES], assignments={("A003", "s-cm"): ("g-cm", "")})
+    assert enrolments == {"A003": ["22155"]}
+
+
+def test_a_group_is_not_asked_for_a_crn_in_a_course_none_of_its_sub_rows_is_taught():
+    """One lecture set holding the mathematicians' philosophy and the physicists' option is
+    what merging ten sets into three produces, and every blank cell in it is correct."""
+    report = readiness(
         cohort_name="L1",
         students=["A001", "A002"],
         scopes=[CM],
-        groups=[LECTURE_MATHS, LECTURE_PHYS],
+        groups=[LECTURES],
         course_codes={"s-cm": ["CPSC-100", "MATH-113", "PHYS-118"]},
-        assignments={("A001", "s-cm"): "g-cm-m", ("A002", "s-cm"): "g-cm-p"},
-        course_programs={"MATH-113": "MATH - Mathematics", "PHYS-118": "PHYS - Physics"},
+        assignments={("A001", "s-cm"): ("g-cm", "m-maths"), ("A002", "s-cm"): ("g-cm", "m-phys")},
     )
-
-
-def test_a_group_is_not_asked_for_a_crn_in_another_programmes_course():
-    """The page has read it this way since programmes existed; this side never learned.
-
-    One lecture set holding the mathematicians' philosophy and the physicists' option is
-    what merging ten sets into three produces, and every blank cell in it was correct.
-    """
-    report = merged_lectures()
 
     assert report["warnings"] == []
     assert report["isReady"]
 
 
-def test_a_group_is_still_asked_for_a_crn_in_a_course_everybody_takes():
-    # The shared course sits in both groups. Take it out of one and that is a real gap.
+def test_a_group_is_still_asked_for_a_crn_in_a_course_a_sub_row_takes_and_has_no_crn_for():
+    # The shared lecture struck from nobody, and no CRN anywhere: a real gap.
+    bare = Group(
+        id="g-cm",
+        scope_id="s-cm",
+        label="1",
+        majors=(Major(id="m-maths", program="MATH - Mathematics", crns={"MATH-113": ["23307"]}),),
+    )
     report = readiness(
         cohort_name="L1",
         students=["A001"],
         scopes=[CM],
-        groups=[LECTURE_MATHS, Group(id="g-cm-p", scope_id="s-cm", label="Physics",
-                                program="PHYS - Physics", crns={"PHYS-118": ["22150"]})],
-        course_codes={"s-cm": ["CPSC-100", "MATH-113", "PHYS-118"]},
-        assignments={("A001", "s-cm"): "g-cm-m"},
-        course_programs={"MATH-113": "MATH - Mathematics", "PHYS-118": "PHYS - Physics"},
+        groups=[bare],
+        course_codes={"s-cm": ["CPSC-100", "MATH-113"]},
+        assignments={("A001", "s-cm"): ("g-cm", "m-maths")},
     )
 
-    assert "Lectures Physics has no CRN for CPSC-100" in report["warnings"]
+    assert "Lectures 1 has no CRN for CPSC-100" in report["warnings"]
 
 
-def test_a_course_for_everyone_is_asked_of_every_group():
-    # Blank means everyone, which is every set in Foundation Year and L1 today.
+def test_a_group_with_no_sub_rows_is_asked_for_every_course():
+    # Blank means everyone, which is every set in Foundation Year today.
     report = readiness(
         cohort_name="L1",
         students=["A001"],
         scopes=[CM],
-        groups=[LECTURE_MATHS, LECTURE_PHYS],
+        groups=[Group(id="g-cm", scope_id="s-cm", label="1", crns={"CPSC-100": ["22155"]})],
         course_codes={"s-cm": ["CPSC-100", "MATH-113", "PHYS-118"]},
-        assignments={("A001", "s-cm"): "g-cm-m"},
-        course_programs={},
+        assignments={("A001", "s-cm"): ("g-cm", "")},
     )
 
     assert any("has no CRN for" in warning for warning in report["warnings"])

@@ -144,10 +144,6 @@ class CourseInput(BaseModel):
     code: str = Field(min_length=1, max_length=40)
     name: str = Field(default="", max_length=160)
     component: str = Field(default="", max_length=40)
-    #: Which programme of the cohort takes it, as the registrar spells it. Empty means all
-    #: of them, which is what every set that is split by group number rather than by
-    #: programme wants — and what every existing course carries.
-    program: str = Field(default="", max_length=160)
 
 
 class SectionInput(BaseModel):
@@ -156,6 +152,8 @@ class SectionInput(BaseModel):
     #: Which stretch of the section this is about. 1 unless the course is handed from one
     #: professor to another mid-semester, in which case each half is a part of its own.
     part: int = Field(default=1, ge=1, le=MAX_PARTS)
+    #: The sub-row this section belongs to; blank for the whole group's.
+    majorId: str = Field(default="", max_length=80)
     teacherId: str = Field(default="", max_length=80)
     hours: str = Field(default="", max_length=40)
     # Free text from the workbook — "Weeks 2,5, 1-hour sessions; weeks 4,6,7,8,10,14, 2 2h-sessions; …"
@@ -175,8 +173,6 @@ class GroupInput(BaseModel):
     label: str = Field(min_length=1, max_length=40)
     capacity: int = Field(default=0, ge=0, le=10_000)
     note: str = Field(default="", max_length=400)
-    # The programme this group takes first, as the registrar spells it. Empty means any.
-    program: str = Field(default="", max_length=160)
     # For a group of a nested set: the group of the parent set it sits inside.
     parent_group_id: str = Field(default="", alias="parentGroupId", max_length=80)
     # The groups this one must be scheduled at the same hour as, for the timetabler.
@@ -184,11 +180,17 @@ class GroupInput(BaseModel):
 
 
 class CellInput(BaseModel):
-    """An empty CRN clears the part, which is how a group drops a course or undoes a split."""
+    """An empty CRN clears the part, which is how a group drops a course or undoes a split.
+
+    `majorId` names the sub-row the cell belongs to; blank is the whole group. `notTaught`
+    is a sub-row's word that it is not taught this course at all, CRN or no CRN.
+    """
 
     crn: str = Field(default="", max_length=20)
     teacher: str = Field(default="", max_length=160)
     part: int = Field(default=1, ge=1, le=MAX_PARTS)
+    major_id: str = Field(default="", alias="majorId", max_length=80)
+    not_taught: bool = Field(default=False, alias="notTaught")
 
 
 def _missing(exc: Exception, what: str) -> HTTPException:
@@ -535,7 +537,7 @@ async def add_course(
     try:
         return {
             "id": database.add_course(
-                scope_id, code=body.code, name=body.name, component=body.component, program=body.program
+                scope_id, code=body.code, name=body.name, component=body.component
             )
         }
     except ScopeNotFound as exc:
@@ -548,7 +550,7 @@ async def update_course(
 ) -> dict[str, bool]:
     try:
         database.update_course(
-            course_id, code=body.code, name=body.name, component=body.component, program=body.program
+            course_id, code=body.code, name=body.name, component=body.component
         )
     except CourseNotFound as exc:
         raise _missing(exc, "course") from exc
@@ -602,6 +604,10 @@ class AssignmentInput(BaseModel):
 
     student_ids: list[str] = Field(default_factory=list, max_length=20_000, alias="studentIds")
     group_id: str | None = Field(default=None, alias="groupId")
+    #: The sub-row they all take, when the group has sub-rows and they share one.
+    major_id: str = Field(default="", alias="majorId", max_length=80)
+    #: Or one per student, which wins over `majorId` where it names them.
+    majors: dict[str, str] = Field(default_factory=dict, max_length=20_000)
 
 
 @router.put("/scopes/{scope_id}/assignments")
@@ -624,6 +630,8 @@ async def assign_students(
             scope_id=scope_id,
             student_ids=body.student_ids,
             group_id=body.group_id,
+            major_id=body.major_id,
+            majors=body.majors,
             actor=actor,
         )
     except ScopeNotFound as exc:
@@ -636,9 +644,11 @@ MAX_PLACEMENTS = 20_000
 
 
 class PlacementsInput(BaseModel):
-    """A whole fill: which students go in which group of the block."""
+    """A whole fill: which students go in which group of the block, and on which sub-row."""
 
     placements: dict[str, list[str]] = Field(default_factory=dict)
+    #: student id -> the sub-row they take in the group they were put in.
+    majors: dict[str, str] = Field(default_factory=dict, max_length=20_000)
 
 
 @router.put("/scopes/{scope_id}/placements")
@@ -658,7 +668,7 @@ async def place_students(
     staff = getattr(request.state, "staff_user", None)
     actor = getattr(staff, "email", "") or ""
     try:
-        return database.place_many(scope_id=scope_id, placements=body.placements, actor=actor)
+        return database.place_many(scope_id=scope_id, placements=body.placements, majors=body.majors, actor=actor)
     except ScopeNotFound as exc:
         raise _missing(exc, "block") from exc
     except GroupNotFound as exc:
@@ -668,7 +678,7 @@ async def place_students(
 @router.get("/cohorts/{cohort_id}/assignments")
 async def read_assignments(cohort_id: str, database: StudentDatabase = Depends(get_database)) -> dict[str, Any]:
     try:
-        return {"assignments": database.assignments_of(cohort_id)}
+        return {"assignments": database.assignments_of(cohort_id), "majors": database.assignment_majors_of(cohort_id)}
     except CohortNotFound as exc:
         raise _missing(exc, "cohort") from exc
 
@@ -684,7 +694,6 @@ async def add_group(
                 label=body.label,
                 capacity=body.capacity,
                 note=body.note,
-                program=body.program,
                 parent_group_id=body.parent_group_id,
             parallel_with=body.parallel_with,
             )
@@ -693,6 +702,46 @@ async def add_group(
         raise _missing(exc, "block") from exc
     except DuplicateLabel as exc:
         raise _duplicate(exc, "group") from exc
+
+
+class MajorInput(BaseModel):
+    """One sub-row of a group: a major it holds, as the registrar spells it, and its seats."""
+
+    program: str = Field(min_length=1, max_length=160)
+    seats: int = Field(default=0, ge=0, le=10_000)
+
+
+@router.post("/groups/{group_id}/majors", status_code=status.HTTP_201_CREATED)
+async def add_major(
+    group_id: str, body: MajorInput, database: StudentDatabase = Depends(get_database)
+) -> dict[str, str]:
+    try:
+        return {"id": database.add_major(group_id, program=body.program, seats=body.seats)}
+    except GroupNotFound as exc:
+        raise _missing(exc, "group") from exc
+    except DuplicateLabel as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="This group already holds that programme.") from exc
+
+
+@router.patch("/majors/{major_id}")
+async def update_major(
+    major_id: str, body: MajorInput, database: StudentDatabase = Depends(get_database)
+) -> dict[str, bool]:
+    try:
+        database.update_major(major_id, program=body.program, seats=body.seats)
+    except GroupNotFound as exc:
+        raise _missing(exc, "sub-row") from exc
+    except DuplicateLabel as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="This group already holds that programme.") from exc
+    return {"saved": True}
+
+
+@router.delete("/majors/{major_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_major(major_id: str, database: StudentDatabase = Depends(get_database)) -> None:
+    try:
+        database.remove_major(major_id)
+    except GroupNotFound as exc:
+        raise _missing(exc, "sub-row") from exc
 
 
 @router.patch("/groups/{group_id}")
@@ -705,7 +754,6 @@ async def update_group(
             label=body.label,
             capacity=body.capacity,
             note=body.note,
-            program=body.program,
             parent_group_id=body.parent_group_id,
             parallel_with=body.parallel_with,
         )
@@ -731,6 +779,7 @@ async def update_section(
             group_id=group_id,
             course_id=course_id,
             part=body.part,
+            major_id=body.majorId,
             teacher_id=body.teacherId,
             hours=body.hours,
             sessions_per_week=body.sessionsPerWeek,
@@ -859,6 +908,12 @@ async def set_cell(
     group_id: str, course_id: str, body: CellInput, database: StudentDatabase = Depends(get_database)
 ) -> dict[str, bool]:
     database.set_cell(
-        group_id=group_id, course_id=course_id, crn=body.crn, teacher=body.teacher, part=body.part
+        group_id=group_id,
+        course_id=course_id,
+        crn=body.crn,
+        teacher=body.teacher,
+        part=body.part,
+        major_id=body.major_id,
+        not_taught=body.not_taught,
     )
     return {"saved": True}

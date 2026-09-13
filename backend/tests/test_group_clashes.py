@@ -22,7 +22,11 @@ def test_two_groups_of_different_blocks_meeting_at_the_same_hour_clash():
     found = clashes(
         groups=[CM_A, TD_1],
         sessions=[at("22151", MONDAY, "08:30:00", "10:00:00"), at("23652", MONDAY, "09:00:00", "10:30:00")],
-        assignments={("A001", "s-cm"): "g-cm-a", ("A001", "s-td"): "g-td-1", ("A002", "s-cm"): "g-cm-a"},
+        assignments={
+            ("A001", "s-cm"): ("g-cm-a", ""),
+            ("A001", "s-td"): ("g-td-1", ""),
+            ("A002", "s-cm"): ("g-cm-a", ""),
+        },
     )
 
     assert found == [
@@ -91,7 +95,7 @@ def test_a_group_whose_own_crns_overlap_is_a_clash_with_itself():
     found = clashes(
         groups=[both],
         sessions=[at("22151", MONDAY, "08:30", "10:00"), at("22160", MONDAY, "08:30", "10:00")],
-        assignments={("A001", "s-cm"): "g-cm-b"},
+        assignments={("A001", "s-cm"): ("g-cm-b", "")},
     )
 
     assert len(found) == 1
@@ -107,7 +111,7 @@ def test_the_pairs_with_students_already_in_both_come_first():
             at("23652", MONDAY, "08:30", "10:00"),
             at("23302", MONDAY, "08:30", "10:00"),
         ],
-        assignments={("A001", "s-td"): "g-td-1", ("A001", "s-lang"): "g-lang-f1"},
+        assignments={("A001", "s-td"): ("g-td-1", ""), ("A001", "s-lang"): ("g-lang-f1", "")},
     )
 
     labels = [[group["label"] for group in clash["groups"]] for clash in found]

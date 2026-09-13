@@ -2185,10 +2185,13 @@ def test_two_courses_of_different_programmes_are_not_reported_as_clashing(
     cohort = database.create_cohort(name="Second year", term="2026-27")
     cm = database.add_scope(cohort["id"], code="CM", name="Lectures", term_id=HUB_TERM)
     td = database.add_scope(cohort["id"], code="TD", name="Tutorials", term_id=HUB_TERM)
-    physics = database.add_course(cm, code="PHYS-118", program="Physics")
-    maths = database.add_course(td, code="MATH-330", program="Mathematics")
+    physics = database.add_course(cm, code="PHYS-118")
+    maths = database.add_course(td, code="MATH-330")
     lectures = database.add_group(cm, label="Physics")
     tutorials = database.add_group(td, label="Mathematics")
+    # Each group holds one major, so each CRN is one programme's and the two never meet.
+    database.add_major(lectures, program="Physics")
+    database.add_major(tutorials, program="Mathematics")
     database.set_cell(group_id=lectures, course_id=physics, crn="24070", teacher="", part=1)
     database.set_cell(group_id=tutorials, course_id=maths, crn="24100", teacher="", part=1)
 
@@ -2317,16 +2320,22 @@ def merged_lecture_set(database: StudentDatabase) -> str:
             )
     cm = database.add_scope(cohort["id"], code="CM", name="Lectures", term_id=HUB_TERM)
     shared = database.add_course(cm, code="CPSC-100")
-    philosophy = database.add_course(cm, code="MATH-113", program="MATH - Mathematics")
-    option = database.add_course(cm, code="PHYS-118", program="PHYS - Physics")
-    maths = database.add_group(cm, label="Mathematics", program="MATH - Mathematics")
-    physics = database.add_group(cm, label="Physics", program="PHYS - Physics")
+    philosophy = database.add_course(cm, code="MATH-113")
+    option = database.add_course(cm, code="PHYS-118")
+    maths = database.add_group(cm, label="Mathematics")
+    physics = database.add_group(cm, label="Physics")
+    on_maths = database.add_major(maths, program="MATH - Mathematics")
+    on_physics = database.add_major(physics, program="PHYS - Physics")
     for group in (maths, physics):
         database.set_cell(group_id=group, course_id=shared, crn="22155", part=1)
     database.set_cell(group_id=maths, course_id=philosophy, crn="23307", part=1)
     database.set_cell(group_id=physics, course_id=option, crn="22150", part=1)
-    database.assign(student_id="A001", scope_id=cm, group_id=maths)
-    database.assign(student_id="A002", scope_id=cm, group_id=physics)
+    # What the tag used to mean: the mathematicians are not taught the option, nor the
+    # physicists the philosophy.
+    database.set_cell(group_id=maths, course_id=option, crn="", major_id=on_maths, not_taught=True)
+    database.set_cell(group_id=physics, course_id=philosophy, crn="", major_id=on_physics, not_taught=True)
+    database.assign(student_id="A001", scope_id=cm, group_id=maths, major_id=on_maths)
+    database.assign(student_id="A002", scope_id=cm, group_id=physics, major_id=on_physics)
     return cohort["id"]
 
 
@@ -2386,6 +2395,49 @@ def test_a_registration_no_single_group_could_produce_is_still_doubled(
     # Both bundles are named, because between them they are what the registration spans.
     assert doubled["courseCode"] == "Mathematics, Physics"
     assert doubled["registered"] == ["22150", "22155", "23307"]
+
+
+def test_two_sub_rows_of_one_group_are_two_bundles_for_the_doubled_check(client: TestClient, database: StudentDatabase):
+    """L1's lecture set as it should be: ONE group, two sub-rows, one shared lecture.
+
+    Nobody can attend the mathematicians' philosophy and the physicists' option: no one
+    sub-row comes to both. The shared lecture sits on both and contradicts nothing.
+    """
+    cohort = database.create_cohort(name="First year", term="2026-27")
+    with database.engine.begin() as connection:
+        connection.execute(
+            text("""INSERT INTO students (student_id, status, cohort_id, first_seen_at, last_seen_at, updated_at)
+                    VALUES ('A001', 'in_portal', :cohort, 'now', 'now', 'now')"""),
+            {"cohort": cohort["id"]},
+        )
+    cm = database.add_scope(cohort["id"], code="CM", name="Lectures", term_id=HUB_TERM)
+    shared = database.add_course(cm, code="CPSC-100")
+    philosophy = database.add_course(cm, code="MATH-113")
+    option = database.add_course(cm, code="PHYS-118")
+    one = database.add_group(cm, label="1")
+    on_maths = database.add_major(one, program="MATH - Mathematics", seats=90)
+    on_physics = database.add_major(one, program="PHYS - Physics", seats=20)
+    database.set_cell(group_id=one, course_id=shared, crn="22155")
+    database.set_cell(group_id=one, course_id=philosophy, crn="23307", major_id=on_maths)
+    database.set_cell(group_id=one, course_id=option, crn="22150", major_id=on_physics)
+    database.assign(student_id="A001", scope_id=cm, group_id=one, major_id=on_maths)
+    client.put(f"{BASE}/term-links/{HUB_TERM}", json={"portalTermCode": TERM})
+    registrations(
+        client,
+        [
+            {"studentId": "A001", "crn": "22155", "courseCode": "CPSC-100"},
+            {"studentId": "A001", "crn": "23307", "courseCode": "MATH-113"},
+            {"studentId": "A001", "crn": "22150", "courseCode": "PHYS-118"},
+        ],
+    )
+
+    found = client.get(f"{BASE}/cohorts/{cohort['id']}/registration-check").json()["mismatches"]
+
+    [doubled] = [row for row in found if row["kind"] == "doubled"]
+    assert doubled["courseCode"] == "1 · MATH - Mathematics, 1 · PHYS - Physics"
+    # And what they are expected in is their sub-row's, so the option is a surplus, not a miss.
+    kinds = {(row["courseCode"], row["kind"]) for row in found if row["kind"] != "doubled"}
+    assert ("PHYS-118", "missing") not in kinds
 
 
 def test_a_student_registered_in_only_the_shared_lecture_is_not_doubled(

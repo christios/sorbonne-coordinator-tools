@@ -35,6 +35,17 @@ class Scope:
 
 
 @dataclass(frozen=True)
+class Major:
+    """One sub-row of a group: a programme it holds, and what a student on it is taught."""
+
+    id: str
+    program: str
+    # course code -> its CRNs, already resolved: the group's shared cells, with this
+    # sub-row's own on top and the courses it is not taught struck out.
+    crns: dict[str, list[str]] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class Group:
     """A block: one of the ways to be taught a scope, carrying a CRN per course."""
 
@@ -42,12 +53,24 @@ class Group:
     scope_id: str
     label: str
     # course code -> its CRNs, one per part. A list because a course split between two
-    # professors is taught under a CRN each, and both are this group's.
+    # professors is taught under a CRN each, and both are this group's. The cells shared
+    # by everybody in the group; a sub-row may override or strike some of them.
     crns: dict[str, list[str]] = field(default_factory=dict)
-    # The programme this group is for, where it is for one. In L2 and L3 the group IS the
-    # programme — "Mathematics" and "Physics" are group labels — which is the only record
-    # of a student's programme the platform holds. Blank means "anyone".
-    program: str = ""
+    # The majors this group holds, each a sub-row with its own seats and its own reading
+    # of the cells. Empty for a group that is one thing for everybody, which is every group
+    # in Foundation Year. Where it is not empty, the group is closed to anyone else.
+    majors: tuple[Major, ...] = ()
+
+    def crns_for(self, major_id: str) -> dict[str, list[str]]:
+        """What a student placed on this sub-row is taught; the shared cells when on none."""
+        for major in self.majors:
+            if major.id == major_id:
+                return major.crns
+        return self.crns
+
+    @property
+    def programs(self) -> frozenset[str]:
+        return frozenset(major.program.strip().casefold() for major in self.majors if major.program.strip())
 
 
 @dataclass(frozen=True)
@@ -60,73 +83,100 @@ class Section:
     group_label: str = ""
 
 
+#: A placement: the group, and the sub-row taken in it — blank for a group with none.
+Placement = tuple[str, str]
+
+
 def resolve(
     *,
     scopes: list[Scope],
     groups: list[Group],
-    assignments: dict[tuple[str, str], str],
+    assignments: dict[tuple[str, str], Placement],
 ) -> dict[str, list[str]]:
-    """Every student's CRNs. `assignments` is `(student id, scope id) -> group id`."""
+    """Every student's CRNs. `assignments` is `(student id, scope id) -> (group id, major id)`.
+
+    A student on a sub-row is taught what the sub-row comes to: the group's shared cells,
+    with the sub-row's own on top and the courses it is not taught struck out. A student
+    on no sub-row is taught the shared cells and nothing more.
+    """
     groups_by_id = {group.id: group for group in groups}
     scope_ids = {scope.id for scope in scopes}
 
     enrolments: dict[str, set[str]] = {}
-    for (student, scope_id), group_id in assignments.items():
+    for (student, scope_id), (group_id, major_id) in assignments.items():
         if scope_id not in scope_ids:
             continue  # a scope from another semester; not this publication's business
         group = groups_by_id.get(group_id)
         if group is None:
             continue
         enrolments.setdefault(student, set()).update(
-            crn for crns in group.crns.values() for crn in crns if crn
+            crn for crns in group.crns_for(major_id).values() for crn in crns if crn
         )
 
     return {student: sorted(crns) for student, crns in sorted(enrolments.items()) if crns}
 
 
-def _teaches(group_program: str, course_program: str) -> bool:
-    """Whether this group is asked for a CRN in this course.
+def _programs_held(groups: list[Group], assignments: dict[tuple[str, str], Placement]) -> dict[str, set[str]]:
+    """Which programmes each student is known to be in, from the sub-rows they sit on.
 
-    Blank on either side means everyone, so a set that names no programme behaves exactly
-    as it always did — which is every set in Foundation Year and L1. The same rule, and the
-    same words, as `teaches()` on the page.
+    The platform stores no student's major of its own; what it has is the sub-row a
+    placement took. A student on the Mathematics sub-row of CM 1 is a mathematician, and
+    that is the whole of the evidence.
     """
-    theirs, its = group_program.strip().casefold(), course_program.strip().casefold()
-    return not theirs or not its or theirs == its
-
-
-def _programs_held(
-    groups: list[Group], assignments: dict[tuple[str, str], str]
-) -> dict[str, set[str]]:
-    """Which programmes each student is known to be in, from the groups they hold.
-
-    The platform stores no student's major of its own; what it has is that in L2 and L3 the
-    group IS the programme. So a student sitting in the CM group labelled "Mathematics" is a
-    mathematician, and that is the whole of the evidence.
-    """
-    program_of = {group.id: group.program.strip() for group in groups if group.program.strip()}
+    program_of = {
+        major.id: major.program.strip().casefold()
+        for group in groups
+        for major in group.majors
+        if major.program.strip()
+    }
     held: dict[str, set[str]] = {}
-    for (student, _scope), group_id in assignments.items():
-        program = program_of.get(group_id)
+    for (student, _scope), (_group, major_id) in assignments.items():
+        program = program_of.get(major_id)
         if program:
             held.setdefault(student, set()).add(program)
     return held
 
 
-def _belongs(student: str, program: str, held: dict[str, set[str]]) -> bool:
+def _offered(groups: list[Group]) -> frozenset[str] | None:
+    """The programmes a set is open to: None when any of its groups is open to everybody."""
+    if any(not group.majors for group in groups):
+        return None
+    return frozenset(program for group in groups for program in group.programs)
+
+
+def _belongs(student: str, offered: frozenset[str] | None, held: dict[str, set[str]]) -> bool:
     """Whether this student is somebody this set is for.
 
-    Fail open, twice over: a set with no programme is for everyone, and a student the groups
-    say nothing about is expected everywhere. Only a student positively known to be in a
-    DIFFERENT programme stops being expected — which is the difference between not asking a
-    mathematician for a physics group and quietly forgetting a physicist.
+    Fail open, twice over: a set with a group open to everybody is for everyone, and a
+    student the sub-rows say nothing about is expected everywhere. Only a student
+    positively known to be in a programme no group of the set holds stops being expected
+    — which is the difference between not asking a mathematician for a physics group and
+    quietly forgetting a physicist.
     """
-    if not program:
+    if offered is None:
         return True
     theirs = held.get(student)
     if not theirs:
         return True
-    return program.casefold() in {one.casefold() for one in theirs}
+    return bool(offered & theirs)
+
+
+def _teaches(group: Group, code: str) -> bool:
+    """Whether this group is asked for a CRN in this course: unless every sub-row is not taught it."""
+    if not group.majors:
+        return True
+    return any(code in major.crns or code not in _struck(group, major) for major in group.majors)
+
+
+def _struck(group: Group, major: Major) -> set[str]:
+    """The courses a sub-row is not taught: shared cells it does not come to."""
+    return {code for code in group.crns if code not in major.crns}
+
+
+def _has_crn(group: Group, code: str) -> bool:
+    if group.crns.get(code):
+        return True
+    return any(major.crns.get(code) for major in group.majors)
 
 
 def readiness(  # noqa: PLR0913 - one keyword per thing a cohort needs to be ready
@@ -136,30 +186,22 @@ def readiness(  # noqa: PLR0913 - one keyword per thing a cohort needs to be rea
     scopes: list[Scope],
     groups: list[Group],
     course_codes: dict[str, list[str]],
-    assignments: dict[tuple[str, str], str],
-    scope_programs: dict[str, str] | None = None,
-    course_programs: dict[str, str] | None = None,
+    assignments: dict[tuple[str, str], Placement],
 ) -> dict[str, Any]:
     """What stands between this cohort and being publishable, in a coordinator's terms.
 
     `course_codes` is `scope id -> [course code]`, so a group can be told it is missing a CRN
     for a course its scope teaches.
 
-    `scope_programs` is `scope id -> the one programme its courses are taught to`, where they
-    are all taught to one. A set that teaches only Physics does not want every mathematician
-    in the cohort listed as missing from it — on the real data that was 36 of L2's 44 students
-    and 11 of L3's 16, which is not a worklist but a wall of noise in front of one.
-
-    `course_programs` is `course code -> the programme it is taught to`, and answers the
-    other half: a group is only asked for a CRN in a course its own programme takes. The
-    page has read it this way since programmes existed — `teaches()` in `courseCards.ts` —
-    and this side never learned, so a set holding one programme's course beside another's
-    reported every cell it was right to leave blank.
+    Who a set is for is read off its groups' sub-rows. A set whose every group holds only
+    physicists does not want every mathematician in the cohort listed as missing from it —
+    on the real data that was 36 of L2's 44 students and 11 of L3's 16, which is not a
+    worklist but a wall of noise in front of one. And a group is only asked for a CRN in a
+    course some sub-row of it is taught.
     """
     groups_by_scope: dict[str, list[Group]] = {}
     for group in groups:
         groups_by_scope.setdefault(group.scope_id, []).append(group)
-    programs = scope_programs or {}
     mine = _programs_held(groups, assignments)
 
     warnings: list[str] = []
@@ -172,10 +214,11 @@ def readiness(  # noqa: PLR0913 - one keyword per thing a cohort needs to be rea
             warnings.append(f"{label} has no groups yet")
             continue
 
+        open_to = _offered(offered)
         missing = [
             student
             for student in students
-            if (student, scope.id) not in assignments and _belongs(student, programs.get(scope.id, ""), mine)
+            if (student, scope.id) not in assignments and _belongs(student, open_to, mine)
         ]
         if missing:
             unassigned[scope.code] = sorted(missing)
@@ -183,9 +226,7 @@ def readiness(  # noqa: PLR0913 - one keyword per thing a cohort needs to be rea
 
         for group in offered:
             absent = [
-                code
-                for code in course_codes.get(scope.id, [])
-                if not group.crns.get(code) and _teaches(group.program, (course_programs or {}).get(code, ""))
+                code for code in course_codes.get(scope.id, []) if not _has_crn(group, code) and _teaches(group, code)
             ]
             if absent:
                 warnings.append(f"{label} {group.label} has no CRN for {', '.join(sorted(absent))}")

@@ -554,12 +554,16 @@ def _copy_plans(  # noqa: PLR0913 - the maps it threads through are the point
     group_id: dict[str, str] = {}
     sets = 0
     requests = 0
+    # Production sub-row id -> local, so a placement can name the sub-row it took.
+    major_ids: dict[str, str] = {}
     for cohort in cohorts:
         catalogue = read(f"/cohorts/{cohort['id']}/catalogue")["scopes"]
         sets += len(catalogue)
         say(f"{cohort['name']}: {len(catalogue)} sets, {sum(len(s['groups']) for s in catalogue)} groups")
         if not dry_run:
-            requests += _copy_catalogue(write, catalogue, cohort_id[cohort["id"]], terms, group_id, course_ids)
+            requests += _copy_catalogue(
+                write, catalogue, cohort_id[cohort["id"]], terms, group_id, course_ids, major_ids
+            )
     if requests:
         say(f"\nsections carrying a request: {requests}")
     if dry_run:
@@ -568,8 +572,10 @@ def _copy_plans(  # noqa: PLR0913 - the maps it threads through are the point
     say("")
     placed = 0
     for cohort in cohorts:
-        assignments = read(f"/cohorts/{cohort['id']}/assignments")["assignments"]
-        here_placed = _copy_placements(here, write, write_headers, assignments, group_id)
+        placed_here = read(f"/cohorts/{cohort['id']}/assignments")
+        here_placed = _copy_placements(
+            here, write, write_headers, placed_here["assignments"], group_id, placed_here.get("majors") or {}, major_ids
+        )
         placed += here_placed
         say(f"{cohort['name']}: placed {here_placed}")
     return sets, group_id, placed, requests
@@ -847,8 +853,9 @@ def _copy_catalogue(  # noqa: PLR0913 - the two maps it fills are the point
     terms: dict[str, str],
     group_id: dict[str, str],
     course_ids: dict[str, str] | None = None,
+    major_ids: dict[str, str] | None = None,
 ) -> int:
-    """The sets, their courses, their groups and the CRNs in them.
+    """The sets, their courses, their groups, their sub-rows and the CRNs in them.
 
     Fills `group_id` (production id -> local id) and returns how many sections carried a
     request. A set, a course, a group and a section each travel with everything the API
@@ -940,22 +947,32 @@ def _copy_catalogue(  # noqa: PLR0913 - the two maps it fills are the point
     return requests
 
 
-def _copy_placements(
-    here: str, write, headers: dict[str, str], assignments: dict[str, Any], group_id: dict[str, str]
+def _copy_placements(  # noqa: PLR0913 - one argument per thing a placement names
+    here: str,
+    write,
+    headers: dict[str, str],
+    assignments: dict[str, Any],
+    group_id: dict[str, str],
+    majors: dict[str, Any],
+    major_ids: dict[str, str],
 ) -> int:
-    """Who sits where. One request per group, since that is what the route takes."""
+    """Who sits where, and on which sub-row. One request per group, since that is what the route takes."""
     want: dict[str, list[str]] = {}
+    on: dict[str, dict[str, str]] = {}
     for student, by_scope in assignments.items():
-        for prod_group in by_scope.values():
+        for scope, prod_group in by_scope.items():
             if prod_group in group_id:
                 want.setdefault(prod_group, []).append(student)
+                prod_major = (majors.get(student) or {}).get(scope, "")
+                if prod_major in major_ids:
+                    on.setdefault(prod_group, {})[student] = major_ids[prod_major]
     placed = 0
     for prod_group, ids in want.items():
         scope_here = _scope_of(here, headers, group_id[prod_group])
         if scope_here:
             report = write(
                 f"/scopes/{scope_here}/assignments",
-                {"studentIds": ids, "groupId": group_id[prod_group]},
+                {"studentIds": ids, "groupId": group_id[prod_group], "majors": on.get(prod_group, {})},
                 method="PUT",
             )
             placed += report.get("assigned", 0)

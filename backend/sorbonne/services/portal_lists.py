@@ -1882,7 +1882,7 @@ class PortalListStore:
             )
             placements = [*cohort["assignments"], *cohort.get("sharedAssignments", [])] if cohort else []
             ours = sorted(
-                {crn for group in groups.values() for crns in group["crns"].values() for crn in crns if crn}
+                {crn for group in groups.values() for crns in _every_cell(group).values() for crn in crns if crn}
             )
             # When the registrar's timetable is on hand, a section that is not running is
             # not expected. When it is not, every section stays expected and the coverage
@@ -1910,7 +1910,7 @@ class PortalListStore:
                 )
             if cohort is None:
                 continue
-            course_codes = sorted({code for group in groups.values() for code in group["crns"]})
+            course_codes = sorted({code for group in groups.values() for code in _every_cell(group)})
             # A student in the group who does not take one of its courses — credit from
             # elsewhere, a course already passed. Their absence from that section is a
             # decision of ours, not a difference to report, and it reads identically to a
@@ -1924,7 +1924,9 @@ class PortalListStore:
                 group = groups.get(row["groupId"])
                 if group is None:
                     continue
-                for code, crns in group["crns"].items():
+                # What THEIR sub-row comes to, not the whole group's: a mathematician in
+                # CM 1 is expected in the maths lecture and not in the physics one.
+                for code, crns in _crns_for(group, row.get("majorId", "")).items():
                     # A student is in several sets at once — a lecture group and a tutorial
                     # group — and each may carry the same course. All of their sections are
                     # expected, not whichever was read last; and a section taught in two
@@ -2576,3 +2578,20 @@ def _active(row: Any) -> dict[str, Any]:
         "institution": row["institution"] or "",
         "portalStatus": row["portal_status"] or "",
     }
+
+
+def _crns_for(group: dict[str, Any], major_id: str) -> dict[str, list[str]]:
+    """A published group's CRNs as one placement sees them: the sub-row's, or the shared ones."""
+    for major in group.get("majors", []):
+        if major["id"] == major_id:
+            return major.get("crns", {})
+    return group.get("crns", {})
+
+
+def _every_cell(group: dict[str, Any]) -> dict[str, list[str]]:
+    """Every course and CRN anybody in the group is taught, shared cells and sub-rows alike."""
+    held: dict[str, list[str]] = {code: list(crns) for code, crns in group.get("crns", {}).items()}
+    for major in group.get("majors", []):
+        for code, crns in major.get("crns", {}).items():
+            held[code] = sorted(set(held.get(code, [])) | set(crns))
+    return held
