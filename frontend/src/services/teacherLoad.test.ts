@@ -176,7 +176,10 @@ describe("the table's rows and columns", () => {
 
     expect(columns.map((column) => column.id)).toEqual([
       "teacher", "standing", "total", "sheet:FYS-S1", "sheet:BSc-L2-S3",
-      "type:CM", "type:TD", "type:TP", "sections", "type", "category", "department", "email",
+      "type:CM", "type:TD", "type:TP", "sections",
+      // What the semester did to the plan, beside it.
+      "cancelledHours", "coverTaken", "coverGiven",
+      "type", "category", "department", "email",
     ]);
     expect(columns.find((column) => column.id === "sheet:BSc-L2-S3")?.displayName).toBe("BSc L2");
     expect(hoursColumn("FYS-S1")).toBe("FYS");

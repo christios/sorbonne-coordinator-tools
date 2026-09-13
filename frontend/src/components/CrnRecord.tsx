@@ -1,13 +1,18 @@
 import { useQuery } from "@tanstack/react-query";
-import { type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 import { CrnDialog } from "@/components/ActiveCourses";
 import { Modal } from "@/components/Modal";
 import { SectionTimetable } from "@/components/SectionTimetable";
+import { SessionChangeDialog } from "@/components/SessionChangeDialog";
+import { SessionChangeList } from "@/components/SessionChangeList";
+import { fetchSessionChanges, noteOn, slotKey } from "@/services/sessionChanges";
+import type { PlacedSession } from "@/services/weekSchedule";
 import { buildCards, rowsPerPart, teaches } from "@/services/courseCards";
 import { filled } from "@/services/courseRequest";
 import {
   fetchActiveCourses,
+  fetchFacilitySections,
   fetchRegisterCheck,
   fetchSectionDays,
   fetchTermCrns,
@@ -83,6 +88,35 @@ export function CrnRecord({
 
   const meets = days.data?.days?.[row.crn] ?? [];
   const asked = days.data ? !days.data.blind.includes(row.crn) : false;
+
+  /*
+   * What happened to its classes: said here, on the calendar, and nowhere else.
+   *
+   * The note is keyed to the slot. The sweep read below is the same one the calendar
+   * makes, so it costs nothing, and it is what says which notes sit on an hour the
+   * registrar has since moved away from.
+   */
+  const [noting, setNoting] = useState<PlacedSession | null>(null);
+  const notes = useQuery({
+    queryKey: ["session-changes", row.termCode],
+    queryFn: () => fetchSessionChanges(row.termCode),
+    enabled: open && Boolean(row.termCode),
+    retry: false,
+  });
+  const sweep = useQuery({
+    queryKey: ["facility-sections", row.termCode, row.crn],
+    queryFn: () => fetchFacilitySections(row.termCode, [row.crn]),
+    enabled: open && Boolean(row.termCode),
+    retry: false,
+  });
+  const mine = (notes.data ?? []).filter((note) => note.crn === row.crn);
+  const booked = new Set(
+    (sweep.data?.sections ?? []).flatMap((section) =>
+      section.meetings.map((meeting) => slotKey({ termCode: row.termCode, crn: section.crn, meetsOn: meeting.meetsOn, startsAt: meeting.startsAt })),
+    ),
+  );
+  const orphaned = new Set(mine.filter((note) => booked.size > 0 && !booked.has(slotKey(note))).map((note) => note.id));
+  const plannedTeacher = taught[0]?.entry.section ? filled(taught[0].entry.section, taught[0].set.course.request).teacher : "";
 
   return (
     <Modal
@@ -166,6 +200,7 @@ export function CrnRecord({
                   <SectionTimetable
                     compact
                     title={`CRN ${row.crn} — timetable`}
+                    onPickSession={setNoting}
                     entries={[
                       {
                         termCode: row.termCode,
@@ -179,6 +214,14 @@ export function CrnRecord({
                 </div>
               </>
             )}
+          </Card>
+
+          <Card title="Changes to its classes" note="Cancelled, or covered by somebody else — said on the calendar above. Teacher hours read these.">
+            <SessionChangeList
+              changes={mine}
+              orphaned={orphaned}
+              empty={row.termCode ? "Nothing noted. Every class stands as the registrar booked it." : "No portal term, so nothing can be noted."}
+            />
           </Card>
         </div>
         <div className="space-y-3">
@@ -208,6 +251,15 @@ export function CrnRecord({
           </Card>
         </div>
       </div>
+      {noting ? (
+        <SessionChangeDialog
+          session={noting}
+          label={`${row.courseCode} · CRN ${row.crn}`}
+          plannedTeacher={plannedTeacher || row.teacherName}
+          existing={noteOn(notes.data ?? [], noting)}
+          onClose={() => setNoting(null)}
+        />
+      ) : null}
     </Modal>
   );
 }

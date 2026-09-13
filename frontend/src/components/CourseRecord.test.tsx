@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CourseRecord } from "@/components/CourseRecord";
 import * as lists from "@/services/portalLists";
+import * as sessionChanges from "@/services/sessionChanges";
 import * as database from "@/services/studentDatabase";
 import * as timetables from "@/services/timetables";
 
@@ -65,6 +66,7 @@ beforeEach(() => {
     },
   } as never);
   vi.spyOn(lists, "fetchRegisterCheck").mockResolvedValue(EMPTY_CHECK);
+  vi.spyOn(sessionChanges, "fetchSessionChanges").mockResolvedValue([]);
   vi.spyOn(lists, "fetchFacilitySections").mockImplementation(async (termCode, crns) => ({
     termCode,
     pulledAt: "",

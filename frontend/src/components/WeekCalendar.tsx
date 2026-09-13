@@ -1,4 +1,4 @@
-import { MapPin, User } from "lucide-react";
+import { MapPin, Repeat, User } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import {
@@ -37,8 +37,8 @@ type WeekCalendarProps = {
    * always the whole week — the one-day view is for a phone, not for a thumbnail.
    */
   compact?: boolean;
-  /** Pressing a box opens its CRN. Only boxes whose course says `openable` are buttons. */
-  onPick?: (crn: string) => void;
+  /** Pressing a box. Only boxes whose course says `openable` are buttons. */
+  onPick?: (session: PlacedSession) => void;
 };
 
 /**
@@ -198,7 +198,7 @@ type DayColumnProps = {
   topOf: (minute: number) => number;
   pixelsPerMinute: number;
   compact: boolean;
-  onPick?: (crn: string) => void;
+  onPick?: (session: PlacedSession) => void;
 };
 
 function DayColumn({ day, sessions, courses, height, hours, topOf, pixelsPerMinute, compact, onPick }: DayColumnProps) {
@@ -214,6 +214,8 @@ function DayColumn({ day, sessions, courses, height, hours, topOf, pixelsPerMinu
         const color = course?.color ?? "#1f4e79";
         const outline = course?.tone === "outline";
         const label = course?.label || course?.code || session.crn;
+        const cancelled = session.change?.kind === "cancelled";
+        const covered = session.change?.kind === "covered" ? session.change : null;
         const details = [
           ...new Set(
             [
@@ -224,6 +226,9 @@ function DayColumn({ day, sessions, courses, height, hours, topOf, pixelsPerMinu
               `${session.start}–${session.end}`,
               formatRoom(session.room),
               course?.staff,
+              cancelled ? "CANCELLED" : "",
+              covered ? `covered by ${covered.coverTeacherName}` : "",
+              session.change?.note ?? "",
               outline ? "in their group, not registered" : "",
               session.clashes ? "overlaps another class" : "",
             ].filter(Boolean),
@@ -244,12 +249,12 @@ function DayColumn({ day, sessions, courses, height, hours, topOf, pixelsPerMinu
           <Box
             key={`${day}-${session.crn}-${session.start}-${lane}`}
             type={opens ? "button" : undefined}
-            onClick={opens ? () => onPick?.(session.crn) : undefined}
+            onClick={opens ? () => onPick?.(session) : undefined}
             title={details}
             aria-label={opens ? `Open CRN ${session.crn}: ${details}` : details}
             className={`absolute flex flex-col overflow-hidden rounded-md text-left leading-tight ${
               compact ? "px-1 py-px text-[8.5px]" : "px-1.5 py-1 text-[11px]"
-            } ${outline ? "border-2 border-dashed bg-white" : "text-white"} ${
+            } ${outline ? "border-2 border-dashed bg-white" : "text-white"} ${cancelled ? "opacity-55" : ""} ${
               session.clashes ? "outline-2 -outline-offset-2 outline-[#d9a441]" : ""
             } ${opens ? "cursor-pointer hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#1f4e79]" : ""}`}
             style={{
@@ -263,12 +268,19 @@ function DayColumn({ day, sessions, courses, height, hours, topOf, pixelsPerMinu
             }}
           >
             {compact ? (
-              <b className="block truncate font-semibold">{label}</b>
+              <b className={`flex items-center gap-0.5 font-semibold ${cancelled ? "line-through" : ""}`}>
+                {covered ? <Repeat size={8} className="shrink-0" aria-hidden="true" /> : null}
+                <span className="truncate">{label}</span>
+              </b>
             ) : (
               <>
                 <b className="flex items-baseline justify-between gap-1 font-semibold">
-                  <span className="truncate">{label}</span>
-                  {lines === 1 ? <span className="shrink-0 text-[10px] font-normal tabular-nums opacity-85">{session.start}</span> : null}
+                  <span className={`truncate ${cancelled ? "line-through" : ""}`}>{label}</span>
+                  {cancelled ? (
+                    <span className="shrink-0 rounded bg-white/25 px-1 text-[9px] font-bold uppercase tracking-wide">Cancelled</span>
+                  ) : lines === 1 ? (
+                    <span className="shrink-0 text-[10px] font-normal tabular-nums opacity-85">{session.start}</span>
+                  ) : null}
                 </b>
                 {lines >= 2 ? (
                   <span className="block tabular-nums opacity-90">
@@ -281,7 +293,13 @@ function DayColumn({ day, sessions, courses, height, hours, topOf, pixelsPerMinu
                     <span className="truncate">{formatRoom(session.room)}</span>
                   </span>
                 ) : null}
-                {lines >= 4 && course?.staff ? (
+                {/* Cover outranks the planned teacher for the line: it is who was in the room. */}
+                {covered && lines >= 3 ? (
+                  <span className="flex items-center gap-1 truncate font-semibold">
+                    <Repeat size={9} className="shrink-0" aria-hidden="true" />
+                    <span className="truncate">{covered.coverTeacherName}</span>
+                  </span>
+                ) : lines >= 4 && course?.staff ? (
                   <span className="flex items-center gap-1 truncate opacity-85">
                     <User size={9} className="shrink-0" aria-hidden="true" />
                     <span className="truncate">{course.staff}</span>

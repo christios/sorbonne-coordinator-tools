@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Modal } from "@/components/Modal";
 import { WeekCalendar } from "@/components/WeekCalendar";
 import { fetchFacilitySections, type FacilitySection } from "@/services/portalLists";
+import { fetchSessionChanges, slotKey, type SessionChange } from "@/services/sessionChanges";
 import {
   assignColors,
   defaultWeekStart,
@@ -13,6 +14,7 @@ import {
   shiftWeek,
   weekLabel,
   type CalendarCourse,
+  type PlacedSession,
   type Session,
 } from "@/services/weekSchedule";
 
@@ -44,6 +46,11 @@ type TimetableProps = {
   /** Pressing a box opens that CRN's record, where `openable` says there is one to open. */
   onOpenCrn?: (crn: string) => void;
   openable?: (crn: string) => boolean;
+  /**
+   * Pressing a box says what happened to that class instead — cancelled, covered. Every
+   * box is pressable then; a CRN's own record is where this is offered.
+   */
+  onPickSession?: (session: PlacedSession) => void;
 };
 
 /**
@@ -75,6 +82,7 @@ function Timetable({
   compact = false,
   onOpenCrn,
   openable,
+  onPickSession,
   onExpand,
 }: TimetableProps & { onExpand?: () => void }) {
   const today = isoToday();
@@ -106,9 +114,19 @@ function Timetable({
     }),
   });
 
+  // What the coordinators have said about the term's classes, by slot.
+  const { notes } = useQueries({
+    queries: byTerm.map(({ termCode }) => ({
+      queryKey: ["session-changes", termCode],
+      queryFn: () => fetchSessionChanges(termCode),
+      retry: false,
+    })),
+    combine: (reads) => ({ notes: reads.flatMap((read) => read.data ?? []) }),
+  });
+
   const { sessions, courses, unasked, gone, unbooked, unlinked } = useMemo(
-    () => assemble(entries, sections, openable),
-    [entries, sections, openable],
+    () => assemble(entries, sections, notes, onPickSession ? () => true : openable),
+    [entries, sections, notes, openable, onPickSession],
   );
 
   const [weekStart, setWeekStart] = useState<Date | null>(null);
@@ -173,7 +191,7 @@ function Timetable({
             today={today}
             compact={compact}
             hourHeight={compact ? 24 : 48}
-            onPick={onOpenCrn}
+            onPick={onPickSession ?? (onOpenCrn ? (session) => onOpenCrn(session.crn) : undefined)}
           />
           {legend.length > 1 ? (
             <ul className={`mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[#667085] ${small}`} aria-label="Legend">
@@ -193,7 +211,9 @@ function Timetable({
           {[...courses.values()].some((course) => course.tone === "outline") ? (
             <p className={`mt-1 text-[#98a2b3] ${small}`}>Dashed: in a group of theirs, and the registrar has not registered them for it.</p>
           ) : null}
-          {onOpenCrn && [...courses.values()].some((course) => course.openable) ? (
+          {onPickSession ? (
+            <p className={`mt-1 text-[#98a2b3] ${small}`}>Press a class to say it was cancelled or covered by somebody else.</p>
+          ) : onOpenCrn && [...courses.values()].some((course) => course.openable) ? (
             <p className={`mt-1 text-[#98a2b3] ${small}`}>Press a class to open its CRN.</p>
           ) : null}
         </>
@@ -222,8 +242,10 @@ type Assembled = {
 function assemble(
   entries: TimetableEntry[],
   sections: (FacilitySection & { termCode: string })[],
+  notes: SessionChange[],
   openable?: (crn: string) => boolean,
 ): Assembled {
+  const said = new Map(notes.map((note) => [slotKey(note), note]));
   const wanted = new Map<string, TimetableEntry>();
   for (const entry of entries) if (entry.crn) wanted.set(`${entry.termCode}|${entry.crn}`, entry);
   const colors = assignColors([...wanted.values()].map(keyOf));
@@ -254,7 +276,16 @@ function assemble(
     else if (section.state === "gone") gone.push(section.crn);
     else if (section.meetings.length === 0) unbooked.push(section.crn);
     for (const meeting of section.meetings) {
-      sessions.push({ crn: section.crn, date: meeting.meetsOn, start: meeting.startsAt.slice(0, 5), end: meeting.endsAt.slice(0, 5), room: meeting.room });
+      const note = said.get(slotKey({ termCode: section.termCode, crn: section.crn, meetsOn: meeting.meetsOn, startsAt: meeting.startsAt }));
+      sessions.push({
+        crn: section.crn,
+        termCode: section.termCode,
+        date: meeting.meetsOn,
+        start: meeting.startsAt.slice(0, 5),
+        end: meeting.endsAt.slice(0, 5),
+        room: meeting.room,
+        change: note ? { kind: note.kind, coverTeacherName: note.coverTeacherName, note: note.note } : undefined,
+      });
     }
   }
   return { sessions: placeSessions(sessions), courses, unasked, gone, unbooked, unlinked };

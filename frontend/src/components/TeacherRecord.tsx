@@ -1,9 +1,11 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 
 import { CrnRecord } from "@/components/CrnRecord";
 import { Modal } from "@/components/Modal";
 import { SectionTimetable, type TimetableEntry } from "@/components/SectionTimetable";
+import { SessionChangeList } from "@/components/SessionChangeList";
+import { adjustmentsFor, fetchSessionChanges } from "@/services/sessionChanges";
 import { buildCards } from "@/services/courseCards";
 import { fetchActiveCourses, fetchActiveCrns, fetchActiveTeachers, fetchTermLinks, type ActiveCrn, type ActiveTeacher } from "@/services/portalLists";
 import { sameTeacher, sectionsTaughtBy } from "@/services/teacherLoad";
@@ -100,6 +102,39 @@ export function TeacherRecord({
     .map((row) => ({ termCode: row.termCode, crn: row.crn, code: row.courseCode, title: row.courseTitle || row.portalTitle }));
   const timetable = [...ours, ...theirs];
   const [showingCrn, setShowingCrn] = useState<ActiveCrn | null>(null);
+
+  /*
+   * What happened to their classes, and the classes they stood in for.
+   *
+   * Their CRNs are the calendar's; a note on one of those is theirs whichever way it
+   * went. A note naming them as the cover is theirs too, on somebody else's class.
+   */
+  const termCodes = [...new Set(timetable.map((entry) => entry.termCode).filter(Boolean))];
+  const { notes } = useQueries({
+    queries: termCodes.map((termCode) => ({
+      queryKey: ["session-changes", termCode],
+      queryFn: () => fetchSessionChanges(termCode),
+      enabled: open,
+      retry: false,
+    })),
+    combine: (reads) => ({ notes: reads.flatMap((read) => read.data ?? []) }),
+  });
+  const ownCrns = new Set(timetable.map((entry) => entry.crn));
+  const me = { id: held?.id ?? teacher.id ?? "", name: teacher.fullName };
+  const concerning = notes.filter(
+    (note) =>
+      ownCrns.has(note.crn) ||
+      (note.kind === "covered" && ((me.id && note.coverTeacherId === me.id) || sameTeacher(note.coverTeacherName, me.name))),
+  );
+  const adjusted = adjustmentsFor(notes, me, ownCrns, sameTeacher);
+  const courseOf = new Map(timetable.map((entry) => [entry.crn, `${entry.code} · CRN ${entry.crn}`]));
+  const tally = [
+    adjusted.cancelled ? `${adjusted.cancelled} h cancelled` : "",
+    adjusted.coveredByOthers ? `${adjusted.coveredByOthers} h covered by others` : "",
+    adjusted.coveredForOthers ? `${adjusted.coveredForOthers} h covered for others` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
   const inRegister = (crn: string) => (registered.data ?? []).find((row) => row.crn === crn) ?? null;
   const hours = live.reduce((sum, section) => sum + (Number(section.hours) || 0), 0);
   const students = live.reduce((sum, section) => sum + section.students, 0);
@@ -171,6 +206,17 @@ export function TeacherRecord({
           />
         </section>
       </div>
+
+      <h4 className="mt-6 text-sm font-semibold text-[#171717]">Changes to their classes</h4>
+      <p className="mb-2 text-xs text-[#98a2b3]">
+        Cancelled, covered by somebody else, or covered by them — as said on the CRNs&apos; calendars.
+        {tally ? ` ${tally}.` : ""}
+      </p>
+      <SessionChangeList
+        changes={concerning}
+        nameOf={(crn) => courseOf.get(crn) ?? `CRN ${crn}`}
+        empty="Nothing noted on their classes this semester."
+      />
 
       <h4 className="mt-6 text-sm font-semibold text-[#171717]">What they teach</h4>
       {catalogues.isLoading ? (

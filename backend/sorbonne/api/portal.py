@@ -17,6 +17,8 @@ from sorbonne.api.timetables import require_client
 from sorbonne.config import config
 from sorbonne.api.deps import optional_client
 from sorbonne.services.facility_timetable import ContradictoryPull, FacilityTimetableStore
+from sorbonne.services import coordinator_directory
+from sorbonne.services.session_changes import ChangeNotFound, NoCoverTeacher, SessionChangeStore
 from sorbonne.services.checks import CHECKS
 from sorbonne.services.portal_lists import (
     PartTimeTeacherAlreadyLinked,
@@ -790,6 +792,72 @@ async def read_facility_sections(
     asked about is a row that says so rather than an afternoon that looks free.
     """
     return facilities.timetable_for(term_code, [value.strip() for value in crn if value.strip()])
+
+
+# ---------------------------------------------- what happened to one dated class
+
+
+def get_session_changes() -> SessionChangeStore:
+    return SessionChangeStore(config.database_url)
+
+
+class SessionChangeInput(BaseModel):
+    termCode: str = Field(min_length=1, max_length=20)
+    crn: str = Field(min_length=1, max_length=20)
+    meetsOn: str = Field(min_length=8, max_length=10)
+    startsAt: str = Field(min_length=4, max_length=8)
+    endsAt: str = Field(default="", max_length=8)
+    kind: str = Field(pattern="^(cancelled|covered)$")
+    coverTeacherId: str = Field(default="", max_length=64)
+    coverTeacherName: str = Field(default="", max_length=160)
+    note: str = Field(default="", max_length=2000)
+
+
+@router.get("/session-changes")
+async def list_session_changes(term: str, changes: SessionChangeStore = Depends(get_session_changes)) -> dict[str, Any]:
+    """Every cancelled or covered class of a term. The calendars and the hours read it."""
+    return {"changes": changes.changes_for(term.strip())}
+
+
+@router.put("/session-changes")
+async def set_session_change(
+    body: SessionChangeInput, request: Request, changes: SessionChangeStore = Depends(get_session_changes)
+) -> dict[str, Any]:
+    """Say what happened to one slot: cancelled, or covered by a named teacher.
+
+    Written from the calendar on a CRN's record and nowhere else, keyed to the slot, so a
+    sweep that moves the class leaves the note showing beside an hour that no longer has
+    a class in it rather than quietly attached to the wrong one.
+    """
+    staff = getattr(request.state, "staff_user", None)
+    email = getattr(staff, "email", "") or ""
+    try:
+        return changes.set_change(
+            term_code=body.termCode.strip(),
+            crn=body.crn.strip(),
+            meets_on=body.meetsOn,
+            starts_at=body.startsAt[:5],
+            ends_at=body.endsAt[:5],
+            kind=body.kind,
+            cover_teacher_id=body.coverTeacherId.strip(),
+            cover_teacher_name=body.coverTeacherName,
+            note=body.note,
+            author_email=email,
+            author_name=coordinator_directory.name_for(email, getattr(staff, "name", "") or "") if email else "",
+        )
+    except NoCoverTeacher as exc:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Say who covered the class, or mark it cancelled."
+        ) from exc
+
+
+@router.delete("/session-changes/{change_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def clear_session_change(change_id: str, changes: SessionChangeStore = Depends(get_session_changes)) -> None:
+    """The class ran as planned after all."""
+    try:
+        changes.clear_change(change_id)
+    except ChangeNotFound as exc:
+        raise _missing("change") from exc
 
 
 @router.get("/terms/{term_id}/clashes")

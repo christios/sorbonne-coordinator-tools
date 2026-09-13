@@ -10,15 +10,26 @@
 export const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
 export const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"] as const;
 
+/** What a coordinator has said about one dated class, when they have said anything. */
+export type SessionNote = {
+  kind: "cancelled" | "covered";
+  coverTeacherName: string;
+  note: string;
+};
+
 /** One dated meeting of a CRN, as the registrar's sweep holds it. */
 export type Session = {
   crn: string;
+  /** The portal term the sweep files it under. */
+  termCode?: string;
   /** ISO date. */
   date: string;
   /** HH:MM. */
   start: string;
   end: string;
   room: string;
+  /** Cancelled, or covered by somebody else — said on the CRN's calendar. */
+  change?: SessionNote;
 };
 
 export type PlacedSession = Session & {
@@ -228,4 +239,11 @@ export function laneOut<T extends Session>(sessions: T[]): Laned<T>[] {
  */
 export function formatRoom(room: string): string {
   return room.replace(/([a-z])([A-Z])/g, "$1 $2");
+}
+
+/** "Mon 14 Sep · 08:15–10:15", for a list of classes. */
+export function formatShortDateTime(iso: string, start: string, end: string): string {
+  const date = parseIsoDate(iso);
+  const day = `${DAY_NAMES[date.getDay()]} ${date.getDate()} ${MONTH_NAMES[date.getMonth()]}`;
+  return end ? `${day} · ${start.slice(0, 5)}–${end.slice(0, 5)}` : `${day} · ${start.slice(0, 5)}`;
 }

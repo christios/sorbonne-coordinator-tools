@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { StudentRecord } from "@/components/StudentRecord";
 import * as lists from "@/services/portalLists";
+import * as sessionChanges from "@/services/sessionChanges";
 import type { PullHistory } from "@/services/pullHistory";
 import type { StudentRow } from "@/services/rosterView";
 import * as comments from "@/services/studentComments";
@@ -69,6 +70,7 @@ beforeEach(() => {
   ], [checked()]));
   vi.spyOn(lists, "fetchTermLinks").mockResolvedValue({ "term-1": "262710" });
   // The registrar's sweep, for the week at the foot of the record.
+  vi.spyOn(sessionChanges, "fetchSessionChanges").mockResolvedValue([]);
   vi.spyOn(lists, "fetchFacilitySections").mockImplementation(async (termCode, crns) => ({
     termCode,
     pulledAt: "",

@@ -174,6 +174,12 @@ export type LoadRow = TeacherLoad & {
   /** How the name got here: chosen from Active teachers, typed by the registrar, or nobody. */
   standing: "Confirmed" | "Not confirmed" | "Nobody yet";
   active: ActiveTeacher | null;
+  /** The CRNs the planning gives this teacher, for the notes on their classes. */
+  crns: string[];
+  /** What the term's cancelled and covered classes do to their hours. Zero until read. */
+  cancelledHours: number;
+  coverGiven: number;
+  coverTaken: number;
 };
 
 /**
@@ -183,14 +189,33 @@ export type LoadRow = TeacherLoad & {
  * can be on the list and still have every section carrying only what the registrar typed,
  * and the table is more useful for knowing that they are the same person.
  */
-export function loadRows(loads: TeacherLoad[], active: ActiveTeacher[]): LoadRow[] {
+export function loadRows(loads: TeacherLoad[], active: ActiveTeacher[], crnsOf: (teacher: string) => string[] = () => []): LoadRow[] {
   const byId = new Map(active.map((teacher) => [teacher.id, teacher]));
   const byName = new Map(active.map((teacher) => [teacher.fullName.trim().toLowerCase(), teacher]));
   return loads.map((load) => ({
     ...load,
     standing: !load.teacher ? "Nobody yet" : load.teacherId ? "Confirmed" : "Not confirmed",
     active: byId.get(load.teacherId) ?? byName.get(load.teacher.trim().toLowerCase()) ?? null,
+    crns: crnsOf(load.teacher),
+    cancelledHours: 0,
+    coverGiven: 0,
+    coverTaken: 0,
   }));
+}
+
+/** `teacher name -> CRNs`, from the same rows the hours come from, keyed as `teacherLoads` keys. */
+export function crnsByTeacher(sheets: RequestSheet[]): (teacher: string) => string[] {
+  const held = new Map<string, Set<string>>();
+  for (const sheet of sheets) {
+    for (const row of sheet.rows) {
+      if (!row.crn) continue;
+      const key = row.teacher && row.teacher.toUpperCase() !== UNNAMED ? row.teacher.trim().toLowerCase() : "";
+      const crns = held.get(key) ?? new Set<string>();
+      crns.add(row.crn);
+      held.set(key, crns);
+    }
+  }
+  return (teacher: string) => [...(held.get(teacher.trim().toLowerCase()) ?? [])];
 }
 
 /**
@@ -221,6 +246,14 @@ export function hoursColumns(sheetTitles: string[]): GridColumn<LoadRow>[] {
       defaultWidth: 80,
     })),
     { id: "sections", displayName: "Sections", type: "number", accessor: (row) => row.sections, defaultWidth: 100 },
+    /*
+     * What the semester did to the plan, beside the plan rather than folded into it: hours
+     * of theirs that were cancelled, hours somebody else taught for them, hours they taught
+     * for somebody else. From the notes on the CRNs' calendars.
+     */
+    { id: "cancelledHours", displayName: "Cancelled", type: "number", accessor: (row) => row.cancelledHours, defaultWidth: 100 },
+    { id: "coverTaken", displayName: "Covered by others", type: "number", accessor: (row) => row.coverTaken, defaultWidth: 140 },
+    { id: "coverGiven", displayName: "Covered for others", type: "number", accessor: (row) => row.coverGiven, defaultWidth: 150 },
     { id: "type", displayName: "Type", type: "option", accessor: (row) => row.active?.type ?? "", defaultWidth: 190 },
     { id: "category", displayName: "Category", type: "option", accessor: (row) => row.active?.category ?? "", defaultWidth: 120 },
     { id: "department", displayName: "Dept.", type: "option", accessor: (row) => row.active?.department ?? "", defaultWidth: 110 },
@@ -242,6 +275,9 @@ export function shownHoursColumns(sheetTitles: string[]): string[] {
     ...LOAD_TYPES.map((type) => `type:${type}`),
     "total",
     "sections",
+    "cancelledHours",
+    "coverTaken",
+    "coverGiven",
   ];
 }
 

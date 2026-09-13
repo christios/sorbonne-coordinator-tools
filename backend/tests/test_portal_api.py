@@ -20,6 +20,7 @@ from sorbonne.api import teachers as teachers_api
 from sorbonne.main import app
 from sorbonne.services.facility_timetable import FacilityTimetableStore
 from sorbonne.services.portal_lists import _SECTION_TITLE, _expected_on, named, names_agree, PortalListStore
+from sorbonne.services.session_changes import SessionChangeStore
 from sorbonne.services.student_database import StudentDatabase
 from sorbonne.services.teacher_store import TeacherStore
 from tests.conftest import TEST_DATABASE_URL
@@ -85,6 +86,7 @@ def client(database: StudentDatabase) -> TestClient:
     # the part-time database — and that router builds its store from config.database_url,
     # which is the developer's own. Without this the fixtures land in real local data.
     app.dependency_overrides[teachers_api.get_store] = lambda: TeacherStore(TEST_DATABASE_URL)
+    app.dependency_overrides[api.get_session_changes] = lambda: SessionChangeStore(TEST_DATABASE_URL)
     try:
         yield TestClient(app)
     finally:

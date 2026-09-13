@@ -7,13 +7,16 @@ import { ScreenLoading } from "@/components/ScreenLoading";
 import { SelectMenu } from "@/components/SelectMenu";
 import type { TeacherRef } from "@/components/TeacherRecord";
 import { buildCards } from "@/services/courseCards";
-import { fetchActiveCourses, fetchActiveCrns, fetchActiveTeachers } from "@/services/portalLists";
+import { fetchActiveCourses, fetchActiveCrns, fetchActiveTeachers, fetchTermLinks } from "@/services/portalLists";
+import { adjustmentsFor, fetchSessionChanges } from "@/services/sessionChanges";
 import { requestSheets } from "@/services/timetableExport";
 import {
+  crnsByTeacher,
   hoursColumn,
   hoursColumns,
   loadRows,
   loadTotals,
+  sameTeacher,
   shownHoursColumns,
   teacherLoads,
   type LoadRow,
@@ -86,7 +89,23 @@ export function TeacherHours({ onOpenTeacher }: { onOpenTeacher?: (teacher: Teac
       ),
     [cards, chosenTerm, cohorts.data, teachers.data], // eslint-disable-line react-hooks/exhaustive-deps
   );
-  const rows = useMemo(() => loadRows(teacherLoads(sheets), teachers.data ?? []), [sheets, teachers.data]);
+  // The notes on the term's classes — cancelled, covered — read against each teacher's CRNs.
+  const links = useQuery({ queryKey: ["term-links"], queryFn: fetchTermLinks, retry: false });
+  const termCode = links.data?.[chosenTerm] ?? "";
+  const notes = useQuery({
+    queryKey: ["session-changes", termCode],
+    queryFn: () => fetchSessionChanges(termCode),
+    enabled: Boolean(termCode),
+    retry: false,
+  });
+  const rows = useMemo(() => {
+    const held = loadRows(teacherLoads(sheets), teachers.data ?? [], crnsByTeacher(sheets));
+    if (!notes.data?.length) return held;
+    return held.map((row) => {
+      const adjusted = adjustmentsFor(notes.data ?? [], { id: row.active?.id ?? row.teacherId, name: row.teacher }, new Set(row.crns), sameTeacher);
+      return { ...row, cancelledHours: adjusted.cancelled, coverTaken: adjusted.coveredByOthers, coverGiven: adjusted.coveredForOthers };
+    });
+  }, [sheets, teachers.data, notes.data]);
   const totals = loadTotals(rows);
   const sheetTitles = useMemo(() => sheets.map((sheet) => sheet.title), [sheets]);
   const columns = useMemo(() => hoursColumns(sheetTitles), [sheetTitles]);
@@ -153,6 +172,8 @@ export function TeacherHours({ onOpenTeacher }: { onOpenTeacher?: (teacher: Teac
       <p className="mt-3 text-xs text-[#98a2b3]">
         The same count the timetable workbook&apos;s Teacher Hours sheet carries, from the same rows — with the hours
         nobody is teaching shown, which the sheet leaves out. Hours a section does not state are its course&apos;s.
+        Cancelled and covered hours come from the notes on the CRNs&apos; calendars and sit beside the plan, not
+        inside it.
       </p>
     </section>
   );
@@ -178,5 +199,8 @@ const renderCell = (row: LoadRow, column: GridColumn<LoadRow>) => {
   if (column.type !== "number") return undefined;
   const value = Number(column.accessor(row)) || 0;
   if (!value) return <span className="text-[#d5dce4]">—</span>;
+  // Hours the semester took away read red, hours it added read blue; the plan stays black.
+  if (column.id === "cancelledHours" || column.id === "coverTaken") return <span className="text-[#a6292f]">−{value}</span>;
+  if (column.id === "coverGiven") return <span className="text-[#1f4e79]">+{value}</span>;
   return <span className={column.id === "total" ? "font-semibold text-[#171717]" : undefined}>{value}</span>;
 };
