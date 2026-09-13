@@ -47,6 +47,7 @@ import { COHORT } from "@/services/remembered";
 import { describeAge, latestPullAt, rowsHeld } from "@/services/rosterStore";
 import { displayNameOf, fetchSchema, studentIdOf, type RosterRow } from "@/services/scenRosters";
 import { fetchDiscrepancyRules, fetchStudents, setCohort, type Cohort, type Student } from "@/services/studentDatabase";
+import { ProposedPlacements } from "@/components/ProposedPlacements";
 import { afterPlacement } from "@/services/afterPlacement";
 import { fetchTimetableTerms } from "@/services/timetables";
 import { isRunning, subscribe } from "@/services/syncRun";
@@ -123,6 +124,7 @@ const SAID: Record<Mismatch["kind"], { say: (mismatch: Mismatch) => string; sour
   doubled: { say: (m) => `${m.scopeCode} twice`, source: "registration" },
   // Which of ours, and when — the two things that tell one clash from another.
   collides: { say: (m) => `${m.courseCode} ${m.scopeCode}`, source: "timetabling" },
+  outside: { say: (m) => `${m.courseCode} outside`, source: "registration" },
 };
 
 /**
@@ -147,6 +149,7 @@ function describeKinds(mismatches: Mismatch[]): string {
     unplaced: "registered in a course we have not placed them in",
     doubled: "registered in two groups of one set",
     collides: "in one of our hours and another department's at once",
+    outside: "registered outside our groups and not approved",
   };
   const counted = new Map<Mismatch["kind"], number>();
   for (const mismatch of mismatches) counted.set(mismatch.kind, (counted.get(mismatch.kind) ?? 0) + 1);
@@ -776,6 +779,18 @@ export function CohortsPage({
           onDismiss={(key) => setDismissed(dismiss(key))}
           onAdd={(arrival) => setAddingArrival(arrival)}
           adding={addArrival.isPending}
+        />
+      ) : null}
+      {/*
+        * Who the semester has not placed everywhere, with a group proposed for each —
+        * confirmed as one batch. Says nothing when everyone is placed.
+        */}
+      {cohort && !everywhere ? (
+        <ProposedPlacements
+          key={cohort.id}
+          cohort={cohort}
+          nameOf={(studentId) => evidence.names.get(studentId) ?? ""}
+          onPlaced={() => afterPlacement(client)}
         />
       ) : null}
       {cohort && addingArrival ? (

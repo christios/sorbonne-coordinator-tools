@@ -38,6 +38,7 @@ from sorbonne.services.student_database import (
     _clean_ids,
     _now,
     _text,
+    allows,
 )
 
 KINDS = ("courses", "teachers", "registrations")
@@ -551,6 +552,18 @@ class PortalListStore:
                     {"f": filter_id, "t": term},
                 )
             }
+            # What each returned student held before this pull, so the history can say
+            # which registrations appeared and which went. A student the term has never
+            # seen gets no "registered" lines: their first pull is a baseline, not a change.
+            before: dict[str, dict[str, str]] = {}
+            if students:
+                for student, crn, code in connection.execute(
+                    text("""SELECT student_id, crn, course_code FROM student_registrations
+                            WHERE term_code = :t AND student_id = ANY(:ids) AND status = 'in_portal'"""),
+                    {"t": term, "ids": students},
+                ):
+                    before.setdefault(student, {})[crn] = code
+            changes = _registration_changes(before, by_student, term)
             if students:
                 connection.execute(
                     text("""INSERT INTO student_registrations
@@ -597,6 +610,7 @@ class PortalListStore:
             connection.execute(
                 text("UPDATE portal_filters SET last_synced_at = :now WHERE id = :f"), {"now": now, "f": filter_id}
             )
+        self.record_history(changes)
         return {
             "seen": len(students),
             "rows": sum(len(crns) for crns in by_student.values()),
@@ -634,6 +648,41 @@ class PortalListStore:
             }
             for row in rows
         ]
+
+    def record_history(self, changes: list[dict[str, Any]]) -> int:
+        """Registration lines into the students' history — for students in our cohorts only.
+
+        Written after the pull's own transaction, and unsigned: the registrar did this, not
+        a coordinator. A student in no cohort is not ours to keep a history of.
+        """
+        if not changes:
+            return 0
+        with self.engine.begin() as connection:
+            ours = {
+                row[0]
+                for row in connection.execute(
+                    text("SELECT student_id FROM students WHERE cohort_id IS NOT NULL AND student_id = ANY(:ids)"),
+                    {"ids": sorted({change["studentId"] for change in changes})},
+                )
+            }
+            kept = [change for change in changes if change["studentId"] in ours]
+            if kept:
+                now = _now()
+                connection.execute(
+                    text("""INSERT INTO student_history (id, student_id, kind, detail, author, happened_at)
+                            VALUES (:id, :student, :kind, :detail, '', :at)"""),
+                    [
+                        {
+                            "id": str(uuid4()),
+                            "student": change["studentId"],
+                            "kind": change["kind"],
+                            "detail": json.dumps(change["detail"]),
+                            "at": now,
+                        }
+                        for change in kept
+                    ],
+                )
+        return len(kept)
 
     def registered_in(self, term_code: str) -> dict[str, dict[str, list[str]]]:
         """`student -> course code -> CRNs` for one term, in-portal rows only."""
@@ -1936,6 +1985,10 @@ class PortalListStore:
                     ).update(crn for crn in crns if crn)
             registered = self.registered_in(term_code)
             pulled = self.pulled_students(term_code)
+            # What is always allowed outside our groups, and what a coordinator has approved
+            # for one student — the two things that keep an elective from being a verdict.
+            allowed = database.get_cohort(cohort_id).get("allowedCodes", [])
+            approved = database.approvals_for(term_code) if term_code else {}
             for student in cohort["students"]:
                 if student not in pulled:
                     continue
@@ -1952,6 +2005,17 @@ class PortalListStore:
                     )
                     for code in course_codes
                     if code not in excused
+                )
+                found.extend(
+                    _outside(
+                        student,
+                        term_id,
+                        term_code,
+                        registered.get(student, {}),
+                        set(course_codes),
+                        allowed,
+                        approved.get(student, set()),
+                    )
                 )
         return RegistrationReport(
             mismatches=[mismatch for mismatch in found if mismatch is not None],
@@ -2184,6 +2248,63 @@ def _judge(  # noqa: PLR0913 - one argument per part of the verdict
         return None
     # The sections they should be in NOW, because that is what the sentence is about.
     return Mismatch(student, term_id, term_code, code, kind, current, held)
+
+
+def _outside(  # noqa: PLR0913 - one argument per part of the verdict
+    student: str,
+    term_id: str,
+    term_code: str,
+    registered: dict[str, list[str]],
+    ours: set[str],
+    allowed: list[str],
+    approved: set[str],
+) -> list[Mismatch]:
+    """The courses a student is registered in that are nobody's business here — until now.
+
+    `_judge` only ever asks about the courses of our sets, so a Spanish registration on a
+    student we placed in a French group was never mentioned: the course was in no set, so
+    it was not looked at. That was the gap this closes. Anything registered that is in no
+    set of the cohort, not on the cohort's allowed list, and not approved for this student
+    is an *outside* verdict. The remedy is a decision — approve it on their record, or put
+    the course on the cohort's list — rather than a registration to key in, which is why
+    `registrationChanges` leaves it out of the registrar's worklist.
+
+    A row the pull returned with no course code is named by its CRN, so it is not lost in
+    a blank; it cannot be on anybody's allowed list, and is approved by that same name.
+    """
+    found: list[Mismatch] = []
+    for code, crns in sorted(registered.items()):
+        name = code or (crns[0] if crns else "")
+        if not name or code in ours or allows(allowed, name) or name in approved:
+            continue
+        found.append(Mismatch(student, term_id, term_code, name, "outside", [], sorted(crns)))
+    return found
+
+
+def _registration_changes(
+    before: dict[str, dict[str, str]], now: dict[str, dict[str, str]], term: str
+) -> list[dict[str, Any]]:
+    """History lines for the registrations a pull added or took away, per returned student.
+
+    A student the term had never seen gets no lines: their first pull is the baseline, not
+    a change to it.
+    """
+    changes: list[dict[str, Any]] = []
+    for student, crns in now.items():
+        was = before.get(student)
+        if was is None:
+            continue
+        for crn, code in crns.items():
+            if crn not in was:
+                changes.append(_registration_line(student, "registered", term, crn, code))
+        for crn, code in was.items():
+            if crn not in crns:
+                changes.append(_registration_line(student, "dropped", term, crn, code))
+    return changes
+
+
+def _registration_line(student: str, kind: str, term: str, crn: str, code: str) -> dict[str, Any]:
+    return {"studentId": student, "kind": kind, "detail": {"termCode": term, "crn": crn, "courseCode": code}}
 
 
 def _kind(kind: str) -> None:

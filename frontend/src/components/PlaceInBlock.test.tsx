@@ -14,7 +14,7 @@ const COHORT: database.Cohort = {
   term: "S1 2026-27",
   notes: "",
   majors: [], terms: [],
-  yearLevel: "", workbookTab: "", firstSemester: 0,
+  yearLevel: "", workbookTab: "", firstSemester: 0, allowedCodes: [],
   memberCount: 239,
   scopeCount: 3,
   createdAt: "",

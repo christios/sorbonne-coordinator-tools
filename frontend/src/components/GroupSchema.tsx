@@ -13,7 +13,6 @@ import { fieldHeld } from "@/services/rosterStore";
 import { COHORT, SCHEMA_TERM } from "@/services/remembered";
 import { labelsFrom, readSets, totalsOf, type SetReading } from "@/services/groupSchema";
 import {
-  type CatalogueCourse,
   type CatalogueGroup,
   type CatalogueMajor,
   type CatalogueScope,
@@ -34,7 +33,6 @@ import {
   updateMajor,
   updateScope,
 } from "@/services/studentDatabase";
-import { withStored } from "@/services/programmeOptions";
 import { fetchTimetableTerms } from "@/services/timetables";
 
 const KIND_WORDS: Record<ScopeKind, string> = {

@@ -39,6 +39,8 @@ def database() -> StudentDatabase:
 def empty_tables() -> None:
     with StudentDatabase(TEST_DATABASE_URL).engine.begin() as connection:
         for table in (
+            "student_history",
+            "course_approvals",
             "facility_meetings",
             "facility_sections",
             "facility_pulls",
@@ -866,7 +868,8 @@ def test_the_check_says_where_the_registrar_differs_from_our_groups(client: Test
                 # A001: right lecture, wrong tutorial section
                 {"studentId": "A001", "crn": "22151", "courseCode": "MATH-001"},
                 {"studentId": "A001", "crn": "23653", "courseCode": "MATH-011"},
-                # A002: lecture missing, tutorial right, plus a language course that is not ours
+                # A002: lecture missing, tutorial right, plus a course in no set of ours —
+                # which is now a verdict of its own rather than nobody's business
                 {"studentId": "A002", "crn": "23652", "courseCode": "MATH-011"},
                 {"studentId": "A002", "crn": "23302", "courseCode": "SCEN-101"},
                 # A003: in no group, yet registered in the lecture
@@ -882,8 +885,109 @@ def test_the_check_says_where_the_registrar_differs_from_our_groups(client: Test
     ) == [
         ("A001", "MATH-011", "wrong", ("23652",), ("23653",)),
         ("A002", "MATH-001", "missing", ("22151",), ()),
+        ("A002", "SCEN-101", "outside", (), ("23302",)),
         ("A003", "MATH-001", "unplaced", (), ("22151",)),
     ]
+
+
+def test_an_elective_outside_our_groups_warns_until_it_is_allowed_or_approved(
+    client: TestClient, database: StudentDatabase
+):
+    """Emile's Spanish: registered in a course of no set of ours while placed in a French group.
+
+    It never entered the check, because the check only judged the courses of our sets.
+    Now it is an *outside* verdict, and two decisions make it go away: the cohort says the
+    course is always allowed (sport, a language taught elsewhere), or a coordinator approves
+    it for this one student. Both are reversible, and both are checked here both ways.
+    """
+    cohort_id = build_cohort(database)
+    client.put(f"{BASE}/term-links/{HUB_TERM}", json={"portalTermCode": TERM})
+    registrations(
+        client,
+        [
+            {"studentId": "A001", "crn": "22151", "courseCode": "MATH-001"},
+            {"studentId": "A001", "crn": "23652", "courseCode": "MATH-011"},
+            {"studentId": "A001", "crn": "23900", "courseCode": "SPAN-101"},
+            {"studentId": "A002", "crn": "22151", "courseCode": "MATH-001"},
+            {"studentId": "A002", "crn": "23652", "courseCode": "MATH-011"},
+        ],
+    )
+
+    def verdicts() -> list[tuple[str, str, str]]:
+        found = client.get(f"{BASE}/cohorts/{cohort_id}/registration-check").json()["mismatches"]
+        return sorted((m["studentId"], m["courseCode"], m["kind"]) for m in found)
+
+    assert verdicts() == [("A001", "SPAN-101", "outside")]
+
+    # The cohort's allowed list: a subject covers every course of it; another subject does not.
+    def allow(codes: list[str]) -> None:
+        response = client.patch(
+            f"/api/v1/student-database/cohorts/{cohort_id}", json={"name": "Foundation Year", "allowedCodes": codes}
+        )
+        assert response.status_code == status.HTTP_200_OK, response.text
+        assert response.json()["allowedCodes"] == codes
+
+    allow(["SPRT"])
+    assert verdicts() == [("A001", "SPAN-101", "outside")]
+    allow(["SPRT", "SPAN"])
+    assert verdicts() == []
+    allow(["SPAN-102"])
+    assert verdicts() == [("A001", "SPAN-101", "outside")]
+    allow([])
+
+    # One student's approval, signed, and undone.
+    saved = client.put(f"/api/v1/student-database/students/A001/approvals/{TERM}/SPAN-101", json={"note": "Minor"})
+    assert saved.status_code == status.HTTP_200_OK, saved.text
+    assert saved.json()["courseCode"] == "SPAN-101"
+    assert verdicts() == []
+    listed = client.get("/api/v1/student-database/students/A001/approvals").json()["approvals"]
+    assert [(entry["termCode"], entry["courseCode"], entry["note"]) for entry in listed] == [
+        (TERM, "SPAN-101", "Minor")
+    ]
+    # A002 has no such approval and no such registration; nothing about them moved.
+    gone = client.delete(f"/api/v1/student-database/students/A001/approvals/{TERM}/SPAN-101")
+    assert gone.status_code == status.HTTP_204_NO_CONTENT
+    assert verdicts() == [("A001", "SPAN-101", "outside")]
+
+
+def test_a_pull_that_changes_a_students_registrations_is_written_to_their_history(
+    client: TestClient, database: StudentDatabase
+):
+    """What appeared and what went, per pull — for students in our cohorts, and never on the
+    first pull of a student, which is a baseline rather than a change."""
+    build_cohort(database)
+    made = make_filter(client, "registrations")
+
+    def pull(rows: list[dict[str, str]]) -> None:
+        client.post(f"{BASE}/filters/{made['id']}/sync/registrations", json={"termCode": TERM, "rows": rows})
+
+    pull([{"studentId": "A001", "crn": "22151", "courseCode": "MATH-001"}])
+
+    def history(student: str) -> list[tuple[str, str]]:
+        entries = client.get(f"/api/v1/student-database/students/{student}/history").json()["entries"]
+        moves = ("registered", "dropped")
+        return [(entry["kind"], entry["detail"]["crn"]) for entry in entries if entry["kind"] in moves]
+
+    assert history("A001") == []
+
+    pull(
+        [
+            {"studentId": "A001", "crn": "22151", "courseCode": "MATH-001"},
+            {"studentId": "A001", "crn": "23653", "courseCode": "MATH-011"},
+            # A student in no cohort: not ours to keep a history of.
+            {"studentId": "A999", "crn": "22151", "courseCode": "MATH-001"},
+        ],
+    )
+    assert history("A001") == [("registered", "23653")]
+    pull([{"studentId": "A001", "crn": "23653", "courseCode": "MATH-011"}])
+    assert history("A001") == [("dropped", "22151"), ("registered", "23653")]
+    pull(
+        [
+            {"studentId": "A001", "crn": "23653", "courseCode": "MATH-011"},
+            {"studentId": "A999", "crn": "23653", "courseCode": "MATH-011"},
+        ],
+    )
+    assert history("A999") == []
 
 
 def test_a_course_taught_twice_over_expects_both_of_its_sections(client: TestClient, database: StudentDatabase):

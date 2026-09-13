@@ -41,6 +41,11 @@ def empty_shared_tables() -> None:
         # A thread is keyed on the student id, which the tests reuse; a line one test wrote
         # would read as the next test's.
         connection.execute(text("DELETE FROM student_comments"))
+        connection.execute(text("DELETE FROM student_history"))
+        connection.execute(text("DELETE FROM course_approvals"))
+        # The tests reuse three student ids across cohorts they never delete; a placement
+        # one test left behind would be "the groups the move cost" in the next one's history.
+        connection.execute(text("DELETE FROM group_assignments"))
         connection.execute(text("DELETE FROM students"))
 
 
@@ -1364,3 +1369,83 @@ def test_a_comment_is_signed_with_the_name_settings_gives_its_author(
     del names["coordinator@sorbonne.ae"]
     listed = client.get("/api/v1/student-database/students/A001/comments").json()["comments"]
     assert listed[0]["authorName"] == "Christian Cayralat"
+
+
+# ------------------------------------------------------ the student's history
+
+
+def history_of(client: TestClient, student_id: str) -> list[tuple[str, dict]]:
+    entries = client.get(f"/api/v1/student-database/students/{student_id}/history").json()["entries"]
+    # Oldest first, the way the story reads; the route gives newest first, the way a card does.
+    return [(entry["kind"], entry["detail"]) for entry in reversed(entries)]
+
+
+def test_a_cohort_move_and_every_placement_are_written_to_the_students_history(
+    client: TestClient, cohort_id: str, view_id: str
+):
+    """Every cohort move, every placement and removal, on the server, with the set and the
+    group named — so the History card reads the same on every coordinator's browser."""
+    scope_id, group_id = block_with_a_group(client, cohort_id)
+    in_cohort(client, view_id, cohort_id, STUDENTS[:1])
+    place(client, scope_id, STUDENTS[:1], group_id)
+    # Placing them where they already are is not a change, and writes nothing.
+    place(client, scope_id, STUDENTS[:1], group_id)
+
+    told = history_of(client, STUDENTS[0])
+    assert [kind for kind, _ in told] == ["cohort", "placed"]
+    assert told[0][1] == {"from": "", "to": "Foundation Year"}
+    assert told[1][1]["scopeCode"] == "TD"
+    assert told[1][1]["to"] and told[1][1]["from"] == ""
+
+    other = client.post("/api/v1/student-database/cohorts", json={"name": "L2"}).json()["id"]
+    assert move(client, STUDENTS[:1], other).status_code == status.HTTP_200_OK
+
+    told = history_of(client, STUDENTS[0])
+    assert [kind for kind, _ in told] == ["cohort", "placed", "removed", "cohort"]
+    # The move cost them the group, and the line says which one.
+    assert told[2][1]["scopeCode"] == "TD" and told[2][1]["to"] == ""
+    assert told[3][1] == {"from": "Foundation Year", "to": "L2"}
+
+
+def test_taking_somebody_out_of_a_group_is_a_removal_in_their_history(
+    client: TestClient, cohort_id: str, view_id: str
+):
+    scope_id, group_id = block_with_a_group(client, cohort_id)
+    in_cohort(client, view_id, cohort_id, STUDENTS[:2])
+    place(client, scope_id, STUDENTS[:2], group_id)
+    place(client, scope_id, STUDENTS[:1], None)
+
+    assert [kind for kind, _ in history_of(client, STUDENTS[0])] == ["cohort", "placed", "removed"]
+    assert [kind for kind, _ in history_of(client, STUDENTS[1])] == ["cohort", "placed"]
+
+
+def test_an_approval_is_signed_and_its_making_and_unmaking_are_in_the_history(
+    client: TestClient, cohort_id: str, view_id: str
+):
+    in_cohort(client, view_id, cohort_id, STUDENTS[:1])
+    student = f"/api/v1/student-database/students/{STUDENTS[0]}"
+    saved = client.put(f"{student}/approvals/262710/span-101", json={"note": "Minor"})
+    assert saved.status_code == status.HTTP_200_OK, saved.text
+    # Upper-cased the way the portal writes codes, whatever was typed.
+    assert saved.json()["courseCode"] == "SPAN-101"
+    assert saved.json()["approvedBy"] and saved.json()["approvedAt"]
+
+    client.delete(f"{student}/approvals/262710/SPAN-101")
+    assert client.get(f"{student}/approvals").json()["approvals"] == []
+    told = history_of(client, STUDENTS[0])
+    assert [kind for kind, _ in told][1:] == ["approved", "unapproved"]
+    assert told[1][1] == {"courseCode": "SPAN-101", "termCode": "262710"}
+    # Every line a coordinator made is signed by them.
+    assert all(entry["author"] for entry in client.get(f"{student}/history").json()["entries"])
+
+
+def test_a_cohort_keeps_the_courses_it_always_allows_outside_its_groups(client: TestClient):
+    made = client.post(
+        "/api/v1/student-database/cohorts", json={"name": "L1", "allowedCodes": ["sprt", "ENGL-101", "SPRT", " "]}
+    )
+    assert made.status_code == status.HTTP_201_CREATED, made.text
+    # Upper-cased, each once, blanks dropped.
+    assert made.json()["allowedCodes"] == ["SPRT", "ENGL-101"]
+    listed = client.get("/api/v1/student-database/cohorts").json()["cohorts"]
+    mine = next(cohort for cohort in listed if cohort["id"] == made.json()["id"])
+    assert mine["allowedCodes"] == ["SPRT", "ENGL-101"]

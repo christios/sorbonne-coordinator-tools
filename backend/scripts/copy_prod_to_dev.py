@@ -597,6 +597,8 @@ def _copy_cohorts(write, cohorts: list[dict[str, Any]]) -> dict[str, str]:
                 # that workbook gives its first semester. Nothing carries them but this.
                 "workbookTab": cohort.get("workbookTab", ""),
                 "firstSemester": cohort.get("firstSemester", 0),
+                # What the cohort always allows outside its groups — sport, a language.
+                "allowedCodes": cohort.get("allowedCodes", []),
             },
         )["id"]
         for cohort in cohorts

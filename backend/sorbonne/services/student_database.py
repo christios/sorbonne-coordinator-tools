@@ -163,6 +163,24 @@ def _codes(values: list[str] | None) -> list[str]:
     return list(seen)
 
 
+def _course_codes(values: list[str] | None) -> list[str]:
+    """Course codes and subject prefixes as the portal writes them: upper-case, each once."""
+    return _codes([_text(value).upper() for value in values or []])
+
+
+def allows(allowed: list[str], course_code: str) -> bool:
+    """Whether a cohort's allowed list covers this course.
+
+    An entry is a whole code ("SPRT-101") or a subject ("SPRT", which covers every SPRT
+    course). Written once here so the register and the pages read the list the same way.
+    """
+    code = _text(course_code).upper()
+    if not code:
+        return False
+    subject = code.split("-", 1)[0]
+    return any(entry in (code, subject) for entry in allowed)
+
+
 _PLACE = """INSERT INTO group_assignments
                 (cohort_id, student_id, scope_id, group_id, major_id, updated_at, updated_by)
             VALUES (:cohort, :student, :scope, :group, :major, :updated_at, :actor)
@@ -223,13 +241,15 @@ class StudentDatabase:
         majors: list[str] | None = None,
         terms: list[str] | None = None,
         year_level: str = "",
+        allowed_codes: list[str] | None = None,
     ) -> dict[str, Any]:
         cohort_id, now = str(uuid4()), _now()
         with self.engine.begin() as connection:
             connection.execute(
                 text("""INSERT INTO student_cohorts
-                            (id, name, term, notes, major_codes, term_codes, year_level, created_at, updated_at)
-                        VALUES (:id, :name, :term, :notes, :majors, :terms, :year_level, :now, :now)"""),
+                            (id, name, term, notes, major_codes, term_codes, year_level, allowed_codes,
+                             created_at, updated_at)
+                        VALUES (:id, :name, :term, :notes, :majors, :terms, :year_level, :allowed, :now, :now)"""),
                 {
                     "id": cohort_id,
                     "name": _text(name),
@@ -238,6 +258,7 @@ class StudentDatabase:
                     "majors": json.dumps(_codes(majors)),
                     "terms": json.dumps(_codes(terms)),
                     "year_level": _text(year_level),
+                    "allowed": json.dumps(_course_codes(allowed_codes)),
                     "now": now,
                 },
             )
@@ -255,13 +276,14 @@ class StudentDatabase:
         year_level: str = "",
         workbook_tab: str = "",
         first_semester: int = 0,
+        allowed_codes: list[str] | None = None,
     ) -> dict[str, Any]:
         with self.engine.begin() as connection:
             updated = connection.execute(
                 text("""UPDATE student_cohorts SET name = :name, term = :term, notes = :notes,
                             major_codes = :majors, term_codes = :terms, year_level = :year_level,
                             workbook_tab = :workbook_tab, first_semester = :first_semester,
-                            updated_at = :now WHERE id = :id"""),
+                            allowed_codes = :allowed, updated_at = :now WHERE id = :id"""),
                 {
                     "id": cohort_id,
                     "name": _text(name),
@@ -272,6 +294,7 @@ class StudentDatabase:
                     "year_level": _text(year_level),
                     "workbook_tab": _text(workbook_tab),
                     "first_semester": max(0, int(first_semester or 0)),
+                    "allowed": json.dumps(_course_codes(allowed_codes)),
                     "now": _now(),
                 },
             )
@@ -507,7 +530,9 @@ class StudentDatabase:
             rows = connection.execute(text(query), parameters).mappings().all()
         return [_student(row, row["groups"] or []) for row in rows]
 
-    def set_cohort(self, student_ids: list[str], cohort_id: str | None, keep_shared: bool = False) -> int:
+    def set_cohort(
+        self, student_ids: list[str], cohort_id: str | None, keep_shared: bool = False, *, actor: str = ""
+    ) -> int:
         """Put students in a cohort, or take them out of one when `cohort_id` is None.
 
         Leaving a cohort drops any group the student held in it: those groups belong to
@@ -541,6 +566,22 @@ class StudentDatabase:
             # The languages are the university's sets, not the leaving cohort's, so they
             # are the one thing a move may keep.
             spare_shared = " AND NOT s.open_to_all" if keep_shared else ""
+            # For the history: where each of them was, and which groups the move costs.
+            names = {row[0]: row[1] for row in connection.execute(text("SELECT id, name FROM student_cohorts"))}
+            before = {
+                row[0]: row[1] or ""
+                for row in connection.execute(
+                    text("SELECT student_id, cohort_id FROM students WHERE student_id = ANY(:ids)"), {"ids": wanted}
+                )
+            }
+            lost = connection.execute(
+                text(
+                    "SELECT a.student_id, s.code, g.label FROM group_assignments a "
+                    "JOIN cohort_scopes s ON s.id = a.scope_id JOIN scope_groups g ON g.id = a.group_id "
+                    "WHERE a.student_id = ANY(:ids) AND a.cohort_id <> COALESCE(:cohort_id, '')" + spare_shared  # noqa: S608
+                ),
+                {"ids": wanted, "cohort_id": cohort_id},
+            ).all()
             connection.execute(
                 text(
                     "DELETE FROM group_assignments a USING cohort_scopes s "
@@ -575,6 +616,20 @@ class StudentDatabase:
                         WHERE student_id = ANY(:ids)"""),
                 {"ids": wanted, "cohort_id": cohort_id, "now": now},
             ).rowcount
+            lines: list[dict[str, Any]] = [
+                {"studentId": student, "kind": "removed", "detail": {"scopeCode": code, "from": label, "to": ""}}
+                for student, code, label in lost
+            ]
+            lines.extend(
+                {
+                    "studentId": student,
+                    "kind": "cohort",
+                    "detail": {"from": names.get(before[student], ""), "to": names.get(cohort_id or "", "")},
+                }
+                for student in wanted
+                if student in before and before[student] != (cohort_id or "")
+            )
+            self._record(connection, lines, actor=actor)
             if cohort_id is not None:
                 self._touch(connection, cohort_id)
         return moved
@@ -809,6 +864,8 @@ class StudentDatabase:
         """
         with self.engine.begin() as connection:
             cohort_id = self._cohort_of_scope(connection, scope_id)
+            before = self._held_in_scope(connection, scope_id, [student_id])
+            major = self._major_of(connection, group_id, major_id)
             if group_id is None:
                 connection.execute(
                     text("""DELETE FROM group_assignments
@@ -828,11 +885,16 @@ class StudentDatabase:
                         "student": student_id,
                         "scope": scope_id,
                         "group": group_id,
-                        "major": self._major_of(connection, group_id, major_id),
+                        "major": major,
                         "updated_at": _now(),
                         "actor": _text(actor),
                     },
                 )
+            self._record(
+                connection,
+                self._placement_lines(connection, scope_id, before, {student_id: (group_id, major)}),
+                actor=actor,
+            )
             self._touch(connection, cohort_id)
 
     def assign_many(  # noqa: PLR0913 - one keyword per thing a placement says
@@ -866,6 +928,8 @@ class StudentDatabase:
             held = self._placeable(connection, scope_id, cohort_id)
             wanted = [student for student in dict.fromkeys(student_ids) if student in held]
             skipped = sorted({student for student in student_ids if student not in held})
+            before = self._held_in_scope(connection, scope_id, wanted)
+            after: dict[str, tuple[str | None, str]] = {}
 
             if wanted and group_id is None:
                 connection.execute(
@@ -873,10 +937,15 @@ class StudentDatabase:
                             WHERE scope_id = :scope AND student_id = ANY(:students)"""),
                     {"scope": scope_id, "students": wanted},
                 )
+                after = {student: (None, "") for student in wanted}
             elif wanted:
                 now = _now()
                 mine = self._cohorts_of(connection, wanted)
                 # The sub-row each takes: named per student, else the one for all, else none.
+                after = {
+                    student: (group_id, self._major_of(connection, group_id, (majors or {}).get(student, major_id)))
+                    for student in wanted
+                }
                 connection.execute(
                     text(_PLACE),
                     [
@@ -885,13 +954,14 @@ class StudentDatabase:
                             "student": student,
                             "scope": scope_id,
                             "group": group_id,
-                            "major": self._major_of(connection, group_id, (majors or {}).get(student, major_id)),
+                            "major": after[student][1],
                             "updated_at": now,
                             "actor": _text(actor),
                         }
                         for student in wanted
                     ],
                 )
+            self._record(connection, self._placement_lines(connection, scope_id, before, after), actor=actor)
             self._touch(connection, cohort_id)
 
         return {"assigned": len(wanted), "skipped": skipped}
@@ -953,7 +1023,10 @@ class StudentDatabase:
                         }
                     )
             if rows:
+                before = self._held_in_scope(connection, scope_id, [row["student"] for row in rows])
                 connection.execute(text(_PLACE), rows)
+                after = {row["student"]: (row["group"], row["major"]) for row in rows}
+                self._record(connection, self._placement_lines(connection, scope_id, before, after), actor=actor)
             self._touch(connection, cohort_id)
 
         return {"assigned": len(rows), "skipped": sorted(skipped)}
@@ -1172,6 +1245,8 @@ class StudentDatabase:
             for operation in sorted(operations, key=lambda item: _WORKBOOK_ORDER.get(item.get("op", ""), 9)):
                 kind = operation.get("op")
                 if kind == "place":
+                    scope_id = self._scope_of_group(connection, operation["groupId"])
+                    before = self._held_in_scope(connection, scope_id, [operation["studentId"]])
                     connection.execute(
                         text("""INSERT INTO group_assignments
                                     (cohort_id, student_id, scope_id, group_id, updated_at, updated_by)
@@ -1183,11 +1258,18 @@ class StudentDatabase:
                         {
                             "cohort": cohort_id,
                             "student": operation["studentId"],
-                            "scope": self._scope_of_group(connection, operation["groupId"]),
+                            "scope": scope_id,
                             "group": operation["groupId"],
                             "at": now,
                             "actor": _text(actor),
                         },
+                    )
+                    self._record(
+                        connection,
+                        self._placement_lines(
+                            connection, scope_id, before, {operation["studentId"]: (operation["groupId"], "")}
+                        ),
+                        actor=actor,
                     )
                     applied["placements"] += 1
                     continue
@@ -2217,6 +2299,235 @@ class StudentDatabase:
             raise ScopeNotFound(scope_id)
         return row[0]
 
+    # -------------------------------------------------------------- history
+
+    def _record(self, connection: Connection, entries: list[dict[str, Any]], *, actor: str = "") -> None:
+        """Write what just happened to these students, one line each, signed and dated.
+
+        Called inside the transaction that did the thing, so a placement that is rolled
+        back leaves no line saying it happened.
+        """
+        if not entries:
+            return
+        now = _now()
+        connection.execute(
+            text("""INSERT INTO student_history (id, student_id, kind, detail, author, happened_at)
+                    VALUES (:id, :student, :kind, :detail, :author, :at)"""),
+            [
+                {
+                    "id": str(uuid4()),
+                    "student": _text(entry["studentId"]),
+                    "kind": entry["kind"],
+                    "detail": json.dumps(entry.get("detail", {})),
+                    "author": _text(actor),
+                    "at": now,
+                }
+                for entry in entries
+            ],
+        )
+
+    def _placement_facts(self, connection: Connection, scope_id: str) -> tuple[str, dict[str, str], dict[str, str]]:
+        """The set's code, its groups' labels, and its sub-rows' programmes — for the lines."""
+        scope_code = connection.execute(
+            text("SELECT code FROM cohort_scopes WHERE id = :id"), {"id": scope_id}
+        ).scalar()
+        labels = {
+            row[0]: row[1]
+            for row in connection.execute(
+                text("SELECT id, label FROM scope_groups WHERE scope_id = :scope"), {"scope": scope_id}
+            )
+        }
+        programs = {
+            row[0]: row[1]
+            for row in connection.execute(
+                text("""SELECT m.id, m.program FROM group_majors m
+                        JOIN scope_groups g ON g.id = m.group_id WHERE g.scope_id = :scope"""),
+                {"scope": scope_id},
+            )
+        }
+        return str(scope_code or ""), labels, programs
+
+    def _held_in_scope(
+        self, connection: Connection, scope_id: str, student_ids: list[str]
+    ) -> dict[str, tuple[str, str]]:
+        """`student -> (group, sub-row)` for what they hold in this set before a write."""
+        if not student_ids:
+            return {}
+        return {
+            row[0]: (row[1], row[2] or "")
+            for row in connection.execute(
+                text("""SELECT student_id, group_id, major_id FROM group_assignments
+                        WHERE scope_id = :scope AND student_id = ANY(:ids)"""),
+                {"scope": scope_id, "ids": student_ids},
+            )
+        }
+
+    def _placement_lines(  # noqa: PLR0913 - one argument per part of the line
+        self,
+        connection: Connection,
+        scope_id: str,
+        before: dict[str, tuple[str, str]],
+        after: dict[str, tuple[str | None, str]],
+    ) -> list[dict[str, Any]]:
+        """One `placed` or `removed` line per student whose group in this set changed.
+
+        Re-saving somebody into the group they already hold is not a change and gets no
+        line: the history says what happened, not what was pressed.
+        """
+        scope_code, labels, programs = self._placement_facts(connection, scope_id)
+        lines: list[dict[str, Any]] = []
+        for student, (group_id, major_id) in after.items():
+            old = before.get(student)
+            if old == (group_id, major_id) or (old is None and group_id is None):
+                continue
+            detail = {
+                "scopeCode": scope_code,
+                "from": labels.get(old[0], "") if old else "",
+                "fromProgram": programs.get(old[1], "") if old else "",
+                "to": labels.get(group_id or "", ""),
+                "program": programs.get(major_id, ""),
+            }
+            lines.append({"studentId": student, "kind": "placed" if group_id else "removed", "detail": detail})
+        return lines
+
+    def history_of(self, student_id: str) -> list[dict[str, Any]]:
+        """Everything the server has seen happen to one student, newest first."""
+        with self.engine.connect() as connection:
+            rows = (
+                connection.execute(
+                    text("""SELECT id, kind, detail, author, happened_at FROM student_history
+                            WHERE student_id = :student ORDER BY happened_at DESC, seq DESC"""),
+                    {"student": _text(student_id)},
+                )
+                .mappings()
+                .all()
+            )
+        return [
+            {
+                "id": row["id"],
+                "kind": row["kind"],
+                "detail": json.loads(row["detail"] or "{}"),
+                "author": row["author"],
+                "at": row["happened_at"],
+            }
+            for row in rows
+        ]
+
+    def record_registration_changes(self, changes: list[dict[str, Any]]) -> int:
+        """Lines for registrations that appeared or disappeared, for students in our cohorts.
+
+        The registrations pull is the portal's, so nobody signs these. Students in no
+        cohort are not ours to keep a history of, and are left out here rather than at
+        every caller.
+        """
+        if not changes:
+            return 0
+        with self.engine.begin() as connection:
+            ours = {
+                row[0]
+                for row in connection.execute(
+                    text("SELECT student_id FROM students WHERE cohort_id IS NOT NULL AND student_id = ANY(:ids)"),
+                    {"ids": sorted({_text(change["studentId"]) for change in changes})},
+                )
+            }
+            kept = [change for change in changes if _text(change["studentId"]) in ours]
+            self._record(connection, kept)
+        return len(kept)
+
+    # ------------------------------------------------------------ approvals
+
+    def approvals_for(self, term_code: str) -> dict[str, set[str]]:
+        """`{student id: {course code}}` — the electives a coordinator has approved, one term."""
+        with self.engine.connect() as connection:
+            rows = connection.execute(
+                text("SELECT student_id, course_code FROM course_approvals WHERE term_code = :t"),
+                {"t": _text(term_code)},
+            ).all()
+        found: dict[str, set[str]] = {}
+        for student, code in rows:
+            found.setdefault(student, set()).add(code)
+        return found
+
+    def approvals_of(self, student_id: str) -> list[dict[str, Any]]:
+        with self.engine.connect() as connection:
+            rows = (
+                connection.execute(
+                    text("""SELECT * FROM course_approvals WHERE student_id = :student
+                            ORDER BY term_code DESC, course_code"""),
+                    {"student": _text(student_id)},
+                )
+                .mappings()
+                .all()
+            )
+        return [_approval(row) for row in rows]
+
+    def set_approval(
+        self, *, student_id: str, term_code: str, course_code: str, note: str = "", actor: str = ""
+    ) -> dict[str, Any]:
+        """This student may take this course outside our groups, this term.
+
+        A decision on the server, signed: the register stops warning about it for everybody
+        who looks, and the next coordinator can see whose call it was.
+        """
+        row = {
+            "student": _text(student_id),
+            "term": _text(term_code),
+            "code": _text(course_code).upper(),
+            "note": _text(note),
+            "by": _text(actor),
+            "now": _now(),
+        }
+        if not (row["student"] and row["term"] and row["code"]):
+            raise ValueError("An approval names a student, a term and a course.")
+        with self.engine.begin() as connection:
+            connection.execute(
+                text("""INSERT INTO course_approvals
+                            (student_id, term_code, course_code, note, approved_by, approved_at)
+                        VALUES (:student, :term, :code, :note, :by, :now)
+                        ON CONFLICT (student_id, term_code, course_code)
+                        DO UPDATE SET note = :note, approved_by = :by, approved_at = :now"""),
+                row,
+            )
+            self._record(
+                connection,
+                [
+                    {
+                        "studentId": row["student"],
+                        "kind": "approved",
+                        "detail": {"courseCode": row["code"], "termCode": row["term"]},
+                    }
+                ],
+                actor=actor,
+            )
+        return {
+            "studentId": row["student"],
+            "termCode": row["term"],
+            "courseCode": row["code"],
+            "note": row["note"],
+            "approvedBy": row["by"],
+            "approvedAt": row["now"],
+        }
+
+    def clear_approval(self, *, student_id: str, term_code: str, course_code: str, actor: str = "") -> None:
+        with self.engine.begin() as connection:
+            gone = connection.execute(
+                text("""DELETE FROM course_approvals
+                        WHERE student_id = :student AND term_code = :term AND course_code = :code"""),
+                {"student": _text(student_id), "term": _text(term_code), "code": _text(course_code).upper()},
+            ).rowcount
+            if gone:
+                self._record(
+                    connection,
+                    [
+                        {
+                            "studentId": _text(student_id),
+                            "kind": "unapproved",
+                            "detail": {"courseCode": _text(course_code).upper(), "termCode": _text(term_code)},
+                        }
+                    ],
+                    actor=actor,
+                )
+
     def _touch(self, connection: Connection, cohort_id: str) -> None:
         connection.execute(
             text("UPDATE student_cohorts SET updated_at = :now WHERE id = :id"),
@@ -2410,10 +2721,25 @@ def _cohort(row) -> dict[str, Any]:
         # the degree. Empty means "work it out from the name", which is what we did before.
         "workbookTab": row["workbook_tab"] or "",
         "firstSemester": row["first_semester"] or 0,
+        # What is always allowed outside our groups — sport, a language taught elsewhere —
+        # as course codes ("SPRT-101") or subject prefixes ("SPRT"). Everything else a
+        # student is registered in that is in no group of theirs is an *outside* verdict.
+        "allowedCodes": json.loads(row["allowed_codes"] or "[]"),
         "memberCount": row["member_count"],
         "scopeCount": row["scope_count"],
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],
+    }
+
+
+def _approval(row) -> dict[str, Any]:
+    return {
+        "studentId": row["student_id"],
+        "termCode": row["term_code"],
+        "courseCode": row["course_code"],
+        "note": row["note"] or "",
+        "approvedBy": row["approved_by"] or "",
+        "approvedAt": row["approved_at"],
     }
 
 

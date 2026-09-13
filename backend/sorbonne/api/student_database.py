@@ -61,6 +61,9 @@ class CohortInput(BaseModel):
     # number that workbook gives its first semester, which for Licence 2 is 3.
     workbookTab: str = Field(default="", max_length=24)
     firstSemester: int = Field(default=0, ge=0, le=12)
+    # What is always allowed outside our groups — "SPRT", "ENGL-101" — beyond which a
+    # registration in no group of the student's is an *outside* verdict.
+    allowedCodes: list[str] = Field(default_factory=list, max_length=100)
 
 
 class MoveInput(BaseModel):
@@ -218,6 +221,7 @@ async def create_cohort(body: CohortInput, database: StudentDatabase = Depends(g
         majors=body.majors,
         terms=body.terms,
         year_level=body.yearLevel,
+        allowed_codes=body.allowedCodes,
     )
 
 
@@ -236,6 +240,7 @@ async def update_cohort(
             year_level=body.yearLevel,
             workbook_tab=body.workbookTab,
             first_semester=body.firstSemester,
+            allowed_codes=body.allowedCodes,
         )
     except CohortNotFound as exc:
         raise _missing(exc, "cohort") from exc
@@ -334,9 +339,13 @@ async def sync_view(view_id: str, body: SyncInput, database: StudentDatabase = D
 
 
 @router.post("/students/cohort")
-async def set_cohort(body: CohortAssignment, database: StudentDatabase = Depends(get_database)) -> dict[str, int]:
+async def set_cohort(
+    body: CohortAssignment, request: Request, database: StudentDatabase = Depends(get_database)
+) -> dict[str, int]:
+    staff = getattr(request.state, "staff_user", None)
+    actor = getattr(staff, "email", "") or ""
     try:
-        return {"moved": database.set_cohort(body.student_ids, body.cohort_id, body.keep_shared)}
+        return {"moved": database.set_cohort(body.student_ids, body.cohort_id, body.keep_shared, actor=actor)}
     except CohortNotFound as exc:
         raise _missing(exc, "cohort") from exc
 
@@ -901,6 +910,72 @@ async def clear_exemption(
     student_id: str, course_id: str, database: StudentDatabase = Depends(get_database)
 ) -> None:
     database.clear_exemption(student_id=student_id, course_id=course_id)
+
+
+class ApprovalInput(BaseModel):
+    note: str = Field(default="", max_length=400)
+
+
+def _signed(request: Request) -> tuple[str, str]:
+    """Who is signed in: their email, and the name Settings gives them."""
+    staff = getattr(request.state, "staff_user", None)
+    email = getattr(staff, "email", "") or ""
+    return email, coordinator_directory.name_for(email, getattr(staff, "name", "") or "") if email else ""
+
+
+@router.get("/students/{student_id}/approvals")
+async def list_approvals(student_id: str, database: StudentDatabase = Depends(get_database)) -> dict[str, Any]:
+    """The electives a coordinator has approved for this student, by portal term."""
+    return {"approvals": [_named(entry, "approvedBy") for entry in database.approvals_of(student_id)]}
+
+
+@router.put("/students/{student_id}/approvals/{term_code}/{course_code}")
+async def set_approval(  # noqa: PLR0913 - the path names the approval, the body its note
+    student_id: str,
+    term_code: str,
+    course_code: str,
+    body: ApprovalInput,
+    request: Request,
+    database: StudentDatabase = Depends(get_database),
+) -> dict[str, Any]:
+    """This student may take this course outside our groups, this term.
+
+    A decision on the server, signed by whoever made it: the register stops warning about
+    it for everybody who looks, and the History card says whose call it was.
+    """
+    email, _name = _signed(request)
+    try:
+        saved = database.set_approval(
+            student_id=student_id, term_code=term_code, course_code=course_code, note=body.note, actor=email
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    return _named(saved, "approvedBy")
+
+
+@router.delete("/students/{student_id}/approvals/{term_code}/{course_code}", status_code=status.HTTP_204_NO_CONTENT)
+async def clear_approval(
+    student_id: str,
+    term_code: str,
+    course_code: str,
+    request: Request,
+    database: StudentDatabase = Depends(get_database),
+) -> None:
+    email, _name = _signed(request)
+    database.clear_approval(student_id=student_id, term_code=term_code, course_code=course_code, actor=email)
+
+
+@router.get("/students/{student_id}/history")
+async def student_history(student_id: str, database: StudentDatabase = Depends(get_database)) -> dict[str, Any]:
+    """Everything the server has seen happen to one student: cohort moves, placements and
+    removals, registrations that appeared or went, approvals — newest first, each signed."""
+    return {"entries": [_named(entry, "author") for entry in database.history_of(student_id)]}
+
+
+def _named(entry: dict[str, Any], key: str) -> dict[str, Any]:
+    """The signer's name beside their email, from Settings — the email is what was stored."""
+    email = entry.get(key, "")
+    return {**entry, f"{key}Name": coordinator_directory.name_for(email, "") if email else ""}
 
 
 @router.put("/groups/{group_id}/courses/{course_id}")

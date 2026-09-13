@@ -26,6 +26,13 @@ export type Cohort = {
   /** The number that workbook gives this cohort's first semester: 3 for Licence 2. */
   firstSemester: number;
   yearLevel: string;
+  /**
+   * What is always allowed outside our groups — sport, a language taught by another
+   * department — as course codes ("ENGL-101") or subjects ("SPRT", every SPRT course).
+   * A registration in anything else that is in no group of the student's is an *outside*
+   * verdict of the register, until a coordinator approves it on their record.
+   */
+  allowedCodes: string[];
   memberCount: number;
   scopeCount: number;
   createdAt: string;
@@ -264,9 +271,32 @@ export type CohortInput = {
   yearLevel?: string;
   workbookTab?: string;
   firstSemester?: number;
+  allowedCodes?: string[];
 };
 
-const COHORT_DEFAULTS = { term: "", notes: "", majors: [], terms: [], yearLevel: "", workbookTab: "", firstSemester: 0 };
+const COHORT_DEFAULTS = {
+  term: "",
+  notes: "",
+  majors: [],
+  terms: [],
+  yearLevel: "",
+  workbookTab: "",
+  firstSemester: 0,
+  allowedCodes: [],
+};
+
+/**
+ * Whether a cohort's allowed list covers a course — the same reading the register makes.
+ *
+ * An entry is a whole code ("SPRT-101") or a subject ("SPRT", which covers every SPRT
+ * course).
+ */
+export function allows(allowed: string[], courseCode: string): boolean {
+  const code = courseCode.trim().toUpperCase();
+  if (!code) return false;
+  const subject = code.split("-", 1)[0];
+  return allowed.some((entry) => entry === code || entry === subject);
+}
 
 export function createCohort(input: CohortInput): Promise<Cohort> {
   return send<Cohort>(`${BASE}/cohorts`, "POST", { ...COHORT_DEFAULTS, ...input });
@@ -596,6 +626,90 @@ export type Exemption = {
   termId: string;
   reason: string;
 };
+
+/** One student's leave to take a course outside our groups, this term — signed and dated. */
+export type Approval = {
+  studentId: string;
+  termCode: string;
+  courseCode: string;
+  note: string;
+  approvedBy: string;
+  approvedByName: string;
+  approvedAt: string;
+};
+
+export async function fetchApprovals(studentId: string): Promise<Approval[]> {
+  const answer = await request<{ approvals: Approval[] }>(`${BASE}/students/${encodeURIComponent(studentId)}/approvals`);
+  return answer.approvals;
+}
+
+export function setApproval(studentId: string, termCode: string, courseCode: string, note = ""): Promise<Approval> {
+  return send<Approval>(
+    `${BASE}/students/${encodeURIComponent(studentId)}/approvals/${encodeURIComponent(termCode)}/${encodeURIComponent(courseCode)}`,
+    "PUT",
+    { note },
+  );
+}
+
+export function clearApproval(studentId: string, termCode: string, courseCode: string): Promise<void> {
+  return request<void>(
+    `${BASE}/students/${encodeURIComponent(studentId)}/approvals/${encodeURIComponent(termCode)}/${encodeURIComponent(courseCode)}`,
+    { method: "DELETE" },
+  );
+}
+
+/**
+ * One thing the server saw happen to a student: a cohort move, a placement or removal, a
+ * registration that appeared or went, an approval made or undone. Signed where a
+ * coordinator did it; unsigned where the registrar's pull did.
+ */
+export type HistoryLine = {
+  id: string;
+  kind: "cohort" | "placed" | "removed" | "registered" | "dropped" | "approved" | "unapproved";
+  detail: {
+    from?: string;
+    to?: string;
+    fromProgram?: string;
+    program?: string;
+    scopeCode?: string;
+    termCode?: string;
+    crn?: string;
+    courseCode?: string;
+  };
+  author: string;
+  authorName: string;
+  at: string;
+};
+
+export async function fetchStudentHistory(studentId: string): Promise<HistoryLine[]> {
+  const answer = await request<{ entries: HistoryLine[] }>(`${BASE}/students/${encodeURIComponent(studentId)}/history`);
+  return answer.entries;
+}
+
+/** The sentence a history line reads as, without its date or its signature. */
+export function describeHistory(line: HistoryLine): string {
+  const { detail } = line;
+  const group = (label?: string, program?: string) => [label, program ? `(${program})` : ""].filter(Boolean).join(" ");
+  switch (line.kind) {
+    case "cohort":
+      if (!detail.to) return `Left ${detail.from || "their cohort"}`;
+      return detail.from ? `Moved from ${detail.from} to ${detail.to}` : `Added to ${detail.to}`;
+    case "placed":
+      return detail.from
+        ? `${detail.scopeCode}: moved from ${group(detail.from, detail.fromProgram)} to ${group(detail.to, detail.program)}`
+        : `${detail.scopeCode}: placed in ${group(detail.to, detail.program)}`;
+    case "removed":
+      return `${detail.scopeCode}: taken out of ${group(detail.from, detail.fromProgram)}`;
+    case "registered":
+      return `Registered in ${detail.courseCode || "a course"} (${detail.crn})`;
+    case "dropped":
+      return `No longer registered in ${detail.courseCode || "a course"} (${detail.crn})`;
+    case "approved":
+      return `${detail.courseCode} approved outside the groups`;
+    case "unapproved":
+      return `Approval of ${detail.courseCode} withdrawn`;
+  }
+}
 
 export async function fetchExemptions(cohortId: string): Promise<Exemption[]> {
   const answer = await request<{ exemptions: Exemption[] }>(`${BASE}/cohorts/${encodeURIComponent(cohortId)}/exemptions`);

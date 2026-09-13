@@ -1,4 +1,5 @@
 import { useQueries, useQuery } from "@tanstack/react-query";
+import { AlertTriangle } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { CrnRecord } from "@/components/CrnRecord";
@@ -9,6 +10,7 @@ import { SessionChangeList } from "@/components/SessionChangeList";
 import { adjustmentsFor, fetchSessionChanges } from "@/services/sessionChanges";
 import { buildCards } from "@/services/courseCards";
 import { fetchActiveCourses, fetchActiveCrns, fetchActiveTeachers, fetchFacilityHours, fetchTermLinks, type ActiveCrn, type ActiveTeacher } from "@/services/portalLists";
+import { requisitionCheck } from "@/services/requisitionCheck";
 import { requisitionHours } from "@/services/requisitions";
 import type { ColumnSource } from "@/services/studentColumns";
 import { registrarHoursFor, sameTeacher, sectionsTaughtBy } from "@/services/teacherLoad";
@@ -108,6 +110,10 @@ export function TeacherRecord({
     }),
   });
   const contracted = requisitionHours(requisitions);
+  // The contract against the cards, both ways — only once every requisition has been read,
+  // or a course still loading would read as one the requisition never paid for.
+  const contractRead = Boolean(partTimeId) && !requisitionList.isLoading && !requisitionsLoading;
+  const contractWarnings = contractRead && requisitions.length ? requisitionCheck(sections, requisitions) : [];
 
   const live = sections.filter((section) => !section.retired);
   /*
@@ -241,6 +247,35 @@ export function TeacherRecord({
         </div>
       </div>
 
+
+      {/*
+        * The contract against the planning, both ways. A course on the cards the
+        * requisition does not pay for, a course paid for that the cards never give them,
+        * and hours that differ where both name the course. Said only for a part-time
+        * teacher with a requisition; the hours tiles above are the comparison for everyone.
+        */}
+      {contractRead && requisitions.length ? (
+        <section className="mt-5" aria-label="Requisition against planning">
+          <h4 className="text-sm font-semibold text-[#171717]">
+            Requisition against planning <SourceMark source="part-time" /> <SourceMark source="planning" />
+          </h4>
+          {contractWarnings.length === 0 ? (
+            <p className="mt-1 text-sm text-[#2f6b3d]">The requisition and the planning name the same courses for the same hours.</p>
+          ) : (
+            <ul className="mt-1.5 space-y-1" aria-label="Requisition warnings">
+              {contractWarnings.map((warning) => (
+                <li
+                  key={`${warning.kind}|${warning.courseCode}`}
+                  className="flex items-start gap-1.5 rounded-md border border-[#e8d9ac] bg-[#fdf9ee] px-2.5 py-1.5 text-xs text-[#8a6116]"
+                >
+                  <AlertTriangle size={12} className="mt-0.5 shrink-0" aria-hidden="true" />
+                  <span>{warning.text}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      ) : null}
 
       {/*
        * Who they are beside when they teach. The facts are nine short lines and the week
