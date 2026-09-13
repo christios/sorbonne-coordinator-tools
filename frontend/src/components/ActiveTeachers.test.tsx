@@ -24,13 +24,13 @@ beforeEach(() => {
       scopes: [
         {
           id: "s-cm", code: "CM", name: "Lectures", note: "", termId: "term-1", kind: "shared", parentScopeId: "", openToAll: false,
-          courses: [{ id: "c-econ", code: "ECON-101", name: "Economics", component: "CM", program: "", request: database.EMPTY_REQUEST }],
-          groups: [{ id: "g-a", label: "A", capacity: 0, note: "", program: "", parentGroupId: "", assigned: 20, crns: { "c-econ": { ...database.EMPTY_SECTION, crn: "22001", teacherId: "act-1" } } }],
+          courses: [{ id: "c-econ", code: "ECON-101", name: "Economics", component: "CM", request: database.EMPTY_REQUEST }],
+          groups: [{ id: "g-a", label: "A", capacity: 0, note: "", parentGroupId: "", assigned: 20, crns: { "c-econ": { ...database.EMPTY_SECTION, crn: "22001", teacherId: "act-1" } } }],
         },
         {
           id: "s-td", code: "TD", name: "Tutorials", note: "", termId: "term-1", kind: "shared", parentScopeId: "", openToAll: false,
-          courses: [{ id: "t-econ", code: "ECON-101", name: "Economics", component: "TD", program: "", request: database.EMPTY_REQUEST }],
-          groups: [{ id: "g-1", label: "1", capacity: 0, note: "", program: "", parentGroupId: "", assigned: 20, crns: { "t-econ": { ...database.EMPTY_SECTION, crn: "22002", teacher: "Ahlem Trabelsi" } } }],
+          courses: [{ id: "t-econ", code: "ECON-101", name: "Economics", component: "TD", request: database.EMPTY_REQUEST }],
+          groups: [{ id: "g-1", label: "1", capacity: 0, note: "", parentGroupId: "", assigned: 20, crns: { "t-econ": { ...database.EMPTY_SECTION, crn: "22002", teacher: "Ahlem Trabelsi" } } }],
         },
       ],
     },

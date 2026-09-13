@@ -38,8 +38,9 @@ const TD: database.CatalogueScope = {
   kind: "shared", parentScopeId: "", openToAll: false,
   courses: [],
   groups: [
-    { id: "td-1", label: "1", capacity: 2, note: "", program: "", parentGroupId: "", assigned: 1, crns: {} },
-    { id: "td-2", label: "2", capacity: 2, note: "", program: "Physics", parentGroupId: "", assigned: 0, crns: {} },
+    { id: "td-1", label: "1", capacity: 2, note: "", parentGroupId: "", assigned: 1, crns: {} },
+    // Group 2 holds a physics sub-row: physicists are seated on it first.
+    { id: "td-2", label: "2", capacity: 2, note: "", parentGroupId: "", assigned: 0, crns: {}, majors: [{ id: "m-phys", program: "Physics", seats: 0, assigned: 0 }] },
   ],
 };
 
@@ -78,19 +79,19 @@ describe("filling a block", () => {
 
     const list = await screen.findByLabelText("Who goes where");
     // Amira is Physics, and TD 2 prefers Physics: she goes there first. Bilal balances to TD 1's empty seat.
-    expect(within(list).getByText("Amira Haddad").closest("li")?.textContent).toContain("→ 2 · preferred");
+    expect(within(list).getByText("Amira Haddad").closest("li")?.textContent).toContain("→ 2");
     expect(within(list).getByText("Bilal Saleh").closest("li")?.textContent).toContain("→ 1");
     expect(database.placeStudents).not.toHaveBeenCalled();
 
     const sizes = screen.getByLabelText("Group sizes after the fill");
     expect(within(sizes).getAllByRole("row").map((row) => row.textContent)).toEqual([
-      "GroupNowAfterCapacityPrefers",
-      "1122",
-      "2012Physics",
+      "GroupNowAfterCapacityHolds",
+      "1122anyone",
+      "2012Physics ∞",
     ]);
 
     fireEvent.click(screen.getByText("Place 2"));
-    await waitFor(() => expect(database.placeStudents).toHaveBeenCalledWith("scope-td", { "td-2": ["A2"], "td-1": ["A3"] }));
+    await waitFor(() => expect(database.placeStudents).toHaveBeenCalledWith("scope-td", { "td-2": ["A2"], "td-1": ["A3"] }, { A2: "m-phys" }));
     expect(onFilled).toHaveBeenCalledWith({ assigned: 2, skipped: [], scopeCode: "TD", unplaced: 0 });
   });
 
@@ -148,7 +149,7 @@ describe("choosing who a fill acts on", () => {
     // Amira was going to TD 2 and is not asked for; Bilal is, and lands where the plan says.
     await waitFor(() => expect(within(screen.getByLabelText("Who goes where")).getAllByRole("listitem")).toHaveLength(1));
     fireEvent.click(screen.getByText("Place 1"));
-    await waitFor(() => expect(database.placeStudents).toHaveBeenCalledWith("scope-td", { "td-2": ["A3"] }));
+    await waitFor(() => expect(database.placeStudents).toHaveBeenCalledWith("scope-td", { "td-2": ["A3"] }, { A3: "m-phys" }));
   });
 
   it("says there is nobody to place rather than showing an empty plan", async () => {
@@ -207,8 +208,8 @@ describe("the fill and retired groups", () => {
     // The checkbox beside a retired section already promises it teaches nobody. Seating
     // the fill's overflow there is the one way somebody lands in a set that has stopped.
     withGroups([
-      { id: "td-1", label: "1", capacity: 1, note: "", program: "", parentGroupId: "", assigned: 0, crns: { "course-a": section(false) } },
-      { id: "td-9", label: "9", capacity: 9, note: "", program: "", parentGroupId: "", assigned: 0, crns: { "course-a": section(true) } },
+      { id: "td-1", label: "1", capacity: 1, note: "", parentGroupId: "", assigned: 0, crns: { "course-a": section(false) } },
+      { id: "td-9", label: "9", capacity: 9, note: "", parentGroupId: "", assigned: 0, crns: { "course-a": section(true) } },
     ]);
 
     const sizes = await screen.findByLabelText("Group sizes after the fill");
@@ -219,7 +220,7 @@ describe("the fill and retired groups", () => {
 
   it("still fills a group retired for one course of the set and live for another", async () => {
     withGroups([
-      { id: "td-3", label: "3", capacity: 9, note: "", program: "", parentGroupId: "", assigned: 0, crns: { "course-a": section(true), "course-b": section(false) } },
+      { id: "td-3", label: "3", capacity: 9, note: "", parentGroupId: "", assigned: 0, crns: { "course-a": section(true), "course-b": section(false) } },
     ]);
 
     const sizes = await screen.findByLabelText("Group sizes after the fill");

@@ -111,6 +111,8 @@ export function requestSheets(
        * belong to the person named on it.
        */
       for (const row of set.rows.flatMap((entry) => rowsPerPart(entry))) {
+        // A shared cell is one class however many sub-rows show it: one line, on the first.
+        if (row.sharedCell && !row.firstSubRow) continue;
         // What this group says, and what its course said for every group that says nothing.
         const section = row.section ? filled(row.section, set.course.request) : null;
         if (!section) continue;

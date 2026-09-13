@@ -48,8 +48,8 @@ const RDNS: ExportBlock = {
 };
 
 const STUDENTS: ExportStudent[] = [
-  { studentId: "A00021503", name: "Ali Nasser", groups: { TD: "1", RDNS: "1" }, program: "Foundation Year" },
-  { studentId: "A00021506", name: "Mariam Nasser", groups: { TD: "2" }, program: "Foundation Year" },
+  { studentId: "A00021503", name: "Ali Nasser", groups: { TD: "1", RDNS: "1" } },
+  { studentId: "A00021506", name: "Mariam Nasser", groups: { TD: "2" } },
 ];
 
 async function built(blocks = [TD, RDNS]) {

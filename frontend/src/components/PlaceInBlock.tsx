@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { Modal } from "@/components/Modal";
 import { SelectMenu } from "@/components/SelectMenu";
-import { type FillCandidate, clashKey } from "@/services/groupFill";
+import { type FillCandidate, clashKey, sameProgram } from "@/services/groupFill";
 import { type Walk, walkPlacements, walkSets } from "@/services/groupWalk";
 import { fetchPublication } from "@/services/publication";
 import { clashesIn } from "@/services/publicationView";
@@ -210,7 +210,7 @@ export function PlaceInBlock({
       for (const step of walkPlacements(proposal ?? { steps: [], skipped: [] })) {
         const code = scopeOf(step.scopeId)?.code ?? "the set";
         try {
-          const report = await placeStudents(step.scopeId, step.byGroup);
+          const report = await placeStudents(step.scopeId, step.byGroup, step.majors);
           assigned += report.assigned;
           written.push(code);
         } catch (error) {
@@ -225,6 +225,31 @@ export function PlaceInBlock({
 
   const chosen = rows.filter((row) => row.scopeId && row.groupId);
 
+  /*
+   * Which sub-row each student takes in a group named by hand: the one for their
+   * programme, as the portal spells it. A student the group holds no sub-row for is placed
+   * on none — the group's shared cells and nothing more — and the dialog says so before
+   * the press, since that is a student sitting in a group that is not for them.
+   */
+  const groupNamed = (groupId: string) => scopes.flatMap((scope) => scope.groups).find((group) => group.id === groupId) ?? null;
+  const subRowsFor = (groupId: string): Record<string, string> => {
+    const group = groupNamed(groupId);
+    const majors = group?.majors ?? [];
+    if (!majors.length) return {};
+    const taken: Record<string, string> = {};
+    for (const studentId of studentIds) {
+      const own = majors.find((major) => sameProgram(major.program, held.data?.program[studentId] ?? ""));
+      if (own) taken[studentId] = own.id;
+    }
+    return taken;
+  };
+  const misfits = (groupId: string): string[] => {
+    const group = groupNamed(groupId);
+    if (!(group?.majors ?? []).length) return [];
+    const taken = subRowsFor(groupId);
+    return studentIds.filter((studentId) => !taken[studentId]);
+  };
+
   const place = useMutation({
     /*
      * One request per set, in the order they were chosen, and each one is a write. A
@@ -238,7 +263,12 @@ export function PlaceInBlock({
       for (const row of chosen) {
         const code = scopeOf(row.scopeId)?.code ?? "the set";
         try {
-          const report = await assignStudents(row.scopeId, studentIds, row.groupId === OUT ? null : row.groupId);
+          const report = await assignStudents(
+            row.scopeId,
+            studentIds,
+            row.groupId === OUT ? null : row.groupId,
+            row.groupId === OUT ? {} : subRowsFor(row.groupId),
+          );
           assigned += report.assigned;
           report.skipped.forEach((id) => skipped.add(id));
           written.push(code);
@@ -390,6 +420,15 @@ export function PlaceInBlock({
                 onChange={(value) => setRow(index, { groupId: value })}
                 disabled={!row.scopeId}
               />
+              {row.groupId && row.groupId !== OUT && misfits(row.groupId).length ? (
+                <p className="text-xs text-[#8a6116]">
+                  {misfits(row.groupId).length === studentIds.length
+                    ? "None of them"
+                    : `${misfits(row.groupId).length} of them`}{" "}
+                  belong to a major this group holds a sub-row for; they would sit in it on no sub-row and be taught
+                  only what everyone in the group shares.
+                </p>
+              ) : null}
 
               {rows.length > 1 ? (
                 <button

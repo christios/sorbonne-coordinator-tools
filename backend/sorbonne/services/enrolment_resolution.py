@@ -260,7 +260,12 @@ def validate(*, groups: list[Group], sections: list[Section]) -> dict[str, dict[
     verdicts: dict[str, dict[str, Any]] = {}
 
     for group in groups:
-        for course_code, crns in group.crns.items():
+        # Every cell anybody in the group is taught: the shared ones and each sub-row's own.
+        every: dict[str, list[str]] = {code: list(crns) for code, crns in group.crns.items()}
+        for major in group.majors:
+            for code, crns in major.crns.items():
+                every[code] = sorted(set(every.get(code, [])) | set(crns))
+        for course_code, crns in every.items():
             key = f"{group.id}|{course_code}"
             # One verdict per section, over every part of it. A section taught in two
             # halves has a CRN for each and the pill sits on the section, so the first

@@ -20,16 +20,33 @@
 export type FillOrder = "id" | "first" | "last" | "random";
 export type FillPolicy = "balanced" | "packed";
 
+/** One sub-row of a group, as the fill sees it: whose seats these are, and how many are taken. */
+export type FillMajor = {
+  id: string;
+  program: string;
+  seats: number;
+  assigned: number;
+};
+
 export type FillGroup = {
   id: string;
   label: string;
   capacity: number;
-  /** The programme this group takes first. Empty means any. */
-  program: string;
   /** How many sit in it already. */
   assigned: number;
   /** For a group of a nested set: the group of the parent set it sits inside. */
   parentGroupId?: string;
+  /**
+   * The majors the group holds, each with its seats. Empty for a group open to everybody.
+   * Where it is not, the group is closed to anyone of another programme.
+   */
+  majors?: FillMajor[];
+  /**
+   * Whether every sub-row is taught the very same sections. Then a seat is a seat and a
+   * student may overflow into another major's; where the sub-rows differ, a student in the
+   * wrong sub-row would follow it into the wrong lecture, so the seats are hard.
+   */
+  identical?: boolean;
 };
 
 export type FillCandidate = {
@@ -44,6 +61,8 @@ export type FillCandidate = {
 export type Placement = {
   studentId: string;
   groupId: string;
+  /** The sub-row taken, where the group has them. */
+  majorId: string;
   why: "preferred" | "least full" | "next seat";
 };
 
@@ -89,35 +108,64 @@ export function planFill({
   parentScopeId?: string;
 }): FillPlan {
   const counts = new Map(groups.map((group) => [group.id, group.assigned]));
+  // Per sub-row too, since a sub-row's seats are its own.
+  const onMajor = new Map(groups.flatMap((group) => (group.majors ?? []).map((major) => [major.id, major.assigned])));
   const placements: Placement[] = [];
   const unplaced: Unplaced[] = [];
 
   const hasRoom = (group: FillGroup) => group.capacity === 0 || (counts.get(group.id) ?? 0) < group.capacity;
+  const majorHasRoom = (major: FillMajor) => major.seats === 0 || (onMajor.get(major.id) ?? 0) < major.seats;
+  /** The sub-row of their own programme, where the group holds it. */
+  const ownMajor = (group: FillGroup, candidate: FillCandidate) =>
+    (group.majors ?? []).find((major) => sameProgram(major.program, candidate.program)) ?? null;
+  /**
+   * The seat a student may take in a group: their own sub-row while it has room; another
+   * sub-row's only where every sub-row is taught the same sections; nothing in a group that
+   * holds no sub-row for them at all — the group is closed to their programme.
+   */
+  const seatIn = (group: FillGroup, candidate: FillCandidate): FillMajor | null | undefined => {
+    const majors = group.majors ?? [];
+    if (majors.length === 0) return null;
+    const own = ownMajor(group, candidate);
+    if (!own && !group.identical) return undefined;
+    if (own && majorHasRoom(own)) return own;
+    if (group.identical) return majors.find(majorHasRoom) ?? undefined;
+    return undefined;
+  };
   const permitted = (candidate: FillCandidate) =>
     groups.filter((group) => {
       if (parentScopeId && group.parentGroupId !== candidate.held[parentScopeId]) return false;
+      if ((group.majors ?? []).length && !ownMajor(group, candidate) && !group.identical) return false;
       return !Object.values(candidate.held).some((held) => clashes.has(clashKey(held, group.id)));
     });
 
   const seat = (candidate: FillCandidate, among: FillGroup[], why: Placement["why"]): boolean => {
-    const open = among.filter(hasRoom);
+    const open = among.filter((group) => hasRoom(group) && seatIn(group, candidate) !== undefined);
     if (open.length === 0) return false;
     const chosen =
       policy === "packed"
         ? open[0]
         : open.reduce((best, group) => ((counts.get(group.id) ?? 0) < (counts.get(best.id) ?? 0) ? group : best));
+    const major = seatIn(chosen, candidate);
     counts.set(chosen.id, (counts.get(chosen.id) ?? 0) + 1);
-    placements.push({ studentId: candidate.studentId, groupId: chosen.id, why: policy === "packed" && why !== "preferred" ? "next seat" : why });
+    if (major) onMajor.set(major.id, (onMajor.get(major.id) ?? 0) + 1);
+    placements.push({
+      studentId: candidate.studentId,
+      groupId: chosen.id,
+      majorId: major?.id ?? "",
+      why: policy === "packed" && why !== "preferred" ? "next seat" : why,
+    });
     return true;
   };
 
   const ordered = sortCandidates(candidates, order, seed);
 
-  // First the students somebody asked for: a group that prefers their programme takes
-  // them before the general fill, so "Physics → G3" holds even when G3 is in the middle.
+  // First the students somebody asked for: a group that holds a sub-row for their
+  // programme takes them before the general fill, so "Physics → G3" holds even when G3
+  // is in the middle.
   const rest: FillCandidate[] = [];
   for (const candidate of ordered) {
-    const preferring = permitted(candidate).filter((group) => group.program && sameProgram(group.program, candidate.program));
+    const preferring = permitted(candidate).filter((group) => ownMajor(group, candidate));
     if (preferring.length === 0 || !seat(candidate, preferring, "preferred")) rest.push(candidate);
   }
 
@@ -130,7 +178,11 @@ export function planFill({
     } else if (allowed.length === 0) {
       unplaced.push({
         studentId: candidate.studentId,
-        why: parentScopeId ? "no group of this set nests in their parent group" : "every group meets at the same hour as one they already hold",
+        why: parentScopeId
+          ? "no group of this set nests in their parent group"
+          : groups.every((group) => (group.majors ?? []).length && !ownMajor(group, candidate) && !group.identical)
+            ? "no group of this set holds a sub-row for their programme"
+            : "every group meets at the same hour as one they already hold",
       });
     } else if (!seat(candidate, allowed, "least full")) {
       unplaced.push({
@@ -153,8 +205,8 @@ export function planFill({
   };
 }
 
-function sameProgram(left: string, right: string): boolean {
-  return normalise(left) === normalise(right);
+export function sameProgram(left: string, right: string): boolean {
+  return Boolean(left) && normalise(left) === normalise(right);
 }
 
 function normalise(value: string): string {
@@ -199,6 +251,13 @@ function mulberry32(seed: number): () => number {
 }
 
 /** The plan as the server takes it: `group id -> student ids`. */
+/** The sub-row each placed student takes, for `placeStudents`. Only those that took one. */
+export function majorsByStudent(plan: FillPlan): Record<string, string> {
+  const held: Record<string, string> = {};
+  for (const placement of plan.placements) if (placement.majorId) held[placement.studentId] = placement.majorId;
+  return held;
+}
+
 export function placementsByGroup(plan: FillPlan): Record<string, string[]> {
   const grouped: Record<string, string[]> = {};
   for (const placement of plan.placements) (grouped[placement.groupId] ??= []).push(placement.studentId);

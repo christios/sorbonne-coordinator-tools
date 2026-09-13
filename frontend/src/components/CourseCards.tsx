@@ -210,7 +210,7 @@ export function CourseCards({
       // half a coordinator has declared and not yet given a CRN is exactly the thing this
       // count exists to chase, and counting sections would never see it.
       set.rows
-        .filter((row) => teaches(row.group, row.course))
+        .filter((row) => teaches(row))
         .flatMap((row) => rowsPerPart(row))
         .filter((row) => !row.section?.retired && !row.section?.crn)
         .map((row) => ({ card, set, row })),

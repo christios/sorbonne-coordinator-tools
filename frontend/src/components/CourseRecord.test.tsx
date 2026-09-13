@@ -20,10 +20,10 @@ const CATALOGUE: database.CohortCatalogue[] = [
       {
         id: "s-cm", code: "CM", name: "Lectures", note: "", termId: "term-1", kind: "shared",
         parentScopeId: "", openToAll: false,
-        courses: [{ id: "cm-alg", code: "MATH-351", name: "Algebra & Cryptography", component: "CM", program: "", request: database.EMPTY_REQUEST }],
+        courses: [{ id: "cm-alg", code: "MATH-351", name: "Algebra & Cryptography", component: "CM", request: database.EMPTY_REQUEST }],
         groups: [
           {
-            id: "cm-a", label: "Mathematics", capacity: 0, note: "", program: "", parentGroupId: "", assigned: 8,
+            id: "cm-a", label: "Mathematics", capacity: 0, note: "", parentGroupId: "", assigned: 8,
             crns: {
               "cm-alg": {
                 ...database.EMPTY_SECTION,

@@ -467,7 +467,10 @@ class StudentDatabase:
                                json_agg(json_build_object(
                                    'termId', sc.term_id, 'scopeCode', sc.code, 'groupLabel', g.label,
                                    -- The sub-row they took, where the group has them: "CM 1 · Maths".
+                                   -- With how many the group has, so a label names the sub-row only
+                                   -- where there is another to tell it from.
                                    'major', coalesce(m.program, ''),
+                                   'subRows', (SELECT count(*) FROM group_majors gm WHERE gm.group_id = g.id),
                                    -- Additive, and the only server change the Meets column
                                    -- needs: the label alone cannot be joined to the CRNs the
                                    -- group holds, and "TD 1" means different groups in

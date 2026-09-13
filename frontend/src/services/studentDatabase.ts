@@ -37,15 +37,6 @@ export type CatalogueCourse = {
   code: string;
   name: string;
   component: string;
-  /**
-   * Which programme of the cohort takes this course, as the registrar spells it.
-   *
-   * Empty means all of them, which is what a set split by group NUMBER wants — Foundation
-   * Year's TD 1, 2, 3 all take everything the set carries. A set split by PROGRAMME is the
-   * other case: L3's CM set carries the Maths courses and the Physics courses and holds one
-   * group for each, and the Physics group is not short a CRN for MATH-330.
-   */
-  program: string;
   /** What this course asks of the timetable, for every section of it in this set. */
   request: Request;
 };
@@ -99,6 +90,10 @@ export type SectionPart = Request & {
   teacher: string;
   /** Marked rather than deleted: the fill skips it and the workbook says so. */
   retired: boolean;
+  /** Whose cell this is: a sub-row's, or the whole group's when blank. */
+  majorId: string;
+  /** A sub-row's word that it is not taught this course at all. */
+  notTaught: boolean;
 };
 
 /**
@@ -123,7 +118,7 @@ export type Section = SectionPart & {
   exempt: number;
 };
 
-export const EMPTY_PART: SectionPart = { ...EMPTY_REQUEST, part: 1, crn: "", teacher: "", retired: false };
+export const EMPTY_PART: SectionPart = { ...EMPTY_REQUEST, part: 1, crn: "", teacher: "", retired: false, majorId: "", notTaught: false };
 
 /**
  * An empty section, whose `parts` is deliberately EMPTY rather than a list of one.
@@ -148,15 +143,34 @@ export function partsOf(section: SectionPart | Section | null | undefined): Sect
   return parts?.length ? parts : [section];
 }
 
+/**
+ * One sub-row of a group: a major it holds, in the registrar's words, with its seats.
+ *
+ * A group with sub-rows is one thing a student is placed in — once — and under it each
+ * major has its own seats and its own reading of the cells: a CRN of its own for a course,
+ * or "not taught" it. A mutualized lecture is one shared cell under both. A group with no
+ * sub-rows is exactly what a group was, which is every group in Foundation Year.
+ */
+export type CatalogueMajor = {
+  id: string;
+  program: string;
+  seats: number;
+  /** How many sit on this sub-row. */
+  assigned: number;
+};
+
 export type CatalogueGroup = {
   id: string;
   label: string;
+  /** The seats: what the sub-rows add up to, or the group's own number when it has none. */
   capacity: number;
   note: string;
-  /** The programme this group takes first, as the registrar spells it. Empty means any. */
-  program: string;
   /** For a group of a nested set: the group of the parent set it sits inside. */
   parentGroupId: string;
+  /** The majors this group holds. Empty for a group that is one thing for everybody. */
+  majors?: CatalogueMajor[];
+  /** `major id -> course id -> section`: a sub-row's own cells, over the shared ones in `crns`. */
+  byMajor?: Record<string, Record<string, Section>>;
   /** The groups this one must be scheduled at the same hour as. Ids, any set of the cohort. */
   parallelWith?: string[];
   /** How many of the cohort's students sit in this group. */
@@ -318,8 +332,10 @@ export function assignStudents(
   scopeId: string,
   studentIds: string[],
   groupId: string | null,
+  /** The sub-row each takes, where the group has sub-rows: `student id -> major id`. */
+  majors: Record<string, string> = {},
 ): Promise<PlacementReport> {
-  return send<PlacementReport>(`${BASE}/scopes/${scopeId}/assignments`, "PUT", { studentIds, groupId });
+  return send<PlacementReport>(`${BASE}/scopes/${scopeId}/assignments`, "PUT", { studentIds, groupId, majors });
 }
 
 /**
@@ -328,8 +344,13 @@ export function assignStudents(
  * The fill was planned in the browser, where the names and programmes it ordered by are
  * held; only ids and group ids travel.
  */
-export function placeStudents(scopeId: string, placements: Record<string, string[]>): Promise<PlacementReport> {
-  return send<PlacementReport>(`${BASE}/scopes/${scopeId}/placements`, "PUT", { placements });
+export function placeStudents(
+  scopeId: string,
+  placements: Record<string, string[]>,
+  /** The sub-row each student takes in the group they were put in. */
+  majors: Record<string, string> = {},
+): Promise<PlacementReport> {
+  return send<PlacementReport>(`${BASE}/scopes/${scopeId}/placements`, "PUT", { placements, majors });
 }
 
 /** Who is in which group, as `{student id: {scope id: group id}}`. */
@@ -351,6 +372,14 @@ export async function fetchAssignments(cohortId: string): Promise<Record<string,
     `${BASE}/cohorts/${cohortId}/assignments`,
   );
   return payload.assignments;
+}
+
+/** Which sub-row each placement took, as `{student id: {scope id: major id}}`; only the ones that took one. */
+export async function fetchAssignmentMajors(cohortId: string): Promise<Record<string, Record<string, string>>> {
+  const payload = await request<{ majors?: Record<string, Record<string, string>> }>(
+    `${BASE}/cohorts/${cohortId}/assignments`,
+  );
+  return payload.majors ?? {};
 }
 
 /**
@@ -451,19 +480,18 @@ export function deleteCourse(courseId: string): Promise<void> {
 
 export function addGroup(
   scopeId: string,
-  input: { label: string; capacity?: number; note?: string; program?: string; parentGroupId?: string },
+  input: { label: string; capacity?: number; note?: string; parentGroupId?: string },
 ): Promise<{ id: string }> {
   return send<{ id: string }>(`${BASE}/scopes/${scopeId}/groups`, "POST", {
     capacity: 0,
     note: "",
-    program: "",
     ...input,
   });
 }
 
 export function updateGroup(
   groupId: string,
-  input: { label: string; capacity: number; note: string; program: string; parentGroupId?: string; parallelWith?: string[] },
+  input: { label: string; capacity: number; note: string; parentGroupId?: string; parallelWith?: string[] },
 ): Promise<void> {
   return send<void>(`${BASE}/groups/${groupId}`, "PATCH", input);
 }
@@ -474,9 +502,40 @@ export function deleteGroup(groupId: string): Promise<void> {
 
 export function updateCourse(
   courseId: string,
-  input: { code: string; name: string; component: string; program?: string },
+  input: { code: string; name: string; component: string },
 ): Promise<void> {
   return send<void>(`${BASE}/courses/${courseId}`, "PATCH", input);
+}
+
+/** One more sub-row on a group: a major it holds, and how many seats it has for it. */
+export function addMajor(groupId: string, input: { program: string; seats?: number }): Promise<{ id: string }> {
+  return send<{ id: string }>(`${BASE}/groups/${groupId}/majors`, "POST", { seats: 0, ...input });
+}
+
+export function updateMajor(majorId: string, input: { program: string; seats: number }): Promise<void> {
+  return send<void>(`${BASE}/majors/${majorId}`, "PATCH", input);
+}
+
+/** Take a sub-row off. Its own cells go; the students on it stay in the group, on no sub-row. */
+export function removeMajor(majorId: string): Promise<void> {
+  return request<void>(`${BASE}/majors/${majorId}`, { method: "DELETE" });
+}
+
+/** "MATH - Mathematics" as the registrar spells it → "Mathematics", for a label. */
+export function shortProgram(program: string): string {
+  const parts = program.split(" - ");
+  return (parts.length > 1 ? parts.slice(1).join(" - ") : program).trim();
+}
+
+/**
+ * The section a student on one sub-row is taught for a course: the sub-row's own cell
+ * over the group's shared one. Null when there is none, or when the sub-row is not taught
+ * the course at all — which is what a cell marked `notTaught` says.
+ */
+export function sectionFor(group: CatalogueGroup, majorId: string, courseId: string): Section | null {
+  const own = majorId ? group.byMajor?.[majorId]?.[courseId] : undefined;
+  if (own) return own.notTaught ? null : own;
+  return group.crns[courseId] ?? null;
 }
 
 /**
@@ -496,18 +555,29 @@ export function updateCourseRequest(courseId: string, input: Request): Promise<v
 export function updateSection(
   groupId: string,
   courseId: string,
-  input: Omit<SectionPart, "crn" | "teacher" | "part"> & { part?: number },
+  input: Omit<SectionPart, "crn" | "teacher" | "part" | "majorId" | "notTaught"> & { part?: number; majorId?: string },
 ): Promise<void> {
-  return send<void>(`${BASE}/groups/${groupId}/courses/${courseId}`, "PATCH", { part: 1, ...input });
+  return send<void>(`${BASE}/groups/${groupId}/courses/${courseId}`, "PATCH", { part: 1, majorId: "", ...input });
 }
 
-/** One part of one cell. An empty CRN clears that part, not the whole section. */
+/**
+ * One part of one cell. An empty CRN clears that part, not the whole section.
+ *
+ * `majorId` names the sub-row the cell belongs to — blank is the whole group's — and
+ * `notTaught` is a sub-row's word that it is not taught the course at all.
+ */
 export function setGroupCrn(
   groupId: string,
   courseId: string,
-  input: { crn: string; teacher?: string; part?: number },
+  input: { crn: string; teacher?: string; part?: number; majorId?: string; notTaught?: boolean },
 ): Promise<void> {
-  return send<void>(`${BASE}/groups/${groupId}/courses/${courseId}`, "PUT", { teacher: "", part: 1, ...input });
+  return send<void>(`${BASE}/groups/${groupId}/courses/${courseId}`, "PUT", {
+    teacher: "",
+    part: 1,
+    majorId: "",
+    notTaught: false,
+    ...input,
+  });
 }
 
 /**
@@ -559,6 +629,10 @@ export type Student = {
     termId: string;
     scopeCode: string;
     groupLabel: string;
+    /** The sub-row they took, as the registrar spells the programme; empty on a plain group. */
+    major?: string;
+    /** How many sub-rows the group has, so a label names theirs only where there is another. */
+    subRows?: number;
     groupId?: string;
     /** A set open to every cohort — the languages — which a move may keep. */
     openToAll?: boolean;

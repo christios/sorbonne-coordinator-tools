@@ -6,7 +6,6 @@ const group = (id: string, extra: Partial<FillGroup> = {}): FillGroup => ({
   id,
   label: id.toUpperCase(),
   capacity: 0,
-  program: "",
   assigned: 0,
   ...extra,
 });
@@ -71,26 +70,47 @@ describe("packed", () => {
   });
 });
 
-describe("a group that prefers a programme", () => {
-  it("takes its students first, then anybody", () => {
+describe("a group with sub-rows", () => {
+  const maths = { id: "m-maths", program: "Mathematics", seats: 0, assigned: 0 };
+  const physics = { id: "m-phys", program: "Physics", seats: 0, assigned: 0 };
+
+  it("seats a student on the sub-row of their own programme first, then anybody elsewhere", () => {
     const result = plan({
-      groups: [group("g1"), group("g2", { program: "Physics" })],
+      groups: [group("g1"), group("g2", { majors: [physics], identical: true })],
       candidates: [student("A1", { program: "Maths" }), student("A2", { program: "physics " }), student("A3", { program: "Maths" })],
     });
 
-    // A2 is seated in G2 before the general deal; then A1 goes to the emptier G1, and A3,
-    // with both at one, to the first of the tie.
+    // A2 is seated on G2's physics sub-row before the general deal; then A1 goes to the
+    // emptier G1, and A3, with both at one, to the first of the tie.
     expect(where(result)).toEqual({ A2: "g2", A1: "g1", A3: "g1" });
-    expect(result.placements.find((p) => p.studentId === "A2")?.why).toBe("preferred");
+    const seated = result.placements.find((p) => p.studentId === "A2");
+    expect([seated?.why, seated?.majorId]).toEqual(["preferred", "m-phys"]);
   });
 
-  it("does not hold seats: once its students are in, others may sit there", () => {
-    const result = plan({
-      groups: [group("g1", { capacity: 1 }), group("g2", { program: "Physics", capacity: 2 })],
-      candidates: [student("A1"), student("A2"), student("A3")],
+  it("is closed to a student it holds no sub-row for, unless every sub-row is taught the same sections", () => {
+    const closed = plan({
+      groups: [group("g1", { majors: [physics] })],
+      candidates: [student("A1", { program: "Maths" })],
     });
+    expect(closed.unplaced.map((row) => row.why)).toEqual(["no group of this set holds a sub-row for their programme"]);
 
-    expect(result.unplaced).toEqual([]);
+    // MTP 3A: fifteen physics seats and two mathematics ones, one CRN — a seat is a seat.
+    const open = plan({
+      groups: [group("g1", { majors: [{ ...physics, seats: 2 }, { ...maths, seats: 1, assigned: 1 }], identical: true })],
+      candidates: [student("A1", { program: "Mathematics" })],
+    });
+    expect(where(open)).toEqual({ A1: "g1" });
+    expect(open.placements[0].majorId).toBe("m-phys");
+  });
+
+  it("keeps a sub-row's seats hard where the sub-rows are taught different things", () => {
+    // CM 1: the mathematics sub-row is full, and a mathematician may not take a physics
+    // seat — the seat would send them to the physics option.
+    const result = plan({
+      groups: [group("g1", { capacity: 20, majors: [{ ...maths, seats: 1, assigned: 1 }, { ...physics, seats: 19 }] })],
+      candidates: [student("A1", { program: "Mathematics" })],
+    });
+    expect(result.unplaced.map((row) => row.why)).toEqual(["every group is full"]);
   });
 });
 

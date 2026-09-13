@@ -31,8 +31,8 @@ const CATALOGUE: database.Catalogue = {
       kind: "shared", parentScopeId: "", openToAll: false,
       courses: [],
       groups: [
-        { id: "group-1", label: "1", capacity: 24, note: "", program: "", parentGroupId: "", assigned: 20, crns: {} },
-        { id: "group-2", label: "2", capacity: 0, note: "", program: "", parentGroupId: "", assigned: 0, crns: {} },
+        { id: "group-1", label: "1", capacity: 24, note: "", parentGroupId: "", assigned: 20, crns: {} },
+        { id: "group-2", label: "2", capacity: 0, note: "", parentGroupId: "", assigned: 0, crns: {} },
       ],
     },
   ],
@@ -103,7 +103,7 @@ describe("placing students in a group", () => {
     fireEvent.click(screen.getByRole("button", { name: /Place 2/ }));
 
     await waitFor(() => expect(assign).toHaveBeenCalled());
-    expect(assign).toHaveBeenCalledWith("scope-td", ["A00025735", "A00026351"], "group-2");
+    expect(assign).toHaveBeenCalledWith("scope-td", ["A00025735", "A00026351"], "group-2", {});
     await waitFor(() => expect(onPlaced).toHaveBeenCalled());
   });
 
@@ -116,7 +116,7 @@ describe("placing students in a group", () => {
     await pick("Group", /Take them out of this set/);
     fireEvent.click(screen.getByRole("button", { name: /Take them out/ }));
 
-    await waitFor(() => expect(assign).toHaveBeenCalledWith("scope-td", expect.any(Array), null));
+    await waitFor(() => expect(assign).toHaveBeenCalledWith("scope-td", expect.any(Array), null, {}));
     // The report has to know it was a removal, or the page says "2 students placed".
     expect(onPlaced).toHaveBeenCalledWith(expect.objectContaining({ removed: true }));
   });
@@ -158,8 +158,8 @@ describe("groups nobody should be placed into", () => {
 
   it("does not offer a group whose every section is retired", async () => {
     withGroups([
-      { id: "group-1", label: "1", capacity: 24, note: "", program: "", parentGroupId: "", assigned: 20, crns: { "course-a": section(false) } },
-      { id: "group-9", label: "9", capacity: 24, note: "", program: "", parentGroupId: "", assigned: 0, crns: { "course-a": section(true) } },
+      { id: "group-1", label: "1", capacity: 24, note: "", parentGroupId: "", assigned: 20, crns: { "course-a": section(false) } },
+      { id: "group-9", label: "9", capacity: 24, note: "", parentGroupId: "", assigned: 0, crns: { "course-a": section(true) } },
     ]);
     show();
 
@@ -175,7 +175,7 @@ describe("groups nobody should be placed into", () => {
     // A set carries several courses and a group holds one section per course. Retiring
     // the section for one of them says nothing about whether the group still teaches.
     withGroups([
-      { id: "group-3", label: "3", capacity: 24, note: "", program: "", parentGroupId: "", assigned: 0, crns: { "course-a": section(true), "course-b": section(false) } },
+      { id: "group-3", label: "3", capacity: 24, note: "", parentGroupId: "", assigned: 0, crns: { "course-a": section(true), "course-b": section(false) } },
     ]);
     show();
 
@@ -191,7 +191,7 @@ describe("groups nobody should be placed into", () => {
     // over an empty list is true. Without the length guard the fix would hide exactly
     // the groups somebody has just made in order to fill them.
     withGroups([
-      { id: "group-new", label: "New", capacity: 24, note: "", program: "", parentGroupId: "", assigned: 0, crns: {} },
+      { id: "group-new", label: "New", capacity: 24, note: "", parentGroupId: "", assigned: 0, crns: {} },
     ]);
     show();
 
@@ -207,7 +207,7 @@ describe("sets open to every cohort", () => {
   const LANG: database.CatalogueScope = {
     id: "scope-lang", code: "LANG", name: "Languages", note: "",
     kind: "shared", parentScopeId: "", openToAll: true, courses: [],
-    groups: [{ id: "lang-a1", label: "A1", capacity: 18, note: "", program: "", parentGroupId: "", assigned: 3, crns: {} }],
+    groups: [{ id: "lang-a1", label: "A1", capacity: 18, note: "", parentGroupId: "", assigned: 3, crns: {} }],
   };
 
   it("offers the sets open to every cohort, not only this cohort's own", async () => {
@@ -251,9 +251,9 @@ describe("placing into several sets at once", () => {
     scopes: [
       CATALOGUE.scopes[0],
       { ...CATALOGUE.scopes[0], id: "scope-cm", code: "CM", name: "Lectures",
-        groups: [{ id: "cm-a", label: "A", capacity: 0, note: "", program: "", parentGroupId: "", assigned: 0, crns: {} }] },
+        groups: [{ id: "cm-a", label: "A", capacity: 0, note: "", parentGroupId: "", assigned: 0, crns: {} }] },
       { ...CATALOGUE.scopes[0], id: "scope-lang", code: "LANG", name: "Languages", openToAll: true,
-        groups: [{ id: "lang-a1", label: "A1", capacity: 0, note: "", program: "", parentGroupId: "", assigned: 0, crns: {} }] },
+        groups: [{ id: "lang-a1", label: "A1", capacity: 0, note: "", parentGroupId: "", assigned: 0, crns: {} }] },
     ],
   };
 
@@ -381,7 +381,7 @@ describe("proposing the groups instead of naming them", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /Place 1 in 1 set/ }));
 
-    await waitFor(() => expect(place).toHaveBeenCalledWith("scope-td", { "group-2": ["A00025735"] }));
+    await waitFor(() => expect(place).toHaveBeenCalledWith("scope-td", { "group-2": ["A00025735"] }, {}));
     await waitFor(() => expect(onPlaced).toHaveBeenCalledWith({ assigned: 1, skipped: [], removed: false }));
   });
 
@@ -408,7 +408,7 @@ describe("proposing the groups instead of naming them", () => {
       scopes: [
         {
           ...CATALOGUE.scopes[0],
-          groups: [{ id: "group-1", label: "1", capacity: 1, note: "", program: "", parentGroupId: "", assigned: 1, crns: {} }],
+          groups: [{ id: "group-1", label: "1", capacity: 1, note: "", parentGroupId: "", assigned: 1, crns: {} }],
         },
       ],
     });
@@ -431,7 +431,7 @@ describe("naming a group that would clash", () => {
         ...CATALOGUE.scopes,
         {
           id: "scope-cm", code: "CM", name: "Lectures", note: "", kind: "shared", parentScopeId: "", openToAll: false, courses: [],
-          groups: [{ id: "group-cm", label: "A", capacity: 0, note: "", program: "", parentGroupId: "", assigned: 40, crns: {} }],
+          groups: [{ id: "group-cm", label: "A", capacity: 0, note: "", parentGroupId: "", assigned: 40, crns: {} }],
         },
       ],
     };

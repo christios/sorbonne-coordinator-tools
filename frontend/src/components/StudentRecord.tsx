@@ -7,6 +7,7 @@ import { CrnRecord } from "@/components/CrnRecord";
 import { Modal } from "@/components/Modal";
 import { PlaceInBlock } from "@/components/PlaceInBlock";
 import { SectionTimetable, type TimetableEntry } from "@/components/SectionTimetable";
+import { subRowLabel } from "@/services/courseCards";
 import {
   STATUS_FIELD,
   STATUS_OPTIONS,
@@ -32,14 +33,16 @@ import { reconcile, tally } from "@/services/registrationLists";
 import type { StudentRow } from "@/services/rosterView";
 import { fetchSchema } from "@/services/scenRosters";
 import {
+  type Cohort,
   clearExemption,
+  fetchAssignmentMajors,
   fetchAssignments,
   fetchCatalogue,
   fetchDiscrepancyRules,
   fetchExemptions,
   partsOf,
+  sectionFor,
   setExemption,
-  type Cohort,
 } from "@/services/studentDatabase";
 import { fetchTimetableTerms } from "@/services/timetables";
 import { afterPlacement } from "@/services/afterPlacement";
@@ -144,6 +147,12 @@ export function StudentRecord({
     queryFn: () => fetchAssignments(cohortId),
     enabled: open && Boolean(cohortId),
   });
+  // Which sub-row each placement took: a mathematician in CM 1 reads the maths cells.
+  const subRows = useQuery({
+    queryKey: ["assignment-majors", cohortId],
+    queryFn: () => fetchAssignmentMajors(cohortId),
+    enabled: open && Boolean(cohortId),
+  });
 
   // The rules, judged for this one student: the same engine as the Cohorts page, on one row.
   const rules = useQuery({ queryKey: ["discrepancy-rules"], queryFn: fetchDiscrepancyRules, enabled: open });
@@ -188,21 +197,27 @@ export function StudentRecord({
 
   const termName = (termId: string) => (terms.data ?? []).find((term) => term.id === termId)?.name ?? termId;
   const held = assignments.data?.[row.studentId] ?? {};
+  const onSubRow = subRows.data?.[row.studentId] ?? {};
   const placements = (catalogue.data?.scopes ?? [])
     .filter((scope) => held[scope.id])
     .map((scope) => {
       const group = scope.groups.find((candidate) => candidate.id === held[scope.id]);
+      const majorId = onSubRow[scope.id] ?? "";
+      const major = group?.majors?.find((candidate) => candidate.id === majorId) ?? null;
       return {
         scope,
         group,
+        major,
         /*
          * One line per PART, not per course. A course handed from one professor to
          * another at mid-semester is taught under a CRN per half, and both are this
          * student's — a list carrying only the first would show the registrar's second
-         * half as a registration nobody placed them in.
+         * half as a registration nobody placed them in. And what THEIR sub-row comes to:
+         * a course the sub-row is not taught is no line at all.
          */
         crns: scope.courses.flatMap((course) => {
-          const parts = partsOf(group?.crns[course.id]).filter((part) => part.crn);
+          if (group && majorId && group.byMajor?.[majorId]?.[course.id]?.notTaught) return [];
+          const parts = partsOf(group ? sectionFor(group, majorId, course.id) : null).filter((part) => part.crn);
           return parts.length
             ? parts.map((part) => ({ courseId: course.id, courseCode: course.code, courseName: course.name, crn: part.crn }))
             : [{ courseId: course.id, courseCode: course.code, courseName: course.name, crn: "" }];
@@ -289,7 +304,7 @@ export function StudentRecord({
    */
   const placedCrns = new Set(placements.flatMap(({ crns }) => crns.map((cell) => cell.crn)).filter(Boolean));
   const timetable: TimetableEntry[] = [
-    ...placements.flatMap(({ scope, group, crns }) =>
+    ...placements.flatMap(({ scope, group, major, crns }) =>
       crns
         .filter((cell) => cell.crn && !excused.has(cell.courseId))
         .map((cell) => ({
@@ -297,7 +312,7 @@ export function StudentRecord({
           crn: cell.crn,
           code: cell.courseCode,
           title: cell.courseName,
-          group: `${scope.code} ${group?.label ?? ""}`.trim(),
+          group: `${scope.code} ${group ? subRowLabel(group.label, major?.program ?? "", (group.majors ?? []).length) : ""}`.trim(),
           tone: registered.has(cell.crn) ? ("solid" as const) : ("outline" as const),
         })),
     ),
@@ -445,10 +460,10 @@ export function StudentRecord({
               <Empty>In no group yet.</Empty>
             ) : (
               <ul className="space-y-2.5" aria-label="Groups">
-                {placements.map(({ scope, group, crns }) => (
+                {placements.map(({ scope, group, major, crns }) => (
                   <li key={scope.id} className="flex flex-wrap items-start gap-x-3 gap-y-1">
                     <span className="inline-flex items-center rounded-full bg-[#eef1f5] px-2.5 py-0.5 text-sm font-semibold text-[#344054]">
-                      {scope.code} {group?.label ?? "?"}
+                      {scope.code} {group ? subRowLabel(group.label, major?.program ?? "", (group.majors ?? []).length) : "?"}
                     </span>
                     <span className="pt-0.5 text-xs text-[#98a2b3]">{termName(scope.termId ?? "")}</span>
                     <ul className="flex basis-full flex-wrap gap-x-4 gap-y-0.5 pl-1 text-xs text-[#667085]">

@@ -14,6 +14,7 @@ import type { Warning } from "@/services/discrepancies";
 import type { FieldChange } from "@/services/pullHistory";
 import { meetsTokens, setTokens, type GroupCrns } from "@/services/meets";
 import { displayNameOf, studentIdOf, type RosterRow } from "@/services/scenRosters";
+import { subRowLabel } from "@/services/courseCards";
 import type { Student } from "@/services/studentDatabase";
 
 /** What the last sync found: the portal returned them, or it did not. */
@@ -141,12 +142,13 @@ export function shortTerm(name: string): string {
  * and would otherwise read as a contradiction.
  */
 export function groupLabels(
-  groups: { termId: string; scopeCode: string; groupLabel: string }[],
+  groups: { termId: string; scopeCode: string; groupLabel: string; major?: string; subRows?: number }[],
   termNames: Record<string, string> = {},
 ): string[] {
   const terms = new Set(groups.map((group) => group.termId));
   return groups.map((group) => {
-    const label = `${group.scopeCode} ${group.groupLabel}`;
+    // "CM 1 · Mathematics": the sub-row they took, where the group has another to tell it from.
+    const label = `${group.scopeCode} ${subRowLabel(group.groupLabel, group.major ?? "", group.subRows ?? 0)}`;
     if (terms.size < 2) return label;
     const term = termNames[group.termId];
     return term ? `${shortTerm(term)} · ${label}` : label;
@@ -161,7 +163,7 @@ export function groupLabels(
  * shares every class: a handout, a room list, a bunch to move at once.
  */
 export function groupSignature(
-  groups: { termId: string; scopeCode: string; groupLabel: string }[],
+  groups: { termId: string; scopeCode: string; groupLabel: string; major?: string; subRows?: number }[],
   termNames: Record<string, string> = {},
 ): string {
   const ordered = [...groups].sort(

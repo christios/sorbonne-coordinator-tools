@@ -16,8 +16,8 @@ const CM: CatalogueScope = {
   name: "Lectures",
   note: "",
   kind: "shared", parentScopeId: "", openToAll: false,
-  courses: [{ id: "c-math", code: "MATH001", name: "Pre-calculus", component: "CM", program: "", request: EMPTY_REQUEST }],
-  groups: [{ id: "cm-a", label: "A", capacity: 0, note: "", program: "", parentGroupId: "", assigned: 2, crns: { "c-math": { ...EMPTY_SECTION, crn: "22151", teacher: "" } } }],
+  courses: [{ id: "c-math", code: "MATH001", name: "Pre-calculus", component: "CM", request: EMPTY_REQUEST }],
+  groups: [{ id: "cm-a", label: "A", capacity: 0, note: "", parentGroupId: "", assigned: 2, crns: { "c-math": { ...EMPTY_SECTION, crn: "22151", teacher: "" } } }],
 };
 
 const TD: CatalogueScope = {
@@ -27,8 +27,8 @@ const TD: CatalogueScope = {
   note: "",
   kind: "shared", parentScopeId: "", openToAll: false,
   courses: [
-    { id: "t-math", code: "MATH001", name: "Pre-calculus", component: "TD", program: "", request: EMPTY_REQUEST },
-    { id: "t-algo", code: "MATH011", name: "Algorithms", component: "", program: "", request: EMPTY_REQUEST },
+    { id: "t-math", code: "MATH001", name: "Pre-calculus", component: "TD", request: EMPTY_REQUEST },
+    { id: "t-algo", code: "MATH011", name: "Algorithms", component: "", request: EMPTY_REQUEST },
   ],
   groups: [
     {
@@ -36,11 +36,11 @@ const TD: CatalogueScope = {
       label: "1",
       capacity: 0,
       note: "",
-      program: "", parentGroupId: "",
+      parentGroupId: "",
       assigned: 1,
       crns: { "t-math": { ...EMPTY_SECTION, crn: "23652", teacher: "" }, "t-algo": { ...EMPTY_SECTION, crn: "23365", teacher: "" } },
     },
-    { id: "td-2", label: "2", capacity: 0, note: "", program: "", parentGroupId: "", assigned: 1, crns: { "t-math": { ...EMPTY_SECTION, crn: "23653", teacher: "" } } },
+    { id: "td-2", label: "2", capacity: 0, note: "", parentGroupId: "", assigned: 1, crns: { "t-math": { ...EMPTY_SECTION, crn: "23653", teacher: "" } } },
   ],
 };
 

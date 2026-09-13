@@ -60,7 +60,7 @@ describe("who the exports are about", () => {
       scopes: [
         {
           id: "scope-cm", code: "CM", name: "Lectures", note: "", kind: "shared", parentScopeId: "", openToAll: false,
-          courses: [], groups: [{ id: "cm-a", label: "A", capacity: 0, note: "", program: "", parentGroupId: "", assigned: 1, crns: {} }],
+          courses: [], groups: [{ id: "cm-a", label: "A", capacity: 0, note: "", parentGroupId: "", assigned: 1, crns: {} }],
         },
       ],
     });

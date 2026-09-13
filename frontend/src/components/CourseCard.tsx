@@ -9,7 +9,7 @@ import type { Card, CardSet, SectionRow } from "@/services/courseCards";
 import { MUTUALIZED_WORDS, type ActiveTeacher, type TermCrns } from "@/services/portalLists";
 import type { CrnVerdict, GroupClash } from "@/services/publication";
 import { toneOf, verdictFor, type VerdictTone } from "@/services/publicationView";
-import { EMPTY_PART, setGroupCrn, updateSection, type Cohort, type SectionPart } from "@/services/studentDatabase";
+import { type Cohort, EMPTY_PART, type SectionPart, setGroupCrn, shortProgram, updateSection } from "@/services/studentDatabase";
 
 const KIND_WORD = { shared: "own groups", nested: "nested" } as const;
 
@@ -274,7 +274,7 @@ const empty = <span className="text-[#c8d0da]">—</span>;
               <span className="tabular-nums">{held.anticipated}</span>
             </span>
           ) : null}
-          {row.group.program ? <span>· {row.group.program}</span> : null}
+
         </span>
       </td>
       <td className="py-2 pr-3 tabular-nums">
@@ -377,6 +377,16 @@ export function SectionDialog({
   const [draft, setDraft] = useState<SectionPart>({ ...held });
   const label = `${row.scope.code} ${row.group.label} ${row.course.code}`;
   const set = (patch: Partial<SectionPart>) => setDraft((current) => ({ ...current, ...patch }));
+  /*
+   * Whose cell this is, on a group with sub-rows: everybody's — the mutualized lecture,
+   * one CRN under every major — or this sub-row's own, or the sub-row's word that it is
+   * not taught the course at all. A group with no sub-rows has no such question.
+   */
+  type Whose = "everyone" | "own" | "not-taught";
+  const [whose, setWhose] = useState<Whose>(
+    row.notTaught ? "not-taught" : row.major && held.majorId === row.major.id ? "own" : "everyone",
+  );
+  const majorId = whose === "everyone" || !row.major ? "" : row.major.id;
 
   // The portal's CRNs of this course in this semester, the one already held first.
   const crnOptions = portal
@@ -410,7 +420,7 @@ export function SectionDialog({
   const split = useMutation({
     mutationFn: async () => {
       const next = (row.parts ?? 1) + 1;
-      await updateSection(row.group.id, row.course.id, { ...EMPTY_PART, part: next });
+      await updateSection(row.group.id, row.course.id, { ...EMPTY_PART, part: next, majorId });
     },
     onSuccess: () => {
       onSaved();
@@ -424,13 +434,21 @@ export function SectionDialog({
       // The part being edited, so a handover's second half is written to its own row
       // rather than over the first professor's.
       const part = held.part || 1;
-      if (crn !== held.crn) {
-        await setGroupCrn(row.group.id, row.course.id, { crn, teacher: held.teacher, part });
+      if (whose === "not-taught" && row.major) {
+        // The sub-row's word about the course; it has no CRN and no request of its own.
+        await setGroupCrn(row.group.id, row.course.id, { crn: "", part, majorId: row.major.id, notTaught: true });
+        return;
       }
-      const details: Partial<SectionPart> = { ...draft, part };
+      // Moved from the shared cell to the sub-row's own, or back: the old one is not
+      // touched — a shared lecture stays the other sub-rows' — and the new one is written.
+      if (crn !== held.crn || majorId !== held.majorId || held.notTaught) {
+        await setGroupCrn(row.group.id, row.course.id, { crn, teacher: held.teacher, part, majorId });
+      }
+      const details: Partial<SectionPart> = { ...draft, part, majorId };
       delete details.crn;
       delete details.teacher;
-      await updateSection(row.group.id, row.course.id, details as Omit<SectionPart, "crn" | "teacher">);
+      delete details.notTaught;
+      await updateSection(row.group.id, row.course.id, details as Omit<SectionPart, "crn" | "teacher" | "notTaught">);
     },
     onSuccess: onSaved,
   });
@@ -475,7 +493,38 @@ export function SectionDialog({
         </div>
       }
     >
-      <div className="grid gap-4 sm:grid-cols-2">
+      {row.major ? (
+        /*
+         * Whose cell this is, on a group with sub-rows. The default reads what is there:
+         * the shared cell says "everyone", a cell of the sub-row's own says the sub-row.
+         */
+        <div className="mb-4">
+          <span className={fieldLabel}>This cell is for</span>
+          <div className="mt-1 flex flex-wrap gap-2" role="radiogroup" aria-label={`Whose cell ${label} is`}>
+            {(
+              [
+                ["everyone", "Everyone in the group", "One CRN under every sub-row — the mutualized class."],
+                ["own", `${shortProgram(row.major.program)} only`, "This sub-row's own section; the others keep theirs."],
+                ["not-taught", `Not taught to ${shortProgram(row.major.program)}`, "No class for this sub-row, and no CRN wanted."],
+              ] as const
+            ).map(([value, title, hint]) => (
+              <label
+                key={value}
+                className={`flex cursor-pointer items-start gap-2 rounded-md border px-3 py-2 text-sm ${
+                  whose === value ? "border-[#1f4e79] bg-[#f2f7fb]" : "border-[#d9dee7] bg-white"
+                }`}
+              >
+                <input type="radio" name="whose-cell" value={value} checked={whose === value} onChange={() => setWhose(value)} className="mt-0.5" />
+                <span>
+                  <span className="block font-medium text-[#344054]">{title}</span>
+                  <span className="block text-[11px] text-[#98a2b3]">{hint}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      <div className={`grid gap-4 sm:grid-cols-2 ${whose === "not-taught" ? "pointer-events-none opacity-40" : ""}`}>
         <div>
           <span className={fieldLabel}>CRN</span>
           {portal ? (

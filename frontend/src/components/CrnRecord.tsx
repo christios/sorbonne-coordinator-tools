@@ -84,7 +84,7 @@ export function CrnRecord({
     .flatMap((card) =>
       card.sets.flatMap((set) =>
         set.rows
-          .filter((entry) => teaches(entry.group, entry.course))
+          .filter((entry) => teaches(entry))
           .flatMap((entry) => rowsPerPart(entry))
           .filter((entry) => entry.section?.crn === row.crn)
           .map((entry) => ({ card, set, entry })),

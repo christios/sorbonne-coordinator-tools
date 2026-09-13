@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, ArrowRight, ChevronDown, ChevronUp, Layers, Plus, Trash2, Users } from "lucide-react";
+import { AlertTriangle, ArrowRight, ChevronDown, ChevronUp, Layers, Plus, Trash2, Users, X } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -13,22 +13,26 @@ import { fieldHeld } from "@/services/rosterStore";
 import { COHORT, SCHEMA_TERM } from "@/services/remembered";
 import { labelsFrom, readSets, totalsOf, type SetReading } from "@/services/groupSchema";
 import {
+  type CatalogueCourse,
+  type CatalogueGroup,
+  type CatalogueMajor,
+  type CatalogueScope,
+  type Cohort,
+  type ScopeKind,
   addCourse,
   addGroup,
+  addMajor,
   addScope,
   deleteCourse,
   deleteGroup,
   deleteScope,
   fetchCatalogue,
   moveScope,
-  updateCourse,
+  removeMajor,
+  shortProgram,
   updateGroup,
+  updateMajor,
   updateScope,
-  type CatalogueCourse,
-  type CatalogueGroup,
-  type CatalogueScope,
-  type Cohort,
-  type ScopeKind,
 } from "@/services/studentDatabase";
 import { withStored } from "@/services/programmeOptions";
 import { fetchTimetableTerms } from "@/services/timetables";
@@ -422,15 +426,6 @@ function SetEditor({
     },
   });
   const dropCourse = useMutation({ mutationFn: deleteCourse, onSuccess: onChanged });
-  /*
-   * Which programme takes a course, when a set is split by programme rather than by
-   * number. Blank is "all of them" and is what every set that is not so split holds.
-   */
-  const setCourseProgramme = useMutation({
-    mutationFn: ({ course, program }: { course: CatalogueCourse; program: string }) =>
-      updateCourse(course.id, { code: course.code, name: course.name, component: course.component, program }),
-    onSuccess: onChanged,
-  });
   const makeGroups = useMutation({
     mutationFn: async (text: string) => {
       for (const label of labelsFrom(text)) await addGroup(scope.id, { label });
@@ -574,29 +569,6 @@ function SetEditor({
           {scope.courses.map((course) => (
             <li key={course.id} className="inline-flex items-center gap-1.5 rounded-full border border-[#d9dee7] bg-white py-1 pl-3 pr-1.5 text-sm">
               <span className="tabular-nums text-[#344054]">{course.code}</span>
-              {/*
-                * Only when there is something to choose between. A department whose
-                * students are all one programme has no use for the question, and a picker
-                * offering one answer is a control that can only be got wrong.
-                */}
-              {programmes.length > 1 || course.program ? (
-                <select
-                  aria-label={`Programme taking ${course.code}`}
-                  title="Which programme of the cohort takes this course. Everyone, unless you say otherwise."
-                  value={course.program}
-                  onChange={(event) => setCourseProgramme.mutate({ course, program: event.target.value })}
-                  className={`max-w-36 truncate rounded-full border-0 bg-transparent py-0 pl-1 pr-4 text-xs ${
-                    course.program ? "text-[#1f4e79]" : "text-[#c8d0da]"
-                  }`}
-                >
-                  <option value="">everyone</option>
-                  {withStored(programmes, course.program).map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              ) : null}
               <button
                 type="button"
                 aria-label={`Remove ${course.code} from ${scope.code}`}
@@ -651,7 +623,7 @@ function SetEditor({
                   <th className="py-2 pl-4 pr-3 font-semibold">Group</th>
                   <th className="py-2 pr-3 font-semibold">Seats</th>
                   <th className="py-2 pr-3 font-semibold">In parallel with</th>
-                  {programmes.length > 1 ? <th className="py-2 pr-3 font-semibold">Programme</th> : null}
+                  <th className="py-2 pr-3 font-semibold">Sub-rows</th>
                   {scope.kind === "nested" ? <th className="py-2 pr-3 font-semibold">Inside</th> : null}
                   <th className="py-2 pr-3 text-right font-semibold">Placed</th>
                   <th className="py-2 pr-4" />
@@ -774,17 +746,17 @@ function GroupRow({
   const [label, setLabel] = useState(group.label);
   const [capacity, setCapacity] = useState(String(group.capacity || ""));
   const save = useMutation({
-    mutationFn: (next: Partial<{ label: string; capacity: number; parentGroupId: string; program: string; parallelWith: string[] }>) =>
+    mutationFn: (next: Partial<{ label: string; capacity: number; parentGroupId: string; parallelWith: string[] }>) =>
       updateGroup(group.id, {
         label: next.label ?? label,
         capacity: next.capacity ?? Number(capacity || 0),
         note: group.note,
-        program: next.program ?? group.program,
         parentGroupId: next.parentGroupId ?? group.parentGroupId,
         parallelWith: next.parallelWith ?? group.parallelWith,
       }),
     onSuccess: onChanged,
   });
+  const majors = group.majors ?? [];
 
   return (
     <tr className="border-t border-[#f2f4f7]">
@@ -798,15 +770,22 @@ function GroupRow({
         />
       </td>
       <td className="py-1.5 pr-3">
-        <input
-          aria-label={`Seats in ${group.label}`}
-          value={capacity}
-          inputMode="numeric"
-          onChange={(event) => setCapacity(event.target.value.replace(/[^0-9]/g, ""))}
-          onBlur={() => Number(capacity || 0) !== group.capacity && save.mutate({ capacity: Number(capacity || 0) })}
-          placeholder="—"
-          className="w-20 rounded-md border border-transparent px-2 py-1 text-sm tabular-nums hover:border-[#cbd5e1] focus:border-[#cbd5e1]"
-        />
+        {majors.length ? (
+          // With sub-rows the seats are theirs to add up; the group's own number is retired.
+          <span className="inline-block w-20 px-2 py-1 text-sm tabular-nums text-[#667085]" title="What the sub-rows add up to">
+            {group.capacity || "—"}
+          </span>
+        ) : (
+          <input
+            aria-label={`Seats in ${group.label}`}
+            value={capacity}
+            inputMode="numeric"
+            onChange={(event) => setCapacity(event.target.value.replace(/[^0-9]/g, ""))}
+            onBlur={() => Number(capacity || 0) !== group.capacity && save.mutate({ capacity: Number(capacity || 0) })}
+            placeholder="—"
+            className="w-20 rounded-md border border-transparent px-2 py-1 text-sm tabular-nums hover:border-[#cbd5e1] focus:border-[#cbd5e1]"
+          />
+        )}
       </td>
       {/*
         * The groups this one must be scheduled at the same hour as — TD 1 with PHIL-TD 1,
@@ -828,29 +807,13 @@ function GroupRow({
         </div>
       </td>
       {/*
-        * The programme this group is, which is two things at once and both are the
-        * registrar's vocabulary: the fill seats a student of that programme here first,
-        * and a course named for another programme is not taught here at all.
+        * The sub-rows: the majors this group holds, each with its seats. A group with none
+        * is one thing for everybody. With them, a placement takes one, the fill seats a
+        * student on their own, and a course may be one sub-row's and not another's.
         */}
-      {programmes.length > 1 || group.program ? (
-        <td className="py-1.5 pr-3">
-          <select
-            aria-label={`Programme of ${group.label}`}
-            value={group.program}
-            onChange={(event) => save.mutate({ program: event.target.value })}
-            className={`w-40 truncate rounded-md border border-transparent px-2 py-1 text-sm hover:border-[#cbd5e1] focus:border-[#cbd5e1] ${
-              group.program ? "text-[#344054]" : "text-[#c8d0da]"
-            }`}
-          >
-            <option value="">any</option>
-            {withStored(programmes, group.program).map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </td>
-      ) : null}
+      <td className="py-1.5 pr-3">
+        <MajorsEditor group={group} programmes={programmes} onChanged={onChanged} />
+      </td>
       {nested ? (
         <td className="py-1.5 pr-3">
           <div className="w-40">
@@ -881,5 +844,97 @@ function GroupRow({
         </button>
       </td>
     </tr>
+  );
+}
+
+/**
+ * The sub-rows of one group, edited in place: a programme from the cohort's vocabulary and
+ * its seats per line, a line taken away, a line added. Removing one leaves its students in
+ * the group on no sub-row, and the row's count says so until somebody moves them.
+ */
+function MajorsEditor({ group, programmes, onChanged }: { group: CatalogueGroup; programmes: string[]; onChanged: () => void }) {
+  const majors = group.majors ?? [];
+  const [adding, setAdding] = useState("");
+  const [seats, setSeats] = useState<Record<string, string>>({});
+  const add = useMutation({
+    mutationFn: (program: string) => addMajor(group.id, { program, seats: 0 }),
+    onSuccess: () => {
+      setAdding("");
+      onChanged();
+    },
+  });
+  const resize = useMutation({
+    mutationFn: ({ major, next }: { major: CatalogueMajor; next: number }) =>
+      updateMajor(major.id, { program: major.program, seats: next }),
+    onSuccess: onChanged,
+  });
+  const remove = useMutation({ mutationFn: (major: CatalogueMajor) => removeMajor(major.id), onSuccess: onChanged });
+  const offered = programmes.filter((program) => !majors.some((major) => major.program === program));
+  const error = add.error ?? resize.error ?? remove.error;
+  return (
+    <div className="min-w-44 space-y-1">
+      {majors.map((major) => (
+        <div key={major.id} className="flex items-center gap-1.5 text-sm">
+          <span className="min-w-0 flex-1 truncate text-[#344054]" title={major.program}>
+            {shortProgram(major.program)}
+          </span>
+          <input
+            aria-label={`Seats for ${shortProgram(major.program)} in ${group.label}`}
+            value={seats[major.id] ?? String(major.seats || "")}
+            inputMode="numeric"
+            onChange={(event) => setSeats((held) => ({ ...held, [major.id]: event.target.value.replace(/[^0-9]/g, "") }))}
+            onBlur={() => {
+              const next = Number(seats[major.id] ?? major.seats) || 0;
+              if (next !== major.seats) resize.mutate({ major, next });
+            }}
+            placeholder="∞"
+            className="w-12 rounded-md border border-transparent px-1.5 py-0.5 text-right text-sm tabular-nums hover:border-[#cbd5e1] focus:border-[#cbd5e1]"
+          />
+          <span className="text-xs tabular-nums text-[#98a2b3]" title="Placed on this sub-row">{major.assigned}</span>
+          <button
+            type="button"
+            aria-label={`Remove the ${shortProgram(major.program)} sub-row from ${group.label}`}
+            onClick={() => remove.mutate(major)}
+            className="rounded p-0.5 text-[#c8d0da] hover:bg-[#fdf3f3] hover:text-[#a6292f]"
+          >
+            <X size={12} aria-hidden="true" />
+          </button>
+        </div>
+      ))}
+      {offered.length ? (
+        <select
+          aria-label={`Add a sub-row to ${group.label}`}
+          value={adding}
+          onChange={(event) => {
+            setAdding(event.target.value);
+            if (event.target.value) add.mutate(event.target.value);
+          }}
+          className="w-full rounded-md border border-dashed border-[#cbd5e1] bg-transparent px-1.5 py-0.5 text-xs text-[#667085]"
+        >
+          <option value="">{majors.length ? "+ another major" : "one thing for everybody"}</option>
+          {offered.map((program) => (
+            <option key={program} value={program}>
+              {program}
+            </option>
+          ))}
+        </select>
+      ) : programmes.length === 0 ? (
+        // No portal pull in this browser to take the vocabulary from: typed, as the
+        // registrar spells it — "MATH - Mathematics" — and Enter adds it.
+        <input
+          aria-label={`Add a sub-row to ${group.label}`}
+          value={adding}
+          onChange={(event) => setAdding(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key !== "Enter" || !adding.trim()) return;
+            event.preventDefault();
+            add.mutate(adding.trim());
+          }}
+          placeholder={majors.length ? "+ another major, then Enter" : "a major, as the registrar spells it"}
+          className="w-full rounded-md border border-dashed border-[#cbd5e1] bg-transparent px-1.5 py-0.5 text-xs text-[#667085]"
+        />
+      ) : null}
+      {error ? <p className="text-xs text-[#a6292f]">{(error as Error).message}</p> : null}
+    </div>
   );
 }

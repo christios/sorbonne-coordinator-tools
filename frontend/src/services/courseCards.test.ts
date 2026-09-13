@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { teaches, buildCards, cardColumns, sectionsOf, teachersOf } from "@/services/courseCards";
-import { EMPTY_REQUEST, EMPTY_SECTION, type CohortCatalogue } from "@/services/studentDatabase";
+import { type CatalogueScope, type CohortCatalogue, EMPTY_REQUEST, EMPTY_SECTION } from "@/services/studentDatabase";
 
 const section = (crn: string, teacherId = "") => ({ ...EMPTY_SECTION, crn, teacherId });
 
@@ -10,18 +10,18 @@ const FYS: CohortCatalogue = {
   scopes: [
     {
       id: "s-cm", code: "CM", name: "Lectures", note: "", termId: "term-1", kind: "shared", parentScopeId: "", openToAll: false,
-      courses: [{ id: "cm-math", code: "MATH001", name: "Pre-calculus 1", component: "CM", program: "", request: EMPTY_REQUEST }],
-      groups: [{ id: "cm-a", label: "A", capacity: 0, note: "", program: "", parentGroupId: "", assigned: 98, crns: { "cm-math": section("22151", "t-maaz") } }],
+      courses: [{ id: "cm-math", code: "MATH001", name: "Pre-calculus 1", component: "CM", request: EMPTY_REQUEST }],
+      groups: [{ id: "cm-a", label: "A", capacity: 0, note: "", parentGroupId: "", assigned: 98, crns: { "cm-math": section("22151", "t-maaz") } }],
     },
     {
       id: "s-td", code: "TD", name: "Tutorials", note: "", termId: "term-1", kind: "shared", parentScopeId: "", openToAll: false,
       courses: [
-        { id: "td-math", code: "MATH001", name: "", component: "TD", program: "", request: EMPTY_REQUEST },
-        { id: "td-algo", code: "MATH011", name: "Algorithms", component: "TD", program: "", request: EMPTY_REQUEST },
+        { id: "td-math", code: "MATH001", name: "", component: "TD", request: EMPTY_REQUEST },
+        { id: "td-algo", code: "MATH011", name: "Algorithms", component: "TD", request: EMPTY_REQUEST },
       ],
       groups: [
-        { id: "td-1", label: "1", capacity: 33, note: "", program: "", parentGroupId: "", assigned: 33, crns: { "td-math": section("23223", "t-ghantous"), "td-algo": section("23652") } },
-        { id: "td-2", label: "2", capacity: 33, note: "", program: "", parentGroupId: "", assigned: 33, crns: { "td-math": section("23224") } },
+        { id: "td-1", label: "1", capacity: 33, note: "", parentGroupId: "", assigned: 33, crns: { "td-math": section("23223", "t-ghantous"), "td-algo": section("23652") } },
+        { id: "td-2", label: "2", capacity: 33, note: "", parentGroupId: "", assigned: 33, crns: { "td-math": section("23224") } },
       ],
     },
   ],
@@ -69,36 +69,70 @@ describe("cards from the catalogue", () => {
   });
 });
 
-describe("a set split by programme rather than by group number", () => {
+describe("a group with sub-rows, one per major it holds", () => {
   /*
-   * L3's CM set carries the Maths courses and the Physics courses and holds a group called
-   * "Mathematics" and one called "Physics". The matrix's assumption — every group teaches
-   * every course of its set — is right for Foundation Year's numbered groups and wrong
-   * here, and it produced 45 sections "without a CRN" across L2 and L3, none of them real.
+   * L1's lecture set is one group for everybody, and under it the mathematicians and the
+   * physicists are taught different things: the shared lecture under both, philosophy on
+   * the mathematics sub-row, the physics option on the other — and each is not taught the
+   * other's. The card reads the group through its sub-rows, one row each.
    */
-  const maths = { program: "Mathematics" };
-  const physics = { program: "Physics" };
+  const scope: CatalogueScope = {
+    id: "s-cm", code: "CM", name: "Lectures", note: "", termId: "term-1", kind: "shared", parentScopeId: "", openToAll: false,
+    courses: [
+      { id: "c-shared", code: "CPSC-100", name: "Computer Science", component: "CM", request: EMPTY_REQUEST },
+      { id: "c-phil", code: "MATH-113", name: "Philosophy", component: "CM", request: EMPTY_REQUEST },
+    ],
+    groups: [
+      {
+        id: "g1", label: "1", capacity: 110, note: "", parentGroupId: "", assigned: 100,
+        majors: [
+          { id: "m-maths", program: "MATH - Mathematics", seats: 90, assigned: 85 },
+          { id: "m-phys", program: "PHYS - Physics", seats: 20, assigned: 15 },
+        ],
+        crns: { "c-shared": { ...EMPTY_SECTION, crn: "22155" } },
+        byMajor: {
+          "m-maths": { "c-phil": { ...EMPTY_SECTION, crn: "23307", majorId: "m-maths" } },
+          "m-phys": { "c-phil": { ...EMPTY_SECTION, majorId: "m-phys", notTaught: true } },
+        },
+      },
+    ],
+  };
+  const cards = buildCards([{ cohort: { id: "c1", name: "L1-S1", term: "2026-27" }, scopes: [scope] }], () => "Semester 1");
+  // One card per course; each carries the set's rows for that course.
+  const rowsOf = (code: string) => cards.find((card) => card.code === code)?.sets[0]?.rows ?? [];
 
-  it("says a course is taught to the group of its own programme", () => {
-    expect(teaches(maths, { program: "Mathematics" })).toBe(true);
-    expect(teaches(physics, { program: "Physics" })).toBe(true);
+  it("reads the group as one row per sub-row, labelled by the major, with the sub-row's seats", () => {
+    expect(rowsOf("CPSC-100").map((row) => [row.group.label, row.group.capacity, row.group.assigned])).toEqual([
+      ["1 · Mathematics", 90, 85],
+      ["1 · Physics", 20, 15],
+    ]);
+    // The id stays the group's: a placement is into the group, on the sub-row.
+    expect(rowsOf("CPSC-100").every((row) => row.group.id === "g1")).toBe(true);
   });
 
-  it("says it is not taught to the other one, which is the whole point", () => {
-    expect(teaches(physics, { program: "Mathematics" })).toBe(false);
-    expect(teaches(maths, { program: "Physics" })).toBe(false);
+  it("shows a shared cell on every sub-row and counts it once", () => {
+    const [maths, physics] = rowsOf("CPSC-100");
+    expect([maths.section?.crn, physics.section?.crn]).toEqual(["22155", "22155"]);
+    expect([maths.sharedCell, physics.sharedCell]).toEqual([true, true]);
+    expect([maths.firstSubRow, physics.firstSubRow]).toEqual([true, false]);
   });
 
-  it("treats a blank on either side as everyone, so a set that says nothing is unchanged", () => {
-    // Every set in the department says nothing today, and none of them may change
-    // behaviour because this exists.
-    expect(teaches({ program: "" }, { program: "Mathematics" })).toBe(true);
-    expect(teaches(maths, { program: "" })).toBe(true);
-    expect(teaches({}, {})).toBe(true);
+  it("gives a sub-row its own cell over the shared one, and says when it is not taught a course", () => {
+    const [maths, physics] = rowsOf("MATH-113");
+    expect(maths.section?.crn).toBe("23307");
+    expect(maths.sharedCell).toBe(false);
+    expect(teaches(maths)).toBe(true);
+    expect(physics.section).toBeNull();
+    expect(physics.notTaught).toBe(true);
+    expect(teaches(physics)).toBe(false);
   });
 
-  it("compares past the case and the spaces the two were typed with", () => {
-    // The two are typed on different pages, months apart, by the same person.
-    expect(teaches({ program: " mathematics " }, { program: "Mathematics" })).toBe(true);
+  it("leaves a group with no sub-rows exactly as it was", () => {
+    const plain = buildCards(
+      [{ cohort: { id: "c1", name: "FYS", term: "2026-27" }, scopes: [{ ...scope, groups: [{ ...scope.groups[0], majors: [], byMajor: {} }] }] }],
+      () => "Semester 1",
+    );
+    const [row] = plain[0].sets[0].rows;
+    expect([row.group.label, row.major, row.sharedCell, teaches(row)]).toEqual(["1", null, false, true]);
   });
 });
