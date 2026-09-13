@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { formatTeachingHours, lastIncompleteRequisitionStep, missingRequisitionFields, totalTeachingHours } from "./requisitions";
+import { formatTeachingHours, lastIncompleteRequisitionStep, missingRequisitionFields, requisitionHours, totalTeachingHours } from "./requisitions";
 
 describe("missingRequisitionFields", () => {
   it("reports incomplete request details and manual course fields before save or export", () => {
@@ -78,5 +78,20 @@ describe("totalTeachingHours", () => {
 
     expect(total).toBe(3.75);
     expect(formatTeachingHours(total)).toBe("3.75");
+  });
+});
+
+describe("the hours a requisition pays for", () => {
+  it("adds every course row up, per requisition and in all", () => {
+    const course = (hours: string) => ({ id: "", subjectCode: "SCEN", courseNumber: "101", level: "", title: "", hours }) as never;
+    const held = requisitionHours([
+      { label: "Semester 1", academicYear: "2026-2027", content: { courses: [course("21"), course("21")] } },
+      { label: "Semester 2", academicYear: "2026-2027", content: { courses: [course("15"), course("")] } },
+    ]);
+    expect(held.total).toBe(57);
+    expect(held.byLabel).toEqual([
+      { label: "Semester 1 2026-2027", hours: 42 },
+      { label: "Semester 2 2026-2027", hours: 15 },
+    ]);
   });
 });

@@ -80,3 +80,20 @@ export function lastIncompleteRequisitionStep(requisition: RequisitionCompletion
   if (!content.contractTo) return { section: "details", focusTarget: "contract-to" };
   return null;
 }
+
+/**
+ * The hours a part-time teacher's requisitions pay for, in all and per requisition.
+ *
+ * Read beside the hours the planning gives them and the hours the registrar has booked:
+ * three counts of the same teaching from three places, shown together so a gap is seen
+ * while a contract can still be amended. No warning on it here; the comparison is the point.
+ */
+export function requisitionHours(
+  requisitions: { label: string; academicYear: string; content: Pick<RequisitionContent, "courses"> }[],
+): { total: number; byLabel: { label: string; hours: number }[] } {
+  const byLabel = requisitions.map((requisition) => ({
+    label: [requisition.label, requisition.academicYear].filter(Boolean).join(" "),
+    hours: totalTeachingHours(requisition.content.courses),
+  }));
+  return { total: byLabel.reduce((sum, entry) => sum + entry.hours, 0), byLabel };
+}

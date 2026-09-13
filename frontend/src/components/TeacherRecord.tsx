@@ -8,7 +8,9 @@ import { SessionChangeList } from "@/components/SessionChangeList";
 import { adjustmentsFor, fetchSessionChanges } from "@/services/sessionChanges";
 import { buildCards } from "@/services/courseCards";
 import { fetchActiveCourses, fetchActiveCrns, fetchActiveTeachers, fetchFacilityHours, fetchTermLinks, type ActiveCrn, type ActiveTeacher } from "@/services/portalLists";
+import { requisitionHours } from "@/services/requisitions";
 import { registrarHoursFor, sameTeacher, sectionsTaughtBy } from "@/services/teacherLoad";
+import { getTeacherRequisition, listTeacherRequisitions } from "@/services/teachers";
 import { fetchCourseCards } from "@/services/studentDatabase";
 import { fetchTimetableTerms } from "@/services/timetables";
 
@@ -76,6 +78,31 @@ export function TeacherRecord({
     () => sectionsTaughtBy(cards, held?.id ?? teacher.id ?? "", teacher.fullName),
     [cards, held, teacher.id, teacher.fullName],
   );
+
+  /*
+   * The third count: what their requisitions pay for. Only a part-time teacher has one,
+   * and it is read through the part-time database they are linked to.
+   */
+  const partTimeId = held?.partTimeTeacherId ?? "";
+  const requisitionList = useQuery({
+    queryKey: ["teacher-requisitions", partTimeId],
+    queryFn: () => listTeacherRequisitions(partTimeId),
+    enabled: open && Boolean(partTimeId),
+    retry: false,
+  });
+  const { requisitions, requisitionsLoading } = useQueries({
+    queries: (requisitionList.data ?? []).map((item) => ({
+      queryKey: ["teacher-requisition", item.id],
+      queryFn: () => getTeacherRequisition(item.id),
+      enabled: open,
+      retry: false,
+    })),
+    combine: (reads) => ({
+      requisitions: reads.flatMap((read) => (read.data ? [read.data] : [])),
+      requisitionsLoading: reads.some((read) => read.isLoading),
+    }),
+  });
+  const contracted = requisitionHours(requisitions);
 
   const live = sections.filter((section) => !section.retired);
   /*
@@ -163,7 +190,12 @@ export function TeacherRecord({
       }
       onClose={onClose}
     >
-      <div className="grid gap-4 sm:grid-cols-4">
+      {/*
+        * Three counts of the same teaching, side by side: what our planning asks for, what
+        * the registrar has booked, and what the contract pays for. A comparison, not a
+        * verdict — hours move during a semester — but one that used to take three pages.
+        */}
+      <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-5">
         <div className="rounded-lg border border-[#d9dee7] bg-white px-4 py-3">
           <p className="text-xs font-semibold uppercase tracking-wide text-[#8a94a4]">Sections</p>
           <p className="mt-1 text-2xl font-semibold tabular-nums text-[#171717]">{live.length}</p>
@@ -172,7 +204,7 @@ export function TeacherRecord({
           </p>
         </div>
         <div className="rounded-lg border border-[#d9dee7] bg-white px-4 py-3">
-          <p className="text-xs font-semibold uppercase tracking-wide text-[#8a94a4]">Hours</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-[#8a94a4]">Planned hours</p>
           <p className="mt-1 text-2xl font-semibold tabular-nums text-[#171717]">{hours || "—"}</p>
           <p className="mt-0.5 text-xs text-[#98a2b3]">as the timetable request has them</p>
         </div>
@@ -180,6 +212,21 @@ export function TeacherRecord({
           <p className="text-xs font-semibold uppercase tracking-wide text-[#8a94a4]">Registrar hours</p>
           <p className="mt-1 text-2xl font-semibold tabular-nums text-[#171717]">{registrarHours || "—"}</p>
           <p className="mt-0.5 text-xs text-[#98a2b3]">booked on the portal&apos;s timetable</p>
+        </div>
+        <div className="rounded-lg border border-[#d9dee7] bg-white px-4 py-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-[#8a94a4]">Requisition hours</p>
+          <p className="mt-1 text-2xl font-semibold tabular-nums text-[#171717]" aria-label="Requisition hours">
+            {partTimeId && contracted.total ? contracted.total : "—"}
+          </p>
+          <p className="mt-0.5 text-xs text-[#98a2b3]">
+            {!partTimeId
+              ? "not a part-time teacher"
+              : requisitionList.isLoading || requisitionsLoading
+                ? "reading the requisitions…"
+                : contracted.byLabel.length
+                  ? contracted.byLabel.map((entry) => `${entry.label}: ${entry.hours} h`).join(" · ")
+                  : "no requisition yet"}
+          </p>
         </div>
         <div className="rounded-lg border border-[#d9dee7] bg-white px-4 py-3">
           <p className="text-xs font-semibold uppercase tracking-wide text-[#8a94a4]">Students</p>
