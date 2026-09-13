@@ -371,6 +371,31 @@ class FacilityTimetableStore:
             "pulledAt": pulled or "",
         }
 
+    def hours_for(self, term_code: str) -> dict[str, dict[str, Any]]:
+        """`crn -> {courseCode, teacherName, hours}`: what the registrar has booked, added up.
+
+        The registrar's own count of a section's teaching, for reading beside the hours our
+        planning asks for. Added up from the dated meetings rather than taken from anywhere
+        else, so a cancelled week or a half-semester handover is already in the number. A
+        `gone` section contributes nothing, as everywhere.
+        """
+        if not term_code:
+            return {}
+        with self.engine.connect() as connection:
+            rows = connection.execute(
+                text("""SELECT s.crn, s.course_code, s.teacher_name,
+                               coalesce(sum(EXTRACT(EPOCH FROM (m.ends_at::time - m.starts_at::time)) / 3600.0), 0)
+                        FROM facility_sections s
+                        LEFT JOIN facility_meetings m ON m.term_code = s.term_code AND m.crn = s.crn
+                        WHERE s.term_code = :t AND s.schedule_state <> 'gone'
+                        GROUP BY s.crn, s.course_code, s.teacher_name"""),
+                {"t": term_code},
+            ).all()
+        return {
+            row[0]: {"courseCode": row[1] or "", "teacherName": row[2] or "", "hours": round(float(row[3]), 2)}
+            for row in rows
+        }
+
     def coverage_for(self, term_code: str, crns: list[str]) -> Coverage:
         """What this store can and cannot say about these sections."""
         if not crns:

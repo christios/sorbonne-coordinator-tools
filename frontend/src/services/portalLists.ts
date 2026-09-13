@@ -731,6 +731,13 @@ export function fetchFacilitySections(termCode: string, crns: string[]): Promise
   return request<FacilityTimetable>(`/facility-timetable/${encodeURIComponent(termCode)}/sections?${query.toString()}`);
 }
 
+/** The registrar's booked hours per section, and whom the portal staffs it with. */
+export type FacilityHours = Record<string, { courseCode: string; teacherName: string; hours: number }>;
+
+export async function fetchFacilityHours(termCode: string): Promise<FacilityHours> {
+  return (await request<{ sections: FacilityHours }>(`/facility-timetable/${encodeURIComponent(termCode)}/hours`)).sections;
+}
+
 /** What one sweep changed, as the store reports it back. */
 export type FacilityPullReport = {
   asked: number;

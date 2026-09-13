@@ -779,6 +779,19 @@ async def read_facility_sweep(
     return facilities.sweep(term_code)
 
 
+@router.get("/facility-timetable/{term_code}/hours")
+async def read_facility_hours(
+    term_code: str, facilities: FacilityTimetableStore = Depends(get_facilities)
+) -> dict[str, Any]:
+    """The registrar's booked hours per section, with whom the portal staffs it.
+
+    For Teacher hours and a teacher's record to show the registrar's count beside ours —
+    a comparison, deliberately with no warning on it: teachers and hours move during a
+    semester, and cover is normal.
+    """
+    return {"termCode": term_code, "sections": facilities.hours_for(term_code)}
+
+
 @router.get("/facility-timetable/{term_code}/sections")
 async def read_facility_sections(
     term_code: str,

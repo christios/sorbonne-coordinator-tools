@@ -7,7 +7,7 @@ import { ScreenLoading } from "@/components/ScreenLoading";
 import { SelectMenu } from "@/components/SelectMenu";
 import type { TeacherRef } from "@/components/TeacherRecord";
 import { buildCards } from "@/services/courseCards";
-import { fetchActiveCourses, fetchActiveCrns, fetchActiveTeachers, fetchTermLinks } from "@/services/portalLists";
+import { fetchActiveCourses, fetchActiveCrns, fetchActiveTeachers, fetchFacilityHours, fetchTermLinks } from "@/services/portalLists";
 import { adjustmentsFor, fetchSessionChanges } from "@/services/sessionChanges";
 import { requestSheets } from "@/services/timetableExport";
 import {
@@ -16,6 +16,7 @@ import {
   hoursColumns,
   loadRows,
   loadTotals,
+  registrarHoursFor,
   sameTeacher,
   shownHoursColumns,
   teacherLoads,
@@ -98,14 +99,27 @@ export function TeacherHours({ onOpenTeacher }: { onOpenTeacher?: (teacher: Teac
     enabled: Boolean(termCode),
     retry: false,
   });
+  // The registrar's booked hours per section, for the column beside ours.
+  const booked = useQuery({
+    queryKey: ["facility-hours", termCode],
+    queryFn: () => fetchFacilityHours(termCode),
+    enabled: Boolean(termCode),
+    retry: false,
+  });
   const rows = useMemo(() => {
     const held = loadRows(teacherLoads(sheets), teachers.data ?? [], crnsByTeacher(sheets));
-    if (!notes.data?.length) return held;
     return held.map((row) => {
       const adjusted = adjustmentsFor(notes.data ?? [], { id: row.active?.id ?? row.teacherId, name: row.teacher }, new Set(row.crns), sameTeacher);
-      return { ...row, cancelledHours: adjusted.cancelled, coverTaken: adjusted.coveredByOthers, coverGiven: adjusted.coveredForOthers };
+      return {
+        ...row,
+        cancelledHours: adjusted.cancelled,
+        coverTaken: adjusted.coveredByOthers,
+        coverGiven: adjusted.coveredForOthers,
+        registrarHours: registrarHoursFor(booked.data ?? {}, row.teacher, sameTeacher),
+      };
     });
-  }, [sheets, teachers.data, notes.data]);
+  }, [sheets, teachers.data, notes.data, booked.data]);
+  const registrarTotal = Math.round(rows.reduce((sum, row) => sum + row.registrarHours, 0) * 100) / 100;
   const totals = loadTotals(rows);
   const sheetTitles = useMemo(() => sheets.map((sheet) => sheet.title), [sheets]);
   const columns = useMemo(() => hoursColumns(sheetTitles), [sheetTitles]);
@@ -135,9 +149,14 @@ export function TeacherHours({ onOpenTeacher }: { onOpenTeacher?: (teacher: Teac
         </LabelledPicker>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         <Tile label="Teachers" value={String(totals.teachers)} hint="with hours this semester" />
-        <Tile label="Hours in all" value={String(totals.hours)} hint={`across ${totals.sections} section${totals.sections === 1 ? "" : "s"}`} />
+        <Tile label="Hours in all" value={String(totals.hours)} hint={`across ${totals.sections} section${totals.sections === 1 ? "" : "s"}, as we planned them`} />
+        <Tile
+          label="Registrar hours"
+          value={termCode ? String(registrarTotal) : "—"}
+          hint={termCode ? (booked.data ? "booked on the portal's timetable, for our teachers" : "reading the sweep…") : "no portal term linked"}
+        />
         <Tile
           label="Nobody yet"
           value={String(totals.unnamed)}
@@ -172,7 +191,8 @@ export function TeacherHours({ onOpenTeacher }: { onOpenTeacher?: (teacher: Teac
       <p className="mt-3 text-xs text-[#98a2b3]">
         The same count the timetable workbook&apos;s Teacher Hours sheet carries, from the same rows — with the hours
         nobody is teaching shown, which the sheet leaves out. Hours a section does not state are its course&apos;s.
-        Cancelled and covered hours come from the notes on the CRNs&apos; calendars and sit beside the plan, not
+        Registrar hours are what the portal&apos;s timetable has booked for the sections it staffs with each teacher.
+        Cancelled and covered hours come from the notes on the CRNs&apos; calendars. All three sit beside the plan, not
         inside it.
       </p>
     </section>

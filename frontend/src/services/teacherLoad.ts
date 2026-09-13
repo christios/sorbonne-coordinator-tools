@@ -14,7 +14,7 @@
 
 import { filled } from "@/services/courseRequest";
 import { rowsPerPart, type Card } from "@/services/courseCards";
-import type { ActiveTeacher } from "@/services/portalLists";
+import type { ActiveTeacher, FacilityHours } from "@/services/portalLists";
 import type { GridColumn } from "@/services/studentColumns";
 import type { RequestSheet } from "@/services/timetableExport";
 
@@ -180,6 +180,8 @@ export type LoadRow = TeacherLoad & {
   cancelledHours: number;
   coverGiven: number;
   coverTaken: number;
+  /** The registrar's booked hours on the sections the portal staffs with them. Zero until read. */
+  registrarHours: number;
 };
 
 /**
@@ -200,7 +202,27 @@ export function loadRows(loads: TeacherLoad[], active: ActiveTeacher[], crnsOf: 
     cancelledHours: 0,
     coverGiven: 0,
     coverTaken: 0,
+    registrarHours: 0,
   }));
+}
+
+/**
+ * The registrar's hours for one teacher: every section the portal staffs with them, added up.
+ *
+ * Theirs by the portal's own staffing, not by our planning — that is what makes the number
+ * worth reading beside ours. Where the registrar has given a section to somebody else, the
+ * two columns part company on both rows, and that is the whole point of having both.
+ */
+export function registrarHoursFor(
+  hours: FacilityHours,
+  teacher: string,
+  same: (left: string, right: string) => boolean,
+): number {
+  if (!teacher) return 0;
+  const total = Object.values(hours)
+    .filter((section) => section.teacherName && same(section.teacherName, teacher))
+    .reduce((sum, section) => sum + section.hours, 0);
+  return Math.round(total * 100) / 100;
 }
 
 /** `teacher name -> CRNs`, from the same rows the hours come from, keyed as `teacherLoads` keys. */
@@ -231,6 +253,9 @@ export function hoursColumns(sheetTitles: string[]): GridColumn<LoadRow>[] {
     { id: "teacher", displayName: "Teacher", type: "text", accessor: (row) => row.teacher || "Nobody yet", required: true, defaultWidth: 240 },
     { id: "standing", displayName: "Standing", type: "option", accessor: (row) => row.standing, defaultWidth: 130 },
     { id: "total", displayName: "Total", type: "number", accessor: (row) => row.total, defaultWidth: 90 },
+    // The registrar's count beside ours. A comparison with no warning on it: teachers and
+    // hours move during a semester, and cover is normal.
+    { id: "registrarHours", displayName: "Registrar", type: "number", accessor: (row) => row.registrarHours, defaultWidth: 100 },
     ...sheetTitles.map((title, index) => ({
       id: `sheet:${title}`,
       displayName: hoursColumn(title),
@@ -274,6 +299,7 @@ export function shownHoursColumns(sheetTitles: string[]): string[] {
     ...sheetTitles.map((title) => `sheet:${title}`),
     ...LOAD_TYPES.map((type) => `type:${type}`),
     "total",
+    "registrarHours",
     "sections",
     "cancelledHours",
     "coverTaken",

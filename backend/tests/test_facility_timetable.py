@@ -274,3 +274,25 @@ def test_a_calendar_read_with_nothing_asked_is_empty_rather_than_the_whole_term(
                       silent=[], failed=[], complete=True)
 
     assert store.timetable_for(TERM, []) == {"termCode": TERM, "sections": [], "pulledAt": ""}
+
+
+def test_the_registrar_s_hours_are_added_up_from_the_dated_meetings(store: FacilityTimetableStore):
+    """A cancelled week or a handover is already in the number; a gone section is not there at all."""
+    store.record_pull(
+        term_code=TERM,
+        asked=["23436", "24311"],
+        sections=[
+            section("23436", meetings=[MONDAY, TUESDAY, ("2026-09-14", "08:15", "10:15")]),
+            section("24311", meetings=[MONDAY]),
+        ],
+        silent=[],
+        failed=[],
+        complete=True,
+    )
+    for _ in range(2):
+        store.record_pull(term_code=TERM, asked=["24311"], sections=[], silent=["24311"], failed=[], complete=True)
+
+    hours = store.hours_for(TERM)
+
+    assert hours == {"23436": {"courseCode": "MATH-001", "teacherName": "Cecile Paillot", "hours": 5.0}}
+    assert store.hours_for("") == {}

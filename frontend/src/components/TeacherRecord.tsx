@@ -7,8 +7,8 @@ import { SectionTimetable, type TimetableEntry } from "@/components/SectionTimet
 import { SessionChangeList } from "@/components/SessionChangeList";
 import { adjustmentsFor, fetchSessionChanges } from "@/services/sessionChanges";
 import { buildCards } from "@/services/courseCards";
-import { fetchActiveCourses, fetchActiveCrns, fetchActiveTeachers, fetchTermLinks, type ActiveCrn, type ActiveTeacher } from "@/services/portalLists";
-import { sameTeacher, sectionsTaughtBy } from "@/services/teacherLoad";
+import { fetchActiveCourses, fetchActiveCrns, fetchActiveTeachers, fetchFacilityHours, fetchTermLinks, type ActiveCrn, type ActiveTeacher } from "@/services/portalLists";
+import { registrarHoursFor, sameTeacher, sectionsTaughtBy } from "@/services/teacherLoad";
 import { fetchCourseCards } from "@/services/studentDatabase";
 import { fetchTimetableTerms } from "@/services/timetables";
 
@@ -127,6 +127,18 @@ export function TeacherRecord({
       (note.kind === "covered" && ((me.id && note.coverTeacherId === me.id) || sameTeacher(note.coverTeacherName, me.name))),
   );
   const adjusted = adjustmentsFor(notes, me, ownCrns, sameTeacher);
+  // The registrar's count of their teaching, beside ours in the tiles. No warning on it.
+  const { registrarHours } = useQueries({
+    queries: termCodes.map((termCode) => ({
+      queryKey: ["facility-hours", termCode],
+      queryFn: () => fetchFacilityHours(termCode),
+      enabled: open,
+      retry: false,
+    })),
+    combine: (reads) => ({
+      registrarHours: reads.reduce((sum, read) => sum + registrarHoursFor(read.data ?? {}, teacher.fullName, sameTeacher), 0),
+    }),
+  });
   const courseOf = new Map(timetable.map((entry) => [entry.crn, `${entry.code} · CRN ${entry.crn}`]));
   const tally = [
     adjusted.cancelled ? `${adjusted.cancelled} h cancelled` : "",
@@ -151,7 +163,7 @@ export function TeacherRecord({
       }
       onClose={onClose}
     >
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-4">
         <div className="rounded-lg border border-[#d9dee7] bg-white px-4 py-3">
           <p className="text-xs font-semibold uppercase tracking-wide text-[#8a94a4]">Sections</p>
           <p className="mt-1 text-2xl font-semibold tabular-nums text-[#171717]">{live.length}</p>
@@ -163,6 +175,11 @@ export function TeacherRecord({
           <p className="text-xs font-semibold uppercase tracking-wide text-[#8a94a4]">Hours</p>
           <p className="mt-1 text-2xl font-semibold tabular-nums text-[#171717]">{hours || "—"}</p>
           <p className="mt-0.5 text-xs text-[#98a2b3]">as the timetable request has them</p>
+        </div>
+        <div className="rounded-lg border border-[#d9dee7] bg-white px-4 py-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-[#8a94a4]">Registrar hours</p>
+          <p className="mt-1 text-2xl font-semibold tabular-nums text-[#171717]">{registrarHours || "—"}</p>
+          <p className="mt-0.5 text-xs text-[#98a2b3]">booked on the portal&apos;s timetable</p>
         </div>
         <div className="rounded-lg border border-[#d9dee7] bg-white px-4 py-3">
           <p className="text-xs font-semibold uppercase tracking-wide text-[#8a94a4]">Students</p>
