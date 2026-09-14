@@ -107,13 +107,20 @@ type Props = {
    */
   variant?: "default" | "tinted";
   /**
+   * Let a chosen value too long for the button wrap onto a second line.
+   *
+   * The button is otherwise a fixed height and the value ends in an ellipsis, which on a
+   * field sized to its content is how you lose the end of a course title.
+   */
+  wrap?: boolean;
+  /**
    * False when the page shows the chosen values itself, beside the control: the trigger
    * then only says what pressing it does, rather than repeating them.
    */
   showSelection?: boolean;
 };
 
-export function SelectMenu({ label, value, onChange, options, placeholder, trailing, multiple = false, itemNoun = "item", searchable = false, searchPlaceholder = "Search options", disabled = false, required = false, variant = "default", showSelection = true }: Props) {
+export function SelectMenu({ label, value, onChange, options, placeholder, trailing, multiple = false, itemNoun = "item", searchable = false, searchPlaceholder = "Search options", disabled = false, required = false, variant = "default", wrap = false, showSelection = true }: Props) {
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState("");
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -198,7 +205,7 @@ export function SelectMenu({ label, value, onChange, options, placeholder, trail
         aria-expanded={isOpen}
         aria-haspopup="listbox"
         disabled={disabled}
-        className={`flex ${multiple && selected.length ? "min-h-10" : "h-10"} w-full items-center rounded-md border px-3 py-2 ${trailing ? "pr-20" : "pr-10"} text-left transition-colors focus:outline-none focus:ring-2 focus:ring-[#d7e5f3] disabled:cursor-not-allowed disabled:bg-[#f7f8fa] disabled:text-[#98a2b3] ${
+        className={`flex ${(multiple && selected.length) || wrap ? "min-h-10" : "h-10"} w-full items-center rounded-md border px-3 py-2 ${trailing ? "pr-20" : "pr-10"} text-left transition-colors focus:outline-none focus:ring-2 focus:ring-[#d7e5f3] disabled:cursor-not-allowed disabled:bg-[#f7f8fa] disabled:text-[#98a2b3] ${
           variant === "tinted"
             ? "border-[#cfe0ee] bg-[#eef4fa] font-semibold text-[#1f4e79] hover:border-[#9fbfdc] hover:bg-[#e4eef7] focus:border-[#1f4e79]"
             : "border-[#b7bec8] bg-white font-normal text-[#344054] hover:border-[#98a2b3] hover:bg-[#f8fafc] focus:border-[#1f4e79]"
@@ -230,7 +237,7 @@ export function SelectMenu({ label, value, onChange, options, placeholder, trail
               ) : null}
             </span>
           ) : (
-            <span className="truncate">{selectedLabel}</span>
+            <span className={wrap ? "whitespace-normal break-words" : "truncate"}>{selectedLabel}</span>
           )}
           {selected.length === 1 && selected[0].year ? <YearPill year={selected[0].year} className="ml-2" /> : null}
           {selected.length === 1 && selected[0].badge !== undefined ? (

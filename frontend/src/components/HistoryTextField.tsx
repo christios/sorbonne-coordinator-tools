@@ -10,6 +10,7 @@ import {
   type HistoryField,
 } from "@/components/FieldHistory";
 import { FormFieldLabel } from "@/components/FormFieldLabel";
+import { fieldSizeClass, type FieldSize } from "@/components/fieldSize";
 
 type HistoryConfig = {
   field: HistoryField;
@@ -31,6 +32,16 @@ type Props = {
   invalid?: boolean;
   className?: string;
   inputClassName?: string;
+  /** How much room the value needs. A ceiling, not a fixed width. */
+  size?: FieldSize;
+  /**
+   * A one-line value that wraps onto a second line rather than scrolling out of sight.
+   *
+   * Sizing a box to its content means some values will not fit it, and a value you cannot
+   * see is worse than a box of an awkward height. Enter still does nothing here: the box
+   * wrapping is it fitting the text, not the text becoming a paragraph.
+   */
+  grow?: boolean;
   /** Guidance shown behind the info button instead of a paragraph on the page. */
   hint?: string;
   /** Where the value comes from, shown in grey beside the label. */
@@ -52,6 +63,8 @@ export function HistoryTextField({
   invalid = false,
   className = "",
   inputClassName = "",
+  size = "full",
+  grow = false,
   hint,
   source,
 }: Props) {
@@ -61,18 +74,34 @@ export function HistoryTextField({
   const stateClass = invalid
     ? "border-[#a6292f] focus:border-[#a6292f] focus:ring-[#fde2e2]"
     : "border-[#b7bec8] focus:border-[#1f4e79] focus:ring-[#d7e5f3]";
-  const textInputClass = `peer block h-10 w-full rounded-md border px-3 py-2 pr-10 font-normal ${stateClass} focus:outline-none focus:ring-2 ${inputClassName}`;
-  const textareaClass = `block w-full resize-y rounded-md border px-3 py-2 pr-10 font-normal leading-6 ${stateClass} focus:outline-none focus:ring-2 ${inputClassName}`;
+  const textInputClass = `peer block h-10 w-full min-w-0 rounded-md border px-3 py-2 pr-10 font-normal ${stateClass} focus:outline-none focus:ring-2 ${inputClassName}`;
+  const textareaClass = `block w-full min-w-0 resize-y rounded-md border px-3 py-2 pr-10 font-normal leading-6 ${stateClass} focus:outline-none focus:ring-2 ${inputClassName}`;
+  const growClass = `block w-full min-w-0 resize-none rounded-md border px-3 py-2 pr-10 font-normal leading-6 ${stateClass} focus:outline-none focus:ring-2 ${inputClassName}`;
+  // A number never needs a second line, so it keeps the plain box and its stepper arrows.
+  const wraps = grow && !multiline && type === "text";
 
   return (
     <label
-      className={`grid content-start gap-1 text-sm font-medium text-[#344054] ${className}`}
+      className={`grid content-start gap-1 text-sm font-medium text-[#344054] ${fieldSizeClass[size]} ${className}`}
     >
       <FormFieldLabel fieldKey={history?.field.path} hint={hint} source={source}>
         {label}
       </FormFieldLabel>
-      <div className={`relative leading-none ${multiline ? "" : "h-10"}`}>
-        {multiline ? (
+      <div
+        className={`relative w-full leading-none ${multiline || wraps ? "" : "h-10"}`}
+      >
+        {wraps ? (
+          <AutoResizeTextarea
+            value={value}
+            onChange={handleChange}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") event.preventDefault();
+            }}
+            minRows={1}
+            aria-invalid={invalid || undefined}
+            className={growClass}
+          />
+        ) : multiline ? (
           <AutoResizeTextarea
             value={value}
             onChange={handleChange}
@@ -95,7 +124,7 @@ export function HistoryTextField({
             className={textInputClass}
           />
         )}
-        {history && !multiline ? (
+        {history && !multiline && !wraps ? (
           // An overflowing value scrolls through the input's right padding and collides
           // with the history icon. Blur it out there instead, and step aside on focus so
           // the caret stays sharp while typing at the end of a long value.
@@ -108,7 +137,7 @@ export function HistoryTextField({
           <FieldHistoryControl
             field={history.field}
             onOpenSidebar={history.onOpenHistory}
-            placement={multiline ? "top" : "center"}
+            placement={multiline || wraps ? "top" : "center"}
           />
         ) : null}
       </div>

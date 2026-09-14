@@ -5,6 +5,7 @@ import { HistoryField } from "@/components/FieldHistory";
 import { HistoryTextField } from "@/components/HistoryTextField";
 import { SelectMenu, SelectOption } from "@/components/SelectMenu";
 import { SyllabusField } from "@/components/SyllabusField";
+import { fieldSizeClass, type FieldSize } from "@/components/fieldSize";
 import { courseLabel, type CatalogueCourse } from "@/services/courses";
 import { SyllabusSubsection } from "@/components/SyllabusSubsection";
 
@@ -69,34 +70,34 @@ export function CourseIdentificationEditor({ value, courseTitle, courseCode, aca
 
   return <div className="grid gap-4">
     <SyllabusSubsection title="Course details">
-      {courses.length ? <SyllabusField label="Course" source={courseSource} fieldKey="identification.catalogueCourseCode" hint={boundCourseHint}><SelectMenu label="Course" value={boundCode} onChange={chooseCourse} placeholder="Enter the course details manually" searchable searchPlaceholder="Search by code or title" options={[{ value: "", label: "Enter the course details manually" }, ...courseOptions]} /></SyllabusField> : null}
+      {courses.length ? <SyllabusField label="Course" source={courseSource} fieldKey="identification.catalogueCourseCode" hint={boundCourseHint} size="title"><SelectMenu label="Course" wrap value={boundCode} onChange={chooseCourse} placeholder="Enter the course details manually" searchable searchPlaceholder="Search by code or title" options={[{ value: "", label: "Enter the course details manually" }, ...courseOptions]} /></SyllabusField> : null}
       {/* A code is eight characters and a title is a line: they have no business being the same width. */}
-      <div className="grid items-end gap-4 sm:grid-cols-3">
+      <div className="flex flex-wrap items-start gap-x-6 gap-y-4">
         {bound
-          ? <><ReadOnlyField label="Course code" value={bound.courseCode} /><ReadOnlyField label="Course title" value={bound.courseTitle} className="sm:col-span-2" /></>
-          : <><IdentificationField label="Course code" value={courseCode} onChange={(next) => onMetadataChange("courseCode", next)} field={{ path: "metadata.courseCode", label: "Course code" }} {...history} /><IdentificationField label="Course title" value={courseTitle} onChange={(next) => onMetadataChange("courseTitle", next)} field={{ path: "metadata.courseTitle", label: "Course title" }} className="sm:col-span-2" {...history} /></>}
+          ? <><ReadOnlyField label="Course code" value={bound.courseCode} size="code" /><ReadOnlyField label="Course title" value={bound.courseTitle} size="title" /></>
+          : <><IdentificationField label="Course code" value={courseCode} onChange={(next) => onMetadataChange("courseCode", next)} size="code" grow field={{ path: "metadata.courseCode", label: "Course code" }} {...history} /><IdentificationField label="Course title" value={courseTitle} onChange={(next) => onMetadataChange("courseTitle", next)} size="title" grow field={{ path: "metadata.courseTitle", label: "Course title" }} {...history} /></>}
       </div>
-      <div className="grid items-end gap-4 sm:grid-cols-2">
+      <div className="flex flex-wrap items-start gap-x-6 gap-y-4">
         {academicYears.length
-          ? <SyllabusField label="Academic year" source="from Students and Timetables" fieldKey="metadata.academicYear"><SelectMenu label="Academic year" value={academicYear} onChange={(next) => onMetadataChange("academicYear", next)} placeholder="Select the academic year" options={withCurrent(academicYears, academicYear)} /></SyllabusField>
-          : <IdentificationField label="Academic year" value={academicYear} onChange={(next) => onMetadataChange("academicYear", next)} field={{ path: "metadata.academicYear", label: "Academic year" }} {...history} />}
+          ? <SyllabusField label="Academic year" fieldKey="metadata.academicYear" hint="Which academic year this syllabus is for. The years offered are the ones Students and Timetables has imported terms for." size="code"><SelectMenu label="Academic year" wrap value={academicYear} onChange={(next) => onMetadataChange("academicYear", next)} placeholder="Select the academic year" options={withCurrent(academicYears, academicYear)} /></SyllabusField>
+          : <IdentificationField label="Academic year" value={academicYear} onChange={(next) => onMetadataChange("academicYear", next)} size="code" grow field={{ path: "metadata.academicYear", label: "Academic year" }} {...history} />}
         {semesters.length
-          ? <SyllabusField label="Degree level and semester" source="from the curriculum map" fieldKey="identification.degreeLevelAndSemester" hint="The year and semester this course is taught in, as the curriculum map records it. Add or correct a course's place in Manage catalogues → Curriculum mapping."><SelectMenu label="Degree level and semester" value={stringValue(value.degreeLevelAndSemester)} onChange={(degreeLevelAndSemester) => update({ degreeLevelAndSemester })} placeholder="Select the level and semester" options={withCurrent(semesters, stringValue(value.degreeLevelAndSemester))} /></SyllabusField>
-          : <IdentificationField label="Degree level and semester" value={stringValue(value.degreeLevelAndSemester)} onChange={(degreeLevelAndSemester) => update({ degreeLevelAndSemester })} field={{ path: "identification.degreeLevelAndSemester", label: "Degree level and semester" }} {...history} />}
+          ? <SyllabusField label="Degree level and semester" fieldKey="identification.degreeLevelAndSemester" hint="The year and semester this course is taught in, as the curriculum map records it. Add or correct a course's place in Manage catalogues → Curriculum mapping." size="code"><SelectMenu label="Degree level and semester" wrap value={stringValue(value.degreeLevelAndSemester)} onChange={(degreeLevelAndSemester) => update({ degreeLevelAndSemester })} placeholder="Select the level and semester" options={withCurrent(semesters, stringValue(value.degreeLevelAndSemester))} /></SyllabusField>
+          : <IdentificationField label="Degree level and semester" value={stringValue(value.degreeLevelAndSemester)} onChange={(degreeLevelAndSemester) => update({ degreeLevelAndSemester })} size="code" grow field={{ path: "identification.degreeLevelAndSemester", label: "Degree level and semester" }} {...history} />}
       </div>
     </SyllabusSubsection>
 
     <SyllabusSubsection title="Programme and credits">
-      {programmes.length ? <SyllabusField label="Programme" source="(optional)" fieldKey="identification.catalogueProgrammeId" hint="Choosing a programme here is what makes its expected learning outcomes available in section 5. Leave it unset to write programme outcomes into this syllabus alone."><SelectMenu label="Programme" value={programmeId} onChange={chooseProgramme} placeholder="Use local programme learning outcomes" searchable options={[{ value: "", label: "Use local programme learning outcomes" }, ...programmes]} /></SyllabusField> : null}
+      {programmes.length ? <SyllabusField label="Programme" source="(optional)" fieldKey="identification.catalogueProgrammeId" hint="Choosing a programme here is what makes its expected learning outcomes available in section 5. Leave it unset to write programme outcomes into this syllabus alone." size="line"><SelectMenu label="Programme" wrap value={programmeId} onChange={chooseProgramme} placeholder="Use local programme learning outcomes" searchable options={[{ value: "", label: "Use local programme learning outcomes" }, ...programmes]} /></SyllabusField> : null}
       {/* A programme title is a sentence long; the credit beside it is one digit. */}
-      <div className="grid items-end gap-4 sm:grid-cols-[minmax(0,1fr)_9rem]">
-        <IdentificationField label="Programme title" value={stringValue(value.programmeTitle)} onChange={(programmeTitle) => update({ programmeTitle, catalogueProgrammeId: undefined, cataloguePloProgrammeId: undefined })} field={{ path: "identification.programmeTitle", label: "Programme title" }} {...history} />
-        <IdentificationField label="Number of ECTS" value={stringValue(value.ects)} onChange={(ects) => update({ ects })} type="number" min={0} step={0.5} field={{ path: "identification.ects", label: "Number of ECTS" }} {...history} />
+      <div className="flex flex-wrap items-start gap-x-6 gap-y-4">
+        <IdentificationField label="Programme title" value={stringValue(value.programmeTitle)} onChange={(programmeTitle) => update({ programmeTitle, catalogueProgrammeId: undefined, cataloguePloProgrammeId: undefined })} size="line" grow field={{ path: "identification.programmeTitle", label: "Programme title" }} {...history} />
+        <IdentificationField label="Number of ECTS" value={stringValue(value.ects)} onChange={(ects) => update({ ects })} type="number" min={0} step={0.5} size="counter" field={{ path: "identification.ects", label: "Number of ECTS" }} {...history} />
       </div>
     </SyllabusSubsection>
 
     <SyllabusSubsection title="Course contact hours">
-      <div className="grid items-end gap-4 grid-cols-2 sm:grid-cols-3 xl:grid-cols-6">{contactHourKinds.map((label) => <IdentificationField key={label} label={label} value={stringValue(contactHours[label])} onChange={(next) => update({ contactHours: { ...contactHours, [label]: next } })} type="number" min={0} step={1} field={{ path: `identification.contactHours.${label}`, label }} {...history} />)}</div>
+      <div className="flex flex-wrap items-start gap-x-6 gap-y-4">{contactHourKinds.map((label) => <IdentificationField key={label} label={label} value={stringValue(contactHours[label])} onChange={(next) => update({ contactHours: { ...contactHours, [label]: next } })} type="number" min={0} step={1} size="counter" field={{ path: `identification.contactHours.${label}`, label }} {...history} />)}</div>
       <ContactHoursTotal contactHours={contactHours} />
     </SyllabusSubsection>
 
@@ -121,11 +122,11 @@ function ContactHoursTotal({ contactHours }: { contactHours: Record<string, unkn
 
 function TextList({ title, singular, legacyValue, itemsValue, path, onChange, ...history }: HistoryContext & { title: string; singular: string; legacyValue: unknown; itemsValue: unknown; path: string; onChange: (value: ListItem[]) => void }) {
   const items = listItems(itemsValue, legacyValue, title);
-  return <section><h4 className="text-sm font-semibold text-[#344054]">{title}</h4>{items.length ? <div className="mt-3 grid gap-3 sm:grid-cols-2">{items.map((item, index) => <div key={item.id} className="flex items-start gap-2"><div className="min-w-0 flex-1"><IdentificationField label={`${title} ${index + 1}`} value={item.text} onChange={(text) => onChange(items.map((entry) => entry.id === item.id ? { ...entry, text } : entry))} multiline minRows={1} field={{ path: `${path}[${item.id}].text`, label: `${title} ${index + 1}` }} {...history} /></div><button type="button" onClick={() => onChange(items.filter((entry) => entry.id !== item.id))} className="mt-7 rounded p-2 text-[#a6292f] hover:bg-[#fff1f2]" aria-label={`Remove ${singular} ${index + 1}`}><X size={17} /></button></div>)}</div> : null}<AddEntryButton onClick={() => onChange([...items, { id: crypto.randomUUID(), text: "" }])} label={`Add ${singular}`} /></section>;
+  return <section><h4 className="text-sm font-semibold text-[#344054]">{title}</h4>{items.length ? <div className="mt-3 grid gap-3 sm:grid-cols-2">{items.map((item, index) => <div key={item.id} className="flex items-start gap-2"><div className="min-w-0 flex-1"><IdentificationField label={`${title} ${index + 1}`} value={item.text} onChange={(text) => onChange(items.map((entry) => entry.id === item.id ? { ...entry, text } : entry))} size="line" grow field={{ path: `${path}[${item.id}].text`, label: `${title} ${index + 1}` }} {...history} /></div><button type="button" onClick={() => onChange(items.filter((entry) => entry.id !== item.id))} className="mt-7 rounded p-2 text-[#a6292f] hover:bg-[#fff1f2]" aria-label={`Remove ${singular} ${index + 1}`}><X size={17} /></button></div>)}</div> : null}<AddEntryButton onClick={() => onChange([...items, { id: crypto.randomUUID(), text: "" }])} label={`Add ${singular}`} /></section>;
 }
 
-function IdentificationField({ label, value, onChange, field, onOpenHistory, multiline = false, minRows = 2, type = "text", min, step, inputMode, className }: HistoryContext & { label: string; value: string; onChange: (value: string) => void; field: HistoryField; multiline?: boolean; minRows?: number; type?: string; min?: number; step?: number; inputMode?: "decimal"; className?: string }) {
-  return <HistoryTextField label={label} value={value} onChange={onChange} multiline={multiline} minRows={minRows} type={type} min={min} step={step} inputMode={inputMode} className={className} history={{ field, onOpenHistory }} />;
+function IdentificationField({ label, value, onChange, field, onOpenHistory, multiline = false, minRows = 2, type = "text", min, step, inputMode, size = "full", grow = false, className }: HistoryContext & { label: string; value: string; onChange: (value: string) => void; field: HistoryField; multiline?: boolean; minRows?: number; type?: string; min?: number; step?: number; inputMode?: "decimal"; size?: FieldSize; grow?: boolean; className?: string }) {
+  return <HistoryTextField label={label} value={value} onChange={onChange} multiline={multiline} minRows={minRows} type={type} min={min} step={step} inputMode={inputMode} size={size} grow={grow} className={className} history={{ field, onOpenHistory }} />;
 }
 
 function listItems(value: unknown, legacy: unknown, name: string): ListItem[] {
@@ -138,8 +139,8 @@ function record(value: unknown): Record<string, unknown> { return value && typeo
 function stringValue(value: unknown): string { return typeof value === "string" ? value : value === 0 ? "0" : ""; }
 
 /** A value the course record owns: shown, never edited here. */
-function ReadOnlyField({ label, value, className = "" }: { label: string; value: string; className?: string }) {
-  return <div className={`grid content-start gap-1 text-sm font-medium text-[#344054] ${className}`}>{label}<p className="flex h-10 items-center rounded-md border border-[#e5e7eb] bg-[#f8fafc] px-3 font-normal text-[#475467]">{value || "—"}</p></div>;
+function ReadOnlyField({ label, value, size = "full", className = "" }: { label: string; value: string; size?: FieldSize; className?: string }) {
+  return <div className={`grid content-start gap-1 text-sm font-medium text-[#344054] ${fieldSizeClass[size]} ${className}`}>{label}<p className="min-h-10 w-full rounded-md border border-[#e5e7eb] bg-[#f8fafc] px-3 py-2 font-normal leading-6 text-[#475467]">{value || "—"}</p></div>;
 }
 
 /** Prerequisites and co-requisites are courses, so they are chosen, not typed. */
@@ -150,7 +151,7 @@ function CourseList({ title, hint, fieldKey, items, options, onChange }: { title
     onChange([...items, { id: crypto.randomUUID(), text: label }]);
   };
   return <SyllabusField label={title} fieldKey={fieldKey} hint={hint}>
-    {chosen.length ? <ul aria-label={`Selected ${title.toLowerCase()}`} className="grid gap-2">{items.filter((item) => item.text).map((item) => <li key={item.id} className="flex min-w-0 items-center justify-between gap-2 rounded-md border border-[#d9dee7] bg-[#f8fafc] px-3 py-2 text-sm font-normal text-[#344054]"><span className="min-w-0 truncate">{item.text}</span><button type="button" onClick={() => onChange(items.filter((entry) => entry.id !== item.id))} className="shrink-0 rounded p-1 text-[#667085] hover:bg-[#e8edf3] hover:text-[#a6292f]" aria-label={`Remove ${item.text} from ${title.toLowerCase()}`}><X size={16} aria-hidden="true" /></button></li>)}</ul> : null}
+    {chosen.length ? <ul aria-label={`Selected ${title.toLowerCase()}`} className="grid gap-2">{items.filter((item) => item.text).map((item) => <li key={item.id} className="flex min-w-0 items-start justify-between gap-2 rounded-md border border-[#d9dee7] bg-[#f8fafc] px-3 py-2 text-sm font-normal text-[#344054]"><span className="min-w-0 break-words">{item.text}</span><button type="button" onClick={() => onChange(items.filter((entry) => entry.id !== item.id))} className="shrink-0 rounded p-1 text-[#667085] hover:bg-[#e8edf3] hover:text-[#a6292f]" aria-label={`Remove ${item.text} from ${title.toLowerCase()}`}><X size={16} aria-hidden="true" /></button></li>)}</ul> : null}
     <SelectMenu label={`Add ${title.toLowerCase()}`} value="" onChange={add} placeholder={chosen.length ? `Add another ${title.toLowerCase().replace(/s$/, "")}` : `None yet — add a ${title.toLowerCase().replace(/s$/, "")}`} searchable searchPlaceholder="Search by code or title" options={options.filter((option) => option.value && !chosen.includes(option.label))} />
   </SyllabusField>;
 }
