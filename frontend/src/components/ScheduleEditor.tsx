@@ -253,7 +253,7 @@ export function ScheduleEditor({
                   <SyllabusField
                     label="Session type"
                     fieldKey={`schedule[${row.id}].sessionType`}
-                    size="code"
+                    size="name"
                     hint="Which kind of session this is. The numbering runs separately for each kind, so a course has its own CM 1, TD 1 and TP 1."
                   >
                     <SelectMenu
@@ -325,24 +325,38 @@ export function ScheduleEditor({
                     );
                   })}
                   </FieldRow>
-                  {/* What the session is actually about: written answers, each its own width. */}
-                  {fields.filter((field) => field.multiline).map((field) => (
-                    <HistoryTextField
-                      key={field.key}
-                      label={field.label}
-                      value={row[field.key] ?? ""}
-                      onChange={(next) => updateRow(row.id, field.key, next)}
-                      multiline
-                      minRows={3}
-                      history={{
-                        field: {
-                          path: `schedule[${row.id}].${field.key}`,
-                          label: `Course schedule · ${field.label}`,
-                        },
-                        onOpenHistory,
-                      }}
-                    />
-                  ))}
+                  {/* What the session is about, at length; then the two shorter answers
+                      about it, which are read against each other and so sit together. */}
+                  <HistoryTextField
+                    label="Session details"
+                    value={row.details ?? ""}
+                    onChange={(next) => updateRow(row.id, "details", next)}
+                    multiline
+                    minRows={3}
+                    history={{
+                      field: { path: `schedule[${row.id}].details`, label: "Course schedule · Session details" },
+                      onOpenHistory,
+                    }}
+                  />
+                  <div className="grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-2">
+                    {(["preClass", "assessments"] as const).map((key) => (
+                      <HistoryTextField
+                        key={key}
+                        label={fields.find((field) => field.key === key)?.label ?? key}
+                        value={row[key] ?? ""}
+                        onChange={(next) => updateRow(row.id, key, next)}
+                        multiline
+                        minRows={3}
+                        history={{
+                          field: {
+                            path: `schedule[${row.id}].${key}`,
+                            label: `Course schedule · ${fields.find((field) => field.key === key)?.label ?? key}`,
+                          },
+                          onOpenHistory,
+                        }}
+                      />
+                    ))}
+                  </div>
                 </div>
               </CollapsibleEntryCard>
             );

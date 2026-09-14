@@ -49,7 +49,7 @@ export function SyllabusCatalogues({ onBack }: { onBack: () => void }) {
     {activeSection === "people" ? <PeopleCatalogue /> : null}
     {activeSection === "programmes" ? <ProgrammesCatalogue /> : null}
     {activeSection === "competencies" ? <CompetenciesCatalogue /> : null}
-    {activeSection === "graduate-competencies" ? <SimpleCatalogue category="graduate-competencies" title="SUAD graduate competencies" description="The institution's graduate competencies. Each SCEN competency points at the ones it develops." createLabel="New graduate competency" /> : null}
+    {activeSection === "graduate-competencies" ? <CompetencyCatalogue category="graduate-competencies" title="SUAD graduate competencies" description="The institution's graduate competencies. Each SCEN competency points at the ones it develops." createLabel="New graduate competency" /> : null}
     {activeSection === "teaching-presets" ? <TeachingPresetsCatalogue /> : null}
     {activeSection === "curriculum-mapping" ? <CurriculumMappingCatalogue /> : null}
     {activeSection === "assessment" ? <AssessmentCatalogue /> : null}
@@ -223,9 +223,80 @@ function BibliographyCatalogue() {
   return <div className="rounded-lg border border-[#d9dee7] bg-white p-5"><CatalogueHeader title="Bibliography" description="The shared bibliography editor supports these source categories in compatible templates. Each source can be entered as structured data or a paste-friendly freeform reference." />{categories.isLoading ? <Loading /> : <div className="mt-5 grid gap-3 md:grid-cols-3">{(categories.data ?? []).map((entry) => <div key={entry.id} className="rounded-lg border border-[#d9dee7] bg-[#f8fafc] p-4"><h4 className="font-semibold text-[#344054]">{entry.label}</h4><p className="mt-1 text-sm leading-6 text-[#667085]">Structured and freeform entry are both preserved for clean exports and imported legacy references.</p></div>)}</div>}</div>;
 }
 
+/** A catalogue whose codes are the platform's business, not the maintainer's. */
+function CompetencyCatalogue({ category, title, description, createLabel }: { category: "competencies" | "graduate-competencies"; title: string; description: string; createLabel: string }) {
+  const [showCreate, setShowCreate] = useState(false);
+  const data = useCatalogue(category);
+  return <div className="rounded-lg border border-[#d9dee7] bg-white p-5">
+    <CatalogueHeader title={title} description={description} action={<button type="button" onClick={() => setShowCreate(true)} className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white"><FilePlus2 size={16} /> {createLabel}</button>} />
+    {showCreate ? <CompetencyForm category={category} entries={data.data ?? []} onCancel={() => setShowCreate(false)} onSaved={() => setShowCreate(false)} /> : null}
+    <CatalogueEntries category={category} entries={data.data ?? []} isLoading={data.isLoading} renderDetails={(entry) => <CompetencyDetails entry={entry} />} />
+  </div>;
+}
+
+/** Editing a competency needs the rest of its catalogue, to know what it is numbered among. */
+function CompetencyEditForm({ category, entry, onCancel, onSaved }: { category: "competencies" | "graduate-competencies"; entry: CatalogueEntry; onCancel: () => void; onSaved: () => void }) {
+  const data = useCatalogue(category);
+  return <CompetencyForm category={category} entry={entry} entries={data.data ?? []} onCancel={onCancel} onSaved={onSaved} />;
+}
+
 function SimpleCatalogue({ category, title, description, createLabel }: { category: CatalogueCategory; title: string; description: string; createLabel: string }) {
   const [showCreate, setShowCreate] = useState(false); const data = useCatalogue(category);
   return <div className="rounded-lg border border-[#d9dee7] bg-white p-5"><CatalogueHeader title={title} description={description} action={<button type="button" onClick={() => setShowCreate(true)} className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white"><FilePlus2 size={16} /> {createLabel}</button>} />{showCreate ? <SimpleEntryForm category={category} fieldLabel="Name" onCancel={() => setShowCreate(false)} onSaved={() => setShowCreate(false)} /> : null}<CatalogueEntries category={category} entries={data.data ?? []} isLoading={data.isLoading} /></div>;
+}
+
+/** The next code in a catalogue's own series, so a maintainer never types one. */
+function nextCompetencyCode(entries: CatalogueEntry[], category: "competencies" | "graduate-competencies") {
+  const prefix = category === "competencies" ? "SCEN-C" : "GradComp ";
+  const highest = entries.reduce((top, entry) => {
+    const digits = stringValue(entry.payload.code).match(/(\d+)\s*$/);
+    return digits ? Math.max(top, Number(digits[1])) : top;
+  }, 0);
+  return `${prefix}${highest + 1}`;
+}
+
+/** The code as a pill, the competency itself in full beside it. */
+function CompetencyDetails({ entry }: { entry: CatalogueEntry }) {
+  const code = stringValue(entry.payload.code);
+  const text = stringValue(entry.payload.outcome) || entry.label;
+  return <p className="mt-1 flex flex-wrap items-baseline gap-2 text-sm text-[#667085]">
+    {code ? <span className="shrink-0 rounded-full bg-[#e8edf3] px-2 py-0.5 text-xs font-semibold text-[#1f4e79]">{code}</span> : null}
+    <span className="min-w-0">{text}</span>
+  </p>;
+}
+
+/**
+ * One competency, written once.
+ *
+ * The code used to live inside the name, which meant whoever added a competency had to know
+ * the series and keep it in step. It is assigned here instead, carrying on from the highest
+ * number the catalogue already holds — existing codes are left exactly as they are, because
+ * syllabi already name them.
+ */
+function CompetencyForm({ category, entry, entries, onCancel, onSaved }: { category: "competencies" | "graduate-competencies"; entry?: CatalogueEntry; entries: CatalogueEntry[]; onCancel: () => void; onSaved: () => void }) {
+  const client = useQueryClient();
+  const [outcome, setOutcome] = useState(stringValue(entry?.payload.outcome) || entry?.label || "");
+  const code = stringValue(entry?.payload.code) || nextCompetencyCode(entries, category);
+  const save = useMutation({
+    mutationFn: () => {
+      const input: CatalogueEntryInput = {
+        label: outcome.trim(),
+        payload: { ...entry?.payload, code, outcome: outcome.trim() },
+        sortOrder: entry?.sortOrder ?? entries.length + 1,
+      };
+      return entry
+        ? updateCatalogueEntry(category, entry.id, { ...input, expectedRevision: entry.revision })
+        : createCatalogueEntry(category, input);
+    },
+    onSuccess: () => { void client.invalidateQueries({ queryKey: ["syllabus-catalogues", category] }); onSaved(); },
+  });
+  return <form onSubmit={(event) => { event.preventDefault(); if (outcome.trim()) save.mutate(); }} className="mt-5 grid grid-cols-[minmax(0,1fr)] gap-4 rounded-lg border border-[#cbd5e1] bg-[#f8fafc] p-4">
+    <Field label="Code" hint={entry ? "Assigned when it was added" : "Assigned automatically"}>
+      <p className="w-fit rounded-full bg-[#e8edf3] px-3 py-1 text-sm font-semibold text-[#1f4e79]">{code}</p>
+    </Field>
+    <Field label="Competency"><AutoResizeTextarea autoFocus required minRows={2} value={outcome} onChange={(event) => setOutcome(event.target.value)} className={textareaClass} /></Field>
+    <FormActions isSaving={save.isPending} error={save.error} onCancel={onCancel} submitLabel={entry ? "Save changes" : "Add to catalogue"} />
+  </form>;
 }
 
 function SimpleEntryForm({ category, entry, fieldLabel, onCancel, onSaved }: { category: CatalogueCategory; entry?: CatalogueEntry; fieldLabel: string; onCancel: () => void; onSaved: () => void }) {
@@ -275,7 +346,7 @@ function CatalogueEntries({ category, entries, isLoading, renderDetails, selecte
 }
 
 function EditEntry({ category, entry, onClose, onDirtyChange }: { category: CatalogueCategory; entry: CatalogueEntry; onClose: () => void; onDirtyChange: (dirty: boolean) => void }) {
-  const form = category === "curriculum-mapping" ? <CurriculumMappingEditForm entry={entry} onCancel={onClose} onSaved={onClose} /> : category === "people" ? <PersonForm entry={entry} onCancel={onClose} onSaved={onClose} /> : category === "teaching-presets" ? <TeachingPresetForm entry={entry} onCancel={onClose} onSaved={onClose} /> : category === "assessment-types" ? <AssessmentTypeForm entry={entry} onCancel={onClose} onSaved={onClose} /> : category === "plos" ? <PloForm programme={{ ...entry, id: entry.parentId ?? "" }} entry={entry} onCancel={onClose} onSaved={onClose} /> : <SimpleEntryForm category={category} entry={entry} fieldLabel={category === "programmes" ? "Programme name" : "Name"} onCancel={onClose} onSaved={onClose} />;
+  const form = category === "curriculum-mapping" ? <CurriculumMappingEditForm entry={entry} onCancel={onClose} onSaved={onClose} /> : category === "people" ? <PersonForm entry={entry} onCancel={onClose} onSaved={onClose} /> : category === "teaching-presets" ? <TeachingPresetForm entry={entry} onCancel={onClose} onSaved={onClose} /> : category === "assessment-types" ? <AssessmentTypeForm entry={entry} onCancel={onClose} onSaved={onClose} /> : category === "competencies" || category === "graduate-competencies" ? <CompetencyEditForm category={category} entry={entry} onCancel={onClose} onSaved={onClose} /> : category === "plos" ? <PloForm programme={{ ...entry, id: entry.parentId ?? "" }} entry={entry} onCancel={onClose} onSaved={onClose} /> : <SimpleEntryForm category={category} entry={entry} fieldLabel={category === "programmes" ? "Programme name" : "Name"} onCancel={onClose} onSaved={onClose} />;
   return <div onInputCapture={() => onDirtyChange(true)} onChangeCapture={() => onDirtyChange(true)}>{form}</div>;
 }
 
@@ -293,7 +364,7 @@ function CompetenciesCatalogue() {
   const [showCreate, setShowCreate] = useState(false);
   const data = useCatalogue("competencies");
   const graduate = useCatalogue("graduate-competencies");
-  return <div className="rounded-lg border border-[#d9dee7] bg-white p-5"><CatalogueHeader title="SCEN competencies" description="Reference competencies for the department. Attach the SUAD graduate competencies each one develops." action={<button type="button" onClick={() => setShowCreate(true)} className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white"><FilePlus2 size={16} /> New competency</button>} />{showCreate ? <SimpleEntryForm category="competencies" fieldLabel="Name" onCancel={() => setShowCreate(false)} onSaved={() => setShowCreate(false)} /> : null}<CatalogueEntries category="competencies" entries={data.data ?? []} isLoading={data.isLoading} renderDetails={(entry) => <GraduateCompetencyPicker entry={entry} graduate={graduate.data ?? []} />} /></div>;
+  return <div className="rounded-lg border border-[#d9dee7] bg-white p-5"><CatalogueHeader title="SCEN competencies" description="Reference competencies for the department. Attach the SUAD graduate competencies each one develops." action={<button type="button" onClick={() => setShowCreate(true)} className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white"><FilePlus2 size={16} /> New competency</button>} />{showCreate ? <CompetencyForm category="competencies" entries={data.data ?? []} onCancel={() => setShowCreate(false)} onSaved={() => setShowCreate(false)} /> : null}<CatalogueEntries category="competencies" entries={data.data ?? []} isLoading={data.isLoading} renderDetails={(entry) => <><CompetencyDetails entry={entry} /><GraduateCompetencyPicker entry={entry} graduate={graduate.data ?? []} /></>} /></div>;
 }
 
 function GraduateCompetencyPicker({ entry, graduate }: { entry: CatalogueEntry; graduate: CatalogueEntry[] }) {
@@ -371,7 +442,12 @@ function CurriculumMappingForm({ programmeId, plos, entry, onCancel, onSaved }: 
   const [code, setCode] = useState(entry?.label ?? "");
   const [title, setTitle] = useState(stringValue(entry?.payload.courseTitle));
   const [semester, setSemester] = useState(stringValue(entry?.payload.semester));
-  const options = plos.map((plo) => ({ value: plo.id, label: stringValue(plo.payload.code) || plo.label }));
+  // A maintainer choosing what a course must address needs to read the outcome, not a number.
+  const options = plos.map((plo) => {
+    const code = stringValue(plo.payload.code) || plo.label;
+    const outcome = stringValue(plo.payload.outcome);
+    return { value: plo.id, label: outcome ? `${code}: ${outcome}` : code };
+  });
   const initial = Array.isArray(entry?.payload.ploIds) ? (entry?.payload.ploIds as string[]) : [];
   const [selected, setSelected] = useState<string[]>(initial);
   const save = useMutation({

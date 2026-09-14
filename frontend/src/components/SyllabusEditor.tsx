@@ -11,6 +11,7 @@ import {
   } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import {
+  Fragment,
   type ReactNode,
   useEffect,
   useLayoutEffect,
@@ -1601,7 +1602,7 @@ function RowsEditor({
                     if ((key === "plo" || key === "skills") && options) {
                       const derived = derivedColumns?.[key];
                       return (
-                        <div key={key} className="grid grid-cols-[minmax(0,1fr)] gap-3 lg:col-span-2">
+                        <Fragment key={key}>
                         <PloAlignmentField
                           label={label}
                           pickerLabel={`Add ${label.toLowerCase()} to ${rowLabel ?? "entry"} ${index + 1}`}
@@ -1624,11 +1625,11 @@ function RowsEditor({
                           <div>
                             <p className="text-sm font-medium text-[#344054]">{derived.label}</p>
                             <p className="mt-1 whitespace-pre-line rounded-md border border-dashed border-[#d0d5dd] bg-[#f8fafc] px-3 py-2 text-sm text-[#475467]">
-                              {derived.derive(value) || "Follows from the competencies selected above."}
+                              {derived.derive(value) || "Follows from the competencies chosen beside this."}
                             </p>
                           </div>
                         ) : null}
-                        </div>
+                        </Fragment>
                       );
                     }
                     return availableOptions ? (
@@ -1654,7 +1655,6 @@ function RowsEditor({
                         onChange={(next) => updateRow(key, next)}
                         multiline={multiline}
                         minRows={3}
-                        className={multiline ? "lg:col-span-2" : ""}
                         history={{ field, onOpenHistory }}
                       />
                     );
