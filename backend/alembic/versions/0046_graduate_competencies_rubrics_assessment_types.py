@@ -8,8 +8,8 @@ types the department actually uses (quiz, oral presentation, report, other).
 Existing rows are only filled in where they are still empty, so a coordinator's own
 edits in the catalogue survive this migration.
 
-Revision ID: 0044
-Revises: 0043
+Revision ID: 0046
+Revises: 0045
 Create Date: 2026-08-31
 """
 
@@ -21,8 +21,8 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 
-revision = "0044"
-down_revision = "0043"
+revision = "0046"
+down_revision = "0045"
 branch_labels = None
 depends_on = None
 

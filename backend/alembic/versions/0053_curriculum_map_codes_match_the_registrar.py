@@ -9,8 +9,8 @@ Where the course list holds the course, its spelling wins. Where it does not —
 registrar has no record of yet — the dash goes between the letters and the digits, which is
 the form every code in the list takes.
 
-Revision ID: 0051
-Revises: 0050
+Revision ID: 0053
+Revises: 0052
 """
 
 from __future__ import annotations
@@ -21,8 +21,8 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision = "0051"
-down_revision = "0050"
+revision = "0053"
+down_revision = "0052"
 branch_labels = None
 depends_on = None
 

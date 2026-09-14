@@ -6,8 +6,8 @@ uncovered by their course outcomes — as guidance, never as a gate.
 
 Seeded from "BScPhys-Goals-PLO-CLO".
 
-Revision ID: 0049
-Revises: 0048
+Revision ID: 0051
+Revises: 0050
 Create Date: 2026-09-10
 """
 
@@ -18,8 +18,8 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 
-revision = "0049"
-down_revision = "0048"
+revision = "0051"
+down_revision = "0050"
 branch_labels = None
 depends_on = None
 

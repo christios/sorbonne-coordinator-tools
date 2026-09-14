@@ -64,8 +64,8 @@ describe("CourseIdentificationEditor", () => {
     /></QueryClientProvider>);
 
     expect(screen.getByRole("heading", { name: "Course details" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Programme and credits" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Course contact hours" })).toBeTruthy();
+    // The programme sits with the course it belongs to, and the credit with the hours it counts.
+    expect(screen.getByRole("heading", { name: "Credits and contact hours" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Requirements and equipment" })).toBeTruthy();
   });
 });

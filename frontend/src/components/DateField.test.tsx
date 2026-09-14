@@ -10,7 +10,8 @@ describe("DateField", () => {
     render(<DateField label="Contract from" value="2026-09-01" onChange={onChange} />);
 
     const trigger = screen.getByRole("button", { name: "Contract from" });
-    expect(trigger.classList.contains("h-9")).toBe(true);
+    // The same height as every other box, so a row holding a date lines up with one that does not.
+    expect(trigger.classList.contains("h-10")).toBe(true);
 
     fireEvent.click(trigger);
     const calendar = screen.getByRole("grid", { name: "Contract from calendar" });

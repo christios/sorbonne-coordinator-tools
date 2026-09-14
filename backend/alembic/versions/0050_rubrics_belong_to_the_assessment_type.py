@@ -5,8 +5,8 @@ thing anyone wanted from it — the criteria and their bands — in a payload no
 ever showed. Folding the criteria onto the type removes the indirection: the thing
 a graded activity picks is the thing that carries the rubric.
 
-Revision ID: 0048
-Revises: 0047
+Revision ID: 0050
+Revises: 0049
 Create Date: 2026-09-10
 """
 
@@ -16,8 +16,8 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision = "0048"
-down_revision = "0047"
+revision = "0050"
+down_revision = "0049"
 branch_labels = None
 depends_on = None
 

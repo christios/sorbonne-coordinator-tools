@@ -53,8 +53,10 @@ describe("ScheduleEditor", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Expand topic: Climate governance (position 1)" }));
 
-    expect(screen.getByLabelText("Topic").tagName).toBe("INPUT");
-    expect(screen.getByLabelText("Session details").tagName).toBe("TEXTAREA");
+    // A topic is one line that wraps rather than scrolling, so it is a growing box.
+    expect(screen.getByLabelText("Topic").tagName).toBe("TEXTAREA");
+    // Session details is written with formatting, in an editor rather than a plain box.
+    expect(screen.getByRole("textbox", { name: "Session details" }).getAttribute("contenteditable")).toBe("true");
     expect(screen.getByRole("button", { name: "Add session at end" })).toBeTruthy();
   });
 });

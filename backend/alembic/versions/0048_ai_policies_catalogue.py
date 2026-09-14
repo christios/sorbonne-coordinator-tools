@@ -4,8 +4,8 @@
 that every syllabus draws on the same four, and a course needing a fifth gets it
 added to the catalogue rather than written into one syllabus.
 
-Revision ID: 0046
-Revises: 0045
+Revision ID: 0048
+Revises: 0047
 Create Date: 2026-08-31
 """
 
@@ -16,8 +16,8 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 
-revision = "0046"
-down_revision = "0045"
+revision = "0048"
+down_revision = "0047"
 branch_labels = None
 depends_on = None
 

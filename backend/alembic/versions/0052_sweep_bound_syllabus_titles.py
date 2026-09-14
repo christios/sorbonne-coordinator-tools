@@ -8,8 +8,8 @@ Only syllabi that are bound are touched, and only where the stored title differs
 the corrected one by capitalisation alone. A title that differs in any other way is
 the coordinator's own and is left exactly as it is.
 
-Revision ID: 0050
-Revises: 0049
+Revision ID: 0052
+Revises: 0051
 Create Date: 2026-09-11
 """
 
@@ -48,8 +48,8 @@ def corrected_title(stored: str, catalogue: str) -> str:
     return corrected if stored.casefold() == corrected.casefold() else ""
 
 
-revision = "0050"
-down_revision = "0049"
+revision = "0052"
+down_revision = "0051"
 branch_labels = None
 depends_on = None
 

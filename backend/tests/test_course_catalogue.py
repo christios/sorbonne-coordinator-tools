@@ -9,7 +9,7 @@ from sorbonne.services.teacher_store import _academic_year, _sequence_rank, cour
 
 _spec = _importlib_util.spec_from_file_location(
     "sweep_titles",
-    _Path(__file__).resolve().parents[1] / "alembic" / "versions" / "0050_sweep_bound_syllabus_titles.py",
+    _Path(__file__).resolve().parents[1] / "alembic" / "versions" / "0052_sweep_bound_syllabus_titles.py",
 )
 _module = _importlib_util.module_from_spec(_spec)
 _spec.loader.exec_module(_module)

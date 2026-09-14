@@ -1581,7 +1581,7 @@ function RowsEditor({
                       label: `${title} · ${label}`,
                     };
                     const value = row[key] ?? "";
-                    const multiline = shouldUseMultiline(key, value);
+                    const multiline = shouldUseMultiline(key);
                     const useDatePicker = shouldUseDatePicker(key, value);
                     const options = selectOptions?.[key];
                     const availableOptions =
@@ -1700,7 +1700,7 @@ function RowsEditor({
  * it passed ninety characters, and a box that size invites a paragraph where the template
  * wants a sentence. It gets a line that grows to fit instead.
  */
-function shouldUseMultiline(key: string, _value: string) {
+function shouldUseMultiline(key: string) {
   return ["activities", "preClass", "assessments", "criteria", "meets", "exceeds"].includes(key);
 }
 function rowIdentity(row: Row, columns: string[][]) {

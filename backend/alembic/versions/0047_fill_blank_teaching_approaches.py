@@ -3,8 +3,8 @@
 Only blank subsections are filled: a coordinator's own wording in the catalogue is
 left exactly as it is. Text comes from "Syllabi platform - section 8- teaching methods".
 
-Revision ID: 0045
-Revises: 0044
+Revision ID: 0047
+Revises: 0046
 Create Date: 2026-08-31
 """
 
@@ -15,8 +15,8 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision = "0045"
-down_revision = "0044"
+revision = "0047"
+down_revision = "0046"
 branch_labels = None
 depends_on = None
 

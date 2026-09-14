@@ -7,9 +7,15 @@ import { listCatalogueEntries, updateCatalogueEntry } from "@/services/syllabusC
 
 vi.mock("@/services/syllabusCatalogues", () => ({
   createCatalogueEntry: vi.fn(),
+  importPeopleFromPortal: vi.fn().mockResolvedValue({ added: [], updated: [], unchanged: [], retired: [] }),
   listCatalogueEntries: vi.fn().mockResolvedValue([]),
   retireCatalogueEntry: vi.fn(),
   updateCatalogueEntry: vi.fn(),
+}));
+
+vi.mock("@/services/courses", () => ({
+  courseLabel: (course: { courseCode: string; courseTitle: string }) => `${course.courseCode} — ${course.courseTitle}`,
+  listCoursesByCode: vi.fn().mockResolvedValue([]),
 }));
 
 describe("SyllabusCatalogues", () => {

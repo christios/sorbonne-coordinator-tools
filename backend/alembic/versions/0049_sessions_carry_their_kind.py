@@ -8,8 +8,8 @@ had unchanged. A coordinator retags the tutorials and labs from the editor.
 This is the one migration that writes to stored syllabus content. It only adds a
 field to sessions that lack it, and touches nothing else in the document.
 
-Revision ID: 0047
-Revises: 0046
+Revision ID: 0049
+Revises: 0048
 Create Date: 2026-08-31
 """
 
@@ -19,8 +19,8 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision = "0047"
-down_revision = "0046"
+revision = "0049"
+down_revision = "0048"
 branch_labels = None
 depends_on = None
 

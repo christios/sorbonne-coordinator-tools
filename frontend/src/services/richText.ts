@@ -7,9 +7,6 @@
  * the plain text it is rather than being mangled into markup.
  */
 
-const BLOCK_END = /<\/(p|div|h[1-6]|li|tr)>/gi;
-const LINE_BREAK = /<br\s*\/?>/gi;
-
 export function isRichText(value: string): boolean {
   return /<(p|div|br|ul|ol|li|h[1-6]|strong|b|em|i|u)\b[^>]*>/i.test(value);
 }
