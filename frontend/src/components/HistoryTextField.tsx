@@ -84,7 +84,7 @@ export function HistoryTextField({
     <label
       className={`grid content-start gap-1 text-sm font-medium text-[#344054] ${fieldSizeClass[size]} ${className}`}
     >
-      <FormFieldLabel fieldKey={history?.field.path} hint={hint} source={source}>
+      <FormFieldLabel className="sm:whitespace-nowrap" fieldKey={history?.field.path} hint={hint} source={source}>
         {label}
       </FormFieldLabel>
       <div

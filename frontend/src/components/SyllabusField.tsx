@@ -26,7 +26,7 @@ type Props = {
 export function SyllabusField({ label, children, fieldKey, hint, source, size = "full", className = "" }: Props) {
   return (
     <div className={`grid content-start gap-1 text-sm font-medium text-[#344054] ${fieldSizeClass[size]} ${className}`}>
-      <FormFieldLabel fieldKey={fieldKey} hint={hint} source={source}>
+      <FormFieldLabel className="sm:whitespace-nowrap" fieldKey={fieldKey} hint={hint} source={source}>
         {label}
       </FormFieldLabel>
       <div className="w-full">{children}</div>

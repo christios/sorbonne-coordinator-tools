@@ -74,7 +74,7 @@ export function CourseIdentificationEditor({ value, courseTitle, courseCode, aca
         and the next one starts where it ends, so a card is not three short lines and a
         third of a screen of nothing. */}
     <SyllabusSubsection title="Course details">
-      <div className="flex flex-wrap items-start gap-x-6 gap-y-4">
+      <div className="flex flex-wrap items-end gap-x-6 gap-y-4">
         {courses.length ? <SyllabusField label="Course" source={courseSource} fieldKey="identification.catalogueCourseCode" hint={boundCourseHint} size="line"><SelectMenu label="Course" wrap value={boundCode} onChange={chooseCourse} placeholder="Enter the course details manually" searchable searchPlaceholder="Search by code or title" options={[{ value: "", label: "Enter the course details manually" }, ...courseOptions]} /></SyllabusField> : null}
         {bound
           ? <><ReadOnlyField label="Course code" value={bound.courseCode} size="code" /><ReadOnlyField label="Course title" value={bound.courseTitle} size="title" /></>
@@ -94,7 +94,7 @@ export function CourseIdentificationEditor({ value, courseTitle, courseCode, aca
     </SyllabusSubsection>
 
     <SyllabusSubsection title="Credits and contact hours">
-      <div className="flex flex-wrap items-start gap-x-6 gap-y-4">
+      <div className="flex flex-wrap items-end gap-x-6 gap-y-4">
         <IdentificationField label="Number of ECTS" value={stringValue(value.ects)} onChange={(ects) => update({ ects })} type="number" min={0} step={0.5} size="counter" field={{ path: "identification.ects", label: "Number of ECTS" }} {...history} />
         {contactHourKinds.map((label) => <IdentificationField key={label} label={label} value={stringValue(contactHours[label])} onChange={(next) => update({ contactHours: { ...contactHours, [label]: next } })} type="number" min={0} step={1} size="counter" field={{ path: `identification.contactHours.${label}`, label }} {...history} />)}
       </div>
@@ -139,7 +139,7 @@ function stringValue(value: unknown): string { return typeof value === "string" 
 
 /** A value the course record owns: shown, never edited here. */
 function ReadOnlyField({ label, value, size = "full", className = "" }: { label: string; value: string; size?: FieldSize; className?: string }) {
-  return <div className={`grid content-start gap-1 text-sm font-medium text-[#344054] ${fieldSizeClass[size]} ${className}`}>{label}<p className="min-h-10 w-full rounded-md border border-[#e5e7eb] bg-[#f8fafc] px-3 py-2 font-normal leading-6 text-[#475467]">{value || "—"}</p></div>;
+  return <div className={`grid content-start gap-1 text-sm font-medium text-[#344054] ${fieldSizeClass[size]} ${className}`}><span className="sm:whitespace-nowrap">{label}</span><p className="min-h-10 w-full rounded-md border border-[#e5e7eb] bg-[#f8fafc] px-3 py-2 font-normal leading-[22px] text-[#475467]">{value || "—"}</p></div>;
 }
 
 /** Prerequisites and co-requisites are courses, so they are chosen, not typed. */
