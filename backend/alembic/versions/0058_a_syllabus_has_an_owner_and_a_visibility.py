@@ -10,8 +10,8 @@ shared set the department curates, the same way an imported recording belongs to
 rather than to a person, and making it public means nothing disappears from anyone's library
 on the day this ships.
 
-Revision ID: 0054
-Revises: 0053
+Revision ID: 0058
+Revises: 0057
 """
 
 from __future__ import annotations
@@ -20,8 +20,8 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision = "0054"
-down_revision = "0053"
+revision = "0058"
+down_revision = "0057"
 branch_labels = None
 depends_on = None
 

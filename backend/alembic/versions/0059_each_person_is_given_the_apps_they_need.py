@@ -10,8 +10,8 @@ Everyone already invited is given every app, as an administrator of each. That i
 have today, and a migration is no place to take something away from somebody; whoever
 administers accounts can narrow it from Settings afterwards.
 
-Revision ID: 0055
-Revises: 0054
+Revision ID: 0059
+Revises: 0058
 """
 
 from __future__ import annotations
@@ -20,8 +20,8 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision = "0055"
-down_revision = "0054"
+revision = "0059"
+down_revision = "0058"
 branch_labels = None
 depends_on = None
 
