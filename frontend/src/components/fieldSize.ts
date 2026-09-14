@@ -11,26 +11,31 @@
  * rather than being cut off or scrolled out of sight.
  *
  * Each carries its width twice: `w-` for a field standing in a block, `basis-` for one
- * sitting in a row of fields, where flex reads the basis and ignores the width. The minimum
- * keeps a field at least as wide as the label naming it, so a name does not wrap above a box
- * it barely exceeds — but only once there is a row to speak of: on a phone every field is
- * full width already, and asking for the label's width there pushed boxes past the card.
+ * sitting in a row of fields, where flex reads the basis and ignores the width.
+ *
+ * There is deliberately no minimum drawn from the label. Asking a field to be at least as
+ * wide as its own name sounds harmless, but a box carries an intrinsic width of its own —
+ * twenty characters, inherited from `<input size>` — so every small field silently became
+ * 210px instead of 110 and half as many fitted on a row. A long name wraps onto a second
+ * line instead, which costs a line of text rather than half the room on every row.
  *
  * Written out in full because Tailwind reads these names from the source as they are.
  */
-export type FieldSize = "counter" | "code" | "name" | "title" | "line" | "full";
+export type FieldSize = "counter" | "code" | "name" | "title" | "line" | "sentence" | "full";
 
 export const fieldSizeClass: Record<FieldSize, string> = {
-  /** Four digits, and room for "Number of ECTS" to stay on one line above them. */
-  counter: "w-[calc(6ch+3.5rem)] basis-[calc(6ch+3.5rem)] sm:min-w-fit max-w-full",
-  /** Twelve characters: a course code, an academic year, "L3-S5". */
-  code: "w-[calc(12ch+3.5rem)] basis-[calc(12ch+3.5rem)] sm:min-w-fit max-w-full",
-  /** Twenty-six: a person's name, a short label. */
-  name: "w-[calc(26ch+3.5rem)] basis-[calc(26ch+3.5rem)] sm:min-w-fit max-w-full",
-  /** Forty-four: a course title, and the picker's "code — title" line. */
-  title: "w-[calc(44ch+3.5rem)] basis-[calc(44ch+3.5rem)] sm:min-w-fit max-w-full",
+  /** Six characters: contact hours, a credit. */
+  counter: "w-[calc(6ch+3.5rem)] basis-[calc(6ch+3.5rem)] max-w-full",
+  /** Twelve: a course code, an academic year, "L3-S5". */
+  code: "w-[calc(12ch+3.5rem)] basis-[calc(12ch+3.5rem)] max-w-full",
+  /** Twenty-six: a person's name. */
+  name: "w-[calc(26ch+3.5rem)] basis-[calc(26ch+3.5rem)] max-w-full",
+  /** Thirty-two: a course title, which the registrar never lets past thirty. */
+  title: "w-[calc(32ch+3.5rem)] basis-[calc(32ch+3.5rem)] max-w-full",
+  /** Forty-six: the course picker's "code — title" line, at most forty-three. */
+  line: "w-[calc(46ch+3.5rem)] basis-[calc(46ch+3.5rem)] max-w-full",
   /** Sixty-four: a programme title. */
-  line: "w-[calc(64ch+3.5rem)] basis-[calc(64ch+3.5rem)] sm:min-w-fit max-w-full",
+  sentence: "w-[calc(64ch+3.5rem)] basis-[calc(64ch+3.5rem)] max-w-full",
   /** Prose, which takes the column it is given. */
   full: "w-full basis-full",
 };
