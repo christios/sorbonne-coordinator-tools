@@ -6,6 +6,8 @@ import { FormEvent, useState } from "react";
 import { AutoResizeTextarea } from "@/components/AutoResizeTextarea";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { PloAlignmentField } from "@/components/PloAlignmentField";
+import { FieldRow } from "@/components/FieldRow";
+import { fieldSizeClass, type FieldSize } from "@/components/fieldSize";
 import { courseLabel, listCoursesByCode } from "@/services/courses";
 import { SectionEditorShell } from "@/components/SectionEditorShell";
 import {
@@ -260,7 +262,7 @@ function nextCompetencyCode(entries: CatalogueEntry[], category: "competencies" 
 function CompetencyBadge({ entry }: { entry: CatalogueEntry }) {
   const code = stringValue(entry.payload.code);
   if (!code) return null;
-  return <span className="mb-1 inline-flex w-fit rounded-full bg-[#e8edf3] px-2 py-0.5 text-xs font-semibold text-[#1f4e79]">{code}</span>;
+  return <span className="mb-1 block"><Pill tone="accent">{code}</Pill></span>;
 }
 
 /**
@@ -349,7 +351,7 @@ function EditEntry({ category, entry, onClose, onDirtyChange }: { category: Cata
 }
 
 function SearchField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) { return <label className="relative mt-5 block"><Search size={16} aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#667085]" /><input type="search" aria-label={label} value={value} onChange={(event) => onChange(event.target.value)} placeholder={label} className="w-full rounded-md border border-[#b7bec8] py-2 pl-9 pr-3 text-sm focus:border-[#1f4e79] focus:outline-none focus:ring-2 focus:ring-[#d7e5f3]" /></label>; }
-function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) { return <label className="grid gap-1 text-sm font-medium text-[#344054]"><span>{label}{hint ? <span className="ml-1 font-normal text-[#667085]">{hint}</span> : null}</span>{children}</label>; }
+function Field({ label, hint, size = "full", children }: { label: string; hint?: string; size?: FieldSize; children: React.ReactNode }) { return <label className={`grid content-start gap-1 text-sm font-medium text-[#344054] ${fieldSizeClass[size]}`}><span className="sm:whitespace-nowrap">{label}{hint ? <span className="ml-1 font-normal text-[#667085]">{hint}</span> : null}</span>{children}</label>; }
 function CheckBox({ label, checked, onChange }: { label: string; checked: boolean; onChange: (value: boolean) => void }) { return <label className="inline-flex items-center gap-2 text-sm text-[#344054]"><input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} className="h-4 w-4 rounded border-[#98a2b3] text-[#1f4e79] focus:ring-[#d7e5f3]" />{label}</label>; }
 function FormActions({ isSaving, error, onCancel, submitLabel }: { isSaving: boolean; error: Error | null; onCancel: () => void; submitLabel: string }) { return <div className="flex flex-wrap items-center gap-3"><button disabled={isSaving} className="rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white disabled:bg-[#9ba8b5]">{isSaving ? "Saving…" : submitLabel}</button><button type="button" onClick={onCancel} className="rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#344054]">Cancel</button>{error ? <p role="alert" className="text-sm text-[#8f1f25]">{error.message}</p> : null}</div>; }
 function Loading() { return <div className="mt-5 flex items-center gap-2 text-sm text-[#667085]"><Loader2 size={16} className="animate-spin" /> Loading catalogue…</div>; }
@@ -430,17 +432,46 @@ function CurriculumMappingCatalogue() {
       action={chosen ? <button type="button" onClick={() => setShowCreate(true)} className="inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white"><FilePlus2 size={16} /> Add course</button> : undefined}
     />
     {(programmes.data ?? []).length > 1 ? <label className="mt-4 grid gap-1 text-sm font-medium text-[#344054]">Programme<SelectMenu label="Programme" value={chosen} onChange={setProgrammeId} options={(programmes.data ?? []).map((item) => ({ value: item.id, label: item.label }))} /></label> : null}
-    {showCreate && chosen ? <CurriculumMappingForm programmeId={chosen} plos={plos.data ?? []} onCancel={() => setShowCreate(false)} onSaved={() => setShowCreate(false)} /> : null}
+    {showCreate && chosen ? <CurriculumMappingForm programmeId={chosen} plos={plos.data ?? []} siblings={mapping.data ?? []} onCancel={() => setShowCreate(false)} onSaved={() => setShowCreate(false)} /> : null}
     {mapping.isLoading
       ? <p className="mt-4 text-sm text-[#667085]">Loading…</p>
       : (mapping.data ?? []).length
-        ? <div className="mt-4"><CatalogueEntries category="curriculum-mapping" entries={mapping.data ?? []} isLoading={false} renderDetails={(entry) => <p className="mt-1 text-sm text-[#667085]">{[stringValue(entry.payload.courseTitle), stringValue(entry.payload.semester), (Array.isArray(entry.payload.ploIds) ? (entry.payload.ploIds as string[]) : []).map(ploLabel).filter(Boolean).join(", ") || "No outcomes yet"].filter(Boolean).join(" · ")}</p>} /></div>
+        ? <div className="mt-4"><CatalogueEntries category="curriculum-mapping" entries={mapping.data ?? []} isLoading={false} renderDetails={(entry) => <MappedCourseDetails entry={entry} ploLabel={ploLabel} />} /></div>
         : <p className="mt-4 rounded-md border border-dashed border-[#d0d5dd] px-3 py-3 text-sm text-[#667085]">No curriculum map for this programme yet.</p>}
   </div>;
 }
 
+/** The standard six, plus whatever this map already uses and whatever the row already says. */
+function levelSemesterOptions(mapping: CatalogueEntry[], current: string) {
+  const standard = ["L1-S1", "L1-S2", "L2-S3", "L2-S4", "L3-S5", "L3-S6"];
+  const used = mapping.map((entry) => stringValue(entry.payload.semester).trim()).filter(Boolean);
+  const all = [...new Set([...standard, ...used, ...(current ? [current] : [])])].sort();
+  return all.map((value) => ({ value, label: value }));
+}
+
+/** What a mapped course carries: its title, then the labels it is filed under. */
+function MappedCourseDetails({ entry, ploLabel }: { entry: CatalogueEntry; ploLabel: (id: string) => string }) {
+  const semester = stringValue(entry.payload.semester);
+  const outcomes = (Array.isArray(entry.payload.ploIds) ? (entry.payload.ploIds as string[]) : [])
+    .map(ploLabel)
+    .filter(Boolean);
+  return <div className="mt-1 grid gap-1.5">
+    <p className="text-sm text-[#667085]">{stringValue(entry.payload.courseTitle) || "No title yet"}</p>
+    <p className="flex flex-wrap items-center gap-1.5">
+      {semester ? <Pill tone="accent">{semester}</Pill> : null}
+      {outcomes.length
+        ? outcomes.map((code) => <Pill key={code}>{code}</Pill>)
+        : <span className="text-sm text-[#667085]">No outcomes expected yet</span>}
+    </p>
+  </div>;
+}
+
+function Pill({ children, tone = "quiet" }: { children: React.ReactNode; tone?: "accent" | "quiet" }) {
+  return <span className={`inline-flex shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${tone === "accent" ? "bg-[#e8edf3] text-[#1f4e79]" : "bg-[#f2f4f7] text-[#475467]"}`}>{children}</span>;
+}
+
 /** A course's row in the curriculum map: which outcomes it is expected to carry. */
-function CurriculumMappingForm({ programmeId, plos, entry, onCancel, onSaved }: { programmeId: string; plos: CatalogueEntry[]; entry?: CatalogueEntry; onCancel: () => void; onSaved: () => void }) {
+function CurriculumMappingForm({ programmeId, plos, siblings = [], entry, onCancel, onSaved }: { programmeId: string; plos: CatalogueEntry[]; siblings?: CatalogueEntry[]; entry?: CatalogueEntry; onCancel: () => void; onSaved: () => void }) {
   const client = useQueryClient();
   const [code, setCode] = useState(entry?.label ?? "");
   const [title, setTitle] = useState(stringValue(entry?.payload.courseTitle));
@@ -456,6 +487,7 @@ function CurriculumMappingForm({ programmeId, plos, entry, onCancel, onSaved }: 
     badgePlacement: "leading" as const,
     searchText: courseLabel(course),
   }));
+  const semesterOptions = levelSemesterOptions(siblings, semester);
   const chooseCourse = (nextCode: string) => {
     const course = (courses.data ?? []).find((item) => item.courseCode === nextCode);
     setCode(nextCode);
@@ -488,7 +520,8 @@ function CurriculumMappingForm({ programmeId, plos, entry, onCancel, onSaved }: 
   });
 
   return <form onSubmit={(event) => { event.preventDefault(); if (code.trim()) save.mutate(); }} className="mt-5 grid gap-4 rounded-lg border border-[#cbd5e1] bg-[#f8fafc] p-4">
-    <Field label="Course" hint="From Students and Timetables">
+    <FieldRow>
+    <Field label="Course" hint="From Students and Timetables" size="line">
       <SelectMenu
         label="Course"
         value={code}
@@ -502,9 +535,19 @@ function CurriculumMappingForm({ programmeId, plos, entry, onCancel, onSaved }: 
     </Field>
     {/* The course record owns the title; it is only typed for a course the list does not hold. */}
     {known
-      ? <Field label="Course title"><p className="flex min-h-10 w-full items-center rounded-md border border-[#e5e7eb] bg-[#f8fafc] px-3 text-sm text-[#475467]">{title || "—"}</p></Field>
-      : <Field label="Course title"><input value={title} onChange={(event) => setTitle(event.target.value)} className={inputClass} /></Field>}
-    <Field label="Level and semester" hint="For example L1-S1"><input value={semester} onChange={(event) => setSemester(event.target.value)} className={inputClass} /></Field>
+      ? <Field label="Course title" size="title"><p className="flex min-h-10 w-full items-center rounded-md border border-[#e5e7eb] bg-[#f8fafc] px-3 text-sm font-normal text-[#475467]">{title || "—"}</p></Field>
+      : <Field label="Course title" size="title"><input value={title} onChange={(event) => setTitle(event.target.value)} className={inputClass} /></Field>}
+    <Field label="Level and semester" size="code">
+      <SelectMenu
+        label="Level and semester"
+        value={semester}
+        onChange={setSemester}
+        wrap
+        placeholder="Choose one"
+        options={semesterOptions}
+      />
+    </Field>
+    </FieldRow>
     <PloAlignmentField
       label="Expected programme learning outcomes"
       pickerLabel={`Add an expected outcome to ${code || "this course"}`}
@@ -526,6 +569,11 @@ function CurriculumMappingEditForm({ entry, onCancel, onSaved }: { entry: Catalo
     queryFn: () => listCatalogueEntries("plos", { parentId: programmeId }),
     enabled: Boolean(programmeId),
   });
+  const siblings = useQuery({
+    queryKey: ["syllabus-catalogues", "curriculum-mapping", programmeId],
+    queryFn: () => listCatalogueEntries("curriculum-mapping", { parentId: programmeId }),
+    enabled: Boolean(programmeId),
+  });
   if (plos.isLoading) return <p className="mt-5 text-sm text-[#667085]">Loading outcomes…</p>;
-  return <CurriculumMappingForm programmeId={programmeId} plos={plos.data ?? []} entry={entry} onCancel={onCancel} onSaved={onSaved} />;
+  return <CurriculumMappingForm programmeId={programmeId} plos={plos.data ?? []} siblings={siblings.data ?? []} entry={entry} onCancel={onCancel} onSaved={onSaved} />;
 }
