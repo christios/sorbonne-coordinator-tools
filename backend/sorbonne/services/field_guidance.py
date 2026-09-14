@@ -17,10 +17,17 @@ from sorbonne.services.account_access import administers
 
 
 #: Which app each kind of annotated record belongs to.
+#:
+#: The "-field" types are the guidance shared by every record of that kind, which is what
+#: guidance is for: "what goes in Phone" has one answer on every teacher. The two without
+#: the suffix are the older per-record scope, kept so that anything written under it is
+#: still readable and still editable by the same people.
 APP_BY_RESOURCE = {
     "syllabus-field": "syllabus",
     "teacher": "teachers",
+    "teacher-field": "teachers",
     "teacher-requisition": "teachers",
+    "teacher-requisition-field": "teachers",
 }
 
 

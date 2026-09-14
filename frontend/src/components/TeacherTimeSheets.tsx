@@ -23,14 +23,20 @@ import {
   listTeacherTimeSheets,
   updateTeacherTimeSheet,
 } from "@/services/teachers";
+import { periodChoices, periodContaining, periodLabel } from "@/services/payPeriods";
 import { isWebLink, linkHost } from "@/services/timeSheetLinks";
 
-type Draft = { label: string; academicYear: string; url: string };
-
-const EMPTY: Draft = { label: "", academicYear: "2026-2027", url: "" };
+type Draft = { label: string; academicYear: string; url: string; periodStart: string };
 
 export function TimeSheetsCard({ teacherId, className = "" }: { teacherId: string; className?: string }) {
   const client = useQueryClient();
+  /*
+   * The period a new sheet is for defaults to the one running now, because that is the
+   * one being filed nearly every time. The list runs back far enough to file a late one
+   * and one ahead for a sheet handed in early.
+   */
+  const offered = periodChoices();
+  const blank: Draft = { label: "", academicYear: "2026-2027", url: "", periodStart: periodContaining(new Date()) };
   const sheets = useQuery({
     queryKey: ["teacher-time-sheets", teacherId],
     queryFn: () => listTeacherTimeSheets(teacherId),
@@ -80,7 +86,7 @@ export function TimeSheetsCard({ teacherId, className = "" }: { teacherId: strin
             if (draft && !editingId) close();
             else {
               setEditingId(null);
-              setDraft(EMPTY);
+              setDraft(blank);
               save.reset();
             }
           }}
@@ -115,6 +121,30 @@ export function TimeSheetsCard({ teacherId, className = "" }: { teacherId: strin
               onChange={(academicYear) => setDraft({ ...draft, academicYear })}
             />
           </div>
+          {/*
+            * One choice, not a pair of months. The department's period runs the 15th to
+            * the 14th, which is why a sheet covering "August and September" is a single
+            * period rather than two.
+            */}
+          <label className="grid gap-1 text-sm font-medium text-[#344054]">
+            <span>Period it covers</span>
+            <select
+              value={draft.periodStart}
+              onChange={(event) => setDraft({ ...draft, periodStart: event.target.value })}
+              className="w-full rounded-md border border-[#b7bec8] px-3 py-2 font-normal"
+            >
+              <option value="">Not said</option>
+              {/* A sheet filed long ago keeps its own period even once it drops off the list. */}
+              {(draft.periodStart && !offered.includes(draft.periodStart)
+                ? [draft.periodStart, ...offered]
+                : offered
+              ).map((start) => (
+                <option key={start} value={start}>
+                  {periodLabel(start)}
+                </option>
+              ))}
+            </select>
+          </label>
           <Field
             label="Link"
             value={draft.url}
@@ -189,7 +219,9 @@ export function TimeSheetsCard({ teacherId, className = "" }: { teacherId: strin
                   <ExternalLink size={14} className="shrink-0" aria-hidden="true" />
                 </a>
                 <span className="mt-1 block truncate text-sm text-[#667085]">
-                  {[sheet.academicYear, linkHost(sheet.url)].filter(Boolean).join(" · ")}
+                  {[periodLabel(sheet.periodStart) || "no period said", sheet.academicYear, linkHost(sheet.url)]
+                    .filter(Boolean)
+                    .join(" · ")}
                 </span>
               </div>
               <div className="flex shrink-0 items-center gap-1">
@@ -198,7 +230,12 @@ export function TimeSheetsCard({ teacherId, className = "" }: { teacherId: strin
                   aria-label={`Edit ${sheet.label}`}
                   onClick={() => {
                     setEditingId(sheet.id);
-                    setDraft({ label: sheet.label, academicYear: sheet.academicYear, url: sheet.url });
+                    setDraft({
+                      label: sheet.label,
+                      academicYear: sheet.academicYear,
+                      url: sheet.url,
+                      periodStart: sheet.periodStart,
+                    });
                     save.reset();
                   }}
                   className="rounded p-1.5 text-[#344054] hover:bg-[#eef1f5]"

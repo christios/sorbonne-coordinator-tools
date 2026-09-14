@@ -273,7 +273,7 @@ export function RequisitionCourseEditor({
                   />
                   <CourseSelectField
                     focusTarget={`course:${course.id}:level`}
-                    fieldKey={`courses.${course.id}.level`}
+                    fieldKey="courses.level"
                     label="Level"
                     value={course.level}
                     onChange={(level) => update(course.id, { level })}
@@ -289,7 +289,7 @@ export function RequisitionCourseEditor({
                   />
                   <CourseSelectField
                     focusTarget={`course:${course.id}:class-type`}
-                    fieldKey={`courses.${course.id}.classType`}
+                    fieldKey="courses.classType"
                     label="Course class type"
                     value={course.classType ?? legacyClassType(course.hours)}
                     onChange={(classType) => update(course.id, { classType })}
@@ -381,9 +381,15 @@ function TextField({
       data-requisition-field={focusTarget}
       className="grid gap-1 text-sm font-medium text-[#344054]"
     >
+      {/*
+        * Keyed on which field this is, never on which course row it sits in. With the
+        * row's id in the key, guidance written on the first course was invisible on the
+        * second one of the same requisition — and on a row with no focus target at all
+        * the key came out as "courses.undefined.undefined".
+        */}
       <FormFieldLabel
         required={required}
-        fieldKey={`courses.${focusTarget?.split(":")[1]}.${focusTarget?.split(":")[2]}`}
+        fieldKey={focusTarget ? `courses.${focusTarget.split(":")[2]}` : undefined}
       >
         {label}
       </FormFieldLabel>

@@ -552,3 +552,105 @@ describe("RequisitionReview", () => {
     );
   });
 });
+
+describe("TeacherRequisitionEditor, coming back to a requisition", () => {
+  const saved = {
+    id: "request-1",
+    teacherId: "teacher-1",
+    label: "Semester 1",
+    academicYear: "2026-2027",
+    revision: 1,
+    createdAt: "2026-07-24T08:00:00Z",
+    updatedAt: "2026-07-24T08:00:00Z",
+    content: {
+      department: "Science",
+      program: "Foundation year in Sciences",
+      jobTitle: "Part Time Lecturer",
+      classType: "TD",
+      employeeType: "PT" as const,
+      contractFrom: "2026-09-01",
+      contractTo: "2026-12-20",
+      courses: [
+        { id: "course-1", title: "Physics", subjectCode: "PHY", courseNumber: "101", level: "L1", hours: "24" },
+      ],
+    },
+  };
+
+  function editor(client: QueryClient) {
+    return (
+      <QueryClientProvider client={client}>
+        <TeacherRequisitionEditor requisitionId="request-1" teacherId="teacher-1" onBack={vi.fn()} />
+      </QueryClientProvider>
+    );
+  }
+
+  /**
+   * The bug this covers lost people's work: the editor was seeded from the query cache,
+   * the cache still held the version the save had replaced, and so a requisition that had
+   * saved perfectly well opened again showing the old text. Editing from there sent a
+   * revision the server had moved past, which is where "this changed elsewhere" came
+   * from, and the work had to be typed again.
+   */
+  it("shows what was saved, not what the cache held when it was last opened", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    teacherService.getTeacherRequisition.mockResolvedValue(saved);
+    teacherService.getTeacher.mockResolvedValue({ id: "teacher-1", fullName: "Sachin Valera" });
+    teacherService.listCourseCatalogue.mockResolvedValue([]);
+    teacherService.updateTeacherRequisition.mockImplementation(async (draft) => ({
+      ...draft,
+      revision: draft.revision + 1,
+    }));
+
+    const first = render(editor(client));
+    const field = await screen.findByDisplayValue("Science");
+    fireEvent.change(field, { target: { value: "Engineering" } });
+    await waitFor(() => expect(teacherService.updateTeacherRequisition).toHaveBeenCalled(), { timeout: 3000 });
+
+    // Leave, and come back to the same requisition with the same cache behind it.
+    first.unmount();
+    render(editor(client));
+
+    expect(await screen.findByDisplayValue("Engineering")).toBeTruthy();
+    expect(screen.queryByDisplayValue("Science")).toBeNull();
+  });
+
+  it("takes a newer revision from the server over an untouched draft", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    // What some earlier visit left behind, one revision out of date.
+    client.setQueryData(["teacher-requisition", "request-1"], saved);
+    teacherService.getTeacherRequisition.mockResolvedValue({
+      ...saved,
+      revision: 2,
+      content: { ...saved.content, department: "Changed by somebody else" },
+    });
+    teacherService.getTeacher.mockResolvedValue({ id: "teacher-1", fullName: "Sachin Valera" });
+    teacherService.listCourseCatalogue.mockResolvedValue([]);
+
+    render(editor(client));
+
+    expect(await screen.findByDisplayValue("Changed by somebody else")).toBeTruthy();
+  });
+
+  it("never throws away an edit that has not been saved yet", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    client.setQueryData(["teacher-requisition", "request-1"], saved);
+    teacherService.getTeacherRequisition.mockResolvedValue({
+      ...saved,
+      revision: 2,
+      content: { ...saved.content, department: "Changed by somebody else" },
+    });
+    teacherService.getTeacher.mockResolvedValue({ id: "teacher-1", fullName: "Sachin Valera" });
+    teacherService.listCourseCatalogue.mockResolvedValue([]);
+    teacherService.updateTeacherRequisition.mockImplementation(
+      async (draft) => new Promise(() => draft),
+    );
+
+    render(editor(client));
+    const field = await screen.findByDisplayValue("Science");
+    fireEvent.change(field, { target: { value: "Half typed" } });
+
+    // The refetch lands while this is unsaved; what the coordinator typed stays put.
+    await waitFor(() => expect(screen.getByDisplayValue("Half typed")).toBeTruthy());
+    expect(screen.queryByDisplayValue("Changed by somebody else")).toBeNull();
+  });
+});

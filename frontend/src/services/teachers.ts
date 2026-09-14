@@ -80,22 +80,74 @@ export type TeacherTimeSheet = {
   label: string;
   academicYear: string;
   url: string;
+  /**
+   * The day the pay period this sheet covers begins, as a date. Empty where nobody has
+   * said which period it is for, which is not the same as the sheet being overdue.
+   */
+  periodStart: string;
   createdAt: string;
   updatedAt: string;
 };
 
-export type TimeSheetInput = { label: string; academicYear: string; url: string };
+export type TimeSheetInput = { label: string; academicYear: string; url: string; periodStart: string };
+
+/**
+ * What a teacher's row shows, asked once for everybody rather than once per row.
+ *
+ * Every fact here lives in a different table, so a list of two dozen people drawn from
+ * the per-teacher routes would be fifty requests to paint one page.
+ */
+export type TeacherSummary = {
+  requisitions: number;
+  contractedHours: number;
+  timeSheets: number;
+  newestTimeSheet: TeacherTimeSheet | null;
+  hasDocuments: boolean;
+};
+
+export async function fetchTeacherSummary(): Promise<Record<string, TeacherSummary>> {
+  return (await request<{ summary: Record<string, TeacherSummary> }>("/teachers/summary")).summary;
+}
 
 export async function listTeacherTimeSheets(teacherId: string): Promise<TeacherTimeSheet[]> { return (await request<{ items: TeacherTimeSheet[] }>(`/teachers/${teacherId}/time-sheets`)).items; }
 export function createTeacherTimeSheet(teacherId: string, input: TimeSheetInput): Promise<TeacherTimeSheet> { return request<TeacherTimeSheet>(`/teachers/${teacherId}/time-sheets`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) }); }
 export function updateTeacherTimeSheet(teacherId: string, id: string, input: TimeSheetInput): Promise<TeacherTimeSheet> { return request<TeacherTimeSheet>(`/teachers/${teacherId}/time-sheets/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) }); }
 export async function deleteTeacherTimeSheet(teacherId: string, id: string): Promise<void> { await emptyRequest(`/teachers/${teacherId}/time-sheets/${id}`, { method: "DELETE" }); }
+/**
+ * Several of one teacher's requisitions at once, as a zip of the same documents.
+ *
+ * One chosen still goes through the single export, so the common case lands as a
+ * document you can open rather than an archive you have to unpack first.
+ */
+export async function downloadTeacherRequisitions(teacherId: string, ids: string[]): Promise<void> {
+  if (ids.length === 1) return downloadTeacherRequisitionExport(ids[0]);
+  const response = await apiFetch(`${API_BASE_URL}/api/v1/teachers/${teacherId}/requisitions/export`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ids }),
+  });
+  if (!response.ok) {
+    const body = (await response.json().catch(() => ({}))) as { detail?: string };
+    throw new Error(body.detail ?? `Request failed with status ${response.status}`);
+  }
+  await saveResponse(response, "requisitions.zip");
+}
+
 export async function downloadTeacherRequisitionExport(id: string): Promise<void> {
   const response = await apiFetch(`${API_BASE_URL}/api/v1/teacher-requisitions/${id}/export`);
   if (!response.ok) { const body = await response.json().catch(() => ({})) as { detail?: string }; throw new Error(body.detail ?? `Export failed with status ${response.status}`); }
-  const filename = /filename="?([^";]+)"?/.exec(response.headers.get("content-disposition") ?? "")?.[1] ?? "recruitment-request.docx";
+  await saveResponse(response, "recruitment-request.docx");
+}
+
+/** Hand a downloaded response to the browser under the name the server gave it. */
+async function saveResponse(response: Response, fallbackName: string): Promise<void> {
+  const filename = /filename="?([^";]+)"?/.exec(response.headers.get("content-disposition") ?? "")?.[1] ?? fallbackName;
   const url = URL.createObjectURL(await response.blob());
-  const link = document.createElement("a"); link.href = url; link.download = filename; link.click(); URL.revokeObjectURL(url);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
 }
 
 function documentAuth(credential: string): HeadersInit { return { Authorization: `Bearer ${credential}` }; }

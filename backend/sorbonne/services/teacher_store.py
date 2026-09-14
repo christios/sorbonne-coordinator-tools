@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 import json
+import re
 from typing import Any
 from urllib.parse import urlparse
 from uuid import uuid4
@@ -41,6 +42,10 @@ class TimeSheetNotFound(Exception):
 
 class InvalidTimeSheetLink(Exception):
     """The link is not a web address this profile is willing to put behind a button."""
+
+
+class InvalidPeriod(Exception):
+    """A pay period is named by the day it starts, as a plain date."""
 
 
 class TeacherStore:
@@ -405,9 +410,10 @@ class TeacherStore:
                 connection.execute(
                     text(
                         """
-                        SELECT id, teacher_id, label, academic_year, url, created_at, updated_at
+                        SELECT id, teacher_id, label, academic_year, url, period_start,
+                               created_at, updated_at
                         FROM teacher_time_sheets WHERE teacher_id = :teacher_id
-                        ORDER BY academic_year DESC, label
+                        ORDER BY period_start DESC, academic_year DESC, label
                         """
                     ),
                     {"teacher_id": teacher_id},
@@ -417,7 +423,9 @@ class TeacherStore:
             )
         return [_time_sheet_from_row(row) for row in rows]
 
-    def create_time_sheet(self, teacher_id: str, *, label: str, academic_year: str, url: str) -> dict[str, Any]:
+    def create_time_sheet(
+        self, teacher_id: str, *, label: str, academic_year: str, url: str, period_start: str = ""
+    ) -> dict[str, Any]:
         self.get_teacher(teacher_id)
         now = _timestamp()
         record = {
@@ -426,6 +434,7 @@ class TeacherStore:
             "label": label.strip(),
             "academicYear": academic_year.strip(),
             "url": _web_link(url),
+            "periodStart": _period(period_start),
             "createdAt": now,
             "updatedAt": now,
         }
@@ -436,8 +445,10 @@ class TeacherStore:
                 text(
                     """
                     INSERT INTO teacher_time_sheets (
-                        id, teacher_id, label, academic_year, url, created_at, updated_at
-                    ) VALUES (:id, :teacher_id, :label, :academic_year, :url, :created_at, :updated_at)
+                        id, teacher_id, label, academic_year, url, period_start, created_at, updated_at
+                    ) VALUES (
+                        :id, :teacher_id, :label, :academic_year, :url, :period_start, :created_at, :updated_at
+                    )
                     """
                 ),
                 _time_sheet_params(record),
@@ -449,9 +460,7 @@ class TeacherStore:
             raise TimeSheetNotFound
         with self.engine.connect() as connection:
             row = (
-                connection.execute(
-                    text("SELECT * FROM teacher_time_sheets WHERE id = :id"), {"id": time_sheet_id}
-                )
+                connection.execute(text("SELECT * FROM teacher_time_sheets WHERE id = :id"), {"id": time_sheet_id})
                 .mappings()
                 .first()
             )
@@ -460,7 +469,7 @@ class TeacherStore:
         return _time_sheet_from_row(row)
 
     def update_time_sheet(
-        self, time_sheet_id: str, *, label: str, academic_year: str, url: str
+        self, time_sheet_id: str, *, label: str, academic_year: str, url: str, period_start: str = ""
     ) -> dict[str, Any]:
         """A pasted link is got wrong often enough that correcting one must not mean
         deleting it and typing the label again."""
@@ -470,6 +479,7 @@ class TeacherStore:
             "label": label.strip(),
             "academicYear": academic_year.strip(),
             "url": _web_link(url),
+            "periodStart": _period(period_start),
             "updatedAt": _timestamp(),
         }
         if not updated["label"]:
@@ -479,13 +489,75 @@ class TeacherStore:
                 text(
                     """
                     UPDATE teacher_time_sheets
-                    SET label = :label, academic_year = :academic_year, url = :url, updated_at = :updated_at
+                    SET label = :label, academic_year = :academic_year, url = :url,
+                        period_start = :period_start, updated_at = :updated_at
                     WHERE id = :id
                     """
                 ),
                 _time_sheet_params(updated),
             )
         return updated
+
+    # ------------------------------------------------------- what a row shows
+
+    def library_summary(self) -> dict[str, dict[str, Any]]:
+        """Per teacher, what the list needs to show: one pass, not one request per row.
+
+        The list is two dozen people and every fact on a row lives in a different table.
+        Asked profile by profile that is fifty round trips to draw one page, so it is
+        asked once here and the page reads what it needs out of the answer.
+        """
+        with self.engine.connect() as connection:
+            requisitions = (
+                connection.execute(
+                    text("SELECT teacher_id, content_json::text AS content FROM teacher_requisitions")
+                )
+                .mappings()
+                .all()
+            )
+            sheets = (
+                connection.execute(
+                    text("""SELECT id, teacher_id, label, academic_year, url, period_start,
+                                   created_at, updated_at
+                            FROM teacher_time_sheets
+                            ORDER BY period_start DESC, updated_at DESC""")
+                )
+                .mappings()
+                .all()
+            )
+            with_documents = {
+                row[0] for row in connection.execute(text("SELECT teacher_id FROM teacher_document_folders"))
+            }
+
+        found: dict[str, dict[str, Any]] = {}
+
+        def entry(teacher_id: str) -> dict[str, Any]:
+            return found.setdefault(
+                teacher_id,
+                {
+                    "requisitions": 0,
+                    "contractedHours": 0.0,
+                    "timeSheets": 0,
+                    "newestTimeSheet": None,
+                    "hasDocuments": teacher_id in with_documents,
+                },
+            )
+
+        for row in requisitions:
+            mine = entry(row["teacher_id"])
+            mine["requisitions"] += 1
+            mine["contractedHours"] += _contracted_hours(row["content"])
+        for row in sheets:
+            mine = entry(row["teacher_id"])
+            mine["timeSheets"] += 1
+            # Ordered newest period first, so the first one seen for a teacher is theirs.
+            if mine["newestTimeSheet"] is None:
+                mine["newestTimeSheet"] = _time_sheet_from_row(row)
+        for teacher_id in with_documents:
+            entry(teacher_id)
+        for mine in found.values():
+            mine["contractedHours"] = round(mine["contractedHours"] + 0.0, 3)
+        return found
 
     def delete_time_sheet(self, time_sheet_id: str) -> None:
         self.get_time_sheet(time_sheet_id)
@@ -770,6 +842,46 @@ def _web_link(url: str) -> str:
     return cleaned
 
 
+_HOURS = re.compile(r"\d+(?:[.,]\d+)?")
+
+
+def _contracted_hours(content_json: str) -> float:
+    """What one requisition's courses come to, read the way the editor adds them up.
+
+    The hours are typed by a person, so "21", "21 h" and "21,5" all occur; the first
+    number in the cell is the figure, which is what `totalTeachingHours` in the browser
+    has always taken. A requisition whose content cannot be read at all contributes
+    nothing rather than breaking the page it is counted for.
+    """
+    try:
+        courses = json.loads(content_json or "{}").get("courses") or []
+    except (TypeError, ValueError):
+        return 0.0
+    total = 0.0
+    for course in courses:
+        found = _HOURS.search(str(course.get("hours", "")))
+        if found:
+            total += float(found.group(0).replace(",", "."))
+    return total
+
+
+def _period(value: str) -> str:
+    """The day a pay period starts, as a plain date, or nothing.
+
+    Which day that is belongs to the department, not to this table: the cycle runs the
+    15th to the 14th today and the column would outlive a decision to change it. So the
+    date is checked for being a date and stored as written, and the screens that offer
+    the choice are the ones that know the cycle.
+    """
+    cleaned = str(value or "").strip()
+    if not cleaned:
+        return ""
+    try:
+        return date.fromisoformat(cleaned).isoformat()
+    except ValueError as exc:
+        raise InvalidPeriod from exc
+
+
 def _time_sheet_from_row(row: Any) -> dict[str, Any]:
     return {
         "id": row["id"],
@@ -777,6 +889,7 @@ def _time_sheet_from_row(row: Any) -> dict[str, Any]:
         "label": row["label"],
         "academicYear": row["academic_year"],
         "url": row["url"],
+        "periodStart": row["period_start"] or "",
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],
     }
@@ -789,6 +902,7 @@ def _time_sheet_params(sheet: dict[str, Any]) -> dict[str, Any]:
         "label": sheet["label"],
         "academic_year": sheet["academicYear"],
         "url": sheet["url"],
+        "period_start": sheet["periodStart"],
         "created_at": sheet["createdAt"],
         "updated_at": sheet["updatedAt"],
     }

@@ -38,6 +38,7 @@ import {
 import { LibraryRecordTimestamps } from "@/components/LibraryRecordTimestamps";
 import { RequisitionCourseEditor } from "@/components/RequisitionCourseEditor";
 import { SectionEditorShell } from "@/components/SectionEditorShell";
+import { TeacherFacts, TeacherRowActions } from "@/components/TeacherRowDetail";
 import { TimeSheetsCard } from "@/components/TeacherTimeSheets";
 import { SelectMenu } from "@/components/SelectMenu";
 import { TaskPanel } from "@/components/TaskPanel";
@@ -74,6 +75,8 @@ import {
   listCourseCatalogue,
   listTeacherFolders,
   listTeacherDocumentIssues,
+  type TeacherSummary,
+  fetchTeacherSummary,
   listTeacherRequisitions,
   listTeachers,
   moveTeacherToFolder,
@@ -137,9 +140,18 @@ export function TeacherDatabase() {
     queryKey: ["tasks", "teacher"],
     queryFn: () => listTasks("teacher"),
   });
+  /*
+   * What every row shows, asked once. Each fact on a row lives in a different table, so
+   * asking per teacher would be fifty requests to paint a page of two dozen people.
+   */
+  const summary = useQuery({
+    queryKey: ["teacher-summary"],
+    queryFn: fetchTeacherSummary,
+  });
   const refreshLibrary = () => {
     client.invalidateQueries({ queryKey: ["teachers"] });
     client.invalidateQueries({ queryKey: ["teacher-folders"] });
+    client.invalidateQueries({ queryKey: ["teacher-summary"] });
   };
   const create = useMutation({
     mutationFn: createTeacher,
@@ -182,6 +194,12 @@ export function TeacherDatabase() {
     return (
       <TeacherLibrary
         teachers={teachers.data ?? []}
+        summary={summary.data}
+        summaryLoading={summary.isLoading}
+        onOpenRequisition={(teacherId, requisitionId) =>
+          setScreen({ view: "requisition", teacherId, requisitionId })
+        }
+        onSummaryChanged={refreshLibrary}
         tasks={teacherTasks.data ?? []}
         folders={folders.data ?? []}
         taskTemplates={taskTemplates.data ?? []}
@@ -246,6 +264,10 @@ export function TeacherDatabase() {
 
 function TeacherLibrary({
   teachers,
+  summary,
+  summaryLoading,
+  onOpenRequisition,
+  onSummaryChanged,
   tasks,
   folders,
   taskTemplates,
@@ -268,6 +290,11 @@ function TeacherLibrary({
   onImportCatalogue,
 }: {
   teachers: Teacher[];
+  /** What every row says, asked once for the whole list. */
+  summary?: Record<string, TeacherSummary>;
+  summaryLoading: boolean;
+  onOpenRequisition: (teacherId: string, requisitionId: string) => void;
+  onSummaryChanged: () => void;
   tasks: ScopedTask[];
   folders: TeacherFolder[];
   taskTemplates: TaskTemplate[];
@@ -629,8 +656,15 @@ function TeacherLibrary({
                     <div
                       key={teacher.id}
                       role="listitem"
-                      className="grid gap-3 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
+                      className="grid gap-2 px-5 py-2.5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
                     >
+                      {/*
+                        * Two lines, not five. Who they are on the first, what they have
+                        * on the second, and everything that used to have a line of its
+                        * own — the e-mail, the folder, the task count — folded in beside
+                        * what it belongs with. A list somebody scans two dozen of should
+                        * fit on one screen.
+                        */}
                       <button
                         type="button"
                         onClick={() => onOpen(teacher.id)}
@@ -639,23 +673,34 @@ function TeacherLibrary({
                         <span className="flex min-w-0 items-center gap-3">
                           <TeacherAvatar fullName={teacher.fullName} />
                           <span className="min-w-0">
-                            <span className="block truncate font-semibold text-[#171717]">
-                              {teacher.fullName}
-                            </span>
-                            <span className="mt-1 block text-sm text-[#667085]">
-                              {teacher.email || "No email"}
-                              {teacher.archivedAt ? " · Archived" : ""}
-                            </span>
-                            {teacher.folderId ? (
-                              <span className="mt-2 inline-flex items-center gap-1 text-xs text-[#667085]">
-                                <Folder size={14} />
-                                {paths
-                                  .get(teacher.folderId)
-                                  ?.map((folder) => folder.name)
-                                  .join(" › ")}
+                            {/*
+                              * Who they are on one line, what they have on the next. The
+                              * e-mail and the folder used to take a line each, which made
+                              * a row nobody could scan two dozen of without scrolling.
+                              */}
+                            <span className="flex flex-wrap items-baseline gap-x-2">
+                              <span className="truncate font-semibold text-[#171717]">
+                                {teacher.fullName}
                               </span>
-                            ) : null}
-                            <span className="mt-2 flex flex-wrap items-center gap-2">
+                              <span className="truncate text-sm text-[#667085]">
+                                {teacher.email || "No email"}
+                                {teacher.archivedAt ? " · Archived" : ""}
+                              </span>
+                              {teacher.folderId ? (
+                                <span className="inline-flex items-center gap-1 text-xs text-[#667085]">
+                                  <Folder size={13} />
+                                  {paths
+                                    .get(teacher.folderId)
+                                    ?.map((folder) => folder.name)
+                                    .join(" › ")}
+                                </span>
+                              ) : null}
+                              {/*
+                                * The task count rides with the name rather than with the
+                                * facts. It is the one thing here somebody has to keep up,
+                                * it reads 0/0 on nearly everybody, and on the line below
+                                * it was what pushed the facts onto a third row.
+                                */}
                               <TaskProgressBadge
                                 tasks={tasksByTeacher.get(teacher.id) ?? []}
                               />
@@ -663,17 +708,32 @@ function TeacherLibrary({
                                 tasks={tasksByTeacher.get(teacher.id) ?? []}
                               />
                             </span>
+                            {/* What the system works out for itself, and never has to be told. */}
+                            <span className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1.5">
+                              <TeacherFacts
+                                summary={summary?.[teacher.id]}
+                                loading={summaryLoading}
+                              />
+                            </span>
                           </span>
                         </span>
                       </button>
-                      <FolderMoveMenu
+                      <span className="flex flex-wrap items-center justify-end gap-2">
+                        <TeacherRowActions
+                          teacher={teacher}
+                          summary={summary?.[teacher.id]}
+                          onOpenRequisition={onOpenRequisition}
+                          onChanged={onSummaryChanged}
+                        />
+                        <FolderMoveMenu
                         compact
                         label={`Move ${teacher.fullName} to folder`}
                         value={teacher.folderId}
                         folders={folders}
                         isMoving={movingId === teacher.id}
                         onChange={(folderId) => onMove(teacher.id, folderId)}
-                      />
+                        />
+                      </span>
                     </div>
                   ))}
                 </div>
@@ -1304,9 +1364,15 @@ export function ProfileOverview({
     });
     setEditing(false);
   }
+  /*
+   * Guidance belongs to the FIELD, not to the record on screen. "What goes in Phone" is
+   * the same answer on every teacher, and scoping it to one teacher's id meant a sentence
+   * written once appeared on exactly one profile and nowhere else. The syllabus side has
+   * always used a shared scope; this is the teachers side catching up with it.
+   */
   return (
     <FieldInfoProvider
-      source={{ resourceType: "teacher", resourceId: teacher.id, app: "teachers" }}
+      source={{ resourceType: "teacher-field", resourceId: "shared", app: "teachers" }}
     >
       <section className="mt-6 rounded-lg border border-[#d9dee7] bg-white p-5">
         <div className="flex items-center justify-between gap-3">
@@ -1430,6 +1496,7 @@ export function TeacherRequisitionEditor({
   teacherId: string;
   onBack: () => void;
 }) {
+  const client = useQueryClient();
   const requisition = useQuery({
     queryKey: ["teacher-requisition", requisitionId],
     queryFn: () => getTeacherRequisition(requisitionId),
@@ -1457,11 +1524,27 @@ export function TeacherRequisitionEditor({
   const saveInFlight = useRef(false);
   const saveConflict = useRef(false);
   const inFlightSave = useRef<Promise<TeacherRequisition | null> | null>(null);
+  /*
+   * Take what the server has when this is a different requisition, and also when the
+   * server is AHEAD of what is on screen with nothing unsaved to lose.
+   *
+   * The second half is the fix for work appearing to vanish. Opening a requisition a
+   * second time seeds the editor from the query cache, which serves the version it read
+   * the first time; guarding only on the id meant the fresher copy that arrived a moment
+   * later was ignored, so the editor sat there showing an old revision of a document that
+   * had been saved perfectly well. Editing from there then sent a revision the server had
+   * moved past, which is where "this changed elsewhere" came from, and the work had to be
+   * done again. `dirtyRef` is what keeps this from ever overwriting something unsaved.
+   */
   useEffect(() => {
-    if (!requisition.data || draftRef.current?.id === requisition.data.id)
-      return;
-    draftRef.current = requisition.data;
-    setDraft(requisition.data);
+    const fresh = requisition.data;
+    if (!fresh) return;
+    const held = draftRef.current;
+    const another = held?.id !== fresh.id;
+    const serverIsAhead = !another && !dirtyRef.current && fresh.revision > (held?.revision ?? 0);
+    if (!another && !serverIsAhead) return;
+    draftRef.current = fresh;
+    setDraft(fresh);
     dirtyRef.current = false;
     setDirty(false);
     setSaveState("saved");
@@ -1469,6 +1552,18 @@ export function TeacherRequisitionEditor({
     saveConflict.current = false;
     setValidationMessage("");
   }, [requisition.data]);
+  /*
+   * What the rest of the app reads about this teacher changes when a requisition is
+   * saved: the hours on their row come out of these courses, and the list shows the
+   * label. Done on the way out rather than on every keystroke's save.
+   */
+  useEffect(
+    () => () => {
+      client.invalidateQueries({ queryKey: ["teacher-requisitions", teacherId] });
+      client.invalidateQueries({ queryKey: ["teacher-summary"] });
+    },
+    [client, teacherId],
+  );
   const exportDocx = useMutation({
     mutationFn: downloadTeacherRequisitionExport,
   });
@@ -1498,6 +1593,9 @@ export function TeacherRequisitionEditor({
     const request = (async () => {
       try {
         const saved = await updateTeacherRequisition(snapshot);
+        // The cache is what the editor is seeded from next time it opens. Left holding
+        // the version this save replaced, it hands back stale work on the way back in.
+        client.setQueryData(["teacher-requisition", requisitionId], saved);
         if (draftRef.current === snapshot) {
           draftRef.current = saved;
           setDraft(saved);
@@ -1621,11 +1719,12 @@ export function TeacherRequisitionEditor({
       </span>
     </div>
   );
+  // Shared across every requisition, for the reason given on the profile above.
   return (
     <FieldInfoProvider
       source={{
-        resourceType: "teacher-requisition",
-        resourceId: requisitionId,
+        resourceType: "teacher-requisition-field",
+        resourceId: "shared",
         app: "teachers",
       }}
     >

@@ -1,8 +1,9 @@
 from pathlib import Path
 from io import BytesIO
-from tempfile import NamedTemporaryFile
+from tempfile import NamedTemporaryFile, TemporaryDirectory
 from typing import Any
-from zipfile import BadZipFile
+from uuid import uuid4
+from zipfile import ZIP_DEFLATED, BadZipFile, ZipFile
 
 import openpyxl
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, Response, UploadFile
@@ -15,6 +16,7 @@ from sorbonne.services.teacher_store import (
     FolderNameConflict,
     FolderNotEmpty,
     FolderNotFound,
+    InvalidPeriod,
     InvalidTimeSheetLink,
     RequisitionNotFound,
     RevisionConflict,
@@ -56,6 +58,14 @@ class TimeSheetRequest(BaseModel):
     label: str = Field(min_length=1, max_length=160)
     academicYear: str = Field(default="", max_length=20)
     url: str = Field(min_length=1, max_length=2000)
+    #: The day the pay period starts, as a date. Empty where nobody has said.
+    periodStart: str = Field(default="", max_length=10)
+
+
+class RequisitionExportRequest(BaseModel):
+    """Which of a teacher's requisitions to put in the zip."""
+
+    ids: list[str] = Field(min_length=1, max_length=50)
 
 
 class UpdateTeacherRequisitionRequest(BaseModel):
@@ -212,6 +222,14 @@ def _cell_text(value: object) -> str:
     return str(value).strip()
 
 
+# Ahead of "/{teacher_id}" deliberately: routes match in the order they are declared,
+# and below this line "summary" would be read as somebody's id.
+@router.get("/summary")
+def teacher_library_summary(store: TeacherStore = Depends(get_store)) -> dict[str, Any]:
+    """What every teacher's row shows, in one answer instead of one request per teacher."""
+    return {"summary": store.library_summary()}
+
+
 @router.get("/{teacher_id}")
 def get_teacher(teacher_id: str, store: TeacherStore = Depends(get_store)) -> dict[str, Any]:
     try:
@@ -298,6 +316,10 @@ def _bad_link() -> HTTPException:
     )
 
 
+def _bad_period() -> HTTPException:
+    return HTTPException(status_code=422, detail="A pay period is named by the day it starts, as a date.")
+
+
 @router.get("/{teacher_id}/time-sheets")
 def list_teacher_time_sheets(
     teacher_id: str, store: TeacherStore = Depends(get_store)
@@ -314,12 +336,18 @@ def create_teacher_time_sheet(
 ) -> dict[str, Any]:
     try:
         return store.create_time_sheet(
-            teacher_id, label=request.label, academic_year=request.academicYear, url=request.url
+            teacher_id,
+            label=request.label,
+            academic_year=request.academicYear,
+            url=request.url,
+            period_start=request.periodStart,
         )
     except TeacherNotFound as exc:
         raise HTTPException(status_code=404, detail="Teacher not found.") from exc
     except InvalidTimeSheetLink as exc:
         raise _bad_link() from exc
+    except InvalidPeriod as exc:
+        raise _bad_period() from exc
 
 
 @router.patch("/{teacher_id}/time-sheets/{time_sheet_id}")
@@ -330,12 +358,18 @@ def update_teacher_time_sheet(
         if store.get_time_sheet(time_sheet_id)["teacherId"] != teacher_id:
             raise TimeSheetNotFound
         return store.update_time_sheet(
-            time_sheet_id, label=request.label, academic_year=request.academicYear, url=request.url
+            time_sheet_id,
+            label=request.label,
+            academic_year=request.academicYear,
+            url=request.url,
+            period_start=request.periodStart,
         )
     except TimeSheetNotFound as exc:
         raise HTTPException(status_code=404, detail="Time sheet not found on this teacher profile.") from exc
     except InvalidTimeSheetLink as exc:
         raise _bad_link() from exc
+    except InvalidPeriod as exc:
+        raise _bad_period() from exc
 
 
 @router.delete("/{teacher_id}/time-sheets/{time_sheet_id}", status_code=204)
@@ -407,6 +441,57 @@ def export_requisition(
         filename=_export_filename(teacher["fullName"], requisition["academicYear"]),
         background=background_tasks,
     )
+
+
+@router.post("/{teacher_id}/requisitions/export")
+def export_teacher_requisitions(
+    teacher_id: str,
+    request: RequisitionExportRequest,
+    background_tasks: BackgroundTasks,
+    store: TeacherStore = Depends(get_store),
+) -> FileResponse:
+    """Several of one teacher's requisitions, as one zip of the same documents.
+
+    The single export is unchanged and is what the browser asks for when only one is
+    chosen; this exists so that choosing three does not mean three trips to the
+    downloads folder. A requisition belonging to somebody else is refused rather than
+    quietly dropped, because a zip that is missing one of the things you ticked is
+    worse than an error.
+    """
+    try:
+        teacher = store.get_teacher(teacher_id)
+        chosen = [store.get_requisition(identifier) for identifier in dict.fromkeys(request.ids)]
+    except (RequisitionNotFound, TeacherNotFound) as exc:
+        raise HTTPException(status_code=404, detail="Requisition not found.") from exc
+    if any(item["teacherId"] != teacher_id for item in chosen):
+        raise HTTPException(status_code=404, detail="Those requisitions are not all on this teacher profile.")
+
+    with NamedTemporaryFile(prefix="scen-requisitions-", suffix=".zip", delete=False) as file:
+        bundle_path = Path(file.name)
+    background_tasks.add_task(bundle_path.unlink, missing_ok=True)
+    with TemporaryDirectory() as workspace, ZipFile(bundle_path, "w", ZIP_DEFLATED) as bundle:
+        used: set[str] = set()
+        for requisition in chosen:
+            document = Path(workspace) / f"{uuid4()}.docx"
+            build_requisition_docx({**requisition, "employeeName": teacher["fullName"]}, document)
+            name = _export_filename(teacher["fullName"], requisition["academicYear"])
+            # Two requisitions for one year would otherwise be one name twice in the zip,
+            # and the second would replace the first on unpacking.
+            if name in used:
+                stem, suffix = name.rsplit(".", 1)
+                name = f"{stem}-{requisition['label'] or len(used)}.{suffix}".replace(" ", "-")
+            used.add(name)
+            bundle.write(document, arcname=name)
+    return FileResponse(
+        bundle_path,
+        media_type="application/zip",
+        filename=f"{_safe_stem(teacher['fullName'])}-requisitions.zip",
+        background=background_tasks,
+    )
+
+
+def _safe_stem(name: str) -> str:
+    return "".join(character if character.isalnum() else "-" for character in name).strip("-") or "teacher"
 
 
 def _export_filename(name: str, academic_year: str) -> str:
