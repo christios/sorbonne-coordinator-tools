@@ -149,7 +149,7 @@ function CourseList({ title, hint, fieldKey, items, options, onChange }: { title
     if (!label || chosen.includes(label)) return;
     onChange([...items, { id: crypto.randomUUID(), text: label }]);
   };
-  return <SyllabusField label={title} fieldKey={fieldKey} hint={hint} size="title">
+  return <SyllabusField label={title} fieldKey={fieldKey} hint={hint} size="line">
     {chosen.length ? <ul aria-label={`Selected ${title.toLowerCase()}`} className="grid grid-cols-[minmax(0,1fr)] gap-2">{items.filter((item) => item.text).map((item) => <li key={item.id} className="flex min-w-0 items-start justify-between gap-2 rounded-md border border-[#d9dee7] bg-[#f8fafc] px-3 py-2 text-sm font-normal text-[#344054]"><span className="min-w-0 break-words">{item.text}</span><button type="button" onClick={() => onChange(items.filter((entry) => entry.id !== item.id))} className="shrink-0 rounded p-1 text-[#667085] hover:bg-[#e8edf3] hover:text-[#a6292f]" aria-label={`Remove ${item.text} from ${title.toLowerCase()}`}><X size={16} aria-hidden="true" /></button></li>)}</ul> : null}
     <SelectMenu label={`Add ${title.toLowerCase()}`} value="" onChange={add} placeholder={chosen.length ? `Add another ${title.toLowerCase().replace(/s$/, "")}` : `None yet — add a ${title.toLowerCase().replace(/s$/, "")}`} searchable searchPlaceholder="Search by code or title" options={options.filter((option) => option.value && !chosen.includes(option.label))} />
   </SyllabusField>;
