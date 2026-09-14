@@ -127,18 +127,37 @@ function PersonForm({ entry, onCancel, onSaved }: { entry?: CatalogueEntry; onCa
   return <form onSubmit={submit} className="mt-5 grid gap-4 rounded-lg border border-[#cbd5e1] bg-[#f8fafc] p-4 md:grid-cols-2"><Field label="Full name"><input autoFocus required value={label} onChange={(event) => setLabel(event.target.value)} className={inputClass} /></Field><Field label="Academic rank / status"><input value={rank} onChange={(event) => setRank(event.target.value)} className={inputClass} /></Field><Field label="Email"><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} className={inputClass} /></Field><Field label="Phone"><input value={phone} onChange={(event) => setPhone(event.target.value)} className={inputClass} /></Field><Field label="Affiliations" hint="One or more affiliations, separated by commas."><input value={affiliations} onChange={(event) => setAffiliations(event.target.value)} className={inputClass} /></Field><Field label="Office hours and location"><input value={officeHours} onChange={(event) => setOfficeHours(event.target.value)} className={inputClass} /></Field><div className="flex flex-wrap gap-4 md:col-span-2"><CheckBox label="Available as instructor" checked={isInstructor} onChange={setIsInstructor} /><CheckBox label="Available as academic coordinator" checked={isCoordinator} onChange={setIsCoordinator} /></div><FormActions isSaving={save.isPending} error={save.error} onCancel={onCancel} submitLabel={entry ? "Save person" : "Add person"} /></form>;
 }
 
+/**
+ * Filter a catalogue on everything the reader can see, not only on its label.
+ *
+ * A PLO is labelled "PLO 3" and says a sentence; a mapped course is labelled by its code and
+ * shows its title. Searching only the label would miss whichever of the two somebody has in
+ * mind, so both are matched here rather than on the server.
+ */
+function matching(entries: CatalogueEntry[], query: string, fields: string[] = ["outcome", "courseTitle", "semester"]) {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return entries;
+  return entries.filter((entry) => {
+    const haystack = [entry.label, ...fields.map((field) => stringValue(entry.payload[field]))];
+    return haystack.join(" ").toLowerCase().includes(needle);
+  });
+}
+
 function ProgrammesCatalogue() {
   const [showCreate, setShowCreate] = useState(false);
+  const [query, setQuery] = useState("");
   const programmes = useCatalogue("programmes");
   const [selectedId, setSelectedId] = useState("");
+  const shown = matching(programmes.data ?? [], query);
   const selected = programmes.data?.find((programme) => programme.id === selectedId) ?? programmes.data?.[0];
-  return <div className="grid gap-5 xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]"><section className="rounded-lg border border-[#d9dee7] bg-white p-5"><CatalogueHeader title="Programmes" description="Programme sets can be selected by compatible SCEN syllabi. Selecting one makes its approved PLOs available for alignment." action={<button type="button" onClick={() => setShowCreate(true)} className="inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white"><FilePlus2 size={16} /> Add programme</button>} />{showCreate ? <SimpleEntryForm category="programmes" fieldLabel="Programme name" onCancel={() => setShowCreate(false)} onSaved={() => setShowCreate(false)} /> : null}<CatalogueEntries category="programmes" entries={programmes.data ?? []} isLoading={programmes.isLoading} selectedId={selected?.id} onSelect={setSelectedId} /></section><section className="rounded-lg border border-[#d9dee7] bg-white p-5">{selected ? <PloCatalogue programme={selected} /> : <EmptyState>Choose or add a programme to manage its programme learning outcomes.</EmptyState>}</section></div>;
+  return <div className="grid gap-5 xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]"><section className="rounded-lg border border-[#d9dee7] bg-white p-5"><CatalogueHeader title="Programmes" description="Programme sets can be selected by compatible SCEN syllabi. Selecting one makes its approved PLOs available for alignment." action={<button type="button" onClick={() => setShowCreate(true)} className="inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white"><FilePlus2 size={16} /> Add programme</button>} /><SearchField label="Search programmes" value={query} onChange={setQuery} />{showCreate ? <SimpleEntryForm category="programmes" fieldLabel="Programme name" onCancel={() => setShowCreate(false)} onSaved={() => setShowCreate(false)} /> : null}<CatalogueEntries category="programmes" entries={shown} isLoading={programmes.isLoading} selectedId={selected?.id} onSelect={setSelectedId} /></section><section className="rounded-lg border border-[#d9dee7] bg-white p-5">{selected ? <PloCatalogue programme={selected} /> : <EmptyState>Choose or add a programme to manage its programme learning outcomes.</EmptyState>}</section></div>;
 }
 
 function PloCatalogue({ programme }: { programme: CatalogueEntry }) {
   const [showCreate, setShowCreate] = useState(false);
+  const [query, setQuery] = useState("");
   const plos = useCatalogue("plos", "", programme.id);
-  return <><CatalogueHeader title={`${programme.label} PLOs`} description="These outcomes become read-only choices when this programme is selected in a SCEN syllabus." action={<button type="button" onClick={() => setShowCreate(true)} className="inline-flex items-center gap-2 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#1f4e79]"><FilePlus2 size={16} /> Add PLO</button>} />{showCreate ? <PloForm programme={programme} onCancel={() => setShowCreate(false)} onSaved={() => setShowCreate(false)} /> : null}<CatalogueEntries category="plos" entries={plos.data ?? []} isLoading={plos.isLoading} renderDetails={(entry) => <p className="mt-1 text-sm leading-6 text-[#667085]">{stringValue(entry.payload.outcome)}</p>} /></>;
+  return <><CatalogueHeader title={`${programme.label} PLOs`} description="These outcomes become read-only choices when this programme is selected in a SCEN syllabus." action={<button type="button" onClick={() => setShowCreate(true)} className="inline-flex items-center gap-2 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#1f4e79]"><FilePlus2 size={16} /> Add PLO</button>} /><SearchField label="Search outcomes" value={query} onChange={setQuery} />{showCreate ? <PloForm programme={programme} onCancel={() => setShowCreate(false)} onSaved={() => setShowCreate(false)} /> : null}<CatalogueEntries category="plos" entries={matching(plos.data ?? [], query)} isLoading={plos.isLoading} renderDetails={(entry) => <p className="mt-1 text-sm leading-6 text-[#667085]">{stringValue(entry.payload.outcome)}</p>} /></>;
 }
 
 function PloForm({ programme, entry, onCancel, onSaved }: { programme: CatalogueEntry; entry?: CatalogueEntry; onCancel: () => void; onSaved: () => void }) {
@@ -304,7 +323,7 @@ function SimpleEntryForm({ category, entry, fieldLabel, onCancel, onSaved }: { c
   return <form onSubmit={(event) => { event.preventDefault(); if (label.trim()) save.mutate(); }} className="mt-5 grid gap-4 rounded-lg border border-[#cbd5e1] bg-[#f8fafc] p-4"><Field label={fieldLabel}><input autoFocus required value={label} onChange={(event) => setLabel(event.target.value)} className={inputClass} /></Field><Field label="Supporting details" hint="Optional"><AutoResizeTextarea minRows={2} value={details} onChange={(event) => setDetails(event.target.value)} className={textareaClass} /></Field><FormActions isSaving={save.isPending} error={save.error} onCancel={onCancel} submitLabel={entry ? "Save changes" : "Add to catalogue"} /></form>;
 }
 
-function CatalogueEntries({ category, entries, isLoading, renderBadge, renderDetails, selectedId, onSelect }: { category: CatalogueCategory; entries: CatalogueEntry[]; isLoading: boolean; renderBadge?: (entry: CatalogueEntry) => React.ReactNode; renderDetails?: (entry: CatalogueEntry) => React.ReactNode; selectedId?: string; onSelect?: (id: string) => void }) {
+function CatalogueEntries({ category, entries, isLoading, renderBadge, renderDetails, selectedId, onSelect, selectOnly = false }: { category: CatalogueCategory; entries: CatalogueEntry[]; isLoading: boolean; renderBadge?: (entry: CatalogueEntry) => React.ReactNode; renderDetails?: (entry: CatalogueEntry) => React.ReactNode; selectedId?: string; onSelect?: (id: string) => void; selectOnly?: boolean }) {
   const [retireCandidate, setRetireCandidate] = useState<CatalogueEntry | null>(null);
   const [editing, setEditing] = useState<CatalogueEntry | null>(null);
   const [editingDirty, setEditingDirty] = useState(false);
@@ -314,6 +333,7 @@ function CatalogueEntries({ category, entries, isLoading, renderBadge, renderDet
   const closeEditor = () => { setEditing(null); setEditingDirty(false); };
   const openEditor = (entry: CatalogueEntry) => {
     onSelect?.(entry.id);
+    if (selectOnly) return;
     setEditing(entry);
     setEditingDirty(false);
     // It opens underneath the card, which on a long list is off the bottom of the screen:
@@ -340,7 +360,7 @@ function CatalogueEntries({ category, entries, isLoading, renderBadge, renderDet
     const toggleEditing = () => requestEditingAction(isEditing ? { type: "close" } : { type: "open", entry });
     const cardClass = entry.isRetired ? "border-[#e5e7eb] bg-[#f8fafc] opacity-75" : selectedId === entry.id || isEditing ? "border-[#1f4e79] bg-[#f2f7fb]" : "border-[#d9dee7] bg-white hover:border-[#1f4e79] hover:bg-[#f7fafd]";
     return <article key={entry.id} className={`relative min-w-0 max-w-full rounded-lg border p-4 ${isEditing ? "overflow-hidden" : ""} ${cardClass}`}>
-      <div className="relative z-10 flex min-w-0 items-start gap-3"><button type="button" disabled={entry.isRetired} onClick={toggleEditing} aria-label={isEditing ? `Close editor for ${entry.label}` : `Edit ${entry.label}`} className="flex min-w-0 flex-1 items-start gap-3 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1f4e79] focus-visible:ring-offset-2 disabled:cursor-default"><div className="min-w-0 flex-1">{renderBadge ? <span className="block">{renderBadge(entry)}</span> : null}<div className="flex flex-wrap items-center gap-2"><h4 className="break-words font-semibold text-[#344054]">{entry.label}</h4>{entry.isRetired ? <span className="rounded-full bg-[#f2f4f7] px-2 py-0.5 text-xs font-semibold text-[#667085]">Retired</span> : null}</div>{renderDetails?.(entry)}</div></button>{!entry.isRetired ? <div className="flex shrink-0 items-center gap-1">{/* The card itself opens the editor; this is the same control for anyone who aims at the pencil, which is most people. */}<button type="button" onClick={toggleEditing} tabIndex={-1} aria-hidden="true" className="inline-flex h-8 w-8 items-center justify-center rounded-md text-[#1f4e79] hover:bg-[#eef4fa]"><Pencil size={16} /></button><button type="button" onClick={() => setRetireCandidate(entry)} aria-label={`Retire ${entry.label}`} className="inline-flex h-8 w-8 items-center justify-center rounded-md text-[#b4232d] hover:bg-[#fff1f2]"><Trash2 size={16} /></button></div> : null}</div>{isEditing ? <div id={`catalogue-editor-${entry.id}`} className="relative z-10 mt-4 -mx-4 -mb-4 border-t border-[#d9dee7] bg-[#f8fafc] p-4 [&>form]:!mt-0 [&>form]:!rounded-none [&>form]:!border-0 [&>form]:!bg-transparent [&>form]:!p-0"><EditEntry category={category} entry={editing} onClose={closeEditor} onDirtyChange={setEditingDirty} /></div> : null}
+      <div className="relative z-10 flex min-w-0 items-start gap-3"><button type="button" disabled={entry.isRetired} onClick={toggleEditing} aria-label={isEditing ? `Close editor for ${entry.label}` : `Edit ${entry.label}`} className="flex min-w-0 flex-1 items-start gap-3 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1f4e79] focus-visible:ring-offset-2 disabled:cursor-default"><div className="min-w-0 flex-1">{renderBadge ? <span className="block">{renderBadge(entry)}</span> : null}<div className="flex flex-wrap items-center gap-2"><h4 className="break-words font-semibold text-[#344054]">{entry.label}</h4>{entry.isRetired ? <span className="rounded-full bg-[#f2f4f7] px-2 py-0.5 text-xs font-semibold text-[#667085]">Retired</span> : null}</div>{renderDetails?.(entry)}</div></button>{!entry.isRetired ? <div className="flex shrink-0 items-center gap-1">{/* The card itself opens the editor; this is the same control for anyone who aims at the pencil, which is most people. */}{selectOnly ? null : <button type="button" onClick={toggleEditing} tabIndex={-1} aria-hidden="true" className="inline-flex h-8 w-8 items-center justify-center rounded-md text-[#1f4e79] hover:bg-[#eef4fa]"><Pencil size={16} /></button>}<button type="button" onClick={() => setRetireCandidate(entry)} aria-label={`Retire ${entry.label}`} className="inline-flex h-8 w-8 items-center justify-center rounded-md text-[#b4232d] hover:bg-[#fff1f2]"><Trash2 size={16} /></button></div> : null}</div>{isEditing ? <div id={`catalogue-editor-${entry.id}`} className="relative z-10 mt-4 -mx-4 -mb-4 border-t border-[#d9dee7] bg-[#f8fafc] p-4 [&>form]:!mt-0 [&>form]:!rounded-none [&>form]:!border-0 [&>form]:!bg-transparent [&>form]:!p-0"><EditEntry category={category} entry={editing} onClose={closeEditor} onDirtyChange={setEditingDirty} /></div> : null}
     </article>;
   })}</div><ConfirmDialog open={Boolean(retireCandidate)} title={`Retire ${retireCandidate?.label ?? "catalogue entry"}?`} description="It will no longer be available for new selections. Existing syllabus references will continue to resolve." confirmLabel={retire.isPending ? "Retiring…" : "Retire"} onClose={() => setRetireCandidate(null)} onConfirm={() => retireCandidate && retire.mutate(retireCandidate)} /><ConfirmDialog open={Boolean(pendingEditingAction)} title="Discard unsaved changes?" description="This card has changes that have not been saved. Discard them and close the card?" confirmLabel="Discard changes" onClose={() => setPendingEditingAction(null)} onConfirm={confirmDiscard} /></>;
 }
@@ -410,6 +430,8 @@ function CurriculumMappingCatalogue() {
   const programmes = useCatalogue("programmes");
   const [programmeId, setProgrammeId] = useState("");
   const [showCreate, setShowCreate] = useState(false);
+  const [selectedId, setSelectedId] = useState("");
+  const [query, setQuery] = useState("");
   const chosen = programmeId || programmes.data?.[0]?.id || "";
   const mapping = useQuery({
     queryKey: ["syllabus-catalogues", "curriculum-mapping", chosen],
@@ -425,19 +447,32 @@ function CurriculumMappingCatalogue() {
     const plo = plos.data?.find((entry) => entry.id === id);
     return plo ? stringValue(plo.payload.code) || plo.label : "";
   };
-  return <div className="rounded-lg border border-[#d9dee7] bg-white p-5">
-    <CatalogueHeader
-      title="Curriculum mapping"
-      description="Which programme learning outcomes each course is expected to address, as submitted to the CAA. A syllabus shows its professor what is still uncovered; it never blocks them."
-      action={chosen ? <button type="button" onClick={() => setShowCreate(true)} className="inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white"><FilePlus2 size={16} /> Add course</button> : undefined}
-    />
-    {(programmes.data ?? []).length > 1 ? <label className="mt-4 grid gap-1 text-sm font-medium text-[#344054]">Programme<SelectMenu label="Programme" value={chosen} onChange={setProgrammeId} options={(programmes.data ?? []).map((item) => ({ value: item.id, label: item.label }))} /></label> : null}
-    {showCreate && chosen ? <CurriculumMappingForm programmeId={chosen} plos={plos.data ?? []} siblings={mapping.data ?? []} onCancel={() => setShowCreate(false)} onSaved={() => setShowCreate(false)} /> : null}
-    {mapping.isLoading
-      ? <p className="mt-4 text-sm text-[#667085]">Loading…</p>
-      : (mapping.data ?? []).length
-        ? <div className="mt-4"><CatalogueEntries category="curriculum-mapping" entries={mapping.data ?? []} isLoading={false} renderDetails={(entry) => <MappedCourseDetails entry={entry} ploLabel={ploLabel} />} /></div>
-        : <p className="mt-4 rounded-md border border-dashed border-[#d0d5dd] px-3 py-3 text-sm text-[#667085]">No curriculum map for this programme yet.</p>}
+  const courses = mapping.data ?? [];
+  const shown = matching(courses, query);
+  const selected = courses.find((entry) => entry.id === selectedId) ?? courses[0];
+  return <div className="grid grid-cols-[minmax(0,1fr)] gap-5 xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
+    <section className="rounded-lg border border-[#d9dee7] bg-white p-5">
+      <CatalogueHeader
+        title="Curriculum mapping"
+        description="Which programme learning outcomes each course is expected to address, as submitted to the CAA. A syllabus shows its professor what is still uncovered; it never blocks them."
+        action={chosen ? <button type="button" onClick={() => { setShowCreate(true); setSelectedId(""); }} className="inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white"><FilePlus2 size={16} /> Add course</button> : undefined}
+      />
+      {(programmes.data ?? []).length > 1 ? <Field label="Programme" size="line"><SelectMenu label="Programme" value={chosen} onChange={(next) => { setProgrammeId(next); setSelectedId(""); }} wrap options={(programmes.data ?? []).map((item) => ({ value: item.id, label: item.label }))} /></Field> : null}
+      <SearchField label="Search courses" value={query} onChange={setQuery} />
+      {mapping.isLoading
+        ? <p className="mt-4 text-sm text-[#667085]">Loading…</p>
+        : shown.length
+          ? <CatalogueEntries category="curriculum-mapping" entries={shown} isLoading={false} selectOnly selectedId={showCreate ? "" : selected?.id} onSelect={(id) => { setSelectedId(id); setShowCreate(false); }} renderDetails={(entry) => <MappedCourseDetails entry={entry} ploLabel={ploLabel} />} />
+          : <p className="mt-4 rounded-md border border-dashed border-[#d0d5dd] px-3 py-3 text-sm text-[#667085]">{courses.length ? "No course matches that search." : "No curriculum map for this programme yet."}</p>}
+    </section>
+    <section className="rounded-lg border border-[#d9dee7] bg-white p-5">
+      {!chosen ? <EmptyState>Choose a programme to map its courses.</EmptyState>
+        : showCreate
+          ? <><CatalogueHeader title="Add a course to the map" description="Choose the course, say which semester it is taught in, and tick the outcomes it is expected to address." /><CurriculumMappingForm programmeId={chosen} plos={plos.data ?? []} siblings={courses} onCancel={() => setShowCreate(false)} onSaved={() => setShowCreate(false)} /></>
+          : selected
+            ? <><CatalogueHeader title={selected.label} description={stringValue(selected.payload.courseTitle) || "This course's place in the programme, and the outcomes expected of it."} /><CurriculumMappingForm key={selected.id} programmeId={chosen} plos={plos.data ?? []} siblings={courses} entry={selected} onCancel={() => setSelectedId("")} onSaved={() => undefined} /></>
+            : <EmptyState>Choose a course on the left, or add one.</EmptyState>}
+    </section>
   </div>;
 }
 
@@ -455,15 +490,15 @@ function MappedCourseDetails({ entry, ploLabel }: { entry: CatalogueEntry; ploLa
   const outcomes = (Array.isArray(entry.payload.ploIds) ? (entry.payload.ploIds as string[]) : [])
     .map(ploLabel)
     .filter(Boolean);
-  return <div className="mt-1 grid gap-1.5">
-    <p className="text-sm text-[#667085]">{stringValue(entry.payload.courseTitle) || "No title yet"}</p>
-    <p className="flex flex-wrap items-center gap-1.5">
-      {semester ? <Pill tone="accent">{semester}</Pill> : null}
-      {outcomes.length
-        ? outcomes.map((code) => <Pill key={code}>{code}</Pill>)
-        : <span className="text-sm text-[#667085]">No outcomes expected yet</span>}
-    </p>
-  </div>;
+  // The title and the labels share a line: the code above them is the third thing a course
+  // is called, and three lines to say one course is two more than it needs.
+  return <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-sm text-[#667085]">
+    <span className="min-w-0">{stringValue(entry.payload.courseTitle) || "No title yet"}</span>
+    {semester ? <Pill tone="accent">{semester}</Pill> : null}
+    {outcomes.length
+      ? outcomes.map((code) => <Pill key={code}>{code}</Pill>)
+      : <span>No outcomes expected yet</span>}
+  </p>;
 }
 
 function Pill({ children, tone = "quiet" }: { children: React.ReactNode; tone?: "accent" | "quiet" }) {
