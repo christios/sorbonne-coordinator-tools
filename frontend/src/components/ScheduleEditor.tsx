@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { CollapsibleEntryCard } from "@/components/CollapsibleEntryCard";
 import { SelectMenu } from "@/components/SelectMenu";
 import { FieldRow } from "@/components/FieldRow";
+import { RichTextField } from "@/components/RichTextField";
 import { SyllabusField } from "@/components/SyllabusField";
 import { fieldSizeClass, type FieldSize } from "@/components/fieldSize";
 import { HistoryTextField } from "@/components/HistoryTextField";
@@ -327,12 +328,11 @@ export function ScheduleEditor({
                   </FieldRow>
                   {/* What the session is about, at length; then the two shorter answers
                       about it, which are read against each other and so sit together. */}
-                  <HistoryTextField
+                  <RichTextField
                     label="Session details"
                     value={row.details ?? ""}
                     onChange={(next) => updateRow(row.id, "details", next)}
-                    multiline
-                    minRows={3}
+                    hint="Write the session out as you would for a student: headings for its parts, a list where it is a list. The formatting carries into the exported document."
                     history={{
                       field: { path: `schedule[${row.id}].details`, label: "Course schedule · Session details" },
                       onOpenHistory,

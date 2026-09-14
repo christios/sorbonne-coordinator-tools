@@ -11,6 +11,7 @@ from typing import Any, Callable
 from docx import Document
 from docx.table import _Cell, Table
 
+from sorbonne.services import rich_text
 from sorbonne.services.syllabus_templates import DEFAULT_TEMPLATE_ID, FYS_TEMPLATE_ID, get_template
 
 
@@ -272,7 +273,7 @@ def _fill_schedule(table: Table, schedule: list[dict[str, Any]]) -> None:
         source = schedule[index] if index < len(schedule) else {}
         _set_cell_text(row.cells[0], _text(source.get("week")))
         _set_cell_text(row.cells[1], numbers[index] if index < len(numbers) else "")
-        _set_cell_text(row.cells[2], _schedule_topic(source))
+        _set_topic_cell(row.cells[2], source)
         _set_cell_text(row.cells[3], _schedule_learning_details(source))
         if len(row.cells) > SCHEDULE_DEADLINE_COLUMN:
             _set_cell_text(row.cells[SCHEDULE_DEADLINE_COLUMN], _text(source.get("deadline")))
@@ -283,8 +284,51 @@ SCHEDULE_DEADLINE_COLUMN = 4
 
 def _schedule_topic(row: dict[str, Any]) -> str:
     topic = _text(row.get("topic"))
-    details = _text(row.get("details"))
+    details = rich_text.to_plain(_text(row.get("details")))
     return f"{topic}\n{details}" if topic and details else topic or details
+
+
+def _set_topic_cell(cell: _Cell, source: dict[str, Any]) -> None:
+    """The topic, then the session written out with whatever formatting it was given.
+
+    A professor who wrote a heading and a numbered list gets a heading and a numbered list,
+    rather than the whole thing flattened into one run of text.
+    """
+    topic = _text(source.get("topic"))
+    details = _text(source.get("details"))
+    written = rich_text.blocks(details)
+    if not written:
+        _set_cell_text(cell, topic)
+        return
+
+    paragraph = cell.paragraphs[0]
+    style = deepcopy(paragraph.runs[0]._r.rPr) if paragraph.runs and paragraph.runs[0]._r.rPr is not None else None
+    for extra in cell.paragraphs[1:]:
+        extra._p.getparent().remove(extra._p)
+    paragraph.clear()
+    if topic:
+        _write_pieces(paragraph, [rich_text.Piece(topic, bold=True)], style)
+
+    for block in written:
+        target = paragraph if not paragraph.runs and not topic else cell.add_paragraph()
+        prefix = "\u2022 " if block.kind == "bullet" else f"{block.number}. " if block.kind == "number" else ""
+        pieces = list(block.pieces)
+        if prefix:
+            pieces.insert(0, rich_text.Piece(prefix))
+        if block.kind == "heading":
+            pieces = [rich_text.Piece(piece.text, bold=True, italic=piece.italic) for piece in pieces]
+        _write_pieces(target, pieces, style)
+
+
+def _write_pieces(paragraph: Any, pieces: list[rich_text.Piece], style: Any) -> None:
+    for piece in pieces:
+        if not piece.text:
+            continue
+        run = paragraph.add_run(piece.text)
+        if style is not None:
+            run._r.insert(0, deepcopy(style))
+        run.bold = piece.bold or None
+        run.italic = piece.italic or None
 
 
 DEFAULT_SESSION_TYPE = "CM"

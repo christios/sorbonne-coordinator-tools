@@ -1,3 +1,4 @@
+import { richTextToPlain } from "@/services/richText";
 /**
  * What a syllabus says, section by section, independent of how it is drawn.
  *
@@ -92,7 +93,7 @@ function schedule(sessions: Array<Record<string, unknown>>) {
     return [
       text(row.week),
       `${kind} ${next}`,
-      collapse([text(row.topic), text(row.details)].filter(Boolean).join(" ")),
+      collapse([text(row.topic), richTextToPlain(text(row.details))].filter(Boolean).join(" ")),
       collapse(detail),
       text(row.deadline),
     ];

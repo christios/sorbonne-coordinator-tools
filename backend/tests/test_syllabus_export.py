@@ -325,3 +325,67 @@ def test_the_document_says_what_the_shared_fixture_expects(tmp_path) -> None:
     build_syllabus_docx(fixture, output)
 
     assert document_projection(Document(output)) == expected
+
+
+def test_a_session_written_with_formatting_reaches_the_document_with_it(tmp_path) -> None:
+    """A professor who wrote a heading and a numbered list should get them, not one flat run."""
+    syllabus = {
+        "courseTitle": "Geometric optics",
+        "courseCode": "PHYS-118",
+        "academicYear": "2026-2027",
+        "content": {
+            "schedule": [
+                {
+                    "id": "session-1",
+                    "sessionType": "CM",
+                    "week": "1",
+                    "topic": "The laws of geometric optics",
+                    "details": (
+                        "<h3>Part I</h3>"
+                        "<p>Read <strong>chapter 1</strong> beforehand</p>"
+                        "<ol><li>The nature of light</li><li>The speed of light</li></ol>"
+                    ),
+                }
+            ]
+        },
+    }
+
+    output = tmp_path / "schedule.docx"
+    build_syllabus_docx(syllabus, output)
+    cell = Document(str(output)).tables[7].rows[1].cells[2]
+    lines = [paragraph.text for paragraph in cell.paragraphs if paragraph.text]
+
+    assert lines == [
+        "The laws of geometric optics",
+        "Part I",
+        "Read chapter 1 beforehand",
+        "1. The nature of light",
+        "2. The speed of light",
+    ]
+    heading = next(p for p in cell.paragraphs if p.text == "Part I")
+    assert all(run.bold for run in heading.runs)
+    emphasised = next(p for p in cell.paragraphs if p.text.startswith("Read "))
+    assert [(run.text, bool(run.bold)) for run in emphasised.runs] == [
+        ("Read ", False),
+        ("chapter 1", True),
+        (" beforehand", False),
+    ]
+
+
+def test_a_session_written_before_formatting_existed_still_reads_as_written(tmp_path) -> None:
+    syllabus = {
+        "courseTitle": "Geometric optics",
+        "courseCode": "PHYS-118",
+        "academicYear": "2026-2027",
+        "content": {
+            "schedule": [
+                {"id": "session-1", "topic": "Ray tracing", "details": "Week 1\nTwo-hour session"}
+            ]
+        },
+    }
+
+    output = tmp_path / "legacy.docx"
+    build_syllabus_docx(syllabus, output)
+    cell = Document(str(output)).tables[7].rows[1].cells[2]
+
+    assert [p.text for p in cell.paragraphs if p.text] == ["Ray tracing", "Week 1", "Two-hour session"]
