@@ -7,11 +7,12 @@ from functools import lru_cache
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 
 from sorbonne.config import config
 from sorbonne.services import syllabus_people_import
+from sorbonne.services.staff_auth import StaffUser
 from sorbonne.services.portal_lists import PortalListStore
 from sorbonne.services.syllabus_catalogue_store import (
     CATALOGUE_CATEGORIES,
@@ -60,6 +61,24 @@ def get_portal_store() -> PortalListStore:
     return _portal_store()
 
 
+def require_admin(request: Request) -> StaffUser:
+    """Reading the catalogue is everybody's business; changing it is an administrator's.
+
+    A professor filling in a syllabus needs the outcomes, the competencies and the assessment
+    types the department has approved — that is what the catalogue is for. What they cannot do
+    is rewrite them, because a catalogue somebody can edit while quoting it is not a standard.
+    """
+    user = getattr(request.state, "staff_user", None)
+    if user is None:  # pragma: no cover - the gate rejects these before they arrive
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sign in to continue.")
+    if not user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only an administrator can change the catalogue.",
+        )
+    return user
+
+
 @router.get("/{category}")
 def list_catalogue_entries(
     category: str,
@@ -84,6 +103,7 @@ def list_catalogue_entries(
 def import_people_from_portal(
     store: SyllabusCatalogueStore = Depends(get_catalogue_store),
     portal: PortalListStore = Depends(get_portal_store),
+    _admin: StaffUser = Depends(require_admin),
 ) -> dict[str, Any]:
     """Bring everyone Students and Timetables lists as teaching into the directory."""
     return syllabus_people_import.import_teachers(store, portal)
@@ -91,7 +111,10 @@ def import_people_from_portal(
 
 @router.post("/{category}", status_code=201)
 def create_catalogue_entry(
-    category: str, request: CatalogueEntryRequest, store: SyllabusCatalogueStore = Depends(get_catalogue_store)
+    category: str,
+    request: CatalogueEntryRequest,
+    store: SyllabusCatalogueStore = Depends(get_catalogue_store),
+    _admin: StaffUser = Depends(require_admin),
 ) -> dict[str, Any]:
     _validate_category(category)
     return store.create(
@@ -116,6 +139,7 @@ def update_catalogue_entry(
     item_id: str,
     request: CatalogueEntryUpdateRequest,
     store: SyllabusCatalogueStore = Depends(get_catalogue_store),
+    _admin: StaffUser = Depends(require_admin),
 ) -> dict[str, Any]:
     _validate_category(category)
     try:
@@ -142,6 +166,7 @@ def retire_catalogue_entry(
     item_id: str,
     request: RetireCatalogueEntryRequest,
     store: SyllabusCatalogueStore = Depends(get_catalogue_store),
+    _admin: StaffUser = Depends(require_admin),
 ) -> dict[str, Any]:
     _validate_category(category)
     try:

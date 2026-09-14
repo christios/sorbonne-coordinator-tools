@@ -19,6 +19,8 @@ from sorbonne.services.syllabus_templates import (
     get_template,
 )
 from sorbonne.services.fys_syllabus import convert_scen_to_fys, cross_template_rows, default_fys_content
+from sorbonne.services.staff_auth import StaffUser
+from sorbonne.services.syllabus_visibility import PRIVATE, PUBLIC, normalise, visible_clause
 
 
 FIELD_HISTORY_COALESCE_SECONDS = 120
@@ -58,7 +60,7 @@ class SyllabusStore:
     def __init__(self, database_url: str) -> None:
         self.engine: Engine = create_engine(database_url, pool_pre_ping=True)
 
-    def create(
+    def create(  # noqa: PLR0913 - every one of these is a thing a new syllabus is made from
         self,
         *,
         course_title: str,
@@ -66,6 +68,7 @@ class SyllabusStore:
         academic_year: str,
         source_syllabus_id: str | None = None,
         template_id: str | None = None,
+        owner_email: str | None = None,
     ) -> dict[str, Any]:
         source = self.get(source_syllabus_id) if source_syllabus_id else None
         selected_template_id = template_id or (source["templateId"] if source else DEFAULT_TEMPLATE_ID)
@@ -85,6 +88,10 @@ class SyllabusStore:
             "courseCode": course_code or "",
             "academicYear": academic_year,
             "templateId": selected_template_id,
+            "ownerEmail": owner_email,
+            # A syllabus starts as its author's alone; publishing it is a deliberate act.
+            "visibility": PRIVATE if owner_email else PUBLIC,
+            "submittedAt": None,
             "content": _initial_content(selected_template_id, source),
             "revision": 1,
             "createdAt": now,
@@ -96,10 +103,10 @@ class SyllabusStore:
                     """
                     INSERT INTO syllabi (
                         id, series_id, folder_id, course_title, course_code, academic_year, template_id, content_json,
-                        revision, created_at, updated_at
+                        owner_email, visibility, revision, created_at, updated_at
                     ) VALUES (
                         :id, :series_id, :folder_id, :course_title, :course_code, :academic_year, :template_id,
-                        CAST(:content_json AS JSONB), :revision, :created_at, :updated_at
+                        CAST(:content_json AS JSONB), :owner_email, :visibility, :revision, :created_at, :updated_at
                     )
                     """
                 ),
@@ -112,6 +119,8 @@ class SyllabusStore:
                     "academic_year": record["academicYear"],
                     "template_id": record["templateId"],
                     "content_json": json.dumps(record["content"]),
+                    "owner_email": record["ownerEmail"],
+                    "visibility": record["visibility"],
                     "revision": record["revision"],
                     "created_at": record["createdAt"],
                     "updated_at": record["updatedAt"],
@@ -119,23 +128,56 @@ class SyllabusStore:
             )
         return record
 
-    def list(self) -> list[dict[str, Any]]:
+    def list(self, viewer: StaffUser | None = None) -> list[dict[str, Any]]:
+        """Every syllabus, or — given a reader — only the ones that reader may open."""
+        where, params = ("", {}) if viewer is None else visible_clause(viewer)
         with self.engine.connect() as connection:
             rows = (
                 connection.execute(
                     text(
-                        """
+                        f"""
                     SELECT id, series_id, folder_id, course_title, course_code, academic_year, template_id,
-                           revision, created_at, updated_at
+                           owner_email, visibility, submitted_at, revision, created_at, updated_at
                     FROM syllabi
+                    {f"WHERE {where}" if where else ""}
                     ORDER BY academic_year DESC, course_title ASC, updated_at DESC
                     """
-                    )
+                    ),
+                    params,
                 )
                 .mappings()
                 .all()
             )
         return [_summary_from_row(row) for row in rows]
+
+    def set_visibility(self, syllabus_id: str, visibility: str) -> dict[str, Any]:
+        """Publishing, or taking it back. Taking it back also withdraws it from review."""
+        wanted = normalise(visibility)
+        with self.engine.begin() as connection:
+            updated = connection.execute(
+                text(
+                    """UPDATE syllabi SET visibility = :visibility, updated_at = :now
+                       WHERE id = :id RETURNING id"""
+                ),
+                {"visibility": wanted, "now": _timestamp(), "id": syllabus_id},
+            ).first()
+        if updated is None:
+            raise SyllabusNotFound
+        return self.get(syllabus_id)
+
+    def set_submitted(self, syllabus_id: str, submitted: bool) -> dict[str, Any]:
+        """Asking for a review, or taking the request back."""
+        with self.engine.begin() as connection:
+            updated = connection.execute(
+                text(
+                    """UPDATE syllabi SET submitted_at = :submitted_at, updated_at = :now
+                       WHERE id = :id RETURNING id"""
+                ),
+                {"submitted_at": _timestamp() if submitted else None, "now": _timestamp(), "id": syllabus_id},
+            ).first()
+        if updated is None:
+            raise SyllabusNotFound
+        return self.get(syllabus_id)
 
     def list_folders(self) -> list[dict[str, Any]]:
         with self.engine.connect() as connection:
@@ -398,6 +440,9 @@ def _summary_from_row(row: RowMapping) -> dict[str, Any]:
         "courseCode": row["course_code"],
         "academicYear": row["academic_year"],
         "templateId": row["template_id"],
+        "ownerEmail": row["owner_email"],
+        "visibility": row["visibility"],
+        "submittedAt": row["submitted_at"],
         "revision": row["revision"],
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],

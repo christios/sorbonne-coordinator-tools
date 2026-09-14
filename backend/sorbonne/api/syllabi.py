@@ -2,12 +2,14 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Any
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, Field
 from starlette.responses import FileResponse
 
 from sorbonne.config import config
+from sorbonne.services.staff_auth import StaffUser
 from sorbonne.services.syllabus_export import build_syllabus_docx, template_sections
+from sorbonne.services.syllabus_visibility import VISIBILITIES, can_edit, can_view
 from sorbonne.services.syllabus_templates import DEFAULT_TEMPLATE_ID
 from sorbonne.services.syllabus_catalogue_store import SyllabusCatalogueStore
 from sorbonne.services.syllabus_store import (
@@ -58,9 +60,44 @@ def get_catalogue_store() -> SyllabusCatalogueStore:
     return SyllabusCatalogueStore(config.database_url)
 
 
+def current_user(request: Request) -> StaffUser:
+    """Whoever the sign-in gate admitted. Nothing here answers an anonymous caller."""
+    user = getattr(request.state, "staff_user", None)
+    if user is None:  # pragma: no cover - the gate rejects these before they arrive
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sign in to continue.")
+    return user
+
+
+def _readable(store: SyllabusStore, syllabus_id: str, user: StaffUser) -> dict[str, Any]:
+    """The syllabus, if this person may read it.
+
+    A syllabus they may not read is reported as missing rather than forbidden: which
+    syllabi exist is itself something a private one does not tell anybody.
+    """
+    try:
+        syllabus = store.get(syllabus_id)
+    except SyllabusNotFound as exc:
+        raise HTTPException(status_code=404, detail="Syllabus not found.") from exc
+    if not can_view(syllabus, user):
+        raise HTTPException(status_code=404, detail="Syllabus not found.")
+    return syllabus
+
+
+def _writable(store: SyllabusStore, syllabus_id: str, user: StaffUser) -> dict[str, Any]:
+    syllabus = _readable(store, syllabus_id, user)
+    if not can_edit(syllabus, user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This syllabus belongs to somebody else.",
+        )
+    return syllabus
+
+
 @router.get("")
-def list_syllabi(store: SyllabusStore = Depends(get_store)) -> dict[str, list[dict[str, Any]]]:
-    return {"items": store.list()}
+def list_syllabi(
+    store: SyllabusStore = Depends(get_store), user: StaffUser = Depends(current_user)
+) -> dict[str, list[dict[str, Any]]]:
+    return {"items": store.list(user)}
 
 
 @router.get("/templates")
@@ -121,9 +158,16 @@ def delete_folder(folder_id: str, store: SyllabusStore = Depends(get_store)) -> 
 
 
 @router.post("", status_code=201)
-def create_syllabus(request: CreateSyllabusRequest, store: SyllabusStore = Depends(get_store)) -> dict[str, Any]:
+def create_syllabus(
+    request: CreateSyllabusRequest,
+    store: SyllabusStore = Depends(get_store),
+    user: StaffUser = Depends(current_user),
+) -> dict[str, Any]:
+    if request.sourceSyllabusId:
+        _readable(store, request.sourceSyllabusId, user)
     try:
         return store.create(
+            owner_email=user.email,
             course_title=request.courseTitle.strip(),
             course_code=request.courseCode.strip(),
             academic_year=request.academicYear.strip(),
@@ -143,8 +187,12 @@ def create_syllabus(request: CreateSyllabusRequest, store: SyllabusStore = Depen
 
 @router.patch("/{syllabus_id}/folder")
 def move_syllabus_to_folder(
-    syllabus_id: str, request: MoveSyllabusRequest, store: SyllabusStore = Depends(get_store)
+    syllabus_id: str,
+    request: MoveSyllabusRequest,
+    store: SyllabusStore = Depends(get_store),
+    user: StaffUser = Depends(current_user),
 ) -> dict[str, Any]:
+    _writable(store, syllabus_id, user)
     try:
         return store.move_to_folder(syllabus_id, request.folderId)
     except SyllabusNotFound as exc:
@@ -154,7 +202,10 @@ def move_syllabus_to_folder(
 
 
 @router.delete("/{syllabus_id}", status_code=204)
-def delete_syllabus(syllabus_id: str, store: SyllabusStore = Depends(get_store)) -> Response:
+def delete_syllabus(
+    syllabus_id: str, store: SyllabusStore = Depends(get_store), user: StaffUser = Depends(current_user)
+) -> Response:
+    _writable(store, syllabus_id, user)
     try:
         store.delete(syllabus_id)
     except SyllabusNotFound as exc:
@@ -163,11 +214,10 @@ def delete_syllabus(syllabus_id: str, store: SyllabusStore = Depends(get_store))
 
 
 @router.get("/{syllabus_id}")
-def get_syllabus(syllabus_id: str, store: SyllabusStore = Depends(get_store)) -> dict[str, Any]:
-    try:
-        return store.get(syllabus_id)
-    except SyllabusNotFound as exc:
-        raise HTTPException(status_code=404, detail="Syllabus not found.") from exc
+def get_syllabus(
+    syllabus_id: str, store: SyllabusStore = Depends(get_store), user: StaffUser = Depends(current_user)
+) -> dict[str, Any]:
+    return _readable(store, syllabus_id, user)
 
 
 @router.get("/{syllabus_id}/export")
@@ -176,11 +226,9 @@ def export_syllabus(
     background_tasks: BackgroundTasks,
     store: SyllabusStore = Depends(get_store),
     catalogue_store: SyllabusCatalogueStore = Depends(get_catalogue_store),
+    user: StaffUser = Depends(current_user),
 ) -> FileResponse:
-    try:
-        syllabus = store.get(syllabus_id)
-    except SyllabusNotFound as exc:
-        raise HTTPException(status_code=404, detail="Syllabus not found.") from exc
+    syllabus = _readable(store, syllabus_id, user)
 
     with NamedTemporaryFile(prefix="scen-syllabus-", suffix=".docx", delete=False) as file:
         output_path = Path(file.name)
@@ -199,17 +247,20 @@ def get_field_history(
     syllabus_id: str,
     field_path: str = Query(alias="fieldPath", min_length=1, max_length=600),
     store: SyllabusStore = Depends(get_store),
+    user: StaffUser = Depends(current_user),
 ) -> dict[str, list[dict[str, Any]]]:
-    try:
-        return {"items": store.field_history(syllabus_id, field_path)}
-    except SyllabusNotFound as exc:
-        raise HTTPException(status_code=404, detail="Syllabus not found.") from exc
+    _readable(store, syllabus_id, user)
+    return {"items": store.field_history(syllabus_id, field_path)}
 
 
 @router.patch("/{syllabus_id}")
 def update_syllabus(
-    syllabus_id: str, request: UpdateSyllabusRequest, store: SyllabusStore = Depends(get_store)
+    syllabus_id: str,
+    request: UpdateSyllabusRequest,
+    store: SyllabusStore = Depends(get_store),
+    user: StaffUser = Depends(current_user),
 ) -> dict[str, Any]:
+    _writable(store, syllabus_id, user)
     try:
         return store.update(
             syllabus_id,
@@ -230,8 +281,14 @@ def update_syllabus(
 
 @router.get("/{syllabus_id}/comparison/{other_syllabus_id}")
 def compare_syllabi(
-    syllabus_id: str, other_syllabus_id: str, store: SyllabusStore = Depends(get_store)
+    syllabus_id: str,
+    other_syllabus_id: str,
+    store: SyllabusStore = Depends(get_store),
+    user: StaffUser = Depends(current_user),
 ) -> dict[str, Any]:
+    # Both sides, because a comparison shows as much of one as of the other.
+    _readable(store, syllabus_id, user)
+    _readable(store, other_syllabus_id, user)
     try:
         comparison = store.compare(syllabus_id, other_syllabus_id)
         # Stable catalogue references are implementation details. The associated human
@@ -310,3 +367,48 @@ def _export_filename(syllabus: dict[str, Any]) -> str:
 
 def _filename_part(value: Any) -> str:
     return "".join(character if character.isalnum() else "-" for character in str(value or "")).strip("-")
+
+
+class VisibilityRequest(BaseModel):
+    visibility: str = Field(min_length=1, max_length=20)
+
+
+class ReviewRequest(BaseModel):
+    submitted: bool
+
+
+@router.patch("/{syllabus_id}/visibility")
+def set_syllabus_visibility(
+    syllabus_id: str,
+    request: VisibilityRequest,
+    store: SyllabusStore = Depends(get_store),
+    user: StaffUser = Depends(current_user),
+) -> dict[str, Any]:
+    """Publishing a syllabus, or taking it back."""
+    if request.visibility.strip().lower() not in VISIBILITIES:
+        raise HTTPException(status_code=422, detail="A syllabus is either private or public.")
+    _writable(store, syllabus_id, user)
+    updated = store.set_visibility(syllabus_id, request.visibility)
+    # Taking it back out of public also takes back any request to review it.
+    return store.set_submitted(syllabus_id, False) if updated["visibility"] == "private" else updated
+
+
+@router.patch("/{syllabus_id}/review")
+def set_syllabus_review(
+    syllabus_id: str,
+    request: ReviewRequest,
+    store: SyllabusStore = Depends(get_store),
+    user: StaffUser = Depends(current_user),
+) -> dict[str, Any]:
+    """Asking a coordinator to look at it, or taking the request back.
+
+    Only its author asks: submitting is what opens a private syllabus to somebody else, and
+    that is not a decision anybody but its author gets to make.
+    """
+    syllabus = _readable(store, syllabus_id, user)
+    if syllabus.get("ownerEmail") != user.email:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the person writing a syllabus can put it up for review.",
+        )
+    return store.set_submitted(syllabus_id, request.submitted)
