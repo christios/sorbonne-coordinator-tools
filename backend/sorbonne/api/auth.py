@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
 
 from sorbonne.config import config
+from sorbonne.services.account_access import AccountAccess, granted
 from sorbonne.services import coordinator_directory
 from sorbonne.services.api_tokens import DEFAULT_LIFETIME_DAYS, MAX_LIFETIME_DAYS, ApiTokenStore, TokenRejected
 from sorbonne.services.staff_auth import (
@@ -29,9 +30,19 @@ class SignInInput(BaseModel):
 
 
 def _profile(user: StaffUser) -> dict[str, Any]:
-    """The session carries Google's name; a name an administrator set overrides it."""
+    """The session carries Google's name; a name an administrator set overrides it.
+
+    `apps` is what the workspace offers this person and what they may do in each, so the
+    browser shows only the apps they were given rather than hiding the rest afterwards.
+    """
     name = coordinator_directory.name_for(user.email, user.name)
-    return {"email": user.email, "name": name, "isAdmin": user.is_admin}
+    access = AccountAccess(config.database_url).apps_for(user.email)
+    return {
+        "email": user.email,
+        "name": name,
+        "isAdmin": user.is_admin,
+        "apps": granted(access, platform_admin=user.is_admin),
+    }
 
 
 @router.get("/config")

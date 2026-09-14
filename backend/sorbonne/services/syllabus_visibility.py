@@ -28,24 +28,28 @@ def normalise(value: str | None, default: str = PRIVATE) -> str:
     return written if written in VISIBILITIES else default
 
 
-def visible_clause(user: StaffUser) -> tuple[str, dict[str, Any]]:
-    """A WHERE fragment narrowing a list to what this person may read, and its parameters."""
+def visible_clause(user: StaffUser, *, administers: bool = False) -> tuple[str, dict[str, Any]]:
+    """A WHERE fragment narrowing a list to what this person may read, and its parameters.
+
+    `administers` is about this app, not about the platform: whoever maintains the syllabus
+    catalogue is not necessarily whoever administers accounts.
+    """
     clauses = ["visibility = :public", "owner_email = :viewer"]
-    if user.is_admin:
+    if administers:
         # The shared set, and anything an author has asked to have reviewed.
         clauses.append("owner_email IS NULL")
         clauses.append("submitted_at IS NOT NULL")
     return "(" + " OR ".join(clauses) + ")", {"public": PUBLIC, "viewer": user.email}
 
 
-def can_view(syllabus: dict[str, Any], user: StaffUser) -> bool:
+def can_view(syllabus: dict[str, Any], user: StaffUser, *, administers: bool = False) -> bool:
     owner = syllabus.get("ownerEmail")
     if syllabus.get("visibility") == PUBLIC or owner == user.email:
         return True
-    return bool(user.is_admin) and (owner is None or bool(syllabus.get("submittedAt")))
+    return administers and (owner is None or bool(syllabus.get("submittedAt")))
 
 
-def can_edit(syllabus: dict[str, Any], user: StaffUser) -> bool:
+def can_edit(syllabus: dict[str, Any], user: StaffUser, *, administers: bool = False) -> bool:
     """Writing, renaming, moving, deleting.
 
     An author owns their own throughout. An administrator maintains the shared set and the
@@ -55,4 +59,4 @@ def can_edit(syllabus: dict[str, Any], user: StaffUser) -> bool:
     owner = syllabus.get("ownerEmail")
     if owner is not None and owner == user.email:
         return True
-    return bool(user.is_admin) and (owner is None or syllabus.get("visibility") == PUBLIC)
+    return administers and (owner is None or syllabus.get("visibility") == PUBLIC)

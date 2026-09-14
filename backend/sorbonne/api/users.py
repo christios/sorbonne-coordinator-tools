@@ -15,6 +15,8 @@ from sorbonne.services.coordinator_directory import (
     InvalidEmail,
     normalize_email,
 )
+from sorbonne.config import config
+from sorbonne.services.account_access import APPS, AccountAccess, granted
 from sorbonne.services.staff_auth import StaffUser, owner_emails
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -23,17 +25,27 @@ router = APIRouter(prefix="/users", tags=["users"])
 class InviteInput(BaseModel):
     email: str = Field(min_length=3, max_length=320)
     isAdmin: bool = False
+    # Which apps this person may open, and what they may do in each. An invitation with none
+    # of them is an account that can sign in and see an empty workspace, which is deliberate:
+    # access is given rather than assumed.
+    apps: dict[str, str] = Field(default_factory=dict)
 
 
 class AccountUpdate(BaseModel):
     isAdmin: bool | None = None
     isActive: bool | None = None
+    # Left out, access is untouched; given, it replaces what they had.
+    apps: dict[str, str] | None = None
     # What to call this person in the application, instead of whatever Google says.
     displayName: str | None = Field(default=None, max_length=120)
 
 
 def require_directory() -> CoordinatorDirectory:
     return coordinator_directory.directory()
+
+
+def require_access() -> AccountAccess:
+    return AccountAccess(config.database_url)
 
 
 def require_admin(request: Request) -> StaffUser:
@@ -68,18 +80,30 @@ def _refuse_owners(address: str) -> None:
 async def list_accounts(
     _admin: StaffUser = Depends(require_admin),
     directory: CoordinatorDirectory = Depends(require_directory),
+    access: AccountAccess = Depends(require_access),
 ) -> dict[str, Any]:
-    """Invited accounts, plus the owners the environment grants access to.
+    """Invited accounts and what each may open, plus the owners the environment grants access to.
 
     An owner may have a row here too — one is created when somebody gives them a name —
     so those rows are reported as owners rather than as invitations, and never twice.
     """
     owners = sorted(owner_emails())
     known = {account["email"]: account for account in directory.list_accounts()}
+    by_email = access.all_apps()
     return {
-        "accounts": [account for email, account in known.items() if email not in owners],
+        "apps": list(APPS),
+        "accounts": [
+            {**account, "apps": granted(by_email.get(email, {}), platform_admin=account["isAdmin"])}
+            for email, account in known.items()
+            if email not in owners
+        ],
         "owners": [
-            {"email": email, "name": known.get(email, {}).get("name") or email} for email in owners
+            {
+                "email": email,
+                "name": known.get(email, {}).get("name") or email,
+                "apps": granted({}, platform_admin=True),
+            }
+            for email in owners
         ],
     }
 
@@ -89,13 +113,16 @@ async def invite(
     body: InviteInput,
     admin: StaffUser = Depends(require_admin),
     directory: CoordinatorDirectory = Depends(require_directory),
+    access: AccountAccess = Depends(require_access),
 ) -> dict[str, Any]:
     address = _address(body.email)
     _refuse_owners(address)
     try:
-        return directory.invite(address, is_admin=body.isAdmin, invited_by=admin.email)
+        invited = directory.invite(address, is_admin=body.isAdmin, invited_by=admin.email)
     except AccountAlreadyInvited as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    access.set_apps(address, body.apps)
+    return {**invited, "apps": granted(body.apps, platform_admin=body.isAdmin)}
 
 
 @router.patch("/{email}")
@@ -104,9 +131,10 @@ async def update_account(
     body: AccountUpdate,
     admin: StaffUser = Depends(require_admin),
     directory: CoordinatorDirectory = Depends(require_directory),
+    access: AccountAccess = Depends(require_access),
 ) -> dict[str, Any]:
     address = _address(email)
-    changes_access = body.isAdmin is not None or body.isActive is not None
+    changes_access = body.isAdmin is not None or body.isActive is not None or body.apps is not None
     # An owner's access comes from the environment, but their name does not have to.
     if changes_access:
         _refuse_owners(address)
@@ -119,11 +147,14 @@ async def update_account(
             status_code=status.HTTP_409_CONFLICT, detail="You cannot change your own access here."
         )
     try:
-        return directory.update(
+        account = directory.update(
             address, is_admin=body.isAdmin, is_active=body.isActive, display_name=body.displayName
         )
     except AccountNotFound as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    if body.apps is not None:
+        access.set_apps(address, body.apps)
+    return {**account, "apps": granted(access.apps_for(address), platform_admin=account["isAdmin"])}
 
 
 @router.delete("/{email}", status_code=status.HTTP_204_NO_CONTENT)
@@ -131,6 +162,7 @@ async def remove_account(
     email: str,
     admin: StaffUser = Depends(require_admin),
     directory: CoordinatorDirectory = Depends(require_directory),
+    access: AccountAccess = Depends(require_access),
 ) -> None:
     address = _address(email)
     _refuse_owners(address)
@@ -142,3 +174,5 @@ async def remove_account(
         directory.remove(address)
     except AccountNotFound as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    # Their access goes with them, so re-inviting somebody does not restore what they had.
+    access.set_apps(address, {})

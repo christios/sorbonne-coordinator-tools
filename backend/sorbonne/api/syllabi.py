@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from starlette.responses import FileResponse
 
 from sorbonne.config import config
+from sorbonne.services.account_access import AccountAccess, administers
 from sorbonne.services.staff_auth import StaffUser
 from sorbonne.services.syllabus_export import build_syllabus_docx, template_sections
 from sorbonne.services.syllabus_visibility import VISIBILITIES, can_edit, can_view
@@ -68,7 +69,21 @@ def current_user(request: Request) -> StaffUser:
     return user
 
 
-def _readable(store: SyllabusStore, syllabus_id: str, user: StaffUser) -> dict[str, Any]:
+def get_account_access() -> AccountAccess:
+    return AccountAccess(config.database_url)
+
+
+def administers_syllabi(
+    request: Request, access: AccountAccess = Depends(get_account_access)
+) -> bool:
+    """Whether this caller maintains the syllabus app — not whether they administer accounts."""
+    user = getattr(request.state, "staff_user", None)
+    if user is None:  # pragma: no cover - the gate rejects these before they arrive
+        return False
+    return administers(access.apps_for(user.email), "syllabus", platform_admin=user.is_admin)
+
+
+def _readable(store: SyllabusStore, syllabus_id: str, user: StaffUser, *, curator: bool = False) -> dict[str, Any]:
     """The syllabus, if this person may read it.
 
     A syllabus they may not read is reported as missing rather than forbidden: which
@@ -78,14 +93,14 @@ def _readable(store: SyllabusStore, syllabus_id: str, user: StaffUser) -> dict[s
         syllabus = store.get(syllabus_id)
     except SyllabusNotFound as exc:
         raise HTTPException(status_code=404, detail="Syllabus not found.") from exc
-    if not can_view(syllabus, user):
+    if not can_view(syllabus, user, administers=curator):
         raise HTTPException(status_code=404, detail="Syllabus not found.")
     return syllabus
 
 
-def _writable(store: SyllabusStore, syllabus_id: str, user: StaffUser) -> dict[str, Any]:
-    syllabus = _readable(store, syllabus_id, user)
-    if not can_edit(syllabus, user):
+def _writable(store: SyllabusStore, syllabus_id: str, user: StaffUser, *, curator: bool = False) -> dict[str, Any]:
+    syllabus = _readable(store, syllabus_id, user, curator=curator)
+    if not can_edit(syllabus, user, administers=curator):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="This syllabus belongs to somebody else.",
@@ -95,9 +110,11 @@ def _writable(store: SyllabusStore, syllabus_id: str, user: StaffUser) -> dict[s
 
 @router.get("")
 def list_syllabi(
-    store: SyllabusStore = Depends(get_store), user: StaffUser = Depends(current_user)
+    store: SyllabusStore = Depends(get_store),
+    user: StaffUser = Depends(current_user),
+    curator: bool = Depends(administers_syllabi),
 ) -> dict[str, list[dict[str, Any]]]:
-    return {"items": store.list(user)}
+    return {"items": store.list(user, administers=curator)}
 
 
 @router.get("/templates")
@@ -162,9 +179,10 @@ def create_syllabus(
     request: CreateSyllabusRequest,
     store: SyllabusStore = Depends(get_store),
     user: StaffUser = Depends(current_user),
+    curator: bool = Depends(administers_syllabi),
 ) -> dict[str, Any]:
     if request.sourceSyllabusId:
-        _readable(store, request.sourceSyllabusId, user)
+        _readable(store, request.sourceSyllabusId, user, curator=curator)
     try:
         return store.create(
             owner_email=user.email,
@@ -191,8 +209,9 @@ def move_syllabus_to_folder(
     request: MoveSyllabusRequest,
     store: SyllabusStore = Depends(get_store),
     user: StaffUser = Depends(current_user),
+    curator: bool = Depends(administers_syllabi),
 ) -> dict[str, Any]:
-    _writable(store, syllabus_id, user)
+    _writable(store, syllabus_id, user, curator=curator)
     try:
         return store.move_to_folder(syllabus_id, request.folderId)
     except SyllabusNotFound as exc:
@@ -203,9 +222,12 @@ def move_syllabus_to_folder(
 
 @router.delete("/{syllabus_id}", status_code=204)
 def delete_syllabus(
-    syllabus_id: str, store: SyllabusStore = Depends(get_store), user: StaffUser = Depends(current_user)
+    syllabus_id: str,
+    store: SyllabusStore = Depends(get_store),
+    user: StaffUser = Depends(current_user),
+    curator: bool = Depends(administers_syllabi),
 ) -> Response:
-    _writable(store, syllabus_id, user)
+    _writable(store, syllabus_id, user, curator=curator)
     try:
         store.delete(syllabus_id)
     except SyllabusNotFound as exc:
@@ -215,20 +237,24 @@ def delete_syllabus(
 
 @router.get("/{syllabus_id}")
 def get_syllabus(
-    syllabus_id: str, store: SyllabusStore = Depends(get_store), user: StaffUser = Depends(current_user)
+    syllabus_id: str,
+    store: SyllabusStore = Depends(get_store),
+    user: StaffUser = Depends(current_user),
+    curator: bool = Depends(administers_syllabi),
 ) -> dict[str, Any]:
-    return _readable(store, syllabus_id, user)
+    return _readable(store, syllabus_id, user, curator=curator)
 
 
 @router.get("/{syllabus_id}/export")
-def export_syllabus(
+def export_syllabus(  # noqa: PLR0913 - the id, the cleanup, two stores, and who is asking
     syllabus_id: str,
     background_tasks: BackgroundTasks,
     store: SyllabusStore = Depends(get_store),
     catalogue_store: SyllabusCatalogueStore = Depends(get_catalogue_store),
     user: StaffUser = Depends(current_user),
+    curator: bool = Depends(administers_syllabi),
 ) -> FileResponse:
-    syllabus = _readable(store, syllabus_id, user)
+    syllabus = _readable(store, syllabus_id, user, curator=curator)
 
     with NamedTemporaryFile(prefix="scen-syllabus-", suffix=".docx", delete=False) as file:
         output_path = Path(file.name)
@@ -248,8 +274,9 @@ def get_field_history(
     field_path: str = Query(alias="fieldPath", min_length=1, max_length=600),
     store: SyllabusStore = Depends(get_store),
     user: StaffUser = Depends(current_user),
+    curator: bool = Depends(administers_syllabi),
 ) -> dict[str, list[dict[str, Any]]]:
-    _readable(store, syllabus_id, user)
+    _readable(store, syllabus_id, user, curator=curator)
     return {"items": store.field_history(syllabus_id, field_path)}
 
 
@@ -259,8 +286,9 @@ def update_syllabus(
     request: UpdateSyllabusRequest,
     store: SyllabusStore = Depends(get_store),
     user: StaffUser = Depends(current_user),
+    curator: bool = Depends(administers_syllabi),
 ) -> dict[str, Any]:
-    _writable(store, syllabus_id, user)
+    _writable(store, syllabus_id, user, curator=curator)
     try:
         return store.update(
             syllabus_id,
@@ -285,10 +313,11 @@ def compare_syllabi(
     other_syllabus_id: str,
     store: SyllabusStore = Depends(get_store),
     user: StaffUser = Depends(current_user),
+    curator: bool = Depends(administers_syllabi),
 ) -> dict[str, Any]:
     # Both sides, because a comparison shows as much of one as of the other.
-    _readable(store, syllabus_id, user)
-    _readable(store, other_syllabus_id, user)
+    _readable(store, syllabus_id, user, curator=curator)
+    _readable(store, other_syllabus_id, user, curator=curator)
     try:
         comparison = store.compare(syllabus_id, other_syllabus_id)
         # Stable catalogue references are implementation details. The associated human
@@ -383,11 +412,12 @@ def set_syllabus_visibility(
     request: VisibilityRequest,
     store: SyllabusStore = Depends(get_store),
     user: StaffUser = Depends(current_user),
+    curator: bool = Depends(administers_syllabi),
 ) -> dict[str, Any]:
     """Publishing a syllabus, or taking it back."""
     if request.visibility.strip().lower() not in VISIBILITIES:
         raise HTTPException(status_code=422, detail="A syllabus is either private or public.")
-    _writable(store, syllabus_id, user)
+    _writable(store, syllabus_id, user, curator=curator)
     updated = store.set_visibility(syllabus_id, request.visibility)
     # Taking it back out of public also takes back any request to review it.
     return store.set_submitted(syllabus_id, False) if updated["visibility"] == "private" else updated
@@ -399,13 +429,14 @@ def set_syllabus_review(
     request: ReviewRequest,
     store: SyllabusStore = Depends(get_store),
     user: StaffUser = Depends(current_user),
+    curator: bool = Depends(administers_syllabi),
 ) -> dict[str, Any]:
     """Asking a coordinator to look at it, or taking the request back.
 
     Only its author asks: submitting is what opens a private syllabus to somebody else, and
     that is not a decision anybody but its author gets to make.
     """
-    syllabus = _readable(store, syllabus_id, user)
+    syllabus = _readable(store, syllabus_id, user, curator=curator)
     if syllabus.get("ownerEmail") != user.email:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

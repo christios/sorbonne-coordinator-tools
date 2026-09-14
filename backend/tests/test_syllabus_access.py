@@ -6,9 +6,12 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
 
+from sorbonne.api.syllabi import get_account_access, get_store
 from sorbonne.main import app
 from sorbonne.services import auth_gate
+from sorbonne.services.account_access import AccountAccess
 from sorbonne.services.staff_auth import StaffUser
+from sorbonne.services.syllabus_store import SyllabusStore
 
 
 TEST_DATABASE_URL = os.getenv(
@@ -19,6 +22,18 @@ TEST_DATABASE_URL = os.getenv(
 AUTHOR = StaffUser(email="professor@sorbonne.ae", name="A Professor")
 OTHER = StaffUser(email="another@sorbonne.ae", name="Another Professor")
 ADMIN = StaffUser(email="coordinator@sorbonne.ae", name="Coordinator", is_admin=True)
+
+
+@pytest.fixture(autouse=True)
+def against_the_test_database():
+    """The application reads its database from the environment, which in a test run is the
+    *development* one. Point the endpoints at the test database instead, or a test writes
+    into the database somebody is using."""
+    app.dependency_overrides[get_store] = lambda: SyllabusStore(TEST_DATABASE_URL)
+    app.dependency_overrides[get_account_access] = lambda: AccountAccess(TEST_DATABASE_URL)
+    yield
+    app.dependency_overrides.pop(get_store, None)
+    app.dependency_overrides.pop(get_account_access, None)
 
 
 @pytest.fixture(autouse=True)
@@ -144,3 +159,38 @@ def test_a_professor_may_read_the_catalogue_and_may_not_rewrite_it(as_user) -> N
     assert member.get("/api/v1/syllabus-catalogues/assessment-types").status_code == 200
     refused = member.post("/api/v1/syllabus-catalogues/assessment-types", json={"label": "Invented", "payload": {}})
     assert refused.status_code == 403
+
+
+def test_curating_the_syllabus_app_is_not_the_same_as_administering_accounts(as_user) -> None:
+    """A coordinator given the syllabus app as its administrator reviews what is submitted.
+
+    They administer no accounts and cannot open the student roster; what they can do is
+    confined to the app they were given.
+    """
+    author = as_user(AUTHOR)
+    created = write_syllabus(author)
+    author.patch(f"/api/v1/syllabi/{created['id']}/review", json={"submitted": True})
+
+    with create_engine(TEST_DATABASE_URL).begin() as connection:
+        connection.execute(
+            text("INSERT INTO account_apps (email, app, role) VALUES (:email, 'syllabus', 'admin')"
+                 " ON CONFLICT (email, app) DO UPDATE SET role = 'admin'"),
+            {"email": OTHER.email},
+        )
+
+    assert sees(as_user(OTHER), created["id"])
+
+    with create_engine(TEST_DATABASE_URL).begin() as connection:
+        connection.execute(
+            text("UPDATE account_apps SET role = 'member' WHERE email = :email AND app = 'syllabus'"),
+            {"email": OTHER.email},
+        )
+
+    assert not sees(as_user(OTHER), created["id"])
+
+
+@pytest.fixture(autouse=True)
+def clear_app_access():
+    yield
+    with create_engine(TEST_DATABASE_URL).begin() as connection:
+        connection.execute(text("DELETE FROM account_apps WHERE email = :email"), {"email": OTHER.email})

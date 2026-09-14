@@ -117,7 +117,8 @@ def test_an_administrator_invites_promotes_suspends_and_removes(
     listed = client.get("/api/v1/users").json()
 
     assert [account["email"] for account in listed["accounts"]] == ["new.colleague@sorbonne.ae"]
-    assert listed["owners"] == [{"email": OWNER, "name": OWNER}]
+    assert [(o["email"], o["name"]) for o in listed["owners"]] == [(OWNER, OWNER)]
+    assert listed["owners"][0]["apps"] == {app: "admin" for app in ("syllabus", "teachers", "database", "handbook")}
 
     promoted = client.patch("/api/v1/users/new.colleague@sorbonne.ae", json={"isAdmin": True})
     assert promoted.json()["isAdmin"] is True
@@ -223,7 +224,7 @@ def test_an_owner_can_be_given_a_name_without_being_invited(client: TestClient, 
 
     assert named.status_code == status.HTTP_200_OK, named.text
     listed = client.get("/api/v1/users").json()
-    assert listed["owners"] == [{"email": OWNER, "name": "Christian Cayralat"}]
+    assert [(o["email"], o["name"]) for o in listed["owners"]] == [(OWNER, "Christian Cayralat")]
     # Naming them must not turn them into an invitation.
     assert [account["email"] for account in listed["accounts"]] == []
 

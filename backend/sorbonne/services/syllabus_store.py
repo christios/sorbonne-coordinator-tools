@@ -128,9 +128,9 @@ class SyllabusStore:
             )
         return record
 
-    def list(self, viewer: StaffUser | None = None) -> list[dict[str, Any]]:
+    def list(self, viewer: StaffUser | None = None, *, administers: bool = False) -> list[dict[str, Any]]:
         """Every syllabus, or — given a reader — only the ones that reader may open."""
-        where, params = ("", {}) if viewer is None else visible_clause(viewer)
+        where, params = ("", {}) if viewer is None else visible_clause(viewer, administers=administers)
         with self.engine.connect() as connection:
             rows = (
                 connection.execute(
