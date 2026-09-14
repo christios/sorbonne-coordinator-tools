@@ -133,6 +133,28 @@ export async function downloadTeacherRequisitions(teacherId: string, ids: string
   await saveResponse(response, "requisitions.zip");
 }
 
+/**
+ * Every requisition of every teacher chosen, as one zip with a folder each.
+ *
+ * Returns how many of them had nothing to fetch, because a selection of twelve should
+ * not fail over the one who has not been contracted yet, and the person who pressed the
+ * button should still be told.
+ */
+export async function downloadTeachersRequisitions(teacherIds: string[]): Promise<{ withoutRequisitions: number }> {
+  const response = await apiFetch(`${API_BASE_URL}/api/v1/teachers/export/requisitions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ teacherIds }),
+  });
+  if (!response.ok) {
+    const body = (await response.json().catch(() => ({}))) as { detail?: string };
+    throw new Error(body.detail ?? `Request failed with status ${response.status}`);
+  }
+  const withoutRequisitions = Number(response.headers.get("X-Teachers-Without-Requisitions") ?? 0);
+  await saveResponse(response, "part-time-requisitions.zip");
+  return { withoutRequisitions };
+}
+
 export async function downloadTeacherRequisitionExport(id: string): Promise<void> {
   const response = await apiFetch(`${API_BASE_URL}/api/v1/teacher-requisitions/${id}/export`);
   if (!response.ok) { const body = await response.json().catch(() => ({})) as { detail?: string }; throw new Error(body.detail ?? `Export failed with status ${response.status}`); }

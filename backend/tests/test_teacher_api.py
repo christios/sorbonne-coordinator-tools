@@ -158,3 +158,35 @@ def test_a_time_sheet_carries_the_period_it_covers(client: TestClient, store: Te
     # Newest period first, and the undated one last rather than in the middle.
     held = client.get(f"{BASE}/{teacher['id']}/time-sheets").json()["items"]
     assert [row["label"] for row in held] == ["Part time sheet", "Undated"]
+
+
+def test_several_teachers_requisitions_come_back_in_a_folder_each(client: TestClient, store: TeacherStore):
+    """A payroll run of a dozen people unpacked into one directory is a wall of files."""
+    first = a_teacher(store)
+    second = a_teacher(store)
+    barren = a_teacher(store)
+    with_hours(store, first["id"], "Physics TD", ["21"])
+    with_hours(store, first["id"], "Spring extension", ["21"])
+    with_hours(store, second["id"], "Maths TD", ["42"])
+
+    response = client.post(
+        f"{BASE}/export/requisitions",
+        json={"teacherIds": [first["id"], second["id"], barren["id"]]},
+    )
+
+    assert response.status_code == status.HTTP_200_OK, response.text
+    assert response.headers["content-type"] == "application/zip"
+    with ZipFile(BytesIO(response.content)) as bundle:
+        names = bundle.namelist()
+    assert len(names) == 3
+    assert len({name.split("/")[0] for name in names}) == 2
+    assert all("/" in name for name in names)
+    # The teacher nobody has contracted yet is counted, not treated as a failure.
+    assert response.headers["X-Teachers-Without-Requisitions"] == "1"
+
+
+def test_choosing_only_teachers_with_nothing_to_download_says_so(client: TestClient, store: TeacherStore):
+    """Rather than handing back an empty zip that looks like it worked."""
+    barren = a_teacher(store)
+    response = client.post(f"{BASE}/export/requisitions", json={"teacherIds": [barren["id"]]})
+    assert response.status_code == status.HTTP_404_NOT_FOUND

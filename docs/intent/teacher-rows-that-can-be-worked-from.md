@@ -30,6 +30,19 @@ teachers, not the Active teachers page in Students and Timetables.
   here.
 - **Success:** you can see who is missing something for the current period without
   opening anyone, and reach a sheet or a contract in one click.
-- **Out of scope:** ticking several teachers to move or archive them together;
-  archiving from the row; turning the list into a sortable table; a separate view that
-  lists only the gaps; and any change to the Active teachers page.
+- **Out of scope:** archiving from the row; turning the list into a sortable table; a
+  separate view that lists only the gaps; and any change to the Active teachers page.
+
+## Added 15 September 2026
+
+Ticking several teachers came back, for downloads only. A row has a checkbox and the
+search bar has an "All" that takes whoever the search has narrowed to; a bar at the foot
+of the list then offers two things.
+
+- **Download requisitions** is a real download: the server writes the documents, so every
+  requisition of every teacher chosen arrives as one zip with a folder each. A teacher
+  with none is counted and named rather than treated as a failure.
+- **Time sheets** cannot be. The workbooks are in OneDrive, this platform holds a link and
+  nothing else, and the server has no Microsoft credential to fetch them with. So the
+  button hands over what there is: the list as a spreadsheet, and a way to open every
+  sheet at once. It says so on the dialog rather than implying otherwise.

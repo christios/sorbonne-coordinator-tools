@@ -48,6 +48,10 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    # A browser can only read the headers it is told it may read, and the page and the API
+    # are different origins here. Without this the name the server gives a download never
+    # arrives, and every export saves under whatever fallback the browser was handed.
+    expose_headers=["Content-Disposition", "X-Teachers-Without-Requisitions"],
 )
 
 app.include_router(auth_router, prefix="/api/v1")

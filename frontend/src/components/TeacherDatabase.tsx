@@ -15,6 +15,7 @@ import {
   UserPlus,
 } from "lucide-react";
 import { FormEvent, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import {
   AutoSaveStatus,
@@ -38,6 +39,7 @@ import {
 import { LibraryRecordTimestamps } from "@/components/LibraryRecordTimestamps";
 import { RequisitionCourseEditor } from "@/components/RequisitionCourseEditor";
 import { SectionEditorShell } from "@/components/SectionEditorShell";
+import { TeacherBulkActions } from "@/components/TeacherBulkActions";
 import { TeacherFacts, TeacherRowActions } from "@/components/TeacherRowDetail";
 import { TimeSheetsCard } from "@/components/TeacherTimeSheets";
 import { SelectMenu } from "@/components/SelectMenu";
@@ -112,7 +114,7 @@ const EMPLOYEE_TYPES = [
 ];
 const CLASS_TYPES = ["TD", "TP", "CM", "Coach", "Not Applicable"];
 
-export function TeacherDatabase({ embedded = false }: { embedded?: boolean } = {}) {
+export function TeacherDatabase({ header }: { header?: HTMLElement | null } = {}) {
   const client = useQueryClient();
   const [screen, setScreen] = useState<
     | { view: "library" }
@@ -193,7 +195,7 @@ export function TeacherDatabase({ embedded = false }: { embedded?: boolean } = {
   if (screen.view === "library")
     return (
       <TeacherLibrary
-        embedded={embedded}
+        header={header}
         teachers={teachers.data ?? []}
         summary={summary.data}
         summaryLoading={summary.isLoading}
@@ -264,7 +266,7 @@ export function TeacherDatabase({ embedded = false }: { embedded?: boolean } = {
 }
 
 function TeacherLibrary({
-  embedded,
+  header,
   teachers,
   summary,
   summaryLoading,
@@ -291,8 +293,8 @@ function TeacherLibrary({
   onDeleteFolder,
   onImportCatalogue,
 }: {
-  /** True when this is a page of another app, which has drawn the heading already. */
-  embedded: boolean;
+  /** The page's own heading row, which this fills with its buttons rather than adding one. */
+  header?: HTMLElement | null;
   teachers: Teacher[];
   /** What every row says, asked once for the whole list. */
   summary?: Record<string, TeacherSummary>;
@@ -339,6 +341,19 @@ function TeacherLibrary({
   const [pendingFolder, setPendingFolder] = useState<TeacherFolder | null>(
     null,
   );
+  /*
+   * Who is ticked, for the things that are done to several people at once. Kept as ids
+   * rather than rows so that narrowing the search does not silently drop somebody from
+   * the selection: what you ticked stays ticked until you clear it.
+   */
+  const [chosen, setChosen] = useState<Set<string>>(new Set());
+  const toggleChosen = (id: string) =>
+    setChosen((held) => {
+      const next = new Set(held);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   const visible = teachers
     .filter((teacher) => Boolean(teacher.archivedAt) === showArchived)
     .filter((teacher) =>
@@ -353,6 +368,7 @@ function TeacherLibrary({
         .toLowerCase()
         .includes(query.toLowerCase()),
     );
+  const picked = [...chosen];
   const selectedFolder = folders.find((folder) => folder.id === activeFolder);
   const activeTeachers = teachers.filter((teacher) => !teacher.archivedAt);
   const tasksByTeacher = new Map<string, ScopedTask[]>();
@@ -379,31 +395,16 @@ function TeacherLibrary({
     setFolderName("");
     setShowFolderForm(false);
   }
-  return (
-    <div className="mx-auto max-w-7xl px-1 py-6 sm:px-1.5 lg:px-2">
-      {/*
-        * No title of its own when this is a page of Students and Timetables: that page
-        * has already said what it is, and two headings arguing about it is one too many.
-        * The buttons stay either way, because they are what the heading row is for.
-        */}
-      <div className="flex flex-col justify-between gap-4 border-b border-[#d9dee7] pb-5 sm:flex-row sm:items-end">
-        <div>
-          {embedded ? null : (
-            <>
-              <p className="text-sm font-medium text-[#a6292f]">SCEN workspace</p>
-              <h2 className="mt-1 text-2xl font-semibold text-[#171717]">
-                Part-time Teacher Database
-              </h2>
-              <p className="mt-1 text-sm text-[#667085]">
-                Keep teacher profiles, contacts, notes, and recruitment requests in
-                one place.
-              </p>
-            </>
-          )}
-        </div>
-        <div className="flex flex-wrap gap-3">
-          <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-[#b7bec8] bg-white px-4 py-2.5 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]">
-            <FileUp size={17} />{" "}
+  /*
+   * The buttons go up into the page's own heading row rather than taking a row of their
+   * own beneath it. With no title of its own to sit beside — the page has said that
+   * already — a row here was a band of empty space across the width of the screen, and
+   * every line above the panes is a line the panes do not get.
+   */
+  const controls = (
+    <div className="flex flex-wrap gap-2">
+      <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]">
+        <FileUp size={16} />{" "}
             {importingCatalogue ? "Importing…" : "Import course list"}
             <input
               aria-label="Import course list"
@@ -421,9 +422,9 @@ function TeacherLibrary({
           <button
             type="button"
             onClick={() => setShowFolderForm((value) => !value)}
-            className="inline-flex items-center gap-2 rounded-md border border-[#b7bec8] bg-white px-4 py-2.5 text-sm font-semibold text-[#1f4e79]"
-          >
-            <FolderPlus size={17} /> New folder
+        className="inline-flex items-center gap-2 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#1f4e79]"
+      >
+        <FolderPlus size={16} /> New folder
           </button>
           <button
             type="button"
@@ -437,10 +438,14 @@ function TeacherLibrary({
             }}
             className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-4 py-2.5 text-sm font-semibold text-white"
           >
-            <UserPlus size={17} /> New teacher
-          </button>
-        </div>
-      </div>
+        <UserPlus size={16} /> New teacher
+      </button>
+    </div>
+  );
+
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      {header ? createPortal(controls, header) : <div className="mb-3">{controls}</div>}
       <TeacherDocumentSyncPanel
         credential={documentCredential}
         onCredential={onDocumentCredential}
@@ -561,8 +566,14 @@ function TeacherLibrary({
           </button>
         </form>
       ) : null}
-      <div className="mt-6 grid gap-5 lg:grid-cols-[230px_minmax(0,1fr)]">
-        <aside className="rounded-lg border border-[#d9dee7] bg-white p-2 lg:h-fit">
+      {/*
+        * Both panes take the height of the page and scroll inside themselves, rather than
+        * the page scrolling as one. Two dozen teachers is longer than a screen, and a
+        * folder list that scrolls away the moment you start reading the rows is a folder
+        * list you have to scroll back up to use.
+        */}
+      <div className="mt-3 grid min-h-0 flex-1 gap-4 lg:grid-cols-[220px_minmax(0,1fr)]">
+        <aside className="overflow-y-auto rounded-lg border border-[#d9dee7] bg-white p-2 lg:min-h-0">
           <div className="grid grid-cols-2 gap-1 px-1 pb-3 pt-1">
             <button
               type="button"
@@ -640,11 +651,33 @@ function TeacherLibrary({
             </div>
           ))}
         </aside>
-        <section className="rounded-lg border border-[#d9dee7] bg-white">
+        <section className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-[#d9dee7] bg-white">
           {libraryView === "teachers" ? (
             <>
-              <div className="border-b border-[#e5e7eb] p-4">
-                <label className="relative block">
+              <div className="flex shrink-0 items-center gap-3 border-b border-[#e5e7eb] p-3">
+                {/*
+                  * Choosing everybody the search has narrowed to, which is how a payroll
+                  * run starts: filter to who you want, tick once, download.
+                  */}
+                <label className="flex shrink-0 items-center gap-2 text-sm text-[#667085]">
+                  <input
+                    type="checkbox"
+                    aria-label={`Choose all ${visible.length} shown`}
+                    checked={visible.length > 0 && visible.every((teacher) => chosen.has(teacher.id))}
+                    onChange={(event) =>
+                      setChosen((held) => {
+                        const next = new Set(held);
+                        for (const teacher of visible) {
+                          if (event.target.checked) next.add(teacher.id);
+                          else next.delete(teacher.id);
+                        }
+                        return next;
+                      })
+                    }
+                  />
+                  All
+                </label>
+                <label className="relative block flex-1">
                   <Search
                     size={17}
                     className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#667085]"
@@ -664,13 +697,20 @@ function TeacherLibrary({
                   Loading teachers…
                 </p>
               ) : visible.length ? (
-                <div role="list" className="divide-y divide-[#e5e7eb]">
+                <div role="list" className="min-h-0 flex-1 divide-y divide-[#e5e7eb] overflow-y-auto">
                   {visible.map((teacher) => (
                     <div
                       key={teacher.id}
                       role="listitem"
-                      className="grid gap-2 px-5 py-2.5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
+                      className="grid gap-2 px-4 py-2.5 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-center"
                     >
+                      <input
+                        type="checkbox"
+                        aria-label={`Choose ${teacher.fullName}`}
+                        checked={chosen.has(teacher.id)}
+                        onChange={() => toggleChosen(teacher.id)}
+                        className="justify-self-start"
+                      />
                       {/*
                         * Two lines, not five. Who they are on the first, what they have
                         * on the second, and everything that used to have a line of its
@@ -755,6 +795,13 @@ function TeacherLibrary({
                   No {showArchived ? "archived" : "active"} teachers found.
                 </p>
               )}
+              {picked.length ? (
+                <TeacherBulkActions
+                  chosen={picked}
+                  teachers={teachers}
+                  onClear={() => setChosen(new Set())}
+                />
+              ) : null}
             </>
           ) : (
             <TasksOverview
@@ -1217,16 +1264,19 @@ function TeacherDocumentSyncPanel({
       syncTeacherDocuments(credential, driveAccessToken),
     onSuccess: () => issues.refetch(),
   });
+  /*
+   * One line rather than a card. It is a thing you press now and then, and on a
+   * deployment without the Google sign-in configured it is a card whose whole content is
+   * a sentence explaining that it does nothing — three lines of a screen that the list
+   * underneath could be using.
+   */
   return (
-    <section className="mt-5 rounded-lg border border-[#d9dee7] bg-white p-5">
-      <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
-        <div>
-          <h3 className="text-base font-semibold">Google Form documents</h3>
-          <p className="mt-1 text-sm text-[#667085]">
-            Copy the latest response for each matched teacher into their managed
-            Google Drive folder.
-          </p>
-        </div>
+    <section className="flex flex-wrap items-center gap-x-3 gap-y-2 py-2 text-sm">
+      <span className="font-semibold text-[#344054]">Google Form documents</span>
+      <span className="text-[#98a2b3]" title="Copy the latest response for each matched teacher into their managed Google Drive folder.">
+        latest responses into each teacher&apos;s Drive folder
+      </span>
+      <span className="ml-auto flex items-center gap-3">
         {credential ? (
           <GoogleDocumentSyncButton
             disabled={sync.isPending}
@@ -1235,23 +1285,23 @@ function TeacherDocumentSyncPanel({
         ) : (
           <GoogleDocumentSignInButton onCredential={onCredential} />
         )}
-      </div>
+      </span>
       {sync.isSuccess ? (
-        <p role="status" className="mt-3 text-sm text-[#256237]">
+        <span role="status" className="basis-full text-[#256237]">
           Synced {sync.data.updated}; {sync.data.skipped} unchanged;{" "}
           {sync.data.needsReview} need review.
-        </p>
+        </span>
       ) : null}
       {sync.error || issues.error ? (
-        <p role="alert" className="mt-3 text-sm text-[#8f1f25]">
+        <span role="alert" className="basis-full text-[#8f1f25]">
           {(sync.error ?? issues.error)?.message}
-        </p>
+        </span>
       ) : null}
       {credential && issues.data?.length ? (
-        <p className="mt-3 text-sm text-[#8f1f25]">
+        <span className="basis-full text-[#8f1f25]">
           {issues.data.length} response{issues.data.length === 1 ? "" : "s"}{" "}
           need review.
-        </p>
+        </span>
       ) : null}
     </section>
   );

@@ -68,6 +68,12 @@ class RequisitionExportRequest(BaseModel):
     ids: list[str] = Field(min_length=1, max_length=50)
 
 
+class BulkRequisitionExportRequest(BaseModel):
+    """Whose requisitions to put in the zip: everything each of these teachers has."""
+
+    teacherIds: list[str] = Field(min_length=1, max_length=200)
+
+
 class UpdateTeacherRequisitionRequest(BaseModel):
     expectedRevision: int = Field(ge=1)
     label: str = Field(min_length=1, max_length=160)
@@ -220,6 +226,66 @@ def _cell_text(value: object) -> str:
     if value is None:
         return ""
     return str(value).strip()
+
+
+@router.post("/export/requisitions")
+def export_many_teachers_requisitions(
+    request: BulkRequisitionExportRequest,
+    background_tasks: BackgroundTasks,
+    store: TeacherStore = Depends(get_store),
+) -> FileResponse:
+    """Every requisition of every teacher named, as one zip with a folder each.
+
+    A folder per teacher rather than one flat heap: the names inside already carry the
+    teacher, but a payroll run of twenty people unpacked into one directory is a wall of
+    files, and the folder is what makes it a set of people again.
+
+    A teacher with no requisitions is not an error — they are simply somebody there was
+    nothing to fetch for, and a selection of twelve should not fail because one of them
+    has not been contracted yet. The answer says who those were.
+    """
+    wanted = list(dict.fromkeys(request.teacherIds))
+    try:
+        teachers = {identifier: store.get_teacher(identifier) for identifier in wanted}
+    except TeacherNotFound as exc:
+        raise HTTPException(status_code=404, detail="Teacher not found.") from exc
+
+    with NamedTemporaryFile(prefix="scen-requisitions-", suffix=".zip", delete=False) as file:
+        bundle_path = Path(file.name)
+    background_tasks.add_task(bundle_path.unlink, missing_ok=True)
+    written = 0
+    empty: list[str] = []
+    with TemporaryDirectory() as workspace, ZipFile(bundle_path, "w", ZIP_DEFLATED) as bundle:
+        for identifier in wanted:
+            teacher = teachers[identifier]
+            folder = _safe_stem(teacher["fullName"])
+            used: set[str] = set()
+            requisitions = store.list_requisitions(identifier)
+            if not requisitions:
+                empty.append(teacher["fullName"])
+                continue
+            for summary in requisitions:
+                requisition = store.get_requisition(summary["id"])
+                document = Path(workspace) / f"{uuid4()}.docx"
+                build_requisition_docx({**requisition, "employeeName": teacher["fullName"]}, document)
+                name = _export_filename(teacher["fullName"], requisition["academicYear"])
+                if name in used:
+                    stem, suffix = name.rsplit(".", 1)
+                    name = f"{stem}-{requisition['label'] or len(used)}.{suffix}".replace(" ", "-")
+                used.add(name)
+                bundle.write(document, arcname=f"{folder}/{name}")
+                written += 1
+    if not written:
+        raise HTTPException(
+            status_code=404, detail="None of the teachers you chose has a requisition to download."
+        )
+    return FileResponse(
+        bundle_path,
+        media_type="application/zip",
+        filename="part-time-requisitions.zip",
+        headers={"X-Teachers-Without-Requisitions": str(len(empty))},
+        background=background_tasks,
+    )
 
 
 # Ahead of "/{teacher_id}" deliberately: routes match in the order they are declared,

@@ -89,7 +89,7 @@ function pageOf(hash: string): PageId {
 // A blurb is optional: the Students page explains itself through the view picker.
 
 /** The pages whose panes fill the screen rather than letting the page scroll. */
-const FILLS = new Set<PageId>(["groups", "group-schema"]);
+const FILLS = new Set<PageId>(["groups", "group-schema", "part-time-teachers"]);
 
 const TITLES: Record<PageId, { title: string; blurb?: string }> = {
   students: {
@@ -344,7 +344,7 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
           ) : null}
           {page === "teachers" ? <PortalTeachers onOpenTeacher={setTeacherRecord} /> : null}
           {page === "active-teachers" ? <ActiveTeachers onOpenTeacher={setTeacherRecord} /> : null}
-          {page === "part-time-teachers" ? <TeacherDatabase embedded /> : null}
+          {page === "part-time-teachers" ? <TeacherDatabase header={pageHeader} /> : null}
           {page === "group-schema" && cohorts.isLoading ? <ScreenLoading label="Loading cohorts…" /> : null}
           {page === "group-schema" && !cohorts.isLoading ? (
             <GroupSchema cohorts={knownCohorts} onOpenGroups={() => openPage("groups")} />
