@@ -90,6 +90,7 @@ export function StudentRoster({
   scope,
   everywhere: everyCohort = false,
   warningsFor,
+  electivesFor,
   onDismissWarning,
   defaultSort,
 }: {
@@ -123,6 +124,8 @@ export function StudentRoster({
    */
   everywhere?: boolean;
   warningsFor?: (studentId: string) => Warning[];
+  /** The courses they hold outside the cohort's groups, for the Electives column. */
+  electivesFor?: (studentId: string) => string[];
   onDismissWarning?: (key: string, dismissed: boolean) => void;
   defaultSort?: Sort;
 }) {
@@ -187,12 +190,13 @@ export function StudentRoster({
     () =>
       buildColumns(schema.data?.columns ?? [], schema.data?.fields ?? [], {
         withWarnings: Boolean(warningsFor),
+        withElectives: Boolean(electivesFor),
         // Dropped on a scoped table, where every row would say the same thing — and back
         // the moment the scope is lifted, because "which cohort is she in" is the whole
         // reason for looking outside it.
         withoutCohort: Boolean(scope) && !everywhere,
       }),
-    [schema.data, warningsFor, scope, everywhere],
+    [schema.data, warningsFor, electivesFor, scope, everywhere],
   );
 
   const [stored, setStored] = useState<StoredPreset>({});
@@ -422,8 +426,9 @@ export function StudentRoster({
         warningsFor,
         crnsOf,
         sectionDays.data?.days ?? {},
+        electivesFor,
       ),
-    [students.data, portalRows, changes, syncedAt, termNames, warningsFor, crnsOf, sectionDays.data],
+    [students.data, portalRows, changes, syncedAt, termNames, warningsFor, crnsOf, sectionDays.data, electivesFor],
   );
   const rows = useMemo(() => {
     /*

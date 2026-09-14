@@ -89,9 +89,7 @@ export type Mismatch = {
   termId: string;
   termCode: string;
   courseCode: string;
-  // outside: registered in a course of no set of the cohort's, not on its allowed list,
-  // and not approved for this student — a decision to make, not a registration to key in
-  kind: "missing" | "wrong" | "extra" | "unplaced" | "doubled" | "collides" | "outside";
+  kind: "missing" | "wrong" | "extra" | "unplaced" | "doubled" | "collides";
   /** The set a `doubled` verdict is about; empty for the verdicts that are about a course. */
   scopeCode?: string;
   /** Every section of this course our blocks give the student — a lecture and a tutorial. */
@@ -633,9 +631,31 @@ export type TermCoverage = {
  * registrar has never been asked about, so the type makes that impossible to do by
  * accident: you have to name the half you want.
  */
+/**
+ * A course a student holds that no set of their cohort teaches: sport, a language another
+ * department runs, a minor.
+ *
+ * Not a `Mismatch`, and that is the whole point of the type. These were warnings for one
+ * afternoon and a cohort where everyone takes sport came out with thirty faults against
+ * it. They are shown as a column and highlighted on the student's record instead.
+ *
+ * `status` says only how routine it is: `allowed` where the cohort's list covers the
+ * course, `approved` where a coordinator signed off this student's own, `open` where
+ * nobody has said anything either way. Nothing is wrong in any of the three.
+ */
+export type Elective = {
+  studentId: string;
+  termId: string;
+  termCode: string;
+  courseCode: string;
+  crns: string[];
+  status: "allowed" | "approved" | "open";
+};
+
 export type RegistrationReport = {
   mismatches: Mismatch[];
   coverage: TermCoverage[];
+  electives: Elective[];
 };
 
 export function fetchRegistrationCheck(cohortId: string): Promise<RegistrationReport> {
@@ -922,7 +942,5 @@ export function describeMismatch(mismatch: Mismatch): string {
     // `scopeCode` carries the slot here — the weekday and the hour the two share.
     case "collides":
       return `${mismatch.courseCode} (${mismatch.expected.join(", ")}) is at the same hour as ${mismatch.registered.join(", ")} — ${mismatch.scopeCode}`;
-    case "outside":
-      return `${mismatch.courseCode}: registered in ${mismatch.registered.join(", ")}, outside our groups and not approved`;
   }
 }

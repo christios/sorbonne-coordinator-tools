@@ -64,6 +64,16 @@ describe("reading the record against the latest pull", () => {
     });
   });
 
+  it("carries the courses outside the cohort's groups, and nothing where none were asked for", () => {
+    const held = new Map([["A001", ["SPAN-601", "SPRT-628"]]]);
+    const rows = studentRows(HELD, PULL, new Map(), SYNCED, {}, () => [], {}, {}, (id) => held.get(id) ?? []);
+
+    expect(rows.find((row) => row.studentId === "A001")?.electives).toEqual(["SPAN-601", "SPRT-628"]);
+    // A student with none, and every student on a page that never asked the register.
+    expect(rows.find((row) => row.studentId === "A002")?.electives).toEqual([]);
+    expect(studentRows(HELD, PULL).every((row) => row.electives.length === 0)).toBe(true);
+  });
+
   it("keeps a student the pull did not return, with no name to show", () => {
     const rows = studentRows([...HELD, student("A999", { status: "not_in_portal" })], PULL);
 

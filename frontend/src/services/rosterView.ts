@@ -53,6 +53,12 @@ export type StudentRow = {
   meets: string[];
   /** Every group token in a fixed order, as one string: students who share it share every class. */
   signature: string;
+  /**
+   * The courses they hold that no set of their cohort teaches — sport, a language another
+   * department runs. A listing, never a warning. Empty off the Cohorts page, where the
+   * register has not been asked.
+   */
+  electives: string[];
 };
 
 export type SortKey = "name" | "studentId" | "yearLevel" | "major" | "status" | "cohortName";
@@ -185,6 +191,8 @@ export function studentRows(
   /** What each group holds, and what the registrar says those meet on. Empty is fine. */
   crnsOf: GroupCrns = {},
   days: Record<string, string[]> = {},
+  /** The courses outside their cohort's sets, listed rather than judged. */
+  electivesFor: (studentId: string) => string[] = () => [],
 ): StudentRow[] {
   const pulled = new Map<string, RosterRow>();
   for (const row of portal) {
@@ -224,6 +232,7 @@ export function studentRows(
       isNew: Boolean(syncedAt) && student.firstSeenAt >= syncedAt,
       changes: changes.get(student.studentId) ?? [],
       warnings: warningsFor(student.studentId),
+      electives: electivesFor(student.studentId),
     };
   });
 }

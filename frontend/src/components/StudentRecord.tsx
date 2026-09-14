@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, ArrowRightCircle, Check, ChevronDown, EyeOff, ShieldCheck, Wand2, X } from "lucide-react";
+import { AlertTriangle, ArrowRightCircle, Check, ChevronDown, EyeOff, GraduationCap, ShieldCheck, Wand2, X } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { CommentThread } from "@/components/CommentThread";
@@ -20,6 +20,7 @@ import {
   type Options,
 } from "@/services/discrepancies";
 import {
+  type Elective,
   type Mismatch,
   describeMismatch,
   fetchActiveCrns,
@@ -305,6 +306,20 @@ export function StudentRecord({
     (mismatch) => mismatch.studentId === row.studentId,
   );
   /*
+   * The courses they take outside their cohort's groups, by CRN.
+   *
+   * Not a fault and not a warning — sport, a language another department runs. The table
+   * below draws them apart from the rest rather than calling them "no group of theirs",
+   * which is true and reads as an accusation.
+   */
+  const theirElectives = (check.data?.electives ?? []).filter((elective) => elective.studentId === row.studentId);
+  const electiveOf = new Map<string, { courseCode: string; status: Elective["status"]; termCode: string }>();
+  for (const elective of theirElectives) {
+    for (const crn of elective.crns) {
+      electiveOf.set(crn, { courseCode: elective.courseCode, status: elective.status, termCode: elective.termCode });
+    }
+  }
+  /*
    * Whether the check actually looked at THIS student, rather than merely not complaining.
    *
    * A student the registrations pull did not return is skipped by the check — deliberately,
@@ -581,7 +596,12 @@ export function StudentRecord({
                 <p className="mb-2 text-xs text-[#98a2b3]">
                   {counted.agree} agree
                   {counted.onlyOurs ? ` · ${counted.onlyOurs} not registered` : ""}
-                  {counted.onlyPortal ? ` · ${counted.onlyPortal} registered that is no group of theirs` : ""}
+                  {counted.onlyPortal - electiveOf.size > 0
+                    ? ` · ${counted.onlyPortal - electiveOf.size} registered that is no group of theirs`
+                    : ""}
+                  {theirElectives.length
+                    ? ` · ${theirElectives.length} elective${theirElectives.length === 1 ? "" : "s"} outside the groups`
+                    : ""}
                 </p>
                 <table className="w-full border-collapse text-sm" aria-label="CRNs">
                   <thead>
@@ -593,21 +613,56 @@ export function StudentRecord({
                     </tr>
                   </thead>
                   <tbody>
-                    {lines.map((line) => (
-                      <tr key={line.crn} className="border-b border-[#f2f4f7] last:border-0 align-top">
+                    {lines.map((line) => {
+                      const elective = electiveOf.get(line.crn);
+                      return (
+                      <tr
+                        key={line.crn}
+                        className={`border-b border-[#f2f4f7] last:border-0 align-top ${elective ? "bg-[#f4f1fb]" : ""}`}
+                      >
                         <td className="py-1.5 pr-3 tabular-nums text-[#344054]">{line.crn}</td>
                         <td className="py-1.5 pr-3">
-                          <span className="text-[#344054]">{line.courseCode}</span>
+                          <span className={elective ? "font-semibold text-[#4b3b8f]" : "text-[#344054]"}>{line.courseCode}</span>
                           {line.title ? <span className="ml-2 text-xs text-[#98a2b3]">{line.title}</span> : null}
                         </td>
                         {/*
                           * A blank on one side is the whole point of the table, so it is
                           * said rather than left empty: an empty cell reads as "not looked
                           * at", and these have been looked at.
+                          *
+                          * An elective is the exception: it is outside our groups by
+                          * nature, so "no group of theirs" would be an accusation about a
+                          * student who has done nothing but take sport. It is named as
+                          * what it is, and the row is tinted to match.
                           */}
                         <td className="py-1.5 pr-3">
                           {line.ours ? (
                             <span className="text-[#344054]">{line.from}</span>
+                          ) : elective ? (
+                            <span className="inline-flex flex-wrap items-center gap-1.5">
+                              <span className="inline-flex items-center gap-1 rounded-full bg-[#e9e3f8] px-2 py-0.5 text-xs font-semibold text-[#4b3b8f]">
+                                <GraduationCap size={11} aria-hidden="true" /> Elective
+                              </span>
+                              {elective.status === "allowed" ? (
+                                <span className="text-xs text-[#667085]">on the cohort&apos;s list</span>
+                              ) : elective.status === "approved" ? (
+                                <span className="inline-flex items-center gap-1 text-xs text-[#2f6b3d]">
+                                  <ShieldCheck size={11} aria-hidden="true" /> approved
+                                </span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  disabled={approve.isPending}
+                                  title={`Record that ${elective.courseCode} is approved for this student`}
+                                  onClick={() =>
+                                    approve.mutate({ termCode: elective.termCode, courseCode: elective.courseCode, on: true })
+                                  }
+                                  className="rounded border border-[#cfc4ea] bg-white px-1.5 py-0.5 text-[11px] font-semibold text-[#4b3b8f] hover:bg-[#f6f3fd]"
+                                >
+                                  Approve
+                                </button>
+                              )}
+                            </span>
                           ) : (
                             <span className="text-[#a6292f]">no group of theirs</span>
                           )}
@@ -622,7 +677,8 @@ export function StudentRecord({
                           )}
                         </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </>
@@ -642,20 +698,6 @@ export function StudentRecord({
                   >
                     <AlertTriangle size={12} className="mt-0.5 shrink-0" aria-hidden="true" />
                     <span className="flex-1">{describeMismatch(warning)}</span>
-                    {/*
-                      * An elective outside the groups is a decision, not a registration to
-                      * key in: approving it here is the whole remedy, and the warning goes.
-                      */}
-                    {warning.kind === "outside" ? (
-                      <button
-                        type="button"
-                        disabled={approve.isPending}
-                        onClick={() => approve.mutate({ termCode: warning.termCode, courseCode: warning.courseCode, on: true })}
-                        className="inline-flex shrink-0 items-center gap-1 rounded border border-[#d9c48a] bg-white px-1.5 py-0.5 text-[11px] font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]"
-                      >
-                        <ShieldCheck size={11} aria-hidden="true" /> Approve
-                      </button>
-                    ) : null}
                   </li>
                 ))}
               </ul>

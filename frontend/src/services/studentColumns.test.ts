@@ -42,7 +42,7 @@ const row = (over: Partial<StudentRow> = {}): StudentRow => ({
   isNew: false,
   changes: [],
   warnings: [],
-  groups: [], sets: [], meets: [], signature: "",
+  groups: [], sets: [], meets: [], signature: "", electives: [],
   ...over,
 });
 
@@ -76,6 +76,16 @@ describe("the columns the portal offers", () => {
     // which is knowledge that lives in the filters rather than in the column picker.
     expect(COLUMNS.find((column) => column.id === "portal:YEARLEVEL_CODE")?.type).toBe("option");
     expect(COLUMNS.find((column) => column.id === "portal:FULL_NAME")?.type).toBe("text");
+  });
+
+  it("offers an Electives column only where the register has been asked", () => {
+    // Off the Cohorts page nobody has asked the registrar, so every row would read empty.
+    expect(buildColumns([], []).map((column) => column.id)).not.toContain("electives");
+    const asked = buildColumns([], [], { withElectives: true });
+    const electives = asked.find((column) => column.id === "electives");
+    expect(electives?.displayName).toBe("Electives");
+    // A list, so it filters to "who is doing Spanish" rather than matching a whole string.
+    expect(electives?.type).toBe("multiOption");
   });
 
   it("still has usable columns before the extension has described the portal", () => {

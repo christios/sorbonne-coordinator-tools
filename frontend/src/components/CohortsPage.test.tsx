@@ -45,6 +45,7 @@ const IS_WITHDRAWN: DiscrepancyRule = { id: "r3", field: "STST_CODE", kind: "is"
 const report = (mismatches: lists.Mismatch[] = [], coverage: lists.TermCoverage[] = []): lists.RegistrationReport => ({
   mismatches,
   coverage,
+  electives: [],
 });
 
 /**
@@ -549,6 +550,36 @@ describe("the register half of the Cohorts page", () => {
     expect(row.getByTitle("MATH-001: not registered in 23223")).toBeTruthy();
     // The student both records agree about carries neither.
     expect(within(rowOf("Karim Nasser")).queryByText(/MATH-001/)).toBeNull();
+  });
+
+  it("lists a course outside the groups as an elective, and never as a warning", async () => {
+    // A student taking sport is not a fault. These were warning pills for one afternoon and
+    // a clean cohort came out with thirty of them, which said nothing anybody could act on.
+    vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue({
+      mismatches: [],
+      coverage: [checked()],
+      electives: [
+        { studentId: "A001", termId: "t1", termCode: "262710", courseCode: "SPAN-601", crns: ["22595"], status: "open" },
+        { studentId: "A001", termId: "t1", termCode: "262710", courseCode: "SPRT-628", crns: ["23352"], status: "allowed" },
+      ],
+    });
+    await twoStudents([MAJOR]);
+
+    renderPage();
+    expect(await screen.findByText("Amira Haddad")).toBeTruthy();
+
+    // On the row, in a column of its own, both of them — routine or not.
+    const row = within(rowOf("Amira Haddad"));
+    expect(row.getByText("SPAN-601 · SPRT-628")).toBeTruthy();
+    /*
+      * And nowhere among the warnings. The row carries the admissions warning it was set
+      * up with, and that one only: no pill out of the register, which is what an elective
+      * would have been.
+      */
+    const pills = [...rowOf("Amira Haddad").querySelectorAll("[data-source]")];
+    expect(pills.map((pill) => (pill as HTMLElement).dataset.source)).toEqual(["record"]);
+    // The student who holds none has an empty cell rather than somebody else's electives.
+    expect(within(rowOf("Karim Nasser")).queryByText(/SPAN-601/)).toBeNull();
   });
 
   it("says which record each warning came out of, so one cannot be read as the other", async () => {

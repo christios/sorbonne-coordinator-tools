@@ -113,6 +113,39 @@ class Mismatch:
         }
 
 
+@dataclass(frozen=True)
+class Elective:
+    """A course a student is registered in that no set of their cohort teaches.
+
+    Not a difference and not a fault, which is why it is not a `Mismatch`. A student may
+    take sport, a language another department runs, or a minor; the platform's groups have
+    nothing to say about any of them. What a coordinator wants is to SEE them — beside the
+    student, on the table and on their record — rather than to be warned about them. They
+    were warnings for one afternoon and read as thirty faults on a clean cohort.
+
+    `status` is only how routine it is: `allowed` where the cohort's list covers the
+    course, `approved` where a coordinator has signed off this student's own, and `open`
+    where neither. Nothing follows from `open` except that nobody has said anything yet.
+    """
+
+    student_id: str
+    term_id: str
+    term_code: str
+    course_code: str
+    crns: list[str]
+    status: str
+
+    def as_payload(self) -> dict[str, Any]:
+        return {
+            "studentId": self.student_id,
+            "termId": self.term_id,
+            "termCode": self.term_code,
+            "courseCode": self.course_code,
+            "crns": self.crns,
+            "status": self.status,
+        }
+
+
 class FacilityWindows(Protocol):
     """Just enough of the registrar's timetable to know when a section runs.
 
@@ -186,6 +219,8 @@ class RegistrationReport:
 
     mismatches: list[Mismatch]
     coverage: list[TermCoverage]
+    # The courses outside our groups altogether, listed rather than judged.
+    electives: list[Elective] = field(default_factory=list)
 
 
 class UnknownDisposition(Exception):
@@ -1913,6 +1948,7 @@ class PortalListStore:
         members = database.cohort_members(cohort_id)
         found: list[Mismatch] = []
         coverage: list[TermCoverage] = []
+        electives: list[Elective] = []
         for term_id in sorted(present | set(links)):
             term_code = links.get(term_id, "")
             # Two sections of one set, before anything about placement is asked.
@@ -2006,8 +2042,8 @@ class PortalListStore:
                     for code in course_codes
                     if code not in excused
                 )
-                found.extend(
-                    _outside(
+                electives.extend(
+                    _electives(
                         student,
                         term_id,
                         term_code,
@@ -2020,6 +2056,7 @@ class PortalListStore:
         return RegistrationReport(
             mismatches=[mismatch for mismatch in found if mismatch is not None],
             coverage=coverage,
+            electives=electives,
         )
 
     def _collided(  # noqa: PLR0913 - one argument per thing the verdict is about
@@ -2250,7 +2287,7 @@ def _judge(  # noqa: PLR0913 - one argument per part of the verdict
     return Mismatch(student, term_id, term_code, code, kind, current, held)
 
 
-def _outside(  # noqa: PLR0913 - one argument per part of the verdict
+def _electives(  # noqa: PLR0913 - one argument per part of the listing
     student: str,
     term_id: str,
     term_code: str,
@@ -2258,26 +2295,28 @@ def _outside(  # noqa: PLR0913 - one argument per part of the verdict
     ours: set[str],
     allowed: list[str],
     approved: set[str],
-) -> list[Mismatch]:
-    """The courses a student is registered in that are nobody's business here — until now.
+) -> list[Elective]:
+    """Every course a student holds that no set of their cohort teaches.
 
     `_judge` only ever asks about the courses of our sets, so a Spanish registration on a
-    student we placed in a French group was never mentioned: the course was in no set, so
-    it was not looked at. That was the gap this closes. Anything registered that is in no
-    set of the cohort, not on the cohort's allowed list, and not approved for this student
-    is an *outside* verdict. The remedy is a decision — approve it on their record, or put
-    the course on the cohort's list — rather than a registration to key in, which is why
-    `registrationChanges` leaves it out of the registrar's worklist.
+    student placed in a French group was never mentioned at all: the course was in no set,
+    so nothing looked at it. This is what fills that silence — but as a LIST, not a verdict.
+    The first version made each one a warning, and a cohort whose every student takes sport
+    came out with thirty faults against it, which is worse than saying nothing.
 
-    A row the pull returned with no course code is named by its CRN, so it is not lost in
-    a blank; it cannot be on anybody's allowed list, and is approved by that same name.
+    So all of them are returned, the routine ones included, each carrying only how routine
+    it is: covered by the cohort's allowed list, approved for this student, or neither.
+
+    A row the pull returned with no course code is named by its CRN, so it is not lost in a
+    blank; it cannot be on anybody's allowed list, and is approved by that same name.
     """
-    found: list[Mismatch] = []
+    found: list[Elective] = []
     for code, crns in sorted(registered.items()):
         name = code or (crns[0] if crns else "")
-        if not name or code in ours or allows(allowed, name) or name in approved:
+        if not name or code in ours:
             continue
-        found.append(Mismatch(student, term_id, term_code, name, "outside", [], sorted(crns)))
+        status = "allowed" if allows(allowed, name) else "approved" if name in approved else "open"
+        found.append(Elective(student, term_id, term_code, name, sorted(crns), status))
     return found
 
 

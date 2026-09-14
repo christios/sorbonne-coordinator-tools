@@ -38,6 +38,7 @@ export function ProposedPlacements({
   const [closed, setClosed] = useState<string>("");
   const [dropped, setDropped] = useState<Set<string>>(new Set());
   const [confirming, setConfirming] = useState(false);
+  const [showAll, setShowAll] = useState(false);
 
   const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, retry: false });
   // Every set of the cohort, whichever semester — to know which semesters have sets at all.
@@ -114,6 +115,16 @@ export function ProposedPlacements({
     return { students: [...students].sort((left, right) => nameOf(left).localeCompare(nameOf(right)) || left.localeCompare(right)), sets, cell };
   }, [walk, scopes, nameOf]);
   const stuck = walk ? walk.steps.flatMap((step) => step.plan.unplaced.map((entry) => ({ scopeCode: step.scopeCode, ...entry }))) : [];
+  /*
+   * Both lists are capped, because neither has a natural size.
+   *
+   * A cohort nobody has placed yet puts every student in every set on this panel: on a
+   * semester whose placements had been wiped it drew nine hundred lines and pushed the
+   * table it sits above off the bottom of the page. What a coordinator needs from the tail
+   * is the count, and the reasons repeat.
+   */
+  const SHOWN = 12;
+  const STUCK_SHOWN = 8;
   const kept = proposed.students.filter((studentId) => !dropped.has(studentId));
 
   const place = useMutation({
@@ -209,7 +220,7 @@ export function ProposedPlacements({
               </tr>
             </thead>
             <tbody>
-              {proposed.students.map((studentId) => {
+              {(showAll ? proposed.students : proposed.students.slice(0, SHOWN)).map((studentId) => {
                 const off = dropped.has(studentId);
                 return (
                   <tr key={studentId} className={`border-b border-[#f2f4f7] last:border-0 ${off ? "text-[#98a2b3]" : ""}`}>
@@ -242,6 +253,15 @@ export function ProposedPlacements({
               })}
             </tbody>
           </table>
+          {proposed.students.length > SHOWN ? (
+            <button
+              type="button"
+              onClick={() => setShowAll((open) => !open)}
+              className="w-full border-t border-[#dfe8f2] px-3 py-1.5 text-left text-xs font-semibold text-[#1f4e79] hover:bg-[#f6f9fc]"
+            >
+              {showAll ? "Show fewer" : `Show all ${proposed.students.length}`}
+            </button>
+          ) : null}
         </div>
       ) : null}
 
@@ -251,12 +271,15 @@ export function ProposedPlacements({
             <AlertTriangle size={13} aria-hidden="true" /> Nowhere to put them, left for a person
           </p>
           <ul className="mt-0.5" aria-label="Left for a person">
-            {stuck.map((entry) => (
+            {stuck.slice(0, STUCK_SHOWN).map((entry) => (
               <li key={`${entry.scopeCode}|${entry.studentId}`}>
                 {entry.scopeCode} · {nameOf(entry.studentId) || entry.studentId} — {entry.why}
               </li>
             ))}
           </ul>
+          {stuck.length > STUCK_SHOWN ? (
+            <p className="mt-0.5">and {stuck.length - STUCK_SHOWN} more, in {[...new Set(stuck.map((entry) => entry.scopeCode))].join(", ")}.</p>
+          ) : null}
         </div>
       ) : null}
 

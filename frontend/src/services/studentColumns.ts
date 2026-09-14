@@ -101,6 +101,13 @@ const DEFAULT_SHOWN = [
   "portal:MAJOR_CODE_DESC",
   "cohortName",
   "groups",
+  // Shown rather than opt-in, unlike Set, Signature and Meets — and deliberately, because
+  // it REPLACES something the table used to show. These courses were warning pills until a
+  // coordinator pointed out that a student taking sport is not a fault; the pills went, and
+  // hiding the column that took their place would have taken the fact off the page
+  // altogether. It costs one column on an existing arrangement, where the pills it stands
+  // in for cost a cell of the Warnings column.
+  "electives",
 ];
 
 /** The columns that are ours rather than the portal's. */
@@ -215,6 +222,24 @@ const SIGNATURE_COLUMN: StudentColumn = {
   defaultWidth: 260,
 };
 
+/**
+ * The courses they take outside their cohort's groups, as a filterable list.
+ *
+ * A column and not a warning: a student may hold sport and a language another department
+ * runs and be entirely correct, and thirty such pills on a clean cohort said only that the
+ * page could not tell right from wrong. Filtering it answers "who is doing Spanish".
+ *
+ * The one column of ours that joins `DEFAULT_SHOWN` — see the note there.
+ */
+const ELECTIVES_COLUMN: StudentColumn = {
+  id: "electives",
+  displayName: "Electives",
+  type: "multiOption",
+  accessor: (row) => row.electives,
+  display: (row) => row.electives.join(" · "),
+  defaultWidth: 200,
+};
+
 const MEETS_COLUMN: StudentColumn = {
   id: "meets",
   displayName: "Meets",
@@ -257,7 +282,11 @@ function portalColumn(column: PortalColumn, filterable: Map<string, PortalField>
 export function buildColumns(
   portalColumns: PortalColumn[],
   fields: PortalField[] = [],
-  { withWarnings = false, withoutCohort = false }: { withWarnings?: boolean; withoutCohort?: boolean } = {},
+  {
+    withWarnings = false,
+    withoutCohort = false,
+    withElectives = false,
+  }: { withWarnings?: boolean; withoutCohort?: boolean; withElectives?: boolean } = {},
 ): StudentColumn[] {
   const filterable = new Map(fields.map((field) => [field.key.toUpperCase(), field]));
   const portal = portalColumns.length ? portalColumns : FALLBACK_COLUMNS;
@@ -266,6 +295,8 @@ export function buildColumns(
   const own = withoutCohort ? OWN_COLUMNS.filter((column) => column.id !== "cohortName") : OWN_COLUMNS;
   const columns = withWarnings ? [own[0], WARNINGS_COLUMN, ...own.slice(1)] : [...own];
   columns.push(SET_COLUMN, SIGNATURE_COLUMN, MEETS_COLUMN);
+  // Only where the register has been asked; elsewhere every row would read empty.
+  if (withElectives) columns.push(ELECTIVES_COLUMN);
   for (const column of portal) {
     if (SKIP_PORTAL_FIELDS.has(column.key.toUpperCase())) continue;
     columns.push(portalColumn(column, filterable));

@@ -868,8 +868,8 @@ def test_the_check_says_where_the_registrar_differs_from_our_groups(client: Test
                 # A001: right lecture, wrong tutorial section
                 {"studentId": "A001", "crn": "22151", "courseCode": "MATH-001"},
                 {"studentId": "A001", "crn": "23653", "courseCode": "MATH-011"},
-                # A002: lecture missing, tutorial right, plus a course in no set of ours —
-                # which is now a verdict of its own rather than nobody's business
+                # A002: lecture missing, tutorial right, plus a course in no set of ours,
+                # which is listed as an elective rather than judged
                 {"studentId": "A002", "crn": "23652", "courseCode": "MATH-011"},
                 {"studentId": "A002", "crn": "23302", "courseCode": "SCEN-101"},
                 # A003: in no group, yet registered in the lecture
@@ -878,27 +878,35 @@ def test_the_check_says_where_the_registrar_differs_from_our_groups(client: Test
         },
     )
 
-    found = client.get(f"{BASE}/cohorts/{cohort_id}/registration-check").json()["mismatches"]
+    answer = client.get(f"{BASE}/cohorts/{cohort_id}/registration-check").json()
 
     assert sorted(
-        (m["studentId"], m["courseCode"], m["kind"], tuple(m["expected"]), tuple(m["registered"])) for m in found
+        (m["studentId"], m["courseCode"], m["kind"], tuple(m["expected"]), tuple(m["registered"]))
+        for m in answer["mismatches"]
     ) == [
         ("A001", "MATH-011", "wrong", ("23652",), ("23653",)),
         ("A002", "MATH-001", "missing", ("22151",), ()),
-        ("A002", "SCEN-101", "outside", (), ("23302",)),
         ("A003", "MATH-001", "unplaced", (), ("22151",)),
+    ]
+    # The course no set of ours teaches is not among them; it is listed separately.
+    assert [(e["studentId"], e["courseCode"], e["crns"], e["status"]) for e in answer["electives"]] == [
+        ("A002", "SCEN-101", ["23302"], "open")
     ]
 
 
-def test_an_elective_outside_our_groups_warns_until_it_is_allowed_or_approved(
+def test_an_elective_outside_our_groups_is_listed_and_never_a_warning(
     client: TestClient, database: StudentDatabase
 ):
     """Emile's Spanish: registered in a course of no set of ours while placed in a French group.
 
-    It never entered the check, because the check only judged the courses of our sets.
-    Now it is an *outside* verdict, and two decisions make it go away: the cohort says the
-    course is always allowed (sport, a language taught elsewhere), or a coordinator approves
-    it for this one student. Both are reversible, and both are checked here both ways.
+    It never entered the check at all, because the check only judged the courses of our
+    sets. Now it is listed — and only listed. It is not a mismatch, it does not reach the
+    Warnings column, and it does not reach the registrar's worklist, because there is
+    nothing to key in: a student may take sport and a language elsewhere and be entirely
+    correct.
+
+    What the cohort's allowed list and a coordinator's approval change is the `status` the
+    line carries, never whether it appears. Both are checked here in both directions.
     """
     cohort_id = build_cohort(database)
     client.put(f"{BASE}/term-links/{HUB_TERM}", json={"portalTermCode": TERM})
@@ -913,13 +921,16 @@ def test_an_elective_outside_our_groups_warns_until_it_is_allowed_or_approved(
         ],
     )
 
-    def verdicts() -> list[tuple[str, str, str]]:
-        found = client.get(f"{BASE}/cohorts/{cohort_id}/registration-check").json()["mismatches"]
-        return sorted((m["studentId"], m["courseCode"], m["kind"]) for m in found)
+    def read() -> tuple[list, list]:
+        answer = client.get(f"{BASE}/cohorts/{cohort_id}/registration-check").json()
+        listed = sorted((e["studentId"], e["courseCode"], e["status"]) for e in answer["electives"])
+        return sorted((m["studentId"], m["courseCode"], m["kind"]) for m in answer["mismatches"]), listed
 
-    assert verdicts() == [("A001", "SPAN-101", "outside")]
+    verdicts, listed = read()
+    # Nothing is wrong with either student, and the Spanish is simply there.
+    assert verdicts == []
+    assert listed == [("A001", "SPAN-101", "open")]
 
-    # The cohort's allowed list: a subject covers every course of it; another subject does not.
     def allow(codes: list[str]) -> None:
         response = client.patch(
             f"/api/v1/student-database/cohorts/{cohort_id}", json={"name": "Foundation Year", "allowedCodes": codes}
@@ -927,28 +938,47 @@ def test_an_elective_outside_our_groups_warns_until_it_is_allowed_or_approved(
         assert response.status_code == status.HTTP_200_OK, response.text
         assert response.json()["allowedCodes"] == codes
 
+    # A subject covers every course of it; another subject does not. Either way it is listed.
     allow(["SPRT"])
-    assert verdicts() == [("A001", "SPAN-101", "outside")]
+    assert read() == ([], [("A001", "SPAN-101", "open")])
     allow(["SPRT", "SPAN"])
-    assert verdicts() == []
+    assert read() == ([], [("A001", "SPAN-101", "allowed")])
     allow(["SPAN-102"])
-    assert verdicts() == [("A001", "SPAN-101", "outside")]
+    assert read() == ([], [("A001", "SPAN-101", "open")])
     allow([])
 
-    # One student's approval, signed, and undone.
+    # One student's approval, signed, and undone. It marks the line, it does not hide it.
     saved = client.put(f"/api/v1/student-database/students/A001/approvals/{TERM}/SPAN-101", json={"note": "Minor"})
     assert saved.status_code == status.HTTP_200_OK, saved.text
     assert saved.json()["courseCode"] == "SPAN-101"
-    assert verdicts() == []
-    listed = client.get("/api/v1/student-database/students/A001/approvals").json()["approvals"]
-    assert [(entry["termCode"], entry["courseCode"], entry["note"]) for entry in listed] == [
+    assert read() == ([], [("A001", "SPAN-101", "approved")])
+    listed_approvals = client.get("/api/v1/student-database/students/A001/approvals").json()["approvals"]
+    assert [(entry["termCode"], entry["courseCode"], entry["note"]) for entry in listed_approvals] == [
         (TERM, "SPAN-101", "Minor")
     ]
-    # A002 has no such approval and no such registration; nothing about them moved.
     gone = client.delete(f"/api/v1/student-database/students/A001/approvals/{TERM}/SPAN-101")
     assert gone.status_code == status.HTTP_204_NO_CONTENT
-    assert verdicts() == [("A001", "SPAN-101", "outside")]
+    assert read() == ([], [("A001", "SPAN-101", "open")])
 
+
+def test_an_elective_carries_its_crns_and_falls_back_to_the_crn_when_unnamed(
+    client: TestClient, database: StudentDatabase
+):
+    """Two sections of one outside course are one line; a row with no course code is named
+    by its CRN rather than vanishing into a blank."""
+    cohort_id = build_cohort(database)
+    client.put(f"{BASE}/term-links/{HUB_TERM}", json={"portalTermCode": TERM})
+    registrations(
+        client,
+        [
+            {"studentId": "A001", "crn": "23900", "courseCode": "SPRT-628"},
+            {"studentId": "A001", "crn": "23901", "courseCode": "SPRT-628"},
+            {"studentId": "A001", "crn": "23902", "courseCode": ""},
+        ],
+    )
+
+    listed = client.get(f"{BASE}/cohorts/{cohort_id}/registration-check").json()["electives"]
+    assert [(e["courseCode"], e["crns"]) for e in listed] == [("23902", ["23902"]), ("SPRT-628", ["23900", "23901"])]
 
 def test_a_pull_that_changes_a_students_registrations_is_written_to_their_history(
     client: TestClient, database: StudentDatabase

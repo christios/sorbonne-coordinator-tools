@@ -669,6 +669,8 @@ async def registration_check(
     return {
         "mismatches": [mismatch.as_payload() for mismatch in report.mismatches],
         "coverage": [term.as_payload() for term in report.coverage],
+        # The courses outside our groups: a listing beside the verdicts, not among them.
+        "electives": [elective.as_payload() for elective in report.electives],
     }
 
 

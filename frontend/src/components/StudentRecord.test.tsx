@@ -28,7 +28,7 @@ const ROW: StudentRow = {
   isNew: false,
   changes: [],
   warnings: [],
-  groups: ["TD 1"], sets: [], meets: [], signature: "TD 1",
+  groups: ["TD 1"], sets: [], meets: [], signature: "TD 1", electives: [],
 };
 
 const COHORT: database.Cohort = {
@@ -46,6 +46,7 @@ const HISTORY: PullHistory = {
 const report = (mismatches: lists.Mismatch[] = [], coverage: lists.TermCoverage[] = []): lists.RegistrationReport => ({
   mismatches,
   coverage,
+  electives: [],
 });
 
 /** A semester the register was fully asked about, with this student among those it saw. */

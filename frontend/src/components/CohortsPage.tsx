@@ -124,7 +124,6 @@ const SAID: Record<Mismatch["kind"], { say: (mismatch: Mismatch) => string; sour
   doubled: { say: (m) => `${m.scopeCode} twice`, source: "registration" },
   // Which of ours, and when — the two things that tell one clash from another.
   collides: { say: (m) => `${m.courseCode} ${m.scopeCode}`, source: "timetabling" },
-  outside: { say: (m) => `${m.courseCode} outside`, source: "registration" },
 };
 
 /**
@@ -149,7 +148,6 @@ function describeKinds(mismatches: Mismatch[]): string {
     unplaced: "registered in a course we have not placed them in",
     doubled: "registered in two groups of one set",
     collides: "in one of our hours and another department's at once",
-    outside: "registered outside our groups and not approved",
   };
   const counted = new Map<Mismatch["kind"], number>();
   for (const mismatch of mismatches) counted.set(mismatch.kind, (counted.get(mismatch.kind) ?? 0) + 1);
@@ -189,7 +187,7 @@ function SourceFilter({
       role="group"
       aria-label="Which warnings to show"
       title="A student flagged by both records is counted under both, so these do not add up"
-      className="inline-flex rounded-md border border-[#d3d9e2] bg-white p-0.5"
+      className="inline-flex gap-1 rounded-md border border-[#d3d9e2] bg-white p-1"
     >
       {options.map(({ id, name, icon: Icon, hint }) => (
         <button
@@ -314,7 +312,7 @@ export function CohortsPage({
       new Map(
         cohorts.map((cohort, index) => [
           cohort.id,
-          (checks[index]?.data ?? { mismatches: [], coverage: [] }) as RegistrationReport,
+          (checks[index]?.data ?? { mismatches: [], coverage: [], electives: [] }) as RegistrationReport,
         ]),
       ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -324,6 +322,29 @@ export function CohortsPage({
     () => new Map([...reportsBy].map(([cohortId, report]) => [cohortId, report.mismatches])),
     [reportsBy],
   );
+  /*
+   * The courses outside our groups, by student, for the Electives column.
+   *
+   * Every cohort's at once and not the chosen one's, for the same reason the warnings are:
+   * the table can be widened to every cohort, and a row from elsewhere must carry its own.
+   * A course taught in two sections is one entry, because the column names courses.
+   */
+  const electivesBy = useMemo(() => {
+    const out = new Map<string, string[]>();
+    for (const report of reportsBy.values()) {
+      // Guarded: a browser holding new code against a server mid-deploy sees no field.
+      for (const elective of report.electives ?? []) {
+        const held = out.get(elective.studentId) ?? [];
+        if (!held.includes(elective.courseCode)) held.push(elective.courseCode);
+        out.set(elective.studentId, held);
+      }
+    }
+    for (const [studentId, codes] of out) {
+      out.set(studentId, [...codes].sort((left, right) => left.localeCompare(right, undefined, { numeric: true })));
+    }
+    return out;
+  }, [reportsBy]);
+  const electivesFor = useCallback((studentId: string) => electivesBy.get(studentId) ?? [], [electivesBy]);
   /*
    * The semesters' names, when the Student Hub can be reached.
    *
@@ -856,6 +877,7 @@ export function CohortsPage({
           scope={{ cohortId }}
           everywhere={everywhere}
           warningsFor={warningsFor}
+          electivesFor={electivesFor}
           onDismissWarning={onDismissWarning}
           defaultSort={{ key: "warnings", ascending: false }}
         />
