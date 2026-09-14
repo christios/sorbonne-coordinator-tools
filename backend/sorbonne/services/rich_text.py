@@ -34,22 +34,50 @@ class Piece:
     italic: bool = False
 
 
+BULLETS = ("•", "◦", "▪")
+
+
+def _roman(value: int) -> str:
+    numerals = ((10, "x"), (9, "ix"), (5, "v"), (4, "iv"), (1, "i"))
+    written = ""
+    for size, numeral in numerals:
+        while value >= size:
+            written += numeral
+            value -= size
+    return written
+
+
 @dataclass
 class Block:
-    """One paragraph of the value: its pieces, and what kind of paragraph it is."""
+    """One paragraph of the value: its pieces, what kind it is, and how deeply nested."""
 
     pieces: list[Piece] = field(default_factory=list)
-    kind: str = "paragraph"  # paragraph | heading | bullet | number
+    kind: str = "paragraph"  # paragraph | heading | subheading | bullet | number
     number: int = 0
+    level: int = 0
+    numbering: str = "1"
+
+    @property
+    def marker(self) -> str:
+        """What a list item is written with — a bullet for its depth, or its number."""
+        if self.kind == "bullet":
+            return BULLETS[min(self.level, len(BULLETS) - 1)]
+        if self.kind != "number":
+            return ""
+        if self.numbering == "a":
+            return f"{chr(ord('a') + (self.number - 1) % 26)}."
+        if self.numbering == "i":
+            return f"{_roman(self.number)}."
+        return f"{self.number}."
 
     @property
     def text(self) -> str:
         written = "".join(piece.text for piece in self.pieces).strip()
-        if self.kind == "bullet":
-            return f"• {written}" if written else ""
-        if self.kind == "number":
-            return f"{self.number}. {written}" if written else ""
-        return written
+        if not written:
+            return ""
+        marker = self.marker
+        indent = "    " * self.level
+        return f"{indent}{marker} {written}" if marker else written
 
 
 class _Reader(HTMLParser):
@@ -61,13 +89,15 @@ class _Reader(HTMLParser):
         self._italic = 0
         self._lists: list[str] = []
         self._counts: list[int] = []
+        self._numberings: list[str] = []
 
     def _close(self) -> None:
         if self._current.pieces:
             self.blocks.append(self._current)
         self._current = Block()
 
-    def handle_starttag(self, tag: str, _attrs: list[tuple[str, str | None]]) -> None:
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        _attrs = attrs
         if tag in {"strong", "b"}:
             self._bold += 1
         elif tag in {"em", "i"}:
@@ -76,16 +106,20 @@ class _Reader(HTMLParser):
             self._close()
             self._lists.append(tag)
             self._counts.append(0)
+            self._numberings.append(dict(_attrs).get("type") or "1")
         elif tag == "li":
             self._close()
+            self._current.level = max(0, len(self._lists) - 1)
             if self._lists and self._lists[-1] == "ol":
                 self._counts[-1] += 1
-                self._current.kind, self._current.number = "number", self._counts[-1]
+                self._current.kind = "number"
+                self._current.number = self._counts[-1]
+                self._current.numbering = self._numberings[-1]
             else:
                 self._current.kind = "bullet"
         elif tag in HEADINGS:
             self._close()
-            self._current.kind = "heading"
+            self._current.kind = "subheading" if tag in {"h4", "h5", "h6"} else "heading"
         elif tag in {"p", "div", "br"}:
             self._close()
 
@@ -99,6 +133,7 @@ class _Reader(HTMLParser):
             if self._lists:
                 self._lists.pop()
                 self._counts.pop()
+                self._numberings.pop()
         elif tag in {"li", "p", "div", *HEADINGS}:
             self._close()
 

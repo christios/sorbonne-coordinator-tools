@@ -1675,20 +1675,15 @@ function RowsEditor({
   );
 }
 
-function shouldUseMultiline(key: string, value: string) {
-  return (
-    value.length > 90 ||
-    [
-      "activities",
-      "preClass",
-      "assessments",
-      "clos",
-      "skills",
-      "criteria",
-      "meets",
-      "exceeds",
-    ].includes(key)
-  );
+/**
+ * Which of a row's columns are genuinely written at length.
+ *
+ * Not a course outcome, which is a sentence: it used to flip to a three-row box the moment
+ * it passed ninety characters, and a box that size invites a paragraph where the template
+ * wants a sentence. It gets a line that grows to fit instead.
+ */
+function shouldUseMultiline(key: string, _value: string) {
+  return ["activities", "preClass", "assessments", "criteria", "meets", "exceeds"].includes(key);
 }
 function rowIdentity(row: Row, columns: string[][]) {
   const preferredKeys = [

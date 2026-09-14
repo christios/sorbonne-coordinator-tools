@@ -9,6 +9,7 @@ import re
 from typing import Any, Callable
 
 from docx import Document
+from docx.shared import Inches
 from docx.table import _Cell, Table
 
 from sorbonne.services import rich_text
@@ -311,13 +312,16 @@ def _set_topic_cell(cell: _Cell, source: dict[str, Any]) -> None:
 
     for block in written:
         target = paragraph if not paragraph.runs and not topic else cell.add_paragraph()
-        prefix = "\u2022 " if block.kind == "bullet" else f"{block.number}. " if block.kind == "number" else ""
         pieces = list(block.pieces)
-        if prefix:
-            pieces.insert(0, rich_text.Piece(prefix))
-        if block.kind == "heading":
+        if block.marker:
+            pieces.insert(0, rich_text.Piece(f"{block.marker} "))
+        if block.kind in {"heading", "subheading"}:
             pieces = [rich_text.Piece(piece.text, bold=True, italic=piece.italic) for piece in pieces]
         _write_pieces(target, pieces, style)
+        # A list nested inside another is stepped in, rather than being told apart by its
+        # marker alone — which in a narrow table column is no way to tell it apart at all.
+        if block.level:
+            target.paragraph_format.left_indent = Inches(0.25 * block.level)
 
 
 def _write_pieces(paragraph: Any, pieces: list[rich_text.Piece], style: Any) -> None:

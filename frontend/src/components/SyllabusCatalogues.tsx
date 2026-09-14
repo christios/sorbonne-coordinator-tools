@@ -141,7 +141,7 @@ function PloCatalogue({ programme }: { programme: CatalogueEntry }) {
 function PloForm({ programme, entry, onCancel, onSaved }: { programme: CatalogueEntry; entry?: CatalogueEntry; onCancel: () => void; onSaved: () => void }) {
   const client = useQueryClient(); const payload = entry?.payload ?? {}; const [code, setCode] = useState(stringValue(payload.code)); const [outcome, setOutcome] = useState(stringValue(payload.outcome));
   const save = useMutation({ mutationFn: () => { const input: CatalogueEntryInput = { label: code.trim() || "PLO", parentId: programme.id, sortOrder: entry?.sortOrder, payload: { code: code.trim(), outcome: outcome.trim() } }; return entry ? updateCatalogueEntry("plos", entry.id, { ...input, expectedRevision: entry.revision }) : createCatalogueEntry("plos", input); }, onSuccess: () => { void client.invalidateQueries({ queryKey: ["syllabus-catalogues", "plos"] }); onSaved(); } });
-  return <form onSubmit={(event) => { event.preventDefault(); if (outcome.trim()) save.mutate(); }} className="mt-5 grid gap-4 rounded-lg border border-[#cbd5e1] bg-[#f8fafc] p-4"><Field label="PLO code"><input required value={code} onChange={(event) => setCode(event.target.value)} placeholder="e.g. PLO 1" className={inputClass} /></Field><Field label="Programme learning outcome"><AutoResizeTextarea required minRows={3} value={outcome} onChange={(event) => setOutcome(event.target.value)} className={textareaClass} /></Field><FormActions isSaving={save.isPending} error={save.error} onCancel={onCancel} submitLabel={entry ? "Save PLO" : "Add PLO"} /></form>;
+  return <form onSubmit={(event) => { event.preventDefault(); if (outcome.trim()) save.mutate(); }} className="mt-5 grid gap-4 rounded-lg border border-[#cbd5e1] bg-[#f8fafc] p-4"><Field label="PLO code"><input required value={code} onChange={(event) => setCode(event.target.value)} placeholder="e.g. PLO 1" className={inputClass} /></Field><Field label="Programme learning outcome"><AutoResizeTextarea required minRows={1} value={outcome} onChange={(event) => setOutcome(event.target.value)} className={textareaClass} /></Field><FormActions isSaving={save.isPending} error={save.error} onCancel={onCancel} submitLabel={entry ? "Save PLO" : "Add PLO"} /></form>;
 }
 
 function TeachingPresetsCatalogue() {
@@ -294,7 +294,7 @@ function CompetencyForm({ category, entry, entries, onCancel, onSaved }: { categ
     <Field label="Code" hint={entry ? "Assigned when it was added" : "Assigned automatically"}>
       <p className="w-fit rounded-full bg-[#e8edf3] px-3 py-1 text-sm font-semibold text-[#1f4e79]">{code}</p>
     </Field>
-    <Field label="Competency"><AutoResizeTextarea autoFocus required minRows={2} value={outcome} onChange={(event) => setOutcome(event.target.value)} className={textareaClass} /></Field>
+    <Field label="Competency"><AutoResizeTextarea autoFocus required minRows={1} value={outcome} onChange={(event) => setOutcome(event.target.value)} className={textareaClass} /></Field>
     <FormActions isSaving={save.isPending} error={save.error} onCancel={onCancel} submitLabel={entry ? "Save changes" : "Add to catalogue"} />
   </form>;
 }

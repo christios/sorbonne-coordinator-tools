@@ -42,6 +42,13 @@ type Props = {
    * wrapping is it fitting the text, not the text becoming a paragraph.
    */
   grow?: boolean;
+  /**
+   * Take the whole height of the cell rather than the height of what is written.
+   *
+   * For a box standing beside a taller one, where two ragged edges look like a mistake.
+   * It grows no further on its own, so the text scrolls inside it once the cell is full.
+   */
+  fill?: boolean;
   /** Guidance shown behind the info button instead of a paragraph on the page. */
   hint?: string;
   /** Where the value comes from, shown in grey beside the label. */
@@ -65,6 +72,7 @@ export function HistoryTextField({
   inputClassName = "",
   size = "full",
   grow = false,
+  fill = false,
   hint,
   source,
 }: Props) {
@@ -82,13 +90,13 @@ export function HistoryTextField({
 
   return (
     <label
-      className={`grid content-start gap-1 text-sm font-medium text-[#344054] ${fieldSizeClass[size]} ${className}`}
+      className={`grid gap-1 text-sm font-medium text-[#344054] ${fill ? "h-full grid-rows-[auto_minmax(0,1fr)]" : "content-start"} ${fieldSizeClass[size]} ${className}`}
     >
       <FormFieldLabel className="sm:whitespace-nowrap" fieldKey={history?.field.path} hint={hint} source={source}>
         {label}
       </FormFieldLabel>
       <div
-        className={`relative w-full leading-none ${multiline || wraps ? "" : "h-10"}`}
+        className={`relative w-full leading-none ${fill ? "h-full" : ""} ${multiline || wraps ? "" : "h-10"}`}
       >
         {wraps ? (
           <AutoResizeTextarea

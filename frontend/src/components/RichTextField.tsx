@@ -1,4 +1,13 @@
-import { Bold, Heading, Italic, List, ListOrdered } from "lucide-react";
+import {
+  Bold,
+  Heading1,
+  Heading2,
+  Indent,
+  Italic,
+  List,
+  ListOrdered,
+  Outdent,
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { FieldHistoryControl, type HistoryField } from "@/components/FieldHistory";
@@ -13,13 +22,8 @@ type Props = {
   history?: { field: HistoryField; onOpenHistory: (field: HistoryField) => void };
 };
 
-const tools = [
-  { command: "bold", label: "Bold", icon: Bold },
-  { command: "italic", label: "Italic", icon: Italic },
-  { command: "formatBlock", argument: "<h3>", label: "Heading", icon: Heading },
-  { command: "insertUnorderedList", label: "Bulleted list", icon: List },
-  { command: "insertOrderedList", label: "Numbered list", icon: ListOrdered },
-] as const;
+/** 1, then a, then i, and round again — the three a numbered list is usually written in. */
+const NUMBERINGS = ["1", "a", "i"] as const;
 
 /**
  * A box for writing a session out properly: headings, emphasis and lists.
@@ -53,7 +57,7 @@ export function RichTextField({ label, value, onChange, hint, history }: Props) 
     onChange(html);
   };
 
-  const apply = (command: string, argument?: string) => {
+  const run = (command: string, argument?: string) => {
     editor.current?.focus();
     // Left to itself the browser writes emphasis as an inline style on a span, which is
     // exactly the kind of markup a pasted value is stripped of — so the bold vanished on
@@ -63,15 +67,49 @@ export function RichTextField({ label, value, onChange, hint, history }: Props) 
     publish();
   };
 
+  /** A heading button is a switch: pressed on a heading of its own level, it turns it off. */
+  const toggleHeading = (tag: "h3" | "h4") => {
+    const current = document.queryCommandValue("formatBlock").toLowerCase();
+    run("formatBlock", current === tag ? "<p>" : `<${tag}>`);
+  };
+
+  /** Cycle the list the caret is in through the ways a numbered list is written. */
+  const cycleNumbering = () => {
+    const element = editor.current;
+    const anchor = window.getSelection()?.anchorNode;
+    const list =
+      anchor && element?.contains(anchor)
+        ? (anchor instanceof Element ? anchor : anchor.parentElement)?.closest("ol")
+        : null;
+    if (!list) {
+      run("insertOrderedList");
+      return;
+    }
+    const next = NUMBERINGS[(NUMBERINGS.indexOf((list.getAttribute("type") ?? "1") as never) + 1) % NUMBERINGS.length];
+    list.setAttribute("type", next);
+    publish();
+  };
+
+  const tools = [
+    { label: "Bold", icon: Bold, act: () => run("bold") },
+    { label: "Italic", icon: Italic, act: () => run("italic") },
+    { label: "Heading", icon: Heading1, act: () => toggleHeading("h3") },
+    { label: "Subheading", icon: Heading2, act: () => toggleHeading("h4") },
+    { label: "Bulleted list", icon: List, act: () => run("insertUnorderedList") },
+    { label: "Numbered list — press again for a, then i", icon: ListOrdered, act: cycleNumbering },
+    { label: "Indent, to nest a list inside another", icon: Indent, act: () => run("indent") },
+    { label: "Outdent", icon: Outdent, act: () => run("outdent") },
+  ];
+
   return (
-    <label className="grid w-full grid-cols-[minmax(0,1fr)] content-start gap-1 text-sm font-medium text-[#344054]">
+    <label className="grid h-full w-full grid-cols-[minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)] gap-1 text-sm font-medium text-[#344054]">
       <FormFieldLabel hint={hint} fieldKey={history?.field.path}>
         {label}
       </FormFieldLabel>
       <div
-        className={`relative rounded-md border ${focused ? "border-[#1f4e79] ring-2 ring-[#d7e5f3]" : "border-[#b7bec8]"}`}
+        className={`relative flex h-full min-h-40 flex-col rounded-md border ${focused ? "border-[#1f4e79] ring-2 ring-[#d7e5f3]" : "border-[#b7bec8]"}`}
       >
-        <div className="flex flex-wrap items-center gap-1 border-b border-[#e5e7eb] px-2 py-1.5">
+        <div className="flex flex-wrap items-center gap-1 border-b border-[#e5e7eb] px-2 py-1.5 pr-10">
           {tools.map((tool) => (
             <button
               key={tool.label}
@@ -80,7 +118,7 @@ export function RichTextField({ label, value, onChange, hint, history }: Props) 
               aria-label={tool.label}
               // The button must not take focus, or the selection it is meant to act on is lost.
               onMouseDown={(event) => event.preventDefault()}
-              onClick={() => apply(tool.command, "argument" in tool ? tool.argument : undefined)}
+              onClick={tool.act}
               className="rounded p-1.5 text-[#475467] hover:bg-[#f2f7fb] hover:text-[#1f4e79]"
             >
               <tool.icon size={16} />
@@ -97,13 +135,20 @@ export function RichTextField({ label, value, onChange, hint, history }: Props) 
           onInput={publish}
           onBlur={() => { setFocused(false); publish(); }}
           onFocus={() => setFocused(true)}
+          // Tab nests a list item rather than leaving the box, which is what it does in
+          // every other editor a professor has written a list in.
+          onKeyDown={(event) => {
+            if (event.key !== "Tab") return;
+            event.preventDefault();
+            run(event.shiftKey ? "outdent" : "indent");
+          }}
           // A paste carries the styling of wherever it came from; take the words only.
           onPaste={(event) => {
             event.preventDefault();
             document.execCommand("insertText", false, event.clipboardData.getData("text/plain"));
             publish();
           }}
-          className="prose-syllabus min-h-24 w-full px-3 py-2 font-normal leading-6 text-[#344054] outline-none [&_h3]:mb-1 [&_h3]:mt-2 [&_h3]:font-semibold [&_li]:ml-1 [&_ol]:list-decimal [&_ol]:pl-6 [&_p]:min-h-6 [&_ul]:list-disc [&_ul]:pl-6"
+          className="min-h-24 w-full flex-1 overflow-y-auto px-3 py-2 font-normal leading-6 text-[#344054] outline-none [&_h3]:mb-1 [&_h3]:mt-2 [&_h3]:text-base [&_h3]:font-semibold [&_h4]:mb-1 [&_h4]:mt-2 [&_h4]:font-semibold [&_li]:ml-1 [&_ol]:list-decimal [&_ol]:pl-6 [&_ol[type=a]]:list-[lower-alpha] [&_ol[type=i]]:list-[lower-roman] [&_p]:min-h-6 [&_ul]:list-disc [&_ul]:pl-6 [&_ul_ul]:list-[circle] [&_ul_ul_ul]:list-[square]"
         />
         {history ? (
           <div className="absolute right-2 top-2">

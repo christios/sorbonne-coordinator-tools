@@ -4,7 +4,9 @@ import { useEffect, useState } from "react";
 
 import { CollapsibleEntryCard } from "@/components/CollapsibleEntryCard";
 import { SelectMenu } from "@/components/SelectMenu";
+import { FieldHistoryControl } from "@/components/FieldHistory";
 import { FieldRow } from "@/components/FieldRow";
+import { FormFieldLabel } from "@/components/FormFieldLabel";
 import { RichTextField } from "@/components/RichTextField";
 import { SyllabusField } from "@/components/SyllabusField";
 import { fieldSizeClass, type FieldSize } from "@/components/fieldSize";
@@ -43,6 +45,39 @@ export function weekProblem(value: string): string {
 export function deadlineForWeek(week: string): string {
   const text = week.trim();
   return /^\d+$/.test(text) ? `End of week ${text}` : "";
+}
+
+
+/** The weeks this schedule actually teaches, in order, each said once. */
+function weeksTaught(rows: ScheduleRow[]): string[] {
+  const seen = new Set<string>();
+  rows.forEach((row) => {
+    const week = (row.week ?? "").trim();
+    if (/^\d+$/.test(week)) seen.add(week);
+  });
+  return [...seen].sort((left, right) => Number(left) - Number(right));
+}
+
+function weekDeadlineOptions(weeks: string[], current: string) {
+  const options = weeks.map((week) => ({ value: deadlineForWeek(week), label: deadlineForWeek(week) }));
+  // Whatever the row already says stays on offer, even if its week has since been changed.
+  return current && !options.some((option) => option.value === current)
+    ? [{ value: current, label: current }, ...options]
+    : options;
+}
+
+/**
+ * Which shape this row's deadline is in.
+ *
+ * Chosen deliberately once anyone touches the toggle; until then it is read from the value,
+ * so a deadline already written as a week keeps offering weeks.
+ */
+function deadlineMode(row: ScheduleRow, weeks: string[]): "week" | "text" {
+  const chosen = row.deadlineMode;
+  if (chosen === "week" || chosen === "text") return chosen;
+  const value = (row.deadline ?? "").trim();
+  if (!value) return "week";
+  return weeks.some((week) => deadlineForWeek(week) === value) ? "week" : "text";
 }
 
 
@@ -96,6 +131,7 @@ export function ScheduleEditor({
         ? current.filter((item) => item !== id)
         : [...current, id],
     );
+  const weeksInUse = weeksTaught(rows);
   const sessionNumbers = new Map<string, number>();
   const counts = new Map<string, number>();
   for (const row of rows) {
@@ -290,25 +326,53 @@ export function ScheduleEditor({
                       );
                     }
                     if (field.key === "deadline") {
-                      const suggestion = deadlineForWeek(row.week ?? "");
+                      const byWeek = deadlineMode(row, weeksInUse) === "week";
                       return (
                         <div key={field.key} className={fieldSizeClass[field.size ?? "full"]}>
-                          <HistoryTextField
-                            label={field.label}
-                            value={value}
-                            onChange={(next) => updateRow(row.id, field.key, next)}
-                            grow
-                            history={{ field: historyField, onOpenHistory }}
-                          />
-                          {!value.trim() && suggestion ? (
-                            <button
-                              type="button"
-                              onClick={() => updateRow(row.id, field.key, suggestion)}
-                              className="mt-1 text-left text-sm font-semibold text-[#1f4e79] hover:underline"
-                            >
-                              Use &ldquo;{suggestion}&rdquo;
-                            </button>
-                          ) : null}
+                          <div className="grid content-start gap-1 text-sm font-medium text-[#344054]">
+                            <span className="flex flex-wrap items-center justify-between gap-2">
+                              <FormFieldLabel
+                                fieldKey={historyField.path}
+                                hint="Most deadlines fall at the end of a week this course already teaches, so the weeks in the schedule are offered. Anything that does not — “Before the field trip” — is written out instead."
+                              >
+                                {field.label}
+                              </FormFieldLabel>
+                              {/* The two shapes a deadline takes, rather than one box asked to be both. */}
+                              <span className="inline-flex shrink-0 rounded-md border border-[#b7bec8] bg-white p-0.5">
+                                {([["week", "A week"], ["text", "Free text"]] as const).map(([mode, modeLabel]) => (
+                                  <button
+                                    key={mode}
+                                    type="button"
+                                    aria-pressed={byWeek === (mode === "week")}
+                                    onClick={() => updateRow(row.id, "deadlineMode", mode)}
+                                    className={`rounded px-2 py-0.5 text-xs font-semibold ${byWeek === (mode === "week") ? "bg-[#1f4e79] text-white" : "text-[#1f4e79] hover:bg-[#f2f7fb]"}`}
+                                  >
+                                    {modeLabel}
+                                  </button>
+                                ))}
+                              </span>
+                            </span>
+                            {byWeek ? (
+                              <SelectMenu
+                                label={`Session ${sessionNumbers.get(row.id) ?? index + 1} deadline week`}
+                                value={value}
+                                onChange={(next) => updateRow(row.id, field.key, next)}
+                                wrap
+                                placeholder={weeksInUse.length ? "Choose a week" : "No weeks set on this schedule yet"}
+                                options={weekDeadlineOptions(weeksInUse, value)}
+                                trailing={<FieldHistoryControl field={historyField} onOpenSidebar={onOpenHistory} />}
+                              />
+                            ) : (
+                              <HistoryTextField
+                                label={field.label}
+                                value={value}
+                                onChange={(next) => updateRow(row.id, field.key, next)}
+                                grow
+                                className="[&>span:first-child]:hidden"
+                                history={{ field: historyField, onOpenHistory }}
+                              />
+                            )}
+                          </div>
                         </div>
                       );
                     }
@@ -326,36 +390,39 @@ export function ScheduleEditor({
                     );
                   })}
                   </FieldRow>
-                  {/* What the session is about, at length; then the two shorter answers
-                      about it, which are read against each other and so sit together. */}
-                  <RichTextField
-                    label="Session details"
-                    value={row.details ?? ""}
-                    onChange={(next) => updateRow(row.id, "details", next)}
-                    hint="Write the session out as you would for a student: headings for its parts, a list where it is a list. The formatting carries into the exported document."
-                    history={{
-                      field: { path: `schedule[${row.id}].details`, label: "Course schedule · Session details" },
-                      onOpenHistory,
-                    }}
-                  />
+                  {/* The session written out, with the two shorter answers about it stacked
+                      alongside rather than underneath: all three are read together. */}
                   <div className="grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-2">
-                    {(["preClass", "assessments"] as const).map((key) => (
-                      <HistoryTextField
-                        key={key}
-                        label={fields.find((field) => field.key === key)?.label ?? key}
-                        value={row[key] ?? ""}
-                        onChange={(next) => updateRow(row.id, key, next)}
-                        multiline
-                        minRows={3}
-                        history={{
-                          field: {
-                            path: `schedule[${row.id}].${key}`,
-                            label: `Course schedule · ${fields.find((field) => field.key === key)?.label ?? key}`,
-                          },
-                          onOpenHistory,
-                        }}
-                      />
-                    ))}
+                    <RichTextField
+                      label="Session details"
+                      value={row.details ?? ""}
+                      onChange={(next) => updateRow(row.id, "details", next)}
+                      hint="Write the session out as you would for a student: headings for its parts, a list where it is a list. The formatting carries into the exported document."
+                      history={{
+                        field: { path: `schedule[${row.id}].details`, label: "Course schedule · Session details" },
+                        onOpenHistory,
+                      }}
+                    />
+                    <div className="grid grid-cols-[minmax(0,1fr)] grid-rows-2 gap-4">
+                      {(["preClass", "assessments"] as const).map((key) => (
+                        <HistoryTextField
+                          key={key}
+                          label={fields.find((field) => field.key === key)?.label ?? key}
+                          value={row[key] ?? ""}
+                          onChange={(next) => updateRow(row.id, key, next)}
+                          multiline
+                          fill
+                          minRows={3}
+                          history={{
+                            field: {
+                              path: `schedule[${row.id}].${key}`,
+                              label: `Course schedule · ${fields.find((field) => field.key === key)?.label ?? key}`,
+                            },
+                            onOpenHistory,
+                          }}
+                        />
+                      ))}
+                    </div>
                   </div>
                 </div>
               </CollapsibleEntryCard>
