@@ -15,7 +15,8 @@
 export type Placement = {
   scope: { id: string; code: string };
   group?: { label: string };
-  crns: { courseCode: string; crn: string }[];
+  /** `courseName` is what our own set calls the course; the label when the registrar has no row. */
+  crns: { courseCode: string; crn: string; courseName?: string }[];
 };
 
 export type Registration = { crn: string; courseCode: string; title: string; status: string };
@@ -24,7 +25,11 @@ export type Registration = { crn: string; courseCode: string; title: string; sta
 export type Line = {
   crn: string;
   courseCode: string;
-  /** The registrar's name for the section, when it is the registrar that has it. */
+  /**
+   * The registrar's name for the section when the registrar has this student in it;
+   * otherwise our own name for the course, so a row that says "not registered" still
+   * says what it is.
+   */
   title: string;
   /** "CM 1" — the group of ours that stands for this CRN, when one does. */
   from: string;
@@ -41,7 +46,7 @@ export function fromGroups(placements: Placement[]): Line[] {
       lines.push({
         crn: cell.crn,
         courseCode: cell.courseCode,
-        title: "",
+        title: cell.courseName ?? "",
         from: `${placement.scope.code} ${placement.group?.label ?? "?"}`.trim(),
         ours: true,
         portal: false,
@@ -80,7 +85,8 @@ export function reconcile(placements: Placement[], registrations: Registration[]
     const already = held.get(line.crn);
     if (already) {
       already.portal = true;
-      already.title = line.title;
+      // The registrar's name for the section wins; ours stands only where theirs is blank.
+      already.title = line.title || already.title;
       // The registrar's course code where ours is silent; ours is the one that decided.
       already.courseCode = already.courseCode || line.courseCode;
     } else {

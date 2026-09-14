@@ -165,6 +165,7 @@ async def read_publication(  # noqa: PLR0913 - one dependency per record it read
                     course_codes=cohort["courseCodes"],
                     assignments=_assignments(cohort),
                     scope_programs=cohort.get("scopePrograms"),
+                    course_programs=cohort.get("coursePrograms"),
                 ),
                 # A warning rather than a blocker: the timetable is what it is, and the
                 # coordinator may well know. But it must be said where the placing happens.

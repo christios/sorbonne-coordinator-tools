@@ -7,7 +7,9 @@ import { CohortsPage } from "@/components/CohortsPage";
 import * as lists from "@/services/portalLists";
 import { forgetHistory, recordPull } from "@/services/pullHistory";
 import { forgetRosters, rememberPull } from "@/services/rosterStore";
+import { clearRun } from "@/services/syncRun";
 import * as rosters from "@/services/scenRosters";
+import * as comments from "@/services/studentComments";
 import * as database from "@/services/studentDatabase";
 import type { Cohort, DiscrepancyRule, Student } from "@/services/studentDatabase";
 
@@ -91,6 +93,8 @@ beforeEach(async () => {
   // network, fail, and put every check in error — which switches the registration prune
   // off, so a test about pruning would pass without the prune ever running.
   vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue(report([], [checked()]));
+  vi.spyOn(comments, "fetchCommentSummary").mockResolvedValue({});
+  vi.spyOn(comments, "fetchComments").mockResolvedValue([]);
   vi.spyOn(rosters, "fetchSchema").mockResolvedValue({
     ok: true,
     source: "built-in",
@@ -562,27 +566,34 @@ describe("the register half of the Cohorts page", () => {
     );
   });
 
-  it("shows one record at a time when asked, counting the students in each", async () => {
+  it("shows any combination of the records, counting the students in each", async () => {
     vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue(report([mismatch({ studentId: "A002" })], [checked()]));
     await twoStudents([MAJOR]);
 
     renderPage();
     await screen.findByTitle("MATH-001: not registered in 23223");
 
-    // One student flagged by each record, two between them.
-    expect(screen.getByRole("button", { name: "All 2" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Admissions 1" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Register 1" })).toBeTruthy();
+    // One student flagged by each record; all three records on to begin with, no "All".
+    const admissions = screen.getByRole("button", { name: "Admissions 1" });
+    const register = screen.getByRole("button", { name: "Register 1" });
+    expect(screen.getByRole("button", { name: "Timetabling 0" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^All / })).toBeNull();
+    expect(admissions.getAttribute("aria-pressed")).toBe("true");
+    expect(register.getAttribute("aria-pressed")).toBe("true");
 
-    fireEvent.click(screen.getByRole("button", { name: "Register 1" }));
-
+    // Turn admissions off: the register's warning stays, the admissions one goes.
+    fireEvent.click(admissions);
     await waitFor(() => expect(screen.queryByTitle(/major is Physics, cohort expects/)).toBeNull());
     expect(screen.getByTitle("MATH-001: not registered in 23223")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Admissions 1" }));
-
+    // Turn the register off too: nothing is shown, which is what nothing chosen means.
+    fireEvent.click(register);
     await waitFor(() => expect(screen.queryByTitle("MATH-001: not registered in 23223")).toBeNull());
-    expect(screen.getByTitle(/major is Physics, cohort expects/)).toBeTruthy();
+
+    // And back on, in any order.
+    fireEvent.click(admissions);
+    expect(await screen.findByTitle(/major is Physics, cohort expects/)).toBeTruthy();
+    expect(screen.queryByTitle("MATH-001: not registered in 23223")).toBeNull();
   });
 
   it("puts a withdrawal above any number of registration differences", async () => {
@@ -958,7 +969,7 @@ describe("three records, three kinds of trouble", () => {
     expect(screen.getByTitle(/major is Physics, cohort expects/)).toBeTruthy();
   });
 
-  it("narrows to one record at a time, timetabling included", async () => {
+  it("narrows to timetabling alone by turning the other two off", async () => {
     vi.spyOn(database, "fetchStudents").mockResolvedValue([student("A001", "c1"), student("A002", "c1")]);
     vi.spyOn(database, "fetchDiscrepancyRules").mockResolvedValue([MAJOR]);
     vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue(
@@ -970,10 +981,12 @@ describe("three records, three kinds of trouble", () => {
     ]);
 
     renderPage();
-    fireEvent.click(await screen.findByRole("button", { name: /Timetabling/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /Admissions/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Register/ }));
 
+    expect(screen.getByRole("button", { name: /Timetabling/ }).getAttribute("aria-pressed")).toBe("true");
     expect(await screen.findByText(/MATH-001/)).toBeTruthy();
-    expect(screen.queryByText("major: Physics")).toBeNull();
+    await waitFor(() => expect(screen.queryByText("major: Physics")).toBeNull());
   });
 });
 
@@ -1126,5 +1139,76 @@ describe("choosing a combination of records", () => {
     }
 
     expect(within(dialog).getByText(/No record chosen/)).toBeTruthy();
+  });
+});
+
+describe("one cohort, or every cohort", () => {
+  it("has a two-way switch beside the cohort picker: a cohort mark for this one, a globe for all of them", async () => {
+    vi.spyOn(database, "fetchStudents").mockResolvedValue([student("A001", "c1"), { ...student("A002", "c2"), cohortName: "L2 Maths" }]);
+    vi.spyOn(database, "fetchDiscrepancyRules").mockResolvedValue([]);
+    await portalSays([
+      { SPRIDEN_ID: "A001", FULL_NAME: "Amira Haddad" },
+      { SPRIDEN_ID: "A002", FULL_NAME: "Karim Nasser" },
+    ]);
+    renderPage([L1, { ...L1, id: "c2", name: "L2 Maths", yearLevel: "L2", memberCount: 1 }]);
+    await screen.findByText("Amira Haddad");
+    expect(screen.queryByText("Karim Nasser")).toBeNull();
+
+    // Both answers in view, the chosen one marked.
+    const one = screen.getByRole("radio", { name: "This cohort" });
+    const all = screen.getByRole("radio", { name: "Every cohort" });
+    expect(one.getAttribute("aria-checked")).toBe("true");
+    expect(all.getAttribute("aria-checked")).toBe("false");
+    fireEvent.click(all);
+
+    expect(await screen.findByText("Karim Nasser")).toBeTruthy();
+    expect(all.getAttribute("aria-checked")).toBe("true");
+    expect(one.getAttribute("aria-checked")).toBe("false");
+    // No switch of its own on the table any more.
+    expect(screen.queryByRole("button", { name: /All cohorts|This cohort/ })).toBeNull();
+    // And the picker stops naming a cohort the table is no longer about.
+    expect(screen.getByRole("combobox", { name: "Cohort" }).textContent).toContain("Every cohort");
+    expect(screen.getByText(/showing every cohort/)).toBeTruthy();
+
+    // Choosing a cohort is what brings the table back to one.
+    fireEvent.click(screen.getByRole("combobox", { name: "Cohort" }));
+    fireEvent.click(await screen.findByRole("option", { name: /L2 Maths/ }));
+    expect(screen.getByRole("radio", { name: "This cohort" }).getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByRole("combobox", { name: "Cohort" }).textContent).toContain("L2 Maths");
+    expect(await screen.findByText("Karim Nasser")).toBeTruthy();
+    await waitFor(() => expect(screen.queryByText("Amira Haddad")).toBeNull());
+  });
+});
+
+describe("who a cohort claims, after a sync", () => {
+  it("stops claiming a student once a portal sync says they have moved on", async () => {
+    /*
+     * The page read the browser's rows once, on mount. A sync from the header changed
+     * them underneath it, so a student the registrar had moved to L1 went on being
+     * claimed by Foundation Year from a row that said FY — while his own record, reading
+     * the fresh row, said L1. Reported from a real cohort.
+     */
+    const FYS: Cohort = { ...L1, id: "c1", name: "FYS-S1", yearLevel: "FY" };
+    const L1_COHORT: Cohort = { ...L1, id: "c2", name: "L1 Maths", yearLevel: "L1" };
+    const BELONGS: DiscrepancyRule = { id: "r4", field: "MAJOR_CODE", kind: "belongs", values: [], cohortId: "" };
+    vi.spyOn(database, "fetchStudents").mockResolvedValue([{ ...student("A001", "c2"), cohortName: "L1 Maths" }]);
+    vi.spyOn(database, "fetchDiscrepancyRules").mockResolvedValue([BELONGS]);
+    const samvel = (yearLevel: string) => ({
+      SPRIDEN_ID: "A001", FULL_NAME: "Samvel Martirosyan", MAJOR_CODE_DESC: "Applied Mathematics and Physics", YEARLEVEL_CODE: yearLevel,
+    });
+    await portalSays([samvel("FY")]);
+
+    renderPage([FYS, L1_COHORT]);
+    expect(await screen.findByText(/One student belongs to FYS-S1 by what it expects/)).toBeTruthy();
+
+    // The registrar has moved him: the next pull says L1. Then the sync run is put away,
+    // which is the last thing a finished sync does.
+    await rememberPull({
+      kind: "students", presetId: "view-1", name: "All", count: 1, expect: null, warning: null,
+      fetchedAt: Date.parse("2026-09-11T08:00:00Z"), rows: [samvel("L1")],
+    });
+    clearRun();
+
+    await waitFor(() => expect(screen.queryByText(/belongs to FYS-S1 by what it expects/)).toBeNull());
   });
 });

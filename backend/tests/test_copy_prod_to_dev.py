@@ -103,10 +103,10 @@ def test_a_section_arrives_with_the_request_on_it_and_not_only_its_crn():
 
     assert requests == 1
     cell = write.one("PUT", "/courses/")
-    assert cell == {"crn": "23634", "teacher": "Amira Haddad"}
+    assert cell == {"crn": "23634", "teacher": "Amira Haddad", "part": 1}
     assert write.one("PATCH", "/courses/") == {
         "teacherId": "t-7", "hours": "24", "duration": "2h",
-        "anticipated": 30, "constraints": "not before 10",
+        "anticipated": 30, "constraints": "not before 10", "part": 1,
     }
 
 
@@ -391,3 +391,48 @@ def test_a_source_that_is_broken_still_stops_the_copy(monkeypatch):
 
     with pytest.raises(copy.Refused):
         copy._copy_sweeps("https://prod", "http://localhost:8000", {}, {}, say=lambda *_: None)
+
+
+def test_a_section_taught_in_two_halves_arrives_with_both(monkeypatch):
+    """A section's top-level fields ARE its first part, so reading them copies half of it.
+
+    MATH-351 is a lecture and a tutorial, each handed over mid-semester: four sections on
+    production, two after a copy. The eleven students in it were then reported registered
+    in sections nobody here teaches — a warning invented by the copy, about production data
+    that was correct.
+    """
+    calls: list[tuple[str, str, dict]] = []
+    copy._copy_catalogue(
+        lambda path, body, method="POST": (calls.append((method, path, body)), {"id": "made"})[1],
+        [
+            {
+                "id": "prod-s", "code": "CM", "name": "", "note": "", "termId": "prod-t",
+                "kind": "shared", "parentScopeId": "", "openToAll": False,
+                "courses": [{"id": "prod-course", "code": "MATH-351", "name": "", "component": "", "program": ""}],
+                "groups": [
+                    {
+                        "id": "prod-g", "label": "Mathematics", "capacity": 0, "note": "",
+                        "program": "", "parentGroupId": "",
+                        "crns": {
+                            "prod-course": {
+                                "crn": "23436", "teacher": "Grace Younes", "part": 1,
+                                "parts": [
+                                    {"crn": "23436", "teacher": "Grace Younes", "part": 1, "hours": 18},
+                                    {"crn": "24311", "teacher": "Sudarshan Shinde", "part": 2, "hours": 12},
+                                ],
+                            }
+                        },
+                    }
+                ],
+            }
+        ],
+        "here-c",
+        {"prod-t": "here-t"},
+        {},
+    )
+
+    cells = [(method, body) for method, path, body in calls if "/courses/made" in path]
+    assert [body.get("crn") for method, body in cells if method == "PUT"] == ["23436", "24311"]
+    assert [body.get("part") for method, body in cells if method == "PUT"] == [1, 2]
+    # The request travels per part too, or the second half arrives asking for nothing.
+    assert [body.get("hours") for method, body in cells if method == "PATCH"] == [18, 12]

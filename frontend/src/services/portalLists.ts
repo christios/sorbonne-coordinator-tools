@@ -711,6 +711,33 @@ export function fetchTimetableTargets(termCode: string): Promise<TimetableTarget
   return request<TimetableTargets>(`/terms/${encodeURIComponent(termCode)}/timetable-targets`);
 }
 
+/** One section of the registrar's sweep, with every dated meeting it holds. */
+export type FacilitySection = {
+  crn: string;
+  courseCode: string;
+  title: string;
+  teacherName: string;
+  /** `unchecked` when nobody has asked the registrar about it; `gone` when they have stopped answering. */
+  state: "published" | "silent" | "gone" | "unchecked";
+  meetings: { meetsOn: string; startsAt: string; endsAt: string; room: string }[];
+};
+
+export type FacilityTimetable = { termCode: string; sections: FacilitySection[]; pulledAt: string };
+
+/** These sections' meetings, for a calendar. Every CRN asked for comes back, with its state. */
+export function fetchFacilitySections(termCode: string, crns: string[]): Promise<FacilityTimetable> {
+  const query = new URLSearchParams();
+  for (const crn of crns) query.append("crn", crn);
+  return request<FacilityTimetable>(`/facility-timetable/${encodeURIComponent(termCode)}/sections?${query.toString()}`);
+}
+
+/** The registrar's booked hours per section, and whom the portal staffs it with. */
+export type FacilityHours = Record<string, { courseCode: string; teacherName: string; hours: number }>;
+
+export async function fetchFacilityHours(termCode: string): Promise<FacilityHours> {
+  return (await request<{ sections: FacilityHours }>(`/facility-timetable/${encodeURIComponent(termCode)}/hours`)).sections;
+}
+
 /** What one sweep changed, as the store reports it back. */
 export type FacilityPullReport = {
   asked: number;
@@ -887,63 +914,4 @@ export function describeMismatch(mismatch: Mismatch): string {
     case "collides":
       return `${mismatch.courseCode} (${mismatch.expected.join(", ")}) is at the same hour as ${mismatch.registered.join(", ")} — ${mismatch.scopeCode}`;
   }
-}
-
-/**
- * A student's registrations as the register shapes them: sections under the course row
- * they hang from, and the differences for that course folded in with them.
- *
- * The registrar answers with a flat list, in which the lecture a course is built around
- * and the tutorial group a student actually sits in are the same kind of line. The
- * register knows which CRN hangs from which, so the reading can say so: one block per
- * course, the parent first, its sections indented beneath, and any warning about that
- * course underneath the thing it is about rather than in a heap at the bottom.
- *
- * A registration in a course the register has never heard of still gets its own block —
- * being unknown to us is not a reason to hide it.
- */
-export type RegistrationFamily<R, M> = {
-  courseCode: string;
-  title: string;
-  /** The row the others hang from, when the student is registered in it. */
-  parent: R | null;
-  children: R[];
-  warnings: M[];
-};
-
-export function registrationFamilies<
-  R extends { crn: string; courseCode: string; title: string },
-  M extends { courseCode: string },
->(registrations: R[], parentOf: (crn: string) => string, warnings: M[] = []): RegistrationFamily<R, M>[] {
-  const byCourse = new Map<string, R[]>();
-  for (const registration of registrations) {
-    const code = registration.courseCode || "—";
-    byCourse.set(code, [...(byCourse.get(code) ?? []), registration]);
-  }
-
-  const families: RegistrationFamily<R, M>[] = [];
-  for (const [courseCode, rows] of byCourse) {
-    // The parent is the one nothing of this course hangs from and that something does —
-    // or, failing that, whichever CRN the register names as the others' parent.
-    const named = new Set(rows.map((row) => parentOf(row.crn)).filter(Boolean));
-    const parent = rows.find((row) => named.has(row.crn) && !parentOf(row.crn)) ?? null;
-    const children = rows.filter((row) => row !== parent);
-    families.push({
-      courseCode,
-      title: (parent ?? rows[0])?.title ?? "",
-      parent,
-      children,
-      warnings: warnings.filter((warning) => warning.courseCode === courseCode),
-    });
-  }
-
-  // A course the student is registered in nowhere still has warnings worth reading.
-  for (const warning of warnings) {
-    if (byCourse.has(warning.courseCode)) continue;
-    const family = families.find((candidate) => candidate.courseCode === warning.courseCode);
-    if (family) family.warnings.push(warning);
-    else families.push({ courseCode: warning.courseCode, title: "", parent: null, children: [], warnings: [warning] });
-  }
-
-  return families.sort((left, right) => left.courseCode.localeCompare(right.courseCode));
 }

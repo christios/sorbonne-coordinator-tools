@@ -7,13 +7,17 @@ import { ScreenLoading } from "@/components/ScreenLoading";
 import { SelectMenu } from "@/components/SelectMenu";
 import type { TeacherRef } from "@/components/TeacherRecord";
 import { buildCards } from "@/services/courseCards";
-import { fetchActiveCourses, fetchActiveCrns, fetchActiveTeachers } from "@/services/portalLists";
+import { fetchActiveCourses, fetchActiveCrns, fetchActiveTeachers, fetchFacilityHours, fetchTermLinks } from "@/services/portalLists";
+import { adjustmentsFor, fetchSessionChanges } from "@/services/sessionChanges";
 import { requestSheets } from "@/services/timetableExport";
 import {
+  crnsByTeacher,
   hoursColumn,
   hoursColumns,
   loadRows,
   loadTotals,
+  registrarHoursFor,
+  sameTeacher,
   shownHoursColumns,
   teacherLoads,
   type LoadRow,
@@ -86,7 +90,36 @@ export function TeacherHours({ onOpenTeacher }: { onOpenTeacher?: (teacher: Teac
       ),
     [cards, chosenTerm, cohorts.data, teachers.data], // eslint-disable-line react-hooks/exhaustive-deps
   );
-  const rows = useMemo(() => loadRows(teacherLoads(sheets), teachers.data ?? []), [sheets, teachers.data]);
+  // The notes on the term's classes — cancelled, covered — read against each teacher's CRNs.
+  const links = useQuery({ queryKey: ["term-links"], queryFn: fetchTermLinks, retry: false });
+  const termCode = links.data?.[chosenTerm] ?? "";
+  const notes = useQuery({
+    queryKey: ["session-changes", termCode],
+    queryFn: () => fetchSessionChanges(termCode),
+    enabled: Boolean(termCode),
+    retry: false,
+  });
+  // The registrar's booked hours per section, for the column beside ours.
+  const booked = useQuery({
+    queryKey: ["facility-hours", termCode],
+    queryFn: () => fetchFacilityHours(termCode),
+    enabled: Boolean(termCode),
+    retry: false,
+  });
+  const rows = useMemo(() => {
+    const held = loadRows(teacherLoads(sheets), teachers.data ?? [], crnsByTeacher(sheets));
+    return held.map((row) => {
+      const adjusted = adjustmentsFor(notes.data ?? [], { id: row.active?.id ?? row.teacherId, name: row.teacher }, new Set(row.crns), sameTeacher);
+      return {
+        ...row,
+        cancelledHours: adjusted.cancelled,
+        coverTaken: adjusted.coveredByOthers,
+        coverGiven: adjusted.coveredForOthers,
+        registrarHours: registrarHoursFor(booked.data ?? {}, row.teacher, sameTeacher),
+      };
+    });
+  }, [sheets, teachers.data, notes.data, booked.data]);
+  const registrarTotal = Math.round(rows.reduce((sum, row) => sum + row.registrarHours, 0) * 100) / 100;
   const totals = loadTotals(rows);
   const sheetTitles = useMemo(() => sheets.map((sheet) => sheet.title), [sheets]);
   const columns = useMemo(() => hoursColumns(sheetTitles), [sheetTitles]);
@@ -116,9 +149,14 @@ export function TeacherHours({ onOpenTeacher }: { onOpenTeacher?: (teacher: Teac
         </LabelledPicker>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         <Tile label="Teachers" value={String(totals.teachers)} hint="with hours this semester" />
-        <Tile label="Hours in all" value={String(totals.hours)} hint={`across ${totals.sections} section${totals.sections === 1 ? "" : "s"}`} />
+        <Tile label="Hours in all" value={String(totals.hours)} hint={`across ${totals.sections} section${totals.sections === 1 ? "" : "s"}, as we planned them`} />
+        <Tile
+          label="Registrar hours"
+          value={termCode ? String(registrarTotal) : "—"}
+          hint={termCode ? (booked.data ? "booked on the portal's timetable, for our teachers" : "reading the sweep…") : "no portal term linked"}
+        />
         <Tile
           label="Nobody yet"
           value={String(totals.unnamed)}
@@ -153,6 +191,9 @@ export function TeacherHours({ onOpenTeacher }: { onOpenTeacher?: (teacher: Teac
       <p className="mt-3 text-xs text-[#98a2b3]">
         The same count the timetable workbook&apos;s Teacher Hours sheet carries, from the same rows — with the hours
         nobody is teaching shown, which the sheet leaves out. Hours a section does not state are its course&apos;s.
+        Registrar hours are what the portal&apos;s timetable has booked for the sections it staffs with each teacher.
+        Cancelled and covered hours come from the notes on the CRNs&apos; calendars. All three sit beside the plan, not
+        inside it.
       </p>
     </section>
   );
@@ -178,5 +219,8 @@ const renderCell = (row: LoadRow, column: GridColumn<LoadRow>) => {
   if (column.type !== "number") return undefined;
   const value = Number(column.accessor(row)) || 0;
   if (!value) return <span className="text-[#d5dce4]">—</span>;
+  // Hours the semester took away read red, hours it added read blue; the plan stays black.
+  if (column.id === "cancelledHours" || column.id === "coverTaken") return <span className="text-[#a6292f]">−{value}</span>;
+  if (column.id === "coverGiven") return <span className="text-[#1f4e79]">+{value}</span>;
   return <span className={column.id === "total" ? "font-semibold text-[#171717]" : undefined}>{value}</span>;
 };

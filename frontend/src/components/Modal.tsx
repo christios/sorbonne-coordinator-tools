@@ -1,6 +1,9 @@
 import { useEffect, useId, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
+/** The dialogs open right now, bottom to top. */
+const OPEN: string[] = [];
+
 /**
  * A working surface in a dialog, for editing something that needs room.
  *
@@ -32,12 +35,18 @@ export function Modal({
 
   useEffect(() => {
     if (!open) return;
+    OPEN.push(titleId);
+    // Only the dialog on top answers Escape. A record opens a CRN's record over itself,
+    // and one press used to close both — the reader landed back on the table.
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape" && OPEN[OPEN.length - 1] === titleId) onClose();
     };
     document.addEventListener("keydown", closeOnEscape);
-    return () => document.removeEventListener("keydown", closeOnEscape);
-  }, [onClose, open]);
+    return () => {
+      document.removeEventListener("keydown", closeOnEscape);
+      OPEN.splice(OPEN.indexOf(titleId), 1);
+    };
+  }, [onClose, open, titleId]);
 
   if (!open) return null;
   return createPortal(

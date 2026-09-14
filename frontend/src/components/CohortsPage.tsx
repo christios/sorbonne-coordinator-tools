@@ -1,5 +1,5 @@
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { AlertTriangle, ArrowRightCircle, CalendarClock, ClipboardList, EyeOff, Layers, Settings2, X } from "lucide-react";
+import { AlertTriangle, ArrowRightCircle, CalendarClock, ClipboardList, EyeOff, Globe, Settings2, Users, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { CohortActions } from "@/components/CohortActions";
@@ -47,6 +47,7 @@ import { describeAge, latestPullAt, rowsHeld } from "@/services/rosterStore";
 import { displayNameOf, fetchSchema, studentIdOf, type RosterRow } from "@/services/scenRosters";
 import { fetchDiscrepancyRules, fetchStudents, type Cohort, type Student } from "@/services/studentDatabase";
 import { fetchTimetableTerms } from "@/services/timetables";
+import { isRunning, subscribe } from "@/services/syncRun";
 
 /** This browser's evidence: what the portal last said, and every change it has recorded. */
 type Evidence = {
@@ -89,8 +90,8 @@ function judge(
   return { byCohort, arrivals };
 }
 
-/** Which sources of warning the table is showing. */
-type Showing = "all" | WarningSource;
+/** The three records to begin with — the old "All", and the commonest answer. */
+const EVERY_RECORD: readonly WarningSource[] = ["record", "registration", "timetabling"];
 
 /**
  * The three records, in the order the page's filter offers them.
@@ -160,15 +161,20 @@ function describeKinds(mismatches: Mismatch[]): string {
  */
 function SourceFilter({
   showing,
-  onShow,
+  onToggle,
   counts,
 }: {
-  showing: Showing;
-  onShow: (next: Showing) => void;
-  counts: Record<Showing, number>;
+  /** The records whose warnings are shown. Any combination; none shows nothing. */
+  showing: ReadonlySet<WarningSource>;
+  onToggle: (id: WarningSource) => void;
+  counts: Record<WarningSource, number>;
 }) {
-  const options: { id: Showing; name: string; icon: typeof Layers; hint: string }[] = [
-    { id: "all", name: "All", icon: Layers, hint: "Every record" },
+  /*
+   * Three toggles, any combination — the same control as the "Registrations to change"
+   * dialog, so the two read alike. There used to be an "All" beside them, which made the
+   * three a choice of one; two records at once was not something the page could show.
+   */
+  const options: { id: WarningSource; name: string; icon: typeof AlertTriangle; hint: string }[] = [
     { id: "record", name: "Admissions", icon: AlertTriangle, hint: "Where the portal's record and ours have drifted apart" },
     { id: "registration", name: "Register", icon: ClipboardList, hint: "Where the registrar has them in other sections than we placed them in" },
     { id: "timetabling", name: "Timetabling", icon: CalendarClock, hint: "Where the hours a student is booked into cannot all be attended" },
@@ -184,16 +190,16 @@ function SourceFilter({
         <button
           key={id}
           type="button"
-          aria-pressed={showing === id}
+          aria-pressed={showing.has(id)}
           title={hint}
-          onClick={() => onShow(id)}
-          className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-semibold ${
-            showing === id ? "bg-[#e8edf3] text-[#1f4e79]" : "text-[#667085] hover:bg-[#f6f8fb]"
+          onClick={() => onToggle(id)}
+          className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-semibold transition-colors ${
+            showing.has(id) ? "bg-[#1f4e79] text-white" : "text-[#667085] hover:bg-[#f6f8fb]"
           }`}
         >
           <Icon size={12} aria-hidden="true" />
           {name}
-          <span className="tabular-nums font-normal text-[#98a2b3]">{counts[id]}</span>
+          <span className={`tabular-nums font-normal ${showing.has(id) ? "text-white/75" : "text-[#98a2b3]"}`}>{counts[id]}</span>
         </button>
       ))}
     </div>
@@ -245,10 +251,14 @@ export function CohortsPage({
    */
   const [remembered, setRemembered] = useRemembered(COHORT);
   const [cohortId, setCohortId] = useState(focus?.cohortId ?? remembered);
+  // Whether the table shows every cohort rather than the chosen one. Back to this one on
+  // every change of cohort, as it was when the table remounted with its own switch.
+  const [everywhere, setEverywhere] = useState(false);
   const chooseCohort = useCallback(
     (next: string) => {
       setCohortId(next);
       setRemembered(next);
+      setEverywhere(false);
     },
     // `setRemembered` is rebuilt on every render by `useRemembered`, and naming it here
     // would rebuild this callback with it — which remounts the table, since it is keyed on
@@ -262,7 +272,15 @@ export function CohortsPage({
     if (focus?.cohortId) chooseCohort(focus.cohortId);
   }, [focus?.cohortId, sent, chooseCohort]);
   const [showDismissed, setShowDismissed] = useState(false);
-  const [showing, setShowing] = useState<Showing>("all");
+  const [showing, setShowing] = useState<Set<WarningSource>>(() => new Set(EVERY_RECORD));
+  const toggleShowing = useCallback((id: WarningSource) => {
+    setShowing((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
   const [dismissed, setDismissed] = useState<Set<string>>(() => loadDismissed());
 
   // The same query the roster makes, so React Query answers both from one fetch.
@@ -318,27 +336,40 @@ export function CohortsPage({
   const [evidence, setEvidence] = useState<Evidence | null>(null);
   useEffect(() => {
     let live = true;
-    void Promise.all([rowsHeld(), allChanges(), latestPullAt()]).then(([rows, changes, asOf]) => {
-      if (!live) return;
-      const current = new Map<string, Record<string, string>>();
-      const names = new Map<string, string>();
-      const carried = new Set<string>();
-      for (const row of rows as RosterRow[]) {
-        const id = studentIdOf(row);
-        if (!id) continue;
-        const flat: Record<string, string> = {};
-        for (const [field, value] of Object.entries(row)) {
-          const text = String(value ?? "");
-          flat[field] = text;
-          if (text.trim()) carried.add(field);
+    const load = () =>
+      void Promise.all([rowsHeld(), allChanges(), latestPullAt()]).then(([rows, changes, asOf]) => {
+        if (!live) return;
+        const current = new Map<string, Record<string, string>>();
+        const names = new Map<string, string>();
+        const carried = new Set<string>();
+        for (const row of rows as RosterRow[]) {
+          const id = studentIdOf(row);
+          if (!id) continue;
+          const flat: Record<string, string> = {};
+          for (const [field, value] of Object.entries(row)) {
+            const text = String(value ?? "");
+            flat[field] = text;
+            if (text.trim()) carried.add(field);
+          }
+          current.set(id, flat);
+          names.set(id, displayNameOf(row));
         }
-        current.set(id, flat);
-        names.set(id, displayNameOf(row));
-      }
-      setEvidence({ current, names, changes, carried, asOf });
+        setEvidence({ current, names, changes, carried, asOf });
+      });
+    load();
+    /*
+     * Read again once a portal sync has finished. The sync runs from the header without
+     * remounting this page, and this was read once on mount — so a student the registrar
+     * had moved went on being claimed by the cohort they left, from a row the browser no
+     * longer held, until the page was reloaded. The student's own record, which reads the
+     * fresh row, said L1 while this said FY.
+     */
+    const stop = subscribe((run) => {
+      if (!isRunning(run)) load();
     });
     return () => {
       live = false;
+      stop();
     };
   }, []);
 
@@ -466,7 +497,7 @@ export function CohortsPage({
         (warning) =>
           warning.kind !== "no_baseline" &&
           (showDismissed || !warning.dismissed) &&
-          (showing === "all" || sourceOf(warning) === showing),
+          showing.has(sourceOf(warning)),
       ),
     [byStudent, showDismissed, showing],
   );
@@ -489,8 +520,7 @@ export function CohortsPage({
 
   const all = mine;
   const flaggedStudents = flaggedIn(all);
-  const counts: Record<Showing, number> = {
-    all: flaggedStudents,
+  const counts: Record<WarningSource, number> = {
     record: flaggedIn(all, "record"),
     registration: flaggedIn(all, "registration"),
     timetabling: flaggedIn(all, "timetabling"),
@@ -554,10 +584,54 @@ export function CohortsPage({
   return (
     <section>
       <div className="flex flex-wrap items-end gap-x-5 gap-y-3">
-        <LabelledPicker label="Cohort">
+        <LabelledPicker
+          label="Cohort"
+          hint={everywhere ? "showing every cohort" : undefined}
+          beside={
+            /*
+             * One cohort, or all of them — asked where "which cohort" is asked, as a
+             * two-way switch with both answers in view: the cohort mark for this one, the
+             * globe for every one, and the chosen side filled in. One icon that swapped
+             * read as a state nobody could name without pressing it.
+             */
+            <div
+              role="radiogroup"
+              aria-label="One cohort or every cohort"
+              className="inline-flex h-10 shrink-0 items-center rounded-md border border-[#b7bec8] bg-white p-0.5"
+            >
+              {(
+                [
+                  { on: false, label: "This cohort", hint: "Only the chosen cohort's students", Icon: Users },
+                  { on: true, label: "Every cohort", hint: "Every cohort's students, whichever is chosen", Icon: Globe },
+                ] as const
+              ).map(({ on, label, hint, Icon }) => (
+                <button
+                  key={label}
+                  type="button"
+                  role="radio"
+                  aria-checked={everywhere === on}
+                  aria-label={label}
+                  title={hint}
+                  onClick={() => setEverywhere(on)}
+                  className={`inline-flex h-8 w-8 items-center justify-center rounded transition-colors ${
+                    everywhere === on ? "bg-[#1f4e79] text-white" : "text-[#667085] hover:bg-[#f5f7fa] hover:text-[#344054]"
+                  }`}
+                >
+                  <Icon size={15} aria-hidden="true" />
+                </button>
+              ))}
+            </div>
+          }
+        >
+          {/*
+            * With every cohort showing, the picker must not go on naming one as if the
+            * table were still its: it reads "Every cohort" until a cohort is chosen, and
+            * choosing one is what brings the table back to a single cohort.
+            */}
           <SelectMenu
             label="Cohort"
-            value={cohortId}
+            value={everywhere ? "" : cohortId}
+            placeholder={everywhere ? "Every cohort" : undefined}
             onChange={chooseCohort}
             options={[
               ...cohorts.map((candidate) => {
@@ -694,9 +768,9 @@ export function CohortsPage({
         * Only once there is something to choose between — on a cohort with nothing wrong
         * it would be three zeroes and a question nobody asked.
         */}
-      {counts.all ? (
+      {flaggedStudents ? (
         <div className="mt-3">
-          <SourceFilter showing={showing} onShow={setShowing} counts={counts} />
+          <SourceFilter showing={showing} onToggle={toggleShowing} counts={counts} />
         </div>
       ) : null}
 
@@ -733,6 +807,7 @@ export function CohortsPage({
           }
           onPreselectTaken={onFocusTaken}
           scope={{ cohortId }}
+          everywhere={everywhere}
           warningsFor={warningsFor}
           onDismissWarning={onDismissWarning}
           defaultSort={{ key: "warnings", ascending: false }}

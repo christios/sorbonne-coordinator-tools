@@ -20,8 +20,10 @@ from sorbonne.services.workbook_diff import (
     summarize_reference,
 )
 from sorbonne.services.group_reference_import import ReferenceImportError, parse_group_reference
+from sorbonne.services import coordinator_directory
 from sorbonne.services.student_database import (
     CohortNotFound,
+    CommentNotFound,
     CourseNotFound,
     InvalidRule,
     DuplicateFilterName,
@@ -31,6 +33,7 @@ from sorbonne.services.student_database import (
     InvalidFilter,
     MAX_PARTS,
     SavedSearch,
+    NotTheAuthor,
     ScopeNotFound,
     StudentDatabase,
 )
@@ -754,6 +757,65 @@ class ExemptionInput(BaseModel):
     """Why this student does not take this course of their set, in the coordinator's words."""
 
     reason: str = Field(default="", max_length=400)
+
+
+class CommentInput(BaseModel):
+    body: str = Field(min_length=1, max_length=4000)
+
+
+@router.get("/students/{student_id}/comments")
+async def list_comments(student_id: str, database: StudentDatabase = Depends(get_database)) -> dict[str, Any]:
+    """The student's thread, oldest first.
+
+    Each line is signed with what Settings calls its author TODAY, falling back to the
+    name stamped when it was written — so a name corrected in Settings corrects every
+    line, and somebody since removed from the list keeps the signature they had.
+    """
+    names: dict[str, str] = {}
+    comments = database.comments_of(student_id)
+    for comment in comments:
+        email = comment["authorEmail"]
+        if email and email not in names:
+            names[email] = coordinator_directory.name_for(email, comment["authorName"])
+        comment["authorName"] = names.get(email) or comment["authorName"]
+    return {"comments": comments}
+
+
+@router.post("/students/{student_id}/comments", status_code=status.HTTP_201_CREATED)
+async def add_comment(
+    student_id: str, body: CommentInput, request: Request, database: StudentDatabase = Depends(get_database)
+) -> dict[str, Any]:
+    """One line on the thread, signed by whoever is signed in and dated by the server."""
+    if not body.body.strip():
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="A comment has to say something.")
+    staff = getattr(request.state, "staff_user", None)
+    email = getattr(staff, "email", "") or ""
+    return database.add_comment(
+        student_id=student_id,
+        body=body.body,
+        author_email=email,
+        # The name Settings gives them, not the one the session happens to carry.
+        author_name=coordinator_directory.name_for(email, getattr(staff, "name", "") or "") if email else "",
+    )
+
+
+@router.delete("/comments/{comment_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_comment(comment_id: str, request: Request, database: StudentDatabase = Depends(get_database)) -> None:
+    staff = getattr(request.state, "staff_user", None)
+    try:
+        database.remove_comment(comment_id, author_email=getattr(staff, "email", "") or "")
+    except CommentNotFound as exc:
+        raise _missing(exc, "comment") from exc
+    except NotTheAuthor as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Only the person who wrote a comment can remove it."
+        ) from exc
+
+
+@router.get("/comments/summary")
+async def comment_summary(database: StudentDatabase = Depends(get_database)) -> dict[str, Any]:
+    """How many comments each student carries — what the rows show before anyone opens one."""
+    return {"counts": database.comment_counts()}
 
 
 @router.get("/cohorts/{cohort_id}/exemptions")

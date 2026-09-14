@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 
 import { ColumnMenu } from "@/components/ColumnMenu";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { CommentThread } from "@/components/CommentThread";
 import { Modal } from "@/components/Modal";
 import { CopyButton } from "@/components/CopyButton";
 import { CopyPresetMenu } from "@/components/CopyPresetMenu";
@@ -49,6 +50,7 @@ import {
   type ColumnLayout,
 } from "@/services/studentColumns";
 import { applyFilters, type FilterModel } from "@/services/tableFilter";
+import { fetchCommentSummary } from "@/services/studentComments";
 import {
   createCohort,
   fetchStudents,
@@ -85,6 +87,7 @@ export function StudentRoster({
   onPreselectTaken,
   filterCohort = "",
   scope,
+  everywhere: everyCohort = false,
   warningsFor,
   onDismissWarning,
   defaultSort,
@@ -113,6 +116,11 @@ export function StudentRoster({
    * warnings the page worked out for it.
    */
   scope?: { cohortId: string | null };
+  /**
+   * On a scoped table, whether it shows every cohort rather than this one. The page owns
+   * the switch — it sits beside the cohort picker, which is where "which cohort" is asked.
+   */
+  everywhere?: boolean;
   warningsFor?: (studentId: string) => Warning[];
   onDismissWarning?: (key: string, dismissed: boolean) => void;
   defaultSort?: Sort;
@@ -129,7 +137,8 @@ export function StudentRoster({
    * coordinator is asking is the same either way, "where is this person", and it was
    * unanswerable on a scoped page without knowing the answer first.
    */
-  const [everywhere, setEverywhere] = useState(false);
+  const [everyStudent, setEveryStudent] = useState(false);
+  const everywhere = scope ? everyCohort : everyStudent;
   // Searching everywhere asks for the whole record rather than this view's population.
   // A scoped table is always everywhere: a cohort's students come from every view.
   const asked = everywhere || scope ? "" : viewId;
@@ -191,6 +200,13 @@ export function StudentRoster({
   const [historyOf, setHistoryOf] = useState<StudentRow | null>(null);
   // The one student whose whole record is open: a click anywhere on their row.
   const [recordOf, setRecordOf] = useState<StudentRow | null>(null);
+  // The thread opened from a row's mark; the record has its own copy of the same thread.
+  const [commentingOn, setCommentingOn] = useState<StudentRow | null>(null);
+  const commentSummary = useQuery({ queryKey: ["comment-summary"], queryFn: fetchCommentSummary, retry: false });
+  const commentCounts = useMemo(
+    () => new Map(Object.entries(commentSummary.data ?? {}).map(([id, held]) => [id, held.count])),
+    [commentSummary.data],
+  );
   const [layout, setLayout] = useState<ColumnLayout | null>(null);
   const [filters, setFilters] = useState<FilterModel[]>([]);
   const [query, setQuery] = useState("");
@@ -319,7 +335,7 @@ export function StudentRoster({
      * A scoped table needs none of it anyway: `asked` is already "" whenever `scope` is
      * set, so the view is out of the picture with or without this.
      */
-    if (!scope) setEverywhere(true);
+    if (!scope) setEveryStudent(true);
     // Delivered. The ids live in `focus` from here on, which "Show everyone again" clears.
     onPreselectTaken?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -332,7 +348,7 @@ export function StudentRoster({
    */
   useEffect(() => {
     if (!filterCohort) return;
-    setEverywhere(true);
+    setEveryStudent(true);
     setFilters([{ columnId: "cohortName", type: "option", operator: "is", values: [filterCohort] }]);
   }, [filterCohort]);
 
@@ -585,6 +601,13 @@ export function StudentRoster({
         </p>
       ) : null}
 
+      <Modal
+        open={Boolean(commentingOn)}
+        title={commentingOn ? `Comments — ${commentingOn.name || commentingOn.studentId}` : "Comments"}
+        onClose={() => setCommentingOn(null)}
+      >
+        {commentingOn ? <CommentThread studentId={commentingOn.studentId} label={commentingOn.name || commentingOn.studentId} /> : null}
+      </Modal>
       {recordOf ? (
         <StudentRecord open row={recordOf} cohorts={cohorts} history={history} onClose={() => setRecordOf(null)} />
       ) : null}
@@ -666,28 +689,27 @@ export function StudentRoster({
           />
         </label>
 
-        <button
-          type="button"
-          aria-pressed={everywhere}
-          onClick={() => setEverywhere((current) => !current)}
-          title={
-            scope
-              ? everywhere
-                ? "Searching every cohort. Click to go back to this one."
-                : "Search every cohort, not only this one"
-              : everywhere
+        {/* On a scoped table the switch is the page's, beside the cohort picker. */}
+        {!scope ? (
+          <button
+            type="button"
+            aria-pressed={everywhere}
+            onClick={() => setEveryStudent((current) => !current)}
+            title={
+              everywhere
                 ? "Searching every student we hold. Click to go back to this portal filter."
                 : "Search every student we hold, not only this portal filter"
-          }
-          className={`inline-flex shrink-0 items-center gap-2 rounded-md border px-3 py-2 text-sm font-semibold ${
-            everywhere
-              ? "border-[#1f4e79] bg-[#1f4e79] text-white"
-              : "border-[#b7bec8] bg-white text-[#344054] hover:bg-[#f8fafc]"
-          }`}
-        >
-          <Globe size={15} aria-hidden="true" />
-          {scope ? (everywhere ? "All cohorts" : "This cohort") : everywhere ? "All students" : "This filter"}
-        </button>
+            }
+            className={`inline-flex shrink-0 items-center gap-2 rounded-md border px-3 py-2 text-sm font-semibold ${
+              everywhere
+                ? "border-[#1f4e79] bg-[#1f4e79] text-white"
+                : "border-[#b7bec8] bg-white text-[#344054] hover:bg-[#f8fafc]"
+            }`}
+          >
+            <Globe size={15} aria-hidden="true" />
+            {everywhere ? "All students" : "This filter"}
+          </button>
+        ) : null}
 
         <ColumnMenu layout={layout} columns={allColumns} onChange={arrange} />
 
@@ -796,6 +818,8 @@ export function StudentRoster({
         onResize={resize}
         onReorder={reorder}
         onOpenHistory={setHistoryOf}
+        commentCounts={commentCounts}
+        onOpenComments={setCommentingOn}
         onDismissWarning={onDismissWarning}
         highlightedId={historyOf?.studentId}
         onRowClick={setRecordOf}

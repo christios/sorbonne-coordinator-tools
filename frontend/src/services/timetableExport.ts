@@ -58,6 +58,8 @@ export type RequestRow = {
   duration: string;
   anticipated: number | "";
   comments: string;
+  /** A group that was retired, kept on the sheet with a comment saying so. Not a column. */
+  retired: boolean;
 };
 
 export type RequestSheet = {
@@ -131,6 +133,7 @@ export function requestSheets(
           weeks: section.sessionsPerWeek || section.weeks,
           duration: section.duration,
           anticipated: section.anticipated || "",
+          retired: section.retired,
           comments,
         });
       }

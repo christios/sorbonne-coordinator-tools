@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { buildCards } from "@/services/courseCards";
-import { hoursColumn, hoursColumns, loadRows, loadTotals, sectionsTaughtBy, shownHoursColumns, teacherLoads } from "@/services/teacherLoad";
+import { hoursColumn, hoursColumns, loadRows, loadTotals, registrarHoursFor, sameTeacher, sectionsTaughtBy, shownHoursColumns, teacherLoads } from "@/services/teacherLoad";
 import type { ActiveTeacher } from "@/services/portalLists";
 import { EMPTY_REQUEST, EMPTY_SECTION, type CohortCatalogue } from "@/services/studentDatabase";
 import { requestSheets, type RequestRow, type RequestSheet } from "@/services/timetableExport";
@@ -9,7 +9,7 @@ import { requestSheets, type RequestRow, type RequestSheet } from "@/services/ti
 const row = (over: Partial<RequestRow> = {}): RequestRow => ({
   courseName: "Pre-calculus 1 G.1-TD", degree: "", ue: "", crn: "23223", parentCrn: "", subject: "MATH",
   courseNumber: "001", hours: "50", type: "TD", roomPref: "", teacher: "Samar Ghantous", teacherId: "act-1",
-  timePref: "", dayPref: "", constraints: "", weeks: "", duration: "", anticipated: "", comments: "",
+  timePref: "", dayPref: "", constraints: "", weeks: "", duration: "", anticipated: "", comments: "", retired: false,
   ...over,
 });
 
@@ -175,8 +175,11 @@ describe("the table's rows and columns", () => {
     const columns = hoursColumns(["FYS-S1", "BSc-L2-S3"]);
 
     expect(columns.map((column) => column.id)).toEqual([
-      "teacher", "standing", "total", "sheet:FYS-S1", "sheet:BSc-L2-S3",
-      "type:CM", "type:TD", "type:TP", "sections", "type", "category", "department", "email",
+      "teacher", "standing", "total", "registrarHours", "sheet:FYS-S1", "sheet:BSc-L2-S3",
+      "type:CM", "type:TD", "type:TP", "sections",
+      // What the semester did to the plan, beside it.
+      "cancelledHours", "coverTaken", "coverGiven",
+      "type", "category", "department", "email",
     ]);
     expect(columns.find((column) => column.id === "sheet:BSc-L2-S3")?.displayName).toBe("BSc L2");
     expect(hoursColumn("FYS-S1")).toBe("FYS");
@@ -262,5 +265,29 @@ describe("a course handed from one professor to another at mid-semester", () => 
     // Not both halves: Grace does not teach after October, and a record saying she has two
     // sections of one course would double her in every count that matters.
     expect(sectionsTaughtBy(cards, "act-sudarshan").map((entry) => entry.crn)).toEqual(["24311"]);
+  });
+});
+
+describe("the registrar's hours beside ours", () => {
+  it("adds up the sections the portal staffs with the teacher, however it spells them", () => {
+    const booked = {
+      "23436": { courseCode: "MATH-351", teacherName: "YOUNES Grace", hours: 30 },
+      "24313": { courseCode: "MATH-351", teacherName: "Grace Younes", hours: 22.5 },
+      "24311": { courseCode: "MATH-351", teacherName: "Sudarshan Shinde", hours: 15 },
+      "99999": { courseCode: "", teacherName: "", hours: 4 },
+    };
+    expect(registrarHoursFor(booked, "Grace Younes", sameTeacher)).toBe(52.5);
+    expect(registrarHoursFor(booked, "", sameTeacher)).toBe(0);
+  });
+});
+
+describe("a retired group's hours", () => {
+  it("are nobody's to teach, so they are not counted as hours with no teacher", () => {
+    const sheets: RequestSheet[] = [
+      { title: "FYS-S1", heading: "", semester: "", rows: [row({ teacher: "", hours: "50", retired: true }), row({ teacher: "", hours: "20", crn: "23901" })] },
+    ];
+    const totals = loadTotals(teacherLoads(sheets));
+    expect(totals.unnamed).toBe(20);
+    expect(totals.sections).toBe(1);
   });
 });

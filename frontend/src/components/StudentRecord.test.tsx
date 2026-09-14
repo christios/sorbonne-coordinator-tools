@@ -1,12 +1,14 @@
 import { EMPTY_REQUEST, EMPTY_SECTION } from "@/services/studentDatabase";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { StudentRecord } from "@/components/StudentRecord";
 import * as lists from "@/services/portalLists";
+import * as sessionChanges from "@/services/sessionChanges";
 import type { PullHistory } from "@/services/pullHistory";
 import type { StudentRow } from "@/services/rosterView";
+import * as comments from "@/services/studentComments";
 import * as database from "@/services/studentDatabase";
 import * as timetables from "@/services/timetables";
 
@@ -67,6 +69,16 @@ beforeEach(() => {
     { studentId: "A002", termId: "term-1", termCode: "262710", courseCode: "MATH-001", kind: "missing", expected: ["22151"], registered: [] },
   ], [checked()]));
   vi.spyOn(lists, "fetchTermLinks").mockResolvedValue({ "term-1": "262710" });
+  // The registrar's sweep, for the week at the foot of the record.
+  vi.spyOn(sessionChanges, "fetchSessionChanges").mockResolvedValue([]);
+  vi.spyOn(lists, "fetchFacilitySections").mockImplementation(async (termCode, crns) => ({
+    termCode,
+    pulledAt: "",
+    sections: crns.map((crn) => ({
+      crn, courseCode: "", title: "", teacherName: "", state: "published" as const,
+      meetings: [{ meetsOn: "2026-09-07", startsAt: "08:30", endsAt: "10:00", room: "5.101" }],
+    })),
+  }));
   vi.spyOn(timetables, "fetchTimetableTerms").mockResolvedValue([
     { id: "term-1", name: "Semester 1", slug: "s1", isPublished: true, courseCount: 1, sessionCount: 1, studentCount: 1 } as unknown as timetables.TimetableTerm,
   ]);
@@ -80,6 +92,7 @@ beforeEach(() => {
     ],
   });
   vi.spyOn(database, "fetchAssignments").mockResolvedValue({ A001: { "scope-td": "td-1" } });
+  vi.spyOn(comments, "fetchComments").mockResolvedValue([]);
 });
 
 afterEach(() => vi.restoreAllMocks());
@@ -91,7 +104,17 @@ function show() {
       <StudentRecord open row={ROW} cohorts={[COHORT]} history={HISTORY} onClose={() => {}} />
     </QueryClientProvider>,
   );
+  return queryClient;
 }
+
+/** Open a picker once it is enabled, then choose. Each waits on the one before it. */
+const pick = async (label: string, option: string | RegExp) => {
+  await waitFor(() =>
+    expect((screen.getByRole("combobox", { name: label }) as HTMLButtonElement).disabled).toBe(false),
+  );
+  fireEvent.click(screen.getByRole("combobox", { name: label }));
+  fireEvent.click(await screen.findByRole("option", { name: option }));
+};
 
 describe("a student's record", () => {
   it("shows the portal's fields, the groups, the registrations and only this student's differences", async () => {
@@ -105,16 +128,15 @@ describe("a student's record", () => {
     expect(groups.textContent).toContain("Semester 1");
     expect(groups.textContent).toContain("MATH-011 23652");
 
-    // One block per course, and the warning about a course sits with that course.
-    const registrations = await screen.findByLabelText("Registrations");
-    const courses = within(registrations).getAllByRole("listitem").filter((item) => item.parentElement === registrations);
-    expect(courses.map((item) => item.textContent?.slice(0, 8))).toEqual(["MATH-001", "MATH-011"]);
-    expect(registrations.textContent).toContain("Dr Ahmed");
-    expect(courses[1].textContent).toContain("MATH-011: registered in 23653, we placed them in 23652");
-    // The tutorial sits inside the lecture it hangs from, not beside it.
-    const nested = within(courses[0]).getAllByRole("listitem");
-    expect(nested).toHaveLength(1);
-    expect(nested[0].textContent).toContain("23223");
+    // The check's verdicts sit under the CRNs table, this student's only.
+    const verdicts = await screen.findByLabelText("What the check says");
+    expect(within(verdicts).getAllByRole("listitem").map((item) => item.textContent)).toEqual([
+      "MATH-011: registered in 23653, we placed them in 23652",
+    ]);
+    // What the registrar registered is a row of the CRNs table, not a card of its own.
+    expect(screen.queryByText("Registered in the portal")).toBeNull();
+    const table = screen.getByLabelText("CRNs");
+    expect(within(table).getByText("23223")).toBeTruthy();
   });
 
   it("reads the history from this browser", async () => {
@@ -140,7 +162,7 @@ describe("a student the check never saw", () => {
     );
 
     show();
-    await screen.findByLabelText("Registrations");
+    await screen.findByLabelText("CRNs");
 
     expect(screen.queryByText(/Registrations agree with the groups/)).toBeNull();
     expect(screen.getByText(/No registrations pull has returned this student for their semester/)).toBeTruthy();
@@ -150,14 +172,14 @@ describe("a student the check never saw", () => {
     vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue(report([], [checked()]));
 
     show();
-    await screen.findByLabelText("Registrations");
+    await screen.findByLabelText("CRNs");
 
-    expect(screen.getByText(/Registrations agree with the groups/)).toBeTruthy();
+    expect(await screen.findByText(/Registrations agree with the groups/)).toBeTruthy();
   });
 });
 
 describe("a course the registrar has not touched", () => {
-  it("says so, rather than looking like one it has", async () => {
+  it("is still a verdict under the CRNs, since no row of the table can carry it", async () => {
     vi.spyOn(lists, "fetchRegistrations").mockResolvedValue([
       { crn: "23644", courseCode: "CPSC-100", title: "Computer Science G.1-TD", termCode: "262710", status: "in_portal" },
     ] as never);
@@ -170,13 +192,9 @@ describe("a course the registrar has not touched", () => {
 
     show();
 
-    const list = await screen.findByLabelText("Registrations");
-    const phys = within(list).getByText("PHYS-118").closest("li") as HTMLElement;
-    expect(within(phys).getByText("nothing registered")).toBeTruthy();
-    expect(within(phys).getByText(/no section of this course/)).toBeTruthy();
-    // The course that does have a registration is not marked that way.
-    const cpsc = within(list).getByText("CPSC-100").closest("li") as HTMLElement;
-    expect(within(cpsc).queryByText("nothing registered")).toBeNull();
+    const verdicts = await screen.findByLabelText("What the check says");
+    const said = within(verdicts).getAllByRole("listitem").map((item) => item.textContent);
+    expect(said).toEqual(["CPSC-100: not registered in 22155", "PHYS-118: not registered in 22150"]);
   });
 });
 
@@ -217,5 +235,59 @@ describe("placing one student from their own record", () => {
     fireEvent.click(screen.getByRole("button", { name: /Place in every set/ }));
 
     expect(await screen.findByText(/Propose groups for 1 student/)).toBeTruthy();
+  });
+});
+
+describe("after placing them from their own record", () => {
+  it("refreshes the roster row behind the record, not only the record", async () => {
+    /*
+     * The record invalidated the groups and the catalogue and nothing else, so the row it
+     * was opened from — whose Groups column comes from the students list, and whose
+     * warnings come from the register — read as before until the page was reloaded.
+     */
+    vi.spyOn(database, "assignStudents").mockResolvedValue({ assigned: 1, skipped: [] });
+    const client = show();
+    const invalidated = vi.spyOn(client, "invalidateQueries");
+    await screen.findByLabelText("Groups");
+    fireEvent.click(screen.getByRole("button", { name: /Place in every set/ }));
+
+    await pick("Groups", "I'll name the groups");
+    await pick("Semester", "Semester 1");
+    await pick("Block", /TD/);
+    await pick("Group", /Group 1/);
+    fireEvent.click(screen.getByRole("button", { name: /Place 1/ }));
+
+    await waitFor(() => expect(invalidated).toHaveBeenCalledWith({ queryKey: ["students"] }));
+    expect(invalidated).toHaveBeenCalledWith({ queryKey: ["registration-check"] });
+  });
+});
+
+describe("the thread on the record", () => {
+  it("is the same thread the row's mark opens, under the portal's card", async () => {
+    vi.spyOn(comments, "fetchComments").mockResolvedValue([
+      { id: "c1", studentId: "A001", body: "Spoke to the registrar.", authorEmail: "x@sorbonne.ae", authorName: "Colleague", createdAt: "2026-09-10T08:30:00+00:00" },
+    ]);
+    show();
+
+    expect(await screen.findByText("Spoke to the registrar.")).toBeTruthy();
+    expect(screen.getByLabelText("Add a comment on Amira Haddad")).toBeTruthy();
+  });
+});
+
+describe("their week", () => {
+  it("draws the groups' sections and the registrations as one calendar, dashing what the registrar has not registered", async () => {
+    /*
+     * A student's timetable is two lists drawn as one: what their groups stand for, and
+     * what the registrar registered. The tutorial we placed them in and the registrar has
+     * not is the class we expect them at and nobody else does — dashed, not dropped.
+     */
+    show();
+
+    const card = (await screen.findByText("Timetable")).closest("section") as HTMLElement;
+    const boxes = await within(card).findAllByLabelText(/CRN \d+/);
+    // The group's 23652, plus the three registrations — one of them an elective in no group.
+    expect(boxes).toHaveLength(4);
+    expect(within(card).getByLabelText(/CRN 23652.*in their group, not registered/)).toBeTruthy();
+    expect(within(card).getByLabelText(/CRN 23653/).getAttribute("aria-label")).not.toMatch(/not registered/);
   });
 });

@@ -6,6 +6,7 @@ import { StudentRoster } from "@/components/StudentRoster";
 import { forgetHistory, recordPull } from "@/services/pullHistory";
 import { forgetRosters, rememberPull, rememberSync } from "@/services/rosterStore";
 import * as rosters from "@/services/scenRosters";
+import * as comments from "@/services/studentComments";
 import * as database from "@/services/studentDatabase";
 
 /** The columns come from the portal's own grid, so the tests describe one. */
@@ -173,6 +174,8 @@ beforeEach(() => {
   window.localStorage.clear();
   vi.spyOn(database, "fetchStudents").mockResolvedValue(HELD);
   vi.spyOn(rosters, "fetchSchema").mockResolvedValue(SCHEMA);
+  vi.spyOn(comments, "fetchCommentSummary").mockResolvedValue({});
+  vi.spyOn(comments, "fetchComments").mockResolvedValue([]);
 });
 
 afterEach(async () => {
@@ -1184,7 +1187,8 @@ describe("proposing groups for a whole selection", () => {
     await withNames();
     renderRoster();
     await screen.findByText("Amira Haddad");
-    fireEvent.click((screen.getAllByRole("checkbox")[1] ?? screen.getAllByRole("checkbox")[0]) as HTMLElement);
+    // The first student's own box — by its label, since the headings carry boxes of their own.
+    fireEvent.click(screen.getAllByRole("checkbox", { name: /^Select (?!everyone shown)/ })[0]);
 
     fireEvent.click(await screen.findByRole("button", { name: /Place in groups/ }));
 
@@ -1195,11 +1199,11 @@ describe("proposing groups for a whole selection", () => {
 
 describe("looking past one cohort", () => {
   /** The Cohorts page: the table is one cohort's population, not a filter chip. */
-  function renderScoped(cohortId: string | null) {
+  function renderScoped(cohortId: string | null, everywhere = false) {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     return render(
       <QueryClientProvider client={queryClient}>
-        <StudentRoster cohorts={COHORTS} viewId={VIEW_ID} scope={{ cohortId }} />
+        <StudentRoster cohorts={COHORTS} viewId={VIEW_ID} scope={{ cohortId }} everywhere={everywhere} />
       </QueryClientProvider>,
     );
   }
@@ -1212,12 +1216,10 @@ describe("looking past one cohort", () => {
      * half thousand it is not.
      */
     await withNames();
-    renderScoped("cohort-1");
+    // The switch is the page's, beside the cohort picker; the table is told.
+    renderScoped("cohort-1", true);
     await screen.findByText("Amira Haddad");
 
-    fireEvent.click(screen.getByRole("button", { name: "This cohort" }));
-
-    await screen.findByRole("button", { name: "All cohorts" });
     // A001 and A999 are Foundation Year; A002 and A003 are in no cohort at all.
     await waitFor(() => expect(screen.queryByText("A002")).toBeNull());
     expect(screen.queryByText("A003")).toBeNull();
@@ -1233,5 +1235,25 @@ describe("looking past one cohort", () => {
     expect(await screen.findByText("A002")).toBeTruthy();
     expect(screen.getByText("A003")).toBeTruthy();
     expect(screen.queryByText("A999")).toBeNull();
+  });
+});
+
+describe("comments from the row", () => {
+  it("marks a row that carries comments with how many, and opens the thread from it", async () => {
+    vi.spyOn(comments, "fetchCommentSummary").mockResolvedValue({ A001: { count: 2, lastAt: "2026-09-11T09:15:00+00:00" } });
+    vi.spyOn(comments, "fetchComments").mockResolvedValue([
+      { id: "c1", studentId: "A001", body: "Spoke to the registrar.", authorEmail: "x@sorbonne.ae", authorName: "Colleague", createdAt: "2026-09-10T08:30:00+00:00" },
+    ]);
+    await withNames();
+    renderRoster();
+    await screen.findByText("Amira Haddad");
+
+    // Rows with nothing said offer the mark too; it only shows while the pointer is there.
+    expect(screen.getAllByRole("button", { name: /^Comment on / }).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: "2 comments on Amira Haddad" }));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(await within(dialog).findByText("Spoke to the registrar.")).toBeTruthy();
+    expect(within(dialog).getByLabelText("Add a comment on Amira Haddad")).toBeTruthy();
   });
 });

@@ -85,9 +85,9 @@ describe("the registrar's worklist", () => {
     );
 
     const [header, first, second] = table.split("\n");
-    expect(header.split("\t")).toEqual(["Student ID", "Student", "Year", "Cohort", "Action", "Remove CRN", "Add CRN", "Course", "Note"]);
-    expect(first.split("\t")).toEqual(["A00027997", "Amira Haddad", "FY", "FYS-S1", "Add", "", "23561", "MATH-001", ""]);
-    expect(second.split("\t")).toEqual(["", "", "", "", "Add", "", "23564", "MATH-009", ""]);
+    expect(header.split("\t")).toEqual(["Student ID", "Student", "Year", "Action", "Remove CRN", "Add CRN", "Course", "Note"]);
+    expect(first.split("\t")).toEqual(["A00027997", "Amira Haddad", "FY", "Add", "", "23561", "MATH-001", ""]);
+    expect(second.split("\t")).toEqual(["", "", "", "Add", "", "23564", "MATH-009", ""]);
   });
 
   it("puts a removal's CRN in the remove column and an addition's in the add column", () => {
@@ -95,7 +95,7 @@ describe("the registrar's worklist", () => {
       registrationChanges([mismatch({ kind: "extra", expected: [], registered: ["23999"] })], named, "FYS-S1", () => "FY"),
     );
 
-    expect(table.split("\n")[1].split("\t")).toEqual(["A00027997", "Amira Haddad", "FY", "FYS-S1", "Remove", "23999", "", "MATH-001", ""]);
+    expect(table.split("\n")[1].split("\t")).toEqual(["A00027997", "Amira Haddad", "FY", "Remove", "23999", "", "MATH-001", ""]);
   });
 
   it("orders by cohort then by the name somebody will read down", () => {

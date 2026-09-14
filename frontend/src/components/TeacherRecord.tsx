@@ -1,10 +1,16 @@
-import { useQuery } from "@tanstack/react-query";
-import { useMemo } from "react";
+import { useQueries, useQuery } from "@tanstack/react-query";
+import { useMemo, useState } from "react";
 
+import { CrnRecord } from "@/components/CrnRecord";
 import { Modal } from "@/components/Modal";
+import { SectionTimetable, type TimetableEntry } from "@/components/SectionTimetable";
+import { SessionChangeList } from "@/components/SessionChangeList";
+import { adjustmentsFor, fetchSessionChanges } from "@/services/sessionChanges";
 import { buildCards } from "@/services/courseCards";
-import { fetchActiveCourses, fetchActiveCrns, fetchActiveTeachers, type ActiveTeacher } from "@/services/portalLists";
-import { sectionsTaughtBy } from "@/services/teacherLoad";
+import { fetchActiveCourses, fetchActiveCrns, fetchActiveTeachers, fetchFacilityHours, fetchTermLinks, type ActiveCrn, type ActiveTeacher } from "@/services/portalLists";
+import { requisitionHours } from "@/services/requisitions";
+import { registrarHoursFor, sameTeacher, sectionsTaughtBy } from "@/services/teacherLoad";
+import { getTeacherRequisition, listTeacherRequisitions } from "@/services/teachers";
 import { fetchCourseCards } from "@/services/studentDatabase";
 import { fetchTimetableTerms } from "@/services/timetables";
 
@@ -73,7 +79,102 @@ export function TeacherRecord({
     [cards, held, teacher.id, teacher.fullName],
   );
 
+  /*
+   * The third count: what their requisitions pay for. Only a part-time teacher has one,
+   * and it is read through the part-time database they are linked to.
+   */
+  const partTimeId = held?.partTimeTeacherId ?? "";
+  const requisitionList = useQuery({
+    queryKey: ["teacher-requisitions", partTimeId],
+    queryFn: () => listTeacherRequisitions(partTimeId),
+    enabled: open && Boolean(partTimeId),
+    retry: false,
+  });
+  const { requisitions, requisitionsLoading } = useQueries({
+    queries: (requisitionList.data ?? []).map((item) => ({
+      queryKey: ["teacher-requisition", item.id],
+      queryFn: () => getTeacherRequisition(item.id),
+      enabled: open,
+      retry: false,
+    })),
+    combine: (reads) => ({
+      requisitions: reads.flatMap((read) => (read.data ? [read.data] : [])),
+      requisitionsLoading: reads.some((read) => read.isLoading),
+    }),
+  });
+  const contracted = requisitionHours(requisitions);
+
   const live = sections.filter((section) => !section.retired);
+  /*
+   * When they teach, from the registrar's sweep.
+   *
+   * Two ways a section is theirs: our planning names them on it, or the portal's own list
+   * staffs it with them. The second catches what the first has not been told yet — a CRN
+   * the registrar gave them that nobody has put on a card — and both are hours they are
+   * in a room, which is what a calendar is for.
+   */
+  const links = useQuery({ queryKey: ["term-links"], queryFn: fetchTermLinks, enabled: open, retry: false });
+  const ours: TimetableEntry[] = live
+    .filter((section) => section.crn)
+    .map((section) => ({
+      termCode: links.data?.[section.termId] ?? "",
+      crn: section.crn,
+      code: section.courseCode,
+      title: section.courseName,
+      label: section.courseCode,
+    }));
+  const named = new Set(ours.map((entry) => entry.crn));
+  const theirs: TimetableEntry[] = (registered.data ?? [])
+    .filter((row) => !named.has(row.crn) && row.portalStatus === "in_portal" && sameTeacher(row.teacherName, teacher.fullName))
+    .map((row) => ({ termCode: row.termCode, crn: row.crn, code: row.courseCode, title: row.courseTitle || row.portalTitle }));
+  const timetable = [...ours, ...theirs];
+  const [showingCrn, setShowingCrn] = useState<ActiveCrn | null>(null);
+
+  /*
+   * What happened to their classes, and the classes they stood in for.
+   *
+   * Their CRNs are the calendar's; a note on one of those is theirs whichever way it
+   * went. A note naming them as the cover is theirs too, on somebody else's class.
+   */
+  const termCodes = [...new Set(timetable.map((entry) => entry.termCode).filter(Boolean))];
+  const { notes } = useQueries({
+    queries: termCodes.map((termCode) => ({
+      queryKey: ["session-changes", termCode],
+      queryFn: () => fetchSessionChanges(termCode),
+      enabled: open,
+      retry: false,
+    })),
+    combine: (reads) => ({ notes: reads.flatMap((read) => read.data ?? []) }),
+  });
+  const ownCrns = new Set(timetable.map((entry) => entry.crn));
+  const me = { id: held?.id ?? teacher.id ?? "", name: teacher.fullName };
+  const concerning = notes.filter(
+    (note) =>
+      ownCrns.has(note.crn) ||
+      (note.kind === "covered" && ((me.id && note.coverTeacherId === me.id) || sameTeacher(note.coverTeacherName, me.name))),
+  );
+  const adjusted = adjustmentsFor(notes, me, ownCrns, sameTeacher);
+  // The registrar's count of their teaching, beside ours in the tiles. No warning on it.
+  const { registrarHours } = useQueries({
+    queries: termCodes.map((termCode) => ({
+      queryKey: ["facility-hours", termCode],
+      queryFn: () => fetchFacilityHours(termCode),
+      enabled: open,
+      retry: false,
+    })),
+    combine: (reads) => ({
+      registrarHours: reads.reduce((sum, read) => sum + registrarHoursFor(read.data ?? {}, teacher.fullName, sameTeacher), 0),
+    }),
+  });
+  const courseOf = new Map(timetable.map((entry) => [entry.crn, `${entry.code} · CRN ${entry.crn}`]));
+  const tally = [
+    adjusted.cancelled ? `${adjusted.cancelled} h cancelled` : "",
+    adjusted.coveredByOthers ? `${adjusted.coveredByOthers} h covered by others` : "",
+    adjusted.coveredForOthers ? `${adjusted.coveredForOthers} h covered for others` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const inRegister = (crn: string) => (registered.data ?? []).find((row) => row.crn === crn) ?? null;
   const hours = live.reduce((sum, section) => sum + (Number(section.hours) || 0), 0);
   const students = live.reduce((sum, section) => sum + section.students, 0);
   const facts = held ?? teacher;
@@ -89,7 +190,12 @@ export function TeacherRecord({
       }
       onClose={onClose}
     >
-      <div className="grid gap-4 sm:grid-cols-3">
+      {/*
+        * Three counts of the same teaching, side by side: what our planning asks for, what
+        * the registrar has booked, and what the contract pays for. A comparison, not a
+        * verdict — hours move during a semester — but one that used to take three pages.
+        */}
+      <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-5">
         <div className="rounded-lg border border-[#d9dee7] bg-white px-4 py-3">
           <p className="text-xs font-semibold uppercase tracking-wide text-[#8a94a4]">Sections</p>
           <p className="mt-1 text-2xl font-semibold tabular-nums text-[#171717]">{live.length}</p>
@@ -98,9 +204,29 @@ export function TeacherRecord({
           </p>
         </div>
         <div className="rounded-lg border border-[#d9dee7] bg-white px-4 py-3">
-          <p className="text-xs font-semibold uppercase tracking-wide text-[#8a94a4]">Hours</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-[#8a94a4]">Planned hours</p>
           <p className="mt-1 text-2xl font-semibold tabular-nums text-[#171717]">{hours || "—"}</p>
           <p className="mt-0.5 text-xs text-[#98a2b3]">as the timetable request has them</p>
+        </div>
+        <div className="rounded-lg border border-[#d9dee7] bg-white px-4 py-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-[#8a94a4]">Registrar hours</p>
+          <p className="mt-1 text-2xl font-semibold tabular-nums text-[#171717]">{registrarHours || "—"}</p>
+          <p className="mt-0.5 text-xs text-[#98a2b3]">booked on the portal&apos;s timetable</p>
+        </div>
+        <div className="rounded-lg border border-[#d9dee7] bg-white px-4 py-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-[#8a94a4]">Requisition hours</p>
+          <p className="mt-1 text-2xl font-semibold tabular-nums text-[#171717]" aria-label="Requisition hours">
+            {partTimeId && contracted.total ? contracted.total : "—"}
+          </p>
+          <p className="mt-0.5 text-xs text-[#98a2b3]">
+            {!partTimeId
+              ? "not a part-time teacher"
+              : requisitionList.isLoading || requisitionsLoading
+                ? "reading the requisitions…"
+                : contracted.byLabel.length
+                  ? contracted.byLabel.map((entry) => `${entry.label}: ${entry.hours} h`).join(" · ")
+                  : "no requisition yet"}
+          </p>
         </div>
         <div className="rounded-lg border border-[#d9dee7] bg-white px-4 py-3">
           <p className="text-xs font-semibold uppercase tracking-wide text-[#8a94a4]">Students</p>
@@ -109,20 +235,52 @@ export function TeacherRecord({
         </div>
       </div>
 
-      <div className="mt-5 grid gap-4 rounded-lg border border-[#e4e8ef] bg-[#fbfcfe] px-4 py-3 sm:grid-cols-3">
-        <Fact label="E-mail" value={facts.email || teacher.psuadEmail || ""} />
-        <Fact label="Rank" value={facts.rank ?? ""} />
-        <Fact label="Category" value={facts.category ?? ""} />
-        <Fact label="Department" value={facts.department ?? ""} />
-        <Fact label="Institution" value={facts.institution ?? ""} />
-        <Fact label="Last term in the portal" value={facts.lastTerm ?? ""} />
-        <Fact label="Portal ID" value={facts.portalTeacherId ?? ""} />
-        <Fact
-          label="On the department's list"
-          value={held ? `yes, since ${held.addedAt.slice(0, 10)}` : "no — chosen on the Teachers page"}
-        />
-        <Fact label="Courses the portal lists" value={facts.courses ?? ""} />
+
+      {/*
+       * Who they are beside when they teach. The facts are nine short lines and the week
+       * is a small grid; each on a row of its own left half the width empty.
+       */}
+      <div className="mt-5 grid gap-4 lg:grid-cols-2">
+        <div className="grid gap-4 self-start rounded-lg border border-[#e4e8ef] bg-[#fbfcfe] px-4 py-3 sm:grid-cols-2">
+          <Fact label="E-mail" value={facts.email || teacher.psuadEmail || ""} />
+          <Fact label="Rank" value={facts.rank ?? ""} />
+          <Fact label="Category" value={facts.category ?? ""} />
+          <Fact label="Department" value={facts.department ?? ""} />
+          <Fact label="Institution" value={facts.institution ?? ""} />
+          <Fact label="Last term in the portal" value={facts.lastTerm ?? ""} />
+          <Fact label="Portal ID" value={facts.portalTeacherId ?? ""} />
+          <Fact
+            label="On the department's list"
+            value={held ? `yes, since ${held.addedAt.slice(0, 10)}` : "no — chosen on the Teachers page"}
+          />
+          <Fact label="Courses the portal lists" value={facts.courses ?? ""} />
+        </div>
+        <section>
+          <h4 className="text-sm font-semibold text-[#171717]">When they teach</h4>
+          <p className="mb-2 text-xs text-[#98a2b3]">
+            From the registrar&apos;s timetable: the sections above, and any the portal staffs with them.
+          </p>
+          <SectionTimetable
+            entries={timetable}
+            compact
+            title={`${teacher.fullName || "This teacher"} — timetable`}
+            openable={(crn) => Boolean(inRegister(crn))}
+            onOpenCrn={(crn) => setShowingCrn(inRegister(crn))}
+            emptyMessage="No section of theirs carries a CRN yet, so there is no week to show."
+          />
+        </section>
       </div>
+
+      <h4 className="mt-6 text-sm font-semibold text-[#171717]">Changes to their classes</h4>
+      <p className="mb-2 text-xs text-[#98a2b3]">
+        Cancelled, covered by somebody else, or covered by them — as said on the CRNs&apos; calendars.
+        {tally ? ` ${tally}.` : ""}
+      </p>
+      <SessionChangeList
+        changes={concerning}
+        nameOf={(crn) => courseOf.get(crn) ?? `CRN ${crn}`}
+        empty="Nothing noted on their classes this semester."
+      />
 
       <h4 className="mt-6 text-sm font-semibold text-[#171717]">What they teach</h4>
       {catalogues.isLoading ? (
@@ -169,6 +327,16 @@ export function TeacherRecord({
           </table>
         </div>
       )}
+
+      {showingCrn ? (
+        <CrnRecord
+          open
+          row={showingCrn}
+          siblings={(registered.data ?? []).filter((row) => row.courseCode === showingCrn.courseCode && row.termCode === showingCrn.termCode)}
+          onClose={() => setShowingCrn(null)}
+          onSaved={() => void registered.refetch()}
+        />
+      ) : null}
     </Modal>
   );
 }

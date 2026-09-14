@@ -1789,8 +1789,11 @@ class PortalListStore:
         Judged per course of our blocks, per student the registrations pull has returned:
         placed and not registered is *missing*; registered in another section is *wrong*;
         registered in ours and another is *extra*; registered while in no group of ours is
-        *unplaced*. A CRN outside our blocks — a language course, say — is not our business
-        and is not mentioned. A student no pull has returned is still not judged.
+        *unplaced*. A CRN in no set of ours is not our business and is not mentioned — but
+        the shared sets count as ours: a language group on another cohort's row that this
+        cohort's student sits in is expected of them like any tutorial, which is the
+        seventh line a student's record showed and this list did not. A student no pull
+        has returned is still not judged.
 
         But now they are COUNTED. The silence is unchanged and the verdicts are unchanged;
         what is new is that the answer says how much of the cohort it rests on. Two things
@@ -1829,7 +1832,13 @@ class PortalListStore:
             cohort = next(
                 (entry for entry in database.term_publication(term_id) if entry["cohortId"] == cohort_id), None
             )
-            groups = {group["id"]: group for group in cohort["groups"]} if cohort else {}
+            # The cohort's own sets, and the shared ones it takes part in — the languages,
+            # which sit on one cohort's row and were never asked about for the others. A
+            # student placed in French A0-F6 is expected in its section like any other.
+            groups = (
+                {group["id"]: group for group in [*cohort["groups"], *cohort.get("sharedGroups", [])]} if cohort else {}
+            )
+            placements = [*cohort["assignments"], *cohort.get("sharedAssignments", [])] if cohort else []
             ours = sorted(
                 {crn for group in groups.values() for crns in group["crns"].values() for crn in crns if crn}
             )
@@ -1866,8 +1875,10 @@ class PortalListStore:
             # real one: on the copied production data one student was missing one course of
             # five and another was missing all five.
             exempt = database.exempt_codes(term_id)
-            expected: dict[str, dict[str, set[str]]] = {}
-            for row in cohort["assignments"]:
+            # student -> course -> set -> its CRNs. Kept per SET, because the date rule may
+            # only ever choose between sections that stand in for one another.
+            expected: dict[str, dict[str, dict[str, set[str]]]] = {}
+            for row in placements:
                 group = groups.get(row["groupId"])
                 if group is None:
                     continue
@@ -1876,9 +1887,9 @@ class PortalListStore:
                     # group — and each may carry the same course. All of their sections are
                     # expected, not whichever was read last; and a section taught in two
                     # halves is two CRNs of one course, both of which they are in.
-                    expected.setdefault(row["studentId"], {}).setdefault(code, set()).update(
-                        crn for crn in crns if crn
-                    )
+                    expected.setdefault(row["studentId"], {}).setdefault(code, {}).setdefault(
+                        group["scopeId"], set()
+                    ).update(crn for crn in crns if crn)
             registered = self.registered_in(term_code)
             pulled = self.pulled_students(term_code)
             for student in cohort["students"]:
@@ -1891,8 +1902,8 @@ class PortalListStore:
                         term_id,
                         term_code,
                         code,
-                        _expected_on(sorted(expected.get(student, {}).get(code, set())), windows, today),
-                        sorted(expected.get(student, {}).get(code, set())),
+                        _running_today(expected.get(student, {}).get(code, {}), windows, today),
+                        _every_section(expected.get(student, {}).get(code, {})),
                         registered.get(student, {}).get(code, []),
                     )
                     for code in course_codes
@@ -1972,39 +1983,42 @@ class PortalListStore:
         sets = database.term_scope_crns(term_id)
         if not sets:
             return []
-        # CRN -> which group of which set. A CRN in two places is a fault of ours rather
-        # than the registrar's, and not this check's to report; the first claim stands.
-        where: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {}
-        for entry in sets:
-            for group in entry["groups"]:
-                for crn in group["crns"]:
-                    where.setdefault(crn, (entry, group))
 
         registered = self.registered_in(term_code)
         pulled = self.pulled_students(term_code)
         found: list[Mismatch] = []
         for student in sorted(database.cohort_members(cohort_id) & pulled):
-            held: dict[str, dict[str, set[str]]] = {}
-            for crns in registered.get(student, {}).values():
-                for crn in crns:
-                    place = where.get(crn)
-                    if place is None:
-                        continue
-                    entry, group = place
-                    held.setdefault(entry["scopeId"], {}).setdefault(group["label"], set()).add(crn)
-            for scope_id, groups in held.items():
-                if len(groups) < 2:  # noqa: PLR2004 - one group of a set is the whole rule
+            theirs = {crn for crns in registered.get(student, {}).values() for crn in crns}
+            if not theirs:
+                continue
+            for entry in sets:
+                # Asked as containment, not as attribution.
+                #
+                # This used to file each CRN under one group — "the first claim stands" —
+                # and call two groups a contradiction. That reading holds only while every
+                # set teaches one course, because then no CRN can be in two of its groups.
+                # The moment a set carries a course every group of it teaches, the CRN they
+                # share is filed under whichever was read first, and everybody in the other
+                # group looks doubled: on the real data, every physics student in the year.
+                #
+                # What is actually wrong is a registration no single group could produce. So
+                # that is the question, and it answers the original one unchanged — two
+                # groups of one set are two groups no third one covers.
+                covered = {crn for group in entry["groups"] for crn in group["crns"]} & theirs
+                if not covered or any(covered <= set(group["crns"]) for group in entry["groups"]):
                     continue
-                entry = next(candidate for candidate in sets if candidate["scopeId"] == scope_id)
+                touched = sorted(
+                    group["label"] for group in entry["groups"] if set(group["crns"]) & covered
+                )
                 found.append(
                     Mismatch(
                         student_id=student,
                         term_id=term_id,
                         term_code=term_code,
-                        course_code=", ".join(sorted(groups)),
+                        course_code=", ".join(touched),
                         kind="doubled",
                         expected=[],
-                        registered=sorted({crn for crns in groups.values() for crn in crns}),
+                        registered=sorted(covered),
                         scope_code=entry["code"],
                     )
                 )
@@ -2055,6 +2069,25 @@ def _expected_on(crns: list[str], windows: dict[str, tuple[str, str]], on: str) 
     if not chosen:
         return sorted(crns)
     return sorted({*chosen, *undated})
+
+
+def _running_today(by_set: dict[str, set[str]], windows: dict[str, tuple[str, str]], on: str) -> list[str]:
+    """The sections of one course a student is expected in today — decided set by set.
+
+    The date rule chooses between sections that stand in for one another: the two halves
+    of a handover, which are two parts of one cell in one set. A course's lecture, tutorial
+    and practical are not alternatives — they sit in different sets and run side by side.
+    Tiered together under one course code, a tutorial that starts a week after its lecture
+    was quietly not expected: nobody was ever reported missing from it, and it never
+    reached the list of registrations to ask the registrar for. Two of one student's six
+    went that way.
+    """
+    return sorted({crn for crns in by_set.values() for crn in _expected_on(sorted(crns), windows, on)})
+
+
+def _every_section(by_set: dict[str, set[str]]) -> list[str]:
+    """Every section of one course our planning holds for a student, whenever it runs."""
+    return sorted({crn for crns in by_set.values() for crn in crns})
 
 
 def _judge(  # noqa: PLR0913 - one argument per part of the verdict

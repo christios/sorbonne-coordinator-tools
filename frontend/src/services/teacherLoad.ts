@@ -14,7 +14,7 @@
 
 import { filled } from "@/services/courseRequest";
 import { rowsPerPart, type Card } from "@/services/courseCards";
-import type { ActiveTeacher } from "@/services/portalLists";
+import type { ActiveTeacher, FacilityHours } from "@/services/portalLists";
 import type { GridColumn } from "@/services/studentColumns";
 import type { RequestSheet } from "@/services/timetableExport";
 
@@ -58,6 +58,9 @@ export function teacherLoads(sheets: RequestSheet[]): TeacherLoad[] {
   const held = new Map<string, TeacherLoad>();
   sheets.forEach((sheet, index) => {
     for (const row of sheet.rows) {
+      // A retired group's hours are nobody's to teach. They stay on the sheet, marked, so
+      // the timetabler knows; here they would read as a class with nobody in front of it.
+      if (row.retired) continue;
       const named = row.teacher && row.teacher.toUpperCase() !== UNNAMED;
       const key = named ? `name:${row.teacher.trim().toLowerCase()}` : "";
       const load = held.get(key) ?? {
@@ -101,6 +104,8 @@ export type TaughtSection = {
   key: string;
   cohortName: string;
   termName: string;
+  /** The Hub semester the section is taught in; what links it to a portal term. */
+  termId: string;
   courseCode: string;
   courseName: string;
   scopeCode: string;
@@ -143,6 +148,7 @@ export function sectionsTaughtBy(cards: Card[], teacherId: string, teacherName =
           key: `${card.key}|${row.group.id}`,
           cohortName: card.cohortName,
           termName: card.termName,
+          termId: card.termId,
           courseCode: card.code,
           courseName: card.name,
           scopeCode: set.scope.code,
@@ -171,6 +177,14 @@ export type LoadRow = TeacherLoad & {
   /** How the name got here: chosen from Active teachers, typed by the registrar, or nobody. */
   standing: "Confirmed" | "Not confirmed" | "Nobody yet";
   active: ActiveTeacher | null;
+  /** The CRNs the planning gives this teacher, for the notes on their classes. */
+  crns: string[];
+  /** What the term's cancelled and covered classes do to their hours. Zero until read. */
+  cancelledHours: number;
+  coverGiven: number;
+  coverTaken: number;
+  /** The registrar's booked hours on the sections the portal staffs with them. Zero until read. */
+  registrarHours: number;
 };
 
 /**
@@ -180,14 +194,53 @@ export type LoadRow = TeacherLoad & {
  * can be on the list and still have every section carrying only what the registrar typed,
  * and the table is more useful for knowing that they are the same person.
  */
-export function loadRows(loads: TeacherLoad[], active: ActiveTeacher[]): LoadRow[] {
+export function loadRows(loads: TeacherLoad[], active: ActiveTeacher[], crnsOf: (teacher: string) => string[] = () => []): LoadRow[] {
   const byId = new Map(active.map((teacher) => [teacher.id, teacher]));
   const byName = new Map(active.map((teacher) => [teacher.fullName.trim().toLowerCase(), teacher]));
   return loads.map((load) => ({
     ...load,
     standing: !load.teacher ? "Nobody yet" : load.teacherId ? "Confirmed" : "Not confirmed",
     active: byId.get(load.teacherId) ?? byName.get(load.teacher.trim().toLowerCase()) ?? null,
+    crns: crnsOf(load.teacher),
+    cancelledHours: 0,
+    coverGiven: 0,
+    coverTaken: 0,
+    registrarHours: 0,
   }));
+}
+
+/**
+ * The registrar's hours for one teacher: every section the portal staffs with them, added up.
+ *
+ * Theirs by the portal's own staffing, not by our planning — that is what makes the number
+ * worth reading beside ours. Where the registrar has given a section to somebody else, the
+ * two columns part company on both rows, and that is the whole point of having both.
+ */
+export function registrarHoursFor(
+  hours: FacilityHours,
+  teacher: string,
+  same: (left: string, right: string) => boolean,
+): number {
+  if (!teacher) return 0;
+  const total = Object.values(hours)
+    .filter((section) => section.teacherName && same(section.teacherName, teacher))
+    .reduce((sum, section) => sum + section.hours, 0);
+  return Math.round(total * 100) / 100;
+}
+
+/** `teacher name -> CRNs`, from the same rows the hours come from, keyed as `teacherLoads` keys. */
+export function crnsByTeacher(sheets: RequestSheet[]): (teacher: string) => string[] {
+  const held = new Map<string, Set<string>>();
+  for (const sheet of sheets) {
+    for (const row of sheet.rows) {
+      if (!row.crn || row.retired) continue;
+      const key = row.teacher && row.teacher.toUpperCase() !== UNNAMED ? row.teacher.trim().toLowerCase() : "";
+      const crns = held.get(key) ?? new Set<string>();
+      crns.add(row.crn);
+      held.set(key, crns);
+    }
+  }
+  return (teacher: string) => [...(held.get(teacher.trim().toLowerCase()) ?? [])];
 }
 
 /**
@@ -203,6 +256,9 @@ export function hoursColumns(sheetTitles: string[]): GridColumn<LoadRow>[] {
     { id: "teacher", displayName: "Teacher", type: "text", accessor: (row) => row.teacher || "Nobody yet", required: true, defaultWidth: 240 },
     { id: "standing", displayName: "Standing", type: "option", accessor: (row) => row.standing, defaultWidth: 130 },
     { id: "total", displayName: "Total", type: "number", accessor: (row) => row.total, defaultWidth: 90 },
+    // The registrar's count beside ours. A comparison with no warning on it: teachers and
+    // hours move during a semester, and cover is normal.
+    { id: "registrarHours", displayName: "Registrar", type: "number", accessor: (row) => row.registrarHours, defaultWidth: 100 },
     ...sheetTitles.map((title, index) => ({
       id: `sheet:${title}`,
       displayName: hoursColumn(title),
@@ -218,6 +274,14 @@ export function hoursColumns(sheetTitles: string[]): GridColumn<LoadRow>[] {
       defaultWidth: 80,
     })),
     { id: "sections", displayName: "Sections", type: "number", accessor: (row) => row.sections, defaultWidth: 100 },
+    /*
+     * What the semester did to the plan, beside the plan rather than folded into it: hours
+     * of theirs that were cancelled, hours somebody else taught for them, hours they taught
+     * for somebody else. From the notes on the CRNs' calendars.
+     */
+    { id: "cancelledHours", displayName: "Cancelled", type: "number", accessor: (row) => row.cancelledHours, defaultWidth: 100 },
+    { id: "coverTaken", displayName: "Covered by others", type: "number", accessor: (row) => row.coverTaken, defaultWidth: 140 },
+    { id: "coverGiven", displayName: "Covered for others", type: "number", accessor: (row) => row.coverGiven, defaultWidth: 150 },
     { id: "type", displayName: "Type", type: "option", accessor: (row) => row.active?.type ?? "", defaultWidth: 190 },
     { id: "category", displayName: "Category", type: "option", accessor: (row) => row.active?.category ?? "", defaultWidth: 120 },
     { id: "department", displayName: "Dept.", type: "option", accessor: (row) => row.active?.department ?? "", defaultWidth: 110 },
@@ -238,6 +302,30 @@ export function shownHoursColumns(sheetTitles: string[]): string[] {
     ...sheetTitles.map((title) => `sheet:${title}`),
     ...LOAD_TYPES.map((type) => `type:${type}`),
     "total",
+    "registrarHours",
     "sections",
+    "cancelledHours",
+    "coverTaken",
+    "coverGiven",
   ];
+}
+
+/**
+ * Whether two spellings name the same teacher: the same words in any order, whatever the
+ * case, the accents and the punctuation. The portal writes "YOUNES Grace" where the
+ * register writes "Grace Younes", and a section staffed under either is theirs.
+ */
+export function sameTeacher(left: string, right: string): boolean {
+  const words = (name: string) =>
+    name
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .filter(Boolean)
+      .sort()
+      .join(" ");
+  const a = words(left);
+  const b = words(right);
+  return Boolean(a) && a === b;
 }

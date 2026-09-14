@@ -919,12 +919,23 @@ def _copy_catalogue(  # noqa: PLR0913 - the two maps it fills are the point
             )["id"]
             group_id[group["id"]] = here_group
             for prod_course, cell in (group.get("crns") or {}).items():
-                if cell.get("crn") and prod_course in course_id:
-                    at = f"/groups/{here_group}/courses/{course_id[prod_course]}"
-                    write(at, {"crn": cell["crn"], "teacher": cell.get("teacher", "")}, method="PUT")
-                    request = _request_of(cell)
+                if prod_course not in course_id:
+                    continue
+                at = f"/groups/{here_group}/courses/{course_id[prod_course]}"
+                # Every part, not the first. A section's top-level fields ARE its first
+                # part, so reading `cell["crn"]` copies a handover's opening half and
+                # silently drops the rest — and a copy missing the half that has not
+                # started yet reports every student in it as registered in a section
+                # nobody teaches. On the real data that was MATH-351's four sections
+                # arriving as two, and eleven students wrong because of it.
+                for part in cell.get("parts") or [cell]:
+                    if not part.get("crn"):
+                        continue
+                    number = part.get("part", 1)
+                    write(at, {"crn": part["crn"], "teacher": part.get("teacher", ""), "part": number}, method="PUT")
+                    request = _request_of(part)
                     if request:
-                        write(at, request, method="PATCH")
+                        write(at, {**request, "part": number}, method="PATCH")
                         requests += 1
     return requests
 
