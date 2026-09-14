@@ -16,8 +16,16 @@ import {
   listFieldNotes,
   upsertFieldNote,
 } from "@/services/workflow";
+import type { AppId } from "@/routes/apps";
 
-type FieldInfoSource = { resourceType: string; resourceId: string };
+/**
+ * The records these notes are attached to, and which app they belong to.
+ *
+ * The app decides who may write the guidance: whoever administers *that* app. Handing out
+ * accounts and maintaining the syllabus catalogue are different jobs, and the coordinator
+ * doing the second should not have to ask the person doing the first to fix a sentence.
+ */
+type FieldInfoSource = { resourceType: string; resourceId: string; app: AppId };
 const FieldInfoContext = createContext<FieldInfoSource | null>(null);
 
 export function FieldInfoProvider({
@@ -63,22 +71,28 @@ export function FieldInfoLabel({
   const source = useContext(FieldInfoContext);
   const notes = useContext(FieldInfoNotesContext);
   const [editorOpen, setEditorOpen] = useState(false);
-  const canEdit = Boolean(useStaffUser()?.isAdmin);
+  const user = useStaffUser();
+  const canEdit = Boolean(user?.isAdmin) || (source ? user?.apps?.[source.app] === "admin" : false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const note = notes.find((item) => item.fieldKey === fieldKey);
   const anchorRef = useRef<HTMLSpanElement>(null);
   const guidance = note?.content ?? hint ?? "";
-  const editable = Boolean(source && fieldKey);
-  if (!editable && !guidance) return <>{children}</>;
+  // Clicking the label is how guidance is written, so the label looks clickable only to
+  // whoever may write it. Everybody else can still open what is there to read — hover is a
+  // poor way to read a paragraph — but is not invited to change it, or to open an empty
+  // panel about a field nobody has written anything about.
+  const writable = Boolean(source && fieldKey) && canEdit;
+  const readable = Boolean(source && fieldKey) && Boolean(guidance);
+  if (!writable && !guidance) return <>{children}</>;
   return (
     <span
       ref={anchorRef}
       className="group relative inline-flex items-center gap-1"
-      onClick={editable ? () => setEditorOpen(true) : undefined}
+      onClick={writable || readable ? () => setEditorOpen(true) : undefined}
     >
       <span
         className={
-          editable ? "cursor-pointer transition-colors hover:text-[#1f4e79]" : undefined
+          writable ? "cursor-pointer transition-colors hover:text-[#1f4e79]" : undefined
         }
       >
         {children}
@@ -172,7 +186,14 @@ function FieldInfoPopover({
     };
   }, [anchorRef, onClose]);
   const save = useMutation({
-    mutationFn: () => upsertFieldNote({ ...source, fieldKey, content: draft }),
+    // Which app the field belongs to is the browser's business, not the note's.
+    mutationFn: () =>
+      upsertFieldNote({
+        resourceType: source.resourceType,
+        resourceId: source.resourceId,
+        fieldKey,
+        content: draft,
+      }),
     onSuccess: () => {
       client.invalidateQueries({
         queryKey: ["field-notes", source.resourceType, source.resourceId],

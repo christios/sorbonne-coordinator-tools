@@ -1,6 +1,9 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
+import { StaffContext } from "@/components/useStaffUser";
+import type { StaffUser } from "@/services/auth";
+import type { SyllabusSummary } from "@/services/syllabi";
 import { SyllabusLibrary } from "./SyllabusLibrary";
 
 describe("SyllabusLibrary", () => {
@@ -147,5 +150,57 @@ describe("SyllabusLibrary", () => {
     fireEvent.change(screen.getByRole("textbox", { name: /Folder name/ }), { target: { value: "Year 3" } });
     fireEvent.click(screen.getByRole("button", { name: "Create folder" }));
     expect(onCreateFolder).toHaveBeenCalledWith({ name: "Year 3", parentId: "folder-1" });
+  });
+});
+
+describe("What a syllabus is doing, in the library", () => {
+  const base = { seriesId: "series", folderId: null, templateId: "scen-en-v1", courseCode: "SCEN-220", academicYear: "2026-2027", revision: 1, createdAt: "", updatedAt: "" };
+  const departmental: SyllabusSummary = { ...base, id: "a", courseTitle: "Thermodynamics", ownerEmail: null, visibility: "public", submittedAt: null };
+  const draft: SyllabusSummary = { ...base, id: "b", courseTitle: "Fluid mechanics", ownerEmail: "prof@sorbonne.ae", visibility: "private", submittedAt: null };
+  const submitted: SyllabusSummary = { ...base, id: "c", courseTitle: "Geometric optics", ownerEmail: "prof@sorbonne.ae", visibility: "private", submittedAt: "2026-09-01T00:00:00" };
+  const published: SyllabusSummary = { ...base, id: "d", courseTitle: "Linear algebra", ownerEmail: "prof@sorbonne.ae", visibility: "public", submittedAt: null };
+
+  function library(syllabi: SyllabusSummary[], user: StaffUser | null = null) {
+    return render(
+      <StaffContext.Provider value={user}>
+        <SyllabusLibrary syllabi={syllabi} folders={[]} templates={[]} isLoading={false} isCreating={false} isCreatingFolder={false} deletingId={null} deletingFolderId={null} movingId={null} onOpen={vi.fn()} onCreate={vi.fn()} onCreateFolder={vi.fn()} onMove={vi.fn()} onDelete={vi.fn()} onDeleteFolder={vi.fn()} />
+      </StaffContext.Provider>,
+    );
+  }
+
+  it("wears its state on every row, the departmental ones included", () => {
+    library([departmental, draft, submitted, published]);
+
+    expect(screen.getByText("Departmental")).toBeTruthy();
+    expect(screen.getByText("Private")).toBeTruthy();
+    expect(screen.getByText("Published")).toBeTruthy();
+    // Once as the pill on the row, once as the queue in the rail.
+    expect(screen.getAllByText("For review").length).toBe(2);
+  });
+
+  it("gathers the submitted ones where a coordinator already looks for syllabi", () => {
+    library([departmental, draft, submitted], { email: "chair@sorbonne.ae", name: "Chair", isAdmin: false, apps: { syllabus: "admin" } });
+
+    fireEvent.click(screen.getByRole("button", { name: /For review/ }));
+
+    expect(screen.getByText("Geometric optics")).toBeTruthy();
+    expect(screen.queryByText("Fluid mechanics")).toBeNull();
+    expect(screen.queryByText("Thermodynamics")).toBeNull();
+    expect(screen.getByText(/asked for these to be read/)).toBeTruthy();
+    expect(screen.getByLabelText("Written by prof@sorbonne.ae")).toBeTruthy();
+  });
+
+  it("says nothing about a queue when nothing is waiting in it", () => {
+    library([departmental, draft, published]);
+
+    expect(screen.queryByRole("button", { name: /For review/ })).toBeNull();
+  });
+
+  it("does not tell somebody who wrote a syllabus that they wrote it", () => {
+    library([submitted], { email: "prof@sorbonne.ae", name: "Professor", isAdmin: false, apps: { syllabus: "member" } });
+
+    expect(screen.queryByLabelText("Written by prof@sorbonne.ae")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /For review/ }));
+    expect(screen.getByText(/You have asked for these to be read/)).toBeTruthy();
   });
 });

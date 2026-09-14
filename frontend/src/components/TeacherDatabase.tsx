@@ -1296,7 +1296,7 @@ export function ProfileOverview({
   }
   return (
     <FieldInfoProvider
-      source={{ resourceType: "teacher", resourceId: teacher.id }}
+      source={{ resourceType: "teacher", resourceId: teacher.id, app: "teachers" }}
     >
       <section className="mt-6 rounded-lg border border-[#d9dee7] bg-white p-5">
         <div className="flex items-center justify-between gap-3">
@@ -1616,6 +1616,7 @@ export function TeacherRequisitionEditor({
       source={{
         resourceType: "teacher-requisition",
         resourceId: requisitionId,
+        app: "teachers",
       }}
     >
       <SectionEditorShell

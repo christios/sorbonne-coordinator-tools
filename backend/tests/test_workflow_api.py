@@ -5,7 +5,7 @@ import pytest
 from fastapi import status
 from fastapi.testclient import TestClient
 
-from sorbonne.api.workflow import get_store
+from sorbonne.api.workflow import get_account_access, get_store
 from sorbonne.services import auth_gate
 from sorbonne.services.staff_auth import StaffUser
 from sorbonne.main import app
@@ -18,13 +18,34 @@ TEST_DATABASE_URL = os.getenv(
 )
 
 
+class Access:
+    """What each address may open, without a database in the way.
+
+    The application reads its database from the environment, which in a test run is the
+    *development* one, so the real one would answer about whoever is using the platform.
+    """
+
+    def __init__(self, apps: dict[str, dict[str, str]] | None = None) -> None:
+        self.apps = apps or {}
+
+    def apps_for(self, email: str) -> dict[str, str]:
+        return dict(self.apps.get(email.strip().casefold(), {}))
+
+
+def no_access() -> Access:
+    """Nobody has been given anything, unless the test says otherwise."""
+    return Access()
+
+
 @pytest.fixture
 def client() -> TestClient:
     app.dependency_overrides[get_store] = lambda: WorkflowStore(TEST_DATABASE_URL)
+    app.dependency_overrides[get_account_access] = no_access
     try:
         yield TestClient(app)
     finally:
         app.dependency_overrides.pop(get_store, None)
+        app.dependency_overrides.pop(get_account_access, None)
 
 
 def create_task(client: TestClient, resource_id: str, **overrides) -> dict:
@@ -190,3 +211,70 @@ def test_a_coordinator_who_is_not_an_administrator_cannot_write_field_guidance(
         "/api/v1/field-notes",
         params={"resourceType": "syllabus-field", "resourceId": "shared"},
     ).status_code == status.HTTP_200_OK
+
+
+def test_whoever_administers_the_app_writes_its_field_guidance(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Maintaining the syllabus catalogue and handing out accounts are different jobs.
+
+    The coordinator doing the first should not have to ask the person doing the second to
+    correct a sentence about ECTS credits.
+    """
+    app.dependency_overrides[get_account_access] = lambda: Access(
+        {"chair@sorbonne.ae": {"syllabus": "admin"}, "professor@sorbonne.ae": {"syllabus": "member"}}
+    )
+    note = {
+        "resourceType": "syllabus-field",
+        "resourceId": "shared",
+        "fieldKey": "identification.credits",
+        "content": "Credits come from the course record.",
+    }
+
+    monkeypatch.setattr(
+        auth_gate,
+        "user_for_request",
+        lambda *_args, **_kwargs: StaffUser(email="chair@sorbonne.ae", name="Chair", is_admin=False),
+    )
+    assert client.put("/api/v1/field-notes", json=note).status_code == status.HTTP_200_OK
+
+    monkeypatch.setattr(
+        auth_gate,
+        "user_for_request",
+        lambda *_args, **_kwargs: StaffUser(email="professor@sorbonne.ae", name="Professor", is_admin=False),
+    )
+    refused = client.put("/api/v1/field-notes", json={**note, "content": "Whatever I like."})
+
+    assert refused.status_code == status.HTTP_403_FORBIDDEN
+    written = client.get(
+        "/api/v1/field-notes", params={"resourceType": "syllabus-field", "resourceId": "shared"}
+    ).json()["items"]
+    assert [item["content"] for item in written if item["fieldKey"] == "identification.credits"] == [
+        "Credits come from the course record."
+    ]
+
+
+def test_administering_one_app_does_not_annotate_another(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Each app asks about itself: the syllabus catalogue's keeper is not the teacher list's."""
+    app.dependency_overrides[get_account_access] = lambda: Access(
+        {"chair@sorbonne.ae": {"syllabus": "admin"}}
+    )
+    monkeypatch.setattr(
+        auth_gate,
+        "user_for_request",
+        lambda *_args, **_kwargs: StaffUser(email="chair@sorbonne.ae", name="Chair", is_admin=False),
+    )
+
+    refused = client.put(
+        "/api/v1/field-notes",
+        json={
+            "resourceType": "teacher",
+            "resourceId": str(uuid4()),
+            "fieldKey": "email",
+            "content": "Use the university address.",
+        },
+    )
+
+    assert refused.status_code == status.HTTP_403_FORBIDDEN

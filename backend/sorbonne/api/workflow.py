@@ -2,11 +2,13 @@
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, Field
 
-from sorbonne.api.users import StaffUser, require_admin
 from sorbonne.config import config
+from sorbonne.services.account_access import AccountAccess
+from sorbonne.services.field_guidance import may_write
+from sorbonne.services.staff_auth import StaffUser
 from sorbonne.services.workflow_store import (
     QuickTemplateNotFound,
     TaskNotFound,
@@ -65,6 +67,17 @@ def get_store() -> WorkflowStore:
     return WorkflowStore(config.database_url)
 
 
+def get_account_access() -> AccountAccess:
+    return AccountAccess(config.database_url)
+
+
+def current_user(request: Request) -> StaffUser:
+    user = getattr(request.state, "staff_user", None)
+    if user is None:  # pragma: no cover - the gate rejects these before they arrive
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sign in to continue.")
+    return user
+
+
 @router.get("/field-notes")
 def list_field_notes(
     resourceType: str = Query(min_length=1),
@@ -76,16 +89,23 @@ def list_field_notes(
 
 @router.put("/field-notes")
 def upsert_field_note(
-    request: FieldNoteInput,
+    note: FieldNoteInput,
+    request: Request,
     store: WorkflowStore = Depends(get_store),
-    _: StaffUser = Depends(require_admin),
+    access: AccountAccess = Depends(get_account_access),
 ) -> dict[str, Any]:
-    """Guidance on a field is written by an administrator and read by everyone."""
+    """Guidance on a field is written by whoever administers its app, and read by everyone."""
+    user = current_user(request)
+    if not may_write(note.resourceType, access.apps_for(user.email), platform_admin=user.is_admin):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only an administrator of this application can change the guidance on a field.",
+        )
     return store.upsert_field_note(
-        resource_type=request.resourceType,
-        resource_id=request.resourceId,
-        field_key=request.fieldKey,
-        content=request.content,
+        resource_type=note.resourceType,
+        resource_id=note.resourceId,
+        field_key=note.fieldKey,
+        content=note.content,
     )
 
 

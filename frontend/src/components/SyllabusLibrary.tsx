@@ -1,12 +1,16 @@
-import { CalendarDays, ChevronRight, Copy, FileCode2, FilePlus2, FileText, Folder, FolderOpen, FolderPlus, Loader2, Pencil, Settings2, Search, Trash2 } from "lucide-react";
+import { CalendarDays, ChevronRight, Copy, FileCode2, FilePlus2, FileText, Folder, FolderOpen, FolderPlus, Inbox, Loader2, Pencil, Settings2, Search, Trash2, UserRound } from "lucide-react";
 import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
 import { CreateFolderInput, CreateSyllabusInput, SyllabusFolder, SyllabusSummary, SyllabusTemplate, syllabusTemplateDocumentUrl } from "@/services/syllabi";
 import { FolderMoveMenu } from "@/components/FolderMoveMenu";
 import { LibraryRecordTimestamps } from "@/components/LibraryRecordTimestamps";
 import { SelectMenu } from "@/components/SelectMenu";
+import { SyllabusStatusPill } from "@/components/SyllabusStatusPill";
+import { useStaffUser } from "@/components/useStaffUser";
 
 const UNFILED = "unfiled";
+/** Not a folder — the syllabi whose authors have asked for them to be read. */
+const REVIEW = "review";
 
 type Props = {
   syllabi: SyllabusSummary[];
@@ -64,13 +68,25 @@ export function SyllabusLibrary({
   const [syllabusQuery, setSyllabusQuery] = useState("");
   const [deleteCandidate, setDeleteCandidate] = useState<SyllabusSummary | null>(null);
   const [folderDeleteCandidate, setFolderDeleteCandidate] = useState<SyllabusFolder | null>(null);
+  const user = useStaffUser();
+  // Whoever maintains the syllabus catalogue is who a review request is addressed to.
+  const curator = Boolean(user?.isAdmin) || user?.apps?.syllabus === "admin";
 
   useEffect(() => {
     if (!templateId && templates[0]) setTemplateId(templates[0].id);
   }, [templateId, templates]);
 
   const visibleSyllabi = useMemo(
-    () => syllabi.filter((syllabus) => activeFolder === "all" ? true : activeFolder === UNFILED ? syllabus.folderId === null : syllabus.folderId === activeFolder),
+    () =>
+      syllabi.filter((syllabus) =>
+        activeFolder === "all"
+          ? true
+          : activeFolder === REVIEW
+            ? Boolean(syllabus.submittedAt)
+            : activeFolder === UNFILED
+              ? syllabus.folderId === null
+              : syllabus.folderId === activeFolder,
+      ),
     [activeFolder, syllabi],
   );
   const filteredSyllabi = useMemo(() => {
@@ -85,14 +101,21 @@ export function SyllabusLibrary({
     if (!query) return folderTree;
     return folderTree.filter(({ path }) => path.some((folder) => folder.name.toLocaleLowerCase().includes(query)));
   }, [folderQuery, folderTree]);
-  const activeFolderLabel = activeFolder === "all" ? "All syllabi" : activeFolder === UNFILED ? "Unfiled" : folders.find((folder) => folder.id === activeFolder)?.name ?? "All syllabi";
+  const activeFolderLabel = activeFolder === "all" ? "All syllabi" : activeFolder === REVIEW ? "For review" : activeFolder === UNFILED ? "Unfiled" : folders.find((folder) => folder.id === activeFolder)?.name ?? "All syllabi";
   const selectedTemplate = templates.find((template) => template.id === templateId);
   const selectedFolder = folders.find((folder) => folder.id === activeFolder);
   const unfiledCount = syllabi.filter((syllabus) => syllabus.folderId === null).length;
+  const reviewCount = syllabi.filter((syllabus) => syllabus.submittedAt).length;
 
   useEffect(() => {
     if (activeFolder === UNFILED && unfiledCount === 0) setActiveFolder("all");
   }, [activeFolder, unfiledCount]);
+
+  // The queue empties as the last one is published or withdrawn, and an empty queue is
+  // not a place to be left standing in.
+  useEffect(() => {
+    if (activeFolder === REVIEW && reviewCount === 0) setActiveFolder("all");
+  }, [activeFolder, reviewCount]);
 
   function submitSyllabus(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -154,22 +177,26 @@ export function SyllabusLibrary({
 
       <div className="mt-6 grid gap-5 lg:grid-cols-[230px_minmax(0,1fr)]">
         <aside className="rounded-lg border border-[#d9dee7] bg-white p-2 lg:h-fit">
-          <p className="px-3 pb-2 pt-1 text-xs font-semibold uppercase tracking-normal text-[#667085]">Folders</p>
+          <FolderButton label="All syllabi" count={syllabi.length} active={activeFolder === "all"} onClick={() => setActiveFolder("all")} />
+          {/* The review queue sits where syllabi are already looked for, rather than on a page
+              of its own nobody thinks to open. It appears when there is something in it. */}
+          {reviewCount > 0 ? <FolderButton icon={Inbox} tone="review" label="For review" count={reviewCount} active={activeFolder === REVIEW} onClick={() => setActiveFolder(REVIEW)} /> : null}
+          {unfiledCount > 0 ? <FolderButton label="Unfiled" count={unfiledCount} active={activeFolder === UNFILED} onClick={() => setActiveFolder(UNFILED)} /> : null}
+          <p className="mt-2 border-t border-[#eceff4] px-3 pb-2 pt-3 text-xs font-semibold uppercase tracking-normal text-[#667085]">Folders</p>
           <label className="relative mb-2 block px-1">
             <Search size={16} aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#667085]" />
             <input type="search" aria-label="Search folders" value={folderQuery} onChange={(event) => setFolderQuery(event.target.value)} placeholder="Search folders" className="w-full rounded-md border border-[#cbd5e1] py-2 pl-9 pr-3 text-sm text-[#344054] placeholder:text-[#98a2b3] focus:border-[#1f4e79] focus:outline-none focus:ring-2 focus:ring-[#d7e5f3]" />
           </label>
-          <FolderButton label="All syllabi" count={syllabi.length} active={activeFolder === "all"} onClick={() => setActiveFolder("all")} />
-          {unfiledCount > 0 ? <FolderButton label="Unfiled" count={unfiledCount} active={activeFolder === UNFILED} onClick={() => setActiveFolder(UNFILED)} /> : null}
           {filteredFolders.map(({ folder, depth }) => <FolderButton key={folder.id} label={folder.name} count={syllabi.filter((syllabus) => syllabus.folderId === folder.id).length} depth={depth} active={activeFolder === folder.id} onClick={() => setActiveFolder(folder.id)} hasChildren={folders.some((candidate) => candidate.parentId === folder.id)} onDelete={() => setFolderDeleteCandidate(folder)} />)}
           {folderQuery.trim() && filteredFolders.length === 0 ? <p className="px-3 py-2 text-sm text-[#667085]">No matching folders.</p> : null}
         </aside>
 
         <section className="relative rounded-lg border border-[#d9dee7] bg-white">
           {isLoading ? <div className="flex min-h-48 items-center justify-center gap-2 text-sm text-[#667085]"><Loader2 size={18} className="animate-spin" /> Loading syllabi</div> : null}
-          {!isLoading ? <div className="border-b border-[#e5e7eb] px-5 py-4"><label className="relative block"><Search size={17} aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#667085]" /><input type="search" aria-label={`Search syllabi in ${activeFolderLabel}`} value={syllabusQuery} onChange={(event) => setSyllabusQuery(event.target.value)} placeholder={`Search ${activeFolderLabel.toLocaleLowerCase()}`} className="w-full rounded-md border border-[#cbd5e1] py-2 pl-10 pr-3 text-sm text-[#344054] placeholder:text-[#98a2b3] focus:border-[#1f4e79] focus:outline-none focus:ring-2 focus:ring-[#d7e5f3]" /></label></div> : null}
+          {!isLoading ? <div className="border-b border-[#e5e7eb] px-5 py-4"><label className="relative block"><Search size={17} aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#667085]" /><input type="search" aria-label={activeFolder === REVIEW ? "Search syllabi for review" : `Search syllabi in ${activeFolderLabel}`} value={syllabusQuery} onChange={(event) => setSyllabusQuery(event.target.value)} placeholder={activeFolder === REVIEW ? "Search syllabi for review" : `Search ${activeFolderLabel.toLocaleLowerCase()}`} className="w-full rounded-md border border-[#cbd5e1] py-2 pl-10 pr-3 text-sm text-[#344054] placeholder:text-[#98a2b3] focus:border-[#1f4e79] focus:outline-none focus:ring-2 focus:ring-[#d7e5f3]" /></label></div> : null}
+          {!isLoading && activeFolder === REVIEW ? <p className="border-b border-[#f0e3c6] bg-[#fdf8ee] px-5 py-3 text-sm leading-6 text-[#8a6116]">{curator ? "Their authors have asked for these to be read. You can open and comment on one while it is up for review — its author is still the one writing it." : "You have asked for these to be read. They stay yours to write; withdraw a request from the syllabus itself."}</p> : null}
           {!isLoading && filteredSyllabi.length === 0 ? <EmptyLibraryState hasSyllabi={syllabi.length > 0} hasSearch={Boolean(syllabusQuery.trim())} /> : null}
-          {!isLoading && filteredSyllabi.length > 0 ? <div className="divide-y divide-[#e5e7eb]" role="list">{filteredSyllabi.map((syllabus) => <SyllabusRow key={syllabus.id} syllabus={syllabus} folders={folders} folderPath={syllabus.folderId ? folderPaths.get(syllabus.folderId) ?? [] : []} isMoving={movingId === syllabus.id} isRenaming={renamingId === syllabus.id} isDeleting={deletingId === syllabus.id} onOpen={onOpen} onDuplicate={startDuplicate} onMove={onMove} onRename={onRename} onRequestDelete={setDeleteCandidate} />)}</div> : null}
+          {!isLoading && filteredSyllabi.length > 0 ? <div className="divide-y divide-[#e5e7eb]" role="list">{filteredSyllabi.map((syllabus) => <SyllabusRow key={syllabus.id} syllabus={syllabus} viewerEmail={user?.email ?? null} folders={folders} folderPath={syllabus.folderId ? folderPaths.get(syllabus.folderId) ?? [] : []} isMoving={movingId === syllabus.id} isRenaming={renamingId === syllabus.id} isDeleting={deletingId === syllabus.id} onOpen={onOpen} onDuplicate={startDuplicate} onMove={onMove} onRename={onRename} onRequestDelete={setDeleteCandidate} />)}</div> : null}
         </section>
       </div>
 
@@ -179,29 +206,17 @@ export function SyllabusLibrary({
   );
 }
 
-function FolderButton({ label, count, depth = 0, active, hasChildren = false, onClick, onDelete }: { label: string; count: number; depth?: number; active: boolean; hasChildren?: boolean; onClick: () => void; onDelete?: () => void }) {
+function FolderButton({ label, count, depth = 0, active, hasChildren = false, icon: Icon = Folder, tone = "folder", onClick, onDelete }: { label: string; count: number; depth?: number; active: boolean; hasChildren?: boolean; icon?: typeof Folder; tone?: "folder" | "review"; onClick: () => void; onDelete?: () => void }) {
   const canDelete = Boolean(onDelete) && count === 0 && !hasChildren;
-  return <div style={depth ? { marginInlineStart: `${depth * 0.75}rem` } : undefined} className={`group flex items-center rounded-md ${active ? "bg-[#e8edf3]" : "hover:bg-[#f7f8fa]"}`}><button type="button" onClick={onClick} className={`min-w-0 flex-1 px-3 py-2 text-left text-sm transition ${active ? "font-semibold text-[#1f4e79]" : "text-[#475467]"}`}><span className="flex items-center justify-between"><span className="flex min-w-0 items-center gap-2"><Folder size={15} aria-hidden="true" className="shrink-0 text-[#667085]" /><span className="truncate">{label}</span></span><span aria-hidden="true" className="ml-2 text-xs tabular-nums text-[#667085]">{count}</span></span></button>{onDelete ? <button type="button" disabled={!canDelete} onClick={onDelete} aria-label={`Delete folder ${label}`} title={canDelete ? "Delete empty folder" : "Move all syllabi and subfolders before deleting this folder"} className="mr-1 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[#b4232d] hover:bg-[#fff1f2] disabled:cursor-not-allowed disabled:text-[#98a2b3] disabled:hover:bg-transparent"><Trash2 size={15} aria-hidden="true" /></button> : null}</div>;
+  const review = tone === "review";
+  return <div style={depth ? { marginInlineStart: `${depth * 0.75}rem` } : undefined} className={`group flex items-center rounded-md ${active ? (review ? "bg-[#fbf1dc]" : "bg-[#e8edf3]") : review ? "hover:bg-[#fdf8ee]" : "hover:bg-[#f7f8fa]"}`}><button type="button" onClick={onClick} className={`min-w-0 flex-1 px-3 py-2 text-left text-sm transition ${active ? "font-semibold" : ""} ${review ? (active ? "text-[#8a6116]" : "text-[#8a6116]") : active ? "text-[#1f4e79]" : "text-[#475467]"}`}><span className="flex items-center justify-between"><span className="flex min-w-0 items-center gap-2"><Icon size={15} aria-hidden="true" className={`shrink-0 ${review ? "text-[#8a6116]" : "text-[#667085]"}`} /><span className="truncate">{label}</span></span><span aria-hidden="true" className={`ml-2 rounded-full px-1.5 text-xs font-semibold tabular-nums ${review ? "bg-[#f5e2bd] text-[#8a6116]" : "text-[#667085]"}`}>{count}</span></span></button>{onDelete ? <button type="button" disabled={!canDelete} onClick={onDelete} aria-label={`Delete folder ${label}`} title={canDelete ? "Delete empty folder" : "Move all syllabi and subfolders before deleting this folder"} className="mr-1 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[#b4232d] hover:bg-[#fff1f2] disabled:cursor-not-allowed disabled:text-[#98a2b3] disabled:hover:bg-transparent"><Trash2 size={15} aria-hidden="true" /></button> : null}</div>;
 }
 
-function SyllabusRow({ syllabus, folders, folderPath, isMoving, isRenaming, isDeleting, onOpen, onDuplicate, onMove, onRename, onRequestDelete }: { syllabus: SyllabusSummary; folders: SyllabusFolder[]; folderPath: SyllabusFolder[]; isMoving: boolean; isRenaming: boolean; isDeleting: boolean; onOpen: (id: string) => void; onDuplicate: (syllabus: SyllabusSummary) => void; onMove: (id: string, folderId: string | null) => void; onRename: (syllabusId: string, courseTitle: string) => Promise<unknown>; onRequestDelete: (syllabus: SyllabusSummary) => void }) {
-  return <div role="listitem" className="grid gap-3 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_auto_auto_auto] sm:items-center"><div className="relative min-w-0"><button type="button" onClick={() => onOpen(syllabus.id)} aria-label={`Open ${syllabus.courseTitle}`} className="absolute inset-0 rounded-md focus:outline-none focus:ring-2 focus:ring-[#d7e5f3]"><span className="sr-only">Open {syllabus.courseTitle}</span></button><div className="relative z-10 pointer-events-none"><div className="flex min-w-0 flex-wrap items-center gap-2"><div className="pointer-events-auto"><InlineTitleEditor syllabus={syllabus} isSaving={isRenaming} onSave={onRename} /></div><VisibilityPill syllabus={syllabus} />{folderPath.length ? <FolderPath path={folderPath} syllabusTitle={syllabus.courseTitle} /> : null}</div><div className="mt-2 min-w-0 text-left"><span className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-[#667085]"><Metadata icon={FileCode2} label={`Course code: ${syllabus.courseCode || "Not set"}`}>{syllabus.courseCode || "Course code not set"}</Metadata><Metadata icon={CalendarDays} label={`Academic year: ${syllabus.academicYear}`}>{syllabus.academicYear}</Metadata></span><LibraryRecordTimestamps createdAt={syllabus.createdAt} updatedAt={syllabus.updatedAt} /></div></div></div><button type="button" onClick={() => onDuplicate(syllabus)} aria-label={`Duplicate ${syllabus.courseTitle}`} className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-[#b7bec8] px-3 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]"><Copy size={16} aria-hidden="true" /> Duplicate</button><FolderMoveMenu compact label={`Move ${syllabus.courseTitle} to folder`} value={syllabus.folderId} folders={folders} isMoving={isMoving} onChange={(folderId) => onMove(syllabus.id, folderId)} /><button type="button" disabled={isDeleting} onClick={() => onRequestDelete(syllabus)} aria-label={`Delete ${syllabus.courseTitle}`} title="Delete syllabus" className="inline-flex h-10 w-10 items-center justify-center rounded-md text-[#b4232d] hover:bg-[#fff1f2] disabled:opacity-50"><Trash2 size={18} aria-hidden="true" /></button></div>;
-}
-
-/**
- * What a syllabus is doing: being written, waiting to be looked at, or published.
- *
- * The ones the department wrote before anyone had their own belong to nobody and say nothing
- * here — a "Public" pill on all of them would be noise rather than news.
- */
-function VisibilityPill({ syllabus }: { syllabus: SyllabusSummary }) {
-  if (!syllabus.ownerEmail) return null;
-  const [label, tone] = syllabus.submittedAt
-    ? ["For review", "border-[#f0d8a8] bg-[#fdf8ee] text-[#8a6116]"]
-    : syllabus.visibility === "public"
-      ? ["Published", "border-[#cfe3d3] bg-[#f2f9f4] text-[#2f6b41]"]
-      : ["Private", "border-[#e3e7ee] bg-[#f5f7fa] text-[#667085]"];
-  return <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${tone}`}>{label}</span>;
+function SyllabusRow({ syllabus, viewerEmail, folders, folderPath, isMoving, isRenaming, isDeleting, onOpen, onDuplicate, onMove, onRename, onRequestDelete }: { syllabus: SyllabusSummary; viewerEmail: string | null; folders: SyllabusFolder[]; folderPath: SyllabusFolder[]; isMoving: boolean; isRenaming: boolean; isDeleting: boolean; onOpen: (id: string) => void; onDuplicate: (syllabus: SyllabusSummary) => void; onMove: (id: string, folderId: string | null) => void; onRename: (syllabusId: string, courseTitle: string) => Promise<unknown>; onRequestDelete: (syllabus: SyllabusSummary) => void }) {
+  // Whose it is, said only when it is not the reader's own — a queue of submitted syllabi is
+  // unreadable without it, and "by me" on every row of my own library is noise.
+  const author = syllabus.ownerEmail && syllabus.ownerEmail !== viewerEmail ? syllabus.ownerEmail : null;
+  return <div role="listitem" className="grid gap-3 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_auto_auto_auto] sm:items-center"><div className="relative min-w-0"><button type="button" onClick={() => onOpen(syllabus.id)} aria-label={`Open ${syllabus.courseTitle}`} className="absolute inset-0 rounded-md focus:outline-none focus:ring-2 focus:ring-[#d7e5f3]"><span className="sr-only">Open {syllabus.courseTitle}</span></button><div className="relative z-10 pointer-events-none"><div className="flex min-w-0 flex-wrap items-center gap-2"><div className="pointer-events-auto"><InlineTitleEditor syllabus={syllabus} isSaving={isRenaming} onSave={onRename} /></div><SyllabusStatusPill syllabus={syllabus} />{folderPath.length ? <FolderPath path={folderPath} syllabusTitle={syllabus.courseTitle} /> : null}</div><div className="mt-2 min-w-0 text-left"><span className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-[#667085]"><Metadata icon={FileCode2} label={`Course code: ${syllabus.courseCode || "Not set"}`}>{syllabus.courseCode || "Course code not set"}</Metadata><Metadata icon={CalendarDays} label={`Academic year: ${syllabus.academicYear}`}>{syllabus.academicYear}</Metadata>{author ? <Metadata icon={UserRound} label={`Written by ${author}`}>{author}</Metadata> : null}</span><LibraryRecordTimestamps createdAt={syllabus.createdAt} updatedAt={syllabus.updatedAt} /></div></div></div><button type="button" onClick={() => onDuplicate(syllabus)} aria-label={`Duplicate ${syllabus.courseTitle}`} className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-[#b7bec8] px-3 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]"><Copy size={16} aria-hidden="true" /> Duplicate</button><FolderMoveMenu compact label={`Move ${syllabus.courseTitle} to folder`} value={syllabus.folderId} folders={folders} isMoving={isMoving} onChange={(folderId) => onMove(syllabus.id, folderId)} /><button type="button" disabled={isDeleting} onClick={() => onRequestDelete(syllabus)} aria-label={`Delete ${syllabus.courseTitle}`} title="Delete syllabus" className="inline-flex h-10 w-10 items-center justify-center rounded-md text-[#b4232d] hover:bg-[#fff1f2] disabled:opacity-50"><Trash2 size={18} aria-hidden="true" /></button></div>;
 }
 
 function InlineTitleEditor({ syllabus, isSaving, onSave }: { syllabus: SyllabusSummary; isSaving: boolean; onSave: (syllabusId: string, courseTitle: string) => Promise<unknown> }) {

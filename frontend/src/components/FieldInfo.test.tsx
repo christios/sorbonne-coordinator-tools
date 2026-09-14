@@ -28,7 +28,7 @@ describe("Field information", () => {
     render(
       <QueryClientProvider client={new QueryClient()}>
         <StaffContext.Provider value={{ email: "a@b.c", name: "Admin", isAdmin: true }}><FieldInfoProvider
-          source={{ resourceType: "teacher", resourceId: "teacher-1" }}
+          source={{ resourceType: "teacher", resourceId: "teacher-1", app: "teachers" }}
         >
           <FormFieldLabel fieldKey="email">Email</FormFieldLabel>
         </FieldInfoProvider></StaffContext.Provider>
@@ -83,6 +83,7 @@ describe("Field information", () => {
           source={{
             resourceType: "teacher-requisition",
             resourceId: "request-1",
+            app: "teachers",
           }}
         >
           <div className="overflow-hidden">
@@ -112,7 +113,7 @@ describe("Field information for a reader", () => {
     render(
       <QueryClientProvider client={queryClient}>
         <StaffContext.Provider value={{ email: "prof@suad.ae", name: "Professor", isAdmin: false }}>
-          <FieldInfoProvider source={{ resourceType: "syllabus-field", resourceId: "shared" }}>
+          <FieldInfoProvider source={{ resourceType: "syllabus-field", resourceId: "shared", app: "syllabus" }}>
             <FormFieldLabel fieldKey="identification.ects">Number of ECTS</FormFieldLabel>
           </FieldInfoProvider>
         </StaffContext.Provider>
@@ -122,5 +123,71 @@ describe("Field information for a reader", () => {
     // Everyone can read guidance; only an administrator writes it.
     expect(screen.queryByRole("textbox", { name: "Field information text" })).toBeNull();
     expect(screen.queryByRole("button", { name: /Save information/ })).toBeNull();
+  });
+});
+
+describe("Who may write a field's guidance", () => {
+  const guidance = {
+    id: "note-1",
+    resourceType: "syllabus-field",
+    resourceId: "shared",
+    fieldKey: "identification.ects",
+    content: "Credits come from the course record.",
+    createdAt: "2026-09-01T00:00:00Z",
+    updatedAt: "2026-09-01T00:00:00Z",
+  };
+
+  function renderLabel(user: { email: string; name: string; isAdmin: boolean; apps?: Record<string, "admin" | "member"> }) {
+    return render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <StaffContext.Provider value={user}>
+          <FieldInfoProvider source={{ resourceType: "syllabus-field", resourceId: "shared", app: "syllabus" }}>
+            <FormFieldLabel fieldKey="identification.ects">Number of ECTS</FormFieldLabel>
+          </FieldInfoProvider>
+        </StaffContext.Provider>
+      </QueryClientProvider>,
+    );
+  }
+
+  it("is whoever administers the app, who need not administer the platform", async () => {
+    listFieldNotes.mockReset();
+    listFieldNotes.mockResolvedValue([]);
+    renderLabel({ email: "chair@sorbonne.ae", name: "Chair", isAdmin: false, apps: { syllabus: "admin" } });
+
+    await vi.waitFor(() => expect(listFieldNotes).toHaveBeenCalled());
+    await act(async () => {
+      fireEvent.click(screen.getByText("Number of ECTS"));
+    });
+
+    expect(screen.getByRole("textbox", { name: "Field information text" })).toBeTruthy();
+  });
+
+  it("is not whoever only fills the form in, who reads it and is not invited to change it", async () => {
+    listFieldNotes.mockReset();
+    listFieldNotes.mockResolvedValue([guidance]);
+    renderLabel({ email: "prof@sorbonne.ae", name: "Professor", isAdmin: false, apps: { syllabus: "member" } });
+
+    // The icon appears only once the guidance has arrived, so waiting for it waits for that.
+    await screen.findByRole("img", { name: "Field information for Number of ECTS" });
+    await act(async () => {
+      fireEvent.click(screen.getByText("Number of ECTS"));
+    });
+
+    expect(screen.queryByRole("textbox", { name: "Field information text" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Save information" })).toBeNull();
+    expect(screen.getByText("Credits come from the course record.")).toBeTruthy();
+  });
+
+  it("leaves the label alone for somebody who can neither write guidance nor read any", async () => {
+    listFieldNotes.mockReset();
+    listFieldNotes.mockResolvedValue([]);
+    renderLabel({ email: "prof@sorbonne.ae", name: "Professor", isAdmin: false, apps: { syllabus: "member" } });
+
+    await vi.waitFor(() => expect(listFieldNotes).toHaveBeenCalled());
+    await act(async () => {
+      fireEvent.click(screen.getByText("Number of ECTS"));
+    });
+
+    expect(screen.queryByRole("dialog", { name: "Field information" })).toBeNull();
   });
 });
