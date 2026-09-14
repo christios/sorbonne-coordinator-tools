@@ -53,13 +53,13 @@ export function PloAlignmentField({
     );
 
   return (
-    <div role="group" aria-label={label} className="relative grid gap-2">
+    <div role="group" aria-label={label} className="relative grid grid-cols-[minmax(0,1fr)] gap-2">
       <div className="min-h-5 pr-8 text-sm font-medium text-[#344054]">
         {label}
       </div>
       {history}
       {selected.length ? (
-        <ul aria-label={`Selected ${label}`} className="grid gap-2">
+        <ul aria-label={`Selected ${label}`} className="grid grid-cols-[minmax(0,1fr)] gap-2">
           {selected.map((option) => (
             <li
               key={option.value}

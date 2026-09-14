@@ -13,7 +13,11 @@
  * The fields on a row then **grow** to share out whatever is left, so a row runs margin to
  * margin rather than trailing off. That is why there is a **maximum** as well: without one,
  * a small field that wrapped onto a line by itself would stretch a two-digit box across the
- * whole card. Each is allowed roughly double, and never more than the room it is given.
+ * whole card.
+ *
+ * Only a counter and a code carry a ceiling, because no amount of spare room makes a
+ * two-digit box worth 400px. Anything holding words may take the whole row it is on: a
+ * ceiling there only left rows short of the margin, which is the thing this is for.
  *
  * The minimum is the width the field's own name needs on one line, so adding an information
  * button to a label widens the box a little rather than folding the name underneath it. It
@@ -30,18 +34,18 @@ export type FieldSize = "counter" | "code" | "name" | "title" | "line" | "senten
 export const fieldSizeClass: Record<FieldSize, string> = {
   /** Six characters: contact hours, a credit. */
   counter:
-    "w-[calc(6ch+3.5rem)] basis-[calc(6ch+3.5rem)] grow sm:min-w-min max-w-[min(100%,calc(14ch+3.5rem))]",
+    "w-[calc(6ch+3.5rem)] basis-[calc(6ch+3.5rem)] grow sm:min-w-min max-w-[min(100%,calc(16ch+3.5rem))]",
   /** Twelve: a course code, an academic year, "L3-S5". */
-  code: "w-[calc(12ch+3.5rem)] basis-[calc(12ch+3.5rem)] grow sm:min-w-min max-w-[min(100%,calc(24ch+3.5rem))]",
+  code: "w-[calc(12ch+3.5rem)] basis-[calc(12ch+3.5rem)] grow sm:min-w-min max-w-[min(100%,calc(40ch+3.5rem))]",
   /** Twenty-six: a person's name. */
-  name: "w-[calc(26ch+3.5rem)] basis-[calc(26ch+3.5rem)] grow sm:min-w-min max-w-[min(100%,calc(40ch+3.5rem))]",
+  name: "w-[calc(26ch+3.5rem)] basis-[calc(26ch+3.5rem)] grow sm:min-w-min max-w-full",
   /** Thirty-two: a course title, which the registrar never lets past thirty. */
-  title: "w-[calc(32ch+3.5rem)] basis-[calc(32ch+3.5rem)] grow sm:min-w-min max-w-[min(100%,calc(48ch+3.5rem))]",
+  title: "w-[calc(32ch+3.5rem)] basis-[calc(32ch+3.5rem)] grow sm:min-w-min max-w-full",
   /** Forty-six: the course picker's "code — title" line, at most forty-three. */
-  line: "w-[calc(46ch+3.5rem)] basis-[calc(46ch+3.5rem)] grow sm:min-w-min max-w-[min(100%,calc(64ch+3.5rem))]",
+  line: "w-[calc(46ch+3.5rem)] basis-[calc(46ch+3.5rem)] grow sm:min-w-min max-w-full",
   /** Sixty-four: a programme title. */
   sentence:
-    "w-[calc(64ch+3.5rem)] basis-[calc(64ch+3.5rem)] grow sm:min-w-min max-w-[min(100%,calc(88ch+3.5rem))]",
+    "w-[calc(64ch+3.5rem)] basis-[calc(64ch+3.5rem)] grow sm:min-w-min max-w-full",
   /** Prose, which takes the column it is given. */
   full: "w-full basis-full grow max-w-full",
 };

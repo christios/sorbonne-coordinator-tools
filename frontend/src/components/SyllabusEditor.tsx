@@ -47,7 +47,10 @@ import { SyllabusExportPreview } from "@/components/SyllabusExportPreview";
 import { listAcademicYears, listCoursesByCode } from "@/services/courses";
 import { PloAlignmentField } from "@/components/PloAlignmentField";
 import { SectionEditorShell } from "@/components/SectionEditorShell";
+import { FieldRow } from "@/components/FieldRow";
+import { SyllabusField } from "@/components/SyllabusField";
 import { SyllabusSubsection } from "@/components/SyllabusSubsection";
+import { fieldSizeClass, type FieldSize } from "@/components/fieldSize";
 import {
   saveFailureState,
   type SyllabusSaveState,
@@ -533,12 +536,14 @@ function SectionForm({
     value: unknown,
     onChange: (value: string) => void,
     multiline = false,
+    size: FieldSize = "full",
   ) => (
     <Field
       label={label}
       value={stringify(value)}
       onChange={onChange}
       multiline={multiline}
+      size={size}
       isDate={isDateField(active, label)}
       history={history(label)}
     />
@@ -552,12 +557,14 @@ function SectionForm({
       max?: number;
       step?: number;
       invalid?: boolean;
+      size?: FieldSize;
     } = {},
   ) => (
     <Field
       label={label}
       value={stringify(value)}
       onChange={onChange}
+      size={options.size ?? "full"}
       inputType="number"
       min={options.min}
       max={options.max}
@@ -785,8 +792,8 @@ function SectionForm({
     const online = stringify(section.onlinePercent);
     const percentageError = deliveryPercentageError(faceToFace, online);
     return (
-      <div className="grid gap-4">
-        <SyllabusSubsection title="Delivery mode">
+      <SyllabusSubsection title="Course delivery">
+        <FieldRow>
           <SelectField
             label="Delivery mode"
             value={stringify(section.mode)}
@@ -796,30 +803,30 @@ function SectionForm({
             history={history("Delivery mode")}
             options={["Face-to-Face Delivery", "Blended Learning Delivery"]}
             placeholder="Select delivery mode"
+            size="name"
+            hint="Face-to-face means every hour is taught in the room. Blended means some of it is online, and the split below says how much."
           />
-        </SyllabusSubsection>
-        <SyllabusSubsection title="Delivery allocation">
           {numeric(
             "Face-to-face (%)",
             faceToFace,
             (value) =>
               editContent(active, { ...section, faceToFacePercent: value }),
-            { min: 0, max: 100, step: 1, invalid: Boolean(percentageError) },
+            { min: 0, max: 100, step: 1, invalid: Boolean(percentageError), size: "counter" },
           )}
           {numeric(
             "Online (%)",
             online,
             (value) =>
               editContent(active, { ...section, onlinePercent: value }),
-            { min: 0, max: 100, step: 1, invalid: Boolean(percentageError) },
+            { min: 0, max: 100, step: 1, invalid: Boolean(percentageError), size: "counter" },
           )}
-          {percentageError ? (
-            <p role="alert" className="text-sm font-medium text-[#a6292f]">
-              {percentageError}
-            </p>
-          ) : null}
-        </SyllabusSubsection>
-      </div>
+        </FieldRow>
+        {percentageError ? (
+          <p role="alert" className="text-sm font-medium text-[#a6292f]">
+            {percentageError}
+          </p>
+        ) : null}
+      </SyllabusSubsection>
     );
   }
   if (active === "learningOutcomes")
@@ -877,7 +884,7 @@ function SectionForm({
     );
   if (active === "assessment")
     return (
-      <div className="grid gap-4">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-4">
         <SyllabusSubsection title="Course assessment">
           <AssessmentTabs
             value={section}
@@ -899,25 +906,49 @@ function SectionForm({
       </div>
     );
   return (
-    <div className="grid gap-4">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-4">
       <SyllabusSubsection title="Document details">
-        {text("Document creation date", section.creationDate, (value) =>
-          editContent(active, { ...section, creationDate: value }),
-        )}
-        {text("Department name", section.departmentName, (value) =>
-          editContent(active, { ...section, departmentName: value }),
-        )}
-        {text("Version number", section.versionNumber, (value) =>
-          editContent(active, { ...section, versionNumber: value }),
-        )}
+        <FieldRow>
+          {text(
+            "Document creation date",
+            section.creationDate,
+            (value) => editContent(active, { ...section, creationDate: value }),
+            false,
+            "code",
+          )}
+          {text(
+            "Department name",
+            section.departmentName,
+            (value) => editContent(active, { ...section, departmentName: value }),
+            false,
+            "name",
+          )}
+          {text(
+            "Version number",
+            section.versionNumber,
+            (value) => editContent(active, { ...section, versionNumber: value }),
+            false,
+            "counter",
+          )}
+        </FieldRow>
       </SyllabusSubsection>
       <SyllabusSubsection title="Approval">
-        {text("Syllabus approval date", section.approvalDate, (value) =>
-          editContent(active, { ...section, approvalDate: value }),
-        )}
-        {text("Name and status of approver", section.approver, (value) =>
-          editContent(active, { ...section, approver: value }),
-        )}
+        <FieldRow>
+          {text(
+            "Syllabus approval date",
+            section.approvalDate,
+            (value) => editContent(active, { ...section, approvalDate: value }),
+            false,
+            "code",
+          )}
+          {text(
+            "Name and status of approver",
+            section.approver,
+            (value) => editContent(active, { ...section, approver: value }),
+            false,
+            "name",
+          )}
+        </FieldRow>
       </SyllabusSubsection>
     </div>
   );
@@ -952,14 +983,15 @@ function TeachingApproachSection({
     onChange({ ...value, teachingPresetIds: presets.filter((preset) => next.includes(preset.id)).map((preset) => preset.id) });
   };
   return (
-    <div className="grid gap-4">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-4">
       <section className="rounded-lg border border-[#d9dee7] bg-white p-5">
         <h3 className="text-lg font-semibold text-[#171717]">Teaching and learning approach</h3>
         <p className="mt-1 text-sm text-[#667085]">
           Choose the kinds of session this course uses. Each one brings its own methods,
           engagement and feedback, written by the department.
         </p>
-        <div className="mt-4 grid gap-2">
+        {/* Four short choices: across the card, not stacked down a tenth of it. */}
+        <div className="mt-4 flex flex-wrap gap-x-8 gap-y-2">
           {presets.length ? (
             presets.map((preset) => (
               <label key={preset.id} className="flex items-start gap-2 text-sm text-[#344054]">
@@ -976,7 +1008,7 @@ function TeachingApproachSection({
         chosen.map((preset) => (
           <section key={preset.id} className="rounded-lg border border-[#d9dee7] bg-white p-5">
             <h4 className="text-base font-semibold text-[#171717]">{preset.label}</h4>
-            <div className="mt-3 grid gap-3">
+            <div className="mt-3 grid grid-cols-[minmax(0,1fr)] gap-3">
               {TEACHING_SUBSECTIONS.map(([key, heading]) => (
                 <div key={key} className="rounded-md border border-[#e5e7eb] bg-[#f8fafc] p-3">
                   <p className="text-sm font-semibold text-[#344054]">{heading}</p>
@@ -1026,8 +1058,8 @@ function FysFacultyDirectoryPicker({
     .map((person) => ({ value: person.id, label: person.label }));
   if (!options.length) return null;
   return (
-    <div className="grid gap-3">
-      <label className="grid gap-1 text-sm font-medium text-[#344054]">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-3">
+      <label className="grid grid-cols-[minmax(0,1fr)] gap-1 text-sm font-medium text-[#344054]">
         <span>
           Faculty member from People directory{" "}
           <span className="font-normal text-[#667085]">(optional)</span>
@@ -1212,6 +1244,8 @@ function Field({
   max,
   step,
   invalid,
+  size = "full",
+  hint,
   history,
 }: {
   label: string;
@@ -1224,6 +1258,8 @@ function Field({
   max?: number;
   step?: number;
   invalid?: boolean;
+  size?: FieldSize;
+  hint?: string;
   history: {
     syllabusId: string;
     revision: number;
@@ -1233,12 +1269,14 @@ function Field({
 }) {
   if (isDate)
     return (
-      <DateField
-        label={label}
-        value={dateInputValue(value)}
-        onChange={onChange}
-        trailing={<FieldHistoryControl {...history} placement="center" />}
-      />
+      <div className={`grid content-start gap-1 ${fieldSizeClass[size]}`}>
+        <DateField
+          label={label}
+          value={dateInputValue(value)}
+          onChange={onChange}
+          trailing={<FieldHistoryControl {...history} placement="center" />}
+        />
+      </div>
     );
   return (
     <HistoryTextField
@@ -1252,6 +1290,10 @@ function Field({
       max={max}
       step={step}
       invalid={invalid}
+      size={size}
+      hint={hint}
+      // A one-line value wraps rather than scrolling its end out of sight.
+      grow={!multiline && inputType === "text"}
       history={{ field: history.field, onOpenHistory: history.onOpenSidebar }}
     />
   );
@@ -1262,6 +1304,8 @@ function SelectField({
   onChange,
   options,
   placeholder,
+  size = "full",
+  hint,
   history,
 }: {
   label: string;
@@ -1269,6 +1313,8 @@ function SelectField({
   onChange: (value: string) => void;
   options: string[];
   placeholder?: string;
+  size?: FieldSize;
+  hint?: string;
   history: {
     syllabusId: string;
     revision: number;
@@ -1277,17 +1323,17 @@ function SelectField({
   };
 }) {
   return (
-    <label className="grid gap-1 text-sm font-medium text-[#344054]">
-      {label}
+    <SyllabusField label={label} fieldKey={history.field.path} hint={hint} size={size}>
       <SelectMenu
         label={label}
         value={value}
         onChange={onChange}
+        wrap
         placeholder={placeholder}
         options={options.map((option) => ({ value: option, label: option }))}
         trailing={<FieldHistoryControl {...history} />}
       />
-    </label>
+    </SyllabusField>
   );
 }
 function LockedSection({ title, text }: { title: string; text: string }) {
@@ -1381,7 +1427,7 @@ function RowsEditor({
   return (
     <section className="mt-2">
       <h4 className="mb-3 text-sm font-semibold text-[#344054]">{title}</h4>
-      <div className="grid gap-4">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-4">
         {normalized.map((row, index) => {
           const destinations = normalized.filter(
             (item) =>
@@ -1555,7 +1601,7 @@ function RowsEditor({
                     if ((key === "plo" || key === "skills") && options) {
                       const derived = derivedColumns?.[key];
                       return (
-                        <div key={key} className="grid gap-3 lg:col-span-2">
+                        <div key={key} className="grid grid-cols-[minmax(0,1fr)] gap-3 lg:col-span-2">
                         <PloAlignmentField
                           label={label}
                           pickerLabel={`Add ${label.toLowerCase()} to ${rowLabel ?? "entry"} ${index + 1}`}

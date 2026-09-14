@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from functools import lru_cache
+
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -37,12 +39,25 @@ class RetireCatalogueEntryRequest(BaseModel):
     expectedRevision: int = Field(ge=1)
 
 
-def get_catalogue_store() -> SyllabusCatalogueStore:
+# One store apiece, not one per request: a store owns a connection pool, and building a fresh
+# one for every call leaves its connections behind. A dev server left up for three days had
+# sixty idle connections against the database and no room for the tests to open their own.
+@lru_cache(maxsize=1)
+def _catalogue_store() -> SyllabusCatalogueStore:
     return SyllabusCatalogueStore(config.database_url)
 
 
-def get_portal_store() -> PortalListStore:
+@lru_cache(maxsize=1)
+def _portal_store() -> PortalListStore:
     return PortalListStore(config.database_url)
+
+
+def get_catalogue_store() -> SyllabusCatalogueStore:
+    return _catalogue_store()
+
+
+def get_portal_store() -> PortalListStore:
+    return _portal_store()
 
 
 @router.get("/{category}")

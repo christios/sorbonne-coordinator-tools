@@ -68,7 +68,7 @@ export function DateField({
 
   return (
     <div className="space-y-1">
-      <label htmlFor={inputId} className="text-xs font-medium text-[#344054]">
+      <label htmlFor={inputId} className="text-sm font-medium text-[#344054]">
         <FormFieldLabel required={required} fieldKey={fieldKey}>
           {label}
         </FormFieldLabel>
@@ -82,7 +82,7 @@ export function DateField({
               type="button"
               aria-label={label}
               aria-required={required || undefined}
-              className={`flex h-9 w-full min-w-0 items-center gap-2 rounded-md border border-[#b7bec8] bg-transparent px-3 text-left text-sm font-normal shadow-xs outline-none transition-[color,box-shadow] hover:bg-[#f8fafc] focus-visible:border-[#1f4e79] focus-visible:ring-[3px] focus-visible:ring-[#d7e5f3]/50 ${trailing ? "pr-10" : ""}`}
+              className={`flex h-10 w-full min-w-0 items-center gap-2 rounded-md border border-[#b7bec8] bg-transparent px-3 text-left text-sm font-normal shadow-xs outline-none transition-[color,box-shadow] hover:bg-[#f8fafc] focus-visible:border-[#1f4e79] focus-visible:ring-[3px] focus-visible:ring-[#d7e5f3]/50 ${trailing ? "pr-10" : ""}`}
             >
               <CalendarDays
                 size={16}

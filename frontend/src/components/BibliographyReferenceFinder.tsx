@@ -40,7 +40,7 @@ export function BibliographyReferenceFinder({ kind, onApply }: Props) {
   };
 
   return (
-    <section className="grid gap-3 rounded-md border border-[#d9dee7] bg-[#f8fafc] p-3" aria-label="Reference finder">
+    <section className="grid grid-cols-[minmax(0,1fr)] gap-3 rounded-md border border-[#d9dee7] bg-[#f8fafc] p-3" aria-label="Reference finder">
         <form className="flex flex-col gap-2 sm:flex-row" onSubmit={search}>
           <label className="sr-only" htmlFor={inputId}>{label}</label>
           <input id={inputId} value={query} onChange={(event) => { setQuery(event.target.value); setHasSearched(false); setError(null); }} type="search" placeholder={label} className="h-10 min-w-0 flex-1 rounded-md border border-[#b7bec8] bg-white px-3 text-sm text-[#344054] placeholder:text-[#667085] focus:border-[#1f4e79] focus:outline-none focus:ring-2 focus:ring-[#d7e5f3]" />
@@ -51,7 +51,7 @@ export function BibliographyReferenceFinder({ kind, onApply }: Props) {
         {error ? <p role="alert" className="text-sm text-[#a6292f]">{error}</p> : null}
         {!hasSearched && !error ? <p className="text-sm text-[#667085]">Search by a title, author, ISBN, or DOI. Selecting a result fills the editable fields below.</p> : null}
         {hasSearched && !isLoading && results.length === 0 && !error ? <p role="status" className="text-sm text-[#667085]">No matching references were found. Try the ISBN, a shorter title, or an author surname.</p> : null}
-        {results.length ? <div className="grid gap-2" aria-label="Reference search results">{results.map((item, index) => <button key={`${item.provider}-${item.doi ?? item.isbn ?? item.title}-${index}`} type="button" onClick={() => apply(item)} className="rounded-md border border-[#d9dee7] bg-white p-3 text-left hover:border-[#98a2b3] hover:bg-[#fdfdfd] focus:outline-none focus:ring-2 focus:ring-[#d7e5f3]">
+        {results.length ? <div className="grid grid-cols-[minmax(0,1fr)] gap-2" aria-label="Reference search results">{results.map((item, index) => <button key={`${item.provider}-${item.doi ?? item.isbn ?? item.title}-${index}`} type="button" onClick={() => apply(item)} className="rounded-md border border-[#d9dee7] bg-white p-3 text-left hover:border-[#98a2b3] hover:bg-[#fdfdfd] focus:outline-none focus:ring-2 focus:ring-[#d7e5f3]">
           <span className="block text-sm font-semibold text-[#344054]">{item.title}</span>
           <span className="mt-1 block text-sm text-[#667085]">{[item.authors.join(", "), item.journal ?? item.publisher, item.year].filter(Boolean).join(" · ")}</span>
           <span className="mt-1 block text-xs font-medium text-[#667085]">{item.provider}</span>

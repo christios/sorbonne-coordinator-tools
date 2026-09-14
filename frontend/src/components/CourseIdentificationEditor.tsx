@@ -4,6 +4,7 @@ import { X } from "lucide-react";
 import { HistoryField } from "@/components/FieldHistory";
 import { HistoryTextField } from "@/components/HistoryTextField";
 import { SelectMenu, SelectOption } from "@/components/SelectMenu";
+import { FieldRow } from "@/components/FieldRow";
 import { SyllabusField } from "@/components/SyllabusField";
 import { fieldSizeClass, type FieldSize } from "@/components/fieldSize";
 import { courseLabel, type CatalogueCourse } from "@/services/courses";
@@ -70,11 +71,8 @@ export function CourseIdentificationEditor({ value, courseTitle, courseCode, aca
     : "from Students and Timetables";
 
   return <div className="grid grid-cols-[minmax(0,1fr)] gap-4">
-    {/* One flowing row per card rather than a row per idea: a field takes the width it needs
-        and the next one starts where it ends, so a card is not three short lines and a
-        third of a screen of nothing. */}
     <SyllabusSubsection title="Course details">
-      <div className="flex flex-wrap items-end gap-x-6 gap-y-4">
+      <FieldRow>
         {courses.length ? <SyllabusField label="Course" source={courseSource} fieldKey="identification.catalogueCourseCode" hint={boundCourseHint} size="line"><SelectMenu label="Course" wrap value={boundCode} onChange={chooseCourse} placeholder="Enter the course details manually" searchable searchPlaceholder="Search by code or title" options={[{ value: "", label: "Enter the course details manually" }, ...courseOptions]} /></SyllabusField> : null}
         {bound
           ? <><ReadOnlyField label="Course code" value={bound.courseCode} size="code" /><ReadOnlyField label="Course title" value={bound.courseTitle} size="title" /></>
@@ -90,22 +88,22 @@ export function CourseIdentificationEditor({ value, courseTitle, courseCode, aca
             character; a second box repeating it filled a row and told nobody anything. Typed
             instead of chosen, it is the only place the title exists, so it is a field. */}
         {chosenProgramme ? null : <IdentificationField label="Programme title" value={stringValue(value.programmeTitle)} onChange={(programmeTitle) => update({ programmeTitle, catalogueProgrammeId: undefined, cataloguePloProgrammeId: undefined })} size="sentence" grow field={{ path: "identification.programmeTitle", label: "Programme title" }} {...history} />}
-      </div>
+      </FieldRow>
     </SyllabusSubsection>
 
     <SyllabusSubsection title="Credits and contact hours">
-      <div className="flex flex-wrap items-end gap-x-6 gap-y-4">
+      <FieldRow>
         <IdentificationField label="Number of ECTS" value={stringValue(value.ects)} onChange={(ects) => update({ ects })} type="number" min={0} step={0.5} size="counter" field={{ path: "identification.ects", label: "Number of ECTS" }} {...history} />
         {contactHourKinds.map((label) => <IdentificationField key={label} label={label} value={stringValue(contactHours[label])} onChange={(next) => update({ contactHours: { ...contactHours, [label]: next } })} type="number" min={0} step={1} size="counter" field={{ path: `identification.contactHours.${label}`, label }} {...history} />)}
-      </div>
+      </FieldRow>
       <ContactHoursTotal contactHours={contactHours} />
     </SyllabusSubsection>
 
     <SyllabusSubsection title="Requirements and equipment">
-      <div className="flex flex-wrap items-start gap-x-6 gap-y-4">
+      <FieldRow align="start">
         <CourseList title="Prerequisites" fieldKey="identification.prerequisiteItems" hint="Courses a student must have passed in a previous year before taking this one." items={prerequisiteItems} options={courseOptions} onChange={(items) => update({ prerequisiteItems: items, prerequisites: items.map((item) => item.text).filter(Boolean).join("\n") })} />
         <CourseList title="Co-requisites" fieldKey="identification.corequisiteItems" hint="Courses taken alongside this one, in the same year." items={corequisiteItems} options={courseOptions} onChange={(items) => update({ corequisiteItems: items, corequisites: items.map((item) => item.text).filter(Boolean).join("\n") })} />
-      </div>
+      </FieldRow>
       <TextList title="Equipment" singular="equipment item" legacyValue={value.equipment} itemsValue={value.equipmentItems} path="identification.equipmentItems" onChange={(items) => update({ equipmentItems: items, equipment: items.map((item) => item.text).filter(Boolean).join("\n") })} {...history} />
     </SyllabusSubsection>
   </div>;

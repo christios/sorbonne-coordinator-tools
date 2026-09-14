@@ -4,12 +4,16 @@ import { useEffect, useState } from "react";
 
 import { CollapsibleEntryCard } from "@/components/CollapsibleEntryCard";
 import { SelectMenu } from "@/components/SelectMenu";
+import { FieldRow } from "@/components/FieldRow";
+import { SyllabusField } from "@/components/SyllabusField";
+import { fieldSizeClass, type FieldSize } from "@/components/fieldSize";
 import { HistoryTextField } from "@/components/HistoryTextField";
 import { type HistoryField } from "@/components/FieldHistory";
 
 type ScheduleRow = Record<string, string> & { id: string };
 type ScheduleField = {
   key: "week" | "deadline" | "topic" | "details" | "preClass" | "assessments";
+  size?: FieldSize;
   label: string;
   multiline?: boolean;
 };
@@ -50,9 +54,9 @@ type Props = {
 };
 
 const fields: ScheduleField[] = [
-  { key: "week", label: "Week" },
-  { key: "deadline", label: "Deadline" },
-  { key: "topic", label: "Topic" },
+  { key: "week", label: "Week", size: "counter" },
+  { key: "deadline", label: "Deadline", size: "name" },
+  { key: "topic", label: "Topic", size: "line" },
   { key: "details", label: "Session details", multiline: true },
   { key: "preClass", label: "Pre-class learning activities", multiline: true },
   { key: "assessments", label: "Assessments", multiline: true },
@@ -139,7 +143,7 @@ export function ScheduleEditor({
       <h4 className="mb-3 text-sm font-semibold text-[#344054]">Sessions</h4>
       {rows.length ? (
         <>
-        <div className="grid gap-3">
+        <div className="grid grid-cols-[minmax(0,1fr)] gap-3">
           {rows.map((row, index) => {
             const isExpanded = expandedIds.includes(row.id);
             const destinations = rows.filter(
@@ -244,16 +248,22 @@ export function ScheduleEditor({
                   ) : null
                 }
               >
-                <div className="grid gap-4 lg:grid-cols-2">
-                  <label className="grid gap-1 text-sm font-medium text-[#344054]">
-                    Session type
+                <div className="grid grid-cols-[minmax(0,1fr)] gap-4">
+                  <FieldRow>
+                  <SyllabusField
+                    label="Session type"
+                    fieldKey={`schedule[${row.id}].sessionType`}
+                    size="code"
+                    hint="Which kind of session this is. The numbering runs separately for each kind, so a course has its own CM 1, TD 1 and TP 1."
+                  >
                     <SelectMenu
                       label={`Session ${sessionNumbers.get(row.id) ?? index + 1} type`}
                       value={row.sessionType || DEFAULT_SESSION_TYPE}
                       onChange={(next) => updateRow(row.id, "sessionType", next)}
+                      wrap
                       options={SESSION_TYPES.map((item) => ({ value: item.value, label: item.label }))}
                     />
-                  </label>
+                  </SyllabusField>
                   {fields.map((field) => {
                     const value = row[field.key] ?? "";
                     const historyField = {
@@ -263,7 +273,7 @@ export function ScheduleEditor({
                     if (field.key === "week") {
                       const problem = weekProblem(value);
                       return (
-                        <div key={field.key}>
+                        <div key={field.key} className={fieldSizeClass[field.size ?? "full"]}>
                           <HistoryTextField
                             label={field.label}
                             value={value}
@@ -281,11 +291,12 @@ export function ScheduleEditor({
                     if (field.key === "deadline") {
                       const suggestion = deadlineForWeek(row.week ?? "");
                       return (
-                        <div key={field.key}>
+                        <div key={field.key} className={fieldSizeClass[field.size ?? "full"]}>
                           <HistoryTextField
                             label={field.label}
                             value={value}
                             onChange={(next) => updateRow(row.id, field.key, next)}
+                            grow
                             history={{ field: historyField, onOpenHistory }}
                           />
                           {!value.trim() && suggestion ? (
@@ -300,19 +311,38 @@ export function ScheduleEditor({
                         </div>
                       );
                     }
+                    if (field.multiline) return null;
                     return (
                       <HistoryTextField
                         key={field.key}
                         label={field.label}
                         value={value}
                         onChange={(next) => updateRow(row.id, field.key, next)}
-                        multiline={field.multiline}
-                        minRows={3}
-                        className={field.multiline ? "lg:col-span-2" : ""}
+                        size={field.size ?? "full"}
+                        grow
                         history={{ field: historyField, onOpenHistory }}
                       />
                     );
                   })}
+                  </FieldRow>
+                  {/* What the session is actually about: written answers, each its own width. */}
+                  {fields.filter((field) => field.multiline).map((field) => (
+                    <HistoryTextField
+                      key={field.key}
+                      label={field.label}
+                      value={row[field.key] ?? ""}
+                      onChange={(next) => updateRow(row.id, field.key, next)}
+                      multiline
+                      minRows={3}
+                      history={{
+                        field: {
+                          path: `schedule[${row.id}].${field.key}`,
+                          label: `Course schedule · ${field.label}`,
+                        },
+                        onOpenHistory,
+                      }}
+                    />
+                  ))}
                 </div>
               </CollapsibleEntryCard>
             );
