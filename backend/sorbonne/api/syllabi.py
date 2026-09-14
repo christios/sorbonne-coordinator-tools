@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 from starlette.responses import FileResponse
 
 from sorbonne.config import config
-from sorbonne.services.account_access import AccountAccess, administers
+from sorbonne.services.account_access import AccountAccess, account_access, administers
 from sorbonne.services.staff_auth import StaffUser
 from sorbonne.services.syllabus_export import build_syllabus_docx, template_sections
 from sorbonne.services.syllabus_visibility import VISIBILITIES, can_edit, can_view
@@ -70,7 +70,7 @@ def current_user(request: Request) -> StaffUser:
 
 
 def get_account_access() -> AccountAccess:
-    return AccountAccess(config.database_url)
+    return account_access()
 
 
 def administers_syllabi(

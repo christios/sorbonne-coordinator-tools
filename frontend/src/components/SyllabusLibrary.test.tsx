@@ -7,13 +7,28 @@ import type { SyllabusSummary } from "@/services/syllabi";
 import { SyllabusLibrary } from "./SyllabusLibrary";
 
 describe("SyllabusLibrary", () => {
-  it("opens public catalogue management from the library header", () => {
+  it("opens catalogue management for whoever maintains the catalogue", () => {
     const onManageCatalogues = vi.fn();
-    render(<SyllabusLibrary syllabi={[]} folders={[]} templates={[]} isLoading={false} isCreating={false} isCreatingFolder={false} deletingId={null} deletingFolderId={null} movingId={null} onOpen={vi.fn()} onCreate={vi.fn()} onCreateFolder={vi.fn()} onMove={vi.fn()} onManageCatalogues={onManageCatalogues} onDelete={vi.fn()} onDeleteFolder={vi.fn()} />);
+    render(
+      <StaffContext.Provider value={{ email: "chair@sorbonne.ae", name: "Chair", isAdmin: false, apps: { syllabus: "admin" } }}>
+        <SyllabusLibrary syllabi={[]} folders={[]} templates={[]} isLoading={false} isCreating={false} isCreatingFolder={false} deletingId={null} deletingFolderId={null} movingId={null} onOpen={vi.fn()} onCreate={vi.fn()} onCreateFolder={vi.fn()} onMove={vi.fn()} onManageCatalogues={onManageCatalogues} onDelete={vi.fn()} onDeleteFolder={vi.fn()} />
+      </StaffContext.Provider>,
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "Manage catalogues" }));
 
     expect(onManageCatalogues).toHaveBeenCalledOnce();
+  });
+
+  it("does not offer catalogue management to somebody who only writes syllabi", () => {
+    render(
+      <StaffContext.Provider value={{ email: "prof@sorbonne.ae", name: "Professor", isAdmin: false, apps: { syllabus: "member" } }}>
+        <SyllabusLibrary syllabi={[]} folders={[]} templates={[]} isLoading={false} isCreating={false} isCreatingFolder={false} deletingId={null} deletingFolderId={null} movingId={null} onOpen={vi.fn()} onCreate={vi.fn()} onCreateFolder={vi.fn()} onMove={vi.fn()} onManageCatalogues={vi.fn()} onDelete={vi.fn()} onDeleteFolder={vi.fn()} />
+      </StaffContext.Provider>,
+    );
+
+    expect(screen.queryByRole("button", { name: "Manage catalogues" })).toBeNull();
+    expect(screen.getByRole("button", { name: "New syllabus" })).toBeTruthy();
   });
 
   it("filters folders and syllabi within the selected folder", async () => {

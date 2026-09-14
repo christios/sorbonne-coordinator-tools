@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response,
 from pydantic import BaseModel, Field
 
 from sorbonne.config import config
-from sorbonne.services.account_access import AccountAccess
+from sorbonne.services.account_access import AccountAccess, account_access
 from sorbonne.services.field_guidance import may_write
 from sorbonne.services.staff_auth import StaffUser
 from sorbonne.services.workflow_store import (
@@ -68,7 +68,7 @@ def get_store() -> WorkflowStore:
 
 
 def get_account_access() -> AccountAccess:
-    return AccountAccess(config.database_url)
+    return account_access()
 
 
 def current_user(request: Request) -> StaffUser:

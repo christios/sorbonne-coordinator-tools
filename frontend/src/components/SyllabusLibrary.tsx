@@ -148,7 +148,10 @@ export function SyllabusLibrary({
           <p className="mt-1 text-sm text-[#667085]">Create, organize, and compare course syllabi across academic years.</p>
         </div>
         <div className="flex flex-wrap gap-3 lg:justify-end">
-          <button type="button" onClick={onManageCatalogues} className="inline-flex items-center justify-center gap-2 rounded-md border border-[#b7bec8] bg-white px-4 py-2.5 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]"><Settings2 size={17} aria-hidden="true" /> Manage catalogues</button>
+          {/* The catalogue is the standards, not a working document: whoever may not change
+              them is not offered a screen full of controls that would refuse them. They read
+              the catalogue where they need it — in the syllabus, as the choices on offer. */}
+          {curator ? <button type="button" onClick={onManageCatalogues} className="inline-flex items-center justify-center gap-2 rounded-md border border-[#b7bec8] bg-white px-4 py-2.5 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]"><Settings2 size={17} aria-hidden="true" /> Manage catalogues</button> : null}
           <button type="button" onClick={() => setShowFolderForm((value) => !value)} className="inline-flex items-center justify-center gap-2 rounded-md border border-[#b7bec8] bg-white px-4 py-2.5 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]"><FolderPlus size={17} aria-hidden="true" /> New folder</button>
           <button type="button" onClick={() => setShowForm((value) => !value)} className="inline-flex items-center justify-center gap-2 rounded-md bg-[#1f4e79] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#183f63]"><FilePlus2 size={17} aria-hidden="true" /> New syllabus</button>
         </div>

@@ -10,9 +10,12 @@ because the person who hands out access cannot be locked out of what they are ha
 
 from __future__ import annotations
 
+from functools import lru_cache
 from typing import Any
 
 from sqlalchemy import Engine, create_engine, text
+
+from sorbonne.config import config
 
 
 APPS = ("syllabus", "teachers", "database", "handbook")
@@ -62,6 +65,14 @@ class AccountAccess:
                     {"email": address, "app": app, "role": role},
                 )
         return wanted
+
+
+# One per process, not one per request: this owns a connection pool, and building a fresh one
+# for every call leaves its connections behind. A dev server left up for three days had sixty
+# idle connections against the database and no room for the tests to open their own.
+@lru_cache(maxsize=1)
+def account_access() -> AccountAccess:
+    return AccountAccess(config.database_url)
 
 
 def may_open(access: dict[str, str], app: str, *, platform_admin: bool) -> bool:
