@@ -15,10 +15,12 @@ from sorbonne.services.teacher_store import (
     FolderNameConflict,
     FolderNotEmpty,
     FolderNotFound,
+    InvalidTimeSheetLink,
     RequisitionNotFound,
     RevisionConflict,
     TeacherNotFound,
     TeacherStore,
+    TimeSheetNotFound,
 )
 
 router = APIRouter(prefix="/teachers", tags=["teachers"])
@@ -46,6 +48,14 @@ class CreateTeacherRequisitionRequest(BaseModel):
     label: str = Field(min_length=1, max_length=160)
     academicYear: str = Field(min_length=1, max_length=20)
     sourceRequisitionId: str | None = None
+
+
+class TimeSheetRequest(BaseModel):
+    """A labelled link to the teacher's time sheet, wherever it is kept."""
+
+    label: str = Field(min_length=1, max_length=160)
+    academicYear: str = Field(default="", max_length=20)
+    url: str = Field(min_length=1, max_length=2000)
 
 
 class UpdateTeacherRequisitionRequest(BaseModel):
@@ -279,6 +289,66 @@ def create_teacher_requisition(
         raise HTTPException(
             status_code=404, detail="The source requisition was not found on this teacher profile."
         ) from exc
+
+
+def _bad_link() -> HTTPException:
+    return HTTPException(
+        status_code=422,
+        detail="That is not a web address. Paste the link OneDrive gives you, starting with https://.",
+    )
+
+
+@router.get("/{teacher_id}/time-sheets")
+def list_teacher_time_sheets(
+    teacher_id: str, store: TeacherStore = Depends(get_store)
+) -> dict[str, list[dict[str, Any]]]:
+    try:
+        return {"items": store.list_time_sheets(teacher_id)}
+    except TeacherNotFound as exc:
+        raise HTTPException(status_code=404, detail="Teacher not found.") from exc
+
+
+@router.post("/{teacher_id}/time-sheets", status_code=201)
+def create_teacher_time_sheet(
+    teacher_id: str, request: TimeSheetRequest, store: TeacherStore = Depends(get_store)
+) -> dict[str, Any]:
+    try:
+        return store.create_time_sheet(
+            teacher_id, label=request.label, academic_year=request.academicYear, url=request.url
+        )
+    except TeacherNotFound as exc:
+        raise HTTPException(status_code=404, detail="Teacher not found.") from exc
+    except InvalidTimeSheetLink as exc:
+        raise _bad_link() from exc
+
+
+@router.patch("/{teacher_id}/time-sheets/{time_sheet_id}")
+def update_teacher_time_sheet(
+    teacher_id: str, time_sheet_id: str, request: TimeSheetRequest, store: TeacherStore = Depends(get_store)
+) -> dict[str, Any]:
+    try:
+        if store.get_time_sheet(time_sheet_id)["teacherId"] != teacher_id:
+            raise TimeSheetNotFound
+        return store.update_time_sheet(
+            time_sheet_id, label=request.label, academic_year=request.academicYear, url=request.url
+        )
+    except TimeSheetNotFound as exc:
+        raise HTTPException(status_code=404, detail="Time sheet not found on this teacher profile.") from exc
+    except InvalidTimeSheetLink as exc:
+        raise _bad_link() from exc
+
+
+@router.delete("/{teacher_id}/time-sheets/{time_sheet_id}", status_code=204)
+def delete_teacher_time_sheet(
+    teacher_id: str, time_sheet_id: str, store: TeacherStore = Depends(get_store)
+) -> Response:
+    try:
+        if store.get_time_sheet(time_sheet_id)["teacherId"] != teacher_id:
+            raise TimeSheetNotFound
+        store.delete_time_sheet(time_sheet_id)
+    except TimeSheetNotFound as exc:
+        raise HTTPException(status_code=404, detail="Time sheet not found on this teacher profile.") from exc
+    return Response(status_code=204)
 
 
 @requisition_router.get("/{requisition_id}")

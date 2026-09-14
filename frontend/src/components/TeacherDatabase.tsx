@@ -38,6 +38,7 @@ import {
 import { LibraryRecordTimestamps } from "@/components/LibraryRecordTimestamps";
 import { RequisitionCourseEditor } from "@/components/RequisitionCourseEditor";
 import { SectionEditorShell } from "@/components/SectionEditorShell";
+import { TimeSheetsCard } from "@/components/TeacherTimeSheets";
 import { SelectMenu } from "@/components/SelectMenu";
 import { TaskPanel } from "@/components/TaskPanel";
 import { TasksOverview } from "@/components/TasksOverview";
@@ -859,74 +860,83 @@ function TeacherProfile({
           className="mt-0 h-full"
         />
       </div>
-      <section className="mt-6 rounded-lg border border-[#d9dee7] bg-white p-5">
-        <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
-          <div>
-            <h3 className="text-lg font-semibold">Requisitions</h3>
-            <p className="mt-1 text-sm text-[#667085]">
-              Create labelled requests for this teacher without limiting the
-              number per year.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => setShowRequest((value) => !value)}
-            className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white"
-          >
-            <FilePlus2 size={16} /> New requisition
-          </button>
-        </div>
-        {showRequest ? (
-          <div className="mt-4 grid gap-3 rounded-md bg-[#f8fafc] p-4 md:grid-cols-3">
-            <InputField
-              label="Request label"
-              value={label}
-              required
-              onChange={(nextLabel) => setLabel(nextLabel)}
-            />
-            <InputField
-              label="Academic year"
-              value={academicYear}
-              required
-              onChange={setAcademicYear}
-            />
-            <div className="grid gap-1 text-sm font-medium">
-              <span>Starting point</span>
-              <SelectMenu
-                label="Starting point"
-                value={sourceId}
-                onChange={setSourceId}
-                placeholder="Blank requisition"
-                options={[
-                  { value: "", label: "Blank requisition" },
-                  ...(requisitions.data ?? []).map((item) => ({
-                    value: item.id,
-                    label: `${item.label} — ${item.academicYear}`,
-                  })),
-                ]}
-              />
+      {/*
+        * Requisitions and time sheets share a row: both are the paperwork of one
+        * engagement, one asking for the teaching and the other recording it. Both cards
+        * are drawn to the height of the taller and to the same width, the way Tasks and
+        * Documents are above them, so the two rows of cards line up down the page.
+        */}
+      <div className="mt-6 grid gap-6 lg:grid-cols-2 lg:items-stretch">
+        <section className="h-full rounded-lg border border-[#d9dee7] bg-white p-5">
+          <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+            <div>
+              <h3 className="text-lg font-semibold">Requisitions</h3>
+              <p className="mt-1 text-sm text-[#667085]">
+                Create labelled requests for this teacher without limiting the
+                number per year.
+              </p>
             </div>
             <button
               type="button"
-              disabled={createRequest.isPending || !label.trim()}
-              onClick={() => createRequest.mutate()}
-              className="w-fit rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white"
+              onClick={() => setShowRequest((value) => !value)}
+              className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white"
             >
-              Create and edit
+              <FilePlus2 size={16} /> New requisition
             </button>
           </div>
-        ) : null}
-        <RequisitionHistory
-          requisitions={requisitions.data ?? []}
-          onOpen={onOpenRequisition}
-          onDelete={removeRequest.mutate}
-          deleting={removeRequest.isPending}
-          onRename={(id, nextLabel) =>
-            renameRequest.mutateAsync({ id, label: nextLabel })
-          }
-          renaming={renameRequest.isPending}
-        />
-      </section>
+          {showRequest ? (
+            <div className="mt-4 grid gap-3 rounded-md bg-[#f8fafc] p-4 md:grid-cols-3">
+              <InputField
+                label="Request label"
+                value={label}
+                required
+                onChange={(nextLabel) => setLabel(nextLabel)}
+              />
+              <InputField
+                label="Academic year"
+                value={academicYear}
+                required
+                onChange={setAcademicYear}
+              />
+              <div className="grid gap-1 text-sm font-medium">
+                <span>Starting point</span>
+                <SelectMenu
+                  label="Starting point"
+                  value={sourceId}
+                  onChange={setSourceId}
+                  placeholder="Blank requisition"
+                  options={[
+                    { value: "", label: "Blank requisition" },
+                    ...(requisitions.data ?? []).map((item) => ({
+                      value: item.id,
+                      label: `${item.label} — ${item.academicYear}`,
+                    })),
+                  ]}
+                />
+              </div>
+              <button
+                type="button"
+                disabled={createRequest.isPending || !label.trim()}
+                onClick={() => createRequest.mutate()}
+                className="w-fit rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white"
+              >
+                Create and edit
+              </button>
+            </div>
+          ) : null}
+          <RequisitionHistory
+            requisitions={requisitions.data ?? []}
+            onOpen={onOpenRequisition}
+            onDelete={removeRequest.mutate}
+            deleting={removeRequest.isPending}
+            onRename={(id, nextLabel) =>
+              renameRequest.mutateAsync({ id, label: nextLabel })
+            }
+            renaming={renameRequest.isPending}
+          />
+        </section>
+        <TimeSheetsCard teacherId={teacherId} className="h-full" />
+      </div>
     </div>
   );
 }
