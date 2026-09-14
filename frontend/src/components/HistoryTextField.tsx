@@ -31,6 +31,10 @@ type Props = {
   invalid?: boolean;
   className?: string;
   inputClassName?: string;
+  /** Guidance shown behind the info button instead of a paragraph on the page. */
+  hint?: string;
+  /** Where the value comes from, shown in grey beside the label. */
+  source?: string;
 };
 
 export function HistoryTextField({
@@ -48,6 +52,8 @@ export function HistoryTextField({
   invalid = false,
   className = "",
   inputClassName = "",
+  hint,
+  source,
 }: Props) {
   const handleChange: ChangeEventHandler<
     HTMLInputElement | HTMLTextAreaElement
@@ -62,7 +68,9 @@ export function HistoryTextField({
     <label
       className={`grid content-start gap-1 text-sm font-medium text-[#344054] ${className}`}
     >
-      <FormFieldLabel fieldKey={history?.field.path}>{label}</FormFieldLabel>
+      <FormFieldLabel fieldKey={history?.field.path} hint={hint} source={source}>
+        {label}
+      </FormFieldLabel>
       <div className={`relative leading-none ${multiline ? "" : "h-10"}`}>
         {multiline ? (
           <AutoResizeTextarea

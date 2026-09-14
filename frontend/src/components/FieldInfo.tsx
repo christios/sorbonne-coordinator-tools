@@ -44,9 +44,20 @@ const FieldInfoNotesContext = createContext<FieldNote[]>([]);
 
 export function FieldInfoLabel({
   fieldKey,
+  hint,
+  name,
   children,
 }: {
   fieldKey?: string;
+  /** What to call this field out loud, when the visible label carries more than its name. */
+  name?: string;
+  /**
+   * Guidance that ships with the field, shown until an administrator writes their own.
+   *
+   * It exists so a paragraph explaining a field need not sit on the page taking a third
+   * of a screen for the ninety-ninth time somebody opens the form.
+   */
+  hint?: string;
   children: React.ReactNode;
 }) {
   const source = useContext(FieldInfoContext);
@@ -56,20 +67,26 @@ export function FieldInfoLabel({
   const [previewOpen, setPreviewOpen] = useState(false);
   const note = notes.find((item) => item.fieldKey === fieldKey);
   const anchorRef = useRef<HTMLSpanElement>(null);
-  if (!source || !fieldKey) return <>{children}</>;
+  const guidance = note?.content ?? hint ?? "";
+  const editable = Boolean(source && fieldKey);
+  if (!editable && !guidance) return <>{children}</>;
   return (
     <span
       ref={anchorRef}
       className="group relative inline-flex items-center gap-1"
-      onClick={() => setEditorOpen(true)}
+      onClick={editable ? () => setEditorOpen(true) : undefined}
     >
-      <span className="cursor-pointer transition-colors hover:text-[#1f4e79]">
+      <span
+        className={
+          editable ? "cursor-pointer transition-colors hover:text-[#1f4e79]" : undefined
+        }
+      >
         {children}
       </span>
-      {note ? (
+      {guidance ? (
         <span
           role="img"
-          aria-label={`Field information for ${String(children)}`}
+          aria-label={`Field information for ${name ?? String(children)}`}
           onClick={(event) => event.stopPropagation()}
           onMouseEnter={() => setPreviewOpen(true)}
           onMouseLeave={() => setPreviewOpen(false)}
@@ -78,15 +95,15 @@ export function FieldInfoLabel({
           <Info size={15} />
         </span>
       ) : null}
-      {previewOpen && note ? (
-        <FieldInfoPreview anchorRef={anchorRef} content={note.content} />
+      {previewOpen && guidance ? (
+        <FieldInfoPreview anchorRef={anchorRef} content={guidance} />
       ) : null}
-      {editorOpen ? (
+      {editorOpen && source && fieldKey ? (
         <FieldInfoPopover
           source={source}
           fieldKey={fieldKey}
           canEdit={canEdit}
-          content={note?.content ?? ""}
+          content={guidance}
           anchorRef={anchorRef}
           onClose={() => setEditorOpen(false)}
         />
