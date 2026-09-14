@@ -25,8 +25,8 @@ The tags are converted and then dropped:
 A course tag in a set of untagged groups with mixed courses had no meaning the model can
 keep, and is dropped.
 
-Revision ID: 0047
-Revises: 0046
+Revision ID: 0055
+Revises: 0054
 """
 
 from __future__ import annotations
@@ -34,8 +34,8 @@ from __future__ import annotations
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0047"
-down_revision = "0046"
+revision = "0055"
+down_revision = "0054"
 branch_labels = None
 depends_on = None
 

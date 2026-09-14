@@ -9,8 +9,8 @@ it. So a profile keeps a short list of labelled links beside its requisitions.
 Only the label, the academic year and the link are ours. Whoever can open the link is
 decided by OneDrive's own sharing, which is where that decision belongs.
 
-Revision ID: 0049
-Revises: 0048
+Revision ID: 0057
+Revises: 0056
 Create Date: 2026-09-14
 """
 
@@ -18,8 +18,8 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision = "0049"
-down_revision = "0048"
+revision = "0057"
+down_revision = "0056"
 branch_labels = None
 depends_on = None
 

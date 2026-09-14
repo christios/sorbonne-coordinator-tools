@@ -19,8 +19,8 @@ and removal, every registered course that appears or disappears, every approval 
 who did it and when. Until now the History card read only from one browser's pull
 history, which another coordinator's browser had never seen.
 
-Revision ID: 0048
-Revises: 0047
+Revision ID: 0056
+Revises: 0055
 """
 
 from __future__ import annotations
@@ -28,8 +28,8 @@ from __future__ import annotations
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0048"
-down_revision = "0047"
+revision = "0056"
+down_revision = "0055"
 branch_labels = None
 depends_on = None
 
