@@ -345,10 +345,15 @@ def _copy_active_teachers(  # noqa: PLR0913 - one argument per thing the copy is
             continue
         if not here_part_time:
             continue
+        # The LOCAL list, so the local session cookie — not `read`, which carries
+        # production's bearer token and gets a 401 "Sign in to continue." from localhost.
+        # That 401 ended this step silently: the copy exited without its summary line and
+        # dev kept whatever teacher list it already had, which is how a stale name came to
+        # warn on dev and not on production.
         here = next(
             (
                 held
-                for held in call(f"{into}/api/v1/portal/active-teachers", headers=read)["teachers"]
+                for held in call(f"{into}/api/v1/portal/active-teachers", headers=write)["teachers"]
                 if held["portalTeacherId"] == row["portalTeacherId"]
             ),
             None,
@@ -920,13 +925,28 @@ def _copy_catalogue(  # noqa: PLR0913 - the two maps it fills are the point
                     "label": group["label"],
                     "capacity": group.get("capacity", 0),
                     "note": group.get("note", ""),
-                    "program": group.get("program", ""),
+                    # `parallelWith` is deliberately NOT copied. It holds GROUP IDS, which
+                    # are production's and mean nothing here, and the groups it points at
+                    # may not be written yet — mapping it needs a second pass once every id
+                    # is known. No group on production has one, so the pass would be dead
+                    # code today; write it when the first one does.
                     # A nested set's group sits inside one of the parent's, which was
                     # written above — the parent set comes first in the loop.
                     "parentGroupId": group_id.get(group.get("parentGroupId", ""), ""),
                 },
             )["id"]
             group_id[group["id"]] = here_group
+            # The sub-rows: the majors this group holds, each with its seats. Nothing wrote
+            # them before, so a copied dev had groups with no sub-rows at all — every
+            # placement landed on none of them, the seats read as the group's, and the
+            # mutualized teaching the sub-rows exist to say was simply absent.
+            for major in group.get("majors") or []:
+                made_major = write(
+                    f"/groups/{here_group}/majors",
+                    {"program": major["program"], "seats": major.get("seats", 0)},
+                )["id"]
+                if major_ids is not None:
+                    major_ids[major["id"]] = made_major
             for prod_course, cell in (group.get("crns") or {}).items():
                 if prod_course not in course_id:
                     continue
@@ -946,6 +966,46 @@ def _copy_catalogue(  # noqa: PLR0913 - the two maps it fills are the point
                     if request:
                         write(at, {**request, "part": number}, method="PATCH")
                         requests += 1
+            requests += _copy_sub_row_cells(
+                write, here_group, group.get("byMajor") or {}, course_id, major_ids or {}
+            )
+    return requests
+
+
+def _copy_sub_row_cells(
+    write,
+    here_group: str,
+    by_major: dict[str, Any],
+    course_id: dict[str, str],
+    major_ids: dict[str, str],
+) -> int:
+    """A cell that belongs to ONE sub-row, and a sub-row's word that it is not taught a course.
+
+    Written after the group's shared cells, because a sub-row's own cell stands over the
+    group's. Returns how many of them carried a timetabler's request.
+    """
+    requests = 0
+    for prod_major, by_course in by_major.items():
+        mine = major_ids.get(prod_major, "")
+        if not mine:
+            continue
+        for prod_course, cell in by_course.items():
+            if prod_course not in course_id:
+                continue
+            at = f"/groups/{here_group}/courses/{course_id[prod_course]}"
+            if cell.get("notTaught"):
+                write(at, {"crn": "", "majorId": mine, "notTaught": True}, method="PUT")
+                continue
+            for part in cell.get("parts") or [cell]:
+                if not part.get("crn"):
+                    continue
+                number = part.get("part", 1)
+                body = {"crn": part["crn"], "teacher": part.get("teacher", ""), "part": number, "majorId": mine}
+                write(at, body, method="PUT")
+                request = _request_of(part)
+                if request:
+                    write(at, {**request, "part": number, "majorId": mine}, method="PATCH")
+                    requests += 1
     return requests
 
 
