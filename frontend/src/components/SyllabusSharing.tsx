@@ -14,6 +14,10 @@ export function SyllabusSharing({ syllabus }: { syllabus: Syllabus }) {
   const client = useQueryClient();
   const user = useStaffUser();
   const mine = Boolean(syllabus.ownerEmail) && syllabus.ownerEmail === user?.email;
+  // The shared set — written before anybody had their own — is the syllabus administrator's
+  // to publish. The rules have always allowed it; not offering it here only hid it.
+  const curator = Boolean(user?.isAdmin) || user?.apps?.syllabus === "admin";
+  const shared = !syllabus.ownerEmail;
   const refresh = () => {
     void client.invalidateQueries({ queryKey: ["syllabi"] });
     void client.invalidateQueries({ queryKey: ["syllabus", syllabus.id] });
@@ -28,8 +32,8 @@ export function SyllabusSharing({ syllabus }: { syllabus: Syllabus }) {
   });
   const busy = publish.isPending || review.isPending;
 
-  if (!syllabus.ownerEmail) return null;
-  if (!mine) {
+  if (shared && !curator) return null;
+  if (!mine && !shared) {
     return (
       <span className="inline-flex items-center gap-1.5 text-sm text-[#667085]">
         {syllabus.visibility === "public" ? <Eye size={16} /> : <Lock size={16} />}
@@ -42,6 +46,9 @@ export function SyllabusSharing({ syllabus }: { syllabus: Syllabus }) {
     "inline-flex items-center gap-2 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb] disabled:opacity-60";
   return (
     <>
+      {shared ? (
+        <span className="text-sm text-[#667085]">Departmental</span>
+      ) : null}
       {/* Publishing and asking for a review are different things: one opens it to everybody,
           the other to a coordinator only, and a syllabus can want the second without the first. */}
       <button
@@ -53,7 +60,7 @@ export function SyllabusSharing({ syllabus }: { syllabus: Syllabus }) {
         {busy ? <Loader2 className="animate-spin" size={17} /> : syllabus.visibility === "public" ? <Lock size={17} /> : <Eye size={17} />}
         {syllabus.visibility === "public" ? "Make private" : "Publish"}
       </button>
-      {syllabus.visibility === "public" ? null : (
+      {syllabus.visibility === "public" || shared ? null : (
         <button type="button" disabled={busy} onClick={() => review.mutate(!syllabus.submittedAt)} className={button}>
           {syllabus.submittedAt ? <Undo2 size={17} /> : <Send size={17} />}
           {syllabus.submittedAt ? "Withdraw from review" : "Submit for review"}
