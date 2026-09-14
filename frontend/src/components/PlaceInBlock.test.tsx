@@ -452,8 +452,19 @@ describe("naming a group that would clash", () => {
     await pick("Block", /TD/);
     fireEvent.click(screen.getByRole("combobox", { name: "Group" }));
 
-    const one = await screen.findByRole("option", { name: /Group 1/ });
-    expect(one.textContent).toContain("would clash with CM A");
+    /*
+      * Waiting for the BADGE, not for the option.
+      *
+      * The option exists as soon as the catalogue lands, but the badge needs two more
+      * answers — who the students already hold, and the timetable's clash report. Finding
+      * the option and asserting on it in the same breath read the row before those two had
+      * arrived, and the test failed about one full-suite run in three while passing alone.
+      * The assertion is unchanged; only the moment it is made is.
+      */
+    await waitFor(() =>
+      expect(screen.getByRole("option", { name: /Group 1/ }).textContent).toContain("would clash with CM A"),
+    );
+    // Safe to read plainly now: the clash report is in, or the wait above would not have ended.
     expect(screen.getByRole("option", { name: /Group 2/ }).textContent).not.toContain("clash");
   });
 });
