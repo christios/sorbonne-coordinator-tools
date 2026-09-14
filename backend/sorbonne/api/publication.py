@@ -126,7 +126,11 @@ async def read_publication(  # noqa: PLR0913 - one dependency per record it read
             crn
             for cohort in cohorts
             for group in [*cohort["groups"], *cohort.get("sharedGroups", [])]
-            for crns in group["crns"].values()
+            # Every cell anybody in the group is taught: the shared ones and each sub-row's own.
+            for crns in [
+                *group["crns"].values(),
+                *[held for major in group.get("majors", []) for held in major["crns"].values()],
+            ]
             for crn in crns
             if crn
         }
@@ -164,8 +168,6 @@ async def read_publication(  # noqa: PLR0913 - one dependency per record it read
                     groups=groups,
                     course_codes=cohort["courseCodes"],
                     assignments=_assignments(cohort),
-                    scope_programs=cohort.get("scopePrograms"),
-                    course_programs=cohort.get("coursePrograms"),
                 ),
                 # A warning rather than a blocker: the timetable is what it is, and the
                 # coordinator may well know. But it must be said where the placing happens.

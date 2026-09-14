@@ -86,6 +86,7 @@ export function CohortActions({
   const [yearLevel, setYearLevel] = useState(cohort.yearLevel);
   const [workbookTab, setWorkbookTab] = useState(cohort.workbookTab);
   const [firstSemester, setFirstSemester] = useState(String(cohort.firstSemester || ""));
+  const [allowedCodes, setAllowedCodes] = useState<string[]>(cohort.allowedCodes);
   const schema = useQuery({ queryKey: ["portal-schema"], queryFn: fetchSchema, enabled: editing, staleTime: 60_000 });
   const held = useQuery({ queryKey: ["roster-rows-held"], queryFn: rowsHeld, enabled: editing, staleTime: 60_000 });
   const portalTerms = useQuery({ queryKey: ["portal", "courses", ""], queryFn: () => fetchPortalCourses("", ""), enabled: editing, retry: false });
@@ -103,6 +104,7 @@ export function CohortActions({
         yearLevel: yearLevel.trim(),
         workbookTab: workbookTab.trim(),
         firstSemester: Number(firstSemester) || 0,
+        allowedCodes,
       }),
     onSuccess: () => {
       setEditing(false);
@@ -129,6 +131,17 @@ export function CohortActions({
   const majorOptions = choicesFor("MAJOR_CODE", sources);
   const termOptions = choicesFor("TERM_CODE", { ...sources, extra: termExtra });
   const yearOptions = choicesFor("YEARLEVEL_CODE", sources);
+  // The courses the portal's list holds this term, and their subjects, as a starting offer.
+  const allowedOptions: Option[] = [
+    ...new Set(
+      (portalTerms.data?.courses ?? []).flatMap((course) => {
+        const code = (course.courseCode ?? "").trim().toUpperCase();
+        return code ? [code.split("-", 1)[0], code] : [];
+      }),
+    ),
+  ]
+    .sort()
+    .map((code) => ({ value: code, label: code }));
 
   return (
     <>
@@ -155,6 +168,7 @@ export function CohortActions({
             setYearLevel(cohort.yearLevel);
             setWorkbookTab(cohort.workbookTab);
             setFirstSemester(String(cohort.firstSemester || ""));
+            setAllowedCodes(cohort.allowedCodes);
             setEditing(true);
           }}
           className="rounded-md border border-[#b7bec8] bg-white p-2 text-[#344054] hover:bg-[#f8fafc]"
@@ -246,6 +260,23 @@ export function CohortActions({
             Codes come from the portal&apos;s tables as the extension read them, from the pulls this browser holds, and
             from the ones the department has always used. A code not listed can be added under its field.
           </p>
+
+          {/*
+            * What the cohort's students may take outside our groups without a word from
+            * the register: sport, a language another department teaches. What they should
+            * take is never typed here — it is the courses of the cohort's sets — and
+            * anything registered beyond both is a warning on the student until a
+            * coordinator approves it on their record.
+            */}
+          <CodesField
+            label="Always allowed outside the groups"
+            hint="Course codes (ENGL-101) or whole subjects (SPRT). Anything else registered outside their groups warns on the student."
+            values={allowedCodes}
+            options={allowedOptions}
+            placeholder="SPRT, ENGL"
+            noun="course"
+            onChange={setAllowedCodes}
+          />
 
           {/*
             * What this cohort is called in the timetable workbook.

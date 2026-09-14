@@ -41,6 +41,11 @@ def empty_shared_tables() -> None:
         # A thread is keyed on the student id, which the tests reuse; a line one test wrote
         # would read as the next test's.
         connection.execute(text("DELETE FROM student_comments"))
+        connection.execute(text("DELETE FROM student_history"))
+        connection.execute(text("DELETE FROM course_approvals"))
+        # The tests reuse three student ids across cohorts they never delete; a placement
+        # one test left behind would be "the groups the move cost" in the next one's history.
+        connection.execute(text("DELETE FROM group_assignments"))
         connection.execute(text("DELETE FROM students"))
 
 
@@ -489,17 +494,77 @@ def test_a_fill_naming_a_group_of_another_block_writes_nothing(client: TestClien
     assert held == {}
 
 
-def test_a_group_remembers_the_programme_it_prefers(client: TestClient, cohort_id: str):
+def test_a_group_holds_seats_per_major_and_its_capacity_is_what_they_add_up_to(client: TestClient, cohort_id: str):
+    """A sub-row per major: the programme in the registrar's words, and its seats.
+
+    A group with sub-rows has as many seats as they add up to; its own number no longer
+    counts. A group with none is exactly what a group was.
+    """
     scope_id, group_id = block_with_a_group(client, cohort_id)
 
-    client.patch(
-        f"/api/v1/student-database/groups/{group_id}",
-        json={"label": "1", "capacity": 24, "note": "", "program": "Physics"},
-    )
+    majors_at = f"/api/v1/student-database/groups/{group_id}/majors"
+    maths = client.post(majors_at, json={"program": "MATH - Mathematics", "seats": 15})
+    assert maths.status_code == status.HTTP_201_CREATED, maths.text
+    physics = client.post(majors_at, json={"program": "PHYS - Physics", "seats": 2})
+    # The same programme twice is refused: a group holds each major once.
+    assert client.post(majors_at, json={"program": "PHYS - Physics"}).status_code == status.HTTP_409_CONFLICT
 
     group = scope_of(catalogue(client, cohort_id), "TD")["groups"][0]
-    assert group["program"] == "Physics"
-    assert group["capacity"] == SEATS
+    assert [(major["program"], major["seats"], major["assigned"]) for major in group["majors"]] == [
+        ("MATH - Mathematics", 15, 0),
+        ("PHYS - Physics", 2, 0),
+    ]
+    assert group["capacity"] == 17
+
+    resized = client.patch(
+        f"/api/v1/student-database/majors/{physics.json()['id']}", json={"program": "PHYS - Physics", "seats": 5}
+    )
+    assert resized.status_code == status.HTTP_200_OK
+    assert scope_of(catalogue(client, cohort_id), "TD")["groups"][0]["capacity"] == 20
+
+    gone = client.delete(f"/api/v1/student-database/majors/{maths.json()['id']}")
+    assert gone.status_code == status.HTTP_204_NO_CONTENT
+    group = scope_of(catalogue(client, cohort_id), "TD")["groups"][0]
+    assert [major["program"] for major in group["majors"]] == ["PHYS - Physics"]
+    assert group["capacity"] == 5
+
+
+def test_a_placement_takes_a_sub_row_and_a_cell_may_belong_to_one(client: TestClient, cohort_id: str, view_id: str):
+    """The seat decides the CRNs: a mathematician in the group is taught the shared cells and
+    the mathematics sub-row's own, and not a course the sub-row is not taught."""
+    scope_id, group_id = block_with_a_group(client, cohort_id)
+    in_cohort(client, view_id, cohort_id, STUDENTS)
+    majors_at = f"/api/v1/student-database/groups/{group_id}/majors"
+    maths = client.post(majors_at, json={"program": "MATH - Mathematics", "seats": 15}).json()["id"]
+    physics = client.post(majors_at, json={"program": "PHYS - Physics", "seats": 2}).json()["id"]
+    course_id = client.post(
+        f"/api/v1/student-database/scopes/{scope_id}/courses", json={"code": "MATH-001", "name": "Pre-calculus"}
+    ).json()["id"]
+    # Shared by everybody, then the physicists' own reading of it: not taught.
+    cell_at = f"/api/v1/student-database/groups/{group_id}/courses/{course_id}"
+    client.put(cell_at, json={"crn": "22155"})
+    client.put(cell_at, json={"crn": "", "majorId": physics, "notTaught": True})
+
+    placed = client.put(
+        f"/api/v1/student-database/scopes/{scope_id}/assignments",
+        json={"studentIds": STUDENTS[:2], "groupId": group_id, "majors": {STUDENTS[0]: maths, STUDENTS[1]: physics}},
+    )
+    assert placed.status_code == status.HTTP_200_OK, placed.text
+
+    block = scope_of(catalogue(client, cohort_id), "TD")
+    group = block["groups"][0]
+    assert {major["program"]: major["assigned"] for major in group["majors"]} == {
+        "MATH - Mathematics": 1,
+        "PHYS - Physics": 1,
+    }
+    assert group["crns"][course_id]["crn"] == "22155"
+    assert group["byMajor"][physics][course_id]["notTaught"] is True
+    held = client.get(f"/api/v1/student-database/cohorts/{cohort_id}/assignments").json()
+    assert held["majors"][STUDENTS[0]][scope_id] == maths
+    assert held["majors"][STUDENTS[1]][scope_id] == physics
+    # The row says which sub-row: "TD 1 · MATH - Mathematics" is what a coordinator reads.
+    rows = {row["studentId"]: row["groups"] for row in students_of(client)}
+    assert rows[STUDENTS[0]][0]["major"] == "MATH - Mathematics"
 
 
 def test_placing_nobody_in_a_group_takes_them_out_of_the_block(client: TestClient, cohort_id: str, view_id: str):
@@ -537,7 +602,10 @@ def test_a_student_carries_the_groups_they_are_in_by_name(client: TestClient, co
     # The id travels too, and only for the Meets column: the label alone cannot be joined
     # to the CRNs a group holds, and "TD 1" is a different group in a different set.
     assert held[STUDENTS[0]] == [
-        {"termId": "", "scopeCode": "TD", "groupLabel": "1", "groupId": group_id, "openToAll": False}
+        {
+            "termId": "", "scopeCode": "TD", "groupLabel": "1", "major": "", "subRows": 0,
+            "groupId": group_id, "openToAll": False,
+        }
     ]
     assert held[STUDENTS[1]] == []
 
@@ -670,7 +738,7 @@ def test_a_section_carries_the_timetable_request_beyond_its_crn(client: TestClie
     assert response.status_code == status.HTTP_200_OK, response.text
     block = scope_of(catalogue(client, cohort_id), "TD")
     # The UE and parent CRN are the active course's, not the set's — see test_portal_api.
-    assert set(block["courses"][0]) == {"id", "code", "name", "component", "program", "request"}
+    assert set(block["courses"][0]) == {"id", "code", "name", "component", "request"}
     # Nothing has been asked of the course itself, so its own request is empty.
     assert block["courses"][0]["request"]["hours"] == ""
     section = block["groups"][0]["crns"][course["id"]]
@@ -1301,3 +1369,83 @@ def test_a_comment_is_signed_with_the_name_settings_gives_its_author(
     del names["coordinator@sorbonne.ae"]
     listed = client.get("/api/v1/student-database/students/A001/comments").json()["comments"]
     assert listed[0]["authorName"] == "Christian Cayralat"
+
+
+# ------------------------------------------------------ the student's history
+
+
+def history_of(client: TestClient, student_id: str) -> list[tuple[str, dict]]:
+    entries = client.get(f"/api/v1/student-database/students/{student_id}/history").json()["entries"]
+    # Oldest first, the way the story reads; the route gives newest first, the way a card does.
+    return [(entry["kind"], entry["detail"]) for entry in reversed(entries)]
+
+
+def test_a_cohort_move_and_every_placement_are_written_to_the_students_history(
+    client: TestClient, cohort_id: str, view_id: str
+):
+    """Every cohort move, every placement and removal, on the server, with the set and the
+    group named — so the History card reads the same on every coordinator's browser."""
+    scope_id, group_id = block_with_a_group(client, cohort_id)
+    in_cohort(client, view_id, cohort_id, STUDENTS[:1])
+    place(client, scope_id, STUDENTS[:1], group_id)
+    # Placing them where they already are is not a change, and writes nothing.
+    place(client, scope_id, STUDENTS[:1], group_id)
+
+    told = history_of(client, STUDENTS[0])
+    assert [kind for kind, _ in told] == ["cohort", "placed"]
+    assert told[0][1] == {"from": "", "to": "Foundation Year"}
+    assert told[1][1]["scopeCode"] == "TD"
+    assert told[1][1]["to"] and told[1][1]["from"] == ""
+
+    other = client.post("/api/v1/student-database/cohorts", json={"name": "L2"}).json()["id"]
+    assert move(client, STUDENTS[:1], other).status_code == status.HTTP_200_OK
+
+    told = history_of(client, STUDENTS[0])
+    assert [kind for kind, _ in told] == ["cohort", "placed", "removed", "cohort"]
+    # The move cost them the group, and the line says which one.
+    assert told[2][1]["scopeCode"] == "TD" and told[2][1]["to"] == ""
+    assert told[3][1] == {"from": "Foundation Year", "to": "L2"}
+
+
+def test_taking_somebody_out_of_a_group_is_a_removal_in_their_history(
+    client: TestClient, cohort_id: str, view_id: str
+):
+    scope_id, group_id = block_with_a_group(client, cohort_id)
+    in_cohort(client, view_id, cohort_id, STUDENTS[:2])
+    place(client, scope_id, STUDENTS[:2], group_id)
+    place(client, scope_id, STUDENTS[:1], None)
+
+    assert [kind for kind, _ in history_of(client, STUDENTS[0])] == ["cohort", "placed", "removed"]
+    assert [kind for kind, _ in history_of(client, STUDENTS[1])] == ["cohort", "placed"]
+
+
+def test_an_approval_is_signed_and_its_making_and_unmaking_are_in_the_history(
+    client: TestClient, cohort_id: str, view_id: str
+):
+    in_cohort(client, view_id, cohort_id, STUDENTS[:1])
+    student = f"/api/v1/student-database/students/{STUDENTS[0]}"
+    saved = client.put(f"{student}/approvals/262710/span-101", json={"note": "Minor"})
+    assert saved.status_code == status.HTTP_200_OK, saved.text
+    # Upper-cased the way the portal writes codes, whatever was typed.
+    assert saved.json()["courseCode"] == "SPAN-101"
+    assert saved.json()["approvedBy"] and saved.json()["approvedAt"]
+
+    client.delete(f"{student}/approvals/262710/SPAN-101")
+    assert client.get(f"{student}/approvals").json()["approvals"] == []
+    told = history_of(client, STUDENTS[0])
+    assert [kind for kind, _ in told][1:] == ["approved", "unapproved"]
+    assert told[1][1] == {"courseCode": "SPAN-101", "termCode": "262710"}
+    # Every line a coordinator made is signed by them.
+    assert all(entry["author"] for entry in client.get(f"{student}/history").json()["entries"])
+
+
+def test_a_cohort_keeps_the_courses_it_always_allows_outside_its_groups(client: TestClient):
+    made = client.post(
+        "/api/v1/student-database/cohorts", json={"name": "L1", "allowedCodes": ["sprt", "ENGL-101", "SPRT", " "]}
+    )
+    assert made.status_code == status.HTTP_201_CREATED, made.text
+    # Upper-cased, each once, blanks dropped.
+    assert made.json()["allowedCodes"] == ["SPRT", "ENGL-101"]
+    listed = client.get("/api/v1/student-database/cohorts").json()["cohorts"]
+    mine = next(cohort for cohort in listed if cohort["id"] == made.json()["id"])
+    assert mine["allowedCodes"] == ["SPRT", "ENGL-101"]

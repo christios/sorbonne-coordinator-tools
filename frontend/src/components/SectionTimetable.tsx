@@ -27,6 +27,8 @@ export type TimetableEntry = {
   title: string;
   /** The words in the box; the course code when left out. */
   label?: string;
+  /** The group of ours the section stands for — "TD 3" — printed with the CRN in the box. */
+  group?: string;
   staff?: string;
   tone?: "solid" | "outline";
   /** What shares a colour. The course code when left out; a course's own calendar passes the CRN. */
@@ -264,6 +266,7 @@ function assemble(
       code: entry.code || section.courseCode,
       title: entry.title || section.title,
       label: entry.label || entry.code || section.courseCode,
+      group: entry.group ?? "",
       // The sweep names the teacher for every section it answered about, so a box has
       // one even where the caller only knew the CRN.
       staff: entry.staff || section.teacherName,

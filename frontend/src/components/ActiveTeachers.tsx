@@ -22,9 +22,17 @@ import {
   removeActiveTeacher,
 } from "@/services/portalLists";
 import { removeEach, stillSelected } from "@/services/bulkRemove";
+import { buildCards } from "@/services/courseCards";
+import { fetchActiveCourses, fetchActiveCrns } from "@/services/portalLists";
 import type { GridColumn } from "@/services/studentColumns";
+import { fetchCourseCards } from "@/services/studentDatabase";
+import { sectionsTaughtBy } from "@/services/teacherLoad";
+import { fetchTimetableTerms } from "@/services/timetables";
 
-const COLUMNS: GridColumn<ActiveTeacher>[] = [
+/** An Active teacher with what the planning has them teaching: the component types of their sections. */
+type TeacherRow = ActiveTeacher & { teaches: string[] };
+
+const COLUMNS: GridColumn<TeacherRow>[] = [
   { id: "fullName", displayName: "Name", type: "text", accessor: (row) => row.fullName, required: true, defaultWidth: 220 },
   { id: "email", displayName: "E-mail", type: "text", accessor: (row) => row.email, defaultWidth: 240 },
   {
@@ -34,9 +42,9 @@ const COLUMNS: GridColumn<ActiveTeacher>[] = [
     accessor: (row) => (row.source === "both" ? "Portal and part-time DB" : row.source === "portal" ? "Portal" : "Part-time DB"),
     defaultWidth: 180,
   },
-  { id: "type", displayName: "Type", type: "option", accessor: (row) => row.type, defaultWidth: 200 },
-  { id: "category", displayName: "Category", type: "option", accessor: (row) => row.category, defaultWidth: 120 },
-  { id: "department", displayName: "Dept.", type: "option", accessor: (row) => row.department, defaultWidth: 110 },
+  { id: "type", displayName: "Type", type: "option", accessor: (row) => row.type, defaultWidth: 200, source: "portal" },
+  { id: "category", displayName: "Category", type: "option", accessor: (row) => row.category, defaultWidth: 120, source: "portal" },
+  { id: "department", displayName: "Dept.", type: "option", accessor: (row) => row.department, defaultWidth: 110, source: "portal" },
   {
     id: "planning",
     displayName: "In our planning",
@@ -49,7 +57,20 @@ const COLUMNS: GridColumn<ActiveTeacher>[] = [
     type: "option",
     accessor: (row) =>
       row.linkedSections ? "Chosen on sections" : row.sections ? "Named, not chosen" : "No sections",
-    defaultWidth: 160,
+    defaultWidth: 160, source: "planning"
+  },
+  /*
+   * Which kinds of class they take — CM, TD, TP — from the sections our planning names
+   * them on. "Who lectures and who only runs tutorials" is a filter on this column.
+   */
+  {
+    id: "teaches",
+    displayName: "Teaches",
+    type: "multiOption",
+    accessor: (row) => row.teaches,
+    display: (row) => row.teaches.join(", "),
+    defaultWidth: 110,
+    source: "planning",
   },
   {
     id: "sections",
@@ -57,25 +78,25 @@ const COLUMNS: GridColumn<ActiveTeacher>[] = [
     type: "number",
     accessor: (row) => row.sections ?? 0,
     display: (row) => (row.sections ? String(row.sections) : ""),
-    defaultWidth: 90,
+    defaultWidth: 90, source: "planning"
   },
-  { id: "courses", displayName: "Courses", type: "text", accessor: (row) => row.courses, defaultWidth: 220 },
-  { id: "lastTerm", displayName: "Last term", type: "option", accessor: (row) => row.lastTerm, defaultWidth: 100 },
-  { id: "rank", displayName: "Rank", type: "text", accessor: (row) => row.rank, defaultWidth: 180 },
-  { id: "institution", displayName: "Institution", type: "text", accessor: (row) => row.institution, defaultWidth: 220 },
-  { id: "portalTeacherId", displayName: "Portal ID", type: "text", accessor: (row) => row.portalTeacherId, defaultWidth: 110 },
+  { id: "courses", displayName: "Courses", type: "text", accessor: (row) => row.courses, defaultWidth: 220, source: "portal" },
+  { id: "lastTerm", displayName: "Last term", type: "option", accessor: (row) => row.lastTerm, defaultWidth: 100, source: "portal" },
+  { id: "rank", displayName: "Rank", type: "text", accessor: (row) => row.rank, defaultWidth: 180, source: "portal" },
+  { id: "institution", displayName: "Institution", type: "text", accessor: (row) => row.institution, defaultWidth: 220, source: "portal" },
+  { id: "portalTeacherId", displayName: "Portal ID", type: "text", accessor: (row) => row.portalTeacherId, defaultWidth: 110, source: "portal" },
   { id: "addedAt", displayName: "Added", type: "date", accessor: (row) => row.addedAt, display: (row) => row.addedAt.slice(0, 10), defaultWidth: 110 },
   { id: "addedBy", displayName: "Added by", type: "text", accessor: (row) => row.addedBy, defaultWidth: 200 },
 ];
-const SHOWN = ["fullName", "email", "source", "type", "department", "courses", "lastTerm"];
+const SHOWN = ["fullName", "email", "source", "type", "department", "teaches", "courses", "lastTerm"];
 
-const idOf = (row: ActiveTeacher) => row.id;
+const idOf = (row: TeacherRow) => row.id;
 
 /** How many sections have chosen the teachers about to be removed. */
 const chosenOn = (rows: ActiveTeacher[] | undefined, selected: ReadonlySet<string>) =>
   (rows ?? []).filter((row) => selected.has(row.id)).reduce((count, row) => count + (row.linkedSections ?? 0), 0);
-const labelOf = (row: ActiveTeacher) => row.fullName || row.email || row.id;
-const renderCell = (row: ActiveTeacher, column: GridColumn<ActiveTeacher>) =>
+const labelOf = (row: TeacherRow) => row.fullName || row.email || row.id;
+const renderCell = (row: TeacherRow, column: GridColumn<TeacherRow>) =>
   column.id === "source" ? (
     <span className="flex flex-wrap gap-1">
       {row.portalTeacherId ? <StatePill tone="muted">Portal</StatePill> : null}
@@ -94,6 +115,25 @@ export function ActiveTeachers({ onOpenTeacher }: { onOpenTeacher?: (teacher: Te
   const client = useQueryClient();
   const active = useQuery({ queryKey: ["active-teachers"], queryFn: fetchActiveTeachers });
   const matches = useQuery({ queryKey: ["teacher-matches"], queryFn: fetchTeacherMatches, retry: false });
+  // The planning, for the Teaches column: which component types each teacher's sections are.
+  const catalogues = useQuery({ queryKey: ["course-cards"], queryFn: fetchCourseCards });
+  const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, retry: false });
+  const courses = useQuery({ queryKey: ["active-courses"], queryFn: fetchActiveCourses });
+  const registered = useQuery({ queryKey: ["active-crns"], queryFn: () => fetchActiveCrns() });
+  const rows = useMemo<TeacherRow[]>(() => {
+    const termName = (id: string) => (terms.data ?? []).find((term) => term.id === id)?.name ?? "";
+    const parentOf = new Map((registered.data ?? []).filter((row) => row.parentCrn).map((row) => [row.crn, row.parentCrn]));
+    const cards = buildCards(catalogues.data ?? [], termName, courses.data ?? [], parentOf);
+    const order = ["CM", "TD", "TP"];
+    return (active.data ?? []).map((teacher) => {
+      const kinds = new Set(
+        sectionsTaughtBy(cards, teacher.id, teacher.fullName)
+          .filter((section) => !section.retired)
+          .map((section) => section.component.toUpperCase()),
+      );
+      return { ...teacher, teaches: [...kinds].sort((a, b) => (order.indexOf(a) + 1 || 99) - (order.indexOf(b) + 1 || 99)) };
+    });
+  }, [active.data, catalogues.data, terms.data, courses.data, registered.data]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [picking, setPicking] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
@@ -183,7 +223,7 @@ export function ActiveTeachers({ onOpenTeacher }: { onOpenTeacher?: (teacher: Te
       ) : (
         <ListGrid
           columns={COLUMNS}
-          rows={active.data ?? []}
+          rows={rows}
           idOf={idOf}
           labelOf={labelOf}
           layoutKey="scen-columns:active-teachers:v1"

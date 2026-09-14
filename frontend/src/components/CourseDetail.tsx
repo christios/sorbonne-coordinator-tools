@@ -7,7 +7,7 @@ import { SectionDialog } from "@/components/CourseCard";
 import { CourseRequestDialog, CourseRequestLine } from "@/components/CourseRequest";
 import { PortalTermLink } from "@/components/PortalTermLink";
 import { YearPill } from "@/components/YearPill";
-import { teaches, type Card, type CardSet, type SectionRow } from "@/services/courseCards";
+import { type Card, type CardSet, type SectionRow, rowKey, teaches } from "@/services/courseCards";
 import { MUTUALIZED_WORDS, type ActiveTeacher, type TermCrns } from "@/services/portalLists";
 import type { GroupClash } from "@/services/publication";
 import { EMPTY_PART, partsOf, type Cohort, type SectionPart } from "@/services/studentDatabase";
@@ -107,7 +107,7 @@ function seatsVerdict(placed: number, seats: number): keyof typeof SEATS {
   return "room";
 }
 
-function Seats({ placed, seats, dim }: { placed: number; seats: number; dim: boolean }) {
+function Seats({ placed, seats, expected = 0, dim }: { placed: number; seats: number; expected?: number; dim: boolean }) {
   const verdict = seatsVerdict(placed, seats);
   const skin = SEATS[verdict];
   return (
@@ -123,6 +123,19 @@ function Seats({ placed, seats, dim }: { placed: number; seats: number; dim: boo
       <span className={`text-[10px] font-semibold uppercase leading-none tracking-wide ${dim ? "text-[#e4e9ef]" : skin.word}`}>
         seats
       </span>
+      {/* How many the timetabler was told to expect: a mark on the seats, not a pill of its own. */}
+      {expected ? (
+        <span
+          title={`${expected} expected, as the timetable request says`}
+          aria-label={`${expected} expected`}
+          className={`ml-1 inline-flex items-center gap-0.5 border-l pl-1.5 text-[11px] font-semibold tabular-nums ${
+            dim ? "border-[#f2f5f9] text-[#d5dce4]" : "border-[#d9d3e9] text-[#5b4d8a]"
+          }`}
+        >
+          <UserRound size={10} aria-hidden="true" />
+          {expected}
+        </span>
+      ) : null}
     </span>
   );
 }
@@ -236,9 +249,9 @@ function PartLine({
         )}
       </p>
 
+      {/* Hours only. How many are expected sits with the seats on the card's row. */}
       <div className="mt-2 flex flex-wrap gap-1.5">
         <Figure label="hours" value={part.hours} dim={part.retired} />
-        <Figure label="expected" value={part.anticipated ? String(part.anticipated) : ""} dim={part.retired} />
       </div>
 
       {part.sessionsPerWeek || part.duration || part.weeks ? (
@@ -312,6 +325,33 @@ function SectionBlock({
   const label = `${row.scope.code} ${row.group.label} ${row.course.code}`;
   // Dim the whole card only when NOTHING it teaches is still running.
   const dim = parts.length > 0 && parts.every((part) => part.retired);
+
+  if (row.notTaught) {
+    /*
+     * A sub-row's word that it is not taught this course: no class, no CRN wanted, and not
+     * a gap. Said quietly, and still a card so it can be pressed and changed.
+     */
+    return (
+      <article
+        role="button"
+        tabIndex={0}
+        onClick={() => onEdit(null)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            onEdit(null);
+          }
+        }}
+        aria-label={`Edit ${label}`}
+        className="flex cursor-pointer flex-col rounded-lg border border-dashed border-[#e4e8ef] bg-[#fdfefe] px-3.5 py-3 text-left hover:border-[#b7c6d8]"
+      >
+        <h4 className="text-sm font-semibold text-[#c8d0da]">
+          {row.scope.code} {row.group.label}
+        </h4>
+        <p className="mt-1 text-xs text-[#98a2b3]">Not taught to this sub-row.</p>
+      </article>
+    );
+  }
 
   return (
     <article
@@ -429,7 +469,7 @@ function SectionBlock({
         */}
       <div className="mt-2 flex flex-wrap gap-1.5">
         {row.exempt ? <Figure label="exempt" value={String(row.exempt)} dim={dim} /> : null}
-        <Seats placed={row.group.assigned} seats={row.group.capacity} dim={dim} />
+        <Seats placed={row.group.assigned} seats={row.group.capacity} expected={row.section?.anticipated ?? 0} dim={dim} />
       </div>
 
       {/*
@@ -571,7 +611,7 @@ export function CourseDetail({
           const retired = set.rows.filter((row) => row.section && partsOf(row.section).every((part) => part.retired));
           // Offering to add a section in a group the course is not taught to is how the
           // empty cell got there in the first place.
-          const spare = set.rows.filter((row) => !row.section && teaches(row.group, row.course));
+          const spare = set.rows.filter((row) => !row.section && teaches(row));
           return (
             <div key={set.scope.id}>
               <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
@@ -628,7 +668,7 @@ export function CourseDetail({
 
               <div className="grid gap-2.5 sm:grid-cols-2 2xl:grid-cols-3">
                 {live.map((row) => (
-                  <SectionBlock key={row.group.id} row={row} teacherName={teacherName} portal={portal} teacherDrift={teacherDrift} onEdit={(part) => setEditing({ ...row, section: part, parts: partsOf(row.section).length })} onShowGroup={() => setShowingGroup(row)} />
+                  <SectionBlock key={rowKey(row)} row={row} teacherName={teacherName} portal={portal} teacherDrift={teacherDrift} onEdit={(part) => setEditing({ ...row, section: part, parts: partsOf(row.section).length })} onShowGroup={() => setShowingGroup(row)} />
                 ))}
               </div>
 
@@ -646,7 +686,7 @@ export function CourseDetail({
                   {showingRetired[set.scope.id] ? (
                     <div className="mt-2 grid gap-2.5 sm:grid-cols-2 2xl:grid-cols-3">
                       {retired.map((row) => (
-                        <SectionBlock key={row.group.id} row={row} teacherName={teacherName} portal={portal} teacherDrift={teacherDrift} onEdit={(part) => setEditing({ ...row, section: part, parts: partsOf(row.section).length })} onShowGroup={() => setShowingGroup(row)} />
+                        <SectionBlock key={rowKey(row)} row={row} teacherName={teacherName} portal={portal} teacherDrift={teacherDrift} onEdit={(part) => setEditing({ ...row, section: part, parts: partsOf(row.section).length })} onShowGroup={() => setShowingGroup(row)} />
                       ))}
                     </div>
                   ) : null}
@@ -658,7 +698,7 @@ export function CourseDetail({
                   <span>Add a section in</span>
                   {spare.map((row) => (
                     <button
-                      key={row.group.id}
+                      key={rowKey(row)}
                       type="button"
                       onClick={() => setEditing(row)}
                       className="rounded-full border border-dashed border-[#c8d0da] px-2 py-0.5 font-medium text-[#667085] hover:border-[#1f4e79] hover:text-[#1f4e79]"

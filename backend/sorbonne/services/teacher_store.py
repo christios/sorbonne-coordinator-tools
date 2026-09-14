@@ -4,6 +4,7 @@ from copy import deepcopy
 from datetime import UTC, datetime
 import json
 from typing import Any
+from urllib.parse import urlparse
 from uuid import uuid4
 
 from sqlalchemy import Engine, create_engine, text
@@ -32,6 +33,14 @@ class FolderNameConflict(Exception):
 
 class FolderNotEmpty(Exception):
     pass
+
+
+class TimeSheetNotFound(Exception):
+    pass
+
+
+class InvalidTimeSheetLink(Exception):
+    """The link is not a web address this profile is willing to put behind a button."""
 
 
 class TeacherStore:
@@ -386,6 +395,103 @@ class TeacherStore:
         with self.engine.begin() as connection:
             connection.execute(text("DELETE FROM teacher_requisitions WHERE id = :id"), {"id": requisition_id})
 
+    # ------------------------------------------------------------- time sheets
+
+    def list_time_sheets(self, teacher_id: str) -> list[dict[str, Any]]:
+        """One teacher's links to their time sheets, newest academic year first."""
+        self.get_teacher(teacher_id)
+        with self.engine.connect() as connection:
+            rows = (
+                connection.execute(
+                    text(
+                        """
+                        SELECT id, teacher_id, label, academic_year, url, created_at, updated_at
+                        FROM teacher_time_sheets WHERE teacher_id = :teacher_id
+                        ORDER BY academic_year DESC, label
+                        """
+                    ),
+                    {"teacher_id": teacher_id},
+                )
+                .mappings()
+                .all()
+            )
+        return [_time_sheet_from_row(row) for row in rows]
+
+    def create_time_sheet(self, teacher_id: str, *, label: str, academic_year: str, url: str) -> dict[str, Any]:
+        self.get_teacher(teacher_id)
+        now = _timestamp()
+        record = {
+            "id": str(uuid4()),
+            "teacherId": teacher_id,
+            "label": label.strip(),
+            "academicYear": academic_year.strip(),
+            "url": _web_link(url),
+            "createdAt": now,
+            "updatedAt": now,
+        }
+        if not record["label"]:
+            raise ValueError("A time sheet link needs a label.")
+        with self.engine.begin() as connection:
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO teacher_time_sheets (
+                        id, teacher_id, label, academic_year, url, created_at, updated_at
+                    ) VALUES (:id, :teacher_id, :label, :academic_year, :url, :created_at, :updated_at)
+                    """
+                ),
+                _time_sheet_params(record),
+            )
+        return record
+
+    def get_time_sheet(self, time_sheet_id: str | None) -> dict[str, Any]:
+        if not time_sheet_id:
+            raise TimeSheetNotFound
+        with self.engine.connect() as connection:
+            row = (
+                connection.execute(
+                    text("SELECT * FROM teacher_time_sheets WHERE id = :id"), {"id": time_sheet_id}
+                )
+                .mappings()
+                .first()
+            )
+        if row is None:
+            raise TimeSheetNotFound
+        return _time_sheet_from_row(row)
+
+    def update_time_sheet(
+        self, time_sheet_id: str, *, label: str, academic_year: str, url: str
+    ) -> dict[str, Any]:
+        """A pasted link is got wrong often enough that correcting one must not mean
+        deleting it and typing the label again."""
+        current = self.get_time_sheet(time_sheet_id)
+        updated = {
+            **current,
+            "label": label.strip(),
+            "academicYear": academic_year.strip(),
+            "url": _web_link(url),
+            "updatedAt": _timestamp(),
+        }
+        if not updated["label"]:
+            raise ValueError("A time sheet link needs a label.")
+        with self.engine.begin() as connection:
+            connection.execute(
+                text(
+                    """
+                    UPDATE teacher_time_sheets
+                    SET label = :label, academic_year = :academic_year, url = :url, updated_at = :updated_at
+                    WHERE id = :id
+                    """
+                ),
+                _time_sheet_params(updated),
+            )
+        return updated
+
+    def delete_time_sheet(self, time_sheet_id: str) -> None:
+        self.get_time_sheet(time_sheet_id)
+        with self.engine.begin() as connection:
+            connection.execute(text("DELETE FROM teacher_time_sheets WHERE id = :id"), {"id": time_sheet_id})
+
     def import_course_catalogue(self, rows: list[dict[str, str]]) -> dict[str, int]:
         """Replace the active catalogue snapshot while retaining prior course versions.
 
@@ -646,6 +752,45 @@ def _folder_from_row(row: Any) -> dict[str, Any]:
         "parentId": row["parent_id"],
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],
+    }
+
+
+def _web_link(url: str) -> str:
+    """A link this profile will put behind a button, or nothing.
+
+    Only `http` and `https` with a host. The check is not about tidiness: a stored
+    `javascript:` address would run as script the moment a coordinator clicked the
+    teacher's name for it, so the scheme is decided here rather than trusted from
+    whatever was pasted. OneDrive's own share links are long and query-heavy, and pass.
+    """
+    cleaned = " ".join(str(url or "").split())
+    parsed = urlparse(cleaned)
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
+        raise InvalidTimeSheetLink
+    return cleaned
+
+
+def _time_sheet_from_row(row: Any) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "teacherId": row["teacher_id"],
+        "label": row["label"],
+        "academicYear": row["academic_year"],
+        "url": row["url"],
+        "createdAt": row["created_at"],
+        "updatedAt": row["updated_at"],
+    }
+
+
+def _time_sheet_params(sheet: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": sheet["id"],
+        "teacher_id": sheet["teacherId"],
+        "label": sheet["label"],
+        "academic_year": sheet["academicYear"],
+        "url": sheet["url"],
+        "created_at": sheet["createdAt"],
+        "updated_at": sheet["updatedAt"],
     }
 
 

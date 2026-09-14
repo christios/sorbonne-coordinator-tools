@@ -12,19 +12,19 @@ import type { GridColumn } from "@/services/studentColumns";
 const FILTER_KEY = "scen-portal-filter:teachers";
 
 const TEACHER_COLUMNS: GridColumn<PortalTeacher>[] = [
-  { id: "teacherId", displayName: "ID", type: "text", accessor: (row) => row.teacherId, required: true, defaultWidth: 110 },
-  { id: "fullName", displayName: "Name", type: "text", accessor: (row) => row.fullName, required: true, defaultWidth: 220 },
-  { id: "type", displayName: "Type", type: "option", accessor: (row) => row.type, defaultWidth: 200 },
-  { id: "category", displayName: "Category", type: "option", accessor: (row) => row.category, defaultWidth: 120 },
-  { id: "teacherStatus", displayName: "Status", type: "option", accessor: (row) => row.teacherStatus, defaultWidth: 90 },
-  { id: "department", displayName: "Dept.", type: "option", accessor: (row) => row.department, defaultWidth: 110 },
-  { id: "courses", displayName: "Courses", type: "text", accessor: (row) => row.courses, defaultWidth: 220 },
-  { id: "lastTerm", displayName: "Last term", type: "option", accessor: (row) => row.lastTerm, defaultWidth: 100 },
-  { id: "coursesCount", displayName: "# courses", type: "number", accessor: (row) => Number(row.coursesCount) || 0, defaultWidth: 100 },
-  { id: "studentsCount", displayName: "# students", type: "number", accessor: (row) => Number(row.studentsCount) || 0, defaultWidth: 100 },
-  { id: "rank", displayName: "Rank", type: "text", accessor: (row) => row.rank, defaultWidth: 180 },
-  { id: "institution", displayName: "Institution", type: "text", accessor: (row) => row.institution, defaultWidth: 220 },
-  { id: "psuadEmail", displayName: "E-mail", type: "text", accessor: (row) => row.psuadEmail, defaultWidth: 240 },
+  { id: "teacherId", displayName: "ID", type: "text", accessor: (row) => row.teacherId, required: true, defaultWidth: 110, source: "portal" },
+  { id: "fullName", displayName: "Name", type: "text", accessor: (row) => row.fullName, required: true, defaultWidth: 220, source: "portal" },
+  { id: "type", displayName: "Type", type: "option", accessor: (row) => row.type, defaultWidth: 200, source: "portal" },
+  { id: "category", displayName: "Category", type: "option", accessor: (row) => row.category, defaultWidth: 120, source: "portal" },
+  { id: "teacherStatus", displayName: "Status", type: "option", accessor: (row) => row.teacherStatus, defaultWidth: 90, source: "portal" },
+  { id: "department", displayName: "Dept.", type: "option", accessor: (row) => row.department, defaultWidth: 110, source: "portal" },
+  { id: "courses", displayName: "Courses", type: "text", accessor: (row) => row.courses, defaultWidth: 220, source: "portal" },
+  { id: "lastTerm", displayName: "Last term", type: "option", accessor: (row) => row.lastTerm, defaultWidth: 100, source: "portal" },
+  { id: "coursesCount", displayName: "# courses", type: "number", accessor: (row) => Number(row.coursesCount) || 0, defaultWidth: 100, source: "portal" },
+  { id: "studentsCount", displayName: "# students", type: "number", accessor: (row) => Number(row.studentsCount) || 0, defaultWidth: 100, source: "portal" },
+  { id: "rank", displayName: "Rank", type: "text", accessor: (row) => row.rank, defaultWidth: 180, source: "portal" },
+  { id: "institution", displayName: "Institution", type: "text", accessor: (row) => row.institution, defaultWidth: 220, source: "portal" },
+  { id: "psuadEmail", displayName: "E-mail", type: "text", accessor: (row) => row.psuadEmail, defaultWidth: 240, source: "portal" },
   {
     id: "status",
     displayName: "Portal",
@@ -32,7 +32,7 @@ const TEACHER_COLUMNS: GridColumn<PortalTeacher>[] = [
     accessor: (row) => (row.status === "in_portal" ? "Returned" : "No longer returned"),
     defaultWidth: 150,
   },
-  { id: "active", displayName: "Active", type: "option", accessor: () => "", defaultWidth: 90 },
+  { id: "active", displayName: "Active", type: "option", accessor: () => "", defaultWidth: 90, source: "planning" },
 ];
 const SHOWN = ["teacherId", "fullName", "type", "department", "courses", "lastTerm", "psuadEmail", "active"];
 

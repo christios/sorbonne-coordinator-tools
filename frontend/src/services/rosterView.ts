@@ -14,6 +14,7 @@ import type { Warning } from "@/services/discrepancies";
 import type { FieldChange } from "@/services/pullHistory";
 import { meetsTokens, setTokens, type GroupCrns } from "@/services/meets";
 import { displayNameOf, studentIdOf, type RosterRow } from "@/services/scenRosters";
+import { subRowLabel } from "@/services/courseCards";
 import type { Student } from "@/services/studentDatabase";
 
 /** What the last sync found: the portal returned them, or it did not. */
@@ -50,6 +51,8 @@ export type StudentRow = {
    */
   sets: string[];
   meets: string[];
+  /** Every group token in a fixed order, as one string: students who share it share every class. */
+  signature: string;
 };
 
 export type SortKey = "name" | "studentId" | "yearLevel" | "major" | "status" | "cohortName";
@@ -139,16 +142,37 @@ export function shortTerm(name: string): string {
  * and would otherwise read as a contradiction.
  */
 export function groupLabels(
-  groups: { termId: string; scopeCode: string; groupLabel: string }[],
+  groups: { termId: string; scopeCode: string; groupLabel: string; major?: string; subRows?: number }[],
   termNames: Record<string, string> = {},
 ): string[] {
   const terms = new Set(groups.map((group) => group.termId));
   return groups.map((group) => {
-    const label = `${group.scopeCode} ${group.groupLabel}`;
+    // "CM 1 · Mathematics": the sub-row they took, where the group has another to tell it from.
+    const label = `${group.scopeCode} ${subRowLabel(group.groupLabel, group.major ?? "", group.subRows ?? 0)}`;
     if (terms.size < 2) return label;
     const term = termNames[group.termId];
     return term ? `${shortTerm(term)} · ${label}` : label;
   });
+}
+
+/**
+ * "CM Maths · TD 3 · PHIL-TD 1 · MTP 3A": the student's whole placement as one token.
+ *
+ * In a fixed order — by set, then by group — whatever order the groups arrived in, so two
+ * students in the same groups read the same and a filter on the column finds everyone who
+ * shares every class: a handout, a room list, a bunch to move at once.
+ */
+export function groupSignature(
+  groups: { termId: string; scopeCode: string; groupLabel: string; major?: string; subRows?: number }[],
+  termNames: Record<string, string> = {},
+): string {
+  const ordered = [...groups].sort(
+    (left, right) =>
+      left.termId.localeCompare(right.termId) ||
+      left.scopeCode.localeCompare(right.scopeCode, undefined, { numeric: true }) ||
+      left.groupLabel.localeCompare(right.groupLabel, undefined, { numeric: true }),
+  );
+  return groupLabels(ordered, termNames).join(" · ");
 }
 
 export function studentRows(
@@ -186,6 +210,7 @@ export function studentRows(
       cohortName: student.cohortName,
       cohortSince: student.cohortSince,
       groups: groupLabels(student.groups ?? [], termNames),
+      signature: groupSignature(student.groups ?? [], termNames),
       sets: setTokens(student.groups ?? [], termNames),
       meets: meetsTokens(
         (student.groups ?? []).filter((group) => group.groupId).map((group) => ({ ...group, groupId: group.groupId ?? "" })),

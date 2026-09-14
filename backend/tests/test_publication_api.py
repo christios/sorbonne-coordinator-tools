@@ -615,7 +615,7 @@ def test_without_a_hub_the_registrar_answers_alone(client: TestClient, database:
     assert report["coverage"]["hubReachable"] is None
 
 
-def test_a_set_taught_to_one_programme_does_not_want_the_other_programme_in_it(
+def test_a_set_whose_groups_hold_one_programme_does_not_want_the_other_programme_in_it(
     client: TestClient, database: StudentDatabase
 ):
     """L2's practicals teach one course, for physicists, and the cohort is half mathematicians.
@@ -636,17 +636,21 @@ def test_a_set_taught_to_one_programme_does_not_want_the_other_programme_in_it(
             )
     cm = database.add_scope(cohort["id"], code="CM", name="Lectures", term_id=TERM)
     tp = database.add_scope(cohort["id"], code="TP", name="Practicals", term_id=TERM)
-    algebra = database.add_course(cm, code="MATH-223", program="Mathematics")
-    practical = database.add_course(tp, code="PHYS-208", program="Physics")
-    maths_group = database.add_group(cm, label="Mathematics", program="Mathematics")
-    physics_group = database.add_group(cm, label="Physics", program="Physics")
-    practicals = database.add_group(tp, label="Physics", program="Physics")
+    algebra = database.add_course(cm, code="MATH-223")
+    practical = database.add_course(tp, code="PHYS-208")
+    maths_group = database.add_group(cm, label="Mathematics")
+    physics_group = database.add_group(cm, label="Physics")
+    practicals = database.add_group(tp, label="Physics")
+    # Each group holds one major: the groups say who they are for, not a tag.
+    on_maths = database.add_major(maths_group, program="Mathematics")
+    on_physics = database.add_major(physics_group, program="Physics")
+    on_practicals = database.add_major(practicals, program="Physics")
     database.set_cell(group_id=maths_group, course_id=algebra, crn="24087")
     database.set_cell(group_id=physics_group, course_id=algebra, crn="24088")
     database.set_cell(group_id=practicals, course_id=practical, crn="24240")
-    database.assign(student_id="A001", scope_id=cm, group_id=maths_group)
-    database.assign(student_id="A002", scope_id=cm, group_id=physics_group)
-    database.assign(student_id="A002", scope_id=tp, group_id=practicals)
+    database.assign(student_id="A001", scope_id=cm, group_id=maths_group, major_id=on_maths)
+    database.assign(student_id="A002", scope_id=cm, group_id=physics_group, major_id=on_physics)
+    database.assign(student_id="A002", scope_id=tp, group_id=practicals, major_id=on_practicals)
 
     report = next(
         entry
@@ -673,13 +677,15 @@ def test_a_student_of_that_programme_missing_from_it_is_still_named(
         )
     cm = database.add_scope(cohort["id"], code="CM", name="Lectures", term_id=TERM)
     tp = database.add_scope(cohort["id"], code="TP", name="Practicals", term_id=TERM)
-    algebra = database.add_course(cm, code="MATH-223", program="Physics")
-    practical = database.add_course(tp, code="PHYS-208", program="Physics")
-    physics_group = database.add_group(cm, label="Physics", program="Physics")
-    practicals = database.add_group(tp, label="Physics", program="Physics")
+    algebra = database.add_course(cm, code="MATH-223")
+    practical = database.add_course(tp, code="PHYS-208")
+    physics_group = database.add_group(cm, label="Physics")
+    practicals = database.add_group(tp, label="Physics")
+    on_physics = database.add_major(physics_group, program="Physics")
+    database.add_major(practicals, program="Physics")
     database.set_cell(group_id=physics_group, course_id=algebra, crn="24088")
     database.set_cell(group_id=practicals, course_id=practical, crn="24240")
-    database.assign(student_id="A002", scope_id=cm, group_id=physics_group)
+    database.assign(student_id="A002", scope_id=cm, group_id=physics_group, major_id=on_physics)
 
     report = next(
         entry

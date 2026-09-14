@@ -44,6 +44,8 @@ export type CalendarCourse = {
   title: string;
   /** The words in the box. The course code unless the caller has something shorter. */
   label: string;
+  /** The group of ours the section stands for — "TD 3" — when the caller knows it. */
+  group: string;
   staff: string;
   /** `outline` for a class the person is expected in but the registrar has not registered them for. */
   tone: "solid" | "outline";

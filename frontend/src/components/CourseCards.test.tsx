@@ -11,7 +11,7 @@ import { EMPTY_SECTION } from "@/services/studentDatabase";
 import * as timetables from "@/services/timetables";
 
 const COHORT: database.Cohort = {
-  id: "c1", name: "Foundation Year", term: "2026-27", notes: "", majors: [], terms: [], yearLevel: "", workbookTab: "", firstSemester: 0,
+  id: "c1", name: "Foundation Year", term: "2026-27", notes: "", majors: [], terms: [], yearLevel: "", workbookTab: "", firstSemester: 0, allowedCodes: [],
   memberCount: 12, scopeCount: 2, createdAt: "", updatedAt: "",
 };
 
@@ -22,12 +22,12 @@ const CATALOGUES: database.CohortCatalogue[] = [
       {
         id: "s-td", code: "TD", name: "Tutorials", note: "", termId: "term-1", kind: "shared", parentScopeId: "", openToAll: false,
         courses: [
-          { id: "td-math", code: "MATH001", name: "Pre-calculus 1", component: "TD", program: "", request: EMPTY_REQUEST },
-          { id: "td-algo", code: "MATH011", name: "Algorithms", component: "TD", program: "", request: EMPTY_REQUEST },
+          { id: "td-math", code: "MATH001", name: "Pre-calculus 1", component: "TD", request: EMPTY_REQUEST },
+          { id: "td-algo", code: "MATH011", name: "Algorithms", component: "TD", request: EMPTY_REQUEST },
         ],
         groups: [
-          { id: "td-1", label: "1", capacity: 33, note: "", program: "", parentGroupId: "", assigned: 30, crns: { "td-math": { ...EMPTY_SECTION, crn: "23223", teacherId: "act-1", hours: "50" }, "td-algo": { ...EMPTY_SECTION, crn: "23652" } } },
-          { id: "td-2", label: "2", capacity: 33, note: "", program: "", parentGroupId: "", assigned: 31, crns: { "td-math": { ...EMPTY_SECTION, crn: "23224" } } },
+          { id: "td-1", label: "1", capacity: 33, note: "", parentGroupId: "", assigned: 30, crns: { "td-math": { ...EMPTY_SECTION, crn: "23223", teacherId: "act-1", hours: "50" }, "td-algo": { ...EMPTY_SECTION, crn: "23652" } } },
+          { id: "td-2", label: "2", capacity: 33, note: "", parentGroupId: "", assigned: 31, crns: { "td-math": { ...EMPTY_SECTION, crn: "23224" } } },
         ],
       },
     ],
@@ -116,7 +116,7 @@ describe("the course cards", () => {
     // Part 1: the section is taught by one person start to finish, which is the ordinary
     // case. A course handed over at mid-semester writes each half to a part of its own.
     await waitFor(() =>
-      expect(saveCrn).toHaveBeenCalledWith("td-2", "td-math", { crn: "23999", teacher: "", part: 1 }),
+      expect(saveCrn).toHaveBeenCalledWith("td-2", "td-math", { crn: "23999", teacher: "", part: 1 , majorId: "" }),
     );
     await waitFor(() => expect(saveDetails).toHaveBeenCalledWith("td-2", "td-math", expect.objectContaining({ teacherId: "act-2" })));
   });
@@ -145,7 +145,8 @@ describe("the course cards", () => {
     const one = (await screen.findByLabelText("Edit TD 1 MATH001")) as HTMLElement;
     // The three the timetable is built from, each with its own reading.
     expect(within(one).getByTitle("50 hours")).toBeTruthy();
-    expect(within(one).getByTitle("No expected set yet")).toBeTruthy();
+    // How many are expected is a mark on the seats now, and absent when nobody has said.
+    expect(within(one).queryByLabelText(/expected$/)).toBeNull();
     expect(within(one).getByTitle("30 of 33 seats taken")).toBeTruthy();
 
     // A section nobody has given hours to says so, rather than saying nothing.
@@ -309,12 +310,13 @@ describe("a section taught in more than one stretch", () => {
   });
 });
 
-describe("a set whose groups are programmes, not numbers", () => {
+describe("a set whose groups hold one major each", () => {
   /**
    * One set carrying a Maths course and a Physics course, with a group for each programme
-   * — the shape of every L2 and L3 set. The matrix asks all four cells for a CRN.
+   * — the shape of every L2 and L3 set. The matrix asks all four cells for a CRN until the
+   * groups say, through their sub-rows, which courses they are not taught.
    */
-  const byProgramme = (courseProgrammes: boolean): database.CohortCatalogue[] => [
+  const byMajor = (said: boolean): database.CohortCatalogue[] => [
     {
       cohort: { id: "c1", name: "Foundation Year", term: "2026-27" },
       scopes: [
@@ -322,35 +324,44 @@ describe("a set whose groups are programmes, not numbers", () => {
           id: "s-cm", code: "CM", name: "Lectures", note: "", termId: "term-1", kind: "shared",
           parentScopeId: "", openToAll: false,
           courses: [
-            { id: "c-math", code: "MATH001", name: "Analysis", component: "CM", program: courseProgrammes ? "Mathematics" : "", request: EMPTY_REQUEST },
-            { id: "c-phys", code: "PHYS001", name: "Mechanics", component: "CM", program: courseProgrammes ? "Physics" : "", request: EMPTY_REQUEST },
+            { id: "c-math", code: "MATH001", name: "Analysis", component: "CM", request: EMPTY_REQUEST },
+            { id: "c-phys", code: "PHYS001", name: "Mechanics", component: "CM", request: EMPTY_REQUEST },
           ],
           groups: [
-            { id: "g-math", label: "Mathematics", capacity: 0, note: "", program: "Mathematics", parentGroupId: "", assigned: 8, crns: { "c-math": { ...EMPTY_SECTION, crn: "23436" } } },
-            { id: "g-phys", label: "Physics", capacity: 0, note: "", program: "Physics", parentGroupId: "", assigned: 9, crns: { "c-phys": { ...EMPTY_SECTION, crn: "23437" } } },
+            {
+              id: "g-math", label: "Mathematics", capacity: 0, note: "", parentGroupId: "", assigned: 8,
+              crns: { "c-math": { ...EMPTY_SECTION, crn: "23436" } },
+              majors: said ? [{ id: "m-math", program: "Mathematics", seats: 0, assigned: 8 }] : [],
+              byMajor: said ? { "m-math": { "c-phys": { ...EMPTY_SECTION, majorId: "m-math", notTaught: true } } } : {},
+            },
+            {
+              id: "g-phys", label: "Physics", capacity: 0, note: "", parentGroupId: "", assigned: 9,
+              crns: { "c-phys": { ...EMPTY_SECTION, crn: "23437" } },
+              majors: said ? [{ id: "m-phys", program: "Physics", seats: 0, assigned: 9 }] : [],
+              byMajor: said ? { "m-phys": { "c-math": { ...EMPTY_SECTION, majorId: "m-phys", notTaught: true } } } : {},
+            },
           ],
         },
       ],
     },
   ];
 
-  it("reports the empty cells while nobody has said which programme takes what", async () => {
-    // The state every set is in today, and it must not change: two blanks, because as far
-    // as the page knows both groups teach both courses.
-    vi.spyOn(database, "fetchCourseCards").mockResolvedValue(byProgramme(false));
+  it("reports the empty cells while nobody has said which sub-row is not taught what", async () => {
+    // Two blanks, because as far as the page knows both groups teach both courses.
+    vi.spyOn(database, "fetchCourseCards").mockResolvedValue(byMajor(false));
 
     show();
 
     expect(await screen.findByRole("button", { name: /2 sections without a CRN/ })).toBeTruthy();
   });
 
-  it("stops reporting them once the courses name their programme", async () => {
+  it("stops reporting them once each sub-row says what it is not taught", async () => {
     /*
      * The Physics group is not short a CRN for the Maths course. Counted on production the
-     * day this was written: 25 such cells in L2-S1 and 20 in L3-S1, every one of them a
-     * section the page said was missing and nobody intended to teach.
+     * day the tags were written: 25 such cells in L2-S1 and 20 in L3-S1, every one of them
+     * a section the page said was missing and nobody intended to teach.
      */
-    vi.spyOn(database, "fetchCourseCards").mockResolvedValue(byProgramme(true));
+    vi.spyOn(database, "fetchCourseCards").mockResolvedValue(byMajor(true));
 
     show();
 

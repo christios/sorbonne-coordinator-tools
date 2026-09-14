@@ -81,9 +81,11 @@ export function groupCrns(catalogues: Catalogue[]): GroupCrns {
         // Every part, not every section: a course taught in two halves meets on the days
         // of both, and a column that saw only the first would report a student as free on
         // an afternoon they are in a lecture.
-        const crns = Object.values(group.crns ?? {})
+        // The shared cells and every sub-row's own: a group is busy whenever any of its
+        // students is. What one student is in comes from their own sub-row elsewhere.
+        const crns = [...Object.values(group.crns ?? {}), ...Object.values(group.byMajor ?? {}).flatMap((own) => Object.values(own))]
           .flatMap((section) => partsOf(section))
-          .filter((part) => part.crn && !part.retired)
+          .filter((part) => part.crn && !part.retired && !part.notTaught)
           .map((part) => part.crn);
         if (crns.length) held[group.id] = [...new Set([...(held[group.id] ?? []), ...crns])];
       }

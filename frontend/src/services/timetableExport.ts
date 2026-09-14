@@ -96,6 +96,8 @@ export function requestSheets(
   /** The cohort record, for the name of its sheet and the heading above it. */
   cohortNamed: (cohortId: string) => { name: string; workbookTab?: string; firstSemester?: number } = () => ({ name: "" }),
 ): RequestSheet[] {
+  // Every group of the semester by id, for the "in parallel with" note on a row.
+  const labelOfGroup = groupLabelsOf(cards);
   const byCohort = new Map<string, { name: string; rows: RequestRow[] }>();
   for (const card of cards) {
     if (card.termId !== termId) continue;
@@ -109,6 +111,8 @@ export function requestSheets(
        * belong to the person named on it.
        */
       for (const row of set.rows.flatMap((entry) => rowsPerPart(entry))) {
+        // A shared cell is one class however many sub-rows show it: one line, on the first.
+        if (row.sharedCell && !row.firstSubRow) continue;
         // What this group says, and what its course said for every group that says nothing.
         const section = row.section ? filled(row.section, set.course.request) : null;
         if (!section) continue;
@@ -129,7 +133,7 @@ export function requestSheets(
           teacherId: section.teacherId,
           timePref: section.timePref,
           dayPref: section.dayPref,
-          constraints: section.constraints,
+          constraints: [section.constraints, parallelNote(row.group, labelOfGroup)].filter(Boolean).join("; "),
           weeks: section.sessionsPerWeek || section.weeks,
           duration: section.duration,
           anticipated: section.anticipated || "",
@@ -419,4 +423,21 @@ export async function downloadTimetableWorkbook(sheets: RequestSheet[], filename
   link.download = filename;
   link.click();
   URL.revokeObjectURL(url);
+}
+
+/** `group id -> "TD 1"`, over every set on the cards. */
+export function groupLabelsOf(cards: Card[]): (groupId: string) => string {
+  const held = new Map<string, string>();
+  for (const card of cards) {
+    for (const set of card.sets) {
+      for (const row of set.rows) held.set(row.group.id, `${set.scope.code} ${row.group.label}`);
+    }
+  }
+  return (groupId: string) => held.get(groupId) ?? "";
+}
+
+/** "In parallel with TD 2, PHIL-TD 1", or nothing. The timetabler reads it as a constraint. */
+export function parallelNote(group: { parallelWith?: string[] }, labelOf: (groupId: string) => string): string {
+  const names = (group.parallelWith ?? []).map(labelOf).filter(Boolean);
+  return names.length ? `In parallel with ${names.join(", ")}` : "";
 }

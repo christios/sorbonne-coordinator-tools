@@ -72,7 +72,7 @@ export function CourseRecord({
   const groupOf = new Map<string, string>();
   for (const card of cards) {
     for (const set of card.sets) {
-      for (const entry of set.rows.filter((row) => teaches(row.group, row.course)).flatMap((row) => rowsPerPart(row))) {
+      for (const entry of set.rows.filter((row) => teaches(row)).flatMap((row) => rowsPerPart(row))) {
         if (entry.section?.crn) groupOf.set(entry.section.crn, `${set.scope.code} ${entry.group.label}`);
       }
     }
@@ -83,6 +83,7 @@ export function CourseRecord({
     code: row.courseCode,
     title: `CRN ${row.crn}`,
     label: groupOf.get(row.crn) ?? row.portalTitle ?? row.crn,
+    group: groupOf.get(row.crn) ?? "",
     staff: portal.data?.crns[row.crn]?.teacherName || row.teacherName,
     // One colour per section, not per course: every box here is the same course.
     colorKey: row.crn,
@@ -217,7 +218,7 @@ function TaughtIn({ card }: { card: CourseCard }) {
           <p className="text-xs uppercase tracking-wide text-[#8a94a4]">{set.scope.code}</p>
           <ul className="text-sm">
             {set.rows
-              .filter((row) => teaches(row.group, row.course))
+              .filter((row) => teaches(row))
               .flatMap((row) => rowsPerPart(row))
               .map((row) => {
                 const section = row.section ? filled(row.section, set.course.request) : null;

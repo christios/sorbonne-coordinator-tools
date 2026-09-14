@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sorbonne.services.enrolment_resolution import Group, Scope
+from sorbonne.services.enrolment_resolution import Group, Major, Placement, Scope
 from sorbonne.services.group_clashes import Session, clashes
 
 
@@ -27,38 +27,41 @@ def scopes_of(cohort: dict[str, Any]) -> list[Scope]:
 
 
 def groups_of(cohort: dict[str, Any], key: str = "groups") -> list[Group]:
+    """The publication's groups as the resolution algorithm takes them, sub-rows included."""
     return [
         Group(
             id=row["id"],
             scope_id=row["scopeId"],
             label=row["label"],
             crns=row["crns"],
-            program=row.get("program", ""),
+            majors=tuple(
+                Major(
+                    id=major["id"],
+                    program=major.get("program", ""),
+                    crns=major.get("crns", {}),
+                    not_taught=frozenset(major.get("notTaught", [])),
+                )
+                for major in row.get("majors", [])
+            ),
         )
         for row in cohort.get(key, [])
     ]
 
 
-def assignments_of(cohort: dict[str, Any], key: str = "assignments") -> dict[tuple[str, str], str]:
-    return {(row["studentId"], row["scopeId"]): row["groupId"] for row in cohort.get(key, [])}
+def assignments_of(cohort: dict[str, Any], key: str = "assignments") -> dict[tuple[str, str], Placement]:
+    """`(student, scope) -> (group, sub-row)`; the sub-row blank for a group that has none."""
+    return {(row["studentId"], row["scopeId"]): (row["groupId"], row.get("majorId", "")) for row in cohort.get(key, [])}
 
 
-def programs_of(cohort: dict[str, Any], groups: list[Group]) -> dict[str, str]:
-    """CRN -> the programme its course is taught to, for the courses that name one.
+def programs_of(cohort: dict[str, Any]) -> dict[str, str]:
+    """CRN -> the programme it is taught to, for the CRNs one sub-row and no other takes.
 
-    Read off the groups rather than stored anywhere: a CRN belongs to a course, and it is
-    the course that says which programme it is for. Every CRN of a course inherits it,
-    parts included — the two halves of a split section are the same course.
+    Computed where the cells are read, in the store, because it is the cells that say it:
+    a sub-row's own CRN is its programme's, and a shared CRN whose other sub-rows are not
+    taught the course is the remaining one's. Two such CRNs for different programmes have
+    no student in common, whatever hour they meet at.
     """
-    by_code = cohort.get("coursePrograms") or {}
-    return {
-        crn: by_code[code]
-        for group in groups
-        for code, crns in group.crns.items()
-        if code in by_code
-        for crn in crns
-        if crn
-    }
+    return dict(cohort.get("crnPrograms") or {})
 
 
 def cohort_clashes(cohort: dict[str, Any], groups: list[Group], sessions: list[Session]) -> list[dict[str, Any]]:
@@ -76,9 +79,7 @@ def cohort_clashes(cohort: dict[str, Any], groups: list[Group], sessions: list[S
     both = [*groups, *groups_of(cohort, key="sharedGroups")]
     assignments = {**assignments_of(cohort), **assignments_of(cohort, key="sharedAssignments")}
     named = []
-    for clash in clashes(
-        groups=both, sessions=sessions, assignments=assignments, programs=programs_of(cohort, both)
-    ):
+    for clash in clashes(groups=both, sessions=sessions, assignments=assignments, programs=programs_of(cohort)):
         pair = sorted(clash["groups"], key=lambda group: order.get(group["scopeId"], 0))
         # A window's two CRNs are in the pair's order; keep them so when the pair is turned.
         turned = pair[0]["id"] != clash["groups"][0]["id"]

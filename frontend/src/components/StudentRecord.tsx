@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, ArrowRightCircle, Check, ChevronDown, EyeOff, Wand2 } from "lucide-react";
+import { AlertTriangle, ArrowRightCircle, Check, ChevronDown, EyeOff, ShieldCheck, Wand2, X } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { CommentThread } from "@/components/CommentThread";
@@ -7,6 +7,7 @@ import { CrnRecord } from "@/components/CrnRecord";
 import { Modal } from "@/components/Modal";
 import { PlaceInBlock } from "@/components/PlaceInBlock";
 import { SectionTimetable, type TimetableEntry } from "@/components/SectionTimetable";
+import { subRowLabel } from "@/services/courseCards";
 import {
   STATUS_FIELD,
   STATUS_OPTIONS,
@@ -32,14 +33,21 @@ import { reconcile, tally } from "@/services/registrationLists";
 import type { StudentRow } from "@/services/rosterView";
 import { fetchSchema } from "@/services/scenRosters";
 import {
+  type Cohort,
+  clearApproval,
   clearExemption,
+  describeHistory,
+  fetchApprovals,
+  fetchAssignmentMajors,
   fetchAssignments,
   fetchCatalogue,
   fetchDiscrepancyRules,
   fetchExemptions,
+  fetchStudentHistory,
   partsOf,
+  sectionFor,
+  setApproval,
   setExemption,
-  type Cohort,
 } from "@/services/studentDatabase";
 import { fetchTimetableTerms } from "@/services/timetables";
 import { afterPlacement } from "@/services/afterPlacement";
@@ -120,6 +128,22 @@ export function StudentRecord({
     enabled: open && Boolean(cohortId),
     retry: false,
   });
+  /*
+   * The electives a coordinator has approved for them, and everything the server has seen
+   * happen to them. Both live on the server, so every coordinator reads the same.
+   */
+  const approvals = useQuery({
+    queryKey: ["approvals", row.studentId],
+    queryFn: () => fetchApprovals(row.studentId),
+    enabled: open,
+    retry: false,
+  });
+  const serverHistory = useQuery({
+    queryKey: ["student-history", row.studentId],
+    queryFn: () => fetchStudentHistory(row.studentId),
+    enabled: open,
+    retry: false,
+  });
   const links = useQuery({ queryKey: ["term-links"], queryFn: fetchTermLinks, enabled: open });
   // The register says which CRN hangs from which, which is what lets the list below read
   // as courses with their sections rather than as a flat pile of numbers.
@@ -142,6 +166,12 @@ export function StudentRecord({
   const assignments = useQuery({
     queryKey: ["assignments", cohortId],
     queryFn: () => fetchAssignments(cohortId),
+    enabled: open && Boolean(cohortId),
+  });
+  // Which sub-row each placement took: a mathematician in CM 1 reads the maths cells.
+  const subRows = useQuery({
+    queryKey: ["assignment-majors", cohortId],
+    queryFn: () => fetchAssignmentMajors(cohortId),
     enabled: open && Boolean(cohortId),
   });
 
@@ -188,21 +218,27 @@ export function StudentRecord({
 
   const termName = (termId: string) => (terms.data ?? []).find((term) => term.id === termId)?.name ?? termId;
   const held = assignments.data?.[row.studentId] ?? {};
+  const onSubRow = subRows.data?.[row.studentId] ?? {};
   const placements = (catalogue.data?.scopes ?? [])
     .filter((scope) => held[scope.id])
     .map((scope) => {
       const group = scope.groups.find((candidate) => candidate.id === held[scope.id]);
+      const majorId = onSubRow[scope.id] ?? "";
+      const major = group?.majors?.find((candidate) => candidate.id === majorId) ?? null;
       return {
         scope,
         group,
+        major,
         /*
          * One line per PART, not per course. A course handed from one professor to
          * another at mid-semester is taught under a CRN per half, and both are this
          * student's — a list carrying only the first would show the registrar's second
-         * half as a registration nobody placed them in.
+         * half as a registration nobody placed them in. And what THEIR sub-row comes to:
+         * a course the sub-row is not taught is no line at all.
          */
         crns: scope.courses.flatMap((course) => {
-          const parts = partsOf(group?.crns[course.id]).filter((part) => part.crn);
+          if (group && majorId && group.byMajor?.[majorId]?.[course.id]?.notTaught) return [];
+          const parts = partsOf(group ? sectionFor(group, majorId, course.id) : null).filter((part) => part.crn);
           return parts.length
             ? parts.map((part) => ({ courseId: course.id, courseCode: course.code, courseName: course.name, crn: part.crn }))
             : [{ courseId: course.id, courseCode: course.code, courseName: course.name, crn: "" }];
@@ -242,6 +278,21 @@ export function StudentRecord({
     },
   });
   /*
+   * Approving an elective: the register's *outside* verdict on this course goes away for
+   * this student, for everybody who looks, and the History card says whose decision it was.
+   */
+  const approve = useMutation({
+    mutationFn: async ({ termCode, courseCode, on }: { termCode: string; courseCode: string; on: boolean }) => {
+      if (on) await setApproval(row.studentId, termCode, courseCode);
+      else await clearApproval(row.studentId, termCode, courseCode);
+    },
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ["approvals", row.studentId] });
+      void client.invalidateQueries({ queryKey: ["registration-check"] });
+      void client.invalidateQueries({ queryKey: ["student-history", row.studentId] });
+    },
+  });
+  /*
    * The two lists side by side: what the groups come to, and what the registrar has.
    *
    * Everything worth knowing about a registration is the difference between them, and it
@@ -271,7 +322,15 @@ export function StudentRecord({
    */
   const [showingCrn, setShowingCrn] = useState<ActiveCrn | null>(null);
   const inRegister = (crn: string) => (register.data ?? []).find((entry) => entry.crn === crn) ?? null;
-  const entries = historyFor(history, row.studentId);
+  /*
+   * One timeline from two records: what the server saw happen (moves, placements,
+   * registrations, approvals — signed) and what the portal's own record did (from this
+   * browser's pull history). Newest first, whichever record it came from.
+   */
+  const entries = [
+    ...historyFor(history, row.studentId).map((entry) => ({ at: entry.at, key: `pull|${entry.pullId}`, pull: entry, line: null })),
+    ...(serverHistory.data ?? []).map((line) => ({ at: Date.parse(line.at), key: `server|${line.id}`, pull: null, line })),
+  ].sort((left, right) => right.at - left.at);
   const portal = Object.fromEntries(Object.entries(row.portal).filter(([, value]) => String(value ?? "").trim()));
   const rest = Object.keys(portal)
     .filter((key) => !NAMED.has(key))
@@ -289,7 +348,7 @@ export function StudentRecord({
    */
   const placedCrns = new Set(placements.flatMap(({ crns }) => crns.map((cell) => cell.crn)).filter(Boolean));
   const timetable: TimetableEntry[] = [
-    ...placements.flatMap(({ scope, crns }) =>
+    ...placements.flatMap(({ scope, group, major, crns }) =>
       crns
         .filter((cell) => cell.crn && !excused.has(cell.courseId))
         .map((cell) => ({
@@ -297,6 +356,7 @@ export function StudentRecord({
           crn: cell.crn,
           code: cell.courseCode,
           title: cell.courseName,
+          group: `${scope.code} ${group ? subRowLabel(group.label, major?.program ?? "", (group.majors ?? []).length) : ""}`.trim(),
           tone: registered.has(cell.crn) ? ("solid" as const) : ("outline" as const),
         })),
     ),
@@ -444,10 +504,10 @@ export function StudentRecord({
               <Empty>In no group yet.</Empty>
             ) : (
               <ul className="space-y-2.5" aria-label="Groups">
-                {placements.map(({ scope, group, crns }) => (
+                {placements.map(({ scope, group, major, crns }) => (
                   <li key={scope.id} className="flex flex-wrap items-start gap-x-3 gap-y-1">
                     <span className="inline-flex items-center rounded-full bg-[#eef1f5] px-2.5 py-0.5 text-sm font-semibold text-[#344054]">
-                      {scope.code} {group?.label ?? "?"}
+                      {scope.code} {group ? subRowLabel(group.label, major?.program ?? "", (group.majors ?? []).length) : "?"}
                     </span>
                     <span className="pt-0.5 text-xs text-[#98a2b3]">{termName(scope.termId ?? "")}</span>
                     <ul className="flex basis-full flex-wrap gap-x-4 gap-y-0.5 pl-1 text-xs text-[#667085]">
@@ -581,11 +641,54 @@ export function StudentRecord({
                     className="flex items-start gap-1.5 rounded-md border border-[#e8d9ac] bg-[#fdf9ee] px-2.5 py-1.5 text-xs text-[#8a6116]"
                   >
                     <AlertTriangle size={12} className="mt-0.5 shrink-0" aria-hidden="true" />
-                    <span>{describeMismatch(warning)}</span>
+                    <span className="flex-1">{describeMismatch(warning)}</span>
+                    {/*
+                      * An elective outside the groups is a decision, not a registration to
+                      * key in: approving it here is the whole remedy, and the warning goes.
+                      */}
+                    {warning.kind === "outside" ? (
+                      <button
+                        type="button"
+                        disabled={approve.isPending}
+                        onClick={() => approve.mutate({ termCode: warning.termCode, courseCode: warning.courseCode, on: true })}
+                        className="inline-flex shrink-0 items-center gap-1 rounded border border-[#d9c48a] bg-white px-1.5 py-0.5 text-[11px] font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]"
+                      >
+                        <ShieldCheck size={11} aria-hidden="true" /> Approve
+                      </button>
+                    ) : null}
                   </li>
                 ))}
               </ul>
             ) : null}
+            {(approvals.data ?? []).length ? (
+              <div className="mt-3">
+                <h4 className="text-[11px] font-semibold uppercase tracking-wide text-[#98a2b3]">Approved outside the groups</h4>
+                <ul className="mt-1 space-y-1" aria-label="Approved outside the groups">
+                  {(approvals.data ?? []).map((approval) => (
+                    <li key={`${approval.termCode}|${approval.courseCode}`} className="flex items-center gap-2 text-xs text-[#344054]">
+                      <ShieldCheck size={12} className="shrink-0 text-[#2f6b3d]" aria-hidden="true" />
+                      <span className="font-semibold">{approval.courseCode}</span>
+                      <span className="text-[#98a2b3]">
+                        {approval.termCode}
+                        {approval.approvedByName || approval.approvedBy ? ` · by ${approval.approvedByName || approval.approvedBy}` : ""}
+                        {approval.approvedAt ? ` · ${new Date(approval.approvedAt).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}` : ""}
+                      </span>
+                      <button
+                        type="button"
+                        disabled={approve.isPending}
+                        title={`Withdraw the approval of ${approval.courseCode}`}
+                        aria-label={`Withdraw the approval of ${approval.courseCode}`}
+                        onClick={() => approve.mutate({ termCode: approval.termCode, courseCode: approval.courseCode, on: false })}
+                        className="ml-auto rounded p-0.5 text-[#98a2b3] hover:bg-[#f2f4f7] hover:text-[#a6292f]"
+                      >
+                        <X size={12} aria-hidden="true" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            {approve.error ? <p className="mt-2 text-xs text-[#a6292f]">{(approve.error as Error).message}</p> : null}
             {!mismatches.length && cohortId && check.data && (registrations.data ?? []).length ? (
               seenByTheCheck ? (
                 <p className="mt-3 inline-flex items-center gap-1.5 text-sm text-[#2f6b3d]">
@@ -621,21 +724,33 @@ export function StudentRecord({
             <CommentThread studentId={row.studentId} label={row.name || row.studentId} />
           </Card>
       {/* ---------------------------------------------------------------- history */}
-      <Card title="History" note="What changed in the portal's record, from this browser's pull history.">
+      <Card
+        title="History"
+        note="On the server: every cohort move, placement, registration change and approval, signed. From this browser's pull history: what changed in the portal's record."
+      >
         {entries.length === 0 ? (
-          <Empty>No changes recorded.</Empty>
+          <Empty>{serverHistory.isLoading ? "Reading…" : "No changes recorded."}</Empty>
         ) : (
           <ol className="space-y-2" aria-label="History">
             {entries.map((entry) => (
-              <li key={entry.pullId} className="grid grid-cols-[6.5rem_1fr] gap-x-3 text-sm">
+              <li key={entry.key} className="grid grid-cols-[6.5rem_1fr] gap-x-3 text-sm">
                 <span className="tabular-nums text-[#98a2b3]">{new Date(entry.at).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}</span>
-                {entry.kind === "arrived" ? (
+                {entry.line ? (
+                  <span className={entry.line.kind === "dropped" || entry.line.kind === "removed" ? "text-[#a6292f]" : "text-[#344054]"}>
+                    {describeHistory(entry.line)}
+                    {entry.line.authorName || entry.line.author ? (
+                      <span className="text-[#98a2b3]"> · by {entry.line.authorName || entry.line.author}</span>
+                    ) : (
+                      <span className="text-[#98a2b3]"> · the registrar&apos;s pull</span>
+                    )}
+                  </span>
+                ) : entry.pull?.kind === "arrived" ? (
                   <span className="text-[#2f6b3d]">First seen in a pull</span>
-                ) : entry.kind === "departed" ? (
+                ) : entry.pull?.kind === "departed" ? (
                   <span className="text-[#a6292f]">No longer returned by the portal</span>
                 ) : (
                   <span className="flex flex-wrap gap-1.5">
-                    {entry.changes.map((change) => (
+                    {(entry.pull?.changes ?? []).map((change) => (
                       <span key={change.field} className="inline-flex items-center gap-1 rounded-full bg-[#fff6e5] px-2 py-0.5 text-xs text-[#8a6d00]">
                         <span className="font-semibold">{labelOf(change.field)}:</span> {change.from || "—"} → {change.to || "—"}
                       </span>

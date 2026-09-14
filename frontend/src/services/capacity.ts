@@ -14,7 +14,8 @@
  * Retired sections are left out. Nobody is in them and nobody will be.
  */
 
-import { partsOf, type CohortCatalogue } from "@/services/studentDatabase";
+import { subRowLabel } from "@/services/courseCards";
+import { partsOf, sectionFor, type CohortCatalogue } from "@/services/studentDatabase";
 import type { ActiveCourse } from "@/services/portalLists";
 import type { GridColumn } from "@/services/studentColumns";
 
@@ -66,7 +67,25 @@ export function capacityRows(
     for (const scope of held.scopes) {
       const termId = scope.termId ?? "";
       for (const course of scope.courses) {
-        for (const group of scope.groups) {
+        /*
+         * A row per sub-row of a group that has them: each has its own seats and its own
+         * reading of the cells, which is the whole reason the sub-rows exist. A group with
+         * none is one row, as before.
+         */
+        const seats = scope.groups.flatMap((group) =>
+          (group.majors ?? []).length
+            ? (group.majors ?? []).map((major) => ({
+                group,
+                label: subRowLabel(group.label, major.program, (group.majors ?? []).length),
+                seats: major.seats,
+                assigned: major.assigned,
+                section: sectionFor(group, major.id, course.id),
+                keyPart: major.id,
+              }))
+            : [{ group, label: group.label, seats: group.capacity, assigned: group.assigned, section: group.crns[course.id] ?? null, keyPart: "" }],
+        );
+        for (const seat of seats) {
+          const group = seat.group;
           /*
            * A row per PART, not per section.
            *
@@ -76,21 +95,21 @@ export function capacityRows(
            * left the second with none, so half a term's teaching had no seats anywhere on
            * the page that exists to count them.
            */
-          for (const section of partsOf(group.crns[course.id])) {
+          for (const section of partsOf(seat.section)) {
             if (section.retired) continue;
-            // The group's seats; a group that never had a capacity falls back to what the
+            // The seats; a group that never had a capacity falls back to what the
             // timetable was told to expect for this section.
-            const capacity = group.capacity || Number(section.anticipated) || 0;
-            const enrolled = group.assigned;
+            const capacity = seat.seats || Number(section.anticipated) || 0;
+            const enrolled = seat.assigned;
             rows.push({
-              key: `${held.cohort.id}|${scope.id}|${group.id}|${course.id}|${section.part}`,
+              key: `${held.cohort.id}|${scope.id}|${group.id}|${seat.keyPart}|${course.id}|${section.part}`,
               cohortId: held.cohort.id,
               cohortName: held.cohort.name,
               termId,
               termName: termName(termId),
               set: scope.code,
               shared: scope.openToAll,
-              group: group.label,
+              group: seat.label,
               courseCode: course.code,
               courseTitle: course.name,
               component: course.component,

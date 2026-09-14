@@ -5,7 +5,10 @@ import { CopyButton } from "@/components/CopyButton";
 import { useFillHeight } from "@/components/useFillHeight";
 import { columnText, rowText } from "@/services/copyCells";
 import { presetBlock, rowsForCopy } from "@/services/copyPresets";
-import { plainCellText, widthOf, type ColumnLayout, type GridColumn } from "@/services/studentColumns";
+import { plainCellText, widthOf, type ColumnLayout, type GridColumn,
+  SOURCE_WORDS,
+  type ColumnSource,
+} from "@/services/studentColumns";
 
 /** Rows mounted beyond each edge of the viewport, so a scroll has something to land on. */
 const OVERSCAN = 20;
@@ -602,6 +605,8 @@ function HeaderCell<T>({
       >
         <span data-header={column.id} className="min-w-0 flex-1 truncate">
           {column.displayName}
+          {/* Where the facts come from, on the tables where ours and the portal's sit side by side. */}
+          {column.source ? <SourceMark source={column.source} /> : null}
         </span>
         {active ? (
           sort.ascending ? (
@@ -730,6 +735,26 @@ function ResizeHandle({
         aria-hidden="true"
         className={`h-full w-0.5 transition-colors ${dragging ? "bg-[#1f4e79]" : "bg-transparent group-hover/edge:bg-[#9fbfdc]"}`}
       />
+    </span>
+  );
+}
+
+/** A small word after a heading saying whose fact this is. */
+export function SourceMark({ source }: { source: ColumnSource }) {
+  const look =
+    source === "portal"
+      ? "bg-[#eef1f5] text-[#667085]"
+      : source === "planning"
+        ? "bg-[#e8edf3] text-[#1f4e79]"
+        : source === "registrar"
+          ? "bg-[#fdf9ee] text-[#8a6116]"
+          : "bg-[#f8f6fd] text-[#5b4d8a]";
+  return (
+    <span
+      title={`From ${SOURCE_WORDS[source]}`}
+      className={`ml-1.5 inline-block rounded px-1 py-px align-middle text-[9px] font-semibold uppercase tracking-wide ${look}`}
+    >
+      {source === "planning" ? "ours" : source === "part-time" ? "PT db" : source}
     </span>
   );
 }

@@ -49,7 +49,7 @@ const COHORTS: database.Cohort[] = [
     term: "S1 2026-27",
     notes: "",
     majors: [], terms: [],
-    yearLevel: "", workbookTab: "", firstSemester: 0,
+    yearLevel: "", workbookTab: "", firstSemester: 0, allowedCodes: [],
     memberCount: 1,
     scopeCount: 3,
     createdAt: "",
@@ -61,7 +61,7 @@ const COHORTS: database.Cohort[] = [
     term: "S1 2026-27",
     notes: "",
     majors: [], terms: [],
-    yearLevel: "", workbookTab: "", firstSemester: 0,
+    yearLevel: "", workbookTab: "", firstSemester: 0, allowedCodes: [],
     memberCount: 0,
     scopeCount: 0,
     createdAt: "",
@@ -276,6 +276,8 @@ describe("StudentRoster", () => {
       await addFilter("Year");
       await choose("Year value", "FY");
       await addFilter("Student");
+      // A text chip offers the column's values first; a fragment is typed after the switch.
+      fireEvent.click(screen.getByRole("button", { name: "Type a Student value instead" }));
       fireEvent.change(screen.getByLabelText("Student value"), { target: { value: "nadia" } });
       expect(screen.queryByText("Amira Haddad")).toBeNull();
 

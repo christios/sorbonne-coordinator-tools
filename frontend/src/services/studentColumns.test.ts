@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { buildColumns, defaultLayout, loadLayout, moveColumn, optionsFor, reconcileLayout, reorderColumn, resizeColumn, saveLayout, toggleColumn, visibleColumns, widthOf } from "@/services/studentColumns";
+import { buildColumns, defaultLayout, loadLayout, moveColumn, optionsFor, reconcileLayout, reorderColumn, resizeColumn, saveLayout, showColumn, toggleColumn, visibleColumns, widthOf } from "@/services/studentColumns";
 import type { StudentRow } from "@/services/rosterView";
 import type { PortalColumn, PortalField } from "@/services/scenRosters";
 
@@ -42,7 +42,7 @@ const row = (over: Partial<StudentRow> = {}): StudentRow => ({
   isNew: false,
   changes: [],
   warnings: [],
-  groups: [], sets: [], meets: [],
+  groups: [], sets: [], meets: [], signature: "",
   ...over,
 });
 
@@ -250,5 +250,13 @@ describe("the Set and Meets columns", () => {
   it("filter as a set of values, so one tick is one question", () => {
     const meets = columns().find((column) => column.id === "meets");
     expect(meets?.type).toBe("multiOption");
+  });
+});
+
+describe("showing a hidden column for a filter", () => {
+  it("brings it in at the end of the table, and leaves a shown column where it is", () => {
+    const layout = { order: ["a", "b", "c"], hidden: ["b"], widths: {} };
+    expect(showColumn(layout, "b")).toEqual({ order: ["a", "c", "b"], hidden: [], widths: {} });
+    expect(showColumn(layout, "a")).toBe(layout);
   });
 });

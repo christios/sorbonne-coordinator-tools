@@ -89,7 +89,9 @@ export type Mismatch = {
   termId: string;
   termCode: string;
   courseCode: string;
-  kind: "missing" | "wrong" | "extra" | "unplaced" | "doubled" | "collides";
+  // outside: registered in a course of no set of the cohort's, not on its allowed list,
+  // and not approved for this student — a decision to make, not a registration to key in
+  kind: "missing" | "wrong" | "extra" | "unplaced" | "doubled" | "collides" | "outside";
   /** The set a `doubled` verdict is about; empty for the verdicts that are about a course. */
   scopeCode?: string;
   /** Every section of this course our blocks give the student — a lecture and a tutorial. */
@@ -738,6 +740,13 @@ export async function fetchFacilityHours(termCode: string): Promise<FacilityHour
   return (await request<{ sections: FacilityHours }>(`/facility-timetable/${encodeURIComponent(termCode)}/hours`)).sections;
 }
 
+/** One student the registrar has in a section: id, cohort, and the group of ours that holds the CRN. */
+export type CrnStudent = { studentId: string; cohortId: string; cohortName: string; group: string };
+
+export async function fetchCrnStudents(termCode: string, crn: string): Promise<CrnStudent[]> {
+  return (await request<{ students: CrnStudent[] }>(`/terms/${encodeURIComponent(termCode)}/crns/${encodeURIComponent(crn)}/students`)).students;
+}
+
 /** What one sweep changed, as the store reports it back. */
 export type FacilityPullReport = {
   asked: number;
@@ -913,5 +922,7 @@ export function describeMismatch(mismatch: Mismatch): string {
     // `scopeCode` carries the slot here — the weekday and the hour the two share.
     case "collides":
       return `${mismatch.courseCode} (${mismatch.expected.join(", ")}) is at the same hour as ${mismatch.registered.join(", ")} — ${mismatch.scopeCode}`;
+    case "outside":
+      return `${mismatch.courseCode}: registered in ${mismatch.registered.join(", ")}, outside our groups and not approved`;
   }
 }

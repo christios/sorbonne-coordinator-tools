@@ -9,8 +9,8 @@
  */
 
 import type { ActiveCourse } from "@/services/portalLists";
-import { partsOf } from "@/services/studentDatabase";
-import type { CatalogueCourse, CatalogueGroup, CatalogueScope, CohortCatalogue, SectionPart } from "@/services/studentDatabase";
+import { partsOf, sectionFor, shortProgram } from "@/services/studentDatabase";
+import type { CatalogueCourse, CatalogueGroup, CatalogueMajor, CatalogueScope, CohortCatalogue, SectionPart } from "@/services/studentDatabase";
 import type { GridColumn } from "@/services/studentColumns";
 
 export type SectionRow = {
@@ -45,6 +45,21 @@ export type SectionRow = {
   exempt?: number;
   /** What this section's CRN hangs from, as the register says. Empty when unregistered. */
   parentCrn: string;
+  /**
+   * The sub-row this row is, for a group that has them. `group` then carries the sub-row's
+   * label ("1 · Mathematics"), seats and count, and its id stays the group's — a placement
+   * is into the group, on this sub-row.
+   */
+  major: CatalogueMajor | null;
+  /** A sub-row's word that it is not taught this course: no class, no CRN wanted. */
+  notTaught: boolean;
+  /**
+   * True when the section is the group's shared cell, seen from a sub-row. It is one cell
+   * and one class however many sub-rows show it; `firstSubRow` marks the one row that
+   * counts it, so hours and the request to the timetabler are not doubled.
+   */
+  sharedCell: boolean;
+  firstSubRow: boolean;
 };
 
 export type CardSet = {
@@ -114,17 +129,7 @@ export function buildCards(
         card.sets.push({
           scope,
           course,
-          rows: scope.groups.map((group) => {
-            const section = group.crns[course.id] ?? null;
-            return {
-              scope,
-              group,
-              course,
-              section,
-              exempt: section?.exempt ?? 0,
-              parentCrn: (section?.crn && parentOf.get(section.crn)) || "",
-            };
-          }),
+          rows: scope.groups.flatMap((group) => subRows(scope, group, course, parentOf)),
         });
       }
     }
@@ -154,10 +159,88 @@ export function buildCards(
  * The vocabulary is the registrar's — `scope_groups.program` is matched against a student's
  * MAJOR_CODE_DESC by the fill, and this is the other half of the same idea.
  */
-export function teaches(group: { program?: string }, course: { program?: string }): boolean {
-  const theirs = (group.program ?? "").trim().toLowerCase();
-  const its = (course.program ?? "").trim().toLowerCase();
-  return !theirs || !its || theirs === its;
+export function teaches(row: Pick<SectionRow, "notTaught">): boolean {
+  /*
+   * Whether this row is a class at all. A group with no sub-rows teaches every course of
+   * its set. A sub-row is taught every course too, unless a cell of its own says it is not.
+   */
+  return !row.notTaught;
+}
+
+/**
+ * The rows one group contributes for one course: one, or one per sub-row.
+ *
+ * A group with sub-rows is read through them. Each sub-row's row carries what that sub-row
+ * is taught — its own cell, or the shared one — and a sub-row not taught the course still
+ * gets a row, with no section, so the card can say so rather than leave a gap that reads
+ * as "no CRN yet".
+ */
+function subRows(
+  scope: CatalogueScope,
+  group: CatalogueGroup,
+  course: CatalogueCourse,
+  parentOf: Map<string, string>,
+): SectionRow[] {
+  const majors = group.majors ?? [];
+  if (majors.length === 0) {
+    const section = group.crns[course.id] ?? null;
+    return [
+      {
+        scope,
+        group,
+        course,
+        section,
+        exempt: section?.exempt ?? 0,
+        parentCrn: (section?.crn && parentOf.get(section.crn)) || "",
+        major: null,
+        notTaught: false,
+        sharedCell: false,
+        firstSubRow: true,
+      },
+    ];
+  }
+  return majors.map((major, index) => {
+    const own = group.byMajor?.[major.id]?.[course.id];
+    const section = sectionFor(group, major.id, course.id);
+    return {
+      scope,
+      group: subRowGroup(group, major),
+      course,
+      section,
+      exempt: section?.exempt ?? 0,
+      parentCrn: (section?.crn && parentOf.get(section.crn)) || "",
+      major,
+      notTaught: Boolean(own?.notTaught),
+      sharedCell: Boolean(section) && !own,
+      firstSubRow: index === 0,
+    };
+  });
+}
+
+/** The group as one sub-row sees it: the sub-row's label, seats and count, the group's id. */
+export function subRowGroup(group: CatalogueGroup, major: CatalogueMajor): CatalogueGroup {
+  return {
+    ...group,
+    label: subRowLabel(group.label, major.program, (group.majors ?? []).length),
+    capacity: major.seats,
+    assigned: major.assigned,
+  };
+}
+
+/**
+ * "1 · Mathematics" for a sub-row of a group that has another; "Mathematics" for the one
+ * sub-row of a group that holds mathematicians alone — the label already says it, and
+ * "Mathematics · Mathematics" would say it twice.
+ */
+export function subRowLabel(groupLabel: string, program: string, subRows: number): string {
+  const name = shortProgram(program);
+  if (subRows < 2 || !name || groupLabel.trim().toLowerCase() === name.toLowerCase()) return groupLabel;
+  return `${groupLabel} · ${name}`;
+}
+
+/** The key a row is one of, on a page: the group, and the sub-row when it is one. */
+export function rowKey(row: Pick<SectionRow, "group" | "major">): string {
+  return row.major ? `${row.group.id}|${row.major.id}` : row.group.id;
 }
 
 export function sectionsOf(card: Card): SectionRow[] {

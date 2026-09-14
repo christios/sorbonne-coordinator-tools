@@ -41,6 +41,7 @@ import {
 import {
   buildColumns,
   loadLayout,
+  showColumn,
   sortByColumn,
   optionsFor,
   reorderColumn,
@@ -463,8 +464,9 @@ export function StudentRoster({
           columns.some((column) => cellText(row, column).toLowerCase().includes(needle)),
         )
       : rows;
-    return sortByColumn(applyFilters(searched, columns, filters), sort, allColumns, studentIdOf);
-  }, [rows, columns, filters, sort, query]);
+    // Filters run over every column, shown or not: a filter on a hidden column is still a filter.
+    return sortByColumn(applyFilters(searched, allColumns, filters), sort, allColumns, studentIdOf);
+  }, [rows, columns, allColumns, filters, sort, query]);
 
   visibleRef.current = visible;
 
@@ -649,7 +651,11 @@ export function StudentRoster({
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <TableFilterBar
-          columns={columns}
+          columns={allColumns}
+          hidden={layout ? new Set(layout.hidden) : undefined}
+          onReveal={(id) => {
+            if (layoutRef.current) arrange(showColumn(layoutRef.current, id));
+          }}
           filters={filters}
           optionsFor={(column) => optionsFor(rows, column)}
           onChange={setFilters}

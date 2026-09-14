@@ -13,7 +13,7 @@ const CRNS = {
 const TD: CatalogueScope = {
   id: "s-td", code: "TD", name: "Tutorials", note: "", termId: "term-1", kind: "shared", parentScopeId: "", openToAll: false,
   courses: [],
-  groups: [{ id: "g1", label: "1", capacity: 0, note: "", program: "", parentGroupId: "", assigned: 0, crns: {} }],
+  groups: [{ id: "g1", label: "1", capacity: 0, note: "", parentGroupId: "", assigned: 0, crns: {} }],
 };
 
 describe("starting a card from the portal", () => {

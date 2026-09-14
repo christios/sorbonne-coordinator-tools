@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ActiveTeachers } from "@/components/ActiveTeachers";
 import * as lists from "@/services/portalLists";
+import * as database from "@/services/studentDatabase";
+import * as timetables from "@/services/timetables";
 import { ApiError } from "@/services/portalLists";
 
 beforeEach(() => {
@@ -15,6 +17,27 @@ beforeEach(() => {
     },
   ]);
   vi.spyOn(lists, "fetchTeacherMatches").mockResolvedValue({ matches: [], partTime: [], unnamed: [] });
+  // The planning, for the Teaches column.
+  vi.spyOn(database, "fetchCourseCards").mockResolvedValue([
+    {
+      cohort: { id: "c1", name: "L1-S1", term: "2026-27" },
+      scopes: [
+        {
+          id: "s-cm", code: "CM", name: "Lectures", note: "", termId: "term-1", kind: "shared", parentScopeId: "", openToAll: false,
+          courses: [{ id: "c-econ", code: "ECON-101", name: "Economics", component: "CM", request: database.EMPTY_REQUEST }],
+          groups: [{ id: "g-a", label: "A", capacity: 0, note: "", parentGroupId: "", assigned: 20, crns: { "c-econ": { ...database.EMPTY_SECTION, crn: "22001", teacherId: "act-1" } } }],
+        },
+        {
+          id: "s-td", code: "TD", name: "Tutorials", note: "", termId: "term-1", kind: "shared", parentScopeId: "", openToAll: false,
+          courses: [{ id: "t-econ", code: "ECON-101", name: "Economics", component: "TD", request: database.EMPTY_REQUEST }],
+          groups: [{ id: "g-1", label: "1", capacity: 0, note: "", parentGroupId: "", assigned: 20, crns: { "t-econ": { ...database.EMPTY_SECTION, crn: "22002", teacher: "Ahlem Trabelsi" } } }],
+        },
+      ],
+    },
+  ]);
+  vi.spyOn(lists, "fetchActiveCourses").mockResolvedValue([]);
+  vi.spyOn(lists, "fetchActiveCrns").mockResolvedValue([]);
+  vi.spyOn(timetables, "fetchTimetableTerms").mockResolvedValue([{ id: "term-1", name: "Semester 1" } as unknown as timetables.TimetableTerm]);
   vi.spyOn(lists, "fetchPartTimeTeachers").mockResolvedValue([
     { id: "pt-1", fullName: "Ahlem Trabelsi", email: "ahlem@sorbonne.ae" },
     { id: "pt-2", fullName: "Carla Nasr", email: "carla@example.org" },
@@ -286,5 +309,15 @@ describe("removing teachers from the active list", () => {
     // button over an error banner rendered underneath the dialog's own backdrop.
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect((await screen.findByRole("alert")).textContent).toContain("The server is having a moment.");
+  });
+});
+
+describe("what a teacher takes", () => {
+  it("says which kinds of class the planning names them on, chosen by id or by name", async () => {
+    show();
+    const row = (await screen.findByText("Ahlem Trabelsi")).closest("tr") as HTMLElement;
+    // The lecture chose her by id; the tutorial only carries her name. Both are hers.
+    await waitFor(() => expect(within(row).getByText("CM, TD")).toBeTruthy());
+    expect(screen.getByRole("button", { name: "Sort by Teaches" })).toBeTruthy();
   });
 });

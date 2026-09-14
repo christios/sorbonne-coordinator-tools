@@ -67,6 +67,29 @@ export function createTeacherRequisition(teacherId: string, input: RequisitionIn
 export function getTeacherRequisition(id: string): Promise<TeacherRequisition> { return request<TeacherRequisition>(`/teacher-requisitions/${id}`); }
 export function updateTeacherRequisition(requisition: TeacherRequisition): Promise<TeacherRequisition> { return request<TeacherRequisition>(`/teacher-requisitions/${requisition.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ expectedRevision: requisition.revision, label: requisition.label, academicYear: requisition.academicYear, content: requisition.content }) }); }
 export async function deleteTeacherRequisition(id: string): Promise<void> { await emptyRequest(`/teacher-requisitions/${id}`, { method: "DELETE" }); }
+
+/**
+ * A labelled link to a time sheet, which lives in OneDrive rather than here.
+ *
+ * The workbook belongs to whoever keeps it; all this profile holds is the label, the
+ * academic year and the address, so the sheet is one click from the teacher's name.
+ */
+export type TeacherTimeSheet = {
+  id: string;
+  teacherId: string;
+  label: string;
+  academicYear: string;
+  url: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type TimeSheetInput = { label: string; academicYear: string; url: string };
+
+export async function listTeacherTimeSheets(teacherId: string): Promise<TeacherTimeSheet[]> { return (await request<{ items: TeacherTimeSheet[] }>(`/teachers/${teacherId}/time-sheets`)).items; }
+export function createTeacherTimeSheet(teacherId: string, input: TimeSheetInput): Promise<TeacherTimeSheet> { return request<TeacherTimeSheet>(`/teachers/${teacherId}/time-sheets`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) }); }
+export function updateTeacherTimeSheet(teacherId: string, id: string, input: TimeSheetInput): Promise<TeacherTimeSheet> { return request<TeacherTimeSheet>(`/teachers/${teacherId}/time-sheets/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) }); }
+export async function deleteTeacherTimeSheet(teacherId: string, id: string): Promise<void> { await emptyRequest(`/teachers/${teacherId}/time-sheets/${id}`, { method: "DELETE" }); }
 export async function downloadTeacherRequisitionExport(id: string): Promise<void> {
   const response = await apiFetch(`${API_BASE_URL}/api/v1/teacher-requisitions/${id}/export`);
   if (!response.ok) { const body = await response.json().catch(() => ({})) as { detail?: string }; throw new Error(body.detail ?? `Export failed with status ${response.status}`); }

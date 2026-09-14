@@ -28,11 +28,11 @@ const ROW: StudentRow = {
   isNew: false,
   changes: [],
   warnings: [],
-  groups: ["TD 1"], sets: [], meets: [],
+  groups: ["TD 1"], sets: [], meets: [], signature: "TD 1",
 };
 
 const COHORT: database.Cohort = {
-  id: "cohort-1", name: "Foundation Year", term: "2026-27", notes: "", majors: [], terms: [], yearLevel: "", workbookTab: "", firstSemester: 0,
+  id: "cohort-1", name: "Foundation Year", term: "2026-27", notes: "", majors: [], terms: [], yearLevel: "", workbookTab: "", firstSemester: 0, allowedCodes: [],
   memberCount: 1, scopeCount: 1, createdAt: "", updatedAt: "",
 };
 
@@ -86,8 +86,8 @@ beforeEach(() => {
     scopes: [
       {
         id: "scope-td", code: "TD", name: "Tutorials", note: "", termId: "term-1",
-        kind: "shared", parentScopeId: "", openToAll: false, courses: [{ id: "c-algo", code: "MATH-011", name: "Algorithms", component: "TD", program: "", request: EMPTY_REQUEST }],
-        groups: [{ id: "td-1", label: "1", capacity: 0, note: "", program: "", parentGroupId: "", assigned: 1, crns: { "c-algo": { ...EMPTY_SECTION, crn: "23652", teacher: "" } } }],
+        kind: "shared", parentScopeId: "", openToAll: false, courses: [{ id: "c-algo", code: "MATH-011", name: "Algorithms", component: "TD", request: EMPTY_REQUEST }],
+        groups: [{ id: "td-1", label: "1", capacity: 0, note: "", parentGroupId: "", assigned: 1, crns: { "c-algo": { ...EMPTY_SECTION, crn: "23652", teacher: "" } } }],
       },
     ],
   });

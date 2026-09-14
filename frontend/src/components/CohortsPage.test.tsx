@@ -19,7 +19,7 @@ const L1: Cohort = {
   term: "2026-27",
   notes: "",
   majors: ["Applied Mathematics and Physics"], terms: [],
-  yearLevel: "L1", workbookTab: "", firstSemester: 0,
+  yearLevel: "L1", workbookTab: "", firstSemester: 0, allowedCodes: [],
   memberCount: 2,
   scopeCount: 0,
   createdAt: "",
@@ -1177,6 +1177,27 @@ describe("one cohort, or every cohort", () => {
     expect(screen.getByRole("combobox", { name: "Cohort" }).textContent).toContain("L2 Maths");
     expect(await screen.findByText("Karim Nasser")).toBeTruthy();
     await waitFor(() => expect(screen.queryByText("Amira Haddad")).toBeNull());
+  });
+});
+
+describe("taking an arrival in from the banner", () => {
+  it("adds them to the cohort on screen, shared sets kept, after a word of confirmation", async () => {
+    const FYS: Cohort = { ...L1, id: "c1", name: "FYS-S1", yearLevel: "FY" };
+    const L1_COHORT: Cohort = { ...L1, id: "c2", name: "L1 Maths", yearLevel: "L1" };
+    const BELONGS: DiscrepancyRule = { id: "r4", field: "MAJOR_CODE", kind: "belongs", values: [], cohortId: "" };
+    vi.spyOn(database, "fetchStudents").mockResolvedValue([{ ...student("A001", "c2"), cohortName: "L1 Maths" }]);
+    vi.spyOn(database, "fetchDiscrepancyRules").mockResolvedValue([BELONGS]);
+    const moved = vi.spyOn(database, "setCohort").mockResolvedValue(1);
+    await portalSays([{ SPRIDEN_ID: "A001", FULL_NAME: "Samvel Martirosyan", MAJOR_CODE_DESC: "Applied Mathematics and Physics", YEARLEVEL_CODE: "FY" }]);
+
+    renderPage([FYS, L1_COHORT]);
+    fireEvent.click(await screen.findByRole("button", { name: "Add Samvel Martirosyan to FYS-S1" }));
+
+    // The move is said before it is made: he leaves L1 and the groups he held there.
+    expect(await screen.findByText(/leave L1 Maths/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Add to FYS-S1" }));
+
+    await waitFor(() => expect(moved).toHaveBeenCalledWith(["A001"], "c1", true));
   });
 });
 

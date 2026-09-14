@@ -39,6 +39,8 @@ def database() -> StudentDatabase:
 def empty_tables() -> None:
     with StudentDatabase(TEST_DATABASE_URL).engine.begin() as connection:
         for table in (
+            "student_history",
+            "course_approvals",
             "facility_meetings",
             "facility_sections",
             "facility_pulls",
@@ -866,7 +868,8 @@ def test_the_check_says_where_the_registrar_differs_from_our_groups(client: Test
                 # A001: right lecture, wrong tutorial section
                 {"studentId": "A001", "crn": "22151", "courseCode": "MATH-001"},
                 {"studentId": "A001", "crn": "23653", "courseCode": "MATH-011"},
-                # A002: lecture missing, tutorial right, plus a language course that is not ours
+                # A002: lecture missing, tutorial right, plus a course in no set of ours —
+                # which is now a verdict of its own rather than nobody's business
                 {"studentId": "A002", "crn": "23652", "courseCode": "MATH-011"},
                 {"studentId": "A002", "crn": "23302", "courseCode": "SCEN-101"},
                 # A003: in no group, yet registered in the lecture
@@ -882,8 +885,109 @@ def test_the_check_says_where_the_registrar_differs_from_our_groups(client: Test
     ) == [
         ("A001", "MATH-011", "wrong", ("23652",), ("23653",)),
         ("A002", "MATH-001", "missing", ("22151",), ()),
+        ("A002", "SCEN-101", "outside", (), ("23302",)),
         ("A003", "MATH-001", "unplaced", (), ("22151",)),
     ]
+
+
+def test_an_elective_outside_our_groups_warns_until_it_is_allowed_or_approved(
+    client: TestClient, database: StudentDatabase
+):
+    """Emile's Spanish: registered in a course of no set of ours while placed in a French group.
+
+    It never entered the check, because the check only judged the courses of our sets.
+    Now it is an *outside* verdict, and two decisions make it go away: the cohort says the
+    course is always allowed (sport, a language taught elsewhere), or a coordinator approves
+    it for this one student. Both are reversible, and both are checked here both ways.
+    """
+    cohort_id = build_cohort(database)
+    client.put(f"{BASE}/term-links/{HUB_TERM}", json={"portalTermCode": TERM})
+    registrations(
+        client,
+        [
+            {"studentId": "A001", "crn": "22151", "courseCode": "MATH-001"},
+            {"studentId": "A001", "crn": "23652", "courseCode": "MATH-011"},
+            {"studentId": "A001", "crn": "23900", "courseCode": "SPAN-101"},
+            {"studentId": "A002", "crn": "22151", "courseCode": "MATH-001"},
+            {"studentId": "A002", "crn": "23652", "courseCode": "MATH-011"},
+        ],
+    )
+
+    def verdicts() -> list[tuple[str, str, str]]:
+        found = client.get(f"{BASE}/cohorts/{cohort_id}/registration-check").json()["mismatches"]
+        return sorted((m["studentId"], m["courseCode"], m["kind"]) for m in found)
+
+    assert verdicts() == [("A001", "SPAN-101", "outside")]
+
+    # The cohort's allowed list: a subject covers every course of it; another subject does not.
+    def allow(codes: list[str]) -> None:
+        response = client.patch(
+            f"/api/v1/student-database/cohorts/{cohort_id}", json={"name": "Foundation Year", "allowedCodes": codes}
+        )
+        assert response.status_code == status.HTTP_200_OK, response.text
+        assert response.json()["allowedCodes"] == codes
+
+    allow(["SPRT"])
+    assert verdicts() == [("A001", "SPAN-101", "outside")]
+    allow(["SPRT", "SPAN"])
+    assert verdicts() == []
+    allow(["SPAN-102"])
+    assert verdicts() == [("A001", "SPAN-101", "outside")]
+    allow([])
+
+    # One student's approval, signed, and undone.
+    saved = client.put(f"/api/v1/student-database/students/A001/approvals/{TERM}/SPAN-101", json={"note": "Minor"})
+    assert saved.status_code == status.HTTP_200_OK, saved.text
+    assert saved.json()["courseCode"] == "SPAN-101"
+    assert verdicts() == []
+    listed = client.get("/api/v1/student-database/students/A001/approvals").json()["approvals"]
+    assert [(entry["termCode"], entry["courseCode"], entry["note"]) for entry in listed] == [
+        (TERM, "SPAN-101", "Minor")
+    ]
+    # A002 has no such approval and no such registration; nothing about them moved.
+    gone = client.delete(f"/api/v1/student-database/students/A001/approvals/{TERM}/SPAN-101")
+    assert gone.status_code == status.HTTP_204_NO_CONTENT
+    assert verdicts() == [("A001", "SPAN-101", "outside")]
+
+
+def test_a_pull_that_changes_a_students_registrations_is_written_to_their_history(
+    client: TestClient, database: StudentDatabase
+):
+    """What appeared and what went, per pull — for students in our cohorts, and never on the
+    first pull of a student, which is a baseline rather than a change."""
+    build_cohort(database)
+    made = make_filter(client, "registrations")
+
+    def pull(rows: list[dict[str, str]]) -> None:
+        client.post(f"{BASE}/filters/{made['id']}/sync/registrations", json={"termCode": TERM, "rows": rows})
+
+    pull([{"studentId": "A001", "crn": "22151", "courseCode": "MATH-001"}])
+
+    def history(student: str) -> list[tuple[str, str]]:
+        entries = client.get(f"/api/v1/student-database/students/{student}/history").json()["entries"]
+        moves = ("registered", "dropped")
+        return [(entry["kind"], entry["detail"]["crn"]) for entry in entries if entry["kind"] in moves]
+
+    assert history("A001") == []
+
+    pull(
+        [
+            {"studentId": "A001", "crn": "22151", "courseCode": "MATH-001"},
+            {"studentId": "A001", "crn": "23653", "courseCode": "MATH-011"},
+            # A student in no cohort: not ours to keep a history of.
+            {"studentId": "A999", "crn": "22151", "courseCode": "MATH-001"},
+        ],
+    )
+    assert history("A001") == [("registered", "23653")]
+    pull([{"studentId": "A001", "crn": "23653", "courseCode": "MATH-011"}])
+    assert history("A001") == [("dropped", "22151"), ("registered", "23653")]
+    pull(
+        [
+            {"studentId": "A001", "crn": "23653", "courseCode": "MATH-011"},
+            {"studentId": "A999", "crn": "23653", "courseCode": "MATH-011"},
+        ],
+    )
+    assert history("A999") == []
 
 
 def test_a_course_taught_twice_over_expects_both_of_its_sections(client: TestClient, database: StudentDatabase):
@@ -2035,6 +2139,29 @@ def test_a_calendar_asks_for_its_sections_by_crn_and_is_told_which_are_unchecked
     assert read["sections"][0]["teacherName"] == "Grace Younes"
 
 
+def test_a_crn_lists_who_the_registrar_has_in_it_and_where_our_planning_put_them(
+    client: TestClient, database: StudentDatabase
+):
+    """Ids only, with the cohort and the group of ours that holds the CRN — or nothing, which
+    is the interesting case: somebody in a section none of their groups stands for."""
+    build_cohort(database)
+    registrations(
+        client,
+        [
+            {"studentId": "A001", "crn": "22151", "courseCode": "MATH-001"},
+            {"studentId": "A003", "crn": "22151", "courseCode": "MATH-001"},
+            {"studentId": "A001", "crn": "23652", "courseCode": "MATH-011"},
+        ],
+    )
+
+    answer = client.get(f"{BASE}/terms/{TERM}/crns/22151/students").json()["students"]
+
+    assert [(row["studentId"], row["cohortName"], row["group"]) for row in answer] == [
+        ("A001", "Foundation Year", "CM A"),
+        ("A003", "Foundation Year", ""),
+    ]
+
+
 # --------------------------------------- teachers our planning names and the list does not
 
 
@@ -2162,10 +2289,13 @@ def test_two_courses_of_different_programmes_are_not_reported_as_clashing(
     cohort = database.create_cohort(name="Second year", term="2026-27")
     cm = database.add_scope(cohort["id"], code="CM", name="Lectures", term_id=HUB_TERM)
     td = database.add_scope(cohort["id"], code="TD", name="Tutorials", term_id=HUB_TERM)
-    physics = database.add_course(cm, code="PHYS-118", program="Physics")
-    maths = database.add_course(td, code="MATH-330", program="Mathematics")
+    physics = database.add_course(cm, code="PHYS-118")
+    maths = database.add_course(td, code="MATH-330")
     lectures = database.add_group(cm, label="Physics")
     tutorials = database.add_group(td, label="Mathematics")
+    # Each group holds one major, so each CRN is one programme's and the two never meet.
+    database.add_major(lectures, program="Physics")
+    database.add_major(tutorials, program="Mathematics")
     database.set_cell(group_id=lectures, course_id=physics, crn="24070", teacher="", part=1)
     database.set_cell(group_id=tutorials, course_id=maths, crn="24100", teacher="", part=1)
 
@@ -2294,16 +2424,22 @@ def merged_lecture_set(database: StudentDatabase) -> str:
             )
     cm = database.add_scope(cohort["id"], code="CM", name="Lectures", term_id=HUB_TERM)
     shared = database.add_course(cm, code="CPSC-100")
-    philosophy = database.add_course(cm, code="MATH-113", program="MATH - Mathematics")
-    option = database.add_course(cm, code="PHYS-118", program="PHYS - Physics")
-    maths = database.add_group(cm, label="Mathematics", program="MATH - Mathematics")
-    physics = database.add_group(cm, label="Physics", program="PHYS - Physics")
+    philosophy = database.add_course(cm, code="MATH-113")
+    option = database.add_course(cm, code="PHYS-118")
+    maths = database.add_group(cm, label="Mathematics")
+    physics = database.add_group(cm, label="Physics")
+    on_maths = database.add_major(maths, program="MATH - Mathematics")
+    on_physics = database.add_major(physics, program="PHYS - Physics")
     for group in (maths, physics):
         database.set_cell(group_id=group, course_id=shared, crn="22155", part=1)
     database.set_cell(group_id=maths, course_id=philosophy, crn="23307", part=1)
     database.set_cell(group_id=physics, course_id=option, crn="22150", part=1)
-    database.assign(student_id="A001", scope_id=cm, group_id=maths)
-    database.assign(student_id="A002", scope_id=cm, group_id=physics)
+    # What the tag used to mean: the mathematicians are not taught the option, nor the
+    # physicists the philosophy.
+    database.set_cell(group_id=maths, course_id=option, crn="", major_id=on_maths, not_taught=True)
+    database.set_cell(group_id=physics, course_id=philosophy, crn="", major_id=on_physics, not_taught=True)
+    database.assign(student_id="A001", scope_id=cm, group_id=maths, major_id=on_maths)
+    database.assign(student_id="A002", scope_id=cm, group_id=physics, major_id=on_physics)
     return cohort["id"]
 
 
@@ -2363,6 +2499,49 @@ def test_a_registration_no_single_group_could_produce_is_still_doubled(
     # Both bundles are named, because between them they are what the registration spans.
     assert doubled["courseCode"] == "Mathematics, Physics"
     assert doubled["registered"] == ["22150", "22155", "23307"]
+
+
+def test_two_sub_rows_of_one_group_are_two_bundles_for_the_doubled_check(client: TestClient, database: StudentDatabase):
+    """L1's lecture set as it should be: ONE group, two sub-rows, one shared lecture.
+
+    Nobody can attend the mathematicians' philosophy and the physicists' option: no one
+    sub-row comes to both. The shared lecture sits on both and contradicts nothing.
+    """
+    cohort = database.create_cohort(name="First year", term="2026-27")
+    with database.engine.begin() as connection:
+        connection.execute(
+            text("""INSERT INTO students (student_id, status, cohort_id, first_seen_at, last_seen_at, updated_at)
+                    VALUES ('A001', 'in_portal', :cohort, 'now', 'now', 'now')"""),
+            {"cohort": cohort["id"]},
+        )
+    cm = database.add_scope(cohort["id"], code="CM", name="Lectures", term_id=HUB_TERM)
+    shared = database.add_course(cm, code="CPSC-100")
+    philosophy = database.add_course(cm, code="MATH-113")
+    option = database.add_course(cm, code="PHYS-118")
+    one = database.add_group(cm, label="1")
+    on_maths = database.add_major(one, program="MATH - Mathematics", seats=90)
+    on_physics = database.add_major(one, program="PHYS - Physics", seats=20)
+    database.set_cell(group_id=one, course_id=shared, crn="22155")
+    database.set_cell(group_id=one, course_id=philosophy, crn="23307", major_id=on_maths)
+    database.set_cell(group_id=one, course_id=option, crn="22150", major_id=on_physics)
+    database.assign(student_id="A001", scope_id=cm, group_id=one, major_id=on_maths)
+    client.put(f"{BASE}/term-links/{HUB_TERM}", json={"portalTermCode": TERM})
+    registrations(
+        client,
+        [
+            {"studentId": "A001", "crn": "22155", "courseCode": "CPSC-100"},
+            {"studentId": "A001", "crn": "23307", "courseCode": "MATH-113"},
+            {"studentId": "A001", "crn": "22150", "courseCode": "PHYS-118"},
+        ],
+    )
+
+    found = client.get(f"{BASE}/cohorts/{cohort['id']}/registration-check").json()["mismatches"]
+
+    [doubled] = [row for row in found if row["kind"] == "doubled"]
+    assert doubled["courseCode"] == "1 · MATH - Mathematics, 1 · PHYS - Physics"
+    # And what they are expected in is their sub-row's, so the option is a surplus, not a miss.
+    kinds = {(row["courseCode"], row["kind"]) for row in found if row["kind"] != "doubled"}
+    assert ("PHYS-118", "missing") not in kinds
 
 
 def test_a_student_registered_in_only_the_shared_lecture_is_not_doubled(

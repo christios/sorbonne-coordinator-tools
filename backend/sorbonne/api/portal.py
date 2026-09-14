@@ -578,6 +578,12 @@ async def student_registrations(student_id: str, store: PortalListStore = Depend
     return {"registrations": store.registrations_of(student_id)}
 
 
+@router.get("/terms/{term_code}/crns/{crn}/students")
+async def crn_students(term_code: str, crn: str, store: PortalListStore = Depends(get_store)) -> dict[str, Any]:
+    """Who the registrar has in one section, with the cohort and the group of ours each sits in."""
+    return {"students": store.students_in_crn(term_code, crn)}
+
+
 # ---------------------------------------------------------------- term links
 
 
@@ -904,7 +910,11 @@ async def read_term_clashes(
             crn
             for cohort in cohorts
             for group in [*cohort["groups"], *cohort.get("sharedGroups", [])]
-            for crns in group["crns"].values()
+            # Every cell anybody in the group is taught: the shared ones and each sub-row's own.
+            for crns in [
+                *group["crns"].values(),
+                *[held for major in group.get("majors", []) for held in major["crns"].values()],
+            ]
             for crn in crns
             if crn
         }

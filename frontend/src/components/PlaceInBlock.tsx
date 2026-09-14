@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { Modal } from "@/components/Modal";
 import { SelectMenu } from "@/components/SelectMenu";
-import { type FillCandidate, clashKey } from "@/services/groupFill";
+import { type FillCandidate, clashKey, sameProgram } from "@/services/groupFill";
 import { type Walk, walkPlacements, walkSets } from "@/services/groupWalk";
 import { fetchPublication } from "@/services/publication";
 import { clashesIn } from "@/services/publicationView";
@@ -115,15 +115,18 @@ export function PlaceInBlock({
    * the plan is made here at all.
    */
   const proposing = open && mode === "proposed" && Boolean(termId);
+  // Read for both ways of placing: the proposal walks them, and naming a group by hand
+  // wants to say "would clash" on the option before the choice is made.
+  const wantsClashes = open && Boolean(termId);
   const assignments = useQuery({
     queryKey: ["assignments", cohort.id],
     queryFn: () => fetchAssignments(cohort.id),
-    enabled: proposing,
+    enabled: wantsClashes,
   });
   const publication = useQuery({
     queryKey: ["publication", termId],
     queryFn: () => fetchPublication(termId),
-    enabled: proposing,
+    enabled: wantsClashes,
     retry: false,
   });
   const held = useQuery({
@@ -145,6 +148,33 @@ export function PlaceInBlock({
     }
     return keys;
   }, [publication.data, cohort.id]);
+
+  /*
+   * "TD 2, PHIL-TD 1": the groups this one would meet at the same hour as, among the ones
+   * the selected students already hold in other sets and the ones chosen in the other rows
+   * of this dialog. Empty when it is clear. The clash report is per pair of groups, so a
+   * group is tested against each of those and the hits are named.
+   */
+  const labelOfGroup = (groupId: string) => {
+    for (const candidate of catalogue.data?.scopes ?? []) {
+      const found = candidate.groups.find((group) => group.id === groupId);
+      if (found) return `${candidate.code} ${found.label}`;
+    }
+    return "";
+  };
+  const wouldClash = (groupId: string, rowIndex: number): string => {
+    const against = new Set<string>();
+    for (const studentId of studentIds) {
+      for (const [scopeId, heldGroup] of Object.entries(assignments.data?.[studentId] ?? {})) {
+        if (heldGroup && scopeId !== rows[rowIndex]?.scopeId) against.add(heldGroup);
+      }
+    }
+    rows.forEach((row, at) => {
+      if (at !== rowIndex && row.groupId && row.groupId !== OUT) against.add(row.groupId);
+    });
+    const hits = [...against].filter((other) => other !== groupId && clashSet.has(clashKey(groupId, other)));
+    return hits.map(labelOfGroup).filter(Boolean).join(", ");
+  };
 
   const candidates = useMemo<FillCandidate[]>(
     () =>
@@ -180,7 +210,7 @@ export function PlaceInBlock({
       for (const step of walkPlacements(proposal ?? { steps: [], skipped: [] })) {
         const code = scopeOf(step.scopeId)?.code ?? "the set";
         try {
-          const report = await placeStudents(step.scopeId, step.byGroup);
+          const report = await placeStudents(step.scopeId, step.byGroup, step.majors);
           assigned += report.assigned;
           written.push(code);
         } catch (error) {
@@ -195,6 +225,31 @@ export function PlaceInBlock({
 
   const chosen = rows.filter((row) => row.scopeId && row.groupId);
 
+  /*
+   * Which sub-row each student takes in a group named by hand: the one for their
+   * programme, as the portal spells it. A student the group holds no sub-row for is placed
+   * on none — the group's shared cells and nothing more — and the dialog says so before
+   * the press, since that is a student sitting in a group that is not for them.
+   */
+  const groupNamed = (groupId: string) => scopes.flatMap((scope) => scope.groups).find((group) => group.id === groupId) ?? null;
+  const subRowsFor = (groupId: string): Record<string, string> => {
+    const group = groupNamed(groupId);
+    const majors = group?.majors ?? [];
+    if (!majors.length) return {};
+    const taken: Record<string, string> = {};
+    for (const studentId of studentIds) {
+      const own = majors.find((major) => sameProgram(major.program, held.data?.program[studentId] ?? ""));
+      if (own) taken[studentId] = own.id;
+    }
+    return taken;
+  };
+  const misfits = (groupId: string): string[] => {
+    const group = groupNamed(groupId);
+    if (!(group?.majors ?? []).length) return [];
+    const taken = subRowsFor(groupId);
+    return studentIds.filter((studentId) => !taken[studentId]);
+  };
+
   const place = useMutation({
     /*
      * One request per set, in the order they were chosen, and each one is a write. A
@@ -208,7 +263,12 @@ export function PlaceInBlock({
       for (const row of chosen) {
         const code = scopeOf(row.scopeId)?.code ?? "the set";
         try {
-          const report = await assignStudents(row.scopeId, studentIds, row.groupId === OUT ? null : row.groupId);
+          const report = await assignStudents(
+            row.scopeId,
+            studentIds,
+            row.groupId === OUT ? null : row.groupId,
+            row.groupId === OUT ? {} : subRowsFor(row.groupId),
+          );
           assigned += report.assigned;
           report.skipped.forEach((id) => skipped.add(id));
           written.push(code);
@@ -334,22 +394,41 @@ export function PlaceInBlock({
                 options={[
                   // A group whose every section is retired teaches nobody; offering it is
                   // how somebody gets placed into a set that has stopped running.
-                  ...(scope?.groups ?? []).filter((group) => !groupIsRetired(group)).map((group) => ({
-                    value: group.id,
-                    label: `Group ${group.label}`,
-                    // An empty group says nothing rather than a bare "0", which reads as a label.
-                    badge: group.capacity
-                      ? `${group.assigned}/${group.capacity}`
-                      : group.assigned
-                        ? `${group.assigned} placed`
-                        : undefined,
-                    badgeTone: group.capacity && group.assigned >= group.capacity ? ("muted" as const) : undefined,
-                  })),
+                  ...(scope?.groups ?? []).filter((group) => !groupIsRetired(group)).map((group) => {
+                    /*
+                     * Would this group meet at the same hour as one these students already
+                     * sit in, or one just chosen in another set of this same dialog? Said on
+                     * the option, before the choice, from the same report the proposal reads.
+                     */
+                    const clashes = wouldClash(group.id, index);
+                    return {
+                      value: group.id,
+                      label: `Group ${group.label}`,
+                      // An empty group says nothing rather than a bare "0", which reads as a label.
+                      badge: clashes
+                        ? `would clash with ${clashes}`
+                        : group.capacity
+                          ? `${group.assigned}/${group.capacity}`
+                          : group.assigned
+                            ? `${group.assigned} placed`
+                            : undefined,
+                      badgeTone: clashes ? ("bad" as const) : group.capacity && group.assigned >= group.capacity ? ("muted" as const) : undefined,
+                    };
+                  }),
                   ...(row.scopeId ? [{ value: OUT, label: "Take them out of this set" }] : []),
                 ]}
                 onChange={(value) => setRow(index, { groupId: value })}
                 disabled={!row.scopeId}
               />
+              {row.groupId && row.groupId !== OUT && misfits(row.groupId).length ? (
+                <p className="text-xs text-[#8a6116]">
+                  {misfits(row.groupId).length === studentIds.length
+                    ? "None of them"
+                    : `${misfits(row.groupId).length} of them`}{" "}
+                  belong to a major this group holds a sub-row for; they would sit in it on no sub-row and be taught
+                  only what everyone in the group shares.
+                </p>
+              ) : null}
 
               {rows.length > 1 ? (
                 <button

@@ -9,7 +9,6 @@ const group = (id: string, label: string, extra: Partial<CatalogueGroup> = {}): 
   label,
   capacity: 0,
   note: "",
-  program: "",
   parentGroupId: "",
   assigned: 0,
   crns: {},
@@ -67,7 +66,7 @@ describe("walking a student through every set of a semester", () => {
     const result = walk([nested, parent], [student("A1")]);
 
     expect(result.steps.map((step) => step.scopeCode)).toEqual(["TD", "TP"]);
-    expect(result.steps[1].plan.placements).toEqual([{ studentId: "A1", groupId: "tp-a", why: "least full" }]);
+    expect(result.steps[1].plan.placements).toEqual([{ studentId: "A1", groupId: "tp-a", majorId: "", why: "least full" }]);
   });
 
   it("folds each set's choice into what the student holds, so the next cannot be at the same hour", () => {
@@ -165,8 +164,8 @@ describe("what the walk would write", () => {
     );
 
     expect(walkPlacements(result)).toEqual([
-      { scopeId: "cm", byGroup: { "cm-a": ["A1", "A2"] } },
-      { scopeId: "td", byGroup: { "td-1": ["A1"], "td-2": ["A2"] } },
+      { scopeId: "cm", byGroup: { "cm-a": ["A1", "A2"] }, majors: {} },
+      { scopeId: "td", byGroup: { "td-1": ["A1"], "td-2": ["A2"] }, majors: {} },
     ]);
   });
 

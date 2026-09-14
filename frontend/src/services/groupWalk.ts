@@ -29,13 +29,14 @@
 
 import {
   type FillCandidate,
+  type FillGroup,
   type FillOrder,
   type FillPlan,
   type FillPolicy,
   clashKey,
   planFill,
 } from "@/services/groupFill";
-import { type CatalogueScope, groupIsRetired } from "@/services/studentDatabase";
+import { type CatalogueGroup, type CatalogueScope, groupIsRetired, partsOf, sectionFor } from "@/services/studentDatabase";
 
 /** One set's share of the walk: the plan the fill made, and which set it was for. */
 export type WalkStep = {
@@ -125,14 +126,7 @@ export function walkSets({
     }
 
     const plan = planFill({
-      groups: groups.map((group) => ({
-        id: group.id,
-        label: group.label,
-        capacity: group.capacity,
-        program: group.program,
-        assigned: group.assigned,
-        parentGroupId: group.parentGroupId,
-      })),
+      groups: groups.map((group) => fillGroupOf(group, scope)),
       candidates: waiting.map((candidate) => ({
         ...candidate,
         held: held.get(candidate.studentId) ?? candidate.held,
@@ -156,15 +150,54 @@ export function walkSets({
   return { steps, skipped };
 }
 
+/**
+ * A catalogue group as the fill takes it: its sub-rows with their seats, and whether every
+ * sub-row is taught the same sections — which is what decides whether a seat is a seat.
+ */
+export function fillGroupOf(group: CatalogueGroup, scope: CatalogueScope): FillGroup {
+  const majors = (group.majors ?? []).map((major) => ({
+    id: major.id,
+    program: major.program,
+    seats: major.seats,
+    assigned: major.assigned,
+  }));
+  return {
+    id: group.id,
+    label: group.label,
+    capacity: group.capacity,
+    assigned: group.assigned,
+    parentGroupId: group.parentGroupId,
+    majors,
+    identical: majors.length > 0 && sameSections(group, scope),
+  };
+}
+
+/** Whether every sub-row of a group comes to the same CRNs, course for course. */
+export function sameSections(group: CatalogueGroup, scope: CatalogueScope): boolean {
+  const readings = (group.majors ?? []).map((major) =>
+    scope.courses
+      .map((course) => {
+        const section = sectionFor(group, major.id, course.id);
+        return `${course.id}=${section ? partsOf(section).map((part) => part.crn).join("+") : "-"}`;
+      })
+      .join("|"),
+  );
+  return readings.every((reading) => reading === readings[0]);
+}
+
 /** What the walk would write, per set, in the shape `placeStudents` takes. */
-export function walkPlacements(walk: Walk): { scopeId: string; byGroup: Record<string, string[]> }[] {
+export function walkPlacements(
+  walk: Walk,
+): { scopeId: string; byGroup: Record<string, string[]>; majors: Record<string, string> }[] {
   return walk.steps
     .filter((step) => step.plan.placements.length > 0)
     .map((step) => {
       const byGroup: Record<string, string[]> = {};
+      const majors: Record<string, string> = {};
       for (const placement of step.plan.placements) {
         (byGroup[placement.groupId] ??= []).push(placement.studentId);
+        if (placement.majorId) majors[placement.studentId] = placement.majorId;
       }
-      return { scopeId: step.scopeId, byGroup };
+      return { scopeId: step.scopeId, byGroup, majors };
     });
 }

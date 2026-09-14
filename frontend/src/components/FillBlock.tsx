@@ -1,21 +1,14 @@
+import { fillGroupOf } from "@/services/groupWalk";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { AlertTriangle, Dices, Loader2 } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { Modal } from "@/components/Modal";
 import { SelectMenu } from "@/components/SelectMenu";
-import {
-  type FillCandidate,
-  type FillOrder,
-  type FillPlan,
-  type FillPolicy,
-  clashKey,
-  placementsByGroup,
-  planFill,
-} from "@/services/groupFill";
+import { type FillCandidate, type FillOrder, type FillPlan, type FillPolicy, clashKey, majorsByStudent, placementsByGroup, planFill } from "@/services/groupFill";
 import type { GroupClash } from "@/services/publication";
 import { fieldHeld, namesHeld } from "@/services/rosterStore";
-import {
+import { shortProgram,
   type CatalogueScope,
   type Cohort,
   type PlacementReport,
@@ -168,14 +161,7 @@ export function FillBlock({
   const plan = useMemo<FillPlan>(
     () =>
       planFill({
-        groups: openGroups.map((group) => ({
-          id: group.id,
-          label: group.label,
-          capacity: group.capacity,
-          program: group.program,
-          assigned: group.assigned,
-          parentGroupId: group.parentGroupId,
-        })),
+        groups: openGroups.map((group) => fillGroupOf(group, scope)),
         candidates,
         clashes: clashSet,
         order,
@@ -187,7 +173,7 @@ export function FillBlock({
   );
 
   const fill = useMutation({
-    mutationFn: () => placeStudents(scope.id, placementsByGroup(plan)),
+    mutationFn: () => placeStudents(scope.id, placementsByGroup(plan), majorsByStudent(plan)),
     onSuccess: (report) => onFilled({ ...report, scopeCode: scope.code, unplaced: plan.unplaced.length }),
   });
 
@@ -196,6 +182,7 @@ export function FillBlock({
   const ready = clashes !== null && !loading && plan.placements.length > 0;
   const nameOf = (id: string) => held.data?.names[id] ?? id;
   const labelOf = new Map(openGroups.map((group) => [group.id, group.label]));
+  const majorName = new Map(openGroups.flatMap((group) => (group.majors ?? []).map((major) => [major.id, major.program])));
 
   return (
     <Modal
@@ -298,7 +285,7 @@ export function FillBlock({
                   <th className="py-1.5 text-right font-semibold">Now</th>
                   <th className="py-1.5 text-right font-semibold">After</th>
                   <th className="py-1.5 text-right font-semibold">Capacity</th>
-                  <th className="py-1.5 font-semibold">Prefers</th>
+                  <th className="py-1.5 font-semibold">Holds</th>
                 </tr>
               </thead>
               <tbody>
@@ -309,7 +296,10 @@ export function FillBlock({
                     <td className="py-1.5 text-right font-semibold">{size.after}</td>
                     <td className="py-1.5 text-right text-[#667085]">{size.capacity || "—"}</td>
                     <td className="py-1.5 text-[#667085]">
-                      {scope.groups.find((group) => group.id === size.groupId)?.program || ""}
+                      {/* The sub-rows and their seats — who this group is for, and how many of each. */}
+                      {(scope.groups.find((group) => group.id === size.groupId)?.majors ?? [])
+                        .map((major) => `${shortProgram(major.program)} ${major.seats || "∞"}`)
+                        .join(" · ") || "anyone"}
                     </td>
                   </tr>
                 ))}
@@ -330,7 +320,8 @@ export function FillBlock({
                       {program ? <span className="text-xs text-[#98a2b3]">{program}</span> : null}
                       <span className="text-[#667085]">
                         → {labelOf.get(placement.groupId)}
-                        {placement.why === "preferred" ? " · preferred" : ""}
+                        {placement.majorId ? ` · ${shortProgram(majorName.get(placement.majorId) ?? "")}` : ""}
+                        {placement.why === "preferred" ? " · own programme" : ""}
                       </span>
                     </li>
                   );

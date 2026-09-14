@@ -24,6 +24,8 @@ export function afterPlacement(client: QueryClient): void {
     "publication",
     // The register's verdict: which sections we now expect these students to be in.
     "registration-check",
+    // The server's account of what just happened to them, on their record's History card.
+    "student-history",
   ]) {
     client.invalidateQueries({ queryKey: [key] });
   }

@@ -9,7 +9,7 @@ import * as workbook from "@/services/workbookExport";
 import type { TimetableTerm } from "@/services/timetables";
 
 const COHORT: database.Cohort = {
-  id: "cohort-1", name: "Foundation Year", term: "S1 2026-27", notes: "", majors: [], terms: [], yearLevel: "", workbookTab: "", firstSemester: 0,
+  id: "cohort-1", name: "Foundation Year", term: "S1 2026-27", notes: "", majors: [], terms: [], yearLevel: "", workbookTab: "", firstSemester: 0, allowedCodes: [],
   memberCount: 0, scopeCount: 1, createdAt: "", updatedAt: "",
 };
 const TERMS = [{ id: "term-1", name: "Semester 1" } as TimetableTerm];
@@ -60,7 +60,7 @@ describe("who the exports are about", () => {
       scopes: [
         {
           id: "scope-cm", code: "CM", name: "Lectures", note: "", kind: "shared", parentScopeId: "", openToAll: false,
-          courses: [], groups: [{ id: "cm-a", label: "A", capacity: 0, note: "", program: "", parentGroupId: "", assigned: 1, crns: {} }],
+          courses: [], groups: [{ id: "cm-a", label: "A", capacity: 0, note: "", parentGroupId: "", assigned: 1, crns: {} }],
         },
       ],
     });

@@ -4,7 +4,10 @@ import { StrictMode } from "react";
 import ReactDOM from "react-dom/client";
 
 import { GatedApp } from "@/routes/GatedApp";
+import { installSearchEscape } from "@/services/searchEscape";
 import "./styles.css";
+
+installSearchEscape();
 
 // Data a coordinator has just looked at is treated as fresh for half a minute, so
 // stepping between screens redraws from the cache instead of asking the server

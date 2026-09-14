@@ -1,4 +1,4 @@
-import { FunnelPlus, FunnelX, X } from "lucide-react";
+import { FunnelPlus, FunnelX, Keyboard, List, X } from "lucide-react";
 import { Popover } from "radix-ui";
 import { useState } from "react";
 
@@ -26,11 +26,20 @@ export function TableFilterBar<C extends ColumnMeta>({
   filters,
   optionsFor,
   onChange,
+  hidden,
+  onReveal,
 }: {
+  /** Every column of the table, shown or not; `hidden` says which are not. */
   columns: C[];
   filters: FilterModel[];
   optionsFor: (column: C) => ColumnOption[];
   onChange: (filters: FilterModel[]) => void;
+  hidden?: ReadonlySet<string>;
+  /**
+   * Called when a filter is added on a hidden column, so the page can show it. A question
+   * asked about a value nobody can see is answered by bringing the value into view.
+   */
+  onReveal?: (columnId: string) => void;
 }) {
   const used = new Set(filters.map((filter) => filter.columnId));
   const spare = columns.filter((column) => !used.has(column.id));
@@ -40,7 +49,8 @@ export function TableFilterBar<C extends ColumnMeta>({
       filters.map((filter) => (filter.columnId === columnId ? { ...filter, ...next } : filter)),
     );
 
-  const add = (column: C) =>
+  const add = (column: C) => {
+    if (hidden?.has(column.id)) onReveal?.(column.id);
     onChange([
       ...filters,
       {
@@ -50,6 +60,7 @@ export function TableFilterBar<C extends ColumnMeta>({
         values: [],
       },
     ]);
+  };
 
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -77,7 +88,7 @@ export function TableFilterBar<C extends ColumnMeta>({
       })}
 
       {spare.length ? (
-        <AddFilter columns={spare} onAdd={add} hasFilters={filters.length > 0} />
+        <AddFilter columns={spare} hidden={hidden} onAdd={add} hasFilters={filters.length > 0} />
       ) : null}
 
       {filters.length ? (
@@ -97,10 +108,12 @@ export function TableFilterBar<C extends ColumnMeta>({
 
 function AddFilter<C extends ColumnMeta>({
   columns,
+  hidden,
   onAdd,
   hasFilters,
 }: {
   columns: C[];
+  hidden?: ReadonlySet<string>;
   onAdd: (column: C) => void;
   hasFilters: boolean;
 }) {
@@ -134,9 +147,11 @@ function AddFilter<C extends ColumnMeta>({
                     onAdd(column);
                     setOpen(false);
                   }}
-                  className="w-full rounded px-2.5 py-1.5 text-left text-sm text-[#344054] hover:bg-[#f2f7fb]"
+                  className="flex w-full items-baseline justify-between gap-2 rounded px-2.5 py-1.5 text-left text-sm text-[#344054] hover:bg-[#f2f7fb]"
                 >
-                  {column.displayName}
+                  <span>{column.displayName}</span>
+                  {/* Hidden columns are offered too; picking one shows it, and this says so. */}
+                  {hidden?.has(column.id) ? <span className="text-[11px] text-[#98a2b3]">hidden · will show</span> : null}
                 </button>
               </li>
             ))}
@@ -262,6 +277,7 @@ function ChipValue<C extends ColumnMeta>({
   onValues: (values: string[]) => void;
 }) {
   const pair = OPERATORS[filter.type][filter.operator]?.target === "multiple";
+  const [typing, setTyping] = useState(false);
 
   if (column.type === "option" || column.type === "multiOption") {
     // Sized to what it holds, within reason: the chip is there to be read.
@@ -304,6 +320,38 @@ function ChipValue<C extends ColumnMeta>({
     );
   }
 
+  /*
+   * A text or number chip offers the values the column holds, like an option chip, with a
+   * switch to typing beside it. Choosing beats typing whenever the value is on the list —
+   * no spelling to get right — and typing is a press away for a fragment or a value the
+   * list does not have. A pair of numbers ("is between") is always typed.
+   */
+  if (!pair && options.length > 0 && !typing) {
+    return (
+      <span className="flex items-center gap-1 py-0.5">
+        <span className="inline-block min-w-[11rem] max-w-[24rem]">
+          <SelectMenu
+            label={`${column.displayName} value`}
+            searchable={options.length > 12}
+            placeholder="Choose…"
+            value={filter.values[0] ?? ""}
+            onChange={(next) => onValues(next ? [next] : [])}
+            options={options}
+          />
+        </span>
+        <button
+          type="button"
+          aria-label={`Type a ${column.displayName} value instead`}
+          title="Type a value instead"
+          onClick={() => setTyping(true)}
+          className="rounded p-1 text-[#98a2b3] hover:bg-[#f2f7fb] hover:text-[#1f4e79]"
+        >
+          <Keyboard size={14} aria-hidden="true" />
+        </button>
+      </span>
+    );
+  }
+
   return (
     <span className="flex items-center gap-1 py-0.5">
       <input
@@ -316,6 +364,17 @@ function ChipValue<C extends ColumnMeta>({
         placeholder="Type a value"
         className="w-36 rounded border border-[#cbd5e1] px-2 py-1 text-sm"
       />
+      {!pair && options.length > 0 ? (
+        <button
+          type="button"
+          aria-label={`Choose a ${column.displayName} value from the list instead`}
+          title="Choose from the list instead"
+          onClick={() => setTyping(false)}
+          className="rounded p-1 text-[#98a2b3] hover:bg-[#f2f7fb] hover:text-[#1f4e79]"
+        >
+          <List size={14} aria-hidden="true" />
+        </button>
+      ) : null}
       {pair ? (
         <input
           aria-label={`${column.displayName} second value`}

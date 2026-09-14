@@ -392,6 +392,14 @@ export function ActiveCourses({ onShowStudents }: { onShowStudents?: (ids: strin
             setEditing(null);
             setShowingCourse(code);
           }}
+          onShowStudents={
+            onShowStudents
+              ? (ids) => {
+                  setEditing(null);
+                  onShowStudents(ids);
+                }
+              : undefined
+          }
         />
       ) : null}
 
