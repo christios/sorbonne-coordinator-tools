@@ -241,7 +241,18 @@ function CatalogueEntries({ category, entries, isLoading, renderDetails, selecte
   const client = useQueryClient();
   const retire = useMutation({ mutationFn: (entry: CatalogueEntry) => retireCatalogueEntry(category, entry.id, entry.revision), onSuccess: () => { void client.invalidateQueries({ queryKey: ["syllabus-catalogues", category] }); setRetireCandidate(null); } });
   const closeEditor = () => { setEditing(null); setEditingDirty(false); };
-  const openEditor = (entry: CatalogueEntry) => { onSelect?.(entry.id); setEditing(entry); setEditingDirty(false); };
+  const openEditor = (entry: CatalogueEntry) => {
+    onSelect?.(entry.id);
+    setEditing(entry);
+    setEditingDirty(false);
+    // It opens underneath the card, which on a long list is off the bottom of the screen:
+    // without this, clicking a person forty rows down looks like nothing happened at all.
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() =>
+        document.getElementById(`catalogue-editor-${entry.id}`)?.scrollIntoView({ block: "nearest", behavior: "smooth" }),
+      ),
+    );
+  };
   const requestEditingAction = (action: { type: "close" } | { type: "open"; entry: CatalogueEntry }) => {
     if (editing && editingDirty) { setPendingEditingAction(action); return; }
     if (action.type === "close") closeEditor(); else openEditor(action.entry);
@@ -256,9 +267,9 @@ function CatalogueEntries({ category, entries, isLoading, renderDetails, selecte
   return <><div className="mt-5 grid gap-3">{entries.map((entry) => {
     const isEditing = editing?.id === entry.id;
     const toggleEditing = () => requestEditingAction(isEditing ? { type: "close" } : { type: "open", entry });
-    const cardClass = entry.isRetired ? "border-[#e5e7eb] bg-[#f8fafc] opacity-75" : selectedId === entry.id || isEditing ? "border-[#1f4e79] bg-[#f2f7fb]" : "border-[#d9dee7] bg-white";
+    const cardClass = entry.isRetired ? "border-[#e5e7eb] bg-[#f8fafc] opacity-75" : selectedId === entry.id || isEditing ? "border-[#1f4e79] bg-[#f2f7fb]" : "border-[#d9dee7] bg-white hover:border-[#1f4e79] hover:bg-[#f7fafd]";
     return <article key={entry.id} className={`relative min-w-0 max-w-full rounded-lg border p-4 ${isEditing ? "overflow-hidden" : ""} ${cardClass}`}>
-      <div className="relative z-10 flex min-w-0 items-start gap-3"><button type="button" disabled={entry.isRetired} onClick={toggleEditing} aria-label={isEditing ? `Close editor for ${entry.label}` : `Edit ${entry.label}`} className="flex min-w-0 flex-1 items-start gap-3 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1f4e79] focus-visible:ring-offset-2 disabled:cursor-default"><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h4 className="break-words font-semibold text-[#344054]">{entry.label}</h4>{entry.isRetired ? <span className="rounded-full bg-[#f2f4f7] px-2 py-0.5 text-xs font-semibold text-[#667085]">Retired</span> : null}</div>{renderDetails?.(entry)}</div></button>{!entry.isRetired ? <div className="flex shrink-0 items-center gap-1"><Pencil size={16} aria-hidden="true" className="mr-1 text-[#1f4e79]" /><button type="button" onClick={() => setRetireCandidate(entry)} aria-label={`Retire ${entry.label}`} className="inline-flex h-8 w-8 items-center justify-center rounded-md text-[#b4232d] hover:bg-[#fff1f2]"><Trash2 size={16} /></button></div> : null}</div>{isEditing ? <div className="relative z-10 mt-4 -mx-4 -mb-4 border-t border-[#d9dee7] bg-[#f8fafc] p-4 [&>form]:!mt-0 [&>form]:!rounded-none [&>form]:!border-0 [&>form]:!bg-transparent [&>form]:!p-0"><EditEntry category={category} entry={editing} onClose={closeEditor} onDirtyChange={setEditingDirty} /></div> : null}
+      <div className="relative z-10 flex min-w-0 items-start gap-3"><button type="button" disabled={entry.isRetired} onClick={toggleEditing} aria-label={isEditing ? `Close editor for ${entry.label}` : `Edit ${entry.label}`} className="flex min-w-0 flex-1 items-start gap-3 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1f4e79] focus-visible:ring-offset-2 disabled:cursor-default"><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h4 className="break-words font-semibold text-[#344054]">{entry.label}</h4>{entry.isRetired ? <span className="rounded-full bg-[#f2f4f7] px-2 py-0.5 text-xs font-semibold text-[#667085]">Retired</span> : null}</div>{renderDetails?.(entry)}</div></button>{!entry.isRetired ? <div className="flex shrink-0 items-center gap-1">{/* The card itself opens the editor; this is the same control for anyone who aims at the pencil, which is most people. */}<button type="button" onClick={toggleEditing} tabIndex={-1} aria-hidden="true" className="inline-flex h-8 w-8 items-center justify-center rounded-md text-[#1f4e79] hover:bg-[#eef4fa]"><Pencil size={16} /></button><button type="button" onClick={() => setRetireCandidate(entry)} aria-label={`Retire ${entry.label}`} className="inline-flex h-8 w-8 items-center justify-center rounded-md text-[#b4232d] hover:bg-[#fff1f2]"><Trash2 size={16} /></button></div> : null}</div>{isEditing ? <div id={`catalogue-editor-${entry.id}`} className="relative z-10 mt-4 -mx-4 -mb-4 border-t border-[#d9dee7] bg-[#f8fafc] p-4 [&>form]:!mt-0 [&>form]:!rounded-none [&>form]:!border-0 [&>form]:!bg-transparent [&>form]:!p-0"><EditEntry category={category} entry={editing} onClose={closeEditor} onDirtyChange={setEditingDirty} /></div> : null}
     </article>;
   })}</div><ConfirmDialog open={Boolean(retireCandidate)} title={`Retire ${retireCandidate?.label ?? "catalogue entry"}?`} description="It will no longer be available for new selections. Existing syllabus references will continue to resolve." confirmLabel={retire.isPending ? "Retiring…" : "Retire"} onClose={() => setRetireCandidate(null)} onConfirm={() => retireCandidate && retire.mutate(retireCandidate)} /><ConfirmDialog open={Boolean(pendingEditingAction)} title="Discard unsaved changes?" description="This card has changes that have not been saved. Discard them and close the card?" confirmLabel="Discard changes" onClose={() => setPendingEditingAction(null)} onConfirm={confirmDiscard} /></>;
 }
