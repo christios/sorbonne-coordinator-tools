@@ -2,8 +2,11 @@ import { BookOpen, FileText, Users, type LucideIcon } from "lucide-react";
 
 import { ToolId } from "@/routes/toolRoute";
 
+/** The id an app is known by, in the workspace and in whoever-may-open-it alike. */
+export type AppId = ToolId | "handbook";
+
 export type CoordinatorApp = {
-  id: ToolId | "handbook";
+  id: AppId;
   name: string;
   description: string;
   icon: LucideIcon;
@@ -44,3 +47,17 @@ export const COORDINATOR_APPS: CoordinatorApp[] = [
     keywords: "handbook documentation procedures onboarding grades transcripts",
   },
 ];
+
+/**
+ * The apps this person may open, in the workspace's own order.
+ *
+ * The platform decides; this only reads its answer. Somebody who has been given nothing sees
+ * an empty workspace rather than a full one they cannot use — and an empty workspace is a
+ * thing they will report, where quietly showing them the student roster is not.
+ */
+export function appsFor(user: { isAdmin?: boolean; apps?: Partial<Record<AppId, unknown>> } | null): CoordinatorApp[] {
+  if (!user) return [];
+  if (user.isAdmin) return COORDINATOR_APPS;
+  const granted = user.apps ?? {};
+  return COORDINATOR_APPS.filter((app) => app.id in granted);
+}

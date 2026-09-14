@@ -19,9 +19,9 @@ describe("SyllabusLibrary", () => {
     render(
       <SyllabusLibrary
         syllabi={[
-          { id: "syllabus-1", seriesId: "series-1", folderId: "folder-1", templateId: "scen-en-v1", courseTitle: "Climate Policy", courseCode: "SCEN-220", academicYear: "2026-2027", revision: 1, createdAt: "2026-07-20T08:05:00", updatedAt: "2026-07-22T09:05:00" },
-          { id: "syllabus-2", seriesId: "series-2", folderId: "folder-1", templateId: "scen-en-v1", courseTitle: "Climate Law", courseCode: "SCEN-221", academicYear: "2026-2027", revision: 1, createdAt: "", updatedAt: "" },
-          { id: "syllabus-3", seriesId: "series-3", folderId: null, templateId: "scen-en-v1", courseTitle: "Environmental Law", courseCode: "SCEN-240", academicYear: "2026-2027", revision: 1, createdAt: "", updatedAt: "" },
+          { id: "syllabus-1", seriesId: "series-1", folderId: "folder-1", templateId: "scen-en-v1", courseTitle: "Climate Policy", courseCode: "SCEN-220", academicYear: "2026-2027", revision: 1, ownerEmail: null, visibility: "public", submittedAt: null, createdAt: "2026-07-20T08:05:00", updatedAt: "2026-07-22T09:05:00" },
+          { id: "syllabus-2", seriesId: "series-2", folderId: "folder-1", templateId: "scen-en-v1", courseTitle: "Climate Law", courseCode: "SCEN-221", academicYear: "2026-2027", revision: 1, ownerEmail: null, visibility: "public", submittedAt: null, createdAt: "", updatedAt: "" },
+          { id: "syllabus-3", seriesId: "series-3", folderId: null, templateId: "scen-en-v1", courseTitle: "Environmental Law", courseCode: "SCEN-240", academicYear: "2026-2027", revision: 1, ownerEmail: null, visibility: "public", submittedAt: null, createdAt: "", updatedAt: "" },
         ]}
         folders={[
           { id: "folder-1", name: "Climate courses", parentId: "folder-0", createdAt: "", updatedAt: "" },
@@ -84,8 +84,8 @@ describe("SyllabusLibrary", () => {
     render(
       <SyllabusLibrary
         syllabi={[
-          { id: "syllabus-1", seriesId: "series-1", folderId: "folder-1", templateId: "scen-en-v1", courseTitle: "Climate Policy", courseCode: "SCEN-220", academicYear: "2026-2027", revision: 1, createdAt: "", updatedAt: "" },
-          { id: "syllabus-2", seriesId: "series-2", folderId: null, templateId: "scen-en-v1", courseTitle: "Environmental Law", courseCode: "SCEN-240", academicYear: "2026-2027", revision: 1, createdAt: "", updatedAt: "" },
+          { id: "syllabus-1", seriesId: "series-1", folderId: "folder-1", templateId: "scen-en-v1", courseTitle: "Climate Policy", courseCode: "SCEN-220", academicYear: "2026-2027", revision: 1, ownerEmail: null, visibility: "public", submittedAt: null, createdAt: "", updatedAt: "" },
+          { id: "syllabus-2", seriesId: "series-2", folderId: null, templateId: "scen-en-v1", courseTitle: "Environmental Law", courseCode: "SCEN-240", academicYear: "2026-2027", revision: 1, ownerEmail: null, visibility: "public", submittedAt: null, createdAt: "", updatedAt: "" },
         ]}
         folders={[
           { id: "folder-1", name: "Climate courses", parentId: null, createdAt: "", updatedAt: "" },
@@ -123,7 +123,7 @@ describe("SyllabusLibrary", () => {
     const onCreateFolder = vi.fn();
     render(
       <SyllabusLibrary
-        syllabi={[{ id: "syllabus-1", seriesId: "series-1", folderId: "folder-1", templateId: "scen-en-v1", courseTitle: "Climate Policy", courseCode: "SCEN-220", academicYear: "2026-2027", revision: 1, createdAt: "", updatedAt: "" }]}
+        syllabi={[{ id: "syllabus-1", seriesId: "series-1", folderId: "folder-1", templateId: "scen-en-v1", courseTitle: "Climate Policy", courseCode: "SCEN-220", academicYear: "2026-2027", revision: 1, ownerEmail: null, visibility: "public", submittedAt: null, createdAt: "", updatedAt: "" }]}
         folders={[{ id: "folder-1", name: "Programme", parentId: null, createdAt: "", updatedAt: "" }]}
         templates={[{ id: "scen-en-v1", name: "SCEN syllabus template (English)", description: "Approved English template", documentPath: "/syllabi/templates/scen-en-v1/document", sections: [] }]}
         isLoading={false}

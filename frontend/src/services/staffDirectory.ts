@@ -1,6 +1,11 @@
 import { apiFetch } from "@/services/http";
+import type { AppId } from "@/routes/apps";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
+
+/** What somebody may do inside one app. An app they were not given is one they cannot open. */
+export type AppRole = "admin" | "member";
+export type AppAccess = Partial<Record<AppId, AppRole>>;
 
 export type CoordinatorAccount = {
   email: string;
@@ -13,15 +18,19 @@ export type CoordinatorAccount = {
   invitedBy: string;
   createdAt: string;
   lastSeenAt: string | null;
+  /** Which apps they may open, and what they may do in each. */
+  apps?: AppAccess;
 };
 
 /** An owner is admitted by the environment; only their name can be set here. */
-export type Owner = { email: string; name: string };
+export type Owner = { email: string; name: string; apps?: AppAccess };
 
 /** Invited accounts, plus the owners the deployment's environment lets in. */
 export type StaffList = {
   accounts: CoordinatorAccount[];
   owners: Owner[];
+  /** Every app the platform has, in the order Settings should offer them. */
+  apps?: AppId[];
 };
 
 async function readError(response: Response): Promise<string> {
@@ -45,7 +54,7 @@ export function fetchStaffList(): Promise<StaffList> {
   return request<StaffList>("/api/v1/users");
 }
 
-export function inviteCoordinator(input: { email: string; isAdmin: boolean }): Promise<CoordinatorAccount> {
+export function inviteCoordinator(input: { email: string; isAdmin: boolean; apps: AppAccess }): Promise<CoordinatorAccount> {
   return request<CoordinatorAccount>("/api/v1/users", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -55,7 +64,7 @@ export function inviteCoordinator(input: { email: string; isAdmin: boolean }): P
 
 export function updateCoordinator(
   email: string,
-  patch: { isAdmin?: boolean; isActive?: boolean; displayName?: string },
+  patch: { isAdmin?: boolean; isActive?: boolean; displayName?: string; apps?: AppAccess },
 ): Promise<CoordinatorAccount> {
   return request<CoordinatorAccount>(`/api/v1/users/${encodeURIComponent(email)}`, {
     method: "PATCH",

@@ -50,6 +50,7 @@ import { PloAlignmentField } from "@/components/PloAlignmentField";
 import { SectionEditorShell } from "@/components/SectionEditorShell";
 import { FieldRow } from "@/components/FieldRow";
 import { SyllabusField } from "@/components/SyllabusField";
+import { SyllabusSharing } from "@/components/SyllabusSharing";
 import { SyllabusSubsection } from "@/components/SyllabusSubsection";
 import { fieldSizeClass, type FieldSize } from "@/components/fieldSize";
 import {
@@ -349,6 +350,7 @@ export function SyllabusEditor({
               >
                 <GitCompareArrows size={17} /> Compare years
               </button>
+              <SyllabusSharing syllabus={draft} />
               {exportState === "error" ? (
                 <span
                   role="alert"

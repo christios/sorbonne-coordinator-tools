@@ -1,6 +1,7 @@
 import { SidePane } from "@/components/SidePane";
 import { StaffMenu } from "@/components/StaffMenu";
-import { COORDINATOR_APPS } from "@/routes/apps";
+import { appsFor } from "@/routes/apps";
+import { useStaffUser } from "@/components/useStaffUser";
 import { ToolId } from "@/routes/toolRoute";
 
 type Props = {
@@ -15,11 +16,12 @@ type Props = {
  * if it has pages of its own.
  */
 export function AppSidebar({ onOpen, onOpenSettings }: Props) {
+  const apps = appsFor(useStaffUser());
   return (
     <SidePane
       label="Apps"
       heading="Workspace"
-      items={COORDINATOR_APPS.map(({ id, name, icon }) => ({ id, name, icon }))}
+      items={apps.map(({ id, name, icon }) => ({ id, name, icon }))}
       onSelect={(id) => onOpen(id as ToolId | "handbook")}
       footer={<StaffMenu variant="sidebar" onOpenSettings={onOpenSettings} />}
     />

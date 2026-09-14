@@ -14,7 +14,8 @@ import { SyllabusBuilder } from "@/components/SyllabusBuilder";
 import { SyncRunDriver } from "@/components/SyncRunDriver";
 import { TeacherDatabase } from "@/components/TeacherDatabase";
 import { StudentDatabase } from "@/components/StudentDatabase";
-import { COORDINATOR_APPS } from "@/routes/apps";
+import { useStaffUser } from "@/components/useStaffUser";
+import { appsFor } from "@/routes/apps";
 import { handbookUrl } from "@/routes/handbookRoute";
 import { ToolId, toolFromLocation } from "@/routes/toolRoute";
 import { getRun, isRunning, subscribe } from "@/services/syncRun";
@@ -302,7 +303,8 @@ function AppWelcome({
   onOpen: (app: ToolId | "handbook") => void;
 }) {
   const normalizedSearch = search.trim().toLowerCase();
-  const visibleApps = COORDINATOR_APPS.filter((app) => `${app.name} ${app.description} ${app.keywords}`.toLowerCase().includes(normalizedSearch));
+  const granted = appsFor(useStaffUser());
+  const visibleApps = granted.filter((app) => `${app.name} ${app.description} ${app.keywords}`.toLowerCase().includes(normalizedSearch));
 
   return (
     <section className="mx-auto max-w-[98rem] px-4 py-10 sm:px-6 lg:px-8">
@@ -345,7 +347,13 @@ function AppWelcome({
       </div>
 
       {visibleApps.length === 0 ? (
-        <div className="mt-7 rounded-lg border border-dashed border-[#c8d0db] bg-white px-6 py-10 text-center text-sm text-[#667085]">No apps match “{search}”.</div>
+        <div className="mt-7 rounded-lg border border-dashed border-[#c8d0db] bg-white px-6 py-10 text-center text-sm text-[#667085]">
+          {/* Nothing granted and nothing searched for are different empty workspaces, and
+              somebody who has been given nothing should be told so rather than left looking. */}
+          {granted.length === 0
+            ? "You have not been given any apps yet. Ask whoever administers the platform to give you the ones you need."
+            : `No apps match \u201c${search}\u201d.`}
+        </div>
       ) : null}
     </section>
   );

@@ -16,9 +16,32 @@ export type SyllabusSummary = {
   revision: number;
   createdAt: string;
   updatedAt: string;
+  /** Whoever wrote it. Null for the ones the department wrote before anyone had their own. */
+  ownerEmail: string | null;
+  visibility: "private" | "public";
+  /** When its author asked for it to be reviewed, if they have. */
+  submittedAt: string | null;
 };
 
 export type Syllabus = SyllabusSummary & { content: SyllabusContent };
+
+/** Publishing a syllabus, or taking it back — which also withdraws any review request. */
+export function setSyllabusVisibility(id: string, visibility: "private" | "public"): Promise<Syllabus> {
+  return request<Syllabus>(`/syllabi/${id}/visibility`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ visibility }),
+  });
+}
+
+/** Asking a coordinator to look at it, or taking the request back. Only its author may. */
+export function setSyllabusReview(id: string, submitted: boolean): Promise<Syllabus> {
+  return request<Syllabus>(`/syllabi/${id}/review`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ submitted }),
+  });
+}
 
 export type SyllabusFolder = {
   id: string;

@@ -3,9 +3,12 @@ import { Copy, KeyRound, Loader2, Pencil, Shield, ShieldCheck, Trash2, UserPlus,
 import { useState } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { COORDINATOR_APPS, type AppId } from "@/routes/apps";
 import { useStaffUser } from "@/components/useStaffUser";
 import {
   type ApiToken,
+  AppAccess,
+  AppRole,
   CoordinatorAccount,
   type Owner,
   createApiToken,
@@ -250,19 +253,22 @@ function StaffDirectory() {
   const [email, setEmail] = useState("");
   const [asAdmin, setAsAdmin] = useState(false);
   const [pendingRemoval, setPendingRemoval] = useState<CoordinatorAccount | null>(null);
+  // Nothing by default: access is given deliberately rather than assumed from an invitation.
+  const [inviteApps, setInviteApps] = useState<AppAccess>({});
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["staff-list"] });
 
   const invite = useMutation({
-    mutationFn: () => inviteCoordinator({ email: email.trim(), isAdmin: asAdmin }),
+    mutationFn: () => inviteCoordinator({ email: email.trim(), isAdmin: asAdmin, apps: inviteApps }),
     onSuccess: () => {
       setEmail("");
+      setInviteApps({});
       setAsAdmin(false);
       refresh();
     },
   });
   const update = useMutation({
-    mutationFn: ({ account, patch }: { account: CoordinatorAccount; patch: { isAdmin?: boolean; isActive?: boolean; displayName?: string } }) =>
+    mutationFn: ({ account, patch }: { account: CoordinatorAccount; patch: { isAdmin?: boolean; isActive?: boolean; displayName?: string; apps?: AppAccess } }) =>
       updateCoordinator(account.email, patch),
     onSuccess: refresh,
   });
@@ -326,6 +332,13 @@ function StaffDirectory() {
             Invite
           </button>
         </div>
+        <p id="invite-apps-hint" className="mt-4 text-sm text-[#667085]">
+          Which apps they may open. An app left at <span className="font-semibold">No access</span> is one they will
+          not see at all.
+        </p>
+        <div className="mt-2">
+          <AppAccessEditor value={inviteApps} onChange={setInviteApps} describedBy="invite-apps-hint" />
+        </div>
       </form>
 
       {error ? (
@@ -350,6 +363,7 @@ function StaffDirectory() {
             onToggleActive={() => update.mutate({ account, patch: { isActive: !account.isActive } })}
             onRename={(displayName) => update.mutate({ account, patch: { displayName } })}
             onRemove={() => setPendingRemoval(account)}
+            onChangeApps={(apps) => update.mutate({ account, patch: { apps } })}
           />
         ))}
 
@@ -473,6 +487,69 @@ function OwnerRow({
   );
 }
 
+/**
+ * Which apps somebody may open, and what they may do in each.
+ *
+ * Three states per app rather than two, because "no access" and "access" are not the whole
+ * story: whoever maintains the syllabus catalogue is doing something different from whoever
+ * writes a syllabus in it, and that difference lives here rather than in a platform-wide flag.
+ */
+function AppAccessEditor({
+  value,
+  onChange,
+  disabled = false,
+  describedBy,
+}: {
+  value: AppAccess;
+  onChange: (value: AppAccess) => void;
+  disabled?: boolean;
+  describedBy?: string;
+}) {
+  const set = (app: AppId, role: AppRole | undefined) => {
+    const next = { ...value };
+    if (role) next[app] = role;
+    else delete next[app];
+    onChange(next);
+  };
+  return (
+    <div className="flex flex-wrap gap-2" aria-describedby={describedBy}>
+      {COORDINATOR_APPS.map((app) => {
+        const role = value[app.id];
+        return (
+          <fieldset
+            key={app.id}
+            className={`rounded-md border px-2 py-1.5 ${role ? "border-[#c7dcef] bg-[#f4f8fc]" : "border-[#e3e7ee] bg-white"}`}
+          >
+            <legend className="px-1 text-[11px] font-semibold text-[#667085]">{app.name}</legend>
+            <div className="flex gap-0.5">
+              {([
+                ["none", "No access", undefined],
+                ["member", "Member", "member"],
+                ["admin", "Admin", "admin"],
+              ] as const).map(([key, label, wanted]) => (
+                <button
+                  key={key}
+                  type="button"
+                  disabled={disabled}
+                  aria-pressed={(role ?? undefined) === wanted}
+                  onClick={() => set(app.id, wanted)}
+                  className={`rounded px-2 py-0.5 text-[11px] font-semibold disabled:opacity-50 ${
+                    (role ?? undefined) === wanted
+                      ? "bg-[#1f4e79] text-white"
+                      : "text-[#1f4e79] hover:bg-[#eaf1f8]"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </fieldset>
+        );
+      })}
+    </div>
+  );
+}
+
 function AccountRow({
   account,
   busy,
@@ -480,6 +557,7 @@ function AccountRow({
   onToggleActive,
   onRename,
   onRemove,
+  onChangeApps,
 }: {
   account: CoordinatorAccount;
   busy: boolean;
@@ -487,6 +565,7 @@ function AccountRow({
   onToggleActive: () => void;
   onRename: (displayName: string) => void;
   onRemove: () => void;
+  onChangeApps: (apps: AppAccess) => void;
 }) {
   const [renaming, setRenaming] = useState(false);
   const [draft, setDraft] = useState(account.displayName ?? "");
@@ -539,6 +618,16 @@ function AccountRow({
           {account.name ? `${account.email} · ` : ""}
           {account.lastSeenAt ? `last signed in ${formatDay(account.lastSeenAt)}` : `invited ${formatDay(account.createdAt)}`}
         </p>
+      </div>
+
+      <div className="order-last w-full">
+        {account.isAdmin ? (
+          <p className="text-xs text-[#667085]">
+            An administrator opens every app: they hand out access and cannot be shut out of what they hand out.
+          </p>
+        ) : (
+          <AppAccessEditor value={account.apps ?? {}} onChange={onChangeApps} disabled={busy} />
+        )}
       </div>
 
       <div className="flex flex-wrap items-center gap-2">

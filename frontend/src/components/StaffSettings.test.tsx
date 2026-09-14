@@ -63,7 +63,7 @@ describe("StaffSettings", () => {
     fireEvent.click(screen.getByRole("button", { name: /Invite/ }));
 
     await waitFor(() =>
-      expect(invite).toHaveBeenCalledWith({ email: "new@sorbonne.ae", isAdmin: true }),
+      expect(invite).toHaveBeenCalledWith({ email: "new@sorbonne.ae", isAdmin: true, apps: {} }),
     );
   });
 
