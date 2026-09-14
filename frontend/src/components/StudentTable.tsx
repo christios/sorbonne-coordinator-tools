@@ -1,4 +1,4 @@
-import { AlertTriangle, CalendarClock, ClipboardList, Clock3, MessageSquare, RotateCcw, X } from "lucide-react";
+import { AlertTriangle, CalendarClock, ClipboardList, Clock3, LayoutGrid, MessageSquare, RotateCcw, X } from "lucide-react";
 import { memo, useCallback } from "react";
 
 import { DataTable, type Sort } from "@/components/DataTable";
@@ -154,12 +154,16 @@ export const WARNING_TONES: Record<WarningSource, string> = {
   record: "bg-[#fff1e3] text-[#8a4b00]",
   registration: "bg-[#e6edfa] text-[#2b4a8b]",
   timetabling: "bg-[#f3ecfb] text-[#5b3a8a]",
+  // Green for the one the department fixes on its own: a set with nobody in it is ours to
+  // place, not a drift from admissions and not something to take to the registrar.
+  groups: "bg-[#e4f3ec] text-[#1f6b45]",
 };
 
 export const WARNING_ICONS: Record<WarningSource, typeof AlertTriangle> = {
   record: AlertTriangle,
   registration: ClipboardList,
   timetabling: CalendarClock,
+  groups: LayoutGrid,
 };
 
 /** The cells only a student row has. Undefined hands the cell back to the table's text. */

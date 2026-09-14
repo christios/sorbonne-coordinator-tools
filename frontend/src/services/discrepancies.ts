@@ -81,7 +81,7 @@ export type Warning = {
   key: string;
   studentId: string;
   ruleId: string;
-  kind: RuleKind | "unplaced" | "no_baseline" | "registration";
+  kind: RuleKind | "unplaced" | "no_baseline" | "registration" | "group";
   field: string;
   /** For a change: what it was and what it became, and when. */
   from?: string;
@@ -429,6 +429,9 @@ export function describeWarning(warning: Warning): string {
     case "registration":
       // Written in full by registrationWarnings, since the sentence is the portal's fact.
       return warning.value ?? "registration differs from the group";
+    case "group":
+      // Written in full by groupWarnings: which set, and what that costs the student.
+      return warning.value ?? "in no group of one of the cohort's sets";
   }
 }
 
@@ -444,12 +447,13 @@ const ENROLMENT_FIELDS = new Set([STATUS_FIELD, "STST_CODE", "ESTS_CODE"]);
  * and a coordinator clearing one does not want the other in the way — so the source is a
  * thing to filter and colour by in its own right, not a detail of the kind.
  */
-export type WarningSource = "record" | "registration" | "timetabling";
+export type WarningSource = "record" | "registration" | "timetabling" | "groups";
 
 export function sourceOf(warning: Warning): WarningSource {
   // Said by the builder where it knows better — a clash of hours comes out of the same
   // check as the registrations and is not one, so it says so.
   if (warning.source) return warning.source;
+  if (warning.kind === "group") return "groups";
   return warning.kind === "registration" ? "registration" : "record";
 }
 
@@ -487,6 +491,8 @@ export function labelWarning(warning: Warning): string {
       return "no baseline";
     case "registration":
       return "registration differs";
+    case "group":
+      return "in no group";
   }
 }
 
@@ -517,7 +523,9 @@ export function severityOf(warning: Warning): number {
   if (warning.dismissed || warning.kind === "no_baseline") return 0;
   // Before the kind: `changed_to WD` on a status is a withdrawal, not a mere change.
   if (ENROLMENT_FIELDS.has(warning.field.toUpperCase())) return 4;
-  if (warning.kind === "registration") return 3;
+  // A student in no group of a set has a blank timetable next week, the same order of
+  // trouble as being registered somewhere we did not put them.
+  if (warning.kind === "registration" || warning.kind === "group") return 3;
   if (warning.kind === "changed" || warning.kind === "changed_to") return 1;
   return 2;
 }
@@ -549,6 +557,45 @@ export function warningRank(warnings: Warning[]): number {
  * that holds still while the fact does, so a coordinator who has seen "registered in
  * 23653, group says 23652" and decided it is fine can dismiss it until it changes.
  */
+/**
+ * The sets a cohort has not placed a student in, as warnings on their row.
+ *
+ * This was a banner over the table with a proposal in it, and a banner is the wrong shape
+ * for the fact: it is about ONE student at a time, and everything else the page says about
+ * one student is a pill on their row. Now it is, under a record of its own, so it can be
+ * looked at on its own or set aside while the registrar's differences are cleared.
+ *
+ * Acting on it is unchanged and is where it always was: tick the rows and press "Place in
+ * groups…", which proposes a clash-free group in every set and writes them in one go.
+ *
+ * `unassignedByScope` is the publication's own reading — `scope code -> student ids` — so
+ * this agrees with the readiness panel by construction rather than by a second count.
+ */
+export function groupWarnings(
+  unassignedByScope: Record<string, string[]>,
+  /** Which semester, so a student short of a group in two of them gets a pill for each. */
+  termId = "",
+  termName = "",
+): Warning[] {
+  const found: Warning[] = [];
+  for (const [scopeCode, studentIds] of Object.entries(unassignedByScope)) {
+    for (const studentId of studentIds) {
+      const where = termName ? ` (${termName})` : "";
+      found.push({
+        key: `group|${studentId}|${termId}|${scopeCode}`,
+        studentId,
+        ruleId: "group",
+        kind: "group" as const,
+        field: "groups",
+        value: `in no ${scopeCode} group${where}, so that part of their timetable is blank`,
+        label: `no ${scopeCode} group`,
+        source: "groups",
+      });
+    }
+  }
+  return found;
+}
+
 export function registrationWarnings<
   M extends {
     studentId: string;

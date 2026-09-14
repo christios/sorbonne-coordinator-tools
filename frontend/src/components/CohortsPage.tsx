@@ -1,5 +1,5 @@
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, ArrowRightCircle, CalendarClock, ClipboardList, EyeOff, Globe, Settings2, Users, X } from "lucide-react";
+import { AlertTriangle, ArrowRightCircle, CalendarClock, ClipboardList, EyeOff, Globe, LayoutGrid, Settings2, Users, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { CohortActions } from "@/components/CohortActions";
@@ -22,6 +22,7 @@ import {
   registrationWarnings,
   rulesFor,
   sharedRules,
+  groupWarnings,
   sourceOf,
   unjudgeable,
   warningsForCohort,
@@ -47,7 +48,7 @@ import { COHORT } from "@/services/remembered";
 import { describeAge, latestPullAt, rowsHeld } from "@/services/rosterStore";
 import { displayNameOf, fetchSchema, studentIdOf, type RosterRow } from "@/services/scenRosters";
 import { fetchDiscrepancyRules, fetchStudents, setCohort, type Cohort, type Student } from "@/services/studentDatabase";
-import { ProposedPlacements } from "@/components/ProposedPlacements";
+import { fetchPublication } from "@/services/publication";
 import { afterPlacement } from "@/services/afterPlacement";
 import { fetchTimetableTerms } from "@/services/timetables";
 import { isRunning, subscribe } from "@/services/syncRun";
@@ -94,7 +95,7 @@ function judge(
 }
 
 /** The three records to begin with — the old "All", and the commonest answer. */
-const EVERY_RECORD: readonly WarningSource[] = ["record", "registration", "timetabling"];
+const EVERY_RECORD: readonly WarningSource[] = ["record", "registration", "timetabling", "groups"];
 
 /**
  * The three records, in the order the page's filter offers them.
@@ -106,6 +107,7 @@ const RECORDS: { id: WarningSource; counted: string }[] = [
   { id: "record", counted: "with a record that has drifted from admissions" },
   { id: "registration", counted: "the registrar has in other sections than we placed them in" },
   { id: "timetabling", counted: "booked into two places at one hour" },
+  { id: "groups", counted: "we have not placed in a group of one of the sets" },
 ];
 
 /**
@@ -181,6 +183,7 @@ function SourceFilter({
     { id: "record", name: "Admissions", icon: AlertTriangle, hint: "Where the portal's record and ours have drifted apart" },
     { id: "registration", name: "Register", icon: ClipboardList, hint: "Where the registrar has them in other sections than we placed them in" },
     { id: "timetabling", name: "Timetabling", icon: CalendarClock, hint: "Where the hours a student is booked into cannot all be attended" },
+    { id: "groups", name: "Groups", icon: LayoutGrid, hint: "Where we have not put a student in a group of one of the cohort's sets" },
   ];
   return (
     <div
@@ -323,6 +326,26 @@ export function CohortsPage({
     [reportsBy],
   );
   /*
+   * Which semesters to ask about the groups, taken from the checks we already have.
+   *
+   * The register's coverage names the semesters each cohort is taught in, so the terms
+   * come free rather than from another round of catalogue fetches. One publication covers
+   * every cohort on that semester, which is why this is keyed on the term and not the
+   * cohort.
+   */
+  const termIds = useMemo(
+    () => [...new Set([...reportsBy.values()].flatMap((report) => report.coverage.map((term) => term.termId)))].sort(),
+    [reportsBy],
+  );
+  const readiness = useQueries({
+    queries: termIds.map((termId) => ({
+      queryKey: ["publication", termId],
+      queryFn: () => fetchPublication(termId),
+      retry: false,
+    })),
+    combine: (reads) => reads.map((read, index) => ({ termId: termIds[index], publication: read.data ?? null })),
+  });
+  /*
    * The courses outside our groups, by student, for the Electives column.
    *
    * Every cohort's at once and not the chosen one's, for the same reason the warnings are:
@@ -450,10 +473,16 @@ export function CohortsPage({
       out.set(cohort.id, [
         ...(judged?.byCohort.get(cohort.id) ?? []),
         ...registrationWarnings(registrationsBy.get(cohort.id) ?? [], describeMismatch, readMismatch),
+        // A set this cohort has not placed them in, per semester, from the same reading the
+        // readiness panel publishes — so the two can never disagree about who is short.
+        ...readiness.flatMap(({ termId, publication }) => {
+          const mine = publication?.cohorts.find((entry) => entry.cohortId === cohort.id);
+          return mine ? groupWarnings(mine.unassigned, termId, nameOfTerm(termId)) : [];
+        }),
       ]);
     }
     return out;
-  }, [cohorts, judged, registrationsBy]);
+  }, [cohorts, judged, registrationsBy, readiness, nameOfTerm]);
 
   /*
    * Every cohort's warnings by student, not only the cohort on screen.
@@ -563,6 +592,7 @@ export function CohortsPage({
     record: flaggedIn(all, "record"),
     registration: flaggedIn(all, "registration"),
     timetabling: flaggedIn(all, "timetabling"),
+    groups: flaggedIn(all, "groups"),
   };
   const unjudged = new Set(all.filter((warning) => warning.kind === "no_baseline").map((w) => w.studentId)).size;
   const dismissedCount = all.filter((warning) => warning.dismissed).length;
@@ -800,18 +830,6 @@ export function CohortsPage({
           onDismiss={(key) => setDismissed(dismiss(key))}
           onAdd={(arrival) => setAddingArrival(arrival)}
           adding={addArrival.isPending}
-        />
-      ) : null}
-      {/*
-        * Who the semester has not placed everywhere, with a group proposed for each —
-        * confirmed as one batch. Says nothing when everyone is placed.
-        */}
-      {cohort && !everywhere ? (
-        <ProposedPlacements
-          key={cohort.id}
-          cohort={cohort}
-          nameOf={(studentId) => evidence.names.get(studentId) ?? ""}
-          onPlaced={() => afterPlacement(client)}
         />
       ) : null}
       {cohort && addingArrival ? (

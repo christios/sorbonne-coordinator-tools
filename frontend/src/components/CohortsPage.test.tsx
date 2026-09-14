@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CohortsPage } from "@/components/CohortsPage";
 import * as lists from "@/services/portalLists";
+import * as publicationService from "@/services/publication";
 import { forgetHistory, recordPull } from "@/services/pullHistory";
 import { forgetRosters, rememberPull } from "@/services/rosterStore";
 import { clearRun } from "@/services/syncRun";
@@ -550,6 +551,37 @@ describe("the register half of the Cohorts page", () => {
     expect(row.getByTitle("MATH-001: not registered in 23223")).toBeTruthy();
     // The student both records agree about carries neither.
     expect(within(rowOf("Karim Nasser")).queryByText(/MATH-001/)).toBeNull();
+  });
+
+  it("carries a set nobody has placed them in as its own record, not among the register's", async () => {
+    /*
+     * This was a banner over the table with a proposal in it. A banner is the wrong shape
+     * for a fact about one student: everything else the page says about one student is a
+     * pill on their row, and a banner cannot be set aside while the registrar's
+     * differences are cleared.
+     */
+    vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue(report([], [checked()]));
+    vi.spyOn(publicationService, "fetchPublication").mockResolvedValue({
+      cohorts: [{ cohortId: "c1", cohortName: "L1 Maths", unassigned: { TD: ["A001"], CM: ["A001", "A002"] }, clashes: [] }],
+    } as unknown as publicationService.Publication);
+    await twoStudents([MAJOR]);
+
+    renderPage();
+    expect(await screen.findByText("Amira Haddad")).toBeTruthy();
+
+    // One pill per set they are short of, under a record of its own.
+    const row = within(rowOf("Amira Haddad"));
+    await waitFor(() => expect(row.getByTitle(/in no TD group/)).toBeTruthy());
+    expect(row.getByTitle(/in no CM group/)).toBeTruthy();
+    expect(pillOf(/in no TD group/).dataset.source).toBe("groups");
+    // Its own colour, so it cannot be read as one of the other three records.
+    expect(pillOf(/in no TD group/).className).not.toEqual(pillOf(/major is Physics, cohort expects/).className);
+    // The student short of only the lecture set gets that one and no more.
+    const other = within(rowOf("Karim Nasser"));
+    expect(other.getByTitle(/in no CM group/)).toBeTruthy();
+    expect(other.queryByTitle(/in no TD group/)).toBeNull();
+    // And the register's own count is untouched by any of it.
+    expect(screen.getByRole("button", { name: /^Register/ }).textContent).toContain("0");
   });
 
   it("lists a course outside the groups as an elective, and never as a warning", async () => {
