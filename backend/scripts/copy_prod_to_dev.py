@@ -239,7 +239,7 @@ def copy_everything(  # noqa: PLR0913 - one keyword per thing the caller may cho
 def _copy_part_time_teachers(
     source: str, into: str, read: dict[str, str], write: dict[str, str], say
 ) -> dict[str, str]:
-    """The department's own teacher records, and the folders they are filed in.
+    """The department's own teacher records, their paperwork, and the folders they are in.
 
     Nothing else carries these: a part-time teacher is somebody the department hired, not
     somebody the portal returned, so no sync will ever put them back. A dev database
@@ -282,6 +282,8 @@ def _copy_part_time_teachers(
             break
 
     records: dict[str, str] = {}
+    requisitions = 0
+    sheets = 0
     listed = call(f"{source}/api/v1/teachers?includeArchived=true", headers=read)["items"]
     for record in listed:
         made = call(
@@ -304,8 +306,74 @@ def _copy_part_time_teachers(
                 method="PATCH",
                 body={"folderId": here_folder},
             )
-    say(f"  part-time teachers: {len(records)} in {len(folders)} folder(s)")
+        requisitions += _copy_requisitions(source, into, read, write, record["id"], made["id"])
+        sheets += _copy_time_sheets(source, into, read, write, record["id"], made["id"])
+    say(
+        f"  part-time teachers: {len(records)} in {len(folders)} folder(s), "
+        f"{requisitions} requisition(s), {sheets} time sheet link(s)"
+    )
     return records
+
+
+def _copy_requisitions(  # noqa: PLR0913 - one argument per end of the copy
+    source: str, into: str, read: dict[str, str], write: dict[str, str], there: str, here: str
+) -> int:
+    """A teacher's recruitment requests, contents and all.
+
+    Two calls per requisition rather than one, because creating one only names it: the
+    courses, the hours and the dates live in its content, and content is only ever set by
+    an update. A copy with the names and none of the content would look complete on the
+    list and be empty in every editor.
+    """
+    made_count = 0
+    for summary in call(f"{source}/api/v1/teachers/{there}/requisitions", headers=read)["items"]:
+        full = call(f"{source}/api/v1/teacher-requisitions/{summary['id']}", headers=read)
+        made = call(
+            f"{into}/api/v1/teachers/{here}/requisitions",
+            headers=write,
+            method="POST",
+            body={"label": full["label"], "academicYear": full["academicYear"]},
+        )
+        call(
+            f"{into}/api/v1/teacher-requisitions/{made['id']}",
+            headers=write,
+            method="PATCH",
+            body={
+                # A requisition that has just been created is at revision 1; the answer
+                # says so, and this states the same thing where it does not.
+                "expectedRevision": made.get("revision", 1),
+                "label": full["label"],
+                "academicYear": full["academicYear"],
+                "content": full["content"],
+            },
+        )
+        made_count += 1
+    return made_count
+
+
+def _copy_time_sheets(  # noqa: PLR0913 - one argument per end of the copy
+    source: str, into: str, read: dict[str, str], write: dict[str, str], there: str, here: str
+) -> int:
+    """The links to their time sheets, which are all this platform holds of them.
+
+    The workbooks stay in OneDrive either way; what travels is the label, the pay period
+    and the address, so a local copy can show the same row as production does.
+    """
+    made_count = 0
+    for sheet in call(f"{source}/api/v1/teachers/{there}/time-sheets", headers=read)["items"]:
+        call(
+            f"{into}/api/v1/teachers/{here}/time-sheets",
+            headers=write,
+            method="POST",
+            body={
+                "label": sheet["label"],
+                "academicYear": sheet.get("academicYear", ""),
+                "url": sheet["url"],
+                "periodStart": sheet.get("periodStart", ""),
+            },
+        )
+        made_count += 1
+    return made_count
 
 
 def _copy_active_teachers(  # noqa: PLR0913 - one argument per thing the copy is about
@@ -754,17 +822,26 @@ def _empty_local(into: str) -> None:
     if urlparse(url.replace("postgresql+psycopg://", "postgresql://")).hostname not in {"localhost", "127.0.0.1"}:
         raise Refused(f"DATABASE_URL does not point at this machine: {url.split('@')[-1]}")
     with create_engine(url).begin() as connection:
-        # The department's own planning, then the register it is judged against. The
-        # register has to go too: adding to it is additive by design, so a second copy
+        # The department's own planning, then the register it is judged against, then the
+        # part-time database. Everything here is copied additively, so a second copy
         # without this leaves a union of both — 42 courses where production has 31.
         tables = (
             "group_assignments", "group_crns", "scope_groups", "scope_courses", "cohort_scopes",
             "active_course_crns", "active_courses", "term_links",
+            # The part-time database too, and for the same reason as the register above:
+            # copying it is additive, so a second copy without this leaves two of every
+            # teacher — 86 of them where production has 24, each with their own requisitions
+            # and time sheets, and no way to tell on screen which is which.
+            "teacher_time_sheets", "teacher_requisitions", "active_teachers",
         )
         for table in tables:
             connection.execute(text(f"DELETE FROM {table}"))  # noqa: S608 - fixed names, no interpolation of input
         connection.execute(text("DELETE FROM students"))
         connection.execute(text("DELETE FROM student_cohorts"))
+        # After the rows that point at them: a teacher cannot go while a requisition names
+        # them, and a folder cannot go while a teacher is filed in it.
+        connection.execute(text("DELETE FROM part_time_teachers"))
+        connection.execute(text("DELETE FROM teacher_folders"))
 
 
 VIEW_NAME = "Copied from production — delete me"

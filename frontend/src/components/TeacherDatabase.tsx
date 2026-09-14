@@ -35,6 +35,7 @@ import { FieldInfoProvider } from "@/components/FieldInfo";
 import {
   GoogleDocumentSignInButton,
   GoogleDocumentSyncButton,
+  documentsConfigured,
 } from "@/components/GoogleDocumentSignInButton";
 import { LibraryRecordTimestamps } from "@/components/LibraryRecordTimestamps";
 import { RequisitionCourseEditor } from "@/components/RequisitionCourseEditor";
@@ -369,6 +370,7 @@ function TeacherLibrary({
         .includes(query.toLowerCase()),
     );
   const picked = [...chosen];
+  const anyChosen = picked.length > 0;
   const selectedFolder = folders.find((folder) => folder.id === activeFolder);
   const activeTeachers = teachers.filter((teacher) => !teacher.archivedAt);
   const tasksByTeacher = new Map<string, ScopedTask[]>();
@@ -446,10 +448,18 @@ function TeacherLibrary({
   return (
     <div className="flex h-full min-h-0 flex-col">
       {header ? createPortal(controls, header) : <div className="mb-3">{controls}</div>}
-      <TeacherDocumentSyncPanel
-        credential={documentCredential}
-        onCredential={onDocumentCredential}
-      />
+      {/*
+        * Nothing at all where the Google sign-in has not been configured. The panel's
+        * whole content there is a sentence explaining that it does nothing, which is a
+        * line of the page spent saying a feature is absent — and it is absent on every
+        * local server, which is where it was read most often.
+        */}
+      {documentsConfigured ? (
+        <TeacherDocumentSyncPanel
+          credential={documentCredential}
+          onCredential={onDocumentCredential}
+        />
+      ) : null}
       {error ? (
         <p
           role="alert"
@@ -654,12 +664,16 @@ function TeacherLibrary({
         <section className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-[#d9dee7] bg-white">
           {libraryView === "teachers" ? (
             <>
-              <div className="flex shrink-0 items-center gap-3 border-b border-[#e5e7eb] p-3">
+              <div className="group/toolbar flex shrink-0 items-center gap-3 border-b border-[#e5e7eb] p-3">
                 {/*
                   * Choosing everybody the search has narrowed to, which is how a payroll
                   * run starts: filter to who you want, tick once, download.
                   */}
-                <label className="flex shrink-0 items-center gap-2 text-sm text-[#667085]">
+                <label
+                  className={`flex shrink-0 items-center gap-2 text-sm text-[#667085] transition-opacity focus-within:opacity-100 group-hover/toolbar:opacity-100 ${
+                    anyChosen ? "opacity-100" : "opacity-0"
+                  }`}
+                >
                   <input
                     type="checkbox"
                     aria-label={`Choose all ${visible.length} shown`}
@@ -702,14 +716,24 @@ function TeacherLibrary({
                     <div
                       key={teacher.id}
                       role="listitem"
-                      className="grid gap-2 px-4 py-2.5 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-center"
+                      className="group grid gap-2 px-4 py-2.5 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-center"
                     >
+                      {/*
+                        * Out of the way until it is wanted. A column of empty boxes down a
+                        * list nobody is selecting from is a column of noise; it appears
+                        * under the pointer, under the keyboard, and stays out for good
+                        * once anything is ticked, so a selection in progress never hides
+                        * from you. Kept in the layout rather than removed, or every row
+                        * would shift sideways the moment the pointer crossed it.
+                        */}
                       <input
                         type="checkbox"
                         aria-label={`Choose ${teacher.fullName}`}
                         checked={chosen.has(teacher.id)}
                         onChange={() => toggleChosen(teacher.id)}
-                        className="justify-self-start"
+                        className={`justify-self-start transition-opacity focus-visible:opacity-100 group-hover:opacity-100 ${
+                          anyChosen ? "opacity-100" : "opacity-0"
+                        }`}
                       />
                       {/*
                         * Two lines, not five. Who they are on the first, what they have
@@ -795,13 +819,11 @@ function TeacherLibrary({
                   No {showArchived ? "archived" : "active"} teachers found.
                 </p>
               )}
-              {picked.length ? (
-                <TeacherBulkActions
-                  chosen={picked}
-                  teachers={teachers}
-                  onClear={() => setChosen(new Set())}
-                />
-              ) : null}
+              <TeacherBulkActions
+                chosen={picked}
+                teachers={teachers}
+                onClear={() => setChosen(new Set())}
+              />
             </>
           ) : (
             <TasksOverview

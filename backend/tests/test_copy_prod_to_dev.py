@@ -306,6 +306,8 @@ def test_the_part_time_database_travels_with_its_folders(monkeypatch):
                     }
                 ]
             },
+            "/teachers/pt-1/requisitions": {"items": []},
+            "/teachers/pt-1/time-sheets": {"items": []},
         }
     )
     monkeypatch.setattr(copy, "call", wire)
@@ -436,3 +438,55 @@ def test_a_section_taught_in_two_halves_arrives_with_both(monkeypatch):
     assert [body.get("part") for method, body in cells if method == "PUT"] == [1, 2]
     # The request travels per part too, or the second half arrives asking for nothing.
     assert [body.get("hours") for method, body in cells if method == "PATCH"] == [18, 12]
+
+
+def test_a_teachers_paperwork_travels_with_them(monkeypatch):
+    """The profile alone is half of what the page shows.
+
+    A requisition's courses and hours live in its content, which creating one does not
+    take, so it is copied and then filled. Without the second call the list of
+    requisitions would look right and every one of them would open empty.
+    """
+    wire = Wire(
+        {
+            "/teachers/folders": {"items": []},
+            "/teachers?includeArchived=true": {
+                "items": [{"id": "pt-1", "fullName": "Hani Sayes", "email": "", "phone": "", "notes": ""}]
+            },
+            "/teachers/pt-1/requisitions": {"items": [{"id": "r-1"}]},
+            "/teacher-requisitions/r-1": {
+                "id": "r-1",
+                "label": "Physics TD",
+                "academicYear": "2026-2027",
+                "content": {"courses": [{"id": "c1", "hours": "21"}]},
+            },
+            "/teachers/pt-1/time-sheets": {
+                "items": [
+                    {
+                        "id": "ts-1",
+                        "label": "Part time sheet",
+                        "academicYear": "2026-2027",
+                        "url": "https://example.org/sheet",
+                        "periodStart": "2026-08-15",
+                    }
+                ]
+            },
+        }
+    )
+    monkeypatch.setattr(copy, "call", wire)
+
+    copy._copy_part_time_teachers("https://prod", "http://localhost:8000", {}, {}, say=lambda *_: None)
+
+    assert wire.sent("/teachers/made/requisitions") == [{"label": "Physics TD", "academicYear": "2026-2027"}]
+    # Named first, then filled: the courses only arrive on the update.
+    [filled] = wire.sent("/teacher-requisitions/made")
+    assert filled["content"] == {"courses": [{"id": "c1", "hours": "21"}]}
+    # The link and the pay period both travel; the workbook stays in OneDrive either way.
+    assert wire.sent("/teachers/made/time-sheets") == [
+        {
+            "label": "Part time sheet",
+            "academicYear": "2026-2027",
+            "url": "https://example.org/sheet",
+            "periodStart": "2026-08-15",
+        }
+    ]

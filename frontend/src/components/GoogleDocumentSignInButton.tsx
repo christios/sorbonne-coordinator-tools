@@ -10,6 +10,15 @@ declare global {
 }
 
 const CLIENT_ID = import.meta.env.VITE_GOOGLE_DOCUMENTS_CLIENT_ID as string | undefined;
+
+/**
+ * Whether this deployment can sign in to Google at all.
+ *
+ * Exported so a page can leave the whole feature out rather than draw a panel whose only
+ * content is a sentence saying it does nothing. Production sets the id; a local server
+ * usually does not.
+ */
+export const documentsConfigured = Boolean(CLIENT_ID);
 const GOOGLE_IDENTITY_SCRIPT_ID = "google-identity-services";
 const GOOGLE_DOCUMENT_SYNC_SCOPES = "openid email https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/spreadsheets.readonly";
 

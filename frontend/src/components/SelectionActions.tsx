@@ -1,4 +1,5 @@
 import { FolderInput, LayoutGrid, X } from "lucide-react";
+import type { ReactNode } from "react";
 
 export type SelectionActionsProps = {
   count: number;
@@ -62,15 +63,38 @@ function Controls({ props }: { props: SelectionActionsProps }) {
  * thousand rows is still actionable at the bottom of them.
  */
 export function SelectionFloating(props: SelectionActionsProps) {
-  if (!props.count) return null;
+  return (
+    <SelectionBar count={props.count} onClear={props.onClear}>
+      <Controls props={props} />
+    </SelectionBar>
+  );
+}
+
+/**
+ * The bar itself, without an opinion about what goes in it.
+ *
+ * Students, Cohorts and the part-time teachers all ask the same question — "some rows are
+ * ticked, now what" — and it should look and sit in the same place for all of them. What
+ * differs is the buttons, so that is the only thing a caller passes.
+ */
+export function SelectionBar({
+  count,
+  onClear,
+  children,
+}: {
+  count: number;
+  onClear: () => void;
+  children: ReactNode;
+}) {
+  if (!count) return null;
   return (
     <div className="pointer-events-none fixed inset-x-0 bottom-6 z-40 flex justify-center px-4">
       <div className="pointer-events-auto flex flex-wrap items-center gap-2 rounded-xl border border-[#c9d6e6] bg-white px-4 py-2.5 text-sm shadow-[0_12px_32px_rgba(15,32,54,0.18)]">
-        <span className="font-semibold text-[#1f4e79]">{props.count} selected</span>
-        <Controls props={props} />
+        <span className="font-semibold text-[#1f4e79]">{count} selected</span>
+        {children}
         <button
           type="button"
-          onClick={props.onClear}
+          onClick={onClear}
           aria-label="Clear the selection"
           className="ml-1 rounded p-1 text-[#98a2b3] hover:bg-[#f2f7fb] hover:text-[#344054]"
         >

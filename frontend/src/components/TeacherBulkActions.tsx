@@ -19,6 +19,7 @@ import { Download, ExternalLink, FileSpreadsheet, X } from "lucide-react";
 import { useState } from "react";
 
 import { Modal } from "@/components/Modal";
+import { SelectionBar } from "@/components/SelectionActions";
 import { periodLabel } from "@/services/payPeriods";
 import {
   type Teacher,
@@ -95,43 +96,38 @@ export function TeacherBulkActions({
   const without = chosen.filter((id) => !lines.some((line) => line.teacher === nameOf(id)));
 
   return (
-    <div
-      role="status"
-      className="sticky bottom-0 z-10 flex flex-wrap items-center gap-3 border-t border-[#d9dee7] bg-[#f8fafc] px-5 py-3"
-    >
-      <span className="text-sm font-semibold text-[#171717]">
-        {chosen.length} teacher{chosen.length === 1 ? "" : "s"} chosen
-      </span>
-      <button
-        type="button"
-        disabled={requisitions.isPending}
-        onClick={() => {
-          setSaid("");
-          requisitions.mutate();
-        }}
-        className="inline-flex items-center gap-1.5 rounded-md bg-[#1f4e79] px-3 py-1.5 text-sm font-semibold text-white disabled:bg-[#9ba8b5]"
-      >
-        <Download size={14} /> {requisitions.isPending ? "Preparing…" : "Download requisitions"}
-      </button>
-      <button
-        type="button"
-        onClick={() => {
-          setSaid("");
-          setShowingSheets(true);
-        }}
-        className="inline-flex items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-3 py-1.5 text-sm font-semibold text-[#344054] hover:bg-white"
-      >
-        <FileSpreadsheet size={14} /> Time sheets…
-      </button>
-      <button type="button" onClick={onClear} className="text-sm font-semibold text-[#667085]">
-        Clear
-      </button>
-      {said ? <span className="text-sm text-[#2f6b3d]">{said}</span> : null}
-      {requisitions.error ? (
-        <span role="alert" className="text-sm text-[#8f1f25]">
-          {(requisitions.error as Error).message}
-        </span>
-      ) : null}
+    <>
+      {/* The same bar Students and Cohorts float over their tables; only the buttons differ. */}
+      <SelectionBar count={chosen.length} onClear={onClear}>
+        <button
+          type="button"
+          disabled={requisitions.isPending}
+          onClick={() => {
+            setSaid("");
+            requisitions.mutate();
+          }}
+          className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-3 py-1.5 font-semibold text-white disabled:opacity-50"
+        >
+          <Download size={15} aria-hidden="true" />{" "}
+          {requisitions.isPending ? "Preparing…" : "Download requisitions"}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setSaid("");
+            setShowingSheets(true);
+          }}
+          className="inline-flex items-center gap-2 rounded-md border border-[#b7bec8] bg-white px-3 py-1.5 font-semibold text-[#344054]"
+        >
+          <FileSpreadsheet size={15} aria-hidden="true" /> Time sheets…
+        </button>
+        {said ? <span className="text-[#2f6b3d]">{said}</span> : null}
+        {requisitions.error ? (
+          <span role="alert" className="text-[#8f1f25]">
+            {(requisitions.error as Error).message}
+          </span>
+        ) : null}
+      </SelectionBar>
 
       <Modal
         open={showingSheets}
@@ -219,6 +215,6 @@ export function TeacherBulkActions({
           </p>
         ) : null}
       </Modal>
-    </div>
+    </>
   );
 }
