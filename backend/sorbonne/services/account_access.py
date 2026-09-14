@@ -18,7 +18,10 @@ from sqlalchemy import Engine, create_engine, text
 from sorbonne.config import config
 
 
-APPS = ("syllabus", "teachers", "database", "handbook")
+#: "teachers" was one of these until the part-time teacher database became a page of
+#: Students and Timetables. A grant left over from then is simply not returned, which is
+#: what makes it harmless: it grants access to nothing, because nothing asks about it.
+APPS = ("syllabus", "database", "handbook")
 ADMIN = "admin"
 MEMBER = "member"
 ROLES = frozenset({ADMIN, MEMBER})

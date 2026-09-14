@@ -1,12 +1,13 @@
 // "settings" is not an app: it is reached from the user menu, not from the picker.
-export type ToolId = "roster" | "syllabus" | "teachers" | "database" | "settings";
+export type ToolId = "roster" | "syllabus" | "database" | "settings";
 
-const tools = new Set<ToolId>(["roster", "syllabus", "teachers", "database", "settings"]);
+const tools = new Set<ToolId>(["roster", "syllabus", "database", "settings"]);
 
 function asToolId(value: string): ToolId | null {
-  // Timetables used to be an application of its own; its pages now live in the student
-  // one, so a link somebody kept still opens something rather than nothing.
-  if (value === "timetables") return "database";
+  // Timetables and the part-time teacher database used to be applications of their own;
+  // their pages now live in the student one, so a link somebody kept still opens something
+  // rather than nothing. Which page is picked up from the address in `App`.
+  if (value === "timetables" || value === "teachers") return "database";
   return tools.has(value as ToolId) ? (value as ToolId) : null;
 }
 
@@ -16,7 +17,7 @@ function segments(hash: string): string[] {
 }
 
 export function toolFromLocation(pathname: string, hash: string): ToolId | null {
-  if (pathname === "/requisition" || hash === "#/requisition") return "teachers";
+  if (pathname === "/requisition" || hash === "#/requisition") return "database";
   const pathTool = asToolId(pathname.replace(/^\//, ""));
   if (pathTool) return pathTool;
 

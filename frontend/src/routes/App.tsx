@@ -12,7 +12,6 @@ import { CopyProdButton } from "@/components/CopyProdButton";
 import { PortalSyncButton } from "@/components/PortalSyncButton";
 import { SyllabusBuilder } from "@/components/SyllabusBuilder";
 import { SyncRunDriver } from "@/components/SyncRunDriver";
-import { TeacherDatabase } from "@/components/TeacherDatabase";
 import { StudentDatabase } from "@/components/StudentDatabase";
 import { useStaffUser } from "@/components/useStaffUser";
 import { appsFor } from "@/routes/apps";
@@ -87,7 +86,11 @@ export function App() {
   const downloadLabel = files.length > 1 ? "Download ZIP" : "Download Excel";
 
   useEffect(() => {
-    if (window.location.hash === "#/requisition") window.location.hash = "/teachers";
+    // The two addresses that used to open the part-time teacher database when it was an
+    // application of its own. Both now name the page it became.
+    if (window.location.hash === "#/requisition" || window.location.hash === "#/teachers") {
+      window.location.hash = "/database/part-time-teachers";
+    }
     const handleLocationChange = () => setActiveTool(toolFromLocation(window.location.pathname, window.location.hash));
     window.addEventListener("popstate", handleLocationChange);
     window.addEventListener("hashchange", handleLocationChange);
@@ -288,7 +291,7 @@ export function App() {
             </div>
           )}
         </section>
-      </div> : activeTool === "teachers" ? <TeacherDatabase /> : activeTool === "database" ? <StudentDatabase onOpenSettings={() => openTool("settings")} /> : <div className="min-h-0 flex-1"><SyllabusBuilder /></div>}
+      </div> : activeTool === "database" ? <StudentDatabase onOpenSettings={() => openTool("settings")} /> : <div className="min-h-0 flex-1"><SyllabusBuilder /></div>}
     </main>
   );
 }

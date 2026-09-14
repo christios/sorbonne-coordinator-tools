@@ -17,7 +17,7 @@ describe("Field information", () => {
     listFieldNotes.mockResolvedValueOnce([]).mockResolvedValueOnce([
       {
         id: "note-1",
-        resourceType: "teacher",
+        resourceType: "teacher-field",
         resourceId: "teacher-1",
         fieldKey: "email",
         content: "Use the university address.",
@@ -28,7 +28,7 @@ describe("Field information", () => {
     render(
       <QueryClientProvider client={new QueryClient()}>
         <StaffContext.Provider value={{ email: "a@b.c", name: "Admin", isAdmin: true }}><FieldInfoProvider
-          source={{ resourceType: "teacher", resourceId: "teacher-1", app: "teachers" }}
+          source={{ resourceType: "teacher-field", resourceId: "teacher-1", app: "database" }}
         >
           <FormFieldLabel fieldKey="email">Email</FormFieldLabel>
         </FieldInfoProvider></StaffContext.Provider>
@@ -52,7 +52,7 @@ describe("Field information", () => {
 
     await vi.waitFor(() =>
       expect(upsertFieldNote).toHaveBeenCalledWith({
-        resourceType: "teacher",
+        resourceType: "teacher-field",
         resourceId: "teacher-1",
         fieldKey: "email",
         content: "Use the university address.",
@@ -81,9 +81,9 @@ describe("Field information", () => {
       <QueryClientProvider client={new QueryClient()}>
         <StaffContext.Provider value={{ email: "a@b.c", name: "Admin", isAdmin: true }}><FieldInfoProvider
           source={{
-            resourceType: "teacher-requisition",
+            resourceType: "teacher-requisition-field",
             resourceId: "request-1",
-            app: "teachers",
+            app: "database",
           }}
         >
           <div className="overflow-hidden">

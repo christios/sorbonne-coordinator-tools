@@ -1,4 +1,4 @@
-import { BookOpen, FileText, Users, type LucideIcon } from "lucide-react";
+import { BookOpen, Users, type LucideIcon } from "lucide-react";
 
 import { ToolId } from "@/routes/toolRoute";
 
@@ -23,13 +23,6 @@ export const COORDINATOR_APPS: CoordinatorApp[] = [
     keywords: "syllabus course template academic year comparison",
   },
   {
-    id: "teachers",
-    name: "Part-time Teacher Database",
-    description: "Keep teacher profiles, contacts, notes, and teaching-recruitment requests together.",
-    icon: FileText,
-    keywords: "teacher professor lecturer requisition recruitment contract docx contacts",
-  },
-  {
     id: "database",
     name: "Students and Timetables",
     description:
@@ -37,7 +30,8 @@ export const COORDINATOR_APPS: CoordinatorApp[] = [
     icon: Users,
     keywords:
       "student database cohort group crn roster portal registrar assignment scope block " +
-      "timetable schedule semester upload publish scen student hub platform announcement notice",
+      "timetable schedule semester upload publish scen student hub platform announcement notice " +
+      "part-time teacher professor lecturer requisition recruitment contract docx contacts time sheet",
   },
   {
     id: "handbook",

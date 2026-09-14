@@ -22,12 +22,16 @@ from sorbonne.services.account_access import administers
 #: guidance is for: "what goes in Phone" has one answer on every teacher. The two without
 #: the suffix are the older per-record scope, kept so that anything written under it is
 #: still readable and still editable by the same people.
+#:
+#: The teacher forms belong to "database" because that is where they now live: the
+#: part-time teachers are a page of Students and Timetables rather than an application of
+#: their own, and the person who maintains that app maintains its forms.
 APP_BY_RESOURCE = {
     "syllabus-field": "syllabus",
-    "teacher": "teachers",
-    "teacher-field": "teachers",
-    "teacher-requisition": "teachers",
-    "teacher-requisition-field": "teachers",
+    "teacher": "database",
+    "teacher-field": "database",
+    "teacher-requisition": "database",
+    "teacher-requisition-field": "database",
 }
 
 

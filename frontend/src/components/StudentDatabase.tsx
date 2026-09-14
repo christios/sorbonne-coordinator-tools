@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Blocks, BookMarked, BookOpen, CalendarDays, Clock3, GaugeCircle, GraduationCap, ListChecks, ListTree, Megaphone, UserCheck, Users } from "lucide-react";
+import { Blocks, BookMarked, BookOpen, CalendarDays, Clock3, Contact, GaugeCircle, GraduationCap, ListChecks, ListTree, Megaphone, UserCheck, Users } from "lucide-react";
 import { Globe } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
@@ -7,6 +7,7 @@ import { ActiveCourses } from "@/components/ActiveCourses";
 import { ActiveTeachers } from "@/components/ActiveTeachers";
 import { AnnouncementEditor } from "@/components/AnnouncementEditor";
 import { CohortsPage } from "@/components/CohortsPage";
+import { TeacherDatabase } from "@/components/TeacherDatabase";
 import { GroupSchema } from "@/components/GroupSchema";
 import { CapacityPage } from "@/components/CapacityPage";
 import { TeacherHours } from "@/components/TeacherHours";
@@ -48,6 +49,10 @@ const PAGES = [
   { id: "teachers", name: "Teachers", icon: GraduationCap, group: "Registrar validation" },
   // The department's own list, chosen from the portal's or brought from the part-time database.
   { id: "active-teachers", name: "Active teachers", icon: UserCheck, group: "Registrar validation", parent: "teachers" },
+  // The part-time teachers' own records: profiles, requisitions, time sheets. It was an
+  // application of its own beside this one, which put half of what is known about a
+  // teacher behind a different front door.
+  { id: "part-time-teachers", name: "Part-time Teachers", icon: Contact, group: "Registrar validation", parent: "teachers" },
   { id: "semesters", name: "Semesters", icon: CalendarDays, group: "Timetables" },
   // The timetable request itself: the sections a semester is taught in, and how full they
   // are. It is what the semester above it publishes, not a check against the registrar.
@@ -72,7 +77,7 @@ type PageId = (typeof PAGES)[number]["id"];
  * asked for nothing. Course Registration is now the register half of Cohorts, so that is
  * where its address goes.
  */
-const MOVED: Record<string, PageId> = { registrations: "cohorts" };
+const MOVED: Record<string, PageId> = { registrations: "cohorts", teachers: "part-time-teachers" };
 
 /** The page the address names, or the one to open when it names none we know. */
 function pageOf(hash: string): PageId {
@@ -101,6 +106,10 @@ const TITLES: Record<PageId, { title: string; blurb?: string }> = {
   "group-schema": {
     title: "Group schema",
     blurb: "The shape of a semester before the CRNs: which sets a cohort is split into, which courses each set carries, and the groups inside them.",
+  },
+  "part-time-teachers": {
+    title: "Part-time Teachers",
+    blurb: "Teacher profiles, their recruitment requests, and the links to their time sheets.",
   },
   "teacher-hours": {
     title: "Teacher hours",
@@ -335,6 +344,7 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
           ) : null}
           {page === "teachers" ? <PortalTeachers onOpenTeacher={setTeacherRecord} /> : null}
           {page === "active-teachers" ? <ActiveTeachers onOpenTeacher={setTeacherRecord} /> : null}
+          {page === "part-time-teachers" ? <TeacherDatabase embedded /> : null}
           {page === "group-schema" && cohorts.isLoading ? <ScreenLoading label="Loading cohorts…" /> : null}
           {page === "group-schema" && !cohorts.isLoading ? (
             <GroupSchema cohorts={knownCohorts} onOpenGroups={() => openPage("groups")} />

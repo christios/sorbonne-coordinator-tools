@@ -118,7 +118,7 @@ def test_an_administrator_invites_promotes_suspends_and_removes(
 
     assert [account["email"] for account in listed["accounts"]] == ["new.colleague@sorbonne.ae"]
     assert [(o["email"], o["name"]) for o in listed["owners"]] == [(OWNER, OWNER)]
-    assert listed["owners"][0]["apps"] == {app: "admin" for app in ("syllabus", "teachers", "database", "handbook")}
+    assert listed["owners"][0]["apps"] == {app: "admin" for app in ("syllabus", "database", "handbook")}
 
     promoted = client.patch("/api/v1/users/new.colleague@sorbonne.ae", json={"isAdmin": True})
     assert promoted.json()["isAdmin"] is True

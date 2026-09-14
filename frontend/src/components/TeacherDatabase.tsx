@@ -112,7 +112,7 @@ const EMPLOYEE_TYPES = [
 ];
 const CLASS_TYPES = ["TD", "TP", "CM", "Coach", "Not Applicable"];
 
-export function TeacherDatabase() {
+export function TeacherDatabase({ embedded = false }: { embedded?: boolean } = {}) {
   const client = useQueryClient();
   const [screen, setScreen] = useState<
     | { view: "library" }
@@ -193,6 +193,7 @@ export function TeacherDatabase() {
   if (screen.view === "library")
     return (
       <TeacherLibrary
+        embedded={embedded}
         teachers={teachers.data ?? []}
         summary={summary.data}
         summaryLoading={summary.isLoading}
@@ -263,6 +264,7 @@ export function TeacherDatabase() {
 }
 
 function TeacherLibrary({
+  embedded,
   teachers,
   summary,
   summaryLoading,
@@ -289,6 +291,8 @@ function TeacherLibrary({
   onDeleteFolder,
   onImportCatalogue,
 }: {
+  /** True when this is a page of another app, which has drawn the heading already. */
+  embedded: boolean;
   teachers: Teacher[];
   /** What every row says, asked once for the whole list. */
   summary?: Record<string, TeacherSummary>;
@@ -377,16 +381,25 @@ function TeacherLibrary({
   }
   return (
     <div className="mx-auto max-w-7xl px-1 py-6 sm:px-1.5 lg:px-2">
+      {/*
+        * No title of its own when this is a page of Students and Timetables: that page
+        * has already said what it is, and two headings arguing about it is one too many.
+        * The buttons stay either way, because they are what the heading row is for.
+        */}
       <div className="flex flex-col justify-between gap-4 border-b border-[#d9dee7] pb-5 sm:flex-row sm:items-end">
         <div>
-          <p className="text-sm font-medium text-[#a6292f]">SCEN workspace</p>
-          <h2 className="mt-1 text-2xl font-semibold text-[#171717]">
-            Part-time Teacher Database
-          </h2>
-          <p className="mt-1 text-sm text-[#667085]">
-            Keep teacher profiles, contacts, notes, and recruitment requests in
-            one place.
-          </p>
+          {embedded ? null : (
+            <>
+              <p className="text-sm font-medium text-[#a6292f]">SCEN workspace</p>
+              <h2 className="mt-1 text-2xl font-semibold text-[#171717]">
+                Part-time Teacher Database
+              </h2>
+              <p className="mt-1 text-sm text-[#667085]">
+                Keep teacher profiles, contacts, notes, and recruitment requests in
+                one place.
+              </p>
+            </>
+          )}
         </div>
         <div className="flex flex-wrap gap-3">
           <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-[#b7bec8] bg-white px-4 py-2.5 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]">
@@ -1372,7 +1385,7 @@ export function ProfileOverview({
    */
   return (
     <FieldInfoProvider
-      source={{ resourceType: "teacher-field", resourceId: "shared", app: "teachers" }}
+      source={{ resourceType: "teacher-field", resourceId: "shared", app: "database" }}
     >
       <section className="mt-6 rounded-lg border border-[#d9dee7] bg-white p-5">
         <div className="flex items-center justify-between gap-3">
@@ -1725,7 +1738,7 @@ export function TeacherRequisitionEditor({
       source={{
         resourceType: "teacher-requisition-field",
         resourceId: "shared",
-        app: "teachers",
+        app: "database",
       }}
     >
       <SectionEditorShell

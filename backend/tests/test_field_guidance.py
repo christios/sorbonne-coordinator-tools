@@ -5,7 +5,11 @@ def test_each_app_answers_about_itself() -> None:
     assert may_write("syllabus-field", {"syllabus": "admin"}, platform_admin=False) is True
     assert may_write("syllabus-field", {"syllabus": "member"}, platform_admin=False) is False
     assert may_write("teacher", {"syllabus": "admin"}, platform_admin=False) is False
-    assert may_write("teacher-requisition", {"teachers": "admin"}, platform_admin=False) is True
+    # The teacher forms are pages of Students and Timetables now, so its administrator
+    # maintains them. A grant to the application they used to be is worth nothing.
+    assert may_write("teacher-requisition-field", {"database": "admin"}, platform_admin=False) is True
+    assert may_write("teacher-field", {"database": "admin"}, platform_admin=False) is True
+    assert may_write("teacher-requisition", {"teachers": "admin"}, platform_admin=False) is False
 
 
 def test_a_form_no_app_claims_is_the_platform_administrators_alone() -> None:
