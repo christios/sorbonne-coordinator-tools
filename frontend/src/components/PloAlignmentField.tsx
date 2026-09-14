@@ -65,7 +65,14 @@ export function PloAlignmentField({
               key={option.value}
               className="flex min-w-0 items-center justify-between gap-2 rounded-md border border-[#d9dee7] bg-[#f8fafc] px-3 py-2 text-sm text-[#344054]"
             >
-              <span className="min-w-0 truncate">{option.label}</span>
+              <span className="flex min-w-0 items-baseline gap-2">
+                {option.badge !== undefined ? (
+                  <span className="shrink-0 rounded-full bg-[#e8edf3] px-2 py-0.5 text-xs font-semibold text-[#1f4e79]">
+                    {option.badge}
+                  </span>
+                ) : null}
+                <span className="min-w-0 truncate">{option.label}</span>
+              </span>
               <button
                 type="button"
                 onClick={() => remove(option.value)}

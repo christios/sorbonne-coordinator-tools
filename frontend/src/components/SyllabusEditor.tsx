@@ -1123,17 +1123,32 @@ function LearningOutcomesEditor({
   scenCompetencies: CatalogueEntry[];
   graduateCompetencies: CatalogueEntry[];
 }) {
+  /*
+   * The code is shown as a pill and the outcome read beside it, but the value stored on the
+   * syllabus stays "code: outcome" — that string is what the document says and what a
+   * previous year's syllabus is compared against, and it is not a display decision.
+   */
   const cataloguePloOptions = cataloguePlos.map((plo) => {
     const code = stringify(plo.payload.code) || plo.label;
     const outcome = stringify(plo.payload.outcome);
-    const label = outcome ? `${code}: ${outcome}` : code;
-    return { value: label, label, catalogueId: plo.id };
+    return {
+      value: outcome ? `${code}: ${outcome}` : code,
+      label: outcome || code,
+      badge: code,
+      badgePlacement: "leading" as const,
+      catalogueId: plo.id,
+    };
   });
   const competencyOptions = scenCompetencies.map((entry) => {
     const code = stringify(entry.payload.code) || entry.label;
     const outcome = stringify(entry.payload.outcome);
-    const label = outcome ? `${code}: ${outcome}` : entry.label;
-    return { value: label, label, catalogueId: entry.id };
+    return {
+      value: outcome ? `${code}: ${outcome}` : entry.label,
+      label: outcome || entry.label,
+      badge: code,
+      badgePlacement: "leading" as const,
+      catalogueId: entry.id,
+    };
   });
   const graduateById = new Map(graduateCompetencies.map((entry) => [entry.id, entry]));
   const rows = (section.clos as Row[]) ?? [];
@@ -1655,6 +1670,9 @@ function RowsEditor({
                         onChange={(next) => updateRow(key, next)}
                         multiline={multiline}
                         minRows={3}
+                        // A sentence too long for its box takes another line rather than
+                        // scrolling its end out of sight.
+                        grow={!multiline}
                         history={{ field, onOpenHistory }}
                       />
                     );

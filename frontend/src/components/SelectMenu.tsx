@@ -15,6 +15,11 @@ export type SelectOption = {
   /** "muted" for a badge that means nothing yet — a view nobody has synced. */
   badgeTone?: "accent" | "muted";
   /**
+   * Where the badge sits. A count or a status reads after the thing it counts; a code —
+   * "SCEN-C1" — is what the option is called, and belongs in front of it.
+   */
+  badgePlacement?: "leading" | "trailing";
+  /**
    * What wants attention on this option, counted by kind rather than added up.
    *
    * It was one red number — "9 flagged" — which said that something is wrong nine times
@@ -237,10 +242,15 @@ export function SelectMenu({ label, value, onChange, options, placeholder, trail
               ) : null}
             </span>
           ) : (
-            <span className={wrap ? "whitespace-normal break-words" : "truncate"}>{selectedLabel}</span>
+            <span className={`flex min-w-0 items-center gap-2 ${wrap ? "whitespace-normal break-words" : "truncate"}`}>
+              {selected.length === 1 && selected[0].badge !== undefined && selected[0].badgePlacement === "leading" ? (
+                <Badge text={selected[0].badge} tone={selected[0].badgeTone} />
+              ) : null}
+              {selectedLabel}
+            </span>
           )}
           {selected.length === 1 && selected[0].year ? <YearPill year={selected[0].year} className="ml-2" /> : null}
-          {selected.length === 1 && selected[0].badge !== undefined ? (
+          {selected.length === 1 && selected[0].badge !== undefined && selected[0].badgePlacement !== "leading" ? (
             <Badge text={selected[0].badge} tone={selected[0].badgeTone} />
           ) : null}
           {selected.length === 1 && selected[0].flags ? <Flags flags={selected[0].flags} /> : null}
@@ -264,12 +274,17 @@ export function SelectMenu({ label, value, onChange, options, placeholder, trail
               className={`flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm font-normal transition-colors ${selectedValues.includes(option.value) ? "bg-[#e8edf3] font-semibold text-[#1f4e79]" : "text-[#344054] hover:bg-[#f7f8fa]"}`}
             >
               {multiple ? <span aria-hidden="true" className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border ${selectedValues.includes(option.value) ? "border-[#1f4e79] bg-[#1f4e79] text-white" : "border-[#98a2b3] bg-white"}`}>{selectedValues.includes(option.value) ? "✓" : ""}</span> : null}
+              {option.badge !== undefined && option.badgePlacement === "leading" ? (
+                <Badge text={option.badge} tone={option.badgeTone} />
+              ) : null}
               {/* Wrapped, never clipped: an option a coordinator cannot read is one they cannot choose. */}
               <span className="min-w-0 flex-1 whitespace-normal break-words">
                 {option.label}
                 {option.year ? <YearPill year={option.year} className="ml-2 align-[0.05em]" /> : null}
               </span>
-              {option.badge !== undefined ? <Badge text={option.badge} tone={option.badgeTone} /> : null}
+              {option.badge !== undefined && option.badgePlacement !== "leading" ? (
+                <Badge text={option.badge} tone={option.badgeTone} />
+              ) : null}
               {option.flags ? <Flags flags={option.flags} columns /> : null}
             </button>
           ))}

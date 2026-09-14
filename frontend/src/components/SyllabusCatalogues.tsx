@@ -6,6 +6,7 @@ import { FormEvent, useState } from "react";
 import { AutoResizeTextarea } from "@/components/AutoResizeTextarea";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { PloAlignmentField } from "@/components/PloAlignmentField";
+import { courseLabel, listCoursesByCode } from "@/services/courses";
 import { SectionEditorShell } from "@/components/SectionEditorShell";
 import {
   CatalogueCategory,
@@ -230,7 +231,7 @@ function CompetencyCatalogue({ category, title, description, createLabel }: { ca
   return <div className="rounded-lg border border-[#d9dee7] bg-white p-5">
     <CatalogueHeader title={title} description={description} action={<button type="button" onClick={() => setShowCreate(true)} className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white"><FilePlus2 size={16} /> {createLabel}</button>} />
     {showCreate ? <CompetencyForm category={category} entries={data.data ?? []} onCancel={() => setShowCreate(false)} onSaved={() => setShowCreate(false)} /> : null}
-    <CatalogueEntries category={category} entries={data.data ?? []} isLoading={data.isLoading} renderDetails={(entry) => <CompetencyDetails entry={entry} />} />
+    <CatalogueEntries category={category} entries={data.data ?? []} isLoading={data.isLoading} renderBadge={(entry) => <CompetencyBadge entry={entry} />} />
   </div>;
 }
 
@@ -255,14 +256,11 @@ function nextCompetencyCode(entries: CatalogueEntry[], category: "competencies" 
   return `${prefix}${highest + 1}`;
 }
 
-/** The code as a pill, the competency itself in full beside it. */
-function CompetencyDetails({ entry }: { entry: CatalogueEntry }) {
+/** The code, on its own line above the competency it names. */
+function CompetencyBadge({ entry }: { entry: CatalogueEntry }) {
   const code = stringValue(entry.payload.code);
-  const text = stringValue(entry.payload.outcome) || entry.label;
-  return <p className="mt-1 flex flex-wrap items-baseline gap-2 text-sm text-[#667085]">
-    {code ? <span className="shrink-0 rounded-full bg-[#e8edf3] px-2 py-0.5 text-xs font-semibold text-[#1f4e79]">{code}</span> : null}
-    <span className="min-w-0">{text}</span>
-  </p>;
+  if (!code) return null;
+  return <span className="mb-1 inline-flex w-fit rounded-full bg-[#e8edf3] px-2 py-0.5 text-xs font-semibold text-[#1f4e79]">{code}</span>;
 }
 
 /**
@@ -304,7 +302,7 @@ function SimpleEntryForm({ category, entry, fieldLabel, onCancel, onSaved }: { c
   return <form onSubmit={(event) => { event.preventDefault(); if (label.trim()) save.mutate(); }} className="mt-5 grid gap-4 rounded-lg border border-[#cbd5e1] bg-[#f8fafc] p-4"><Field label={fieldLabel}><input autoFocus required value={label} onChange={(event) => setLabel(event.target.value)} className={inputClass} /></Field><Field label="Supporting details" hint="Optional"><AutoResizeTextarea minRows={2} value={details} onChange={(event) => setDetails(event.target.value)} className={textareaClass} /></Field><FormActions isSaving={save.isPending} error={save.error} onCancel={onCancel} submitLabel={entry ? "Save changes" : "Add to catalogue"} /></form>;
 }
 
-function CatalogueEntries({ category, entries, isLoading, renderDetails, selectedId, onSelect }: { category: CatalogueCategory; entries: CatalogueEntry[]; isLoading: boolean; renderDetails?: (entry: CatalogueEntry) => React.ReactNode; selectedId?: string; onSelect?: (id: string) => void }) {
+function CatalogueEntries({ category, entries, isLoading, renderBadge, renderDetails, selectedId, onSelect }: { category: CatalogueCategory; entries: CatalogueEntry[]; isLoading: boolean; renderBadge?: (entry: CatalogueEntry) => React.ReactNode; renderDetails?: (entry: CatalogueEntry) => React.ReactNode; selectedId?: string; onSelect?: (id: string) => void }) {
   const [retireCandidate, setRetireCandidate] = useState<CatalogueEntry | null>(null);
   const [editing, setEditing] = useState<CatalogueEntry | null>(null);
   const [editingDirty, setEditingDirty] = useState(false);
@@ -340,7 +338,7 @@ function CatalogueEntries({ category, entries, isLoading, renderDetails, selecte
     const toggleEditing = () => requestEditingAction(isEditing ? { type: "close" } : { type: "open", entry });
     const cardClass = entry.isRetired ? "border-[#e5e7eb] bg-[#f8fafc] opacity-75" : selectedId === entry.id || isEditing ? "border-[#1f4e79] bg-[#f2f7fb]" : "border-[#d9dee7] bg-white hover:border-[#1f4e79] hover:bg-[#f7fafd]";
     return <article key={entry.id} className={`relative min-w-0 max-w-full rounded-lg border p-4 ${isEditing ? "overflow-hidden" : ""} ${cardClass}`}>
-      <div className="relative z-10 flex min-w-0 items-start gap-3"><button type="button" disabled={entry.isRetired} onClick={toggleEditing} aria-label={isEditing ? `Close editor for ${entry.label}` : `Edit ${entry.label}`} className="flex min-w-0 flex-1 items-start gap-3 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1f4e79] focus-visible:ring-offset-2 disabled:cursor-default"><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h4 className="break-words font-semibold text-[#344054]">{entry.label}</h4>{entry.isRetired ? <span className="rounded-full bg-[#f2f4f7] px-2 py-0.5 text-xs font-semibold text-[#667085]">Retired</span> : null}</div>{renderDetails?.(entry)}</div></button>{!entry.isRetired ? <div className="flex shrink-0 items-center gap-1">{/* The card itself opens the editor; this is the same control for anyone who aims at the pencil, which is most people. */}<button type="button" onClick={toggleEditing} tabIndex={-1} aria-hidden="true" className="inline-flex h-8 w-8 items-center justify-center rounded-md text-[#1f4e79] hover:bg-[#eef4fa]"><Pencil size={16} /></button><button type="button" onClick={() => setRetireCandidate(entry)} aria-label={`Retire ${entry.label}`} className="inline-flex h-8 w-8 items-center justify-center rounded-md text-[#b4232d] hover:bg-[#fff1f2]"><Trash2 size={16} /></button></div> : null}</div>{isEditing ? <div id={`catalogue-editor-${entry.id}`} className="relative z-10 mt-4 -mx-4 -mb-4 border-t border-[#d9dee7] bg-[#f8fafc] p-4 [&>form]:!mt-0 [&>form]:!rounded-none [&>form]:!border-0 [&>form]:!bg-transparent [&>form]:!p-0"><EditEntry category={category} entry={editing} onClose={closeEditor} onDirtyChange={setEditingDirty} /></div> : null}
+      <div className="relative z-10 flex min-w-0 items-start gap-3"><button type="button" disabled={entry.isRetired} onClick={toggleEditing} aria-label={isEditing ? `Close editor for ${entry.label}` : `Edit ${entry.label}`} className="flex min-w-0 flex-1 items-start gap-3 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1f4e79] focus-visible:ring-offset-2 disabled:cursor-default"><div className="min-w-0 flex-1">{renderBadge ? <span className="block">{renderBadge(entry)}</span> : null}<div className="flex flex-wrap items-center gap-2"><h4 className="break-words font-semibold text-[#344054]">{entry.label}</h4>{entry.isRetired ? <span className="rounded-full bg-[#f2f4f7] px-2 py-0.5 text-xs font-semibold text-[#667085]">Retired</span> : null}</div>{renderDetails?.(entry)}</div></button>{!entry.isRetired ? <div className="flex shrink-0 items-center gap-1">{/* The card itself opens the editor; this is the same control for anyone who aims at the pencil, which is most people. */}<button type="button" onClick={toggleEditing} tabIndex={-1} aria-hidden="true" className="inline-flex h-8 w-8 items-center justify-center rounded-md text-[#1f4e79] hover:bg-[#eef4fa]"><Pencil size={16} /></button><button type="button" onClick={() => setRetireCandidate(entry)} aria-label={`Retire ${entry.label}`} className="inline-flex h-8 w-8 items-center justify-center rounded-md text-[#b4232d] hover:bg-[#fff1f2]"><Trash2 size={16} /></button></div> : null}</div>{isEditing ? <div id={`catalogue-editor-${entry.id}`} className="relative z-10 mt-4 -mx-4 -mb-4 border-t border-[#d9dee7] bg-[#f8fafc] p-4 [&>form]:!mt-0 [&>form]:!rounded-none [&>form]:!border-0 [&>form]:!bg-transparent [&>form]:!p-0"><EditEntry category={category} entry={editing} onClose={closeEditor} onDirtyChange={setEditingDirty} /></div> : null}
     </article>;
   })}</div><ConfirmDialog open={Boolean(retireCandidate)} title={`Retire ${retireCandidate?.label ?? "catalogue entry"}?`} description="It will no longer be available for new selections. Existing syllabus references will continue to resolve." confirmLabel={retire.isPending ? "Retiring…" : "Retire"} onClose={() => setRetireCandidate(null)} onConfirm={() => retireCandidate && retire.mutate(retireCandidate)} /><ConfirmDialog open={Boolean(pendingEditingAction)} title="Discard unsaved changes?" description="This card has changes that have not been saved. Discard them and close the card?" confirmLabel="Discard changes" onClose={() => setPendingEditingAction(null)} onConfirm={confirmDiscard} /></>;
 }
@@ -364,7 +362,7 @@ function CompetenciesCatalogue() {
   const [showCreate, setShowCreate] = useState(false);
   const data = useCatalogue("competencies");
   const graduate = useCatalogue("graduate-competencies");
-  return <div className="rounded-lg border border-[#d9dee7] bg-white p-5"><CatalogueHeader title="SCEN competencies" description="Reference competencies for the department. Attach the SUAD graduate competencies each one develops." action={<button type="button" onClick={() => setShowCreate(true)} className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white"><FilePlus2 size={16} /> New competency</button>} />{showCreate ? <CompetencyForm category="competencies" entries={data.data ?? []} onCancel={() => setShowCreate(false)} onSaved={() => setShowCreate(false)} /> : null}<CatalogueEntries category="competencies" entries={data.data ?? []} isLoading={data.isLoading} renderDetails={(entry) => <><CompetencyDetails entry={entry} /><GraduateCompetencyPicker entry={entry} graduate={graduate.data ?? []} /></>} /></div>;
+  return <div className="rounded-lg border border-[#d9dee7] bg-white p-5"><CatalogueHeader title="SCEN competencies" description="Reference competencies for the department. Attach the SUAD graduate competencies each one develops." action={<button type="button" onClick={() => setShowCreate(true)} className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white"><FilePlus2 size={16} /> New competency</button>} />{showCreate ? <CompetencyForm category="competencies" entries={data.data ?? []} onCancel={() => setShowCreate(false)} onSaved={() => setShowCreate(false)} /> : null}<CatalogueEntries category="competencies" entries={data.data ?? []} isLoading={data.isLoading} renderBadge={(entry) => <CompetencyBadge entry={entry} />} renderDetails={(entry) => <GraduateCompetencyPicker entry={entry} graduate={graduate.data ?? []} />} /></div>;
 }
 
 function GraduateCompetencyPicker({ entry, graduate }: { entry: CatalogueEntry; graduate: CatalogueEntry[] }) {
@@ -381,7 +379,12 @@ function GraduateCompetencyPicker({ entry, graduate }: { entry: CatalogueEntry; 
       }),
     onSuccess: () => { void client.invalidateQueries({ queryKey: ["syllabus-catalogues", "competencies"] }); },
   });
-  const options = graduate.map((item) => ({ value: item.label, label: item.label }));
+  const options = graduate.map((item) => ({
+    value: item.label,
+    label: stringValue(item.payload.outcome) || item.label,
+    badge: stringValue(item.payload.code),
+    badgePlacement: "leading" as const,
+  }));
   const value = graduate.filter((item) => ids.includes(item.id)).map((item) => item.label).join("\n");
   return <div className="mt-3">
     <PloAlignmentField
@@ -442,11 +445,27 @@ function CurriculumMappingForm({ programmeId, plos, entry, onCancel, onSaved }: 
   const [code, setCode] = useState(entry?.label ?? "");
   const [title, setTitle] = useState(stringValue(entry?.payload.courseTitle));
   const [semester, setSemester] = useState(stringValue(entry?.payload.semester));
+  // The same list of courses a syllabus is bound to, so a map cannot name a course that
+  // does not exist or spell one differently from the record it is mapping.
+  const courses = useQuery({ queryKey: ["course-catalogue", "by-code"], queryFn: () => listCoursesByCode() });
+  const known = (courses.data ?? []).find((course) => course.courseCode === code);
+  const courseOptions = (courses.data ?? []).map((course) => ({
+    value: course.courseCode,
+    label: course.courseTitle,
+    badge: course.courseCode,
+    badgePlacement: "leading" as const,
+    searchText: courseLabel(course),
+  }));
+  const chooseCourse = (nextCode: string) => {
+    const course = (courses.data ?? []).find((item) => item.courseCode === nextCode);
+    setCode(nextCode);
+    if (course) setTitle(course.courseTitle);
+  };
   // A maintainer choosing what a course must address needs to read the outcome, not a number.
   const options = plos.map((plo) => {
     const code = stringValue(plo.payload.code) || plo.label;
     const outcome = stringValue(plo.payload.outcome);
-    return { value: plo.id, label: outcome ? `${code}: ${outcome}` : code };
+    return { value: plo.id, label: outcome || code, badge: code, badgePlacement: "leading" as const };
   });
   const initial = Array.isArray(entry?.payload.ploIds) ? (entry?.payload.ploIds as string[]) : [];
   const [selected, setSelected] = useState<string[]>(initial);
@@ -467,18 +486,32 @@ function CurriculumMappingForm({ programmeId, plos, entry, onCancel, onSaved }: 
       onSaved();
     },
   });
-  const labelFor = (id: string) => options.find((option) => option.value === id)?.label ?? "";
+
   return <form onSubmit={(event) => { event.preventDefault(); if (code.trim()) save.mutate(); }} className="mt-5 grid gap-4 rounded-lg border border-[#cbd5e1] bg-[#f8fafc] p-4">
-    <Field label="Course code"><input autoFocus required value={code} onChange={(event) => setCode(event.target.value)} className={inputClass} /></Field>
-    <Field label="Course title"><input value={title} onChange={(event) => setTitle(event.target.value)} className={inputClass} /></Field>
+    <Field label="Course" hint="From Students and Timetables">
+      <SelectMenu
+        label="Course"
+        value={code}
+        onChange={chooseCourse}
+        wrap
+        searchable
+        searchPlaceholder="Search by code or title"
+        placeholder={courses.isLoading ? "Loading courses…" : "Choose a course"}
+        options={code && !known ? [{ value: code, label: title || code, badge: code, badgePlacement: "leading" as const }, ...courseOptions] : courseOptions}
+      />
+    </Field>
+    {/* The course record owns the title; it is only typed for a course the list does not hold. */}
+    {known
+      ? <Field label="Course title"><p className="flex min-h-10 w-full items-center rounded-md border border-[#e5e7eb] bg-[#f8fafc] px-3 text-sm text-[#475467]">{title || "—"}</p></Field>
+      : <Field label="Course title"><input value={title} onChange={(event) => setTitle(event.target.value)} className={inputClass} /></Field>}
     <Field label="Level and semester" hint="For example L1-S1"><input value={semester} onChange={(event) => setSemester(event.target.value)} className={inputClass} /></Field>
     <PloAlignmentField
       label="Expected programme learning outcomes"
       pickerLabel={`Add an expected outcome to ${code || "this course"}`}
       emptyText="No outcomes expected of this course yet."
       addText="Add expected outcome"
-      value={selected.map(labelFor).filter(Boolean).join("\n")}
-      onChange={(next) => setSelected(next.split("\n").filter(Boolean).map((label) => options.find((option) => option.label === label)?.value).filter((id): id is string => Boolean(id)))}
+      value={selected.join("\n")}
+      onChange={(next) => setSelected(next.split("\n").filter(Boolean))}
       options={options}
     />
     <FormActions isSaving={save.isPending} error={save.error} onCancel={onCancel} submitLabel={entry ? "Save changes" : "Add to the map"} />
