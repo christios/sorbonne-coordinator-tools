@@ -7,6 +7,7 @@ import { Modal } from "@/components/Modal";
 import { PortalTermLink } from "@/components/PortalTermLink";
 import { SemesterImport } from "@/components/SemesterImport";
 import { SemesterPublish } from "@/components/SemesterPublish";
+import { SemesterTimetableButton } from "@/components/SemesterTimetable";
 import { SemesterUpdate } from "@/components/SemesterUpdate";
 import {
   TimetableTerm,
@@ -173,6 +174,8 @@ export function SemesterList({ host }: { host: string | null }) {
                           </td>
                           <td className="px-6 py-4">
                             <div className="flex justify-end gap-2">
+                              {/* The whole department's week, which no other calendar shows. */}
+                              <SemesterTimetableButton term={term} />
                               <button
                                 type="button"
                                 onClick={() => setPublishing(term)}
