@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, ArrowRightCircle, Check, ChevronDown, EyeOff, GraduationCap, ShieldCheck, Wand2, X } from "lucide-react";
+import { AlertTriangle, ArrowRightCircle, Check, ChevronDown, ClipboardList, EyeOff, GraduationCap, ShieldCheck, Wand2, X } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { CommentThread } from "@/components/CommentThread";
@@ -30,6 +30,8 @@ import {
   type ActiveCrn,
 } from "@/services/portalLists";
 import { allChanges, historyFor, type PullHistory } from "@/services/pullHistory";
+import { copyTable } from "@/services/copyCells";
+import { CHANGE_COLUMNS, changesRows, noteChanges, registrationChanges } from "@/services/registrationChanges";
 import { reconcile, tally } from "@/services/registrationLists";
 import type { StudentRow } from "@/services/rosterView";
 import { fetchSchema } from "@/services/scenRosters";
@@ -335,6 +337,26 @@ export function StudentRecord({
    * elective of another department is drawn — it is where the student will be — but is
    * nothing of ours to open.
    */
+  /*
+   * This student's share of the registrar's worklist.
+   *
+   * The same two builders the Cohorts page uses, over the verdicts and warnings already
+   * on screen — so a record and the table can never hand the registrar different lines
+   * for the same person. The name and year are this one student's, which is all a
+   * one-student copy needs.
+   */
+  const myChanges = [
+    ...registrationChanges(mismatches, () => row.name, cohort?.name ?? "", () => row.yearLevel),
+    ...noteChanges(judged?.own ?? [], () => row.name, cohort?.name ?? "", () => row.yearLevel),
+  ];
+  const [copied, setCopied] = useState("");
+  const copyChanges = async () => {
+    if (!myChanges.length) return;
+    const done = await copyTable([...CHANGE_COLUMNS], changesRows(myChanges));
+    setCopied(done ? `${myChanges.length} line${myChanges.length === 1 ? "" : "s"} copied` : "Could not copy");
+    window.setTimeout(() => setCopied(""), 2000);
+  };
+
   const [showingCrn, setShowingCrn] = useState<ActiveCrn | null>(null);
   const inRegister = (crn: string) => (register.data ?? []).find((entry) => entry.crn === crn) ?? null;
   /*
@@ -586,6 +608,29 @@ export function StudentRecord({
           <Card
             title="CRNs"
             note="What their groups come to, what the registrar has, and where the two part company."
+            beside={
+              /*
+               * The registrar's worklist for this one student. The table's copy answers
+               * "what does this cohort owe the registrar"; somebody looking at one student
+               * is asking the same question about them, and should not have to go back to
+               * the table and tick a box to ask it.
+               */
+              <button
+                type="button"
+                onClick={() => void copyChanges()}
+                disabled={!myChanges.length}
+                title={
+                  myChanges.length
+                    ? `Copy the ${myChanges.length} line${myChanges.length === 1 ? "" : "s"} the registrar needs for this student`
+                    : "Nothing to change for this student"
+                }
+                aria-label="Copy this student's registrations to change"
+                className="inline-flex items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-2 py-1 text-xs font-semibold text-[#344054] hover:bg-[#f8fafc] disabled:cursor-not-allowed disabled:text-[#c8d0da]"
+              >
+                <ClipboardList size={13} aria-hidden="true" />
+                {copied || (myChanges.length ? `Copy ${myChanges.length}` : "Nothing to copy")}
+              </button>
+            }
           >
             {catalogue.isLoading || registrations.isLoading ? (
               <Empty>Reading…</Empty>
@@ -819,10 +864,26 @@ export function StudentRecord({
   );
 }
 
-function Card({ title, note, className = "", children }: { title: string; note?: string; className?: string; children: ReactNode }) {
+function Card({
+  title,
+  note,
+  className = "",
+  beside,
+  children,
+}: {
+  title: string;
+  note?: string;
+  className?: string;
+  /** A control belonging to this card, at its top right beside the heading. */
+  beside?: ReactNode;
+  children: ReactNode;
+}) {
   return (
     <section className={`rounded-lg border border-[#e4e8ef] bg-white px-4 py-3 ${className}`}>
-      <h3 className="text-sm font-semibold text-[#171717]">{title}</h3>
+      <div className="flex items-start gap-3">
+        <h3 className="flex-1 text-sm font-semibold text-[#171717]">{title}</h3>
+        {beside ? <div className="shrink-0">{beside}</div> : null}
+      </div>
       {note ? <p className="mb-2 text-xs text-[#98a2b3]">{note}</p> : <div className="mb-2" />}
       {children}
     </section>

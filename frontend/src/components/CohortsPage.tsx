@@ -920,8 +920,9 @@ export function CohortsPage({
            * The registrar's worklist, beside Copy because it is the same gesture: take
            * what this page knows and hand it to somebody who acts on it.
            */
-          tools={
+          tools={({ selected }) => (
             <RegistrationChangesButton
+              selected={selected}
               cohorts={cohorts}
               cohortId={cohortId}
               cohortName={cohort?.name ?? ""}
@@ -936,7 +937,7 @@ export function CohortsPage({
                */
               warningsIn={(id) => (byCohort.get(id) ?? []).filter((warning) => !dismissed.has(warning.key))}
             />
-          }
+          )}
           onPreselectTaken={onFocusTaken}
           scope={{ cohortId }}
           everywhere={everywhere}

@@ -46,6 +46,7 @@ export function RegistrationChangesButton({
   nameOf,
   yearOf,
   warningsIn,
+  selected,
 }: {
   cohorts: Cohort[];
   /** The cohort on screen, which is what "this cohort" means. */
@@ -60,6 +61,15 @@ export function RegistrationChangesButton({
    * a question the page has answered, and two answers are two things to disagree.
    */
   warningsIn: (cohortId: string) => Warning[];
+  /**
+   * The students ticked on the table, if any.
+   *
+   * A selection is a narrower question asked in the same breath — "these five, for the
+   * meeting I am walking into" — so while one stands it is the ONLY thing on offer. A
+   * dialog that went on offering the whole cohort beside it would make the tick boxes
+   * advisory, which is not what ticking something means.
+   */
+  selected?: ReadonlySet<string>;
 }) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState("");
@@ -96,6 +106,9 @@ export function RegistrationChangesButton({
   );
   const mine = byCohort[cohorts.findIndex((cohort) => cohort.id === cohortId)] ?? [];
   const everyone = byCohort.flat();
+  // Across every cohort, not the one on screen: a selection widened to every cohort holds
+  // students from several, and copying only the current one's would be a silent omission.
+  const picked = selected?.size ? everyone.filter((change) => selected.has(change.studentId)) : null;
   // A cohort whose semester is not linked to a portal term has no answer to give, and a
   // silent zero over a question nobody could ask is the wrong kind of quiet.
   const unanswered = checks.filter((check) => check.isError).length;
@@ -154,18 +167,34 @@ export function RegistrationChangesButton({
           <p className="text-sm text-[#667085]">Reading the register…</p>
         ) : (
           <div className="space-y-2">
-            <Choice
-              label={cohortName || "This cohort"}
-              changes={mine}
-              copied={copied}
-              onCopy={() => copy(mine)}
-            />
-            <Choice
-              label={`All ${cohorts.length} cohorts`}
-              changes={everyone}
-              copied={copied}
-              onCopy={() => copy(everyone)}
-            />
+            {picked ? (
+              <>
+                <Choice
+                  label={`The ${selected?.size} student${selected?.size === 1 ? "" : "s"} ticked on the table`}
+                  changes={picked}
+                  copied={copied}
+                  onCopy={() => copy(picked)}
+                />
+                <p className="text-xs text-[#98a2b3]">
+                  A selection is what this copies while it stands. Clear the ticks to copy the whole cohort again.
+                </p>
+              </>
+            ) : (
+              <>
+                <Choice
+                  label={cohortName || "This cohort"}
+                  changes={mine}
+                  copied={copied}
+                  onCopy={() => copy(mine)}
+                />
+                <Choice
+                  label={`All ${cohorts.length} cohorts`}
+                  changes={everyone}
+                  copied={copied}
+                  onCopy={() => copy(everyone)}
+                />
+              </>
+            )}
             {unanswered ? (
               <p className="text-xs text-[#98a2b3]">
                 {unanswered} cohort{unanswered === 1 ? "" : "s"} could not be checked — no portal term is linked to
