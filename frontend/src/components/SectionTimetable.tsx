@@ -76,8 +76,12 @@ type TimetableProps = {
    * How much of the week the sweep could not draw, for a caller that is filling and has
    * therefore hidden the sentences that usually say so. Silence about it would read as a
    * complete week, and the whole value of this grid is that you can trust what is not in it.
+   *
+   * The CRNs themselves rather than three totals: a caller that knows some of them are not
+   * classes at all — a course-level row that never holds hours of its own — can only leave
+   * those out of the tally if it is told which they are.
    */
-  onCoverage?: (coverage: { unasked: number; gone: number; unbooked: number }) => void;
+  onCoverage?: (coverage: { unasked: string[]; gone: string[]; unbooked: string[] }) => void;
   /** An hour's height in pixels, for the ordinary calendar. */
   hourHeight?: number;
   /**
@@ -178,10 +182,11 @@ function Timetable({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [firstSession]);
 
-  // Said up the way rather than printed, for a caller that has hidden the sentences.
-  const coverage = `${unasked.length}|${gone.length}|${unbooked.length}`;
+  // Said up the way rather than printed, for a caller that has hidden the sentences. Keyed
+  // on the CRNs and not on how many there are, since which ones they are is now the point.
+  const coverage = `${unasked.join(",")}|${gone.join(",")}|${unbooked.join(",")}`;
   useEffect(() => {
-    onCoverage?.({ unasked: unasked.length, gone: gone.length, unbooked: unbooked.length });
+    onCoverage?.({ unasked, gone, unbooked });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [coverage]);
 

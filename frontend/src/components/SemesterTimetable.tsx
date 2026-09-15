@@ -56,7 +56,11 @@ export function SemesterTimetable({ term, onBack }: { term: TimetableTerm; onBac
   const [navSlot, setNavSlot] = useState<HTMLDivElement | null>(null);
   // What the sweep could not draw. The grid hides the sentences that usually say so, and
   // silence about it would read as a complete week.
-  const [missing, setMissing] = useState({ unasked: 0, gone: 0, unbooked: 0 });
+  const [missing, setMissing] = useState<{ unasked: string[]; gone: string[]; unbooked: string[] }>({
+    unasked: [],
+    gone: [],
+    unbooked: [],
+  });
 
   const held = useQuery({
     queryKey: ["term-crns", term.id],
@@ -66,6 +70,30 @@ export function SemesterTimetable({ term, onBack }: { term: TimetableTerm; onBac
   // The department's own list, so a box knows whether there is a record behind it to open.
   const register = useQuery({ queryKey: ["active-crns", ""], queryFn: () => fetchActiveCrns(), retry: false });
   const inRegister = (crn: string) => (register.data ?? []).find((row) => row.crn === crn) ?? null;
+
+  /*
+   * Course-level rows, which are not classes and are never drawn.
+   *
+   * A mutualized course keeps one row of its own that the real sections hang from. Nobody
+   * registers into it, so the sweep never asks the registrar about it, so it lands among
+   * the ones the grid could not draw — thirty of them on a semester where eighteen sections
+   * are genuinely missing. Counting those made the honest number unreadable.
+   *
+   * `childCount` alone is not enough to set one aside: a row that both parents others and
+   * is itself taught somewhere on a card IS a class, and its absence from the week is a
+   * real absence. Only a parent that teaches nobody is passed over.
+   */
+  const passedOver = useMemo(() => {
+    const rows = register.data ?? [];
+    return new Set(rows.filter((row) => row.childCount > 0 && row.usedBy === 0).map((row) => row.crn));
+  }, [register.data]);
+  const notDrawn = useMemo(() => {
+    const keep = (crns: string[]) => crns.filter((crn) => !passedOver.has(crn));
+    const [unasked, gone, unbooked] = [keep(missing.unasked), keep(missing.gone), keep(missing.unbooked)];
+    const setAside = missing.unasked.length + missing.gone.length + missing.unbooked.length
+      - (unasked.length + gone.length + unbooked.length);
+    return { unasked, gone, unbooked, setAside, total: unasked.length + gone.length + unbooked.length };
+  }, [missing, passedOver]);
 
   /*
    * Which group of ours each section stands for — "TD 3", "CM 1 · Physics".
@@ -208,18 +236,23 @@ export function SemesterTimetable({ term, onBack }: { term: TimetableTerm; onBac
               <Zoom label="Height" value={rowHeight} {...HEIGHT} onChange={setRowHeight} />
               <span className="text-xs text-[#98a2b3]">
                 {`${shown.length} of ${all.length}`}
-                {missing.unasked + missing.gone + missing.unbooked ? (
+                {notDrawn.total ? (
                   <span
                     className="ml-2 text-[#8a6116]"
                     title={[
-                      missing.unasked ? `${missing.unasked} never swept from the registrar — run a portal sync` : "",
-                      missing.gone ? `${missing.gone} the registrar has stopped answering for` : "",
-                      missing.unbooked ? `${missing.unbooked} the registrar has booked no hours for` : "",
+                      notDrawn.unasked.length
+                        ? `${notDrawn.unasked.length} never swept from the registrar — run a portal sync`
+                        : "",
+                      notDrawn.gone.length ? `${notDrawn.gone.length} the registrar has stopped answering for` : "",
+                      notDrawn.unbooked.length ? `${notDrawn.unbooked.length} the registrar has booked no hours for` : "",
+                      notDrawn.setAside
+                        ? `${notDrawn.setAside} course-level row(s) are not counted — they hold no hours of their own`
+                        : "",
                     ]
                       .filter(Boolean)
                       .join(". ")}
                   >
-                    {missing.unasked + missing.gone + missing.unbooked} not drawn
+                    {notDrawn.total} not drawn
                   </span>
                 ) : null}
               </span>

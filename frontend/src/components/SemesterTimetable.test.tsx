@@ -76,6 +76,50 @@ describe("a semester's whole week", () => {
     expect(await screen.findByText("3 of 3")).toBeTruthy();
   });
 
+  describe("what it says it could not draw", () => {
+    /** A register row, with only the fields the count reads spelled out. */
+    const row = (crn: string, childCount: number, usedBy: number) =>
+      ({ crn, courseCode: "MATH-100", childCount, usedBy }) as lists.ActiveCrn;
+
+    /** Two sections nobody has swept: one a real class, one the course-level row above it. */
+    function unswept() {
+      vi.spyOn(lists, "fetchTermCrns").mockResolvedValue({
+        portalTermCode: "262710",
+        crns: {
+          ...CRNS,
+          "24001": { courseCode: "MATH-100", title: "Maths G.4-TD", teacherName: "", status: "in_portal" },
+          "24248": { courseCode: "MATH-100", title: "Mathematics 1", teacherName: "", status: "in_portal" },
+        },
+      });
+      vi.spyOn(lists, "fetchFacilitySections").mockResolvedValue({
+        termCode: "262710",
+        pulledAt: "2026-09-01T00:00:00+00:00",
+        sections: [
+          { crn: "24001", courseCode: "", title: "", teacherName: "", state: "unchecked", meetings: [] },
+          { crn: "24248", courseCode: "", title: "", teacherName: "", state: "unchecked", meetings: [] },
+        ],
+      });
+    }
+
+    it("passes over a course-level row, which holds no hours of its own", async () => {
+      // Thirty of these on a real semester, against eighteen sections genuinely missing:
+      // counted, they made the honest number unreadable.
+      unswept();
+      vi.spyOn(lists, "fetchActiveCrns").mockResolvedValue([row("24001", 0, 1), row("24248", 4, 0)]);
+      show();
+
+      expect(await screen.findByText("1 not drawn")).toBeTruthy();
+    });
+
+    it("counts a parent that is itself taught, whose absence from the week is real", async () => {
+      unswept();
+      vi.spyOn(lists, "fetchActiveCrns").mockResolvedValue([row("24001", 0, 1), row("24248", 4, 2)]);
+      show();
+
+      expect(await screen.findByText("2 not drawn")).toBeTruthy();
+    });
+  });
+
   it("says plainly when the semester is not linked to a portal term", async () => {
     // Without a link the registrar has nothing filed under it, and a blank grid would read
     // as "nothing is taught" rather than "nobody has asked".
