@@ -53,7 +53,7 @@ describe("a semester's whole week", () => {
   it("asks the registrar for every live section of the semester, and not the withdrawn one", async () => {
     show();
 
-    expect(await screen.findByText("3 of 3 sections")).toBeTruthy();
+    expect(await screen.findByText("3 of 3")).toBeTruthy();
     // The one the portal no longer lists is not asked about at all.
     expect(lists.fetchFacilitySections).toHaveBeenCalledWith("262710", ["22610", "23436", "24092"]);
   });
@@ -65,15 +65,15 @@ describe("a semester's whole week", () => {
      * enough to see the shape of the hour and not enough to read a room off.
      */
     show();
-    await screen.findByText("3 of 3 sections");
+    await screen.findByText("3 of 3");
 
     fireEvent.click(screen.getByRole("combobox", { name: "Subjects" }));
     fireEvent.click(await screen.findByRole("option", { name: "MATH" }));
 
-    expect(await screen.findByText("2 of 3 sections shown")).toBeTruthy();
+    expect(await screen.findByText("2 of 3")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Show every section" }));
-    expect(await screen.findByText("3 of 3 sections")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Every section" }));
+    expect(await screen.findByText("3 of 3")).toBeTruthy();
   });
 
   it("says plainly when the semester is not linked to a portal term", async () => {

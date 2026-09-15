@@ -25,7 +25,14 @@ import {
  * registrar re-issues the export. Each opens a screen of its own rather than crowding the
  * table, since neither is an everyday action.
  */
-export function SemesterList({ host }: { host: string | null }) {
+export function SemesterList({
+  host,
+  onFullBleed,
+}: {
+  host: string | null;
+  /** The week takes the whole width; the list does not. Said as it opens and as it closes. */
+  onFullBleed?: (on: boolean) => void;
+}) {
   const queryClient = useQueryClient();
   const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms });
   const [pendingDelete, setPendingDelete] = useState<TimetableTerm | null>(null);
@@ -61,7 +68,15 @@ export function SemesterList({ host }: { host: string | null }) {
 
   if (timetableOf) {
     const current = (terms.data ?? []).find((term) => term.id === timetableOf.id) ?? timetableOf;
-    return <SemesterTimetable term={current} onBack={() => setTimetableOf(null)} />;
+    return (
+      <SemesterTimetable
+        term={current}
+        onBack={() => {
+          onFullBleed?.(false);
+          setTimetableOf(null);
+        }}
+      />
+    );
   }
 
   if (publishing) {
@@ -184,7 +199,10 @@ export function SemesterList({ host }: { host: string | null }) {
                               {/* The whole department's week, which no other calendar shows. */}
                               <button
                                 type="button"
-                                onClick={() => setTimetableOf(term)}
+                                onClick={() => {
+                                  onFullBleed?.(true);
+                                  setTimetableOf(term);
+                                }}
                                 title={`See every section of ${term.name} in one week`}
                                 className="rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc]"
                               >

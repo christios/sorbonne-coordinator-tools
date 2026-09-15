@@ -1,9 +1,11 @@
 import { useQueries } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight, Maximize2 } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 
 import { Modal } from "@/components/Modal";
 import { WeekCalendar } from "@/components/WeekCalendar";
+import { WeekTimeline } from "@/components/WeekTimeline";
 import { fetchFacilitySections, type FacilitySection } from "@/services/portalLists";
 import { fetchSessionChanges, slotKey, type SessionChange } from "@/services/sessionChanges";
 import {
@@ -48,12 +50,36 @@ type TimetableProps = {
   /** Pressing a box opens that CRN's record, where `openable` says there is one to open. */
   onOpenCrn?: (crn: string) => void;
   openable?: (crn: string) => boolean;
-  /** Overlapping classes one under another rather than side by side — for a dense week. */
-  stack?: boolean;
-  /** An hour's height in pixels: the vertical zoom. */
+  /**
+   * Days down the side and hours across the page, instead of the other way round.
+   *
+   * For the department's whole week, where the ordinary way round has nothing left to
+   * divide — see `WeekTimeline`. `widthZoom` and `rowHeight` are its two zooms and are
+   * ignored by the ordinary calendar.
+   */
+  daysDown?: boolean;
+  /** How many screens wide the week is drawn; 1 fills it exactly. */
+  widthZoom?: number;
+  rowHeight?: number;
+  /** Take the height given and scroll the grid inside it, rather than growing the page. */
+  fills?: boolean;
+  /**
+   * Somewhere else to put the week's arrows and dates.
+   *
+   * Its own row costs a screen-high grid an hour of the afternoon for four words and two
+   * arrows. Given a slot, the navigation goes and sits in the caller's header instead —
+   * the same trick the pages here use to put their controls beside the page title.
+   */
+  navInto?: HTMLElement | null;
+
+  /**
+   * How much of the week the sweep could not draw, for a caller that is filling and has
+   * therefore hidden the sentences that usually say so. Silence about it would read as a
+   * complete week, and the whole value of this grid is that you can trust what is not in it.
+   */
+  onCoverage?: (coverage: { unasked: number; gone: number; unbooked: number }) => void;
+  /** An hour's height in pixels, for the ordinary calendar. */
   hourHeight?: number;
-  /** The narrowest a day column may be before the week scrolls: the horizontal zoom. */
-  dayWidth?: number;
   /**
    * Pressing a box says what happened to that class instead — cancelled, covered. Every
    * box is pressable then; a CRN's own record is where this is offered.
@@ -90,9 +116,13 @@ function Timetable({
   compact = false,
   onOpenCrn,
   openable,
-  stack = false,
+  daysDown = false,
+  widthZoom = 1,
+  rowHeight = 22,
+  fills = false,
+  onCoverage,
+  navInto,
   hourHeight,
-  dayWidth,
   onPickSession,
   onExpand,
 }: TimetableProps & { onExpand?: () => void }) {
@@ -148,6 +178,13 @@ function Timetable({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [firstSession]);
 
+  // Said up the way rather than printed, for a caller that has hidden the sentences.
+  const coverage = `${unasked.length}|${gone.length}|${unbooked.length}`;
+  useEffect(() => {
+    onCoverage?.({ unasked: unasked.length, gone: gone.length, unbooked: unbooked.length });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [coverage]);
+
   if (entries.length === 0) return <Empty>{emptyMessage}</Empty>;
   if (loading && sessions.length === 0) return <Empty>Reading the registrar's timetable…</Empty>;
   if (failed && sessions.length === 0) {
@@ -162,13 +199,9 @@ function Timetable({
   const shown = weekStart ?? defaultWeekStart(sessions, today);
   const small = compact ? "text-[10px]" : "text-xs";
 
-  return (
-    <div className={compact ? "max-w-[32rem]" : ""}>
-      {sessions.length === 0 ? (
-        <Empty>The registrar's sweep holds no meetings for {entries.length === 1 ? "this section" : "these sections"}.</Empty>
-      ) : (
-        <>
-          <div className={`flex flex-wrap items-center gap-1.5 ${compact ? "mb-1.5" : "mb-2"}`}>
+  const weekNav = (
+    <div className={`flex flex-wrap items-center gap-1.5 ${navInto ? "" : compact ? "mb-1.5" : "mb-2"} ${fills && !navInto ? "shrink-0" : ""}`}>
+
             <button type="button" aria-label="Previous week" onClick={() => setWeekStart(shiftWeek(shown, -1))} className={nav(compact)}>
               <ChevronLeft size={compact ? 12 : 14} aria-hidden="true" />
             </button>
@@ -194,19 +227,39 @@ function Timetable({
                 <Maximize2 size={12} aria-hidden="true" />
               </button>
             ) : null}
-          </div>
-          <WeekCalendar
-            weekStart={shown}
-            sessions={sessions}
-            courses={courses}
-            today={today}
-            compact={compact}
-            hourHeight={hourHeight ?? (compact ? 24 : 48)}
-            stack={stack}
-            dayWidth={dayWidth}
-            onPick={onPickSession ?? (onOpenCrn ? (session) => onOpenCrn(session.crn) : undefined)}
-          />
-          {legend.length > 1 ? (
+    </div>
+  );
+
+  return (
+    <div className={`${compact ? "max-w-[32rem]" : ""} ${fills ? "flex min-h-0 flex-1 flex-col" : ""}`}>
+      {sessions.length === 0 ? (
+        <Empty>The registrar's sweep holds no meetings for {entries.length === 1 ? "this section" : "these sections"}.</Empty>
+      ) : (
+        <>
+          {navInto ? createPortal(weekNav, navInto) : weekNav}
+          {daysDown ? (
+            <WeekTimeline
+              fills={fills}
+              weekStart={shown}
+              sessions={sessions}
+              courses={courses}
+              today={today}
+              widthZoom={widthZoom}
+              rowHeight={rowHeight}
+              onPick={onPickSession ?? (onOpenCrn ? (session) => onOpenCrn(session.crn) : undefined)}
+            />
+          ) : (
+            <WeekCalendar
+              weekStart={shown}
+              sessions={sessions}
+              courses={courses}
+              today={today}
+              compact={compact}
+              hourHeight={hourHeight ?? (compact ? 24 : 48)}
+              onPick={onPickSession ?? (onOpenCrn ? (session) => onOpenCrn(session.crn) : undefined)}
+            />
+          )}
+          {legend.length > 1 && !fills ? (
             <ul className={`mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[#667085] ${small}`} aria-label="Legend">
               {legend.map((course) => (
                 <li key={course.colorKey} className="inline-flex items-center gap-1.5">
@@ -221,17 +274,23 @@ function Timetable({
               ))}
             </ul>
           ) : null}
-          {[...courses.values()].some((course) => course.tone === "outline") ? (
+          {/*
+            * The standing notes are worth their two lines beside a record's small week and
+            * cost too much beside a screen-high one: three lines of grey under the grid is
+            * an hour of Friday afternoon. Filling, they go, and what they said is in the
+            * count above instead.
+            */}
+          {!fills && [...courses.values()].some((course) => course.tone === "outline") ? (
             <p className={`mt-1 text-[#98a2b3] ${small}`}>Dashed: in a group of theirs, and the registrar has not registered them for it.</p>
           ) : null}
-          {onPickSession ? (
+          {fills ? null : onPickSession ? (
             <p className={`mt-1 text-[#98a2b3] ${small}`}>Press a class to say it was cancelled or covered by somebody else.</p>
           ) : onOpenCrn && [...courses.values()].some((course) => course.openable) ? (
             <p className={`mt-1 text-[#98a2b3] ${small}`}>Press a class to open its CRN.</p>
           ) : null}
         </>
       )}
-      <Coverage unasked={unasked} gone={gone} unbooked={unbooked} unlinked={unlinked} compact={compact} />
+      {fills ? null : <Coverage unasked={unasked} gone={gone} unbooked={unbooked} unlinked={unlinked} compact={compact} />}
     </div>
   );
 }

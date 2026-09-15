@@ -201,6 +201,15 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
   });
 
   const [viewId, setViewId] = useState("");
+  /*
+   * A page that wants the whole width, not the reading column.
+   *
+   * Every page here is a column of text and tables, so the shell caps it at a comfortable
+   * reading width and pads it. The semester's week is neither: it is one wide picture, and
+   * every pixel the shell keeps for margins is a pixel of Friday afternoon. It asks, the
+   * shell gives, and it gives it back on the way out.
+   */
+  const [fullBleed, setFullBleed] = useState(false);
   // The slot beside the page's title, for a page with controls of its own to put there.
   const [pageHeader, setPageHeader] = useState<HTMLDivElement | null>(null);
   // The teacher whose record is open, whichever list or page asked for it.
@@ -268,8 +277,16 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
           * stacked, and two stacked panes sharing one screen's height is two slivers; the
           * page scrolls instead, as every other page here does at every width.
           */}
-        <div className={`mx-auto flex max-w-[86rem] flex-col px-4 py-6 sm:px-6 ${FILLS.has(page) ? "min-h-full lg:h-full" : "min-h-full"}`}>
-          <header className={`flex flex-wrap items-end justify-between gap-4 ${FILLS.has(page) ? "pb-3" : "pb-5"}`}>
+        <div
+          className={`flex flex-col ${
+            fullBleed ? "h-full w-full px-3 py-3" : "mx-auto max-w-[86rem] px-4 py-6 sm:px-6"
+          } ${fullBleed ? "" : FILLS.has(page) ? "min-h-full lg:h-full" : "min-h-full"}`}
+        >
+          <header
+            className={`flex flex-wrap items-end justify-between gap-4 ${
+              fullBleed ? "hidden" : FILLS.has(page) ? "pb-3" : "pb-5"
+            }`}
+          >
             <div>
               <h2 title={TITLES[page].blurb} className="text-2xl font-semibold text-[#171717]">{TITLES[page].title}</h2>
               {/*
@@ -380,7 +397,9 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
             <ScreenLoading label="Checking the Student Hub connection…" />
           ) : null}
           {onPlatform && !status.isLoading && !status.data?.configured ? <PlatformNotConfigured /> : null}
-          {page === "semesters" && status.data?.configured ? <SemesterList host={status.data.host} /> : null}
+          {page === "semesters" && status.data?.configured ? (
+            <SemesterList host={status.data.host} onFullBleed={setFullBleed} />
+          ) : null}
           {page === "announcements" && status.data?.configured ? <AnnouncementEditor /> : null}
         </div>
       </div>
