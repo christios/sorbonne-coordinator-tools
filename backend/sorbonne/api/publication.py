@@ -167,7 +167,11 @@ async def read_publication(  # noqa: PLR0913 - one dependency per record it read
                     scopes=_scopes(cohort),
                     groups=groups,
                     course_codes=cohort["courseCodes"],
-                    assignments=_assignments(cohort),
+                    # The shared sets' placements belong in the same map: a student is in a
+                    # language group or they are not, whoever's row the set sits on.
+                    assignments={**_assignments(cohort), **_assignments(cohort, "sharedAssignments")},
+                    shared_scopes=_scopes(cohort, "sharedScopes"),
+                    shared_groups=_groups(cohort, "sharedGroups"),
                 ),
                 # A warning rather than a blocker: the timetable is what it is, and the
                 # coordinator may well know. But it must be said where the placing happens.

@@ -20,6 +20,7 @@ Pure: no database, no network. The store hands it rows, the API hands it section
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -185,11 +186,23 @@ def readiness(  # noqa: PLR0913 - one keyword per thing a cohort needs to be rea
     groups: list[Group],
     course_codes: dict[str, list[str]],
     assignments: dict[tuple[str, str], Placement],
+    shared_scopes: Sequence[Scope] = (),
+    shared_groups: Sequence[Group] = (),
 ) -> dict[str, Any]:
     """What stands between this cohort and being publishable, in a coordinator's terms.
 
     `course_codes` is `scope id -> [course code]`, so a group can be told it is missing a CRN
     for a course its scope teaches.
+
+    `shared_scopes` and `shared_groups` are the sets open to every cohort — the languages,
+    which sit on Foundation Year's row. A student of ANY cohort is placed in one, so every
+    cohort must be asked who is missing from them: without this, seventeen students outside
+    Foundation Year had no language group and nothing anywhere said so, while the same fact
+    was reported for the four inside it.
+
+    They are deliberately NOT asked the second question below, "has this group a CRN for
+    every course of its set". That is the owning cohort's business and it already asks it;
+    asking it once per cohort would repeat one gap four times over.
 
     Who a set is for is read off its groups' sub-rows. A set whose every group holds only
     physicists does not want every mathematician in the cohort listed as missing from it —
@@ -197,19 +210,23 @@ def readiness(  # noqa: PLR0913 - one keyword per thing a cohort needs to be rea
     worklist but a wall of noise in front of one. And a group is only asked for a CRN in a
     course some sub-row of it is taught.
     """
+    every_group = [*groups, *shared_groups]
     groups_by_scope: dict[str, list[Group]] = {}
-    for group in groups:
+    for group in every_group:
         groups_by_scope.setdefault(group.scope_id, []).append(group)
-    mine = _programs_held(groups, assignments)
+    mine = _programs_held(every_group, assignments)
 
     warnings: list[str] = []
     unassigned: dict[str, list[str]] = {}
 
-    for scope in scopes:
+    for scope in [*scopes, *shared_scopes]:
         label = scope.name or scope.code
         offered = groups_by_scope.get(scope.id, [])
         if not offered:
-            warnings.append(f"{label} has no groups yet")
+            # Only of a set this cohort owns: a shared set with no groups is somebody
+            # else's gap to fill, and saying so on every cohort says it four times.
+            if scope in scopes:
+                warnings.append(f"{label} has no groups yet")
             continue
 
         open_to = _offered(offered)
@@ -222,6 +239,9 @@ def readiness(  # noqa: PLR0913 - one keyword per thing a cohort needs to be rea
             unassigned[scope.code] = sorted(missing)
             warnings.append(f"{len(missing)} with no {label} group")
 
+        # Whether a group has the CRNs its set teaches is the owning cohort's question.
+        if scope not in scopes:
+            continue
         for group in offered:
             absent = [
                 code for code in course_codes.get(scope.id, []) if not _has_crn(group, code) and _teaches(group, code)
@@ -229,7 +249,7 @@ def readiness(  # noqa: PLR0913 - one keyword per thing a cohort needs to be rea
             if absent:
                 warnings.append(f"{label} {group.label} has no CRN for {', '.join(sorted(absent))}")
 
-    resolved = resolve(scopes=scopes, groups=groups, assignments=assignments)
+    resolved = resolve(scopes=[*scopes, *shared_scopes], groups=every_group, assignments=assignments)
     return {
         "cohort": cohort_name,
         "students": len(students),

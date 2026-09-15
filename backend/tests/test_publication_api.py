@@ -472,19 +472,61 @@ def test_a_shared_sets_clash_names_only_the_cohorts_own_students(client: TestCli
     assert l1["clashes"][0]["students"] == ["B001"]
 
 
-def test_a_shared_set_does_not_change_what_the_semester_publishes(client: TestClient, database: StudentDatabase):
-    # The keys are additive: resolution and readiness read the cohort's own sets exactly as
-    # before, so nothing about publishing moves.
+def test_a_shared_set_a_cohort_is_fully_placed_in_costs_it_nothing(client: TestClient, database: StudentDatabase):
+    # Readiness reads the shared sets as well as the cohort's own, but B001 is in the
+    # language group, so L1 has nothing to answer for and publishing is unmoved.
     owner = build_cohort(database)
     build_shared_language(database, owner)
 
     report = use(client, sections_then({})).get(f"/api/v1/publication/terms/{TERM}").json()
     l1 = next(cohort for cohort in report["cohorts"] if cohort["cohort"] == "L1")
 
-    # Readiness still counts only L1's own set: one student, one CM group, nothing missing.
     assert l1["students"] == 1
     assert l1["unassigned"] == {}
     assert l1["isReady"] is True
+
+
+def test_a_cohort_is_told_who_is_missing_from_a_shared_set_it_does_not_own(
+    client: TestClient, database: StudentDatabase
+):
+    """The languages sit on Foundation Year's row and every cohort's students take them.
+
+    Readiness used to walk only the sets a cohort OWNS, so only Foundation Year was ever
+    asked about them. On the real data that left seventeen students outside Foundation Year
+    with no language group and nothing anywhere saying so, while the same fact was reported
+    for the four inside it.
+    """
+    owner = build_cohort(database)
+    shared = build_shared_language(database, owner)
+    # B001 is placed in the language group by the helper; take them out again.
+    database.assign(student_id="B001", scope_id=shared["lang"], group_id=None)
+
+    report = use(client, sections_then({})).get(f"/api/v1/publication/terms/{TERM}").json()
+    l1 = next(cohort for cohort in report["cohorts"] if cohort["cohort"] == "L1")
+
+    assert l1["unassigned"] == {"LANG": ["B001"]}
+    assert "1 with no Languages group" in l1["warnings"]
+    assert l1["isReady"] is False
+
+
+def test_a_shared_sets_own_gaps_are_reported_once_by_the_cohort_that_owns_it(
+    client: TestClient, database: StudentDatabase
+):
+    """Whether a language group has the CRNs its set teaches is Foundation Year's business.
+
+    Asking it of every cohort would say one gap four times over, which is why readiness
+    takes the shared sets for "who is missing" and not for "has this group its CRNs".
+    """
+    owner = build_cohort(database)
+    shared = build_shared_language(database, owner)
+    # A second course on the shared set that its one group has no CRN for.
+    database.add_course(shared["lang"], code="SPAN-101")
+
+    report = use(client, sections_then({})).get(f"/api/v1/publication/terms/{TERM}").json()
+    said = {cohort["cohort"]: cohort["warnings"] for cohort in report["cohorts"]}
+
+    assert any("A1 has no CRN for SPAN-101" in warning for warning in said["Foundation Year"])
+    assert not any("SPAN-101" in warning for warning in said["L1"])
 
 
 def test_two_cohorts_own_blocks_at_the_same_hour_are_still_not_a_clash(

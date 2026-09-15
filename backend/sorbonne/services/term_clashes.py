@@ -19,10 +19,16 @@ from sorbonne.services.enrolment_resolution import Group, Major, Placement, Scop
 from sorbonne.services.group_clashes import Session, clashes
 
 
-def scopes_of(cohort: dict[str, Any]) -> list[Scope]:
+def scopes_of(cohort: dict[str, Any], key: str = "scopes") -> list[Scope]:
+    """This cohort's own sets, or with `key="sharedScopes"` the ones another row holds.
+
+    A shared set is filed under whichever cohort happens to own its row — the languages sit
+    on Foundation Year's — so `cohort_id` here is the cohort DOING the reading, which is
+    what every caller means by it.
+    """
     return [
         Scope(id=row["id"], cohort_id=cohort["cohortId"], code=row["code"], name=row["name"])
-        for row in cohort["scopes"]
+        for row in cohort.get(key) or []
     ]
 
 
