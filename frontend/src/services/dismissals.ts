@@ -68,10 +68,16 @@ export function clearDismissed(): Set<string> {
  * that is not a registration key" — which made every family nobody had taught it about
  * its own to delete. It was correct only for as long as there were exactly two.
  */
-export type WarningFamily = "registration" | "rule";
+export type WarningFamily = "registration" | "rule" | "groups";
 
 export function familyOf(key: string): WarningFamily {
-  return key.startsWith("registration|") ? "registration" : "rule";
+  if (key.startsWith("registration|")) return "registration";
+  // A set the cohort has not placed them in. Its own family, because its live keys come
+  // from the semester's readiness and not from the rule engine — filed under "rule" it
+  // was pruned against a list it could never appear in, so every dismissal of it was
+  // deleted on the next load and the pill came straight back.
+  if (key.startsWith("group|")) return "groups";
+  return "rule";
 }
 
 /**

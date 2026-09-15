@@ -13,6 +13,7 @@ import {
 const RULE = "A001:rule-1:WD";
 const ARRIVAL = "cohort-2:A001:rule-1:MATH:cohort-1";
 const REGISTRATION = "registration|A001|262710|PHYS-118|missing|22150|";
+const GROUP = "group|A001|term-1|LANG";
 
 beforeEach(() => window.localStorage.clear());
 
@@ -23,6 +24,9 @@ describe("which family a key belongs to", () => {
     // An arrival is a rule warning judged from another cohort's side. It carries a cohort
     // id where a rule warning carries a student id, and neither is prefixed.
     expect(familyOf(ARRIVAL)).toBe("rule");
+    // A set nobody has placed them in. Its own family, because its live keys come from the
+    // semester's readiness rather than from the rule engine.
+    expect(familyOf(GROUP)).toBe("groups");
   });
 });
 
@@ -49,6 +53,24 @@ describe("pruning dismissals whose warning is gone", () => {
 
     const afterRegister = pruneDismissed([REGISTRATION], "registration");
     expect(afterRegister.has(RULE)).toBe(true);
+  });
+
+  it("leaves a dismissed group warning alone when the rule engine prunes", () => {
+    /*
+     * The bug this guards: a group key has no prefix the family reader knew, so it fell
+     * into "rule" and was pruned against the rule engine's live keys — a list it can never
+     * appear in. Every dismissal of a missing language group was deleted on the next load,
+     * and the pill came straight back after a refresh.
+     */
+    dismiss(GROUP);
+    dismiss(RULE);
+
+    const afterRules = pruneDismissed([RULE], "rule");
+    expect(afterRules.has(GROUP)).toBe(true);
+
+    // And its own family still prunes it when the student is placed at last.
+    expect(pruneDismissed([GROUP], "groups").has(GROUP)).toBe(true);
+    expect(pruneDismissed([], "groups").has(GROUP)).toBe(false);
   });
 });
 

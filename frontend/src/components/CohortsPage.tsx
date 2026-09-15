@@ -345,7 +345,13 @@ export function CohortsPage({
       queryFn: () => fetchPublication(termId),
       retry: false,
     })),
-    combine: (reads) => reads.map((read, index) => ({ termId: termIds[index], publication: read.data ?? null })),
+    combine: (reads) => ({
+      terms: reads.map((read, index) => ({ termId: termIds[index], publication: read.data ?? null })),
+      // Whether every semester has answered. A page with half its evidence must not prune
+      // dismissals: absent and gone are not the same, and only one is a reason to forget.
+      settled: reads.every((read) => !read.isPending),
+      failed: reads.some((read) => read.isError),
+    }),
   });
   /*
    * The courses outside our groups, by student, for the Electives column.
@@ -477,14 +483,14 @@ export function CohortsPage({
         ...registrationWarnings(registrationsBy.get(cohort.id) ?? [], describeMismatch, readMismatch),
         // A set this cohort has not placed them in, per semester, from the same reading the
         // readiness panel publishes — so the two can never disagree about who is short.
-        ...readiness.flatMap(({ termId, publication }) => {
+        ...readiness.terms.flatMap(({ termId, publication }) => {
           const mine = publication?.cohorts.find((entry) => entry.cohortId === cohort.id);
           return mine ? groupWarnings(mine.unassigned, termId, nameOfTerm(termId)) : [];
         }),
       ]);
     }
     return out;
-  }, [cohorts, judged, registrationsBy, readiness, nameOfTerm]);
+  }, [cohorts, judged, registrationsBy, readiness.terms, nameOfTerm]);
 
   /*
    * Every cohort's warnings by student, not only the cohort on screen.
@@ -529,6 +535,44 @@ export function CohortsPage({
     if (!liveKeys) return;
     setDismissed(pruneDismissed(liveKeys, "rule"));
   }, [liveKeys]);
+
+  /*
+   * And the sets nobody has placed them in, pruned against the readiness that produced
+   * them. Only once every semester has answered and none of them failed — a dismissal
+   * pruned against evidence that has not arrived is a coordinator's decision thrown away.
+   */
+  // Whether every cohort's register check has answered, which is what says the semesters
+  // below are the real list rather than a list still being built.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const checksSettled = useMemo(() => checks.every((check) => !check.isPending && !check.isError), [
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    checks.map((check) => `${check.isPending}${check.isError}`).join("|"),
+  ]);
+
+  const liveGroupKeys = useMemo(() => {
+    /*
+     * Every guard here is load-bearing, and the first version had only half of them.
+     *
+     * Before the register's checks answer there are no semesters to ask about, so the
+     * readiness array is EMPTY — and "every one of none has settled" is true, so the page
+     * happily pruned every group dismissal against a list of nothing on first paint. The
+     * pill came back on the next refresh, which is precisely the fault this was meant to
+     * fix. Absent is not gone: prune only with the whole picture in hand.
+     */
+    if (checksSettled !== true) return null;
+    if (!termIds.length || !readiness.settled || readiness.failed || !cohorts.length) return null;
+    return cohorts.flatMap((cohort) =>
+      readiness.terms.flatMap(({ termId, publication }) => {
+        const mine = publication?.cohorts.find((entry) => entry.cohortId === cohort.id);
+        return mine ? groupWarnings(mine.unassigned, termId, nameOfTerm(termId)).map((warning) => warning.key) : [];
+      }),
+    );
+  }, [cohorts, termIds, checksSettled, readiness.terms, readiness.settled, readiness.failed, nameOfTerm]);
+
+  useEffect(() => {
+    if (!liveGroupKeys) return;
+    setDismissed(pruneDismissed(liveGroupKeys, "groups"));
+  }, [liveGroupKeys]);
 
   /*
    * And the register's family, pruned separately.
