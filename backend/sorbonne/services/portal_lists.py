@@ -97,6 +97,10 @@ class Mismatch:
     # lecture and a tutorial gives them two, and both are right.
     expected: list[str]
     registered: list[str]
+    # The same, but NOT narrowed to what is running today: a half that has finished is
+    # still one of ours. Only `expected` says what to add; only this says what to remove,
+    # and collapsing the two is how a finished half came to be proposed for removal.
+    ever_expected: list[str] = field(default_factory=list)
     # The set a `doubled` verdict is about. Empty for the verdicts that are about a course.
     scope_code: str = ""
 
@@ -110,6 +114,7 @@ class Mismatch:
             "scopeCode": self.scope_code,
             "expected": self.expected,
             "registered": self.registered,
+            "everExpected": self.ever_expected,
         }
 
 
@@ -2291,8 +2296,9 @@ def _judge(  # noqa: PLR0913 - one argument per part of the verdict
         kind = ""
     if not kind:
         return None
-    # The sections they should be in NOW, because that is what the sentence is about.
-    return Mismatch(student, term_id, term_code, code, kind, current, held)
+    # The sections they should be in NOW, because that is what the sentence is about —
+    # and every section we hold for them beside it, because that is what decides a removal.
+    return Mismatch(student, term_id, term_code, code, kind, current, held, ever_expected=mine)
 
 
 def _exempted(student: str, term_id: str, term_code: str, code: str, registered: list[str]) -> Mismatch | None:

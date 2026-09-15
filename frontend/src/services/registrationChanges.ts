@@ -70,7 +70,18 @@ export function registrationChanges(
   for (const mismatch of mismatches) {
     if (!ACTIONABLE.has(mismatch.kind)) continue;
     const held = new Set(mismatch.registered);
-    const wanted = new Set(mismatch.expected);
+    /*
+     * A removal is judged against every section our planning holds, NOT against the ones
+     * running today — the same asymmetry the check itself makes, and for the same reason.
+     *
+     * A course taught in two halves is two sections of one cell. Once the second half
+     * starts, only it is "expected"; the registrar rightly keeps the student in the first
+     * for the grade. Judging removals against today's list called that finished half a
+     * registration to drop, and put a line in front of the registrar that would have
+     * un-enrolled a student from a course they had already sat. A00022912 and MATH-351
+     * were the case that showed it.
+     */
+    const ours = new Set(mismatch.everExpected ?? mismatch.expected);
     const line = (action: "Add" | "Remove", crn: string): RegistrationChange => ({
       studentId: mismatch.studentId,
       studentName: nameOf(mismatch.studentId),
@@ -84,7 +95,7 @@ export function registrationChanges(
     });
     // Removes first for each course: a registrar working down the list frees the seat
     // before filling it, which is the order the two lines have to be done in.
-    for (const crn of mismatch.registered) if (!wanted.has(crn)) changes.push(line("Remove", crn));
+    for (const crn of mismatch.registered) if (!ours.has(crn)) changes.push(line("Remove", crn));
     for (const crn of mismatch.expected) if (!held.has(crn)) changes.push(line("Add", crn));
   }
   return changes.sort(byStudentThenByAction);

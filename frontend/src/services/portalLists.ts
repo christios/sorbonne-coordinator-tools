@@ -97,6 +97,16 @@ export type Mismatch = {
   /** Every section of this course our blocks give the student — a lecture and a tutorial. */
   expected: string[];
   registered: string[];
+  /**
+   * The same, but not narrowed to what is running today.
+   *
+   * A course taught in two halves is two sections of one cell, and the registrar keeps a
+   * student in the finished half for the grade. `expected` says what to ADD, because only
+   * a section running now can be missing from. This says what may be REMOVED, because a
+   * half that has finished is still one of ours. Optional: a server that predates it falls
+   * back to `expected`, which is how it behaved before.
+   */
+  everExpected?: string[];
 };
 
 export type SyncReport = { seen: number; added: number; missing: number; syncedAt: string; rows?: number };

@@ -1606,6 +1606,40 @@ def test_a_finished_section_a_student_is_still_registered_in_is_not_a_surplus(
     assert [m for m in found if m["studentId"] == "A001"] == []
 
 
+def test_a_verdict_carries_every_section_we_hold_beside_the_ones_running_today(
+    client: TestClient, database: StudentDatabase
+):
+    """`expected` says what to add; `everExpected` says what may be removed.
+
+    Collapsing the two is how the registrar's worklist came to propose dropping a student
+    from the finished half of a handover — a course they had already sat. The check itself
+    never made that mistake, because it judges a surplus against everything our planning
+    holds; the worklist re-derived removals from today's list alone and made it again.
+    """
+    cohort_id = build_cohort(database, maths_in_tutorials="23436", second_half="23820")
+    client.put(f"{BASE}/term-links/{HUB_TERM}", json={"portalTermCode": TERM})
+    # The first half has finished and the second is running.
+    timetable(client, {"22151": (-60, 40), "23436": (-60, -10), "23820": (-5, 40), "23652": (-60, 40)})
+    registrations(
+        client,
+        [
+            {"studentId": "A001", "crn": "22151", "courseCode": "MATH-001"},
+            # They hold the FINISHED half and not the running one.
+            {"studentId": "A001", "crn": "23436", "courseCode": "MATH-001"},
+            {"studentId": "A001", "crn": "23652", "courseCode": "MATH-011"},
+        ],
+    )
+
+    found = client.get(f"{BASE}/cohorts/{cohort_id}/registration-check").json()["mismatches"]
+    [maths] = [m for m in found if m["studentId"] == "A001" and m["courseCode"] == "MATH-001"]
+
+    assert maths["kind"] == "missing"
+    # Running today: the lecture and the half that has started.
+    assert sorted(maths["expected"]) == ["22151", "23820"]
+    # Everything we hold, the finished half included — so nothing here is a removal.
+    assert sorted(maths["everExpected"]) == ["22151", "23436", "23820"]
+
+
 def test_a_section_that_was_never_ours_is_still_a_surplus(client: TestClient, database: StudentDatabase):
     """The other side of that: `ever` must not become a licence to register anywhere."""
     cohort_id = build_cohort(database, maths_in_tutorials="23436", second_half="23820")

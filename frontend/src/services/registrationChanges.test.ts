@@ -52,6 +52,67 @@ describe("the registrar's worklist", () => {
     expect(changes).toEqual([]);
   });
 
+  it("leaves the finished half of a course alone, and adds only the half running now", () => {
+    /*
+     * MATH-351 is taught in two halves under two section numbers. Once the second starts,
+     * only it is expected; the registrar rightly keeps the student in the first for the
+     * grade. Judging removals against today's list called that finished half a
+     * registration to drop, which would have un-enrolled a student from a course they had
+     * already sat. A00022912 was the case that showed it.
+     */
+    const changes = registrationChanges(
+      [
+        mismatch({
+          kind: "missing",
+          courseCode: "MATH-351",
+          expected: ["23436", "24313"],
+          everExpected: ["23436", "23820", "24311", "24313"],
+          registered: ["23436", "23820"],
+        }),
+      ],
+      named,
+      "L3-S1",
+    );
+
+    expect(changes.map((change) => [change.action, change.crn])).toEqual([["Add", "24313"]]);
+  });
+
+  it("still drops a section that is no half of ours, however many halves the course has", () => {
+    // The guard against reading the fix as "never remove anything from a split course".
+    const changes = registrationChanges(
+      [
+        mismatch({
+          kind: "wrong",
+          courseCode: "MATH-351",
+          expected: ["24313"],
+          everExpected: ["23820", "24313"],
+          registered: ["23820", "99999"],
+        }),
+      ],
+      named,
+      "L3-S1",
+    );
+
+    expect(changes.map((change) => [change.action, change.crn])).toEqual([
+      ["Remove", "99999"],
+      ["Add", "24313"],
+    ]);
+  });
+
+  it("falls back to today's sections when the server has not said what else it holds", () => {
+    // A browser on new code against a server on old: no everExpected, so it behaves as before.
+    const changes = registrationChanges(
+      [mismatch({ kind: "wrong", expected: ["23223"], registered: ["23224"] })],
+      named,
+      "FYS-S1",
+    );
+
+    expect(changes.map((change) => [change.action, change.crn])).toEqual([
+      ["Remove", "23224"],
+      ["Add", "23223"],
+    ]);
+  });
+
   it("drops every section of a course we recorded them as not taking", () => {
     /*
      * An exemption gives no expected sections at all, so the whole of what the registrar
