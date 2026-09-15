@@ -42,7 +42,7 @@ export function AddFromPortal({
   }, [cohorts, terms, cohortId, termId]);
 
   const portal = useQuery({ queryKey: ["portal-crns", termId], queryFn: () => fetchTermCrns(termId), enabled: open && Boolean(termId), retry: false });
-  const catalogue = useQuery({ queryKey: ["catalogue", cohortId, termId], queryFn: () => fetchCatalogue(cohortId, termId), enabled: open && Boolean(cohortId && termId) });
+  const catalogue = useQuery({ queryKey: ["catalogue", cohortId, termId, "own-only"], queryFn: () => fetchCatalogue(cohortId, termId, true), enabled: open && Boolean(cohortId && termId) });
   const scopes = useMemo(() => catalogue.data?.scopes ?? [], [catalogue.data]);
   // The portal's CRNs of this term, grouped by course, kept to the courses the department chose.
   const activeCodes = useMemo(() => new Set(activeCourses.map((course) => course.courseCode.toUpperCase())), [activeCourses]);

@@ -335,13 +335,24 @@ export function deleteCohort(cohortId: string): Promise<void> {
   return request<void>(`${BASE}/cohorts/${cohortId}`, { method: "DELETE" });
 }
 
-export function fetchCatalogue(cohortId: string, termId?: string, withShared = false): Promise<Catalogue> {
+/**
+ * The sets this cohort's students are taught in.
+ *
+ * The sets open to every cohort — the languages — come by default, and `ownOnly` leaves
+ * them out. The default used to be the other way round and was the wrong way round: a
+ * reader that forgot to ask for them reported the cohort as though its students took no
+ * language at all, which went wrong three times before the default was flipped.
+ *
+ * `ownOnly` is for a cohort's own paperwork rather than its students: the course cards and
+ * the timetable workbook, both of which would otherwise carry the languages four times over.
+ */
+export function fetchCatalogue(cohortId: string, termId?: string, ownOnly = false): Promise<Catalogue> {
   // A cohort's blocks are defined per semester, so asking without one would show both
   // semesters' "TD" at once, meaning different things.
   const query = new URLSearchParams();
   if (termId) query.set("term_id", termId);
   // The sets open to every cohort as well — the department's, not this cohort's.
-  if (withShared) query.set("with_shared", "true");
+  if (ownOnly) query.set("own_only", "true");
   const asked = query.toString();
   return request<Catalogue>(`${BASE}/cohorts/${cohortId}/catalogue${asked ? `?${asked}` : ""}`);
 }

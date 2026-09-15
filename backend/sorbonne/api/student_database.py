@@ -365,15 +365,18 @@ async def list_members(cohort_id: str, database: StudentDatabase = Depends(get_d
 async def read_catalogue(
     cohort_id: str,
     term_id: str | None = None,
-    with_shared: bool = False,
+    own_only: bool = False,
     database: StudentDatabase = Depends(get_database),
 ) -> dict[str, Any]:
     """One cohort's blocks, for one semester when asked — they differ between them.
 
-    `with_shared` adds the semester's sets open to every cohort, whoever holds them.
+    The sets open to every cohort — the languages — are included by default, because a
+    reader that forgets them reports a cohort as though its students took no language at
+    all. `own_only=true` leaves them out, for the two callers that mean this cohort's own
+    paperwork: the course cards and the timetable workbook.
     """
     try:
-        return database.read_catalogue(cohort_id, term_id, with_shared=with_shared)
+        return database.read_catalogue(cohort_id, term_id, own_only=own_only)
     except CohortNotFound as exc:
         raise _missing(exc, "cohort") from exc
 

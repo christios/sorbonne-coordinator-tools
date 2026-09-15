@@ -154,8 +154,8 @@ export function GroupSchema({
     [majors.data],
   );
   const catalogue = useQuery({
-    queryKey: ["catalogue", cohortId, termId, "with-shared"],
-    queryFn: () => fetchCatalogue(cohortId, termId, true),
+    queryKey: ["catalogue", cohortId, termId],
+    queryFn: () => fetchCatalogue(cohortId, termId),
     enabled: Boolean(cohortId && termId),
   });
 

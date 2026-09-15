@@ -90,7 +90,7 @@ describe("placing students in a group", () => {
     expect(screen.getByText(/Choose a semester first/)).toBeTruthy();
 
     await pick("Semester", "Physics & Maths — Semester 1");
-    await waitFor(() => expect(database.fetchCatalogue).toHaveBeenCalledWith("cohort-1", "term-1", true));
+    await waitFor(() => expect(database.fetchCatalogue).toHaveBeenCalledWith("cohort-1", "term-1"));
   });
 
   it("places the selection in the chosen group", async () => {
@@ -217,20 +217,20 @@ describe("sets open to every cohort", () => {
     show();
 
     await pick("Semester", "Physics & Maths — Semester 1");
-    await waitFor(() => expect(database.fetchCatalogue).toHaveBeenCalledWith("cohort-1", "term-1", true));
+    await waitFor(() => expect(database.fetchCatalogue).toHaveBeenCalledWith("cohort-1", "term-1"));
 
     fireEvent.click(screen.getByRole("combobox", { name: "Block" }));
     expect(await screen.findByRole("option", { name: /LANG/ })).toBeTruthy();
   });
 
-  it("asks for the catalogue under its own cache key", async () => {
-    // WorkbookTools and AddFromPortal read ["catalogue", cohort, term] WITHOUT the shared
-    // sets. Sharing one key would let whichever landed first answer for both, so this
-    // dialog would silently lose the languages again depending on what else was open.
-    // staleTime makes the seeded entry actually bind — without it the query refetches
-    // immediately and the collision this guards against cannot be observed.
+  it("does not share a cache key with the readers that want a cohort's own rows", async () => {
+    // WorkbookTools and AddFromPortal ask for the cohort's OWN sets and carry an
+    // "own-only" key for it. Sharing one key would let whichever landed first answer for
+    // both, and this dialog would silently lose the languages depending on what else was
+    // open. staleTime makes the seeded entry actually bind — without it the query
+    // refetches immediately and the collision this guards against cannot be observed.
     const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
-    client.setQueryData(["catalogue", "cohort-1", "term-1"], CATALOGUE);
+    client.setQueryData(["catalogue", "cohort-1", "term-1", "own-only"], CATALOGUE);
 
     vi.spyOn(database, "fetchCatalogue").mockResolvedValue({ scopes: [...CATALOGUE.scopes, LANG] });
     render(
@@ -461,10 +461,20 @@ describe("naming a group that would clash", () => {
       * arrived, and the test failed about one full-suite run in three while passing alone.
       * The assertion is unchanged; only the moment it is made is.
       */
-    await waitFor(() =>
-      expect(screen.getByRole("option", { name: /Group 1/ }).textContent).toContain("would clash with CM A"),
-    );
-    // Safe to read plainly now: the clash report is in, or the wait above would not have ended.
-    expect(screen.getByRole("option", { name: /Group 2/ }).textContent).not.toContain("clash");
+    /*
+      * Both options in ONE wait, and the wait is for the BADGE rather than for the option.
+      *
+      * Two separate races, both of which showed up as this test failing about one
+      * full-suite run in three while passing alone. The option exists as soon as the
+      * catalogue lands, but the badge needs two more answers — the groups the students
+      * already hold, and the timetable's clash report — so reading the row the moment the
+      * option appeared read it too early. And the list re-mounts as those answers arrive,
+      * so a plain read of the second option immediately after the first could land in the
+      * gap. Retrying both together rides out the re-mount. The assertion is unchanged.
+      */
+    await waitFor(() => {
+      expect(screen.getByRole("option", { name: /Group 1/ }).textContent).toContain("would clash with CM A");
+      expect(screen.getByRole("option", { name: /Group 2/ }).textContent).not.toContain("clash");
+    });
   });
 });

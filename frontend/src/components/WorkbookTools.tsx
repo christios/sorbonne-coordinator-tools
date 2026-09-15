@@ -59,7 +59,7 @@ export function WorkbookTools({
     if (!termId && terms[0]) setTermId(terms[0].id);
   }, [cohorts, terms, cohortId, termId]);
   const cohort = cohorts.find((candidate) => candidate.id === cohortId) ?? null;
-  const catalogue = useQuery({ queryKey: ["catalogue", cohortId, termId], queryFn: () => fetchCatalogue(cohortId, termId), enabled: open && Boolean(cohortId && termId) });
+  const catalogue = useQuery({ queryKey: ["catalogue", cohortId, termId, "own-only"], queryFn: () => fetchCatalogue(cohortId, termId, true), enabled: open && Boolean(cohortId && termId) });
   // The UE codes: the workbook keys its columns on the Sorbonne unit, and only the
   // department's course list knows which unit a registrar's course code stands for.
   const active = useQuery({ queryKey: ["active-courses"], queryFn: fetchActiveCourses, enabled: open });

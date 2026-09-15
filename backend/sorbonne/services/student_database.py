@@ -674,26 +674,34 @@ class StudentDatabase:
     # ------------------------------------------------------------- catalogue
 
     def read_catalogue(
-        self, cohort_id: str, term_id: str | None = None, with_shared: bool = False
+        self, cohort_id: str, term_id: str | None = None, own_only: bool = False
     ) -> dict[str, Any]:
-        """One cohort's scopes as a matrix, with how many students sit in each group.
+        """The sets this cohort's students are taught in, with how many sit in each group.
 
         Scoped to a semester when one is given, because a cohort's groups reshuffle between
         them and showing both at once would offer two "TD" that mean different things.
 
-        `with_shared` adds the semester's sets that are open to every cohort, whichever
-        cohort happens to hold them. Languages are one class for the whole department, and
-        the row saying so has to live under some cohort — which made the set look like that
-        cohort's and left it unreachable from any other. Each scope says whose it is, so a
-        page can keep the two apart.
+        **The sets open to every cohort are included by default, and `own_only` leaves them
+        out.** It used to be the other way round, and the default was the wrong one: the
+        languages are one class for the whole department, the row saying so has to live
+        under some cohort, and every reader that forgot to ask for them quietly reported a
+        cohort as though its students took no language at all. That mistake was made three
+        times — the exemptions filed under the owning cohort, the register not expecting a
+        language section, and the readiness never asking who had no language group, which
+        left seventeen students unflagged on the real data.
+
+        So the safe reading is what you get for not thinking about it, and a caller that
+        genuinely means "this cohort's own rows" has to say so. Two do, and both are about
+        a cohort's own paperwork rather than its students: the course cards, which would
+        otherwise show the languages under all four cohorts, and the timetable workbook,
+        which would put them on every sheet.
+
+        Each scope still says whose it is, so a page can keep the two apart.
         """
         self.get_cohort(cohort_id)
         clause = "" if term_id is None else " AND term_id = :term_id"
         own = f"cohort_id = :id{clause}"
-        # A shared set is the department's, so it is answered for every cohort of its
-        # semester — but only when the caller asked, since most callers mean "this
-        # cohort's own" and would otherwise start seeing another cohort's rows.
-        where = f"({own}) OR (open_to_all{clause})" if with_shared else own
+        where = own if own_only else f"({own}) OR (open_to_all{clause})"
         params: dict[str, Any] = {"id": cohort_id}
         if term_id is not None:
             params["term_id"] = term_id
@@ -837,7 +845,9 @@ class StudentDatabase:
         return [
             {
                 "cohort": {"id": cohort["id"], "name": cohort["name"], "term": cohort["term"]},
-                **self.read_catalogue(cohort["id"]),
+                # This cohort's own rows: a card page that showed the languages under all
+                # four cohorts would be showing one set four times.
+                **self.read_catalogue(cohort["id"], own_only=True),
             }
             for cohort in self.list_cohorts()
         ]

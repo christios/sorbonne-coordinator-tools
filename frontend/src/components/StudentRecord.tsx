@@ -160,8 +160,8 @@ export function StudentRecord({
    * left the registration check below judging them against half their groups.
    */
   const catalogue = useQuery({
-    queryKey: ["catalogue", cohortId, "", "with-shared"],
-    queryFn: () => fetchCatalogue(cohortId, undefined, true),
+    queryKey: ["catalogue", cohortId, ""],
+    queryFn: () => fetchCatalogue(cohortId, undefined),
     enabled: open && Boolean(cohortId),
   });
   const assignments = useQuery({

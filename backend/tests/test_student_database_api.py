@@ -880,23 +880,24 @@ def test_a_shared_set_is_answered_for_every_cohort_when_asked(client: TestClient
     """The row has to live under some cohort; the set belongs to the department.
 
     Reaching it only from whichever cohort happened to hold it is what made the languages
-    look like Foundation Year's, so a page may ask for the shared ones too — and is told
-    whose row each is, so it can keep them apart.
+    look like Foundation Year's. So the shared sets are what a cohort's catalogue gives you
+    unasked, and each says whose row it is so a page can keep the two apart. `own_only`
+    is for the caller that means this cohort's own paperwork.
     """
     other = client.post("/api/v1/student-database/cohorts", json={"name": "L2 elsewhere"}).json()
     client.post(f"/api/v1/student-database/cohorts/{cohort_id}/scopes", json={"code": "LANG", "openToAll": True})
     client.post(f"/api/v1/student-database/cohorts/{other['id']}/scopes", json={"code": "TD"})
 
-    own = client.get(f"/api/v1/student-database/cohorts/{other['id']}/catalogue").json()
-    with_shared = client.get(
-        f"/api/v1/student-database/cohorts/{other['id']}/catalogue", params={"with_shared": True}
+    plainly = client.get(f"/api/v1/student-database/cohorts/{other['id']}/catalogue").json()
+    narrowed = client.get(
+        f"/api/v1/student-database/cohorts/{other['id']}/catalogue", params={"own_only": True}
     ).json()
 
-    # Asked plainly, the cohort has only its own; asked for the shared ones, LANG is there.
-    assert [scope["code"] for scope in own["scopes"]] == ["TD"]
-    codes = [scope["code"] for scope in with_shared["scopes"]]
+    # Asked plainly, the languages are there; asked for its own rows, only TD.
+    assert [scope["code"] for scope in narrowed["scopes"]] == ["TD"]
+    codes = [scope["code"] for scope in plainly["scopes"]]
     assert "TD" in codes
-    mine = [scope for scope in with_shared["scopes"] if scope["cohortId"] == cohort_id]
+    mine = [scope for scope in plainly["scopes"] if scope["cohortId"] == cohort_id]
     assert [scope["code"] for scope in mine] == ["LANG"]
     assert mine[0]["openToAll"] is True
 
@@ -1204,7 +1205,9 @@ def test_an_exemption_counts_against_the_section_and_not_against_the_group(
     )
 
     catalogue = client.get(f"/api/v1/student-database/cohorts/{cohort_id}/catalogue").json()
-    group = catalogue["scopes"][0]["groups"][0]
+    # By its code, not by its place: a catalogue now carries the sets open to every cohort
+    # as well, so "the first scope" is not necessarily this cohort's own.
+    group = scope_of(catalogue, "TD")["groups"][0]
     assert group["assigned"] == len(STUDENTS)
     assert group["crns"][course_id]["exempt"] == 1
 
@@ -1247,7 +1250,7 @@ def test_an_exemption_survives_a_move_between_groups_of_the_same_set(
     place(client, scope_id, STUDENTS[:1], second)
 
     catalogue = client.get(f"/api/v1/student-database/cohorts/{cohort_id}/catalogue").json()
-    groups = {group["id"]: group for group in catalogue["scopes"][0]["groups"]}
+    groups = {group["id"]: group for group in scope_of(catalogue, "TD")["groups"]}
     assert groups[second]["crns"][course_id]["exempt"] == 1
     assert groups[first]["crns"][course_id]["exempt"] == 0
 

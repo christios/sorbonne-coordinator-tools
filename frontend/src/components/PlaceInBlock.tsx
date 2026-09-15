@@ -82,18 +82,16 @@ export function PlaceInBlock({
 
   const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, enabled: open });
   /*
-   * With the sets open to every cohort, under a key of their own.
+   * Every set this cohort's students are taught in, languages included.
    *
-   * Languages live on one cohort's row and are used by all of them, so asking only for
-   * this cohort's own sets meant a language group could never be chosen here — the set
-   * simply was not in the list. The key carries "with-shared" because WorkbookTools and
-   * AddFromPortal read the same cohort and semester WITHOUT them: one key for two shapes
-   * lets whichever landed first answer for both, and the languages would come and go
-   * depending on what else had been open.
+   * Languages live on one cohort's row and are used by all of them, so a reading of this
+   * cohort's own sets alone meant a language group could never be chosen here — the set
+   * simply was not in the list. That is the default now. The two readers that do want a
+   * cohort's own rows carry an "own-only" key, so one key never answers for two shapes.
    */
   const catalogue = useQuery({
-    queryKey: ["catalogue", cohort.id, termId, "with-shared"],
-    queryFn: () => fetchCatalogue(cohort.id, termId, true),
+    queryKey: ["catalogue", cohort.id, termId],
+    queryFn: () => fetchCatalogue(cohort.id, termId),
     enabled: open && Boolean(termId),
   });
 
