@@ -1966,6 +1966,62 @@ def test_a_student_exempt_from_a_course_is_not_reported_as_missing_from_it(
     assert [m["courseCode"] for m in after if m["studentId"] == "A002"] == ["MATH-011"]
 
 
+def test_a_course_they_are_exempt_from_still_flags_the_registrations_they_hold(
+    client: TestClient, database: StudentDatabase
+):
+    """An exemption is half a statement, and the register used to act on only that half.
+
+    It says the student does not take the course, which rightly stops us reporting them as
+    missing from its sections. But the registrar may still have them in one, and THAT is
+    the half somebody can act on: either the registration goes or the exemption does. On
+    the real data one L1 student was exempt from four courses while the registrar held nine
+    of their sections, and the platform said nothing either way.
+    """
+    cohort_id = build_cohort(database)
+    client.put(f"{BASE}/term-links/{HUB_TERM}", json={"portalTermCode": TERM})
+    # A001 is registered in the lecture our group teaches, and in nothing else.
+    registrations(client, [{"studentId": "A001", "crn": "22151", "courseCode": "MATH-001"}])
+    course = _course_named(database, cohort_id, "MATH-001")
+
+    def verdicts() -> list[tuple[str, str, tuple[str, ...], tuple[str, ...]]]:
+        """What the register says about A001 and THIS course — they are in a tutorial group
+        for another one, which has a difference of its own and is not what this is about."""
+        found = client.get(f"{BASE}/cohorts/{cohort_id}/registration-check").json()["mismatches"]
+        return sorted(
+            (m["courseCode"], m["kind"], tuple(m["expected"]), tuple(m["registered"]))
+            for m in found
+            if m["studentId"] == "A001" and m["courseCode"] == "MATH-001"
+        )
+
+    # Before the exemption: they are in our section and the register is content.
+    assert verdicts() == []
+
+    client.put(
+        f"/api/v1/student-database/students/A001/exemptions/{course['id']}",
+        json={"reason": "Passed it at SUAD"},
+    )
+
+    # After it: not "missing" — they are not expected anywhere — but the registration the
+    # registrar still holds is named, with no expected section to set against it.
+    assert verdicts() == [("MATH-001", "exempt", (), ("22151",))]
+
+
+def test_an_exemption_says_nothing_about_a_course_the_registrar_has_dropped(
+    client: TestClient, database: StudentDatabase
+):
+    # The point is the registration, not the exemption. With nothing held there is nothing
+    # to act on, and a line saying "exempt, registered in nothing" is noise.
+    cohort_id = build_cohort(database)
+    client.put(f"{BASE}/term-links/{HUB_TERM}", json={"portalTermCode": TERM})
+    registrations(client, [{"studentId": "A001", "crn": "23652", "courseCode": "MATH-011"}])
+    course = _course_named(database, cohort_id, "MATH-001")
+    client.put(f"/api/v1/student-database/students/A001/exemptions/{course['id']}", json={"reason": ""})
+
+    found = client.get(f"{BASE}/cohorts/{cohort_id}/registration-check").json()["mismatches"]
+
+    assert [m for m in found if m["studentId"] == "A001" and m["courseCode"] == "MATH-001"] == []
+
+
 def test_lifting_an_exemption_brings_the_difference_back(client: TestClient, database: StudentDatabase):
     # It is a decision, and decisions are reversed. Silence that could not be undone would
     # be worse than the warning.

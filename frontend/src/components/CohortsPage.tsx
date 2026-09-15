@@ -126,6 +126,7 @@ const SAID: Record<Mismatch["kind"], { say: (mismatch: Mismatch) => string; sour
   doubled: { say: (m) => `${m.scopeCode} twice`, source: "registration" },
   // Which of ours, and when — the two things that tell one clash from another.
   collides: { say: (m) => `${m.courseCode} ${m.scopeCode}`, source: "timetabling" },
+  exempt: { say: (m) => `${m.courseCode} exempt, still registered`, source: "registration" },
 };
 
 /**
@@ -150,6 +151,7 @@ function describeKinds(mismatches: Mismatch[]): string {
     unplaced: "registered in a course we have not placed them in",
     doubled: "registered in two groups of one set",
     collides: "in one of our hours and another department's at once",
+    exempt: "registered in a course we recorded them as not taking",
   };
   const counted = new Map<Mismatch["kind"], number>();
   for (const mismatch of mismatches) counted.set(mismatch.kind, (counted.get(mismatch.kind) ?? 0) + 1);

@@ -2042,6 +2042,14 @@ class PortalListStore:
                     for code in course_codes
                     if code not in excused
                 )
+                # An exemption says they do not take the course. It stops us EXPECTING them
+                # in its sections; it must not also hide the fact that the registrar still
+                # has them in one, which is the only half anybody can act on.
+                found.extend(
+                    _exempted(student, term_id, term_code, code, registered.get(student, {}).get(code, []))
+                    for code in course_codes
+                    if code in excused
+                )
                 electives.extend(
                     _electives(
                         student,
@@ -2285,6 +2293,27 @@ def _judge(  # noqa: PLR0913 - one argument per part of the verdict
         return None
     # The sections they should be in NOW, because that is what the sentence is about.
     return Mismatch(student, term_id, term_code, code, kind, current, held)
+
+
+def _exempted(student: str, term_id: str, term_code: str, code: str, registered: list[str]) -> Mismatch | None:
+    """A course we recorded them as not taking, that the registrar still has them in.
+
+    The exemption was built to stop the register reporting a student as missing from a
+    section that was never theirs to be in, and it does that by skipping the course
+    entirely — which threw away the other half with it. On the real data one L1 student was
+    exempt from four courses while the registrar still held nine of their sections, and the
+    platform said nothing in either direction, so nobody could have known to un-register
+    them.
+
+    Every section of the course, ours included. An exemption is about the COURSE: if they
+    do not take it, our own lecture section is as wrong as anybody else's tutorial. Which
+    of the two is the mistake — the exemption or the registration — is not ours to guess,
+    and saying so is what lets somebody decide.
+    """
+    held = sorted(set(registered))
+    if not held:
+        return None
+    return Mismatch(student, term_id, term_code, code, "exempt", [], held)
 
 
 def _electives(  # noqa: PLR0913 - one argument per part of the listing

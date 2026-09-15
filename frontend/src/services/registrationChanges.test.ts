@@ -52,6 +52,26 @@ describe("the registrar's worklist", () => {
     expect(changes).toEqual([]);
   });
 
+  it("drops every section of a course we recorded them as not taking", () => {
+    /*
+     * An exemption gives no expected sections at all, so the whole of what the registrar
+     * holds comes out as a Remove — our own lecture included. If they do not take the
+     * course, our section is as wrong as anybody else's. Whether the exemption or the
+     * registration is the mistake is the coordinator's call; the line is what lets them
+     * make it.
+     */
+    const changes = registrationChanges(
+      [mismatch({ kind: "exempt", courseCode: "PHYS-125", expected: [], registered: ["22135", "23638"] })],
+      named,
+      "L1-S1",
+    );
+
+    expect(changes.map((change) => [change.action, change.crn])).toEqual([
+      ["Remove", "22135"],
+      ["Remove", "23638"],
+    ]);
+  });
+
   it("says nothing about two groups of one set, because it cannot say which is the mistake", () => {
     const changes = registrationChanges(
       [mismatch({ kind: "doubled", expected: [], registered: ["23302", "23421"] })],

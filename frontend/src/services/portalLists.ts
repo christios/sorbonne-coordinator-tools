@@ -89,7 +89,9 @@ export type Mismatch = {
   termId: string;
   termCode: string;
   courseCode: string;
-  kind: "missing" | "wrong" | "extra" | "unplaced" | "doubled" | "collides";
+  // exempt: registered in a course we recorded them as not taking, which is a decision of
+  // ours the registrar has not been told about — or an exemption that should not stand
+  kind: "missing" | "wrong" | "extra" | "unplaced" | "doubled" | "collides" | "exempt";
   /** The set a `doubled` verdict is about; empty for the verdicts that are about a course. */
   scopeCode?: string;
   /** Every section of this course our blocks give the student — a lecture and a tutorial. */
@@ -942,5 +944,7 @@ export function describeMismatch(mismatch: Mismatch): string {
     // `scopeCode` carries the slot here — the weekday and the hour the two share.
     case "collides":
       return `${mismatch.courseCode} (${mismatch.expected.join(", ")}) is at the same hour as ${mismatch.registered.join(", ")} — ${mismatch.scopeCode}`;
+    case "exempt":
+      return `${mismatch.courseCode}: recorded as not taking it, and still registered in ${mismatch.registered.join(", ")}`;
   }
 }

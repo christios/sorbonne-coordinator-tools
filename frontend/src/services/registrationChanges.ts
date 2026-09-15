@@ -17,6 +17,11 @@ import type { Mismatch } from "@/services/portalLists";
 /**
  * The verdicts that name a registration to change, and only those.
  *
+ * `exempt` belongs here for the same arithmetic: we have recorded the student as not
+ * taking the course, so it gives no expected sections at all and every section the
+ * registrar holds comes out as a Remove. That is the line somebody acts on; whether the
+ * exemption or the registration is the mistake is the coordinator's call, not this list's.
+ *
  * `unplaced` is deliberately absent: it means the registrar has them in a course we have
  * placed them in no group of, and the remedy is to place them rather than to take the
  * registration away. `doubled` is absent because it says two groups of one set are held
@@ -24,7 +29,7 @@ import type { Mismatch } from "@/services/portalLists";
  * all. Exporting a guess for any of the three would put a wrong line in front of somebody
  * who acts on it.
  */
-const ACTIONABLE = new Set(["missing", "wrong", "extra"]);
+const ACTIONABLE = new Set(["missing", "wrong", "extra", "exempt"]);
 
 export type RegistrationChange = {
   studentId: string;
