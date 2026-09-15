@@ -7,7 +7,7 @@ import { Modal } from "@/components/Modal";
 import { PortalTermLink } from "@/components/PortalTermLink";
 import { SemesterImport } from "@/components/SemesterImport";
 import { SemesterPublish } from "@/components/SemesterPublish";
-import { SemesterTimetableButton } from "@/components/SemesterTimetable";
+import { SemesterTimetable } from "@/components/SemesterTimetable";
 import { SemesterUpdate } from "@/components/SemesterUpdate";
 import {
   TimetableTerm,
@@ -32,6 +32,8 @@ export function SemesterList({ host }: { host: string | null }) {
   const [updating, setUpdating] = useState<TimetableTerm | null>(null);
   const [importing, setImporting] = useState(false);
   const [publishing, setPublishing] = useState<TimetableTerm | null>(null);
+  // The whole week takes the page, like publishing does: it is not a card-sized thing.
+  const [timetableOf, setTimetableOf] = useState<TimetableTerm | null>(null);
   const [renaming, setRenaming] = useState<TimetableTerm | null>(null);
   const [newName, setNewName] = useState("");
   // An update starts as a dialog over this list and takes the screen once it has a diff.
@@ -56,6 +58,11 @@ export function SemesterList({ host }: { host: string | null }) {
   });
 
   const error = publishMutation.error?.message ?? deleteMutation.error?.message ?? null;
+
+  if (timetableOf) {
+    const current = (terms.data ?? []).find((term) => term.id === timetableOf.id) ?? timetableOf;
+    return <SemesterTimetable term={current} onBack={() => setTimetableOf(null)} />;
+  }
 
   if (publishing) {
     const current = (terms.data ?? []).find((term) => term.id === publishing.id) ?? publishing;
@@ -175,7 +182,14 @@ export function SemesterList({ host }: { host: string | null }) {
                           <td className="px-6 py-4">
                             <div className="flex justify-end gap-2">
                               {/* The whole department's week, which no other calendar shows. */}
-                              <SemesterTimetableButton term={term} />
+                              <button
+                                type="button"
+                                onClick={() => setTimetableOf(term)}
+                                title={`See every section of ${term.name} in one week`}
+                                className="rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc]"
+                              >
+                                Timetable
+                              </button>
                               <button
                                 type="button"
                                 onClick={() => setPublishing(term)}

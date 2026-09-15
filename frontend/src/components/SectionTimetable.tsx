@@ -48,6 +48,12 @@ type TimetableProps = {
   /** Pressing a box opens that CRN's record, where `openable` says there is one to open. */
   onOpenCrn?: (crn: string) => void;
   openable?: (crn: string) => boolean;
+  /** Overlapping classes one under another rather than side by side — for a dense week. */
+  stack?: boolean;
+  /** An hour's height in pixels: the vertical zoom. */
+  hourHeight?: number;
+  /** The narrowest a day column may be before the week scrolls: the horizontal zoom. */
+  dayWidth?: number;
   /**
    * Pressing a box says what happened to that class instead — cancelled, covered. Every
    * box is pressable then; a CRN's own record is where this is offered.
@@ -84,6 +90,9 @@ function Timetable({
   compact = false,
   onOpenCrn,
   openable,
+  stack = false,
+  hourHeight,
+  dayWidth,
   onPickSession,
   onExpand,
 }: TimetableProps & { onExpand?: () => void }) {
@@ -192,7 +201,9 @@ function Timetable({
             courses={courses}
             today={today}
             compact={compact}
-            hourHeight={compact ? 24 : 48}
+            hourHeight={hourHeight ?? (compact ? 24 : 48)}
+            stack={stack}
+            dayWidth={dayWidth}
             onPick={onPickSession ?? (onOpenCrn ? (session) => onOpenCrn(session.crn) : undefined)}
           />
           {legend.length > 1 ? (

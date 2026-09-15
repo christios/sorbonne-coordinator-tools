@@ -39,6 +39,21 @@ type WeekCalendarProps = {
   compact?: boolean;
   /** Pressing a box. Only boxes whose course says `openable` are buttons. */
   onPick?: (session: PlacedSession) => void;
+  /**
+   * Overlapping classes one under another rather than side by side.
+   *
+   * Side by side is right for a calendar with a handful of overlaps: a course's tutorial
+   * groups read as separate classes at a glance. It fails completely at department scale —
+   * sixteen sections share the worst hour of a real semester, and sixteen boxes across one
+   * day column are a column of coloured slivers. Stacked, each box keeps the full width of
+   * its day and gives up height instead, which the hour zoom below can give back.
+   *
+   * A box still sits inside its own hour either way: the subdivision is of the class's own
+   * span, not of the day, so nothing is drawn at a time it is not taught.
+   */
+  stack?: boolean;
+  /** The narrowest a day column may be before the week scrolls sideways — the width zoom. */
+  dayWidth?: number;
 };
 
 /**
@@ -61,6 +76,8 @@ export function WeekCalendar({
   atLeast,
   compact = false,
   onPick,
+  stack = false,
+  dayWidth,
 }: WeekCalendarProps) {
   const days = weekDays(weekStart, sessions);
   const inWeek = sessionsInRange(sessions, days[0], days[days.length - 1]);
@@ -71,7 +88,7 @@ export function WeekCalendar({
   for (let minute = startMinute; minute <= endMinute; minute += 60) hours.push(minute);
   const topOf = (minute: number) => (minute - startMinute) * pixelsPerMinute + TOP_PADDING;
   const gutter = compact ? 30 : 44;
-  const narrowestDay = compact ? 56 : 88;
+  const narrowestDay = dayWidth ?? (compact ? 56 : 88);
 
   const box = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
@@ -180,6 +197,7 @@ export function WeekCalendar({
               topOf={topOf}
               pixelsPerMinute={pixelsPerMinute}
               compact={compact}
+              stack={stack}
               onPick={onPick}
               nowAt={day === today && nowMinute >= startMinute && nowMinute <= endMinute ? topOf(nowMinute) : null}
             />
@@ -206,12 +224,14 @@ type DayColumnProps = {
   topOf: (minute: number) => number;
   pixelsPerMinute: number;
   compact: boolean;
+  /** Overlapping classes one under another rather than side by side — see `WeekCalendarProps`. */
+  stack: boolean;
   onPick?: (session: PlacedSession) => void;
   /** Where the current time falls in this column, when the column is today and the hour is on the grid. */
   nowAt: number | null;
 };
 
-function DayColumn({ day, sessions, courses, height, hours, topOf, pixelsPerMinute, compact, onPick, nowAt }: DayColumnProps) {
+function DayColumn({ day, sessions, courses, height, hours, topOf, pixelsPerMinute, compact, stack, onPick, nowAt }: DayColumnProps) {
   return (
     <div className="relative border-l border-[#e4e8ef]" style={{ height }}>
       {hours.slice(1, -1).map((minute) => (
@@ -230,7 +250,16 @@ function DayColumn({ day, sessions, courses, height, hours, topOf, pixelsPerMinu
       {laneOut(sessions).map(({ session, lane, lanes }) => {
         const course = courses.get(session.crn);
         const minutes = minutesOf(session.end) - minutesOf(session.start);
-        const boxHeight = Math.max(compact ? 12 : 22, minutes * pixelsPerMinute - 2);
+        /*
+         * Stacked, a class gives up height instead of width: its own span is divided
+         * between the classes it overlaps, and it keeps the whole column. Side by side, the
+         * old way, it keeps its height and gives up width. Either way it stays inside its
+         * own hour — the subdivision is of the class's span, never of the day.
+         */
+        const span = minutes * pixelsPerMinute;
+        const boxHeight = stack
+          ? Math.max(compact ? 8 : 14, span / lanes - 2)
+          : Math.max(compact ? 12 : 22, span - 2);
         const color = course?.color ?? "#1f4e79";
         const outline = course?.tone === "outline";
         const label = course?.label || course?.code || session.crn;
@@ -279,10 +308,10 @@ function DayColumn({ day, sessions, courses, height, hours, topOf, pixelsPerMinu
               session.clashes ? "outline-2 -outline-offset-2 outline-[#d9a441]" : ""
             } ${opens ? "cursor-pointer hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#1f4e79]" : ""}`}
             style={{
-              top: topOf(minutesOf(session.start)),
+              top: stack ? topOf(minutesOf(session.start)) + (lane * span) / lanes : topOf(minutesOf(session.start)),
               height: boxHeight,
-              left: `calc(${lane * widthPercent}% + 2px)`,
-              width: `calc(${widthPercent}% - 4px)`,
+              left: stack ? 2 : `calc(${lane * widthPercent}% + 2px)`,
+              width: stack ? "calc(100% - 4px)" : `calc(${widthPercent}% - 4px)`,
               backgroundColor: outline ? undefined : color,
               borderColor: outline ? color : undefined,
               color: outline ? color : undefined,

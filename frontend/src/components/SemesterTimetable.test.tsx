@@ -23,7 +23,7 @@ function show() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
-      <SemesterTimetable term={TERM} open onClose={vi.fn()} />
+      <SemesterTimetable term={TERM} onBack={vi.fn()} />
     </QueryClientProvider>,
   );
 }
@@ -33,6 +33,7 @@ beforeEach(() => {
   vi.setSystemTime(new Date(2026, 8, 9, 10, 0, 0));
   vi.spyOn(notes, "fetchSessionChanges").mockResolvedValue([]);
   vi.spyOn(lists, "fetchTermCrns").mockResolvedValue({ portalTermCode: "262710", crns: CRNS });
+  vi.spyOn(lists, "fetchActiveCrns").mockResolvedValue([]);
   vi.spyOn(lists, "fetchFacilitySections").mockResolvedValue({
     termCode: "262710",
     pulledAt: "2026-09-01T00:00:00+00:00",

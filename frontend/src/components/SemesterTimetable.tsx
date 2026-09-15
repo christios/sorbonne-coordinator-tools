@@ -1,42 +1,55 @@
-import { useQuery } from "@tanstack/react-query";
-import { CalendarRange } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { ArrowLeft, CalendarRange, Minus, Plus } from "lucide-react";
 import { useMemo, useState } from "react";
 
-import { Modal } from "@/components/Modal";
+import { CrnRecord } from "@/components/CrnRecord";
 import { SectionTimetable, type TimetableEntry } from "@/components/SectionTimetable";
 import { SelectMenu } from "@/components/SelectMenu";
-import { fetchTermCrns } from "@/services/portalLists";
+import { fetchActiveCrns, fetchTermCrns, type ActiveCrn } from "@/services/portalLists";
 import type { TimetableTerm } from "@/services/timetables";
 
+/** How tall an hour is, and how wide a day is, at each notch of the zoom. */
+const HOUR_HEIGHTS = [48, 72, 110, 170, 260, 400, 600];
+const DAY_WIDTHS = [88, 130, 190, 280, 420, 640];
+
 /**
- * A whole semester's week in one grid: every section the registrar has booked, at once.
+ * A whole semester's week, as a page rather than a card.
  *
- * The other calendars in this application answer "when is this ONE thing taught" — a
- * student's week, a teacher's, a CRN's. None of them answers the question a coordinator
- * asks while moving a class: what else is in that hour. That question is about the whole
- * department at once, so this draws the whole department at once.
+ * Every other calendar here answers "when is this ONE thing taught" — a student's week, a
+ * teacher's, a CRN's — and fits in a card beside other cards. None of them answers the
+ * question a coordinator asks while moving a class: what else is in that hour. That
+ * question is about the whole department at once, and the whole department does not fit in
+ * a card, so this takes the page.
  *
- * It is dense on purpose, and the department's real week is denser than it looks: at the
- * worst hour of Semester 1 sixteen sections share one weekday and start time, so sixteen
- * boxes share one column. That is legible enough to see the SHAPE of the hour and not
- * enough to read a room number off, which is why the filters below are part of the
- * feature rather than a refinement of it. Narrow to a subject or a teacher and the same
- * grid becomes readable; widen again to see what you would collide with.
+ * Three things follow from the scale, and each was a correction to a first version that
+ * treated this like the small calendars:
  *
- * The sections come from the registrar's own sweep, like every other calendar here, so a
- * semester nobody has swept shows nothing rather than showing our planning as though it
- * were booked.
+ * - **Stacked, not side by side.** Sixteen sections share the worst hour of a real
+ *   semester. Side by side that is sixteen coloured slivers; stacked, each keeps the full
+ *   width of its day and gives up height, which the zoom gives back.
+ * - **Zoom on both axes.** With stacking, height is the currency — an hour has to be able
+ *   to grow until its classes are readable, and the week scrolls rather than shrinking to
+ *   fit.
+ * - **The boxes open.** A class on any other calendar here opens its CRN; there is no
+ *   reason this one should be the exception, and it is the calendar you are most likely to
+ *   be looking at when you want to know what a section actually is.
  */
-export function SemesterTimetable({ term, open, onClose }: { term: TimetableTerm; open: boolean; onClose: () => void }) {
+export function SemesterTimetable({ term, onBack }: { term: TimetableTerm; onBack: () => void }) {
+  const client = useQueryClient();
   const [subjects, setSubjects] = useState<string[]>([]);
   const [teachers, setTeachers] = useState<string[]>([]);
+  const [hourNotch, setHourNotch] = useState(2);
+  const [dayNotch, setDayNotch] = useState(1);
+  const [showingCrn, setShowingCrn] = useState<ActiveCrn | null>(null);
 
   const held = useQuery({
     queryKey: ["term-crns", term.id],
     queryFn: () => fetchTermCrns(term.id),
-    enabled: open,
     retry: false,
   });
+  // The department's own list, so a box knows whether there is a record behind it to open.
+  const register = useQuery({ queryKey: ["active-crns", ""], queryFn: () => fetchActiveCrns(), retry: false });
+  const inRegister = (crn: string) => (register.data ?? []).find((row) => row.crn === crn) ?? null;
 
   const all = useMemo<TimetableEntry[]>(() => {
     const crns = held.data?.crns ?? {};
@@ -49,8 +62,7 @@ export function SemesterTimetable({ term, open, onClose }: { term: TimetableTerm
         code: course.courseCode,
         title: course.title,
         staff: course.teacherName,
-        // One colour per COURSE, so the sections of a course read as one thing across the
-        // week — which is how somebody looking for a clash scans it.
+        // One colour per COURSE, so a course's sections read as one thing across the week.
         colorKey: course.courseCode,
       }));
   }, [held.data]);
@@ -76,19 +88,30 @@ export function SemesterTimetable({ term, open, onClose }: { term: TimetableTerm
       ),
     [all, subjects, teachers],
   );
-
   const narrowed = subjects.length > 0 || teachers.length > 0;
 
   return (
-    <Modal
-      open={open}
-      size="wide"
-      title={`${term.name} — the whole week`}
-      description="Every section the registrar has booked this semester, in one grid. Narrow it to read an hour; widen it to see what an hour already holds."
-      onClose={onClose}
-    >
+    <section>
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          onClick={onBack}
+          className="inline-flex items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc]"
+        >
+          <ArrowLeft size={15} aria-hidden="true" /> Semesters
+        </button>
+        <div>
+          <h2 className="flex items-center gap-2 text-xl font-semibold text-[#171717]">
+            <CalendarRange size={18} aria-hidden="true" /> {term.name} — the whole week
+          </h2>
+          <p className="text-sm text-[#667085]">
+            Every section the registrar has booked this semester. Press a class to open its CRN.
+          </p>
+        </div>
+      </div>
+
       <div className="mb-3 flex flex-wrap items-end gap-3">
-        <div className="w-56">
+        <div className="w-52">
           <SelectMenu
             label="Subjects"
             value={subjects.join("\n")}
@@ -100,7 +123,7 @@ export function SemesterTimetable({ term, open, onClose }: { term: TimetableTerm
             options={subjectOptions}
           />
         </div>
-        <div className="w-64">
+        <div className="w-60">
           <SelectMenu
             label="Teachers"
             value={teachers.join("\n")}
@@ -112,6 +135,8 @@ export function SemesterTimetable({ term, open, onClose }: { term: TimetableTerm
             options={teacherOptions}
           />
         </div>
+        <Zoom label="Hour" notch={hourNotch} notches={HOUR_HEIGHTS.length} onChange={setHourNotch} />
+        <Zoom label="Day" notch={dayNotch} notches={DAY_WIDTHS.length} onChange={setDayNotch} />
         <p className="text-xs text-[#98a2b3]">
           {held.isPending
             ? "Reading the semester…"
@@ -138,7 +163,12 @@ export function SemesterTimetable({ term, open, onClose }: { term: TimetableTerm
       ) : (
         <SectionTimetable
           entries={shown}
+          stack
+          hourHeight={HOUR_HEIGHTS[hourNotch]}
+          dayWidth={DAY_WIDTHS[dayNotch]}
           title={`${term.name} — the whole week`}
+          openable={(crn) => Boolean(inRegister(crn))}
+          onOpenCrn={(crn) => setShowingCrn(inRegister(crn))}
           emptyMessage={
             all.length
               ? "Nothing matches those filters."
@@ -146,27 +176,58 @@ export function SemesterTimetable({ term, open, onClose }: { term: TimetableTerm
           }
         />
       )}
-    </Modal>
+
+      {showingCrn ? (
+        <CrnRecord
+          open
+          row={showingCrn}
+          siblings={(register.data ?? []).filter(
+            (entry) => entry.courseCode === showingCrn.courseCode && entry.termCode === showingCrn.termCode,
+          )}
+          onClose={() => setShowingCrn(null)}
+          onSaved={() => void client.invalidateQueries({ queryKey: ["active-crns"] })}
+        />
+      ) : null}
+    </section>
   );
 }
 
-/** The button that opens it, for a semester's row. */
-export function SemesterTimetableButton({ term }: { term: TimetableTerm }) {
-  const [open, setOpen] = useState(false);
+/** One axis of the zoom: a notch up, a notch down, and how far along it is. */
+function Zoom({
+  label,
+  notch,
+  notches,
+  onChange,
+}: {
+  label: string;
+  notch: number;
+  notches: number;
+  onChange: (notch: number) => void;
+}) {
   return (
-    <>
+    <div className="inline-flex items-center gap-1 rounded-md border border-[#d3d9e2] bg-white p-1">
+      <span className="px-1 text-xs font-semibold text-[#667085]">{label}</span>
       <button
         type="button"
-        onClick={() => setOpen(true)}
-        title={`See every section of ${term.name} in one week`}
-        className="rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc]"
+        aria-label={`Less ${label.toLowerCase()}`}
+        disabled={notch === 0}
+        onClick={() => onChange(Math.max(0, notch - 1))}
+        className="rounded p-1 text-[#344054] hover:bg-[#f2f4f7] disabled:text-[#c8d0da]"
       >
-        <span className="inline-flex items-center gap-1.5">
-          <CalendarRange size={15} aria-hidden="true" />
-          Timetable
-        </span>
+        <Minus size={13} aria-hidden="true" />
       </button>
-      <SemesterTimetable term={term} open={open} onClose={() => setOpen(false)} />
-    </>
+      <span className="w-8 text-center text-xs tabular-nums text-[#98a2b3]">
+        {notch + 1}/{notches}
+      </span>
+      <button
+        type="button"
+        aria-label={`More ${label.toLowerCase()}`}
+        disabled={notch === notches - 1}
+        onClick={() => onChange(Math.min(notches - 1, notch + 1))}
+        className="rounded p-1 text-[#344054] hover:bg-[#f2f4f7] disabled:text-[#c8d0da]"
+      >
+        <Plus size={13} aria-hidden="true" />
+      </button>
+    </div>
   );
 }
