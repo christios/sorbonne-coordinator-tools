@@ -94,6 +94,9 @@ beforeEach(() => {
   });
   vi.spyOn(database, "fetchAssignments").mockResolvedValue({ A001: { "scope-td": "td-1" } });
   vi.spyOn(comments, "fetchComments").mockResolvedValue([]);
+  // Which courses a student does not take. The CRNs table waits for this before it draws,
+  // since it decides whether a row reads "exempt" or "not registered" in red.
+  vi.spyOn(database, "fetchExemptions").mockResolvedValue([]);
 });
 
 afterEach(() => vi.restoreAllMocks());
@@ -138,6 +141,33 @@ describe("a student's record", () => {
     expect(screen.queryByText("Registered in the portal")).toBeNull();
     const table = screen.getByLabelText("CRNs");
     expect(within(table).getByText("23223")).toBeTruthy();
+  });
+
+  it("says exempt, not a fault, for a CRN of a course they do not take", async () => {
+    /*
+     * 23652 is a CRN their group gives them and the registrar has not registered them for.
+     * That is red work to chase — unless they are exempt from the course, when it is a
+     * registration that must never be made, and the red was asking for the wrong thing.
+     */
+    vi.spyOn(database, "fetchExemptions").mockResolvedValue([
+      { studentId: "A001", courseId: "c-algo", courseCode: "MATH-011", scopeId: "scope-td", scopeCode: "TD", termId: "term-1", reason: "" },
+    ]);
+    show();
+
+    const table = await screen.findByLabelText("CRNs");
+    const row = within(table).getByText("23652").closest("tr");
+    expect(row?.textContent).toContain("exempt");
+    expect(row?.textContent).not.toContain("not registered");
+    // And the count above the table agrees with the rows under it.
+    expect(within(table.closest("section") ?? table).queryByText(/not registered/)).toBeNull();
+  });
+
+  it("still calls an unregistered CRN a fault when nothing excuses it", async () => {
+    show();
+
+    const table = await screen.findByLabelText("CRNs");
+    const row = within(table).getByText("23652").closest("tr");
+    expect(row?.textContent).toContain("not registered");
   });
 
   it("reads the history from this browser", async () => {
@@ -252,7 +282,7 @@ describe("after placing them from their own record", () => {
     await screen.findByLabelText("Groups");
     fireEvent.click(screen.getByRole("button", { name: /Place in every set/ }));
 
-    await pick("Groups", "I'll name the groups");
+    await pick("Groups", "I'll choose");
     await pick("Semester", "Semester 1");
     await pick("Block", /TD/);
     await pick("Group", /Group 1/);

@@ -15,8 +15,12 @@
 export type Placement = {
   scope: { id: string; code: string };
   group?: { label: string };
-  /** `courseName` is what our own set calls the course; the label when the registrar has no row. */
-  crns: { courseCode: string; crn: string; courseName?: string }[];
+  /**
+   * `courseName` is what our own set calls the course; the label when the registrar has no row.
+   * `courseId` is ours, and is how an exemption is recognised: exemptions are recorded against
+   * the course, not against the code the registrar happens to spell it with.
+   */
+  crns: { courseId?: string; courseCode: string; crn: string; courseName?: string }[];
 };
 
 export type Registration = { crn: string; courseCode: string; title: string; status: string };
@@ -33,6 +37,8 @@ export type Line = {
   title: string;
   /** "CM 1" — the group of ours that stands for this CRN, when one does. */
   from: string;
+  /** The course of ours this CRN belongs to. Blank on a CRN only the registrar has. */
+  courseId: string;
   ours: boolean;
   portal: boolean;
 };
@@ -46,6 +52,7 @@ export function fromGroups(placements: Placement[]): Line[] {
       lines.push({
         crn: cell.crn,
         courseCode: cell.courseCode,
+        courseId: cell.courseId ?? "",
         title: cell.courseName ?? "",
         from: `${placement.scope.code} ${placement.group?.label ?? "?"}`.trim(),
         ours: true,
@@ -64,6 +71,8 @@ export function fromPortal(registrations: Registration[]): Line[] {
       .map((registration) => ({
         crn: registration.crn,
         courseCode: registration.courseCode || "—",
+        // The registrar names a section, not a course of ours; only our own side knows that.
+        courseId: "",
         title: registration.title,
         from: "",
         ours: false,
@@ -96,12 +105,38 @@ export function reconcile(placements: Placement[], registrations: Registration[]
   return sorted([...held.values()]);
 }
 
-/** What the two lists come to: how many agree, and how many are on one side only. */
-export function tally(lines: Line[]): { agree: number; onlyOurs: number; onlyPortal: number } {
+/**
+ * Whether the registrar's silence about this CRN is a decision rather than a fault.
+ *
+ * An exemption says the student does not take the course — credit held elsewhere, or a
+ * course already passed. Every CRN of that course is then one the registrar is right not
+ * to have them in, so it is not "not registered": nobody is going to register them, and
+ * saying so in red asks for work that must not be done.
+ *
+ * One rule, so the table and the count above it can never disagree about a row.
+ */
+export function excusedLine(line: Line, excused: ReadonlySet<string>): boolean {
+  return line.ours && !line.portal && Boolean(line.courseId) && excused.has(line.courseId);
+}
+
+/**
+ * What the two lists come to: how many agree, how many are on one side only, and how many
+ * of ours the registrar is right to be silent about.
+ *
+ * `excused` is the courses this student does not take, by our own course id. The exempt
+ * ones are counted apart rather than among the missing, so the number that reads as work
+ * is only the work. Empty by default, which gives the count as it was.
+ */
+export function tally(
+  lines: Line[],
+  excused: ReadonlySet<string> = new Set(),
+): { agree: number; onlyOurs: number; onlyPortal: number; exempt: number } {
+  const exempt = lines.filter((line) => excusedLine(line, excused)).length;
   return {
     agree: lines.filter((line) => line.ours && line.portal).length,
-    onlyOurs: lines.filter((line) => line.ours && !line.portal).length,
+    onlyOurs: lines.filter((line) => line.ours && !line.portal).length - exempt,
     onlyPortal: lines.filter((line) => !line.ours && line.portal).length,
+    exempt,
   };
 }
 

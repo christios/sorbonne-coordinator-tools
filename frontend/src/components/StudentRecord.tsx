@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, ArrowRightCircle, Check, ChevronDown, ClipboardList, EyeOff, GraduationCap, ShieldCheck, Wand2, X } from "lucide-react";
+import { AlertTriangle, ArrowRightCircle, Check, ChevronDown, ClipboardList, EyeOff, GraduationCap, MinusCircle, ShieldCheck, Wand2, X } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { CommentThread } from "@/components/CommentThread";
@@ -32,7 +32,7 @@ import {
 import { allChanges, historyFor, type PullHistory } from "@/services/pullHistory";
 import { copyTable } from "@/services/copyCells";
 import { CHANGE_COLUMNS, changesRows, noteChanges, registrationChanges } from "@/services/registrationChanges";
-import { reconcile, tally } from "@/services/registrationLists";
+import { excusedLine, reconcile, tally } from "@/services/registrationLists";
 import type { StudentRow } from "@/services/rosterView";
 import { fetchSchema } from "@/services/scenRosters";
 import {
@@ -306,7 +306,7 @@ export function StudentRecord({
    * a list of courses on the other, with the warnings folded in among the courses.
    */
   const lines = reconcile(placements, registrations.data ?? []);
-  const counted = tally(lines);
+  const counted = tally(lines, excused);
   const mismatches: Mismatch[] = (check.data?.mismatches ?? []).filter(
     (mismatch) => mismatch.studentId === row.studentId,
   );
@@ -635,7 +635,13 @@ export function StudentRecord({
               </button>
             }
           >
-            {catalogue.isLoading || registrations.isLoading ? (
+            {/*
+              * The exemptions are waited for too. They decide whether a row reads "exempt"
+              * or "not registered" in red, and arriving a moment late drew the red first —
+              * the exact false alarm this is here to stop. A student in no cohort is never
+              * asked for, so this never waits on a read that will not happen.
+              */}
+            {catalogue.isLoading || registrations.isLoading || exemptions.isLoading ? (
               <Empty>Reading…</Empty>
             ) : lines.length === 0 ? (
               <Empty>No CRNs on either side yet.</Empty>
@@ -644,6 +650,7 @@ export function StudentRecord({
                 <p className="mb-2 text-xs text-[#98a2b3]">
                   {counted.agree} agree
                   {counted.onlyOurs ? ` · ${counted.onlyOurs} not registered` : ""}
+                  {counted.exempt ? ` · ${counted.exempt} exempt` : ""}
                   {counted.onlyPortal - electiveOf.size > 0
                     ? ` · ${counted.onlyPortal - electiveOf.size} registered that is no group of theirs`
                     : ""}
@@ -716,9 +723,22 @@ export function StudentRecord({
                           )}
                         </td>
                         <td className="py-1.5 pr-3">
+                          {/*
+                            * "Not registered" is a fault to chase. On a course they are
+                            * exempt from it is the opposite: a registration that must
+                            * never be made, drawn in the colour that asks for one. So an
+                            * exemption is said plainly and quietly instead.
+                            */}
                           {line.portal ? (
                             <span className="inline-flex items-center gap-1 text-[#2f6b3d]">
                               <Check size={13} aria-hidden="true" /> registered
+                            </span>
+                          ) : excusedLine(line, excused) ? (
+                            <span
+                              className="inline-flex items-center gap-1 text-[#667085]"
+                              title="They do not take this course, so the registrar is right not to have them in it."
+                            >
+                              <MinusCircle size={13} aria-hidden="true" /> exempt
                             </span>
                           ) : (
                             <span className="text-[#a6292f]">not registered</span>
