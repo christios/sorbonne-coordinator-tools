@@ -6,6 +6,8 @@ import { Modal } from "@/components/Modal";
 import { SelectMenu } from "@/components/SelectMenu";
 import { type FillCandidate, clashKey, sameProgram } from "@/services/groupFill";
 import { type Walk, walkPlacements, walkSets } from "@/services/groupWalk";
+import { teachersOfGroup, teachersSaid } from "@/services/groupTeachers";
+import { fetchActiveTeachers } from "@/services/portalLists";
 import { fetchPublication } from "@/services/publication";
 import { clashesIn } from "@/services/publicationView";
 import { fieldHeld, namesHeld } from "@/services/rosterStore";
@@ -81,6 +83,9 @@ export function PlaceInBlock({
     setRows((held) => held.map((row, at) => (at === index ? { ...row, ...patch } : row)));
 
   const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, enabled: open });
+  // So a section that has chosen a teacher is named by the department's record rather than
+  // by whatever the registrar typed on it.
+  const teachers = useQuery({ queryKey: ["active-teachers"], queryFn: fetchActiveTeachers, enabled: open });
   /*
    * Every set this cohort's students are taught in, languages included.
    *
@@ -229,6 +234,14 @@ export function PlaceInBlock({
    * on none — the group's shared cells and nothing more — and the dialog says so before
    * the press, since that is a student sitting in a group that is not for them.
    */
+  const nameOfTeacher = (teacherId: string) =>
+    (teachers.data ?? []).find((teacher) => teacher.id === teacherId)?.fullName ?? "";
+  /** Who a coordinator would be handing the student to, by set and group. */
+  const teachersOf = (scopeId: string, groupId: string, majorId = ""): string[] => {
+    const scope = scopeOf(scopeId);
+    const group = scope?.groups.find((candidate) => candidate.id === groupId);
+    return scope && group ? teachersOfGroup(scope, group, majorId, nameOfTeacher) : [];
+  };
   const groupNamed = (groupId: string) => scopes.flatMap((scope) => scope.groups).find((group) => group.id === groupId) ?? null;
   const subRowsFor = (groupId: string): Record<string, string> => {
     const group = groupNamed(groupId);
@@ -282,6 +295,10 @@ export function PlaceInBlock({
 
   const ready = chosen.length === rows.length && chosen.length > 0 && studentIds.length > 0;
   const proposed = (proposal?.steps ?? []).reduce((count, step) => count + step.plan.placements.length, 0);
+  // How much of what the button would write rests on a level nobody here can read.
+  const guesses = (proposal?.steps ?? [])
+    .filter((step) => step.guessed)
+    .reduce((count, step) => count + step.plan.placements.length, 0);
   const waiting = proposing && (catalogue.isLoading || assignments.isLoading || held.isLoading || publication.isLoading);
   const nameOf = (id: string) => held.data?.names[id] ?? id;
 
@@ -300,7 +317,14 @@ export function PlaceInBlock({
       }
       onClose={onClose}
       footer={
-        <div className="flex items-center justify-end gap-3">
+        <div className="flex flex-wrap items-center justify-end gap-3">
+          {mode === "proposed" && guesses ? (
+            <p className="mr-auto flex items-center gap-1.5 text-xs text-[#8a6116]">
+              <AlertTriangle size={13} className="shrink-0" aria-hidden="true" />
+              {guesses} of these {guesses === 1 ? "is a language placement" : "are language placements"} chosen without a
+              level
+            </p>
+          ) : null}
           <button type="button" onClick={onClose} className="text-sm font-semibold text-[#667085]">
             Cancel
           </button>
@@ -363,6 +387,7 @@ export function PlaceInBlock({
             labelOf={(scopeId: string, groupId: string) =>
               scopeOf(scopeId)?.groups.find((group) => group.id === groupId)?.label ?? groupId
             }
+            teachersOf={teachersOf}
           />
         ) : null}
 
@@ -492,6 +517,7 @@ function Proposed({
   blind,
   nameOf,
   labelOf,
+  teachersOf,
 }: {
   walk: Walk | null;
   termChosen: boolean;
@@ -499,6 +525,8 @@ function Proposed({
   blind: boolean;
   nameOf: (studentId: string) => string;
   labelOf: (scopeId: string, groupId: string) => string;
+  /** Who teaches a group, so the proposal says whom the student is being handed to. */
+  teachersOf: (scopeId: string, groupId: string, majorId?: string) => string[];
 }) {
   if (!termChosen) return <Note>Choose a semester: the same code means different groups in different ones.</Note>;
   if (blind) {
@@ -521,10 +549,22 @@ function Proposed({
     <div className="space-y-3">
       {placing.map((step) => (
         <div key={step.scopeId}>
-          <p className="text-sm font-semibold text-[#344054]">
-            {step.scopeCode}
-            {step.scopeName && step.scopeName !== step.scopeCode ? (
-              <span className="ml-1.5 font-normal text-[#98a2b3]">{step.scopeName}</span>
+          <p className="flex flex-wrap items-baseline gap-x-2 text-sm font-semibold text-[#344054]">
+            <span>
+              {step.scopeCode}
+              {step.scopeName && step.scopeName !== step.scopeCode ? (
+                <span className="ml-1.5 font-normal text-[#98a2b3]">{step.scopeName}</span>
+              ) : null}
+            </span>
+            {/*
+              * These go by a placement test's level, which the platform does not hold, so
+              * capacity and clash — everything the plan knows — do not decide them. Worth
+              * proposing as a starting point; not worth writing unread.
+              */}
+            {step.guessed ? (
+              <span className="inline-flex items-center gap-1 rounded-full bg-[#fdf9ee] px-2 py-0.5 text-xs font-semibold text-[#8a6116]">
+                <AlertTriangle size={11} aria-hidden="true" /> level not known — check before writing
+              </span>
             ) : null}
           </p>
           <ul className="mt-0.5 space-y-0.5 text-sm" aria-label={`Proposed for ${step.scopeCode}`}>
@@ -534,6 +574,14 @@ function Proposed({
                 <span className="text-[#667085]">
                   → Group {labelOf(step.scopeId, placement.groupId)}
                   {placement.why === "preferred" ? " · preferred" : ""}
+                </span>
+                {/*
+                  * Whom they would be handed to. A group is a room with somebody in front
+                  * of it, and approving a plan that never says who is approving half of it
+                  * — a set of three courses is three names, so all of them are given.
+                  */}
+                <span className="text-[#98a2b3]">
+                  {teachersSaid(teachersOf(step.scopeId, placement.groupId, placement.majorId))}
                 </span>
               </li>
             ))}

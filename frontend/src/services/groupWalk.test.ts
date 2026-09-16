@@ -115,18 +115,26 @@ describe("walking a student through every set of a semester", () => {
     expect(result.steps[1].plan.unplaced).toEqual([{ studentId: "A1", why: "every group is full" }]);
   });
 
-  it("leaves a set open to every cohort for a person, and says why", () => {
+  it("plans a set open to every cohort, and marks it as a guess", () => {
     /*
      * The languages. A group there is decided by a placement test the platform holds no
-     * result for, so one picked on capacity and major would be confidently wrong. Naming
-     * the set is the useful half — it is a step somebody still has to take.
+     * result for, so one picked on capacity and clash can be confidently wrong.
+     *
+     * It used to be declined outright, which was safe and left a coordinator placing a new
+     * arrival to do the languages by hand every time with nothing to start from. Now it is
+     * planned and marked, so the screen can say which half of the proposal to read twice.
      */
     const result = walk([set("lang", "LANG", [group("a0-f1", "A0-F1")], { openToAll: true })], [student("A1")]);
 
-    expect(result.steps).toEqual([]);
-    expect(result.skipped).toEqual([
-      { scopeId: "lang", scopeCode: "LANG", why: "chosen by level, so a person places these by hand" },
-    ]);
+    expect(result.steps.map((step) => [step.scopeCode, step.guessed])).toEqual([["LANG", true]]);
+    expect(result.steps[0].plan.placements.map((placement) => placement.groupId)).toEqual(["a0-f1"]);
+    expect(result.skipped).toEqual([]);
+  });
+
+  it("marks a cohort's own set as no guess at all", () => {
+    const result = walk([set("td", "TD", [group("td-1", "1")])], [student("A1")]);
+
+    expect(result.steps.map((step) => step.guessed)).toEqual([false]);
   });
 
   it("says nothing about a set the student is already in", () => {

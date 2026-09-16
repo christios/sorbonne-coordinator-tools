@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PlaceInBlock } from "@/components/PlaceInBlock";
+import * as lists from "@/services/portalLists";
 import * as publicationService from "@/services/publication";
 import * as roster from "@/services/rosterStore";
 import * as database from "@/services/studentDatabase";
@@ -71,6 +72,8 @@ beforeEach(() => {
     { id: "term-2", name: "Physics & Maths — Semester 2" } as timetables.TimetableTerm,
   ]);
   vi.spyOn(database, "fetchCatalogue").mockResolvedValue(CATALOGUE);
+  // The department's names, for the teachers the dialog puts on each group.
+  vi.spyOn(lists, "fetchActiveTeachers").mockResolvedValue([]);
 });
 
 afterEach(() => vi.restoreAllMocks());
@@ -383,6 +386,78 @@ describe("proposing the groups instead of naming them", () => {
 
     await waitFor(() => expect(place).toHaveBeenCalledWith("scope-td", { "group-2": ["A00025735"] }, {}));
     await waitFor(() => expect(onPlaced).toHaveBeenCalledWith({ assigned: 1, skipped: [], removed: false }));
+  });
+
+  it("says who teaches each group it proposes", async () => {
+    /*
+     * A group is a room with somebody in front of it. Approving a plan that never says who
+     * is approving half of it — and a set of two courses is two names, both of them given.
+     */
+    vi.spyOn(database, "fetchCatalogue").mockResolvedValue({
+      scopes: [
+        {
+          ...CATALOGUE.scopes[0],
+          courses: [
+            { id: "c-maths", code: "MATH-001", name: "Pre-calculus", component: "TD", request: database.EMPTY_REQUEST },
+            { id: "c-phys", code: "PHYS-118", name: "Optics", component: "TD", request: database.EMPTY_REQUEST },
+          ],
+          groups: [
+            {
+              ...CATALOGUE.scopes[0].groups[1],
+              crns: {
+                "c-maths": { ...database.EMPTY_SECTION, crn: "23223", teacher: "Dr Maaz" },
+                "c-phys": { ...database.EMPTY_SECTION, crn: "23224", teacherId: "act-1", teacher: "A. Trabelsi" },
+              },
+            },
+          ],
+        },
+      ],
+    } as database.Catalogue);
+    vi.spyOn(lists, "fetchActiveTeachers").mockResolvedValue([
+      { id: "act-1", fullName: "Ahlem Trabelsi" } as unknown as lists.ActiveTeacher,
+    ]);
+    show(["A00025735"]);
+    await propose();
+
+    const list = await screen.findByLabelText("Proposed for TD");
+    // The registrar's written name loses to the department's record, as everywhere else.
+    await waitFor(() => expect(list.textContent).toContain("Dr Maaz, Ahlem Trabelsi"));
+    expect(list.textContent).not.toContain("A. Trabelsi,");
+  });
+
+  it("says plainly when a proposed group has nobody down to teach it", async () => {
+    show(["A00025735"]);
+    await propose();
+
+    const list = await screen.findByLabelText("Proposed for TD");
+    expect(list.textContent).toContain("no teacher yet");
+  });
+
+  it("proposes the languages, and marks them as a guess", async () => {
+    /*
+     * They go by a placement test's level, which the platform does not hold — so capacity
+     * and clash, which is all the plan knows, do not decide them. Declining them outright
+     * left a coordinator to do the languages by hand every time with nothing to start from.
+     */
+    vi.spyOn(database, "fetchCatalogue").mockResolvedValue({
+      scopes: [{ ...CATALOGUE.scopes[0], id: "scope-lang", code: "LANG", name: "Languages", openToAll: true }],
+    } as database.Catalogue);
+    show(["A00025735"]);
+    await propose();
+
+    const list = await screen.findByLabelText("Proposed for LANG");
+    expect(list.textContent).toContain("→ Group 2");
+    expect(screen.getByText(/level not known — check before writing/)).toBeTruthy();
+    expect(screen.getByText(/1 of these is a language placement chosen without a level/)).toBeTruthy();
+  });
+
+  it("marks nothing as a guess when no language set is in play", async () => {
+    show(["A00025735"]);
+    await propose();
+    await screen.findByLabelText("Proposed for TD");
+
+    expect(screen.queryByText(/level not known/)).toBeNull();
+    expect(screen.queryByText(/chosen without a level/)).toBeNull();
   });
 
   it("will not propose groups while the timetable's word on clashes is not in", async () => {

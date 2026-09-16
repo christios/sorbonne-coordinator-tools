@@ -1,7 +1,8 @@
-import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, ChevronDown, ChevronRight, Copy } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { AlertTriangle, ChevronRight, Copy } from "lucide-react";
 import { useMemo, useState } from "react";
 
+import { CrnRecord } from "@/components/CrnRecord";
 import { LabelledPicker } from "@/components/LabelledPicker";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { SelectMenu } from "@/components/SelectMenu";
@@ -16,7 +17,7 @@ import {
 } from "@/services/capacity";
 import { copyTable } from "@/services/copyCells";
 import { COHORT } from "@/services/remembered";
-import { fetchActiveCourses, fetchActiveTeachers } from "@/services/portalLists";
+import { type ActiveCrn, fetchActiveCourses, fetchActiveCrns, fetchActiveTeachers } from "@/services/portalLists";
 import { fetchCohorts, fetchCourseCards } from "@/services/studentDatabase";
 import { fetchTimetableTerms } from "@/services/timetables";
 
@@ -66,8 +67,16 @@ function Tile({ label, value, hint, alarm }: { label: string; value: string; hin
 const TRACK = 76;
 const SPILL = 24;
 
-/** One group as a bar: the seats as the track, the students as the fill, the rest spilling. */
-function GroupBar({ group, peak, open, onToggle }: { group: GroupCapacity; peak: number; open: boolean; onToggle: () => void }) {
+/**
+ * One group as a bar: the seats as the track, the students as the fill, the rest spilling —
+ * with its sections named underneath.
+ *
+ * The sections used to be behind a chevron, which meant the answer to "who teaches this
+ * class" was a click away on every row, and the click's reward was a list you then had to
+ * close again. They are one line under the bar now, and each opens its own CRN rather than
+ * opening nothing.
+ */
+function GroupBar({ group, peak, onOpenCrn }: { group: GroupCapacity; peak: number; onOpenCrn: (crn: string) => void }) {
   const stated = group.capacity > 0;
   const filled = stated ? Math.min(1, group.enrolled / group.capacity) : Math.min(1, group.enrolled / peak);
   const over = stated ? Math.max(0, group.enrolled - group.capacity) : 0;
@@ -76,12 +85,7 @@ function GroupBar({ group, peak, open, onToggle }: { group: GroupCapacity; peak:
 
   return (
     <div className="py-1.5">
-      <button type="button" onClick={onToggle} aria-expanded={open} className="flex w-full items-center gap-3 text-left">
-        {open ? (
-          <ChevronDown size={13} className="shrink-0 text-[#98a2b3]" aria-hidden="true" />
-        ) : (
-          <ChevronRight size={13} className="shrink-0 text-[#98a2b3]" aria-hidden="true" />
-        )}
+      <div className="flex w-full items-center gap-3 text-left">
         <span className="w-24 shrink-0 truncate text-sm font-medium text-[#344054]">{group.group}</span>
 
         <span className="relative h-3.5 min-w-0 flex-1">
@@ -123,18 +127,43 @@ function GroupBar({ group, peak, open, onToggle }: { group: GroupCapacity; peak:
             WORD[group.status]
           )}
         </span>
-      </button>
+      </div>
 
-      {open ? (
-        <ul className="ml-10 mt-1 space-y-0.5 text-xs text-[#667085]">
-          {group.sections.map((section) => (
-            <li key={section.key} className="flex flex-wrap gap-x-2">
-              <span className="tabular-nums text-[#344054]">{section.crn || "no CRN"}</span>
-              <span>{section.courseCode}</span>
-              {section.component ? <span className="text-[#98a2b3]">{section.component}</span> : null}
-              <span className="text-[#98a2b3]">{section.teacher || "no teacher yet"}</span>
-            </li>
-          ))}
+      {/*
+        * Every section of the group, named and pressable.
+        *
+        * A section with no CRN is still shown — the course and whoever is down to teach it
+        * are the useful part, and a missing CRN is itself worth seeing — but it opens
+        * nothing, because there is nothing to open.
+        */}
+      {group.sections.length ? (
+        <ul className="ml-[6.5rem] mt-1 flex flex-wrap gap-1">
+          {group.sections.map((section) => {
+            const said = `${section.courseCode}${section.component ? ` ${section.component}` : ""} · ${section.teacher || "no teacher yet"}`;
+            return (
+              <li key={section.key}>
+                {section.crn ? (
+                  <button
+                    type="button"
+                    onClick={() => onOpenCrn(section.crn)}
+                    title={`Open ${section.crn} — ${said}`}
+                    className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-[#e4e8ef] bg-white px-2 py-0.5 text-xs text-[#667085] hover:border-[#b7cbe0] hover:bg-[#f2f7fb] hover:text-[#1f4e79]"
+                  >
+                    <span className="tabular-nums font-semibold text-[#344054]">{section.crn}</span>
+                    <span className="min-w-0 truncate">{said}</span>
+                  </button>
+                ) : (
+                  <span
+                    title={said}
+                    className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-dashed border-[#e4e8ef] px-2 py-0.5 text-xs text-[#98a2b3]"
+                  >
+                    <span className="font-semibold">no CRN</span>
+                    <span className="min-w-0 truncate">{said}</span>
+                  </span>
+                )}
+              </li>
+            );
+          })}
         </ul>
       ) : null}
     </div>
@@ -155,13 +184,23 @@ function GroupBar({ group, peak, open, onToggle }: { group: GroupCapacity; peak:
  * count.
  */
 export function CapacityPage() {
+  const client = useQueryClient();
   const catalogues = useQuery({ queryKey: ["course-cards"], queryFn: fetchCourseCards });
   const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, retry: false });
   const courses = useQuery({ queryKey: ["active-courses"], queryFn: fetchActiveCourses });
   const teachers = useQuery({ queryKey: ["active-teachers"], queryFn: fetchActiveTeachers });
   // The same cohort Groups & CRNs and the Group schema are on, remembered by this browser.
   const [cohortId, setCohortId] = useRemembered(COHORT);
-  const [opened, setOpened] = useState<Set<string>>(new Set());
+  /*
+   * Which CRN's profile is open. There is no expanding left to do on this page — the
+   * sections are always named — so pressing one goes where a coordinator was heading.
+   */
+  const [showingCrn, setShowingCrn] = useState<ActiveCrn | null>(null);
+  const registered = useQuery({ queryKey: ["active-crns"], queryFn: () => fetchActiveCrns() });
+  const openCrn = (crn: string) => {
+    const held = (registered.data ?? []).find((entry) => entry.crn === crn);
+    if (held) setShowingCrn(held);
+  };
   const [showingOver, setShowingOver] = useState(false);
 
   const rows = useMemo(() => {
@@ -331,28 +370,28 @@ export function CapacityPage() {
             </div>
             <div className="divide-y divide-[#f2f4f7]">
               {set.groups.map((group) => (
-                <GroupBar
-                  key={group.key}
-                  group={group}
-                  peak={set.peak}
-                  open={opened.has(group.key)}
-                  onToggle={() =>
-                    setOpened((current) => {
-                      const next = new Set(current);
-                      if (next.has(group.key)) next.delete(group.key);
-                      else next.add(group.key);
-                      return next;
-                    })
-                  }
-                />
+                <GroupBar key={group.key} group={group} peak={set.peak} onOpenCrn={openCrn} />
               ))}
             </div>
           </section>
         ))}
       </div>
 
+      {showingCrn ? (
+        <CrnRecord
+          open
+          row={showingCrn}
+          siblings={(registered.data ?? []).filter(
+            (entry) => entry.courseCode === showingCrn.courseCode && entry.termCode === showingCrn.termCode,
+          )}
+          onClose={() => setShowingCrn(null)}
+          onSaved={() => void client.invalidateQueries({ queryKey: ["active-crns"] })}
+        />
+      ) : null}
+
       <p className="mt-4 text-xs text-[#98a2b3]">
-        A group&apos;s enrolment is the group&apos;s, whatever its set carries: open one to see its sections. Each bar is
+        A group&apos;s enrolment is the group&apos;s, whatever its set carries; its sections are named under it, and each
+        opens its own CRN. Each bar is
         that group&apos;s own seats — the line is the last one — so what spills past it is what is over. A set shared across cohorts holds
         this cohort&apos;s students among everybody else&apos;s, so its seats are counted apart from the totals above.
       </p>

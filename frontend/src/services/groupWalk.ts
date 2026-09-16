@@ -22,9 +22,12 @@
  * **A group whose own sections meet at the same hour cannot hold anyone**, so it is dropped
  * before `planFill` sees it rather than being offered and then refused.
  *
- * A set open to every cohort is listed and never seated. The languages are chosen by level
- * from a placement test, the platform holds no level data, and a language group picked on
- * capacity and major would be confidently wrong.
+ * A set open to every cohort — the languages — is planned like any other and marked as a
+ * guess. Those groups are chosen by level from a placement test and the platform holds no
+ * level data, so a language group picked on capacity and clash alone can be confidently
+ * wrong. It used to be declined outright, which was safe and meant a coordinator placing a
+ * new arrival still had to go and do the languages by hand, every time, with no starting
+ * point. A marked guess is a starting point; an unmarked one would be a trap.
  */
 
 import {
@@ -44,6 +47,14 @@ export type WalkStep = {
   scopeCode: string;
   scopeName: string;
   plan: FillPlan;
+  /**
+   * Whether this set's placements rest on something the platform does not hold.
+   *
+   * True for a set open to every cohort. Those are the languages, which go by a placement
+   * test's level — so capacity, clash and major, which is everything the fill knows, do not
+   * decide them. The plan is still worth making; it is not worth trusting unread.
+   */
+  guessed: boolean;
 };
 
 /** A set the walk deliberately declined, and the reason a person can act on. */
@@ -104,14 +115,6 @@ export function walkSets({
   const held = new Map(candidates.map((candidate) => [candidate.studentId, { ...candidate.held }]));
 
   for (const scope of parentsFirst(scopes)) {
-    if (scope.openToAll) {
-      skipped.push({
-        scopeId: scope.id,
-        scopeCode: scope.code,
-        why: "chosen by level, so a person places these by hand",
-      });
-      continue;
-    }
     const groups = scope.groups.filter(
       (group) => !groupIsRetired(group) && !collidesWithItself(group.id, clashes),
     );
@@ -144,7 +147,15 @@ export function walkSets({
       const mine = held.get(placement.studentId);
       if (mine) mine[scope.id] = placement.groupId;
     }
-    steps.push({ scopeId: scope.id, scopeCode: scope.code, scopeName: scope.name, plan });
+    steps.push({
+      scopeId: scope.id,
+      scopeCode: scope.code,
+      scopeName: scope.name,
+      plan,
+      // A set everybody shares is a language set, and the level that really decides it is
+      // not ours to read.
+      guessed: scope.openToAll,
+    });
   }
 
   return { steps, skipped };
