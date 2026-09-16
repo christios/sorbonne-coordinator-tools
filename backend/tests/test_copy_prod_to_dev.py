@@ -490,3 +490,45 @@ def test_a_teachers_paperwork_travels_with_them(monkeypatch):
             "periodStart": "2026-08-15",
         }
     ]
+
+
+def test_a_set_open_to_every_cohort_is_copied_once():
+    """Production files the languages under one cohort. The copy must too.
+
+    The catalogue route answers with the sets open to every cohort as well as the
+    cohort's own — it was changed to, so a reader does not report a cohort as taking no
+    language at all — and this loop was not told. Each of the four cohorts read the one
+    language set and each created it, so the copy held four A0-F5s of thirty seats where
+    the university has one; `group_id` named whichever was written last, and every
+    language placement in the copy landed in that one while the other three stood empty.
+
+    Production was right the whole time. Only the copy was wrong, which is worse: the
+    copy is what gets looked at while testing.
+    """
+    asked: list[str] = []
+
+    def read(path: str) -> dict:
+        asked.append(path)
+        if "/assignments" in path:
+            return {"assignments": {}, "majors": {}}
+        return {"scopes": []}
+
+    write = Recorder()
+    copy._copy_plans(
+        read,
+        write,
+        "http://here",
+        {},
+        [{"id": "p-1", "name": "FYS-S1"}, {"id": "p-2", "name": "L1-S1"}],
+        {"p-1": "local-1", "p-2": "local-2"},
+        {},
+        lambda *_args: None,
+        {},
+        dry_run=False,
+    )
+
+    catalogues = [path for path in asked if "/catalogue" in path]
+    assert catalogues == [
+        "/cohorts/p-1/catalogue?own_only=true",
+        "/cohorts/p-2/catalogue?own_only=true",
+    ]

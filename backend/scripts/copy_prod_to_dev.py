@@ -630,7 +630,17 @@ def _copy_plans(  # noqa: PLR0913 - the maps it threads through are the point
     # Production sub-row id -> local, so a placement can name the sub-row it took.
     major_ids: dict[str, str] = {}
     for cohort in cohorts:
-        catalogue = read(f"/cohorts/{cohort['id']}/catalogue")["scopes"]
+        # This cohort's OWN sets, which is what "created once" above depends on.
+        #
+        # The catalogue reads the sets open to every cohort as well by default — it was
+        # changed to, so that a reader does not report a cohort as taking no language at
+        # all — and this loop was never told. Four cohorts each read the one language set
+        # and each created it, so the copy held four A0-F5s of thirty seats where the
+        # university has one, and `group_id` ended up naming whichever was written last:
+        # every language placement in the copy landed in L3's, and the other three stood
+        # empty. Production was right the whole time; only the copy was wrong, which is
+        # worse, because the copy is what gets looked at while testing.
+        catalogue = read(f"/cohorts/{cohort['id']}/catalogue?own_only=true")["scopes"]
         sets += len(catalogue)
         say(f"{cohort['name']}: {len(catalogue)} sets, {sum(len(s['groups']) for s in catalogue)} groups")
         if not dry_run:
