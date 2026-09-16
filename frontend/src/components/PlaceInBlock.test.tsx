@@ -359,7 +359,7 @@ describe("proposing the groups instead of naming them", () => {
   });
 
   const propose = async () => {
-    await pick("Groups", "Propose them");
+    await pick("Groups", "Choose for me");
     await pick("Semester", "Physics & Maths — Semester 1");
   };
 
@@ -398,7 +398,7 @@ describe("proposing the groups instead of naming them", () => {
 
   it("asks for the semester first here too, because a code means different groups in each", async () => {
     show(["A00025735"]);
-    await pick("Groups", "Propose them");
+    await pick("Groups", "Choose for me");
 
     expect(screen.getByText(/Choose a semester/)).toBeTruthy();
   });

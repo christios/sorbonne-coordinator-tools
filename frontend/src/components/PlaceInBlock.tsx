@@ -333,9 +333,14 @@ export function PlaceInBlock({
         <SelectMenu
           label="Groups"
           value={mode}
+          /*
+           * The two modes differ in exactly one thing — who chooses — so they are named
+           * for that and for nothing else. "Propose them" did not say who "them" were,
+           * and read beside "I'll name the groups" as though the two did different work.
+           */
           options={[
-            { value: "by hand", label: "I'll name the groups" },
-            { value: "proposed", label: "Propose them" },
+            { value: "by hand", label: "I'll choose" },
+            { value: "proposed", label: "Choose for me" },
           ]}
           onChange={(value) => setMode(value as "by hand" | "proposed")}
         />
