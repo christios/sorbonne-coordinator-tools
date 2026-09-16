@@ -856,6 +856,67 @@ def registrations(client: TestClient, rows: list[dict[str, str]]) -> None:
     client.post(f"{BASE}/filters/{made['id']}/sync/registrations", json={"termCode": TERM, "rows": rows})
 
 
+def test_a_cohort_taught_over_two_semesters_is_checked_in_both(client: TestClient, database: StudentDatabase):
+    """Every linked semester is walked, and the walk survives the second time round.
+
+    The check walks the union of the semesters a cohort is on and the ones with a portal
+    term, so a department with two linked semesters goes round twice. Everything the walk
+    reads is read through one shared reader now; nothing about the second lap may depend
+    on what the first one left behind.
+    """
+    cohort_id = build_cohort(database)
+    client.put(f"{BASE}/term-links/{HUB_TERM}", json={"portalTermCode": TERM})
+    # A second semester of the same cohort, linked to a portal term of its own.
+    spring = database.add_scope(cohort_id, code="CM", name="Lectures", term_id="term-2")
+    physics = database.add_course(spring, code="PHYS-100")
+    group = database.add_group(spring, label="A")
+    database.set_cell(group_id=group, course_id=physics, crn="24001")
+    database.assign(student_id="A001", scope_id=spring, group_id=group)
+    client.put(f"{BASE}/term-links/term-2", json={"portalTermCode": "262720"})
+    made = make_filter(client, "registrations")
+    client.post(
+        f"{BASE}/filters/{made['id']}/sync/registrations",
+        json={"termCode": "262720", "rows": [{"studentId": "A001", "crn": "29999", "courseCode": "PHYS-100"}]},
+    )
+
+    answer = client.get(f"{BASE}/cohorts/{cohort_id}/registration-check")
+
+    assert answer.status_code == 200
+    # Both semesters are accounted for, and the spring one has judged the wrong section.
+    assert sorted(term["termId"] for term in answer.json()["coverage"]) == [HUB_TERM, "term-2"]
+    assert ("A001", "PHYS-100", "wrong") in [
+        (m["studentId"], m["courseCode"], m["kind"]) for m in answer.json()["mismatches"]
+    ]
+
+
+def test_every_cohort_at_once_says_what_each_says_asked_alone(client: TestClient, database: StudentDatabase):
+    """The cheaper way to ask is the same question.
+
+    The cohorts page reads every cohort's verdict, and did it one request per cohort, each
+    re-reading the whole semester. They share that reading now, which is only safe while
+    the answers stay the answers.
+    """
+    cohort_id = build_cohort(database)
+    client.put(f"{BASE}/term-links/{HUB_TERM}", json={"portalTermCode": TERM})
+    made = make_filter(client, "registrations")
+    client.post(
+        f"{BASE}/filters/{made['id']}/sync/registrations",
+        json={
+            "termCode": TERM,
+            "rows": [
+                {"studentId": "A001", "crn": "23653", "courseCode": "MATH-011"},
+                {"studentId": "A003", "crn": "22151", "courseCode": "MATH-001"},
+            ],
+        },
+    )
+
+    alone = client.get(f"{BASE}/cohorts/{cohort_id}/registration-check").json()
+    together = client.get(f"{BASE}/registration-checks").json()["cohorts"]
+
+    assert cohort_id in together
+    assert together[cohort_id] == alone
+
+
 def test_the_check_says_where_the_registrar_differs_from_our_groups(client: TestClient, database: StudentDatabase):
     cohort_id = build_cohort(database)
     client.put(f"{BASE}/term-links/{HUB_TERM}", json={"portalTermCode": TERM})

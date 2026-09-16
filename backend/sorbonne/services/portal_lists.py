@@ -233,6 +233,94 @@ class UnknownDisposition(Exception):
     """A collision can be accepted or referred, and nothing else."""
 
 
+class _TermReads:
+    """What a register check reads about a SEMESTER rather than about a cohort.
+
+    Four cohorts checked one after another asked the same questions of the same semester
+    four times over: what the term publishes, who is registered in what, whom the pulls
+    returned, which sections collide, what is exempt, what has been approved. None of it
+    differs by cohort. Asked once here and handed to each, four checks cost a little over
+    what one used to.
+
+    It is also the one place that knows a question has already been asked, which is what
+    the check itself kept getting wrong: the same list read twice within a single cohort's
+    answer, once for the verdicts and once for the floor they rest on.
+
+    Made fresh for each request and thrown away with it. Nothing here is a cache that
+    outlives the answer it was read for.
+    """
+
+    def __init__(self, store: "PortalListStore", database: StudentDatabase, facilities: FacilityWindows | None):
+        self._store = store
+        self._database = database
+        self._facilities = facilities
+        self._publication: dict[str, list[dict[str, Any]]] = {}
+        self._registered: dict[str, dict[str, dict[str, list[str]]]] = {}
+        self._pulled: dict[str, set[str]] = {}
+        self._exempt: dict[str, dict[str, set[str]]] = {}
+        self._approved: dict[str, dict[str, set[str]]] = {}
+        self._collisions: dict[str, list[dict[str, Any]]] = {}
+        self._scope_crns: dict[str, list[dict[str, Any]]] = {}
+        # Per semester, what is known so far and what has been asked. Asked, because a
+        # section the registrar has no dates for is an answer too, and one worth not
+        # asking twice.
+        self._windows: dict[str, dict[str, Any]] = {}
+        self._asked: dict[str, set[str]] = {}
+
+    def publication(self, term_id: str) -> list[dict[str, Any]]:
+        if term_id not in self._publication:
+            self._publication[term_id] = self._database.term_publication(term_id)
+        return self._publication[term_id]
+
+    def registered(self, term_code: str) -> dict[str, dict[str, list[str]]]:
+        if term_code not in self._registered:
+            self._registered[term_code] = self._store.registered_in(term_code)
+        return self._registered[term_code]
+
+    def pulled(self, term_code: str) -> set[str]:
+        if term_code not in self._pulled:
+            self._pulled[term_code] = self._store.pulled_students(term_code)
+        return self._pulled[term_code]
+
+    def exempt(self, term_id: str) -> dict[str, set[str]]:
+        if term_id not in self._exempt:
+            self._exempt[term_id] = self._database.exempt_codes(term_id)
+        return self._exempt[term_id]
+
+    def approved(self, term_code: str) -> dict[str, set[str]]:
+        if not term_code:
+            return {}
+        if term_code not in self._approved:
+            self._approved[term_code] = self._database.approvals_for(term_code)
+        return self._approved[term_code]
+
+    def collisions(self, term_code: str) -> list[dict[str, Any]]:
+        if term_code not in self._collisions:
+            self._collisions[term_code] = self._store.section_collisions(term_code)["collides"]
+        return self._collisions[term_code]
+
+    def scope_crns(self, term_id: str) -> list[dict[str, Any]]:
+        if term_id not in self._scope_crns:
+            self._scope_crns[term_id] = self._database.term_scope_crns(term_id)
+        return self._scope_crns[term_id]
+
+    def windows(self, term_code: str, crns: list[str]) -> dict[str, Any]:
+        """When each of these sections runs, asking only about the ones not asked about yet.
+
+        The answer carries other cohorts' sections too, which costs nothing: every reader
+        looks up the CRNs it already holds, and a key nobody asks for is never seen.
+        """
+        if not self._facilities or not term_code:
+            return {}
+        known = self._windows.setdefault(term_code, {})
+        asked = self._asked.setdefault(term_code, set())
+        fresh = [crn for crn in crns if crn not in asked]
+        if fresh:
+            known.update(self._facilities.windows_for(term_code, fresh))
+            asked.update(fresh)
+        return known
+
+
 class PortalListStore:
     def __init__(self, database_url: str) -> None:
         self.engine = engine_for(database_url)
@@ -1915,6 +2003,7 @@ class PortalListStore:
         database: StudentDatabase,
         facilities: FacilityWindows | None = None,
         on: str = "",
+        reads: "_TermReads | None" = None,
     ) -> RegistrationReport:
         """Where the portal's registrations differ from the groups we placed a cohort in.
 
@@ -1948,34 +2037,23 @@ class PortalListStore:
         is the day being judged, today unless a caller says otherwise.
         """
         today = on or _today()
+        reads = reads or _TermReads(self, database, facilities)
         switches = self.check_settings(cohort_id)
         links = self.term_links()
         present = set(database.scope_terms(cohort_id))
         members = database.cohort_members(cohort_id)
-        seen_pulls: dict[str, set[str]] = {}
-
-        def pulled(term_code: str) -> set[str]:
-            """Who the term's pulls returned — asked for once per semester, not per question."""
-            if term_code not in seen_pulls:
-                seen_pulls[term_code] = self.pulled_students(term_code)
-            return seen_pulls[term_code]
-
         found: list[Mismatch] = []
         coverage: list[TermCoverage] = []
         electives: list[Elective] = []
         for term_id in sorted(present | set(links)):
             term_code = links.get(term_id, "")
             # Two sections of one set, before anything about placement is asked.
-            # Read once for the semester and handed to whoever needs it: the doubled check
-            # and the coverage below were each asking for the same two lists again.
-            pulled_here = pulled(term_code)
-            found.extend(self._doubled_in_a_set(term_id, term_code, database, members, pulled_here))
+            pulled_here = reads.pulled(term_code)
+            found.extend(self._doubled_in_a_set(term_id, term_code, reads, members, pulled_here))
             # And the students caught between one of our sections and a department's we do
             # not own. Switched on and floored by the department — see services/checks.py.
-            found.extend(self._collided(term_id, term_code, switches, members))
-            cohort = next(
-                (entry for entry in database.term_publication(term_id) if entry["cohortId"] == cohort_id), None
-            )
+            found.extend(self._collided(term_id, term_code, switches, members, reads))
+            cohort = next((entry for entry in reads.publication(term_id) if entry["cohortId"] == cohort_id), None)
             # The cohort's own sets, and the shared ones it takes part in — the languages,
             # which sit on one cohort's row and were never asked about for the others. A
             # student placed in French A0-F6 is expected in its section like any other.
@@ -1989,7 +2067,7 @@ class PortalListStore:
             # When the registrar's timetable is on hand, a section that is not running is
             # not expected. When it is not, every section stays expected and the coverage
             # says which ones that fallback applied to.
-            windows = facilities.windows_for(term_code, ours) if facilities and term_code else {}
+            windows = reads.windows(term_code, ours)
             if term_id in present:
                 # Every student of the cohort, against everyone the term's pulls returned.
                 # Not `cohort["students"]`: a cohort with no sets of its own on this
@@ -2017,7 +2095,7 @@ class PortalListStore:
             # decision of ours, not a difference to report, and it reads identically to a
             # real one: on the copied production data one student was missing one course of
             # five and another was missing all five.
-            exempt = database.exempt_codes(term_id)
+            exempt = reads.exempt(term_id)
             # student -> course -> set -> its CRNs. Kept per SET, because the date rule may
             # only ever choose between sections that stand in for one another.
             expected: dict[str, dict[str, dict[str, set[str]]]] = {}
@@ -2035,14 +2113,13 @@ class PortalListStore:
                     expected.setdefault(row["studentId"], {}).setdefault(code, {}).setdefault(
                         group["scopeId"], set()
                     ).update(crn for crn in crns if crn)
-            registered = self.registered_in(term_code)
-            pulled = self.pulled_students(term_code)
+            registered = reads.registered(term_code)
             # What is always allowed outside our groups, and what a coordinator has approved
             # for one student — the two things that keep an elective from being a verdict.
             allowed = database.get_cohort(cohort_id).get("allowedCodes", [])
-            approved = database.approvals_for(term_code) if term_code else {}
+            approved = reads.approved(term_code)
             for student in cohort["students"]:
-                if student not in pulled:
+                if student not in pulled_here:
                     continue
                 excused = exempt.get(student, set())
                 found.extend(
@@ -2083,8 +2160,40 @@ class PortalListStore:
             electives=electives,
         )
 
-    def _collided(
-        self, term_id: str, term_code: str, switches: dict[str, Setting], members: set[str]
+
+    def registration_checks(
+        self,
+        cohort_ids: list[str],
+        database: StudentDatabase,
+        facilities: FacilityWindows | None = None,
+        on: str = "",
+    ) -> dict[str, RegistrationReport]:
+        """The same verdict for several cohorts, off one reading of the semester.
+
+        The cohorts page asks for every cohort at once and always has: which of them need
+        attention is the question it exists to answer. It asked as four separate requests,
+        and each of those read the whole semester for itself — the publication, the
+        registrations, the pulls, the collisions — so the same rows crossed the network
+        four times.
+
+        The verdicts are per cohort and stay per cohort; only the reading is shared. What
+        each cohort is told is exactly what `registration_check` tells it on its own, which
+        is the property to hold on to here: this is a cheaper way to ask, not a different
+        question.
+        """
+        reads = _TermReads(self, database, facilities)
+        return {
+            cohort_id: self.registration_check(cohort_id, database, facilities=facilities, on=on, reads=reads)
+            for cohort_id in cohort_ids
+        }
+
+    def _collided(  # noqa: PLR0913 - what the caller has already read, handed on
+        self,
+        term_id: str,
+        term_code: str,
+        switches: dict[str, Setting],
+        members: set[str],
+        reads: "_TermReads",
     ) -> list[Mismatch]:
         """Students in one of our sections and another department's at the same hour.
 
@@ -2103,7 +2212,7 @@ class PortalListStore:
         setting = switches.get("collision")
         if not setting or not setting.enabled or not term_code:
             return []
-        rows = self.section_collisions(term_code)["collides"]
+        rows = reads.collisions(term_code)
         if not rows:
             return []
         found: list[Mismatch] = []
@@ -2129,7 +2238,7 @@ class PortalListStore:
         self,
         term_id: str,
         term_code: str,
-        database: StudentDatabase,
+        reads: "_TermReads",
         members: set[str],
         pulled: set[str],
     ) -> list[Mismatch]:
@@ -2148,11 +2257,11 @@ class PortalListStore:
         cohort is filed under whichever cohort happens to hold its row, so reading a
         semester cohort by cohort is exactly how the languages have gone unchecked.
         """
-        sets = database.term_scope_crns(term_id)
+        sets = reads.scope_crns(term_id)
         if not sets:
             return []
 
-        registered = self.registered_in(term_code)
+        registered = reads.registered(term_code)
         found: list[Mismatch] = []
         for student in sorted(members & pulled):
             theirs = {crn for crns in registered.get(student, {}).values() for crn in crns}
