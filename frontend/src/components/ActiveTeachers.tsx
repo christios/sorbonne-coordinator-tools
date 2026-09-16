@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import type { TeacherRef } from "@/components/TeacherRecord";
-import { ListGrid, StatePill } from "@/components/ListGrid";
+import { ListGrid, Pills, StatePill } from "@/components/ListGrid";
 import { Modal } from "@/components/Modal";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import {
@@ -23,14 +23,18 @@ import {
 } from "@/services/portalLists";
 import { removeEach, stillSelected } from "@/services/bulkRemove";
 import { buildCards } from "@/services/courseCards";
-import { fetchActiveCourses, fetchActiveCrns } from "@/services/portalLists";
+import { fetchActiveCourses, fetchActiveCrns, splitCodes } from "@/services/portalLists";
 import type { GridColumn } from "@/services/studentColumns";
 import { fetchCourseCards } from "@/services/studentDatabase";
 import { sectionsTaughtBy } from "@/services/teacherLoad";
 import { fetchTimetableTerms } from "@/services/timetables";
 
-/** An Active teacher with what the planning has them teaching: the component types of their sections. */
-type TeacherRow = ActiveTeacher & { teaches: string[] };
+/**
+ * An Active teacher with what the planning has them teaching: the kinds of class their
+ * sections are, the cohorts those sections belong to, and the portal's course codes split
+ * apart so each is a value of its own rather than a sentence to read.
+ */
+type TeacherRow = ActiveTeacher & { teaches: string[]; cohorts: string[]; courseList: string[] };
 
 const COLUMNS: GridColumn<TeacherRow>[] = [
   { id: "fullName", displayName: "Name", type: "text", accessor: (row) => row.fullName, required: true, defaultWidth: 220 },
@@ -65,11 +69,29 @@ const COLUMNS: GridColumn<TeacherRow>[] = [
    */
   {
     id: "teaches",
-    displayName: "Teaches",
+    // "Teaches" read as "what they teach", which is the Courses column. These are the
+    // kinds of class. The id is untouched, so nobody's arranged table is rearranged.
+    displayName: "Course types",
     type: "multiOption",
     accessor: (row) => row.teaches,
     display: (row) => row.teaches.join(", "),
-    defaultWidth: 110,
+    defaultWidth: 130,
+    source: "planning",
+  },
+  /*
+   * Which years they stand in front of, from our own planning rather than the portal.
+   *
+   * "Who teaches L1" was a question the department could only answer by opening every
+   * teacher in turn. Live sections only, across every semester the planning holds — the
+   * same sections the column beside it counts, so the two can never disagree.
+   */
+  {
+    id: "cohorts",
+    displayName: "Cohorts",
+    type: "multiOption",
+    accessor: (row) => row.cohorts,
+    display: (row) => row.cohorts.join(", "),
+    defaultWidth: 200,
     source: "planning",
   },
   {
@@ -80,7 +102,19 @@ const COLUMNS: GridColumn<TeacherRow>[] = [
     display: (row) => (row.sections ? String(row.sections) : ""),
     defaultWidth: 90, source: "planning"
   },
-  { id: "courses", displayName: "Courses", type: "text", accessor: (row) => row.courses, defaultWidth: 220, source: "portal" },
+  /*
+   * The portal gives these as one comma-separated string. Split, each code is a value the
+   * table can filter by — "everyone who teaches SCEN-101" is a tick rather than a search.
+   */
+  {
+    id: "courses",
+    displayName: "Courses",
+    type: "multiOption",
+    accessor: (row) => row.courseList,
+    display: (row) => row.courseList.join(", "),
+    defaultWidth: 220,
+    source: "portal",
+  },
   { id: "lastTerm", displayName: "Last term", type: "option", accessor: (row) => row.lastTerm, defaultWidth: 100, source: "portal" },
   { id: "rank", displayName: "Rank", type: "text", accessor: (row) => row.rank, defaultWidth: 180, source: "portal" },
   { id: "institution", displayName: "Institution", type: "text", accessor: (row) => row.institution, defaultWidth: 220, source: "portal" },
@@ -88,7 +122,7 @@ const COLUMNS: GridColumn<TeacherRow>[] = [
   { id: "addedAt", displayName: "Added", type: "date", accessor: (row) => row.addedAt, display: (row) => row.addedAt.slice(0, 10), defaultWidth: 110 },
   { id: "addedBy", displayName: "Added by", type: "text", accessor: (row) => row.addedBy, defaultWidth: 200 },
 ];
-const SHOWN = ["fullName", "email", "source", "type", "department", "teaches", "courses", "lastTerm"];
+const SHOWN = ["fullName", "email", "source", "type", "department", "teaches", "cohorts", "courses", "lastTerm"];
 
 const idOf = (row: TeacherRow) => row.id;
 
@@ -96,13 +130,21 @@ const idOf = (row: TeacherRow) => row.id;
 const chosenOn = (rows: ActiveTeacher[] | undefined, selected: ReadonlySet<string>) =>
   (rows ?? []).filter((row) => selected.has(row.id)).reduce((count, row) => count + (row.linkedSections ?? 0), 0);
 const labelOf = (row: TeacherRow) => row.fullName || row.email || row.id;
-const renderCell = (row: TeacherRow, column: GridColumn<TeacherRow>) =>
-  column.id === "source" ? (
-    <span className="flex flex-wrap gap-1">
-      {row.portalTeacherId ? <StatePill tone="muted">Portal</StatePill> : null}
-      {row.partTimeTeacherId ? <StatePill tone="muted">Part-time DB</StatePill> : null}
-    </span>
-  ) : undefined;
+const renderCell = (row: TeacherRow, column: GridColumn<TeacherRow>) => {
+  if (column.id === "source") {
+    return (
+      <span className="flex flex-wrap gap-1">
+        {row.portalTeacherId ? <StatePill tone="muted">Portal</StatePill> : null}
+        {row.partTimeTeacherId ? <StatePill tone="muted">Part-time DB</StatePill> : null}
+      </span>
+    );
+  }
+  // The department's own reading is drawn in the department's colour; the portal's is quiet.
+  if (column.id === "cohorts") return <Pills values={row.cohorts} tone="accent" />;
+  if (column.id === "teaches") return <Pills values={row.teaches} tone="accent" />;
+  if (column.id === "courses") return <Pills values={row.courseList} tone="muted" />;
+  return undefined;
+};
 
 /**
  * The department's own list of teachers.
@@ -126,12 +168,15 @@ export function ActiveTeachers({ onOpenTeacher }: { onOpenTeacher?: (teacher: Te
     const cards = buildCards(catalogues.data ?? [], termName, courses.data ?? [], parentOf);
     const order = ["CM", "TD", "TP"];
     return (active.data ?? []).map((teacher) => {
-      const kinds = new Set(
-        sectionsTaughtBy(cards, teacher.id, teacher.fullName)
-          .filter((section) => !section.retired)
-          .map((section) => section.component.toUpperCase()),
-      );
-      return { ...teacher, teaches: [...kinds].sort((a, b) => (order.indexOf(a) + 1 || 99) - (order.indexOf(b) + 1 || 99)) };
+      const live = sectionsTaughtBy(cards, teacher.id, teacher.fullName).filter((section) => !section.retired);
+      const kinds = new Set(live.map((section) => section.component.toUpperCase()));
+      const cohorts = new Set(live.map((section) => section.cohortName).filter(Boolean));
+      return {
+        ...teacher,
+        teaches: [...kinds].sort((a, b) => (order.indexOf(a) + 1 || 99) - (order.indexOf(b) + 1 || 99)),
+        cohorts: [...cohorts].sort((left, right) => left.localeCompare(right)),
+        courseList: splitCodes(teacher.courses),
+      };
     });
   }, [active.data, catalogues.data, terms.data, courses.data, registered.data]);
   const [selected, setSelected] = useState<Set<string>>(new Set());

@@ -52,6 +52,20 @@ export type PortalCourse = {
   lastSeenAt: string;
 };
 
+/**
+ * The portal writes a teacher's courses as one string: "PHYS-208,PHYS-221". Split, each
+ * code is a value of its own — something a column can filter by and draw as a pill, rather
+ * than a sentence to read across.
+ *
+ * Tolerant of how the string is spaced, and of the trailing comma the portal sometimes
+ * leaves, because a blank code would be an empty pill and a filter option named nothing.
+ */
+export function splitCodes(held: string): string[] {
+  // A row the portal returned without the field at all would otherwise take the page down
+  // with it; an empty list is the honest answer and costs a character.
+  return [...new Set((held ?? "").split(",").map((code) => code.trim()).filter(Boolean))];
+}
+
 export type PortalTeacher = {
   teacherId: string;
   fullName: string;

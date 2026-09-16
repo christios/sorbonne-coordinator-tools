@@ -1,12 +1,24 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { UserPlus } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
-import { ListGrid, StatePill } from "@/components/ListGrid";
+import { ListGrid, Pills, StatePill } from "@/components/ListGrid";
 import { PortalFilterBar } from "@/components/PortalFilterBar";
 import type { TeacherRef } from "@/components/TeacherRecord";
 import { ScreenLoading } from "@/components/ScreenLoading";
-import { type PortalTeacher, addActiveTeachers, fetchActiveTeachers, fetchPortalTeachers } from "@/services/portalLists";
+import {
+  type PortalTeacher,
+  addActiveTeachers,
+  fetchActiveCourses,
+  fetchActiveCrns,
+  fetchActiveTeachers,
+  fetchPortalTeachers,
+  splitCodes,
+} from "@/services/portalLists";
+import { buildCards } from "@/services/courseCards";
+import { sectionsTaughtBy } from "@/services/teacherLoad";
+import { fetchCourseCards } from "@/services/studentDatabase";
+import { fetchTimetableTerms } from "@/services/timetables";
 import type { GridColumn } from "@/services/studentColumns";
 
 const FILTER_KEY = "scen-portal-filter:teachers";
@@ -18,7 +30,24 @@ const TEACHER_COLUMNS: GridColumn<PortalTeacher>[] = [
   { id: "category", displayName: "Category", type: "option", accessor: (row) => row.category, defaultWidth: 120, source: "portal" },
   { id: "teacherStatus", displayName: "Status", type: "option", accessor: (row) => row.teacherStatus, defaultWidth: 90, source: "portal" },
   { id: "department", displayName: "Dept.", type: "option", accessor: (row) => row.department, defaultWidth: 110, source: "portal" },
-  { id: "courses", displayName: "Courses", type: "text", accessor: (row) => row.courses, defaultWidth: 220, source: "portal" },
+  /*
+   * The portal gives these as one comma-separated string. Split, each code is a value the
+   * table can filter by — "everyone who teaches SCEN-101" is a tick rather than a search.
+   */
+  {
+    id: "courses",
+    displayName: "Courses",
+    type: "multiOption",
+    accessor: (row) => splitCodes(row.courses),
+    display: (row) => splitCodes(row.courses).join(", "),
+    defaultWidth: 220,
+    source: "portal",
+  },
+  /*
+   * Which years they stand in front of, from our own planning rather than the portal —
+   * the accessor is filled in on the page, where the planning has been read.
+   */
+  { id: "cohorts", displayName: "Cohorts", type: "multiOption", accessor: () => [], defaultWidth: 200, source: "planning" },
   { id: "lastTerm", displayName: "Last term", type: "option", accessor: (row) => row.lastTerm, defaultWidth: 100, source: "portal" },
   { id: "coursesCount", displayName: "# courses", type: "number", accessor: (row) => Number(row.coursesCount) || 0, defaultWidth: 100, source: "portal" },
   { id: "studentsCount", displayName: "# students", type: "number", accessor: (row) => Number(row.studentsCount) || 0, defaultWidth: 100, source: "portal" },
@@ -34,7 +63,7 @@ const TEACHER_COLUMNS: GridColumn<PortalTeacher>[] = [
   },
   { id: "active", displayName: "Active", type: "option", accessor: () => "", defaultWidth: 90, source: "planning" },
 ];
-const SHOWN = ["teacherId", "fullName", "type", "department", "courses", "lastTerm", "psuadEmail", "active"];
+const SHOWN = ["teacherId", "fullName", "type", "department", "cohorts", "courses", "lastTerm", "psuadEmail", "active"];
 
 const idOf = (row: PortalTeacher) => row.teacherId;
 const labelOf = (row: PortalTeacher) => row.fullName || row.teacherId;
@@ -58,6 +87,40 @@ export function PortalTeachers({ onOpenTeacher }: { onOpenTeacher?: (teacher: Te
   const teachers = useQuery({ queryKey: ["portal", "teachers", filterId], queryFn: () => fetchPortalTeachers(filterId) });
   const active = useQuery({ queryKey: ["active-teachers"], queryFn: fetchActiveTeachers });
   const activeIds = new Set((active.data ?? []).map((row) => row.portalTeacherId).filter(Boolean));
+  // The planning, for the Cohorts column. The portal knows the courses; only we know the years.
+  const catalogues = useQuery({ queryKey: ["course-cards"], queryFn: fetchCourseCards });
+  const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, retry: false });
+  const courses = useQuery({ queryKey: ["active-courses"], queryFn: fetchActiveCourses });
+  const registered = useQuery({ queryKey: ["active-crns"], queryFn: () => fetchActiveCrns() });
+
+  /*
+   * Which cohorts our own planning has each of these teachers standing in front of.
+   *
+   * A portal teacher reaches the planning two ways: through the active-teacher record
+   * carrying their portal id, and by their name where no record does — the same two ways
+   * every other reading of "is this section theirs" works, so this column agrees with the
+   * rest of the application about whose section is whose.
+   *
+   * Live sections only, across every semester the planning holds.
+   */
+  const cohortsOf = useMemo(() => {
+    const termName = (id: string) => (terms.data ?? []).find((term) => term.id === id)?.name ?? "";
+    const parentOf = new Map((registered.data ?? []).filter((row) => row.parentCrn).map((row) => [row.crn, row.parentCrn]));
+    const cards = buildCards(catalogues.data ?? [], termName, courses.data ?? [], parentOf);
+    const ourIdOf = new Map((active.data ?? []).filter((row) => row.portalTeacherId).map((row) => [row.portalTeacherId, row.id]));
+    const held = new Map<string, string[]>();
+    for (const teacher of teachers.data ?? []) {
+      const names = new Set(
+        sectionsTaughtBy(cards, ourIdOf.get(teacher.teacherId) ?? "", teacher.fullName)
+          .filter((section) => !section.retired)
+          .map((section) => section.cohortName)
+          .filter(Boolean),
+      );
+      held.set(teacher.teacherId, [...names].sort((left, right) => left.localeCompare(right)));
+    }
+    return held;
+  }, [catalogues.data, terms.data, courses.data, registered.data, active.data, teachers.data]);
+  const cohortsFor = (row: PortalTeacher) => cohortsOf.get(row.teacherId) ?? [];
 
   const add = useMutation({
     mutationFn: (ids: string[]) => addActiveTeachers({ portalTeacherIds: ids }),
@@ -68,14 +131,23 @@ export function PortalTeachers({ onOpenTeacher }: { onOpenTeacher?: (teacher: Te
   });
 
   // The Active column reads the department's list, so the column model borrows it here.
-  const columns = TEACHER_COLUMNS.map((column) =>
-    column.id === "active" ? { ...column, accessor: (row: PortalTeacher) => (activeIds.has(row.teacherId) ? "Active" : "") } : column,
-  );
+  const columns = TEACHER_COLUMNS.map((column) => {
+    if (column.id === "active") {
+      return { ...column, accessor: (row: PortalTeacher) => (activeIds.has(row.teacherId) ? "Active" : "") };
+    }
+    if (column.id === "cohorts") {
+      return { ...column, accessor: cohortsFor, display: (row: PortalTeacher) => cohortsFor(row).join(", ") };
+    }
+    return column;
+  });
   const renderCell = (row: PortalTeacher, column: GridColumn<PortalTeacher>) => {
     if (column.id === "status") {
       return row.status === "in_portal" ? <span className="text-xs text-[#667085]">Returned</span> : <StatePill tone="bad">No longer returned</StatePill>;
     }
     if (column.id === "active") return activeIds.has(row.teacherId) ? <StatePill tone="good">Active</StatePill> : <span className="text-[#98a2b3]">—</span>;
+    // The department's own reading is drawn in the department's colour; the portal's is quiet.
+    if (column.id === "cohorts") return <Pills values={cohortsFor(row)} tone="accent" />;
+    if (column.id === "courses") return <Pills values={splitCodes(row.courses)} tone="muted" />;
     return undefined;
   };
 

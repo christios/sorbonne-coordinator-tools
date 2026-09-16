@@ -232,6 +232,25 @@ export function ListGrid<T>({
 }
 
 /** A pill for a yes/no state, the way the roster marks "Not in portal". */
+/**
+ * Several values in one cell, each drawn as itself rather than read as a sentence.
+ *
+ * A cell is one line and clips at its column's edge, like every other cell in these
+ * tables, so a row carrying eleven values shows what fits and the column is widened to
+ * see the rest — rather than that one row growing taller and dragging the table with it.
+ */
+export function Pills({ values, tone }: { values: string[]; tone: "good" | "bad" | "muted" | "accent" }) {
+  return (
+    <span className="inline-flex flex-nowrap items-center gap-1 align-middle">
+      {values.map((value) => (
+        <StatePill key={value} tone={tone}>
+          {value}
+        </StatePill>
+      ))}
+    </span>
+  );
+}
+
 export function StatePill({ tone, children }: { tone: "good" | "bad" | "muted" | "accent"; children: ReactNode }) {
   const look =
     tone === "good"

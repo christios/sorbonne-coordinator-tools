@@ -316,8 +316,30 @@ describe("what a teacher takes", () => {
   it("says which kinds of class the planning names them on, chosen by id or by name", async () => {
     show();
     const row = (await screen.findByText("Ahlem Trabelsi")).closest("tr") as HTMLElement;
-    // The lecture chose her by id; the tutorial only carries her name. Both are hers.
-    await waitFor(() => expect(within(row).getByText("CM, TD")).toBeTruthy());
-    expect(screen.getByRole("button", { name: "Sort by Teaches" })).toBeTruthy();
+    // The lecture chose her by id; the tutorial only carries her name. Both are hers,
+    // and each kind is drawn as itself rather than read out as one string.
+    await waitFor(() => expect(within(row).getByText("CM")).toBeTruthy());
+    expect(within(row).getByText("TD")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Sort by Course types" })).toBeTruthy();
+  });
+
+  it("says which cohorts the planning has them standing in front of", async () => {
+    show();
+    const row = (await screen.findByText("Ahlem Trabelsi")).closest("tr") as HTMLElement;
+
+    /*
+     * Both her sections belong to L1-S1 — the lecture by id, the tutorial by name — so the
+     * cohort is named once rather than once per section. "Who teaches L1" was a question
+     * that could only be answered by opening every teacher in turn.
+     */
+    await waitFor(() => expect(within(row).getAllByText("L1-S1")).toHaveLength(1));
+    expect(screen.getByRole("button", { name: "Sort by Cohorts" })).toBeTruthy();
+  });
+
+  it("draws the portal's course codes as values of their own, not as a sentence", async () => {
+    show();
+    const row = (await screen.findByText("Ahlem Trabelsi")).closest("tr") as HTMLElement;
+
+    await waitFor(() => expect(within(row).getByText("ECON-101")).toBeTruthy());
   });
 });
