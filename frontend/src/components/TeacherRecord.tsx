@@ -139,7 +139,7 @@ export function TeacherRecord({
   const theirs: TimetableEntry[] = (registered.data ?? [])
     .filter((row) => !named.has(row.crn) && row.portalStatus === "in_portal" && sameTeacher(row.teacherName, teacher.fullName))
     .map((row) => ({ termCode: row.termCode, crn: row.crn, code: row.courseCode, title: row.courseTitle || row.portalTitle }));
-  const timetable = [...ours, ...theirs];
+  const mine = [...ours, ...theirs];
   const [showingCrn, setShowingCrn] = useState<ActiveCrn | null>(null);
 
   /*
@@ -147,10 +147,15 @@ export function TeacherRecord({
    *
    * Their CRNs are the calendar's; a note on one of those is theirs whichever way it
    * went. A note naming them as the cover is theirs too, on somebody else's class.
+   *
+   * Asked of every semester that is linked to a portal term, not only of the ones their
+   * own sections fall in. Somebody who covers a class in a semester they teach nothing in
+   * would otherwise never have that note read — and the covers are exactly what this is
+   * for.
    */
-  const termCodes = [...new Set(timetable.map((entry) => entry.termCode).filter(Boolean))];
+  const noteTermCodes = [...new Set(Object.values(links.data ?? {}).filter(Boolean))];
   const { notes } = useQueries({
-    queries: termCodes.map((termCode) => ({
+    queries: noteTermCodes.map((termCode) => ({
       queryKey: ["session-changes", termCode],
       queryFn: () => fetchSessionChanges(termCode),
       enabled: open,
@@ -158,8 +163,45 @@ export function TeacherRecord({
     })),
     combine: (reads) => ({ notes: reads.flatMap((read) => read.data ?? []) }),
   });
-  const ownCrns = new Set(timetable.map((entry) => entry.crn));
+  const ownCrns = new Set(mine.map((entry) => entry.crn));
   const me = { id: held?.id ?? teacher.id ?? "", name: teacher.fullName };
+
+  /*
+   * The classes they stood in for, on the days they stood in and on no others.
+   *
+   * A cover is one afternoon, not a standing commitment. Adding the CRN to their week
+   * outright would put them in that room every week of the semester on the strength of one
+   * Tuesday — so the dates the notes name are the only ones drawn.
+   *
+   * It used to appear on the week of the teacher who was down for the class and nowhere
+   * else, which made the stand-in's own week wrong about where they were.
+   */
+  const covering: TimetableEntry[] = useMemo(() => {
+    const byCrn = new Map<string, { termCode: string; dates: string[] }>();
+    for (const note of notes) {
+      if (note.kind !== "covered" || ownCrns.has(note.crn)) continue;
+      const theirs = (me.id && note.coverTeacherId === me.id) || sameTeacher(note.coverTeacherName, me.name);
+      if (!theirs) continue;
+      const seen = byCrn.get(note.crn) ?? { termCode: note.termCode, dates: [] };
+      seen.dates.push(note.meetsOn);
+      byCrn.set(note.crn, seen);
+    }
+    return [...byCrn.entries()].map(([crn, seen]) => ({
+      termCode: seen.termCode,
+      crn,
+      // Somebody else's section: the sweep names the course and whose class it is.
+      code: "",
+      title: "",
+      onlyOn: seen.dates,
+      standingIn: true,
+      // Its own colour, so a cover is never read as one more hour of a course they teach.
+      colorKey: `cover:${crn}`,
+    }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notes, [...ownCrns].join(","), me.id, me.name]);
+
+  const timetable = [...mine, ...covering];
+  const termCodes = [...new Set(mine.map((entry) => entry.termCode).filter(Boolean))];
   const concerning = notes.filter(
     (note) =>
       ownCrns.has(note.crn) ||
@@ -300,7 +342,8 @@ export function TeacherRecord({
         <section>
           <h4 className="text-sm font-semibold text-[#171717]">When they teach <SourceMark source="registrar" /></h4>
           <p className="mb-2 text-xs text-[#98a2b3]">
-            From the registrar&apos;s timetable: the sections above, and any the portal staffs with them.
+            From the registrar&apos;s timetable: the sections above, any the portal staffs with them, and the
+            classes they stood in for — on the days they stood in.
           </p>
           <SectionTimetable
             entries={timetable}

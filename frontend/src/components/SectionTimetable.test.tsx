@@ -52,6 +52,57 @@ describe("a handful of sections, as the registrar has them", () => {
     expect(within(cannot).getByText(/Nobody has asked the registrar about 99999/)).toBeTruthy();
   });
 
+  it("draws only the dates a stand-in was actually in the room", async () => {
+    /*
+     * A cover is one afternoon, not a standing commitment. Adding the CRN to the stand-in's
+     * week outright would put them in that room every week of the semester on the strength
+     * of one Tuesday.
+     */
+    vi.spyOn(lists, "fetchFacilitySections").mockResolvedValue({
+      termCode: "262710",
+      pulledAt: "2026-09-01T00:00:00+00:00",
+      sections: [
+        { crn: "23436", courseCode: "MATH-351", title: "Algebra", teacherName: "Grace Younes", state: "published", meetings: [MONDAY, TUESDAY] },
+      ],
+    });
+
+    show([
+      { termCode: "262710", crn: "23436", code: "", title: "", onlyOn: [TUESDAY.meetsOn], standingIn: true },
+    ]);
+
+    const boxes = await screen.findAllByLabelText(/CRN 23436/);
+    expect(boxes).toHaveLength(1);
+    // And from their side of it: whose class it was, not who took it — which is them.
+    const said = boxes[0].getAttribute("aria-label") ?? "";
+    expect(said).toContain("covering for Grace Younes");
+    // Named once. The section's own teacher and the "covering for" line are one person,
+    // and printing both read as two.
+    expect(said.match(/Grace Younes/g)).toHaveLength(1);
+  });
+
+  it("says covered by, not covering for, on the week of the teacher who was down for it", async () => {
+    vi.spyOn(lists, "fetchFacilitySections").mockResolvedValue({
+      termCode: "262710",
+      pulledAt: "2026-09-01T00:00:00+00:00",
+      sections: [
+        { crn: "23436", courseCode: "MATH-351", title: "Algebra", teacherName: "Grace Younes", state: "published", meetings: [TUESDAY] },
+      ],
+    });
+    vi.spyOn(notes, "fetchSessionChanges").mockResolvedValue([
+      {
+        id: "n1", termCode: "262710", crn: "23436", meetsOn: TUESDAY.meetsOn, startsAt: TUESDAY.startsAt,
+        endsAt: TUESDAY.endsAt, kind: "covered", coverTeacherId: "", coverTeacherName: "Dr Kaur", note: "",
+        authorEmail: "", authorName: "", createdAt: "", updatedAt: "",
+      },
+    ]);
+
+    show([{ termCode: "262710", crn: "23436", code: "MATH-351", title: "Algebra" }]);
+
+    const boxes = await screen.findAllByLabelText(/CRN 23436/);
+    expect(boxes[0].getAttribute("aria-label")).toContain("covered by Dr Kaur");
+    expect(boxes[0].getAttribute("aria-label")).not.toContain("covering for");
+  });
+
   it("walks the weeks, and comes back to the current one", async () => {
     vi.spyOn(lists, "fetchFacilitySections").mockResolvedValue({
       termCode: "262710",

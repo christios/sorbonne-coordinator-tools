@@ -15,6 +15,15 @@ export type SessionNote = {
   kind: "cancelled" | "covered";
   coverTeacherName: string;
   note: string;
+  /**
+   * Whose week this is being read on.
+   *
+   * A cover is one fact with two sides. On the week of the teacher who was down for the
+   * class, the name is who took it — "covered by Dr Kaur". On the week of the person who
+   * stood in, the same fact is "covering for Dr Maaz", and `coverTeacherName` carries the
+   * OTHER name. Without this the stand-in's week would show them covering for themselves.
+   */
+  standingIn?: boolean;
 };
 
 /** One dated meeting of a CRN, as the registrar's sweep holds it. */

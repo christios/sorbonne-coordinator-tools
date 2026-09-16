@@ -33,6 +33,19 @@ export type TimetableEntry = {
   group?: string;
   staff?: string;
   tone?: "solid" | "outline";
+  /**
+   * Draw only these dates of the section, rather than every meeting of it.
+   *
+   * For a class somebody stood in for: they were in that room one Tuesday, not every
+   * Tuesday, and adding the CRN outright would put them there all semester.
+   */
+  onlyOn?: string[];
+  /**
+   * This section is on the calendar because its owner's week is not the one being read —
+   * somebody stood in. Every drawn meeting is marked as cover from the stand-in's side,
+   * naming whose class it was.
+   */
+  standingIn?: boolean;
   /** What shares a colour. The course code when left out; a course's own calendar passes the CRN. */
   colorKey?: string;
 };
@@ -354,6 +367,8 @@ function assemble(
     else if (section.state === "gone") gone.push(section.crn);
     else if (section.meetings.length === 0) unbooked.push(section.crn);
     for (const meeting of section.meetings) {
+      // A section the caller asked for by date is drawn on those days and no others.
+      if (entry.onlyOn && !entry.onlyOn.includes(meeting.meetsOn)) continue;
       const note = said.get(slotKey({ termCode: section.termCode, crn: section.crn, meetsOn: meeting.meetsOn, startsAt: meeting.startsAt }));
       sessions.push({
         crn: section.crn,
@@ -362,7 +377,20 @@ function assemble(
         start: meeting.startsAt.slice(0, 5),
         end: meeting.endsAt.slice(0, 5),
         room: meeting.room,
-        change: note ? { kind: note.kind, coverTeacherName: note.coverTeacherName, note: note.note } : undefined,
+        /*
+         * On a stand-in's week the same note reads the other way round: the box says whose
+         * class it was, not who took it, since who took it is the person reading.
+         */
+        change: entry.standingIn
+          ? {
+              kind: "covered" as const,
+              coverTeacherName: entry.staff || section.teacherName,
+              note: note?.note ?? "",
+              standingIn: true,
+            }
+          : note
+            ? { kind: note.kind, coverTeacherName: note.coverTeacherName, note: note.note }
+            : undefined,
       });
     }
   }

@@ -274,9 +274,11 @@ function DayColumn({ day, sessions, courses, height, hours, topOf, pixelsPerMinu
               `CRN ${session.crn}`,
               `${session.start}–${session.end}`,
               formatRoom(session.room),
-              course?.staff,
+              // On a stand-in's week the section's own teacher IS the "covering for" line
+              // below, and naming them twice reads as two people.
+              covered?.standingIn ? "" : course?.staff,
               cancelled ? "CANCELLED" : "",
-              covered ? `covered by ${covered.coverTeacherName}` : "",
+              covered ? (covered.standingIn ? `covering for ${covered.coverTeacherName}` : `covered by ${covered.coverTeacherName}`) : "",
               session.change?.note ?? "",
               outline ? "in their group, not registered" : "",
               session.clashes ? "overlaps another class" : "",
@@ -348,7 +350,10 @@ function DayColumn({ day, sessions, courses, height, hours, topOf, pixelsPerMinu
                 {covered && lines >= 3 ? (
                   <span className="flex items-center gap-1 truncate font-semibold">
                     <Repeat size={9} className="shrink-0" aria-hidden="true" />
-                    <span className="truncate">{covered.coverTeacherName}</span>
+                    {/* Whose class it is, on the stand-in's week; who took it, on the other's. */}
+                    <span className="truncate">
+                      {covered.standingIn ? `for ${covered.coverTeacherName}` : covered.coverTeacherName}
+                    </span>
                   </span>
                 ) : lines >= 5 && course?.staff ? (
                   <span className="flex items-center gap-1 truncate opacity-85">
