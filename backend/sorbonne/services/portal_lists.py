@@ -257,6 +257,7 @@ class _TermReads:
         self._publication: dict[str, list[dict[str, Any]]] = {}
         self._registered: dict[str, dict[str, dict[str, list[str]]]] = {}
         self._pulled: dict[str, set[str]] = {}
+        self._whole: dict[str, bool] = {}
         self._exempt: dict[str, dict[str, set[str]]] = {}
         self._approved: dict[str, dict[str, set[str]]] = {}
         self._collisions: dict[str, list[dict[str, Any]]] = {}
@@ -281,6 +282,11 @@ class _TermReads:
         if term_code not in self._pulled:
             self._pulled[term_code] = self._store.pulled_students(term_code)
         return self._pulled[term_code]
+
+    def whole(self, term_code: str) -> bool:
+        if term_code not in self._whole:
+            self._whole[term_code] = self._store.pull_was_whole(term_code)
+        return self._whole[term_code]
 
     def exempt(self, term_id: str) -> dict[str, set[str]]:
         if term_id not in self._exempt:
@@ -650,13 +656,27 @@ class PortalListStore:
 
     # ------------------------------------------------------------ registrations
 
-    def sync_registrations(self, filter_id: str, term_code: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
+    def sync_registrations(  # noqa: PLR0913 - the pull, and what the pull knows about itself
+        self,
+        filter_id: str,
+        term_code: str,
+        rows: list[dict[str, Any]],
+        complete: bool = False,
+        expected: int | None = None,
+    ) -> dict[str, Any]:
         """What the portal says each student in the pull is registered in, this term.
 
         The unit is the student, not the row: a student the pull returned has exactly the
         CRNs the pull returned for them, and a student this filter held and the pull no
         longer returns has left the population — their registrations for the term go with
         them. Only ids and CRNs are written; the names in the pull stop here.
+
+        `complete` is the browser's word that the portal sent everything it said it had.
+        It decides whether the register may read anything into a student's ABSENCE: from a
+        whole pull, absence means the registrar has them in nothing, which is worth acting
+        on; from a short one it means a page went missing, and the portal's paging is known
+        to drop rows. Written down beside the pull rather than inferred later, because by
+        the time the register asks, the only thing that could answer is this.
         """
         held_filter = self.get_filter(filter_id)
         if held_filter["kind"] != "registrations":
@@ -738,6 +758,22 @@ class PortalListStore:
                 )
             connection.execute(
                 text("UPDATE portal_filters SET last_synced_at = :now WHERE id = :f"), {"now": now, "f": filter_id}
+            )
+            connection.execute(
+                text("""INSERT INTO portal_registration_pulls
+                            (filter_id, term_code, complete, returned, expected, pulled_at)
+                        VALUES (:f, :t, :complete, :returned, :expected, :now)
+                        ON CONFLICT (filter_id, term_code) DO UPDATE SET
+                            complete = excluded.complete, returned = excluded.returned,
+                            expected = excluded.expected, pulled_at = excluded.pulled_at"""),
+                {
+                    "f": filter_id,
+                    "t": term,
+                    "complete": bool(complete),
+                    "returned": len(students),
+                    "expected": expected,
+                    "now": now,
+                },
             )
         self.record_history(changes)
         return {
@@ -852,6 +888,24 @@ class PortalListStore:
             ).all()
         ours = sorted(crn for crn, mine in rows if mine)
         return {"ours": ours, "registered": sorted(crn for crn, mine in rows if not mine)}
+
+    def pull_was_whole(self, term_code: str) -> bool:
+        """Whether every registrations filter that covers this term brought all of it.
+
+        Every one, not the last one: two filters between them make the term's picture, and
+        a student absent because the OTHER filter came up short is absent for the wrong
+        reason. A term nothing has ever pulled is not whole either — there is no pull to
+        have been complete.
+        """
+        with self.engine.connect() as connection:
+            rows = [
+                row[0]
+                for row in connection.execute(
+                    text("SELECT complete FROM portal_registration_pulls WHERE term_code = :t"),
+                    {"t": term_code},
+                )
+            ]
+        return bool(rows) and all(rows)
 
     def pulled_students(self, term_code: str) -> set[str]:
         """Who any registrations filter has returned this term — the only students a check may judge."""
@@ -2073,8 +2127,10 @@ class PortalListStore:
                 # Not `cohort["students"]`: a cohort with no sets of its own on this
                 # semester has no entry below at all, and it is precisely that cohort whose
                 # coverage nobody has ever seen.
-                judged = sorted(members & pulled_here)
-                skipped = sorted(members - pulled_here)
+                # A whole pull judges everybody: a member it did not mention is registered
+                # in nothing, which is a verdict and not a gap in what we can see.
+                judged = sorted(members if reads.whole(term_code) else members & pulled_here)
+                skipped = sorted(set() if reads.whole(term_code) else members - pulled_here)
                 coverage.append(
                     TermCoverage(
                         term_id=term_id,
@@ -2118,8 +2174,19 @@ class PortalListStore:
             # for one student — the two things that keep an elective from being a verdict.
             allowed = database.get_cohort(cohort_id).get("allowedCodes", [])
             approved = reads.approved(term_code)
+            # A student the pull never mentioned, when the pull brought the whole term:
+            # the registrar has them in nothing, and every section their groups give them
+            # is missing. That is the same verdict anybody else gets for a section they are
+            # not in, so it reaches the admissions worklist as the lines that would put
+            # them right — which is the only form of this fact anybody can act on.
+            #
+            # When the pull was NOT whole, they are passed over exactly as before. Absence
+            # from a short pull is a page that went missing, and the portal's paging is
+            # known to drop rows; add-lines invented from that would be pasted into the
+            # registrar before anybody noticed.
+            whole = reads.whole(term_code)
             for student in cohort["students"]:
-                if student not in pulled_here:
+                if student not in pulled_here and not whole:
                     continue
                 excused = exempt.get(student, set())
                 found.extend(

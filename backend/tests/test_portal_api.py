@@ -856,6 +856,68 @@ def registrations(client: TestClient, rows: list[dict[str, str]]) -> None:
     client.post(f"{BASE}/filters/{made['id']}/sync/registrations", json={"termCode": TERM, "rows": rows})
 
 
+def test_a_student_the_registrar_has_in_nothing_is_told_what_to_register_them_in(
+    client: TestClient, database: StudentDatabase
+):
+    """A whole pull that never mentions a student says they are registered in nothing.
+
+    That is the fact the admissions worklist is for: every section their groups give them
+    is missing, so the lines that would put it right can be copied to the registrar. A
+    student whose enrolment status keeps them out of the registrations grid is exactly this
+    case, and until now they were silently passed over.
+    """
+    cohort_id = build_cohort(database)
+    client.put(f"{BASE}/term-links/{HUB_TERM}", json={"portalTermCode": TERM})
+    made = make_filter(client, "registrations")
+    # A002 is in the groups and the pull does not mention them at all.
+    client.post(
+        f"{BASE}/filters/{made['id']}/sync/registrations",
+        json={
+            "termCode": TERM,
+            "complete": True,
+            "rows": [
+                {"studentId": "A001", "crn": "22151", "courseCode": "MATH-001"},
+                {"studentId": "A001", "crn": "23652", "courseCode": "MATH-011"},
+            ],
+        },
+    )
+
+    answer = client.get(f"{BASE}/cohorts/{cohort_id}/registration-check").json()
+
+    theirs = [m for m in answer["mismatches"] if m["studentId"] == "A002"]
+    assert sorted((m["courseCode"], m["kind"], tuple(m["expected"]), tuple(m["registered"])) for m in theirs) == [
+        ("MATH-001", "missing", ("22151",), ()),
+        ("MATH-011", "missing", ("23652",), ()),
+    ]
+    # And they count as judged, because their absence is now a verdict and not a blind spot.
+    assert [(t["judged"], t["blind"]) for t in answer["coverage"]] == [(3, 0)]
+
+
+def test_a_short_pull_says_nothing_about_who_it_did_not_mention(client: TestClient, database: StudentDatabase):
+    """Absence from a pull that came up short is a page that went missing, not a fact.
+
+    The portal's paging drops rows. Add-lines invented from that would be pasted into the
+    registrar before anybody noticed, so the silence stays until a pull says it was whole.
+    """
+    cohort_id = build_cohort(database)
+    client.put(f"{BASE}/term-links/{HUB_TERM}", json={"portalTermCode": TERM})
+    made = make_filter(client, "registrations")
+    client.post(
+        f"{BASE}/filters/{made['id']}/sync/registrations",
+        json={
+            "termCode": TERM,
+            "complete": False,
+            "rows": [{"studentId": "A001", "crn": "22151", "courseCode": "MATH-001"}],
+        },
+    )
+
+    answer = client.get(f"{BASE}/cohorts/{cohort_id}/registration-check").json()
+
+    assert [m["studentId"] for m in answer["mismatches"] if m["studentId"] == "A002"] == []
+    # And the coverage says plainly how much of the cohort it could not see.
+    assert [(t["judged"], t["blind"]) for t in answer["coverage"]] == [(1, 2)]
+
+
 def test_a_cohort_taught_over_two_semesters_is_checked_in_both(client: TestClient, database: StudentDatabase):
     """Every linked semester is walked, and the walk survives the second time round.
 

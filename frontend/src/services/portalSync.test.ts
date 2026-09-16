@@ -34,11 +34,34 @@ describe("one sync, wherever it was asked for", () => {
         { studentId: "A001", crn: "22151", courseCode: "MATH-001" },
         { studentId: "A001", crn: "23652", courseCode: "MATH-011" },
       ],
+      // And whether the portal sent all of it, which decides whether the register may read
+      // anything into a student the pull never mentioned.
+      { complete: true, expected: null },
       // The deadline the run gives our own server, threaded per call rather than set once
       // in `apiFetch` — which is also the choke point for publication and the workbook.
       expect.any(AbortSignal),
     );
     expect(outcome.report.seen).toBe(1);
+  });
+
+  it("says the pull was not whole when the portal answered short", async () => {
+    // The portal's paging drops rows, and a student missing for that reason must not be
+    // read as a student the registrar has in nothing.
+    vi.spyOn(rosters, "pullFilter").mockResolvedValue({
+      kind: "registrations", term: { code: "262710", label: "S1" }, presetId: "", name: "SCEN", count: 1,
+      expect: 900, warning: "short_answer", fetchedAt: 1,
+      rows: [{ SPRIDEN_ID: "A001", FULL_NAME: "Amira Haddad", COURSE_CRN: "22151", COURSE_CODE: "MATH-001" }],
+    });
+
+    await syncTarget(REGISTRATIONS);
+
+    expect(lists.syncRegistrations).toHaveBeenCalledWith(
+      "f1",
+      "262710",
+      expect.anything(),
+      { complete: false, expected: 900 },
+      expect.any(AbortSignal),
+    );
   });
 
   it("refuses a pull an older extension answered with students", async () => {

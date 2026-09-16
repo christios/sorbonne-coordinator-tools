@@ -128,6 +128,11 @@ class TeachersSyncInput(BaseModel):
 class RegistrationsSyncInput(BaseModel):
     termCode: str = Field(min_length=1, max_length=20)
     rows: list[RegistrationRow] = Field(default_factory=list, max_length=MAX_ROWS)
+    #: Whether the portal sent everything it said it had. Default false, so a caller that
+    #: does not know says the safe thing: the register reads nothing into absence.
+    complete: bool = Field(default=False)
+    #: What the portal said its total was, where it said anything.
+    expected: int | None = Field(default=None, ge=0)
 
 
 class PartTimeRef(BaseModel):
@@ -288,7 +293,13 @@ def sync_registrations(
     filter_id: str, body: RegistrationsSyncInput, store: PortalListStore = Depends(get_store)
 ) -> dict[str, Any]:
     try:
-        return store.sync_registrations(filter_id, body.termCode, [row.model_dump() for row in body.rows])
+        return store.sync_registrations(
+            filter_id,
+            body.termCode,
+            [row.model_dump() for row in body.rows],
+            complete=body.complete,
+            expected=body.expected,
+        )
     except FilterNotFound as exc:
         raise _missing("filter") from exc
     except UnknownKind as exc:

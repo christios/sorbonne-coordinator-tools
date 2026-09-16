@@ -204,5 +204,16 @@ export async function syncTarget(
   const termCode = termCodeOf(roster.term, roster.rows);
   if (!termCode) throw new Error("The portal did not say which term these registrations are for.");
   const rows = roster.rows.map(registrationRowOf).filter((row) => row.studentId && row.crn);
-  return { report: await accepted((signal) => syncRegistrations(target.id, termCode, rows, signal)), roster, warning };
+  /*
+   * Whether this pull brought the whole term, said plainly rather than left in a warning
+   * string nobody downstream can reason about. Any warning at all means it did not: the
+   * portal answered short, or with nobody, or with more than we would hold, or with a
+   * count that drifted from its own. Only silence is a whole pull.
+   */
+  const whole = { complete: roster.warning === null, expected: roster.expect };
+  return {
+    report: await accepted((signal) => syncRegistrations(target.id, termCode, rows, whole, signal)),
+    roster,
+    warning,
+  };
 }

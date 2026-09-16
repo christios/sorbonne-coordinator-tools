@@ -185,8 +185,23 @@ export function syncTeachers(filterId: string, rows: TeacherRow[], signal?: Abor
   return send<SyncReport>(`/filters/${filterId}/sync/teachers`, "POST", { rows }, signal);
 }
 
-export function syncRegistrations(filterId: string, termCode: string, rows: RegistrationRow[], signal?: AbortSignal): Promise<SyncReport> {
-  return send<SyncReport>(`/filters/${filterId}/sync/registrations`, "POST", { termCode, rows }, signal);
+/**
+ * `whole` is this browser's word that the portal sent everything it said it had.
+ *
+ * It is the only thing that can say so — the portal's own total reaches us here and
+ * nowhere else — and the register needs it before it may read anything into a student's
+ * absence. Absent from a whole pull means the registrar has them in nothing; absent from
+ * a short one means a page went missing, and the portal's paging is known to drop them.
+ */
+export function syncRegistrations(
+  filterId: string,
+  termCode: string,
+  rows: RegistrationRow[],
+  whole: { complete: boolean; expected: number | null },
+  signal?: AbortSignal,
+): Promise<SyncReport> {
+  const body = { termCode, rows, complete: whole.complete, expected: whole.expected };
+  return send<SyncReport>(`/filters/${filterId}/sync/registrations`, "POST", body, signal);
 }
 
 // ------------------------------------------------------------------ reading
