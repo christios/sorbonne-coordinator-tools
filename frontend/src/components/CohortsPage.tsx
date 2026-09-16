@@ -38,7 +38,7 @@ import {
   describeCoverage,
   describeMismatch,
   describeSectionDates,
-  fetchRegistrationCheck,
+  fetchRegistrationChecks,
   type Mismatch,
   type RegistrationReport,
   type TermCoverage,
@@ -305,23 +305,20 @@ export function CohortsPage({
    * attention. `retry: false` because a cohort with no linked semester has no answer to
    * give, and one refusal is enough to know that.
    */
-  const checks = useQueries({
-    queries: cohorts.map((cohort) => ({
-      queryKey: ["registration-check", cohort.id],
-      queryFn: () => fetchRegistrationCheck(cohort.id),
-      retry: false,
-    })),
+  const checks = useQuery({
+    queryKey: ["registration-check", "all"],
+    queryFn: fetchRegistrationChecks,
+    retry: false,
   });
   const reportsBy = useMemo(
     () =>
       new Map(
-        cohorts.map((cohort, index) => [
+        cohorts.map((cohort) => [
           cohort.id,
-          (checks[index]?.data ?? { mismatches: [], coverage: [], electives: [] }) as RegistrationReport,
+          (checks.data?.[cohort.id] ?? { mismatches: [], coverage: [], electives: [] }) as RegistrationReport,
         ]),
       ),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [cohorts, checks.map((check) => check.dataUpdatedAt).join("|")],
+    [cohorts, checks.data],
   );
   const registrationsBy = useMemo(
     () => new Map([...reportsBy].map(([cohortId, report]) => [cohortId, report.mismatches])),
@@ -541,13 +538,9 @@ export function CohortsPage({
    * them. Only once every semester has answered and none of them failed — a dismissal
    * pruned against evidence that has not arrived is a coordinator's decision thrown away.
    */
-  // Whether every cohort's register check has answered, which is what says the semesters
-  // below are the real list rather than a list still being built.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const checksSettled = useMemo(() => checks.every((check) => !check.isPending && !check.isError), [
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    checks.map((check) => `${check.isPending}${check.isError}`).join("|"),
-  ]);
+  // Whether the register check has answered, which is what says the semesters below are
+  // the real list rather than a list still being built.
+  const checksSettled = !checks.isPending && !checks.isError;
 
   const liveGroupKeys = useMemo(() => {
     /*
@@ -582,18 +575,17 @@ export function CohortsPage({
    * request per cohort. `pruneDismissed` only ever removes keys of the family it is given,
    * so the two effects cannot undo each other however they interleave.
    *
-   * And only once EVERY check has answered. A check is fetched per cohort with no retry,
-   * so one that failed returns nothing at all — exactly the shape of a cohort with no
-   * differences. Pruning on that reading would forget the coordinator's own decisions
-   * because a request fell over. Absent is not gone.
+   * And only once the check has answered. It is fetched with no retry, so a failure
+   * returns nothing at all — exactly the shape of a cohort with no differences. Pruning on
+   * that reading would forget the coordinator's own decisions because a request fell over.
+   * Absent is not gone.
    */
   const liveRegistrationKeys = useMemo(() => {
-    if (checks.some((check) => check.isPending || check.isError)) return null;
+    if (!checksSettled) return null;
     return [...registrationsBy.values()]
       .flat()
       .flatMap((mismatch) => registrationWarnings([mismatch], describeMismatch, readMismatch).map((warning) => warning.key));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [registrationsBy, checks.map((check) => `${check.isPending}${check.isError}`).join("|")]);
+  }, [registrationsBy, checksSettled]);
 
   useEffect(() => {
     if (!liveRegistrationKeys) return;
@@ -652,7 +644,6 @@ export function CohortsPage({
    * the cases can be told apart instead of hedged over.
    */
   const mismatches = registrationsBy.get(cohortId) ?? [];
-  const check = checks[cohorts.findIndex((candidate) => candidate.id === cohortId)];
   const coverage: TermCoverage[] = reportsBy.get(cohortId)?.coverage ?? [];
   /*
    * What the check could not see, semester by semester: how much of the cohort, and how
@@ -666,9 +657,9 @@ export function CohortsPage({
       .map((said, index) => ({ key: `${term.termId}:${index}`, said }));
   });
   const anyChecked = coverage.some((term) => term.judged > 0);
-  const registerSays = check?.isError
+  const registerSays = checks.isError
     ? "The register could not be asked about this cohort at all."
-    : check?.isPending
+    : checks.isPending
       ? "Still asking the register…"
       : mismatches.length
         ? `The register differs about ${counts.registration} of them — ${describeKinds(mismatches)}.`
