@@ -20,8 +20,9 @@ from hashlib import sha256
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
 
+from sorbonne.services.engine import engine_for
 from sorbonne.services.staff_auth import StaffUser, admission
 
 #: What every token starts with, so one can be recognised on sight in a log or a file.
@@ -69,7 +70,7 @@ def _row(row: Any) -> dict[str, Any]:
 
 class ApiTokenStore:
     def __init__(self, database_url: str) -> None:
-        self.engine = create_engine(database_url, pool_pre_ping=True)
+        self.engine = engine_for(database_url)
 
     def mint(self, *, name: str, email: str, days: int = DEFAULT_LIFETIME_DAYS) -> MintedToken:
         """Make a token for one coordinator. Shown once, kept as a hash."""

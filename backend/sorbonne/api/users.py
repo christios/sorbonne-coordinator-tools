@@ -1,4 +1,12 @@
-"""Managing who may sign in. Administrators only, from Settings → Users."""
+"""Managing who may sign in. Administrators only, from Settings → Users.
+
+A handler here is written `def`, not `async def`, wherever it has nothing to await. The
+work it does is a sequence of blocking database calls, and a coroutine doing that holds
+the event loop for its whole duration — one request at a time, for the entire server. A
+plain `def` is run on a worker thread instead, so the page's other requests are answered
+while this one waits on the database. Only a handler that genuinely awaits something —
+the registrar's portal, a file being read — is a coroutine.
+"""
 
 from __future__ import annotations
 
@@ -77,7 +85,7 @@ def _refuse_owners(address: str) -> None:
 
 
 @router.get("")
-async def list_accounts(
+def list_accounts(
     _admin: StaffUser = Depends(require_admin),
     directory: CoordinatorDirectory = Depends(require_directory),
     access: AccountAccess = Depends(require_access),
@@ -109,7 +117,7 @@ async def list_accounts(
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
-async def invite(
+def invite(
     body: InviteInput,
     admin: StaffUser = Depends(require_admin),
     directory: CoordinatorDirectory = Depends(require_directory),
@@ -126,7 +134,7 @@ async def invite(
 
 
 @router.patch("/{email}")
-async def update_account(
+def update_account(
     email: str,
     body: AccountUpdate,
     admin: StaffUser = Depends(require_admin),
@@ -158,7 +166,7 @@ async def update_account(
 
 
 @router.delete("/{email}", status_code=status.HTTP_204_NO_CONTENT)
-async def remove_account(
+def remove_account(
     email: str,
     admin: StaffUser = Depends(require_admin),
     directory: CoordinatorDirectory = Depends(require_directory),

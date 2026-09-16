@@ -2,6 +2,13 @@
 
 Everything here sits behind the staff gate, like the rest of the API. No route accepts a
 student's name: a cohort member is an id, and that is all this application keeps.
+
+A handler here is written `def`, not `async def`, wherever it has nothing to await. The
+work it does is a sequence of blocking database calls, and a coroutine doing that holds
+the event loop for its whole duration — one request at a time, for the entire server. A
+plain `def` is run on a worker thread instead, so the page's other requests are answered
+while this one waits on the database. Only a handler that genuinely awaits something —
+the registrar's portal, a file being read — is a coroutine.
 """
 
 from __future__ import annotations
@@ -208,12 +215,12 @@ def _duplicate(exc: DuplicateLabel, what: str) -> HTTPException:
 
 
 @router.get("/cohorts")
-async def list_cohorts(database: StudentDatabase = Depends(get_database)) -> dict[str, Any]:
+def list_cohorts(database: StudentDatabase = Depends(get_database)) -> dict[str, Any]:
     return {"cohorts": database.list_cohorts()}
 
 
 @router.post("/cohorts", status_code=status.HTTP_201_CREATED)
-async def create_cohort(body: CohortInput, database: StudentDatabase = Depends(get_database)) -> dict[str, Any]:
+def create_cohort(body: CohortInput, database: StudentDatabase = Depends(get_database)) -> dict[str, Any]:
     return database.create_cohort(
         name=body.name,
         term=body.term,
@@ -226,7 +233,7 @@ async def create_cohort(body: CohortInput, database: StudentDatabase = Depends(g
 
 
 @router.patch("/cohorts/{cohort_id}")
-async def update_cohort(
+def update_cohort(
     cohort_id: str, body: CohortInput, database: StudentDatabase = Depends(get_database)
 ) -> dict[str, Any]:
     try:
@@ -247,7 +254,7 @@ async def update_cohort(
 
 
 @router.delete("/cohorts/{cohort_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_cohort(cohort_id: str, database: StudentDatabase = Depends(get_database)) -> None:
+def delete_cohort(cohort_id: str, database: StudentDatabase = Depends(get_database)) -> None:
     try:
         database.delete_cohort(cohort_id)
     except CohortNotFound as exc:
@@ -258,12 +265,12 @@ async def delete_cohort(cohort_id: str, database: StudentDatabase = Depends(get_
 
 
 @router.get("/discrepancy-rules")
-async def list_discrepancy_rules(database: StudentDatabase = Depends(get_database)) -> dict[str, Any]:
+def list_discrepancy_rules(database: StudentDatabase = Depends(get_database)) -> dict[str, Any]:
     return {"rules": database.list_discrepancy_rules()}
 
 
 @router.put("/discrepancy-rules")
-async def replace_discrepancy_rules(
+def replace_discrepancy_rules(
     body: RulesInput, database: StudentDatabase = Depends(get_database)
 ) -> dict[str, Any]:
     try:
@@ -276,7 +283,7 @@ async def replace_discrepancy_rules(
 
 
 @router.get("/students")
-async def list_students(view: str = "", database: StudentDatabase = Depends(get_database)) -> dict[str, Any]:
+def list_students(view: str = "", database: StudentDatabase = Depends(get_database)) -> dict[str, Any]:
     """One view's students, or everyone we hold when no view is named."""
     return {"students": database.list_students(view)}
 
@@ -300,12 +307,12 @@ def _may_define_views(request: Request) -> None:
 
 
 @router.get("/views")
-async def list_views(database: StudentDatabase = Depends(get_database)) -> dict[str, Any]:
+def list_views(database: StudentDatabase = Depends(get_database)) -> dict[str, Any]:
     return {"views": database.list_views()}
 
 
 @router.post("/views", status_code=status.HTTP_201_CREATED)
-async def create_view(
+def create_view(
     body: ViewInput, request: Request, database: StudentDatabase = Depends(get_database)
 ) -> dict[str, Any]:
     _may_define_views(request)
@@ -322,7 +329,7 @@ async def create_view(
 
 
 @router.delete("/views/{view_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_view(view_id: str, request: Request, database: StudentDatabase = Depends(get_database)) -> None:
+def delete_view(view_id: str, request: Request, database: StudentDatabase = Depends(get_database)) -> None:
     _may_define_views(request)
     try:
         database.delete_filter(view_id)
@@ -331,7 +338,7 @@ async def delete_view(view_id: str, request: Request, database: StudentDatabase 
 
 
 @router.post("/views/{view_id}/sync")
-async def sync_view(view_id: str, body: SyncInput, database: StudentDatabase = Depends(get_database)) -> dict[str, Any]:
+def sync_view(view_id: str, body: SyncInput, database: StudentDatabase = Depends(get_database)) -> dict[str, Any]:
     try:
         return database.sync_view(view_id, body.student_ids)
     except FilterNotFound as exc:
@@ -339,7 +346,7 @@ async def sync_view(view_id: str, body: SyncInput, database: StudentDatabase = D
 
 
 @router.post("/students/cohort")
-async def set_cohort(
+def set_cohort(
     body: CohortAssignment, request: Request, database: StudentDatabase = Depends(get_database)
 ) -> dict[str, int]:
     staff = getattr(request.state, "staff_user", None)
@@ -351,7 +358,7 @@ async def set_cohort(
 
 
 @router.get("/cohorts/{cohort_id}/members")
-async def list_members(cohort_id: str, database: StudentDatabase = Depends(get_database)) -> dict[str, Any]:
+def list_members(cohort_id: str, database: StudentDatabase = Depends(get_database)) -> dict[str, Any]:
     try:
         return {"members": database.list_members(cohort_id)}
     except CohortNotFound as exc:
@@ -362,7 +369,7 @@ async def list_members(cohort_id: str, database: StudentDatabase = Depends(get_d
 
 
 @router.get("/cohorts/{cohort_id}/catalogue")
-async def read_catalogue(
+def read_catalogue(
     cohort_id: str,
     term_id: str | None = None,
     own_only: bool = False,
@@ -467,7 +474,7 @@ def _label_of(groups: dict[str, dict[str, str]], scope_code: str, group_id: str)
 
 
 @router.post("/cohorts/{cohort_id}/workbook/apply")
-async def apply_workbook(
+def apply_workbook(
     cohort_id: str,
     body: WorkbookApplyInput,
     request: Request,
@@ -491,7 +498,7 @@ async def apply_workbook(
 
 
 @router.post("/cohorts/{cohort_id}/scopes", status_code=status.HTTP_201_CREATED)
-async def add_scope(
+def add_scope(
     cohort_id: str, body: ScopeInput, database: StudentDatabase = Depends(get_database)
 ) -> dict[str, str]:
     try:
@@ -514,7 +521,7 @@ async def add_scope(
 
 
 @router.patch("/scopes/{scope_id}")
-async def update_scope(
+def update_scope(
     scope_id: str, body: ScopeInput, database: StudentDatabase = Depends(get_database)
 ) -> dict[str, bool]:
     try:
@@ -535,7 +542,7 @@ async def update_scope(
 
 
 @router.delete("/scopes/{scope_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_scope(scope_id: str, database: StudentDatabase = Depends(get_database)) -> None:
+def delete_scope(scope_id: str, database: StudentDatabase = Depends(get_database)) -> None:
     try:
         database.delete_scope(scope_id)
     except ScopeNotFound as exc:
@@ -543,7 +550,7 @@ async def delete_scope(scope_id: str, database: StudentDatabase = Depends(get_da
 
 
 @router.post("/scopes/{scope_id}/courses", status_code=status.HTTP_201_CREATED)
-async def add_course(
+def add_course(
     scope_id: str, body: CourseInput, database: StudentDatabase = Depends(get_database)
 ) -> dict[str, str]:
     try:
@@ -557,7 +564,7 @@ async def add_course(
 
 
 @router.patch("/courses/{course_id}")
-async def update_course(
+def update_course(
     course_id: str, body: CourseInput, database: StudentDatabase = Depends(get_database)
 ) -> dict[str, bool]:
     try:
@@ -570,7 +577,7 @@ async def update_course(
 
 
 @router.post("/scopes/{scope_id}/move")
-async def move_scope(
+def move_scope(
     scope_id: str, body: MoveInput, database: StudentDatabase = Depends(get_database)
 ) -> dict[str, bool]:
     """One place up or down the order its cohort's sets are read in."""
@@ -582,7 +589,7 @@ async def move_scope(
 
 
 @router.patch("/courses/{course_id}/request")
-async def update_course_request(
+def update_course_request(
     course_id: str, body: SectionInput, database: StudentDatabase = Depends(get_database)
 ) -> dict[str, bool]:
     """What the course asks of the timetable, which its sections may each answer differently."""
@@ -607,7 +614,7 @@ async def update_course_request(
 
 
 @router.delete("/courses/{course_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_course(course_id: str, database: StudentDatabase = Depends(get_database)) -> None:
+def delete_course(course_id: str, database: StudentDatabase = Depends(get_database)) -> None:
     database.delete_course(course_id)
 
 
@@ -623,7 +630,7 @@ class AssignmentInput(BaseModel):
 
 
 @router.put("/scopes/{scope_id}/assignments")
-async def assign_students(
+def assign_students(
     scope_id: str,
     body: AssignmentInput,
     request: Request,
@@ -664,7 +671,7 @@ class PlacementsInput(BaseModel):
 
 
 @router.put("/scopes/{scope_id}/placements")
-async def place_students(
+def place_students(
     scope_id: str,
     body: PlacementsInput,
     request: Request,
@@ -688,7 +695,7 @@ async def place_students(
 
 
 @router.get("/cohorts/{cohort_id}/assignments")
-async def read_assignments(cohort_id: str, database: StudentDatabase = Depends(get_database)) -> dict[str, Any]:
+def read_assignments(cohort_id: str, database: StudentDatabase = Depends(get_database)) -> dict[str, Any]:
     try:
         return {"assignments": database.assignments_of(cohort_id), "majors": database.assignment_majors_of(cohort_id)}
     except CohortNotFound as exc:
@@ -696,7 +703,7 @@ async def read_assignments(cohort_id: str, database: StudentDatabase = Depends(g
 
 
 @router.post("/scopes/{scope_id}/groups", status_code=status.HTTP_201_CREATED)
-async def add_group(
+def add_group(
     scope_id: str, body: GroupInput, database: StudentDatabase = Depends(get_database)
 ) -> dict[str, str]:
     try:
@@ -724,7 +731,7 @@ class MajorInput(BaseModel):
 
 
 @router.post("/groups/{group_id}/majors", status_code=status.HTTP_201_CREATED)
-async def add_major(
+def add_major(
     group_id: str, body: MajorInput, database: StudentDatabase = Depends(get_database)
 ) -> dict[str, str]:
     try:
@@ -736,7 +743,7 @@ async def add_major(
 
 
 @router.patch("/majors/{major_id}")
-async def update_major(
+def update_major(
     major_id: str, body: MajorInput, database: StudentDatabase = Depends(get_database)
 ) -> dict[str, bool]:
     try:
@@ -749,7 +756,7 @@ async def update_major(
 
 
 @router.delete("/majors/{major_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def remove_major(major_id: str, database: StudentDatabase = Depends(get_database)) -> None:
+def remove_major(major_id: str, database: StudentDatabase = Depends(get_database)) -> None:
     try:
         database.remove_major(major_id)
     except GroupNotFound as exc:
@@ -757,7 +764,7 @@ async def remove_major(major_id: str, database: StudentDatabase = Depends(get_da
 
 
 @router.patch("/groups/{group_id}")
-async def update_group(
+def update_group(
     group_id: str, body: GroupInput, database: StudentDatabase = Depends(get_database)
 ) -> dict[str, bool]:
     try:
@@ -777,12 +784,12 @@ async def update_group(
 
 
 @router.delete("/groups/{group_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_group(group_id: str, database: StudentDatabase = Depends(get_database)) -> None:
+def delete_group(group_id: str, database: StudentDatabase = Depends(get_database)) -> None:
     database.delete_group(group_id)
 
 
 @router.patch("/groups/{group_id}/courses/{course_id}")
-async def update_section(
+def update_section(
     group_id: str, course_id: str, body: SectionInput, database: StudentDatabase = Depends(get_database)
 ) -> dict[str, bool]:
     """Everything the workbook says about a section but its CRN, which `PUT` sets."""
@@ -813,7 +820,7 @@ async def update_section(
 
 
 @router.get("/course-cards")
-async def course_cards(database: StudentDatabase = Depends(get_database)) -> dict[str, Any]:
+def course_cards(database: StudentDatabase = Depends(get_database)) -> dict[str, Any]:
     """Every cohort's blocks, every semester: the one list the cards page shows."""
     return {"cohorts": database.list_catalogues()}
 
@@ -829,7 +836,7 @@ class CommentInput(BaseModel):
 
 
 @router.get("/students/{student_id}/comments")
-async def list_comments(student_id: str, database: StudentDatabase = Depends(get_database)) -> dict[str, Any]:
+def list_comments(student_id: str, database: StudentDatabase = Depends(get_database)) -> dict[str, Any]:
     """The student's thread, oldest first.
 
     Each line is signed with what Settings calls its author TODAY, falling back to the
@@ -847,7 +854,7 @@ async def list_comments(student_id: str, database: StudentDatabase = Depends(get
 
 
 @router.post("/students/{student_id}/comments", status_code=status.HTTP_201_CREATED)
-async def add_comment(
+def add_comment(
     student_id: str, body: CommentInput, request: Request, database: StudentDatabase = Depends(get_database)
 ) -> dict[str, Any]:
     """One line on the thread, signed by whoever is signed in and dated by the server."""
@@ -865,7 +872,7 @@ async def add_comment(
 
 
 @router.delete("/comments/{comment_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def remove_comment(comment_id: str, request: Request, database: StudentDatabase = Depends(get_database)) -> None:
+def remove_comment(comment_id: str, request: Request, database: StudentDatabase = Depends(get_database)) -> None:
     staff = getattr(request.state, "staff_user", None)
     try:
         database.remove_comment(comment_id, author_email=getattr(staff, "email", "") or "")
@@ -878,19 +885,19 @@ async def remove_comment(comment_id: str, request: Request, database: StudentDat
 
 
 @router.get("/comments/summary")
-async def comment_summary(database: StudentDatabase = Depends(get_database)) -> dict[str, Any]:
+def comment_summary(database: StudentDatabase = Depends(get_database)) -> dict[str, Any]:
     """How many comments each student carries — what the rows show before anyone opens one."""
     return {"counts": database.comment_counts()}
 
 
 @router.get("/cohorts/{cohort_id}/exemptions")
-async def list_exemptions(cohort_id: str, database: StudentDatabase = Depends(get_database)) -> dict[str, Any]:
+def list_exemptions(cohort_id: str, database: StudentDatabase = Depends(get_database)) -> dict[str, Any]:
     """Who, in this cohort's sets, does not take one of the courses their group teaches."""
     return {"exemptions": database.exemptions_of(cohort_id)}
 
 
 @router.put("/students/{student_id}/exemptions/{course_id}")
-async def set_exemption(
+def set_exemption(
     student_id: str,
     course_id: str,
     body: ExemptionInput,
@@ -909,7 +916,7 @@ async def set_exemption(
 
 
 @router.delete("/students/{student_id}/exemptions/{course_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def clear_exemption(
+def clear_exemption(
     student_id: str, course_id: str, database: StudentDatabase = Depends(get_database)
 ) -> None:
     database.clear_exemption(student_id=student_id, course_id=course_id)
@@ -927,13 +934,13 @@ def _signed(request: Request) -> tuple[str, str]:
 
 
 @router.get("/students/{student_id}/approvals")
-async def list_approvals(student_id: str, database: StudentDatabase = Depends(get_database)) -> dict[str, Any]:
+def list_approvals(student_id: str, database: StudentDatabase = Depends(get_database)) -> dict[str, Any]:
     """The electives a coordinator has approved for this student, by portal term."""
     return {"approvals": [_named(entry, "approvedBy") for entry in database.approvals_of(student_id)]}
 
 
 @router.put("/students/{student_id}/approvals/{term_code}/{course_code}")
-async def set_approval(  # noqa: PLR0913 - the path names the approval, the body its note
+def set_approval(  # noqa: PLR0913 - the path names the approval, the body its note
     student_id: str,
     term_code: str,
     course_code: str,
@@ -957,7 +964,7 @@ async def set_approval(  # noqa: PLR0913 - the path names the approval, the body
 
 
 @router.delete("/students/{student_id}/approvals/{term_code}/{course_code}", status_code=status.HTTP_204_NO_CONTENT)
-async def clear_approval(
+def clear_approval(
     student_id: str,
     term_code: str,
     course_code: str,
@@ -969,7 +976,7 @@ async def clear_approval(
 
 
 @router.get("/students/{student_id}/history")
-async def student_history(student_id: str, database: StudentDatabase = Depends(get_database)) -> dict[str, Any]:
+def student_history(student_id: str, database: StudentDatabase = Depends(get_database)) -> dict[str, Any]:
     """Everything the server has seen happen to one student: cohort moves, placements and
     removals, registrations that appeared or went, approvals — newest first, each signed."""
     return {"entries": [_named(entry, "author") for entry in database.history_of(student_id)]}
@@ -982,7 +989,7 @@ def _named(entry: dict[str, Any], key: str) -> dict[str, Any]:
 
 
 @router.put("/groups/{group_id}/courses/{course_id}")
-async def set_cell(
+def set_cell(
     group_id: str, course_id: str, body: CellInput, database: StudentDatabase = Depends(get_database)
 ) -> dict[str, bool]:
     database.set_cell(

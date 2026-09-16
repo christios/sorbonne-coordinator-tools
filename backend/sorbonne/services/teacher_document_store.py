@@ -4,14 +4,16 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import Engine, create_engine, text
+from sqlalchemy import Engine, text
+
+from sorbonne.services.engine import engine_for
 
 
 class TeacherDocumentStore:
     """Persistence for managed teacher document folders and sync exceptions."""
 
     def __init__(self, database_url: str) -> None:
-        self.engine: Engine = create_engine(database_url, pool_pre_ping=True)
+        self.engine: Engine = engine_for(database_url)
 
     def get_folder(self, teacher_id: str) -> dict[str, Any] | None:
         with self.engine.connect() as connection:

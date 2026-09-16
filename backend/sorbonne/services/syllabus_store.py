@@ -8,10 +8,11 @@ import re
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import Engine, create_engine, text
+from sqlalchemy import Engine, text
 from sqlalchemy.engine import Connection, RowMapping
 from sqlalchemy.exc import IntegrityError
 
+from sorbonne.services.engine import engine_for
 from sorbonne.services.syllabus_templates import (
     DEFAULT_TEMPLATE_ID,
     FYS_TEMPLATE_ID,
@@ -58,7 +59,7 @@ class SyllabusStore:
     """PostgreSQL-backed syllabus persistence. Schema changes are managed by Alembic."""
 
     def __init__(self, database_url: str) -> None:
-        self.engine: Engine = create_engine(database_url, pool_pre_ping=True)
+        self.engine: Engine = engine_for(database_url)
 
     def create(  # noqa: PLR0913 - every one of these is a thing a new syllabus is made from
         self,

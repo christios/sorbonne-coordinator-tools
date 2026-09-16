@@ -4,6 +4,13 @@ Every list here is fed the way Students is: the browser asks the registrar porta
 the extension and posts what came back. What is posted is decided by the list: a course
 and a teacher whole, a registration as a student id and a CRN. Reconciliation — what left
 the portal since the last pull — is the store's, and the same for all three.
+
+A handler here is written `def`, not `async def`, wherever it has nothing to await. The
+work it does is a sequence of blocking database calls, and a coroutine doing that holds
+the event loop for its whole duration — one request at a time, for the entire server. A
+plain `def` is run on a worker thread instead, so the page's other requests are answered
+while this one waits on the database. Only a handler that genuinely awaits something —
+the registrar's portal, a file being read — is a coroutine.
 """
 
 from __future__ import annotations
@@ -209,14 +216,14 @@ def _missing(what: str) -> HTTPException:
 
 
 @router.get("/filters")
-async def list_filters(kind: str, store: PortalListStore = Depends(get_store)) -> dict[str, Any]:
+def list_filters(kind: str, store: PortalListStore = Depends(get_store)) -> dict[str, Any]:
     if kind not in KINDS:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown list.")
     return {"filters": store.list_filters(kind)}
 
 
 @router.post("/filters", status_code=status.HTTP_201_CREATED)
-async def create_filter(
+def create_filter(
     body: FilterInput, request: Request, store: PortalListStore = Depends(get_store)
 ) -> dict[str, Any]:
     """A filter fixes a population, so making one is an administrator's — as for views."""
@@ -237,7 +244,7 @@ async def create_filter(
 
 
 @router.delete("/filters/{filter_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_filter(filter_id: str, request: Request, store: PortalListStore = Depends(get_store)) -> None:
+def delete_filter(filter_id: str, request: Request, store: PortalListStore = Depends(get_store)) -> None:
     if not _is_admin(request):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Only an administrator can create or delete a filter."
@@ -249,7 +256,7 @@ async def delete_filter(filter_id: str, request: Request, store: PortalListStore
 
 
 @router.post("/filters/{filter_id}/sync/courses")
-async def sync_courses(
+def sync_courses(
     filter_id: str, body: CoursesSyncInput, store: PortalListStore = Depends(get_store)
 ) -> dict[str, Any]:
     try:
@@ -263,7 +270,7 @@ async def sync_courses(
 
 
 @router.post("/filters/{filter_id}/sync/teachers")
-async def sync_teachers(
+def sync_teachers(
     filter_id: str, body: TeachersSyncInput, store: PortalListStore = Depends(get_store)
 ) -> dict[str, Any]:
     try:
@@ -277,7 +284,7 @@ async def sync_teachers(
 
 
 @router.post("/filters/{filter_id}/sync/registrations")
-async def sync_registrations(
+def sync_registrations(
     filter_id: str, body: RegistrationsSyncInput, store: PortalListStore = Depends(get_store)
 ) -> dict[str, Any]:
     try:
@@ -294,22 +301,22 @@ async def sync_registrations(
 
 
 @router.get("/courses")
-async def list_courses(term: str = "", filter: str = "", store: PortalListStore = Depends(get_store)) -> dict[str, Any]:
+def list_courses(term: str = "", filter: str = "", store: PortalListStore = Depends(get_store)) -> dict[str, Any]:
     return {"terms": store.course_terms(), "courses": store.list_courses(term, filter)}
 
 
 @router.get("/teachers")
-async def list_teachers(filter: str = "", store: PortalListStore = Depends(get_store)) -> dict[str, Any]:
+def list_teachers(filter: str = "", store: PortalListStore = Depends(get_store)) -> dict[str, Any]:
     return {"teachers": store.list_teachers(filter)}
 
 
 @router.get("/active-teachers")
-async def list_active_teachers(store: PortalListStore = Depends(get_store)) -> dict[str, Any]:
+def list_active_teachers(store: PortalListStore = Depends(get_store)) -> dict[str, Any]:
     return {"teachers": store.list_active_teachers()}
 
 
 @router.get("/active-teachers/matches")
-async def teacher_matches(store: PortalListStore = Depends(get_store)) -> dict[str, Any]:
+def teacher_matches(store: PortalListStore = Depends(get_store)) -> dict[str, Any]:
     """Every way the department's list and the people actually teaching fail to line up.
 
     `matches` are rows brought from the part-time database that the portal now lists;
@@ -325,7 +332,7 @@ async def teacher_matches(store: PortalListStore = Depends(get_store)) -> dict[s
 
 
 @router.post("/active-teachers/{active_id}/link")
-async def link_active_teacher(
+def link_active_teacher(
     active_id: str, body: LinkTeacherInput, store: PortalListStore = Depends(get_store)
 ) -> dict[str, bool]:
     """Say that this active teacher is that portal profile, and let the profile lead."""
@@ -344,7 +351,7 @@ async def link_active_teacher(
 
 
 @router.post("/active-teachers/{active_id}/link-part-time")
-async def link_part_time_teacher(
+def link_part_time_teacher(
     active_id: str, body: LinkPartTimeInput, store: PortalListStore = Depends(get_store)
 ) -> dict[str, bool]:
     """Say that this active teacher is that part-time record."""
@@ -363,7 +370,7 @@ async def link_part_time_teacher(
 
 
 @router.post("/active-teachers")
-async def add_active_teachers(
+def add_active_teachers(
     body: ActiveTeachersInput, request: Request, store: PortalListStore = Depends(get_store)
 ) -> dict[str, int]:
     """Choose teachers from the portal's list, or bring them from the part-time database."""
@@ -375,7 +382,7 @@ async def add_active_teachers(
 
 
 @router.delete("/active-teachers/{active_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def remove_active_teacher(active_id: str, store: PortalListStore = Depends(get_store)) -> None:
+def remove_active_teacher(active_id: str, store: PortalListStore = Depends(get_store)) -> None:
     try:
         store.remove_active_teacher(active_id)
     except ActiveTeacherNotFound as exc:
@@ -383,12 +390,12 @@ async def remove_active_teacher(active_id: str, store: PortalListStore = Depends
 
 
 @router.get("/active-courses")
-async def list_active_courses(store: PortalListStore = Depends(get_store)) -> dict[str, Any]:
+def list_active_courses(store: PortalListStore = Depends(get_store)) -> dict[str, Any]:
     return {"courses": store.list_active_courses()}
 
 
 @router.post("/active-courses")
-async def add_active_courses(
+def add_active_courses(
     body: ActiveCoursesInput, request: Request, store: PortalListStore = Depends(get_store)
 ) -> dict[str, int]:
     """Choose courses from the portal's list, or add one by hand."""
@@ -400,7 +407,7 @@ async def add_active_courses(
 
 
 @router.patch("/active-courses/{active_id}")
-async def update_active_course(
+def update_active_course(
     active_id: str, body: ActiveCourseUpdate, store: PortalListStore = Depends(get_store)
 ) -> dict[str, Any]:
     try:
@@ -417,13 +424,13 @@ async def update_active_course(
 
 
 @router.get("/active-crns")
-async def list_active_crns(term: str = "", store: PortalListStore = Depends(get_store)) -> dict[str, Any]:
+def list_active_crns(term: str = "", store: PortalListStore = Depends(get_store)) -> dict[str, Any]:
     """Our CRNs for a term, each with what the portal says about it and about its parent."""
     return {"crns": store.list_active_crns(term)}
 
 
 @router.post("/active-crns")
-async def add_active_crns(
+def add_active_crns(
     body: ActiveCrnsInput, request: Request, store: PortalListStore = Depends(get_store)
 ) -> dict[str, int]:
     return store.add_active_crns(
@@ -434,7 +441,7 @@ async def add_active_crns(
 
 
 @router.patch("/active-crns/{crn_id}")
-async def update_active_crn(
+def update_active_crn(
     crn_id: str, body: ActiveCrnUpdate, store: PortalListStore = Depends(get_store)
 ) -> dict[str, Any]:
     try:
@@ -446,7 +453,7 @@ async def update_active_crn(
 
 
 @router.delete("/active-crns/{crn_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def remove_active_crn(crn_id: str, store: PortalListStore = Depends(get_store)) -> None:
+def remove_active_crn(crn_id: str, store: PortalListStore = Depends(get_store)) -> None:
     try:
         store.remove_active_crn(crn_id)
     except ActiveCourseNotFound as exc:
@@ -463,7 +470,7 @@ class CheckInput(BaseModel):
 
 
 @router.get("/checks")
-async def list_checks(cohortId: str = "", store: PortalListStore = Depends(get_store)) -> dict[str, Any]:
+def list_checks(cohortId: str = "", store: PortalListStore = Depends(get_store)) -> dict[str, Any]:
     """Every check the code knows, with the answer that applies to this cohort.
 
     The register of checks is the code's, not the table's: a check removed from the code
@@ -488,7 +495,7 @@ async def list_checks(cohortId: str = "", store: PortalListStore = Depends(get_s
 
 
 @router.put("/checks/{name}")
-async def set_check(name: str, body: CheckInput, store: PortalListStore = Depends(get_store)) -> dict[str, bool]:
+def set_check(name: str, body: CheckInput, store: PortalListStore = Depends(get_store)) -> dict[str, bool]:
     try:
         store.set_check(name=name, cohort_id=body.cohortId, enabled=body.enabled, threshold=body.threshold)
     except UnknownCheck as exc:
@@ -497,13 +504,13 @@ async def set_check(name: str, body: CheckInput, store: PortalListStore = Depend
 
 
 @router.delete("/checks/{name}", status_code=status.HTTP_204_NO_CONTENT)
-async def clear_check(name: str, cohortId: str = "", store: PortalListStore = Depends(get_store)) -> None:
+def clear_check(name: str, cohortId: str = "", store: PortalListStore = Depends(get_store)) -> None:
     """Drop a cohort's own answer, so it follows the department's again."""
     store.clear_check(name=name, cohort_id=cohortId)
 
 
 @router.get("/register-check")
-async def register_check(term: str = "", store: PortalListStore = Depends(get_store)) -> dict[str, Any]:
+def register_check(term: str = "", store: PortalListStore = Depends(get_store)) -> dict[str, Any]:
     """Where the registrar's list and the department's register have moved apart.
 
     Teacher drift travels with the rest rather than on a route of its own: it is the same
@@ -539,7 +546,7 @@ class CollisionVerdict(BaseModel):
 
 
 @router.post("/section-collisions/settle", status_code=status.HTTP_204_NO_CONTENT)
-async def settle_collision(
+def settle_collision(
     body: CollisionVerdict,
     request: Request,
     store: PortalListStore = Depends(get_store),
@@ -566,7 +573,7 @@ async def settle_collision(
 
 
 @router.delete("/active-courses/{active_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def remove_active_course(active_id: str, store: PortalListStore = Depends(get_store)) -> None:
+def remove_active_course(active_id: str, store: PortalListStore = Depends(get_store)) -> None:
     try:
         store.remove_active_course(active_id)
     except ActiveCourseNotFound as exc:
@@ -574,12 +581,12 @@ async def remove_active_course(active_id: str, store: PortalListStore = Depends(
 
 
 @router.get("/students/{student_id}/registrations")
-async def student_registrations(student_id: str, store: PortalListStore = Depends(get_store)) -> dict[str, Any]:
+def student_registrations(student_id: str, store: PortalListStore = Depends(get_store)) -> dict[str, Any]:
     return {"registrations": store.registrations_of(student_id)}
 
 
 @router.get("/terms/{term_code}/crns/{crn}/students")
-async def crn_students(term_code: str, crn: str, store: PortalListStore = Depends(get_store)) -> dict[str, Any]:
+def crn_students(term_code: str, crn: str, store: PortalListStore = Depends(get_store)) -> dict[str, Any]:
     """Who the registrar has in one section, with the cohort and the group of ours each sits in."""
     return {"students": store.students_in_crn(term_code, crn)}
 
@@ -588,17 +595,17 @@ async def crn_students(term_code: str, crn: str, store: PortalListStore = Depend
 
 
 @router.get("/term-links")
-async def term_links(store: PortalListStore = Depends(get_store)) -> dict[str, Any]:
+def term_links(store: PortalListStore = Depends(get_store)) -> dict[str, Any]:
     return {"links": store.term_links()}
 
 
 @router.put("/term-links/{term_id}")
-async def link_term(term_id: str, body: TermLinkInput, store: PortalListStore = Depends(get_store)) -> dict[str, str]:
+def link_term(term_id: str, body: TermLinkInput, store: PortalListStore = Depends(get_store)) -> dict[str, str]:
     return store.link_term(term_id, body.portalTermCode)
 
 
 @router.get("/terms/{term_id}/crns")
-async def term_crns(term_id: str, store: PortalListStore = Depends(get_store)) -> dict[str, Any]:
+def term_crns(term_id: str, store: PortalListStore = Depends(get_store)) -> dict[str, Any]:
     """Every portal CRN of the semester, for a page that wants to check the ones it holds."""
     return store.crns_for_term(term_id)
 
@@ -649,7 +656,7 @@ def get_facilities() -> FacilityTimetableStore:
 
 
 @router.get("/cohorts/{cohort_id}/registration-check")
-async def registration_check(
+def registration_check(
     cohort_id: str,
     store: PortalListStore = Depends(get_store),
     database: StudentDatabase = Depends(get_database),
@@ -714,7 +721,7 @@ class FacilityPull(BaseModel):
 
 
 @router.get("/terms/{term_code}/section-days")
-async def section_days(
+def section_days(
     term_code: str,
     store: PortalListStore = Depends(get_store),
     facilities: FacilityTimetableStore = Depends(get_facilities),
@@ -736,7 +743,7 @@ async def section_days(
 
 
 @router.get("/terms/{term_code}/timetable-targets")
-async def timetable_targets(term_code: str, store: PortalListStore = Depends(get_store)) -> dict[str, Any]:
+def timetable_targets(term_code: str, store: PortalListStore = Depends(get_store)) -> dict[str, Any]:
     """Which CRNs the extension should ask the registrar's timetable about.
 
     From our own registrations, not from a second trip to the portal: it is the only list
@@ -747,7 +754,7 @@ async def timetable_targets(term_code: str, store: PortalListStore = Depends(get
 
 
 @router.post("/facility-timetable")
-async def record_facility_pull(
+def record_facility_pull(
     body: FacilityPull,
     request: Request,
     facilities: FacilityTimetableStore = Depends(get_facilities),
@@ -768,13 +775,13 @@ async def record_facility_pull(
 
 
 @router.get("/facility-timetable")
-async def list_facility_terms(facilities: FacilityTimetableStore = Depends(get_facilities)) -> dict[str, Any]:
+def list_facility_terms(facilities: FacilityTimetableStore = Depends(get_facilities)) -> dict[str, Any]:
     """Which terms the registrar's timetable has been swept for."""
     return {"terms": facilities.terms()}
 
 
 @router.get("/facility-timetable/{term_code}")
-async def read_facility_sweep(
+def read_facility_sweep(
     term_code: str, facilities: FacilityTimetableStore = Depends(get_facilities)
 ) -> dict[str, Any]:
     """One term's swept timetable, in the shape the POST above accepts.
@@ -788,7 +795,7 @@ async def read_facility_sweep(
 
 
 @router.get("/facility-timetable/{term_code}/hours")
-async def read_facility_hours(
+def read_facility_hours(
     term_code: str, facilities: FacilityTimetableStore = Depends(get_facilities)
 ) -> dict[str, Any]:
     """The registrar's booked hours per section, with whom the portal staffs it.
@@ -801,7 +808,7 @@ async def read_facility_hours(
 
 
 @router.get("/facility-timetable/{term_code}/sections")
-async def read_facility_sections(
+def read_facility_sections(
     term_code: str,
     crn: list[str] = Query(default=[], max_length=400),
     facilities: FacilityTimetableStore = Depends(get_facilities),
@@ -835,13 +842,13 @@ class SessionChangeInput(BaseModel):
 
 
 @router.get("/session-changes")
-async def list_session_changes(term: str, changes: SessionChangeStore = Depends(get_session_changes)) -> dict[str, Any]:
+def list_session_changes(term: str, changes: SessionChangeStore = Depends(get_session_changes)) -> dict[str, Any]:
     """Every cancelled or covered class of a term. The calendars and the hours read it."""
     return {"changes": changes.changes_for(term.strip())}
 
 
 @router.put("/session-changes")
-async def set_session_change(
+def set_session_change(
     body: SessionChangeInput, request: Request, changes: SessionChangeStore = Depends(get_session_changes)
 ) -> dict[str, Any]:
     """Say what happened to one slot: cancelled, or covered by a named teacher.
@@ -873,7 +880,7 @@ async def set_session_change(
 
 
 @router.delete("/session-changes/{change_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def clear_session_change(change_id: str, changes: SessionChangeStore = Depends(get_session_changes)) -> None:
+def clear_session_change(change_id: str, changes: SessionChangeStore = Depends(get_session_changes)) -> None:
     """The class ran as planned after all."""
     try:
         changes.clear_change(change_id)

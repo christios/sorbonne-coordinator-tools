@@ -16,8 +16,10 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
 from sqlalchemy.engine import Engine
+
+from sorbonne.services.engine import engine_for
 
 KINDS = ("cancelled", "covered")
 
@@ -55,7 +57,7 @@ def _now() -> str:
 
 class SessionChangeStore:
     def __init__(self, database_url: str) -> None:
-        self.engine: Engine = create_engine(database_url, pool_pre_ping=True)
+        self.engine: Engine = engine_for(database_url)
 
     def changes_for(self, term_code: str) -> list[dict[str, Any]]:
         """Every note of the term, in calendar order. Tens of rows; a page filters them."""

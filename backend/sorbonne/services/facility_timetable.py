@@ -18,9 +18,10 @@ from dataclasses import dataclass
 from datetime import date as dt_date
 from typing import Any
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
+from sorbonne.services.engine import engine_for
 from sorbonne.services.group_clashes import Session
 
 _WEEKDAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
@@ -59,7 +60,7 @@ class Coverage:
 
 class FacilityTimetableStore:
     def __init__(self, database_url: str) -> None:
-        self.engine: Engine = create_engine(database_url, pool_pre_ping=True)
+        self.engine: Engine = engine_for(database_url)
 
     # ------------------------------------------------------------------ writing
 

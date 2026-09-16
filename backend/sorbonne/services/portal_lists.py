@@ -24,10 +24,11 @@ from datetime import datetime, timezone
 from typing import Any, Protocol
 from uuid import uuid4
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
 from sqlalchemy.engine import Connection
 from sqlalchemy.exc import IntegrityError
 
+from sorbonne.services.engine import engine_for
 from sorbonne.services.checks import BY_NAME, Setting, settled
 from sorbonne.services.section_collisions import collisions
 from sorbonne.services.student_database import (
@@ -234,7 +235,7 @@ class UnknownDisposition(Exception):
 
 class PortalListStore:
     def __init__(self, database_url: str) -> None:
-        self.engine = create_engine(database_url, pool_pre_ping=False, pool_recycle=300)
+        self.engine = engine_for(database_url)
 
     # ------------------------------------------------------------------ filters
 

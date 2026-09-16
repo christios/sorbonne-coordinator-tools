@@ -1,4 +1,12 @@
-"""Sign-in endpoints. Everything else in the application is behind them."""
+"""Sign-in endpoints. Everything else in the application is behind them.
+
+A handler here is written `def`, not `async def`, wherever it has nothing to await. The
+work it does is a sequence of blocking database calls, and a coroutine doing that holds
+the event loop for its whole duration — one request at a time, for the entire server. A
+plain `def` is run on a worker thread instead, so the page's other requests are answered
+while this one waits on the database. Only a handler that genuinely awaits something —
+the registrar's portal, a file being read — is a coroutine.
+"""
 
 from __future__ import annotations
 
@@ -46,13 +54,13 @@ def _profile(user: StaffUser) -> dict[str, Any]:
 
 
 @router.get("/config")
-async def sign_in_config() -> dict[str, Any]:
+def sign_in_config() -> dict[str, Any]:
     """Public: lets the sign-in screen render, or explain that nobody can sign in yet."""
     return {"configured": is_configured(), "clientId": config.google_auth_client_id if is_configured() else None}
 
 
 @router.post("/session")
-async def sign_in(body: SignInInput, response: Response) -> dict[str, Any]:
+def sign_in(body: SignInInput, response: Response) -> dict[str, Any]:
     try:
         user = verify_google_credential(body.credential)
     except AuthNotConfigured as exc:
@@ -77,12 +85,12 @@ async def sign_in(body: SignInInput, response: Response) -> dict[str, Any]:
 
 
 @router.delete("/session", status_code=status.HTTP_204_NO_CONTENT)
-async def sign_out(response: Response) -> None:
+def sign_out(response: Response) -> None:
     response.delete_cookie(SESSION_COOKIE, path="/")
 
 
 @router.get("/me")
-async def current_user(request: Request) -> dict[str, Any]:
+def current_user(request: Request) -> dict[str, Any]:
     user = user_for_request(request.cookies.get(SESSION_COOKIE), request.headers.get("authorization"))
     if user is None:  # pragma: no cover - the gate rejects these before they arrive
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sign in to continue.")
@@ -125,14 +133,14 @@ def _at_the_keyboard(request: Request) -> StaffUser:
 
 
 @router.get("/tokens")
-async def list_tokens(request: Request, tokens: ApiTokenStore = Depends(get_tokens)) -> dict[str, Any]:
+def list_tokens(request: Request, tokens: ApiTokenStore = Depends(get_tokens)) -> dict[str, Any]:
     """Your tokens; an administrator sees everybody's, so a stray one can be found."""
     user = _signed_in(request)
     return {"tokens": tokens.list_for(user.email, everyone=user.is_admin)}
 
 
 @router.post("/tokens", status_code=status.HTTP_201_CREATED)
-async def create_token(
+def create_token(
     body: TokenInput, request: Request, tokens: ApiTokenStore = Depends(get_tokens)
 ) -> dict[str, Any]:
     """Mint one. The token is in this answer and nowhere else, ever again."""
@@ -142,7 +150,7 @@ async def create_token(
 
 
 @router.delete("/tokens/{token_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def revoke_token(token_id: str, request: Request, tokens: ApiTokenStore = Depends(get_tokens)) -> None:
+def revoke_token(token_id: str, request: Request, tokens: ApiTokenStore = Depends(get_tokens)) -> None:
     user = _at_the_keyboard(request)
     try:
         tokens.revoke(token_id, email=user.email, everyone=user.is_admin)

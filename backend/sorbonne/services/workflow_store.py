@@ -6,7 +6,9 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import Connection, Engine, create_engine, text
+from sqlalchemy import Connection, Engine, text
+
+from sorbonne.services.engine import engine_for
 
 
 class TaskNotFound(Exception):
@@ -41,7 +43,7 @@ def normalize_task_status(status: str) -> str:
 
 class WorkflowStore:
     def __init__(self, database_url: str) -> None:
-        self.engine: Engine = create_engine(database_url, pool_pre_ping=True)
+        self.engine: Engine = engine_for(database_url)
 
     def list_field_notes(self, resource_type: str, resource_id: str) -> list[dict[str, Any]]:
         with self.engine.connect() as connection:

@@ -21,8 +21,10 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import Connection, Engine, create_engine, text
+from sqlalchemy import Connection, Engine, text
 from sqlalchemy.exc import IntegrityError
+
+from sorbonne.services.engine import engine_for
 
 
 # A set is plain — its groups numbered across whatever courses it carries, one or many —
@@ -193,11 +195,10 @@ _PLACE = """INSERT INTO group_assignments
 
 class StudentDatabase:
     def __init__(self, database_url: str) -> None:
-        # No ping on every checkout: from the deployment to its database a round-trip is
-        # about a hundred milliseconds, and the ping was one more on every request.
-        # Connections are recycled instead, so one that has gone stale while idle is
-        # replaced before it is next used rather than tested each time.
-        self.engine: Engine = create_engine(database_url, pool_pre_ping=False, pool_recycle=300)
+        # The process's pool, not an engine of this store's own: a store is built afresh
+        # on every request, and an engine built with it opened a new connection across the
+        # network each time. See sorbonne/services/engine.py.
+        self.engine: Engine = engine_for(database_url)
 
     # --------------------------------------------------------------- cohorts
 
