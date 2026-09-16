@@ -277,7 +277,10 @@ export function StudentRecord({
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ["exemptions", cohortId ?? ""] });
       void client.invalidateQueries({ queryKey: ["course-cards"] });
-      void client.invalidateQueries({ queryKey: ["registration-check"] });
+      // This cohort's verdict, not every cohort's: a student belongs to one, and the
+      // register's answer is the slowest thing the server builds. Asking for all four
+      // put the next click behind three answers nobody was waiting for.
+      void client.invalidateQueries({ queryKey: ["registration-check", cohortId] });
     },
   });
   /*
@@ -291,7 +294,7 @@ export function StudentRecord({
     },
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ["approvals", row.studentId] });
-      void client.invalidateQueries({ queryKey: ["registration-check"] });
+      void client.invalidateQueries({ queryKey: ["registration-check", cohortId] });
       void client.invalidateQueries({ queryKey: ["student-history", row.studentId] });
     },
   });
