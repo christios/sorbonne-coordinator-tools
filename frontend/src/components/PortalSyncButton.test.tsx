@@ -74,6 +74,33 @@ afterEach(async () => {
   window.localStorage.clear();
 });
 
+describe("how old the lists are", () => {
+  /*
+   * The age beside the button is what says whether what is on screen is worth trusting, so
+   * it has to stay true in a tab left open. It used to be drawn from a clock that ran only
+   * while a sync did: a tab opened in the morning went on saying "2 days ago" an hour after
+   * a sync had put that right, and only a reload corrected it.
+   */
+  it("keeps counting with no sync running", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+    vi.setSystemTime(new Date(2026, 8, 16, 9, 0, 0));
+    const syncedAt = new Date(2026, 8, 16, 8, 59, 30).toISOString();
+    vi.spyOn(database, "fetchViews").mockResolvedValue([{ ...VIEW, lastSyncedAt: syncedAt }]);
+    vi.spyOn(lists, "fetchPortalFilters").mockImplementation(async (kind) =>
+      kind === "courses" ? [{ ...COURSES, lastSyncedAt: syncedAt }] : [],
+    );
+    show();
+    expect(await screen.findByText("just now")).toBeTruthy();
+
+    // Half a minute later, and again: the sync is a minute old and says so.
+    await vi.advanceTimersByTimeAsync(31_000);
+    await vi.advanceTimersByTimeAsync(31_000);
+
+    expect(await screen.findByText("1 minute ago")).toBeTruthy();
+    vi.useRealTimers();
+  });
+});
+
 describe("Portal sync", () => {
   it("asks every list, students first, and says what each returned", async () => {
     show();

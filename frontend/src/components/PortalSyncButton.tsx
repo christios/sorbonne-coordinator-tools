@@ -81,9 +81,19 @@ export function PortalSyncButton() {
    */
   const [now, setNow] = useState(() => Date.now());
   const going = isRunning(run);
+  /*
+   * The clock runs whether or not a sync does, only slower when it does not.
+   *
+   * It used to stop the moment a run ended, which froze the age beside the button at
+   * whatever it read when the page was opened: a tab left open all morning went on saying
+   * "2 days ago" an hour after a sync, and only a reload corrected it. The age is the
+   * whole point of the line — it is what says whether what you are looking at is worth
+   * trusting — so it is kept true. Every second while a run is going, because seconds are
+   * what it counts then; every half minute otherwise, which is finer than the coarsest
+   * thing the words can say.
+   */
   useEffect(() => {
-    if (!going) return;
-    const tick = window.setInterval(() => setNow(Date.now()), 1000);
+    const tick = window.setInterval(() => setNow(Date.now()), going ? 1000 : 30_000);
     return () => window.clearInterval(tick);
   }, [going]);
 
