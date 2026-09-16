@@ -189,6 +189,14 @@ export type GroupCapacity = {
   key: string;
   cohortId: string;
   cohortName: string;
+  /**
+   * Every cohort whose students are in this class.
+   *
+   * One name for a cohort's own group. Several for a shared one, which is the whole of
+   * what "shared" means — and worth saying on screen, since 24 of 30 reads differently
+   * when the 24 are four years' students rather than one's.
+   */
+  cohortNames: string[];
   termName: string;
   set: string;
   shared: boolean;
@@ -200,19 +208,53 @@ export type GroupCapacity = {
   sections: CapacityRow[];
 };
 
+/**
+ * One row per group — and for a set everybody shares, one row per CLASS.
+ *
+ * A shared set is carried by every cohort that teaches it: each holds its own record of
+ * "A0-F5", and all of them name the same CRN, because there is one French class at that
+ * hour and the whole point of a shared set is that four years sit in it together. Keyed by
+ * the cohort, that read as four groups of thirty — and the languages came to 2184 seats
+ * where the university has 546.
+ *
+ * So a shared group is identified by its set and its label, which is what the department
+ * means by a class, and the copies are folded:
+ *
+ * - **the enrolments add up**, once per cohort, because each copy holds that cohort's own
+ *   students and the class holds all of them;
+ * - **the seats do not**, because they are the same thirty chairs counted four times;
+ * - **the sections are named once**, since four copies of one CRN is one CRN.
+ *
+ * A cohort's own group is untouched: it is identified by its cohort, as it always was.
+ */
 export function capacityByGroup(rows: CapacityRow[]): GroupCapacity[] {
   const held = new Map<string, GroupCapacity>();
+  // Which cohorts have already added their students to a shared class, so that its three
+  // sections do not add the same cohort's twenty students three times over.
+  const counted = new Map<string, Set<string>>();
   for (const row of rows) {
-    const key = `${row.cohortId}|${row.set}|${row.group}`;
+    const key = row.shared ? `${row.set}|${row.group}` : `${row.cohortId}|${row.set}|${row.group}`;
     const seen = held.get(key);
     if (seen) {
-      seen.sections.push(row);
+      // Four copies of one CRN is one CRN; a genuine second section of the group is not.
+      if (!seen.sections.some((section) => section.crn === row.crn && section.courseCode === row.courseCode)) {
+        seen.sections.push(row);
+      }
+      if (row.shared && !counted.get(key)?.has(row.cohortId)) {
+        counted.get(key)?.add(row.cohortId);
+        if (!seen.cohortNames.includes(row.cohortName)) seen.cohortNames.push(row.cohortName);
+        seen.enrolled += row.enrolled;
+        seen.free = seen.capacity ? seen.capacity - seen.enrolled : 0;
+        seen.status = statusOf(seen.capacity, seen.enrolled);
+      }
       continue;
     }
+    counted.set(key, new Set([row.cohortId]));
     held.set(key, {
       key,
       cohortId: row.cohortId,
       cohortName: row.cohortName,
+      cohortNames: [row.cohortName],
       termName: row.termName,
       set: row.set,
       shared: row.shared,

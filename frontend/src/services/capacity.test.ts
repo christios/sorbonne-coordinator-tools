@@ -226,3 +226,115 @@ describe("a course handed from one professor to another at mid-semester", () => 
     expect(rows.map((row) => row.crn)).toEqual(["24311"]);
   });
 });
+
+describe("a class four cohorts sit in", () => {
+  /*
+   * A shared set is carried by every cohort that teaches it: each holds its own record of
+   * "A0-F5", and all of them name the same CRN, because there is one French class at that
+   * hour and the whole point of a shared set is that four years sit in it together.
+   *
+   * Read as four groups, the languages came to 2184 seats where the university has 546.
+   */
+  const langOf = (cohortId: string, cohortName: string, assigned: number): CohortCatalogue => ({
+    cohort: { id: cohortId, name: cohortName, term: "2026-27" },
+    scopes: [
+      {
+        id: `s-lang-${cohortId}`, code: "LANG", name: "Languages", note: "", termId: "term-1",
+        kind: "shared", parentScopeId: "", openToAll: true,
+        courses: [{ id: "lang", code: "SCEN-101", name: "Languages", component: "TD", request: EMPTY_REQUEST }],
+        groups: [group(`a0f5-${cohortId}`, "A0-F5", 30, assigned, { lang: section("23582") })],
+      },
+    ],
+  });
+  const fourYears = [langOf("c1", "FYS-S1", 0), langOf("c2", "L1-S1", 4), langOf("c3", "L2-S1", 0), langOf("c4", "L3-S1", 24)];
+
+  it("is one class, not one per cohort", () => {
+    const groups = capacityByGroup(capacityRows(fourYears, termName));
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0].group).toBe("A0-F5");
+  });
+
+  it("adds the students up and counts the seats once", () => {
+    // The enrolments are four cohorts' students in one room; the seats are the same thirty
+    // chairs, and adding those four times is where 546 became 2184.
+    const [held] = capacityByGroup(capacityRows(fourYears, termName));
+
+    expect(held.enrolled).toBe(28);
+    expect(held.capacity).toBe(30);
+    expect(held.free).toBe(2);
+    expect(held.status).toBe("Room");
+  });
+
+  it("names the class's CRN once, not once per cohort", () => {
+    const [held] = capacityByGroup(capacityRows(fourYears, termName));
+
+    expect(held.sections.map((entry) => entry.crn)).toEqual(["23582"]);
+  });
+
+  it("says which years are in it", () => {
+    const [held] = capacityByGroup(capacityRows(fourYears, termName));
+
+    expect(held.cohortNames).toEqual(["FYS-S1", "L1-S1", "L2-S1", "L3-S1"]);
+  });
+
+  it("makes the set's totals the real ones", () => {
+    const [set] = capacityBySet(capacityByGroup(capacityRows(fourYears, termName)));
+
+    expect(set.capacity).toBe(30);
+    expect(set.enrolled).toBe(28);
+  });
+
+  it("goes over when the four years together go over", () => {
+    const crowded = [langOf("c1", "FYS-S1", 10), langOf("c2", "L1-S1", 10), langOf("c3", "L2-S1", 10), langOf("c4", "L3-S1", 10)];
+
+    const [held] = capacityByGroup(capacityRows(crowded, termName));
+
+    // Thirty-one in thirty chairs, which no single cohort's copy could have shown.
+    expect(held.enrolled).toBe(40);
+    expect(held.status).toBe("Over");
+  });
+
+  it("leaves a cohort's own group alone, however many cohorts have one of that name", () => {
+    // "TD 1" in Foundation Year and "TD 1" in L1 are two rooms, two teachers and two
+    // classes. Only a set open to every cohort means one class.
+    const own = (cohortId: string, cohortName: string): CohortCatalogue => ({
+      cohort: { id: cohortId, name: cohortName, term: "2026-27" },
+      scopes: [
+        {
+          id: `s-td-${cohortId}`, code: "TD", name: "Tutorials", note: "", termId: "term-1",
+          kind: "shared", parentScopeId: "", openToAll: false,
+          courses: [{ id: "td", code: "MATH-001", name: "Pre-calculus", component: "TD", request: EMPTY_REQUEST }],
+          groups: [group(`td1-${cohortId}`, "1", 30, 20, { td: section(`crn-${cohortId}`) })],
+        },
+      ],
+    });
+
+    expect(capacityByGroup(capacityRows([own("c1", "FYS-S1"), own("c2", "L1-S1")], termName))).toHaveLength(2);
+  });
+
+  it("keeps a second real section of a shared group, which is not a copy", () => {
+    // Two courses in one language set is two sections of the same class, not the same
+    // section twice — and both are worth naming under it.
+    const twoCourses: CohortCatalogue = {
+      cohort: { id: "c1", name: "FYS-S1", term: "2026-27" },
+      scopes: [
+        {
+          id: "s-lang", code: "LANG", name: "Languages", note: "", termId: "term-1",
+          kind: "shared", parentScopeId: "", openToAll: true,
+          courses: [
+            { id: "lang", code: "SCEN-101", name: "French", component: "TD", request: EMPTY_REQUEST },
+            { id: "lab", code: "SCEN-105", name: "Lab", component: "TP", request: EMPTY_REQUEST },
+          ],
+          groups: [group("a0f5", "A0-F5", 30, 12, { lang: section("23582"), lab: section("23583") })],
+        },
+      ],
+    };
+
+    const [held] = capacityByGroup(capacityRows([twoCourses], termName));
+
+    expect(held.sections.map((entry) => entry.crn).sort()).toEqual(["23582", "23583"]);
+    // One cohort, so its twelve students are counted once and not once per section.
+    expect(held.enrolled).toBe(12);
+  });
+});

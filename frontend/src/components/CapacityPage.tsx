@@ -138,6 +138,21 @@ function GroupBar({ group, peak, onOpenCrn }: { group: GroupCapacity; peak: numb
         */}
       {group.sections.length ? (
         <ul className="ml-[6.5rem] mt-1 flex flex-wrap gap-1">
+          {/*
+            * A shared class is one room that four years sit in, and its record is kept by
+            * each of them. How full it is reads differently once you know the students in
+            * it are not all one cohort's.
+            */}
+          {group.cohortNames.length > 1 ? (
+            <li>
+              <span
+                title={`Students from ${group.cohortNames.join(", ")} are in this class`}
+                className="inline-flex items-center rounded-full bg-[#e8edf3] px-2 py-0.5 text-xs font-semibold text-[#1f4e79]"
+              >
+                {group.cohortNames.length} cohorts
+              </span>
+            </li>
+          ) : null}
           {group.sections.map((section) => {
             const said = `${section.courseCode}${section.component ? ` ${section.component}` : ""} · ${section.teacher || "no teacher yet"}`;
             return (
