@@ -97,8 +97,17 @@ export type Warning = {
   label?: string;
   /** Which record it came out of, where the kind cannot say — see `sourceOf`. */
   source?: WarningSource;
-  /** Set by the page when the coordinator has dismissed it and asked to see the dismissed. */
+  /** Set by the page when somebody has decided to live with this warning. */
   dismissed?: boolean;
+  /**
+   * Who decided, and when — set alongside `dismissed`.
+   *
+   * A dismissal is shared, so it hides a warning from colleagues who may never have seen
+   * it. Saying whose decision it was turns that from a disappearance into a decision
+   * somebody can disagree with.
+   */
+  dismissedBy?: string;
+  dismissedAt?: string;
 };
 
 /** What the page shows for one field, so a warning reads as a sentence. */
@@ -657,17 +666,3 @@ export function warningsText(rows: { studentId: string; name: string; warnings: 
   ].join("\n");
 }
 
-/**
- * Every dismissable key a judging run produced, across every cohort.
- *
- * What a prune must be given. Two things are easy to leave out and both are silent
- * losses: the cohorts that are not on screen, whose warnings the table never renders,
- * and the arrivals, which are not warnings on any table at all — they look outward, at
- * students the cohort does not have. A prune fed only the table's own rows deletes the
- * coordinator's decisions about both.
- */
-export function liveKeysOf(judged: { byCohort: Map<string, Warning[]>; arrivals: Map<string, Arrival[]> }): string[] {
-  const keys = [...judged.byCohort.values()].flat().map((warning) => warning.key);
-  for (const list of judged.arrivals.values()) keys.push(...list.map((arrival) => arrival.key));
-  return keys;
-}

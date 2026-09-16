@@ -4,6 +4,7 @@ import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CohortsPage } from "@/components/CohortsPage";
+import * as dismissalStore from "@/services/warningDismissals";
 import * as lists from "@/services/portalLists";
 import * as publicationService from "@/services/publication";
 import { forgetHistory, recordPull } from "@/services/pullHistory";
@@ -87,8 +88,20 @@ function renderPage(cohorts = [L1]) {
 /** The table row a student is on, found by their name in the Student column. */
 const rowOf = (name: string) => screen.getByText(name).closest("tr") as HTMLElement;
 
+/** What the server holds, so a dismissal written in one test is not read by the next. */
+let onServer: dismissalStore.Dismissal[] = [];
+
 beforeEach(async () => {
   window.localStorage.clear();
+  onServer = [];
+  vi.spyOn(dismissalStore, "fetchDismissals").mockImplementation(async () => [...onServer]);
+  vi.spyOn(dismissalStore, "setDismissal").mockImplementation(async (key: string, on: boolean) => {
+    onServer = onServer.filter((entry) => entry.key !== key);
+    if (!on) return null;
+    const made = { key, byEmail: "coordinator@sorbonne.ae", byName: "Coordinator", at: "2026-09-16T09:00:00Z" };
+    onServer = [...onServer, made];
+    return made;
+  });
   await forgetRosters();
   await forgetHistory();
   // The register agrees unless a test says otherwise. Left unmocked it would reach the
@@ -235,7 +248,7 @@ describe("the Cohorts page", () => {
     expect(screen.getByText(/This cohort expects major Applied Mathematics and Physics, year level L1/)).toBeTruthy();
   });
 
-  it("dismisses a warning from its row, remembers it, and can bring it back", async () => {
+  it("dismisses a warning from its row, for everybody, and can bring it back", async () => {
     vi.spyOn(database, "fetchStudents").mockResolvedValue([student("A001", "c1")]);
     vi.spyOn(database, "fetchDiscrepancyRules").mockResolvedValue([MAJOR]);
     await portalSays([{ SPRIDEN_ID: "A001", FULL_NAME: "Amira Haddad", MAJOR_CODE_DESC: "Physics" }]);
@@ -247,7 +260,10 @@ describe("the Cohorts page", () => {
 
     await waitFor(() => expect(screen.queryByTitle(/major is Physics/)).toBeNull());
     expect(screen.getByText(/Nothing to flag among 1/)).toBeTruthy();
-    expect(window.localStorage.getItem("scen-discrepancy-dismissed:v1")).toContain("A001:r2:");
+    // On the server, not in this browser: the next coordinator to open the page meets
+    // the decision already made rather than the warning again.
+    await waitFor(() => expect(onServer.map((entry) => entry.key).join(" ")).toContain("A001:r2:"));
+    expect(window.localStorage.getItem("scen-discrepancy-dismissed:v1")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: /Show 1 dismissed/ }));
     fireEvent.click(await screen.findByRole("button", { name: /^Restore: major is Physics/ }));
@@ -470,12 +486,12 @@ describe("dismissals belong to the coordinator, not to the page on screen", () =
     renderPage([L1, L2]);
   }
 
-  const held = () => window.localStorage.getItem("scen-discrepancy-dismissed:v1") ?? "";
+  const held = () => onServer.map((entry) => entry.key).join(" ");
 
   it("keeps a dismissal that belongs to a cohort the page is not showing", async () => {
-    // The store is one; the table shows one cohort at a time. Pruning against only the
-    // cohort on screen threw away every decision made about all the others — silently,
-    // and on the first render after switching.
+    // The list is one; the table shows one cohort at a time. Nothing prunes it now, and
+    // this is the guard that says so: a page that started deleting what it cannot see
+    // would throw away decisions about every cohort but the one on screen.
     await twoCohorts();
     await screen.findByTitle(/major is Physics/);
     fireEvent.click(screen.getByRole("button", { name: /^Dismiss: major is Physics/ }));
@@ -489,9 +505,7 @@ describe("dismissals belong to the coordinator, not to the page on screen", () =
   });
 
   it("brings back exactly the dismissed warnings on screen, and nobody else's", async () => {
-    // The other cohort's live registration difference. This page owns that family now —
-    // it prunes it — so the key has to be one the register really reports, or it would be
-    // pruned for being dead rather than kept for belonging to somebody else.
+    // The other cohort's registration difference, dismissed by somebody else.
     const theirs = mismatch({ studentId: "A003", courseCode: "PHYS-118", expected: ["22150"] });
     vi.spyOn(lists, "fetchRegistrationCheck").mockImplementation(async (cohortId: string) =>
       report(cohortId === "c2" ? [theirs] : [], [checked()]),
@@ -502,13 +516,13 @@ describe("dismissals belong to the coordinator, not to the page on screen", () =
     await waitFor(() => expect(held()).toContain("A001:r2:"));
 
     const theirKey = "registration|A003|262710|PHYS-118|missing|22150|";
-    window.localStorage.setItem("scen-discrepancy-dismissed:v1", JSON.stringify([...JSON.parse(held()), theirKey]));
+    onServer = [...onServer, { key: theirKey, byEmail: "c@sorbonne.ae", byName: "Colleague", at: "2026-09-15T09:00:00Z" }];
 
     fireEvent.click(await screen.findByRole("button", { name: /Bring 1 back/ }));
 
     expect(await screen.findByTitle(/major is Physics/)).toBeTruthy();
     expect(held()).not.toContain("A001:r2:");
-    // L2's, so not on screen, so not brought back — and not pruned either.
+    // L2's, so not on screen, so not brought back.
     expect(held()).toContain(theirKey);
   });
 });
@@ -818,7 +832,7 @@ describe("the register half of the Cohorts page", () => {
     expect(screen.queryByText(/it could see/)).toBeNull();
   });
 
-  it("lets a difference be dismissed, and keeps it dismissed", async () => {
+  it("lets a difference be dismissed, and keeps it dismissed for everybody", async () => {
     vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue(report([mismatch({ studentId: "A001" })], [checked()]));
     await twoStudents();
 
@@ -828,58 +842,54 @@ describe("the register half of the Cohorts page", () => {
 
     await waitFor(() => expect(screen.queryByTitle("MATH-001: not registered in 23223")).toBeNull());
     expect(screen.getByText(/Show 1 dismissed/)).toBeTruthy();
-    expect(window.localStorage.getItem("scen-discrepancy-dismissed:v1")).toContain("registration|A001");
+    await waitFor(() => expect(onServer.map((entry) => entry.key).join(" ")).toContain("registration|A001"));
   });
 
-  it("forgets a dismissed difference the register no longer reports", async () => {
-    // The counterpart of keeping another cohort's: a key that is genuinely dead goes, or
-    // the store grows for ever. It has to be the register's own prune that does it.
-    window.localStorage.setItem(
-      "scen-discrepancy-dismissed:v1",
-      JSON.stringify(["registration|A001|262710|GONE-001|missing|11111|"]),
-    );
+  it("says whose decision a dismissed warning was", async () => {
+    /*
+     * The whole cost of sharing dismissals: one hides a warning from colleagues who may
+     * never have seen it. A name turns a disappearance into a decision somebody can look
+     * at and disagree with, so it is on the pill and not only in a log.
+     */
+    onServer = [
+      {
+        key: "registration|A001|262710|MATH-001|missing|23223|",
+        byEmail: "lina@sorbonne.ae",
+        byName: "Lina Haddad",
+        at: "2026-09-15T09:00:00Z",
+      },
+    ];
+    vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue(report([mismatch({ studentId: "A001" })], [checked()]));
+    await twoStudents();
+
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: /Show 1 dismissed/ }));
+
+    const pill = await screen.findByTitle(/MATH-001: not registered in 23223 — dismissed by Lina Haddad on .*2026/);
+    expect(pill.textContent).toContain("Lina Haddad");
+  });
+
+  it("leaves a dismissal alone when the difference it points at is gone", async () => {
+    /*
+     * Three careful effects used to delete these, one per family, each guarding against
+     * pruning on half-arrived evidence. A shared list must not be pruned at all: every
+     * browser judges "gone" from its OWN evidence — its own pull history, its own checks —
+     * so one of them would quietly throw away decisions made about warnings only another
+     * browser can see. A row nothing matches is dead weight, and dead weight is cheap.
+     */
+    const gone = "registration|A001|262710|GONE-001|missing|11111|";
+    onServer = [{ key: gone, byEmail: "c@sorbonne.ae", byName: "Colleague", at: "2026-09-15T09:00:00Z" }];
     vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue(report([], [checked()]));
     await twoStudents();
 
     renderPage();
     await screen.findByText("Amira Haddad");
+    await screen.findByText(/every student in exactly the sections their groups give them/);
 
-    await waitFor(() =>
-      expect(window.localStorage.getItem("scen-discrepancy-dismissed:v1")).not.toContain("GONE-001"),
-    );
-  });
-
-  it("prunes each record's dismissals against its own evidence, and only its own", async () => {
-    /*
-     * Two prunes now run on one page over one store, and each must keep to its family.
-     * Seeded BEFORE the render, so both prunes really see all four keys — a dismissal
-     * written afterwards is never offered to them, which is how a test can pass while the
-     * families are crossed.
-     *
-     * Dead of each family must go; live of each family must stay. Point either prune at
-     * the other's family and one of these four goes the wrong way.
-     */
-    const liveRegistration = "registration|A001|262710|MATH-001|missing|23223|";
-    const deadRegistration = "registration|A001|262710|GONE-001|missing|11111|";
-    const liveRule = "A001:r2:Physics≠Applied Mathematics and Physics";
-    const deadRule = "A001:r99:whatever";
-    window.localStorage.setItem(
-      "scen-discrepancy-dismissed:v1",
-      JSON.stringify([liveRegistration, deadRegistration, liveRule, deadRule]),
-    );
-    vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue(report([mismatch({ studentId: "A001" })], [checked()]));
-    await twoStudents([MAJOR]);
-
-    renderPage();
-    await screen.findByText("Amira Haddad");
-
-    // Both dismissals are in force, so the row shows nothing until they are asked for.
-    await waitFor(() => expect(screen.getByText(/Show 2 dismissed/)).toBeTruthy());
-    const held = () => JSON.parse(window.localStorage.getItem("scen-discrepancy-dismissed:v1") ?? "[]") as string[];
-    await waitFor(() => expect(held()).not.toContain(deadRegistration));
-    expect(held()).not.toContain(deadRule);
-    expect(held()).toContain(liveRegistration);
-    expect(held()).toContain(liveRule);
+    // Still held, and saying nothing: the warning it named is not reported any more, so
+    // there is nothing on screen for it to quieten and nothing to bring back.
+    expect(onServer.map((entry) => entry.key)).toEqual([gone]);
+    expect(screen.queryByText(/dismissed/)).toBeNull();
   });
 });
 

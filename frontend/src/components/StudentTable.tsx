@@ -164,6 +164,14 @@ export const WARNING_ICONS: Record<WarningSource, typeof AlertTriangle> = {
   groups: LayoutGrid,
 };
 
+/** "dismissed by Chris on 16 Sept 2026" — the sentence behind a quieted pill. */
+function decidedBy(warning: { dismissedBy?: string; dismissedAt?: string }): string {
+  const who = warning.dismissedBy ? `dismissed by ${warning.dismissedBy}` : "dismissed";
+  const at = warning.dismissedAt ? new Date(warning.dismissedAt) : null;
+  if (!at || Number.isNaN(at.getTime())) return who;
+  return `${who} on ${at.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}`;
+}
+
 /** The cells only a student row has. Undefined hands the cell back to the table's text. */
 function studentCell(
   row: StudentRow,
@@ -181,9 +189,9 @@ function studentCell(
           <span
             key={warning.key}
             data-source={source}
-            title={describeWarning(warning)}
+            title={warning.dismissed ? `${describeWarning(warning)} — ${decidedBy(warning)}` : describeWarning(warning)}
             className={`inline-flex max-w-full items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${
-              warning.dismissed ? "bg-[#f2f4f7] text-[#98a2b3] line-through" : WARNING_TONES[source]
+              warning.dismissed ? "bg-[#f2f4f7] text-[#98a2b3]" : WARNING_TONES[source]
             }`}
           >
             <Icon size={11} className="shrink-0" aria-hidden="true" />
@@ -194,11 +202,26 @@ function studentCell(
               * would have. The sentence is on the row's title and in the student's record.
               */}
             <span className="min-w-0 truncate">{labelWarning(warning)}</span>
+            {/*
+              * Whose decision it was, not merely that somebody made one.
+              *
+              * A dismissal is the department's now, so it hides a warning from colleagues
+              * who may never have seen it. A name turns that from a disappearance into a
+              * decision they can look at and disagree with. It truncates on a narrow
+              * column like everything else here; the whole sentence is on the pill's title.
+              */}
+            {warning.dismissed && warning.dismissedBy ? (
+              <span className="min-w-0 shrink truncate font-normal">· {warning.dismissedBy}</span>
+            ) : null}
             {onDismissWarning && warning.kind !== "no_baseline" ? (
               <button
                 type="button"
                 aria-label={`${warning.dismissed ? "Restore" : "Dismiss"}: ${describeWarning(warning)}`}
-                title={warning.dismissed ? "Bring this warning back" : "Dismiss until this student's record changes again"}
+                title={
+                  warning.dismissed
+                    ? `Bring this warning back for everybody — ${decidedBy(warning)}`
+                    : "Dismiss for everybody, until this student's record changes again"
+                }
                 onClick={(event) => {
                   event.stopPropagation();
                   onDismissWarning(warning.key, !warning.dismissed);

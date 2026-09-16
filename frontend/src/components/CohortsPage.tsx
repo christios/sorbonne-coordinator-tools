@@ -2,6 +2,7 @@ import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/rea
 import { AlertTriangle, ArrowRightCircle, CalendarClock, ClipboardList, EyeOff, Globe, LayoutGrid, Settings2, Users, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { useStaffUser } from "@/components/useStaffUser";
 import { CohortActions } from "@/components/CohortActions";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { DiscrepancyRulesEditor } from "@/components/DiscrepancyRulesEditor";
@@ -17,7 +18,6 @@ import {
   STATUS_FIELD,
   STATUS_OPTIONS,
   arrivalsFor,
-  liveKeysOf,
   labelOf,
   registrationWarnings,
   rulesFor,
@@ -33,7 +33,7 @@ import {
   type Warning,
   type WarningSource,
 } from "@/services/discrepancies";
-import { dismiss, loadDismissed, pruneDismissed, restore, restoreMany } from "@/services/dismissals";
+import { type Dismissal, dismissalsByKey, fetchDismissals, setDismissal } from "@/services/warningDismissals";
 import {
   describeCoverage,
   describeMismatch,
@@ -289,7 +289,50 @@ export function CohortsPage({
       return next;
     });
   }, []);
-  const [dismissed, setDismissed] = useState<Set<string>>(() => loadDismissed());
+  /*
+   * Taking an arrival in, from the banner that says they are due. The same move as the
+   * Students table's, with the shared sets kept — the languages are the university's.
+   */
+  const client = useQueryClient();
+  const me = useStaffUser();
+  /*
+   * Who has decided to live with what, for everybody.
+   *
+   * A read rather than this browser's own store: the decision belongs to the department,
+   * so the next coordinator to open the page meets it already made, signed and dated.
+   */
+  const dismissals = useQuery({ queryKey: ["warning-dismissals"], queryFn: fetchDismissals });
+  const dismissed = useMemo(() => dismissalsByKey(dismissals.data ?? []), [dismissals.data]);
+  const decide = useMutation({
+    mutationFn: async ({ keys, dismissed: on }: { keys: string[]; dismissed: boolean }) => {
+      await Promise.all(keys.map((key) => setDismissal(key, on)));
+    },
+    /*
+     * The pill answers the press, not the round trip.
+     *
+     * Dismissing is how a coordinator reads down a list of eighty warnings, so it has to
+     * keep up with them; the page is drawn from the answer as though it had already
+     * landed, and put back as it was if it did not.
+     */
+    onMutate: async ({ keys, dismissed: on }) => {
+      await client.cancelQueries({ queryKey: ["warning-dismissals"] });
+      const held = client.getQueryData<Dismissal[]>(["warning-dismissals"]) ?? [];
+      const without = held.filter((entry) => !keys.includes(entry.key));
+      const at = new Date().toISOString();
+      client.setQueryData<Dismissal[]>(
+        ["warning-dismissals"],
+        on
+          ? [...without, ...keys.map((key) => ({ key, byEmail: me?.email ?? "", byName: me?.name ?? "", at }))]
+          : without,
+      );
+      return { held };
+    },
+    onError: (_error, _input, context) => {
+      if (context) client.setQueryData(["warning-dismissals"], context.held);
+    },
+    // Whoever the server says decided, and when, which is the name the page then shows.
+    onSettled: () => void client.invalidateQueries({ queryKey: ["warning-dismissals"] }),
+  });
 
   // The same query the roster makes, so React Query answers both from one fetch.
   const students = useQuery({ queryKey: ["students", ""], queryFn: () => fetchStudents("") });
@@ -439,11 +482,6 @@ export function CohortsPage({
   }, [cohorts, cohortId, chooseCohort]);
 
   const cohort = cohorts.find((candidate) => candidate.id === cohortId) ?? null;
-  /*
-   * Taking an arrival in, from the banner that says they are due. The same move as the
-   * Students table's, with the shared sets kept — the languages are the university's.
-   */
-  const client = useQueryClient();
   const [addingArrival, setAddingArrival] = useState<Arrival | null>(null);
   const addArrival = useMutation({
     mutationFn: (arrival: Arrival) => setCohort([arrival.studentId], cohortId, true),
@@ -504,7 +542,10 @@ export function CohortsPage({
   const byStudent = useMemo(() => {
     const out = new Map<string, Warning[]>();
     for (const warning of [...byCohort.values()].flat()) {
-      const marked = dismissed.has(warning.key) ? { ...warning, dismissed: true } : warning;
+      const held = dismissed.get(warning.key);
+      const marked = held
+        ? { ...warning, dismissed: true, dismissedBy: held.byName || held.byEmail, dismissedAt: held.at }
+        : warning;
       out.set(warning.studentId, [...(out.get(warning.studentId) ?? []), marked]);
     }
     return out;
@@ -517,88 +558,16 @@ export function CohortsPage({
   }, [byStudent, byCohort, cohortId]);
 
   /*
-   * Dismissals that no longer point at anything are let go, so the store stays small.
+   * Nothing prunes the dismissals.
    *
-   * Against EVERY cohort's warnings and arrivals, not the cohort on screen. The table
-   * shows one at a time, but the store is the coordinator's and spans all of them —
-   * pruning against one cohort's keys quietly deleted every decision made about the
-   * others, and every dismissed arrival with them, since arrivals are not on the table
-   * at all. Only when `judged` is in, because a page with half its evidence cannot tell
-   * a warning that is gone from one it cannot see yet.
+   * Three careful effects used to delete dismissals whose warning had gone, one per
+   * family, each guarding against pruning on half-arrived evidence — because the store was
+   * this browser's and had to stay small. The list is the department's now, one row per
+   * decision ever made, and a row nothing matches any more is dead weight rather than a
+   * fault. Pruning a shared list would be the dangerous act the guards were holding off:
+   * each browser judges "gone" from its own evidence, so one of them would throw away
+   * decisions made against warnings only another can see.
    */
-  const liveKeys = useMemo(() => {
-    if (!judged) return null;
-    return liveKeysOf(judged);
-  }, [judged]);
-
-  useEffect(() => {
-    if (!liveKeys) return;
-    setDismissed(pruneDismissed(liveKeys, "rule"));
-  }, [liveKeys]);
-
-  /*
-   * And the sets nobody has placed them in, pruned against the readiness that produced
-   * them. Only once every semester has answered and none of them failed — a dismissal
-   * pruned against evidence that has not arrived is a coordinator's decision thrown away.
-   */
-  // Whether every cohort's register check has answered, which is what says the semesters
-  // below are the real list rather than a list still being built.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const checksSettled = useMemo(() => checks.every((check) => !check.isPending && !check.isError), [
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    checks.map((check) => `${check.isPending}${check.isError}`).join("|"),
-  ]);
-
-  const liveGroupKeys = useMemo(() => {
-    /*
-     * Every guard here is load-bearing, and the first version had only half of them.
-     *
-     * Before the register's checks answer there are no semesters to ask about, so the
-     * readiness array is EMPTY — and "every one of none has settled" is true, so the page
-     * happily pruned every group dismissal against a list of nothing on first paint. The
-     * pill came back on the next refresh, which is precisely the fault this was meant to
-     * fix. Absent is not gone: prune only with the whole picture in hand.
-     */
-    if (checksSettled !== true) return null;
-    if (!termIds.length || !readiness.settled || readiness.failed || !cohorts.length) return null;
-    return cohorts.flatMap((cohort) =>
-      readiness.terms.flatMap(({ termId, publication }) => {
-        const mine = publication?.cohorts.find((entry) => entry.cohortId === cohort.id);
-        return mine ? groupWarnings(mine.unassigned, termId, nameOfTerm(termId)).map((warning) => warning.key) : [];
-      }),
-    );
-  }, [cohorts, termIds, checksSettled, readiness.terms, readiness.settled, readiness.failed, nameOfTerm]);
-
-  useEffect(() => {
-    if (!liveGroupKeys) return;
-    setDismissed(pruneDismissed(liveGroupKeys, "groups"));
-  }, [liveGroupKeys]);
-
-  /*
-   * And the register's family, pruned separately.
-   *
-   * Separately because the two rest on different evidence and can be incomplete at
-   * different moments: the rules wait for this browser's pull history, the checks are one
-   * request per cohort. `pruneDismissed` only ever removes keys of the family it is given,
-   * so the two effects cannot undo each other however they interleave.
-   *
-   * And only once EVERY check has answered. A check is fetched per cohort with no retry,
-   * so one that failed returns nothing at all — exactly the shape of a cohort with no
-   * differences. Pruning on that reading would forget the coordinator's own decisions
-   * because a request fell over. Absent is not gone.
-   */
-  const liveRegistrationKeys = useMemo(() => {
-    if (checks.some((check) => check.isPending || check.isError)) return null;
-    return [...registrationsBy.values()]
-      .flat()
-      .flatMap((mismatch) => registrationWarnings([mismatch], describeMismatch, readMismatch).map((warning) => warning.key));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [registrationsBy, checks.map((check) => `${check.isPending}${check.isError}`).join("|")]);
-
-  useEffect(() => {
-    if (!liveRegistrationKeys) return;
-    setDismissed(pruneDismissed(liveRegistrationKeys, "registration"));
-  }, [liveRegistrationKeys]);
 
   /*
    * What the row carries. "Placed before placement was recorded" is true of everyone
@@ -616,8 +585,8 @@ export function CohortsPage({
     [byStudent, showDismissed, showing],
   );
   const onDismissWarning = useCallback(
-    (key: string, toDismiss: boolean) => setDismissed(toDismiss ? dismiss(key) : restore(key)),
-    [],
+    (key: string, toDismiss: boolean) => decide.mutate({ keys: [key], dismissed: toDismiss }),
+    [decide],
   );
 
   /**
@@ -832,7 +801,7 @@ export function CohortsPage({
             {/* Exactly the ones on screen — another cohort's, and another family's, stay put. */}
             <button
               type="button"
-              onClick={() => setDismissed(restoreMany(all.filter((warning) => warning.dismissed).map((warning) => warning.key)))}
+              onClick={() => decide.mutate({ keys: all.filter((warning) => warning.dismissed).map((warning) => warning.key), dismissed: false })}
               className="underline"
             >
               Bring {dismissedCount} back
@@ -873,7 +842,7 @@ export function CohortsPage({
           cohorts={cohorts}
           arrivals={arrivals}
           names={evidence.names}
-          onDismiss={(key) => setDismissed(dismiss(key))}
+          onDismiss={(key) => decide.mutate({ keys: [key], dismissed: true })}
           onAdd={(arrival) => setAddingArrival(arrival)}
           adding={addArrival.isPending}
         />

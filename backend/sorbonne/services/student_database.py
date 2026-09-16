@@ -109,6 +109,15 @@ class InvalidFilter(Exception):
     """A saved search must be portal codes and nothing else."""
 
 
+def _dismissal(row: Any) -> dict[str, Any]:
+    return {
+        "key": row["key"],
+        "byEmail": row["dismissed_by_email"],
+        "byName": row["dismissed_by_name"],
+        "at": row["dismissed_at"],
+    }
+
+
 def _comment(row: Any) -> dict[str, Any]:
     return {
         "id": row["id"],
@@ -1685,14 +1694,72 @@ class StudentDatabase:
             )
         return {row["student_id"]: {"count": int(row["lines"]), "lastAt": row["last_at"]} for row in rows}
 
+    # ------------------------------------------------- dismissed warnings
+
+    def dismissals(self) -> list[dict[str, Any]]:
+        """Every warning somebody has decided to live with, and who decided it.
+
+        All of them at once, because the page that reads them holds every cohort's
+        warnings at once and a dismissal is not filed under a cohort — the key is the
+        warning's own. The table is one row per decision ever made, which is a number in
+        the hundreds.
+        """
+        with self.engine.connect() as connection:
+            rows = (
+                connection.execute(
+                    text("""SELECT key, dismissed_by_email, dismissed_by_name, dismissed_at
+                            FROM warning_dismissals ORDER BY dismissed_at, key""")
+                )
+                .mappings()
+                .all()
+            )
+        return [_dismissal(row) for row in rows]
+
+    def dismiss_warning(self, *, key: str, by_email: str, by_name: str) -> dict[str, Any]:
+        """Record that this warning has been considered and is being lived with.
+
+        The first decision stands. Two coordinators pressing the same pill within a moment
+        of each other is one decision, not a race over whose name goes on it, so a second
+        write leaves the first alone and reads it back.
+        """
+        row = {
+            "key": _text(key),
+            "dismissed_by_email": _text(by_email),
+            "dismissed_by_name": _text(by_name),
+            "dismissed_at": _now(),
+        }
+        with self.engine.begin() as connection:
+            connection.execute(
+                text("""INSERT INTO warning_dismissals (key, dismissed_by_email, dismissed_by_name, dismissed_at)
+                        VALUES (:key, :dismissed_by_email, :dismissed_by_name, :dismissed_at)
+                        ON CONFLICT (key) DO NOTHING"""),
+                row,
+            )
+            held = (
+                connection.execute(
+                    text("""SELECT key, dismissed_by_email, dismissed_by_name, dismissed_at
+                            FROM warning_dismissals WHERE key = :key"""),
+                    {"key": row["key"]},
+                )
+                .mappings()
+                .one()
+            )
+        return _dismissal(held)
+
+    def restore_warning(self, key: str) -> None:
+        """Bring a warning back for everybody. Restoring one nobody dismissed is no error."""
+        with self.engine.begin() as connection:
+            connection.execute(text("DELETE FROM warning_dismissals WHERE key = :key"), {"key": _text(key)})
+
     # ------------------------------------------------------------- exemptions
 
     def set_exemption(self, *, student_id: str, course_id: str, reason: str = "") -> None:
         """This student is in the group and does not take this course of its set.
 
         Credit from elsewhere, a course already passed, a waiver. Recorded rather than
-        dismissed, because a dismissal lives in one browser's storage and this is the
-        department's decision: the next coordinator to open the page must see it too.
+        dismissed: a dismissal says "I have considered this warning", and this says the
+        student does not take the course — which the register has to know to stop
+        expecting them, not merely stop mentioning.
         """
         with self.engine.begin() as connection:
             course = connection.execute(

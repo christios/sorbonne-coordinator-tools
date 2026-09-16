@@ -890,6 +890,57 @@ def comment_summary(database: StudentDatabase = Depends(get_database)) -> dict[s
     return {"counts": database.comment_counts()}
 
 
+class DismissalInput(BaseModel):
+    """Which warning, and whether it is being dismissed or brought back.
+
+    The key travels in the body rather than in the path. A warning's key is built from
+    student ids, portal codes and CRNs joined by whatever punctuation reads best — bars,
+    colons, arrows — and some of it comes from the portal, so it is not something to put
+    through a URL and hope.
+    """
+
+    key: str = Field(min_length=1, max_length=600)
+    dismissed: bool
+
+
+@router.get("/warning-dismissals")
+def list_dismissals(database: StudentDatabase = Depends(get_database)) -> dict[str, Any]:
+    """Every warning the department has decided to live with, and who decided it.
+
+    Signed with what Settings calls that person today, falling back to the name stamped
+    when it was dismissed — the same way a comment is signed, so one person reads as one
+    person across the application.
+    """
+    names: dict[str, str] = {}
+    dismissals = database.dismissals()
+    for dismissal in dismissals:
+        email = dismissal["byEmail"]
+        if email and email not in names:
+            names[email] = coordinator_directory.name_for(email, dismissal["byName"])
+        dismissal["byName"] = names.get(email) or dismissal["byName"]
+    return {"dismissals": dismissals}
+
+
+@router.put("/warning-dismissals")
+def set_dismissal(
+    body: DismissalInput, request: Request, database: StudentDatabase = Depends(get_database)
+) -> dict[str, Any]:
+    """Dismiss a warning for everybody, or bring it back for everybody."""
+    if not body.dismissed:
+        database.restore_warning(body.key)
+        return {"dismissal": None}
+    staff = getattr(request.state, "staff_user", None)
+    email = getattr(staff, "email", "") or ""
+    return {
+        "dismissal": database.dismiss_warning(
+            key=body.key,
+            by_email=email,
+            # The name Settings gives them, not the one the session happens to carry.
+            by_name=coordinator_directory.name_for(email, getattr(staff, "name", "") or "") if email else "",
+        )
+    }
+
+
 @router.get("/cohorts/{cohort_id}/exemptions")
 def list_exemptions(cohort_id: str, database: StudentDatabase = Depends(get_database)) -> dict[str, Any]:
     """Who, in this cohort's sets, does not take one of the courses their group teaches."""

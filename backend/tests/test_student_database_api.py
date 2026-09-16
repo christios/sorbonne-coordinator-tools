@@ -41,6 +41,8 @@ def empty_shared_tables() -> None:
         # A thread is keyed on the student id, which the tests reuse; a line one test wrote
         # would read as the next test's.
         connection.execute(text("DELETE FROM student_comments"))
+        # Dismissals are keyed on the warning, and the tests reuse the warnings' ingredients.
+        connection.execute(text("DELETE FROM warning_dismissals"))
         connection.execute(text("DELETE FROM student_history"))
         connection.execute(text("DELETE FROM course_approvals"))
         # The tests reuse three student ids across cohorts they never delete; a placement
@@ -1290,6 +1292,75 @@ def test_an_exemption_from_a_shared_set_reaches_every_cohort_taught_in_it(
 
     assert [(row["studentId"], row["scopeCode"], row["courseCode"]) for row in listed] == [
         (STUDENTS[0], "LANG", "SCEN-101")
+    ]
+
+
+# -------------------------------------------------------- dismissed warnings
+
+# A real one: a student, a term, a course, the verdict and the CRNs on each side.
+WARNING_KEY = "registration|A001|262710|PHYS-118|missing|22150|"
+
+
+def test_a_dismissal_is_signed_dated_and_read_by_everybody(client: TestClient):
+    made = client.put(
+        "/api/v1/student-database/warning-dismissals", json={"key": WARNING_KEY, "dismissed": True}
+    )
+    assert made.status_code == status.HTTP_200_OK, made.text
+
+    listed = client.get("/api/v1/student-database/warning-dismissals").json()["dismissals"]
+    assert [(d["key"], d["byName"], d["byEmail"]) for d in listed] == [
+        (WARNING_KEY, "Coordinator", "coordinator@sorbonne.ae")
+    ]
+    assert listed[0]["at"]
+
+
+def test_a_warning_can_be_brought_back_for_everybody(client: TestClient):
+    client.put("/api/v1/student-database/warning-dismissals", json={"key": WARNING_KEY, "dismissed": True})
+
+    restored = client.put(
+        "/api/v1/student-database/warning-dismissals", json={"key": WARNING_KEY, "dismissed": False}
+    )
+
+    assert restored.status_code == status.HTTP_200_OK
+    assert client.get("/api/v1/student-database/warning-dismissals").json()["dismissals"] == []
+    # Bringing back one nobody dismissed is not an error; the warning is simply not dismissed.
+    assert (
+        client.put(
+            "/api/v1/student-database/warning-dismissals", json={"key": "never-dismissed", "dismissed": False}
+        ).status_code
+        == status.HTTP_200_OK
+    )
+
+
+def test_the_first_decision_stands_when_two_people_dismiss_the_same_warning(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+):
+    """Two coordinators on the same pill is one decision, not a race over whose name goes on it."""
+    first = client.put(
+        "/api/v1/student-database/warning-dismissals", json={"key": WARNING_KEY, "dismissed": True}
+    ).json()["dismissal"]
+
+    monkeypatch.setattr(
+        auth_gate,
+        "user_for_request",
+        lambda *_args, **_kwargs: StaffUser(email="colleague@sorbonne.ae", name="Colleague", is_admin=False),
+    )
+    again = client.put(
+        "/api/v1/student-database/warning-dismissals", json={"key": WARNING_KEY, "dismissed": True}
+    ).json()["dismissal"]
+
+    assert again == first
+    assert len(client.get("/api/v1/student-database/warning-dismissals").json()["dismissals"]) == 1
+
+
+def test_a_key_may_carry_the_punctuation_warnings_are_built_from(client: TestClient):
+    """Bars, colons, arrows and slashes: the key travels in the body, so none of it needs escaping."""
+    awkward = "A001:rule-1:L1/S1→L2/S1@2026-09-16T07:27:55"
+
+    client.put("/api/v1/student-database/warning-dismissals", json={"key": awkward, "dismissed": True})
+
+    assert [d["key"] for d in client.get("/api/v1/student-database/warning-dismissals").json()["dismissals"]] == [
+        awkward
     ]
 
 
