@@ -138,7 +138,13 @@ def copy_everything(  # noqa: PLR0913 - one keyword per thing the caller may cho
     """The whole copy, once. The CLI and the dev-only route are both thin wrappers on this.
 
     One implementation, so there is one set of rules about what travels: no student names
-    because the server holds none, and no staff names unless asked for.
+    because the server holds none, and no contact details unless asked for.
+
+    `teachers` asks for the part-time database — names, e-mail addresses, phone numbers,
+    document folders — and is off by default. The department's list of active teachers
+    travels either way: every row of it is a link to a portal profile, and the copy
+    already brings the whole portal staff list, so leaving it behind bought no privacy and
+    cost the copy every teacher it had.
     """
     into = local_only(into)
     source = source.rstrip("/")
@@ -198,8 +204,33 @@ def copy_everything(  # noqa: PLR0913 - one keyword per thing the caller may cho
     # a cohort end to end would drop those placements, because the group they name belongs
     # to a cohort that has not been reached yet, or was reached and forgotten.
     course_ids: dict[str, str] = {}
+    # ------------------------------------------------------------------ teachers
+    #
+    # Two different things used to travel under one flag, and skipping the flag skipped
+    # both. The part-time database is the one that carries contact details — names,
+    # e-mail addresses, phone numbers, document folders — and it stays behind unless it
+    # is asked for. The department's own list of active teachers is something else: every
+    # row of it is a link to a portal profile, and a copy already holds the whole portal
+    # staff list, names and all. Leaving that behind bought no privacy and cost the copy
+    # its teachers: the pages read "40 teachers are named on our sections and not on this
+    # list", every hours column stood empty, and none of it was true of production.
+    teacher_ids: dict[str, str] = {}
+    if teachers and not dry_run:
+        say("\nteachers: in full (this step carries staff names, e-mail addresses and phone numbers)")
+        part_time_ids = _copy_part_time_teachers(source, into, read_headers, write_headers, say)
+        teacher_ids = _copy_active_teachers(source, into, read_headers, write_headers, part_time_ids, say)
+    elif not dry_run:
+        say(
+            "\nteachers: the department's list only "
+            "(the part-time database carries contact details and is left behind)"
+        )
+        # No part-time ids, so a row whose only side is a part-time record is passed over:
+        # bringing it would mean writing that person's name and address down here.
+        teacher_ids = _copy_active_teachers(source, into, read_headers, write_headers, {}, say)
+
     sets, group_id, placed, requests = _copy_plans(
-        read, write, here, write_headers, cohorts, cohort_id, terms, say, course_ids, dry_run=dry_run
+        read, write, here, write_headers, cohorts, cohort_id, terms, say, course_ids,
+        dry_run=dry_run, teacher_ids=teacher_ids,
     )
 
     where = {"source": source, "into": into, "read": read_headers, "write": write_headers}
@@ -212,13 +243,6 @@ def copy_everything(  # noqa: PLR0913 - one keyword per thing the caller may cho
         _copy_settled_collisions(source, into, read_headers, write_headers, terms, say)
     else:
         exempt = 0
-
-    if teachers and not dry_run:
-        say("\nteachers: copying (this step carries staff names and e-mail addresses)")
-        part_time_ids = _copy_part_time_teachers(source, into, read_headers, write_headers, say)
-        _copy_active_teachers(source, into, read_headers, write_headers, part_time_ids, say)
-    elif not teachers:
-        say("\nteachers: skipped (they carry names)")
 
     say("\nDone. Run a Portal sync against localhost to fill this browser's side.")
     return {
@@ -378,7 +402,7 @@ def _copy_time_sheets(  # noqa: PLR0913 - one argument per end of the copy
 
 def _copy_active_teachers(  # noqa: PLR0913 - one argument per thing the copy is about
     source: str, into: str, read: dict[str, str], write: dict[str, str], part_time_ids: dict[str, str], say
-) -> None:
+) -> dict[str, str]:
     """The department's list, with both sides of anybody who is on both.
 
     A row is added from whichever side it has, and then joined to the other explicitly.
@@ -436,6 +460,20 @@ def _copy_active_teachers(  # noqa: PLR0913 - one argument per thing the copy is
         )
         joined += 1
     say(f"  active teachers: {len(rows)}, {joined} joined to a part-time record")
+    # Production's id for a chosen teacher is written on every section that teacher takes,
+    # and means nothing here — the rows above were created with ids of their own. The two
+    # sides are joined by the portal profile they share, and the map goes to the catalogue,
+    # which would otherwise copy production's id onto a section belonging to nobody.
+    held_here = {
+        held["portalTeacherId"]: held["id"]
+        for held in call(f"{into}/api/v1/portal/active-teachers", headers=write)["teachers"]
+        if held.get("portalTeacherId")
+    }
+    return {
+        row["id"]: held_here[row["portalTeacherId"]]
+        for row in rows
+        if row.get("portalTeacherId") and row["portalTeacherId"] in held_here
+    }
 
 
 def main() -> int:
@@ -614,7 +652,8 @@ def _term_codes(source: str, read: dict[str, str]) -> set[str]:
 
 
 def _copy_plans(  # noqa: PLR0913 - the maps it threads through are the point
-    read, write, here, write_headers, cohorts, cohort_id, terms, say, course_ids, *, dry_run: bool
+    read, write, here, write_headers, cohorts, cohort_id, terms, say, course_ids, *, dry_run: bool,
+    teacher_ids: dict[str, str] | None = None,
 ) -> tuple[int, dict[str, str], int, int]:
     """Every catalogue, then every placement — in that order, and never per cohort.
 
@@ -645,7 +684,7 @@ def _copy_plans(  # noqa: PLR0913 - the maps it threads through are the point
         say(f"{cohort['name']}: {len(catalogue)} sets, {sum(len(s['groups']) for s in catalogue)} groups")
         if not dry_run:
             requests += _copy_catalogue(
-                write, catalogue, cohort_id[cohort["id"]], terms, group_id, course_ids, major_ids
+                write, catalogue, cohort_id[cohort["id"]], terms, group_id, course_ids, major_ids, teacher_ids
             )
     if requests:
         say(f"\nsections carrying a request: {requests}")
@@ -935,9 +974,24 @@ REQUEST_FIELDS = (
 )
 
 
-def _request_of(cell: dict[str, Any]) -> dict[str, Any]:
-    """The section's request, as the PATCH takes it — only what is actually said."""
-    return {field: cell[field] for field in REQUEST_FIELDS if cell.get(field) not in ("", 0, False, None)}
+def _request_of(cell: dict[str, Any], teacher_ids: dict[str, str] | None = None) -> dict[str, Any]:
+    """The section's request, as the PATCH takes it — only what is actually said.
+
+    `teacherId` is production's, and the local list holds the same people under ids of its
+    own, so it is translated. Where the copy made no local row for that teacher it is
+    dropped rather than carried over: a section naming an id nobody holds belongs to
+    nobody, and nothing falls back to the written name while an id is present — which read
+    on screen as forty teachers who teach nothing at all.
+    """
+    request = {field: cell[field] for field in REQUEST_FIELDS if cell.get(field) not in ("", 0, False, None)}
+    chosen = request.get("teacherId")
+    if chosen:
+        here = (teacher_ids or {}).get(chosen)
+        if here:
+            request["teacherId"] = here
+        else:
+            del request["teacherId"]
+    return request
 
 
 def _copy_catalogue(  # noqa: PLR0913 - the two maps it fills are the point
@@ -948,6 +1002,7 @@ def _copy_catalogue(  # noqa: PLR0913 - the two maps it fills are the point
     group_id: dict[str, str],
     course_ids: dict[str, str] | None = None,
     major_ids: dict[str, str] | None = None,
+    teacher_ids: dict[str, str] | None = None,
 ) -> int:
     """The sets, their courses, their groups, their sub-rows and the CRNs in them.
 
@@ -1049,22 +1104,23 @@ def _copy_catalogue(  # noqa: PLR0913 - the two maps it fills are the point
                         continue
                     number = part.get("part", 1)
                     write(at, {"crn": part["crn"], "teacher": part.get("teacher", ""), "part": number}, method="PUT")
-                    request = _request_of(part)
+                    request = _request_of(part, teacher_ids)
                     if request:
                         write(at, {**request, "part": number}, method="PATCH")
                         requests += 1
             requests += _copy_sub_row_cells(
-                write, here_group, group.get("byMajor") or {}, course_id, major_ids or {}
+                write, here_group, group.get("byMajor") or {}, course_id, major_ids or {}, teacher_ids
             )
     return requests
 
 
-def _copy_sub_row_cells(
+def _copy_sub_row_cells(  # noqa: PLR0913 - one argument per map it has to translate through
     write,
     here_group: str,
     by_major: dict[str, Any],
     course_id: dict[str, str],
     major_ids: dict[str, str],
+    teacher_ids: dict[str, str] | None = None,
 ) -> int:
     """A cell that belongs to ONE sub-row, and a sub-row's word that it is not taught a course.
 
@@ -1089,7 +1145,7 @@ def _copy_sub_row_cells(
                 number = part.get("part", 1)
                 body = {"crn": part["crn"], "teacher": part.get("teacher", ""), "part": number, "majorId": mine}
                 write(at, body, method="PUT")
-                request = _request_of(part)
+                request = _request_of(part, teacher_ids)
                 if request:
                     write(at, {**request, "part": number, "majorId": mine}, method="PATCH")
                     requests += 1

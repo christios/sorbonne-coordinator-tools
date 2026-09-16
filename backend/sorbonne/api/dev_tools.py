@@ -45,8 +45,11 @@ def copy_from_production(body: CopyInput) -> dict[str, Any]:
     """Bring production's cohorts, sets, groups, placements, rules and register down here.
 
     The same work `scripts/copy_prod_to_dev.py` does, so there is one implementation and
-    one set of rules about what travels — no student names, and no staff names unless
-    asked for. Slow by nature: it is a few hundred writes through this same API.
+    one set of rules about what travels — no student names, and no staff contact details
+    unless asked for. `teachers` is the part-time database; the department's own list of
+    active teachers comes either way, being links to portal profiles the copy already holds.
+
+    Slow by nature: it is a few hundred writes through this same API.
 
     Deliberately `def` and not `async def`. The copy writes through THIS server, with
     blocking requests; on the event loop it would hold the loop while waiting for answers

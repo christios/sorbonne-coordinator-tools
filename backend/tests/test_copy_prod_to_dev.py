@@ -99,13 +99,17 @@ def test_a_section_arrives_with_the_request_on_it_and_not_only_its_crn():
     """
     write = Recorder()
 
-    requests = copy._copy_catalogue(write, catalogue(), "here", {"p-term": "local-term"}, {})
+    requests = copy._copy_catalogue(
+        write, catalogue(), "here", {"p-term": "local-term"}, {}, None, None, {"t-7": "here-7"}
+    )
 
     assert requests == 1
     cell = write.one("PUT", "/courses/")
     assert cell == {"crn": "23634", "teacher": "Amira Haddad", "part": 1}
+    # The chosen teacher travels as the LOCAL list's id for the same person — production's
+    # means nothing here.
     assert write.one("PATCH", "/courses/") == {
-        "teacherId": "t-7", "hours": "24", "duration": "2h",
+        "teacherId": "here-7", "hours": "24", "duration": "2h",
         "anticipated": 30, "constraints": "not before 10", "part": 1,
     }
 
@@ -362,6 +366,56 @@ def test_a_teacher_on_both_lists_arrives_joined_rather_than_left_to_an_email(mon
         {"portalTeacherIds": ["A001"]},
         {"partTimeTeacherId": "here-pt"},
     ]
+
+
+def test_a_chosen_teacher_the_copy_has_no_row_for_falls_back_to_the_written_name():
+    """A section naming an id nobody holds belongs to nobody.
+
+    Production's chosen-teacher id was copied onto the section verbatim while the local
+    rows were created with ids of their own, so 123 of a copy's 131 sections pointed at
+    somebody who did not exist here. Nothing falls back to the written name while an id is
+    present, so every teacher on the copy read as teaching nothing: no sections, no
+    cohorts, no hours, and forty of them listed as "named on our sections and not on this
+    list". Dropping the id leaves the name, which the rest of the application knows how to
+    read.
+    """
+    write = Recorder()
+
+    copy._copy_catalogue(write, catalogue(), "here", {"p-term": "local-term"}, {}, None, None, {})
+
+    assert write.one("PUT", "/courses/") == {"crn": "23634", "teacher": "Amira Haddad", "part": 1}
+    assert "teacherId" not in write.one("PATCH", "/courses/")
+
+
+def test_the_department_s_list_travels_without_the_part_time_database(monkeypatch):
+    """The two used to go under one flag, and skipping it skipped both.
+
+    The part-time database is what carries contact details — names, addresses, phone
+    numbers — and stays behind unless asked for. The department's list of active teachers
+    is links to portal profiles, and the copy already brings the whole portal staff list,
+    so leaving it behind bought no privacy. It cost the copy every teacher it had: the
+    pages read "40 teachers are named on our sections and not on this list", every hours
+    column stood empty, and none of it was true of production.
+    """
+    wire = Wire(
+        {
+            "https://prod/api/v1/portal/active-teachers": {
+                "teachers": [
+                    {"id": "prod-1", "portalTeacherId": "A001", "partTimeTeacherId": "", "fullName": "Cécile Paillot"},
+                    # Known to the department and to nobody else: bringing this row would
+                    # mean writing that person's name down on the laptop.
+                    {"id": "prod-2", "portalTeacherId": "", "partTimeTeacherId": "pt-9", "fullName": "Sara Lotfi"},
+                ]
+            },
+            "http://localhost:8000/api/v1/portal/active-teachers": {"teachers": []},
+        }
+    )
+    monkeypatch.setattr(copy, "call", wire)
+
+    # No part-time ids, which is what the copy passes when it is not asked for them.
+    copy._copy_active_teachers("https://prod", "http://localhost:8000", {}, {}, {}, say=lambda *_: None)
+
+    assert [body for _, _, body in wire.writes] == [{"portalTeacherIds": ["A001"]}]
 
 
 def test_a_source_without_the_sweep_route_costs_the_sweep_and_not_the_copy(monkeypatch):
