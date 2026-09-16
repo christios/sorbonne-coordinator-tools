@@ -278,6 +278,15 @@ export function warningsForCohort(input: {
         continue;
       }
 
+      /*
+       * What is left reads the field's changes, and only a change rule may.
+       *
+       * A `belongs` rule asks about students OUTSIDE the cohort — see `arrivalsFor` — and
+       * fell through to here, where every member whose major had been recorded as moving
+       * since their placement came out carrying its words: "belongs to the cohort by its
+       * expectations, and is not in it", about somebody plainly in it.
+       */
+      if (rule.kind !== "changed" && rule.kind !== "changed_to") continue;
       if (Number.isNaN(placedAt)) continue;
       for (const change of changesTo(rule.field, input.changes(student.studentId))) {
         if (change.at < placedAt) continue;

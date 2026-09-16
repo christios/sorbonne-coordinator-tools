@@ -333,6 +333,49 @@ describe("the status, this application's own field", () => {
   });
 });
 
+describe("a rule that looks outward, on a student who is already in", () => {
+  const belongs: Rule = { id: "rb", field: "MAJOR_CODE", kind: "belongs", values: [] };
+
+  it("says nothing about a member whose major has moved since they were placed", () => {
+    /*
+     * A `belongs` rule asks about students OUTSIDE the cohort. It used to fall through to
+     * the loop that reads a field's changes — which is for `changed` and `changed_to` —
+     * and every member whose major had been recorded as changing since their placement
+     * came out carrying its words: "belongs to the cohort by its expectations, and is not
+     * in it", about somebody plainly in it.
+     */
+    const moved: Change[] = [{ field: "MAJOR_CODE", from: "PHYS", to: "MATH", at: T("2026-09-10T09:00:00Z") }];
+
+    const warnings = warningsForCohort({
+      cohort: L1_MATHS,
+      students: [placed("A001", "c1")],
+      rules: [belongs],
+      current: () => ({ MAJOR_CODE: "MATH", TERM_CODE: "262710", YEARLEVEL_CODE: "L1" }),
+      changes: () => moved,
+      options: PORTAL,
+    });
+
+    expect(warnings).toEqual([]);
+  });
+
+  it("still reports the change to a rule that asked about changes", () => {
+    // The guard must not take the change rules with it.
+    const changed: Rule = { id: "rc", field: "MAJOR_CODE", kind: "changed", values: [] };
+    const moved: Change[] = [{ field: "MAJOR_CODE", from: "PHYS", to: "MATH", at: T("2026-09-10T09:00:00Z") }];
+
+    const warnings = warningsForCohort({
+      cohort: L1_MATHS,
+      students: [placed("A001", "c1")],
+      rules: [changed],
+      current: () => ({ MAJOR_CODE: "MATH" }),
+      changes: () => moved,
+      options: PORTAL,
+    });
+
+    expect(warnings.map((warning) => warning.kind)).toEqual(["changed"]);
+  });
+});
+
 describe("students who belong to a cohort and are not in it", () => {
   const belongs: Rule = { id: "r9", field: "MAJOR_CODE", kind: "belongs", values: [] };
   const changes = {
