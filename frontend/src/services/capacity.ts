@@ -211,45 +211,34 @@ export type GroupCapacity = {
 /**
  * One row per group — and for a set everybody shares, one row per CLASS.
  *
- * A shared set is carried by every cohort that teaches it: each holds its own record of
- * "A0-F5", and all of them name the same CRN, because there is one French class at that
- * hour and the whole point of a shared set is that four years sit in it together. Keyed by
- * the cohort, that read as four groups of thirty — and the languages came to 2184 seats
- * where the university has 546.
+ * A set open to every cohort may be carried by more than one of them: each holds its own
+ * record of "A0-F5", and every record names the same CRN, because there is one French
+ * class at that hour and four years sitting in it together is the whole point of a shared
+ * set. Read a record at a time, that is four groups of thirty — four bars, three of them
+ * empty, and the same thirty chairs counted four times.
  *
- * So a shared group is identified by its set and its label, which is what the department
- * means by a class, and the copies are folded:
+ * So identical records of a shared class are folded into one:
  *
- * - **the enrolments add up**, once per cohort, because each copy holds that cohort's own
- *   students and the class holds all of them;
- * - **the seats do not**, because they are the same thirty chairs counted four times;
- * - **the sections are named once**, since four copies of one CRN is one CRN.
+ * - **the enrolments add up**, once per cohort, because each record holds that cohort's
+ *   own students and the class holds all of them;
+ * - **the seats do not**, being the same chairs;
+ * - **the sections are named once**, four copies of one CRN being one CRN.
  *
- * A cohort's own group is untouched: it is identified by its cohort, as it always was.
+ * Identical means the same set, the same label AND the same CRNs. Two shared groups that
+ * share a name but not a CRN are two classes that happen to be called the same thing —
+ * folding those would invent a class nobody teaches, which is a worse fault than the one
+ * this fixes. A cohort's own group is never folded: "TD 1" in Foundation Year and "TD 1"
+ * in L1 are two rooms and two teachers.
  */
 export function capacityByGroup(rows: CapacityRow[]): GroupCapacity[] {
   const held = new Map<string, GroupCapacity>();
-  // Which cohorts have already added their students to a shared class, so that its three
-  // sections do not add the same cohort's twenty students three times over.
-  const counted = new Map<string, Set<string>>();
   for (const row of rows) {
-    const key = row.shared ? `${row.set}|${row.group}` : `${row.cohortId}|${row.set}|${row.group}`;
+    const key = `${row.cohortId}|${row.set}|${row.group}`;
     const seen = held.get(key);
     if (seen) {
-      // Four copies of one CRN is one CRN; a genuine second section of the group is not.
-      if (!seen.sections.some((section) => section.crn === row.crn && section.courseCode === row.courseCode)) {
-        seen.sections.push(row);
-      }
-      if (row.shared && !counted.get(key)?.has(row.cohortId)) {
-        counted.get(key)?.add(row.cohortId);
-        if (!seen.cohortNames.includes(row.cohortName)) seen.cohortNames.push(row.cohortName);
-        seen.enrolled += row.enrolled;
-        seen.free = seen.capacity ? seen.capacity - seen.enrolled : 0;
-        seen.status = statusOf(seen.capacity, seen.enrolled);
-      }
+      seen.sections.push(row);
       continue;
     }
-    counted.set(key, new Set([row.cohortId]));
     held.set(key, {
       key,
       cohortId: row.cohortId,
@@ -266,9 +255,39 @@ export function capacityByGroup(rows: CapacityRow[]): GroupCapacity[] {
       sections: [row],
     });
   }
-  return [...held.values()].sort(
+  return foldShared([...held.values()]).sort(
     (left, right) => left.set.localeCompare(right.set) || left.group.localeCompare(right.group, undefined, { numeric: true }),
   );
+}
+
+/** What identifies a shared class: its set, its name, and the CRNs it is taught under. */
+function classOf(group: GroupCapacity): string {
+  const crns = [...new Set(group.sections.map((section) => section.crn))].sort();
+  return `${group.set}|${group.group}|${crns.join("+")}`;
+}
+
+/** Cohorts' copies of one shared class, added together into the class. */
+function foldShared(groups: GroupCapacity[]): GroupCapacity[] {
+  const byClass = new Map<string, GroupCapacity>();
+  const out: GroupCapacity[] = [];
+  for (const group of groups) {
+    if (!group.shared) {
+      out.push(group);
+      continue;
+    }
+    const key = classOf(group);
+    const seen = byClass.get(key);
+    if (!seen) {
+      byClass.set(key, group);
+      out.push(group);
+      continue;
+    }
+    if (!seen.cohortNames.includes(group.cohortName)) seen.cohortNames.push(group.cohortName);
+    seen.enrolled += group.enrolled;
+    seen.free = seen.capacity ? seen.capacity - seen.enrolled : 0;
+    seen.status = statusOf(seen.capacity, seen.enrolled);
+  }
+  return out;
 }
 
 /** The groups of one set, and how the set stands as a whole. */

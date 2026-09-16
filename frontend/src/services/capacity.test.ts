@@ -313,6 +313,31 @@ describe("a class four cohorts sit in", () => {
     expect(capacityByGroup(capacityRows([own("c1", "FYS-S1"), own("c2", "L1-S1")], termName))).toHaveLength(2);
   });
 
+  it("keeps two shared classes apart when they only share a name", () => {
+    /*
+     * The fold merges records of ONE class. Two language groups called "A0-F5" under
+     * different CRNs are two classes at two hours that happen to be named the same, and
+     * adding their students together would invent a class nobody teaches — a worse fault
+     * than the one the fold fixes.
+     */
+    const named = (cohortId: string, cohortName: string, crn: string): CohortCatalogue => ({
+      cohort: { id: cohortId, name: cohortName, term: "2026-27" },
+      scopes: [
+        {
+          id: `s-lang-${cohortId}`, code: "LANG", name: "Languages", note: "", termId: "term-1",
+          kind: "shared", parentScopeId: "", openToAll: true,
+          courses: [{ id: "lang", code: "SCEN-101", name: "French", component: "TD", request: EMPTY_REQUEST }],
+          groups: [group(`g-${cohortId}`, "A0-F5", 30, 12, { lang: section(crn) })],
+        },
+      ],
+    });
+
+    const groups = capacityByGroup(capacityRows([named("c1", "FYS-S1", "23582"), named("c2", "L1-S1", "24999")], termName));
+
+    expect(groups).toHaveLength(2);
+    expect(groups.map((held) => held.enrolled)).toEqual([12, 12]);
+  });
+
   it("keeps a second real section of a shared group, which is not a copy", () => {
     // Two courses in one language set is two sections of the same class, not the same
     // section twice — and both are worth naming under it.
