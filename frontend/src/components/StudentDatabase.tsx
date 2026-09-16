@@ -22,8 +22,9 @@ import { SemesterList } from "@/components/SemesterList";
 import { StaffMenu } from "@/components/StaffMenu";
 import { StudentRoster } from "@/components/StudentRoster";
 import { SidePane } from "@/components/SidePane";
+import { placeOf, rememberPlace } from "@/services/lastPlace";
 import { ViewBar } from "@/components/ViewBar";
-import { locationFor, pageFromLocation } from "@/routes/toolRoute";
+import { detailFromLocation, locationFor, pageFromLocation } from "@/routes/toolRoute";
 import { fetchCohorts, fetchDiscrepancyRules, fetchStudents, fetchViews } from "@/services/studentDatabase";
 import { fetchTimetableStatus } from "@/services/timetables";
 
@@ -168,21 +169,57 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
    * it rather than to a variable.
    */
   const [page, setPage] = useState<PageId>(() => pageOf(window.location.hash));
+  /*
+   * And what is open WITHIN the page — the week of one semester, say.
+   *
+   * In the address for the same reasons the page is, and remembered per page besides: the
+   * address says where you are now, and the memory says where you were on the page you are
+   * returning to. Without the memory, stepping to Students and back put a coordinator in
+   * front of the semester list again, however long they had spent in the week they had
+   * open.
+   */
+  const [detail, setDetail] = useState<string>(() => detailFromLocation(window.location.hash));
 
   useEffect(() => {
-    const follow = () => setPage(pageOf(window.location.hash));
+    const follow = () => {
+      setPage(pageOf(window.location.hash));
+      setDetail(detailFromLocation(window.location.hash));
+    };
     window.addEventListener("hashchange", follow);
     return () => window.removeEventListener("hashchange", follow);
   }, []);
 
-  const openPage = useCallback((next: PageId) => {
-    setPage(next);
-    // Replace rather than push: which page you are on inside a tool is where you are, not
-    // a step in a journey, and pushing would make Back walk every page you had glanced at
-    // on the way. replaceState also changes the address without navigating, so nothing
-    // remounts underneath the choice.
-    window.history.replaceState(null, "", `#${locationFor("database", next)}`);
-  }, []);
+  const openPage = useCallback(
+    (next: PageId) => {
+      // Where this page was left, unless the coordinator is already on it: pressing the
+      // page you are on is how you ask for its front door, and a memory that overrode that
+      // would leave no way back to the list but the open screen's own.
+      const back = next === page ? "" : placeOf(next);
+      setPage(next);
+      setDetail(back);
+      // Replace rather than push: which page you are on inside a tool is where you are, not
+      // a step in a journey, and pushing would make Back walk every page you had glanced at
+      // on the way. replaceState also changes the address without navigating, so nothing
+      // remounts underneath the choice.
+      window.history.replaceState(null, "", `#${locationFor("database", next, back)}`);
+    },
+    [page],
+  );
+
+  /** Say what is now open within this page: written to the address, and remembered. */
+  const openDetail = useCallback(
+    (next: string) => {
+      setDetail(next);
+      rememberPlace(page, next);
+      window.history.replaceState(null, "", `#${locationFor("database", page, next)}`);
+    },
+    [page],
+  );
+  // What the address named on arrival is worth remembering too, or a link followed and
+  // then stepped away from would be forgotten the moment it was left.
+  useEffect(() => {
+    if (detail) rememberPlace(page, detail);
+  }, [page, detail]);
   const client = useQueryClient();
   /*
    * Set when the Groups page sends somebody here: the Students table opens on exactly them.
@@ -398,7 +435,12 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => voi
           ) : null}
           {onPlatform && !status.isLoading && !status.data?.configured ? <PlatformNotConfigured /> : null}
           {page === "semesters" && status.data?.configured ? (
-            <SemesterList host={status.data.host} onFullBleed={setFullBleed} />
+            <SemesterList
+              host={status.data.host}
+              onFullBleed={setFullBleed}
+              open={detail}
+              onOpen={openDetail}
+            />
           ) : null}
           {page === "announcements" && status.data?.configured ? <AnnouncementEditor /> : null}
         </div>

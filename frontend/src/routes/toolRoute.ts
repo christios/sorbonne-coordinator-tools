@@ -39,7 +39,23 @@ export function pageFromLocation(hash: string): string {
   return segments(hash)[1] ?? "";
 }
 
-/** The address for a page within a tool. */
-export function locationFor(tool: ToolId, page = ""): string {
-  return page ? `/${tool}/${page}` : `/${tool}`;
+/**
+ * What within the page, from "#/database/semesters/timetable:abc123".
+ *
+ * A page is not always one screen. Semesters is a list until you open a week, and that
+ * week is the screen a coordinator spends the afternoon on — but it was state and nothing
+ * else, so a reload, or a step to another page and back, put them in front of the list
+ * again with no way to say where they had been.
+ *
+ * Returns "" when the address names nothing beyond the page, which is the page's cue to
+ * show whatever it shows by default.
+ */
+export function detailFromLocation(hash: string): string {
+  return segments(hash)[2] ?? "";
+}
+
+/** The address for a page within a tool, and for what is open within the page. */
+export function locationFor(tool: ToolId, page = "", detail = ""): string {
+  if (!page) return `/${tool}`;
+  return detail ? `/${tool}/${page}/${detail}` : `/${tool}/${page}`;
 }

@@ -19,11 +19,11 @@ const TERM: timetables.TimetableTerm = {
   updatedAt: "2026-08-21T18:00:00Z",
 };
 
-function renderList() {
+function renderList(props: Partial<Parameters<typeof SemesterList>[0]> = {}) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <SemesterList host="scen.example.dev" />
+      <SemesterList host="scen.example.dev" {...props} />
     </QueryClientProvider>,
   );
 }
@@ -113,5 +113,40 @@ describe("uploading a timetable, retired", () => {
 
     expect(await screen.findByText("Physics & Maths — Semester 1")).toBeTruthy();
     expect(screen.getByText("PHYS-MATHS-FY-SEM.1-Revised.xls")).toBeTruthy();
+  });
+});
+
+/*
+ * Which screen of this page is open is the address's business, not this component's, so
+ * that a reload, a link, and a step to another page and back all return to the same place.
+ */
+describe("the week of one semester", () => {
+  it("says which week it is opening rather than opening it itself", async () => {
+    const onOpen = vi.fn();
+    renderList({ onOpen });
+    await screen.findByRole("row", { name: /Physics & Maths/ });
+
+    fireEvent.click(screen.getByRole("button", { name: "Timetable" }));
+
+    expect(onOpen).toHaveBeenCalledWith("timetable:term-1");
+  });
+
+  it("draws the week the address names, with no button pressed", async () => {
+    const onFullBleed = vi.fn();
+    renderList({ open: "timetable:term-1", onFullBleed });
+
+    // The list is not what is on screen; the week is, with its way back.
+    expect(await screen.findByRole("button", { name: /Semesters/ })).toBeTruthy();
+    expect(screen.queryByRole("row", { name: /Physics & Maths/ })).toBeNull();
+    // And it takes the page, which the press used to be the only thing to say.
+    await waitFor(() => expect(onFullBleed).toHaveBeenCalledWith(true));
+  });
+
+  it("gives the page back its width when the week is left", async () => {
+    const onFullBleed = vi.fn();
+    renderList({ onFullBleed });
+    await screen.findByRole("row", { name: /Physics & Maths/ });
+
+    expect(onFullBleed).toHaveBeenCalledWith(false);
   });
 });

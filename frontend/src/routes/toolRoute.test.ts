@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { locationFor, pageFromLocation, toolFromLocation } from "@/routes/toolRoute";
+import { detailFromLocation, locationFor, pageFromLocation, toolFromLocation } from "@/routes/toolRoute";
 
 describe("which application the address names", () => {
   it("reads it from the hash", () => {
@@ -45,5 +45,22 @@ describe("writing the address", () => {
 
   it("names only the application otherwise", () => {
     expect(locationFor("database")).toBe("/database");
+  });
+});
+
+describe("what the address names within a page", () => {
+  it("reads the screen open inside the page", () => {
+    expect(detailFromLocation("#/database/semesters/timetable:term-1")).toBe("timetable:term-1");
+  });
+
+  it("says nothing when the address stops at the page", () => {
+    expect(detailFromLocation("#/database/semesters")).toBe("");
+  });
+
+  it("writes one into the address, and leaves it out when there is none", () => {
+    expect(locationFor("database", "semesters", "timetable:term-1")).toBe("/database/semesters/timetable:term-1");
+    expect(locationFor("database", "semesters")).toBe("/database/semesters");
+    // A screen cannot be named without the page it is on.
+    expect(locationFor("database", "", "timetable:term-1")).toBe("/database");
   });
 });
