@@ -889,34 +889,6 @@ def test_a_cohort_taught_over_two_semesters_is_checked_in_both(client: TestClien
     ]
 
 
-def test_every_cohort_at_once_says_what_each_says_asked_alone(client: TestClient, database: StudentDatabase):
-    """The cheaper way to ask is the same question.
-
-    The cohorts page reads every cohort's verdict, and did it one request per cohort, each
-    re-reading the whole semester. They share that reading now, which is only safe while
-    the answers stay the answers.
-    """
-    cohort_id = build_cohort(database)
-    client.put(f"{BASE}/term-links/{HUB_TERM}", json={"portalTermCode": TERM})
-    made = make_filter(client, "registrations")
-    client.post(
-        f"{BASE}/filters/{made['id']}/sync/registrations",
-        json={
-            "termCode": TERM,
-            "rows": [
-                {"studentId": "A001", "crn": "23653", "courseCode": "MATH-011"},
-                {"studentId": "A003", "crn": "22151", "courseCode": "MATH-001"},
-            ],
-        },
-    )
-
-    alone = client.get(f"{BASE}/cohorts/{cohort_id}/registration-check").json()
-    together = client.get(f"{BASE}/registration-checks").json()["cohorts"]
-
-    assert cohort_id in together
-    assert together[cohort_id] == alone
-
-
 def test_the_check_says_where_the_registrar_differs_from_our_groups(client: TestClient, database: StudentDatabase):
     cohort_id = build_cohort(database)
     client.put(f"{BASE}/term-links/{HUB_TERM}", json={"portalTermCode": TERM})

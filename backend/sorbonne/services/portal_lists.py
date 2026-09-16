@@ -2160,33 +2160,6 @@ class PortalListStore:
             electives=electives,
         )
 
-
-    def registration_checks(
-        self,
-        cohort_ids: list[str],
-        database: StudentDatabase,
-        facilities: FacilityWindows | None = None,
-        on: str = "",
-    ) -> dict[str, RegistrationReport]:
-        """The same verdict for several cohorts, off one reading of the semester.
-
-        The cohorts page asks for every cohort at once and always has: which of them need
-        attention is the question it exists to answer. It asked as four separate requests,
-        and each of those read the whole semester for itself — the publication, the
-        registrations, the pulls, the collisions — so the same rows crossed the network
-        four times.
-
-        The verdicts are per cohort and stay per cohort; only the reading is shared. What
-        each cohort is told is exactly what `registration_check` tells it on its own, which
-        is the property to hold on to here: this is a cheaper way to ask, not a different
-        question.
-        """
-        reads = _TermReads(self, database, facilities)
-        return {
-            cohort_id: self.registration_check(cohort_id, database, facilities=facilities, on=on, reads=reads)
-            for cohort_id in cohort_ids
-        }
-
     def _collided(  # noqa: PLR0913 - what the caller has already read, handed on
         self,
         term_id: str,

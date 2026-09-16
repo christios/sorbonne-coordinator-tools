@@ -281,9 +281,6 @@ export function StudentRecord({
       // register's answer is the slowest thing the server builds. Asking for all four
       // put the next click behind three answers nobody was waiting for.
       void client.invalidateQueries({ queryKey: ["registration-check", cohortId] });
-      // The cohorts page holds every cohort's verdict as one answer, and this student is
-      // in it. One request, so the objection above does not apply.
-      void client.invalidateQueries({ queryKey: ["registration-check", "all"] });
     },
   });
   /*
@@ -298,7 +295,6 @@ export function StudentRecord({
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ["approvals", row.studentId] });
       void client.invalidateQueries({ queryKey: ["registration-check", cohortId] });
-      void client.invalidateQueries({ queryKey: ["registration-check", "all"] });
       void client.invalidateQueries({ queryKey: ["student-history", row.studentId] });
     },
   });

@@ -681,34 +681,6 @@ def registration_check(
     }
 
 
-@router.get("/registration-checks")
-def registration_checks(
-    store: PortalListStore = Depends(get_store),
-    database: StudentDatabase = Depends(get_database),
-    facilities: FacilityTimetableStore = Depends(get_facilities),
-) -> dict[str, Any]:
-    """Every cohort's verdict, off one reading of the semester.
-
-    The cohorts page needs all of them — which cohorts need attention is the question it
-    is there to answer — and asked for them one request each. Each of those read the whole
-    semester for itself, so the same rows crossed the network once per cohort.
-
-    Each cohort's answer is what it would be asked for alone, to the letter.
-    """
-    cohort_ids = [cohort["id"] for cohort in database.list_cohorts()]
-    reports = store.registration_checks(cohort_ids, database, facilities=facilities)
-    return {
-        "cohorts": {
-            cohort_id: {
-                "mismatches": [mismatch.as_payload() for mismatch in report.mismatches],
-                "coverage": [term.as_payload() for term in report.coverage],
-                "electives": [elective.as_payload() for elective in report.electives],
-            }
-            for cohort_id, report in reports.items()
-        }
-    }
-
-
 # -------------------------------------------------- the registrar's own schedule
 
 

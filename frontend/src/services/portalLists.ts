@@ -675,18 +675,6 @@ export function fetchRegistrationCheck(cohortId: string): Promise<RegistrationRe
 }
 
 /**
- * Every cohort's verdict, in one question.
- *
- * The cohorts page wants all of them — which cohorts need attention is what it is for —
- * and asked one request per cohort, each of which read the whole semester on the server
- * for itself. One request reads it once. Each cohort's answer is what it would be asked
- * for alone, to the letter, which a test on the server holds to.
- */
-export async function fetchRegistrationChecks(): Promise<Record<string, RegistrationReport>> {
-  return (await request<{ cohorts: Record<string, RegistrationReport> }>("/registration-checks")).cohorts;
-}
-
-/**
  * What one semester's coverage means, said so it can be acted on — or "" when there is
  * nothing to say because the semester was fully checked.
  *
