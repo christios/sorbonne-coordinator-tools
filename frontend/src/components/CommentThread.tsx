@@ -7,20 +7,8 @@ import {
   fetchComments,
   postComment,
   type StudentComment,
+  writtenAt,
 } from "@/services/studentComments";
-
-/** When a line was written, the way the rest of the record dates things. */
-function when(iso: string): string {
-  const at = new Date(iso);
-  if (Number.isNaN(at.getTime())) return iso;
-  return at.toLocaleString(undefined, {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
 
 const same = (left: string, right: string) =>
   left.trim().toLowerCase() === right.trim().toLowerCase();
@@ -91,7 +79,7 @@ export function CommentThread({
                 </span>
                 <span className="flex items-center gap-2 whitespace-nowrap">
                   <time dateTime={comment.createdAt}>
-                    {when(comment.createdAt)}
+                    {writtenAt(comment.createdAt)}
                   </time>
                   {me && same(me.email, comment.authorEmail) ? (
                     <button

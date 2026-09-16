@@ -1,6 +1,7 @@
-import { AlertTriangle, CalendarClock, ClipboardList, Clock3, LayoutGrid, MessageSquare, RotateCcw, X } from "lucide-react";
+import { AlertTriangle, CalendarClock, ClipboardList, Clock3, LayoutGrid, RotateCcw, X } from "lucide-react";
 import { memo, useCallback } from "react";
 
+import { CommentPeek } from "@/components/CommentPeek";
 import { DataTable, type Sort } from "@/components/DataTable";
 import { describeWarning, labelWarning, sourceOf, type WarningSource } from "@/services/discrepancies";
 import type { StudentRow } from "@/services/rosterView";
@@ -75,20 +76,17 @@ export const StudentTable = memo(function StudentTable({
       const count = commentCounts?.get(row.studentId) ?? 0;
       const who = row.name || row.studentId;
       return (
-        <button
-          type="button"
-          aria-label={count ? `${count} comment${count === 1 ? "" : "s"} on ${who}` : `Comment on ${who}`}
-          title={count ? "Read the comments on this student, or add one" : "Add a comment on this student"}
-          onClick={() => onOpenComments(row)}
+        <CommentPeek
+          studentId={row.studentId}
+          label={who}
+          count={count}
+          onOpen={() => onOpenComments(row)}
           // With comments it stays in view, since it is saying something; without, it
           // waits for the pointer like the checkbox beside it.
           className={`inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[11px] tabular-nums hover:bg-[#f2f7fb] ${
             count ? "text-[#1f4e79]" : "text-[#98a2b3] opacity-0 focus-visible:opacity-100 group-hover:opacity-100"
           }`}
-        >
-          <MessageSquare size={13} aria-hidden="true" />
-          {count ? <span>{count}</span> : null}
-        </button>
+        />
       );
     },
     [commentCounts, onOpenComments],

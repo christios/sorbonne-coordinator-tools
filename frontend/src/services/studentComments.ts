@@ -22,6 +22,19 @@ export type StudentComment = {
   createdAt: string;
 };
 
+/** When a line was written, the way the rest of the record dates things. */
+export function writtenAt(iso: string): string {
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return iso;
+  return at.toLocaleString(undefined, {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 /** Per student: how many lines, and when the last was written. Only students with any. */
 export type CommentSummary = Record<string, { count: number; lastAt: string }>;
 
