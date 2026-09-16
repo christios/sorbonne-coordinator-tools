@@ -769,6 +769,25 @@ class StudentDatabase:
                 ).all()
             )
 
+        return self._catalogue_of(scopes, courses, groups, majors, cells, by_major, exempt, counts)
+
+    def _catalogue_of(  # noqa: PLR0913 - one argument per table the cards are built from
+        self,
+        scopes: list[Any],
+        courses: list[Any],
+        groups: list[Any],
+        majors: list[Any],
+        cells: list[Any],
+        by_major: dict[str, int],
+        exempt: dict[str, int],
+        counts: dict[str, int],
+    ) -> dict[str, Any]:
+        """The cards, once the eight tables behind them have been read.
+
+        Split out from the reading because `list_catalogues` reads those tables once for
+        every cohort at once and then hands each cohort its own share, which is the same
+        assembly over a smaller pile of rows.
+        """
         shared = [cell for cell in cells if not cell["major_id"]]
         crns = _sections_of(shared)
         for group_id, sections in crns.items():
@@ -842,16 +861,108 @@ class StudentDatabase:
         }
 
     def list_catalogues(self) -> list[dict[str, Any]]:
-        """Every cohort's blocks, every semester — the cards page reads them all at once."""
-        return [
-            {
-                "cohort": {"id": cohort["id"], "name": cohort["name"], "term": cohort["term"]},
-                # This cohort's own rows: a card page that showed the languages under all
-                # four cohorts would be showing one set four times.
-                **self.read_catalogue(cohort["id"], own_only=True),
-            }
-            for cohort in self.list_cohorts()
-        ]
+        """Every cohort's blocks, every semester — the cards page reads them all at once.
+
+        Read for all cohorts together rather than one cohort at a time. Every table here
+        is asked for once and then shared out, because the round trip to the database is
+        the expensive part and the rows are few: four cohorts cost thirty-seven trips when
+        each was read on its own, and nine when they are read together.
+
+        The two counts have to be asked for by cohort — a set open to the whole department
+        counts everyone in it, and any other set only its own cohort's students — so they
+        are grouped by cohort as well, and each cohort adds up the shares that are its own.
+
+        Each cohort gets its OWN rows, as `read_catalogue(own_only=True)` gives: a card
+        page that showed the languages under all four cohorts would be showing one set
+        four times. That is exactly a partition of the scopes by the cohort that owns them,
+        so reading every scope once and dealing them out loses nothing.
+        """
+        with self.engine.connect() as connection:
+            cohorts = [
+                _cohort(row)
+                for row in connection.execute(
+                    text("""SELECT c.*,
+                                (SELECT count(*) FROM students m WHERE m.cohort_id = c.id) AS member_count,
+                                (SELECT count(*) FROM cohort_scopes s WHERE s.cohort_id = c.id) AS scope_count
+                            FROM student_cohorts c ORDER BY c.name""")
+                )
+                .mappings()
+                .all()
+            ]
+            scopes = (
+                connection.execute(text("SELECT * FROM cohort_scopes ORDER BY position, code")).mappings().all()
+            )
+            scope_ids = [row["id"] for row in scopes]
+            courses = self._rows(connection, "scope_courses", scope_ids, "position, code")
+            groups = self._rows(connection, "scope_groups", scope_ids, "position, label")
+            majors = self._majors(connection, scope_ids)
+            cells = (
+                connection.execute(
+                    text("""SELECT gc.* FROM group_crns gc
+                            JOIN scope_groups g ON g.id = gc.group_id
+                            WHERE g.scope_id = ANY(:ids)"""),
+                    {"ids": scope_ids or [""]},
+                )
+                .mappings()
+                .all()
+            )
+            exempt = dict(
+                connection.execute(
+                    text("""SELECT a.group_id || '|' || e.course_id, count(*)
+                            FROM course_exemptions e
+                            JOIN scope_courses c ON c.id = e.course_id
+                            JOIN group_assignments a
+                              ON a.scope_id = c.scope_id AND a.student_id = e.student_id
+                            GROUP BY a.group_id, e.course_id"""),
+                ).all()
+            )
+            # Whose the assignment is, and whether the set it sits in is the department's
+            # — the two things that decide which cohorts may count it.
+            by_major = connection.execute(
+                text("""SELECT s.open_to_all, a.cohort_id, a.major_id, count(*)
+                        FROM group_assignments a
+                        JOIN scope_groups g ON g.id = a.group_id
+                        JOIN cohort_scopes s ON s.id = g.scope_id
+                        WHERE a.major_id <> ''
+                        GROUP BY s.open_to_all, a.cohort_id, a.major_id"""),
+            ).all()
+            counts = connection.execute(
+                text("""SELECT s.open_to_all, a.cohort_id, a.group_id, count(*)
+                        FROM group_assignments a
+                        JOIN scope_groups g ON g.id = a.group_id
+                        JOIN cohort_scopes s ON s.id = g.scope_id
+                        GROUP BY s.open_to_all, a.cohort_id, a.group_id"""),
+            ).all()
+
+        def tally(rows: list[Any], cohort_id: str) -> dict[str, int]:
+            """One cohort's share of a count: its own students, and everyone in a shared set."""
+            totals: dict[str, int] = {}
+            for open_to_all, whose, key, many in rows:
+                if open_to_all or whose == cohort_id:
+                    totals[key] = totals.get(key, 0) + int(many)
+            return totals
+
+        catalogues = []
+        for cohort in cohorts:
+            mine = [scope for scope in scopes if scope["cohort_id"] == cohort["id"]]
+            ids = {scope["id"] for scope in mine}
+            group_ids = {group["id"] for group in groups if group["scope_id"] in ids}
+            catalogues.append(
+                {
+                    "cohort": {"id": cohort["id"], "name": cohort["name"], "term": cohort["term"]},
+                    **self._catalogue_of(
+                        mine,
+                        [row for row in courses if row["scope_id"] in ids],
+                        [row for row in groups if row["scope_id"] in ids],
+                        [row for row in majors if row["group_id"] in group_ids],
+                        [row for row in cells if row["group_id"] in group_ids],
+                        tally(by_major, cohort["id"]),
+                        exempt,
+                        tally(counts, cohort["id"]),
+                    ),
+                }
+            )
+        return catalogues
 
     def _rows(self, connection: Connection, table: str, scope_ids: list[str], order: str):
         return (

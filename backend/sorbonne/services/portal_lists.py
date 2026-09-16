@@ -1952,16 +1952,27 @@ class PortalListStore:
         links = self.term_links()
         present = set(database.scope_terms(cohort_id))
         members = database.cohort_members(cohort_id)
+        seen_pulls: dict[str, set[str]] = {}
+
+        def pulled(term_code: str) -> set[str]:
+            """Who the term's pulls returned — asked for once per semester, not per question."""
+            if term_code not in seen_pulls:
+                seen_pulls[term_code] = self.pulled_students(term_code)
+            return seen_pulls[term_code]
+
         found: list[Mismatch] = []
         coverage: list[TermCoverage] = []
         electives: list[Elective] = []
         for term_id in sorted(present | set(links)):
             term_code = links.get(term_id, "")
             # Two sections of one set, before anything about placement is asked.
-            found.extend(self._doubled_in_a_set(cohort_id, term_id, term_code, database))
+            # Read once for the semester and handed to whoever needs it: the doubled check
+            # and the coverage below were each asking for the same two lists again.
+            pulled_here = pulled(term_code)
+            found.extend(self._doubled_in_a_set(term_id, term_code, database, members, pulled_here))
             # And the students caught between one of our sections and a department's we do
             # not own. Switched on and floored by the department — see services/checks.py.
-            found.extend(self._collided(cohort_id, term_id, term_code, database, switches))
+            found.extend(self._collided(term_id, term_code, switches, members))
             cohort = next(
                 (entry for entry in database.term_publication(term_id) if entry["cohortId"] == cohort_id), None
             )
@@ -1984,7 +1995,6 @@ class PortalListStore:
                 # Not `cohort["students"]`: a cohort with no sets of its own on this
                 # semester has no entry below at all, and it is precisely that cohort whose
                 # coverage nobody has ever seen.
-                pulled_here = self.pulled_students(term_code)
                 judged = sorted(members & pulled_here)
                 skipped = sorted(members - pulled_here)
                 coverage.append(
@@ -2073,13 +2083,8 @@ class PortalListStore:
             electives=electives,
         )
 
-    def _collided(  # noqa: PLR0913 - one argument per thing the verdict is about
-        self,
-        cohort_id: str,
-        term_id: str,
-        term_code: str,
-        database: StudentDatabase,
-        switches: dict[str, Setting],
+    def _collided(
+        self, term_id: str, term_code: str, switches: dict[str, Setting], members: set[str]
     ) -> list[Mismatch]:
         """Students in one of our sections and another department's at the same hour.
 
@@ -2101,7 +2106,6 @@ class PortalListStore:
         rows = self.section_collisions(term_code)["collides"]
         if not rows:
             return []
-        members = database.cohort_members(cohort_id)
         found: list[Mismatch] = []
         for row in rows:
             if row["minutes"] < setting.threshold:
@@ -2121,8 +2125,13 @@ class PortalListStore:
                 )
         return found
 
-    def _doubled_in_a_set(
-        self, cohort_id: str, term_id: str, term_code: str, database: StudentDatabase
+    def _doubled_in_a_set(  # noqa: PLR0913 - what the caller has already read, handed on
+        self,
+        term_id: str,
+        term_code: str,
+        database: StudentDatabase,
+        members: set[str],
+        pulled: set[str],
     ) -> list[Mismatch]:
         """Students the registrar has in two groups of one set, which nobody can attend.
 
@@ -2144,9 +2153,8 @@ class PortalListStore:
             return []
 
         registered = self.registered_in(term_code)
-        pulled = self.pulled_students(term_code)
         found: list[Mismatch] = []
-        for student in sorted(database.cohort_members(cohort_id) & pulled):
+        for student in sorted(members & pulled):
             theirs = {crn for crns in registered.get(student, {}).values() for crn in crns}
             if not theirs:
                 continue
