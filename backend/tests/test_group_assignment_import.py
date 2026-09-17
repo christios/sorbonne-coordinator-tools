@@ -50,6 +50,32 @@ def template(rows: list[tuple[str, str, str]]) -> bytes:
     return workbook(built)
 
 
+# The same map, from a file that also tells a group nobody has from one this course is not
+# taught to. The fallback text changed; the MATCH the reading depends on did not.
+SORTED_CRN_FORMULA = (
+    '=IF($E2="","",IFERROR(INDEX(FYS_CRN,MATCH("{block}|"&${column}2&"|{course}",FYS_KEY,0)),'
+    'IF(COUNTIF(FYS_{block}_GROUPS,${column}2)=0,"group?","\u2014")))'
+)
+
+
+def test_the_map_survives_a_formula_that_also_says_not_taught_here():
+    rows = [
+        [
+            "A00021503",
+            "Ignored",
+            "3",
+            "A",
+            SORTED_CRN_FORMULA.format(block="TD", column="C", course="MATH011"),
+            SORTED_CRN_FORMULA.format(block="CM", column="D", course="MATH001"),
+        ]
+    ]
+
+    report = parse_group_assignments(workbook(rows))
+
+    assert report.students == {"A00021503": {"TD": "3", "CM": "A"}}
+    assert report.scopes_seen == {"TD", "CM"}
+
+
 def test_a_students_typed_groups_are_read_per_block():
     report = parse_group_assignments(template([("A00021503", "3", "A")]))
 

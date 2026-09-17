@@ -8,6 +8,7 @@ import {
   columnsOf,
   crnFormula,
   crnRanges,
+  groupColumnName,
   groupsName,
   helperKey,
   prefixOf,
@@ -45,6 +46,26 @@ const RDNS: ExportBlock = {
   groupColumn: "Readiness group",
   courses: [{ id: "c9", code: "SCEN102", name: "Mathematics Readiness", component: "TD" }],
   groups: [{ id: "r1", label: "1", capacity: 0, note: "", crns: { c9: { crn: "23998", teacher: "TBD" } } }],
+};
+
+/**
+ * The lectures, as the L1 workbook holds them: one block whose groups are the programmes,
+ * and two courses each read by only one of them.
+ */
+const CM: ExportBlock = {
+  code: "CM",
+  name: "",
+  tab: "CM",
+  groupColumn: "(Program)",
+  columnIndex: 0,
+  courses: [
+    { id: "o1", code: "PHYS118", name: "Geometric Optics", component: "CM" },
+    { id: "p1", code: "MATH113", name: "Philosophy of AI", component: "CM" },
+  ],
+  groups: [
+    { id: "gm", label: "Mathematics", capacity: 0, note: "", crns: { p1: { crn: "23307", teacher: "Claude Spaak" } } },
+    { id: "gp", label: "Physics", capacity: 0, note: "", crns: { o1: { crn: "22150", teacher: "Valerie LE GUYON" } } },
+  ],
 };
 
 const STUDENTS: ExportStudent[] = [
@@ -228,5 +249,63 @@ describe("the file it writes", () => {
 
     expect(text).toContain('Tab "TD"  →  column "TD group"   (2 groups)');
     expect(text).toContain("23652");
+  });
+});
+
+describe("what the amber column is called", () => {
+  it("keeps the name the coordinator's workbook gave it", () => {
+    expect(groupColumnName(TD)).toBe("TD group");
+  });
+
+  it("reads a name in brackets as a note about the column rather than its name", () => {
+    // "(Program)" meant there is no column for this block — the group follows from what
+    // the student reads. Printed as a heading it is a second Program column, amber, with
+    // TYPE HERE under it, next to the real one and asking to be filled in.
+    expect(groupColumnName(CM)).toBe("CM group");
+    expect(groupColumnName({ ...CM, name: "Lectures" })).toBe("Lectures group");
+  });
+
+  it("says the same thing on the tab, on the Reference sheet and in the Legend", async () => {
+    const book = await built([CM]);
+
+    expect(String(book.getWorksheet("CM")?.getCell(1, 5).value)).toBe("CM group\n◀ TYPE HERE");
+    expect(referenceRows([CM])[0][8]).toBe("CM group");
+    expect(String(book.getWorksheet("Legend")?.getCell(4, 1).value)).toContain('column "CM group"');
+  });
+});
+
+describe("a course the group in front of you does not read", () => {
+  it("says so with a dash, rather than crying group? at a group that plainly exists", () => {
+    const formula = crnFormula("FYS", "CM", "E", "PHYS118", 2, "FYS_CM_GROUPS");
+
+    expect(formula).toContain('IF(COUNTIF(FYS_CM_GROUPS,$E2)=0,"group?","—")');
+  });
+
+  it("still says group? where the group is one this block has never had", () => {
+    const formula = crnFormula("FYS", "CM", "E", "PHYS118", 2);
+
+    expect(formula).toContain('"group?"');
+    expect(formula).not.toContain("COUNTIF");
+  });
+
+  it("leaves the block and column the importer reads back out exactly where they were", () => {
+    expect(crnFormula("FYS", "TD", "E", "MATH001", 2, "FYS_TD_GROUPS")).toContain(
+      'MATCH("TD|"&$E2&"|MATH001",FYS_KEY,0)',
+    );
+  });
+
+  it("points the cells it writes at the block's own list of groups", async () => {
+    const tab = (await built([CM])).getWorksheet("CM");
+    const optics = tab?.getCell("F2").value as { formula?: string };
+
+    expect(optics?.formula).toContain("COUNTIF(FYS_CM_GROUPS,$E2)");
+  });
+
+  it("asks nothing of a block that has no groups to ask about", async () => {
+    // Without a list there is no range to count in, and COUNTIF would answer #NAME?.
+    const tab = (await built([{ ...CM, groups: [] }])).getWorksheet("CM");
+    const optics = tab?.getCell("F2").value as { formula?: string };
+
+    expect(optics?.formula).not.toContain("COUNTIF");
   });
 });

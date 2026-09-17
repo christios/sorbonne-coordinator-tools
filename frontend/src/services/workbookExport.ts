@@ -139,17 +139,57 @@ export function helperKey(scopeCode: string, groupLabel: string, courseCode: str
   return `${scopeCode}|${groupLabel}|${courseCode}`;
 }
 
-/** The formula a CRN cell carries, which is also how the block is read back out. */
+/**
+ * What a CRN cell says when the group it was given has no CRN for that course.
+ *
+ * Not every course in a block is taught to every group of it. The lectures are one block
+ * whose groups are the programmes, and the optics is read by the physicists while the
+ * philosophy is read by the mathematicians — so on that tab each of those two columns is
+ * empty for the other programme's students, by design and for every one of them.
+ *
+ * It used to say "group?" there, which is what a group nobody has ever heard of says, and
+ * it is alarming in a column of a hundred: nothing is missing and there is nothing to fix.
+ * A dash says what the Legend already says by leaving that square blank.
+ */
+const NOT_TAKEN = "—";
+
+/**
+ * What a block's amber column is called — on the student tabs, on the Reference sheet and
+ * in the Legend, which have to agree or the file contradicts itself.
+ *
+ * A name in brackets is not a name. The workbooks these blocks were read from wrote
+ * "(Program)" against a block whose groups are the programmes, meaning *there is no column
+ * for this one — it follows from what they read*, and those blocks duly have no column
+ * recorded. Printed as a heading it becomes a second Program column, amber, with TYPE HERE
+ * under it, standing beside the real one and asking to be filled in. The block's own name
+ * is the honest answer, and it is what the rest of the file already falls back to.
+ */
+export function groupColumnName(block: { code: string; name?: string; groupColumn?: string }): string {
+  const held = (block.groupColumn ?? "").trim();
+  const named = /^\(.*\)$/.test(held) ? "" : held;
+  return named || `${(block.name ?? "").trim() || block.code} group`;
+}
+
+/**
+ * The formula a CRN cell carries, which is also how the block is read back out.
+ *
+ * `groupsRange` names the block's own list of groups, where it has one. With it the
+ * formula can tell a group that does not exist from a group that exists and is not taught
+ * this course — the same failed lookup, and nothing like the same news.
+ */
 export function crnFormula(
   prefix: string,
   scopeCode: string,
   groupColumn: string,
   courseCode: string,
   row: number,
+  groupsRange = "",
 ): string {
+  const typed = `$${groupColumn}${row}`;
+  const missing = groupsRange ? `IF(COUNTIF(${groupsRange},${typed})=0,"group?","${NOT_TAKEN}")` : '"group?"';
   return (
-    `IF($${groupColumn}${row}="","",IFERROR(INDEX(${prefix}_CRN,` +
-    `MATCH("${scopeCode}|"&$${groupColumn}${row}&"|${courseCode}",${prefix}_KEY,0)),"group?"))`
+    `IF(${typed}="","",IFERROR(INDEX(${prefix}_CRN,` +
+    `MATCH("${scopeCode}|"&${typed}&"|${courseCode}",${prefix}_KEY,0)),${missing}))`
   );
 }
 
@@ -282,7 +322,7 @@ export function referenceRows(
           course.component,
           named(cell),
           block.tab || block.code,
-          block.groupColumn || `${block.code} group`,
+          groupColumnName(block),
           helperKey(block.code, group.label, key),
         ]);
       }
@@ -362,7 +402,7 @@ function writeStudentTab(sheet: Sheet, blocks: ExportBlock[], input: ExportInput
 
   const placed = columnsOf(blocks);
   for (const { block, group, courses } of placed) {
-    heading(sheet, 1, group, `${block.groupColumn || `${block.code} group`}\n◀ TYPE HERE`, true);
+    heading(sheet, 1, group, `${groupColumnName(block)}\n◀ TYPE HERE`, true);
     block.courses.forEach((course, offset) => {
       const suffix = course.component ? ` (${course.component})` : "";
       heading(sheet, 1, courses + offset, `${keyOf(input, course)}\n${course.name}${suffix}`);
@@ -402,6 +442,8 @@ function writeStudentTab(sheet: Sheet, blocks: ExportBlock[], input: ExportInput
 
     for (const { block, group, courses } of placed) {
       const letter = columnLetter(group);
+      // Named only where the block has groups; without a list COUNTIF would have no range.
+      const groups = block.groups.length ? groupsName(input.prefix, block.code) : "";
       const typed = sheet.getCell(row, group);
       typed.value = student ? (student.groups[block.code] ?? "") : "";
       typed.font = { name: "Calibri", size: 11, bold: true };
@@ -411,7 +453,7 @@ function writeStudentTab(sheet: Sheet, blocks: ExportBlock[], input: ExportInput
 
       block.courses.forEach((course, offset) => {
         const cell = sheet.getCell(row, courses + offset);
-        cell.value = { formula: crnFormula(input.prefix, block.code, letter, keyOf(input, course), row) };
+        cell.value = { formula: crnFormula(input.prefix, block.code, letter, keyOf(input, course), row, groups) };
         cell.font = { name: "Calibri", size: 11 };
         cell.alignment = { horizontal: "center", vertical: "middle" };
         cell.border = ruled();
@@ -484,7 +526,7 @@ function writeReference(book: { definedNames: { add: (range: string, name: strin
   input.blocks.forEach((block, index) => {
     const column = firstList + index;
     const header = sheet.getCell(6, column);
-    header.value = block.groupColumn || `${block.code} group`;
+    header.value = groupColumnName(block);
     header.font = { bold: true, size: 9 };
     header.alignment = { wrapText: true };
     block.groups.forEach((group, offset) => {
@@ -522,7 +564,7 @@ function writeLegend(sheet: Sheet, input: ExportInput): void {
   let row = 4;
   for (const block of input.blocks) {
     const banner = sheet.getCell(row, 1);
-    banner.value = `Tab "${block.tab || block.code}"  →  column "${block.groupColumn || `${block.code} group`}"   (${block.groups.length} group${block.groups.length === 1 ? "" : "s"})`;
+    banner.value = `Tab "${block.tab || block.code}"  →  column "${groupColumnName(block)}"   (${block.groups.length} group${block.groups.length === 1 ? "" : "s"})`;
     banner.font = { bold: true, size: 10 };
     paint(banner, "FFE7E6E6");
     row += 1;
