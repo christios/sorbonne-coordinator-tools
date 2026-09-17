@@ -525,6 +525,100 @@ describe("StudentRoster", () => {
     expect(move.mock.calls[0]).toEqual([["A001"], "cohort-2", true]);
   });
 
+  it("empties one semester's groups from its own button, and leaves the cohort alone", async () => {
+    /*
+     * This was reachable only as a row of "Place in groups…": choose a semester, choose a
+     * set, then "Take them out of this set" — once per set, each time a decision about
+     * placing worded as one about removing.
+     */
+    vi.spyOn(database, "fetchStudents").mockResolvedValue(
+      HELD.map((student) =>
+        student.studentId === "A001"
+          ? {
+              ...student,
+              groups: [
+                { termId: "term-1", scopeCode: "TD", groupLabel: "1" },
+                { termId: "term-1", scopeCode: "CM", groupLabel: "A" },
+              ],
+            }
+          : student,
+      ),
+    );
+    vi.spyOn(database, "fetchCatalogue").mockResolvedValue({
+      scopes: [
+        { id: "s-td", code: "TD" },
+        { id: "s-cm", code: "CM" },
+        // A set they are in none of: one request per set, and this one would say nothing.
+        { id: "s-tp", code: "TP" },
+      ],
+    } as unknown as database.Catalogue);
+    const empty = vi.spyOn(database, "assignStudents").mockResolvedValue({ assigned: 1, skipped: [] });
+    const move = vi.spyOn(database, "setCohort").mockResolvedValue(1);
+    await withNames();
+    renderRoster();
+    await screen.findByText("Amira Haddad");
+
+    fireEvent.click(screen.getByLabelText("Select Amira Haddad"));
+    fireEvent.click(screen.getByRole("button", { name: /Out of groups/ }));
+
+    const dialog = await screen.findByRole("dialog");
+    // The semester is named rather than asked for: it is the only one they hold a group in.
+    expect(within(dialog).getByText(/the only semester they hold a group in/)).toBeTruthy();
+    // And what goes is listed, not counted.
+    expect(within(dialog).getByText(/CM A, TD 1/)).toBeTruthy();
+    expect(within(dialog).getByText(/Their cohort is unchanged/)).toBeTruthy();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: /Take them out of 2 groups/ }));
+
+    await waitFor(() => expect(empty).toHaveBeenCalledTimes(2));
+    expect(empty.mock.calls.map((call) => [call[0], call[1], call[2]])).toEqual([
+      ["s-td", ["A001"], null],
+      ["s-cm", ["A001"], null],
+    ]);
+    // The cohort is not touched: this is the smaller of the two removals.
+    expect(move).not.toHaveBeenCalled();
+  });
+
+  it("asks which semester when they hold groups in more than one", async () => {
+    vi.spyOn(database, "fetchStudents").mockResolvedValue(
+      HELD.map((student) =>
+        student.studentId === "A001"
+          ? {
+              ...student,
+              groups: [
+                { termId: "term-1", scopeCode: "TD", groupLabel: "1" },
+                { termId: "term-2", scopeCode: "TD", groupLabel: "3" },
+              ],
+            }
+          : student,
+      ),
+    );
+    await withNames();
+    renderRoster();
+    await screen.findByText("Amira Haddad");
+
+    fireEvent.click(screen.getByLabelText("Select Amira Haddad"));
+    fireEvent.click(screen.getByRole("button", { name: /Out of groups/ }));
+
+    const dialog = await screen.findByRole("dialog");
+    // A choice between the two they are actually in — not a list of every semester the
+    // department has ever run — and nothing is written until one is named.
+    expect(within(dialog).getByRole("combobox", { name: "Semester" })).toBeTruthy();
+    expect((within(dialog).getByRole("button", { name: /Take them out/ }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("says plainly when the selection holds no groups to give up", async () => {
+    await withNames();
+    renderRoster();
+    await screen.findByText("Amira Haddad");
+
+    fireEvent.click(screen.getByLabelText("Select Amira Haddad"));
+    fireEvent.click(screen.getByRole("button", { name: /Out of groups/ }));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText(/no group in any semester/)).toBeTruthy();
+  });
+
   it("lets the move be called off, and nothing is written", async () => {
     vi.spyOn(database, "fetchStudents").mockResolvedValue(
       HELD.map((student) =>
@@ -550,19 +644,32 @@ describe("StudentRoster", () => {
     expect(move).not.toHaveBeenCalled();
   });
 
-  it("takes students out of a cohort with a null, not a delete", async () => {
+  it("takes students out of a cohort from its own button, with a null and not a delete", async () => {
     const move = vi.spyOn(database, "setCohort").mockResolvedValue(1);
     await withNames();
     renderRoster();
     await screen.findByText("Amira Haddad");
 
     fireEvent.click(screen.getByLabelText("Select Amira Haddad"));
-    await openMove();
-    await choose("Move to cohort", /Take them out/);
-    fireEvent.click(screen.getByRole("button", { name: /Move 1/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Out of cohort/ }));
+    // Always asked, whatever it costs: the one act on this bar that cannot be undone.
+    fireEvent.click(await screen.findByRole("button", { name: "Move anyway" }));
 
     await waitFor(() => expect(move).toHaveBeenCalled());
     expect(move.mock.calls[0]).toEqual([["A001"], null, true]);
+  });
+
+  it("asks before taking them out of a cohort even when it costs nothing", async () => {
+    // A move that throws nothing away goes straight through; a removal never does.
+    vi.spyOn(database, "setCohort").mockResolvedValue(1);
+    await withNames();
+    renderRoster();
+    await screen.findByText("Amira Haddad");
+
+    fireEvent.click(screen.getByLabelText("Select Amira Haddad"));
+    fireEvent.click(screen.getByRole("button", { name: /Out of cohort/ }));
+
+    expect(await screen.findByRole("button", { name: "Move anyway" })).toBeTruthy();
   });
 
   it("selects everyone shown, respecting the filter", async () => {

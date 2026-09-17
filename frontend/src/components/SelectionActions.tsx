@@ -1,4 +1,4 @@
-import { FolderInput, LayoutGrid, X } from "lucide-react";
+import { FolderInput, LayoutGrid, UserMinus, X } from "lucide-react";
 import type { ReactNode } from "react";
 
 export type SelectionActionsProps = {
@@ -8,10 +8,15 @@ export type SelectionActionsProps = {
   /** False when the selection spans cohorts, since a group belongs to one. */
   canPlace: boolean;
   onPlace: () => void;
+  /** Out of the groups they hold in one semester, keeping their cohort. */
+  onOutOfGroups: () => void;
+  /** Out of the cohort altogether, which gives up every group in every semester. */
+  onOutOfCohort: () => void;
   onClear: () => void;
 };
 
 const PLACE_HINT = "A group belongs to one cohort — select students who share one";
+const GROUPS_HINT = "A group belongs to one cohort — select students who share one";
 
 /**
  * The two things that can be done, as two buttons.
@@ -20,11 +25,13 @@ const PLACE_HINT = "A group belongs to one cohort — select students who share 
  * of question asked two different ways, for no reason but the order they were written in.
  * Both open a dialog; neither decides anything from the bar itself.
  *
- * Still two, now that groups can be proposed as well as named. Naming the groups and having
- * them proposed are one act — these students need somewhere to sit — differing only in who
- * chooses, and that is a distinction better drawn one level down, inside the dialog that
- * already holds the semester and the cohort. A third button here would spend the decision
- * at the wrong level.
+ * Naming the groups and having them proposed are one act — these students need somewhere
+ * to sit — differing only in who chooses, and that is a distinction better drawn one level
+ * down, inside the dialog that already holds the semester and the cohort.
+ *
+ * Removing is not that act, and it was hiding inside both of the others: the last option
+ * of the cohort dropdown, and a row of the placing dialog. Two buttons of its own, drawn
+ * apart and in the colour of something that cannot be undone.
  */
 function Controls({ props }: { props: SelectionActionsProps }) {
   return (
@@ -45,6 +52,36 @@ function Controls({ props }: { props: SelectionActionsProps }) {
         className="inline-flex items-center gap-2 rounded-md border border-[#b7bec8] bg-white px-3 py-1.5 font-semibold text-[#344054] disabled:opacity-50"
       >
         <LayoutGrid size={15} aria-hidden="true" /> Place in groups…
+      </button>
+
+      {/*
+        * Removing, as two buttons rather than as the last line of a dialog about moving.
+        *
+        * It was reachable only by opening "Move to cohort…", scrolling past twenty
+        * cohorts and choosing "Take them out of their cohort" — an act of removal worded
+        * as one of moving, which is a guess a coordinator should not have to make twice.
+        *
+        * Two, because they are two different sizes and one word would not say which:
+        * out of a semester's groups keeps the cohort; out of the cohort gives up every
+        * group in every semester. Both ask before they act.
+        */}
+      <span className="mx-1 h-5 w-px bg-[#e4e8ef]" aria-hidden="true" />
+      <button
+        type="button"
+        disabled={!props.canPlace}
+        title={props.count && !props.canPlace ? GROUPS_HINT : undefined}
+        onClick={props.onOutOfGroups}
+        className="inline-flex items-center gap-2 rounded-md border border-[#e5b7b9] bg-white px-3 py-1.5 font-semibold text-[#a6292f] hover:bg-[#fdf3f3] disabled:opacity-50"
+      >
+        <UserMinus size={15} aria-hidden="true" /> Out of groups…
+      </button>
+      <button
+        type="button"
+        disabled={!props.count}
+        onClick={props.onOutOfCohort}
+        className="inline-flex items-center gap-2 rounded-md border border-[#e5b7b9] bg-white px-3 py-1.5 font-semibold text-[#a6292f] hover:bg-[#fdf3f3] disabled:opacity-50"
+      >
+        <UserMinus size={15} aria-hidden="true" /> Out of cohort…
       </button>
     </>
   );

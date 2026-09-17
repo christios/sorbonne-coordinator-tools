@@ -58,10 +58,16 @@ describe("moving students to another cohort", () => {
     expect(screen.queryByText(/would lose/i)).toBeNull();
   });
 
-  it("still warns plainly about taking them out of every cohort", async () => {
+  it("offers cohorts and nothing else", async () => {
+    /*
+     * "Take them out of their cohort" used to sit at the foot of this list, so removing
+     * somebody meant opening a dialog about moving them, scrolling past twenty cohorts
+     * and choosing the one option that was not one. Removing has its own button now.
+     */
     show(() => "");
-    await choose(/Take them out/);
+    fireEvent.click(screen.getByRole("combobox", { name: "Move to cohort" }));
 
-    expect(screen.getByText(/every group they hold will be given up/i)).toBeTruthy();
+    expect(screen.queryByRole("option", { name: /Take them out/ })).toBeNull();
+    expect(await screen.findByRole("option", { name: /Foundation Year/ })).toBeTruthy();
   });
 });

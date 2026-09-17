@@ -30,8 +30,7 @@ export function MoveToCohort({
   open: boolean;
   count: number;
   cohorts: Cohort[];
-  /** Null takes them out of whatever cohort they are in. */
-  onMove: (cohortId: string | null) => void;
+  onMove: (cohortId: string) => void;
   /**
    * What this particular move would throw away, or "" when it throws nothing away.
    *
@@ -41,13 +40,12 @@ export function MoveToCohort({
    * is already the destination. This dialog used to assert the loss anyway, on every
    * move, in either direction, before any cost had been worked out.
    */
-  describe: (cohortId: string | null) => string;
+  describe: (cohortId: string) => string;
   onNewCohort: () => void;
   onClose: () => void;
   busy: boolean;
 }) {
   const [cohortId, setCohortId] = useState("");
-  const OUT = "__out__";
   useEffect(() => {
     if (open) setCohortId("");
   }, [open]);
@@ -66,7 +64,7 @@ export function MoveToCohort({
           <button
             type="button"
             disabled={!cohortId || busy}
-            onClick={() => onMove(cohortId === OUT ? null : cohortId)}
+            onClick={() => onMove(cohortId)}
             className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-4 py-2 text-sm font-semibold text-white disabled:bg-[#9ba8b5]"
           >
             <FolderInput size={15} aria-hidden="true" /> Move {count}
@@ -81,32 +79,30 @@ export function MoveToCohort({
           value={cohortId}
           placeholder="Which cohort…"
           searchable={cohorts.length > 12}
-          options={[
-            ...cohorts.map((cohort) => ({
-              value: cohort.id,
-              label: cohort.name,
-              year: cohort.term,
-              badge: String(cohort.memberCount),
-              badgeTone: cohort.memberCount ? ("accent" as const) : ("muted" as const),
-            })),
-            { value: OUT, label: "Take them out of their cohort" },
-          ]}
+          /*
+           * Cohorts, and nothing else.
+           *
+           * "Take them out of their cohort" used to sit at the foot of this list, so
+           * removing somebody meant opening a dialog about moving them, scrolling past
+           * twenty cohorts and choosing the one option that was not one — an act of
+           * removal worded as a destination. It is a button of its own on the selection
+           * bar now, beside the one for taking them out of a semester's groups.
+           */
+          options={cohorts.map((cohort) => ({
+            value: cohort.id,
+            label: cohort.name,
+            year: cohort.term,
+            badge: String(cohort.memberCount),
+            badgeTone: cohort.memberCount ? ("accent" as const) : ("muted" as const),
+          }))}
           onChange={setCohortId}
         />
       </div>
 
-      {cohortId && cohortId !== OUT && describe(cohortId) ? (
+      {cohortId && describe(cohortId) ? (
         <p className="mt-3 flex items-start gap-2 rounded-md border border-[#e5cf9f] bg-[#fdf9ee] px-4 py-2.5 text-sm text-[#8a6116]">
           <UserMinus size={15} className="mt-0.5 shrink-0" aria-hidden="true" />
           {describe(cohortId)}
-        </p>
-      ) : null}
-
-      {cohortId === OUT ? (
-        <p className="mt-3 flex items-start gap-2 rounded-md border border-[#e5cf9f] bg-[#fdf9ee] px-4 py-2.5 text-sm text-[#8a6116]">
-          <UserMinus size={15} className="mt-0.5 shrink-0" aria-hidden="true" />
-          They will belong to no cohort, and every group they hold will be given up — in every semester, not only
-          the one on screen.
         </p>
       ) : null}
 

@@ -16,6 +16,7 @@ import { StudentHistoryPane } from "@/components/StudentHistoryPane";
 import { StudentRecord } from "@/components/StudentRecord";
 import { StudentTable, cellText, type Sort } from "@/components/StudentTable";
 import { MoveToCohort } from "@/components/MoveToCohort";
+import { RemoveFromGroups } from "@/components/RemoveFromGroups";
 import { SelectionFloating, type SelectionActionsProps } from "@/components/SelectionActions";
 import { TableFilterBar } from "@/components/TableFilterBar";
 import { costOfMove, describeCost } from "@/services/cohortMove";
@@ -53,12 +54,15 @@ import {
 import { applyFilters, type FilterModel } from "@/services/tableFilter";
 import { fetchCommentSummary } from "@/services/studentComments";
 import {
+  assignStudents,
   createCohort,
+  fetchCatalogue,
   fetchStudents,
   setCohort,
   type Cohort,
   type PlacementReport,
 } from "@/services/studentDatabase";
+import { semestersHeldBy, setsToEmpty } from "@/services/groupRemoval";
 
 /** Where a student goes when the picker is used, with "no cohort" as a real choice. */
 /** Making one is a way of moving into one, so it lives in the same picker. */
@@ -317,6 +321,8 @@ export function StudentRoster({
   // Which cohort these students should be in — asked in a dialog, like where they sit.
   const [moving, setMoving] = useState(false);
   const [placed, setPlaced] = useState<(PlacementReport & { removed: boolean }) | null>(null);
+  const [outOfGroups, setOutOfGroups] = useState(false);
+  const [emptied, setEmptied] = useState("");
 
   /*
    * A handful of students sent here from the Groups page, who are in no block.
@@ -534,9 +540,54 @@ export function StudentRoster({
     });
   }, []);
 
+  // Memoised because the readings below depend on it, and a fresh array every render
+  // would re-plan the removal on every keystroke in the search box.
+  const chosen = useMemo(() => [...selected], [selected]);
+  // A block belongs to one cohort, so placing and emptying are only offered for a
+  // selection that is in one.
+  const placeInto = sharedCohort(rows, selected);
+
+  /*
+   * Every semester the chosen actually hold a group in, read off the rows on screen.
+   *
+   * What makes "out of their groups" a named semester rather than a picker of every
+   * semester the department has ever run: the answer is only ever one of the two or three
+   * they are in, and the table already knows which.
+   */
+  const semestersHeld = useMemo(
+    () => semestersHeldBy(students.data ?? [], chosen, termNames),
+    [students.data, chosen, termNames],
+  );
+
+  /*
+   * Emptying one semester of its groups, keeping the cohort.
+   *
+   * One request per set they are in, because that is the shape the server takes: a set at
+   * a time, with no group named. The catalogue is read first for the ids, since a row on
+   * screen knows its set's CODE and the write needs the set itself.
+   */
+  const emptySemester = useMutation({
+    mutationFn: async (termId: string) => {
+      if (!placeInto) throw new Error("Select students who share a cohort.");
+      const catalogue = await fetchCatalogue(placeInto, termId);
+      let removed = 0;
+      for (const scopeId of setsToEmpty(students.data ?? [], chosen, termId, catalogue.scopes)) {
+        removed += (await assignStudents(scopeId, chosen, null)).assigned;
+      }
+      return { removed, termName: semestersHeld.find((term) => term.termId === termId)?.termName ?? "" };
+    },
+    onSuccess: ({ removed, termName }) => {
+      setSelected(new Set());
+      setOutOfGroups(false);
+      setEmptied(`${removed} placement${removed === 1 ? "" : "s"} given up in ${termName}.`);
+      // The same lists a placement changes: their groups, the catalogue's counts, and
+      // what the register was expecting to hold for them.
+      afterPlacement(client);
+    },
+  });
+
   if (students.isLoading || !layout) return <ScreenLoading label="Loading the students…" />;
 
-  const chosen = [...selected];
   /*
    * A move only interrupts when it would destroy something.
    *
@@ -556,8 +607,6 @@ export function StudentRoster({
     setConfirmMove({ ids: chosen, cohortId });
   };
 
-  // A block belongs to one cohort, so placing is only offered for a selection that is in one.
-  const placeInto = sharedCohort(rows, selected);
   const cohortOfSelection = cohorts.find((candidate) => candidate.id === placeInto) ?? null;
   const error = move.error ?? students.error;
 
@@ -570,6 +619,13 @@ export function StudentRoster({
       setPlaced(null);
       setPlacing(true);
     },
+    onOutOfGroups: () => {
+      setEmptied("");
+      setOutOfGroups(true);
+    },
+    // Always asked, whatever it costs — the one act on this bar that cannot be undone
+    // and is not a move.
+    onOutOfCohort: () => setConfirmMove({ ids: chosen, cohortId: null }),
     onClear: () => setSelected(new Set()),
   };
 
@@ -600,6 +656,27 @@ export function StudentRoster({
         }}
         onClose={() => setMoving(false)}
       />
+
+      <RemoveFromGroups
+        open={outOfGroups}
+        count={chosen.length}
+        cohortName={cohortOfSelection?.name ?? ""}
+        semesters={semestersHeld}
+        busy={emptySemester.isPending}
+        onRemove={(termId) => emptySemester.mutate(termId)}
+        onClose={() => setOutOfGroups(false)}
+      />
+
+      {emptied ? (
+        <p role="status" className="mt-2 rounded-md border border-[#bfdcc6] bg-[#f4faf5] px-4 py-2.5 text-sm text-[#2f6b3d]">
+          {emptied}
+        </p>
+      ) : null}
+      {emptySemester.error ? (
+        <p role="alert" className="mt-2 rounded-md border border-[#e5b7b9] bg-[#fdf3f3] px-4 py-2.5 text-sm text-[#a6292f]">
+          {(emptySemester.error as Error).message}
+        </p>
+      ) : null}
 
       {placed ? (
         <p className="mt-2 rounded-md border border-[#bfdcc6] bg-[#f4faf5] px-4 py-2.5 text-sm text-[#2f6b3d]">
