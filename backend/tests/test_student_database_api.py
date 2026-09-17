@@ -118,6 +118,31 @@ def test_the_approved_rows_become_the_catalogue(client: TestClient, cohort_id: s
     assert [scope["code"] for scope in catalogue(client, cohort_id)["scopes"]] == ["CM", "TD"]
 
 
+def test_a_block_can_be_made_with_the_place_it_holds_in_the_workbook(client: TestClient, cohort_id: str):
+    """A workbook is where the layout normally comes from, and it was the only way in.
+
+    So a cohort rebuilt through this API — a copy of production into a local database —
+    lost which sheet each block sat on and what its column was called, and wrote itself
+    back out as one sheet per block.
+    """
+    client.post(
+        f"/api/v1/student-database/cohorts/{cohort_id}/scopes",
+        json={"code": "RDNS", "tab": "TD", "groupColumn": "Readiness group", "columnIndex": 9},
+    )
+
+    block = scope_of(catalogue(client, cohort_id), "RDNS")
+    assert (block["tab"], block["groupColumn"], block["columnIndex"]) == ("TD", "Readiness group", 9)
+
+
+def test_a_block_made_without_one_carries_no_layout_rather_than_a_made_up_one(
+    client: TestClient, cohort_id: str
+):
+    client.post(f"/api/v1/student-database/cohorts/{cohort_id}/scopes", json={"code": "TD"})
+
+    block = scope_of(catalogue(client, cohort_id), "TD")
+    assert (block["tab"], block["groupColumn"], block["columnIndex"]) == ("", "", 0)
+
+
 def test_a_file_that_is_not_a_reference_sheet_is_explained(client: TestClient, cohort_id: str):
     response = preview_workbook(client, cohort_id, b"not a workbook", name="notes.txt")
 

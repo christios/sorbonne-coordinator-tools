@@ -64,7 +64,8 @@ def catalogue() -> list[dict]:
     """One set with a section that carries a request, and a nested set inside it."""
     return [
         {
-            "id": "p-scope", "code": "TD", "kind": "shared", "termId": "p-term", "courses": [
+            "id": "p-scope", "code": "TD", "kind": "shared", "termId": "p-term",
+            "tab": "TD", "groupColumn": "Main group", "columnIndex": 5, "courses": [
                 {"id": "p-course", "code": "MATH-100", "name": "Analysis", "component": "TD"},
             ],
             "groups": [
@@ -127,6 +128,21 @@ def test_a_set_and_a_group_inside_another_still_name_it_after_the_copy():
     assert scopes[1]["parentScopeId"] == "local-1", "the nested set must name the local parent"
     groups = [body for path, body, _ in write.calls if path.endswith("/groups")]
     assert groups[1]["parentGroupId"] == group_id["p-group"]
+
+
+def test_a_set_arrives_on_the_sheet_and_in_the_column_it_was_laid_out_in():
+    """Without the layout every set exports onto a tab of its own.
+
+    Which is not what production writes, so the one file that would show a layout fault
+    up — the group workbook, read by the coordinators who fill it — could not be trusted
+    from a copy, and a fault in how it is written had nowhere to be noticed.
+    """
+    write = Recorder()
+
+    copy._copy_catalogue(write, catalogue(), "here", {}, {})
+
+    made = next(body for path, body, _ in write.calls if path.endswith("/scopes"))
+    assert (made["tab"], made["groupColumn"], made["columnIndex"]) == ("TD", "Main group", 5)
 
 
 def test_a_course_carries_which_part_of_it_this_set_is():

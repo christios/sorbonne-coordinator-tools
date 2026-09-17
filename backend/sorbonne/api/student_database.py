@@ -148,6 +148,14 @@ class ScopeInput(BaseModel):
     # the group and the degree does not.
     openToAll: bool = False
     parent_scope_id: str = Field(default="", alias="parentScopeId", max_length=80)
+    # Where the block's column sits in the workbook: which sheet it is on, what its amber
+    # column is headed, and which column that was. Set when a workbook is read, and
+    # accepted here so a cohort rebuilt through this API — a copy of production into a
+    # local database — writes itself back out as the same file rather than one sheet per
+    # block. Blank is what a block made by hand has always carried.
+    tab: str = Field(default="", max_length=120)
+    group_column: str = Field(default="", alias="groupColumn", max_length=160)
+    column_index: int = Field(default=0, alias="columnIndex", ge=0, le=16_384)
 
 
 class CourseInput(BaseModel):
@@ -512,6 +520,9 @@ def add_scope(
                 kind=body.kind,
                 parent_scope_id=body.parent_scope_id,
                 open_to_all=body.openToAll,
+                tab=body.tab,
+                group_column=body.group_column,
+                column_index=body.column_index,
             )
         }
     except CohortNotFound as exc:

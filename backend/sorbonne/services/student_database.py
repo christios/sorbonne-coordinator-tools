@@ -1984,6 +1984,9 @@ class StudentDatabase:
         kind: str = "shared",
         parent_scope_id: str = "",
         open_to_all: bool = False,
+        tab: str = "",
+        group_column: str = "",
+        column_index: int = 0,
     ) -> str:
         self.get_cohort(cohort_id)
         scope_id = str(uuid4())
@@ -1993,9 +1996,9 @@ class StudentDatabase:
             connection.execute(
                 text("""INSERT INTO cohort_scopes
                             (id, cohort_id, code, name, note, term_id, kind, parent_scope_id,
-                             open_to_all, position)
+                             open_to_all, tab, group_column, group_column_index, position)
                         VALUES (:id, :cohort_id, :code, :name, :note, :term_id, :kind, :parent,
-                                :open_to_all,
+                                :open_to_all, :tab, :group_column, :group_column_index,
                                 (SELECT coalesce(max(position), 0) + 1 FROM cohort_scopes
                                  WHERE cohort_id = :cohort_id))"""),
                 {
@@ -2008,6 +2011,9 @@ class StudentDatabase:
                     "kind": _scope_kind(kind),
                     "parent": _text(parent_scope_id) if _scope_kind(kind) == "nested" else "",
                     "open_to_all": bool(open_to_all),
+                    "tab": _text(tab),
+                    "group_column": _text(group_column),
+                    "group_column_index": int(column_index or 0),
                 },
             )
             self._touch(connection, cohort_id)

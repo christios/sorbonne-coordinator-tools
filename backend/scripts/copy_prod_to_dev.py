@@ -1026,6 +1026,13 @@ def _copy_catalogue(  # noqa: PLR0913 - the two maps it fills are the point
                 "kind": scope.get("kind", "shared"),
                 "openToAll": bool(scope.get("openToAll")),
                 "parentScopeId": scope_id.get(scope.get("parentScopeId", ""), ""),
+                # Which sheet of the group workbook this set's column is on, what that
+                # column is headed and where it sits. Left behind, every set exported
+                # itself onto a tab of its own, so the file a copy writes looked nothing
+                # like the file production writes — and a layout fault would hide here.
+                "tab": scope.get("tab", ""),
+                "groupColumn": scope.get("groupColumn", ""),
+                "columnIndex": int(scope.get("columnIndex", 0) or 0),
             },
         )
         scope_id[scope["id"]] = made["id"]
