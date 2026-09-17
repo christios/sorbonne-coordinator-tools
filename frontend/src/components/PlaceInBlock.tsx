@@ -4,7 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 
 import { Modal } from "@/components/Modal";
 import { SelectMenu } from "@/components/SelectMenu";
-import { type FillCandidate, clashKey, sameProgram } from "@/services/groupFill";
+import { type FillCandidate, clashKey } from "@/services/groupFill";
+import { sameProgram } from "@/services/programmes";
 import { type Walk, walkPlacements, walkSets } from "@/services/groupWalk";
 import { teachersOfGroup, teachersSaid } from "@/services/groupTeachers";
 import { fetchActiveTeachers } from "@/services/portalLists";

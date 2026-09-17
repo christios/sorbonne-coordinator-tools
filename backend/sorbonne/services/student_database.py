@@ -25,6 +25,7 @@ from sqlalchemy import Connection, Engine, text
 from sqlalchemy.exc import IntegrityError
 
 from sorbonne.services.engine import engine_for
+from sorbonne.services.enrolment_resolution import program_code
 
 
 # A set is plain — its groups numbered across whatever courses it carries, one or many —
@@ -3014,14 +3015,18 @@ def _crn_programs(cells: list[Any], code_of: dict[str, str], majors_of: dict[str
     by_major = _crns_by_major(cells, code_of, majors_of)
     found: dict[str, str] = {}
     for group_id, majors in majors_of.items():
-        takers: dict[str, set[str]] = {}
+        # Gathered by code rather than by the words: two sub-rows written on either side of
+        # a rewording are one programme, and counting them as two drops the CRN from this
+        # map entirely — which reads downstream as a class that may share students with
+        # anything, so a real clash between two of them is never reported.
+        takers: dict[str, dict[str, str]] = {}
         for major in majors:
             for crns in by_major.get(group_id, {}).get(major["id"], {}).values():
                 for crn in crns:
-                    takers.setdefault(crn, set()).add(major["program"])
+                    takers.setdefault(crn, {}).setdefault(program_code(major["program"]), major["program"])
         for crn, programs in takers.items():
             if len(programs) == 1:
-                found[crn] = next(iter(programs))
+                found[crn] = next(iter(programs.values()))
     return found
 
 

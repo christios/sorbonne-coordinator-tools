@@ -11,7 +11,7 @@ import { WarningBanner, WarningRows, type WarningKind } from "@/components/Warni
 import { fetchActiveCourses } from "@/services/portalLists";
 import { fieldHeld } from "@/services/rosterStore";
 import { COHORT, SCHEMA_TERM } from "@/services/remembered";
-import { labelsFrom, readSets, totalsOf, type SetReading } from "@/services/groupSchema";
+import { labelsFrom, readSets, subRowsNobodyIsOn, totalsOf, unknownMajors, type SetReading } from "@/services/groupSchema";
 import {
   type CatalogueGroup,
   type CatalogueMajor,
@@ -178,18 +178,49 @@ export function GroupSchema({
   };
 
   const scopes = useMemo(() => catalogue.data?.scopes ?? [], [catalogue.data]);
-  const readings = useMemo(() => readSets(scopes, cohortId), [scopes, cohortId]);
+  const readings = useMemo(() => readSets(scopes, cohortId, programmes), [scopes, cohortId, programmes]);
+  const cohort = cohorts.find((row) => row.id === cohortId) ?? null;
   const totals = totalsOf(readings);
   const chosen = readings.find((reading) => reading.scope.id === chosenId) ?? readings[0] ?? null;
 
+  /*
+   * What this browser has pulled, said out loud wherever a warning is measured against it.
+   *
+   * Both of the programme warnings below are "nobody is on this" — which is a fact about
+   * the students this browser happens to hold, not about the department. A browser that
+   * pulled L1 this morning and nothing since knows of two programmes, and would call every
+   * sub-row of the other years wrong. The count is the reader's way of telling the two
+   * apart, so it travels with the warning rather than being left to be guessed at.
+   */
+  const pulledFrom = `Measured against the ${programmes.length} programme${programmes.length === 1 ? "" : "s"} this browser has pulled: ${programmes.join(", ")}. A cohort this browser has not synced is not evidence.`;
+
   const warnings: WarningKind[] = useMemo(() => {
-    const kinds: { id: string; why: string; severity: "serious" | "caution"; label: (n: number) => string }[] = [
+    const kinds: {
+      id: string;
+      why: string;
+      severity: "serious" | "caution";
+      label: (n: number) => string;
+      note?: string;
+      /** What to say about this set in particular, beyond its code and name. */
+      say?: (reading: SetReading) => string;
+    }[] = [
       { id: "parent", why: "no parent set", severity: "serious", label: (n) => `${n} nested set${n === 1 ? "" : "s"} sit inside nothing` },
       { id: "adrift", why: "groups adrift", severity: "serious", label: (n) => `${n} set${n === 1 ? " has" : "s have"} groups nobody can be placed into` },
+      {
+        id: "subrow",
+        why: "sub-row nobody is on",
+        severity: "serious",
+        label: (n) => `${n} set${n === 1 ? " has" : "s have"} a sub-row no student is on`,
+        note: pulledFrom,
+        say: (reading) =>
+          subRowsNobodyIsOn(reading.scope, programmes)
+            .map((row) => `${row.group} — ${row.program}`)
+            .join(" · "),
+      },
       { id: "course", why: "no course", severity: "caution", label: (n) => `${n} set${n === 1 ? " carries" : "s carry"} no course` },
       { id: "group", why: "no group", severity: "caution", label: (n) => `${n} set${n === 1 ? " has" : "s have"} no group` },
     ];
-    return kinds
+    const found = kinds
       .map((kind) => {
         const hit = readings.filter((reading) => reading.trouble.includes(kind.why as SetReading["trouble"][number]));
         if (!hit.length) return null;
@@ -197,6 +228,7 @@ export function GroupSchema({
           id: kind.id,
           severity: kind.severity,
           label: kind.label(hit.length),
+          note: kind.note,
           detail: (
             <WarningRows>
               {hit.map((reading) => (
@@ -205,6 +237,7 @@ export function GroupSchema({
                     {reading.scope.code}
                   </button>
                   <span className="text-[#667085]">{reading.scope.name || "no name"}</span>
+                  {kind.say ? <span className="text-[#98a2b3]">{kind.say(reading)}</span> : null}
                 </li>
               ))}
             </WarningRows>
@@ -212,7 +245,32 @@ export function GroupSchema({
         };
       })
       .filter(Boolean) as WarningKind[];
-  }, [readings]);
+
+    /*
+     * And the cohort's own expectations, which are not a set's trouble but sit in the same
+     * band because they fail the same way: a code nobody is on is a rule that passes
+     * everybody, which reads on every screen as a cohort with nothing wrong with it.
+     */
+    const strays = unknownMajors(cohort?.majors ?? [], programmes);
+    if (strays.length) {
+      found.push({
+        id: "cohort-major",
+        severity: "caution",
+        label: `${cohort?.name ?? "This cohort"} expects ${strays.length === 1 ? "a major" : `${strays.length} majors`} no student is on`,
+        note: pulledFrom,
+        detail: (
+          <WarningRows>
+            <li className="px-4 py-2 text-[#667085]">
+              <span className="font-semibold text-[#344054]">{strays.join(", ")}</span> — nobody this browser holds
+              reads {strays.length === 1 ? "it" : "them"}, so &ldquo;their major is not this cohort&rsquo;s&rdquo;
+              catches nobody. Check the code against the portal&rsquo;s under Rename &amp; expectations.
+            </li>
+          </WarningRows>
+        ),
+      });
+    }
+    return found;
+  }, [readings, programmes, pulledFrom, cohort]);
 
   if (!terms.isLoading && !(terms.data ?? []).length) {
     return (

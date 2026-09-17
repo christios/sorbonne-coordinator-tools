@@ -20,6 +20,7 @@
  * testable one at a time.
  */
 
+import { sameProgram } from "@/services/programmes";
 import { rowText } from "@/services/copyCells";
 
 export type RuleKind = "changed" | "changed_to" | "is" | "is_not" | "differs" | "belongs";
@@ -159,9 +160,20 @@ function meansOneOf(field: string, wanted: string[], value: string, options: Opt
   if (!value) return false;
   return wanted.some(
     (code) =>
-      same(code, value) || same(labelFor(field, code, options), value) || same(code, labelFor(field, value, options)),
+      same(code, value) ||
+      same(labelFor(field, code, options), value) ||
+      same(code, labelFor(field, value, options)) ||
+      // A programme also counts by its code alone, whichever side carries the words after
+      // it. Cohorts were set up both ways — some hold "MATH", some "MATH - Mathematics" —
+      // and the day the registrar rewords a description the ones holding the old wording
+      // would otherwise stop matching anybody, which reads as a cohort with nobody in the
+      // wrong place rather than as a rule that has quietly stopped asking.
+      (MAJOR_FIELDS.has(field) && sameProgram(code, value)),
   );
 }
+
+/** The fields whose values are programmes, and so carry a code the words cannot outrun. */
+const MAJOR_FIELDS = new Set(["MAJOR_CODE", "MAJOR_CODE_DESC"]);
 
 /**
  * A row's value for a field: the code when the pull carried it, else what the row says

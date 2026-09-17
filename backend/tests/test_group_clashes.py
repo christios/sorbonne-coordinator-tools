@@ -146,6 +146,22 @@ def test_two_courses_taught_to_different_programmes_never_clash():
     assert found == []
 
 
+def test_a_reworded_description_is_still_the_same_programme():
+    """Otherwise a rewording turns every real clash between two of its classes invisible.
+
+    The pair would look like two programmes with no student in common, which is exactly
+    the case the rule exists to drop.
+    """
+    found = clashes(
+        groups=[PHYS_CM, MATH_TD],
+        sessions=[at("24070", MONDAY, "08:30", "10:00"), at("24100", MONDAY, "08:30", "10:00")],
+        assignments={},
+        programs={"24070": "PHYS - Physics", "24100": "PHYS - Physics (BSc)"},
+    )
+
+    assert len(found) == 1
+
+
 def test_the_same_programme_on_both_sides_still_clashes():
     # The rule rules out a pair with no student in common, not every pair with a programme.
     found = clashes(

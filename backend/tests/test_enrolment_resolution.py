@@ -12,6 +12,7 @@ from sorbonne.services.enrolment_resolution import (
     Major,
     Scope,
     Section,
+    program_code,
     readiness,
     resolve,
     validate,
@@ -395,3 +396,54 @@ def test_a_group_with_no_sub_rows_is_asked_for_every_course():
     )
 
     assert any("has no CRN for" in warning for warning in report["warnings"])
+
+
+# ------------------------------------- the registrar's words are not ours to depend on
+
+
+def test_a_programme_is_known_by_its_code_and_not_by_the_words_after_it():
+    """The description belongs to the registrar, who may reword it at any time.
+
+    Everything that decides who is taught with whom compares one of these strings with
+    another, so a rewording would split one programme in two: sub-rows written before and
+    after would stop matching, and a set would go half-closed with nothing said.
+    """
+    assert program_code("MATH - Mathematics") == program_code("MATH - Mathematics and Statistics")
+    assert program_code("PHYS - Physics") != program_code("MATH - Mathematics")
+    # A programme written as a bare name is the whole of its own code.
+    assert program_code("Physics") == program_code(" physics ")
+
+
+def test_a_set_stays_closed_to_the_right_people_after_a_rewording():
+    reworded = Group(
+        id="g-tp",
+        scope_id="s-tp",
+        label="Physics",
+        crns={"PHYS-208": ["24240"]},
+        majors=(Major(id="m-tp-phys", program="PHYS - Physics (BSc)", crns={"PHYS-208": ["24240"]}),),
+    )
+    maths = Group(
+        id="g-cm-m",
+        scope_id="s-cm",
+        label="Mathematics",
+        majors=(Major(id="m-maths", program="MATH - Mathematics"),),
+    )
+    physics = Group(
+        id="g-cm-p", scope_id="s-cm", label="Physics", majors=(Major(id="m-phys", program="PHYS - Physics"),)
+    )
+
+    report = readiness(
+        cohort_name="L2",
+        students=["A001", "A002"],
+        scopes=[CM, TP],
+        groups=[maths, physics, reworded],
+        course_codes={"s-cm": [], "s-tp": ["PHYS-208"]},
+        assignments={
+            ("A001", "s-cm"): ("g-cm-m", "m-maths"),
+            ("A002", "s-cm"): ("g-cm-p", "m-phys"),
+        },
+    )
+
+    # The mathematician is still not wanted in the practicals, and the physicist still is,
+    # although the practicals' sub-row is spelled the new way and the lectures' the old.
+    assert report["unassigned"]["TP"] == ["A002"]

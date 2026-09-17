@@ -11,6 +11,7 @@
  * Pure: it is handed the catalogue and gives back readings of it.
  */
 
+import { sameProgram } from "@/services/programmes";
 import type { CatalogueScope } from "@/services/studentDatabase";
 
 /** A set as the list shows it: what it holds, and whether anything is wrong with it. */
@@ -26,7 +27,7 @@ export type SetReading = {
   trouble: SetTrouble[];
 };
 
-export type SetTrouble = "no course" | "no group" | "no parent set" | "groups adrift";
+export type SetTrouble = "no course" | "no group" | "no parent set" | "groups adrift" | "sub-row nobody is on";
 
 export type SchemaTotals = { sets: number; groups: number; courses: number; placed: number };
 
@@ -37,7 +38,51 @@ export type SchemaTotals = { sets: number; groups: number; courses: number; plac
  * the two that actually break something: the fill planner cannot place anybody into them.
  * A set with no course or no group is merely useless, which is worth saying more quietly.
  */
-export function troubleWith(scope: CatalogueScope, byId: Map<string, CatalogueScope>): SetTrouble[] {
+/**
+ * The sub-rows of a set naming a programme none of these students is on.
+ *
+ * A sub-row is what makes a group open to one programme and shut to the others, so one
+ * that matches nobody shuts the group to everybody — silently, since a group nobody may
+ * enter looks exactly like a group nobody has been put in yet.
+ *
+ * `known` is what the browser has pulled, and an empty one judges nothing: a browser that
+ * has not synced knows of no programmes at all, and would otherwise call every sub-row in
+ * the department wrong.
+ */
+export function subRowsNobodyIsOn(
+  scope: CatalogueScope,
+  known: readonly string[],
+): { group: string; program: string }[] {
+  if (!known.length) return [];
+  const orphans: { group: string; program: string }[] = [];
+  for (const group of scope.groups) {
+    for (const major of group.majors ?? []) {
+      if (!major.program.trim()) continue;
+      if (!known.some((program) => sameProgram(program, major.program))) {
+        orphans.push({ group: group.label, program: major.program });
+      }
+    }
+  }
+  return orphans;
+}
+
+/**
+ * The codes a cohort expects that none of these students is on.
+ *
+ * A cohort's majors are what "their major is not this cohort's" is measured against, so a
+ * code nobody is on is a rule that quietly passes everybody rather than a rule that
+ * catches nobody — the two look identical from the outside, and only one of them is right.
+ */
+export function unknownMajors(expected: readonly string[], known: readonly string[]): string[] {
+  if (!known.length) return [];
+  return expected.filter((code) => code.trim() && !known.some((program) => sameProgram(program, code)));
+}
+
+export function troubleWith(
+  scope: CatalogueScope,
+  byId: Map<string, CatalogueScope>,
+  known: readonly string[] = [],
+): SetTrouble[] {
   const trouble: SetTrouble[] = [];
   if (scope.kind === "nested") {
     const parent = scope.parentScopeId ? byId.get(scope.parentScopeId) : undefined;
@@ -51,10 +96,15 @@ export function troubleWith(scope: CatalogueScope, byId: Map<string, CatalogueSc
   }
   if (!scope.courses.length) trouble.push("no course");
   if (!scope.groups.length) trouble.push("no group");
+  if (subRowsNobodyIsOn(scope, known).length) trouble.push("sub-row nobody is on");
   return trouble;
 }
 
-export function readSets(scopes: CatalogueScope[], cohortId: string): SetReading[] {
+export function readSets(
+  scopes: CatalogueScope[],
+  cohortId: string,
+  known: readonly string[] = [],
+): SetReading[] {
   const byId = new Map(scopes.map((scope) => [scope.id, scope]));
   return scopes
     .map((scope) => ({
@@ -64,7 +114,7 @@ export function readSets(scopes: CatalogueScope[], cohortId: string): SetReading
       placed: scope.groups.reduce((total, group) => total + group.assigned, 0),
       shared: scope.openToAll,
       ownedElsewhere: Boolean(scope.cohortId) && scope.cohortId !== cohortId,
-      trouble: troubleWith(scope, byId),
+      trouble: troubleWith(scope, byId, known),
     }))
     // This cohort's own first, the department's after: they are a different kind of thing.
     .sort((left, right) => Number(left.shared) - Number(right.shared));

@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from itertools import combinations
 from typing import Any
 
-from sorbonne.services.enrolment_resolution import Group
+from sorbonne.services.enrolment_resolution import Group, program_code
 
 
 @dataclass(frozen=True)
@@ -137,7 +137,7 @@ def _different_programmes(ours: str, theirs: str) -> bool:
     Blank means "everyone", on either side — which is how every set that does not use
     programmes goes on behaving exactly as it did.
     """
-    return bool(ours) and bool(theirs) and ours.strip().casefold() != theirs.strip().casefold()
+    return bool(ours.strip()) and bool(theirs.strip()) and program_code(ours) != program_code(theirs)
 
 
 def _overlap(one: Session, other: Session) -> tuple[int, int, int] | None:

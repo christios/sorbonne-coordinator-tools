@@ -74,7 +74,22 @@ class Group:
 
     @property
     def programs(self) -> frozenset[str]:
-        return frozenset(major.program.strip().casefold() for major in self.majors if major.program.strip())
+        return frozenset(program_code(major.program) for major in self.majors if major.program.strip())
+
+
+def program_code(program: str) -> str:
+    """The code a programme is filed under: "MATH - Mathematics" -> "MATH".
+
+    A programme reaches us as the registrar writes it, code and description together, and
+    the description is theirs to reword at any time — a degree retitled, a level added, a
+    spelling corrected. Everything that decides who is taught with whom compares one of
+    these strings with another, so a rewording splits one programme into two: sub-rows
+    written before and after stop matching, a set goes half-closed, and two classes that
+    share every student stop being able to clash with one another. The code is the part
+    that does not move, so the code is what is compared.
+    """
+    head, sep, _ = program.partition(" - ")
+    return (head if sep else program).strip().casefold()
 
 
 @dataclass(frozen=True)
@@ -128,7 +143,7 @@ def _programs_held(groups: list[Group], assignments: dict[tuple[str, str], Place
     that is the whole of the evidence.
     """
     program_of = {
-        major.id: major.program.strip().casefold()
+        major.id: program_code(major.program)
         for group in groups
         for major in group.majors
         if major.program.strip()

@@ -265,6 +265,29 @@ describe("differing from what the cohort expects", () => {
     expect(warnings).toEqual([]);
   });
 
+  it("reads a cohort that holds the registrar's whole spelling, not only the bare code", () => {
+    // Cohorts were set up both ways. Foundation Year holds "MATH - Mathematics"; L1 holds
+    // "MATH". Neither is wrong, and both have to mean the same thing.
+    const written_out = { id: "c4", majors: ["MATH - Applied Mathematics and Physics"], terms: [], yearLevel: "" };
+    const warnings = engine(written_out, [placed("A001", "c4"), placed("A002", "c4")], [major], {
+      A001: { MAJOR_CODE: "MATH" },
+      A002: { MAJOR_CODE: "PHYS" },
+    });
+
+    expect(warnings.map((warning) => warning.studentId)).toEqual(["A002"]);
+  });
+
+  it("goes on matching after the registrar rewords a description", () => {
+    // The day "MATH - Applied Mathematics and Physics" becomes something else, a cohort
+    // holding the old words must not quietly stop asking about anybody.
+    const written_out = { id: "c4", majors: ["MATH - Applied Mathematics"], terms: [], yearLevel: "" };
+    const warnings = engine(written_out, [placed("A001", "c4")], [major], {
+      A001: { MAJOR_CODE_DESC: "MATH - Applied Mathematics and Physics, BSc" },
+    });
+
+    expect(warnings).toEqual([]);
+  });
+
   it("accepts any of several majors and terms a cohort spans", () => {
     const wide = { id: "c3", majors: ["MATH", "PHYS"], terms: ["262710", "262720"], yearLevel: "" };
     const warnings = engine(wide, [placed("A001", "c3"), placed("A002", "c3")], [major, term], {

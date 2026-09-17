@@ -17,6 +17,8 @@
  *   - a group with a capacity is full at capacity; one without is never full
  */
 
+import { sameProgram } from "@/services/programmes";
+
 export type FillOrder = "id" | "first" | "last" | "random";
 export type FillPolicy = "balanced" | "packed";
 
@@ -203,14 +205,6 @@ export function planFill({
       capacity: group.capacity,
     })),
   };
-}
-
-export function sameProgram(left: string, right: string): boolean {
-  return Boolean(left) && normalise(left) === normalise(right);
-}
-
-function normalise(value: string): string {
-  return value.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
 const collator = new Intl.Collator("en", { sensitivity: "base", numeric: true });

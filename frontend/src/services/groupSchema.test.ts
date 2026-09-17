@@ -1,11 +1,26 @@
 import { describe, expect, it } from "vitest";
 
-import { labelsFrom, readSets, totalsOf, troubleWith } from "@/services/groupSchema";
+import {
+  labelsFrom,
+  readSets,
+  subRowsNobodyIsOn,
+  totalsOf,
+  troubleWith,
+  unknownMajors,
+} from "@/services/groupSchema";
 import { EMPTY_REQUEST } from "@/services/studentDatabase";
 import type { CatalogueScope } from "@/services/studentDatabase";
 
 const group = (id: string, label: string, assigned = 0, parentGroupId = "") =>
   ({ id, label, capacity: 0, note: "", program: "", parentGroupId, assigned, crns: {} });
+
+/** A group holding sub-rows, which is what makes it open to some programmes and shut to the rest. */
+const split = (id: string, label: string, programs: string[]) => ({
+  ...group(id, label),
+  majors: programs.map((program, at) => ({ id: `${id}-m${at}`, program, seats: 0, assigned: 0 })),
+});
+
+const HELD = ["MATH - Mathematics", "PHYS - Physics"];
 
 const scope = (over: Partial<CatalogueScope>): CatalogueScope => ({
   id: "s1", code: "TD", name: "", note: "", termId: "t1", kind: "shared", parentScopeId: "",
@@ -55,5 +70,68 @@ describe("the shape of a semester", () => {
     expect(labelsFrom("  ")).toEqual([]);
     // A range nobody meant is taken literally rather than making sixty groups.
     expect(labelsFrom("1-999")).toEqual(["1-999"]);
+  });
+});
+
+describe("a sub-row nobody is on", () => {
+  const byId = new Map<string, CatalogueScope>();
+
+  it("says nothing while the registrar's wording is the one the students carry", () => {
+    const set = scope({ groups: [split("g1", "1", ["MATH - Mathematics"]), split("g2", "2", ["PHYS - Physics"])] });
+
+    expect(subRowsNobodyIsOn(set, HELD)).toEqual([]);
+    expect(troubleWith(set, byId, HELD)).not.toContain("sub-row nobody is on");
+  });
+
+  it("still says nothing when the registrar has reworded the description", () => {
+    // The whole reason the code decides: the words after it are not ours.
+    const set = scope({ groups: [split("g1", "1", ["MATH - Mathematics and Statistics"])] });
+
+    expect(subRowsNobodyIsOn(set, HELD)).toEqual([]);
+  });
+
+  it("names the group and the programme when the code itself matches nobody", () => {
+    const set = scope({ groups: [split("g1", "1", ["ECMG - Economics and Management"])] });
+
+    expect(subRowsNobodyIsOn(set, HELD)).toEqual([{ group: "1", program: "ECMG - Economics and Management" }]);
+    expect(troubleWith(set, byId, HELD)).toContain("sub-row nobody is on");
+  });
+
+  it("judges nothing at all when this browser has pulled nobody", () => {
+    // An unsynced browser knows of no programme, and would otherwise call every sub-row in
+    // the department wrong.
+    const set = scope({ groups: [split("g1", "1", ["ECMG - Economics and Management"])] });
+
+    expect(subRowsNobodyIsOn(set, [])).toEqual([]);
+    expect(troubleWith(set, byId, [])).not.toContain("sub-row nobody is on");
+  });
+
+  it("leaves a group with no sub-rows alone, since it is open to everybody", () => {
+    expect(subRowsNobodyIsOn(scope({ groups: [group("g1", "1")] }), HELD)).toEqual([]);
+  });
+
+  it("carries the trouble through to the reading the page draws", () => {
+    const set = scope({ groups: [split("g1", "1", ["ECMG - Economics and Management"])] });
+
+    expect(readSets([set], "c-l1", HELD)[0].trouble).toContain("sub-row nobody is on");
+    expect(readSets([set], "c-l1")[0].trouble).not.toContain("sub-row nobody is on");
+  });
+});
+
+describe("a cohort expecting a major nobody is on", () => {
+  it("accepts the code on its own, which is how a cohort writes it", () => {
+    expect(unknownMajors(["MATH", "PHYS"], HELD)).toEqual([]);
+  });
+
+  it("accepts the registrar's full spelling, which is how some cohorts have it", () => {
+    expect(unknownMajors(["MATH - Mathematics"], HELD)).toEqual([]);
+  });
+
+  it("names the code no student reads", () => {
+    expect(unknownMajors(["MATH", "ECMG"], HELD)).toEqual(["ECMG"]);
+  });
+
+  it("judges nothing when this browser has pulled nobody", () => {
+    expect(unknownMajors(["ECMG"], [])).toEqual([]);
   });
 });
