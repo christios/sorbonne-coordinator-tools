@@ -149,9 +149,13 @@ export function helperKey(scopeCode: string, groupLabel: string, courseCode: str
  *
  * It used to say "group?" there, which is what a group nobody has ever heard of says, and
  * it is alarming in a column of a hundred: nothing is missing and there is nothing to fix.
- * A dash says what the Legend already says by leaving that square blank.
+ * So it says nothing, which is what the Legend already says in that same square, and what
+ * the column says for a student who has not been put in a group yet. Both are the same
+ * fact — this row has no CRN for this course — and the amber column beside it, filled or
+ * empty, is what tells the two apart. A mark of any kind is a mark to be looked into, and
+ * ninety of them down one column is ninety invitations to look into nothing.
  */
-const NOT_TAKEN = "—";
+const NOT_TAKEN = "";
 
 /**
  * What a block's amber column is called — on the student tabs, on the Reference sheet and

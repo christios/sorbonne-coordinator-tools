@@ -275,10 +275,10 @@ describe("what the amber column is called", () => {
 });
 
 describe("a course the group in front of you does not read", () => {
-  it("says so with a dash, rather than crying group? at a group that plainly exists", () => {
+  it("leaves the square empty, rather than crying group? at a group that plainly exists", () => {
     const formula = crnFormula("FYS", "CM", "E", "PHYS118", 2, "FYS_CM_GROUPS");
 
-    expect(formula).toContain('IF(COUNTIF(FYS_CM_GROUPS,$E2)=0,"group?","—")');
+    expect(formula).toContain('IF(COUNTIF(FYS_CM_GROUPS,$E2)=0,"group?","")');
   });
 
   it("still says group? where the group is one this block has never had", () => {

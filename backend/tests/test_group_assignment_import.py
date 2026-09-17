@@ -51,10 +51,11 @@ def template(rows: list[tuple[str, str, str]]) -> bytes:
 
 
 # The same map, from a file that also tells a group nobody has from one this course is not
-# taught to. The fallback text changed; the MATCH the reading depends on did not.
+# taught to, which it leaves blank. The fallback changed; the MATCH the reading depends on
+# did not.
 SORTED_CRN_FORMULA = (
     '=IF($E2="","",IFERROR(INDEX(FYS_CRN,MATCH("{block}|"&${column}2&"|{course}",FYS_KEY,0)),'
-    'IF(COUNTIF(FYS_{block}_GROUPS,${column}2)=0,"group?","\u2014")))'
+    'IF(COUNTIF(FYS_{block}_GROUPS,${column}2)=0,"group?","")))'
 )
 
 
