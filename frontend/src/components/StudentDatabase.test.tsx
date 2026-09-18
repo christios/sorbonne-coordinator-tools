@@ -238,6 +238,16 @@ describe("students and their timetables in one place", () => {
     }
   });
 
+  it("calls the register by what it lists, which is CRNs and not courses", async () => {
+    // A row there is one CRN. Called Active courses, a UE or a teacher on the row read as
+    // a fact of that row rather than of the course every row of it shares.
+    renderApp();
+    const pane = await screen.findByRole("complementary", { name: /students and timetables/i });
+
+    expect(within(pane).getByRole("button", { name: "Active CRNs" })).toBeTruthy();
+    expect(within(pane).queryByRole("button", { name: "Active courses" })).toBeNull();
+  });
+
   it("reaches the semesters the Student Hub holds", async () => {
     renderApp();
 

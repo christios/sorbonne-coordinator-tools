@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, within, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ActiveCourses } from "@/components/ActiveCourses";
+import { ActiveCourses, CrnDialog } from "@/components/ActiveCourses";
 import * as lists from "@/services/portalLists";
 
 const EMPTY: lists.RegisterCheck = {
@@ -328,5 +328,46 @@ describe("a CRN gets a record of its own", () => {
     fireEvent.click(await screen.findByText("23638"));
 
     expect(await screen.findByText(/Nobody has asked the registrar about this CRN/)).toBeTruthy();
+  });
+});
+
+/** The course behind a CRN, as the register joins it on. */
+const courseRow = (over: Partial<lists.ActiveCourse> = {}): lists.ActiveCourse =>
+  ({
+    id: "a1", courseCode: "PHYS-125", title: "Mechanics", ue: "UL1MEPY1", mutualized: "yes",
+    addedAt: "", addedBy: "", crnCount: 3, portalCrnCount: 3, termCount: 1, lastTerm: "262710",
+    portalParentCrn: "22135", ...over,
+  }) as unknown as lists.ActiveCourse;
+
+describe("what a CRN is allowed to change about itself", () => {
+  const openDialog = (row: lists.ActiveCrn) => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <CrnDialog row={row} course={courseRow()} siblings={[row]} onClose={() => {}} onSaved={() => {}} />
+      </QueryClientProvider>,
+    );
+  };
+
+  it("shows the course's UE and says where it is changed, rather than offering to change it here", async () => {
+    // Every CRN of PHYS-125 has the same UE. A field on this CRN would say the next one
+    // could differ, which is not a thing that can happen.
+    openDialog(crnRow({ crn: "23419", ue: "UL1MEPY1", mutualized: "yes" }));
+
+    expect(await screen.findByText("UL1MEPY1")).toBeTruthy();
+    expect(screen.getByText(/Change it on the course/)).toBeTruthy();
+    expect(screen.queryByLabelText(/^UE of/)).toBeNull();
+  });
+
+  it("writes only the parent, which is the CRN's own fact", async () => {
+    const course = vi.spyOn(lists, "updateActiveCourse");
+    const parent = vi.spyOn(lists, "setParentCrn").mockResolvedValue(undefined as never);
+    openDialog(crnRow({ crn: "23419", parentCrn: "" }));
+
+    fireEvent.click(await screen.findByRole("button", { name: /Use 22135/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(parent).toHaveBeenCalledWith("23419", "22135"));
+    expect(course).not.toHaveBeenCalled();
   });
 });

@@ -1,8 +1,9 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
 
 import { CrnRecord } from "@/components/CrnRecord";
 import { Modal } from "@/components/Modal";
+import { SelectMenu } from "@/components/SelectMenu";
 import { SectionTimetable } from "@/components/SectionTimetable";
 import { buildCards, rowsPerPart, teaches, type Card as CourseCard } from "@/services/courseCards";
 import { filled } from "@/services/courseRequest";
@@ -11,7 +12,10 @@ import {
   fetchActiveCrns,
   fetchRegisterCheck,
   fetchTermCrns,
+  updateActiveCourse,
+  type ActiveCourse,
   type ActiveCrn,
+  type Mutualized,
 } from "@/services/portalLists";
 import { fetchCourseCards } from "@/services/studentDatabase";
 import { fetchTimetableTerms } from "@/services/timetables";
@@ -43,6 +47,7 @@ export function CourseRecord({
   onClose: () => void;
 }) {
   const code = courseCode.trim().toUpperCase();
+  const client = useQueryClient();
   const courses = useQuery({ queryKey: ["active-courses"], queryFn: fetchActiveCourses, enabled: open });
   const crns = useQuery({ queryKey: ["active-crns"], queryFn: () => fetchActiveCrns(), enabled: open });
   const catalogues = useQuery({ queryKey: ["course-cards"], queryFn: fetchCourseCards, enabled: open });
@@ -112,8 +117,6 @@ export function CourseRecord({
       onClose={onClose}
       header={
         <dl className="mt-2 flex flex-wrap items-end gap-x-4 gap-y-2 text-sm">
-          <Field label="UE">{course?.ue || <Nothing />}</Field>
-          <Field label="Mutualized">{course?.mutualized || <Nothing />}</Field>
           <Field label="CRNs registered">{held.length || <Nothing />}</Field>
           <Field label="Taught in">{cards.length ? `${cards.length} cohort-semester${cards.length === 1 ? "" : "s"}` : <Nothing />}</Field>
         </dl>
@@ -125,9 +128,33 @@ export function CourseRecord({
        */}
       <div className="grid gap-3 lg:grid-cols-2 lg:items-start">
         <div className="space-y-3">
+          {/*
+            * The two things about a course that are ours to say rather than the portal's.
+            *
+            * They were written from a CRN's dialog, which is where they were read. Both
+            * belong to the course — every CRN of it has the same UE, and a course is
+            * mutualized or it is not — so editing them from one section said something
+            * untrue about what they are, and left the course, which is the thing they
+            * describe, with nowhere to say them.
+            */}
+          <Card title="What we say about it" note="The course's own facts, the same on every CRN of it.">
+            {course ? (
+              <CourseFacts
+                key={course.id}
+                course={course}
+                onSaved={() => {
+                  client.invalidateQueries({ queryKey: ["active-courses"] });
+                  client.invalidateQueries({ queryKey: ["active-crns"] });
+                }}
+              />
+            ) : (
+              <Empty>Not in the register, so there is nothing to say about it yet.</Empty>
+            )}
+          </Card>
+
           <Card title="In the register" note="The CRNs the department answers for, and what the portal says about each.">
             {held.length === 0 ? (
-              <Empty>Not in the register. Take the course in on Active courses and its CRNs come with it.</Empty>
+              <Empty>Not in the register. Take the course in on Active CRNs and its CRNs come with it.</Empty>
             ) : (
               <ul className="divide-y divide-[#f2f4f7] text-sm">
                 {held.map((row) => (
@@ -186,6 +213,65 @@ export function CourseRecord({
           />
         ) : null}
     </Modal>
+  );
+}
+
+/** The UE and whether both degrees sit in it together, written where they belong. */
+function CourseFacts({ course, onSaved }: { course: ActiveCourse; onSaved: () => void }) {
+  const [ue, setUe] = useState(course.ue);
+  const [mutualized, setMutualized] = useState<Mutualized>(course.mutualized);
+  const save = useMutation({
+    mutationFn: () => updateActiveCourse(course.id, { title: course.title, ue: ue.trim(), mutualized }),
+    onSuccess: onSaved,
+  });
+  const changed = ue.trim() !== course.ue || mutualized !== course.mutualized;
+
+  return (
+    <div className="space-y-3">
+      <label className="block text-sm font-semibold text-[#344054]">
+        UE
+        <span className="block text-xs font-normal text-[#98a2b3]">
+          The Sorbonne unit this course is registered under in Paris.
+        </span>
+        <input
+          aria-label={`UE of ${course.courseCode}`}
+          value={ue}
+          onChange={(event) => setUe(event.target.value)}
+          placeholder="UL1MA001"
+          className="mt-1.5 block w-full rounded-md border border-[#cbd5e1] px-3 py-2 text-sm font-normal tabular-nums"
+        />
+      </label>
+      <div>
+        <span className="block text-sm font-semibold text-[#344054]">Mutualized</span>
+        <span className="block text-xs font-normal text-[#98a2b3]">
+          Whether the mathematicians and the physicists are taught it together, which is what decides
+          whether it needs one group or two.
+        </span>
+        <div className="mt-1.5">
+          <SelectMenu
+            label={`Whether ${course.courseCode} is mutualized`}
+            value={mutualized}
+            onChange={(value) => setMutualized(value as Mutualized)}
+            options={[
+              { value: "", label: "Nobody has said" },
+              { value: "yes", label: "Mutualized — both degrees together" },
+              { value: "no", label: "One degree only" },
+            ]}
+          />
+        </div>
+      </div>
+      {save.error ? <p role="alert" className="text-sm text-[#a6292f]">{(save.error as Error).message}</p> : null}
+      <div className="flex justify-end">
+        <button
+          type="button"
+          disabled={!changed || save.isPending}
+          onClick={() => save.mutate()}
+          className="rounded-md bg-[#1f4e79] px-4 py-2 text-sm font-semibold text-white disabled:bg-[#9ba8b5]"
+        >
+          {save.isPending ? "Saving…" : "Save"}
+        </button>
+      </div>
+    </div>
   );
 }
 

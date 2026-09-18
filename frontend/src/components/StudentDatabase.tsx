@@ -45,8 +45,10 @@ const PAGES = [
   // students, so it is a filter on this one now.
   { id: "cohorts", name: "Cohorts", icon: ListChecks, group: "Registrar validation", parent: "students" },
   { id: "courses", name: "Courses", icon: BookOpen, group: "Registrar validation" },
-  // The department's own list, chosen from the portal's, where a course gets its UE and parent CRN.
-  { id: "active-courses", name: "Active courses", icon: BookMarked, group: "Registrar validation", parent: "courses" },
+  // The department's own register: one row per CRN, not per course. It was called Active
+  // courses, which is what it was taken in by — a course brings its CRNs with it — but not
+  // what it lists, and a UE or a teacher read as a fact of the row it sat on.
+  { id: "active-courses", name: "Active CRNs", icon: BookMarked, group: "Registrar validation", parent: "courses" },
   { id: "teachers", name: "Teachers", icon: GraduationCap, group: "Registrar validation" },
   // The department's own list, chosen from the portal's or brought from the part-time database.
   { id: "active-teachers", name: "Active teachers", icon: UserCheck, group: "Registrar validation", parent: "teachers" },
@@ -125,8 +127,8 @@ const TITLES: Record<PageId, { title: string; blurb?: string }> = {
     blurb: "The term's CRNs as the registrar portal lists them — what everything else checks against.",
   },
   "active-courses": {
-    title: "Active courses",
-    blurb: "The department's own list: chosen from the portal's courses, each with its UE and the parent CRN its sections hang from.",
+    title: "Active CRNs",
+    blurb: "The department's own register: every CRN it answers for, what the portal says about each, and the parent CRN its sections hang from. A course's own facts — its UE, whether it is mutualized — live on the course.",
   },
   teachers: {
     title: "Teachers",

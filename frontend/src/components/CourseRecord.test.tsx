@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CourseRecord } from "@/components/CourseRecord";
@@ -156,7 +156,39 @@ describe("a course, in full", () => {
 
     show("PHYS-999");
 
-    expect(await screen.findByText(/Take the course in on Active courses/)).toBeTruthy();
+    expect(await screen.findByText(/Take the course in on Active CRNs/)).toBeTruthy();
     expect(screen.getByText(/Add it to a set on Group schema/)).toBeTruthy();
+  });
+});
+
+describe("the course's own facts", () => {
+  it("is where the UE is written, not read off a section", async () => {
+    // Every CRN of a course has the same UE, so there is no such thing as changing it for
+    // one of them. It was editable from a CRN's dialog, which said the opposite.
+    const save = vi.spyOn(lists, "updateActiveCourse").mockResolvedValue(undefined as never);
+    show();
+
+    const field = await screen.findByLabelText("UE of MATH-351");
+    expect((field as HTMLInputElement).value).toBe("LU3MA276");
+
+    fireEvent.change(field, { target: { value: "LU3MA300" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(save).toHaveBeenCalledWith("a1", { title: "Algebra & Cryptography", ue: "LU3MA300", mutualized: "" }),
+    );
+  });
+
+  it("will not save until something has changed", async () => {
+    show();
+
+    await screen.findByLabelText("UE of MATH-351");
+    expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("has nothing to say about a course the register does not hold", async () => {
+    show("MATH-999");
+
+    expect(await screen.findByText(/nothing to say about it yet/)).toBeTruthy();
   });
 });

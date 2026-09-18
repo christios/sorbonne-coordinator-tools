@@ -98,7 +98,7 @@ export function PortalCourses() {
         <p className="max-w-xl text-sm text-[#667085]">
           One row per CRN, as the portal lists it. Groups &amp; CRNs and Semesters check their CRNs against this
           list, so keep the filter that covers the department synced. Select the courses the department deals with
-          and add them to Active courses.
+          and add them to Active CRNs — a course brings its CRNs with it.
         </p>
         <PortalFilterBar
           kind="courses"
@@ -140,12 +140,12 @@ export function PortalCourses() {
               <button
                 type="button"
                 disabled={chosen.length === 0 || add.isPending}
-                title={selected.size && !chosen.length ? "Every selected course is already active" : "Add the selected courses to Active courses"}
+                title={selected.size && !chosen.length ? "Every selected course is already active" : "Take the selected courses and their CRNs into the register"}
                 onClick={() => add.mutate(chosen)}
                 className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
               >
                 <BookPlus size={15} aria-hidden="true" />
-                {chosen.length ? `Add ${chosen.length} to active courses` : "Add to active courses"}
+                {chosen.length ? `Take ${chosen.length} into the register` : "Take into the register"}
               </button>
               {add.error ? <span role="alert" className="text-sm text-[#a6292f]">{(add.error as Error).message}</span> : null}
             </>

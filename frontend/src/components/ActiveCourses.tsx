@@ -15,7 +15,6 @@ import { ScreenLoading } from "@/components/ScreenLoading";
 import { SelectMenu } from "@/components/SelectMenu";
 import {
   type ActiveCourse,
-  type Mutualized,
   MUTUALIZED_WORDS,
   type ActiveCrn,
   type RegisterCheck,
@@ -26,7 +25,6 @@ import {
   fetchRegisterCheck,
   removeActiveCrn,
   setParentCrn,
-  updateActiveCourse,
 } from "@/services/portalLists";
 import type { GridColumn } from "@/services/studentColumns";
 
@@ -566,16 +564,11 @@ export function CrnDialog({
   inline?: boolean;
 }) {
   const [parent, setParent] = useState(row.parentCrn);
-  const [ue, setUe] = useState(row.ue);
-  const [mutualized, setMutualized] = useState<Mutualized>(course?.mutualized ?? "");
   const suggested = course?.portalParentCrn ?? "";
 
   const save = useMutation({
     mutationFn: async () => {
       if (parent !== row.parentCrn) await setParentCrn(row.id, parent);
-      if (course && (ue.trim() !== row.ue || mutualized !== course.mutualized)) {
-        await updateActiveCourse(course.id, { title: course.title, ue: ue.trim(), mutualized });
-      }
     },
     onSuccess: () => {
       onSaved();
@@ -629,39 +622,31 @@ export function CrnDialog({
             </button>
           ) : null}
         </div>
-        <label className="block text-sm font-semibold text-[#344054]">
-          UE
-          <span className="block text-xs font-normal text-[#98a2b3]">
-            The course&apos;s, so it changes for every CRN of {row.courseCode}.
+        {/*
+          * The course's own facts, shown here and changed elsewhere.
+          *
+          * The UE and whether both degrees sit in it together belong to the course, not to
+          * one of its sections: every CRN of a course has the same answer, and there is no
+          * such thing as changing it "for this CRN". They were editable from here, which
+          * said the opposite — a field on a CRN is a field you would expect the next CRN
+          * not to share. So the CRN shows them, and the course's own record is where they
+          * are written.
+          */}
+        <div className="rounded-md border border-[#e4e8ef] bg-[#fafbfc] px-3 py-2">
+          <span className="block text-sm font-semibold text-[#344054]">What {row.courseCode} says</span>
+          <span className="mt-0.5 block text-xs font-normal text-[#98a2b3]">
+            The same on every CRN of it. Change it on the course&apos;s record.
           </span>
-          <input aria-label={`UE of ${row.courseCode}`} value={ue} onChange={(event) => setUe(event.target.value)} placeholder="UL1MA001" disabled={!course} className={field} />
-        </label>
-      </div>
-
-      {/*
-        * Whether the mathematicians and the physicists sit in it together.
-        *
-        * Licence 2 and Licence 3 are one cohort reading two degrees, and this is what
-        * decides whether a course needs one group or two. It belongs to the course, so it
-        * changes for every CRN of it.
-        */}
-      <div className="mt-4">
-        <span className="block text-sm font-semibold text-[#344054]">Mutualized</span>
-        <span className="block text-xs font-normal text-[#98a2b3]">
-          Whether {row.courseCode} is taught to the mathematicians and the physicists at once.
-        </span>
-        <div className="mt-1.5 max-w-xs">
-          <SelectMenu
-            label={`Whether ${row.courseCode} is mutualized`}
-            value={mutualized}
-            onChange={(value) => setMutualized(value as Mutualized)}
-            disabled={!course}
-            options={[
-              { value: "", label: "Nobody has said" },
-              { value: "yes", label: "Mutualized — both degrees together" },
-              { value: "no", label: "One degree only" },
-            ]}
-          />
+          <dl className="mt-2 flex flex-wrap gap-x-6 gap-y-1 text-sm">
+            <div className="flex items-baseline gap-2">
+              <dt className="text-xs uppercase tracking-wide text-[#98a2b3]">UE</dt>
+              <dd className="tabular-nums text-[#344054]">{row.ue || <span className="text-[#c8d0da]">not said</span>}</dd>
+            </div>
+            <div className="flex items-baseline gap-2">
+              <dt className="text-xs uppercase tracking-wide text-[#98a2b3]">Mutualized</dt>
+              <dd className="text-[#344054]">{MUTUALIZED_WORDS[row.mutualized] || <span className="text-[#c8d0da]">not said</span>}</dd>
+            </div>
+          </dl>
         </div>
       </div>
       {row.usedBy ? (
