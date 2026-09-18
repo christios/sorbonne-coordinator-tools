@@ -10,6 +10,7 @@ import { filled } from "@/services/courseRequest";
 import {
   fetchActiveCourses,
   fetchActiveCrns,
+  fetchActiveTeachers,
   fetchRegisterCheck,
   fetchTermCrns,
   updateActiveCourse,
@@ -53,6 +54,17 @@ export function CourseRecord({
   const catalogues = useQuery({ queryKey: ["course-cards"], queryFn: fetchCourseCards, enabled: open });
   const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, enabled: open });
   const check = useQuery({ queryKey: ["register-check"], queryFn: () => fetchRegisterCheck(), enabled: open });
+  /*
+   * The department's teachers, so a section can be named by the one somebody chose for it.
+   *
+   * A section carries two: the name the registrar's row happened to say, and the Active
+   * teacher chosen here afterwards. Choosing one fills the id and leaves the written name
+   * empty, so a card that printed only the written name showed a dash for every section
+   * anybody had actually staffed — the better-staffed a course was, the emptier it looked.
+   */
+  const teachers = useQuery({ queryKey: ["active-teachers"], queryFn: fetchActiveTeachers, enabled: open });
+  const nameOf = (teacherId: string) =>
+    (teachers.data ?? []).find((teacher) => teacher.id === teacherId)?.fullName ?? "";
 
   const course = (courses.data ?? []).find((row) => row.courseCode.toUpperCase() === code) ?? null;
   const held = (crns.data ?? []).filter((row) => row.courseCode.toUpperCase() === code);
@@ -185,7 +197,7 @@ export function CourseRecord({
             ) : (
               <ul className="space-y-3 text-sm">
                 {cards.map((card) => (
-                  <TaughtIn key={card.key} card={card} />
+                  <TaughtIn key={card.key} card={card} nameOf={nameOf} />
                 ))}
               </ul>
             )}
@@ -293,7 +305,7 @@ function RegisterLine({ row, portal }: { row: ActiveCrn; portal: { teacherName: 
 }
 
 /** One cohort-semester's sections of this course, group by group. */
-function TaughtIn({ card }: { card: CourseCard }) {
+function TaughtIn({ card, nameOf }: { card: CourseCard; nameOf: (teacherId: string) => string }) {
   return (
     <li>
       <p className="font-medium text-[#344054]">
@@ -308,11 +320,13 @@ function TaughtIn({ card }: { card: CourseCard }) {
               .flatMap((row) => rowsPerPart(row))
               .map((row) => {
                 const section = row.section ? filled(row.section, set.course.request) : null;
+                // The chosen teacher where there is one, the row's own written name otherwise.
+                const staff = section ? (section.teacherId && nameOf(section.teacherId)) || section.teacher : "";
                 return (
                   <li key={`${row.group.id}|${row.section?.part ?? 1}`} className="flex flex-wrap items-baseline gap-x-3 py-0.5">
                     <span className="text-[#667085]">{row.group.label}</span>
                     <span className="tabular-nums text-[#344054]">{section?.crn || <Nothing />}</span>
-                    <span className="text-[#667085]">{section?.teacher || <Nothing />}</span>
+                    <span className="text-[#667085]">{staff || <Nothing />}</span>
                     {section?.hours ? <span className="text-xs tabular-nums text-[#98a2b3]">{section.hours} h</span> : null}
                     {row.parts && row.parts > 1 ? (
                       <span className="text-xs text-[#1f4e79]">part {row.section?.part} of {row.parts}</span>

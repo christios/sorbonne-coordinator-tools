@@ -585,7 +585,9 @@ export function CrnDialog({
       .filter((candidate) => candidate.crn !== row.crn && !candidate.parentCrn)
       .map((candidate) => ({
         value: candidate.crn,
-        label: candidate.crn === suggested ? `${candidate.crn} — the portal's row for the course` : candidate.crn,
+        // Short, because the option also carries the section's title as a badge and the
+        // control is one line: "the portal's row for the course" was cut off mid-word.
+        label: candidate.crn === suggested ? `${candidate.crn} — the course's own row` : candidate.crn,
         searchText: candidate.portalTitle,
         badge: candidate.portalTitle || undefined,
         badgeTone: "muted" as const,
@@ -597,7 +599,7 @@ export function CrnDialog({
 
   const body = (
     <>
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div>
         <div>
           <span className="block text-sm font-semibold text-[#344054]">Parent CRN</span>
           <span className="block text-xs font-normal text-[#98a2b3]">
@@ -618,7 +620,7 @@ export function CrnDialog({
           </div>
           {!isParent && suggested && parent !== suggested ? (
             <button type="button" onClick={() => setParent(suggested)} className="mt-1 text-xs font-semibold text-[#1f4e79] underline">
-              Use {suggested}, the portal&apos;s row for this course
+              Use {suggested}, the course&apos;s own row in the portal
             </button>
           ) : null}
         </div>
@@ -631,23 +633,26 @@ export function CrnDialog({
           * said the opposite — a field on a CRN is a field you would expect the next CRN
           * not to share. So the CRN shows them, and the course's own record is where they
           * are written.
+          *
+          * Quietly, and under a rule rather than in a box of their own. Boxed and set
+          * beside the parent they read as the second half of a pair of things to fill in,
+          * which is the impression this change exists to remove — and they took half the
+          * width from the one field here that is actually a field, leaving its CRN cut off
+          * mid-number. Read-only facts belong at the weight of the sentence below them.
           */}
-        <div className="rounded-md border border-[#e4e8ef] bg-[#fafbfc] px-3 py-2">
-          <span className="block text-sm font-semibold text-[#344054]">What {row.courseCode} says</span>
-          <span className="mt-0.5 block text-xs font-normal text-[#98a2b3]">
-            The same on every CRN of it. Change it on the course&apos;s record.
-          </span>
-          <dl className="mt-2 flex flex-wrap gap-x-6 gap-y-1 text-sm">
-            <div className="flex items-baseline gap-2">
-              <dt className="text-xs uppercase tracking-wide text-[#98a2b3]">UE</dt>
-              <dd className="tabular-nums text-[#344054]">{row.ue || <span className="text-[#c8d0da]">not said</span>}</dd>
-            </div>
-            <div className="flex items-baseline gap-2">
-              <dt className="text-xs uppercase tracking-wide text-[#98a2b3]">Mutualized</dt>
-              <dd className="text-[#344054]">{MUTUALIZED_WORDS[row.mutualized] || <span className="text-[#c8d0da]">not said</span>}</dd>
-            </div>
-          </dl>
-        </div>
+        <dl className="mt-4 flex flex-wrap items-baseline gap-x-6 gap-y-1 border-t border-[#f2f4f7] pt-3 text-sm">
+          <div className="flex items-baseline gap-2">
+            <dt className="text-xs uppercase tracking-wide text-[#98a2b3]">UE</dt>
+            <dd className="tabular-nums text-[#344054]">{row.ue || <span className="text-[#c8d0da]">not said</span>}</dd>
+          </div>
+          <div className="flex items-baseline gap-2">
+            <dt className="text-xs uppercase tracking-wide text-[#98a2b3]">Mutualized</dt>
+            <dd className="text-[#344054]">{MUTUALIZED_WORDS[row.mutualized] || <span className="text-[#c8d0da]">not said</span>}</dd>
+          </div>
+        </dl>
+        <p className="mt-1 text-xs text-[#98a2b3]">
+          {row.courseCode}&apos;s, and the same on every CRN of it. Change it on the course&apos;s record.
+        </p>
       </div>
       {row.usedBy ? (
         <p className="mt-3 text-xs text-[#667085]">

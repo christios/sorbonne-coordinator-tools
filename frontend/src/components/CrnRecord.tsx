@@ -13,6 +13,7 @@ import { buildCards, rowsPerPart, teaches } from "@/services/courseCards";
 import { filled } from "@/services/courseRequest";
 import {
   fetchActiveCourses,
+  fetchActiveTeachers,
   fetchCrnStudents,
   fetchFacilitySections,
   fetchRegisterCheck,
@@ -58,6 +59,14 @@ export function CrnRecord({
   onShowStudents?: (ids: string[]) => void;
 }) {
   const courses = useQuery({ queryKey: ["active-courses"], queryFn: fetchActiveCourses, enabled: open });
+  /*
+   * Choosing an Active teacher for a section fills its id and leaves the written name
+   * empty, so a card reading the written name alone had nothing to show for exactly the
+   * sections somebody had staffed properly.
+   */
+  const teachers = useQuery({ queryKey: ["active-teachers"], queryFn: fetchActiveTeachers, enabled: open });
+  const nameOf = (teacherId: string) =>
+    (teachers.data ?? []).find((teacher) => teacher.id === teacherId)?.fullName ?? "";
   const catalogues = useQuery({ queryKey: ["course-cards"], queryFn: fetchCourseCards, enabled: open });
   const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, enabled: open });
   const check = useQuery({ queryKey: ["register-check", row.termCode], queryFn: () => fetchRegisterCheck(row.termCode), enabled: open, retry: false });
@@ -188,7 +197,7 @@ export function CrnRecord({
                         ) : null}
                       </p>
                       <p className="text-[#667085]">
-                        {section?.teacher || <Nothing />}
+                        {(section && ((section.teacherId && nameOf(section.teacherId)) || section.teacher)) || <Nothing />}
                         {section?.hours ? <span className="ml-3 tabular-nums text-xs">{section.hours} h</span> : null}
                         {section?.weeks ? <span className="ml-3 text-xs">weeks {section.weeks}</span> : null}
                       </p>
@@ -314,7 +323,7 @@ export function CrnRecord({
             * The one thing on a CRN that is ours to change, kept where the CRN is looked at
             * rather than behind a second press somewhere else.
             */}
-          <Card title="What it hangs from" note="The parent CRN the register holds it under, and the course's own facts.">
+          <Card title="What it hangs from" note="The parent CRN the register holds it under — the one thing here that is the CRN's own.">
             <CrnDialog row={row} course={course} siblings={siblings} onClose={onClose} onSaved={onSaved} inline />
           </Card>
         </div>

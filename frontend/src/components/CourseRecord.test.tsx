@@ -75,6 +75,9 @@ beforeEach(() => {
       meetings: [{ meetsOn: "2026-09-07", startsAt: "08:30", endsAt: "10:00", room: "5.101" }],
     })),
   }));
+  vi.spyOn(lists, "fetchActiveTeachers").mockResolvedValue([
+    { id: "t-younes", fullName: "Grace Younes" },
+  ] as never);
   vi.spyOn(database, "fetchCourseCards").mockResolvedValue(CATALOGUE);
   vi.spyOn(timetables, "fetchTimetableTerms").mockResolvedValue([
     { id: "term-1", name: "Semester 1" } as unknown as timetables.TimetableTerm,
@@ -190,5 +193,38 @@ describe("the course's own facts", () => {
     show("MATH-999");
 
     expect(await screen.findByText(/nothing to say about it yet/)).toBeTruthy();
+  });
+});
+
+describe("who teaches each group of it", () => {
+  it("names the teacher somebody chose for the section, not only the one typed on it", async () => {
+    // Choosing an Active teacher fills the id and leaves the written name empty, so a card
+    // reading the written name alone showed a dash for every section anybody had staffed.
+    vi.spyOn(database, "fetchCourseCards").mockResolvedValue([
+      {
+        ...CATALOGUE[0],
+        scopes: [
+          {
+            ...CATALOGUE[0].scopes[0],
+            groups: [
+              {
+                ...CATALOGUE[0].scopes[0].groups[0],
+                crns: {
+                  "cm-alg": {
+                    ...database.EMPTY_SECTION,
+                    crn: "23436", teacher: "", teacherId: "t-younes", hours: "15",
+                    parts: [{ ...database.EMPTY_PART, part: 1, crn: "23436", teacher: "", teacherId: "t-younes", hours: "15" }],
+                  },
+                },
+              },
+            ],
+          },
+        ],
+      },
+    ] as never);
+    show();
+
+    const taught = (await screen.findByText("Where we teach it")).closest("section") as HTMLElement;
+    expect(await within(taught).findByText("Grace Younes")).toBeTruthy();
   });
 });
