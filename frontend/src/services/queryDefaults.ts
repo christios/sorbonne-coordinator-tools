@@ -19,19 +19,30 @@ import type { DefaultOptions } from "@tanstack/react-query";
  *   moment you return to the application is the moment that change is most likely to be
  *   waiting.
  *
- * - **What is on screen is asked again every two minutes** while you are looking at it.
- *   Otherwise a coordinator who never leaves the tab could work all morning against
+ * - **What is on screen is asked again every quarter of an hour** while you are looking at
+ *   it. Otherwise a coordinator who never leaves the tab could work all morning against
  *   somebody else's old picture, which is the one hole the long window opens. It costs
  *   nothing you can see: a refresh in the background replaces the data under a screen that
  *   is already drawn, so nothing blanks and nothing blinks — unlike the re-fetch on
  *   arriving at a screen, which is what made the old half-minute window feel the way it
  *   did. React Query holds the timer while the tab is in the background, where nobody is
  *   looking, and the line above catches it up on return.
+ *
+ *   It was two minutes, and that is the one thing here that did cost something you could
+ *   see. Nothing on screen is small: the register is every CRN, a catalogue is every group,
+ *   section and sub-row, the students list is the whole roster. A tab left open from nine
+ *   to six re-read all of it about two hundred and seventy times a day, for nobody. Over
+ *   eighteen days that came to five and a half gigabytes out of a forty-eight megabyte
+ *   database — the whole thing, a hundred and eighteen times over — which passed the
+ *   month's allowance and shut the application off at the database until the plan was
+ *   changed. A quarter of an hour is an eighth of the reading and still well inside the
+ *   time it takes to notice somebody else's change and act on it, which is what this is
+ *   for. The refresh on returning to the tab, above, is what actually catches most of them.
  */
 export const QUERY_DEFAULTS: DefaultOptions = {
   queries: {
     staleTime: 30 * 60_000,
     refetchOnWindowFocus: "always",
-    refetchInterval: 2 * 60_000,
+    refetchInterval: 15 * 60_000,
   },
 };

@@ -35,9 +35,24 @@ describe("how long what is on screen is trusted", () => {
     const { stop } = await onScreen(ask);
     expect(ask).toHaveBeenCalledTimes(1);
 
-    await vi.advanceTimersByTimeAsync(2 * 60_000 + 1_000);
+    await vi.advanceTimersByTimeAsync(15 * 60_000 + 1_000);
 
     expect(ask).toHaveBeenCalledTimes(2);
+    stop();
+  });
+
+  it("leaves a quarter of an hour between, which is the whole reason it is affordable", async () => {
+    /*
+     * At two minutes a tab left open all day re-read every list on screen a few hundred
+     * times for nobody, which ran the month's data allowance out and took the application
+     * off its database. Nothing here goes stale fast enough to need that.
+     */
+    const ask = vi.fn(async () => "rows");
+    const { stop } = await onScreen(ask);
+
+    await vi.advanceTimersByTimeAsync(14 * 60_000);
+
+    expect(ask).toHaveBeenCalledTimes(1);
     stop();
   });
 
@@ -45,7 +60,7 @@ describe("how long what is on screen is trusted", () => {
     const ask = vi.fn(async () => "rows");
     const { stop } = await onScreen(ask);
 
-    await vi.advanceTimersByTimeAsync(6 * 60_000 + 1_000);
+    await vi.advanceTimersByTimeAsync(4 * 15 * 60_000 + 1_000);
 
     expect(ask.mock.calls.length).toBeGreaterThanOrEqual(4);
     stop();
@@ -56,7 +71,7 @@ describe("how long what is on screen is trusted", () => {
     const { stop } = await onScreen(ask);
     stop();
 
-    await vi.advanceTimersByTimeAsync(6 * 60_000);
+    await vi.advanceTimersByTimeAsync(4 * 15 * 60_000);
 
     expect(ask).toHaveBeenCalledTimes(1);
   });
