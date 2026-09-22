@@ -1768,6 +1768,13 @@ class PortalListStore:
 
         `TBD` and its friends are not names. A section our planning has not staffed yet is
         `unnamed`, never a disagreement: it is a different problem with a different answer.
+
+        Judged per SECTION, not per card row. A mutualized lecture is one class that
+        several groups attend, so it sits on several rows: one carries its hours and its
+        teacher and the others point at it. Judged row by row, the pointers read as
+        sections nobody has staffed — which is how CPSC-100's lecture reported "staffed
+        only by the registrar" while Wafa Ahmed was plainly chosen on it. A teacher is a
+        property of the section, and one row naming them staffs it.
         """
         term = _text(term_code)
         with self.engine.connect() as connection:
@@ -1793,26 +1800,42 @@ class PortalListStore:
                 .all()
             )
 
-        differs: list[dict[str, Any]] = []
-        unnamed: list[dict[str, Any]] = []
+        by_crn: dict[str, list[Any]] = {}
         for row in rows:
-            # A linked teacher is the department's answer; free text is the department
-            # still writing it down. Either is "who we say", and the state says which.
-            ours = row["linked"] or row["written"]
             if not row["in_portal"] or not named(row["theirs"]):
                 continue
+            by_crn.setdefault(row["crn"], []).append(row)
+
+        differs: list[dict[str, Any]] = []
+        unnamed: list[dict[str, Any]] = []
+        for crn, held in by_crn.items():
+            # The row that answers for the section: one that links a teacher first, then
+            # one that writes a name down, and only then the bare pointer.
+            #
+            # A linked teacher is the department's answer; free text is the department
+            # still writing it down. Either is "who we say", and the state says which.
+            answers = (
+                next((row for row in held if named(row["linked"])), None)
+                or next((row for row in held if named(row["written"])), None)
+                or held[0]
+            )
+            ours = answers["linked"] or answers["written"]
             entry = {
-                "crn": row["crn"],
-                "courseCode": row["course_code"],
-                "groupLabel": row["group_label"],
+                "crn": crn,
+                "courseCode": answers["course_code"],
+                # Every group that attends it, because the fix is on the row that carries
+                # the teacher and a reader needs to know which of them that is.
+                "groupLabel": ", ".join(sorted({row["group_label"] for row in held if row["group_label"]})),
                 "ours": ours,
-                "theirs": row["theirs"],
-                "planning": _planning_state(row["linked"], row["written"]),
+                "theirs": answers["theirs"],
+                "planning": _planning_state(answers["linked"], answers["written"]),
             }
             if not named(ours):
                 unnamed.append(entry)
-            elif not names_agree(ours, row["theirs"]):
+            elif not names_agree(ours, answers["theirs"]):
                 differs.append(entry)
+        differs.sort(key=lambda entry: (entry["courseCode"], entry["crn"]))
+        unnamed.sort(key=lambda entry: (entry["courseCode"], entry["crn"]))
         return {"teacherDiffers": differs, "teacherUnnamed": unnamed}
 
     def register_check(self, term_code: str = "") -> dict[str, list[dict[str, Any]]]:

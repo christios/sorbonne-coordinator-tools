@@ -1834,6 +1834,53 @@ def test_a_section_the_registrar_staffs_and_we_have_not_is_its_own_list(
     assert [(row["crn"], row["theirs"]) for row in found["teacherUnnamed"]] == [("22151", "Valerie LE GUYON")]
 
 
+def test_a_lecture_several_groups_attend_is_staffed_once(client: TestClient, database: StudentDatabase):
+    """A mutualized CM sits on a row per group: one carries it, the others point at it.
+
+    Judged row by row, the pointers read as sections nobody has staffed — which is how
+    CPSC-100's lecture reported "staffed only by the registrar" with a teacher plainly
+    chosen on it.
+    """
+    cohort = database.create_cohort(name="L1-S1", term="2026-27")
+    cm = database.add_scope(cohort["id"], code="CM", name="Lectures", term_id=HUB_TERM)
+    course = database.add_course(cm, code="CPSC-100")
+    maths = database.add_group(cm, label="1 Mathematics")
+    physics = database.add_group(cm, label="1 Physics")
+    database.set_cell(group_id=maths, course_id=course, crn="22155", teacher="Wafa Ahmed")
+    database.set_cell(group_id=physics, course_id=course, crn="22155", teacher="")
+    made = make_filter(client, "courses")
+    client.post(
+        f"{BASE}/filters/{made['id']}/sync/courses",
+        json={"rows": [{"crn": "22155", "termCode": TERM, "courseCode": "CPSC-100", "teacherName": "Wafa Ahmed"}]},
+    )
+
+    found = client.get(f"{BASE}/register-check").json()
+
+    assert found["teacherUnnamed"] == []
+    assert found["teacherDiffers"] == []
+
+
+def test_a_lecture_no_group_has_staffed_is_reported_once(client: TestClient, database: StudentDatabase):
+    """Once, not once per group: it is one section and one line to copy across."""
+    cohort = database.create_cohort(name="L1-S1", term="2026-27")
+    cm = database.add_scope(cohort["id"], code="CM", name="Lectures", term_id=HUB_TERM)
+    course = database.add_course(cm, code="CPSC-100")
+    for label in ("1 Mathematics", "1 Physics"):
+        group = database.add_group(cm, label=label)
+        database.set_cell(group_id=group, course_id=course, crn="22155", teacher="")
+    made = make_filter(client, "courses")
+    client.post(
+        f"{BASE}/filters/{made['id']}/sync/courses",
+        json={"rows": [{"crn": "22155", "termCode": TERM, "courseCode": "CPSC-100", "teacherName": "Wafa Ahmed"}]},
+    )
+
+    found = client.get(f"{BASE}/register-check").json()
+
+    assert [(row["crn"], row["groupLabel"]) for row in found["teacherUnnamed"]] == [
+        ("22155", "1 Mathematics, 1 Physics")
+    ]
+
+
 def test_a_surname_the_two_sides_space_differently_is_reported_as_neither(
     client: TestClient, database: StudentDatabase
 ):
