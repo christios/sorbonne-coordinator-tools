@@ -9,13 +9,29 @@
  * So this card holds a label, an academic year and a link, and the link opens in a new
  * tab. Who may open it is OneDrive's decision, not ours — a coordinator without access
  * sees Microsoft's own sign-in, which is the right place for that conversation.
+ *
+ * It is laid out by pay period rather than by sheet, because a missing sheet is the thing
+ * worth seeing and a list of the ones that exist cannot show it. Each period says what
+ * the teacher actually taught in it — the classes that met, less the cancelled, plus any
+ * they stood in for — beside the sheet claiming it, or beside the fact that none is
+ * filed. Sheets from before this way of working, or filed against no period at all, keep
+ * a place of their own underneath: nothing that was here disappears.
  */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ExternalLink, FileSpreadsheet, Pencil, Plus, Trash2, X } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { SelectMenu } from "@/components/SelectMenu";
+import { buildCards } from "@/services/courseCards";
+import { asHours, hoursTaught, minutesByTeacher } from "@/services/hoursInPeriod";
+import { fetchActiveTeachers, fetchFacilitySections, fetchTermLinks } from "@/services/portalLists";
+import { fetchSessionChanges } from "@/services/sessionChanges";
+import { fetchCourseCards } from "@/services/studentDatabase";
+import { sectionsTaughtBy } from "@/services/teacherLoad";
+import { fetchPayCycles, fetchTeacherSummary } from "@/services/teachers";
+import { fetchTimetableTerms } from "@/services/timetables";
 import {
   type TeacherTimeSheet,
   createTeacherTimeSheet,
@@ -23,7 +39,14 @@ import {
   listTeacherTimeSheets,
   updateTeacherTimeSheet,
 } from "@/services/teachers";
-import { periodChoices, periodContaining, periodLabel } from "@/services/payPeriods";
+import {
+  opensOnFor,
+  periodChoices,
+  periodContaining,
+  periodEnd,
+  periodLabel,
+  PERIOD_OPENS_ON,
+} from "@/services/payPeriods";
 import { isWebLink, linkHost } from "@/services/timeSheetLinks";
 
 type Draft = { label: string; academicYear: string; url: string; periodStart: string };
@@ -47,6 +70,73 @@ export function TimeSheetsCard({ teacherId, className = "" }: { teacherId: strin
   const [draft, setDraft] = useState<Draft | null>(null);
   const [pendingDeletion, setPendingDeletion] = useState<TeacherTimeSheet | null>(null);
 
+  /*
+   * What the teacher actually taught, so a period can be read beside the sheet claiming
+   * it. The semester is asked for because a period alone cannot say which term's classes
+   * to count, and a semester carries no dates of its own to work it out from.
+   */
+  const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, retry: false });
+  const [termId, setTermId] = useState("");
+  const actives = useQuery({ queryKey: ["active-teachers"], queryFn: fetchActiveTeachers });
+  const mine = (actives.data ?? []).find((teacher) => teacher.partTimeTeacherId === teacherId) ?? null;
+  const cards = useQuery({ queryKey: ["course-cards"], queryFn: fetchCourseCards });
+  const cycles = useQuery({ queryKey: ["pay-cycles"], queryFn: fetchPayCycles });
+  const summary = useQuery({ queryKey: ["teacher-summary"], queryFn: fetchTeacherSummary });
+  const termName = (id: string) => (terms.data ?? []).find((term) => term.id === id)?.name ?? id;
+  const built = useMemo(
+    () => buildCards(cards.data ?? [], termName, []),
+    [cards.data, terms.data], // eslint-disable-line react-hooks/exhaustive-deps
+  );
+  /*
+   * Opens on a semester this teacher actually teaches in.
+   *
+   * The first semester in the list is whichever the Hub returns first, and for a part-time
+   * teacher that is as likely as not one they have no classes in — so the card opened on
+   * "0 h, 0 classes" and looked broken rather than empty.
+   */
+  const taughtIn = useMemo(() => {
+    if (!mine) return [];
+    return [
+      ...new Set(
+        sectionsTaughtBy(built, mine.id, mine.fullName)
+          .map((section) => section.termId)
+          .filter(Boolean),
+      ),
+    ];
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- the id and name are what is read
+  }, [built, mine?.id, mine?.fullName]);
+  const chosenTerm = termId || taughtIn[0] || terms.data?.[0]?.id || "";
+
+  const links = useQuery({ queryKey: ["term-links"], queryFn: fetchTermLinks, retry: false });
+  const termCode = links.data?.[chosenTerm] ?? "";
+  const notes = useQuery({
+    queryKey: ["session-changes", termCode],
+    queryFn: () => fetchSessionChanges(termCode),
+    enabled: Boolean(termCode),
+    retry: false,
+  });
+  const opensOn = opensOnFor(cycles.data?.cycles ?? {}, chosenTerm, cycles.data?.default ?? PERIOD_OPENS_ON);
+
+  /** Their own sections this semester, and any CRN they stood in on. */
+  const crns = useMemo(() => {
+    if (!mine) return [];
+    const own = sectionsTaughtBy(built, mine.id, mine.fullName)
+      .filter((section) => section.termId === chosenTerm && section.crn)
+      .map((section) => section.crn);
+    const stoodIn = (notes.data ?? [])
+      .filter((note) => note.kind === "covered" && note.coverTeacherId === mine.id)
+      .map((note) => note.crn);
+    return [...new Set([...own, ...stoodIn])];
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- the id and name are what is read
+  }, [built, notes.data, mine?.id, mine?.fullName, chosenTerm]);
+
+  const met = useQuery({
+    queryKey: ["facility-sections", termCode, crns.join(",")],
+    queryFn: () => fetchFacilitySections(termCode, crns),
+    enabled: Boolean(termCode) && crns.length > 0,
+    retry: false,
+  });
+
   const refresh = () => client.invalidateQueries({ queryKey: ["teacher-time-sheets", teacherId] });
   const close = () => {
     setDraft(null);
@@ -67,8 +157,58 @@ export function TimeSheetsCard({ teacherId, className = "" }: { teacherId: strin
     onSuccess: () => void refresh(),
   });
 
-  const rows = sheets.data ?? [];
+  // Its own memo: an empty array made fresh each render would rebuild the periods below
+  // on every keystroke in the form.
+  const rows = useMemo(() => sheets.data ?? [], [sheets.data]);
   const ready = Boolean(draft?.label.trim()) && isWebLink(draft?.url ?? "");
+
+  /** One row per pay period something happened in: a class that met, or a sheet filed. */
+  const periods = useMemo(() => {
+    const met_in = (met.data?.sections ?? []).flatMap((section) =>
+      section.meetings.map((meeting) => periodContaining(new Date(`${meeting.meetsOn}T00:00:00`), opensOn)),
+    );
+    const filed = rows.map((sheet) => sheet.periodStart).filter(Boolean);
+    return [...new Set([...met_in, ...filed])]
+      .sort()
+      .reverse()
+      .map((start) => {
+        const { hours, stranded } = hoursTaught({
+          sections: met.data?.sections ?? [],
+          changes: notes.data ?? [],
+          period: { from: start, to: periodEnd(start) },
+          staffing: () => ({ id: mine?.id ?? "", name: mine?.fullName ?? "" }),
+        });
+        const ours = hours.filter((hour) => hour.teacherId === (mine?.id ?? ""));
+        return {
+          start,
+          minutes: minutesByTeacher(hours)[mine?.id ?? ""] ?? 0,
+          classes: ours.length,
+          covered: ours.filter((hour) => hour.covered).length,
+          stranded: stranded.length,
+          sheet: rows.find((sheet) => sheet.periodStart === start) ?? null,
+        };
+      });
+  }, [met.data, notes.data, rows, opensOn, mine?.id, mine?.fullName]);
+
+  /** Sheets against no period, or a period nothing else knows about. Nothing disappears. */
+  const loose = rows.filter((sheet) => !periods.some((period) => period.sheet?.id === sheet.id));
+  const contracted = summary.data?.[teacherId]?.contractedHours ?? 0;
+
+  const fileFor = (start: string) => {
+    setEditingId(null);
+    setDraft({ label: periodLabel(start), academicYear: "2026-2027", url: "", periodStart: start });
+    save.reset();
+  };
+  const editSheet = (sheet: TeacherTimeSheet) => {
+    setEditingId(sheet.id);
+    setDraft({
+      label: sheet.label,
+      academicYear: sheet.academicYear,
+      url: sheet.url,
+      periodStart: sheet.periodStart,
+    });
+    save.reset();
+  };
 
   return (
     <section className={`${className} rounded-lg border border-[#d9dee7] bg-white p-5`}>
@@ -90,14 +230,32 @@ export function TimeSheetsCard({ teacherId, className = "" }: { teacherId: strin
               save.reset();
             }
           }}
-          className="inline-flex shrink-0 items-center gap-2 rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white"
+          title="For a period with no class in it, or a teacher with no classes at all"
+          className="inline-flex shrink-0 items-center gap-2 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc]"
         >
-          <Plus size={16} /> Add a time sheet
+          {/*
+            * The escape hatch, not the main road: each period files its own sheet now.
+            * It stays because two things still need it — a period where no class was
+            * scheduled, and a teacher nobody has joined to an Active teacher, who has no
+            * periods at all and could otherwise file nothing.
+            */}
+          <Plus size={16} /> Add one by hand
         </button>
       </div>
       <p className="mt-1 text-sm text-[#667085]">
-        Links to this teacher&apos;s time sheet workbooks in OneDrive. The sheets stay where they are kept.
+        One row per pay period: what they actually taught in it, and the sheet claiming it.
+        The workbooks stay in OneDrive where they are kept.
+        {contracted ? ` Contracted for ${contracted} h.` : ""}
       </p>
+      <div className="mt-3 w-52">
+        <SelectMenu
+          label="Semester for the hours"
+          value={chosenTerm}
+          onChange={setTermId}
+          options={(terms.data ?? []).map((term) => ({ value: term.id, label: term.name }))}
+          placeholder="Which semester…"
+        />
+      </div>
 
       {draft ? (
         <form
@@ -198,68 +356,117 @@ export function TimeSheetsCard({ teacherId, className = "" }: { teacherId: strin
         * is exactly that, so without it a long label pushes the buttons past the edge
         * instead of being cut.
         */}
-      {rows.length ? (
-        <div role="list" className="mt-4 grid gap-3" aria-label="Time sheets">
-          {rows.map((sheet) => (
+      {periods.length ? (
+        <div role="list" className="mt-4 grid gap-3" aria-label="Pay periods">
+          {periods.map((period) => (
             <article
-              key={sheet.id}
+              key={period.start}
               role="listitem"
-              className="flex min-w-0 items-center gap-3 rounded-lg border border-[#d9dee7] p-4 transition-colors hover:border-[#b9d0e5] hover:bg-[#f8fafc]"
+              className="flex min-w-0 items-center gap-3 rounded-lg border border-[#d9dee7] p-4"
             >
-              <FileSpreadsheet size={18} className="shrink-0 text-[#1f6b47]" aria-hidden="true" />
               <div className="min-w-0 flex-1">
-                <a
-                  href={sheet.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  title={sheet.url}
-                  className="flex max-w-full items-center gap-1.5 font-semibold text-[#1f4e79] hover:underline"
-                >
-                  <span className="truncate">{sheet.label}</span>
-                  <ExternalLink size={14} className="shrink-0" aria-hidden="true" />
-                </a>
-                <span className="mt-1 block truncate text-sm text-[#667085]">
-                  {[periodLabel(sheet.periodStart) || "no period said", sheet.academicYear, linkHost(sheet.url)]
-                    .filter(Boolean)
-                    .join(" · ")}
-                </span>
+                <p className="flex flex-wrap items-baseline gap-x-3">
+                  <span className="font-semibold text-[#344054]">{periodLabel(period.start)}</span>
+                  <span className="tabular-nums text-[#1f4e79]">{asHours(period.minutes)} h</span>
+                  <span className="text-xs text-[#98a2b3]">
+                    {period.classes} class{period.classes === 1 ? "" : "es"}
+                    {period.covered ? ` · ${period.covered} covered for somebody` : ""}
+                  </span>
+                </p>
+                {period.sheet ? (
+                  <a
+                    href={period.sheet.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    title={period.sheet.url}
+                    className="mt-1 flex max-w-full items-center gap-1.5 text-sm font-semibold text-[#1f4e79] hover:underline"
+                  >
+                    <FileSpreadsheet size={14} className="shrink-0 text-[#1f6b47]" aria-hidden="true" />
+                    <span className="truncate">{period.sheet.label}</span>
+                    <ExternalLink size={13} className="shrink-0" aria-hidden="true" />
+                  </a>
+                ) : (
+                  <span className="mt-1 block text-sm text-[#a6292f]">No sheet filed</span>
+                )}
+                {period.stranded ? (
+                  <span className="mt-1 block text-xs text-[#8a6116]">
+                    {period.stranded} note{period.stranded === 1 ? "" : "s"} about an hour the registrar has moved
+                  </span>
+                ) : null}
               </div>
               <div className="flex shrink-0 items-center gap-1">
-                <button
-                  type="button"
-                  aria-label={`Edit ${sheet.label}`}
-                  onClick={() => {
-                    setEditingId(sheet.id);
-                    setDraft({
-                      label: sheet.label,
-                      academicYear: sheet.academicYear,
-                      url: sheet.url,
-                      periodStart: sheet.periodStart,
-                    });
-                    save.reset();
-                  }}
-                  className="rounded p-1.5 text-[#344054] hover:bg-[#eef1f5]"
-                >
-                  <Pencil size={16} />
-                </button>
-                <button
-                  type="button"
-                  disabled={remove.isPending}
-                  aria-label={`Remove ${sheet.label}`}
-                  onClick={() => setPendingDeletion(sheet)}
-                  className="rounded p-1.5 text-[#a6292f] hover:bg-[#fff1f2] disabled:opacity-50"
-                >
-                  <Trash2 size={16} />
-                </button>
+                {period.sheet ? (
+                  <>
+                    <button
+                      type="button"
+                      aria-label={`Edit ${period.sheet.label}`}
+                      onClick={() => period.sheet && editSheet(period.sheet)}
+                      className="rounded p-1.5 text-[#344054] hover:bg-[#eef1f5]"
+                    >
+                      <Pencil size={16} />
+                    </button>
+                    <button
+                      type="button"
+                      disabled={remove.isPending}
+                      aria-label={`Remove ${period.sheet.label}`}
+                      onClick={() => setPendingDeletion(period.sheet)}
+                      className="rounded p-1.5 text-[#a6292f] hover:bg-[#fff1f2] disabled:opacity-50"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    aria-label={`File a sheet for ${periodLabel(period.start)}`}
+                    onClick={() => fileFor(period.start)}
+                    className="rounded-md border border-[#b7bec8] px-3 py-1.5 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc]"
+                  >
+                    File one
+                  </button>
+                )}
               </div>
             </article>
           ))}
         </div>
       ) : null}
 
-      {!rows.length && !sheets.isLoading && !draft ? (
+      {/* Filed before this way of working, or against no period at all. Nothing vanishes. */}
+      {loose.length ? (
+        <div className="mt-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-[#98a2b3]">Not against a period here</p>
+          <div role="list" className="mt-2 grid gap-2" aria-label="Other time sheets">
+            {loose.map((sheet) => (
+              <article key={sheet.id} role="listitem" className="flex min-w-0 items-center gap-3 rounded-lg border border-[#e4e8ef] p-3">
+                <FileSpreadsheet size={16} className="shrink-0 text-[#1f6b47]" aria-hidden="true" />
+                <div className="min-w-0 flex-1">
+                  <a href={sheet.url} target="_blank" rel="noreferrer" title={sheet.url} className="flex max-w-full items-center gap-1.5 text-sm font-semibold text-[#1f4e79] hover:underline">
+                    <span className="truncate">{sheet.label}</span>
+                    <ExternalLink size={13} className="shrink-0" aria-hidden="true" />
+                  </a>
+                  <span className="mt-0.5 block truncate text-xs text-[#667085]">
+                    {[periodLabel(sheet.periodStart) || "no period said", sheet.academicYear, linkHost(sheet.url)].filter(Boolean).join(" · ")}
+                  </span>
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
+                  <button type="button" aria-label={`Edit ${sheet.label}`} onClick={() => editSheet(sheet)} className="rounded p-1.5 text-[#344054] hover:bg-[#eef1f5]">
+                    <Pencil size={16} />
+                  </button>
+                  <button type="button" disabled={remove.isPending} aria-label={`Remove ${sheet.label}`} onClick={() => setPendingDeletion(sheet)} className="rounded p-1.5 text-[#a6292f] hover:bg-[#fff1f2] disabled:opacity-50">
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {!periods.length && !loose.length && !sheets.isLoading && !draft ? (
         <p className="py-6 text-sm text-[#667085]">
-          No time sheet linked yet. Add the OneDrive link and it opens from here.
+          {mine
+            ? "No class of theirs met in this semester, and no sheet is filed."
+            : "Not joined to an Active teacher, so there are no classes to count. Link them on Active teachers, or add a sheet by hand."}
         </p>
       ) : null}
       {remove.error ? (

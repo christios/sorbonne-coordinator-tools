@@ -42,7 +42,6 @@ import { RequisitionCourseEditor } from "@/components/RequisitionCourseEditor";
 import { SectionEditorShell } from "@/components/SectionEditorShell";
 import { TeacherBulkActions } from "@/components/TeacherBulkActions";
 import { TeacherFacts, TeacherRowActions } from "@/components/TeacherRowDetail";
-import { TeacherPeriods } from "@/components/TeacherPeriods";
 import { TimeSheetsCard } from "@/components/TeacherTimeSheets";
 import { SelectMenu } from "@/components/SelectMenu";
 import { TaskPanel } from "@/components/TaskPanel";
@@ -1079,8 +1078,6 @@ function TeacherProfile({
           />
         </section>
         <TimeSheetsCard teacherId={teacherId} className="h-full" />
-        {/* What a claim is actually worth, beside the sheet that claims it. */}
-        <TeacherPeriods teacherId={teacherId} className="lg:col-span-2" />
       </div>
     </div>
   );
