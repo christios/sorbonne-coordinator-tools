@@ -17,13 +17,24 @@ describe("what is wrong with each CRN", () => {
         gone: [{ id: "1", termCode: "262710", crn: "22151", courseCode: "MATH-001", usedBy: 2 }],
         unregistered: [{ crn: "23652", courseCode: "MATH-011" }],
         teacherDiffers: [{ crn: "23223", courseCode: "MATH-001", groupLabel: "1", ours: "Wafaa Ahmed", theirs: "Wafa Ahmed", planning: "named" }],
+      } as unknown as Partial<RegisterCheck>),
+    );
+
+    expect([...found.keys()].sort()).toEqual(["22151", "23223", "23652"]);
+    expect(found.get("22151")?.[0].text).toContain("2 card row(s) use it");
+  });
+
+  it("says nothing about an hour shared with another department", () => {
+    // What makes an overlap matter is a student sitting in both, which is a question
+    // about a student and is asked on the cohort's page. Here it filled the column with
+    // option slots nobody of ours is in and fifteen-minute tails at the end of a class.
+    const found = warningsByCrn(
+      report({
         collides: [{ ourCrn: "23302", ourCourse: "SCEN-101", weekday: "Tue", startsAt: "16:30", endsAt: "18:00", dates: 14, minutes: 90, theirs: [{ crn: "20581", courseCode: "ENGL-604" }], students: ["A1"] }],
       } as unknown as Partial<RegisterCheck>),
     );
 
-    expect([...found.keys()].sort()).toEqual(["22151", "23223", "23302", "23652"]);
-    expect(found.get("22151")?.[0].text).toContain("2 card row(s) use it");
-    expect(found.get("23302")?.[0].text).toBe("Tue 16:30–18:00 against ENGL-604");
+    expect([...found.keys()]).toEqual([]);
   });
 
   it("gathers everything wrong with one CRN onto it, worst first", () => {
@@ -59,7 +70,7 @@ describe("what is wrong with each CRN", () => {
 
   it("gives every kind a word, because the column is filtered by it", () => {
     // A count cannot be filtered to "which rows have a teacher disagreement".
-    for (const kind of ["gone", "unregistered", "teacherDiffers", "teacherUnnamed", "collides"] as const) {
+    for (const kind of ["gone", "unregistered", "teacherDiffers", "teacherUnnamed"] as const) {
       expect(WORDS[kind]).toBeTruthy();
     }
   });

@@ -5,7 +5,6 @@ import { useEffect, useMemo, useState } from "react";
 import { ChecksPanel } from "@/components/ChecksPanel";
 import { CourseRecord } from "@/components/CourseRecord";
 import { CrnRecord } from "@/components/CrnRecord";
-import { CollisionList } from "@/components/CollisionList";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { removeEach, stillSelected } from "@/services/bulkRemove";
 import { warningsByCrn, worstOf, WORDS, type CrnWarning, type CrnWarningKind } from "@/services/registerWarnings";
@@ -127,7 +126,6 @@ export function ActiveCourses({ onShowStudents }: { onShowStudents?: (ids: strin
   const [settingChecks, setSettingChecks] = useState(false);
   /** Which course's record is open over the list, if any. */
   const [showingCourse, setShowingCourse] = useState("");
-  const [showingCollisions, setShowingCollisions] = useState(false);
 
   const crns = useQuery({ queryKey: ["active-crns"], queryFn: () => fetchActiveCrns() });
   const courses = useQuery({ queryKey: ["active-courses"], queryFn: fetchActiveCourses });
@@ -263,42 +261,6 @@ export function ActiveCourses({ onShowStudents }: { onShowStudents?: (ids: strin
                 takeIn.mutate(report.arrived.map((row) => ({ termCode: row.termCode, crn: row.crn, courseCode: row.courseCode })))
               }
             />
-          ) : null}
-
-          {/*
-            * The collisions, in a place of their own above the table.
-            *
-            * They used to live inside the band, which is now only about CRNs nobody has
-            * taken in — so a department with none of those would have had no way to reach
-            * a settle button at all. And they never belonged to that band: each one has a
-            * decision attached and needs room for it, which a counted line does not give.
-            *
-            * The rows carry a pill saying WHICH of our sections is in one; this is where
-            * the slot is argued about.
-            */}
-          {report ? (
-            <section className="mt-4 rounded-md border border-[#e8d9ac] bg-[#fdf9ee] py-3">
-              <div className="flex flex-wrap items-center gap-2 px-6">
-                <h3 className="text-sm font-semibold text-[#8a6116]">Sharing an hour with another department</h3>
-                <button
-                  type="button"
-                  onClick={() => setShowingCollisions((current) => !current)}
-                  className="text-xs font-semibold text-[#1f4e79] underline"
-                >
-                  {showingCollisions ? "Hide" : "Show"}
-                </button>
-              </div>
-              {showingCollisions ? (
-                <CollisionList
-                  term={term}
-                  collides={report.collides}
-                  settled={report.settledCollisions}
-                  swept={report.swept}
-                  onSettled={() => client.invalidateQueries({ queryKey: ["register-check"] })}
-                  onShowStudents={onShowStudents}
-                />
-              ) : null}
-            </section>
           ) : null}
 
           <ListGrid

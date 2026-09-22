@@ -6,14 +6,23 @@
  * eye against the rows underneath. The Cohorts page settled this argument a while ago: a
  * fact about a row belongs on the row, and the band is for what has no row.
  *
- * Five of the six are about a CRN the department holds, so they land on it. The sixth —
- * a CRN the portal lists that we have NOT taken in — has no row by definition, and stays
- * above the table where the button that takes it in already is.
+ * Four of them are about a CRN the department holds, so they land on it. A CRN the portal
+ * lists that we have NOT taken in has no row by definition, and stays above the table
+ * where the button that takes it in already is.
+ *
+ * Sharing an hour with another department is deliberately NOT here. It was, and it filled
+ * the column: every section of ours sitting in a university-wide option slot against an
+ * elective none of our students take, and every fifteen-minute tail where one class runs
+ * past the start of another. Neither is a fact about the CRN that this page can act on —
+ * what makes an overlap matter is a student sitting in both, which is a question about a
+ * student and is asked on the cohort's page, where it is floored by the department's own
+ * check. Two pages reporting one fact by two different rules taught people to read
+ * neither.
  */
 
 import type { RegisterCheck } from "@/services/portalLists";
 
-export type CrnWarningKind = "gone" | "unregistered" | "teacherDiffers" | "teacherUnnamed" | "collides";
+export type CrnWarningKind = "gone" | "unregistered" | "teacherDiffers" | "teacherUnnamed";
 
 export type CrnWarning = {
   kind: CrnWarningKind;
@@ -26,16 +35,14 @@ export type CrnWarning = {
  *
  * The ladder is by consequence. A CRN the portal has dropped is a section that will not
  * happen; a CRN nobody registered in is a class with no students; a teacher disagreement
- * is a conversation; a collision is a timetable to argue about. The order decides the
- * colour of the row's pill, so it is written down rather than left to the order the
- * server happened to build the lists in.
+ * is a conversation. The order decides the colour of the row's pill, so it is written
+ * down rather than left to the order the server happened to build the lists in.
  */
 const RANK: Record<CrnWarningKind, number> = {
   gone: 4,
   unregistered: 3,
   teacherDiffers: 2,
   teacherUnnamed: 1,
-  collides: 0,
 };
 
 export function warningsByCrn(report: RegisterCheck | undefined): Map<string, CrnWarning[]> {
@@ -58,15 +65,6 @@ export function warningsByCrn(report: RegisterCheck | undefined): Map<string, Cr
   for (const row of report.teacherUnnamed) {
     add(row.crn, { kind: "teacherUnnamed", text: `The registrar staffs it ${row.theirs} and we have not` });
   }
-  // One line per slot, because one section may sit in more than one of them.
-  for (const row of report.collides) {
-    const theirs = row.theirs.map((other) => other.courseCode || other.crn).join(", ");
-    add(row.ourCrn, {
-      kind: "collides",
-      text: `${row.weekday} ${row.startsAt}–${row.endsAt} against ${theirs}`,
-    });
-  }
-
   for (const [crn, warnings] of found) {
     found.set(crn, [...warnings].sort((left, right) => RANK[right.kind] - RANK[left.kind]));
   }
@@ -91,5 +89,4 @@ export const WORDS: Record<CrnWarningKind, string> = {
   unregistered: "Registered nowhere",
   teacherDiffers: "Staffed differently",
   teacherUnnamed: "Staffed only by the registrar",
-  collides: "Shares an hour",
 };
