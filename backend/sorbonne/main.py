@@ -17,6 +17,7 @@ from sorbonne.api.student_database import router as student_database_router
 from sorbonne.api.syllabus_catalogues import router as syllabus_catalogues_router
 from sorbonne.api.syllabi import router as syllabi_router
 from sorbonne.api.teachers import requisition_router as teacher_requisitions_router
+from sorbonne.api.team_rosters import router as team_roster_router
 from sorbonne.api.teachers import router as teachers_router
 from sorbonne.api.teacher_documents import router as teacher_documents_router
 from sorbonne.api.timetables import router as timetables_router
@@ -67,6 +68,7 @@ app.include_router(bibliography_lookup_router, prefix="/api/v1")
 app.include_router(timetables_router, prefix="/api/v1")
 app.include_router(users_router, prefix="/api/v1")
 app.include_router(student_database_router, prefix="/api/v1")
+app.include_router(team_roster_router, prefix="/api/v1")
 app.include_router(publication_router, prefix="/api/v1")
 
 # Developer conveniences, mounted ONLY when the database is on this machine — so in

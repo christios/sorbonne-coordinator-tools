@@ -71,6 +71,9 @@ class CohortInput(BaseModel):
     # What is always allowed outside our groups — "SPRT", "ENGL-101" — beyond which a
     # registration in no group of the student's is an *outside* verdict.
     allowedCodes: list[str] = Field(default_factory=list, max_length=100)
+    # The private Teams channel these students belong in, spelled as Teams spells it.
+    # Empty — every cohort until somebody says otherwise — means no comparison is made.
+    teamsChannel: str = Field(default="", max_length=120)
 
 
 class MoveInput(BaseModel):
@@ -256,6 +259,7 @@ def update_cohort(
             workbook_tab=body.workbookTab,
             first_semester=body.firstSemester,
             allowed_codes=body.allowedCodes,
+            teams_channel=body.teamsChannel,
         )
     except CohortNotFound as exc:
         raise _missing(exc, "cohort") from exc

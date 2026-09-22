@@ -288,13 +288,15 @@ class StudentDatabase:
         workbook_tab: str = "",
         first_semester: int = 0,
         allowed_codes: list[str] | None = None,
+        teams_channel: str = "",
     ) -> dict[str, Any]:
         with self.engine.begin() as connection:
             updated = connection.execute(
                 text("""UPDATE student_cohorts SET name = :name, term = :term, notes = :notes,
                             major_codes = :majors, term_codes = :terms, year_level = :year_level,
                             workbook_tab = :workbook_tab, first_semester = :first_semester,
-                            allowed_codes = :allowed, updated_at = :now WHERE id = :id"""),
+                            allowed_codes = :allowed, teams_channel = :teams_channel,
+                            updated_at = :now WHERE id = :id"""),
                 {
                     "id": cohort_id,
                     "name": _text(name),
@@ -306,6 +308,7 @@ class StudentDatabase:
                     "workbook_tab": _text(workbook_tab),
                     "first_semester": max(0, int(first_semester or 0)),
                     "allowed": json.dumps(_course_codes(allowed_codes)),
+                    "teams_channel": _text(teams_channel),
                     "now": _now(),
                 },
             )
@@ -2921,6 +2924,9 @@ def _cohort(row) -> dict[str, Any]:
         # as course codes ("SPRT-101") or subject prefixes ("SPRT"). Everything else a
         # student is registered in that is in no group of theirs is an *outside* verdict.
         "allowedCodes": json.loads(row["allowed_codes"] or "[]"),
+        # The private Teams channel this cohort's students belong in, by its display name.
+        # Empty means the cohort is not compared against Teams at all.
+        "teamsChannel": row["teams_channel"] or "",
         "memberCount": row["member_count"],
         "scopeCount": row["scope_count"],
         "createdAt": row["created_at"],
