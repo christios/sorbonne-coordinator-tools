@@ -3,7 +3,7 @@ import { AlertTriangle, ArrowRight, Link2, Trash2, UserPlus } from "lucide-react
 import { useMemo, useState } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
-import { RemovedClassesBanner } from "@/components/RemovedClasses";
+import { ClassChangesBanner } from "@/components/ClassChanges";
 import type { TeacherRef } from "@/components/TeacherRecord";
 import { ListGrid, Pills, StatePill } from "@/components/ListGrid";
 import { Modal } from "@/components/Modal";
@@ -239,7 +239,7 @@ export function ActiveTeachers({ onOpenTeacher }: { onOpenTeacher?: (teacher: Te
         * ones on this page, and a warning under a grid of two dozen rows is a warning
         * nobody scrolls to.
         */}
-      <RemovedClassesBanner className="mb-3" />
+      <ClassChangesBanner className="mb-3" />
       {error ? (
         <p role="alert" className="mb-3 rounded-md border border-[#e5b7b9] bg-[#fdf3f3] px-4 py-3 text-sm text-[#a6292f]">{error}</p>
       ) : null}

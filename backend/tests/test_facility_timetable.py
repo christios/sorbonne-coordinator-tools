@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 from sqlalchemy import text
 
-from sorbonne.services.facility_timetable import ContradictoryPull, FacilityTimetableStore, removal_key
+from sorbonne.services.facility_timetable import ContradictoryPull, FacilityTimetableStore, change_key
 from tests.conftest import TEST_DATABASE_URL
 
 TERM = "262710"
@@ -317,7 +317,7 @@ def test_a_class_the_registrar_deleted_is_reported(store: FacilityTimetableStore
     swept(store, [MONDAY, TUESDAY, WEDNESDAY])
     swept(store, [MONDAY])
 
-    [gone] = store.classes_removed(TERM)
+    [gone] = store.classes_changed(TERM)
 
     assert gone["crn"] == "23425"
     assert gone["courseCode"] == "MATH-001"
@@ -339,14 +339,14 @@ def test_another_department_s_deletions_are_not_our_warning(store: FacilityTimet
     elsewhere([MONDAY, TUESDAY, WEDNESDAY])
     elsewhere([MONDAY])
 
-    assert store.classes_removed(TERM) == []
+    assert store.classes_changed(TERM) == []
 
 
 def test_a_first_sweep_reports_nothing(store: FacilityTimetableStore):
     """Everything is new the first time. A page of "added" teaches people to stop reading."""
     swept(store, [MONDAY, TUESDAY])
 
-    assert store.classes_removed(TERM) == []
+    assert store.classes_changed(TERM) == []
 
 
 def test_a_class_put_back_is_no_longer_missing(store: FacilityTimetableStore):
@@ -355,29 +355,68 @@ def test_a_class_put_back_is_no_longer_missing(store: FacilityTimetableStore):
     swept(store, [MONDAY])
     swept(store, [MONDAY, TUESDAY])
 
-    assert store.classes_removed(TERM) == []
+    assert store.classes_changed(TERM) == []
 
 
 def test_a_moved_class_reads_as_one_gone_and_one_arrived(store: FacilityTimetableStore):
-    """Nothing here can tell a move from a deletion. The coordinator looking at it can."""
+    """Nothing here can tell a move from a deletion. The coordinator looking at it can.
+
+    Which is why both halves have to be drawn. Shown as a deletion alone, the afternoon it
+    moved to is invisible and the week reads as an hour and a half of teaching lost.
+    """
     swept(store, [MONDAY])
     swept(store, [("2026-09-07", "13:30", "15:00")])
 
-    [gone] = store.classes_removed(TERM)
+    [change] = store.classes_changed(TERM)
 
-    assert [(m["meetsOn"], m["startsAt"]) for m in gone["removed"]] == [("2026-09-07", "08:30")]
+    assert [(m["meetsOn"], m["startsAt"]) for m in change["removed"]] == [("2026-09-07", "08:30")]
+    assert [(m["meetsOn"], m["startsAt"]) for m in change["added"]] == [("2026-09-07", "13:30")]
+    # The arrival is standing teaching as well, and it is counted once, in its own column.
+    assert change["kept"] == []
+
+
+def test_a_class_the_registrar_added_is_reported_on_its_own(store: FacilityTimetableStore):
+    """A class nobody asked for is a change to answer for, the same as one that went."""
+    swept(store, [MONDAY])
+    swept(store, [MONDAY, TUESDAY])
+
+    [change] = store.classes_changed(TERM)
+
+    assert change["removed"] == []
+    assert [m["meetsOn"] for m in change["added"]] == ["2026-09-08"]
+    assert [m["meetsOn"] for m in change["kept"]] == ["2026-09-07"]
+
+
+def test_a_class_added_and_taken_away_again_is_nobody_s_news(store: FacilityTimetableStore):
+    """Back where it began. The diff is against what we first saw, not against last week."""
+    swept(store, [MONDAY])
+    swept(store, [MONDAY, TUESDAY])
+    swept(store, [MONDAY])
+
+    assert store.classes_changed(TERM) == []
+
+
+def test_a_class_arriving_asks_again(store: FacilityTimetableStore):
+    """An approval answers the change it was given for, and an arrival is a new one."""
+    swept(store, [MONDAY, TUESDAY])
+    swept(store, [MONDAY])
+    before = store.classes_changed(TERM)[0]["key"]
+
+    swept(store, [MONDAY, WEDNESDAY])
+
+    assert store.classes_changed(TERM)[0]["key"] != before
 
 
 def test_the_key_holds_still_while_the_same_classes_are_missing(store: FacilityTimetableStore):
     swept(store, [MONDAY, TUESDAY, WEDNESDAY])
     swept(store, [MONDAY])
-    first = store.classes_removed(TERM)[0]["key"]
+    first = store.classes_changed(TERM)[0]["key"]
 
     swept(store, [MONDAY])
-    assert store.classes_removed(TERM)[0]["key"] == first
+    assert store.classes_changed(TERM)[0]["key"] == first
 
     swept(store, [])
-    assert store.classes_removed(TERM)[0]["key"] != first
+    assert store.classes_changed(TERM)[0]["key"] != first
 
 
 def test_a_silent_section_is_not_reported_as_emptied(store: FacilityTimetableStore):
@@ -385,7 +424,7 @@ def test_a_silent_section_is_not_reported_as_emptied(store: FacilityTimetableSto
     swept(store, [MONDAY, TUESDAY])
     store.record_pull(term_code=TERM, asked=["23425"], sections=[], silent=["23425"], failed=[], complete=True)
 
-    assert store.classes_removed(TERM) == []
+    assert store.classes_changed(TERM) == []
 
 
 def we_cancelled(store: FacilityTimetableStore, meeting) -> None:
@@ -406,7 +445,7 @@ def test_a_class_we_cancelled_ourselves_is_not_news(store: FacilityTimetableStor
     we_cancelled(store, TUESDAY)
     swept(store, [MONDAY])
 
-    assert store.classes_removed(TERM) == []
+    assert store.classes_changed(TERM) == []
 
 
 def test_a_section_the_registrar_went_further_on_still_warns(store: FacilityTimetableStore):
@@ -415,7 +454,7 @@ def test_a_section_the_registrar_went_further_on_still_warns(store: FacilityTime
     we_cancelled(store, TUESDAY)
     swept(store, [MONDAY])
 
-    [gone] = store.classes_removed(TERM)
+    [gone] = store.classes_changed(TERM)
 
     assert [(m["meetsOn"], m["weCancelled"]) for m in gone["removed"]] == [
         ("2026-09-08", True),
@@ -427,12 +466,12 @@ def test_the_key_is_named_after_what_is_news(store: FacilityTimetableStore):
     """Cancelling another class later must not reopen a warning already answered."""
     swept(store, [MONDAY, TUESDAY, WEDNESDAY])
     swept(store, [MONDAY])
-    before = store.classes_removed(TERM)[0]["key"]
+    before = store.classes_changed(TERM)[0]["key"]
 
     we_cancelled(store, TUESDAY)
 
-    assert store.classes_removed(TERM)[0]["key"] != before
-    assert store.classes_removed(TERM)[0]["key"] == removal_key(TERM, "23425", [WEDNESDAY])
+    assert store.classes_changed(TERM)[0]["key"] != before
+    assert store.classes_changed(TERM)[0]["key"] == change_key(TERM, "23425", removed=[WEDNESDAY], added=[])
 
 
 def test_a_removal_keeps_being_reported_through_later_sweeps(store: FacilityTimetableStore):
@@ -442,7 +481,7 @@ def test_a_removal_keeps_being_reported_through_later_sweeps(store: FacilityTime
     swept(store, [MONDAY])
     swept(store, [MONDAY])
 
-    [gone] = store.classes_removed(TERM)
+    [gone] = store.classes_changed(TERM)
 
     assert [meeting["meetsOn"] for meeting in gone["removed"]] == ["2026-09-08"]
 
@@ -464,7 +503,7 @@ def test_a_section_going_silent_does_not_disturb_the_warning(store: FacilityTime
     swept(store, [MONDAY])
     store.record_pull(term_code=TERM, asked=["23425"], sections=[], silent=["23425"], failed=[], complete=True)
 
-    [gone] = store.classes_removed(TERM)
+    [gone] = store.classes_changed(TERM)
 
     assert [meeting["meetsOn"] for meeting in gone["removed"]] == ["2026-09-08"]
 
@@ -472,9 +511,9 @@ def test_a_section_going_silent_does_not_disturb_the_warning(store: FacilityTime
 def test_the_key_holds_across_sweeps_so_an_approval_lasts(store: FacilityTimetableStore):
     swept(store, [MONDAY, TUESDAY])
     swept(store, [MONDAY])
-    approved = store.classes_removed(TERM)[0]["key"]
+    approved = store.classes_changed(TERM)[0]["key"]
 
     swept(store, [MONDAY])
     swept(store, [MONDAY])
 
-    assert store.classes_removed(TERM)[0]["key"] == approved
+    assert store.classes_changed(TERM)[0]["key"] == approved

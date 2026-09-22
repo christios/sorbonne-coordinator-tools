@@ -59,14 +59,29 @@ class Coverage:
         return sorted([*self.gone, *self.unchecked])
 
 
-def removal_key(term_code: str, crn: str, slots: list[tuple[str, str, str]]) -> str:
-    """The name of one section's missing classes, stable while the same ones are missing.
+def _said(slots: list[tuple[str, str, str]]) -> str:
+    return "|".join(f"{on}T{start}-{end}" for on, start, end in sorted(slots))
+
+
+def change_key(
+    term_code: str,
+    crn: str,
+    *,
+    removed: list[tuple[str, str, str]],
+    added: list[tuple[str, str, str]],
+) -> str:
+    """The name of one section's changed classes, stable while the same ones have changed.
 
     An approval is stored against this, so it expires by ceasing to match rather than by
     anything having to expire it — the same way every other dismissed warning here works.
+
+    Removals and arrivals are named apart rather than thrown into one bag. A class gone
+    from Tuesday and a class arrived on Thursday are two facts about the same week, and a
+    key that could not tell them apart would let an approval given for one silently cover
+    the other.
     """
-    said = "|".join(f"{on}T{start}-{end}" for on, start, end in sorted(slots))
-    return f"registrar-classes-removed:{term_code}:{crn}:{sha256(said.encode()).hexdigest()[:12]}"
+    said = f"removed:{_said(removed)}|added:{_said(added)}"
+    return f"registrar-classes-changed:{term_code}:{crn}:{sha256(said.encode()).hexdigest()[:12]}"
 
 
 class FacilityTimetableStore:
@@ -374,24 +389,35 @@ class FacilityTimetableStore:
             held.setdefault(crn, set()).add(weekday)
         return {crn: sorted(days, key=_WEEKDAYS.index) for crn, days in held.items()}
 
-    def classes_removed(self, term_code: str) -> list[dict[str, Any]]:
-        """Sections the registrar has taken classes out of, and what is left of them.
+    def classes_changed(self, term_code: str) -> list[dict[str, Any]]:
+        """Sections whose classes the registrar has changed, and the shape they are in now.
+
+        Three things, because three things can be true of a class: it has gone, it is
+        still there, or it has arrived. Nothing here calls a deletion and an arrival a
+        move. The registrar's meetings carry no identity from one sweep to the next, so
+        "moved" would be a guess wearing the clothes of a fact — a coordinator looking at
+        a Tuesday gone and a Thursday arrived in the same week can read it themselves, and
+        is the only one entitled to.
 
         Grouped by section rather than by sweep, because the question a coordinator has is
-        "what happened to this course", not "what happened on Tuesday". A class removed by
-        one sweep and put back by a later one is not reported: the diff is against what is
-        true now, not a history of everything the portal has ever said.
+        "what happened to this course", not "what happened on Tuesday".
 
-        Each section carries a key that holds still while the missing classes do. That is
-        what lets a coordinator's approval last exactly as long as the fact it was about:
-        the same removal stays approved, and one more class going missing changes the key
-        and asks again.
+        The diff is against what was true when the section was first seen, not a history of
+        everything the portal has ever said: a class deleted and put back is not news, and
+        neither is one added and then taken away again. Each slot's first change says what
+        it was to begin with and its last says what it is now, which is all it takes to
+        hold that line however many times a sweep changes its mind.
+
+        Each section carries a key that holds still while the same classes have changed.
+        That is what lets a coordinator's approval last exactly as long as the fact it was
+        about: the same change stays approved, and one more class going or arriving changes
+        the key and asks again.
 
         Only our own sections. The sweep also covers the ~35 electives our students sit in
         elsewhere, because a clash with one of those is real and otherwise invisible — but
         a class the Spanish department deletes from its own option is their business, and
         naming their teacher in a warning on our teachers' page is how a banner earns the
-        right to be ignored. The removals are still recorded for everything swept, so a
+        right to be ignored. The changes are still recorded for everything swept, so a
         section that becomes ours arrives with its history already kept.
         """
         with self.engine.connect() as connection:
@@ -422,7 +448,9 @@ class FacilityTimetableStore:
             }
             # Our own cancellations for these sections. A class we said would not happen
             # and the registrar has now deleted is the registrar agreeing with us, not
-            # news — but it is still a gap in the month, so it is shown and marked.
+            # news — but it is still a gap in the month, so it is shown and marked. There
+            # is no answering half for arrivals: the department's own record knows how to
+            # cancel a class and how to have it covered, and nothing else.
             cancelled = {
                 (str(row[0]), str(row[1]), str(row[2]))
                 for row in connection.execute(
@@ -447,40 +475,63 @@ class FacilityTimetableStore:
                     }
                 )
 
-        missing: dict[str, dict[tuple[str, str, str], dict[str, str]]] = {}
-        noticed: dict[str, str] = {}
+        # What each slot was when we met it, and what it is now. The pair is the whole
+        # diff: same word twice is a change that stands, two different words is a slot
+        # that has come back to where it began and is nobody's news.
+        began: dict[tuple[str, tuple[str, str, str]], str] = {}
+        ended: dict[tuple[str, tuple[str, str, str]], Any] = {}
         for row in changes:
-            slot = (row["meets_on"], row["starts_at"], row["ends_at"])
-            gone = missing.setdefault(row["crn"], {})
-            if row["kind"] == "added":
-                # Put back. Whatever a sweep once took away, it is here now.
-                gone.pop(slot, None)
+            named = (row["crn"], (row["meets_on"], row["starts_at"], row["ends_at"]))
+            began.setdefault(named, row["kind"])
+            ended[named] = row
+
+        net: dict[str, dict[str, dict[tuple[str, str, str], Any]]] = {}
+        for (crn, slot), row in ended.items():
+            if began[(crn, slot)] != row["kind"]:
                 continue
-            gone[slot] = {
-                "meetsOn": row["meets_on"],
-                "startsAt": row["starts_at"],
-                "endsAt": row["ends_at"],
-                "room": row["room"] or "",
-            }
-            noticed[row["crn"]] = row["noticed_at"]
+            net.setdefault(crn, {"removed": {}, "added": {}})[row["kind"]][slot] = row
 
         found = []
         for crn in crns:
-            gone = missing.get(crn) or {}
-            if not gone:
+            change = net.get(crn)
+            if not change:
                 continue
             lost = []
-            news = []
-            for slot in sorted(gone):
+            news: list[tuple[str, str, str]] = []
+            for slot in sorted(change["removed"]):
+                row = change["removed"][slot]
                 known = (crn, slot[0], slot[1]) in cancelled
-                lost.append({**gone[slot], "weCancelled": known})
+                lost.append(
+                    {
+                        "meetsOn": row["meets_on"],
+                        "startsAt": row["starts_at"],
+                        "endsAt": row["ends_at"],
+                        "room": row["room"] or "",
+                        "weCancelled": known,
+                    }
+                )
                 if not known:
                     news.append(slot)
-            # Every one of them already ours. The section keeps its place in nobody's
-            # warning: a coordinator who cancels classes regularly would otherwise be
-            # shown their own work back, which is how people learn to ignore a banner.
-            if not news:
+            arrived = [
+                {
+                    "meetsOn": slot[0],
+                    "startsAt": slot[1],
+                    "endsAt": slot[2],
+                    "room": change["added"][slot]["room"] or "",
+                }
+                for slot in sorted(change["added"])
+            ]
+            # Every removal already ours and nothing new arrived. The section keeps its
+            # place in nobody's warning: a coordinator who cancels classes regularly would
+            # otherwise be shown their own work back, which is how people learn to ignore
+            # a banner.
+            if not news and not arrived:
                 continue
+            noticed = max(
+                [change["removed"][slot]["noticed_at"] for slot in news]
+                + [row["noticed_at"] for row in change["added"].values()],
+                default="",
+            )
             section = sections.get(crn)
             found.append(
                 {
@@ -490,15 +541,26 @@ class FacilityTimetableStore:
                     "teacherName": (section or {}).get("teacher_name", ""),
                     "scheduleState": (section or {}).get("schedule_state", ""),
                     "removed": lost,
-                    # The classes still standing, so the diff can be drawn rather than counted.
-                    "kept": standing.get(crn, []),
-                    "noticedAt": noticed.get(crn, ""),
+                    "added": arrived,
+                    # What was there before and is there still, so the diff can be drawn
+                    # rather than counted. The arrivals are standing classes too, and they
+                    # are told apart here rather than in the drawing: a month that painted
+                    # one square twice would be a month nobody could read.
+                    "kept": [
+                        meeting
+                        for meeting in standing.get(crn, [])
+                        if (meeting["meetsOn"], meeting["startsAt"], meeting["endsAt"]) not in change["added"]
+                    ],
+                    "noticedAt": noticed,
                     # Named after what is news. A class we cancelled ourselves joining the
                     # list later must not reopen a warning somebody has already answered.
-                    "key": removal_key(term_code, crn, news),
+                    "key": change_key(term_code, crn, removed=news, added=sorted(change["added"])),
                 }
             )
-        return sorted(found, key=lambda section: (-len(section["removed"]), section["crn"]))
+        return sorted(
+            found,
+            key=lambda section: (-(len(section["removed"]) + len(section["added"])), section["crn"]),
+        )
 
     def timetable_for(self, term_code: str, crns: list[str]) -> dict[str, Any]:
         """These sections' meetings, with rooms and the state each section is in, for a calendar.

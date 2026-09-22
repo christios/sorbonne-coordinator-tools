@@ -33,6 +33,27 @@ describe("monthsOfDiff", () => {
     expect(seventh?.removed).toHaveLength(1);
   });
 
+  it("keeps an arrival apart from the classes that were always there", () => {
+    const [september] = monthsOfDiff(
+      [meeting("2026-09-07")],
+      [meeting("2026-09-14")],
+      [meeting("2026-09-21", "13:30", "15:00")],
+    );
+    const twentyFirst = september.days.find((day) => day?.dayOfMonth === 21);
+
+    expect(twentyFirst?.added).toHaveLength(1);
+    expect(twentyFirst?.kept).toHaveLength(0);
+    expect(september.days.find((day) => day?.dayOfMonth === 14)?.removed).toHaveLength(1);
+  });
+
+  it("lets one day both lose a class and gain one, without calling it a move", () => {
+    const [september] = monthsOfDiff([], [meeting("2026-09-07", "08:30", "10:00")], [meeting("2026-09-07", "13:30", "15:00")]);
+    const seventh = september.days.find((day) => day?.dayOfMonth === 7);
+
+    expect(seventh?.removed).toHaveLength(1);
+    expect(seventh?.added).toHaveLength(1);
+  });
+
   it("says nothing about a section with no classes either way", () => {
     expect(monthsOfDiff([], [])).toEqual([]);
   });

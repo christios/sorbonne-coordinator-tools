@@ -794,8 +794,8 @@ export function fetchFacilitySections(termCode: string, crns: string[]): Promise
   return request<FacilityTimetable>(`/facility-timetable/${encodeURIComponent(termCode)}/sections?${query.toString()}`);
 }
 
-/** A section the registrar has taken dated classes out of, and what is left of it. */
-export type RemovedClasses = {
+/** A section whose classes the registrar has changed, and the shape it is in now. */
+export type ChangedClasses = {
   crn: string;
   courseCode: string;
   title: string;
@@ -809,11 +809,19 @@ export type RemovedClasses = {
    * is drawn, but it is not what the warning is about.
    */
   removed: { meetsOn: string; startsAt: string; endsAt: string; room: string; weCancelled?: boolean }[];
-  /** The ones still standing, so the difference can be drawn rather than counted. */
+  /**
+   * The classes that were not there when we met the section and are there now.
+   *
+   * Never called a move, even when one arrives in the week another left. The registrar's
+   * meetings carry no identity between sweeps, so the two are drawn as what they are and
+   * the coordinator reading the month draws their own conclusion.
+   */
+  added: { meetsOn: string; startsAt: string; endsAt: string; room: string }[];
+  /** The ones that were there and are there still, so the difference can be drawn. */
   kept: { meetsOn: string; startsAt: string; endsAt: string; room: string }[];
-  /** When the sweep that lost them ran. */
+  /** When the sweep that changed them ran. */
   noticedAt: string;
-  /** Holds still while the same classes are missing, so an approval lasts exactly as long. */
+  /** Holds still while the same classes have changed, so an approval lasts exactly as long. */
   key: string;
 };
 
@@ -822,10 +830,10 @@ export async function fetchSweptTerms(): Promise<string[]> {
   return (await request<{ terms: string[] }>("/facility-timetable")).terms;
 }
 
-/** Sections this term whose classes the registrar has deleted. */
-export async function fetchRemovedClasses(termCode: string): Promise<RemovedClasses[]> {
-  const answer = await request<{ sections: RemovedClasses[] }>(
-    `/facility-timetable/${encodeURIComponent(termCode)}/removed-classes`,
+/** Sections this term whose classes the registrar has deleted or added. */
+export async function fetchChangedClasses(termCode: string): Promise<ChangedClasses[]> {
+  const answer = await request<{ sections: ChangedClasses[] }>(
+    `/facility-timetable/${encodeURIComponent(termCode)}/changed-classes`,
   );
   return answer.sections;
 }

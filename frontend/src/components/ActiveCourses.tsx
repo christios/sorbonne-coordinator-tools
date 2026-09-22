@@ -9,7 +9,7 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { removeEach, stillSelected } from "@/services/bulkRemove";
 import { warningsByCrn, worstOf, WORDS, type CrnWarning, type CrnWarningKind } from "@/services/registerWarnings";
 import { ListGrid, StatePill } from "@/components/ListGrid";
-import { RemovedClassesBanner } from "@/components/RemovedClasses";
+import { ClassChangesBanner } from "@/components/ClassChanges";
 import { Modal } from "@/components/Modal";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { SelectMenu } from "@/components/SelectMenu";
@@ -261,7 +261,7 @@ export function ActiveCourses({ onShowStudents }: { onShowStudents?: (ids: strin
             * settles it everywhere. The approval is stored against the missing classes
             * themselves, so the two pages cannot drift apart.
             */}
-          <RemovedClassesBanner className="mb-3" />
+          <ClassChangesBanner className="mb-3" />
           {report && attention ? (
             <RegisterBanner
               report={report}

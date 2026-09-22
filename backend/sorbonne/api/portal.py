@@ -818,17 +818,18 @@ def read_facility_hours(
     return {"termCode": term_code, "sections": facilities.hours_for(term_code)}
 
 
-@router.get("/facility-timetable/{term_code}/removed-classes")
-def read_removed_classes(
+@router.get("/facility-timetable/{term_code}/changed-classes")
+def read_changed_classes(
     term_code: str, facilities: FacilityTimetableStore = Depends(get_facilities)
 ) -> dict[str, Any]:
-    """Sections the registrar has taken dated classes out of since we last looked.
+    """Sections the registrar has taken dated classes out of, or put new ones into.
 
     The one thing the sweep could not say before. A section that stops being answered for
     is already protected; a section still answered, with its classes quietly deleted from
-    inside it, read as a section that never had them.
+    inside it, read as a section that never had them — and a class quietly added to one
+    read as a class that had always been there.
     """
-    return {"termCode": term_code, "sections": facilities.classes_removed(term_code)}
+    return {"termCode": term_code, "sections": facilities.classes_changed(term_code)}
 
 
 @router.get("/facility-timetable/{term_code}/sections")
