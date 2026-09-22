@@ -416,3 +416,48 @@ def test_the_key_is_named_after_what_is_news(store: FacilityTimetableStore):
 
     assert store.classes_removed(TERM)[0]["key"] != before
     assert store.classes_removed(TERM)[0]["key"] == removal_key(TERM, "23425", [WEDNESDAY])
+
+
+def test_a_removal_keeps_being_reported_through_later_sweeps(store: FacilityTimetableStore):
+    """The warning is answered by a coordinator, not by time passing or by syncing again."""
+    swept(store, [MONDAY, TUESDAY])
+    swept(store, [MONDAY])
+    swept(store, [MONDAY])
+    swept(store, [MONDAY])
+
+    [gone] = store.classes_removed(TERM)
+
+    assert [meeting["meetsOn"] for meeting in gone["removed"]] == ["2026-09-08"]
+
+
+def test_sweeping_again_does_not_write_the_same_removal_twice(store: FacilityTimetableStore):
+    """A sweep compares itself with what is held, and what is held no longer has it."""
+    swept(store, [MONDAY, TUESDAY])
+    swept(store, [MONDAY])
+    swept(store, [MONDAY])
+
+    with store.engine.connect() as connection:
+        written = connection.execute(text("SELECT count(*) FROM facility_meeting_changes")).scalar()
+    assert written == 1
+
+
+def test_a_section_going_silent_does_not_disturb_the_warning(store: FacilityTimetableStore):
+    """Silence says nothing about the classes, so it must not add or remove any."""
+    swept(store, [MONDAY, TUESDAY])
+    swept(store, [MONDAY])
+    store.record_pull(term_code=TERM, asked=["23425"], sections=[], silent=["23425"], failed=[], complete=True)
+
+    [gone] = store.classes_removed(TERM)
+
+    assert [meeting["meetsOn"] for meeting in gone["removed"]] == ["2026-09-08"]
+
+
+def test_the_key_holds_across_sweeps_so_an_approval_lasts(store: FacilityTimetableStore):
+    swept(store, [MONDAY, TUESDAY])
+    swept(store, [MONDAY])
+    approved = store.classes_removed(TERM)[0]["key"]
+
+    swept(store, [MONDAY])
+    swept(store, [MONDAY])
+
+    assert store.classes_removed(TERM)[0]["key"] == approved

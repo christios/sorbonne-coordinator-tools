@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { ArrowDown, ArrowUp } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { LabelledPicker } from "@/components/LabelledPicker";
@@ -281,9 +282,43 @@ const renderCell = (row: LoadRow, column: GridColumn<LoadRow>) => {
   }
   if (column.type !== "number") return undefined;
   const value = Number(column.accessor(row)) || 0;
+  /*
+   * The total carries its own arrow, before the blank below: a teacher whose every class
+   * was cancelled has a total of zero, and zero with a red arrow on it is the most
+   * important row on the page, where a dash would say "nothing to see".
+   */
+  if (column.id === "total") return <Taught row={row} taught={value} />;
   if (!value) return <span className="text-[#d5dce4]">—</span>;
   // Hours the semester took away read red, hours it added read blue; the plan stays black.
   if (column.id === "cancelledHours" || column.id === "coverTaken") return <span className="text-[#a6292f]">−{value}</span>;
   if (column.id === "coverGiven") return <span className="text-[#1f4e79]">+{value}</span>;
   return <span className={column.id === "total" ? "font-semibold text-[#171717]" : undefined}>{value}</span>;
 };
+
+/**
+ * The hours they taught, and how far that is from the hours they were down for.
+ *
+ * The arrow is the whole point: the number alone cannot say whether it is the plan or
+ * something that happened to the plan, and a coordinator reading a table of forty rows
+ * should be able to see which ones moved without reading three more columns.
+ */
+function Taught({ row, taught }: { row: LoadRow; taught: number }) {
+  const moved = Math.round((taught - row.total) * 100) / 100;
+  const why = [
+    `Planned ${row.total} h`,
+    row.cancelledHours ? `${row.cancelledHours} h cancelled` : "",
+    row.coverTaken ? `${row.coverTaken} h taught by somebody else` : "",
+    row.coverGiven ? `${row.coverGiven} h taught for somebody else` : "",
+  ].filter(Boolean).join(" · ");
+  return (
+    <span className="inline-flex items-baseline gap-1" title={why}>
+      <span className="font-semibold text-[#171717]">{taught || (row.total ? 0 : "—")}</span>
+      {moved ? (
+        <span className={`inline-flex items-baseline gap-0.5 text-xs ${moved > 0 ? "text-[#1f6b47]" : "text-[#a6292f]"}`}>
+          {moved > 0 ? <ArrowUp size={11} aria-hidden="true" /> : <ArrowDown size={11} aria-hidden="true" />}
+          {Math.abs(moved)}
+        </span>
+      ) : null}
+    </span>
+  );
+}

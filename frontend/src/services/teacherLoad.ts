@@ -266,7 +266,7 @@ export function hoursColumns(sheetTitles: string[], period = ""): GridColumn<Loa
   return [
     { id: "teacher", displayName: "Teacher", type: "text", accessor: (row) => row.teacher || "Nobody yet", required: true, defaultWidth: 240 },
     { id: "standing", displayName: "Standing", type: "option", accessor: (row) => row.standing, defaultWidth: 130 },
-    { id: "total", displayName: "Total", type: "number", accessor: (row) => row.total, defaultWidth: 90, source: "planning" },
+    { id: "total", displayName: "Total", type: "number", accessor: asTaught, defaultWidth: 110, source: "planning" },
     ...(period
       ? [{
           id: "period",
@@ -308,6 +308,22 @@ export function hoursColumns(sheetTitles: string[], period = ""): GridColumn<Loa
     { id: "department", displayName: "Dept.", type: "option", accessor: (row) => row.active?.department ?? "", defaultWidth: 110, source: "portal" },
     { id: "email", displayName: "E-mail", type: "text", accessor: (row) => row.active?.email ?? "", defaultWidth: 240 },
   ];
+}
+
+/**
+ * The plan as it turned out.
+ *
+ * A cancelled class showed as -1.5 in its own column while the total beside it did not
+ * move, because the total was the plan and the plan had not changed. True, and useless:
+ * the number people read is the total, and reading it meant adding three other columns
+ * to it in your head.
+ *
+ * So the total is what they taught: the plan, less the classes that did not happen, less
+ * the ones somebody else took, plus the ones they took for somebody else. The columns it
+ * is made of stay where they are, as the explanation of why it moved.
+ */
+export function asTaught(row: LoadRow): number {
+  return Math.round((row.total - row.cancelledHours - row.coverTaken + row.coverGiven) * 100) / 100;
 }
 
 /**

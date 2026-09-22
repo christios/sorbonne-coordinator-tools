@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { buildCards } from "@/services/courseCards";
-import { hoursColumn, hoursColumns, loadRows, loadTotals, registrarHoursFor, sameTeacher, sectionsTaughtBy, shownHoursColumns, teacherLoads } from "@/services/teacherLoad";
+import { asTaught, hoursColumn, hoursColumns, loadRows, loadTotals, registrarHoursFor, sameTeacher, sectionsTaughtBy, shownHoursColumns, teacherLoads } from "@/services/teacherLoad";
 import type { ActiveTeacher } from "@/services/portalLists";
 import { EMPTY_REQUEST, EMPTY_SECTION, type CohortCatalogue } from "@/services/studentDatabase";
 import { requestSheets, type RequestRow, type RequestSheet } from "@/services/timetableExport";
@@ -315,5 +315,26 @@ describe("the column for one pay period", () => {
     // Nothing taught, and nothing read yet, both read zero rather than blank.
     expect(period?.accessor(row(0))).toBe(0);
     expect(period?.accessor(row(undefined))).toBe(0);
+  });
+});
+
+describe("asTaught", () => {
+  const row = (over = {}) =>
+    ({ total: 21, cancelledHours: 0, coverTaken: 0, coverGiven: 0, ...over }) as never;
+
+  it("is the plan where nothing happened to it", () => {
+    expect(asTaught(row())).toBe(21);
+  });
+
+  it("takes off a class that did not happen", () => {
+    expect(asTaught(row({ cancelledHours: 1.5 }))).toBe(19.5);
+  });
+
+  it("takes off what somebody else taught for them, and adds what they taught for somebody else", () => {
+    expect(asTaught(row({ coverTaken: 2, coverGiven: 3 }))).toBe(22);
+  });
+
+  it("reaches zero rather than going odd when the whole plan was cancelled", () => {
+    expect(asTaught(row({ total: 1.5, cancelledHours: 1.5 }))).toBe(0);
   });
 });
