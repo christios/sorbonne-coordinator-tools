@@ -602,3 +602,40 @@ def test_a_set_open_to_every_cohort_is_copied_once():
         "/cohorts/p-1/catalogue?own_only=true",
         "/cohorts/p-2/catalogue?own_only=true",
     ]
+
+
+def test_a_copy_without_the_teachers_leaves_the_part_time_database_alone(monkeypatch):
+    """Wiping what you are not about to replace is a deletion, not a copy.
+
+    The part-time step is off unless asked for — it is the only one carrying names, e-mail
+    addresses and phone numbers — but the emptying was unconditional, so the ordinary copy
+    cleared a database it had no intention of refilling and the Part-time Teachers page
+    went blank with nothing said.
+    """
+    emptied: list[str] = []
+
+    class Connection:
+        def execute(self, statement):
+            emptied.append(str(statement))
+        def __enter__(self):
+            return self
+        def __exit__(self, *_):
+            return False
+
+    monkeypatch.setattr(copy, "local_only", lambda _into: None)
+    monkeypatch.setattr(copy.config, "database_url", "postgresql+psycopg://u:p@localhost:5433/sorbonne")
+    monkeypatch.setattr(copy, "create_engine", lambda _url: type("E", (), {"begin": lambda self: Connection()})())
+
+    copy._empty_local("http://localhost:8000", teachers=False)
+    without = " ".join(emptied)
+    assert "part_time_teachers" not in without
+    assert "teacher_requisitions" not in without
+    assert "teacher_time_sheets" not in without
+    # The department's own planning still goes, which is what a copy replaces.
+    assert "group_assignments" in without
+
+    emptied.clear()
+    copy._empty_local("http://localhost:8000", teachers=True)
+    with_them = " ".join(emptied)
+    assert "part_time_teachers" in with_them
+    assert "teacher_requisitions" in with_them

@@ -166,7 +166,7 @@ def copy_everything(  # noqa: PLR0913 - one keyword per thing the caller may cho
     # them, and the second copy is indistinguishable from the first on screen. Refused
     # rather than merged: there is no sensible way to merge two copies of a cohort.
     if not dry_run:
-        _make_room(here, into, write_headers, replace=replace, say=say)
+        _make_room(here, into, write_headers, replace=replace, teachers=teachers, say=say)
 
     # ---------------------------------------------------------------- 1. cohorts
     cohorts = read("/cohorts")["cohorts"]
@@ -939,8 +939,14 @@ def _local_session() -> dict[str, str]:
     return {"Cookie": f"{SESSION_COOKIE}={issue_session(StaffUser(email=email, name='copy'))}"}
 
 
-def _make_room(here: str, into: str, headers: dict[str, str], *, replace: bool, say) -> None:
-    """Refuse to write into a database that already holds a copy, unless told to replace it."""
+def _make_room(  # noqa: PLR0913 - one argument per thing the decision turns on
+    here: str, into: str, headers: dict[str, str], *, replace: bool, teachers: bool, say
+) -> None:
+    """Refuse to write into a database that already holds a copy, unless told to replace it.
+
+    `teachers` decides whether the part-time database is emptied with the rest: it is only
+    right to clear what this copy is about to put back.
+    """
     held = call(f"{here}/cohorts", headers=headers)["cohorts"]
     if not held:
         return
@@ -949,11 +955,11 @@ def _make_room(here: str, into: str, headers: dict[str, str], *, replace: bool, 
             f"{into} already holds {len(held)} cohorts. Pass --replace to empty them first, "
             "or point --into at an empty instance."
         )
-    _empty_local(into)
+    _empty_local(into, teachers=teachers)
     say(f"emptied {len(held)} cohorts and their students from {into}\n")
 
 
-def _empty_local(into: str) -> None:
+def _empty_local(into: str, *, teachers: bool = False) -> None:
     """Clear the local copy, straight through the local database.
 
     Direct SQL, not the API, because there is no route that deletes a cohort's students
@@ -969,23 +975,33 @@ def _empty_local(into: str) -> None:
         # The department's own planning, then the register it is judged against, then the
         # part-time database. Everything here is copied additively, so a second copy
         # without this leaves a union of both — 42 courses where production has 31.
-        tables = (
+        tables = [
             "group_assignments", "group_crns", "scope_groups", "scope_courses", "cohort_scopes",
-            "active_course_crns", "active_courses", "term_links",
-            # The part-time database too, and for the same reason as the register above:
-            # copying it is additive, so a second copy without this leaves two of every
-            # teacher — 86 of them where production has 24, each with their own requisitions
-            # and time sheets, and no way to tell on screen which is which.
-            "teacher_time_sheets", "teacher_requisitions", "active_teachers",
-        )
+            "active_course_crns", "active_courses", "term_links", "active_teachers",
+        ]
+        # The part-time database only when it is going to be copied back.
+        #
+        # Emptying it is right when it travels, for the same reason as the register above:
+        # copying is additive, so a second copy without this leaves two of every teacher —
+        # 86 where production has 24, each with their own requisitions and time sheets and
+        # no way to tell on screen which is which.
+        #
+        # It is plain destruction when it does not. That step is off unless asked for,
+        # because it is the only one carrying names, e-mail addresses and phone numbers —
+        # so the common copy was emptying a database it had no intention of refilling, and
+        # the Part-time Teachers page went blank with nothing said. Wiping what you are not
+        # about to replace is not a copy, it is a deletion with a copy after it.
+        if teachers:
+            tables[-1:-1] = ["teacher_time_sheets", "teacher_requisitions"]
         for table in tables:
             connection.execute(text(f"DELETE FROM {table}"))  # noqa: S608 - fixed names, no interpolation of input
         connection.execute(text("DELETE FROM students"))
         connection.execute(text("DELETE FROM student_cohorts"))
-        # After the rows that point at them: a teacher cannot go while a requisition names
-        # them, and a folder cannot go while a teacher is filed in it.
-        connection.execute(text("DELETE FROM part_time_teachers"))
-        connection.execute(text("DELETE FROM teacher_folders"))
+        if teachers:
+            # After the rows that point at them: a teacher cannot go while a requisition
+            # names them, and a folder cannot go while a teacher is filed in it.
+            connection.execute(text("DELETE FROM part_time_teachers"))
+            connection.execute(text("DELETE FROM teacher_folders"))
 
 
 VIEW_NAME = "Copied from production — delete me"
