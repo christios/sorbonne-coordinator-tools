@@ -745,6 +745,52 @@ describe("StudentRoster", () => {
       expect(within(panel).getByText(/2 pulls with no change/)).toBeTruthy();
     });
 
+    it("shows the history on a page that is looking at a cohort rather than a view", async () => {
+      /*
+       * The Cohorts page names no view. It asked for the history of one called "", found
+       * nothing, and said "no pulls recorded in this browser" — a sentence about the
+       * browser, and untrue of it. The student's own view is found instead.
+       */
+      const at = (n: number) => 1_700_000_000_000 + n * 86_400_000;
+      await recordPull(VIEW_ID, [{ SPRIDEN_ID: "A001", FULL_NAME: "Amira Haddad", YEARLEVEL_CODE: "FY" }], at(1));
+      await recordPull(VIEW_ID, [{ SPRIDEN_ID: "A001", FULL_NAME: "Amira Haddad", YEARLEVEL_CODE: "L1" }], at(2));
+      await withNames();
+      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      render(
+        <QueryClientProvider client={queryClient}>
+          <StudentRoster cohorts={COHORTS} viewId="" scope={{ cohortId: COHORTS[0].id }} />
+        </QueryClientProvider>,
+      );
+      await screen.findByText("Amira Haddad");
+
+      fireEvent.click(screen.getByRole("button", { name: "History for Amira Haddad" }));
+
+      const panel = await screen.findByRole("complementary", { name: "Student history" });
+      expect(within(panel).getByText(/1 of 2 pulls changed something/)).toBeTruthy();
+      expect(within(panel).getByText("L1")).toBeTruthy();
+      expect(within(panel).queryByText(/No sync in this browser has returned/)).toBeNull();
+    });
+
+    it("says the student has not been returned, rather than that the browser is empty", async () => {
+      // A browser with pulls in it, none of which ever returned this student. The old
+      // wording blamed the browser for holding nothing; it holds plenty.
+      await recordPull("some-other-view", [{ SPRIDEN_ID: "A002", FULL_NAME: "Somebody Else" }], 1_000);
+      await withNames();
+      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      render(
+        <QueryClientProvider client={queryClient}>
+          <StudentRoster cohorts={COHORTS} viewId="" scope={{ cohortId: COHORTS[0].id }} />
+        </QueryClientProvider>,
+      );
+      await screen.findByText("Amira Haddad");
+
+      fireEvent.click(screen.getByRole("button", { name: "History for Amira Haddad" }));
+
+      const panel = await screen.findByRole("complementary", { name: "Student history" });
+      expect(within(panel).getByText(/No sync in this browser has returned them yet/)).toBeTruthy();
+      expect(within(panel).getByText(/Syncing a view that includes them fills this in/)).toBeTruthy();
+    });
+
     it("says so plainly when a student has never changed", async () => {
       await recordPull(VIEW_ID, [{ SPRIDEN_ID: "A001", FULL_NAME: "Amira Haddad" }], 1_000);
       await recordPull(VIEW_ID, [{ SPRIDEN_ID: "A001", FULL_NAME: "Amira Haddad" }], 2_000);

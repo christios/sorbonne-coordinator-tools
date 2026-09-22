@@ -4,10 +4,13 @@ import {
   fieldsSeen,
   forgetHistory,
   historyFor,
+  historyHolding,
   historySummary,
   historyForBackup,
+  loadHistories,
   loadHistory,
   mergeHistories,
+  newestHistory,
   packHistory,
   resetSweepForTests,
   restoreHistories,
@@ -409,5 +412,60 @@ describe("packing the baseline", () => {
 
     // A null is a field the student does not have, not an empty value.
     expect((await loadHistory("view-new")).latest.A001).toEqual({ FULL_NAME: "Amira" });
+  });
+});
+
+describe("finding a student's history when no view has been named", () => {
+  /*
+   * The Cohorts page asks the server for a cohort, not the portal for a question, so it
+   * has no view to name. It used to ask for the history of a view called "" and report
+   * the nothing it found as "no pulls recorded in this browser" — while the browser held
+   * fifty-six of them.
+   */
+  it("reads the history of the view that actually returned them", async () => {
+    await recordPull("view-fys", [row("A001")], 1_000);
+    await recordPull("view-l1", [row("A002")], 2_000);
+
+    const store = await loadHistories();
+
+    expect(historyHolding(store, "A001").pulls).toHaveLength(1);
+    expect(historyHolding(store, "A001").latest.A001).toBeTruthy();
+    expect(historyHolding(store, "A002").latest.A002).toBeTruthy();
+  });
+
+  it("prefers the view that pulled most recently when two of them know the student", async () => {
+    await recordPull("view-old", [row("A001", { YEARLEVEL_CODE: "FY" })], 1_000);
+    await recordPull("view-new", [row("A001", { YEARLEVEL_CODE: "L1" })], 9_000);
+
+    const held = historyHolding(await loadHistories(), "A001");
+
+    expect(held.latest.A001.YEARLEVEL_CODE).toBe("L1");
+  });
+
+  it("does not blend two views together, which is what the per-view split is for", async () => {
+    // One view's account of a student, whole — never pulls from one stitched to pulls
+    // from another, where "no longer returned" means something different.
+    await recordPull("view-a", [row("A001")], 1_000);
+    await recordPull("view-a", [row("A001", { YEARLEVEL_CODE: "L1" })], 2_000);
+    await recordPull("view-b", [row("A001")], 3_000);
+
+    const held = historyHolding(await loadHistories(), "A001");
+
+    expect(held.pulls).toHaveLength(1);
+  });
+
+  it("says nothing at all for a student no view has ever returned", async () => {
+    await recordPull("view-fys", [row("A001")], 1_000);
+
+    expect(historyHolding(await loadHistories(), "A009").pulls).toEqual([]);
+    expect(historyHolding(await loadHistories(), "").pulls).toEqual([]);
+  });
+
+  it("gives a page with no view the most recently pulled history for its changed column", async () => {
+    await recordPull("view-old", [row("A001")], 1_000);
+    await recordPull("view-new", [row("A002")], 9_000);
+
+    expect(newestHistory(await loadHistories()).latest.A002).toBeTruthy();
+    expect(newestHistory({}).pulls).toEqual([]);
   });
 });

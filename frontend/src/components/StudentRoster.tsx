@@ -26,7 +26,14 @@ import { afterPlacement } from "@/services/afterPlacement";
 import { groupCrns } from "@/services/meets";
 import { fetchCourseCards } from "@/services/studentDatabase";
 import { fetchSectionDays, fetchTermLinks } from "@/services/portalLists";
-import { forgetHistory, loadHistory, type PullHistory } from "@/services/pullHistory";
+import {
+  forgetHistory,
+  historyHolding,
+  loadHistories,
+  newestHistory,
+  type HistoryStore,
+  type PullHistory,
+} from "@/services/pullHistory";
 import { fetchSchema, type RosterRow } from "@/services/scenRosters";
 import { fetchTimetableTerms } from "@/services/timetables";
 import type { Warning } from "@/services/discrepancies";
@@ -211,7 +218,7 @@ export function StudentRoster({
 
   const [stored, setStored] = useState<StoredPreset>({});
   const [syncedAt, setSyncedAt] = useState("");
-  const [history, setHistory] = useState<PullHistory>(NO_HISTORY);
+  const [histories, setHistories] = useState<HistoryStore>({});
   const [historyOf, setHistoryOf] = useState<StudentRow | null>(null);
   // The one student whose whole record is open: a click anywhere on their row.
   const [recordOf, setRecordOf] = useState<StudentRow | null>(null);
@@ -246,10 +253,10 @@ export function StudentRoster({
   useEffect(() => {
     let current = true;
     setSyncedAt(lastSync(viewId));
-    void Promise.all([loadPull(viewId), loadHistory(viewId), rowsHeld()]).then(([pull, past, held]) => {
+    void Promise.all([loadPull(viewId), loadHistories(), rowsHeld()]).then(([pull, past, held]) => {
       if (!current) return;
       setStored(pull);
-      setHistory(past);
+      setHistories(past);
       setPortalRows(held);
     });
     return () => {
@@ -402,6 +409,29 @@ export function StudentRoster({
       afterPlacement(client);
     },
   });
+
+  /*
+   * The history this page reads.
+   *
+   * A page looking at a view reads that view's. A page that is not — Cohorts asks the
+   * server for a cohort, not the portal for a question — used to ask for the history of a
+   * view called "", find nothing, and report that as "no pulls recorded in this browser",
+   * which is a sentence about the browser and was never true of it. It reads the most
+   * recently pulled history instead: one view's, not a blend of them.
+   */
+  const history = useMemo(
+    () => (viewId ? (histories[viewId] ?? NO_HISTORY) : newestHistory(histories)),
+    [histories, viewId],
+  );
+  /*
+   * And for one student, the history of whichever view actually returned THEM, which on a
+   * page with no view of its own is the only way to be right about somebody the newest
+   * pull happens not to cover.
+   */
+  const historyShown = useMemo(
+    () => (viewId ? history : historyHolding(histories, historyOf?.studentId ?? "")),
+    [history, histories, historyOf, viewId],
+  );
 
   /*
    * What changed comes from the history, which records it pull by pull. A `previous`
@@ -896,7 +926,7 @@ export function StudentRoster({
         <HistoryBackup
           onRestored={() => {
             // A restore changes the history behind the changed column, so read it again.
-            void loadHistory(viewId).then(setHistory);
+            void loadHistories().then(setHistories);
           }}
         />
         {"."}
@@ -962,7 +992,7 @@ export function StudentRoster({
         onConfirm={() => {
           void Promise.all([forgetRosters(), forgetHistory()]).then(() => {
             setStored({});
-            setHistory(NO_HISTORY);
+            setHistories({});
             // The names on screen come from every view now, not this one's pull, so
             // forgetting has to take them away here too or they sit there until reload.
             setPortalRows([]);
@@ -975,7 +1005,7 @@ export function StudentRoster({
 
       <StudentHistoryPane
         row={historyOf}
-        history={history}
+        history={historyShown}
         columns={allColumns}
         onClose={() => setHistoryOf(null)}
       />

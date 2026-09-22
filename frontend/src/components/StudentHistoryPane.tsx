@@ -91,8 +91,14 @@ export function StudentHistoryPane({
           </h2>
           <p className="mt-1 text-xs text-[#667085]">
             {row.name ? `${row.studentId} · ` : ""}
+            {/*
+              * Nothing held about this student is not the same as nothing held at all, and
+              * the panel used to say the second when it meant the first — on a page with no
+              * view of its own it said "no pulls recorded in this browser" while the browser
+              * held fifty-six of them.
+              */}
             {summary.total === 0
-              ? "No pulls recorded in this browser yet"
+              ? "No sync in this browser has returned them yet"
               : `${summary.shown} of ${summary.total} pull${summary.total === 1 ? "" : "s"} changed something`}
           </p>
         </div>
@@ -129,7 +135,7 @@ export function StudentHistoryPane({
         {entries.length === 0 ? (
           <p className="rounded-md border border-dashed border-[#d0d5dd] p-4 text-sm leading-6 text-[#667085]">
             {summary.total === 0
-              ? "Nothing recorded yet. Each sync in this browser adds to this history."
+              ? "No sync in this browser has returned this student. Syncing a view that includes them fills this in."
               : `Nothing about this student has changed across ${summary.total} pull${summary.total === 1 ? "" : "s"}.`}
           </p>
         ) : (

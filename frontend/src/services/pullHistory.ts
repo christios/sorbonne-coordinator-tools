@@ -64,7 +64,7 @@ export type PullHistory = {
   present: string[];
 };
 
-type HistoryStore = Record<string, PullHistory>;
+export type HistoryStore = Record<string, PullHistory>;
 
 /**
  * A history as it is stored and written to the backup file.
@@ -192,6 +192,48 @@ async function read(): Promise<HistoryStore> {
     // Private browsing, a full disk, or something that is not ours.
     return {};
   }
+}
+
+/**
+ * Every view's history this browser holds.
+ *
+ * A page that is not looking at a view still has students on it — the Cohorts page asks
+ * the server for a cohort, not the portal for a question — and those students have a
+ * portal history all the same. It just has to be looked for rather than named.
+ */
+export async function loadHistories(): Promise<HistoryStore> {
+  return read();
+}
+
+/**
+ * The history of the view that actually returned this student.
+ *
+ * Histories are kept one per view on purpose: "changed" and "no longer returned" only
+ * mean anything against the same question, and pooling two of them once made every sync
+ * look like a mass departure. So this picks ONE of them rather than merging — the view
+ * that knows the student, and where more than one does, the one pulled most recently,
+ * which is the freshest account of them. Nothing is read across views.
+ */
+export function historyHolding(store: HistoryStore, studentId: string): PullHistory {
+  if (!studentId) return EMPTY;
+  const holding = Object.values(store).filter(
+    (history) => history.latest[studentId] || history.present.includes(studentId),
+  );
+  return holding.sort((left, right) => newestAt(right) - newestAt(left))[0] ?? EMPTY;
+}
+
+/**
+ * The most recently pulled history, for a page with no view of its own to name.
+ *
+ * One view's, again, not a blend: what the "changed" column says has to be the answer to
+ * one question asked twice.
+ */
+export function newestHistory(store: HistoryStore): PullHistory {
+  return Object.values(store).sort((left, right) => newestAt(right) - newestAt(left))[0] ?? EMPTY;
+}
+
+function newestAt(history: PullHistory): number {
+  return history.pulls[history.pulls.length - 1]?.at ?? 0;
 }
 
 export async function loadHistory(viewId: string): Promise<PullHistory> {
