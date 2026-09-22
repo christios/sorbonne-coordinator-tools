@@ -14,7 +14,7 @@
  * Pure. The dates come from the registrar and the grid is the part that has to be right.
  */
 
-export type Meeting = { meetsOn: string; startsAt: string; endsAt: string; room: string };
+export type Meeting = { meetsOn: string; startsAt: string; endsAt: string; room: string; weCancelled?: boolean };
 
 /**
  * The removals nobody has approved yet, which is what the banner counts.
@@ -73,6 +73,11 @@ export function minutesOf(meeting: Meeting): number {
   const start = Number(from[1]) * 60 + Number(from[2]);
   const end = Number(to[1]) * 60 + Number(to[2]);
   return Math.max(0, end - start);
+}
+
+/** The ones that are news: what the department had not already cancelled itself. */
+export function unexpected(meetings: Meeting[]): Meeting[] {
+  return meetings.filter((meeting) => !meeting.weCancelled);
 }
 
 /** Hours in a set of classes, to the quarter — the unit a time sheet is read in. */

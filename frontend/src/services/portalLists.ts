@@ -801,8 +801,14 @@ export type RemovedClasses = {
   title: string;
   teacherName: string;
   scheduleState: string;
-  /** The classes a sweep held and the next one did not, oldest first. */
-  removed: { meetsOn: string; startsAt: string; endsAt: string; room: string }[];
+  /**
+   * The classes a sweep held and the next one did not, oldest first.
+   *
+   * `weCancelled` marks one the department had already said would not happen: the
+   * registrar agreeing with us rather than news. It is still a gap in the month, so it
+   * is drawn, but it is not what the warning is about.
+   */
+  removed: { meetsOn: string; startsAt: string; endsAt: string; room: string; weCancelled?: boolean }[];
   /** The ones still standing, so the difference can be drawn rather than counted. */
   kept: { meetsOn: string; startsAt: string; endsAt: string; room: string }[];
   /** When the sweep that lost them ran. */

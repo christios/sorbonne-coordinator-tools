@@ -409,6 +409,17 @@ class FacilityTimetableStore:
                     {"t": term_code, "crns": crns},
                 ).mappings()
             }
+            # Our own cancellations for these sections. A class we said would not happen
+            # and the registrar has now deleted is the registrar agreeing with us, not
+            # news — but it is still a gap in the month, so it is shown and marked.
+            cancelled = {
+                (str(row[0]), str(row[1]), str(row[2]))
+                for row in connection.execute(
+                    text("""SELECT crn, meets_on, starts_at FROM session_changes
+                            WHERE term_code = :t AND crn = ANY(:crns) AND kind = 'cancelled'"""),
+                    {"t": term_code, "crns": crns},
+                )
+            }
             standing: dict[str, list[dict[str, str]]] = {}
             for row in connection.execute(
                 text("""SELECT crn, meets_on, starts_at, ends_at, room FROM facility_meetings
@@ -447,8 +458,19 @@ class FacilityTimetableStore:
             gone = missing.get(crn) or {}
             if not gone:
                 continue
+            lost = []
+            news = []
+            for slot in sorted(gone):
+                known = (crn, slot[0], slot[1]) in cancelled
+                lost.append({**gone[slot], "weCancelled": known})
+                if not known:
+                    news.append(slot)
+            # Every one of them already ours. The section keeps its place in nobody's
+            # warning: a coordinator who cancels classes regularly would otherwise be
+            # shown their own work back, which is how people learn to ignore a banner.
+            if not news:
+                continue
             section = sections.get(crn)
-            lost = [gone[slot] for slot in sorted(gone)]
             found.append(
                 {
                     "crn": crn,
@@ -460,7 +482,9 @@ class FacilityTimetableStore:
                     # The classes still standing, so the diff can be drawn rather than counted.
                     "kept": standing.get(crn, []),
                     "noticedAt": noticed.get(crn, ""),
-                    "key": removal_key(term_code, crn, sorted(gone)),
+                    # Named after what is news. A class we cancelled ourselves joining the
+                    # list later must not reopen a warning somebody has already answered.
+                    "key": removal_key(term_code, crn, news),
                 }
             )
         return sorted(found, key=lambda section: (-len(section["removed"]), section["crn"]))

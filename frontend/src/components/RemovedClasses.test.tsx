@@ -95,3 +95,27 @@ describe("stillToLookAt", () => {
     expect(stillToLookAt([PHYSICS], approved)).toEqual([PHYSICS]);
   });
 });
+
+describe("a class the department had already cancelled", () => {
+  it("is drawn as a gap it knew about, and left out of what the banner counts", async () => {
+    vi.spyOn(lists, "fetchRemovedClasses").mockResolvedValue([
+      {
+        ...PHYSICS,
+        removed: [
+          { ...PHYSICS.removed[0], weCancelled: true },
+          { ...PHYSICS.removed[1] },
+        ],
+      },
+    ]);
+    show();
+
+    // Two hours gone, not four: the one we cancelled is not an hour lost on us.
+    expect(await screen.findByText(/2 h of teaching/)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Show what changed" }));
+
+    expect(screen.getByText(/1 class gone \(2 h\), 1 you had cancelled/)).toBeTruthy();
+    expect(screen.getByTitle("2026-09-14: you cancelled this, and the registrar has now removed it")).toBeTruthy();
+    expect(screen.getByText("you had cancelled it")).toBeTruthy();
+  });
+});

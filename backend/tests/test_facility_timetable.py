@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 from sqlalchemy import text
 
-from sorbonne.services.facility_timetable import ContradictoryPull, FacilityTimetableStore
+from sorbonne.services.facility_timetable import ContradictoryPull, FacilityTimetableStore, removal_key
 from tests.conftest import TEST_DATABASE_URL
 
 TERM = "262710"
@@ -21,6 +21,7 @@ def store() -> FacilityTimetableStore:
     held = FacilityTimetableStore(TEST_DATABASE_URL)
     with held.engine.begin() as connection:
         connection.execute(text("DELETE FROM facility_meeting_changes"))
+        connection.execute(text("DELETE FROM session_changes WHERE term_code = :t"), {"t": TERM})
         connection.execute(text("DELETE FROM facility_meetings"))
         connection.execute(text("DELETE FROM facility_sections"))
         connection.execute(text("DELETE FROM facility_pulls"))
@@ -183,6 +184,7 @@ def test_a_sweep_read_back_and_replayed_lands_the_same_timetable(store: Facility
     elsewhere = FacilityTimetableStore(TEST_DATABASE_URL)
     with elsewhere.engine.begin() as connection:
         connection.execute(text("DELETE FROM facility_meeting_changes"))
+        connection.execute(text("DELETE FROM session_changes WHERE term_code = :t"), {"t": TERM})
         connection.execute(text("DELETE FROM facility_meetings"))
         connection.execute(text("DELETE FROM facility_sections"))
     elsewhere.record_pull(
@@ -367,3 +369,50 @@ def test_a_silent_section_is_not_reported_as_emptied(store: FacilityTimetableSto
     store.record_pull(term_code=TERM, asked=["23425"], sections=[], silent=["23425"], failed=[], complete=True)
 
     assert store.classes_removed(TERM) == []
+
+
+def we_cancelled(store: FacilityTimetableStore, meeting) -> None:
+    """A class the department said would not happen, said before the registrar agreed."""
+    on, start, end = meeting
+    with store.engine.begin() as connection:
+        connection.execute(
+            text("""INSERT INTO session_changes
+                        (id, term_code, crn, meets_on, starts_at, ends_at, kind, created_at, updated_at)
+                    VALUES (gen_random_uuid()::text, :t, '23425', :on, :s, :e, 'cancelled', 'now', 'now')"""),
+            {"t": TERM, "on": on, "s": start, "e": end},
+        )
+
+
+def test_a_class_we_cancelled_ourselves_is_not_news(store: FacilityTimetableStore):
+    """The registrar agreeing with us is not a warning. It is the system working."""
+    swept(store, [MONDAY, TUESDAY])
+    we_cancelled(store, TUESDAY)
+    swept(store, [MONDAY])
+
+    assert store.classes_removed(TERM) == []
+
+
+def test_a_section_the_registrar_went_further_on_still_warns(store: FacilityTimetableStore):
+    """One cancelled by us, one not. The one we did not know about is what this is for."""
+    swept(store, [MONDAY, TUESDAY, WEDNESDAY])
+    we_cancelled(store, TUESDAY)
+    swept(store, [MONDAY])
+
+    [gone] = store.classes_removed(TERM)
+
+    assert [(m["meetsOn"], m["weCancelled"]) for m in gone["removed"]] == [
+        ("2026-09-08", True),
+        ("2026-09-09", False),
+    ]
+
+
+def test_the_key_is_named_after_what_is_news(store: FacilityTimetableStore):
+    """Cancelling another class later must not reopen a warning already answered."""
+    swept(store, [MONDAY, TUESDAY, WEDNESDAY])
+    swept(store, [MONDAY])
+    before = store.classes_removed(TERM)[0]["key"]
+
+    we_cancelled(store, TUESDAY)
+
+    assert store.classes_removed(TERM)[0]["key"] != before
+    assert store.classes_removed(TERM)[0]["key"] == removal_key(TERM, "23425", [WEDNESDAY])

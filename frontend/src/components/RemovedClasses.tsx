@@ -24,7 +24,7 @@ import { AlertTriangle, Check } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { Modal } from "@/components/Modal";
-import { hoursIn, monthsOfDiff, stillToLookAt } from "@/services/classDiff";
+import { hoursIn, monthsOfDiff, stillToLookAt, unexpected, type DiffDay } from "@/services/classDiff";
 import { fetchRemovedClasses, fetchSweptTerms, type RemovedClasses } from "@/services/portalLists";
 import { dismissalsByKey, fetchDismissals, setDismissal } from "@/services/warningDismissals";
 
@@ -54,7 +54,9 @@ export function RemovedClassesBanner({ className = "" }: { className?: string })
 
   if (waiting.length === 0) return null;
 
-  const lost = waiting.reduce((sum, section) => sum + hoursIn(section.removed), 0);
+  // Only what the department did not already know: a coordinator's own cancellations
+  // are not hours that went missing on them.
+  const lost = waiting.reduce((sum, section) => sum + hoursIn(unexpected(section.removed)), 0);
   return (
     <>
       <div
@@ -110,8 +112,10 @@ function SectionDiff({
   approving: boolean;
 }) {
   const months = useMemo(() => monthsOfDiff(section.kept, section.removed), [section.kept, section.removed]);
-  const lost = hoursIn(section.removed);
+  const news = unexpected(section.removed);
+  const lost = hoursIn(news);
   const left = hoursIn(section.kept);
+  const known = section.removed.length - news.length;
   return (
     <section className="rounded-lg border border-[#d9dee7] bg-white p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -120,8 +124,8 @@ function SectionDiff({
             {section.courseCode || section.crn} · CRN {section.crn}
           </h4>
           <p className="mt-0.5 text-sm text-[#667085]">
-            {section.teacherName || "Nobody named"} · {section.removed.length} class
-            {section.removed.length === 1 ? "" : "es"} gone ({lost} h), {section.kept.length} still booked ({left} h)
+            {section.teacherName || "Nobody named"} · {news.length} class{news.length === 1 ? "" : "es"} gone ({lost} h)
+            {known ? `, ${known} you had cancelled` : ""}, {section.kept.length} still booked ({left} h)
           </p>
         </div>
         <button
@@ -154,24 +158,40 @@ function SectionDiff({
         <span className="mr-3 inline-flex items-center gap-1.5">
           <span className="inline-block h-3 w-3 rounded-sm bg-[#d1e7dd]" /> still meets
         </span>
-        <span className="inline-flex items-center gap-1.5">
+        <span className="mr-3 inline-flex items-center gap-1.5">
           <span className="inline-block h-3 w-3 rounded-sm bg-[#f8d7da]" /> removed
         </span>
+        {known ? (
+          <span className="inline-flex items-center gap-1.5">
+            <span className="inline-block h-3 w-3 rounded-sm bg-[#e9ecef]" /> you had cancelled it
+          </span>
+        ) : null}
       </p>
     </section>
   );
 }
 
-function Square({ day }: { day: { day: string; dayOfMonth: number; kept: unknown[]; removed: unknown[] } | null }) {
+function Square({ day }: { day: DiffDay | null }) {
   if (!day) return <span className="h-8 w-8" />;
   const gone = day.removed.length > 0;
   const meets = day.kept.length > 0;
-  const paint = gone ? "bg-[#f8d7da] text-[#842029]" : meets ? "bg-[#d1e7dd] text-[#0f5132]" : "text-[#98a2b3]";
-  const title = gone
-    ? `${day.day}: ${day.removed.length} class${day.removed.length === 1 ? "" : "es"} removed`
-    : meets
-      ? `${day.day}: still meets`
-      : day.day;
+  // Grey where the department cancelled it: a gap it already knew about, drawn so the
+  // month still reads as a month, but not in the colour that means "look at this".
+  const ours = gone && day.removed.every((meeting) => meeting.weCancelled);
+  const paint = ours
+    ? "bg-[#e9ecef] text-[#667085]"
+    : gone
+      ? "bg-[#f8d7da] text-[#842029]"
+      : meets
+        ? "bg-[#d1e7dd] text-[#0f5132]"
+        : "text-[#98a2b3]";
+  const title = ours
+    ? `${day.day}: you cancelled this, and the registrar has now removed it`
+    : gone
+      ? `${day.day}: ${day.removed.length} class${day.removed.length === 1 ? "" : "es"} removed`
+      : meets
+        ? `${day.day}: still meets`
+        : day.day;
   return (
     <span
       title={title}
