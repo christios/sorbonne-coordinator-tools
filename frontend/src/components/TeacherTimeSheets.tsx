@@ -304,22 +304,20 @@ export function TimeSheetsCard({ teacherId, className = "" }: { teacherId: strin
             */}
           <label className="grid gap-1 text-sm font-medium text-[#344054]">
             <span>Period it covers</span>
-            <select
+            <SelectMenu
+              label="Period it covers"
               value={draft.periodStart}
-              onChange={(event) => setDraft({ ...draft, periodStart: event.target.value })}
-              className="w-full rounded-md border border-[#b7bec8] px-3 py-2 font-normal"
-            >
-              <option value="">Not said</option>
-              {/* A sheet filed long ago keeps its own period even once it drops off the list. */}
-              {(draft.periodStart && !offered.includes(draft.periodStart)
-                ? [draft.periodStart, ...offered]
-                : offered
-              ).map((start) => (
-                <option key={start} value={start}>
-                  {periodLabel(start)}
-                </option>
-              ))}
-            </select>
+              onChange={(periodStart) => setDraft({ ...draft, periodStart })}
+              placeholder="Not said"
+              options={[
+                { value: "", label: "Not said" },
+                /* A sheet filed long ago keeps its own period even once it drops off the list. */
+                ...(draft.periodStart && !offered.includes(draft.periodStart)
+                  ? [draft.periodStart, ...offered]
+                  : offered
+                ).map((start) => ({ value: start, label: periodLabel(start) })),
+              ]}
+            />
           </label>
           <Field
             label="Link"
