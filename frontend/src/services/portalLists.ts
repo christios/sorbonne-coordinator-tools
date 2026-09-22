@@ -794,6 +794,36 @@ export function fetchFacilitySections(termCode: string, crns: string[]): Promise
   return request<FacilityTimetable>(`/facility-timetable/${encodeURIComponent(termCode)}/sections?${query.toString()}`);
 }
 
+/** A section the registrar has taken dated classes out of, and what is left of it. */
+export type RemovedClasses = {
+  crn: string;
+  courseCode: string;
+  title: string;
+  teacherName: string;
+  scheduleState: string;
+  /** The classes a sweep held and the next one did not, oldest first. */
+  removed: { meetsOn: string; startsAt: string; endsAt: string; room: string }[];
+  /** The ones still standing, so the difference can be drawn rather than counted. */
+  kept: { meetsOn: string; startsAt: string; endsAt: string; room: string }[];
+  /** When the sweep that lost them ran. */
+  noticedAt: string;
+  /** Holds still while the same classes are missing, so an approval lasts exactly as long. */
+  key: string;
+};
+
+/** Which terms the registrar's timetable has been swept for. */
+export async function fetchSweptTerms(): Promise<string[]> {
+  return (await request<{ terms: string[] }>("/facility-timetable")).terms;
+}
+
+/** Sections this term whose classes the registrar has deleted. */
+export async function fetchRemovedClasses(termCode: string): Promise<RemovedClasses[]> {
+  const answer = await request<{ sections: RemovedClasses[] }>(
+    `/facility-timetable/${encodeURIComponent(termCode)}/removed-classes`,
+  );
+  return answer.sections;
+}
+
 /** The registrar's booked hours per section, and whom the portal staffs it with. */
 export type FacilityHours = Record<string, { courseCode: string; teacherName: string; hours: number }>;
 

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
+from hashlib import sha256
 from datetime import date as dt_date
 from typing import Any
 
@@ -56,6 +57,16 @@ class Coverage:
         # those are still the best thing anybody knows about it — stale, not absent. Only
         # a section with no meetings on hand at all is something we cannot see.
         return sorted([*self.gone, *self.unchecked])
+
+
+def removal_key(term_code: str, crn: str, slots: list[tuple[str, str, str]]) -> str:
+    """The name of one section's missing classes, stable while the same ones are missing.
+
+    An approval is stored against this, so it expires by ceasing to match rather than by
+    anything having to expire it — the same way every other dismissed warning here works.
+    """
+    said = "|".join(f"{on}T{start}-{end}" for on, start, end in sorted(slots))
+    return f"registrar-classes-removed:{term_code}:{crn}:{sha256(said.encode()).hexdigest()[:12]}"
 
 
 class FacilityTimetableStore:
@@ -142,6 +153,12 @@ class FacilityTimetableStore:
         }
 
     def _answered(self, connection: Any, term_code: str, row: dict[str, Any], stamp: str) -> None:
+        # Asked before the upsert below creates the row. Everything is new the first time a
+        # section is seen, and a term's first sweep reporting itself as change is noise.
+        known = connection.execute(
+            text("SELECT 1 FROM facility_sections WHERE term_code = :t AND crn = :crn"),
+            {"t": term_code, "crn": row["crn"]},
+        ).first() is not None
         connection.execute(
             text("""INSERT INTO facility_sections
                         (term_code, crn, course_code, title, teacher_name, rooms, schedule_state,
@@ -169,7 +186,16 @@ class FacilityTimetableStore:
             },
         )
         # Replace, per rule 2. Cheaper and more obviously correct than diffing, and a
-        # section's meetings are tens of rows, not thousands.
+        # section's meetings are tens of rows, not thousands. What is being replaced is
+        # read first, though: it is the only evidence that a deleted class ever existed.
+        held = {
+            (held_row["meets_on"], held_row["starts_at"], held_row["ends_at"]): held_row["room"]
+            for held_row in connection.execute(
+                text("""SELECT meets_on, starts_at, ends_at, room FROM facility_meetings
+                        WHERE term_code = :t AND crn = :crn"""),
+                {"t": term_code, "crn": row["crn"]},
+            ).mappings()
+        }
         connection.execute(
             text("DELETE FROM facility_meetings WHERE term_code = :t AND crn = :crn"),
             {"t": term_code, "crn": row["crn"]},
@@ -192,6 +218,48 @@ class FacilityTimetableStore:
                     "start": meeting["startsAt"],
                     "end": meeting["endsAt"],
                     "room": meeting.get("room", ""),
+                },
+            )
+        if known:
+            self._note_changes(connection, term_code, row, held=held, now=set(seen), stamp=stamp)
+
+    def _note_changes(  # noqa: PLR0913 - the section, both sides of the comparison, and when
+        self,
+        connection: Any,
+        term_code: str,
+        row: dict[str, Any],
+        *,
+        held: dict[tuple[str, str, str], str],
+        now: set[tuple[str, str, str]],
+        stamp: str,
+    ) -> None:
+        """Write down what this sweep took away and what it brought, for a section we knew.
+
+        A class that moved hour leaves both a removal and an addition. That is the honest
+        reading: nothing here can tell a move from a deletion plus an unrelated booking,
+        and a coordinator looking at the diff can, because they know the course.
+        """
+        rooms = {
+            (meeting["meetsOn"], meeting["startsAt"], meeting["endsAt"]): meeting.get("room", "")
+            for meeting in row.get("meetings", [])
+        }
+        changes = [("removed", slot, held[slot]) for slot in sorted(set(held) - now)]
+        changes += [("added", slot, rooms.get(slot, "")) for slot in sorted(now - set(held))]
+        for kind, (meets_on, starts_at, ends_at), room in changes:
+            connection.execute(
+                text("""INSERT INTO facility_meeting_changes
+                            (id, term_code, crn, noticed_at, kind, meets_on, starts_at, ends_at, room)
+                        VALUES (:id, :t, :crn, :at, :kind, :on, :start, :end, :room)"""),
+                {
+                    "id": str(uuid.uuid4()),
+                    "t": term_code,
+                    "crn": row["crn"],
+                    "at": stamp,
+                    "kind": kind,
+                    "on": meets_on,
+                    "start": starts_at,
+                    "end": ends_at,
+                    "room": room,
                 },
             )
 
@@ -305,6 +373,97 @@ class FacilityTimetableStore:
                 continue
             held.setdefault(crn, set()).add(weekday)
         return {crn: sorted(days, key=_WEEKDAYS.index) for crn, days in held.items()}
+
+    def classes_removed(self, term_code: str) -> list[dict[str, Any]]:
+        """Sections the registrar has taken classes out of, and what is left of them.
+
+        Grouped by section rather than by sweep, because the question a coordinator has is
+        "what happened to this course", not "what happened on Tuesday". A class removed by
+        one sweep and put back by a later one is not reported: the diff is against what is
+        true now, not a history of everything the portal has ever said.
+
+        Each section carries a key that holds still while the missing classes do. That is
+        what lets a coordinator's approval last exactly as long as the fact it was about:
+        the same removal stays approved, and one more class going missing changes the key
+        and asks again.
+        """
+        with self.engine.connect() as connection:
+            changes = (
+                connection.execute(
+                    text("""SELECT crn, noticed_at, kind, meets_on, starts_at, ends_at, room
+                            FROM facility_meeting_changes WHERE term_code = :t
+                            ORDER BY noticed_at, meets_on, starts_at"""),
+                    {"t": term_code},
+                )
+                .mappings()
+                .all()
+            )
+            if not changes:
+                return []
+            crns = sorted({row["crn"] for row in changes})
+            sections = {
+                row["crn"]: row
+                for row in connection.execute(
+                    text("""SELECT crn, course_code, title, teacher_name, schedule_state
+                            FROM facility_sections WHERE term_code = :t AND crn = ANY(:crns)"""),
+                    {"t": term_code, "crns": crns},
+                ).mappings()
+            }
+            standing: dict[str, list[dict[str, str]]] = {}
+            for row in connection.execute(
+                text("""SELECT crn, meets_on, starts_at, ends_at, room FROM facility_meetings
+                        WHERE term_code = :t AND crn = ANY(:crns)
+                        ORDER BY meets_on, starts_at"""),
+                {"t": term_code, "crns": crns},
+            ).mappings():
+                standing.setdefault(row["crn"], []).append(
+                    {
+                        "meetsOn": row["meets_on"],
+                        "startsAt": row["starts_at"],
+                        "endsAt": row["ends_at"],
+                        "room": row["room"] or "",
+                    }
+                )
+
+        missing: dict[str, dict[tuple[str, str, str], dict[str, str]]] = {}
+        noticed: dict[str, str] = {}
+        for row in changes:
+            slot = (row["meets_on"], row["starts_at"], row["ends_at"])
+            gone = missing.setdefault(row["crn"], {})
+            if row["kind"] == "added":
+                # Put back. Whatever a sweep once took away, it is here now.
+                gone.pop(slot, None)
+                continue
+            gone[slot] = {
+                "meetsOn": row["meets_on"],
+                "startsAt": row["starts_at"],
+                "endsAt": row["ends_at"],
+                "room": row["room"] or "",
+            }
+            noticed[row["crn"]] = row["noticed_at"]
+
+        found = []
+        for crn in crns:
+            gone = missing.get(crn) or {}
+            if not gone:
+                continue
+            section = sections.get(crn)
+            lost = [gone[slot] for slot in sorted(gone)]
+            found.append(
+                {
+                    "crn": crn,
+                    "courseCode": (section or {}).get("course_code", ""),
+                    "title": (section or {}).get("title", ""),
+                    "teacherName": (section or {}).get("teacher_name", ""),
+                    "scheduleState": (section or {}).get("schedule_state", ""),
+                    "removed": lost,
+                    # The classes still standing, so the diff can be drawn rather than counted.
+                    "kept": standing.get(crn, []),
+                    "noticedAt": noticed.get(crn, ""),
+                    "key": removal_key(term_code, crn, sorted(gone)),
+                }
+            )
+        return sorted(found, key=lambda section: (-len(section["removed"]), section["crn"]))
 
     def timetable_for(self, term_code: str, crns: list[str]) -> dict[str, Any]:
         """These sections' meetings, with rooms and the state each section is in, for a calendar.

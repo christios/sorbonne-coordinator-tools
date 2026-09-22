@@ -20,6 +20,7 @@ TERM = "262710"
 def store() -> FacilityTimetableStore:
     held = FacilityTimetableStore(TEST_DATABASE_URL)
     with held.engine.begin() as connection:
+        connection.execute(text("DELETE FROM facility_meeting_changes"))
         connection.execute(text("DELETE FROM facility_meetings"))
         connection.execute(text("DELETE FROM facility_sections"))
         connection.execute(text("DELETE FROM facility_pulls"))
@@ -181,6 +182,7 @@ def test_a_sweep_read_back_and_replayed_lands_the_same_timetable(store: Facility
     sweep = store.sweep(TERM)
     elsewhere = FacilityTimetableStore(TEST_DATABASE_URL)
     with elsewhere.engine.begin() as connection:
+        connection.execute(text("DELETE FROM facility_meeting_changes"))
         connection.execute(text("DELETE FROM facility_meetings"))
         connection.execute(text("DELETE FROM facility_sections"))
     elsewhere.record_pull(
@@ -296,3 +298,72 @@ def test_the_registrar_s_hours_are_added_up_from_the_dated_meetings(store: Facil
 
     assert hours == {"23436": {"courseCode": "MATH-001", "teacherName": "Cecile Paillot", "hours": 5.0}}
     assert store.hours_for("") == {}
+
+
+# ------------------------------------------- what a sweep took away
+
+WEDNESDAY = ("2026-09-09", "08:30", "10:00")
+
+
+def swept(store: FacilityTimetableStore, meetings) -> None:
+    store.record_pull(term_code=TERM, asked=["23425"], sections=[section("23425", meetings=meetings)],
+                      silent=[], failed=[], complete=True)
+
+
+def test_a_class_the_registrar_deleted_is_reported(store: FacilityTimetableStore):
+    """The fault this exists for: the section still answers, with its classes gone."""
+    swept(store, [MONDAY, TUESDAY, WEDNESDAY])
+    swept(store, [MONDAY])
+
+    [gone] = store.classes_removed(TERM)
+
+    assert gone["crn"] == "23425"
+    assert gone["courseCode"] == "MATH-001"
+    assert [meeting["meetsOn"] for meeting in gone["removed"]] == ["2026-09-08", "2026-09-09"]
+    assert [meeting["meetsOn"] for meeting in gone["kept"]] == ["2026-09-07"]
+
+
+def test_a_first_sweep_reports_nothing(store: FacilityTimetableStore):
+    """Everything is new the first time. A page of "added" teaches people to stop reading."""
+    swept(store, [MONDAY, TUESDAY])
+
+    assert store.classes_removed(TERM) == []
+
+
+def test_a_class_put_back_is_no_longer_missing(store: FacilityTimetableStore):
+    """The diff is against what is true now, not a history of everything ever said."""
+    swept(store, [MONDAY, TUESDAY])
+    swept(store, [MONDAY])
+    swept(store, [MONDAY, TUESDAY])
+
+    assert store.classes_removed(TERM) == []
+
+
+def test_a_moved_class_reads_as_one_gone_and_one_arrived(store: FacilityTimetableStore):
+    """Nothing here can tell a move from a deletion. The coordinator looking at it can."""
+    swept(store, [MONDAY])
+    swept(store, [("2026-09-07", "13:30", "15:00")])
+
+    [gone] = store.classes_removed(TERM)
+
+    assert [(m["meetsOn"], m["startsAt"]) for m in gone["removed"]] == [("2026-09-07", "08:30")]
+
+
+def test_the_key_holds_still_while_the_same_classes_are_missing(store: FacilityTimetableStore):
+    swept(store, [MONDAY, TUESDAY, WEDNESDAY])
+    swept(store, [MONDAY])
+    first = store.classes_removed(TERM)[0]["key"]
+
+    swept(store, [MONDAY])
+    assert store.classes_removed(TERM)[0]["key"] == first
+
+    swept(store, [])
+    assert store.classes_removed(TERM)[0]["key"] != first
+
+
+def test_a_silent_section_is_not_reported_as_emptied(store: FacilityTimetableStore):
+    """Silence is already handled, and its meetings are kept. This must not double up."""
+    swept(store, [MONDAY, TUESDAY])
+    store.record_pull(term_code=TERM, asked=["23425"], sections=[], silent=["23425"], failed=[], complete=True)
+
+    assert store.classes_removed(TERM) == []
