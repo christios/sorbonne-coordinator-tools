@@ -293,10 +293,29 @@ export function CrnRecord({
             )}
           </Card>
 
-          <Card title="Changes to its classes" note="Cancelled, or covered by somebody else — said on the calendar above. Teacher hours read these.">
+          <Card
+            title="Changes to its classes"
+            note="Cancelled, or covered by somebody else. Press a date to say something else about that class, or that it ran as planned after all. Teacher hours read these."
+          >
             <SessionChangeList
               changes={mine}
               orphaned={orphaned}
+              /*
+               * Straight to the class the line is about. The calendar above shows one week,
+               * and a note put on the wrong class is usually noticed weeks later — from
+               * this list, which knows the date exactly.
+               */
+              onOpen={(change) =>
+                setNoting({
+                  crn: change.crn,
+                  termCode: row.termCode,
+                  date: change.meetsOn,
+                  start: change.startsAt,
+                  end: change.endsAt,
+                  room: "",
+                  clashes: false,
+                })
+              }
               empty={row.termCode ? "Nothing noted. Every class stands as the registrar booked it." : "No portal term, so nothing can be noted."}
             />
           </Card>

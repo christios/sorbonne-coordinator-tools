@@ -13,12 +13,23 @@ export function SessionChangeList({
   changes,
   orphaned = new Set<string>(),
   nameOf,
+  onOpen,
   empty,
 }: {
   changes: SessionChange[];
   orphaned?: ReadonlySet<string>;
   /** What to call a CRN on the line — the course, the group — when the list spans several. */
   nameOf?: (crn: string) => string;
+  /**
+   * Open the class this line is about, to say something else about it or nothing at all.
+   *
+   * Without it the list is a record and the only way back to a line was to find the same
+   * class on a calendar — which means paging back to the week it happened in, for a class
+   * whose date is written on the line in front of you. A wrong name is noticed here, so it
+   * has to be mendable here. Left out where the caller has no one calendar to open: the
+   * teacher's record lists changes across every CRN they touch.
+   */
+  onOpen?: (change: SessionChange) => void;
   empty: string;
 }) {
   if (changes.length === 0) return <p className="text-sm text-[#667085]">{empty}</p>;
@@ -26,7 +37,18 @@ export function SessionChangeList({
     <ul className="divide-y divide-[#f2f4f7] text-sm" aria-label="Changes to classes">
       {changes.map((change) => (
         <li key={change.id} className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 py-1.5">
-          <span className="tabular-nums text-[#344054]">{formatShortDateTime(change.meetsOn, change.startsAt, change.endsAt)}</span>
+          {onOpen ? (
+            <button
+              type="button"
+              onClick={() => onOpen(change)}
+              aria-label={`Change what was said about ${formatShortDateTime(change.meetsOn, change.startsAt, change.endsAt)}`}
+              className="tabular-nums font-medium text-[#1f4e79] underline-offset-2 hover:underline"
+            >
+              {formatShortDateTime(change.meetsOn, change.startsAt, change.endsAt)}
+            </button>
+          ) : (
+            <span className="tabular-nums text-[#344054]">{formatShortDateTime(change.meetsOn, change.startsAt, change.endsAt)}</span>
+          )}
           {nameOf ? <span className="text-[#667085]">{nameOf(change.crn)}</span> : null}
           <span className={`font-medium ${change.kind === "cancelled" ? "text-[#a6292f]" : "text-[#1f4e79]"}`}>{describeChange(change)}</span>
           {change.note ? <span className="text-[#667085]">{change.note}</span> : null}

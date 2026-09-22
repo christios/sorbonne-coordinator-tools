@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { adjustmentsFor, describeChange, hoursOf, slotKey, type SessionChange } from "@/services/sessionChanges";
+import { adjustmentsFor, describeChange, hoursOf, noteOn, slotKey, type SessionChange } from "@/services/sessionChanges";
 import { sameTeacher } from "@/services/teacherLoad";
 
 const note = (over: Partial<SessionChange>): SessionChange => ({
@@ -14,6 +14,31 @@ describe("a note on one class", () => {
     expect(slotKey({ termCode: "262710", crn: "23436", meetsOn: "2026-09-14", startsAt: "08:15:00" })).toBe(
       slotKey(note({})),
     );
+  });
+
+  it("is found again from the record of it, which is how a wrong one is mended", () => {
+    /*
+     * The list of what has been said about a CRN's classes turns each line back into the
+     * class it is about. The class it hands on is built from the record's own fields, so
+     * the lookup that finds the note again has to accept exactly those — otherwise the
+     * dialog opens blank and saving writes a second note beside the first.
+     */
+    const held = note({ id: "n-1", kind: "covered", coverTeacherName: "Gaurav Kucheriya" });
+    const reopened = {
+      crn: held.crn,
+      termCode: held.termCode,
+      date: held.meetsOn,
+      start: held.startsAt,
+      end: held.endsAt,
+    };
+
+    expect(noteOn([held], reopened)).toBe(held);
+  });
+
+  it("is not confused with the same hour of another class", () => {
+    const held = note({ id: "n-1" });
+
+    expect(noteOn([held], { crn: "99999", termCode: held.termCode, date: held.meetsOn, start: held.startsAt })).toBeNull();
   });
 
   it("is worth the length of the class", () => {
