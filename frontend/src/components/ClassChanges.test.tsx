@@ -144,6 +144,17 @@ describe("a class the registrar has added", () => {
     fireEvent.click(screen.getByRole("button", { name: "Show what changed" }));
 
     expect(screen.getByTitle("2026-09-14: 1 class removed, 1 added")).toBeTruthy();
+    // And the ring around that square says so in the legend, rather than only on hover.
+    expect(screen.getByText(/arrived where one was removed the same day/)).toBeTruthy();
+  });
+
+  it("does not explain the ring on a report that has no day like that", async () => {
+    vi.spyOn(lists, "fetchChangedClasses").mockResolvedValue([ARRIVED]);
+    show();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Show what changed" }));
+
+    expect(screen.queryByText(/arrived where one was removed the same day/)).toBeNull();
   });
 });
 

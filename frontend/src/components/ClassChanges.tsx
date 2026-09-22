@@ -139,6 +139,10 @@ function SectionDiff({
   const gained = hoursIn(section.added);
   const left = hoursIn(section.kept);
   const known = section.removed.length - news.length;
+  // Whether any day here is two things at once, which is the only thing the ring says.
+  const both = months.some((month) =>
+    month.days.some((day) => day && day.removed.length > 0 && day.added.length > 0),
+  );
   const said = [
     news.length ? `${news.length} class${news.length === 1 ? "" : "es"} gone (${lost} h)` : "",
     known ? `${known} you had cancelled` : "",
@@ -200,6 +204,12 @@ function SectionDiff({
         <span className="inline-flex items-center gap-1.5">
           <span className="inline-block h-3 w-3 rounded-sm bg-[#d1e7dd]" /> added
         </span>
+        {both ? (
+          <span className="inline-flex items-center gap-1.5">
+            <span className="inline-block h-3 w-3 rounded-sm bg-[#d1e7dd] ring-2 ring-inset ring-[#e07c84]" /> arrived
+            where one was removed the same day
+          </span>
+        ) : null}
         {known ? (
           <span className="inline-flex items-center gap-1.5">
             <span className="inline-block h-3 w-3 rounded-sm bg-[#e9ecef]" /> you had cancelled it
