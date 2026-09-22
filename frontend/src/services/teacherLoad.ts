@@ -185,6 +185,12 @@ export type LoadRow = TeacherLoad & {
   coverTaken: number;
   /** The registrar's booked hours on the sections the portal staffs with them. Zero until read. */
   registrarHours: number;
+  /**
+   * Minutes actually taught in the pay period on screen: the classes that met, less the
+   * cancelled, plus any they stood in for. Absent until a period is chosen, and not the
+   * same kind of number as the rest of this row — those are a plan for the semester.
+   */
+  periodMinutes?: number;
 };
 
 /**
@@ -251,11 +257,26 @@ export function crnsByTeacher(sheets: RequestSheet[]): (teacher: string) => stri
  * and it is the shape the timetable workbook has always had. Who the person is comes after
  * the numbers: it is what the filter chips work on rather than what the eye reads across.
  */
-export function hoursColumns(sheetTitles: string[]): GridColumn<LoadRow>[] {
+/**
+ * `period` names the pay period on screen — "15 Sep – 14 Oct 2026". Given one, the table
+ * gains a column of what was actually taught in it, which is a different kind of number
+ * from every other column here: those are the semester's plan, this is what happened.
+ */
+export function hoursColumns(sheetTitles: string[], period = ""): GridColumn<LoadRow>[] {
   return [
     { id: "teacher", displayName: "Teacher", type: "text", accessor: (row) => row.teacher || "Nobody yet", required: true, defaultWidth: 240 },
     { id: "standing", displayName: "Standing", type: "option", accessor: (row) => row.standing, defaultWidth: 130 },
     { id: "total", displayName: "Total", type: "number", accessor: (row) => row.total, defaultWidth: 90, source: "planning" },
+    ...(period
+      ? [{
+          id: "period",
+          displayName: period,
+          type: "number" as const,
+          accessor: (row: LoadRow) => Math.round(((row.periodMinutes ?? 0) / 60) * 4) / 4,
+          defaultWidth: 150,
+          source: "registrar" as const,
+        }]
+      : []),
     // The registrar's count beside ours. A comparison with no warning on it: teachers and
     // hours move during a semester, and cover is normal.
     { id: "registrarHours", displayName: "Registrar", type: "number", accessor: (row) => row.registrarHours, defaultWidth: 100, source: "registrar" },

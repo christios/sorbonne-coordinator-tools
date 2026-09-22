@@ -291,3 +291,29 @@ describe("a retired group's hours", () => {
     expect(totals.sections).toBe(1);
   });
 });
+
+describe("the column for one pay period", () => {
+  it("is not there until a period is named", () => {
+    // Every other column is the semester's plan. Without a period there is no second
+    // kind of number to show, and a column of zeroes would read as one.
+    expect(hoursColumns(["FYS-S1"]).map((column) => column.id)).not.toContain("period");
+  });
+
+  it("is named after the period, so the two kinds of number cannot be confused", () => {
+    const columns = hoursColumns(["FYS-S1"], "15 Sep – 14 Oct 2026");
+    const period = columns.find((column) => column.id === "period");
+
+    expect(period?.displayName).toBe("15 Sep – 14 Oct 2026");
+  });
+
+  it("reads minutes taught as the hours a claim is written in", () => {
+    const period = hoursColumns([], "15 Sep – 14 Oct 2026").find((column) => column.id === "period");
+    const row = (minutes: number | undefined) => ({ periodMinutes: minutes }) as never;
+
+    expect(period?.accessor(row(90))).toBe(1.5);
+    expect(period?.accessor(row(100))).toBe(1.75);
+    // Nothing taught, and nothing read yet, both read zero rather than blank.
+    expect(period?.accessor(row(0))).toBe(0);
+    expect(period?.accessor(row(undefined))).toBe(0);
+  });
+});
