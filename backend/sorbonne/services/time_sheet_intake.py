@@ -138,6 +138,20 @@ class TimeSheetIntake:
             )
         return [_sheet(row) for row in rows]
 
+    def everyone(self) -> list[dict[str, Any]]:
+        """Every approved period the app has pushed, for a page that judges all of them.
+
+        One answer rather than one request per teacher: the hours page holds forty-odd
+        rows and asks the same question of each.
+        """
+        with self.engine.connect() as connection:
+            rows = (
+                connection.execute(text(f"SELECT {_COLUMNS} FROM pushed_time_sheets ORDER BY period_start DESC"))
+                .mappings()
+                .all()
+            )
+        return [_sheet(row) for row in rows]
+
     def filed_periods(self) -> set[tuple[str, str]]:
         """Teacher and period for every approved sheet, for the task that asks for one."""
         with self.engine.connect() as connection:

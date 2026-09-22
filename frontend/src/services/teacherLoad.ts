@@ -15,6 +15,7 @@
 import { filled } from "@/services/courseRequest";
 import { rowsPerPart, type Card } from "@/services/courseCards";
 import type { TaughtHour } from "@/services/hoursInPeriod";
+import type { TeacherWarning } from "@/services/teacherWarnings";
 import type { ActiveTeacher, FacilityHours } from "@/services/portalLists";
 import type { GridColumn } from "@/services/studentColumns";
 import type { RequestSheet } from "@/services/timetableExport";
@@ -259,6 +260,8 @@ export type LoadRow = TeacherLoad & {
   coverTaken: number;
   /** The registrar's booked hours on the sections the portal staffs with them. Zero until read. */
   registrarHours: number;
+  /** Where this teacher's hours disagree with themselves. Empty until the figures are read. */
+  warnings: TeacherWarning[];
   /**
    * Minutes actually taught in the pay period on screen: the classes that met, less the
    * cancelled, plus any they stood in for. Absent until a period is chosen, and not the
@@ -286,6 +289,7 @@ export function loadRows(loads: TeacherLoad[], active: ActiveTeacher[], crnsOf: 
     coverGiven: 0,
     coverTaken: 0,
     registrarHours: 0,
+    warnings: [],
   }));
 }
 
@@ -383,6 +387,17 @@ export function hoursColumns(sheetTitles: string[], window = ""): GridColumn<Loa
     { id: "cancelledHours", displayName: "Cancelled", type: "number", accessor: (row) => row.cancelledHours, defaultWidth: 100, source: "planning", ...when },
     { id: "coverTaken", displayName: "Covered by others", type: "number", accessor: (row) => row.coverTaken, defaultWidth: 140, source: "planning", ...when },
     { id: "coverGiven", displayName: "Covered for others", type: "number", accessor: (row) => row.coverGiven, defaultWidth: 150, source: "planning", ...when },
+    /*
+     * Beside the numbers it is about, not at the far end of the row. A warning column
+     * somebody has to scroll to is a warning column nobody reads.
+     */
+    {
+      id: "warnings",
+      displayName: "Warnings",
+      type: "text",
+      accessor: (row) => row.warnings.map((warning) => warning.label).join(", "),
+      defaultWidth: 260,
+    },
     { id: "type", displayName: "Type", type: "option", accessor: (row) => row.active?.type ?? "", defaultWidth: 190, source: "portal" },
     { id: "category", displayName: "Category", type: "option", accessor: (row) => row.active?.category ?? "", defaultWidth: 120, source: "portal" },
     { id: "department", displayName: "Dept.", type: "option", accessor: (row) => row.active?.department ?? "", defaultWidth: 110, source: "portal" },
@@ -419,6 +434,7 @@ export function shownHoursColumns(sheetTitles: string[]): string[] {
     ...sheetTitles.map((title) => `sheet:${title}`),
     ...LOAD_TYPES.map((type) => `type:${type}`),
     "total",
+    "warnings",
     "registrarHours",
     "sections",
     "cancelledHours",

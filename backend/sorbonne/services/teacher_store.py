@@ -26,6 +26,14 @@ class RevisionConflict(Exception):
     pass
 
 
+class CommentNotFound(Exception):
+    """No such line on anybody's thread."""
+
+
+class NotTheAuthor(Exception):
+    """A line is its author's to take back, and nobody else's."""
+
+
 class FolderNotFound(Exception):
     pass
 
@@ -539,6 +547,69 @@ class TeacherStore:
                 _time_sheet_params(updated),
             )
         return updated
+
+    # --------------------------------------------------------------- comments
+
+    def comments_of(self, teacher_id: str) -> list[dict[str, Any]]:
+        """Everything said about one teacher, oldest first — a thread reads down."""
+        with self.engine.connect() as connection:
+            rows = (
+                connection.execute(
+                    text("""SELECT id, teacher_id, body, author_email, author_name, created_at
+                            FROM teacher_comments WHERE teacher_id = :teacher
+                            ORDER BY created_at, id"""),
+                    {"teacher": str(teacher_id or "").strip()},
+                )
+                .mappings()
+                .all()
+            )
+        return [_teacher_comment(row) for row in rows]
+
+    def add_comment(self, *, teacher_id: str, body: str, author_email: str, author_name: str) -> dict[str, Any]:
+        """One line on the teacher's thread, signed by whoever is signed in and dated now.
+
+        The body keeps its line breaks: a comment is prose, not a field.
+        """
+        row = {
+            "id": str(uuid4()),
+            "teacher_id": str(teacher_id or "").strip(),
+            "body": str(body or "").strip(),
+            "author_email": str(author_email or "").strip(),
+            "author_name": str(author_name or "").strip(),
+            "created_at": _timestamp(),
+        }
+        with self.engine.begin() as connection:
+            connection.execute(
+                text("""INSERT INTO teacher_comments (id, teacher_id, body, author_email, author_name, created_at)
+                        VALUES (:id, :teacher_id, :body, :author_email, :author_name, :created_at)"""),
+                row,
+            )
+        return _teacher_comment(row)
+
+    def remove_comment(self, comment_id: str, *, author_email: str) -> None:
+        """A line is its author's to take back, and nobody else's."""
+        with self.engine.begin() as connection:
+            held = connection.execute(
+                text("SELECT author_email FROM teacher_comments WHERE id = :id"), {"id": comment_id}
+            ).scalar()
+            if held is None:
+                raise CommentNotFound(comment_id)
+            if str(held).casefold() != str(author_email or "").strip().casefold():
+                raise NotTheAuthor(comment_id)
+            connection.execute(text("DELETE FROM teacher_comments WHERE id = :id"), {"id": comment_id})
+
+    def comment_counts(self) -> dict[str, dict[str, Any]]:
+        """How many lines each teacher carries, and when the last was written — for the rows."""
+        with self.engine.connect() as connection:
+            rows = (
+                connection.execute(
+                    text("""SELECT teacher_id, COUNT(*) AS lines, MAX(created_at) AS last_at
+                            FROM teacher_comments GROUP BY teacher_id""")
+                )
+                .mappings()
+                .all()
+            )
+        return {row["teacher_id"]: {"count": int(row["lines"]), "lastAt": row["last_at"]} for row in rows}
 
     # ------------------------------------------------------- what a row shows
 
@@ -1097,3 +1168,13 @@ def _sequence_rank(sequence: str, title: str) -> tuple[int, int, str]:
     name = (title or "").strip()
     return (number, len(name), name)
 
+
+def _teacher_comment(row: Any) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "teacherId": row["teacher_id"],
+        "body": row["body"],
+        "authorEmail": row["author_email"],
+        "authorName": row["author_name"],
+        "createdAt": row["created_at"],
+    }

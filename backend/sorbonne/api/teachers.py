@@ -22,9 +22,12 @@ from starlette.responses import FileResponse
 
 from sorbonne.config import config
 from sorbonne.api.timesheets import get_intake
+from sorbonne.services import coordinator_directory
 from sorbonne.services.time_sheet_intake import TimeSheetIntake
 from sorbonne.services.requisition_export import build_requisition_docx
 from sorbonne.services.teacher_store import (
+    CommentNotFound,
+    NotTheAuthor,
     FolderNameConflict,
     FolderNotEmpty,
     FolderNotFound,
@@ -338,6 +341,51 @@ def export_many_teachers_requisitions(
 def teacher_library_summary(store: TeacherStore = Depends(get_store)) -> dict[str, Any]:
     """What every teacher's row shows, in one answer instead of one request per teacher."""
     return {"summary": store.library_summary()}
+
+
+class CommentInput(BaseModel):
+    body: str = Field(min_length=1, max_length=4000)
+
+
+@router.get("/comment-counts")
+def teacher_comment_counts(store: TeacherStore = Depends(get_store)) -> dict[str, Any]:
+    """How many lines each teacher carries, for the mark on the row."""
+    return {"counts": store.comment_counts()}
+
+
+@router.delete("/comments/{comment_id}", status_code=204)
+def delete_teacher_comment(comment_id: str, request: Request, store: TeacherStore = Depends(get_store)) -> Response:
+    """A line is its author's to take back, and nobody else's."""
+    staff = getattr(request.state, "staff_user", None)
+    try:
+        store.remove_comment(comment_id, author_email=getattr(staff, "email", "") or "")
+    except CommentNotFound as exc:
+        raise HTTPException(status_code=404, detail="That comment is not there any more.") from exc
+    except NotTheAuthor as exc:
+        raise HTTPException(status_code=403, detail="A comment can only be removed by whoever wrote it.") from exc
+    return Response(status_code=204)
+
+
+@router.get("/{teacher_id}/comments")
+def list_teacher_comments(teacher_id: str, store: TeacherStore = Depends(get_store)) -> dict[str, Any]:
+    """Everything said about one teacher, oldest first — a thread reads down."""
+    return {"comments": store.comments_of(teacher_id)}
+
+
+@router.post("/{teacher_id}/comments", status_code=201)
+def add_teacher_comment(
+    teacher_id: str, body: CommentInput, request: Request, store: TeacherStore = Depends(get_store)
+) -> dict[str, Any]:
+    """One line on the teacher's thread, signed by whoever is signed in."""
+    staff = getattr(request.state, "staff_user", None)
+    email = getattr(staff, "email", "") or ""
+    return store.add_comment(
+        teacher_id=teacher_id,
+        body=body.body,
+        author_email=email,
+        # The name Settings gives them, so one person reads as one person across the app.
+        author_name=coordinator_directory.name_for(email, getattr(staff, "name", "") or "") if email else "",
+    )
 
 
 @router.get("/{teacher_id}")

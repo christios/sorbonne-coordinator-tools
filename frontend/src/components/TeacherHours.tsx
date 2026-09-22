@@ -1,5 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ArrowDown, ArrowUp, RotateCcw, X } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { HourWindowPicker } from "@/components/HourWindowPicker";
@@ -7,14 +7,24 @@ import { LabelledPicker } from "@/components/LabelledPicker";
 import { ListGrid, StatePill } from "@/components/ListGrid";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { SelectMenu } from "@/components/SelectMenu";
+import { CommentThread } from "@/components/CommentThread";
+import { CommentPeek } from "@/components/CommentPeek";
+import { Modal } from "@/components/Modal";
 import { datesOf, isWholeSemester, WHOLE_SEMESTER, type HourWindow } from "@/services/hourWindow";
 import { hoursTaught } from "@/services/hoursInPeriod";
 import {
   opensOnFor,
+  periodEnd,
+  periodLabel,
   periodChoices,
   PERIOD_OPENS_ON,
 } from "@/services/payPeriods";
-import { fetchPayCycles } from "@/services/teachers";
+import {
+  fetchPayCycles,
+  fetchTeacherCommentCounts,
+  fetchTeacherSummary,
+  listEverySubmittedTimeSheet,
+} from "@/services/teachers";
 import type { TeacherRef } from "@/components/TeacherRecord";
 import { buildCards } from "@/services/courseCards";
 import {
@@ -22,6 +32,7 @@ import {
   fetchActiveCrns,
   fetchActiveTeachers,
   fetchFacilityHours,
+  fetchChecks,
   fetchFacilitySections,
   fetchTermLinks,
 } from "@/services/portalLists";
@@ -43,6 +54,9 @@ import {
 import type { GridColumn } from "@/services/studentColumns";
 import { fetchCohorts, fetchCourseCards } from "@/services/studentDatabase";
 import { fetchTimetableTerms } from "@/services/timetables";
+import { TEACHER_THREAD } from "@/services/threads";
+import { DEFAULT_APART, warningsFor } from "@/services/teacherWarnings";
+import { dismissalsByKey, fetchDismissals, setDismissal } from "@/services/warningDismissals";
 
 /**
  * What every teacher is carrying this semester.
@@ -123,6 +137,24 @@ export function TeacherHours({ onOpenTeacher }: { onOpenTeacher?: (teacher: Teac
   const cycles = useQuery({ queryKey: ["pay-cycles"], queryFn: fetchPayCycles });
   const opensOn = opensOnFor(cycles.data?.cycles ?? {}, chosenTerm, cycles.data?.default ?? PERIOD_OPENS_ON);
   const [chosenWindow, setWindow] = useState<HourWindow>(WHOLE_SEMESTER);
+  const [commentingOn, setCommentingOn] = useState<{ id: string; label: string } | null>(null);
+  /*
+   * The other three places a teacher's hours are written down, so the column can tell
+   * whether they agree: their requisitions, the sheets the timesheets app has approved,
+   * and the department's own idea of how far apart is far enough to mention.
+   */
+  const contracts = useQuery({ queryKey: ["teacher-summary"], queryFn: fetchTeacherSummary });
+  const submitted = useQuery({ queryKey: ["submitted-time-sheets", "all"], queryFn: listEverySubmittedTimeSheet, retry: false });
+  const checks = useQuery({ queryKey: ["checks", ""], queryFn: () => fetchChecks(""), retry: false });
+  const dismissals = useQuery({ queryKey: ["warning-dismissals"], queryFn: fetchDismissals, retry: false });
+  const commentCounts = useQuery({ queryKey: ["teacher-comment-counts"], queryFn: fetchTeacherCommentCounts, retry: false });
+  const apart = checks.data?.find((check) => check.name === "teacher_hours_apart");
+  const client = useQueryClient();
+  const decide = useMutation({
+    mutationFn: ({ key, dismissed }: { key: string; dismissed: boolean }) => setDismissal(key, dismissed),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ["warning-dismissals"] }),
+  });
+  const decided = useMemo(() => dismissalsByKey(dismissals.data ?? []), [dismissals.data]);
   const periods = useMemo(() => periodChoices(new Date(), 14, 1, opensOn), [opensOn]);
   const counting = datesOf(chosenWindow);
   const whole = isWholeSemester(chosenWindow);
@@ -150,6 +182,27 @@ export function TeacherHours({ onOpenTeacher }: { onOpenTeacher?: (teacher: Teac
    * shape when the question narrows. Every column then carries the window's mark, because
    * a table of October's hours otherwise reads exactly like a table of the year's.
    */
+  const today = new Date().toISOString().slice(0, 10);
+  /*
+   * Hours taught between two dates, for whoever the row is.
+   *
+   * The warnings ask this of several different windows — the period a sheet claims, and
+   * everything up to today — so it is a function of the dates rather than a figure
+   * computed once. The heavy part, reading the meetings, is shared.
+   */
+  const hoursBetween = (row: LoadRow, between: { from: string; to: string }) => {
+    const { hours } = hoursTaught({
+      sections: met.data?.sections ?? [],
+      changes: notes.data ?? [],
+      period: between,
+      staffing: (crn) => owners.get(crn) ?? { id: "", name: "" },
+    });
+    const mine = row.active?.id || row.teacherId;
+    const minutes = hours
+      .filter((hour) => (mine ? hour.teacherId === mine : sameTeacher(hour.teacherName, row.teacher)))
+      .reduce((sum, hour) => sum + hour.minutes, 0);
+    return Math.round((minutes / 60) * 100) / 100;
+  };
   const rows = useMemo(() => {
     const planned = loadRows(teacherLoads(sheets), teachers.data ?? [], crnsByTeacher(sheets));
     const notesHere = (notes.data ?? []).filter(
@@ -175,7 +228,7 @@ export function TeacherHours({ onOpenTeacher }: { onOpenTeacher?: (teacher: Teac
         );
     return held.map((row) => {
       const adjusted = adjustmentsFor(notesHere, { id: row.active?.id ?? row.teacherId, name: row.teacher }, new Set(row.crns), sameTeacher);
-      return {
+      const mine = {
         ...row,
         cancelledHours: adjusted.cancelled,
         coverTaken: adjusted.coveredByOthers,
@@ -184,9 +237,35 @@ export function TeacherHours({ onOpenTeacher }: { onOpenTeacher?: (teacher: Teac
           ? registrarHoursFor(booked.data ?? {}, row.teacher, sameTeacher)
           : bookedInWindow(met.data?.sections ?? [], row.teacher, counting),
       };
+      const partTime = row.active?.partTimeTeacherId ?? "";
+      const claims = (submitted.data ?? [])
+        .filter((sheet) => sheet.teacherId && sheet.teacherId === partTime)
+        .map((sheet) => ({
+          periodStart: sheet.periodStart,
+          periodLabel: sheet.periodLabel || periodLabel(sheet.periodStart),
+          claimed: sheet.claimedHours,
+          taught: hoursBetween(row, { from: sheet.periodStart, to: periodEnd(sheet.periodStart) }),
+        }));
+      const warnings = warningsFor(
+        {
+          teacherKey: row.active?.id || row.teacherId || row.teacher,
+          teacher: row.teacher,
+          planned: row.total,
+          registrar: mine.registrarHours,
+          contracted: contracts.data?.[partTime]?.contractedHours ?? 0,
+          taughtSoFar: hoursBetween(row, { from: "0000-01-01", to: today }),
+          claims,
+        },
+        apart?.enabled === false ? Number.POSITIVE_INFINITY : (apart?.threshold ?? DEFAULT_APART),
+      ).map((warning) => {
+        const held = decided.get(warning.key);
+        return held ? { ...warning, dismissed: true, dismissedBy: held.byName || held.byEmail, dismissedAt: held.at } : warning;
+      });
+      return { ...mine, warnings };
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps -- the window is read as two dates
-  }, [sheets, teachers.data, notes.data, booked.data, met.data, owners, whole, counting.from, counting.to]);
+  }, [sheets, teachers.data, notes.data, booked.data, met.data, owners, whole, counting.from, counting.to,
+      submitted.data, contracts.data, decided, apart?.threshold, apart?.enabled, today]);
   const sheetTitles = useMemo(() => sheets.map((sheet) => sheet.title), [sheets]);
   const columns = useMemo(() => hoursColumns(sheetTitles, chosenWindow.tag), [sheetTitles, chosenWindow.tag]);
   const shown = useMemo(() => shownHoursColumns(sheetTitles), [sheetTitles]);
@@ -227,6 +306,17 @@ export function TeacherHours({ onOpenTeacher }: { onOpenTeacher?: (teacher: Teac
         </div>
       </div>
 
+      {commentingOn ? (
+        <Modal
+          open
+          onClose={() => setCommentingOn(null)}
+          title={`Comments on ${commentingOn.label}`}
+          description="Said to everybody who opens this teacher, and kept with them."
+        >
+          <CommentThread studentId={commentingOn.id} label={commentingOn.label} thread={TEACHER_THREAD} />
+        </Modal>
+      ) : null}
+
       <div className="mt-4">
         <ListGrid
           key={chosenTerm}
@@ -241,7 +331,29 @@ export function TeacherHours({ onOpenTeacher }: { onOpenTeacher?: (teacher: Teac
           searchLabel="Search teachers"
           noun="teachers"
           empty="No hours this semester. A section's hours are set on Groups & CRNs."
-          renderCell={renderCell}
+          renderCell={(row, column) =>
+            column.id === "warnings" ? (
+              <Warnings row={row} onDecide={(key, dismissed) => decide.mutate({ key, dismissed })} />
+            ) : (
+              renderCell(row, column)
+            )
+          }
+          rowActions={(row) =>
+            row.active?.partTimeTeacherId || row.active?.id ? (
+              <CommentPeek
+                studentId={row.active?.partTimeTeacherId || row.active?.id || ""}
+                label={row.teacher}
+                count={commentCounts.data?.[row.active?.partTimeTeacherId || row.active?.id || ""]?.count ?? 0}
+                onOpen={() =>
+                  setCommentingOn({
+                    id: row.active?.partTimeTeacherId || row.active?.id || "",
+                    label: row.teacher,
+                  })
+                }
+                className="inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[11px] tabular-nums text-[#98a2b3] hover:bg-[#f2f7fb]"
+              />
+            ) : null
+          }
           onRowClick={(row) => {
             if (!row.teacher || !onOpenTeacher) return;
             onOpenTeacher(row.active ?? { id: row.teacherId, fullName: row.teacher });
@@ -317,6 +429,59 @@ function Taught({ row, taught }: { row: LoadRow; taught: number }) {
           {Math.abs(moved)}
         </span>
       ) : null}
+    </span>
+  );
+}
+
+/**
+ * Where a teacher's hours disagree with themselves, one pill per disagreement.
+ *
+ * The pill says the kind and the size — "Registrar short 6 h" — and the whole sentence is
+ * on its title, because this column sits beside a dozen others and a sentence cut to fit
+ * has said nothing while taking the room of something that would have.
+ *
+ * Dismissing is for everybody and is signed, like the cohorts page's: a warning hidden
+ * from a colleague who never saw it should at least say who hid it, so it reads as a
+ * decision somebody can disagree with rather than as an absence.
+ */
+function Warnings({ row, onDecide }: { row: LoadRow; onDecide: (key: string, dismissed: boolean) => void }) {
+  if (!row.warnings.length) return <span className="text-[#d5dce4]">—</span>;
+  return (
+    <span className="flex flex-wrap gap-1">
+      {row.warnings.map((warning) => (
+        <span
+          key={warning.key}
+          title={
+            warning.dismissed
+              ? `${warning.sentence} — dismissed by ${warning.dismissedBy || "somebody"}`
+              : warning.sentence
+          }
+          className={`inline-flex max-w-full items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${
+            warning.dismissed ? "bg-[#f2f4f7] text-[#98a2b3]" : "bg-[#fdf6e3] text-[#8a6116]"
+          }`}
+        >
+          <span className="min-w-0 truncate">{warning.label}</span>
+          {warning.dismissed && warning.dismissedBy ? (
+            <span className="min-w-0 shrink truncate font-normal">· {warning.dismissedBy}</span>
+          ) : null}
+          <button
+            type="button"
+            aria-label={`${warning.dismissed ? "Restore" : "Dismiss"}: ${warning.sentence}`}
+            title={
+              warning.dismissed
+                ? "Bring this warning back for everybody"
+                : "Dismiss for everybody, until either figure changes"
+            }
+            onClick={(event) => {
+              event.stopPropagation();
+              onDecide(warning.key, !warning.dismissed);
+            }}
+            className="-mr-1 shrink-0 rounded-full p-0.5 hover:bg-white/70"
+          >
+            {warning.dismissed ? <RotateCcw size={10} aria-hidden="true" /> : <X size={10} aria-hidden="true" />}
+          </button>
+        </span>
+      ))}
     </span>
   );
 }

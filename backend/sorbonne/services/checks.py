@@ -38,6 +38,16 @@ CHECKS: tuple[Check, ...] = (
         measures="minutes of overlap",
         threshold=30,
     ),
+    Check(
+        name="teacher_hours_apart",
+        title="A teacher's hours disagreeing between the places they are written",
+        measures="hours apart",
+        # Two hours, because the small differences are all explainable and none of them is
+        # worth a pill: a class that ran short, a half-hour of cover, a rounding on a
+        # requisition. Below this the column would be a wall of warnings nobody acts on,
+        # which is how a warnings column stops being read at all.
+        threshold=2,
+    ),
 )
 
 BY_NAME = {check.name: check for check in CHECKS}

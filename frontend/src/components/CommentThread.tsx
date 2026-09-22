@@ -2,13 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
 import { useStaffUser } from "@/components/useStaffUser";
-import {
-  deleteComment,
-  fetchComments,
-  postComment,
-  type StudentComment,
-  writtenAt,
-} from "@/services/studentComments";
+import { STUDENT_THREAD, type Thread, type ThreadLine } from "@/services/threads";
+import { writtenAt } from "@/services/studentComments";
 
 const same = (left: string, right: string) =>
   left.trim().toLowerCase() === right.trim().toLowerCase();
@@ -24,32 +19,35 @@ const same = (left: string, right: string) =>
 export function CommentThread({
   studentId,
   label,
+  thread = STUDENT_THREAD,
 }: {
+  /** The record the thread hangs from: a student, or anything else `thread` can reach. */
   studentId: string;
   label: string;
+  thread?: Thread;
 }) {
   const client = useQueryClient();
   const me = useStaffUser();
   const comments = useQuery({
-    queryKey: ["comments", studentId],
-    queryFn: () => fetchComments(studentId),
+    queryKey: ["comments", thread.countsKey, studentId],
+    queryFn: () => thread.list(studentId),
   });
   const [draft, setDraft] = useState("");
 
   const refresh = () => {
-    void client.invalidateQueries({ queryKey: ["comments", studentId] });
+    void client.invalidateQueries({ queryKey: ["comments", thread.countsKey, studentId] });
     // The count on the row.
-    void client.invalidateQueries({ queryKey: ["comment-summary"] });
+    void client.invalidateQueries({ queryKey: [thread.countsKey] });
   };
   const post = useMutation({
-    mutationFn: () => postComment(studentId, draft.trim()),
+    mutationFn: () => thread.post(studentId, draft.trim()),
     onSuccess: () => {
       setDraft("");
       refresh();
     },
   });
   const remove = useMutation({
-    mutationFn: (id: string) => deleteComment(id),
+    mutationFn: (id: string) => thread.remove(id),
     onSuccess: refresh,
   });
   const submit = () => {
@@ -68,7 +66,7 @@ export function CommentThread({
         <p className="text-sm text-[#98a2b3]">Nothing said yet.</p>
       ) : (
         <ol aria-label={`Comments on ${label}`} className="space-y-2.5">
-          {(comments.data ?? []).map((comment: StudentComment) => (
+          {(comments.data ?? []).map((comment: ThreadLine) => (
             <li
               key={comment.id}
               className="rounded-md border border-[#e4e8ef] bg-white px-3 py-2"
@@ -113,7 +111,7 @@ export function CommentThread({
           aria-label={`Add a comment on ${label}`}
           value={draft}
           rows={2}
-          placeholder="Add a comment — everyone who opens this student sees it"
+          placeholder={`Add a comment — everyone who opens this ${thread.noun} sees it`}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={(event) => {
             // Enter with the platform's modifier posts; plain Enter is a new line.

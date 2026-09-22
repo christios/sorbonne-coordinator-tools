@@ -153,6 +153,41 @@ export type SubmittedTimeSheet = {
   receivedAt: string;
 };
 
+/** Every approved period the Part-Time Timesheets app has pushed, for a page judging all of them. */
+export async function listEverySubmittedTimeSheet(): Promise<SubmittedTimeSheet[]> {
+  return (await request<{ items: SubmittedTimeSheet[] }>("/timesheets/submitted")).items;
+}
+
+/** A teacher's thread, the same shape the students' one has. */
+export type TeacherComment = {
+  id: string;
+  teacherId: string;
+  body: string;
+  authorEmail: string;
+  authorName: string;
+  createdAt: string;
+};
+
+export async function listTeacherComments(teacherId: string): Promise<TeacherComment[]> {
+  return (await request<{ comments: TeacherComment[] }>(`/teachers/${teacherId}/comments`)).comments;
+}
+
+export function postTeacherComment(teacherId: string, body: string): Promise<TeacherComment> {
+  return request<TeacherComment>(`/teachers/${teacherId}/comments`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ body }),
+  });
+}
+
+export async function deleteTeacherComment(commentId: string): Promise<void> {
+  await emptyRequest(`/teachers/comments/${commentId}`, { method: "DELETE" });
+}
+
+export async function fetchTeacherCommentCounts(): Promise<Record<string, { count: number; lastAt: string }>> {
+  return (await request<{ counts: Record<string, { count: number; lastAt: string }> }>("/teachers/comment-counts")).counts;
+}
+
 export async function listSubmittedTimeSheets(teacherId: string): Promise<SubmittedTimeSheet[]> {
   return (await request<{ items: SubmittedTimeSheet[] }>(`/teachers/${teacherId}/submitted-time-sheets`)).items;
 }

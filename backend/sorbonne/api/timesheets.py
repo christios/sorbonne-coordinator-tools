@@ -25,6 +25,12 @@ def get_intake() -> TimeSheetIntake:
     return TimeSheetIntake(config.database_url)
 
 
+@router.get("/submitted")
+def list_submitted(intake: TimeSheetIntake = Depends(get_intake)) -> dict[str, Any]:
+    """Every approved period the app has pushed. Behind the sign-in, unlike the push."""
+    return {"items": intake.everyone()}
+
+
 @router.post("")
 def receive_timesheet(
     body: dict[str, Any] = Body(...), intake: TimeSheetIntake = Depends(get_intake)

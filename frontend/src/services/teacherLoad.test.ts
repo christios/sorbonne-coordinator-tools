@@ -179,6 +179,8 @@ describe("the table's rows and columns", () => {
       "type:CM", "type:TD", "type:TP", "sections",
       // What the semester did to the plan, beside it.
       "cancelledHours", "coverTaken", "coverGiven",
+      // Where the four records of a teacher's hours disagree, beside the numbers it is about.
+      "warnings",
       "type", "category", "department", "email",
     ]);
     expect(columns.find((column) => column.id === "sheet:BSc-L2-S3")?.displayName).toBe("BSc L2");
