@@ -237,7 +237,7 @@ def copy_everything(  # noqa: PLR0913 - one keyword per thing the caller may cho
     _copy_register(where, terms, say, dry_run=dry_run)
 
     if not dry_run:
-        _copy_filters(source, into, read_headers, write_headers, say)
+        _copy_saved_questions(source, into, read_headers, write_headers, say)
         exempt = _copy_exemptions(source, into, read_headers, write_headers, cohorts, course_ids, say)
         _copy_checks(source, into, read_headers, write_headers, cohort_id, say)
         _copy_sweeps(source, into, read_headers, write_headers, say)
@@ -521,6 +521,44 @@ def main() -> int:
         dry_run=arguments.dry_run,
     )
     return 0
+
+
+def _copy_saved_questions(source: str, into: str, read: dict[str, str], write: dict[str, str], say) -> None:
+    """The questions a Portal sync asks: filters for courses and teachers, views for students.
+
+    Both are the same idea wearing two names, and neither survived a copy. Without them a
+    copied database cannot sync at all, which is what leaves its portal lists — and every
+    active teacher and course made by pointing at one — empty.
+    """
+    _copy_filters(source, into, read, write, say)
+    _copy_views(source, into, read, write, say)
+
+
+def _copy_views(source: str, into: str, read: dict[str, str], write: dict[str, str], say) -> None:
+    """The saved student questions — "All Sorbonne Students - S1" and any others.
+
+    A view is to students what a filter is to courses and teachers: the question a Portal
+    sync asks, and the thing a sync syncs INTO. This copy makes one of its own to carry the
+    student ids over and deletes it again on the way out, so a copied database was left
+    with none at all — the Students page offering to make one, and a sync with nowhere to
+    put what it fetched.
+
+    Like a filter, a view holds the criteria and no student, so it travels either way.
+    """
+    theirs = call(f"{source}/api/v1/student-database/views", headers=read)["views"]
+    ours = {row["name"] for row in call(f"{into}/api/v1/student-database/views", headers=write)["views"]}
+    made = 0
+    for row in theirs:
+        if row["name"] in ours or row["name"] == VIEW_NAME:
+            continue
+        call(
+            f"{into}/api/v1/student-database/views",
+            headers=write,
+            method="POST",
+            body={"name": row["name"], "description": row.get("description", ""), "filter": row.get("filter") or {}},
+        )
+        made += 1
+    say(f"\nstudent views: {made} copied" if made else "\nstudent views: already here")
 
 
 def _copy_filters(source: str, into: str, read: dict[str, str], write: dict[str, str], say) -> None:
