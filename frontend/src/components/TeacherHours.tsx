@@ -177,7 +177,7 @@ export function TeacherHours({ onOpenTeacher }: { onOpenTeacher?: (teacher: Teac
   const totals = loadTotals(rows);
   const sheetTitles = useMemo(() => sheets.map((sheet) => sheet.title), [sheets]);
   const columns = useMemo(() => hoursColumns(sheetTitles, periodLabel(period)), [sheetTitles, period]);
-  const shown = useMemo(() => shownHoursColumns(sheetTitles), [sheetTitles]);
+  const shown = useMemo(() => shownHoursColumns(sheetTitles, periodLabel(period)), [sheetTitles, period]);
 
   if (catalogues.isLoading) return <ScreenLoading label="Adding up the hours…" />;
   if (catalogues.error) return <p role="alert" className="text-sm text-[#a6292f]">{(catalogues.error as Error).message}</p>;

@@ -316,10 +316,13 @@ export function hoursColumns(sheetTitles: string[], period = ""): GridColumn<Loa
  * A cohort column waiting in the picker is a cohort somebody forgets to count, so they are
  * all shown however many there are. What waits is who the person is.
  */
-export function shownHoursColumns(sheetTitles: string[]): string[] {
+export function shownHoursColumns(sheetTitles: string[], period = ""): string[] {
   return [
     "teacher",
     "standing",
+    // Beside the plan, not at the far end of it: the whole point is reading the two
+    // together, and a column somebody has to go and turn on is a column nobody sees.
+    ...(period ? ["period"] : []),
     ...sheetTitles.map((title) => `sheet:${title}`),
     ...LOAD_TYPES.map((type) => `type:${type}`),
     "total",
