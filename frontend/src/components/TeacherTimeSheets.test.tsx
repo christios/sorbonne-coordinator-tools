@@ -166,3 +166,63 @@ describe("a period the Part-Time Timesheets app has had approved", () => {
     expect(await screen.findByText("matching the timetable")).toBeTruthy();
   });
 });
+
+describe("opening a submitted sheet", () => {
+  it("shows the days that were worked, which the total alone asks you to take on trust", async () => {
+    vi.spyOn(teachers, "listTeacherTimeSheets").mockResolvedValue([]);
+    vi.spyOn(teachers, "listSubmittedTimeSheets").mockResolvedValue([
+      submitted({
+        days: [
+          { day: "Mon", date: "2026-10-19", from: "08:30", to: "10:30", hours: 2, details: "PHYS-101 TD" },
+          { day: "Wed", date: "2026-10-21", from: "08:30", to: "12:30", hours: 4, details: "" },
+        ],
+      }),
+    ]);
+
+    show();
+    fireEvent.click(await screen.findByRole("button", { name: /Submitted 1.5 h/ }));
+
+    expect(screen.getByText("Mon 19 Oct")).toBeTruthy();
+    expect(screen.getByText("08:30–10:30")).toBeTruthy();
+    expect(screen.getByText("PHYS-101 TD")).toBeTruthy();
+    expect(screen.getByText("Wed 21 Oct")).toBeTruthy();
+  });
+
+  it("opens closed, so a card of periods is not a wall of days", async () => {
+    vi.spyOn(teachers, "listTeacherTimeSheets").mockResolvedValue([]);
+    vi.spyOn(teachers, "listSubmittedTimeSheets").mockResolvedValue([submitted()]);
+
+    show();
+
+    expect(await screen.findByText("Submitted 1.5 h")).toBeTruthy();
+    expect(screen.queryByText("Wed 21 Oct")).toBeNull();
+  });
+
+  it("says so when a sheet arrived with no days on it", async () => {
+    vi.spyOn(teachers, "listTeacherTimeSheets").mockResolvedValue([]);
+    vi.spyOn(teachers, "listSubmittedTimeSheets").mockResolvedValue([submitted({ days: [] })]);
+
+    show();
+    fireEvent.click(await screen.findByRole("button", { name: /Submitted 1.5 h/ }));
+
+    expect(screen.getByText(/came through with no days on it/)).toBeTruthy();
+  });
+
+  it("adds the days up itself, and says so when the app's total is not what they come to", async () => {
+    vi.spyOn(teachers, "listTeacherTimeSheets").mockResolvedValue([]);
+    vi.spyOn(teachers, "listSubmittedTimeSheets").mockResolvedValue([
+      submitted({
+        claimedHours: 58,
+        days: [
+          { day: "Mon", date: "2026-10-19", from: "08:30", to: "10:30", hours: 2, details: "" },
+          { day: "Wed", date: "2026-10-21", from: "08:30", to: "12:30", hours: 4, details: "" },
+        ],
+      }),
+    ]);
+
+    show();
+    fireEvent.click(await screen.findByRole("button", { name: /Submitted 58 h/ }));
+
+    expect(screen.getByText(/The app sent a total of 58 h, which these days do not come to/)).toBeTruthy();
+  });
+});

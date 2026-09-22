@@ -19,7 +19,7 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, ExternalLink, FileSpreadsheet, Pencil, Plus, Trash2, X } from "lucide-react";
+import { CheckCircle2, ChevronDown, ExternalLink, FileSpreadsheet, Pencil, Plus, Trash2, X } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -562,10 +562,21 @@ function Field({
  * would be overwritten by the next push of the same period.
  */
 function Submitted({ sheet, taught }: { sheet: SubmittedTimeSheet; taught: number }) {
+  const [open, setOpen] = useState(false);
   const apart = Math.round((sheet.claimedHours - taught) * 100) / 100;
   return (
     <span className="mt-1 block text-sm">
-      <span className="flex flex-wrap items-baseline gap-x-2">
+      {/*
+        * The summary opens the sheet. What arrived is the days somebody worked, and a
+        * total with no way to see the days behind it is a number to be taken on trust —
+        * which is the opposite of why the claim and the timetable are shown together.
+        */}
+      <button
+        type="button"
+        onClick={() => setOpen((showing) => !showing)}
+        aria-expanded={open}
+        className="flex flex-wrap items-baseline gap-x-2 rounded text-left hover:underline"
+      >
         <span className="inline-flex items-center gap-1.5 font-semibold text-[#1f6b47]">
           <CheckCircle2 size={14} className="shrink-0" aria-hidden="true" />
           Submitted {sheet.claimedHours} h
@@ -577,11 +588,93 @@ function Submitted({ sheet, taught }: { sheet: SubmittedTimeSheet; taught: numbe
         ) : (
           <span className="text-[#667085]">matching the timetable</span>
         )}
-      </span>
+        <ChevronDown
+          size={14}
+          aria-hidden="true"
+          className={`shrink-0 text-[#98a2b3] transition-transform ${open ? "rotate-180" : ""}`}
+        />
+      </button>
       <span className="mt-0.5 block text-xs text-[#98a2b3]">
         {sheet.days.length} day{sheet.days.length === 1 ? "" : "s"}
         {sheet.approvedBy ? ` · approved by ${sheet.approvedBy}` : ""}
       </span>
+      {open ? <Days sheet={sheet} /> : null}
     </span>
   );
+}
+
+/**
+ * The days as they were entered, in the order they were worked.
+ *
+ * Read-only, and it says so by having nothing to press. The sheet belongs to the person
+ * who filed it and lives in their app; a correction made here would be overwritten by
+ * the next push of the same period.
+ */
+function Days({ sheet }: { sheet: SubmittedTimeSheet }) {
+  const added = Math.round(sheet.days.reduce((sum, day) => sum + (Number(day.hours) || 0), 0) * 100) / 100;
+  if (!sheet.days.length) {
+    return (
+      <span className="mt-2 block rounded-md border border-dashed border-[#d0d5dd] px-3 py-2 text-xs text-[#667085]">
+        The sheet came through with no days on it. The total above is what it claimed.
+      </span>
+    );
+  }
+  return (
+    <span className="mt-2 block overflow-hidden rounded-md border border-[#e4e8ef]">
+      <table className="w-full text-left text-xs">
+        <thead className="bg-[#f8f9fb] text-[#667085]">
+          <tr>
+            <th scope="col" className="px-2 py-1 font-medium">Day</th>
+            <th scope="col" className="px-2 py-1 font-medium">Time</th>
+            <th scope="col" className="px-2 py-1 text-right font-medium">Hours</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-[#f2f4f7]">
+          {sheet.days.map((day, index) => (
+            <tr key={`${day.date}-${day.from}-${index}`}>
+              <td className="px-2 py-1 align-top text-[#344054]">
+                <span className="font-medium">{dayLabel(day.date) || day.day}</span>
+                {day.details ? <span className="block text-[#98a2b3]">{day.details}</span> : null}
+              </td>
+              <td className="px-2 py-1 align-top tabular-nums text-[#667085]">
+                {day.from && day.to ? `${day.from}–${day.to}` : "—"}
+              </td>
+              <td className="px-2 py-1 text-right align-top tabular-nums text-[#344054]">{day.hours}</td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot className="border-t border-[#e4e8ef] bg-[#f8f9fb]">
+          <tr>
+            <td className="px-2 py-1 font-medium text-[#667085]" colSpan={2}>
+              {sheet.approvedOn ? `Approved ${dayLabel(sheet.approvedOn.slice(0, 10))}` : "These days"}
+            </td>
+            <td className="px-2 py-1 text-right font-semibold tabular-nums text-[#344054]">{added}</td>
+          </tr>
+          {/*
+            * The total the app sent, when the days do not come to it. Printing the claim
+            * under the lines as though it were their sum would be the one thing this
+            * table must not do: it exists so a number can be checked, not restated.
+            */}
+          {added === sheet.claimedHours ? null : (
+            <tr>
+              <td className="px-2 py-1 text-[#8a6116]" colSpan={3}>
+                The app sent a total of {sheet.claimedHours} h, which these days do not come to.
+              </td>
+            </tr>
+          )}
+        </tfoot>
+      </table>
+    </span>
+  );
+}
+
+/** "Mon 19 Oct" — the date said the way somebody reading a week would say it. */
+function dayLabel(day: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec((day || "").trim());
+  if (!match) return "";
+  const when = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  if (Number.isNaN(when.getTime())) return "";
+  const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  return `${days[when.getDay()]} ${when.getDate()} ${months[when.getMonth()]}`;
 }
