@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp } from "lucide-react";
+import { ArrowDown, ArrowUp, CalendarRange, Globe } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { LabelledPicker } from "@/components/LabelledPicker";
@@ -30,10 +30,8 @@ import { adjustmentsFor, fetchSessionChanges } from "@/services/sessionChanges";
 import { requestSheets } from "@/services/timetableExport";
 import {
   crnsByTeacher,
-  hoursColumn,
   hoursColumns,
   loadRows,
-  loadTotals,
   registrarHoursFor,
   sameTeacher,
   shownHoursColumns,
@@ -43,16 +41,6 @@ import {
 import type { GridColumn } from "@/services/studentColumns";
 import { fetchCohorts, fetchCourseCards } from "@/services/studentDatabase";
 import { fetchTimetableTerms } from "@/services/timetables";
-
-function Tile({ label, value, hint, alarm }: { label: string; value: string; hint?: string; alarm?: boolean }) {
-  return (
-    <div className={`rounded-lg border px-4 py-3 ${alarm ? "border-[#e5b7b9] bg-[#fdf3f3]" : "border-[#d9dee7] bg-white"}`}>
-      <p className="text-xs font-semibold uppercase tracking-wide text-[#8a94a4]">{label}</p>
-      <p className={`mt-1 text-2xl font-semibold tabular-nums ${alarm ? "text-[#a6292f]" : "text-[#171717]"}`}>{value}</p>
-      {hint ? <p className="mt-0.5 text-xs text-[#98a2b3]">{hint}</p> : null}
-    </div>
-  );
-}
 
 /**
  * What every teacher is carrying this semester.
@@ -133,6 +121,8 @@ export function TeacherHours({ onOpenTeacher }: { onOpenTeacher?: (teacher: Teac
   const cycles = useQuery({ queryKey: ["pay-cycles"], queryFn: fetchPayCycles });
   const opensOn = opensOnFor(cycles.data?.cycles ?? {}, chosenTerm, cycles.data?.default ?? PERIOD_OPENS_ON);
   const [periodStart, setPeriodStart] = useState("");
+  /** Whether the taught column answers for the chosen period or for the whole semester. */
+  const [wholeTerm, setWholeTerm] = useState(false);
   const periods = useMemo(() => periodChoices(new Date(), 14, 1, opensOn), [opensOn]);
   const period = periods.includes(periodStart) ? periodStart : periodContaining(new Date(), opensOn);
   const owners = useMemo(() => {
@@ -149,16 +139,23 @@ export function TeacherHours({ onOpenTeacher }: { onOpenTeacher?: (teacher: Teac
     enabled: Boolean(termCode) && everyCrn.length > 0,
     retry: false,
   });
+  /*
+   * A period of one month, or of the whole semester. The rule is the same either way —
+   * the classes that met, less the cancelled, plus the ones stood in for — so widening it
+   * is a wider pair of dates rather than a second way of counting.
+   */
+  const counting = wholeTerm ? { from: "0000-01-01", to: "9999-12-31" } : { from: period, to: periodEnd(period) };
   const taughtMinutes = useMemo(() => {
     if (!met.data) return {} as Record<string, number>;
     const { hours } = hoursTaught({
       sections: met.data.sections,
       changes: notes.data ?? [],
-      period: { from: period, to: periodEnd(period) },
+      period: counting,
       staffing: (crn) => owners.get(crn) ?? { id: "", name: "" },
     });
     return minutesByTeacher(hours);
-  }, [met.data, notes.data, period, owners]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- the dates are what is read
+  }, [met.data, notes.data, counting.from, counting.to, owners]);
 
   const rows = useMemo(() => {
     const held = loadRows(teacherLoads(sheets), teachers.data ?? [], crnsByTeacher(sheets));
@@ -174,11 +171,10 @@ export function TeacherHours({ onOpenTeacher }: { onOpenTeacher?: (teacher: Teac
       };
     });
   }, [sheets, teachers.data, notes.data, booked.data, taughtMinutes]);
-  const registrarTotal = Math.round(rows.reduce((sum, row) => sum + row.registrarHours, 0) * 100) / 100;
-  const totals = loadTotals(rows);
   const sheetTitles = useMemo(() => sheets.map((sheet) => sheet.title), [sheets]);
-  const columns = useMemo(() => hoursColumns(sheetTitles, periodLabel(period)), [sheetTitles, period]);
-  const shown = useMemo(() => shownHoursColumns(sheetTitles, periodLabel(period)), [sheetTitles, period]);
+  const taughtColumn = wholeTerm ? "Taught so far" : periodLabel(period);
+  const columns = useMemo(() => hoursColumns(sheetTitles, taughtColumn), [sheetTitles, taughtColumn]);
+  const shown = useMemo(() => shownHoursColumns(sheetTitles, taughtColumn), [sheetTitles, taughtColumn]);
 
   if (catalogues.isLoading) return <ScreenLoading label="Adding up the hours…" />;
   if (catalogues.error) return <p role="alert" className="text-sm text-[#a6292f]">{(catalogues.error as Error).message}</p>;
@@ -192,8 +188,12 @@ export function TeacherHours({ onOpenTeacher }: { onOpenTeacher?: (teacher: Teac
 
   return (
     <section>
-      {/* The semester decides every number below it, so it is asked first. */}
-      <div className="mb-4">
+      {/*
+        * Both pickers on one line. They are one question — which semester, and which of
+        * its periods — and stacking them put a page's worth of tiles between the two
+        * halves of it.
+        */}
+      <div className="mb-4 flex flex-wrap items-end gap-4">
         <LabelledPicker label="Semester">
           <SelectMenu
             label="Semester"
@@ -202,8 +202,36 @@ export function TeacherHours({ onOpenTeacher }: { onOpenTeacher?: (teacher: Teac
             options={termIds.map((id) => ({ value: id, label: termName(id) }))}
           />
         </LabelledPicker>
-        {/* The pay period the last column answers for. */}
-        <LabelledPicker label="Pay period" hint="what was actually taught in it">
+        {/* The pay period the taught column answers for, and how wide it is asked. */}
+        <LabelledPicker
+          label="Pay period"
+          hint={wholeTerm ? "the whole semester" : "what was actually taught in it"}
+          beside={
+            <div role="radiogroup" aria-label="How much of the semester to count" className="flex rounded-md border border-[#d0d5dd] bg-white p-0.5">
+              {(
+                [
+                  { on: false, label: "This period", hint: "Only the chosen pay period", Icon: CalendarRange },
+                  { on: true, label: "Whole semester", hint: "Every period added together, whichever is chosen", Icon: Globe },
+                ] as const
+              ).map(({ on, label, hint, Icon }) => (
+                <button
+                  key={label}
+                  type="button"
+                  role="radio"
+                  aria-checked={wholeTerm === on}
+                  aria-label={label}
+                  title={hint}
+                  onClick={() => setWholeTerm(on)}
+                  className={`inline-flex h-8 w-8 items-center justify-center rounded transition-colors ${
+                    wholeTerm === on ? "bg-[#1f4e79] text-white" : "text-[#667085] hover:bg-[#f5f7fa] hover:text-[#344054]"
+                  }`}
+                >
+                  <Icon size={15} aria-hidden="true" />
+                </button>
+              ))}
+            </div>
+          }
+        >
           <SelectMenu
             label="Pay period"
             value={period}
@@ -211,23 +239,6 @@ export function TeacherHours({ onOpenTeacher }: { onOpenTeacher?: (teacher: Teac
             options={periods.map((start) => ({ value: start, label: periodLabel(start) }))}
           />
         </LabelledPicker>
-      </div>
-
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-        <Tile label="Teachers" value={String(totals.teachers)} hint="with hours this semester" />
-        <Tile label="Hours in all" value={String(totals.hours)} hint={`across ${totals.sections} section${totals.sections === 1 ? "" : "s"}, as we planned them`} />
-        <Tile
-          label="Registrar hours"
-          value={termCode ? String(registrarTotal) : "—"}
-          hint={termCode ? (booked.data ? "booked on the portal's timetable, for our teachers" : "reading the sweep…") : "no portal term linked"}
-        />
-        <Tile
-          label="Nobody yet"
-          value={String(totals.unnamed)}
-          hint={totals.unnamed ? "hours with no teacher named" : "every section has somebody"}
-          alarm={totals.unnamed > 0}
-        />
-        <Tile label="Cohorts" value={String(sheetTitles.length)} hint={sheetTitles.map(hoursColumn).join(", ") || "none"} />
       </div>
 
       <div className="mt-4">
