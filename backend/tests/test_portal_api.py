@@ -2770,3 +2770,18 @@ def test_a_student_registered_in_only_the_shared_lecture_is_not_doubled(
     found = client.get(f"{BASE}/cohorts/{cohort_id}/registration-check").json()["mismatches"]
 
     assert [row for row in found if row["kind"] == "doubled"] == []
+
+
+def test_setting_the_parent_of_a_crn_that_is_gone_says_so(client: TestClient):
+    """A row can vanish between the write and the read back.
+
+    Two copies of production into the same database at once is enough to do it: one
+    empties what the other is half way through writing. The reader had no default, so
+    StopIteration came out of the request and the coordinator was told "Internal Server
+    Error" — which says nothing about a CRN that is simply not there any more.
+    """
+    gone = "8f14e45f-ceea-467a-9b6a-000000000000"
+    answer = client.patch(f"{BASE}/active-crns/{gone}", json={"parentCrn": ""})
+
+    assert answer.status_code == status.HTTP_404_NOT_FOUND, answer.text
+    assert "registered CRN" in answer.json()["detail"]

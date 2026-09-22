@@ -411,9 +411,14 @@ def _copy_active_teachers(  # noqa: PLR0913 - one argument per thing the copy is
     part-time tag has to be linked rather than inferred.
     """
     rows = call(f"{source}/api/v1/portal/active-teachers", headers=read)["teachers"]
-    joined = 0
+
+    def here_now() -> list[dict[str, Any]]:
+        return call(f"{into}/api/v1/portal/active-teachers", headers=write)["teachers"]
+
+    joined, adrift = 0, 0
     for row in rows:
         here_part_time = part_time_ids.get(row.get("partTimeTeacherId") or "")
+        made = False
         if row.get("portalTeacherId"):
             call(
                 f"{into}/api/v1/portal/active-teachers",
@@ -421,7 +426,13 @@ def _copy_active_teachers(  # noqa: PLR0913 - one argument per thing the copy is
                 method="POST",
                 body={"portalTeacherIds": [row["portalTeacherId"]]},
             )
-        elif here_part_time:
+            # Adding by portal profile only works where the portal's own teacher list is
+            # here, and that list arrives from a Portal sync rather than from this copy.
+            # Into an empty database it quietly adds nobody, so the row has to be looked
+            # for rather than assumed — this step once reported forty-five teachers
+            # copied into a database that had none.
+            made = any(held.get("portalTeacherId") == row["portalTeacherId"] for held in here_now())
+        if not made and here_part_time:
             call(
                 f"{into}/api/v1/portal/active-teachers",
                 headers=write,
@@ -432,8 +443,12 @@ def _copy_active_teachers(  # noqa: PLR0913 - one argument per thing the copy is
                     ]
                 },
             )
+            # Added from the part-time side, so it is already joined and carries no portal
+            # profile to join on below.
+            joined += 1
             continue
-        else:
+        if not made:
+            adrift += 1
             continue
         if not here_part_time:
             continue
@@ -459,7 +474,12 @@ def _copy_active_teachers(  # noqa: PLR0913 - one argument per thing the copy is
             body={"partTimeTeacherId": here_part_time},
         )
         joined += 1
-    say(f"  active teachers: {len(rows)}, {joined} joined to a part-time record")
+    say(f"  active teachers: {len(here_now())} of {len(rows)}, {joined} joined to a part-time record")
+    if adrift:
+        say(
+            f"    {adrift} could not be added: they are known only by a portal profile, and the "
+            "portal's teacher list is not here. Run a Portal sync against localhost, then copy again."
+        )
     # Production's id for a chosen teacher is written on every section that teacher takes,
     # and means nothing here — the rows above were created with ids of their own. The two
     # sides are joined by the portal profile they share, and the map goes to the catalogue,

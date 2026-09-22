@@ -1525,7 +1525,14 @@ class PortalListStore:
                 text("UPDATE active_course_crns SET parent_crn = :parent WHERE id = :id"),
                 {"id": crn_id, "parent": parent},
             )
-        return next(row for row in self.list_active_crns() if row["id"] == crn_id)
+        # With a default, because a row can go between the update and the read back — two
+        # copies of production into the same database at once is enough to do it. Without
+        # one, `next` raised StopIteration out of the request and the caller was told
+        # "Internal Server Error", which says nothing about a CRN that is simply not there.
+        written = next((row for row in self.list_active_crns() if row["id"] == crn_id), None)
+        if written is None:
+            raise ActiveCourseNotFound(crn_id)
+        return written
 
     def remove_active_crn(self, crn_id: str) -> None:
         with self.engine.begin() as connection:
