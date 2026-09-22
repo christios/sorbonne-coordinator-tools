@@ -13,6 +13,7 @@ anyone who asks.
 from __future__ import annotations
 
 from functools import lru_cache
+from hmac import compare_digest
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -38,6 +39,26 @@ def token_user(token: str):
 PUBLIC_PATHS = frozenset({"/healthcheck", "/api/v1/auth/config", "/api/v1/auth/session"})
 PROTECTED_PREFIXES = ("/api/", "/handbook")
 
+#: Where the Part-Time Timesheets app posts an approved sheet, and the header it proves
+#: itself with. Not public: it is authenticated, by a shared key rather than by a person.
+TIMESHEET_PUSH_PATH = "/api/v1/timesheets"
+TIMESHEET_PUSH_HEADER = "x-timesheet-key"
+
+
+def pushing_a_timesheet(request: Request) -> bool:
+    """A machine with the department's key, posting an approved timesheet.
+
+    Answered before sign-in is looked at, and deliberately: a flow running every two
+    minutes in somebody else's tenant should not stop because a Google setting is
+    missing here. It is refused outright when no key is configured, so a deployment
+    that is not expecting a push has no door at all.
+    """
+    if request.url.path.rstrip("/") != TIMESHEET_PUSH_PATH:
+        return False
+    key = (config.timesheet_push_key or "").strip()
+    given = (request.headers.get(TIMESHEET_PUSH_HEADER) or "").strip()
+    return bool(key) and compare_digest(key, given)
+
 
 def is_public(path: str) -> bool:
     """The static app shell is public; the API and the handbook are not."""
@@ -49,6 +70,13 @@ def is_public(path: str) -> bool:
 class StaffAuthGate(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         if request.method == "OPTIONS" or is_public(request.url.path):
+            return await call_next(request)
+
+        if request.url.path.rstrip("/") == TIMESHEET_PUSH_PATH:
+            if not pushing_a_timesheet(request):
+                # The flow reads this as a failure and marks the period Failed in
+                # SharePoint, which is where whoever approved it will see it.
+                return JSONResponse(status_code=401, content={"detail": "That key is not this department's."})
             return await call_next(request)
 
         if not is_configured():

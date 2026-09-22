@@ -120,10 +120,14 @@ class TimeSheetTasks:
             ]
             if not contracted:
                 return {"created": 0, "closed": 0, "periods": 0}
+            # Both ways a period can be answered: a link somebody typed in, and a sheet
+            # the Part-Time Timesheets app pushed here once it was approved.
             filed = {
                 (str(row[0]), str(row[1]))
                 for row in connection.execute(
-                    text("SELECT teacher_id, period_start FROM teacher_time_sheets WHERE period_start <> ''")
+                    text("""SELECT teacher_id, period_start FROM teacher_time_sheets WHERE period_start <> ''
+                            UNION
+                            SELECT teacher_id, period_start FROM pushed_time_sheets""")
                 )
             }
             cycles = {

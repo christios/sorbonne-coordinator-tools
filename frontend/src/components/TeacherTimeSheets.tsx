@@ -19,7 +19,7 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ExternalLink, FileSpreadsheet, Pencil, Plus, Trash2, X } from "lucide-react";
+import { CheckCircle2, ExternalLink, FileSpreadsheet, Pencil, Plus, Trash2, X } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -33,9 +33,11 @@ import { sectionsTaughtBy } from "@/services/teacherLoad";
 import { fetchPayCycles, fetchTeacherSummary } from "@/services/teachers";
 import { fetchTimetableTerms } from "@/services/timetables";
 import {
+  type SubmittedTimeSheet,
   type TeacherTimeSheet,
   createTeacherTimeSheet,
   deleteTeacherTimeSheet,
+  listSubmittedTimeSheets,
   listTeacherTimeSheets,
   updateTeacherTimeSheet,
 } from "@/services/teachers";
@@ -63,6 +65,15 @@ export function TimeSheetsCard({ teacherId, className = "" }: { teacherId: strin
   const sheets = useQuery({
     queryKey: ["teacher-time-sheets", teacherId],
     queryFn: () => listTeacherTimeSheets(teacherId),
+  });
+  /*
+   * What the Part-Time Timesheets app has had approved. A period answered there is
+   * answered: the row shows the claim rather than "No sheet filed", and there is nothing
+   * here to edit or delete, because the sheet is theirs and lives in their app.
+   */
+  const submitted = useQuery({
+    queryKey: ["submitted-time-sheets", teacherId],
+    queryFn: () => listSubmittedTimeSheets(teacherId),
   });
   // One form for both jobs: adding, or correcting the one being edited. A pasted link is
   // got wrong often enough that fixing it must not mean deleting the row and retyping.
@@ -173,7 +184,8 @@ export function TimeSheetsCard({ teacherId, className = "" }: { teacherId: strin
       section.meetings.map((meeting) => periodContaining(new Date(`${meeting.meetsOn}T00:00:00`), opensOn)),
     );
     const filed = rows.map((sheet) => sheet.periodStart).filter(Boolean);
-    return [...new Set([...met_in, ...filed])]
+    const approved = (submitted.data ?? []).map((sheet) => sheet.periodStart).filter(Boolean);
+    return [...new Set([...met_in, ...filed, ...approved])]
       .sort()
       .reverse()
       .map((start) => {
@@ -191,9 +203,10 @@ export function TimeSheetsCard({ teacherId, className = "" }: { teacherId: strin
           covered: ours.filter((hour) => hour.covered).length,
           stranded: stranded.length,
           sheet: rows.find((sheet) => sheet.periodStart === start) ?? null,
+          submitted: (submitted.data ?? []).find((sheet) => sheet.periodStart === start) ?? null,
         };
       });
-  }, [met.data, notes.data, rows, opensOn, mine?.id, mine?.fullName]);
+  }, [met.data, notes.data, rows, submitted.data, opensOn, mine?.id, mine?.fullName]);
 
   /** Sheets against no period, or a period nothing else knows about. Nothing disappears. */
   const loose = rows.filter((sheet) => !periods.some((period) => period.sheet?.id === sheet.id));
@@ -390,6 +403,8 @@ export function TimeSheetsCard({ teacherId, className = "" }: { teacherId: strin
                     <span className="truncate">{period.sheet.label}</span>
                     <ExternalLink size={13} className="shrink-0" aria-hidden="true" />
                   </a>
+                ) : period.submitted ? (
+                  <Submitted sheet={period.submitted} taught={asHours(period.minutes)} />
                 ) : (
                   <span className="mt-1 block text-sm text-[#a6292f]">No sheet filed</span>
                 )}
@@ -400,7 +415,7 @@ export function TimeSheetsCard({ teacherId, className = "" }: { teacherId: strin
                 ) : null}
               </div>
               <div className="flex shrink-0 items-center gap-1">
-                {period.sheet ? (
+                {period.submitted && !period.sheet ? null : period.sheet ? (
                   <>
                     <button
                       type="button"
@@ -532,5 +547,41 @@ function Field({
         ) : null}
       </span>
     </label>
+  );
+}
+
+/**
+ * A period the Part-Time Timesheets app has had approved.
+ *
+ * The claim and what the registrar's timetable says was taught, side by side. They will
+ * not always agree and a difference is not a fault — a class swapped with a colleague,
+ * an hour of something the timetable does not hold — but it is the one thing worth
+ * reading here, and nobody was going to compare them by hand.
+ *
+ * Nothing to edit. The sheet is theirs, it lives in their app, and a correction made here
+ * would be overwritten by the next push of the same period.
+ */
+function Submitted({ sheet, taught }: { sheet: SubmittedTimeSheet; taught: number }) {
+  const apart = Math.round((sheet.claimedHours - taught) * 100) / 100;
+  return (
+    <span className="mt-1 block text-sm">
+      <span className="flex flex-wrap items-baseline gap-x-2">
+        <span className="inline-flex items-center gap-1.5 font-semibold text-[#1f6b47]">
+          <CheckCircle2 size={14} className="shrink-0" aria-hidden="true" />
+          Submitted {sheet.claimedHours} h
+        </span>
+        {apart ? (
+          <span className="text-[#8a6116]">
+            {apart > 0 ? `${apart} h more than` : `${Math.abs(apart)} h less than`} the timetable has
+          </span>
+        ) : (
+          <span className="text-[#667085]">matching the timetable</span>
+        )}
+      </span>
+      <span className="mt-0.5 block text-xs text-[#98a2b3]">
+        {sheet.days.length} day{sheet.days.length === 1 ? "" : "s"}
+        {sheet.approvedBy ? ` · approved by ${sheet.approvedBy}` : ""}
+      </span>
+    </span>
   );
 }

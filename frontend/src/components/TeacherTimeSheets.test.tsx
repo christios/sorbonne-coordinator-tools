@@ -30,6 +30,16 @@ const CATALOGUE = [
   },
 ] as unknown as database.CohortCatalogue[];
 
+const submitted = (over = {}) => ({
+  periodId: "41", version: 1, teacherId: "pt-1", periodStart: "2026-10-15", periodEnd: "2026-11-14",
+  periodLabel: "Oct–Nov 2026",
+  staff: { name: "Bilal Maaz", staffId: "A001", email: "b@sorbonne.ae", department: "SCEN", position: "Lecturer" },
+  claimedHours: 1.5, approvedBy: "Christian Khairallah", approvedByEmail: "c@sorbonne.ae",
+  approvedOn: "2026-11-16T08:00:00Z",
+  days: [{ day: "Wed", date: "2026-10-21", from: "08:30", to: "10:00", hours: 1.5, details: "" }],
+  sentAt: "", receivedAt: "2026-11-16T08:02:00Z", ...over,
+}) as never;
+
 const sheet = (over = {}) => ({
   id: "ts-1", teacherId: "pt-1", label: "Part time sheet, SepOct", academicYear: "2026-2027",
   url: "https://psuadacae.sharepoint.com/sheet.xlsx", periodStart: "2026-09-15", ...over,
@@ -54,6 +64,7 @@ beforeEach(() => {
   vi.spyOn(teachers, "fetchPayCycles").mockResolvedValue({ cycles: {}, default: 15 });
   vi.spyOn(teachers, "fetchTeacherSummary").mockResolvedValue({ "pt-1": { contractedHours: 100 } } as never);
   vi.spyOn(sessions, "fetchSessionChanges").mockResolvedValue([]);
+  vi.spyOn(teachers, "listSubmittedTimeSheets").mockResolvedValue([]);
   vi.spyOn(lists, "fetchFacilitySections").mockResolvedValue({
     termCode: "262710",
     pulledAt: "",
@@ -122,5 +133,36 @@ describe("time sheets, read by pay period", () => {
     show();
 
     expect(await screen.findByText(/Not joined to an Active teacher/)).toBeTruthy();
+  });
+});
+
+describe("a period the Part-Time Timesheets app has had approved", () => {
+  it("fills the period rather than leaving it reading as unfiled", async () => {
+    vi.spyOn(teachers, "listTeacherTimeSheets").mockResolvedValue([]);
+    vi.spyOn(teachers, "listSubmittedTimeSheets").mockResolvedValue([submitted()]);
+
+    show();
+
+    expect(await screen.findByText("Submitted 1.5 h")).toBeTruthy();
+    expect(screen.getByText(/approved by Christian Khairallah/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "File a sheet for 15 Oct – 14 Nov 2026" })).toBeNull();
+  });
+
+  it("says how far the claim is from what the timetable has, which nobody would check by hand", async () => {
+    vi.spyOn(teachers, "listTeacherTimeSheets").mockResolvedValue([]);
+    vi.spyOn(teachers, "listSubmittedTimeSheets").mockResolvedValue([submitted({ claimedHours: 4 })]);
+
+    show();
+
+    expect(await screen.findByText("2.5 h more than the timetable has")).toBeTruthy();
+  });
+
+  it("says so plainly when the two agree", async () => {
+    vi.spyOn(teachers, "listTeacherTimeSheets").mockResolvedValue([]);
+    vi.spyOn(teachers, "listSubmittedTimeSheets").mockResolvedValue([submitted()]);
+
+    show();
+
+    expect(await screen.findByText("matching the timetable")).toBeTruthy();
   });
 });

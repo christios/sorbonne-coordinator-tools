@@ -15,6 +15,7 @@ from sorbonne.services.time_sheet_tasks import (
     period_starts,
     task_id_for,
 )
+from sorbonne.services.time_sheet_intake import TimeSheetIntake
 from sorbonne.services.workflow_store import WorkflowStore
 from tests.conftest import TEST_DATABASE_URL
 
@@ -35,7 +36,7 @@ def keeper() -> TimeSheetTasks:
 
 
 def a_teacher(store: TeacherStore) -> dict:
-    return store.create_teacher(full_name=f"Dr Period {uuid4()}")
+    return store.create_teacher(full_name=f"Dr Period {uuid4()}", email=f"{uuid4()}@sorbonne.ae")
 
 
 def mine(tasks: WorkflowStore, teacher_id: str) -> list[dict]:
@@ -190,6 +191,32 @@ def test_a_task_closed_by_hand_is_not_reopened(store: TeacherStore, tasks: Workf
     keeper.catch_up(today=date(2026, 9, 22))
 
     assert tasks.get_task(august["id"])["status"] == "COMPLETED"
+
+
+def test_a_sheet_pushed_from_the_timesheets_app_closes_the_task_too(
+    store: TeacherStore, tasks: WorkflowStore, keeper: TimeSheetTasks
+):
+    """A period answered in the Power App is answered. The task must not keep asking."""
+    teacher = a_teacher(store)
+    store.create_requisition(teacher["id"], label="Physics TD", academic_year="2026-2027")
+    keeper.catch_up(today=date(2026, 9, 22))
+
+    TimeSheetIntake(TEST_DATABASE_URL).receive(
+        {
+            "schema": "timesheet.period.v1",
+            "periodId": f"pushed-{teacher['id'][:8]}",
+            "version": 1,
+            "periodStart": "2026-08-15",
+            "periodEnd": "2026-09-14",
+            "staff": {"email": teacher["email"], "name": teacher["fullName"]},
+            "totals": {"hours": 24.5},
+            "days": [],
+        }
+    )
+    keeper.catch_up(today=date(2026, 9, 22))
+
+    august = next(task for task in mine(tasks, teacher["id"]) if task["dueDate"] == "2026-09-14")
+    assert august["status"] == "COMPLETED"
 
 
 def test_the_task_is_named_after_its_teacher_and_its_period():

@@ -21,6 +21,8 @@ from pydantic import BaseModel, Field
 from starlette.responses import FileResponse
 
 from sorbonne.config import config
+from sorbonne.api.timesheets import get_intake
+from sorbonne.services.time_sheet_intake import TimeSheetIntake
 from sorbonne.services.requisition_export import build_requisition_docx
 from sorbonne.services.teacher_store import (
     FolderNameConflict,
@@ -426,6 +428,19 @@ def _bad_link() -> HTTPException:
 
 def _bad_period() -> HTTPException:
     return HTTPException(status_code=422, detail="A pay period is named by the day it starts, as a date.")
+
+
+@router.get("/{teacher_id}/submitted-time-sheets")
+def list_submitted_time_sheets(
+    teacher_id: str, intake: TimeSheetIntake = Depends(get_intake)
+) -> dict[str, list[dict[str, Any]]]:
+    """The periods this teacher has had approved in the Part-Time Timesheets app.
+
+    A different thing from the sheets above, which are links to workbooks somebody typed
+    in. These arrived whole — the hours claimed, the days worked, who approved them — and
+    the record shows them against the period they are for.
+    """
+    return {"items": intake.for_teacher(teacher_id)}
 
 
 @router.get("/{teacher_id}/time-sheets")

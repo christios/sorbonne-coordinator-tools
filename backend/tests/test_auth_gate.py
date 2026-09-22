@@ -65,7 +65,10 @@ def test_every_api_route_refuses_an_anonymous_caller(
     response = client.request(method, path)
 
     assert response.status_code == status.HTTP_401_UNAUTHORIZED, f"{method} {path} answered anonymously"
-    assert response.json()["detail"] == "Sign in to continue."
+    # Two ways to be refused, because one caller is not a person: the Part-Time Timesheets
+    # app carries the department's key, and telling a Power Automate flow to sign in would
+    # be a sentence nobody reading its run history could act on.
+    assert response.json()["detail"] in {"Sign in to continue.", "That key is not this department's."}
 
 
 def test_the_handbook_is_behind_sign_in_too(client: TestClient, configured: None):

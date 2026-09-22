@@ -31,6 +31,11 @@ class Config(BaseSettings):
     # disabled until both of these are configured.
     scen_student_platform_url: str | None = None
     scen_student_platform_token: str | None = None
+    # The Part-Time Timesheets app (Power Apps over SharePoint) pushes an approved
+    # timesheet here. It is a machine, not a person, so it carries this instead of a
+    # sign-in. Unset means the endpoint refuses everything: a push route with no key is
+    # an open door, and a department that has not set one is not expecting a push.
+    timesheet_push_key: str | None = None
 
 
 config = Config()

@@ -19,6 +19,7 @@ from sorbonne.api.syllabi import router as syllabi_router
 from sorbonne.api.teachers import requisition_router as teacher_requisitions_router
 from sorbonne.api.team_rosters import router as team_roster_router
 from sorbonne.api.teachers import router as teachers_router
+from sorbonne.api.timesheets import router as timesheets_router
 from sorbonne.api.teacher_documents import router as teacher_documents_router
 from sorbonne.api.timetables import router as timetables_router
 from sorbonne.api.users import router as users_router
@@ -58,6 +59,7 @@ app.add_middleware(
 app.include_router(auth_router, prefix="/api/v1")
 app.include_router(rosters_router, prefix="/api/v1")
 app.include_router(teachers_router, prefix="/api/v1")
+app.include_router(timesheets_router, prefix="/api/v1")
 app.include_router(portal_router, prefix="/api/v1")
 app.include_router(teacher_requisitions_router, prefix="/api/v1")
 app.include_router(teacher_documents_router, prefix="/api/v1")

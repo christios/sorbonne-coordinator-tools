@@ -129,6 +129,34 @@ export function setPayCycle(termId: string, opensOn: number): Promise<{ opensOn:
   });
 }
 
+/**
+ * A period the Part-Time Timesheets app has had approved and pushed here.
+ *
+ * Not a link to a workbook: the sheet itself — what was claimed, the days it was worked
+ * on, and who approved it. The record shows it against the period it is for, beside what
+ * the registrar's timetable says was actually taught then.
+ */
+export type SubmittedTimeSheet = {
+  periodId: string;
+  version: number;
+  teacherId: string;
+  periodStart: string;
+  periodEnd: string;
+  periodLabel: string;
+  staff: { name: string; staffId: string; email: string; department: string; position: string };
+  claimedHours: number;
+  approvedBy: string;
+  approvedByEmail: string;
+  approvedOn: string;
+  days: { day: string; date: string; from: string; to: string; hours: number; details: string }[];
+  sentAt: string;
+  receivedAt: string;
+};
+
+export async function listSubmittedTimeSheets(teacherId: string): Promise<SubmittedTimeSheet[]> {
+  return (await request<{ items: SubmittedTimeSheet[] }>(`/teachers/${teacherId}/submitted-time-sheets`)).items;
+}
+
 export async function listTeacherTimeSheets(teacherId: string): Promise<TeacherTimeSheet[]> { return (await request<{ items: TeacherTimeSheet[] }>(`/teachers/${teacherId}/time-sheets`)).items; }
 export function createTeacherTimeSheet(teacherId: string, input: TimeSheetInput): Promise<TeacherTimeSheet> { return request<TeacherTimeSheet>(`/teachers/${teacherId}/time-sheets`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) }); }
 export function updateTeacherTimeSheet(teacherId: string, id: string, input: TimeSheetInput): Promise<TeacherTimeSheet> { return request<TeacherTimeSheet>(`/teachers/${teacherId}/time-sheets/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) }); }
