@@ -237,6 +237,7 @@ def copy_everything(  # noqa: PLR0913 - one keyword per thing the caller may cho
     _copy_register(where, terms, say, dry_run=dry_run)
 
     if not dry_run:
+        _copy_filters(source, into, read_headers, write_headers, say)
         exempt = _copy_exemptions(source, into, read_headers, write_headers, cohorts, course_ids, say)
         _copy_checks(source, into, read_headers, write_headers, cohort_id, say)
         _copy_sweeps(source, into, read_headers, write_headers, say)
@@ -520,6 +521,42 @@ def main() -> int:
         dry_run=arguments.dry_run,
     )
     return 0
+
+
+def _copy_filters(source: str, into: str, read: dict[str, str], write: dict[str, str], say) -> None:
+    """The saved portal questions: "SCEN Profs", "SCEN Courses", "SCEN Students".
+
+    A Portal sync syncs INTO one of these — it is the question being asked — so a copy
+    without them cannot sync at all, and everything a sync brings stays empty: the portal's
+    own teacher and course lists, and with them every active teacher and active course,
+    which are created by pointing at a portal row rather than by copying one.
+
+    That is the whole of why an emptied database could not be rebuilt from production. The
+    filters hold no student and no name, only the criteria of the question, so they travel
+    whether or not names were asked for.
+    """
+    made, held = 0, 0
+    # The three the portal offers. Students are a view rather than a filter, and travel
+    # with the cohorts above.
+    for kind in ("courses", "teachers", "registrations"):
+        theirs = call(f"{source}/api/v1/portal/filters?kind={kind}", headers=read)["filters"]
+        ours = {row["name"] for row in call(f"{into}/api/v1/portal/filters?kind={kind}", headers=write)["filters"]}
+        for row in theirs:
+            if row["name"] in ours:
+                held += 1
+                continue
+            call(
+                f"{into}/api/v1/portal/filters",
+                headers=write,
+                method="POST",
+                body={"kind": kind, "name": row["name"], "filter": row.get("filter") or {}},
+            )
+            made += 1
+    if made or held:
+        say(f"\nportal filters: {made} copied{f', {held} already here' if held else ''}")
+        say("  a sync fills the portal's own lists; run one against localhost to finish the copy.")
+    else:
+        say("\nportal filters: none on the source.")
 
 
 def _copy_exemptions(  # noqa: PLR0913 - one argument per thing the decision is about

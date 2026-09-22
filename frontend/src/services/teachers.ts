@@ -109,6 +109,26 @@ export async function fetchTeacherSummary(): Promise<Record<string, TeacherSumma
   return (await request<{ summary: Record<string, TeacherSummary> }>("/teachers/summary")).summary;
 }
 
+/**
+ * Which day of the month each semester's pay periods open on.
+ *
+ * Only the semesters somebody has decided about are listed; the rest are paid from
+ * `default`, which travels with the answer so the browser keeps no second opinion about
+ * the department's habit.
+ */
+export async function fetchPayCycles(): Promise<{ cycles: Record<string, number>; default: number }> {
+  return request<{ cycles: Record<string, number>; default: number }>("/teachers/pay-cycles");
+}
+
+/** Say which day this semester's periods open on. */
+export function setPayCycle(termId: string, opensOn: number): Promise<{ opensOn: number }> {
+  return request<{ opensOn: number }>(`/teachers/pay-cycles/${encodeURIComponent(termId)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ opensOn }),
+  });
+}
+
 export async function listTeacherTimeSheets(teacherId: string): Promise<TeacherTimeSheet[]> { return (await request<{ items: TeacherTimeSheet[] }>(`/teachers/${teacherId}/time-sheets`)).items; }
 export function createTeacherTimeSheet(teacherId: string, input: TimeSheetInput): Promise<TeacherTimeSheet> { return request<TeacherTimeSheet>(`/teachers/${teacherId}/time-sheets`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) }); }
 export function updateTeacherTimeSheet(teacherId: string, id: string, input: TimeSheetInput): Promise<TeacherTimeSheet> { return request<TeacherTimeSheet>(`/teachers/${teacherId}/time-sheets/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) }); }

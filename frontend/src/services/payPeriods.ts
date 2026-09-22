@@ -8,10 +8,17 @@
  *
  * The cycle lives in this file alone. The server stores the date it is given and does
  * not know the 15th from any other day, which is what lets the cycle change one day
- * without a migration.
+ * without a migration — and that day is now a semester's to set, so the two functions
+ * that need it take it, while everything derived from a start date carries on knowing
+ * nothing about cycles at all.
  */
 
-/** The day of the month a period opens on. */
+/**
+ * The day of the month a period opens on where nobody has said otherwise.
+ *
+ * Every semester today is paid from the 15th, so this is what they all use until one of
+ * them says different. It is the answer, not a placeholder.
+ */
 export const PERIOD_OPENS_ON = 15;
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -31,10 +38,10 @@ function asDay(value: Date): string {
 }
 
 /** The period a given day falls in, as the day that period starts. */
-export function periodContaining(day: Date): string {
-  const start = new Date(day.getFullYear(), day.getMonth(), PERIOD_OPENS_ON);
-  // Before the 15th we are still in the period that opened last month.
-  if (day.getDate() < PERIOD_OPENS_ON) start.setMonth(start.getMonth() - 1);
+export function periodContaining(day: Date, opensOn: number = PERIOD_OPENS_ON): string {
+  const start = new Date(day.getFullYear(), day.getMonth(), opensOn);
+  // Before the day it opens we are still in the period that opened last month.
+  if (day.getDate() < opensOn) start.setMonth(start.getMonth() - 1);
   return asDay(start);
 }
 
@@ -75,12 +82,17 @@ export function shortPeriodLabel(start: string): string {
  * The periods to offer, newest first: the one running now, a few behind it, and one
  * ahead for a sheet filed early.
  */
-export function periodChoices(today = new Date(), behind = 14, ahead = 1): string[] {
-  const current = parse(periodContaining(today));
+export function periodChoices(
+  today = new Date(),
+  behind = 14,
+  ahead = 1,
+  opensOn: number = PERIOD_OPENS_ON,
+): string[] {
+  const current = parse(periodContaining(today, opensOn));
   if (!current) return [];
   const found: string[] = [];
   for (let step = ahead; step >= -behind; step -= 1) {
-    const start = new Date(current.getFullYear(), current.getMonth() + step, PERIOD_OPENS_ON);
+    const start = new Date(current.getFullYear(), current.getMonth() + step, opensOn);
     found.push(asDay(start));
   }
   return found;
@@ -96,4 +108,23 @@ export function periodsBehind(start: string, today = new Date()): number | null 
   const current = parse(periodContaining(today));
   if (!opened || !current) return null;
   return (current.getFullYear() - opened.getFullYear()) * 12 + (current.getMonth() - opened.getMonth());
+}
+
+/**
+ * The day a semester's periods open on, from what the server holds.
+ *
+ * A semester nobody has decided about is paid the usual way. The caller passes the map
+ * rather than this reaching for it, because the same map answers for every semester on
+ * a page and asking once is the difference between one request and one per row.
+ */
+export function opensOnFor(cycles: Record<string, number>, termId: string, fallback = PERIOD_OPENS_ON): number {
+  const held = cycles[termId];
+  return typeof held === "number" && held >= 1 ? held : fallback;
+}
+
+/** "the 15th", "the 1st" — the cycle said the way a coordinator would say it. */
+export function cycleLabel(opensOn: number): string {
+  const tens = opensOn % 100;
+  const suffix = tens >= 11 && tens <= 13 ? "th" : ["th", "st", "nd", "rd"][opensOn % 10] ?? "th";
+  return `the ${opensOn}${suffix}`;
 }

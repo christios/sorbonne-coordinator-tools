@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Modal } from "@/components/Modal";
+import { PayCycleCell } from "@/components/PayCycleCell";
 import { PortalTermLink } from "@/components/PortalTermLink";
 import { SemesterImport } from "@/components/SemesterImport";
 import { SemesterPublish } from "@/components/SemesterPublish";
@@ -162,6 +163,8 @@ export function SemesterList({
                         <th scope="col" className="px-4 py-3 text-right font-semibold">Students</th>
                         <th scope="col" className="px-4 py-3 font-semibold">Students can see it</th>
                         <th scope="col" className="px-4 py-3 font-semibold">Portal term</th>
+                        {/* What a part-time claim covers, which is the semester's to decide. */}
+                        <th scope="col" className="px-4 py-3 font-semibold">Pay periods</th>
                         <th scope="col" className="px-6 py-3" />
                       </tr>
                     </thead>
@@ -206,6 +209,9 @@ export function SemesterList({
                           </td>
                           <td className="px-4 py-4">
                             <PortalTermLink termId={term.id} />
+                          </td>
+                          <td className="px-4 py-4">
+                            <PayCycleCell termId={term.id} termName={term.name} />
                           </td>
                           <td className="px-6 py-4">
                             <div className="flex justify-end gap-2">
