@@ -265,6 +265,20 @@ function DayColumn({ day, sessions, courses, height, hours, topOf, pixelsPerMinu
         const label = course?.label || course?.code || session.crn;
         const cancelled = session.change?.kind === "cancelled";
         const covered = session.change?.kind === "covered" ? session.change : null;
+        /*
+         * A cover is drawn, not annotated.
+         *
+         * It used to be a small icon on a box painted exactly like every other box, which
+         * is invisible on a week with thirty classes in it — the question people ask a
+         * calendar is "which of these is not the usual arrangement", and an icon answers
+         * it only if you already suspected. Stripes answer it from across the room, and
+         * they keep the course's own colour underneath, so the class is still the class.
+         */
+        const stripes = covered
+          ? outline
+            ? `repeating-linear-gradient(135deg, ${color}30 0 4px, transparent 4px 12px)`
+            : "repeating-linear-gradient(135deg, rgba(255,255,255,0.26) 0 4px, transparent 4px 12px)"
+          : undefined;
         const details = [
           ...new Set(
             [
@@ -308,13 +322,14 @@ function DayColumn({ day, sessions, courses, height, hours, topOf, pixelsPerMinu
               compact ? "px-1 py-px text-[8.5px]" : "px-1.5 py-1 text-[11px]"
             } ${outline ? "border-2 border-dashed bg-white" : "text-white"} ${cancelled ? "opacity-55" : ""} ${
               session.clashes ? "outline-2 -outline-offset-2 outline-[#d9a441]" : ""
-            } ${opens ? "cursor-pointer hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#1f4e79]" : ""}`}
+            } ${covered && !outline ? "ring-2 ring-inset ring-white/70" : ""} ${opens ? "cursor-pointer hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#1f4e79]" : ""}`}
             style={{
               top: stack ? topOf(minutesOf(session.start)) + (lane * span) / lanes : topOf(minutesOf(session.start)),
               height: boxHeight,
               left: stack ? 2 : `calc(${lane * widthPercent}% + 2px)`,
               width: stack ? "calc(100% - 4px)" : `calc(${widthPercent}% - 4px)`,
               backgroundColor: outline ? undefined : color,
+              backgroundImage: stripes,
               borderColor: outline ? color : undefined,
               color: outline ? color : undefined,
             }}
@@ -330,6 +345,15 @@ function DayColumn({ day, sessions, courses, height, hours, topOf, pixelsPerMinu
                   <span className={`truncate ${cancelled ? "line-through" : ""}`}>{label}</span>
                   {cancelled ? (
                     <span className="shrink-0 rounded bg-white/25 px-1 text-[9px] font-bold uppercase tracking-wide">Cancelled</span>
+                  ) : covered ? (
+                    // Whose class it is decides the word: they are standing in, or theirs was taken.
+                    <span
+                      className={`shrink-0 rounded px-1 text-[9px] font-bold uppercase tracking-wide ${
+                        outline ? "bg-current/15" : "bg-white/30"
+                      }`}
+                    >
+                      {covered.standingIn ? "Standing in" : "Covered"}
+                    </span>
                   ) : lines === 1 ? (
                     <span className="shrink-0 text-[10px] font-normal tabular-nums opacity-85">{session.start}</span>
                   ) : null}

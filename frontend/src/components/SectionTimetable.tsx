@@ -301,6 +301,10 @@ function Timetable({
           {!fills && [...courses.values()].some((course) => course.tone === "outline") ? (
             <p className={`mt-1 text-[#98a2b3] ${small}`}>Dashed: in a group of theirs, and the registrar has not registered them for it.</p>
           ) : null}
+          {/* Only where there is one to read. A key to a mark nobody can see is clutter. */}
+          {!fills && sessions.some((session) => session.change?.kind === "covered") ? (
+            <p className={`mt-1 text-[#98a2b3] ${small}`}>Striped: somebody other than the usual teacher was in the room.</p>
+          ) : null}
           {fills ? null : onPickSession ? (
             <p className={`mt-1 text-[#98a2b3] ${small}`}>Press a class to say it was cancelled or covered by somebody else.</p>
           ) : onOpenCrn && [...courses.values()].some((course) => course.openable) ? (
