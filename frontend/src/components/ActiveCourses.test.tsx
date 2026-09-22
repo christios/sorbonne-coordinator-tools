@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ActiveCourses, CrnDialog } from "@/components/ActiveCourses";
 import * as lists from "@/services/portalLists";
+import * as dismissals from "@/services/warningDismissals";
 
 const EMPTY: lists.RegisterCheck = {
   gone: [],
@@ -34,6 +35,10 @@ beforeEach(() => {
   window.localStorage.clear();
   vi.spyOn(lists, "fetchActiveCrns").mockResolvedValue([]);
   vi.spyOn(lists, "fetchActiveCourses").mockResolvedValue([]);
+  // Nothing swept, so the deleted-classes banner is silent unless a test asks for it.
+  vi.spyOn(lists, "fetchSweptTerms").mockResolvedValue([]);
+  vi.spyOn(lists, "fetchRemovedClasses").mockResolvedValue([]);
+  vi.spyOn(dismissals, "fetchDismissals").mockResolvedValue([]);
 });
 afterEach(() => vi.restoreAllMocks());
 
@@ -218,5 +223,54 @@ describe("what a CRN is allowed to change about itself", () => {
 
     await waitFor(() => expect(parent).toHaveBeenCalledWith("23419", "22135"));
     expect(course).not.toHaveBeenCalled();
+  });
+});
+
+/*
+ * The same warning as on Active teachers. A coordinator notices a deleted class on
+ * whichever page they happen to be on, and the answer has to count on both — an approval
+ * that only settled the page it was given on is a warning that comes back from the dead.
+ */
+describe("classes the registrar has deleted", () => {
+  const GONE: lists.RemovedClasses = {
+    crn: "23638",
+    courseCode: "PHYS-125",
+    title: "Mechanics",
+    teacherName: "Sara Khaled",
+    scheduleState: "published",
+    removed: [{ meetsOn: "2026-09-14", startsAt: "10:30", endsAt: "12:30", room: "4.128" }],
+    kept: [{ meetsOn: "2026-09-07", startsAt: "10:30", endsAt: "12:30", room: "4.128" }],
+    noticedAt: "2026-09-22T10:41:18+00:00",
+    key: "registrar-classes-removed:262710:23638:abc123",
+  };
+
+  it("warns here too, and approving it here is the same approval", async () => {
+    vi.spyOn(lists, "fetchRegisterCheck").mockResolvedValue(EMPTY);
+    vi.spyOn(lists, "fetchSweptTerms").mockResolvedValue(["262710"]);
+    vi.spyOn(lists, "fetchRemovedClasses").mockResolvedValue([GONE]);
+    const approve = vi.spyOn(dismissals, "setDismissal").mockResolvedValue(undefined as never);
+
+    show();
+
+    expect(await screen.findByText(/has removed classes from/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Show what changed/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /Approve/ }));
+
+    // The key names the missing classes, not the page it was answered on.
+    await waitFor(() => expect(approve).toHaveBeenCalledWith(GONE.key, true));
+  });
+
+  it("stays quiet once somebody has approved it, wherever they did that", async () => {
+    vi.spyOn(lists, "fetchRegisterCheck").mockResolvedValue(EMPTY);
+    vi.spyOn(lists, "fetchSweptTerms").mockResolvedValue(["262710"]);
+    vi.spyOn(lists, "fetchRemovedClasses").mockResolvedValue([GONE]);
+    vi.spyOn(dismissals, "fetchDismissals").mockResolvedValue([
+      { key: GONE.key, byEmail: "christiank@aralects.com", byName: "Christian", at: "2026-09-22T11:00:00+00:00" },
+    ]);
+
+    show();
+
+    expect(await screen.findByText(/Nothing registered yet/)).toBeTruthy();
+    expect(screen.queryByText(/has removed classes from/)).toBeNull();
   });
 });

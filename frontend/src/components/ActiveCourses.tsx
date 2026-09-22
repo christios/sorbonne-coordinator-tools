@@ -9,6 +9,7 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { removeEach, stillSelected } from "@/services/bulkRemove";
 import { warningsByCrn, worstOf, WORDS, type CrnWarning, type CrnWarningKind } from "@/services/registerWarnings";
 import { ListGrid, StatePill } from "@/components/ListGrid";
+import { RemovedClassesBanner } from "@/components/RemovedClasses";
 import { Modal } from "@/components/Modal";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { SelectMenu } from "@/components/SelectMenu";
@@ -253,6 +254,14 @@ export function ActiveCourses({ onShowStudents }: { onShowStudents?: (ids: strin
         <p role="alert" className="text-sm text-[#a6292f]">{(crns.error as Error).message}</p>
       ) : (
         <>
+          {/*
+            * The same warning as on Active teachers, and deliberately the same one: a
+            * deleted class is a hole in a teacher's month and a hole in a CRN's schedule,
+            * and whichever page a coordinator is on when they notice, approving it there
+            * settles it everywhere. The approval is stored against the missing classes
+            * themselves, so the two pages cannot drift apart.
+            */}
+          <RemovedClassesBanner className="mb-3" />
           {report && attention ? (
             <RegisterBanner
               report={report}

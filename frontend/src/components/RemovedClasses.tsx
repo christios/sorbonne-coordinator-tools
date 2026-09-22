@@ -137,13 +137,21 @@ function SectionDiff({
           <Check size={16} /> Approve
         </button>
       </div>
-      <div className="mt-4 flex flex-wrap gap-5">
+      {/*
+        * Every month the section touches on one row, however many there are. A semester
+        * read as a strip is the whole point of drawing it — three squares left across
+        * September, October and November is a course that stopped, and that only shows
+        * when the months are side by side. Wrapped, the last month dropped under the
+        * first and the shape went with it. So the columns share the width and the days
+        * shrink to fit rather than the row breaking.
+        */}
+      <div className="mt-4 grid auto-cols-[minmax(9rem,1fr)] grid-flow-col gap-4 overflow-x-auto pb-1">
         {months.map((month) => (
-          <div key={month.label}>
+          <div key={month.label} className="min-w-0">
             <p className="text-sm font-semibold text-[#344054]">{month.label}</p>
-            <div className="mt-2 grid grid-cols-7 gap-1">
+            <div className="mt-2 grid grid-cols-7 gap-[3px]">
               {WEEKDAYS.map((day) => (
-                <span key={day} className="text-center text-[11px] font-medium text-[#98a2b3]">
+                <span key={day} className="truncate text-center text-[10px] font-medium text-[#98a2b3]">
                   {day}
                 </span>
               ))}
@@ -172,7 +180,7 @@ function SectionDiff({
 }
 
 function Square({ day }: { day: DiffDay | null }) {
-  if (!day) return <span className="h-8 w-8" />;
+  if (!day) return <span className="aspect-square w-full" />;
   const gone = day.removed.length > 0;
   const meets = day.kept.length > 0;
   // Grey where the department cancelled it: a gap it already knew about, drawn so the
@@ -195,7 +203,7 @@ function Square({ day }: { day: DiffDay | null }) {
   return (
     <span
       title={title}
-      className={`flex h-8 w-8 items-center justify-center rounded-sm text-xs font-medium ${paint} ${gone ? "line-through" : ""}`}
+      className={`flex aspect-square w-full items-center justify-center rounded-sm text-[11px] font-medium ${paint} ${gone ? "line-through" : ""}`}
     >
       {day.dayOfMonth}
     </span>
