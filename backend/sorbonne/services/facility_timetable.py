@@ -386,13 +386,24 @@ class FacilityTimetableStore:
         what lets a coordinator's approval last exactly as long as the fact it was about:
         the same removal stays approved, and one more class going missing changes the key
         and asks again.
+
+        Only our own sections. The sweep also covers the ~35 electives our students sit in
+        elsewhere, because a clash with one of those is real and otherwise invisible — but
+        a class the Spanish department deletes from its own option is their business, and
+        naming their teacher in a warning on our teachers' page is how a banner earns the
+        right to be ignored. The removals are still recorded for everything swept, so a
+        section that becomes ours arrives with its history already kept.
         """
         with self.engine.connect() as connection:
             changes = (
                 connection.execute(
-                    text("""SELECT crn, noticed_at, kind, meets_on, starts_at, ends_at, room
-                            FROM facility_meeting_changes WHERE term_code = :t
-                            ORDER BY noticed_at, meets_on, starts_at"""),
+                    text("""SELECT c.crn, c.noticed_at, c.kind, c.meets_on,
+                                   c.starts_at, c.ends_at, c.room
+                            FROM facility_meeting_changes c
+                            JOIN facility_sections s
+                              ON s.term_code = c.term_code AND s.crn = c.crn AND s.ours
+                            WHERE c.term_code = :t
+                            ORDER BY c.noticed_at, c.meets_on, c.starts_at"""),
                     {"t": term_code},
                 )
                 .mappings()

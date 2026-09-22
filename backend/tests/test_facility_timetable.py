@@ -325,6 +325,23 @@ def test_a_class_the_registrar_deleted_is_reported(store: FacilityTimetableStore
     assert [meeting["meetsOn"] for meeting in gone["kept"]] == ["2026-09-07"]
 
 
+def test_another_department_s_deletions_are_not_our_warning(store: FacilityTimetableStore):
+    """The sweep covers the electives our students sit in elsewhere; the warning does not.
+
+    Found on production: a Spanish option lost two classes and the banner on our teachers'
+    page named a Spanish teacher we do not employ. A clash with that section is ours to
+    care about; who teaches it and how often is not.
+    """
+    def elsewhere(meetings) -> None:
+        store.record_pull(term_code=TERM, asked=["20598"], sections=[section("20598", meetings=meetings, ours=False)],
+                          silent=[], failed=[], complete=True)
+
+    elsewhere([MONDAY, TUESDAY, WEDNESDAY])
+    elsewhere([MONDAY])
+
+    assert store.classes_removed(TERM) == []
+
+
 def test_a_first_sweep_reports_nothing(store: FacilityTimetableStore):
     """Everything is new the first time. A page of "added" teaches people to stop reading."""
     swept(store, [MONDAY, TUESDAY])
