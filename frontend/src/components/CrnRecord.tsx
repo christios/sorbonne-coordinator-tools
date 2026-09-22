@@ -7,7 +7,7 @@ import { SectionTimetable } from "@/components/SectionTimetable";
 import { SessionChangeDialog } from "@/components/SessionChangeDialog";
 import { SessionChangeList } from "@/components/SessionChangeList";
 import { fetchSessionChanges, noteOn, slotKey } from "@/services/sessionChanges";
-import { namesHeld } from "@/services/rosterStore";
+import { fieldHeld, namesHeld } from "@/services/rosterStore";
 import type { PlacedSession } from "@/services/weekSchedule";
 import { buildCards, rowsPerPart, teaches } from "@/services/courseCards";
 import { filled } from "@/services/courseRequest";
@@ -22,6 +22,8 @@ import {
   type ActiveCrn,
 } from "@/services/portalLists";
 import { warningsByCrn, WORDS } from "@/services/registerWarnings";
+import { CopyButton } from "@/components/CopyButton";
+import { asMailList, emailsFor } from "@/services/studentEmails";
 import { fetchCourseCards } from "@/services/studentDatabase";
 import { fetchTimetableTerms } from "@/services/timetables";
 
@@ -142,6 +144,18 @@ export function CrnRecord({
     retry: false,
   });
   const names = useQuery({ queryKey: ["names-held"], queryFn: namesHeld, enabled: open, staleTime: 60_000 });
+  /*
+   * Addresses for the copy button, from the same place the names come from: the pulls this
+   * browser holds. The server has neither, and a mail to a section has to be addressed
+   * from somewhere.
+   */
+  const emails = useQuery({
+    queryKey: ["field-held", "PSUAD_EMAIL"],
+    queryFn: () => fieldHeld("PSUAD_EMAIL"),
+    enabled: open,
+    staleTime: 60_000,
+  });
+  const addresses = emailsFor(inIt.data ?? [], emails.data ?? {});
   const plannedTeacher = taught[0]?.entry.section ? filled(taught[0].entry.section, taught[0].set.course.request).teacher : "";
 
   return (
@@ -245,6 +259,17 @@ export function CrnRecord({
           <Card
             title={`Registered in it${inIt.data ? ` · ${inIt.data.length}` : ""}`}
             note="Who the registrar has in this section, and the group of ours it stands for. Names are this browser's."
+            action={
+              addresses.found.length ? (
+                <CopyButton
+                  label={`Copy the ${addresses.found.length} e-mail addresses in this section`}
+                  text={() => asMailList(addresses.found)}
+                  className="shrink-0 text-xs font-semibold"
+                >
+                  Copy e-mails
+                </CopyButton>
+              ) : null
+            }
           >
             {!row.termCode ? (
               <Empty>No portal term, so the registrar cannot be asked.</Empty>
@@ -280,6 +305,21 @@ export function CrnRecord({
                     </li>
                   ))}
                 </ul>
+                {/*
+                  * Said out loud, because a copy of twenty addresses for a section of
+                  * twenty-four only shows up when four people say they never got the mail.
+                  */}
+                {addresses.missing.length && !addresses.found.length ? (
+                  <p className="mt-2 text-xs text-[#667085]">
+                    This browser holds no e-mail for anybody in this section, so there is nothing to copy. Pull the
+                    students again and the addresses come with them.
+                  </p>
+                ) : addresses.missing.length ? (
+                  <p className="mt-2 text-xs text-[#a6292f]">
+                    {addresses.missing.length} of {inIt.data.length} have no e-mail in this browser, so a copy leaves
+                    them out. Pull the students again to fill them in.
+                  </p>
+                ) : null}
                 {onShowStudents ? (
                   <button
                     type="button"
@@ -360,10 +400,24 @@ export function CrnRecord({
   );
 }
 
-function Card({ title, note, children }: { title: string; note?: string; children: ReactNode }) {
+function Card({
+  title,
+  note,
+  action,
+  children,
+}: {
+  title: string;
+  note?: string;
+  /** Something the card as a whole does, beside its heading. */
+  action?: ReactNode;
+  children: ReactNode;
+}) {
   return (
     <section className="rounded-lg border border-[#e4e8ef] bg-white px-4 py-3">
-      <h3 className="text-sm font-semibold text-[#171717]">{title}</h3>
+      <div className="flex items-start justify-between gap-2">
+        <h3 className="text-sm font-semibold text-[#171717]">{title}</h3>
+        {action}
+      </div>
       {note ? <p className="mb-2 text-xs text-[#98a2b3]">{note}</p> : <div className="mb-2" />}
       {children}
     </section>
