@@ -10,6 +10,14 @@
 import { periodEnd, periodLabel, shortPeriodLabel } from "@/services/payPeriods";
 
 export type HourWindow = {
+  /**
+   * How it was chosen, which the dates alone cannot say.
+   *
+   * A named period and a range drawn over the same fortnight are the same pair of dates
+   * and two different answers, and the control has to show one of them as chosen without
+   * showing the other. So the window remembers which side of itself it came from.
+   */
+  kind: "semester" | "period" | "range";
   /** ISO. Empty means no floor — the whole semester. */
   from: string;
   /** ISO. Empty means no ceiling. */
@@ -27,11 +35,12 @@ export type HourWindow = {
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-export const WHOLE_SEMESTER: HourWindow = { from: "", to: "", label: "Whole semester", tag: "" };
+export const WHOLE_SEMESTER: HourWindow = { kind: "semester", from: "", to: "", label: "Whole semester", tag: "" };
 
 /** A pay period, named the way the rest of the application names it. */
 export function windowForPeriod(start: string): HourWindow {
   return {
+    kind: "period",
     from: start,
     to: periodEnd(start),
     label: periodLabel(start),
@@ -59,6 +68,7 @@ export function windowForRange(from: string, to: string): HourWindow {
       ? `${said(first)} – ${said(last)} ${last.getFullYear()}`
       : `${said(first)} ${first.getFullYear()} – ${said(last)} ${last.getFullYear()}`;
   return {
+    kind: "range",
     from: iso(first),
     to: iso(last),
     label,

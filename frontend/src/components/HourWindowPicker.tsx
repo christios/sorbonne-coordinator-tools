@@ -18,7 +18,6 @@ import { useState } from "react";
 
 import {
   WHOLE_SEMESTER,
-  isWholeSemester,
   windowForPeriod,
   windowForRange,
   type HourWindow,
@@ -44,11 +43,20 @@ export function HourWindowPicker({
   const [open, setOpen] = useState(false);
   // Half a range: the first date pressed, waiting for the second.
   const [half, setHalf] = useState("");
+  /*
+   * The day under the pointer, so a half-made range shows itself before it is made.
+   *
+   * Picking a range blind — press, then press again and see what you got — is how people
+   * end up choosing the wrong fortnight and never noticing. While one end is held, the
+   * days between it and the pointer are painted as if the range were already chosen.
+   */
+  const [hovered, setHovered] = useState("");
   const [month, setMonth] = useState(() => firstOfMonth(window.from || todayISO()));
 
   const choose = (chosen: HourWindow) => {
     onChange(chosen);
     setHalf("");
+    setHovered("");
     setOpen(false);
   };
   const pressDay = (day: string) => {
@@ -64,7 +72,10 @@ export function HourWindowPicker({
       open={open}
       onOpenChange={(showing) => {
         setOpen(showing);
-        if (!showing) setHalf("");
+        if (!showing) {
+          setHalf("");
+          setHovered("");
+        }
       }}
     >
       <Popover.Trigger asChild>
@@ -87,7 +98,7 @@ export function HourWindowPicker({
           <div className="max-h-[19rem] w-52 overflow-y-auto">
             <Preset
               label="Whole semester"
-              chosen={isWholeSemester(window)}
+              chosen={window.kind === "semester"}
               onChoose={() => choose(WHOLE_SEMESTER)}
             />
             <p className="mb-1 mt-3 px-2 text-[11px] font-semibold uppercase tracking-wide text-[#98a2b3]">Pay periods</p>
@@ -95,7 +106,7 @@ export function HourWindowPicker({
               <Preset
                 key={start}
                 label={periodLabel(start)}
-                chosen={window.from === start && !isWholeSemester(window)}
+                chosen={window.kind === "period" && window.from === start}
                 onChoose={() => choose(windowForPeriod(start))}
               />
             ))}
@@ -122,7 +133,7 @@ export function HourWindowPicker({
                 ›
               </button>
             </div>
-            <div className="grid grid-cols-7 gap-0.5">
+            <div className="grid grid-cols-7 gap-0.5" onMouseLeave={() => setHovered("")}>
               {WEEKDAYS.map((letter, index) => (
                 <span key={`${letter}-${index}`} className="text-center text-[10px] font-medium text-[#98a2b3]">
                   {letter}
@@ -134,8 +145,10 @@ export function HourWindowPicker({
                     key={day}
                     type="button"
                     onClick={() => pressDay(day)}
+                    onMouseEnter={() => setHovered(day)}
+                    onFocus={() => setHovered(day)}
                     aria-label={day}
-                    className={`h-7 rounded text-xs tabular-nums ${dayPaint(day, window, half)}`}
+                    className={`h-7 rounded text-xs tabular-nums ${dayPaint(day, window, half, hovered)}`}
                   >
                     {Number(day.slice(8, 10))}
                   </button>
@@ -169,11 +182,25 @@ function Preset({ label, chosen, onChoose }: { label: string; chosen: boolean; o
   );
 }
 
-function dayPaint(day: string, window: HourWindow, half: string): string {
-  if (half === day) return "bg-[#1f4e79] text-white";
-  const inside = window.from && window.to && day >= window.from && day <= window.to;
+function dayPaint(day: string, window: HourWindow, half: string, hovered: string): string {
+  /*
+   * A range being drawn outranks the one already chosen: while an end is held, the
+   * calendar is answering "what would I get if I let go here", not "what did I get".
+   */
+  if (half) {
+    const [first, last] = half <= hovered ? [half, hovered] : [hovered, half];
+    if (day === half || (hovered && day === hovered)) return "bg-[#1f4e79] text-white";
+    if (hovered && day > first && day < last) return "bg-[#eef4fa] text-[#1f4e79]";
+    return "text-[#344054] hover:bg-[#f2f7fb]";
+  }
+  /*
+   * Only a range drawn here is drawn here. A named period is chosen on the list and shown
+   * as chosen there, and painting its days as well would leave two things looking selected
+   * at once with no way to tell which the control would act on.
+   */
+  if (window.kind !== "range") return "text-[#344054] hover:bg-[#f2f7fb]";
   if (day === window.from || day === window.to) return "bg-[#1f4e79] text-white";
-  if (inside) return "bg-[#eef4fa] text-[#1f4e79]";
+  if (window.from && window.to && day > window.from && day < window.to) return "bg-[#eef4fa] text-[#1f4e79]";
   return "text-[#344054] hover:bg-[#f2f7fb]";
 }
 

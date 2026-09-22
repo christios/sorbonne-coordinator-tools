@@ -42,3 +42,19 @@ describe("the whole semester", () => {
     expect(datesOf(WHOLE_SEMESTER)).toEqual({ from: "0000-01-01", to: "9999-12-31" });
   });
 });
+
+describe("which side of the control a window came from", () => {
+  it("is remembered, so a named period and a drawn range are not confused", () => {
+    expect(windowForPeriod("2026-09-15").kind).toBe("period");
+    expect(windowForRange("2026-09-15", "2026-10-14").kind).toBe("range");
+    expect(WHOLE_SEMESTER.kind).toBe("semester");
+  });
+
+  it("is what tells them apart, since the dates can be identical", () => {
+    const named = windowForPeriod("2026-09-15");
+    const drawn = windowForRange("2026-09-15", "2026-10-14");
+
+    expect([drawn.from, drawn.to]).toEqual([named.from, named.to]);
+    expect(drawn.kind).not.toBe(named.kind);
+  });
+});
