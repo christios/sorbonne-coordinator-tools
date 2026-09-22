@@ -50,11 +50,51 @@ class InvalidPeriod(Exception):
     """A pay period is named by the day it starts, as a plain date."""
 
 
+#: The day of the month the department's pay periods have always opened on.
+#:
+#: A semester nobody has said anything about is paid from the 15th, which is what every
+#: time sheet filed so far assumes. Saying otherwise is a decision somebody takes about
+#: one semester; not saying anything changes nothing.
+DEFAULT_PERIOD_OPENS_ON = 15
+
+#: The last day a period may open on. Later than this and some months would have no
+#: period at all, February first among them.
+LAST_DAY_A_PERIOD_MAY_OPEN_ON = 28
+
+
 class TeacherStore:
     """PostgreSQL persistence for part-time teacher profiles and their requisitions."""
 
     def __init__(self, database_url: str) -> None:
         self.engine: Engine = engine_for(database_url)
+
+    def pay_cycles(self) -> dict[str, int]:
+        """Which day of the month each semester's pay periods open on.
+
+        Only the semesters somebody has decided about are here. Everything else is paid
+        from `DEFAULT_PERIOD_OPENS_ON`, and the reader applies that rather than this
+        table carrying a row per semester saying "as usual".
+        """
+        with self.engine.connect() as connection:
+            rows = connection.execute(text("SELECT term_id, opens_on FROM term_pay_cycles")).all()
+        return {str(row[0]): int(row[1]) for row in rows}
+
+    def set_pay_cycle(self, term_id: str, opens_on: int, *, actor: str = "") -> int:
+        """Say which day this semester's periods open on. 1-28, so every month has one."""
+        term = str(term_id or "").strip()
+        if not term:
+            raise ValueError("A pay cycle belongs to a semester.")
+        if not 1 <= int(opens_on) <= LAST_DAY_A_PERIOD_MAY_OPEN_ON:
+            raise ValueError("A period opens on a day between the 1st and the 28th, which every month has.")
+        with self.engine.begin() as connection:
+            connection.execute(
+                text("""INSERT INTO term_pay_cycles (term_id, opens_on, updated_at, updated_by)
+                        VALUES (:term, :day, :now, :actor)
+                        ON CONFLICT (term_id) DO UPDATE
+                        SET opens_on = :day, updated_at = :now, updated_by = :actor"""),
+                {"term": term, "day": int(opens_on), "now": datetime.now(UTC), "actor": str(actor or "").strip()},
+            )
+        return int(opens_on)
 
     def create_teacher(
         self,

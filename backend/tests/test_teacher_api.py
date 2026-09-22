@@ -190,3 +190,59 @@ def test_choosing_only_teachers_with_nothing_to_download_says_so(client: TestCli
     barren = a_teacher(store)
     response = client.post(f"{BASE}/export/requisitions", json={"teacherIds": [barren["id"]]})
     assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+class TestThePayCycle:
+    """Which day of the month a semester's pay periods open on.
+
+    The department pays from the 15th to the 14th, which is why five of its time sheets
+    are called "AugSept" — one period, not two months. That day was a constant in the
+    browser; it belongs to the semester, because a semester can be paid differently.
+    """
+
+    @staticmethod
+    def cycles(client: TestClient) -> dict[str, int]:
+        answer = client.get(f"{BASE}/pay-cycles")
+        assert answer.status_code == status.HTTP_200_OK, answer.text
+        return answer.json()["cycles"]
+
+    def test_the_usual_day_travels_with_the_answer(self, client: TestClient):
+        # So the browser does not keep a second copy of the department's habit.
+        assert client.get(f"{BASE}/pay-cycles").json()["default"] == 15
+
+    def test_a_semester_nobody_has_decided_about_is_not_listed(self, client: TestClient):
+        assert str(uuid4()) not in self.cycles(client)
+
+    def test_a_semester_can_be_paid_on_its_own_cycle(self, client: TestClient):
+        term = str(uuid4())
+
+        client.put(f"{BASE}/pay-cycles/{term}", json={"opensOn": 20})
+
+        assert self.cycles(client)[term] == 20
+
+    def test_saying_it_again_moves_it_rather_than_making_a_second(self, client: TestClient):
+        term = str(uuid4())
+        client.put(f"{BASE}/pay-cycles/{term}", json={"opensOn": 20})
+
+        client.put(f"{BASE}/pay-cycles/{term}", json={"opensOn": 15})
+
+        assert self.cycles(client)[term] == 15
+
+    def test_two_semesters_may_disagree(self, client: TestClient):
+        first, second = str(uuid4()), str(uuid4())
+
+        client.put(f"{BASE}/pay-cycles/{first}", json={"opensOn": 15})
+        client.put(f"{BASE}/pay-cycles/{second}", json={"opensOn": 1})
+
+        held = self.cycles(client)
+        assert (held[first], held[second]) == (15, 1)
+
+    @pytest.mark.parametrize("day", [0, 29, 31, -1])
+    def test_a_day_some_month_would_not_have_is_refused(self, client: TestClient, day: int):
+        # The 29th onwards would leave February with no period at all in most years.
+        term = str(uuid4())
+
+        answer = client.put(f"{BASE}/pay-cycles/{term}", json={"opensOn": day})
+
+        assert answer.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT, answer.text
+        assert term not in self.cycles(client)

@@ -6,7 +6,17 @@ from uuid import uuid4
 from zipfile import ZIP_DEFLATED, BadZipFile, ZipFile
 
 import openpyxl
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, Response, UploadFile
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    UploadFile,
+)
 from pydantic import BaseModel, Field
 from starlette.responses import FileResponse
 
@@ -21,6 +31,7 @@ from sorbonne.services.teacher_store import (
     RequisitionNotFound,
     RevisionConflict,
     TeacherNotFound,
+    DEFAULT_PERIOD_OPENS_ON,
     TeacherStore,
     TimeSheetNotFound,
 )
@@ -83,6 +94,37 @@ class UpdateTeacherRequisitionRequest(BaseModel):
 
 def get_store() -> TeacherStore:
     return TeacherStore(config.database_url)
+
+
+class PayCycleInput(BaseModel):
+    """The day of the month this semester's pay periods open on."""
+
+    opensOn: int = Field(ge=1, le=28)
+
+
+@router.get("/pay-cycles")
+def pay_cycles(store: TeacherStore = Depends(get_store)) -> dict[str, Any]:
+    """Which day each semester's pay periods open on, and the day the rest are paid from.
+
+    Only the semesters somebody has decided about are listed. The default is sent with
+    them so the browser does not have to carry a second copy of the department's habit.
+    """
+    return {"cycles": store.pay_cycles(), "default": DEFAULT_PERIOD_OPENS_ON}
+
+
+@router.put("/pay-cycles/{term_id}")
+def set_pay_cycle(
+    term_id: str,
+    body: PayCycleInput,
+    request: Request,
+    store: TeacherStore = Depends(get_store),
+) -> dict[str, int]:
+    staff = getattr(request.state, "staff_user", None)
+    try:
+        opens_on = store.set_pay_cycle(term_id, body.opensOn, actor=getattr(staff, "email", "") or "")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"opensOn": opens_on}
 
 
 @router.get("")
