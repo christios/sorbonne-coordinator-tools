@@ -36,6 +36,14 @@ export type ColumnMeta = {
   required?: boolean;
   defaultWidth: number;
   source?: ColumnSource;
+  /**
+   * The stretch of time this column is answering for, where it is not the whole semester.
+   *
+   * A table whose numbers silently mean "September" reads exactly like one whose numbers
+   * mean "the year", and the difference is somebody's pay. Short — "SEP-OCT" — because it
+   * sits on every heading at once.
+   */
+  window?: string;
 };
 
 export const SOURCE_WORDS: Record<ColumnSource, string> = {

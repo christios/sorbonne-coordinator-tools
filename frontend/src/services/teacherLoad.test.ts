@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { buildCards } from "@/services/courseCards";
-import { asTaught, hoursColumn, hoursColumns, loadRows, loadTotals, registrarHoursFor, sameTeacher, sectionsTaughtBy, shownHoursColumns, teacherLoads } from "@/services/teacherLoad";
+import { asTaught, hoursColumn, hoursColumns, taughtLoads, loadRows, loadTotals, registrarHoursFor, sameTeacher, sectionsTaughtBy, shownHoursColumns, teacherLoads } from "@/services/teacherLoad";
 import type { ActiveTeacher } from "@/services/portalLists";
 import { EMPTY_REQUEST, EMPTY_SECTION, type CohortCatalogue } from "@/services/studentDatabase";
 import { requestSheets, type RequestRow, type RequestSheet } from "@/services/timetableExport";
@@ -292,29 +292,92 @@ describe("a retired group's hours", () => {
   });
 });
 
-describe("the column for one pay period", () => {
-  it("is not there until a period is named", () => {
-    // Every other column is the semester's plan. Without a period there is no second
-    // kind of number to show, and a column of zeroes would read as one.
-    expect(hoursColumns(["FYS-S1"]).map((column) => column.id)).not.toContain("period");
+describe("the mark saying what a column is counting", () => {
+  it("is absent for the whole semester, where every number means the same thing", () => {
+    expect(hoursColumns(["FYS-S1"]).every((column) => !column.window)).toBe(true);
   });
 
-  it("is named after the period, so the two kinds of number cannot be confused", () => {
-    const columns = hoursColumns(["FYS-S1"], "15 Sep – 14 Oct 2026");
-    const period = columns.find((column) => column.id === "period");
+  it("is on every number once the question narrows, not only on one of them", () => {
+    const columns = hoursColumns(["FYS-S1"], "SEP-OCT");
+    const numbers = columns.filter((column) => column.type === "number");
 
-    expect(period?.displayName).toBe("15 Sep – 14 Oct 2026");
+    expect(numbers.length).toBeGreaterThan(4);
+    expect(numbers.every((column) => column.window === "SEP-OCT")).toBe(true);
   });
 
-  it("reads minutes taught as the hours a claim is written in", () => {
-    const period = hoursColumns([], "15 Sep – 14 Oct 2026").find((column) => column.id === "period");
-    const row = (minutes: number | undefined) => ({ periodMinutes: minutes }) as never;
+  it("leaves the columns that are not counts alone", () => {
+    const columns = hoursColumns(["FYS-S1"], "SEP-OCT");
 
-    expect(period?.accessor(row(90))).toBe(1.5);
-    expect(period?.accessor(row(100))).toBe(1.75);
-    // Nothing taught, and nothing read yet, both read zero rather than blank.
-    expect(period?.accessor(row(0))).toBe(0);
-    expect(period?.accessor(row(undefined))).toBe(0);
+    expect(columns.find((column) => column.id === "teacher")?.window).toBeUndefined();
+    expect(columns.find((column) => column.id === "standing")?.window).toBeUndefined();
+  });
+});
+
+describe("the total over a window", () => {
+  it("is what was taught, not what was taught less the cancellations again", () => {
+    // In a window the cancelled class never entered the count, so taking it off here
+    // would take the same hour away twice.
+    const total = hoursColumns([], "SEP-OCT").find((column) => column.id === "total");
+    const row = { total: 10.5, cancelledHours: 1.5, coverTaken: 0, coverGiven: 0 } as never;
+
+    expect(total?.accessor(row)).toBe(10.5);
+  });
+
+  it("is the plan adjusted, over the whole semester, where the plan is what the row holds", () => {
+    const total = hoursColumns([]).find((column) => column.id === "total");
+    const row = { total: 21, cancelledHours: 1.5, coverTaken: 0, coverGiven: 0 } as never;
+
+    expect(total?.accessor(row)).toBe(19.5);
+  });
+});
+
+describe("taughtLoads", () => {
+  const sheets = [{ title: "FYS-S1", rows: [] }, { title: "L1-S1", rows: [] }] as never as RequestSheet[];
+  const place = new Map([
+    ["23644", { sheetIndex: 0, type: "TD" }],
+    ["23700", { sheetIndex: 1, type: "CM" }],
+  ]);
+  const hour = (crn: string, minutes: number, teacher = "Amina Menaa") =>
+    ({ crn, minutes, teacherId: "act-1", teacherName: teacher, courseCode: "", meetsOn: "", startsAt: "", endsAt: "", covered: false });
+
+  it("lays the taught hours out the way the plan is laid out", () => {
+    const [row] = taughtLoads({
+      hours: [hour("23644", 90), hour("23644", 90), hour("23700", 120)],
+      place,
+      sheets,
+      everyone: [{ teacherId: "act-1", teacher: "Amina Menaa" }],
+    });
+
+    expect(row.bySheet).toEqual([3, 2]);
+    expect(row.byType).toEqual({ TD: 3, CM: 2 });
+    expect(row.total).toBe(5);
+    expect(row.sections).toBe(2);
+  });
+
+  it("keeps a teacher who taught nothing in the window, at nought", () => {
+    // A row that disappears for a month reads as a teacher who left.
+    const rows = taughtLoads({
+      hours: [],
+      place,
+      sheets,
+      everyone: [{ teacherId: "act-1", teacher: "Amina Menaa" }],
+    });
+
+    expect(rows.map((row) => [row.teacher, row.total])).toEqual([["Amina Menaa", 0]]);
+  });
+
+  it("counts an hour under whoever actually stood in front of it", () => {
+    const rows = taughtLoads({
+      hours: [hour("23644", 90), hour("23644", 90, "Grace Younes")],
+      place,
+      sheets,
+      everyone: [{ teacherId: "act-1", teacher: "Amina Menaa" }],
+    });
+
+    expect(rows.map((row) => [row.teacher, row.total])).toEqual([
+      ["Amina Menaa", 1.5],
+      ["Grace Younes", 1.5],
+    ]);
   });
 });
 

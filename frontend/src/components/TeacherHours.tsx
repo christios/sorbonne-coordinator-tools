@@ -1,18 +1,17 @@
 import { useQuery } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp, CalendarRange, Globe } from "lucide-react";
+import { ArrowDown, ArrowUp } from "lucide-react";
 import { useMemo, useState } from "react";
 
+import { HourWindowPicker } from "@/components/HourWindowPicker";
 import { LabelledPicker } from "@/components/LabelledPicker";
 import { ListGrid, StatePill } from "@/components/ListGrid";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { SelectMenu } from "@/components/SelectMenu";
-import { hoursTaught, minutesByTeacher } from "@/services/hoursInPeriod";
+import { datesOf, isWholeSemester, WHOLE_SEMESTER, type HourWindow } from "@/services/hourWindow";
+import { hoursTaught } from "@/services/hoursInPeriod";
 import {
   opensOnFor,
   periodChoices,
-  periodContaining,
-  periodEnd,
-  periodLabel,
   PERIOD_OPENS_ON,
 } from "@/services/payPeriods";
 import { fetchPayCycles } from "@/services/teachers";
@@ -29,12 +28,15 @@ import {
 import { adjustmentsFor, fetchSessionChanges } from "@/services/sessionChanges";
 import { requestSheets } from "@/services/timetableExport";
 import {
+  bookedInWindow,
   crnsByTeacher,
   hoursColumns,
   loadRows,
+  placeByCrn,
   registrarHoursFor,
   sameTeacher,
   shownHoursColumns,
+  taughtLoads,
   teacherLoads,
   type LoadRow,
 } from "@/services/teacherLoad";
@@ -120,11 +122,10 @@ export function TeacherHours({ onOpenTeacher }: { onOpenTeacher?: (teacher: Teac
    */
   const cycles = useQuery({ queryKey: ["pay-cycles"], queryFn: fetchPayCycles });
   const opensOn = opensOnFor(cycles.data?.cycles ?? {}, chosenTerm, cycles.data?.default ?? PERIOD_OPENS_ON);
-  const [periodStart, setPeriodStart] = useState("");
-  /** Whether the taught column answers for the chosen period or for the whole semester. */
-  const [wholeTerm, setWholeTerm] = useState(false);
+  const [chosenWindow, setWindow] = useState<HourWindow>(WHOLE_SEMESTER);
   const periods = useMemo(() => periodChoices(new Date(), 14, 1, opensOn), [opensOn]);
-  const period = periods.includes(periodStart) ? periodStart : periodContaining(new Date(), opensOn);
+  const counting = datesOf(chosenWindow);
+  const whole = isWholeSemester(chosenWindow);
   const owners = useMemo(() => {
     const held = new Map<string, { id: string; name: string }>();
     for (const row of loadRows(teacherLoads(sheets), teachers.data ?? [], crnsByTeacher(sheets))) {
@@ -139,42 +140,56 @@ export function TeacherHours({ onOpenTeacher }: { onOpenTeacher?: (teacher: Teac
     enabled: Boolean(termCode) && everyCrn.length > 0,
     retry: false,
   });
+
   /*
-   * A period of one month, or of the whole semester. The rule is the same either way —
-   * the classes that met, less the cancelled, plus the ones stood in for — so widening it
-   * is a wider pair of dates rather than a second way of counting.
+   * The whole semester is the plan; anything narrower is what happened.
+   *
+   * The plan has no dates on it — a section is twenty-one hours for the term — so it
+   * cannot answer "what did she teach in October". The registrar's dated meetings can,
+   * and they are laid out the same way, cohort by cohort, so the table does not change
+   * shape when the question narrows. Every column then carries the window's mark, because
+   * a table of October's hours otherwise reads exactly like a table of the year's.
    */
-  const counting = wholeTerm ? { from: "0000-01-01", to: "9999-12-31" } : { from: period, to: periodEnd(period) };
-  const taughtMinutes = useMemo(() => {
-    if (!met.data) return {} as Record<string, number>;
+  const rows = useMemo(() => {
+    const planned = loadRows(teacherLoads(sheets), teachers.data ?? [], crnsByTeacher(sheets));
+    const notesHere = (notes.data ?? []).filter(
+      (note) => note.meetsOn >= counting.from && note.meetsOn <= counting.to,
+    );
     const { hours } = hoursTaught({
-      sections: met.data.sections,
+      sections: met.data?.sections ?? [],
       changes: notes.data ?? [],
       period: counting,
       staffing: (crn) => owners.get(crn) ?? { id: "", name: "" },
     });
-    return minutesByTeacher(hours);
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- the dates are what is read
-  }, [met.data, notes.data, counting.from, counting.to, owners]);
-
-  const rows = useMemo(() => {
-    const held = loadRows(teacherLoads(sheets), teachers.data ?? [], crnsByTeacher(sheets));
+    const held = whole
+      ? planned
+      : loadRows(
+          taughtLoads({
+            hours,
+            place: placeByCrn(sheets),
+            sheets,
+            everyone: planned.map((row) => ({ teacherId: row.teacherId, teacher: row.teacher })),
+          }),
+          teachers.data ?? [],
+          crnsByTeacher(sheets),
+        );
     return held.map((row) => {
-      const adjusted = adjustmentsFor(notes.data ?? [], { id: row.active?.id ?? row.teacherId, name: row.teacher }, new Set(row.crns), sameTeacher);
+      const adjusted = adjustmentsFor(notesHere, { id: row.active?.id ?? row.teacherId, name: row.teacher }, new Set(row.crns), sameTeacher);
       return {
         ...row,
         cancelledHours: adjusted.cancelled,
         coverTaken: adjusted.coveredByOthers,
         coverGiven: adjusted.coveredForOthers,
-        registrarHours: registrarHoursFor(booked.data ?? {}, row.teacher, sameTeacher),
-        periodMinutes: taughtMinutes[row.active?.id ?? row.teacherId] ?? 0,
+        registrarHours: whole
+          ? registrarHoursFor(booked.data ?? {}, row.teacher, sameTeacher)
+          : bookedInWindow(met.data?.sections ?? [], row.teacher, counting),
       };
     });
-  }, [sheets, teachers.data, notes.data, booked.data, taughtMinutes]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- the window is read as two dates
+  }, [sheets, teachers.data, notes.data, booked.data, met.data, owners, whole, counting.from, counting.to]);
   const sheetTitles = useMemo(() => sheets.map((sheet) => sheet.title), [sheets]);
-  const taughtColumn = wholeTerm ? "Taught so far" : periodLabel(period);
-  const columns = useMemo(() => hoursColumns(sheetTitles, taughtColumn), [sheetTitles, taughtColumn]);
-  const shown = useMemo(() => shownHoursColumns(sheetTitles, taughtColumn), [sheetTitles, taughtColumn]);
+  const columns = useMemo(() => hoursColumns(sheetTitles, chosenWindow.tag), [sheetTitles, chosenWindow.tag]);
+  const shown = useMemo(() => shownHoursColumns(sheetTitles), [sheetTitles]);
 
   if (catalogues.isLoading) return <ScreenLoading label="Adding up the hours…" />;
   if (catalogues.error) return <p role="alert" className="text-sm text-[#a6292f]">{(catalogues.error as Error).message}</p>;
@@ -189,9 +204,8 @@ export function TeacherHours({ onOpenTeacher }: { onOpenTeacher?: (teacher: Teac
   return (
     <section>
       {/*
-        * Both pickers on one line. They are one question — which semester, and which of
-        * its periods — and stacking them put a page's worth of tiles between the two
-        * halves of it.
+        * Both controls on one line. They are one question — which semester, and which
+        * stretch of it — and stacking them put a page of tiles between the two halves.
         */}
       <div className="mb-4 flex flex-wrap items-end gap-4">
         <LabelledPicker label="Semester">
@@ -202,43 +216,15 @@ export function TeacherHours({ onOpenTeacher }: { onOpenTeacher?: (teacher: Teac
             options={termIds.map((id) => ({ value: id, label: termName(id) }))}
           />
         </LabelledPicker>
-        {/* The pay period the taught column answers for, and how wide it is asked. */}
-        <LabelledPicker
-          label="Pay period"
-          hint={wholeTerm ? "the whole semester" : "what was actually taught in it"}
-          beside={
-            <div role="radiogroup" aria-label="How much of the semester to count" className="flex rounded-md border border-[#d0d5dd] bg-white p-0.5">
-              {(
-                [
-                  { on: false, label: "This period", hint: "Only the chosen pay period", Icon: CalendarRange },
-                  { on: true, label: "Whole semester", hint: "Every period added together, whichever is chosen", Icon: Globe },
-                ] as const
-              ).map(({ on, label, hint, Icon }) => (
-                <button
-                  key={label}
-                  type="button"
-                  role="radio"
-                  aria-checked={wholeTerm === on}
-                  aria-label={label}
-                  title={hint}
-                  onClick={() => setWholeTerm(on)}
-                  className={`inline-flex h-8 w-8 items-center justify-center rounded transition-colors ${
-                    wholeTerm === on ? "bg-[#1f4e79] text-white" : "text-[#667085] hover:bg-[#f5f7fa] hover:text-[#344054]"
-                  }`}
-                >
-                  <Icon size={15} aria-hidden="true" />
-                </button>
-              ))}
-            </div>
-          }
-        >
-          <SelectMenu
-            label="Pay period"
-            value={period}
-            onChange={setPeriodStart}
-            options={periods.map((start) => ({ value: start, label: periodLabel(start) }))}
-          />
-        </LabelledPicker>
+        <div className="min-w-0">
+          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[#667085]">
+            Counting
+            <span className="ml-1.5 font-normal normal-case text-[#98a2b3]">
+              {whole ? "the semester as planned" : "what actually met in it"}
+            </span>
+          </p>
+          <HourWindowPicker window={chosenWindow} periods={periods} onChange={setWindow} />
+        </div>
       </div>
 
       <div className="mt-4">
@@ -298,7 +284,8 @@ const renderCell = (row: LoadRow, column: GridColumn<LoadRow>) => {
    * was cancelled has a total of zero, and zero with a red arrow on it is the most
    * important row on the page, where a dash would say "nothing to see".
    */
-  if (column.id === "total") return <Taught row={row} taught={value} />;
+  // The arrow is the distance from the plan, and a window has no plan to be a distance from.
+  if (column.id === "total") return column.window ? <span className="font-semibold text-[#171717]">{value}</span> : <Taught row={row} taught={value} />;
   if (!value) return <span className="text-[#d5dce4]">—</span>;
   // Hours the semester took away read red, hours it added read blue; the plan stays black.
   if (column.id === "cancelledHours" || column.id === "coverTaken") return <span className="text-[#a6292f]">−{value}</span>;

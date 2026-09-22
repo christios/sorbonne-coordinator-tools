@@ -607,6 +607,8 @@ function HeaderCell<T>({
           {column.displayName}
           {/* Where the facts come from, on the tables where ours and the portal's sit side by side. */}
           {column.source ? <SourceMark source={column.source} /> : null}
+          {/* And when, where the column is answering for part of a term rather than all of it. */}
+          {column.window ? <WindowMark window={column.window} /> : null}
         </span>
         {active ? (
           sort.ascending ? (
@@ -735,6 +737,18 @@ function ResizeHandle({
         aria-hidden="true"
         className={`h-full w-0.5 transition-colors ${dragging ? "bg-[#1f4e79]" : "bg-transparent group-hover/edge:bg-[#9fbfdc]"}`}
       />
+    </span>
+  );
+}
+
+/** A small word after a heading saying which stretch of time it is counting. */
+export function WindowMark({ window }: { window: string }) {
+  return (
+    <span
+      title={`Counting ${window} only, not the whole semester`}
+      className="ml-1.5 inline-block rounded bg-[#eef6f1] px-1 py-px align-middle text-[9px] font-semibold uppercase tracking-wide text-[#1f6b47]"
+    >
+      {window}
     </span>
   );
 }

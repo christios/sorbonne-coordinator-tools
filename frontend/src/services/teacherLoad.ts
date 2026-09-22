@@ -14,6 +14,7 @@
 
 import { filled } from "@/services/courseRequest";
 import { rowsPerPart, type Card } from "@/services/courseCards";
+import type { TaughtHour } from "@/services/hoursInPeriod";
 import type { ActiveTeacher, FacilityHours } from "@/services/portalLists";
 import type { GridColumn } from "@/services/studentColumns";
 import type { RequestSheet } from "@/services/timetableExport";
@@ -85,6 +86,79 @@ export function teacherLoads(sheets: RequestSheet[]): TeacherLoad[] {
   return [
     ...rows.filter((load) => load.teacher).sort((left, right) => left.teacher.localeCompare(right.teacher)),
     // Nobody yet, last, whether or not it is empty — a nought there is worth seeing.
+    ...rows.filter((load) => !load.teacher),
+  ];
+}
+
+/** Where a CRN sits in the plan: whose cohort's sheet it is on, and what kind of class it is. */
+export type SectionPlace = { sheetIndex: number; type: string };
+
+export function placeByCrn(sheets: RequestSheet[]): Map<string, SectionPlace> {
+  const found = new Map<string, SectionPlace>();
+  sheets.forEach((sheet, sheetIndex) => {
+    for (const row of sheet.rows) {
+      if (!row.crn || row.retired) continue;
+      found.set(row.crn, { sheetIndex, type: row.type.toUpperCase() || "OTHER" });
+    }
+  });
+  return found;
+}
+
+/**
+ * The same row, counted from what happened rather than from what was planned.
+ *
+ * The plan has no dates on it — a section is 21 hours for the semester — so it cannot
+ * answer "what did they teach in October". The registrar's dated meetings can, and this
+ * lays them out the same way: a column per cohort, then by kind of class, then a total.
+ * Cancelled classes are already gone from `hours` and a covered one already belongs to
+ * whoever stood in, so nothing is adjusted afterwards.
+ *
+ * A teacher with nothing in the window keeps their row, at nought. A row that disappears
+ * for a month reads as a teacher who left.
+ */
+export function taughtLoads(input: {
+  hours: TaughtHour[];
+  place: Map<string, SectionPlace>;
+  sheets: RequestSheet[];
+  /** Everybody who should have a row, so a quiet month is a nought rather than a gap. */
+  everyone: { teacherId: string; teacher: string }[];
+}): TeacherLoad[] {
+  const { hours, place, sheets, everyone } = input;
+  const held = new Map<string, TeacherLoad & { crns: Set<string> }>();
+  const keyOf = (name: string) => (name ? `name:${name.trim().toLowerCase()}` : "");
+  const blank = (teacherId: string, teacher: string) => ({
+    teacherId,
+    teacher,
+    bySheet: sheets.map(() => 0),
+    byType: {} as Record<string, number>,
+    total: 0,
+    sections: 0,
+    crns: new Set<string>(),
+  });
+  for (const row of everyone) held.set(keyOf(row.teacher), blank(row.teacherId, row.teacher));
+
+  for (const hour of hours) {
+    const key = keyOf(hour.teacherName);
+    const load = held.get(key) ?? blank(hour.teacherId, hour.teacherName);
+    load.teacherId = load.teacherId || hour.teacherId;
+    const where = place.get(hour.crn);
+    const taught = Math.round((hour.minutes / 60) * 100) / 100;
+    if (where) load.bySheet[where.sheetIndex] += taught;
+    load.byType[where?.type ?? "OTHER"] = (load.byType[where?.type ?? "OTHER"] ?? 0) + taught;
+    load.total += taught;
+    load.crns.add(hour.crn);
+    held.set(key, load);
+  }
+
+  const rows = [...held.values()].map(({ crns, ...load }) => ({
+    ...load,
+    total: Math.round(load.total * 100) / 100,
+    bySheet: load.bySheet.map((hours_) => Math.round(hours_ * 100) / 100),
+    byType: Object.fromEntries(Object.entries(load.byType).map(([type, hours_]) => [type, Math.round(hours_ * 100) / 100])),
+    sections: crns.size,
+  }));
+  return [
+    ...rows.filter((load) => load.teacher).sort((left, right) => left.teacher.localeCompare(right.teacher)),
     ...rows.filter((load) => !load.teacher),
   ];
 }
@@ -262,30 +336,35 @@ export function crnsByTeacher(sheets: RequestSheet[]): (teacher: string) => stri
  * gains a column of what was actually taught in it, which is a different kind of number
  * from every other column here: those are the semester's plan, this is what happened.
  */
-export function hoursColumns(sheetTitles: string[], period = ""): GridColumn<LoadRow>[] {
+export function hoursColumns(sheetTitles: string[], window = ""): GridColumn<LoadRow>[] {
+  /*
+   * Every number below is counted over the same stretch of time, so every one of them
+   * carries the same mark. A table whose figures silently mean "October" reads exactly
+   * like one whose figures mean "the year", and the difference is somebody's pay.
+   */
+  const when = window ? { window } : {};
   return [
     { id: "teacher", displayName: "Teacher", type: "text", accessor: (row) => row.teacher || "Nobody yet", required: true, defaultWidth: 240 },
     { id: "standing", displayName: "Standing", type: "option", accessor: (row) => row.standing, defaultWidth: 130 },
-    { id: "total", displayName: "Total", type: "number", accessor: asTaught, defaultWidth: 110, source: "planning" },
-    ...(period
-      ? [{
-          id: "period",
-          displayName: period,
-          type: "number" as const,
-          accessor: (row: LoadRow) => Math.round(((row.periodMinutes ?? 0) / 60) * 4) / 4,
-          defaultWidth: 150,
-          source: "registrar" as const,
-        }]
-      : []),
+    /*
+     * Two different totals, because the rows underneath are two different things.
+     *
+     * Over the whole semester a row is the plan, so the total is the plan adjusted by what
+     * happened to it. Over a window the row is already what happened — the cancelled class
+     * never entered it — so adjusting again would take the same hour off twice, which is
+     * exactly the bug this comment replaces.
+     */
+    { id: "total", displayName: "Total", type: "number", accessor: window ? (row) => row.total : asTaught, defaultWidth: 110, source: "planning", ...when },
     // The registrar's count beside ours. A comparison with no warning on it: teachers and
     // hours move during a semester, and cover is normal.
-    { id: "registrarHours", displayName: "Registrar", type: "number", accessor: (row) => row.registrarHours, defaultWidth: 100, source: "registrar" },
+    { id: "registrarHours", displayName: "Registrar", type: "number", accessor: (row) => row.registrarHours, defaultWidth: 100, source: "registrar", ...when },
     ...sheetTitles.map((title, index) => ({
       id: `sheet:${title}`,
       displayName: hoursColumn(title),
       type: "number" as const,
       accessor: (row: LoadRow) => row.bySheet[index] ?? 0,
       defaultWidth: 100,
+      ...when,
     })),
     ...LOAD_TYPES.map((type) => ({
       id: `type:${type}`,
@@ -293,16 +372,17 @@ export function hoursColumns(sheetTitles: string[], period = ""): GridColumn<Loa
       type: "number" as const,
       accessor: (row: LoadRow) => row.byType[type] ?? 0,
       defaultWidth: 80,
+      ...when,
     })),
-    { id: "sections", displayName: "Sections", type: "number", accessor: (row) => row.sections, defaultWidth: 100, source: "planning" },
+    { id: "sections", displayName: "Sections", type: "number", accessor: (row) => row.sections, defaultWidth: 100, source: "planning", ...when },
     /*
      * What the semester did to the plan, beside the plan rather than folded into it: hours
      * of theirs that were cancelled, hours somebody else taught for them, hours they taught
      * for somebody else. From the notes on the CRNs' calendars.
      */
-    { id: "cancelledHours", displayName: "Cancelled", type: "number", accessor: (row) => row.cancelledHours, defaultWidth: 100, source: "planning" },
-    { id: "coverTaken", displayName: "Covered by others", type: "number", accessor: (row) => row.coverTaken, defaultWidth: 140, source: "planning" },
-    { id: "coverGiven", displayName: "Covered for others", type: "number", accessor: (row) => row.coverGiven, defaultWidth: 150, source: "planning" },
+    { id: "cancelledHours", displayName: "Cancelled", type: "number", accessor: (row) => row.cancelledHours, defaultWidth: 100, source: "planning", ...when },
+    { id: "coverTaken", displayName: "Covered by others", type: "number", accessor: (row) => row.coverTaken, defaultWidth: 140, source: "planning", ...when },
+    { id: "coverGiven", displayName: "Covered for others", type: "number", accessor: (row) => row.coverGiven, defaultWidth: 150, source: "planning", ...when },
     { id: "type", displayName: "Type", type: "option", accessor: (row) => row.active?.type ?? "", defaultWidth: 190, source: "portal" },
     { id: "category", displayName: "Category", type: "option", accessor: (row) => row.active?.category ?? "", defaultWidth: 120, source: "portal" },
     { id: "department", displayName: "Dept.", type: "option", accessor: (row) => row.active?.department ?? "", defaultWidth: 110, source: "portal" },
@@ -332,13 +412,10 @@ export function asTaught(row: LoadRow): number {
  * A cohort column waiting in the picker is a cohort somebody forgets to count, so they are
  * all shown however many there are. What waits is who the person is.
  */
-export function shownHoursColumns(sheetTitles: string[], period = ""): string[] {
+export function shownHoursColumns(sheetTitles: string[]): string[] {
   return [
     "teacher",
     "standing",
-    // Beside the plan, not at the far end of it: the whole point is reading the two
-    // together, and a column somebody has to go and turn on is a column nobody sees.
-    ...(period ? ["period"] : []),
     ...sheetTitles.map((title) => `sheet:${title}`),
     ...LOAD_TYPES.map((type) => `type:${type}`),
     "total",
@@ -368,4 +445,34 @@ export function sameTeacher(left: string, right: string): boolean {
   const a = words(left);
   const b = words(right);
   return Boolean(a) && a === b;
+}
+
+/**
+ * The registrar's booked hours inside a window, for the teacher the registrar names.
+ *
+ * Its own count, from the meetings themselves rather than from our notes: no cancellation
+ * of ours and no cover of ours touches it, because the point of the column is to be the
+ * other side of the comparison. The whole-semester figure comes from the sweep's own
+ * total; this is the same question asked of a narrower pair of dates.
+ */
+export function bookedInWindow(
+  sections: { teacherName: string; meetings: { meetsOn: string; startsAt: string; endsAt: string }[] }[],
+  teacher: string,
+  window: { from: string; to: string },
+): number {
+  if (!teacher) return 0;
+  let minutes = 0;
+  for (const section of sections) {
+    if (!sameTeacher(section.teacherName, teacher)) continue;
+    for (const meeting of section.meetings) {
+      if (meeting.meetsOn < window.from || meeting.meetsOn > window.to) continue;
+      minutes += Math.max(0, clockMinutes(meeting.endsAt) - clockMinutes(meeting.startsAt));
+    }
+  }
+  return Math.round((minutes / 60) * 100) / 100;
+}
+
+function clockMinutes(at: string): number {
+  const match = /^(\d{1,2}):(\d{2})/.exec((at || "").trim());
+  return match ? Number(match[1]) * 60 + Number(match[2]) : 0;
 }
