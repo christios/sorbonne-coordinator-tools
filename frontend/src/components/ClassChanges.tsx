@@ -192,13 +192,13 @@ function SectionDiff({
       </div>
       <p className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-sm text-[#667085]">
         <span className="inline-flex items-center gap-1.5">
-          <span className="inline-block h-3 w-3 rounded-sm bg-[#d1e7dd]" /> unchanged
+          <span className="inline-block h-3 w-3 rounded-sm bg-[#cfe2ff]" /> unchanged
         </span>
         <span className="inline-flex items-center gap-1.5">
           <span className="inline-block h-3 w-3 rounded-sm bg-[#f8d7da]" /> removed
         </span>
         <span className="inline-flex items-center gap-1.5">
-          <span className="inline-block h-3 w-3 rounded-sm bg-[#cfe2ff]" /> added
+          <span className="inline-block h-3 w-3 rounded-sm bg-[#d1e7dd]" /> added
         </span>
         {known ? (
           <span className="inline-flex items-center gap-1.5">
@@ -222,13 +222,13 @@ function Square({ day }: { day: DiffDay | null }) {
   // arrival takes the square, because it is the half a reader would otherwise never see,
   // and the loss keeps a ring around it rather than being argued down to nothing.
   const paint = arrived
-    ? "bg-[#cfe2ff] text-[#084298]"
+    ? "bg-[#d1e7dd] text-[#0f5132]"
     : ours
       ? "bg-[#e9ecef] text-[#667085]"
       : gone
         ? "bg-[#f8d7da] text-[#842029]"
         : meets
-          ? "bg-[#d1e7dd] text-[#0f5132]"
+          ? "bg-[#cfe2ff] text-[#084298]"
           : "text-[#98a2b3]";
   const also = arrived && gone ? " ring-2 ring-inset ring-[#e07c84]" : "";
   const said = [
