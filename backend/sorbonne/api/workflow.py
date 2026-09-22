@@ -9,6 +9,7 @@ from sorbonne.config import config
 from sorbonne.services.account_access import AccountAccess, account_access
 from sorbonne.services.field_guidance import may_write
 from sorbonne.services.staff_auth import StaffUser
+from sorbonne.services.time_sheet_tasks import TASK_RESOURCE_TYPE, TimeSheetTasks
 from sorbonne.services.workflow_store import (
     QuickTemplateNotFound,
     TaskNotFound,
@@ -161,6 +162,16 @@ def list_tasks(
     resourceId: str | None = Query(default=None, min_length=1),
     store: WorkflowStore = Depends(get_store),
 ) -> dict[str, list[dict[str, Any]]]:
+    """A teacher's list is brought level with the pay periods before it is read.
+
+    There is no clock here to make the period's time-sheet task when it opens, and a task
+    nobody has looked at yet has not been missed. So the making happens on the way to the
+    reader, which is the last moment it can still be right, and it is cheap enough to do
+    every time: a task is named after its teacher and its period, so the same one cannot
+    be written twice.
+    """
+    if resourceType == TASK_RESOURCE_TYPE:
+        TimeSheetTasks(config.database_url).catch_up()
     return {"items": store.list_tasks(resourceType, resourceId)}
 
 

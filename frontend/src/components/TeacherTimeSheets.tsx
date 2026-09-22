@@ -137,7 +137,12 @@ export function TimeSheetsCard({ teacherId, className = "" }: { teacherId: strin
     retry: false,
   });
 
-  const refresh = () => client.invalidateQueries({ queryKey: ["teacher-time-sheets", teacherId] });
+  const refresh = () => {
+    void client.invalidateQueries({ queryKey: ["teacher-time-sheets", teacherId] });
+    // The period's task closes itself once a sheet claims the period, so the list of
+    // tasks on this same profile is stale the moment one is filed.
+    void client.invalidateQueries({ queryKey: ["tasks", "teacher"] });
+  };
   const close = () => {
     setDraft(null);
     setEditingId(null);
