@@ -28,6 +28,16 @@ export type TeacherWarningKind =
   | "claim_vs_taught"
   | "contract_nearly_spent";
 
+/**
+ * How loudly a disagreement should say itself.
+ *
+ * Measured against the department's own threshold rather than in absolute hours, because
+ * the threshold is already its statement of what is worth mentioning: a gap barely over
+ * it is a thing to look at some time, and one several times over it is a thing to look at
+ * now. A page where everything is red says nothing, and a page where nothing is says less.
+ */
+export type Severity = "high" | "medium" | "low";
+
 export type TeacherWarning = {
   /** Holds still while the same two numbers do. */
   key: string;
@@ -39,6 +49,7 @@ export type TeacherWarning = {
   sentence: string;
   /** How far apart the two figures are, in hours — what the list is ranked by. */
   apart: number;
+  severity: Severity;
   dismissed?: boolean;
   dismissedBy?: string;
   dismissedAt?: string;
@@ -71,6 +82,14 @@ function gap(left: number, right: number): number {
   return Math.round(Math.abs(left - right) * 100) / 100;
 }
 
+/** Several times over the line is a different thing from just over it. */
+function bySize(apart: number, threshold: number): Severity {
+  const line = threshold > 0 && Number.isFinite(threshold) ? threshold : DEFAULT_APART;
+  if (apart >= line * 5) return "high";
+  if (apart >= line * 2) return "medium";
+  return "low";
+}
+
 export function warningsFor(figures: TeacherFigures, apart: number = DEFAULT_APART): TeacherWarning[] {
   const found: TeacherWarning[] = [];
   const who = figures.teacherKey;
@@ -84,6 +103,7 @@ export function warningsFor(figures: TeacherFigures, apart: number = DEFAULT_APA
       key: `teacher-hours:plan-vs-registrar:${who}:${figures.planned}:${figures.registrar}`,
       teacherKey: who,
       kind: "plan_vs_registrar",
+      severity: bySize(apartBy, apart),
       label: `Registrar ${figures.registrar < figures.planned ? "short" : "over"} ${hours(apartBy)}`,
       sentence: `${name}: we plan ${hours(figures.planned)} and the registrar has booked ${hours(figures.registrar)}.`,
       apart: apartBy,
@@ -98,6 +118,7 @@ export function warningsFor(figures: TeacherFigures, apart: number = DEFAULT_APA
       key: `teacher-hours:plan-vs-contract:${who}:${figures.planned}:${figures.contracted}`,
       teacherKey: who,
       kind: "plan_vs_contract",
+      severity: bySize(apartBy, apart),
       label: `Contract ${figures.contracted < figures.planned ? "short" : "over"} ${hours(apartBy)}`,
       sentence: `${name}: we plan ${hours(figures.planned)} and their requisitions contract ${hours(figures.contracted)}.`,
       apart: apartBy,
@@ -113,6 +134,7 @@ export function warningsFor(figures: TeacherFigures, apart: number = DEFAULT_APA
       key: `teacher-hours:claim-vs-taught:${who}:${claim.periodStart}:${claim.claimed}:${claim.taught}`,
       teacherKey: who,
       kind: "claim_vs_taught",
+      severity: bySize(apartBy, apart),
       label: `Claim ${claim.claimed > claim.taught ? "over" : "under"} ${hours(apartBy)}`,
       sentence: `${name} claimed ${hours(claim.claimed)} for ${claim.periodLabel || claim.periodStart} and the timetable has ${hours(claim.taught)}.`,
       apart: apartBy,
@@ -132,6 +154,12 @@ export function warningsFor(figures: TeacherFigures, apart: number = DEFAULT_APA
       key: `teacher-hours:contract-nearly-spent:${who}:${figures.contracted}:${figures.taughtSoFar}`,
       teacherKey: who,
       kind: "contract_nearly_spent",
+      /*
+       * The one place size does not say severity, and says the opposite of it: a small
+       * number of hours left is the urgent case, and being past the contract is the one
+       * somebody has to act on today.
+       */
+      severity: left < 0 ? "high" : left === 0 ? "medium" : "low",
       label: left < 0 ? `${hours(Math.abs(left))} past contract` : left === 0 ? "Contract used up" : `${hours(left)} of contract left`,
       sentence:
         left < 0

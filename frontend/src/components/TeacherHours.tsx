@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp, RotateCcw, X } from "lucide-react";
+import { ArrowDown, ArrowUp, RotateCcw, SlidersHorizontal, X } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { HourWindowPicker } from "@/components/HourWindowPicker";
@@ -7,6 +7,7 @@ import { LabelledPicker } from "@/components/LabelledPicker";
 import { ListGrid, StatePill } from "@/components/ListGrid";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { SelectMenu } from "@/components/SelectMenu";
+import { ChecksPanel } from "@/components/ChecksPanel";
 import { CommentThread } from "@/components/CommentThread";
 import { CommentPeek } from "@/components/CommentPeek";
 import { Modal } from "@/components/Modal";
@@ -55,7 +56,7 @@ import type { GridColumn } from "@/services/studentColumns";
 import { fetchCohorts, fetchCourseCards } from "@/services/studentDatabase";
 import { fetchTimetableTerms } from "@/services/timetables";
 import { TEACHER_THREAD } from "@/services/threads";
-import { DEFAULT_APART, warningsFor } from "@/services/teacherWarnings";
+import { DEFAULT_APART, warningsFor, type Severity } from "@/services/teacherWarnings";
 import { dismissalsByKey, fetchDismissals, setDismissal } from "@/services/warningDismissals";
 
 /**
@@ -138,6 +139,7 @@ export function TeacherHours({ onOpenTeacher }: { onOpenTeacher?: (teacher: Teac
   const opensOn = opensOnFor(cycles.data?.cycles ?? {}, chosenTerm, cycles.data?.default ?? PERIOD_OPENS_ON);
   const [chosenWindow, setWindow] = useState<HourWindow>(WHOLE_SEMESTER);
   const [commentingOn, setCommentingOn] = useState<{ id: string; label: string } | null>(null);
+  const [settingChecks, setSettingChecks] = useState(false);
   /*
    * The other three places a teacher's hours are written down, so the column can tell
    * whether they agree: their requisitions, the sheets the timesheets app has approved,
@@ -304,7 +306,29 @@ export function TeacherHours({ onOpenTeacher }: { onOpenTeacher?: (teacher: Teac
           </p>
           <HourWindowPicker window={chosenWindow} periods={periods} onChange={setWindow} />
         </div>
+        {/*
+          * The panel lives on Active CRNs, where the department's other checks are set.
+          * A coordinator reading a warning here should not have to know that: "two hours
+          * apart" is a question about this page, and it is answered where it is asked.
+          */}
+        <button
+          type="button"
+          onClick={() => setSettingChecks(true)}
+          className="inline-flex h-9 items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-3 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]"
+        >
+          <SlidersHorizontal size={15} aria-hidden="true" />
+          Checks
+        </button>
       </div>
+
+      <Modal
+        open={settingChecks}
+        title="Checks"
+        description="What the department looks for beyond its register. These save as you change them."
+        onClose={() => setSettingChecks(false)}
+      >
+        <ChecksPanel />
+      </Modal>
 
       {commentingOn ? (
         <Modal
@@ -434,6 +458,19 @@ function Taught({ row, taught }: { row: LoadRow; taught: number }) {
 }
 
 /**
+ * How loudly a pill says itself.
+ *
+ * Three, not two: everything red says nothing, and nothing red says less. The department's
+ * own threshold decides which is which, so a page of pills sorts itself into the ones to
+ * act on and the ones to know about without anybody reading the numbers.
+ */
+const TONES: Record<Severity, string> = {
+  high: "bg-[#fdf3f3] text-[#a6292f]",
+  medium: "bg-[#fdf6e3] text-[#8a6116]",
+  low: "bg-[#eef4fa] text-[#1f4e79]",
+};
+
+/**
  * Where a teacher's hours disagree with themselves, one pill per disagreement.
  *
  * The pill says the kind and the size — "Registrar short 6 h" — and the whole sentence is
@@ -457,7 +494,7 @@ function Warnings({ row, onDecide }: { row: LoadRow; onDecide: (key: string, dis
               : warning.sentence
           }
           className={`inline-flex max-w-full items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${
-            warning.dismissed ? "bg-[#f2f4f7] text-[#98a2b3]" : "bg-[#fdf6e3] text-[#8a6116]"
+            warning.dismissed ? "bg-[#f2f4f7] text-[#98a2b3]" : TONES[warning.severity]
           }`}
         >
           <span className="min-w-0 truncate">{warning.label}</span>

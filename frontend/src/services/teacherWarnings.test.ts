@@ -149,3 +149,30 @@ describe("ranking a row", () => {
     expect(warningRank(held)).toBe(0);
   });
 });
+
+describe("how loudly a warning says itself", () => {
+  it("is quiet just over the line the department drew", () => {
+    // Two hours apart, on a two-hour threshold: worth saying, not worth shouting.
+    expect(warningsFor(figures({ registrar: 193 }))[0].severity).toBe("low");
+  });
+
+  it("is louder several times over it", () => {
+    expect(warningsFor(figures({ registrar: 190 }))[0].severity).toBe("medium");
+    expect(warningsFor(figures({ registrar: 180 }))[0].severity).toBe("high");
+  });
+
+  it("measures against the threshold given, not against a number of hours", () => {
+    // The same ten hours, read twice: loud where the department allows two, quiet where
+    // it allows six.
+    expect(warningsFor(figures({ registrar: 185 }), 2)[0].severity).toBe("high");
+    expect(warningsFor(figures({ registrar: 185 }), 6)[0].severity).toBe("low");
+  });
+
+  it("reads a contract the other way round, because a small number is the urgent one", () => {
+    const running = (over = {}) => figures({ planned: 60, registrar: 60, contracted: 60, ...over });
+
+    expect(warningsFor(running({ taughtSoFar: 59 }))[0].severity).toBe("low");
+    expect(warningsFor(running({ taughtSoFar: 60 }))[0].severity).toBe("medium");
+    expect(warningsFor(running({ taughtSoFar: 66 }))[0].severity).toBe("high");
+  });
+});
