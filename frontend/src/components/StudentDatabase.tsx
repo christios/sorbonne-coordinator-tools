@@ -24,7 +24,7 @@ import { StudentRoster } from "@/components/StudentRoster";
 import { SidePane } from "@/components/SidePane";
 import { placeOf, rememberPlace } from "@/services/lastPlace";
 import { ViewBar } from "@/components/ViewBar";
-import { detailFromLocation, locationFor, pageFromLocation } from "@/routes/toolRoute";
+import { detailFromLocation, locationFor, pageFromLocation, type SettingsSection } from "@/routes/toolRoute";
 import { fetchCohorts, fetchDiscrepancyRules, fetchStudents, fetchViews } from "@/services/studentDatabase";
 import { fetchTimetableStatus } from "@/services/timetables";
 
@@ -159,7 +159,7 @@ const TITLES: Record<PageId, { title: string; blurb?: string }> = {
  * Platform, so the semester pages need that connection configured and say so when it is
  * missing — while the roster pages, which are this application's own, carry on regardless.
  */
-export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: () => void } = {}) {
+export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: (section: SettingsSection) => void } = {}) {
   const cohorts = useQuery({ queryKey: ["cohorts"], queryFn: fetchCohorts });
   const views = useQuery({ queryKey: ["views"], queryFn: fetchViews });
   /*

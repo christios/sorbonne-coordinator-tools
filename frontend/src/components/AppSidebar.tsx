@@ -2,11 +2,11 @@ import { SidePane } from "@/components/SidePane";
 import { StaffMenu } from "@/components/StaffMenu";
 import { appsFor } from "@/routes/apps";
 import { useStaffUser } from "@/components/useStaffUser";
-import { ToolId } from "@/routes/toolRoute";
+import { ToolId, type SettingsSection } from "@/routes/toolRoute";
 
 type Props = {
   onOpen: (app: ToolId | "handbook") => void;
-  onOpenSettings: () => void;
+  onOpenSettings: (section: SettingsSection) => void;
 };
 
 /**

@@ -10,7 +10,7 @@ const ADMIN = { ...USER, isAdmin: true };
 
 afterEach(() => vi.restoreAllMocks());
 
-function open(user = USER, onOpenSettings?: () => void) {
+function open(user = USER, onOpenSettings?: (section: "users" | "tokens" | "checks") => void) {
   render(
     <StaffContext.Provider value={user}>
       <StaffMenu onOpenSettings={onOpenSettings} />
@@ -40,19 +40,31 @@ describe("StaffMenu", () => {
     expect(signOut).toHaveBeenCalledOnce();
   });
 
-  it("offers the staff list to an administrator only", () => {
+  it("lists every page of Settings for an administrator, each opening its own", () => {
+    // It used to offer Users alone, with the other two pages hidden as tabs inside it.
     const openSettings = vi.fn();
 
     open(ADMIN, openSettings);
-    fireEvent.click(screen.getByRole("menuitem", { name: /Users/ }));
+    expect(screen.getAllByRole("menuitem").map((item) => item.textContent?.trim())).toEqual([
+      "Users",
+      "API tokens",
+      "Checks",
+      "Sign out",
+    ]);
+    fireEvent.click(screen.getByRole("menuitem", { name: /API tokens/ }));
 
-    expect(openSettings).toHaveBeenCalledOnce();
+    expect(openSettings).toHaveBeenCalledWith("tokens");
   });
 
-  it("keeps settings out of the menu for everybody else", () => {
-    open(USER, vi.fn());
+  it("offers everybody else the checks, to read, and nothing an administrator decides", () => {
+    const openSettings = vi.fn();
 
+    open(USER, openSettings);
     expect(screen.queryByRole("menuitem", { name: /Users/ })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: /API tokens/ })).toBeNull();
+    fireEvent.click(screen.getByRole("menuitem", { name: /Checks/ }));
+
+    expect(openSettings).toHaveBeenCalledWith("checks");
   });
 
   it("renders nothing when nobody is signed in", () => {

@@ -1,6 +1,9 @@
 // "settings" is not an app: it is reached from the user menu, not from the picker.
 export type ToolId = "roster" | "syllabus" | "database" | "settings";
 
+/** The pages of Settings, each its own entry in the account menu and its own address. */
+export type SettingsSection = "users" | "tokens" | "checks";
+
 const tools = new Set<ToolId>(["roster", "syllabus", "database", "settings"]);
 
 function asToolId(value: string): ToolId | null {

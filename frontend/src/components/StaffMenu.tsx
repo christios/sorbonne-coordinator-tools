@@ -1,13 +1,15 @@
-import { ChevronsUpDown, LogOut, Users } from "lucide-react";
+import { ChevronsUpDown, LogOut } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { useStaffUser } from "@/components/useStaffUser";
+import type { SettingsSection } from "@/routes/toolRoute";
 import { signOut } from "@/services/auth";
+import { sectionsFor } from "@/services/settingsSections";
 
 type Props = {
   /** "sidebar" fills the width of the left pane; "header" stays compact beside the title. */
   variant?: "sidebar" | "header";
-  onOpenSettings?: () => void;
+  onOpenSettings?: (section: SettingsSection) => void;
 };
 
 /** Who is signed in, and everything that belongs to them: settings and the way out. */
@@ -37,7 +39,9 @@ export function StaffMenu({ variant = "header", onOpenSettings }: Props) {
   if (!user) return null;
 
   const inSidebar = variant === "sidebar";
-  const canManageStaff = user.isAdmin && onOpenSettings !== undefined;
+  // Each page of Settings is its own entry, so the menu says what is there instead of
+  // hiding two pages behind a third one's name.
+  const entries = onOpenSettings ? sectionsFor(user.isAdmin) : [];
 
   return (
     <div ref={menuRef} className={`relative ${inSidebar ? "w-full" : ""}`}>
@@ -71,22 +75,25 @@ export function StaffMenu({ variant = "header", onOpenSettings }: Props) {
             inSidebar ? "bottom-full left-0 mb-2" : "right-0 mt-2",
           ].join(" ")}
         >
-          {canManageStaff ? (
+          {entries.length ? (
             <>
               <p className="px-2 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-[#8a94a4]">
                 Settings
               </p>
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  setIsOpen(false);
-                  onOpenSettings?.();
-                }}
-                className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm text-[#344054] hover:bg-[#f2f7fb]"
-              >
-                <Users size={15} aria-hidden="true" /> Users
-              </button>
+              {entries.map(({ section, label, Icon }) => (
+                <button
+                  key={section}
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setIsOpen(false);
+                    onOpenSettings?.(section);
+                  }}
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm text-[#344054] hover:bg-[#f2f7fb]"
+                >
+                  <Icon size={15} aria-hidden="true" /> {label}
+                </button>
+              ))}
               <div className="my-1 border-t border-[#edf0f4]" />
             </>
           ) : null}

@@ -17,7 +17,7 @@ import { StudentDatabase } from "@/components/StudentDatabase";
 import { useStaffUser } from "@/components/useStaffUser";
 import { appsFor } from "@/routes/apps";
 import { handbookUrl } from "@/routes/handbookRoute";
-import { ToolId, toolFromLocation } from "@/routes/toolRoute";
+import { ToolId, toolFromLocation, type SettingsSection } from "@/routes/toolRoute";
 import { getRun, isRunning, subscribe } from "@/services/syncRun";
 import {
   BatchRosterPreview,
@@ -109,6 +109,11 @@ export function App() {
 
   function openTool(tool: ToolId) {
     window.location.hash = `/${tool}`;
+  }
+
+  /** Settings, opened on the page the menu entry names. */
+  function openSettings(section: SettingsSection) {
+    window.location.hash = `/settings/${section}`;
   }
 
   function openApp(app: ToolId | "handbook") {
@@ -203,7 +208,7 @@ export function App() {
               * so the account is reachable there and duplicated nowhere else.
               */}
             <div className="lg:hidden">
-              <StaffMenu onOpenSettings={() => openTool("settings")} />
+              <StaffMenu onOpenSettings={openSettings} />
             </div>
           </div>
         </div>
@@ -211,7 +216,7 @@ export function App() {
 
       {isPicker ? (
         <div className="flex min-h-0 flex-1">
-          <AppSidebar onOpen={openApp} onOpenSettings={() => openTool("settings")} />
+          <AppSidebar onOpen={openApp} onOpenSettings={openSettings} />
           <div className="min-w-0 flex-1 overflow-y-auto">
             <AppWelcome search={appSearch} onSearch={setAppSearch} onOpen={openApp} />
           </div>
@@ -297,7 +302,7 @@ export function App() {
             </div>
           )}
         </section>
-      </div> : activeTool === "database" ? <StudentDatabase onOpenSettings={() => openTool("settings")} /> : <div className="min-h-0 flex-1"><SyllabusBuilder /></div>}
+      </div> : activeTool === "database" ? <StudentDatabase onOpenSettings={openSettings} /> : <div className="min-h-0 flex-1"><SyllabusBuilder /></div>}
     </main>
   );
 }

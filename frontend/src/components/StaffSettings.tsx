@@ -1,9 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Copy, KeyRound, Loader2, Pencil, Shield, ShieldCheck, Trash2, UserPlus, Users } from "lucide-react";
-import { useState } from "react";
+import { Copy, Loader2, Pencil, Shield, ShieldCheck, Trash2, UserPlus } from "lucide-react";
+import { useEffect, useState } from "react";
 
+import { ChecksPanel } from "@/components/ChecksPanel";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { COORDINATOR_APPS, type AppId } from "@/routes/apps";
+import type { SettingsSection } from "@/routes/toolRoute";
+import { sectionFrom, sectionsFor } from "@/services/settingsSections";
 import { useStaffUser } from "@/components/useStaffUser";
 import {
   type ApiToken,
@@ -21,12 +24,31 @@ import {
 } from "@/services/staffDirectory";
 
 /**
- * Settings for the application itself: who may sign in, and the tokens a coordinator
- * makes so a program can act as them. The people named in COORDINATOR_ACCESS_EMAILS are
- * shown but not editable — they are the way back in if the list is ever emptied.
+ * Settings for the application itself: who may sign in, the tokens a coordinator makes so
+ * a program can act as them, and the checks that decide what everybody is warned about.
+ * The people named in COORDINATOR_ACCESS_EMAILS are shown but not editable — they are the
+ * way back in if the list is ever emptied.
+ *
+ * Each page has its own entry in the account menu and its own address, so the menu says
+ * what is here rather than hiding two pages behind the first one's name, and a link to the
+ * checks opens the checks. A coordinator who is not an administrator is offered only what
+ * they may use: the checks, to read.
  */
 export function StaffSettings() {
-  const [page, setPage] = useState<"users" | "tokens">("users");
+  const user = useStaffUser();
+  const isAdmin = Boolean(user?.isAdmin);
+  const offered = sectionsFor(isAdmin);
+  const [page, setPage] = useState<SettingsSection>(() => sectionFrom(window.location.hash, isAdmin));
+  useEffect(() => {
+    const follow = () => setPage(sectionFrom(window.location.hash, isAdmin));
+    follow();
+    window.addEventListener("hashchange", follow);
+    return () => window.removeEventListener("hashchange", follow);
+  }, [isAdmin]);
+  const open = (next: SettingsSection) => {
+    window.history.replaceState(null, "", `#/settings/${next}`);
+    setPage(next);
+  };
   const tab = (active: boolean) =>
     `-mb-px inline-flex items-center gap-2 border-b-2 px-3 py-2 text-sm font-semibold ${
       active ? "border-[#1f4e79] text-[#1f4e79]" : "border-transparent text-[#667085] hover:text-[#1f4e79]"
@@ -37,21 +59,44 @@ export function StaffSettings() {
       <header>
         <h2 className="text-2xl font-semibold tracking-tight text-[#171717]">Settings</h2>
         <p className="mt-2 text-sm leading-6 text-[#667085]">
-          Who can sign in to Academic Coordinator Tools, and what they may do here.
+          {isAdmin
+            ? "Who can sign in to Academic Coordinator Tools, what they may do here, and what the application warns about."
+            : "What the application warns about, and how big a thing has to be before it does."}
         </p>
       </header>
 
-      <nav className="mt-6 flex gap-1 border-b border-[#d9dee7]">
-        <button type="button" onClick={() => setPage("users")} className={tab(page === "users")}>
-          <Users size={15} aria-hidden="true" /> Users
-        </button>
-        <button type="button" onClick={() => setPage("tokens")} className={tab(page === "tokens")}>
-          <KeyRound size={15} aria-hidden="true" /> API tokens
-        </button>
-      </nav>
+      {/* One page on offer needs no tabs to choose between. */}
+      {offered.length > 1 ? (
+        <nav className="mt-6 flex gap-1 border-b border-[#d9dee7]">
+          {offered.map(({ section, label, Icon }) => (
+            <button key={section} type="button" onClick={() => open(section)} className={tab(page === section)}>
+              <Icon size={15} aria-hidden="true" /> {label}
+            </button>
+          ))}
+        </nav>
+      ) : null}
 
-      {page === "users" ? <StaffDirectory /> : <ApiTokens />}
+      {page === "users" ? <StaffDirectory /> : page === "tokens" ? <ApiTokens /> : <AppChecks />}
     </div>
+  );
+}
+
+/**
+ * Every check the department runs, in one place, and an administrator's to change.
+ *
+ * Switching a check off hides a warning from every coordinator, so it is decided once,
+ * here, by somebody entitled to decide it for everybody. Everybody else can read it.
+ */
+function AppChecks() {
+  const user = useStaffUser();
+  return (
+    <section className="mt-6 max-w-2xl">
+      <p className="mb-4 text-sm leading-6 text-[#667085]">
+        Which warnings the application raises, and how big a thing has to be before it does. They apply to the whole
+        department and save as you change them.
+      </p>
+      <ChecksPanel canChange={Boolean(user?.isAdmin)} />
+    </section>
   );
 }
 

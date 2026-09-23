@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { StaffSettings } from "@/components/StaffSettings";
 import { StaffContext } from "@/components/useStaffUser";
+import * as lists from "@/services/portalLists";
 import * as directory from "@/services/staffDirectory";
 
 const ADMIN = { email: "coordinator@sorbonne.ae", name: "Coordinator", isAdmin: true };
@@ -30,6 +31,8 @@ function renderSettings(user = ADMIN) {
 }
 
 beforeEach(() => {
+  window.history.replaceState(null, "", "#/settings");
+  vi.spyOn(lists, "fetchChecks").mockResolvedValue([]);
   vi.spyOn(directory, "fetchStaffList").mockResolvedValue({
     accounts: [COLLEAGUE],
     owners: [{ email: ADMIN.email, name: ADMIN.email }],
@@ -104,11 +107,47 @@ describe("StaffSettings", () => {
     expect((await screen.findByRole("alert")).textContent).toContain("You cannot change your own access here.");
   });
 
-  it("is closed to a coordinator who does not administer the application", async () => {
+  it("offers a coordinator who does not administer the application only the checks, to read", async () => {
     renderSettings({ ...ADMIN, isAdmin: false });
 
-    expect(await screen.findByText(/Only an administrator can manage who may sign in/)).toBeTruthy();
+    expect(await screen.findByText(/What the application warns about/)).toBeTruthy();
+    // One page on offer needs no tabs, and the pages they may not use are not dangled.
+    expect(screen.queryByRole("button", { name: /Users/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /API tokens/ })).toBeNull();
     expect(directory.fetchStaffList).not.toHaveBeenCalled();
+  });
+
+  it("does not open the users to somebody sent a link to them who is not an administrator", async () => {
+    window.history.replaceState(null, "", "#/settings/users");
+    renderSettings({ ...ADMIN, isAdmin: false });
+
+    await waitFor(() => expect(lists.fetchChecks).toHaveBeenCalled());
+    expect(directory.fetchStaffList).not.toHaveBeenCalled();
+  });
+});
+
+/*
+ * The menu used to offer one entry, Users, and the other two pages were tabs inside it —
+ * so the menu hid two pages behind the first one's name. Each has its own entry and its
+ * own address now, and the page opens on whichever was asked for.
+ */
+describe("which page of Settings is open", () => {
+  it("is the one the address names", async () => {
+    window.history.replaceState(null, "", "#/settings/checks");
+    renderSettings();
+
+    await waitFor(() => expect(lists.fetchChecks).toHaveBeenCalled());
+    expect(directory.fetchStaffList).not.toHaveBeenCalled();
+  });
+
+  it("offers an administrator all three, and writes the choice into the address", async () => {
+    renderSettings();
+
+    fireEvent.click(await screen.findByRole("button", { name: /Checks/ }));
+
+    expect(window.location.hash).toBe("#/settings/checks");
+    expect(screen.getByRole("button", { name: /Users/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /API tokens/ })).toBeTruthy();
   });
 });
 
