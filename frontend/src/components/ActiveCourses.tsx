@@ -1,8 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, BookPlus, Link2Off, Plus, SlidersHorizontal, Trash2 } from "lucide-react";
+import { AlertTriangle, BookPlus, Link2Off, Plus, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
-import { ChecksPanel } from "@/components/ChecksPanel";
 import { CourseRecord } from "@/components/CourseRecord";
 import { CrnRecord } from "@/components/CrnRecord";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -124,7 +123,6 @@ export function ActiveCourses({ onShowStudents }: { onShowStudents?: (ids: strin
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<ActiveCrn | null>(null);
   const [confirmRemove, setConfirmRemove] = useState(false);
-  const [settingChecks, setSettingChecks] = useState(false);
   /** Which course's record is open over the list, if any. */
   const [showingCourse, setShowingCourse] = useState("");
 
@@ -295,15 +293,6 @@ export function ActiveCourses({ onShowStudents }: { onShowStudents?: (ids: strin
                     <SelectMenu label="Term" value={term} onChange={setTerm} options={terms.map((code) => ({ value: code, label: code }))} />
                   </div>
                 ) : null}
-                {/* The department's answer, since this page is not a cohort's. A cohort
-                    that wants a different one says so in its own rules dialog. */}
-                <button
-                  type="button"
-                  onClick={() => setSettingChecks(true)}
-                  className="inline-flex items-center gap-2 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc]"
-                >
-                  <SlidersHorizontal size={15} aria-hidden="true" /> Checks
-                </button>
                 <button
                   type="button"
                   onClick={() => {
@@ -330,15 +319,6 @@ export function ActiveCourses({ onShowStudents }: { onShowStudents?: (ids: strin
           {showingCourse ? (
             <CourseRecord open courseCode={showingCourse} onClose={() => setShowingCourse("")} />
           ) : null}
-
-          <Modal
-            open={settingChecks}
-            title="Checks"
-            description="What the department looks for beyond its register. These save as you change them, and apply to every cohort unless one says otherwise in its own rules."
-            onClose={() => setSettingChecks(false)}
-          >
-            <ChecksPanel />
-          </Modal>
 
           <p className="mt-2 text-xs text-[#98a2b3]">
             {(courses.data ?? []).length} course{(courses.data ?? []).length === 1 ? "" : "s"} on the department&apos;s list,

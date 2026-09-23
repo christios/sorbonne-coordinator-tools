@@ -52,3 +52,27 @@ def test_every_check_says_what_its_threshold_counts_or_has_none():
     for check in CHECKS:
         assert bool(check.measures) == bool(check.threshold), check.name
     assert set(BY_NAME) == {check.name for check in CHECKS}
+
+
+def test_every_check_belongs_to_one_page():
+    # One panel listing every check wherever it was opened put a teacher's hours on Cohorts
+    # and a student's timetable on Teacher hours. A check with no home is back to that.
+    assert {check.home for check in CHECKS} <= {"cohorts", "teacher-hours", "settings"}
+    assert BY_NAME["collision"].home == "cohorts"
+    assert BY_NAME["teacher_hours_apart"].home == "teacher-hours"
+    assert BY_NAME["portal_sync_age"].home == "settings"
+
+
+def test_only_a_check_about_students_can_be_answered_per_cohort():
+    assert [check.name for check in CHECKS if check.per_cohort] == ["collision"]
+
+
+def test_a_cohort_row_left_on_a_department_check_moves_nothing():
+    """Written while every panel offered every check; ignored now rather than deleted."""
+    rows = [
+        {"name": "teacher_hours_apart", "cohort_id": "", "enabled": True, "threshold": 2},
+        {"name": "teacher_hours_apart", "cohort_id": "c1", "enabled": False, "threshold": 0},
+    ]
+
+    assert settled(rows, cohort_id="c1")["teacher_hours_apart"].enabled is True
+

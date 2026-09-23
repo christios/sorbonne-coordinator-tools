@@ -15,8 +15,9 @@
  * to be done about it anyway. The age stays in the header for the rest of the day, where
  * it always was.
  *
- * How old is too old belongs to the department, on the Checks panel with the others, which
- * is also where it can be switched off while the portal is out.
+ * How old is too old belongs to the department. It is asked of every student page at once,
+ * so no one page owns it: it is set in Settings, which is also where it can be switched off
+ * while the portal is out.
  */
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -139,7 +140,7 @@ export function StaleSyncWarning() {
         </p>
       ) : null}
       <p className="mt-3 text-xs text-[#98a2b3]">
-        How old is too old is set on Active CRNs, under Checks — including turning this off while the portal is down.
+        How old is too old is set in Settings, under Checks — including turning this off while the portal is down.
       </p>
     </Modal>
   );

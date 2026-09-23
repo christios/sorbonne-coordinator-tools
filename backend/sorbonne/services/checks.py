@@ -27,6 +27,14 @@ class Check:
     #: What the threshold counts, for the panel to put beside the box. Empty when the
     #: check has no size to it and the number is meaningless.
     measures: str
+    #: The page whose question this is, and so the only page that offers it. One panel
+    #: listing every check wherever it was opened put a teacher's hours on Cohorts and a
+    #: student's timetable on Teacher hours, each beside things it had nothing to do with.
+    home: str
+    #: Whether a cohort may answer differently from the department. Only a check that is
+    #: about students can: a cohort has no view on how far apart a teacher's hours are, and
+    #: an override nothing reads is a setting that silently does nothing.
+    per_cohort: bool = False
     enabled: bool = True
     threshold: int = 0
 
@@ -36,12 +44,15 @@ CHECKS: tuple[Check, ...] = (
         name="collision",
         title="A student in one of our sections and another department's at the same hour",
         measures="minutes of overlap",
+        home="cohorts",
+        per_cohort=True,
         threshold=30,
     ),
     Check(
         name="teacher_hours_apart",
         title="A teacher's hours disagreeing between the places they are written",
         measures="hours apart",
+        home="teacher-hours",
         # Two hours, because the small differences are all explainable and none of them is
         # worth a pill: a class that ran short, a half-hour of cover, a rounding on a
         # requisition. Below this the column would be a wall of warnings nobody acts on,
@@ -52,6 +63,8 @@ CHECKS: tuple[Check, ...] = (
         name="portal_sync_age",
         title="Portal data old enough that the pages should not be trusted",
         measures="hours old",
+        # Every student page reads the portal, so no one of them owns this.
+        home="settings",
         # Eight, so a morning's work is answered by a morning's sync: the registrar moves
         # sections, staff and registrations during the working day, and a page read at four
         # o'clock from a pull taken the previous afternoon is a page quietly answering
@@ -85,6 +98,11 @@ def settled(rows: list[dict], cohort_id: str = "") -> dict[str, Setting]:
         if name not in found:
             continue
         if row.get("cohort_id") not in ("", cohort_id):
+            continue
+        # A cohort's answer to a question that is not a cohort's. Such rows could be written
+        # while every panel offered every check; they are ignored rather than deleted, so
+        # nothing anybody typed is destroyed, and they cannot move a number.
+        if row.get("cohort_id") and not BY_NAME[name].per_cohort:
             continue
         found[name] = Setting(bool(row.get("enabled", True)), int(row.get("threshold") or 0))
     return found

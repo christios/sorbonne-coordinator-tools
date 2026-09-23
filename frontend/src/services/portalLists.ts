@@ -554,6 +554,9 @@ export function removeActiveCrn(crnId: string): Promise<void> {
  * default before anybody has opened the panel. So `enabled` and `threshold` are always the
  * answer in force, and the `default…` pair is what it would be if nobody had said.
  */
+/** The page a check belongs to, which is the only page that offers it. */
+export type CheckHome = "cohorts" | "teacher-hours" | "settings";
+
 export type Check = {
   name: string;
   title: string;
@@ -563,6 +566,9 @@ export type Check = {
   threshold: number;
   defaultEnabled: boolean;
   defaultThreshold: number;
+  home: CheckHome;
+  /** Whether a cohort may answer differently from the department — only checks about students. */
+  perCohort: boolean;
 };
 
 export async function fetchChecks(cohortId = ""): Promise<Check[]> {

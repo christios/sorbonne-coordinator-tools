@@ -18,9 +18,11 @@ from sorbonne.api import portal as api
 from sorbonne.api import student_database as student_api
 from sorbonne.api import teachers as teachers_api
 from sorbonne.main import app
+from sorbonne.services import auth_gate
 from sorbonne.services.facility_timetable import FacilityTimetableStore
 from sorbonne.services.portal_lists import _SECTION_TITLE, _expected_on, named, names_agree, PortalListStore
 from sorbonne.services.session_changes import SessionChangeStore
+from sorbonne.services.staff_auth import StaffUser
 from sorbonne.services.student_database import StudentDatabase
 from sorbonne.services.teacher_store import TeacherStore
 from tests.conftest import TEST_DATABASE_URL
@@ -2326,6 +2328,39 @@ def test_the_panel_lists_what_the_code_knows_with_the_answer_that_applies(client
     [collision] = [check for check in listed if check["name"] == "collision"]
     assert collision["measures"] == "minutes of overlap"
     assert (collision["enabled"], collision["threshold"]) == (True, 30)
+    # And where it belongs, so a page offers its own checks and nobody else's.
+    assert (collision["home"], collision["perCohort"]) == ("cohorts", True)
+
+
+def test_only_an_administrator_can_change_a_check(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    """Switching a check off hides a warning from the whole department."""
+    monkeypatch.setattr(
+        auth_gate,
+        "user_for_request",
+        lambda *_args, **_kwargs: StaffUser(email="coordinator@sorbonne.ae", name="Coordinator", is_admin=False),
+    )
+
+    refused = client.put(f"{BASE}/checks/collision", json={"enabled": False, "threshold": 0})
+
+    assert refused.status_code == status.HTTP_403_FORBIDDEN
+    assert "administrator" in refused.json()["detail"]
+    assert client.delete(f"{BASE}/checks/collision").status_code == status.HTTP_403_FORBIDDEN
+    # Seeing them is anybody's: a coordinator not told why something is quiet assumes it is broken.
+    assert client.get(f"{BASE}/checks").status_code == status.HTTP_200_OK
+
+
+def test_a_cohort_cannot_answer_a_question_that_is_not_a_cohorts(client: TestClient):
+    """A cohort has no view on how far apart a teacher's hours are.
+
+    Every panel used to offer every check, so the Cohorts rules offered one; the override
+    was stored, nothing read it, and the setting silently did nothing.
+    """
+    answer = client.put(
+        f"{BASE}/checks/teacher_hours_apart", json={"enabled": False, "threshold": 0, "cohortId": "cohort-1"}
+    )
+
+    assert answer.status_code == status.HTTP_400_BAD_REQUEST
+    assert "department's" in answer.json()["detail"]
 
 
 # ------------------------------------------- the registrar's timetable, read back

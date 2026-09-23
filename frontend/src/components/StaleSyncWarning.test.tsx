@@ -16,6 +16,8 @@ const CHECK: lists.Check = {
   threshold: 8,
   defaultEnabled: true,
   defaultThreshold: 8,
+  home: "settings",
+  perCohort: false,
 };
 
 const hoursAgo = (hours: number) => Date.now() - hours * 3_600_000;

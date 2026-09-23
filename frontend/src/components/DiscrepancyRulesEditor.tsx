@@ -2,7 +2,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp, Plus, Trash2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 
-import { ChecksPanel } from "@/components/ChecksPanel";
 import { Modal } from "@/components/Modal";
 import { SelectMenu } from "@/components/SelectMenu";
 import { STATUS_FIELD, STATUS_OPTIONS, labelOf, type RuleKind } from "@/services/discrepancies";
@@ -142,23 +141,15 @@ export function DiscrepancyRulesEditor({ open, scope, onClose }: { open: boolean
       }
     >
       {/*
-        * The checks first, and above the rules rather than beside them.
-        *
-        * They are the shorter list and the one a coordinator is likelier to be here for:
-        * a rule is written once a year, a check is switched off the afternoon it starts
-        * shouting. They save on the spot, which is why they sit outside the form the
-        * Save button below belongs to.
+        * The checks used to sit here, above the rules, with a cohort able to answer them
+        * for itself. They are the department's now, in Settings, and an administrator's to
+        * change: switching one off hides a warning from everybody. Said here in one line,
+        * because this is where people will come looking for them.
         */}
-      <section className="mb-5">
-        <h3 className="text-sm font-semibold text-[#344054]">Checks</h3>
-        <p className="mb-2 mt-0.5 text-xs text-[#667085]">
-          What the department looks for, beyond the rules below. These save as you change them.
-        </p>
-        <ChecksPanel
-          cohortId={scope.kind === "cohort" ? scope.cohort.id : ""}
-          cohortName={scope.kind === "cohort" ? scope.cohort.name : ""}
-        />
-      </section>
+      <p className="mb-5 rounded-md border border-[#e4e8ef] bg-[#f8fafc] px-3 py-2 text-xs text-[#667085]">
+        The department&apos;s checks — which warnings run, and how big a thing has to be before one appears — are in
+        Settings, under Checks.
+      </p>
 
       <h3 className="text-sm font-semibold text-[#344054]">Rules</h3>
       <p className="mb-2 mt-0.5 text-xs text-[#667085]">

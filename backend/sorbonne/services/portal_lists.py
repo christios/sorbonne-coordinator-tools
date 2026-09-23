@@ -81,6 +81,10 @@ class UnknownCheck(ValueError):
     """A check name the code does not know. Storing it would hide a row for ever."""
 
 
+class NotACohortsCheck(ValueError):
+    """A cohort's answer to a check that is the department's alone. Nothing would read it."""
+
+
 @dataclass(frozen=True)
 class Mismatch:
     """One way a student's registration differs from the group we placed them in."""
@@ -1562,6 +1566,8 @@ class PortalListStore:
         """
         if name not in BY_NAME:
             raise UnknownCheck(name)
+        if cohort_id and not BY_NAME[name].per_cohort:
+            raise NotACohortsCheck(name)
         with self.engine.begin() as connection:
             connection.execute(
                 text("""INSERT INTO check_settings (name, cohort_id, enabled, threshold, updated_at)

@@ -36,6 +36,7 @@ from sorbonne.services.portal_lists import (
     ActiveCourseNotFound,
     ActiveTeacherNotFound,
     InvalidParent,
+    NotACohortsCheck,
     PortalListStore,
     UnknownCheck,
     UnknownDisposition,
@@ -499,24 +500,50 @@ def list_checks(cohortId: str = "", store: PortalListStore = Depends(get_store))
                 "threshold": settings[check.name].threshold,
                 "defaultEnabled": check.enabled,
                 "defaultThreshold": check.threshold,
+                "home": check.home,
+                "perCohort": check.per_cohort,
             }
             for check in CHECKS
         ]
     }
 
 
+def _only_an_administrator(request: Request) -> None:
+    """The checks decide what every coordinator is warned about, so they are an administrator's.
+
+    Seeing them is anybody's — a coordinator who is not told why something is quiet will
+    assume it is broken — but switching one off hides a warning from the whole department.
+    """
+    if not _is_admin(request):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only an administrator can change the department's checks.",
+        )
+
+
 @router.put("/checks/{name}")
-def set_check(name: str, body: CheckInput, store: PortalListStore = Depends(get_store)) -> dict[str, bool]:
+def set_check(
+    name: str, body: CheckInput, request: Request, store: PortalListStore = Depends(get_store)
+) -> dict[str, bool]:
+    _only_an_administrator(request)
     try:
         store.set_check(name=name, cohort_id=body.cohortId, enabled=body.enabled, threshold=body.threshold)
     except UnknownCheck as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=f"There is no check called {exc}.") from exc
+    except NotACohortsCheck as exc:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail="That check is the department's, not a cohort's, so it cannot be set for one cohort.",
+        ) from exc
     return {"saved": True}
 
 
 @router.delete("/checks/{name}", status_code=status.HTTP_204_NO_CONTENT)
-def clear_check(name: str, cohortId: str = "", store: PortalListStore = Depends(get_store)) -> None:
+def clear_check(
+    name: str, request: Request, cohortId: str = "", store: PortalListStore = Depends(get_store)
+) -> None:
     """Drop a cohort's own answer, so it follows the department's again."""
+    _only_an_administrator(request)
     store.clear_check(name=name, cohort_id=cohortId)
 
 

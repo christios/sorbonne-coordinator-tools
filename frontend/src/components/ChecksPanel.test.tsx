@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ChecksPanel } from "@/components/ChecksPanel";
@@ -13,14 +13,22 @@ const check = (over: Partial<lists.Check> = {}): lists.Check => ({
   threshold: 30,
   defaultEnabled: true,
   defaultThreshold: 30,
+  home: "cohorts",
+  perCohort: true,
   ...over,
 });
 
-function show(props: { cohortId?: string; cohortName?: string } = {}) {
+const REGISTER = [
+  check(),
+  check({ name: "teacher_hours_apart", title: "A teacher's hours disagreeing", measures: "hours apart", threshold: 2, home: "teacher-hours", perCohort: false }),
+  check({ name: "portal_sync_age", title: "Portal data too old", measures: "hours old", threshold: 8, home: "settings", perCohort: false }),
+];
+
+function show(canChange = true) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
-      <ChecksPanel {...props} />
+      <ChecksPanel canChange={canChange} />
     </QueryClientProvider>,
   );
 }
@@ -35,9 +43,7 @@ describe("switching a check off, and giving it a floor", () => {
     show();
     fireEvent.click(await screen.findByRole("checkbox"));
 
-    await waitFor(() =>
-      expect(saved).toHaveBeenCalledWith("collision", { enabled: false, threshold: 30, cohortId: "" }),
-    );
+    await waitFor(() => expect(saved).toHaveBeenCalledWith("collision", { enabled: false, threshold: 30 }));
   });
 
   it("keeps the floor in the units it counts, so the box can be filled in correctly", async () => {
@@ -50,9 +56,7 @@ describe("switching a check off, and giving it a floor", () => {
     fireEvent.change(floor, { target: { value: "45" } });
     fireEvent.blur(floor);
 
-    await waitFor(() =>
-      expect(saved).toHaveBeenCalledWith("collision", { enabled: true, threshold: 45, cohortId: "" }),
-    );
+    await waitFor(() => expect(saved).toHaveBeenCalledWith("collision", { enabled: true, threshold: 45 }));
   });
 
   it("shows no floor at all for a check with no size to it", async () => {
@@ -63,27 +67,47 @@ describe("switching a check off, and giving it a floor", () => {
     expect(await screen.findByRole("checkbox")).toBeTruthy();
     expect(screen.queryByLabelText(/Fewest/)).toBeNull();
   });
+});
 
-  it("offers a cohort its way back to the department's answer, and only when it has left it", async () => {
-    /*
-     * A cohort agreeing with the department is following it whether or not it has a row,
-     * so the offer appears where it would change something and nowhere else.
-     */
-    vi.spyOn(lists, "fetchChecks").mockResolvedValue([check({ threshold: 90 })]);
-    const followed = vi.spyOn(lists, "clearCheck").mockResolvedValue(undefined);
+/*
+ * Every check in one place, grouped by the page its warning appears on — because a title
+ * alone does not say where, and an administrator thinks "what does Teacher hours warn
+ * about", not "what is the register's second entry".
+ */
+describe("the whole register, in one place", () => {
+  it("lists every check under the page it speaks on", async () => {
+    vi.spyOn(lists, "fetchChecks").mockResolvedValue(REGISTER);
 
-    show({ cohortId: "c1", cohortName: "L3-S1" });
-    fireEvent.click(await screen.findByRole("button", { name: /Follow the department again/ }));
+    show();
 
-    await waitFor(() => expect(followed).toHaveBeenCalledWith("collision", "c1"));
+    expect(within(await screen.findByRole("list", { name: "Checks on Cohorts" })).getByText(/another department's/)).toBeTruthy();
+    expect(within(screen.getByRole("list", { name: "Checks on Teacher hours" })).getByText("A teacher's hours disagreeing")).toBeTruthy();
+    expect(within(screen.getByRole("list", { name: "Checks on Every student page" })).getByText("Portal data too old")).toBeTruthy();
+  });
+});
+
+describe("somebody who is not an administrator", () => {
+  it("can read every check, and change none of them", async () => {
+    // Seeing them is anybody's — a coordinator not told why something is quiet assumes it
+    // is broken — but switching one off hides a warning from the whole department.
+    vi.spyOn(lists, "fetchChecks").mockResolvedValue(REGISTER);
+    const saved = vi.spyOn(lists, "setCheck").mockResolvedValue(undefined);
+
+    show(false);
+
+    expect(await screen.findByText(/Only an administrator can change these/)).toBeTruthy();
+    for (const box of screen.getAllByRole("checkbox")) expect((box as HTMLInputElement).disabled).toBe(true);
+    for (const floor of screen.getAllByLabelText(/Fewest/)) expect((floor as HTMLInputElement).disabled).toBe(true);
+    fireEvent.click(screen.getAllByRole("checkbox")[0]);
+    expect(saved).not.toHaveBeenCalled();
   });
 
-  it("says nothing about following along when the cohort already agrees", async () => {
-    vi.spyOn(lists, "fetchChecks").mockResolvedValue([check()]);
+  it("is not told about administrators when they are one", async () => {
+    vi.spyOn(lists, "fetchChecks").mockResolvedValue(REGISTER);
 
-    show({ cohortId: "c1", cohortName: "L3-S1" });
+    show(true);
 
-    expect(await screen.findByRole("checkbox")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /Follow the department/ })).toBeNull();
+    await screen.findAllByRole("checkbox");
+    expect(screen.queryByText(/Only an administrator/)).toBeNull();
   });
 });

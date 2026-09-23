@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp, Download, RotateCcw, SlidersHorizontal, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Download, RotateCcw, X } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { HourWindowPicker } from "@/components/HourWindowPicker";
@@ -7,7 +7,6 @@ import { LabelledPicker } from "@/components/LabelledPicker";
 import { ListGrid, StatePill } from "@/components/ListGrid";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { SelectMenu } from "@/components/SelectMenu";
-import { ChecksPanel } from "@/components/ChecksPanel";
 import { CommentThread } from "@/components/CommentThread";
 import { CommentPeek } from "@/components/CommentPeek";
 import { Modal } from "@/components/Modal";
@@ -129,7 +128,6 @@ export function TeacherHours({ onOpenTeacher }: { onOpenTeacher?: (teacher: Teac
   const opensOn = opensOnFor(cycles.data?.cycles ?? {}, chosenTerm, cycles.data?.default ?? PERIOD_OPENS_ON);
   const [chosenWindow, setWindow] = useState<HourWindow>(WHOLE_SEMESTER);
   const [commentingOn, setCommentingOn] = useState<{ id: string; label: string } | null>(null);
-  const [settingChecks, setSettingChecks] = useState(false);
   /*
    * The other three places a teacher's hours are written down, so the column can tell
    * whether they agree: their requisitions, the sheets the timesheets app has approved,
@@ -278,19 +276,6 @@ export function TeacherHours({ onOpenTeacher }: { onOpenTeacher?: (teacher: Teac
           <HourWindowPicker window={chosenWindow} periods={periods} onChange={setWindow} />
         </div>
         {/*
-          * The panel lives on Active CRNs, where the department's other checks are set.
-          * A coordinator reading a warning here should not have to know that: "two hours
-          * apart" is a question about this page, and it is answered where it is asked.
-          */}
-        <button
-          type="button"
-          onClick={() => setSettingChecks(true)}
-          className="inline-flex h-9 items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-3 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]"
-        >
-          <SlidersHorizontal size={15} aria-hidden="true" />
-          Checks
-        </button>
-        {/*
           * The file a meeting is held around. It is the table on screen — these columns,
           * in this order — laid out a pay period to a sheet, with a master sheet that
           * adds them up by formula rather than by having been right once.
@@ -305,15 +290,6 @@ export function TeacherHours({ onOpenTeacher }: { onOpenTeacher?: (teacher: Teac
           {exporting ? "Building…" : "Export"}
         </button>
       </div>
-
-      <Modal
-        open={settingChecks}
-        title="Checks"
-        description="What the department looks for beyond its register. These save as you change them."
-        onClose={() => setSettingChecks(false)}
-      >
-        <ChecksPanel />
-      </Modal>
 
       {commentingOn ? (
         <Modal
