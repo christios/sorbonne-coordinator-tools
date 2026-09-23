@@ -12,9 +12,12 @@ import { API_BASE_URL, apiFetch } from "@/services/http";
  * so it is not in a production build at all, and the route it calls is only mounted when
  * the server's own database is on localhost. Either alone would do; both is cheap.
  *
- * It replaces rather than merges, because two copies of a cohort are indistinguishable on
- * screen and there is no sensible way to merge them. That is destructive to whatever is on
- * this laptop, which is why it asks first.
+ * It replaces rather than merges: every table on this laptop becomes production's, row for
+ * row and id for id, so a page on this machine shows what the same page shows in
+ * production. It used to copy a feature at a time and silently left half the schema
+ * behind — dismissals, cancellations, comments, tasks, syllabi — which on screen looked
+ * like bugs in the pages. That is destructive to whatever is on this laptop, which is why
+ * it asks first.
  */
 export function CopyProdButton() {
   const client = useQueryClient();
@@ -26,7 +29,7 @@ export function CopyProdButton() {
       const answer = await apiFetch(`${API_BASE_URL}/api/v1/dev/copy-from-production`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ replace: true, teachers: false }),
+        body: JSON.stringify({}),
       });
       /*
        * Read the body once, as text. A Response can only be consumed once, so asking for
@@ -35,17 +38,14 @@ export function CopyProdButton() {
        * about the address, so say the status rather than let the parser speak.
        */
       const text = await answer.text();
-      const body = (text ? JSON.parse(text) : {}) as { detail?: string } & Record<string, number>;
+      const body = (text ? JSON.parse(text) : {}) as { detail?: string; tables?: Record<string, number>; rows?: number };
       if (!answer.ok) throw new Error(body.detail ?? `The API answered ${answer.status} and said nothing.`);
       return body;
     },
     onSettled: () => setAsking(false),
     onSuccess: (report) => {
-      setDone(
-        `${report.cohorts} cohorts, ${report.students} students, ${report.placements} placements, ` +
-          `${report.sections} sections with a request, ${report.rules} rules, ` +
-          `${report.exemptions} exemptions.`,
-      );
+      const tables = Object.keys(report.tables ?? {}).length;
+      setDone(`${tables} tables, ${(report.rows ?? 0).toLocaleString()} rows — exactly as production holds them.`);
       // Everything on screen was read from the database this just replaced.
       client.invalidateQueries();
     },
@@ -74,7 +74,7 @@ export function CopyProdButton() {
         open={asking}
         busy={copy.isPending}
         title="Replace this machine's data with production's?"
-        description="Every cohort, set, group, placement and rule on this laptop is deleted and replaced with what production holds. Nothing is written to production. Staff names are not copied."
+        description="Every table on this laptop is emptied and filled with production's — students, cohorts, teachers and their contact details, dismissals, comments, tasks, syllabi and users. Nothing is written to production, and API tokens stay behind."
         confirmLabel="Copy production"
         onConfirm={() => copy.mutate()}
         onClose={() => setAsking(false)}

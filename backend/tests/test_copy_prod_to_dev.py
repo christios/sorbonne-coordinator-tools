@@ -1,4 +1,11 @@
-"""The one hazard in the copy script is a mis-set target, so that is what is pinned."""
+"""Copy prod: every table travels, nothing is translated, and it only ever writes here.
+
+The copy used to be a step per feature, and the survey that replaced it found half the
+schema missing — each absence looking, on a developer's screen, like a bug in a page. What
+is pinned now is the three things that matter: it cannot write anywhere but a developer's
+own database, a table nobody has decided about fails the build, and what arrives is what
+left, row for row.
+"""
 
 from __future__ import annotations
 
@@ -6,12 +13,33 @@ import importlib.util
 from pathlib import Path
 
 import pytest
+from fastapi import status
+from fastapi.testclient import TestClient
+from sqlalchemy import inspect, text
+
+from sorbonne.api import export as export_api
+from sorbonne.main import app
+from sorbonne.services import auth_gate
+from sorbonne.services.engine import engine_for
+from sorbonne.services.staff_auth import StaffUser
+from sorbonne.services.table_copy import (
+    EXCLUDED,
+    SchemaMismatch,
+    copied_tables,
+    export_table,
+    load_tables,
+    revision,
+)
+from tests.conftest import TEST_DATABASE_URL
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "copy_prod_to_dev.py"
 spec = importlib.util.spec_from_file_location("copy_prod_to_dev", SCRIPT)
 copy = importlib.util.module_from_spec(spec)
 assert spec.loader is not None
 spec.loader.exec_module(copy)
+
+
+# ---------------------------------------------------------------- where it writes
 
 
 @pytest.mark.parametrize("url", ["http://localhost:8000", "http://127.0.0.1:8000", "http://[::1]:8000"])
@@ -26,12 +54,20 @@ def test_it_writes_to_this_machine(url: str):
         # Starts with the right letters and is not this machine. A prefix check passes it.
         "http://localhost.example.com/api",
         "http://10.0.0.4:8000",
+        "postgresql+psycopg://user@db.neon.tech/sorbonne",
         "",
     ],
 )
 def test_it_refuses_to_write_to_anything_but_a_local_database(url: str):
     with pytest.raises(copy.Refused):
         copy.local_only(url)
+
+
+def test_it_refuses_the_database_the_tests_empty():
+    # One pytest run would destroy the copy, and the copy would destroy the tests' data.
+    with pytest.raises(copy.Refused, match="sorbonne_test"):
+        copy.local_database("postgresql+psycopg://localhost:5432/sorbonne_test")
+    assert copy.local_database("postgresql+psycopg://localhost:5432/sorbonne")
 
 
 def test_it_never_names_the_token_in_what_it_raises():
@@ -42,600 +78,192 @@ def test_it_never_names_the_token_in_what_it_raises():
     assert "SORBONNE_TOKEN=" not in str(refusal.value)
 
 
-class Recorder:
-    """A local API that hands back ids and remembers what it was asked to write."""
-
-    def __init__(self) -> None:
-        self.calls: list[tuple[str, dict, str]] = []
-        self.next = 0
-
-    def __call__(self, path: str, body: dict, method: str = "POST") -> dict:
-        self.calls.append((path, body, method))
-        self.next += 1
-        return {"id": f"local-{self.next}"}
-
-    def one(self, method: str, contains: str) -> dict:
-        found = [body for path, body, sent in self.calls if sent == method and contains in path]
-        assert len(found) == 1, f"{len(found)} {method}s matching {contains}"
-        return found[0]
+# ------------------------------------------------------------- what travels
 
 
-def catalogue() -> list[dict]:
-    """One set with a section that carries a request, and a nested set inside it."""
-    return [
-        {
-            "id": "p-scope", "code": "TD", "kind": "shared", "termId": "p-term",
-            "tab": "TD", "groupColumn": "Main group", "columnIndex": 5, "courses": [
-                {"id": "p-course", "code": "MATH-100", "name": "Analysis", "component": "TD"},
-            ],
-            "groups": [
-                {
-                    "id": "p-group", "label": "TD 1", "capacity": 24,
-                    "crns": {
-                        "p-course": {
-                            "crn": "23634", "teacher": "Amira Haddad", "teacherId": "t-7",
-                            "hours": "24", "duration": "2h", "anticipated": 30,
-                            "constraints": "not before 10", "retired": False,
-                            # Said about nothing, and so not worth a field in the request.
-                            "comments": "", "roomPref": "", "weeks": "", "sessionsPerWeek": "",
-                            "dayPref": "", "timePref": "",
-                        }
-                    },
-                }
-            ],
-        },
-        {
-            "id": "p-nested", "code": "TP", "kind": "nested", "parentScopeId": "p-scope",
-            "termId": "p-term", "courses": [],
-            "groups": [{"id": "p-sub", "label": "TP a", "parentGroupId": "p-group", "crns": {}}],
-        },
-    ]
+def test_every_table_is_copied_or_left_behind_on_purpose():
+    """The test that stops Copy prod quietly falling behind the schema again.
 
-
-def test_a_section_arrives_with_the_request_on_it_and_not_only_its_crn():
-    """The CRN is the cell; the request is everything the timetabler asked for.
-
-    Copying the CRN alone left production's confirmed teachers, hours, anticipated sizes
-    and constraints behind, so a copy read "Not confirmed" for every teacher on it.
+    A table added by a migration travels automatically. The only way one can fail to is to
+    be named in EXCLUDED — with a reason — so a table nobody has thought about cannot be
+    missing from a developer's copy without somebody having decided it should be.
     """
-    write = Recorder()
+    engine = engine_for(TEST_DATABASE_URL)
+    schema = set(inspect(engine).get_table_names())
 
-    requests = copy._copy_catalogue(
-        write, catalogue(), "here", {"p-term": "local-term"}, {}, None, None, {"t-7": "here-7"}
+    assert set(copied_tables(engine)) | set(EXCLUDED) == schema
+    # And nothing is excluded that no longer exists, which would be a reason about nothing.
+    assert set(EXCLUDED) <= schema
+    assert all(reason.strip() for reason in EXCLUDED.values())
+
+
+def test_the_things_the_survey_found_missing_now_travel():
+    engine = engine_for(TEST_DATABASE_URL)
+    travelling = set(copied_tables(engine))
+
+    for name in (
+        "warning_dismissals",
+        "session_changes",
+        "facility_meeting_changes",
+        "student_comments",
+        "teacher_comments",
+        "student_history",
+        "course_approvals",
+        "portal_courses",
+        "portal_teachers",
+        "student_registrations",
+        "tasks",
+        "syllabi",
+        "coordinator_accounts",
+        "account_apps",
+        "part_time_teachers",
+        "pushed_time_sheets",
+        "term_pay_cycles",
+    ):
+        assert name in travelling, name
+
+
+def test_credentials_stay_behind():
+    engine = engine_for(TEST_DATABASE_URL)
+
+    assert "api_tokens" not in copied_tables(engine)
+    with pytest.raises(KeyError):
+        export_table(engine, "api_tokens")
+
+
+# ------------------------------------------------------------ what arrives
+
+
+@pytest.fixture
+def seeded():
+    """A few rows of every awkward kind: JSON, a timestamp, a self-numbering column, and a
+    folder tree whose child sorts before its parent."""
+    engine = engine_for(TEST_DATABASE_URL)
+    with engine.begin() as connection:
+        for name in ("warning_dismissals", "student_history", "portal_filters", "term_pay_cycles"):
+            connection.execute(text(f'DELETE FROM "{name}"'))  # noqa: S608
+        connection.execute(text("UPDATE syllabi SET folder_id = NULL"))
+        connection.execute(text("DELETE FROM syllabus_folders"))
+        connection.execute(
+            text("""INSERT INTO warning_dismissals (key, dismissed_by_email, dismissed_by_name, dismissed_at)
+                    VALUES ('group|A00025138|g1', 'c@sorbonne.ae', 'Christian', '2026-09-17T06:48:58+00:00')""")
+        )
+        connection.execute(
+            text("""INSERT INTO student_history (id, seq, student_id, kind, detail, author, happened_at)
+                    VALUES ('h1', 41, 'A1', 'placed', '{"group": "G.1"}', 'c', '2026-09-01'),
+                           ('h2', 42, 'A1', 'removed', '{}', 'c', '2026-09-02')""")
+        )
+        connection.execute(
+            text("""INSERT INTO portal_filters (id, kind, name, filter, created_at)
+                    VALUES ('f1', 'courses', 'SCEN', '{"DEPT_CODE": ["SCEN"], "n": 2}', '2026-09-01')""")
+        )
+        connection.execute(
+            text("""INSERT INTO term_pay_cycles (term_id, opens_on, updated_at, updated_by)
+                    VALUES ('t1', 15, '2026-09-22T10:41:18+04:00', 'c')""")
+        )
+        connection.execute(
+            text("""INSERT INTO syllabus_folders (id, name, created_at, updated_at, parent_id)
+                    VALUES ('b-parent', 'Parent', 'x', 'x', NULL), ('a-child', 'Child', 'x', 'x', 'b-parent')""")
+        )
+    return engine
+
+
+def snapshot(engine) -> dict:
+    return {name: export_table(engine, name) for name in copied_tables(engine)}
+
+
+def test_what_arrives_is_what_left_row_for_row(seeded):
+    before = snapshot(seeded)
+    # Somebody's local changes, which the copy exists to replace.
+    with seeded.begin() as connection:
+        connection.execute(text("DELETE FROM warning_dismissals"))
+        connection.execute(
+            text("""INSERT INTO warning_dismissals (key, dismissed_by_email, dismissed_by_name, dismissed_at)
+                    VALUES ('local-only', '', '', 'now')""")
+        )
+
+    load_tables(seeded, before, source_revision=revision(seeded))
+
+    assert snapshot(seeded) == before
+
+
+def test_json_and_timestamps_arrive_as_themselves(seeded):
+    load_tables(seeded, snapshot(seeded), source_revision=revision(seeded))
+
+    with seeded.connect() as connection:
+        found = connection.execute(text("SELECT filter FROM portal_filters WHERE id = 'f1'")).scalar()
+        stamped = connection.execute(text("SELECT updated_at FROM term_pay_cycles WHERE term_id = 't1'")).scalar()
+    # A dictionary, not a string holding one — JSON stored as text reads back quoted.
+    assert found == {"DEPT_CODE": ["SCEN"], "n": 2}
+    assert stamped.isoformat().startswith("2026-09-22T06:41:18")
+
+
+def test_a_row_written_after_the_copy_does_not_collide_with_one_that_arrived(seeded):
+    """The history numbers its own rows; its counter has to move past production's."""
+    load_tables(seeded, snapshot(seeded), source_revision=revision(seeded))
+
+    with seeded.begin() as connection:
+        connection.execute(
+            text("""INSERT INTO student_history (id, student_id, kind, happened_at)
+                    VALUES ('h3', 'A1', 'placed', '2026-09-03')""")
+        )
+        seq = connection.execute(text("SELECT seq FROM student_history WHERE id = 'h3'")).scalar()
+    assert seq > 42
+
+
+def test_two_schemas_that_do_not_line_up_are_refused_and_nothing_changes(seeded):
+    before = snapshot(seeded)
+
+    with pytest.raises(SchemaMismatch, match="same revision"):
+        load_tables(seeded, before, source_revision="0000_somewhere_else")
+
+    assert snapshot(seeded) == before
+
+
+def test_a_copy_missing_a_table_is_refused_whole(seeded):
+    before = snapshot(seeded)
+    partial = {name: rows for name, rows in before.items() if name != "warning_dismissals"}
+
+    with pytest.raises(SchemaMismatch, match="warning_dismissals"):
+        load_tables(seeded, partial, source_revision=revision(seeded))
+
+    assert snapshot(seeded) == before
+
+
+# ------------------------------------------------------ production's side
+
+
+@pytest.fixture
+def client():
+    app.dependency_overrides[export_api.get_engine] = lambda: engine_for(TEST_DATABASE_URL)
+    try:
+        yield TestClient(app)
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_production_lists_every_table_with_its_revision(client: TestClient, seeded):
+    listed = client.get("/api/v1/export").json()
+
+    assert listed["revision"] == revision(seeded)
+    assert {"name": "warning_dismissals", "rows": 1} in listed["tables"]
+    assert "api_tokens" in listed["excluded"]
+
+
+def test_production_hands_over_a_table_and_refuses_the_excluded_ones(client: TestClient, seeded):
+    read = client.get("/api/v1/export/warning_dismissals").json()
+
+    assert read["rows"][0][0] == "group|A00025138|g1"
+    assert client.get("/api/v1/export/api_tokens").status_code == status.HTTP_404_NOT_FOUND
+    assert client.get("/api/v1/export/no_such_table").status_code == status.HTTP_404_NOT_FOUND
+
+
+def test_only_an_administrator_can_read_the_whole_database_out(client: TestClient, monkeypatch):
+    monkeypatch.setattr(
+        auth_gate,
+        "user_for_request",
+        lambda *_args, **_kwargs: StaffUser(email="coordinator@sorbonne.ae", name="Coordinator", is_admin=False),
     )
 
-    assert requests == 1
-    cell = write.one("PUT", "/courses/")
-    assert cell == {"crn": "23634", "teacher": "Amira Haddad", "part": 1}
-    # The chosen teacher travels as the LOCAL list's id for the same person — production's
-    # means nothing here.
-    assert write.one("PATCH", "/courses/") == {
-        "teacherId": "here-7", "hours": "24", "duration": "2h",
-        "anticipated": 30, "constraints": "not before 10", "part": 1,
-    }
-
-
-def test_a_set_and_a_group_inside_another_still_name_it_after_the_copy():
-    # The ids change on the way over, so a parent named by its production id is a parent
-    # that does not exist here — the nesting is quietly flattened.
-    write = Recorder()
-    group_id: dict[str, str] = {}
-
-    copy._copy_catalogue(write, catalogue(), "here", {}, group_id)
-
-    scopes = [body for path, body, _ in write.calls if path.endswith("/scopes")]
-    assert scopes[0]["parentScopeId"] == ""
-    assert scopes[1]["parentScopeId"] == "local-1", "the nested set must name the local parent"
-    groups = [body for path, body, _ in write.calls if path.endswith("/groups")]
-    assert groups[1]["parentGroupId"] == group_id["p-group"]
-
-
-def test_a_set_arrives_on_the_sheet_and_in_the_column_it_was_laid_out_in():
-    """Without the layout every set exports onto a tab of its own.
-
-    Which is not what production writes, so the one file that would show a layout fault
-    up — the group workbook, read by the coordinators who fill it — could not be trusted
-    from a copy, and a fault in how it is written had nowhere to be noticed.
-    """
-    write = Recorder()
-
-    copy._copy_catalogue(write, catalogue(), "here", {}, {})
-
-    made = next(body for path, body, _ in write.calls if path.endswith("/scopes"))
-    assert (made["tab"], made["groupColumn"], made["columnIndex"]) == ("TD", "Main group", 5)
-
-
-def test_a_course_carries_which_part_of_it_this_set_is():
-    # Every course in production names a component. Without it a card cannot say whether
-    # the set it is looking at is the lecture or the tutorial.
-    write = Recorder()
-
-    copy._copy_catalogue(write, catalogue(), "here", {}, {})
-
-    assert write.one("POST", "/courses")["component"] == "TD"
-
-
-class Wire:
-    """Stands in for `call`, answering reads from a script and remembering the writes."""
-
-    def __init__(self, answers: dict):
-        self.answers = answers
-        self.writes: list[tuple[str, str, dict]] = []
-
-    def __call__(self, url, *, headers, method="GET", body=None):
-        if method == "GET":
-            for path, answer in self.answers.items():
-                if url.endswith(path):
-                    return answer
-            raise AssertionError(f"nothing scripted for {url}")
-        self.writes.append((method, url, body or {}))
-        return {"id": "made"}
-
-    def sent(self, contains: str) -> list[dict]:
-        return [body for _, url, body in self.writes if contains in url]
-
-
-def test_the_register_carries_what_the_department_said_about_it(monkeypatch):
-    """The list was always copied; what we had SAID about it was not.
-
-    Measured on production the day this was fixed: 25 courses with a UE, 31 with a
-    mutualized answer, 129 CRNs hanging from a parent — every one typed by hand, and every
-    one lost by a copy that took the codes and nothing else.
-    """
-    wire = Wire(
-        {
-            "/active-courses": {
-                "courses": [
-                    {"id": "p1", "courseCode": "MATH-351", "title": "Algebra", "ue": "LU3MA276", "mutualized": "yes"}
-                ]
-            },
-            "/active-crns": {
-                "crns": [
-                    {"id": "p2", "termCode": "262710", "crn": "24311", "courseCode": "MATH-351", "parentCrn": "24264"}
-                ]
-            },
-            "/term-links": {"links": {}},
-        }
-    )
-    monkeypatch.setattr(copy, "call", wire)
-
-    copy._copy_register(
-        {"source": "https://prod", "into": "http://localhost:8000", "read": {}, "write": {}},
-        {},
-        say=lambda *_: None,
-        dry_run=False,
-    )
-
-    [course] = [body for method, url, body in wire.writes if method == "PATCH" and "/active-courses/" in url]
-    assert (course["ue"], course["mutualized"]) == ("LU3MA276", "yes")
-    [crn] = [body for method, url, body in wire.writes if method == "PATCH" and "/active-crns/" in url]
-    assert crn == {"parentCrn": "24264"}
-
-
-def test_an_exemption_travels_under_the_id_the_course_has_here(monkeypatch):
-    """The ids change on the way over, and an exemption names a course by id.
-
-    A shared set is filed under whichever cohort holds its row, so every cohort's listing
-    carries the languages — hence one write, not four.
-    """
-    listed = {
-        "exemptions": [
-            {"studentId": "A001", "courseId": "p-lang", "courseCode": "SCEN-101", "reason": "Native speaker"}
-        ]
-    }
-    wire = Wire({"/cohorts/c1/exemptions": listed, "/cohorts/c2/exemptions": listed})
-    monkeypatch.setattr(copy, "call", wire)
-
-    written = copy._copy_exemptions(
-        "https://prod", "http://localhost:8000", {}, {},
-        [{"id": "c1"}, {"id": "c2"}], {"p-lang": "here-lang"}, say=lambda *_: None,
-    )
-
-    assert written == 1
-    [body] = wire.sent("/students/A001/exemptions/here-lang")
-    assert body == {"reason": "Native speaker"}
-
-
-def test_a_check_answered_the_same_as_the_default_is_not_written(monkeypatch):
-    # A row that agrees with the code's default says nothing and would only have to be
-    # kept in step with it.
-    wire = Wire(
-        {
-            "/checks": {
-                "checks": [
-                    {
-                        "name": "collision",
-                        "enabled": True,
-                        "threshold": 30,
-                        "defaultEnabled": True,
-                        "defaultThreshold": 30,
-                    },
-                    {"name": "other", "enabled": False, "threshold": 0, "defaultEnabled": True, "defaultThreshold": 0},
-                ]
-            }
-        }
-    )
-    monkeypatch.setattr(copy, "call", wire)
-
-    copy._copy_checks("https://prod", "http://localhost:8000", {}, {}, {}, say=lambda *_: None)
-
-    assert [body["enabled"] for body in wire.sent("/checks/")] == [False]
-    assert not wire.sent("/checks/collision")
-
-
-def test_the_registrars_swept_timetable_travels_as_the_pull_that_wrote_it(monkeypatch):
-    """The one record no local action can rebuild.
-
-    The registrar is reached through a browser extension signed in as a coordinator, so a
-    developer's copy of production was blind to every clash and every collision until
-    somebody sat down and ran a sync against it. Replayed as the same POST the extension
-    makes, so there is no second way into those tables to keep honest.
-    """
-    sweep = {
-        "termCode": "262710",
-        "asked": ["23436", "24311"],
-        "sections": [{"crn": "23436", "courseCode": "MATH-351", "meetings": [], "ours": True}],
-        "silent": ["24311"],
-        "failed": [],
-        "complete": True,
-    }
-    wire = Wire({"/facility-timetable/262710": sweep, "/facility-timetable": {"terms": ["262710"]}})
-    monkeypatch.setattr(copy, "call", wire)
-
-    copy._copy_sweeps("https://prod", "http://localhost:8000", {}, {}, say=lambda *_: None)
-
-    [written] = wire.sent("/facility-timetable")
-    assert written == sweep
-
-
-def test_a_term_nothing_was_ever_asked_about_is_not_written_as_an_empty_sweep(monkeypatch):
-    # An empty pull is not nothing: it says the registrar answered for no section, which
-    # `record_pull` would read as every section having gone quiet.
-    wire = Wire(
-        {
-            "/facility-timetable/262710": {"asked": [], "sections": []},
-            "/facility-timetable": {"terms": ["262710"]},
-        }
-    )
-    monkeypatch.setattr(copy, "call", wire)
-
-    copy._copy_sweeps("https://prod", "http://localhost:8000", {}, {}, say=lambda *_: None)
-
-    assert wire.sent("/facility-timetable") == []
-
-
-def test_the_part_time_database_travels_with_its_folders(monkeypatch):
-    """Nothing else carries these: a part-time teacher is somebody the department hired.
-
-    A dev database without them calls every teacher "Portal" and hides the half of the page
-    that is about matching the two lists — which is how a missing tag stayed invisible
-    locally while it was plain on production.
-    """
-    wire = Wire(
-        {
-            "/teachers/folders": {"items": [{"id": "f1", "name": "Physics", "parentId": ""}]},
-            "/teachers?includeArchived=true": {
-                "items": [
-                    {
-                        "id": "pt-1",
-                        "fullName": "Cécile Paillot",
-                        "email": "",
-                        "phone": "",
-                        "notes": "",
-                        "folderId": "f1",
-                    }
-                ]
-            },
-            "/teachers/pt-1/requisitions": {"items": []},
-            "/teachers/pt-1/time-sheets": {"items": []},
-        }
-    )
-    monkeypatch.setattr(copy, "call", wire)
-
-    made = copy._copy_part_time_teachers(
-        "https://prod", "http://localhost:8000", {}, {}, say=lambda *_: None
-    )
-
-    assert made == {"pt-1": "made"}
-    assert wire.sent("/teachers/folders") == [{"name": "Physics", "parentId": None}]
-    # Filed where it was filed, under the id the folder has here.
-    assert wire.sent("/teachers/made/folder") == [{"folderId": "made"}]
-
-
-def test_a_teacher_on_both_lists_arrives_joined_rather_than_left_to_an_email(monkeypatch):
-    """`add_active_teachers` joins on the e-mail, and the two sides hold different ones.
-
-    Which is the whole reason the part-time tag has to be linked: the part-time database
-    holds a personal address or none at all, and the portal holds the university one.
-    """
-    # Keyed on the whole URL, because the two sides ask the same path of different hosts.
-    wire = Wire(
-        {
-            "https://prod/api/v1/portal/active-teachers": {
-                "teachers": [
-                    {
-                        "id": "prod-1",
-                        "portalTeacherId": "A001",
-                        "partTimeTeacherId": "pt-1",
-                        "fullName": "Cécile Paillot",
-                        "email": "cecile.paillot@sorbonne.ae",
-                    }
-                ]
-            },
-            # The row just written here, found again by the portal id it was added under.
-            "http://localhost:8000/api/v1/portal/active-teachers": {
-                "teachers": [{"id": "here-1", "portalTeacherId": "A001", "partTimeTeacherId": ""}]
-            },
-        }
-    )
-    monkeypatch.setattr(copy, "call", wire)
-
-    copy._copy_active_teachers(
-        "https://prod", "http://localhost:8000", {}, {}, {"pt-1": "here-pt"}, say=lambda *_: None
-    )
-
-    assert [url for _, url, _ in wire.writes] == [
-        "http://localhost:8000/api/v1/portal/active-teachers",
-        "http://localhost:8000/api/v1/portal/active-teachers/here-1/link-part-time",
-    ]
-    assert [body for _, _, body in wire.writes] == [
-        {"portalTeacherIds": ["A001"]},
-        {"partTimeTeacherId": "here-pt"},
-    ]
-
-
-def test_a_chosen_teacher_the_copy_has_no_row_for_falls_back_to_the_written_name():
-    """A section naming an id nobody holds belongs to nobody.
-
-    Production's chosen-teacher id was copied onto the section verbatim while the local
-    rows were created with ids of their own, so 123 of a copy's 131 sections pointed at
-    somebody who did not exist here. Nothing falls back to the written name while an id is
-    present, so every teacher on the copy read as teaching nothing: no sections, no
-    cohorts, no hours, and forty of them listed as "named on our sections and not on this
-    list". Dropping the id leaves the name, which the rest of the application knows how to
-    read.
-    """
-    write = Recorder()
-
-    copy._copy_catalogue(write, catalogue(), "here", {"p-term": "local-term"}, {}, None, None, {})
-
-    assert write.one("PUT", "/courses/") == {"crn": "23634", "teacher": "Amira Haddad", "part": 1}
-    assert "teacherId" not in write.one("PATCH", "/courses/")
-
-
-def test_the_department_s_list_travels_without_the_part_time_database(monkeypatch):
-    """The two used to go under one flag, and skipping it skipped both.
-
-    The part-time database is what carries contact details — names, addresses, phone
-    numbers — and stays behind unless asked for. The department's list of active teachers
-    is links to portal profiles, and the copy already brings the whole portal staff list,
-    so leaving it behind bought no privacy. It cost the copy every teacher it had: the
-    pages read "40 teachers are named on our sections and not on this list", every hours
-    column stood empty, and none of it was true of production.
-    """
-    wire = Wire(
-        {
-            "https://prod/api/v1/portal/active-teachers": {
-                "teachers": [
-                    {"id": "prod-1", "portalTeacherId": "A001", "partTimeTeacherId": "", "fullName": "Cécile Paillot"},
-                    # Known to the department and to nobody else: bringing this row would
-                    # mean writing that person's name down on the laptop.
-                    {"id": "prod-2", "portalTeacherId": "", "partTimeTeacherId": "pt-9", "fullName": "Sara Lotfi"},
-                ]
-            },
-            "http://localhost:8000/api/v1/portal/active-teachers": {"teachers": []},
-        }
-    )
-    monkeypatch.setattr(copy, "call", wire)
-
-    # No part-time ids, which is what the copy passes when it is not asked for them.
-    copy._copy_active_teachers("https://prod", "http://localhost:8000", {}, {}, {}, say=lambda *_: None)
-
-    assert [body for _, _, body in wire.writes] == [{"portalTeacherIds": ["A001"]}]
-
-
-def test_a_source_without_the_sweep_route_costs_the_sweep_and_not_the_copy(monkeypatch):
-    """The copy reads a running instance, which can be older than the checkout reading it.
-
-    Most obviously in the window between adding a read route and deploying it: 405 is what
-    a GET added beside an older POST looks like from outside. Everything else has already
-    been copied and is worth keeping.
-    """
-    said: list[str] = []
-
-    def absent(url, *, headers, method="GET", body=None):
-        raise copy.Refused(f"GET {url} -> 405. Method Not Allowed", code=405)
-
-    monkeypatch.setattr(copy, "call", absent)
-
-    copy._copy_sweeps("https://prod", "http://localhost:8000", {}, {}, say=said.append)
-
-    assert "skipped" in " ".join(said)
-    assert "Portal sync" in " ".join(said)
-
-
-def test_a_source_that_is_broken_still_stops_the_copy(monkeypatch):
-    # Absent is a thing to work around; broken is a thing to be told about.
-    def broken(url, *, headers, method="GET", body=None):
-        raise copy.Refused("GET ... -> 500. it fell over", code=500)
-
-    monkeypatch.setattr(copy, "call", broken)
-
-    with pytest.raises(copy.Refused):
-        copy._copy_sweeps("https://prod", "http://localhost:8000", {}, {}, say=lambda *_: None)
-
-
-def test_a_section_taught_in_two_halves_arrives_with_both(monkeypatch):
-    """A section's top-level fields ARE its first part, so reading them copies half of it.
-
-    MATH-351 is a lecture and a tutorial, each handed over mid-semester: four sections on
-    production, two after a copy. The eleven students in it were then reported registered
-    in sections nobody here teaches — a warning invented by the copy, about production data
-    that was correct.
-    """
-    calls: list[tuple[str, str, dict]] = []
-    copy._copy_catalogue(
-        lambda path, body, method="POST": (calls.append((method, path, body)), {"id": "made"})[1],
-        [
-            {
-                "id": "prod-s", "code": "CM", "name": "", "note": "", "termId": "prod-t",
-                "kind": "shared", "parentScopeId": "", "openToAll": False,
-                "courses": [{"id": "prod-course", "code": "MATH-351", "name": "", "component": "", "program": ""}],
-                "groups": [
-                    {
-                        "id": "prod-g", "label": "Mathematics", "capacity": 0, "note": "",
-                        "program": "", "parentGroupId": "",
-                        "crns": {
-                            "prod-course": {
-                                "crn": "23436", "teacher": "Grace Younes", "part": 1,
-                                "parts": [
-                                    {"crn": "23436", "teacher": "Grace Younes", "part": 1, "hours": 18},
-                                    {"crn": "24311", "teacher": "Sudarshan Shinde", "part": 2, "hours": 12},
-                                ],
-                            }
-                        },
-                    }
-                ],
-            }
-        ],
-        "here-c",
-        {"prod-t": "here-t"},
-        {},
-    )
-
-    cells = [(method, body) for method, path, body in calls if "/courses/made" in path]
-    assert [body.get("crn") for method, body in cells if method == "PUT"] == ["23436", "24311"]
-    assert [body.get("part") for method, body in cells if method == "PUT"] == [1, 2]
-    # The request travels per part too, or the second half arrives asking for nothing.
-    assert [body.get("hours") for method, body in cells if method == "PATCH"] == [18, 12]
-
-
-def test_a_teachers_paperwork_travels_with_them(monkeypatch):
-    """The profile alone is half of what the page shows.
-
-    A requisition's courses and hours live in its content, which creating one does not
-    take, so it is copied and then filled. Without the second call the list of
-    requisitions would look right and every one of them would open empty.
-    """
-    wire = Wire(
-        {
-            "/teachers/folders": {"items": []},
-            "/teachers?includeArchived=true": {
-                "items": [{"id": "pt-1", "fullName": "Hani Sayes", "email": "", "phone": "", "notes": ""}]
-            },
-            "/teachers/pt-1/requisitions": {"items": [{"id": "r-1"}]},
-            "/teacher-requisitions/r-1": {
-                "id": "r-1",
-                "label": "Physics TD",
-                "academicYear": "2026-2027",
-                "content": {"courses": [{"id": "c1", "hours": "21"}]},
-            },
-            "/teachers/pt-1/time-sheets": {
-                "items": [
-                    {
-                        "id": "ts-1",
-                        "label": "Part time sheet",
-                        "academicYear": "2026-2027",
-                        "url": "https://example.org/sheet",
-                        "periodStart": "2026-08-15",
-                    }
-                ]
-            },
-        }
-    )
-    monkeypatch.setattr(copy, "call", wire)
-
-    copy._copy_part_time_teachers("https://prod", "http://localhost:8000", {}, {}, say=lambda *_: None)
-
-    assert wire.sent("/teachers/made/requisitions") == [{"label": "Physics TD", "academicYear": "2026-2027"}]
-    # Named first, then filled: the courses only arrive on the update.
-    [filled] = wire.sent("/teacher-requisitions/made")
-    assert filled["content"] == {"courses": [{"id": "c1", "hours": "21"}]}
-    # The link and the pay period both travel; the workbook stays in OneDrive either way.
-    assert wire.sent("/teachers/made/time-sheets") == [
-        {
-            "label": "Part time sheet",
-            "academicYear": "2026-2027",
-            "url": "https://example.org/sheet",
-            "periodStart": "2026-08-15",
-        }
-    ]
-
-
-def test_a_set_open_to_every_cohort_is_copied_once():
-    """Production files the languages under one cohort. The copy must too.
-
-    The catalogue route answers with the sets open to every cohort as well as the
-    cohort's own — it was changed to, so a reader does not report a cohort as taking no
-    language at all — and this loop was not told. Each of the four cohorts read the one
-    language set and each created it, so the copy held four A0-F5s of thirty seats where
-    the university has one; `group_id` named whichever was written last, and every
-    language placement in the copy landed in that one while the other three stood empty.
-
-    Production was right the whole time. Only the copy was wrong, which is worse: the
-    copy is what gets looked at while testing.
-    """
-    asked: list[str] = []
-
-    def read(path: str) -> dict:
-        asked.append(path)
-        if "/assignments" in path:
-            return {"assignments": {}, "majors": {}}
-        return {"scopes": []}
-
-    write = Recorder()
-    copy._copy_plans(
-        read,
-        write,
-        "http://here",
-        {},
-        [{"id": "p-1", "name": "FYS-S1"}, {"id": "p-2", "name": "L1-S1"}],
-        {"p-1": "local-1", "p-2": "local-2"},
-        {},
-        lambda *_args: None,
-        {},
-        dry_run=False,
-    )
-
-    catalogues = [path for path in asked if "/catalogue" in path]
-    assert catalogues == [
-        "/cohorts/p-1/catalogue?own_only=true",
-        "/cohorts/p-2/catalogue?own_only=true",
-    ]
-
-
-def test_a_copy_without_the_teachers_leaves_the_part_time_database_alone(monkeypatch):
-    """Wiping what you are not about to replace is a deletion, not a copy.
-
-    The part-time step is off unless asked for — it is the only one carrying names, e-mail
-    addresses and phone numbers — but the emptying was unconditional, so the ordinary copy
-    cleared a database it had no intention of refilling and the Part-time Teachers page
-    went blank with nothing said.
-    """
-    emptied: list[str] = []
-
-    class Connection:
-        def execute(self, statement):
-            emptied.append(str(statement))
-        def __enter__(self):
-            return self
-        def __exit__(self, *_):
-            return False
-
-    monkeypatch.setattr(copy, "local_only", lambda _into: None)
-    monkeypatch.setattr(copy.config, "database_url", "postgresql+psycopg://u:p@localhost:5433/sorbonne")
-    monkeypatch.setattr(copy, "create_engine", lambda _url: type("E", (), {"begin": lambda self: Connection()})())
-
-    copy._empty_local("http://localhost:8000", teachers=False)
-    without = " ".join(emptied)
-    assert "part_time_teachers" not in without
-    assert "teacher_requisitions" not in without
-    assert "teacher_time_sheets" not in without
-    # The department's own planning still goes, which is what a copy replaces.
-    assert "group_assignments" in without
-
-    emptied.clear()
-    copy._empty_local("http://localhost:8000", teachers=True)
-    with_them = " ".join(emptied)
-    assert "part_time_teachers" in with_them
-    assert "teacher_requisitions" in with_them
+    assert client.get("/api/v1/export").status_code == status.HTTP_403_FORBIDDEN
+    assert client.get("/api/v1/export/warning_dismissals").status_code == status.HTTP_403_FORBIDDEN

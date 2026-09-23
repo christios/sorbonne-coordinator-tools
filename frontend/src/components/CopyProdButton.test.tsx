@@ -7,7 +7,7 @@ import { CopyProdButton } from "@/components/CopyProdButton";
 /** The answer Vite gives a POST it has no route for: 404, and not one byte of body. */
 const notFoundByVite = () => new Response("", { status: 404 });
 
-const answer = (report: Record<string, number>) =>
+const answer = (report: Record<string, unknown>) =>
   new Response(JSON.stringify(report), { status: 200, headers: { "Content-Type": "application/json" } });
 
 function press() {
@@ -31,7 +31,7 @@ describe("copying production down to this machine", () => {
      * "Unexpected end of JSON input", which is about the parser and says nothing about
      * the address that was actually wrong.
      */
-    const fetching = vi.spyOn(globalThis, "fetch").mockResolvedValue(answer({ cohorts: 1, students: 2, placements: 3, rules: 4 }));
+    const fetching = vi.spyOn(globalThis, "fetch").mockResolvedValue(answer({ tables: { students: 2, warning_dismissals: 29 }, rows: 31 }));
 
     press();
 
@@ -48,5 +48,13 @@ describe("copying production down to this machine", () => {
     press();
 
     expect((await screen.findByRole("alert")).textContent).toContain("404");
+  });
+
+  it("says how much arrived, in tables and rows, because it is every table", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(answer({ tables: { students: 2993, warning_dismissals: 29 }, rows: 3022 }));
+
+    press();
+
+    expect((await screen.findByRole("status")).textContent).toBe("2 tables, 3,022 rows — exactly as production holds them.");
   });
 });

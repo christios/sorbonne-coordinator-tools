@@ -1,53 +1,30 @@
-"""Copy production's cohorts, sets, groups and placements into a local database.
+"""Make this machine's database production's: every table, every row, ids and all.
 
     uv run python scripts/copy_prod_to_dev.py --dry-run
     uv run python scripts/copy_prod_to_dev.py
 
-Why this shape, since a database dump would be one command: the house rule is that
-production data moves through the application's own API, and this keeps it. It reads with
-the API token already on this machine and writes to a local instance with a session minted
-by `dev_session.py`, so no production database URL is needed and none is created.
+The house rule is that production data moves through the application's own API, and this
+keeps it: production is only ever read, through its admin-only export, with the API token
+already on this machine. No production database URL is needed and none is created.
 
-**No student names travel, because the server holds none.** `students` is ids and status;
-`sync_registrations` states and enforces "only ids and CRNs are written". Names live in the
-coordinator's browser, and this copies the server, so there is nothing to redact. Staff
-names are a different matter. The department's own list — Active teachers, with their
-e-mail addresses — is left behind unless `--teachers` is passed. The name typed on a
-section always travels, because it is part of the timetabler's request and a copy without
-it cannot show the request at all; it is a name and it is worth knowing that it moves.
+It used to copy features — cohorts, then students, then rules, then sets, some thirty steps
+each translating production's ids into local ones — and every table added after a step was
+written was a table it silently left behind. A survey found half the schema missing:
+warning dismissals, cancellations and covers, the registrar's removed and added classes,
+comments, student history, tasks, syllabi, users. Each absence looked, on a developer's
+screen, like a bug in a page. Now it copies tables. See `sorbonne/services/table_copy.py`
+for what travels, what does not, and why.
 
-What it copies, in the order the writes depend on one another:
+**No student names travel, because the server holds none.** Staff names and contact
+details do; API tokens do not, being credentials.
 
-  1. cohorts            so their ids exist to hang everything else from
-  2. a view             the only route that creates students is a view's sync. Deleted
-                        again afterwards: a view is a portal sync target, not a container
-  3. students           the ids production holds
-  4. their cohorts      because a view's sync writes cohort_id NULL
-  5. discrepancy rules  without them every cohort reads "Nothing to flag", which looks
-                        like good news and is an empty rulebook
-  6. sets, courses,     one cohort at a time, keeping a production id -> local id map.
-     groups, sections     A section travels with its request as well as its CRN — the
-                          teacher the department confirmed, the hours, the anticipated
-                          size, the room, day and time asked for, the constraints
-  7. placements         which need every group above to exist first
-  8. the register       active courses and CRNs, the UE and mutualized answer on each
-                        course, the parent CRN on each section, and the term link — what
-                        the checks decide is "ours", and without them Active Courses is
-                        empty
-  9. the decisions      exemptions, the checks answered by hand, and the collisions
-                        somebody accepted or referred. None of these is derivable from
-                        anywhere else, so a copy without them puts back every warning
-                        they were taken to answer
-
-Not copied: history, pull evidence, dismissals, timestamps and actors. Those live in the
-browser, not on the server, and this copies the server. So the Cohorts page will still say
-"N rules cannot be judged: no pull this browser holds carries student status" until you run
-a Portal sync against localhost — the extension is already injected into
-http://localhost:*/*, so that is the whole remedy.
+It writes straight into this machine's database, which is what makes it an exact copy: the
+local API would hand out new ids, and ids are what every other table points with. That is
+also why it is so careful about which database this is.
 
 NEVER point this at `sorbonne_test`. `backend/tests/conftest.py` runs `alembic upgrade
 head` against TEST_DATABASE_URL session-wide, and two autouse fixtures DELETE from thirteen
-tables. One pytest run would destroy the copy.
+tables. One pytest run would destroy the copy — and this would destroy the tests' database.
 """
 
 from __future__ import annotations
@@ -61,10 +38,9 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from sqlalchemy import create_engine, text
-
 from sorbonne.config import config
-from sorbonne.services.staff_auth import SESSION_COOKIE, StaffUser, issue_session, owner_emails
+from sorbonne.services.engine import engine_for
+from sorbonne.services.table_copy import SchemaMismatch, load_tables
 
 PROD = "https://sorbonne-coordinator-tools.fastapicloud.dev"
 LOCAL = "http://localhost:8000"
@@ -74,12 +50,7 @@ AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) copy_prod_to_dev"
 
 
 class Refused(Exception):
-    """A safety rule said no, or the far end would not answer.
-
-    Mostly never caught — the message is the whole point. `code` carries the HTTP status
-    where there was one, so the one caller that can go on without a record can tell "the
-    source has not got this" from "the source is broken".
-    """
+    """A safety rule said no, or the far end would not answer. The message is the point."""
 
     def __init__(self, message: str, *, code: int | None = None) -> None:
         super().__init__(message)
@@ -87,16 +58,24 @@ class Refused(Exception):
 
 
 def local_only(url: str) -> str:
-    """The one guard that matters: this script writes, and only ever to this machine.
+    """The one guard that matters: this writes, and only ever to this machine.
 
-    A mistyped host here would replay production's cohorts into production, or into
-    whatever else answered. Checked by hostname rather than by prefix, because
-    "http://localhost.example.com" starts with the right letters.
+    By hostname rather than by prefix, because "localhost.example.com" starts with the
+    right letters.
     """
-    host = urlparse(url).hostname or ""
+    host = urlparse(url.replace("+psycopg", "")).hostname or ""
     if host not in {"localhost", "127.0.0.1", "::1"}:
-        raise Refused(f"Refusing to write to {host or url!r}: this script only ever writes to this machine.")
+        raise Refused(f"Refusing to write to {host or url!r}: this only ever writes to this machine.")
     return url.rstrip("/")
+
+
+def local_database(url: str) -> str:
+    """This machine's database, and not the one the tests wipe."""
+    local_only(url)
+    name = urlparse(url.replace("+psycopg", "")).path.lstrip("/")
+    if name == "sorbonne_test" or name.endswith("_test"):
+        raise Refused(f"Refusing to copy into {name}: the test suite empties it on every run.")
+    return url
 
 
 def token() -> str:
@@ -118,7 +97,7 @@ def call(url: str, *, headers: dict[str, str], method: str = "GET", body: Any = 
     if data is not None:
         request.add_header("Content-Type", "application/json")
     try:
-        with urllib.request.urlopen(request, timeout=120) as answer:  # noqa: S310
+        with urllib.request.urlopen(request, timeout=300) as answer:  # noqa: S310
             raw = answer.read()
             return json.loads(raw) if raw else None
     except urllib.error.HTTPError as error:
@@ -126,1200 +105,59 @@ def call(url: str, *, headers: dict[str, str], method: str = "GET", body: Any = 
         raise Refused(f"{method} {urlparse(url).path} -> {error.code}. {detail}", code=error.code) from error
 
 
-def copy_everything(  # noqa: PLR0913 - one keyword per thing the caller may choose
+def copy_everything(
     *,
     source: str = PROD,
-    into: str = LOCAL,
-    replace: bool = False,
-    teachers: bool = False,
+    database_url: str | None = None,
     dry_run: bool = False,
     say=print,
 ) -> dict[str, Any]:
     """The whole copy, once. The CLI and the dev-only route are both thin wrappers on this.
 
-    One implementation, so there is one set of rules about what travels: no student names
-    because the server holds none, and no contact details unless asked for.
-
-    `teachers` asks for the part-time database — names, e-mail addresses, phone numbers,
-    document folders — and is off by default. The department's list of active teachers
-    travels either way: every row of it is a link to a portal profile, and the copy
-    already brings the whole portal staff list, so leaving it behind bought no privacy and
-    cost the copy every teacher it had.
+    Everything production would give is read before anything here is touched, and the load
+    is one transaction: a copy that fails halfway leaves this machine as it was, not half
+    production's.
     """
-    into = local_only(into)
+    url = local_database(database_url or config.database_url)
     source = source.rstrip("/")
+    headers = {"Authorization": f"Bearer {token()}"}
 
-    read_headers = {"Authorization": f"Bearer {token()}"}
-    write_headers = {} if dry_run else _local_session()
+    listing = call(f"{source}/api/v1/export", headers=headers)
+    tables = listing["tables"]
+    say(f"production is at revision {listing['revision']}: {len(tables)} tables, "
+        f"{sum(table['rows'] for table in tables)} rows")
+    for name, reason in sorted(listing.get("excluded", {}).items()):
+        say(f"  left behind: {name} — {reason}")
 
-    api = f"{source}/api/v1/student-database"
-    here = f"{into}/api/v1/student-database"
-    read = lambda path: call(f"{api}{path}", headers=read_headers)  # noqa: E731
-    write = lambda path, body, method="POST": call(  # noqa: E731
-        f"{here}{path}", headers=write_headers, method=method, body=body
-    )
+    payload: dict[str, dict[str, Any]] = {}
+    for table in tables:
+        payload[table["name"]] = call(f"{source}/api/v1/export/{table['name']}", headers=headers)
+        say(f"  read {table['name']}: {len(payload[table['name']]['rows'])}")
 
     if dry_run:
-        say("DRY RUN — reading production, writing nothing.\n")
+        say("\nDRY RUN — nothing written.")
+        return {"dryRun": True, "revision": listing["revision"], "tables": {t["name"]: t["rows"] for t in tables}}
 
-    # Writing into a database that already holds cohorts would duplicate every one of
-    # them, and the second copy is indistinguishable from the first on screen. Refused
-    # rather than merged: there is no sensible way to merge two copies of a cohort.
-    if not dry_run:
-        _make_room(here, into, write_headers, replace=replace, teachers=teachers, say=say)
-
-    # ---------------------------------------------------------------- 1. cohorts
-    cohorts = read("/cohorts")["cohorts"]
-    say(f"cohorts: {len(cohorts)}")
-    for cohort in cohorts:
-        say(f"  {cohort['name']} ({cohort['memberCount']} members, {cohort['scopeCount']} sets)")
-    cohort_id = {} if dry_run else _copy_cohorts(write, cohorts)
-
-    # ------------------------------------------------- 2-4. students and cohorts
-    students = read("/students")["students"]
-    say(f"\nstudents: {len(students)} (ids and status only — the server holds no names)")
-    placed_in_cohorts = 0
-    if not dry_run:
-        placed_in_cohorts = _copy_students(here, write_headers, write, students, cohort_id)
-        say(f"  placed into cohorts: {placed_in_cohorts}")
-
-    # ------------------------------------------------------- rules and register
-    #
-    # The rules are the whole reason the Cohorts page says anything. Without them a copy
-    # of production reads "Nothing to flag" for every cohort, which looks like good news
-    # and is actually an empty rulebook.
-    rules = read("/discrepancy-rules")["rules"]
-    say(f"\nrules: {len(rules)}")
-    if not dry_run:
-        _copy_rules(write, rules, cohort_id)
-
-    say("\nsemesters:")
-    terms = {} if dry_run else _term_map(source, into, read_headers, write_headers, say)
-
-    # ------------------------------------- 5. sets, courses, groups and the CRNs
-    #
-    # Every catalogue first, THEN every placement, and one group map across all of them.
-    # A set open to every cohort — the languages — is created once, under the cohort whose
-    # row holds it, and the other three place their students into those same groups. Doing
-    # a cohort end to end would drop those placements, because the group they name belongs
-    # to a cohort that has not been reached yet, or was reached and forgotten.
-    course_ids: dict[str, str] = {}
-    # ------------------------------------------------------------------ teachers
-    #
-    # Two different things used to travel under one flag, and skipping the flag skipped
-    # both. The part-time database is the one that carries contact details — names,
-    # e-mail addresses, phone numbers, document folders — and it stays behind unless it
-    # is asked for. The department's own list of active teachers is something else: every
-    # row of it is a link to a portal profile, and a copy already holds the whole portal
-    # staff list, names and all. Leaving that behind bought no privacy and cost the copy
-    # its teachers: the pages read "40 teachers are named on our sections and not on this
-    # list", every hours column stood empty, and none of it was true of production.
-    teacher_ids: dict[str, str] = {}
-    if teachers and not dry_run:
-        say("\nteachers: in full (this step carries staff names, e-mail addresses and phone numbers)")
-        part_time_ids = _copy_part_time_teachers(source, into, read_headers, write_headers, say)
-        teacher_ids = _copy_active_teachers(source, into, read_headers, write_headers, part_time_ids, say)
-    elif not dry_run:
-        say(
-            "\nteachers: the department's list only "
-            "(the part-time database carries contact details and is left behind)"
-        )
-        # No part-time ids, so a row whose only side is a part-time record is passed over:
-        # bringing it would mean writing that person's name and address down here.
-        teacher_ids = _copy_active_teachers(source, into, read_headers, write_headers, {}, say)
-
-    sets, group_id, placed, requests = _copy_plans(
-        read, write, here, write_headers, cohorts, cohort_id, terms, say, course_ids,
-        dry_run=dry_run, teacher_ids=teacher_ids,
-    )
-
-    where = {"source": source, "into": into, "read": read_headers, "write": write_headers}
-    _copy_register(where, terms, say, dry_run=dry_run)
-
-    if not dry_run:
-        _copy_saved_questions(source, into, read_headers, write_headers, say)
-        exempt = _copy_exemptions(source, into, read_headers, write_headers, cohorts, course_ids, say)
-        _copy_checks(source, into, read_headers, write_headers, cohort_id, say)
-        _copy_sweeps(source, into, read_headers, write_headers, say)
-        _copy_settled_collisions(source, into, read_headers, write_headers, terms, say)
-    else:
-        exempt = 0
-
-    say("\nDone. Run a Portal sync against localhost to fill this browser's side.")
-    return {
-        "cohorts": len(cohorts),
-        "students": len(students),
-        "inCohorts": placed_in_cohorts,
-        "sets": sets,
-        "groups": len(group_id),
-        "placements": placed,
-        "sections": requests,
-        "rules": len(rules),
-        "exemptions": exempt,
-        "teachers": teachers,
-        "dryRun": dry_run,
-    }
-
-
-def _copy_part_time_teachers(
-    source: str, into: str, read: dict[str, str], write: dict[str, str], say
-) -> dict[str, str]:
-    """The department's own teacher records, their paperwork, and the folders they are in.
-
-    Nothing else carries these: a part-time teacher is somebody the department hired, not
-    somebody the portal returned, so no sync will ever put them back. A dev database
-    without them reports every teacher as "Portal" and hides the whole half of the page
-    that is about matching the two lists — which is exactly how the missing part-time tag
-    stayed invisible locally while it was plain on prod.
-
-    Returns prod id -> local id, because the active list points at these by id.
-    """
-    folders: dict[str, str] = {}
-    # Parents before children: a folder cannot be filed inside one that is not there yet,
-    # and the list is flat, so this walks it until nothing more can be placed.
-    waiting = list(call(f"{source}/api/v1/teachers/folders", headers=read)["items"])
-    while waiting:
-        placed = False
-        for folder in list(waiting):
-            parent = folder.get("parentId") or ""
-            if parent and parent not in folders:
-                continue
-            made = call(
-                f"{into}/api/v1/teachers/folders",
-                headers=write,
-                method="POST",
-                body={"name": folder["name"], "parentId": folders.get(parent) or None},
-            )
-            folders[folder["id"]] = made["id"]
-            waiting.remove(folder)
-            placed = True
-        if not placed:
-            # A parent nobody returned. File its children at the top rather than dropping them.
-            say(f"  {len(waiting)} folder(s) whose parent is missing: filed at the top")
-            for folder in waiting:
-                made = call(
-                    f"{into}/api/v1/teachers/folders",
-                    headers=write,
-                    method="POST",
-                    body={"name": folder["name"], "parentId": None},
-                )
-                folders[folder["id"]] = made["id"]
-            break
-
-    records: dict[str, str] = {}
-    requisitions = 0
-    sheets = 0
-    listed = call(f"{source}/api/v1/teachers?includeArchived=true", headers=read)["items"]
-    for record in listed:
-        made = call(
-            f"{into}/api/v1/teachers",
-            headers=write,
-            method="POST",
-            body={
-                "fullName": record["fullName"],
-                "email": record.get("email", ""),
-                "phone": record.get("phone", ""),
-                "notes": record.get("notes", ""),
-            },
-        )
-        records[record["id"]] = made["id"]
-        here_folder = folders.get(record.get("folderId") or "")
-        if here_folder:
-            call(
-                f"{into}/api/v1/teachers/{made['id']}/folder",
-                headers=write,
-                method="PATCH",
-                body={"folderId": here_folder},
-            )
-        requisitions += _copy_requisitions(source, into, read, write, record["id"], made["id"])
-        sheets += _copy_time_sheets(source, into, read, write, record["id"], made["id"])
-    say(
-        f"  part-time teachers: {len(records)} in {len(folders)} folder(s), "
-        f"{requisitions} requisition(s), {sheets} time sheet link(s)"
-    )
-    return records
-
-
-def _copy_requisitions(  # noqa: PLR0913 - one argument per end of the copy
-    source: str, into: str, read: dict[str, str], write: dict[str, str], there: str, here: str
-) -> int:
-    """A teacher's recruitment requests, contents and all.
-
-    Two calls per requisition rather than one, because creating one only names it: the
-    courses, the hours and the dates live in its content, and content is only ever set by
-    an update. A copy with the names and none of the content would look complete on the
-    list and be empty in every editor.
-    """
-    made_count = 0
-    for summary in call(f"{source}/api/v1/teachers/{there}/requisitions", headers=read)["items"]:
-        full = call(f"{source}/api/v1/teacher-requisitions/{summary['id']}", headers=read)
-        made = call(
-            f"{into}/api/v1/teachers/{here}/requisitions",
-            headers=write,
-            method="POST",
-            body={"label": full["label"], "academicYear": full["academicYear"]},
-        )
-        call(
-            f"{into}/api/v1/teacher-requisitions/{made['id']}",
-            headers=write,
-            method="PATCH",
-            body={
-                # A requisition that has just been created is at revision 1; the answer
-                # says so, and this states the same thing where it does not.
-                "expectedRevision": made.get("revision", 1),
-                "label": full["label"],
-                "academicYear": full["academicYear"],
-                "content": full["content"],
-            },
-        )
-        made_count += 1
-    return made_count
-
-
-def _copy_time_sheets(  # noqa: PLR0913 - one argument per end of the copy
-    source: str, into: str, read: dict[str, str], write: dict[str, str], there: str, here: str
-) -> int:
-    """The links to their time sheets, which are all this platform holds of them.
-
-    The workbooks stay in OneDrive either way; what travels is the label, the pay period
-    and the address, so a local copy can show the same row as production does.
-    """
-    made_count = 0
-    for sheet in call(f"{source}/api/v1/teachers/{there}/time-sheets", headers=read)["items"]:
-        call(
-            f"{into}/api/v1/teachers/{here}/time-sheets",
-            headers=write,
-            method="POST",
-            body={
-                "label": sheet["label"],
-                "academicYear": sheet.get("academicYear", ""),
-                "url": sheet["url"],
-                "periodStart": sheet.get("periodStart", ""),
-            },
-        )
-        made_count += 1
-    return made_count
-
-
-def _copy_active_teachers(  # noqa: PLR0913 - one argument per thing the copy is about
-    source: str, into: str, read: dict[str, str], write: dict[str, str], part_time_ids: dict[str, str], say
-) -> dict[str, str]:
-    """The department's list, with both sides of anybody who is on both.
-
-    A row is added from whichever side it has, and then joined to the other explicitly.
-    Joining is not left to `add_active_teachers` to work out, because that matches on the
-    e-mail address and the two sides hold different ones — which is the whole reason the
-    part-time tag has to be linked rather than inferred.
-    """
-    rows = call(f"{source}/api/v1/portal/active-teachers", headers=read)["teachers"]
-
-    def here_now() -> list[dict[str, Any]]:
-        return call(f"{into}/api/v1/portal/active-teachers", headers=write)["teachers"]
-
-    joined, adrift = 0, 0
-    for row in rows:
-        here_part_time = part_time_ids.get(row.get("partTimeTeacherId") or "")
-        made = False
-        if row.get("portalTeacherId"):
-            call(
-                f"{into}/api/v1/portal/active-teachers",
-                headers=write,
-                method="POST",
-                body={"portalTeacherIds": [row["portalTeacherId"]]},
-            )
-            # Adding by portal profile only works where the portal's own teacher list is
-            # here, and that list arrives from a Portal sync rather than from this copy.
-            # Into an empty database it quietly adds nobody, so the row has to be looked
-            # for rather than assumed — this step once reported forty-five teachers
-            # copied into a database that had none.
-            made = any(held.get("portalTeacherId") == row["portalTeacherId"] for held in here_now())
-        if not made and here_part_time:
-            call(
-                f"{into}/api/v1/portal/active-teachers",
-                headers=write,
-                method="POST",
-                body={
-                    "partTime": [
-                        {"id": here_part_time, "fullName": row["fullName"], "email": row.get("email", "")}
-                    ]
-                },
-            )
-            # Added from the part-time side, so it is already joined and carries no portal
-            # profile to join on below.
-            joined += 1
-            continue
-        if not made:
-            adrift += 1
-            continue
-        if not here_part_time:
-            continue
-        # The LOCAL list, so the local session cookie — not `read`, which carries
-        # production's bearer token and gets a 401 "Sign in to continue." from localhost.
-        # That 401 ended this step silently: the copy exited without its summary line and
-        # dev kept whatever teacher list it already had, which is how a stale name came to
-        # warn on dev and not on production.
-        here = next(
-            (
-                held
-                for held in call(f"{into}/api/v1/portal/active-teachers", headers=write)["teachers"]
-                if held["portalTeacherId"] == row["portalTeacherId"]
-            ),
-            None,
-        )
-        if here is None:
-            continue
-        call(
-            f"{into}/api/v1/portal/active-teachers/{here['id']}/link-part-time",
-            headers=write,
-            method="POST",
-            body={"partTimeTeacherId": here_part_time},
-        )
-        joined += 1
-    say(f"  active teachers: {len(here_now())} of {len(rows)}, {joined} joined to a part-time record")
-    if adrift:
-        say(
-            f"    {adrift} could not be added: they are known only by a portal profile, and the "
-            "portal's teacher list is not here. Run a Portal sync against localhost, then copy again."
-        )
-    # Production's id for a chosen teacher is written on every section that teacher takes,
-    # and means nothing here — the rows above were created with ids of their own. The two
-    # sides are joined by the portal profile they share, and the map goes to the catalogue,
-    # which would otherwise copy production's id onto a section belonging to nobody.
-    held_here = {
-        held["portalTeacherId"]: held["id"]
-        for held in call(f"{into}/api/v1/portal/active-teachers", headers=write)["teachers"]
-        if held.get("portalTeacherId")
-    }
-    return {
-        row["id"]: held_here[row["portalTeacherId"]]
-        for row in rows
-        if row.get("portalTeacherId") and row["portalTeacherId"] in held_here
-    }
+    try:
+        loaded = load_tables(engine_for(url), payload, source_revision=listing["revision"])
+    except SchemaMismatch as mismatch:
+        raise Refused(str(mismatch)) from mismatch
+    say(f"\nDone: {len(loaded)} tables, {sum(loaded.values())} rows, exactly as production holds them.")
+    return {"dryRun": False, "revision": listing["revision"], "tables": loaded, "rows": sum(loaded.values())}
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--into", default=LOCAL, help="the local instance to write to")
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--from", dest="source", default=PROD, help="where to read from")
-    parser.add_argument("--dry-run", action="store_true", help="say what would be written, write nothing")
-    parser.add_argument(
-        "--replace",
-        action="store_true",
-        help="empty the local cohorts, students and register first. Without it, a second run duplicates them.",
-    )
-    parser.add_argument(
-        "--teachers",
-        action="store_true",
-        help="also copy the active-teacher list. Off by default: it is the only step that carries names.",
-    )
+    parser.add_argument("--dry-run", action="store_true", help="read everything, write nothing")
     arguments = parser.parse_args()
-    copy_everything(
-        source=arguments.source,
-        into=arguments.into,
-        replace=arguments.replace,
-        teachers=arguments.teachers,
-        dry_run=arguments.dry_run,
-    )
+    try:
+        copy_everything(source=arguments.source, dry_run=arguments.dry_run)
+    except Refused as refusal:
+        print(refusal, file=sys.stderr)
+        return 1
     return 0
 
 
-def _copy_saved_questions(source: str, into: str, read: dict[str, str], write: dict[str, str], say) -> None:
-    """The questions a Portal sync asks: filters for courses and teachers, views for students.
-
-    Both are the same idea wearing two names, and neither survived a copy. Without them a
-    copied database cannot sync at all, which is what leaves its portal lists — and every
-    active teacher and course made by pointing at one — empty.
-    """
-    _copy_filters(source, into, read, write, say)
-    _copy_views(source, into, read, write, say)
-
-
-def _copy_views(source: str, into: str, read: dict[str, str], write: dict[str, str], say) -> None:
-    """The saved student questions — "All Sorbonne Students - S1" and any others.
-
-    A view is to students what a filter is to courses and teachers: the question a Portal
-    sync asks, and the thing a sync syncs INTO. This copy makes one of its own to carry the
-    student ids over and deletes it again on the way out, so a copied database was left
-    with none at all — the Students page offering to make one, and a sync with nowhere to
-    put what it fetched.
-
-    Like a filter, a view holds the criteria and no student, so it travels either way.
-    """
-    theirs = call(f"{source}/api/v1/student-database/views", headers=read)["views"]
-    ours = {row["name"] for row in call(f"{into}/api/v1/student-database/views", headers=write)["views"]}
-    made = 0
-    for row in theirs:
-        if row["name"] in ours or row["name"] == VIEW_NAME:
-            continue
-        call(
-            f"{into}/api/v1/student-database/views",
-            headers=write,
-            method="POST",
-            body={"name": row["name"], "description": row.get("description", ""), "filter": row.get("filter") or {}},
-        )
-        made += 1
-    say(f"\nstudent views: {made} copied" if made else "\nstudent views: already here")
-
-
-def _copy_filters(source: str, into: str, read: dict[str, str], write: dict[str, str], say) -> None:
-    """The saved portal questions: "SCEN Profs", "SCEN Courses", "SCEN Students".
-
-    A Portal sync syncs INTO one of these — it is the question being asked — so a copy
-    without them cannot sync at all, and everything a sync brings stays empty: the portal's
-    own teacher and course lists, and with them every active teacher and active course,
-    which are created by pointing at a portal row rather than by copying one.
-
-    That is the whole of why an emptied database could not be rebuilt from production. The
-    filters hold no student and no name, only the criteria of the question, so they travel
-    whether or not names were asked for.
-    """
-    made, held = 0, 0
-    # The three the portal offers. Students are a view rather than a filter, and travel
-    # with the cohorts above.
-    for kind in ("courses", "teachers", "registrations"):
-        theirs = call(f"{source}/api/v1/portal/filters?kind={kind}", headers=read)["filters"]
-        ours = {row["name"] for row in call(f"{into}/api/v1/portal/filters?kind={kind}", headers=write)["filters"]}
-        for row in theirs:
-            if row["name"] in ours:
-                held += 1
-                continue
-            call(
-                f"{into}/api/v1/portal/filters",
-                headers=write,
-                method="POST",
-                body={"kind": kind, "name": row["name"], "filter": row.get("filter") or {}},
-            )
-            made += 1
-    if made or held:
-        say(f"\nportal filters: {made} copied{f', {held} already here' if held else ''}")
-        say("  a sync fills the portal's own lists; run one against localhost to finish the copy.")
-    else:
-        say("\nportal filters: none on the source.")
-
-
-def _copy_exemptions(  # noqa: PLR0913 - one argument per thing the decision is about
-    source: str, into: str, read: dict[str, str], write: dict[str, str],
-    cohorts: list[dict[str, Any]], course_ids: dict[str, str], say,
-) -> int:
-    """Who is in a group and does not take one of its courses.
-
-    A decision somebody took, and one nothing else carries: it is not derivable from the
-    portal, from the workbook, or from any other table. A copy without it puts the warning
-    it was taken to answer back on the page.
-
-    A shared set is filed under whichever cohort holds its row, so reading every cohort
-    would report the languages once per cohort — hence the seen-set.
-    """
-    seen: set[tuple[str, str]] = set()
-    written = 0
-    for cohort in cohorts:
-        listed = call(
-            f"{source}/api/v1/student-database/cohorts/{cohort['id']}/exemptions", headers=read
-        )["exemptions"]
-        for row in listed:
-            here_course = course_ids.get(row["courseId"])
-            key = (row["studentId"], row["courseId"])
-            if not here_course or key in seen:
-                continue
-            seen.add(key)
-            call(
-                f"{into}/api/v1/student-database/students/{row['studentId']}/exemptions/{here_course}",
-                headers=write,
-                method="PUT",
-                body={"reason": row.get("reason", "")},
-            )
-            written += 1
-    say(f"\nexemptions: {written}")
-    return written
-
-
-def _copy_checks(  # noqa: PLR0913 - one argument per scope the answer may be given at
-    source: str, into: str, read: dict[str, str], write: dict[str, str],
-    cohort_id: dict[str, str], say,
-) -> None:
-    """Which checks run, and the floor each says nothing below — department and per cohort.
-
-    Only where the answer differs from the code's default, because a row that agrees with
-    the default is a row that says nothing and would only have to be kept in step.
-    """
-    written = 0
-    scopes: list[tuple[str, str]] = [("", "")] + [(prod, here) for prod, here in cohort_id.items()]
-    for prod_cohort, here_cohort in scopes:
-        where = f"?cohortId={prod_cohort}" if prod_cohort else ""
-        for check in call(f"{source}/api/v1/portal/checks{where}", headers=read)["checks"]:
-            same = check["enabled"] == check["defaultEnabled"] and check["threshold"] == check["defaultThreshold"]
-            if same:
-                continue
-            call(
-                f"{into}/api/v1/portal/checks/{check['name']}",
-                headers=write,
-                method="PUT",
-                body={
-                    "enabled": check["enabled"],
-                    "threshold": check["threshold"],
-                    "cohortId": here_cohort,
-                },
-            )
-            written += 1
-    say(f"checks answered by hand: {written}")
-
-
-def _copy_settled_collisions(  # noqa: PLR0913 - one argument per part of the key
-    source: str, into: str, read: dict[str, str], write: dict[str, str], terms: dict[str, str], say,
-) -> None:
-    """Collisions the department has accepted or referred, with the reason.
-
-    Keyed on the slot rather than on any id, so it needs no map — and a note whose slot no
-    longer exists here simply matches nothing, which is what it does in production too.
-    """
-    written = 0
-    for portal_code in sorted({code for code in _term_codes(source, read)}):
-        rep = call(f"{source}/api/v1/portal/register-check?term={portal_code}", headers=read)
-        for row in rep.get("settledCollisions", []):
-            call(
-                f"{into}/api/v1/portal/section-collisions/settle",
-                headers=write,
-                method="POST",
-                body={
-                    "termCode": portal_code,
-                    "ourCrn": row["ourCrn"],
-                    "weekday": row["weekday"],
-                    "startsAt": row["startsAt"],
-                    "endsAt": row["endsAt"],
-                    "disposition": row.get("disposition", "accepted"),
-                    "note": row.get("note", ""),
-                },
-            )
-            written += 1
-    if written:
-        say(f"settled collisions: {written}")
-
-
-def _older_than_this_script(refusal: Refused) -> bool:
-    """Whether the source simply does not have a route this script knows about.
-
-    The copy reads a running instance, and that instance can be older than the checkout
-    doing the reading — most obviously in the window between adding a read route here and
-    deploying it. 404 is the route not existing; 405 is the path existing for a different
-    method, which is what a GET added beside an older POST looks like from outside.
-    """
-    return refusal.code in (404, 405)
-
-
-def _copy_sweeps(source: str, into: str, read: dict[str, str], write: dict[str, str], say) -> None:
-    """The registrar's own timetable, as swept.
-
-    The one record here that no local action can rebuild: the registrar is reached through
-    a browser extension signed in as a coordinator, so a developer's copy of production was
-    blind to every clash and every collision until somebody sat down and ran a sync against
-    it. Replayed as the same pull the extension writes, so there is no second way into
-    those tables.
-    """
-    try:
-        terms = call(f"{source}/api/v1/portal/facility-timetable", headers=read)["terms"]
-    except Refused as refusal:
-        if not _older_than_this_script(refusal):
-            raise
-        # Everything else has already been copied and is worth keeping. Say what is missing
-        # and what it costs, rather than failing a copy over one absent record.
-        say(
-            "\nregistrar's timetable: skipped — the source does not offer it yet.\n"
-            "  Deploy this branch, or run a Portal sync against localhost, or clashes and\n"
-            "  collisions will be blank here."
-        )
-        return
-
-    swept = 0
-    for term_code in terms:
-        sweep = call(f"{source}/api/v1/portal/facility-timetable/{term_code}", headers=read)
-        if not sweep["asked"]:
-            continue
-        call(f"{into}/api/v1/portal/facility-timetable", headers=write, method="POST", body=sweep)
-        swept += len(sweep["sections"])
-        say(f"  {term_code}: {len(sweep['sections'])} section(s), {len(sweep['silent'])} silent")
-    say(f"\nregistrar's timetable: {swept} section(s) copied" if swept else "\nregistrar's timetable: nothing swept")
-
-
-def _term_codes(source: str, read: dict[str, str]) -> set[str]:
-    """The portal term codes production has linked, which the collisions are keyed on."""
-    links = call(f"{source}/api/v1/portal/term-links", headers=read)["links"]
-    return {code for code in links.values() if code}
-
-
-def _copy_plans(  # noqa: PLR0913 - the maps it threads through are the point
-    read, write, here, write_headers, cohorts, cohort_id, terms, say, course_ids, *, dry_run: bool,
-    teacher_ids: dict[str, str] | None = None,
-) -> tuple[int, dict[str, str], int, int]:
-    """Every catalogue, then every placement — in that order, and never per cohort.
-
-    A set open to every cohort is created once, under the cohort whose row holds it, and
-    the other three place their students into those same groups. Doing a cohort end to end
-    drops those placements, because the group they name belongs to a cohort that has not
-    been reached yet, or was reached and forgotten. That silently lost 154 of them once.
-    """
-    say("")
-    group_id: dict[str, str] = {}
-    sets = 0
-    requests = 0
-    # Production sub-row id -> local, so a placement can name the sub-row it took.
-    major_ids: dict[str, str] = {}
-    for cohort in cohorts:
-        # This cohort's OWN sets, which is what "created once" above depends on.
-        #
-        # The catalogue reads the sets open to every cohort as well by default — it was
-        # changed to, so that a reader does not report a cohort as taking no language at
-        # all — and this loop was never told. Four cohorts each read the one language set
-        # and each created it, so the copy held four A0-F5s of thirty seats where the
-        # university has one, and `group_id` ended up naming whichever was written last:
-        # every language placement in the copy landed in L3's, and the other three stood
-        # empty. Production was right the whole time; only the copy was wrong, which is
-        # worse, because the copy is what gets looked at while testing.
-        catalogue = read(f"/cohorts/{cohort['id']}/catalogue?own_only=true")["scopes"]
-        sets += len(catalogue)
-        say(f"{cohort['name']}: {len(catalogue)} sets, {sum(len(s['groups']) for s in catalogue)} groups")
-        if not dry_run:
-            requests += _copy_catalogue(
-                write, catalogue, cohort_id[cohort["id"]], terms, group_id, course_ids, major_ids, teacher_ids
-            )
-    if requests:
-        say(f"\nsections carrying a request: {requests}")
-    if dry_run:
-        return sets, group_id, 0, 0
-
-    say("")
-    placed = 0
-    for cohort in cohorts:
-        placed_here = read(f"/cohorts/{cohort['id']}/assignments")
-        here_placed = _copy_placements(
-            here, write, write_headers, placed_here["assignments"], group_id, placed_here.get("majors") or {}, major_ids
-        )
-        placed += here_placed
-        say(f"{cohort['name']}: placed {here_placed}")
-    return sets, group_id, placed, requests
-
-
-def _copy_cohorts(write, cohorts: list[dict[str, Any]]) -> dict[str, str]:
-    """The cohorts themselves. Returns production id -> local id, which everything else needs."""
-    return {
-        cohort["id"]: write(
-            "/cohorts",
-            {
-                "name": cohort["name"],
-                "term": cohort.get("term", ""),
-                "notes": cohort.get("notes", ""),
-                "majors": cohort.get("majors", []),
-                "terms": cohort.get("terms", []),
-                "yearLevel": cohort.get("yearLevel", ""),
-                # Which sheet of the timetable workbook is this cohort's, and the number
-                # that workbook gives its first semester. Nothing carries them but this.
-                "workbookTab": cohort.get("workbookTab", ""),
-                "firstSemester": cohort.get("firstSemester", 0),
-                # What the cohort always allows outside its groups — sport, a language.
-                "allowedCodes": cohort.get("allowedCodes", []),
-            },
-        )["id"]
-        for cohort in cohorts
-    }
-
-
-def _copy_rules(write, rules: list[dict[str, Any]], cohort_id: dict[str, str]) -> None:
-    """Replaced wholesale, which is the route's own shape and the only honest one.
-
-    A local rulebook that has drifted from production's is worse than no rulebook: it
-    flags things production does not and stays quiet about things it does, and every
-    difference reads as a finding rather than as a stale copy.
-    """
-    write(
-        "/discrepancy-rules",
-        {
-            "rules": [
-                {
-                    "field": rule["field"],
-                    "kind": rule["kind"],
-                    "values": rule.get("values", []),
-                    # A rule for one cohort has to follow that cohort to its new id.
-                    "cohortId": cohort_id.get(rule.get("cohortId", ""), ""),
-                }
-                for rule in rules
-            ]
-        },
-        method="PUT",
-    )
-
-
-def _copy_register(where: dict[str, Any], terms: dict[str, str], say, *, dry_run: bool) -> None:
-    """The department's own register: which courses and CRNs it answers for, and the term link.
-
-    Without these the Active Courses page is empty and the registration check has nothing
-    to judge against — it decides what is "ours" from exactly this list.
-    """
-    source, into = where["source"], where["into"]
-    read_headers, write_headers = where["read"], where["write"]
-    there = lambda path: call(f"{source}/api/v1/portal{path}", headers=read_headers)  # noqa: E731
-    courses = there("/active-courses")["courses"]
-    crns = there("/active-crns")["crns"]
-    links = there("/term-links")["links"]
-    say(f"\nregister: {len(courses)} courses, {len(crns)} CRNs, {len(links)} term link(s)")
-    if dry_run:
-        return
-    call(
-        f"{into}/api/v1/portal/active-courses",
-        headers=write_headers,
-        method="POST",
-        body={"courseCodes": sorted({row["courseCode"] for row in courses if row.get("courseCode")}), "byHand": []},
-    )
-    call(
-        f"{into}/api/v1/portal/active-crns",
-        headers=write_headers,
-        method="POST",
-        body={
-            "courseCodes": [],
-            "crns": [
-                {"termCode": row.get("termCode", ""), "crn": row["crn"], "courseCode": row.get("courseCode", "")}
-                for row in crns
-                if row.get("crn")
-            ],
-        },
-    )
-    # The list was taken in above; these are the things the department has SAID about it,
-    # and every one of them is typed by hand and lost without this. Measured on production
-    # the day this was fixed: 25 courses with a UE, 31 with a mutualized answer, and 129
-    # CRNs hanging from a parent.
-    held_courses = call(f"{into}/api/v1/portal/active-courses", headers=write_headers)["courses"]
-    here_courses = {row["courseCode"]: row for row in held_courses}
-    for row in courses:
-        mine = here_courses.get(row.get("courseCode", ""))
-        if not mine:
-            continue
-        if row.get("ue") or row.get("mutualized") or row.get("title") != mine.get("title"):
-            call(
-                f"{into}/api/v1/portal/active-courses/{mine['id']}",
-                headers=write_headers,
-                method="PATCH",
-                body={"title": row.get("title", ""), "ue": row.get("ue", ""), "mutualized": row.get("mutualized", "")},
-            )
-    held_crns = call(f"{into}/api/v1/portal/active-crns", headers=write_headers)["crns"]
-    here_crns = {(row["termCode"], row["crn"]): row for row in held_crns}
-    for row in crns:
-        if not row.get("parentCrn"):
-            continue
-        mine = here_crns.get((row.get("termCode", ""), row["crn"]))
-        if mine:
-            call(
-                f"{into}/api/v1/portal/active-crns/{mine['id']}",
-                headers=write_headers,
-                method="PATCH",
-                body={"parentCrn": row["parentCrn"]},
-            )
-
-    # `links` is {term id: portal term code}, and the term id is production's — so it
-    # goes through the same name-matched map the sets do, or the link points at nothing.
-    for prod_term, portal_code in links.items():
-        here_term = terms.get(prod_term)
-        if here_term:
-            call(
-                f"{into}/api/v1/portal/term-links/{here_term}",
-                headers=write_headers,
-                method="PUT",
-                body={"portalTermCode": portal_code},
-            )
-
-
-def _local_session() -> dict[str, str]:
-    """A staff cookie for this machine, signed the way the real gate signs one.
-
-    It exercises the gate rather than bypassing it: the e-mail must be on
-    COORDINATOR_ACCESS_EMAILS and the signature must match this deployment's secret.
-    """
-    if not config.session_secret:
-        raise Refused("SESSION_SECRET is not set in backend/.env, so no local session can be minted.")
-    email = next(iter(sorted(owner_emails())), "")
-    if not email:
-        raise Refused("COORDINATOR_ACCESS_EMAILS is empty, so nobody may sign in locally.")
-    return {"Cookie": f"{SESSION_COOKIE}={issue_session(StaffUser(email=email, name='copy'))}"}
-
-
-def _make_room(  # noqa: PLR0913 - one argument per thing the decision turns on
-    here: str, into: str, headers: dict[str, str], *, replace: bool, teachers: bool, say
-) -> None:
-    """Refuse to write into a database that already holds a copy, unless told to replace it.
-
-    `teachers` decides whether the part-time database is emptied with the rest: it is only
-    right to clear what this copy is about to put back.
-    """
-    held = call(f"{here}/cohorts", headers=headers)["cohorts"]
-    if not held:
-        return
-    if not replace:
-        raise Refused(
-            f"{into} already holds {len(held)} cohorts. Pass --replace to empty them first, "
-            "or point --into at an empty instance."
-        )
-    _empty_local(into, teachers=teachers)
-    say(f"emptied {len(held)} cohorts and their students from {into}\n")
-
-
-def _empty_local(into: str, *, teachers: bool = False) -> None:
-    """Clear the local copy, straight through the local database.
-
-    Direct SQL, not the API, because there is no route that deletes a cohort's students
-    and none should exist. Safe here for the one reason that matters: `into` has already
-    been through `local_only`, and this reads its URL from this machine's own .env — it
-    has no way to reach anything but this laptop.
-    """
-    local_only(into)
-    url = config.database_url
-    if urlparse(url.replace("postgresql+psycopg://", "postgresql://")).hostname not in {"localhost", "127.0.0.1"}:
-        raise Refused(f"DATABASE_URL does not point at this machine: {url.split('@')[-1]}")
-    with create_engine(url).begin() as connection:
-        # The department's own planning, then the register it is judged against, then the
-        # part-time database. Everything here is copied additively, so a second copy
-        # without this leaves a union of both — 42 courses where production has 31.
-        tables = [
-            "group_assignments", "group_crns", "scope_groups", "scope_courses", "cohort_scopes",
-            "active_course_crns", "active_courses", "term_links", "active_teachers",
-        ]
-        # The part-time database only when it is going to be copied back.
-        #
-        # Emptying it is right when it travels, for the same reason as the register above:
-        # copying is additive, so a second copy without this leaves two of every teacher —
-        # 86 where production has 24, each with their own requisitions and time sheets and
-        # no way to tell on screen which is which.
-        #
-        # It is plain destruction when it does not. That step is off unless asked for,
-        # because it is the only one carrying names, e-mail addresses and phone numbers —
-        # so the common copy was emptying a database it had no intention of refilling, and
-        # the Part-time Teachers page went blank with nothing said. Wiping what you are not
-        # about to replace is not a copy, it is a deletion with a copy after it.
-        if teachers:
-            tables[-1:-1] = ["teacher_time_sheets", "teacher_requisitions"]
-        for table in tables:
-            connection.execute(text(f"DELETE FROM {table}"))  # noqa: S608 - fixed names, no interpolation of input
-        connection.execute(text("DELETE FROM students"))
-        connection.execute(text("DELETE FROM student_cohorts"))
-        if teachers:
-            # After the rows that point at them: a teacher cannot go while a requisition
-            # names them, and a folder cannot go while a teacher is filed in it.
-            connection.execute(text("DELETE FROM part_time_teachers"))
-            connection.execute(text("DELETE FROM teacher_folders"))
-
-
-VIEW_NAME = "Copied from production — delete me"
-
-
-def _copy_students(
-    here: str, headers: dict[str, str], write, students: list[dict[str, Any]], cohort_id: dict[str, str]
-) -> int:
-    """The ids, then who belongs where — a view's sync writes cohort_id NULL, so it is two steps.
-
-    The view is made, used and then DELETED, because a view is not a container: it is a
-    portal sync target. One left behind puts a list called "Copied from production" in the
-    Portal sync button for ever after, and the next sync dutifully asks the registrar for
-    it. Deleting it drops the membership rows and nothing else — the students stay, and so
-    do their cohorts. Verified: 2,976 students and 314 placements survived it.
-    """
-    view = write("/views", {"name": VIEW_NAME, "description": "", "filter": {}})
-    try:
-        write(f"/views/{view['id']}/sync", {"studentIds": [row["studentId"] for row in students]})
-        by_cohort: dict[str, list[str]] = {}
-        for row in students:
-            if row.get("cohortId"):
-                by_cohort.setdefault(row["cohortId"], []).append(row["studentId"])
-        for prod_id, ids in by_cohort.items():
-            if prod_id in cohort_id:
-                write("/students/cohort", {"studentIds": ids, "cohortId": cohort_id[prod_id]})
-        return sum(len(ids) for ids in by_cohort.values())
-    finally:
-        # In a finally, because a half-finished copy that leaves a sync target behind is
-        # worse than a half-finished copy.
-        call(f"{here}/views/{view['id']}", headers=headers, method="DELETE")
-
-
-def _term_map(
-    source: str, into: str, read_headers: dict[str, str], write_headers: dict[str, str], say
-) -> dict[str, str]:
-    """Production's semester ids to this machine's, matched by name.
-
-    A set's `term_id` names a semester of the Student Hub, and the two Hubs are different
-    deployments with different ids — so copying the id verbatim attaches every set to a
-    semester that does not exist here, and the sets are invisible without a single error.
-    Names are matched loosely because they are not written identically either: production
-    says "Semester 1 2026-27" where this machine says "Semester 1".
-    """
-    there = call(f"{source}/api/v1/timetables/terms", headers=read_headers)["terms"]
-    here = call(f"{into}/api/v1/timetables/terms", headers=write_headers)["terms"]
-    fold = lambda name: "".join(ch for ch in name.lower() if ch.isalnum())  # noqa: E731
-    mapped: dict[str, str] = {}
-    for term in there:
-        match = next(
-            (row for row in here if fold(row["name"]) == fold(term["name"])),
-            next((row for row in here if fold(row["name"]) in fold(term["name"])), None),
-        )
-        if match:
-            mapped[term["id"]] = match["id"]
-            say(f"  {term['name']} -> {match['name']}")
-        else:
-            say(f"  {term['name']} -> NOTHING HERE. Its sets will be copied but invisible.")
-    return mapped
-
-
-#: Everything a section carries beyond its CRN and the name on it — the timetabler's
-#: request. `PUT` on the cell writes the CRN and the name; the rest is a `PATCH`, and
-#: leaving it out copied production as a grid of CRNs with the request stripped out of it.
-#: Measured on production the day this was fixed: 141 sections, of which 81 named a teacher
-#: the department had confirmed, 139 a duration, 134 an anticipated size and 25 a
-#: constraint. None of it arrived, so Teacher hours read "Not confirmed" for everybody.
-REQUEST_FIELDS = (
-    "teacherId",
-    "hours",
-    "sessionsPerWeek",
-    "duration",
-    "weeks",
-    "anticipated",
-    "roomPref",
-    "dayPref",
-    "timePref",
-    "constraints",
-    "comments",
-    "retired",
-)
-
-
-def _request_of(cell: dict[str, Any], teacher_ids: dict[str, str] | None = None) -> dict[str, Any]:
-    """The section's request, as the PATCH takes it — only what is actually said.
-
-    `teacherId` is production's, and the local list holds the same people under ids of its
-    own, so it is translated. Where the copy made no local row for that teacher it is
-    dropped rather than carried over: a section naming an id nobody holds belongs to
-    nobody, and nothing falls back to the written name while an id is present — which read
-    on screen as forty teachers who teach nothing at all.
-    """
-    request = {field: cell[field] for field in REQUEST_FIELDS if cell.get(field) not in ("", 0, False, None)}
-    chosen = request.get("teacherId")
-    if chosen:
-        here = (teacher_ids or {}).get(chosen)
-        if here:
-            request["teacherId"] = here
-        else:
-            del request["teacherId"]
-    return request
-
-
-def _copy_catalogue(  # noqa: PLR0913 - the two maps it fills are the point
-    write,
-    catalogue: list[dict[str, Any]],
-    here_cohort: str,
-    terms: dict[str, str],
-    group_id: dict[str, str],
-    course_ids: dict[str, str] | None = None,
-    major_ids: dict[str, str] | None = None,
-    teacher_ids: dict[str, str] | None = None,
-) -> int:
-    """The sets, their courses, their groups, their sub-rows and the CRNs in them.
-
-    Fills `group_id` (production id -> local id) and returns how many sections carried a
-    request. A set, a course, a group and a section each travel with everything the API
-    will take: the nesting, the component, and the timetabler's request. Anything left
-    behind here is silently missing from the copy, and reads on screen as a fact about
-    production rather than as a gap in this script.
-    """
-    scope_id: dict[str, str] = {}
-    requests = 0
-    # Parents before children, so a nested set's parent already exists to be named.
-    for scope in sorted(catalogue, key=lambda row: bool(row.get("parentScopeId"))):
-        made = write(
-            f"/cohorts/{here_cohort}/scopes",
-            {
-                "code": scope["code"],
-                "name": scope.get("name", ""),
-                "note": scope.get("note", ""),
-                "termId": terms.get(scope.get("termId", ""), scope.get("termId", "")),
-                "kind": scope.get("kind", "shared"),
-                "openToAll": bool(scope.get("openToAll")),
-                "parentScopeId": scope_id.get(scope.get("parentScopeId", ""), ""),
-                # Which sheet of the group workbook this set's column is on, what that
-                # column is headed and where it sits. Left behind, every set exported
-                # itself onto a tab of its own, so the file a copy writes looked nothing
-                # like the file production writes — and a layout fault would hide here.
-                "tab": scope.get("tab", ""),
-                "groupColumn": scope.get("groupColumn", ""),
-                "columnIndex": int(scope.get("columnIndex", 0) or 0),
-            },
-        )
-        scope_id[scope["id"]] = made["id"]
-        # Filled for the caller as well as used here: an exemption names a course by id,
-        # and the ids change on the way over.
-        course_id: dict[str, str] = {}
-        course_id.update({
-            course["id"]: write(
-                f"/scopes/{made['id']}/courses",
-                {
-                    "code": course["code"],
-                    "name": course.get("name", ""),
-                    # Which of the course's parts this set is — CM, TD, TP. Every course in
-                    # production carries one, and without it a card cannot say what it is.
-                    "component": course.get("component", ""),
-                    # Which programme of the cohort takes it. Blank means all of them, and
-                    # a copy that lost this turns 45 structural blanks back into warnings.
-                    "program": course.get("program", ""),
-                },
-            )["id"]
-            for course in scope["courses"]
-        })
-        if course_ids is not None:
-            course_ids.update(course_id)
-        # What the COURSE asks of the timetable, as against what each of its sections asks.
-        # Typed by hand, kept on `scope_courses`, and carried by nothing but this.
-        for course in scope["courses"]:
-            request = {
-                key: value
-                for key, value in (course.get("request") or {}).items()
-                if value not in ("", 0, False, None)
-            }
-            if request and course["id"] in course_id:
-                write(f"/courses/{course_id[course['id']]}/request", request, method="PATCH")
-        for group in scope["groups"]:
-            here_group = write(
-                f"/scopes/{made['id']}/groups",
-                {
-                    "label": group["label"],
-                    "capacity": group.get("capacity", 0),
-                    "note": group.get("note", ""),
-                    # `parallelWith` is deliberately NOT copied. It holds GROUP IDS, which
-                    # are production's and mean nothing here, and the groups it points at
-                    # may not be written yet — mapping it needs a second pass once every id
-                    # is known. No group on production has one, so the pass would be dead
-                    # code today; write it when the first one does.
-                    # A nested set's group sits inside one of the parent's, which was
-                    # written above — the parent set comes first in the loop.
-                    "parentGroupId": group_id.get(group.get("parentGroupId", ""), ""),
-                },
-            )["id"]
-            group_id[group["id"]] = here_group
-            # The sub-rows: the majors this group holds, each with its seats. Nothing wrote
-            # them before, so a copied dev had groups with no sub-rows at all — every
-            # placement landed on none of them, the seats read as the group's, and the
-            # mutualized teaching the sub-rows exist to say was simply absent.
-            for major in group.get("majors") or []:
-                made_major = write(
-                    f"/groups/{here_group}/majors",
-                    {"program": major["program"], "seats": major.get("seats", 0)},
-                )["id"]
-                if major_ids is not None:
-                    major_ids[major["id"]] = made_major
-            for prod_course, cell in (group.get("crns") or {}).items():
-                if prod_course not in course_id:
-                    continue
-                at = f"/groups/{here_group}/courses/{course_id[prod_course]}"
-                # Every part, not the first. A section's top-level fields ARE its first
-                # part, so reading `cell["crn"]` copies a handover's opening half and
-                # silently drops the rest — and a copy missing the half that has not
-                # started yet reports every student in it as registered in a section
-                # nobody teaches. On the real data that was MATH-351's four sections
-                # arriving as two, and eleven students wrong because of it.
-                for part in cell.get("parts") or [cell]:
-                    if not part.get("crn"):
-                        continue
-                    number = part.get("part", 1)
-                    write(at, {"crn": part["crn"], "teacher": part.get("teacher", ""), "part": number}, method="PUT")
-                    request = _request_of(part, teacher_ids)
-                    if request:
-                        write(at, {**request, "part": number}, method="PATCH")
-                        requests += 1
-            requests += _copy_sub_row_cells(
-                write, here_group, group.get("byMajor") or {}, course_id, major_ids or {}, teacher_ids
-            )
-    return requests
-
-
-def _copy_sub_row_cells(  # noqa: PLR0913 - one argument per map it has to translate through
-    write,
-    here_group: str,
-    by_major: dict[str, Any],
-    course_id: dict[str, str],
-    major_ids: dict[str, str],
-    teacher_ids: dict[str, str] | None = None,
-) -> int:
-    """A cell that belongs to ONE sub-row, and a sub-row's word that it is not taught a course.
-
-    Written after the group's shared cells, because a sub-row's own cell stands over the
-    group's. Returns how many of them carried a timetabler's request.
-    """
-    requests = 0
-    for prod_major, by_course in by_major.items():
-        mine = major_ids.get(prod_major, "")
-        if not mine:
-            continue
-        for prod_course, cell in by_course.items():
-            if prod_course not in course_id:
-                continue
-            at = f"/groups/{here_group}/courses/{course_id[prod_course]}"
-            if cell.get("notTaught"):
-                write(at, {"crn": "", "majorId": mine, "notTaught": True}, method="PUT")
-                continue
-            for part in cell.get("parts") or [cell]:
-                if not part.get("crn"):
-                    continue
-                number = part.get("part", 1)
-                body = {"crn": part["crn"], "teacher": part.get("teacher", ""), "part": number, "majorId": mine}
-                write(at, body, method="PUT")
-                request = _request_of(part, teacher_ids)
-                if request:
-                    write(at, {**request, "part": number, "majorId": mine}, method="PATCH")
-                    requests += 1
-    return requests
-
-
-def _copy_placements(  # noqa: PLR0913 - one argument per thing a placement names
-    here: str,
-    write,
-    headers: dict[str, str],
-    assignments: dict[str, Any],
-    group_id: dict[str, str],
-    majors: dict[str, Any],
-    major_ids: dict[str, str],
-) -> int:
-    """Who sits where, and on which sub-row. One request per group, since that is what the route takes."""
-    want: dict[str, list[str]] = {}
-    on: dict[str, dict[str, str]] = {}
-    for student, by_scope in assignments.items():
-        for scope, prod_group in by_scope.items():
-            if prod_group in group_id:
-                want.setdefault(prod_group, []).append(student)
-                prod_major = (majors.get(student) or {}).get(scope, "")
-                if prod_major in major_ids:
-                    on.setdefault(prod_group, {})[student] = major_ids[prod_major]
-    placed = 0
-    for prod_group, ids in want.items():
-        scope_here = _scope_of(here, headers, group_id[prod_group])
-        if scope_here:
-            report = write(
-                f"/scopes/{scope_here}/assignments",
-                {"studentIds": ids, "groupId": group_id[prod_group], "majors": on.get(prod_group, {})},
-                method="PUT",
-            )
-            placed += report.get("assigned", 0)
-    return placed
-
-
-def _scope_of(here: str, headers: dict[str, str], group_id: str) -> str:
-    """Which local set a local group belongs to. Cached, because it is asked per group."""
-    if group_id in _scope_of.cache:  # type: ignore[attr-defined]
-        return _scope_of.cache[group_id]  # type: ignore[attr-defined]
-    cards = call(f"{here}/course-cards", headers=headers)["cohorts"]
-    for cohort in cards:
-        for scope in cohort["scopes"]:
-            for group in scope["groups"]:
-                _scope_of.cache[group["id"]] = scope["id"]  # type: ignore[attr-defined]
-    return _scope_of.cache.get(group_id, "")  # type: ignore[attr-defined]
-
-
-_scope_of.cache = {}  # type: ignore[attr-defined]
-
-
 if __name__ == "__main__":
-    try:
-        sys.exit(main())
-    except Refused as refusal:
-        print(f"\n{refusal}", file=sys.stderr)
-        sys.exit(1)
+    raise SystemExit(main())

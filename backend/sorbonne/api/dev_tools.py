@@ -33,38 +33,25 @@ def is_local(database_url: str) -> bool:
 
 
 class CopyInput(BaseModel):
-    """Which production to read, and how much to bring."""
+    """Which production to read, and whether to stop short of writing."""
 
     source: str = Field(default="", max_length=200)
-    replace: bool = Field(default=True)
-    teachers: bool = Field(default=False)
+    dryRun: bool = Field(default=False)  # noqa: N815 - the wire name
 
 
 @router.post("/copy-from-production")
 def copy_from_production(body: CopyInput) -> dict[str, Any]:
-    """Bring production's cohorts, sets, groups, placements, rules and register down here.
+    """Make this machine's database production's: every table, every row, ids and all.
 
     The same work `scripts/copy_prod_to_dev.py` does, so there is one implementation and
-    one set of rules about what travels — no student names, and no staff contact details
-    unless asked for. `teachers` is the part-time database; the department's own list of
-    active teachers comes either way, being links to portal profiles the copy already holds.
+    one set of rules about what travels — see `sorbonne/services/table_copy.py`.
 
-    Slow by nature: it is a few hundred writes through this same API.
-
-    Deliberately `def` and not `async def`. The copy writes through THIS server, with
-    blocking requests; on the event loop it would hold the loop while waiting for answers
-    only the loop can give, and deadlock on its own first write. A sync handler is run in
-    a worker thread, which leaves the loop free to answer them.
+    Deliberately `def` and not `async def`: it spends its time waiting on production, and a
+    sync handler runs in a worker thread, which leaves the loop free for everything else.
     """
     from scripts import copy_prod_to_dev as copier  # noqa: PLC0415 - dev-only, and it shells nothing
 
     try:
-        report = copier.copy_everything(
-            source=body.source or copier.PROD,
-            into=copier.LOCAL,
-            replace=body.replace,
-            teachers=body.teachers,
-        )
+        return copier.copy_everything(source=body.source or copier.PROD, dry_run=body.dryRun)
     except copier.Refused as refusal:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(refusal)) from refusal
-    return report
