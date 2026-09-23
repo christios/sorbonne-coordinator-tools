@@ -483,6 +483,9 @@ class PortalListStore:
             connection.execute(
                 text("UPDATE portal_filters SET last_synced_at = :now WHERE id = :f"), {"now": now, "f": filter_id}
             )
+            # In the same transaction, so a register renamed from a sync that failed halfway
+            # cannot happen: the names move with the list they were read from, or not at all.
+            _follow_the_portal(connection)
         return {
             "seen": len(found),
             "added": len([key for key in found if key not in held]),
@@ -2013,18 +2016,16 @@ class PortalListStore:
             {"id": str(uuid4()), "code": code, "title": title, "now": now, "actor": _text(actor)},
         )
 
-    def update_active_course(
-        self, active_id: str, *, title: str, ue: str, mutualized: str = ""
-    ) -> dict[str, Any]:
-        """The course's own facts: what to call it, its Sorbonne UE, and whether it is
-        taught to both degrees at once. The parent CRN is a fact of each section, and
-        lives on the register's CRN rows."""
+    def update_active_course(self, active_id: str, *, ue: str, mutualized: str = "") -> dict[str, Any]:
+        """The course's own facts: its Sorbonne UE, and whether it is taught to both degrees
+        at once. Not its name, which is the portal's and follows it on every sync. The parent
+        CRN is a fact of each section, and lives on the register's CRN rows."""
         if mutualized not in ("", "yes", "no"):
             raise ValueError("A course is mutualized, not mutualized, or nobody has said.")
         with self.engine.begin() as connection:
             updated = connection.execute(
-                text("UPDATE active_courses SET title = :title, ue = :ue, mutualized = :mutualized WHERE id = :id"),
-                {"id": active_id, "title": _text(title), "ue": _text(ue), "mutualized": mutualized},
+                text("UPDATE active_courses SET ue = :ue, mutualized = :mutualized WHERE id = :id"),
+                {"id": active_id, "ue": _text(ue), "mutualized": mutualized},
             ).rowcount
         if updated == 0:
             raise ActiveCourseNotFound(active_id)
@@ -2687,7 +2688,13 @@ def _parent_row(connection: Connection, code: str) -> Any:
 
 
 def _course_title(connection: Connection, code: str) -> str | None:
-    """What to call the course: the name on its own row, else the newest section's."""
+    """What to call the course: the name on its own row, else the newest section's.
+
+    A section's name carries its group and its kind — "Algebra 1-CM", "Mechanics Physics 1
+    G.1-TD" — and those are the section's, not the course's. Left on, the first section
+    taken in named the course for good: MATH-223 read "Algebra 1-CM" long after the portal
+    had a row of its own calling it "Algebra 1".
+    """
     parent = _parent_row(connection, code)
     if parent is not None:
         return _text(parent["title"])
@@ -2696,7 +2703,37 @@ def _course_title(connection: Connection, code: str) -> str | None:
                 ORDER BY term_code DESC, crn LIMIT 1"""),
         {"code": code},
     ).scalar()
-    return None if title is None else _text(title)
+    return None if title is None else _without_section_marks(_text(title))
+
+
+def _without_section_marks(title: str) -> str:
+    """"Algebra 1-CM" → "Algebra 1": a section's name, less what makes it one section."""
+    kept = _SECTION_TITLE.sub("", title)
+    return re.sub(r"\s{2,}", " ", kept).strip(" -–") or title
+
+
+def _follow_the_portal(connection: Connection) -> int:
+    """Every course in the register, called what the portal calls it now.
+
+    The register used to keep the name a course had on the day it was taken in, and nothing
+    ever moved it: a course the registrar renamed read one way on Active CRNs and another on
+    the portal, and a coordinator could not tell which was current. Nobody here names
+    courses — on production thirty of thirty-one carried the portal's name word for word,
+    and the thirty-first was a section's name taken in by mistake — so the copy did no work
+    except go stale. It follows the portal now, on every sync of the courses.
+
+    A course the portal has no row for keeps what it has: one added by hand was named by
+    whoever added it, and one the registrar has dropped keeps the last name it had.
+    """
+    renamed = 0
+    for active_id, code, held in connection.execute(text("SELECT id, course_code, title FROM active_courses")).all():
+        current = _course_title(connection, _text(code).upper())
+        if current and current != _text(held):
+            connection.execute(
+                text("UPDATE active_courses SET title = :title WHERE id = :id"), {"title": current, "id": active_id}
+            )
+            renamed += 1
+    return renamed
 
 
 def _active_crn(row: Any) -> dict[str, Any]:

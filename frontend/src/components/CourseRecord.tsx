@@ -233,7 +233,7 @@ function CourseFacts({ course, onSaved }: { course: ActiveCourse; onSaved: () =>
   const [ue, setUe] = useState(course.ue);
   const [mutualized, setMutualized] = useState<Mutualized>(course.mutualized);
   const save = useMutation({
-    mutationFn: () => updateActiveCourse(course.id, { title: course.title, ue: ue.trim(), mutualized }),
+    mutationFn: () => updateActiveCourse(course.id, { ue: ue.trim(), mutualized }),
     onSuccess: onSaved,
   });
   const changed = ue.trim() !== course.ue || mutualized !== course.mutualized;

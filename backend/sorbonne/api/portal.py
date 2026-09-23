@@ -174,7 +174,7 @@ class ActiveCoursesInput(BaseModel):
 
 
 class ActiveCourseUpdate(BaseModel):
-    title: str = Field(default="", max_length=200)
+    # No name: a course is called what the portal calls it, and follows it on every sync.
     ue: str = Field(default="", max_length=40)
     #: "" nobody has said · "yes" taught to both degrees at once · "no" to one alone.
     mutualized: str = Field(default="", max_length=10)
@@ -423,9 +423,7 @@ def update_active_course(
     active_id: str, body: ActiveCourseUpdate, store: PortalListStore = Depends(get_store)
 ) -> dict[str, Any]:
     try:
-        return store.update_active_course(
-            active_id, title=body.title, ue=body.ue, mutualized=body.mutualized
-        )
+        return store.update_active_course(active_id, ue=body.ue, mutualized=body.mutualized)
     except ActiveCourseNotFound as exc:
         raise _missing("active course") from exc
     except ValueError as exc:

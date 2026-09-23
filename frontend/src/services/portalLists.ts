@@ -605,9 +605,10 @@ export function addActiveCourses(input: {
   return send("/active-courses", "POST", { courseCodes: [], byHand: [], ...input });
 }
 
+/** A course's own facts. Not its name: that is the portal's, and follows it on every sync. */
 export function updateActiveCourse(
   activeId: string,
-  input: { title: string; ue: string; mutualized?: Mutualized },
+  input: { ue: string; mutualized?: Mutualized },
 ): Promise<ActiveCourse> {
   return send(`/active-courses/${encodeURIComponent(activeId)}`, "PATCH", input);
 }

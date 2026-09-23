@@ -677,23 +677,80 @@ def test_the_register_says_where_the_portal_has_moved_away_from_it(client: TestC
     assert [row["crn"] for row in after["gone"]] == ["22152"]
 
 
+# ------------------------------------------- a course is called what the portal calls it
+#
+# The register used to keep the name a course had on the day it was taken in, and nothing
+# ever moved it: a course the registrar renamed read one way on Active CRNs and another on
+# the portal. Nobody here names courses — on production thirty of thirty-one carried the
+# portal's name word for word, and the thirty-first was a section's name taken in by mistake.
+
+
+def test_the_register_calls_a_course_what_the_portal_calls_it_now(client: TestClient):
+    made = make_filter(client, "courses")
+    sync = lambda rows: client.post(f"{BASE}/filters/{made['id']}/sync/courses", json={"rows": rows})  # noqa: E731
+    parent = {**course("24226", "MATH-001", teacher=""), "title": "Pre Calculus 1", "registered": 0}
+    sync([course("22151", "MATH-001"), parent])
+    client.post(f"{BASE}/active-courses", json={"courseCodes": ["MATH-001"]})
+
+    sync([course("22151", "MATH-001"), {**parent, "title": "Precalculus I"}])
+
+    [held] = client.get(f"{BASE}/active-courses").json()["courses"]
+    assert held["title"] == "Precalculus I"
+
+
+def test_a_course_named_after_one_of_its_sections_loses_the_section_s_marks(client: TestClient):
+    """MATH-223 read "Algebra 1-CM": the first section taken in named the course for good."""
+    made = make_filter(client, "courses")
+    client.post(
+        f"{BASE}/filters/{made['id']}/sync/courses",
+        json={"rows": [{**course("22151", "MATH-223"), "title": "Algebra 1-CM"}]},
+    )
+    client.post(f"{BASE}/active-courses", json={"courseCodes": ["MATH-223"]})
+
+    [held] = client.get(f"{BASE}/active-courses").json()["courses"]
+    assert held["title"] == "Algebra 1"
+
+
+def test_a_course_the_portal_does_not_list_keeps_the_name_it_was_given(client: TestClient):
+    # Added by hand, so whoever added it named it, and there is nothing to follow.
+    client.post(f"{BASE}/active-courses", json={"byHand": [{"courseCode": "MATH-222", "title": "Analysis 1"}]})
+    made = make_filter(client, "courses")
+
+    client.post(f"{BASE}/filters/{made['id']}/sync/courses", json={"rows": [course("22151", "MATH-001")]})
+
+    [held] = client.get(f"{BASE}/active-courses").json()["courses"]
+    assert held["title"] == "Analysis 1"
+
+
+def test_editing_a_course_cannot_rename_it(client: TestClient):
+    """The name is the portal's. A name typed here would be the one that goes stale."""
+    client.post(f"{BASE}/active-courses", json={"byHand": [{"courseCode": "MATH-222", "title": "Analysis 1"}]})
+    [held] = client.get(f"{BASE}/active-courses").json()["courses"]
+
+    changed = client.patch(
+        f"{BASE}/active-courses/{held['id']}", json={"title": "Something else", "ue": "UE-12", "mutualized": ""}
+    ).json()
+
+    assert (changed["title"], changed["ue"]) == ("Analysis 1", "UE-12")
+
+
 def test_a_course_says_whether_it_is_taught_to_both_degrees_at_once(client: TestClient):
     """L2 and L3 are one cohort reading two degrees; some of their courses are shared."""
     client.post(f"{BASE}/active-courses", json={"byHand": [{"courseCode": "MATH-222", "title": "Analysis 1"}]})
     [held] = client.get(f"{BASE}/active-courses").json()["courses"]
 
     changed = client.patch(
-        f"{BASE}/active-courses/{held['id']}", json={"title": held["title"], "ue": "", "mutualized": "yes"}
+        f"{BASE}/active-courses/{held['id']}", json={"ue": "", "mutualized": "yes"}
     ).json()
     assert changed["mutualized"] == "yes"
     assert client.get(f"{BASE}/active-courses").json()["courses"][0]["mutualized"] == "yes"
 
     # Taught to one degree alone is the other answer; anything else is neither.
     assert client.patch(
-        f"{BASE}/active-courses/{held['id']}", json={"title": "", "ue": "", "mutualized": "no"}
+        f"{BASE}/active-courses/{held['id']}", json={"ue": "", "mutualized": "no"}
     ).json()["mutualized"] == "no"
     refused = client.patch(
-        f"{BASE}/active-courses/{held['id']}", json={"title": "", "ue": "", "mutualized": "sometimes"}
+        f"{BASE}/active-courses/{held['id']}", json={"ue": "", "mutualized": "sometimes"}
     )
     assert refused.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
@@ -707,7 +764,7 @@ def test_an_active_course_can_be_added_by_hand_and_given_its_ue(client: TestClie
     assert (held["courseCode"], held["title"], held["crnCount"]) == ("LANG-A1", "French A1", 0)
 
     changed = client.patch(
-        f"{BASE}/active-courses/{held['id']}", json={"title": "French A1", "ue": "UL1LA001"}
+        f"{BASE}/active-courses/{held['id']}", json={"ue": "UL1LA001"}
     ).json()
     assert changed["ue"] == "UL1LA001"
     # Nobody has said whether it is mutualized, and that is a state of its own.

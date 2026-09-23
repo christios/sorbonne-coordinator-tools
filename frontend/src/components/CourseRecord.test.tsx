@@ -178,7 +178,8 @@ describe("the course's own facts", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() =>
-      expect(save).toHaveBeenCalledWith("a1", { title: "Algebra & Cryptography", ue: "LU3MA300", mutualized: "" }),
+      // The name is not sent: it is the portal's, and follows it on every sync.
+      expect(save).toHaveBeenCalledWith("a1", { ue: "LU3MA300", mutualized: "" }),
     );
   });
 
