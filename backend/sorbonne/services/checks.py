@@ -48,6 +48,17 @@ CHECKS: tuple[Check, ...] = (
         # which is how a warnings column stops being read at all.
         threshold=2,
     ),
+    Check(
+        name="portal_sync_age",
+        title="Portal data old enough that the pages should not be trusted",
+        measures="hours old",
+        # Eight, so a morning's work is answered by a morning's sync: the registrar moves
+        # sections, staff and registrations during the working day, and a page read at four
+        # o'clock from a pull taken the previous afternoon is a page quietly answering
+        # yesterday's question. Off is a real answer too — during a portal outage there is
+        # nothing to be done about it and a warning every morning is just noise.
+        threshold=8,
+    ),
 )
 
 BY_NAME = {check.name: check for check in CHECKS}

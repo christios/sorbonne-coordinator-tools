@@ -10,6 +10,7 @@ import { StaffMenu } from "@/components/StaffMenu";
 import { StaffSettings } from "@/components/StaffSettings";
 import { CopyProdButton } from "@/components/CopyProdButton";
 import { PortalSyncButton } from "@/components/PortalSyncButton";
+import { StaleSyncWarning } from "@/components/StaleSyncWarning";
 import { SyllabusBuilder } from "@/components/SyllabusBuilder";
 import { SyncRunDriver } from "@/components/SyncRunDriver";
 import { StudentDatabase } from "@/components/StudentDatabase";
@@ -189,6 +190,11 @@ export function App() {
               * coordinator has gone since.
               */}
             {activeTool === "database" || syncing ? <PortalSyncButton /> : null}
+            {/*
+              * And said out loud, once, when the pages have gone old enough that they
+              * should not be worked from. Beside the button whose age it is about.
+              */}
+            {activeTool === "database" ? <StaleSyncWarning /> : null}
             {/* Development only, and gone from a production build entirely. */}
             {activeTool === "database" ? <CopyProdButton /> : null}
             {/*
