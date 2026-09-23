@@ -11,6 +11,21 @@
  */
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 
-export function apiFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
-  return fetch(input, { ...init, credentials: "include" });
+/**
+ * What a call says when the session behind it has ended, so the whole application can hear.
+ *
+ * A session does not only end by somebody pressing Sign out: it expires, it is ended in
+ * another tab, and it stops being valid when the deployment restarts with a new secret.
+ * In every one of those the page carried on showing the last session's figures — right
+ * until somebody tried to save something — because nothing told the front door that the
+ * lock had changed. An answer of "sign in to continue" is that telling.
+ */
+export const SIGNED_OUT = "sorbonne:signed-out";
+
+export async function apiFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
+  const response = await fetch(input, { ...init, credentials: "include" });
+  // 403 is a different thing — signed in, and not allowed this — and must not sign anybody
+  // out. Only "we do not know who you are" ends a session.
+  if (response.status === 401) window.dispatchEvent(new Event(SIGNED_OUT));
+  return response;
 }

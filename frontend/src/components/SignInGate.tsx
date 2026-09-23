@@ -1,9 +1,11 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertCircle, Loader2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
 import { StaffContext } from "@/components/useStaffUser";
 import { StaffUser, fetchCurrentUser, fetchSignInConfig, signIn } from "@/services/auth";
+import { SIGNED_OUT } from "@/services/http";
+import { forgetRosters } from "@/services/rosterStore";
 
 const GOOGLE_SCRIPT = "https://accounts.google.com/gsi/client";
 
@@ -13,14 +15,63 @@ const GOOGLE_SCRIPT = "https://accounts.google.com/gsi/client";
  * this is the front door, not the lock.
  */
 export function SignInGate({ children }: { children: ReactNode }) {
+  const client = useQueryClient();
   const config = useQuery({ queryKey: ["sign-in-config"], queryFn: fetchSignInConfig, retry: false });
   const session = useQuery({ queryKey: ["staff-user"], queryFn: fetchCurrentUser, retry: false });
   const [user, setUser] = useState<StaffUser | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [ended, setEnded] = useState(false);
+  // Read by the listener below, which is registered once and must not go stale.
+  const signedIn = useRef<StaffUser | null>(null);
+  signedIn.current = user;
 
   useEffect(() => {
-    if (session.data) setUser(session.data);
+    if (session.data) {
+      setUser(session.data);
+      setEnded(false);
+    }
   }, [session.data]);
+
+  /*
+   * The session can end while the page is open — it expires, somebody signs out in another
+   * tab, the deployment comes back with a new secret — and until now the page went on
+   * showing the last session's figures. Stale numbers that look live are worse than no
+   * numbers: a coordinator reads them, and only finds out when a save is refused.
+   *
+   * So the first refusal takes the application down to the front door, and everything read
+   * under that session goes with it: the cache, so nothing can be shown again from memory,
+   * and the registrar's rosters, which hold student names and have no business outliving
+   * the session that pulled them.
+   */
+  useEffect(() => {
+    const ending = () => {
+      // Nobody was signed in: this is the ordinary "who is this" on the way in, not a
+      // session ending, and the door's sign must not be rewritten for it.
+      if (!signedIn.current) return;
+      setUser(null);
+      setEnded(true);
+      // Everything read under that session, and nothing the door itself needs: wiping the
+      // sign-in settings too would leave the page checking a session instead of offering
+      // the way back into one.
+      client.removeQueries({
+        predicate: (query) => !["sign-in-config", "staff-user"].includes(String(query.queryKey[0])),
+      });
+      forgetRosters();
+      // And then ask. One refused request is not proof — a save racing a cookie being
+      // renewed would otherwise put somebody at the door in the middle of their work — so
+      // the server is asked outright, and its answer decides.
+      void client
+        .fetchQuery({ queryKey: ["staff-user"], queryFn: fetchCurrentUser, staleTime: 0 })
+        .then((again) => {
+          if (!again) return;
+          setUser(again);
+          setEnded(false);
+        })
+        .catch(() => undefined);
+    };
+    window.addEventListener(SIGNED_OUT, ending);
+    return () => window.removeEventListener(SIGNED_OUT, ending);
+  }, [client]);
 
   const accept = useCallback(async (credential: string) => {
     setError(null);
@@ -69,9 +120,11 @@ export function SignInGate({ children }: { children: ReactNode }) {
   }
 
   return (
-    <Screen title="Sign in to continue">
+    <Screen title={ended ? "Your session has ended" : "Sign in to continue"}>
       <p className="text-sm leading-6 text-[#667085]">
-        Academic Coordinator Tools is for SCEN staff. Sign in with your Sorbonne Google account.
+        {ended
+          ? "You were signed out, so what was on the page is no longer being kept up to date. Sign in again to carry on."
+          : "Academic Coordinator Tools is for SCEN staff. Sign in with your Sorbonne Google account."}
       </p>
       <GoogleButton clientId={config.data.clientId} onCredential={accept} />
       {error ? (
