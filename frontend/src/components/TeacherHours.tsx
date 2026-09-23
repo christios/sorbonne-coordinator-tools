@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp, RotateCcw, SlidersHorizontal, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Download, RotateCcw, SlidersHorizontal, X } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { HourWindowPicker } from "@/components/HourWindowPicker";
@@ -12,14 +12,9 @@ import { CommentThread } from "@/components/CommentThread";
 import { CommentPeek } from "@/components/CommentPeek";
 import { Modal } from "@/components/Modal";
 import { datesOf, isWholeSemester, WHOLE_SEMESTER, type HourWindow } from "@/services/hourWindow";
-import { hoursTaught } from "@/services/hoursInPeriod";
-import {
-  opensOnFor,
-  periodEnd,
-  periodLabel,
-  periodChoices,
-  PERIOD_OPENS_ON,
-} from "@/services/payPeriods";
+import { hoursRowsFor, type HoursSource } from "@/services/teacherHoursRows";
+import { downloadTeacherHours, periodsCovering } from "@/services/hoursExport";
+import { opensOnFor, periodChoices, periodEnd, PERIOD_OPENS_ON } from "@/services/payPeriods";
 import {
   fetchPayCycles,
   fetchTeacherCommentCounts,
@@ -37,26 +32,21 @@ import {
   fetchFacilitySections,
   fetchTermLinks,
 } from "@/services/portalLists";
-import { adjustmentsFor, fetchSessionChanges } from "@/services/sessionChanges";
+import { fetchSessionChanges } from "@/services/sessionChanges";
 import { requestSheets } from "@/services/timetableExport";
 import {
-  bookedInWindow,
   crnsByTeacher,
   hoursColumns,
   loadRows,
-  placeByCrn,
-  registrarHoursFor,
-  sameTeacher,
   shownHoursColumns,
-  taughtLoads,
   teacherLoads,
   type LoadRow,
 } from "@/services/teacherLoad";
-import type { GridColumn } from "@/services/studentColumns";
+import { loadLayout, visibleColumns, type GridColumn } from "@/services/studentColumns";
 import { fetchCohorts, fetchCourseCards } from "@/services/studentDatabase";
 import { fetchTimetableTerms } from "@/services/timetables";
 import { TEACHER_THREAD } from "@/services/threads";
-import { DEFAULT_APART, warningsFor, type Severity } from "@/services/teacherWarnings";
+import { DEFAULT_APART, type Severity } from "@/services/teacherWarnings";
 import { dismissalsByKey, fetchDismissals, setDismissal } from "@/services/warningDismissals";
 
 /**
@@ -186,89 +176,70 @@ export function TeacherHours({ onOpenTeacher }: { onOpenTeacher?: (teacher: Teac
    */
   const today = new Date().toISOString().slice(0, 10);
   /*
-   * Hours taught between two dates, for whoever the row is.
+   * Everything the table is made of, gathered once.
    *
-   * The warnings ask this of several different windows — the period a sheet claims, and
-   * everything up to today — so it is a function of the dates rather than a figure
-   * computed once. The heavy part, reading the meetings, is shared.
+   * The arranging lives in a service, because the export asks the same question of every
+   * pay period in the semester and has to get the same answers this page shows.
    */
-  const hoursBetween = (row: LoadRow, between: { from: string; to: string }) => {
-    const { hours } = hoursTaught({
+  const source: HoursSource = useMemo(
+    () => ({
+      sheets,
+      teachers: teachers.data ?? [],
+      notes: notes.data ?? [],
       sections: met.data?.sections ?? [],
-      changes: notes.data ?? [],
-      period: between,
-      staffing: (crn) => owners.get(crn) ?? { id: "", name: "" },
-    });
-    const mine = row.active?.id || row.teacherId;
-    const minutes = hours
-      .filter((hour) => (mine ? hour.teacherId === mine : sameTeacher(hour.teacherName, row.teacher)))
-      .reduce((sum, hour) => sum + hour.minutes, 0);
-    return Math.round((minutes / 60) * 100) / 100;
-  };
-  const rows = useMemo(() => {
-    const planned = loadRows(teacherLoads(sheets), teachers.data ?? [], crnsByTeacher(sheets));
-    const notesHere = (notes.data ?? []).filter(
-      (note) => note.meetsOn >= counting.from && note.meetsOn <= counting.to,
-    );
-    const { hours } = hoursTaught({
-      sections: met.data?.sections ?? [],
-      changes: notes.data ?? [],
-      period: counting,
-      staffing: (crn) => owners.get(crn) ?? { id: "", name: "" },
-    });
-    const held = whole
-      ? planned
-      : loadRows(
-          taughtLoads({
-            hours,
-            place: placeByCrn(sheets),
-            sheets,
-            everyone: planned.map((row) => ({ teacherId: row.teacherId, teacher: row.teacher })),
-          }),
-          teachers.data ?? [],
-          crnsByTeacher(sheets),
-        );
-    return held.map((row) => {
-      const adjusted = adjustmentsFor(notesHere, { id: row.active?.id ?? row.teacherId, name: row.teacher }, new Set(row.crns), sameTeacher);
-      const mine = {
-        ...row,
-        cancelledHours: adjusted.cancelled,
-        coverTaken: adjusted.coveredByOthers,
-        coverGiven: adjusted.coveredForOthers,
-        registrarHours: whole
-          ? registrarHoursFor(booked.data ?? {}, row.teacher, sameTeacher)
-          : bookedInWindow(met.data?.sections ?? [], row.teacher, counting),
-      };
-      const partTime = row.active?.partTimeTeacherId ?? "";
-      const claims = (submitted.data ?? [])
-        .filter((sheet) => sheet.teacherId && sheet.teacherId === partTime)
-        .map((sheet) => ({
-          periodStart: sheet.periodStart,
-          periodLabel: sheet.periodLabel || periodLabel(sheet.periodStart),
-          claimed: sheet.claimedHours,
-          taught: hoursBetween(row, { from: sheet.periodStart, to: periodEnd(sheet.periodStart) }),
-        }));
-      const warnings = warningsFor(
-        {
-          teacherKey: row.active?.id || row.teacherId || row.teacher,
-          teacher: row.teacher,
-          planned: row.total,
-          registrar: mine.registrarHours,
-          contracted: contracts.data?.[partTime]?.contractedHours ?? 0,
-          taughtSoFar: hoursBetween(row, { from: "0000-01-01", to: today }),
-          claims,
-        },
-        apart?.enabled === false ? Number.POSITIVE_INFINITY : (apart?.threshold ?? DEFAULT_APART),
-      ).map((warning) => {
-        const held = decided.get(warning.key);
-        return held ? { ...warning, dismissed: true, dismissedBy: held.byName || held.byEmail, dismissedAt: held.at } : warning;
-      });
-      return { ...mine, warnings };
-    });
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- the window is read as two dates
-  }, [sheets, teachers.data, notes.data, booked.data, met.data, owners, whole, counting.from, counting.to,
-      submitted.data, contracts.data, decided, apart?.threshold, apart?.enabled, today]);
+      booked: booked.data ?? {},
+      owners,
+      submitted: submitted.data ?? [],
+      contracts: contracts.data ?? {},
+      decided,
+      threshold: apart?.enabled === false ? Number.POSITIVE_INFINITY : (apart?.threshold ?? DEFAULT_APART),
+      today,
+    }),
+    [sheets, teachers.data, notes.data, met.data, booked.data, owners, submitted.data, contracts.data,
+     decided, apart?.enabled, apart?.threshold, today],
+  );
+  const rows = useMemo(
+    () => hoursRowsFor(source, counting, whole),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the window is read as two dates
+    [source, counting.from, counting.to, whole],
+  );
   const sheetTitles = useMemo(() => sheets.map((sheet) => sheet.title), [sheets]);
+  /*
+   * Every pay period the semester's teaching falls in, from the days classes actually
+   * meet. A list from the calendar would put sheets in the file for months nothing was
+   * taught in, and a coordinator would have to work out which ones to ignore.
+   */
+  const semesterPeriods = useMemo(
+    () =>
+      periodsCovering(
+        (met.data?.sections ?? []).flatMap((section) => section.meetings.map((meeting) => meeting.meetsOn)),
+        opensOn,
+      ),
+    [met.data, opensOn],
+  );
+  const [exporting, setExporting] = useState(false);
+  const exportHours = async () => {
+    setExporting(true);
+    try {
+      const layout = loadLayout(hoursColumns(sheetTitles), "scen-columns:teacher-hours:v1", shownHoursColumns(sheetTitles));
+      await downloadTeacherHours(
+        {
+          semester: termName(chosenTerm),
+          // What is on screen, in the order it is on screen: a hidden cohort column is
+          // hidden in the file too, or the export is a different table with the same name.
+          columns: visibleColumns(layout, hoursColumns(sheetTitles)),
+          plan: hoursRowsFor(source, datesOf(WHOLE_SEMESTER), true),
+          periods: semesterPeriods.map((start) => ({
+            start,
+            rows: hoursRowsFor(source, { from: start, to: periodEnd(start) }, false),
+          })),
+        },
+        `Teacher hours — ${termName(chosenTerm)}.xlsx`,
+      );
+    } finally {
+      setExporting(false);
+    }
+  };
   const columns = useMemo(() => hoursColumns(sheetTitles, chosenWindow.tag), [sheetTitles, chosenWindow.tag]);
   const shown = useMemo(() => shownHoursColumns(sheetTitles), [sheetTitles]);
 
@@ -318,6 +289,20 @@ export function TeacherHours({ onOpenTeacher }: { onOpenTeacher?: (teacher: Teac
         >
           <SlidersHorizontal size={15} aria-hidden="true" />
           Checks
+        </button>
+        {/*
+          * The file a meeting is held around. It is the table on screen — these columns,
+          * in this order — laid out a pay period to a sheet, with a master sheet that
+          * adds them up by formula rather than by having been right once.
+          */}
+        <button
+          type="button"
+          onClick={() => void exportHours()}
+          disabled={exporting || !rows.length}
+          className="inline-flex h-9 items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-3 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb] disabled:opacity-50"
+        >
+          <Download size={15} aria-hidden="true" />
+          {exporting ? "Building…" : "Export"}
         </button>
       </div>
 
