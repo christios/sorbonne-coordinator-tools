@@ -123,9 +123,14 @@ type Props = {
    * then only says what pressing it does, rather than repeating them.
    */
   showSelection?: boolean;
+  /**
+   * Which edge of the trigger a menu wider than it lines up with. Centred unless said —
+   * "start" for a menu whose rows are read from the left, like the cohort picker's.
+   */
+  align?: "start" | "center" | "end";
 };
 
-export function SelectMenu({ label, value, onChange, options, placeholder, trailing, multiple = false, itemNoun = "item", searchable = false, searchPlaceholder = "Search options", disabled = false, required = false, variant = "default", wrap = false, showSelection = true }: Props) {
+export function SelectMenu({ label, value, onChange, options, placeholder, trailing, multiple = false, itemNoun = "item", searchable = false, searchPlaceholder = "Search options", disabled = false, required = false, variant = "default", wrap = false, showSelection = true, align = "center" }: Props) {
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState("");
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -261,7 +266,7 @@ export function SelectMenu({ label, value, onChange, options, placeholder, trail
       {trailing}
       <Popover.Portal>
       {isOpen ? (
-        <Popover.Content ref={contentRef} role="listbox" aria-label={label} side={placement?.side ?? "bottom"} sideOffset={MENU_GAP} avoidCollisions={false} data-select-menu-placement={placement?.side ?? "bottom"} style={{ minWidth: "var(--radix-popover-trigger-width)", maxWidth: "min(36rem, calc(100vw - 2rem))", ...(placement ? { maxHeight: placement.maxHeight } : {}) }} className="z-[100] isolate overflow-y-auto rounded-lg border border-[#d9dee7] bg-white p-1 opacity-100 shadow-lg outline-none">
+        <Popover.Content ref={contentRef} role="listbox" aria-label={label} side={placement?.side ?? "bottom"} align={align} sideOffset={MENU_GAP} avoidCollisions={false} data-select-menu-placement={placement?.side ?? "bottom"} style={{ minWidth: "var(--radix-popover-trigger-width)", maxWidth: "min(36rem, calc(100vw - 2rem))", ...(placement ? { maxHeight: placement.maxHeight } : {}) }} className="z-[100] isolate overflow-y-auto rounded-lg border border-[#d9dee7] bg-white p-1 opacity-100 shadow-lg outline-none">
           {searchable ? <input aria-label={`Search ${label}`} value={query} onChange={(event) => setQuery(event.target.value)} placeholder={searchPlaceholder} className="mb-1 h-9 w-full rounded-md border border-[#b7bec8] px-3 text-sm font-normal focus:border-[#1f4e79] focus:outline-none focus:ring-2 focus:ring-[#d7e5f3]" autoFocus /> : null}
           {hasMoreSearchResults ? <p className="px-3 pb-1 pt-2 text-sm text-[#667085]">Showing the first {visibleOptions.length} of {options.length}. Type to search them all.</p> : null}
           {visibleOptions.map((option) => (

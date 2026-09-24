@@ -721,6 +721,7 @@ export function CohortsPage({
             */}
           <SelectMenu
             label="Cohort"
+            align="start"
             value={everywhere ? "" : cohortId}
             placeholder={everywhere ? "Every cohort" : undefined}
             onChange={chooseCohort}
