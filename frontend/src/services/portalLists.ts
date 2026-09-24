@@ -737,15 +737,13 @@ export function describeCoverage(coverage: TermCoverage, termName = ""): string 
 }
 
 /**
- * Where the check could not tell whether a section was still running, and so kept
- * expecting it.
+ * Where the check could not tell whether a section had finished, and so kept expecting it.
  *
- * A course taught in two halves puts a student in one section until the handover and
- * another after it. The check only knows which half is current from the registrar's own
- * timetable; without it, both halves are expected every day of the year and a student
- * correctly registered in one is reported missing from the other. That fallback is
- * deliberate — narrowing with no evidence would be far worse — but it must not be silent,
- * or the fix looks as though it is working when nothing has been pulled for it to work on.
+ * Both halves of a course taught in two are expected from the first day of the semester;
+ * what the registrar's own timetable adds is knowing when the first half is over, so a
+ * student who joined after it is not asked to be registered into a class that has ended.
+ * Without the dates, a finished half goes on being expected. That fallback is deliberate —
+ * narrowing with no evidence would be far worse — but it must not be silent.
  *
  * Nothing to say for a semester with no portal term: it has a line of its own already.
  */
@@ -753,7 +751,7 @@ export function describeSectionDates(coverage: TermCoverage, termName = ""): str
   if (!coverage.termCode || !coverage.undatedCrns.length) return "";
   const term = termName || `Semester ${coverage.termCode}`;
   const sections = coverage.undatedCrns.length;
-  return `${term}: the registrar has given no timetable for ${sections} of this cohort's sections, so a course taught in two halves is expected in both all year.`;
+  return `${term}: the registrar has given no timetable for ${sections} of this cohort's sections, so a course taught in two halves is expected in both halves all year, even once one has finished.`;
 }
 
 // ------------------------------------------- the registrar's own timetable

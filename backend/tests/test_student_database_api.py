@@ -1161,6 +1161,45 @@ def test_a_course_handed_over_mid_semester_holds_a_crn_for_each_professor(
     assert cell["teacher"] == "Grace Younes"
 
 
+def test_the_halves_are_listed_in_the_order_they_are_taught(client: TestClient, cohort_id: str):
+    """MATH-351's tutorial was entered second half first: 23820 as part 1, 24313 as part 2.
+
+    24313 runs from 4 September and 23820 from 22 October, so every card, handout and
+    admissions list read the halves backwards. Once the registrar's timetable dates both,
+    they come in the order they are taught — each keeping its own number, so an edit made
+    to one still lands on it.
+    """
+    scope_id, group_id = block_with_a_group(client, cohort_id, code="TD")
+    course_id = course_in(client, scope_id)
+    set_part(client, group_id, course_id, "23820", "Sudarshan Shinde", part=1)
+    set_part(client, group_id, course_id, "24313", "Grace Younes", part=2)
+
+    # Entered order, while nothing says when either half is taught.
+    assert [part["crn"] for part in cell_of(client, cohort_id, group_id, course_id)["parts"]] == ["23820", "24313"]
+
+    with StudentDatabase(TEST_DATABASE_URL).engine.begin() as connection:
+        connection.execute(text("UPDATE cohort_scopes SET term_id = 'term-s1' WHERE id = :id"), {"id": scope_id})
+        connection.execute(text("INSERT INTO term_links (term_id, portal_term_code) VALUES ('term-s1', '262710')"))
+        for crn, first, last in (("23820", "2026-10-22", "2026-12-17"), ("24313", "2026-09-04", "2026-10-09")):
+            connection.execute(
+                text("INSERT INTO facility_sections (term_code, crn, ours) VALUES ('262710', :crn, true)"), {"crn": crn}
+            )
+            for day in (first, last):
+                connection.execute(
+                    text("""INSERT INTO facility_meetings (id, term_code, crn, meets_on, starts_at, ends_at)
+                            VALUES (:id, '262710', :crn, :day, '10:00', '12:00')"""),
+                    {"id": f"{crn}-{day}", "crn": crn, "day": day},
+                )
+
+    cell = cell_of(client, cohort_id, group_id, course_id)
+    assert [(part["part"], part["crn"], part["teacher"]) for part in cell["parts"]] == [
+        (2, "24313", "Grace Younes"),
+        (1, "23820", "Sudarshan Shinde"),
+    ]
+    # The top level is the half taught first, and says which part it is.
+    assert (cell["part"], cell["crn"]) == (2, "24313")
+
+
 def test_each_part_carries_its_own_hours_and_weeks(client: TestClient, cohort_id: str):
     # The whole reason the halves are told apart: they are different teaching, with
     # different hours belonging to different people.

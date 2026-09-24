@@ -1582,12 +1582,15 @@ def test_a_section_with_no_published_times_is_named_as_blind_not_counted_as_clea
 
 
 """
-`expected` used to be every section our planning holds for a course code, all year.
+Both halves of a course taught in two are expected from the first day of the semester.
 
-MATH-351 runs as one CRN until 26 October and another from 2 November; both were expected
-every day, so ten students were reported missing from a section that had not started, and
-would later be reported missing from one that had finished. Wrong every day, in both
-directions, and the loudest wrong thing on the page.
+The registrar registers a student in both at the start, so a missing second half has to
+be asked for before it begins. For a while only the half running today was expected, and
+A00022912 — registered in MATH-351's first lecture half and not its second — was reported
+clean until the second began, so the line asking for it never reached the worklist.
+
+What the dates still decide is when a half is OVER: nobody can be registered into a class
+that has ended, and a finished half is no longer expected.
 """
 
 
@@ -1611,7 +1614,35 @@ def test_a_section_that_has_finished_is_not_still_expected(client: TestClient, d
     assert [m for m in found if m["studentId"] == "A001"] == []
 
 
-def test_the_two_halves_of_a_handover_are_never_both_expected_on_one_day(
+def test_both_halves_are_expected_from_the_first_day(client: TestClient, database: StudentDatabase):
+    cohort_id = build_cohort(database, maths_in_tutorials="23436", second_half="23820")
+    client.put(f"{BASE}/term-links/{HUB_TERM}", json={"portalTermCode": TERM})
+    # The first half is running; the second starts in a month.
+    timetable(client, {"22151": (-20, 60), "23436": (-20, 25), "23820": (30, 60), "23652": (-20, 60)})
+    registrations(
+        client,
+        [
+            {"studentId": "A001", "crn": "22151", "courseCode": "MATH-001"},
+            {"studentId": "A001", "crn": "23436", "courseCode": "MATH-001"},
+            {"studentId": "A001", "crn": "23652", "courseCode": "MATH-011"},
+            # A002 holds both halves already, which is what the registrar does at the start.
+            {"studentId": "A002", "crn": "22151", "courseCode": "MATH-001"},
+            {"studentId": "A002", "crn": "23436", "courseCode": "MATH-001"},
+            {"studentId": "A002", "crn": "23820", "courseCode": "MATH-001"},
+            {"studentId": "A002", "crn": "23652", "courseCode": "MATH-011"},
+        ],
+    )
+
+    found = client.get(f"{BASE}/cohorts/{cohort_id}/registration-check").json()["mismatches"]
+    [maths] = [m for m in found if m["studentId"] == "A001" and m["courseCode"] == "MATH-001"]
+
+    # A001 is missing the half still to come, and is told so now rather than on its first day.
+    assert maths["kind"] == "missing"
+    assert maths["expected"] == ["22151", "23436", "23820"]
+    assert [m for m in found if m["studentId"] == "A002"] == []
+
+
+def test_between_the_halves_only_the_one_still_to_come_is_expected(
     client: TestClient, database: StudentDatabase
 ):
     cohort_id = build_cohort(database, maths_in_tutorials="23436", second_half="23820")
@@ -1629,7 +1660,7 @@ def test_the_two_halves_of_a_handover_are_never_both_expected_on_one_day(
     found = client.get(f"{BASE}/cohorts/{cohort_id}/registration-check").json()["mismatches"]
     maths = [m for m in found if m["studentId"] == "A001" and m["courseCode"] == "MATH-001"]
 
-    # One verdict about the course, naming the half to be registered in — not both.
+    # One verdict about the course, naming the half still to come — not the one that is over.
     assert len(maths) == 1
     assert maths[0]["expected"] == ["22151", "23820"]
 
@@ -1712,22 +1743,25 @@ def test_a_course_whose_sections_have_all_finished_does_not_turn_everyone_unplac
     assert [m for m in found if m["studentId"] == "A001"] == []
 
 
-def test_the_expectation_ladder_falls_through_in_order():
-    """The three tiers on their own, since two of them only show at the edges of a term."""
+def test_the_expectation_drops_a_half_only_once_it_is_over():
+    """The rule on its own, since its edges only show at the ends of a term."""
     windows = {"first": ("2026-09-01", "2026-10-26"), "second": ("2026-11-02", "2026-12-20")}
     both = ["first", "second"]
 
-    # Running today wins.
-    assert _expected_on(both, windows, "2026-09-15") == ["first"]
-    assert _expected_on(both, windows, "2026-11-10") == ["second"]
-    # In the gap, the half still to come — never both.
+    # Both, from the first day — and before it.
+    assert _expected_on(both, windows, "2026-08-20") == ["first", "second"]
+    assert _expected_on(both, windows, "2026-09-15") == ["first", "second"]
+    # The last day of a half is still the half.
+    assert _expected_on(both, windows, "2026-10-26") == ["first", "second"]
+    # Once the first is over, the second alone: in the gap, and while it runs.
     assert _expected_on(both, windows, "2026-10-29") == ["second"]
+    assert _expected_on(both, windows, "2026-11-10") == ["second"]
     # Once everything has finished, everything again: narrowing to nothing is far worse.
     assert _expected_on(both, windows, "2027-01-05") == ["first", "second"]
-    # A section with no dates is kept whichever tier wins.
-    assert _expected_on([*both, "undated"], windows, "2026-09-15") == ["first", "undated"]
+    # A section with no dates is kept, whatever has finished around it.
+    assert _expected_on([*both, "undated"], windows, "2026-11-10") == ["second", "undated"]
     # And with no dates at all, nothing is narrowed.
-    assert _expected_on(both, {}, "2026-09-15") == ["first", "second"]
+    assert _expected_on(both, {}, "2026-11-10") == ["first", "second"]
 
 
 def test_a_finished_section_a_student_is_still_registered_in_is_not_a_surplus(

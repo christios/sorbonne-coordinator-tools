@@ -102,7 +102,7 @@ class Mismatch:
     # lecture and a tutorial gives them two, and both are right.
     expected: list[str]
     registered: list[str]
-    # The same, but NOT narrowed to what is running today: a half that has finished is
+    # The same, but NOT narrowed to what has yet to finish: a half that has finished is
     # still one of ours. Only `expected` says what to add; only this says what to remove,
     # and collapsing the two is how a finished half came to be proposed for removal.
     ever_expected: list[str] = field(default_factory=list)
@@ -201,9 +201,9 @@ class TermCoverage:
     #: "nothing has been pulled" from "something was, and none of it was ours".
     pulled_in_term: int
     #: Our own sections the registrar has given no timetable for. A section with no dates
-    #: cannot be told to be over, so it goes on being expected all year — which is the old
-    #: behaviour, kept deliberately, and named here so it is a declared fallback rather
-    #: than a silent one. Both halves of a handover among these are still both expected.
+    #: cannot be told to be over, so it goes on being expected all year — kept
+    #: deliberately, and named here so it is a declared fallback rather than a silent one.
+    #: A finished half among these is still expected, which is all the dates change.
     undated_crns: list[str] = field(default_factory=list)
 
     def as_payload(self) -> dict[str, Any]:
@@ -2124,8 +2124,8 @@ class PortalListStore:
 
         `facilities` makes the expectation date-aware — see `_expected_on`. Optional, and
         absent it behaves exactly as before: every section our planning holds for a course
-        code is expected every day, which is wrong for anything taught in two halves. `on`
-        is the day being judged, today unless a caller says otherwise.
+        code is expected every day, including a half that is over. `on` is the day being
+        judged, today unless a caller says otherwise.
         """
         today = on or _today()
         reads = reads or _TermReads(self, database, facilities)
@@ -2155,7 +2155,7 @@ class PortalListStore:
             ours = sorted(
                 {crn for group in groups.values() for crns in _every_cell(group).values() for crn in crns if crn}
             )
-            # When the registrar's timetable is on hand, a section that is not running is
+            # When the registrar's timetable is on hand, a section that has finished is
             # not expected. When it is not, every section stays expected and the coverage
             # says which ones that fallback applied to.
             windows = reads.windows(term_code, ours)
@@ -2232,7 +2232,7 @@ class PortalListStore:
                         term_id,
                         term_code,
                         code,
-                        _running_today(expected.get(student, {}).get(code, {}), windows, today),
+                        _unfinished(expected.get(student, {}).get(code, {}), windows, today),
                         _every_section(expected.get(student, {}).get(code, {})),
                         registered.get(student, {}).get(code, []),
                     )
@@ -2391,49 +2391,45 @@ def _today() -> str:
 def _expected_on(crns: list[str], windows: dict[str, tuple[str, str]], on: str) -> list[str]:
     """Which sections of one course a student is expected in on one day.
 
-    `expected` used to be every section our planning holds for a course code, all year.
-    For a course taught in two halves — MATH-351 runs as 23436 until 26 October and 23820
-    from 2 November — that meant both were expected every day of the year, so before the
-    handover ten students were reported missing from a section that had not started and
-    after it from one that had finished. Wrong every single day, in both directions.
+    Every section that has not finished. For a course taught in two halves — MATH-351's
+    lecture is 23436 to 26 October and 24311 from 19 October — that is BOTH halves from
+    the first day of the semester, because the registrar registers a student in both at
+    the start and a missing second half has to be asked for before it begins, not on the
+    day it does. Narrowing to the half running today hid exactly that: a student
+    registered in the first half and not the second was clean until the second started,
+    so the line asking for it never reached the registrar's worklist.
 
-    Three tiers, in order, and the fall-through is what keeps it safe:
+    A half that HAS finished is no longer expected. Nobody can be registered into a class
+    that is over, and a student who joined after it would otherwise be reported missing
+    from it for the rest of the year.
 
-    1. **Running today** — the ordinary answer, and the one that ends the handover problem.
-    2. **Not yet started**, when nothing is running. That is the week between two halves:
-       the first has finished, the second has not begun, and the one to be registered in
-       is plainly the second. It is never *both*.
-    3. **Everything**, when neither tier has anything to offer. That is a course whose
-       sections have all finished, or one nobody has pulled a timetable for. Narrowing
-       here would be far worse than not narrowing: an empty `expected` turns every
-       registration into `unplaced`, so a term that has ended, or a registrar we have not
-       asked, would fill the screen with warnings about students who are perfectly placed.
+    Two fall-backs, and both keep it safe:
 
-    A section with no window is kept whatever tier wins — fail open. We have not asked the
-    registrar about it, or the registrar said nothing, and neither is a reason to stop
-    expecting a section our own planning holds. `TermCoverage.undated_crns` says which
-    ones, so the fail-open is declared rather than silent.
+    - **Everything**, when every section has finished. That is a term that has ended, or
+      one the registrar's timetable has run past. Narrowing to nothing would be far worse:
+      an empty `expected` turns every registration into `unplaced`, and the screen would
+      fill with warnings about students who are perfectly placed.
+    - A section with **no window** is kept whatever — fail open. We have not asked the
+      registrar about it, or the registrar said nothing, and neither is a reason to stop
+      expecting a section our own planning holds. `TermCoverage.undated_crns` says which
+      ones, so the fail-open is declared rather than silent.
     """
     dated = [crn for crn in crns if crn in windows]
     undated = [crn for crn in crns if crn not in windows]
-    running = [crn for crn in dated if windows[crn][0] <= on <= windows[crn][1]]
-    upcoming = [crn for crn in dated if windows[crn][0] > on]
-    chosen = running or upcoming
-    if not chosen:
+    unfinished = [crn for crn in dated if on <= windows[crn][1]]
+    if not unfinished:
         return sorted(crns)
-    return sorted({*chosen, *undated})
+    return sorted({*unfinished, *undated})
 
 
-def _running_today(by_set: dict[str, set[str]], windows: dict[str, tuple[str, str]], on: str) -> list[str]:
+def _unfinished(by_set: dict[str, set[str]], windows: dict[str, tuple[str, str]], on: str) -> list[str]:
     """The sections of one course a student is expected in today — decided set by set.
 
-    The date rule chooses between sections that stand in for one another: the two halves
-    of a handover, which are two parts of one cell in one set. A course's lecture, tutorial
-    and practical are not alternatives — they sit in different sets and run side by side.
-    Tiered together under one course code, a tutorial that starts a week after its lecture
-    was quietly not expected: nobody was ever reported missing from it, and it never
-    reached the list of registrations to ask the registrar for. Two of one student's six
-    went that way.
+    The date rule only ever drops the finished half of a handover, which is a part of one
+    cell in one set. A course's lecture, tutorial and practical sit in different sets and
+    run side by side, so the fall-back is judged per set too: a lecture whose sections have
+    all finished falls back to all of them, as a term that has ended does, rather than
+    dropping out of the course while its tutorial goes on.
     """
     return sorted({crn for crns in by_set.values() for crn in _expected_on(sorted(crns), windows, on)})
 
@@ -2462,8 +2458,8 @@ def _judge(  # noqa: PLR0913 - one argument per part of the verdict
     The two sides are asked of DIFFERENT lists, and that asymmetry is the whole of the
     handover fix:
 
-    - **absent** is judged against `now`, the sections running today. A half that has not
-      started is not something to be missing from.
+    - **absent** is judged against `now`, the sections that have not finished. A half
+      that is over is not something to be registered into.
     - **surplus** is judged against `ever`, every section our planning holds for this
       student. A half that has finished is still one of ours, and the registrar keeps them
       registered in it for the grade — so it is not a section "that is no group of theirs".
@@ -2479,7 +2475,7 @@ def _judge(  # noqa: PLR0913 - one argument per part of the verdict
     absent = [crn for crn in current if crn not in held]
     surplus = [crn for crn in held if crn not in mine]
     if not mine:
-        # Placed in nothing at all, ever — not merely nothing that is running today.
+        # Placed in nothing at all, ever — not merely nothing that has yet to finish.
         kind = "unplaced" if held else ""
     elif absent and surplus:
         kind = "wrong"
@@ -2491,8 +2487,8 @@ def _judge(  # noqa: PLR0913 - one argument per part of the verdict
         kind = ""
     if not kind:
         return None
-    # The sections they should be in NOW, because that is what the sentence is about —
-    # and every section we hold for them beside it, because that is what decides a removal.
+    # The sections they should be in from now on, because that is what the sentence is
+    # about — and every section we hold for them beside it, which is what decides a removal.
     return Mismatch(student, term_id, term_code, code, kind, current, held, ever_expected=mine)
 
 

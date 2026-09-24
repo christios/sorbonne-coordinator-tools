@@ -798,12 +798,11 @@ describe("the register half of the Cohorts page", () => {
     expect(screen.queryByText(/flagged/)).toBeNull();
   });
 
-  it("says when it has no timetable to tell the halves of a course apart", async () => {
+  it("says when it has no timetable to tell a finished half of a course", async () => {
     /*
-     * The date-aware expectation only works on the registrar's own timetable. Without it
-     * both halves of a handover are expected every day of the year — the old behaviour,
-     * kept on purpose because narrowing on no evidence is worse — and if that is not said
-     * out loud the fix looks as though it is working when nothing has been pulled.
+     * Knowing a half is over takes the registrar's own timetable. Without it a finished
+     * half goes on being expected every day of the year — kept on purpose because
+     * narrowing on no evidence is worse — and that has to be said out loud.
      */
     vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue(
       report([], [checked({ undatedCrns: ["22151", "23652", "23820"] })]),

@@ -203,6 +203,23 @@ _PLACE = """INSERT INTO group_assignments
                           updated_by = excluded.updated_by"""
 
 
+_CATALOGUE_CELLS = """SELECT gc.*,
+                (SELECT MIN(m.meets_on) FROM term_links t
+                 JOIN facility_meetings m ON m.term_code = t.portal_term_code AND m.crn = gc.crn
+                 WHERE t.term_id = s.term_id) AS starts_on
+            FROM group_crns gc
+            JOIN scope_groups g ON g.id = gc.group_id
+            JOIN cohort_scopes s ON s.id = g.scope_id
+            WHERE g.scope_id = ANY(:ids)"""
+"""The cells the cards are built from, each with the first day the registrar teaches it.
+
+The day is what puts the halves of a handover in the order they are taught — see
+`_section`. It comes from the registrar's own timetable for the semester the set is on,
+and is NULL for a cell with no CRN, a semester linked to no portal term, or a section
+nobody has pulled a timetable for.
+"""
+
+
 class StudentDatabase:
     def __init__(self, database_url: str) -> None:
         # The process's pool, not an engine of this store's own: a store is built afresh
@@ -732,16 +749,7 @@ class StudentDatabase:
             courses = self._rows(connection, "scope_courses", scope_ids, "position, code")
             groups = self._rows(connection, "scope_groups", scope_ids, "position, label")
             majors = self._majors(connection, scope_ids)
-            cells = (
-                connection.execute(
-                    text("""SELECT gc.* FROM group_crns gc
-                            JOIN scope_groups g ON g.id = gc.group_id
-                            WHERE g.scope_id = ANY(:ids)"""),
-                    {"ids": scope_ids or [""]},
-                )
-                .mappings()
-                .all()
-            )
+            cells = connection.execute(text(_CATALOGUE_CELLS), {"ids": scope_ids or [""]}).mappings().all()
             # How many sit on each sub-row, for the seats beside each major.
             by_major = dict(
                 connection.execute(
@@ -909,16 +917,7 @@ class StudentDatabase:
             courses = self._rows(connection, "scope_courses", scope_ids, "position, code")
             groups = self._rows(connection, "scope_groups", scope_ids, "position, label")
             majors = self._majors(connection, scope_ids)
-            cells = (
-                connection.execute(
-                    text("""SELECT gc.* FROM group_crns gc
-                            JOIN scope_groups g ON g.id = gc.group_id
-                            WHERE g.scope_id = ANY(:ids)"""),
-                    {"ids": scope_ids or [""]},
-                )
-                .mappings()
-                .all()
-            )
+            cells = connection.execute(text(_CATALOGUE_CELLS), {"ids": scope_ids or [""]}).mappings().all()
             exempt = dict(
                 connection.execute(
                     text("""SELECT a.group_id || '|' || e.course_id, count(*)
@@ -3071,19 +3070,30 @@ def _part(cell) -> dict[str, Any]:
 def _section(cells: list[Any]) -> dict[str, Any]:
     """A (group, course) cell, which may be taught in more than one stretch.
 
+    The parts come in the order they are TAUGHT when the registrar's timetable dates every
+    one of them, and in the order they were entered otherwise. A part's number is only
+    the order it was added in — MATH-351's tutorial was entered second half first — and a
+    card, a handout or the admissions list reading the second half above the first sends
+    somebody to the wrong class. Each part keeps its own number, so an edit still lands
+    on the part it was made to.
+
     The first part's fields stand at the top level and `parts` lists every one of them,
     first included. That looks like duplication and is deliberate: a section with one part
     is byte-identical to what this returned before parts existed, so nothing that reads a
     section's `crn` or `teacher` had to learn a new shape to keep being right about the
     ninety-nine sections in a hundred that are taught by one person from start to finish.
 
-    The two cannot drift, because both are built here from the same rows. What must not be
-    done is to write a *second* part's CRN into the top level — anything that needs every
-    CRN of a section reads `parts`, and the sites that must are the ones that decide what a
-    student is expected to be registered in, what the registrar is asked about, and whose
-    hours these are.
+    The two cannot drift, because both are built here from the same rows — the top level
+    is whichever part `parts` lists first, number and all. What must not be done is to
+    write any OTHER part's CRN into the top level — anything that needs every CRN of a
+    section reads `parts`, and the sites that must are the ones that decide what a student
+    is expected to be registered in, what the registrar is asked about, and whose hours
+    these are.
     """
-    parts = [_part(cell) for cell in sorted(cells, key=lambda row: row["part"])]
+    ordered = sorted(cells, key=lambda row: row["part"])
+    if len(ordered) > 1 and all(row.get("starts_on") for row in ordered):
+        ordered.sort(key=lambda row: row["starts_on"])
+    parts = [_part(cell) for cell in ordered]
     return {**parts[0], "parts": parts}
 
 

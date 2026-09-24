@@ -12,7 +12,7 @@
  * server holds none.
  */
 
-import type { CatalogueScope } from "@/services/studentDatabase";
+import { type CatalogueGroup, type CatalogueScope, partsOf, sectionFor } from "@/services/studentDatabase";
 import { SPREADSHEET_TYPE } from "@/services/workbookExport";
 
 const HEADER_FILL = "FF44546A";
@@ -23,6 +23,12 @@ export type AdmissionsColumn = {
   header: string;
   scopeId: string;
   courseId: string;
+  /**
+   * Which half, from 0. A course handed from one professor to another at mid-semester is
+   * a CRN per half, and a student is registered in both from the start — so it takes a
+   * column per half, each holding one CRN as every other column does.
+   */
+  part: number;
 };
 
 export type AdmissionsStudent = {
@@ -30,23 +36,53 @@ export type AdmissionsStudent = {
   name: string;
   /** `scope id -> group id`, the groups this student holds. */
   groups: Record<string, string>;
+  /**
+   * `scope id -> major id`, the sub-row they sit on in a group that has them. Their
+   * major's own cell stands over the group's shared one, and a major not taught a course
+   * gets no CRN for it — the same reading as their record and the registration check.
+   */
+  majors?: Record<string, string>;
 };
 
-/** One column per course of every block, in the order the page shows them. */
+/** The CRNs a group gives a student on one sub-row for one course, in the order taught. */
+function crnsFor(group: CatalogueGroup, majorId: string, courseId: string): string[] {
+  return partsOf(sectionFor(group, majorId, courseId))
+    .filter((part) => part.crn && !part.retired)
+    .map((part) => part.crn);
+}
+
+/** "(2nd half)" for the second of two, and a plain count beyond that, which nothing has yet. */
+function partLabel(part: number): string {
+  return part === 1 ? " (2nd half)" : ` (part ${part + 1})`;
+}
+
+/**
+ * One column per course of every block, in the order the page shows them — and one more
+ * per extra half, for a course any group of the block teaches in more than one.
+ */
 export function admissionsColumns(scopes: CatalogueScope[]): AdmissionsColumn[] {
   return scopes.flatMap((scope) =>
-    scope.courses.map((course) => ({
-      header: `${course.code} ${course.component || scope.code} CRN`,
-      scopeId: scope.id,
-      courseId: course.id,
-    })),
+    scope.courses.flatMap((course) => {
+      const halves = Math.max(
+        1,
+        ...scope.groups.flatMap((group) =>
+          ["", ...(group.majors ?? []).map((major) => major.id)].map((majorId) => crnsFor(group, majorId, course.id).length),
+        ),
+      );
+      return Array.from({ length: halves }, (_, part) => ({
+        header: `${course.code} ${course.component || scope.code} CRN${part ? partLabel(part) : ""}`,
+        scopeId: scope.id,
+        courseId: course.id,
+        part,
+      }));
+    }),
   );
 }
 
 /**
  * The rows, sorted by name as admissions read them. A cell is the CRN the student's
- * group holds for that course, and blank when they are in no group for the block or the
- * group has no CRN there — never a guess.
+ * group holds for that course and half, and blank when they are in no group for the block,
+ * the group has no CRN there, or their major is not taught the course — never a guess.
  */
 export function admissionsRows(
   scopes: CatalogueScope[],
@@ -62,7 +98,8 @@ export function admissionsRows(
       name: student.name,
       crns: columns.map((column) => {
         const group = groupsById.get(student.groups[column.scopeId] ?? "");
-        return group?.crns[column.courseId]?.crn || null;
+        if (!group) return null;
+        return crnsFor(group, student.majors?.[column.scopeId] ?? "", column.courseId)[column.part] || null;
       }),
     }));
 }

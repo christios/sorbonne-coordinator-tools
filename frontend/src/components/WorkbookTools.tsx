@@ -8,7 +8,7 @@ import { downloadAdmissionsList } from "@/services/admissionsExport";
 import { downloadHandout, handoutName } from "@/services/studentHandout";
 import { fetchActiveCourses, fetchActiveTeachers } from "@/services/portalLists";
 import { fieldHeld, namesHeld } from "@/services/rosterStore";
-import { type Cohort, fetchAssignments, fetchCatalogue, fetchMemberIds } from "@/services/studentDatabase";
+import { type Cohort, fetchAssignmentMajors, fetchAssignments, fetchCatalogue, fetchMemberIds } from "@/services/studentDatabase";
 import type { TimetableTerm } from "@/services/timetables";
 import { sheetTitle, semesterLabel } from "@/services/timetableExport";
 import { downloadWorkbook, prefixOf, shortYear } from "@/services/workbookExport";
@@ -127,8 +127,15 @@ export function WorkbookTools({
     try {
       const held = await namesHeld();
       const placements = await placementsOfMembers(cohort.id);
+      // Which major each placement took, so a student reads their major's own cells.
+      const majors = await fetchAssignmentMajors(cohort.id);
       await downloadAdmissionsList(
-        { prefix: prefixOf(cohort.name), year: shortYear(cohort.term), scopes, students: Object.entries(placements).map(([studentId, groups]) => ({ studentId, name: held[studentId] ?? "", groups })) },
+        {
+          prefix: prefixOf(cohort.name),
+          year: shortYear(cohort.term),
+          scopes,
+          students: Object.entries(placements).map(([studentId, groups]) => ({ studentId, name: held[studentId] ?? "", groups, majors: majors[studentId] ?? {} })),
+        },
         `${cohort.name.replace(/[^A-Za-z0-9]+/g, "-")}-admissions.xlsx`,
       );
     } finally {

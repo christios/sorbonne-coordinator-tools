@@ -78,6 +78,91 @@ describe("the rows", () => {
   });
 });
 
+/*
+ * L3's lecture block, shaped as production holds it: MATH-351 is taught in two halves by
+ * two professors, a CRN each, and both groups are split into majors — Physics is not
+ * taught MATH-351, and Mathematics has a major-specific section of its own for MATH-336.
+ */
+const half = (crn: string, part: number) => ({ ...EMPTY_SECTION, crn, part });
+const L3: CatalogueScope = {
+  id: "s-l3",
+  code: "CM",
+  name: "Lectures",
+  note: "",
+  kind: "shared", parentScopeId: "", openToAll: false,
+  courses: [
+    { id: "m351", code: "MATH-351", name: "Algebra & Cryptography", component: "CM", request: EMPTY_REQUEST },
+    { id: "m336", code: "MATH-336", name: "Topology", component: "CM", request: EMPTY_REQUEST },
+  ],
+  groups: [
+    {
+      id: "maths",
+      label: "Mathematics",
+      capacity: 0,
+      note: "",
+      parentGroupId: "",
+      assigned: 3,
+      majors: [
+        { id: "maj-math", program: "MATH - Mathematics", seats: 20, assigned: 2 },
+        { id: "maj-phys", program: "PHYS - Physics", seats: 5, assigned: 1 },
+      ],
+      crns: {
+        m351: { ...half("23436", 1), parts: [half("23436", 1), half("24311", 2)] },
+        m336: { ...half("23500", 1), parts: [half("23500", 1)] },
+      },
+      byMajor: {
+        "maj-math": { m336: { ...half("23501", 1), parts: [half("23501", 1)] } },
+        "maj-phys": { m351: { ...EMPTY_SECTION, notTaught: true } },
+      },
+    },
+    {
+      id: "retired",
+      label: "Old",
+      capacity: 0,
+      note: "",
+      parentGroupId: "",
+      assigned: 1,
+      crns: { m336: { ...half("23999", 1), retired: true, parts: [{ ...half("23999", 1), retired: true }] } },
+    },
+  ],
+};
+
+const L3_STUDENTS: AdmissionsStudent[] = [
+  { studentId: "A001", name: "Amir Saleh", groups: { "s-l3": "maths" }, majors: { "s-l3": "maj-math" } },
+  { studentId: "A002", name: "Badr Karam", groups: { "s-l3": "maths" }, majors: { "s-l3": "maj-phys" } },
+  { studentId: "A003", name: "Carla Aoun", groups: { "s-l3": "maths" } },
+  { studentId: "A004", name: "Dina Farah", groups: { "s-l3": "retired" } },
+];
+
+describe("a course taught in two halves", () => {
+  it("takes a column per half, the second named as such", () => {
+    expect(admissionsColumns([L3]).map((column) => column.header)).toEqual([
+      "MATH-351 CM CRN",
+      "MATH-351 CM CRN (2nd half)",
+      "MATH-336 CM CRN",
+    ]);
+  });
+
+  it("gives a student both halves' CRNs, one per cell", () => {
+    // Carla sits on no sub-row, so reads the group's shared cells.
+    expect(admissionsRows([L3], L3_STUDENTS)[2].crns).toEqual(["23436", "24311", "23500"]);
+  });
+
+  it("follows the student's major: its own section over the group's, and nothing it is not taught", () => {
+    const [amir, badr] = admissionsRows([L3], L3_STUDENTS);
+    expect(amir.crns).toEqual(["23436", "24311", "23501"]);
+    expect(badr.crns).toEqual([null, null, "23500"]);
+  });
+
+  it("leaves out a retired section, which enrols nobody", () => {
+    expect(admissionsRows([L3], L3_STUDENTS)[3].crns).toEqual([null, null, null]);
+  });
+
+  it("adds no column for a course nobody splits", () => {
+    expect(admissionsColumns([CM, TD]).every((column) => column.part === 0)).toBe(true);
+  });
+});
+
 describe("the file", () => {
   it("is one flat sheet: a header row, one row per student, CRNs as numbers", async () => {
     const buffer = await buildAdmissionsBuffer({ prefix: "FYS", year: "26-27", scopes: [CM, TD], students: STUDENTS });
