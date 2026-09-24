@@ -4,8 +4,9 @@ import { useState } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Modal } from "@/components/Modal";
-import { SelectMenu } from "@/components/SelectMenu";
-import { fetchPortalCourses, fetchTermLinks } from "@/services/portalLists";
+import { SelectMenu, type SelectOption } from "@/components/SelectMenu";
+import { electiveOptions } from "@/services/electiveOptions";
+import { fetchPortalCourses, fetchRegistrationCheck, fetchTermLinks } from "@/services/portalLists";
 import { rowsHeld } from "@/services/rosterStore";
 import { fetchSchema, type PortalField, type RosterRow } from "@/services/scenRosters";
 import { type Cohort, deleteCohort, updateCohort } from "@/services/studentDatabase";
@@ -91,6 +92,14 @@ export function CohortActions({
   const held = useQuery({ queryKey: ["roster-rows-held"], queryFn: rowsHeld, enabled: editing, staleTime: 60_000 });
   const portalTerms = useQuery({ queryKey: ["portal", "courses", ""], queryFn: () => fetchPortalCourses("", ""), enabled: editing, retry: false });
   const links = useQuery({ queryKey: ["term-links"], queryFn: fetchTermLinks, enabled: editing, retry: false });
+  // What this cohort's students are registered in outside their groups — the Cohorts
+  // page's own query, so it is usually already in hand.
+  const check = useQuery({
+    queryKey: ["registration-check", cohort.id],
+    queryFn: () => fetchRegistrationCheck(cohort.id),
+    enabled: editing,
+    retry: false,
+  });
 
   const refresh = () => client.invalidateQueries({ queryKey: ["cohorts"] });
   const save = useMutation({
@@ -109,6 +118,13 @@ export function CohortActions({
     onSuccess: () => {
       setEditing(false);
       refresh();
+      /*
+       * And the register's verdict on this cohort, which reads what was just saved: the
+       * allowed list decides which electives warn, the semesters which terms are checked.
+       * Refreshing only the cohort list left the old verdict on screen — SPRT added, and
+       * every sport warning still there until the page was reloaded.
+       */
+      void client.invalidateQueries({ queryKey: ["registration-check", cohort.id] });
     },
   });
   const remove = useMutation({
@@ -132,16 +148,10 @@ export function CohortActions({
   const termOptions = choicesFor("TERM_CODE", { ...sources, extra: termExtra });
   const yearOptions = choicesFor("YEARLEVEL_CODE", sources);
   // The courses the portal's list holds this term, and their subjects, as a starting offer.
-  const allowedOptions: Option[] = [
-    ...new Set(
-      (portalTerms.data?.courses ?? []).flatMap((course) => {
-        const code = (course.courseCode ?? "").trim().toUpperCase();
-        return code ? [code.split("-", 1)[0], code] : [];
-      }),
-    ),
-  ]
-    .sort()
-    .map((code) => ({ value: code, label: code }));
+  const allowedOptions = electiveOptions(
+    check.data?.electives ?? [],
+    (portalTerms.data?.courses ?? []).map((course) => course.courseCode ?? ""),
+  );
 
   return (
     <>
@@ -351,7 +361,7 @@ export function CodesField({
   label: string;
   hint?: string;
   values: string[];
-  options: Option[];
+  options: SelectOption[];
   placeholder: string;
   noun: string;
   single?: boolean;
@@ -361,7 +371,7 @@ export function CodesField({
   const [adding, setAdding] = useState(false);
   // A value the list does not carry — saved on a day it was not known — is still offered,
   // so a saved cohort never shows a blank where its own expectation should be.
-  const offered = [...options];
+  const offered: SelectOption[] = [...options];
   for (const value of values) {
     if (!offered.some((option) => option.value === value)) offered.push({ value, label: value });
   }

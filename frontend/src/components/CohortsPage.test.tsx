@@ -629,6 +629,28 @@ describe("the register half of the Cohorts page", () => {
     expect(screen.getByRole("button", { name: /^Register/ }).textContent).toContain("0");
   });
 
+  it("asks the register again when the cohort is saved, so a newly allowed subject stops warning", async () => {
+    // SPRT was added to FYS-S1's allowed list and every sport warning stayed on screen:
+    // saving refreshed the cohort list and left the register's old verdict in place.
+    const sport = { studentId: "A001", termId: "t1", termCode: "262710", courseCode: "SPRT-650", crns: ["23667"] };
+    const check = vi
+      .spyOn(lists, "fetchRegistrationCheck")
+      .mockResolvedValue({ ...report([], [checked()]), electives: [{ ...sport, status: "open" }] });
+    vi.spyOn(lists, "fetchPortalCourses").mockResolvedValue({ terms: [], courses: [] });
+    vi.spyOn(lists, "fetchTermLinks").mockResolvedValue({});
+    vi.spyOn(database, "updateCohort").mockResolvedValue({ ...L1, allowedCodes: ["SPRT"] });
+    await twoStudents();
+
+    renderPage();
+    expect(await screen.findByText("SPRT-650 not approved")).toBeTruthy();
+
+    check.mockResolvedValue({ ...report([], [checked()]), electives: [{ ...sport, status: "allowed" }] });
+    fireEvent.click(screen.getByRole("button", { name: `Edit ${L1.name}` }));
+    fireEvent.click(await screen.findByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(screen.queryByText("SPRT-650 not approved")).toBeNull());
+  });
+
   it("lists a course outside the groups as an elective, and warns only about one nobody has approved", async () => {
     // Every elective is in the column, routine or not. Only one nobody has said yes to is
     // a warning — the allowed list's yes counts, and it says nothing.
