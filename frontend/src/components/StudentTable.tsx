@@ -1,4 +1,4 @@
-import { AlertTriangle, CalendarClock, ClipboardList, Clock3, LayoutGrid, RotateCcw, X } from "lucide-react";
+import { AlertTriangle, CalendarClock, ClipboardList, Clock3, GraduationCap, LayoutGrid, RotateCcw, X } from "lucide-react";
 import { memo, useCallback } from "react";
 
 import { CommentPeek } from "@/components/CommentPeek";
@@ -144,8 +144,9 @@ function studentLabel(row: StudentRow): string {
  *
  * Amber for admissions and the department drifting apart; blue for the registrar having a
  * student somewhere we did not put them; violet for the timetable putting them in two
- * places at one hour. Three different jobs chased with three different people, sitting in
- * one column, so the cell has to say which is which before it is read. The icon carries
+ * places at one hour; rose for an elective waiting on a coordinator's yes. Different jobs
+ * chased with different people, sitting in one column, so the cell has to say which is
+ * which before it is read. The icon carries
  * the same distinction for anyone who cannot use the colour.
  */
 export const WARNING_TONES: Record<WarningSource, string> = {
@@ -155,6 +156,8 @@ export const WARNING_TONES: Record<WarningSource, string> = {
   // Green for the one the department fixes on its own: a set with nobody in it is ours to
   // place, not a drift from admissions and not something to take to the registrar.
   groups: "bg-[#e4f3ec] text-[#1f6b45]",
+  // Rose for a course outside the groups that is waiting on a coordinator's yes.
+  electives: "bg-[#fcebf2] text-[#8a2452]",
 };
 
 export const WARNING_ICONS: Record<WarningSource, typeof AlertTriangle> = {
@@ -162,6 +165,7 @@ export const WARNING_ICONS: Record<WarningSource, typeof AlertTriangle> = {
   registration: ClipboardList,
   timetabling: CalendarClock,
   groups: LayoutGrid,
+  electives: GraduationCap,
 };
 
 /** "dismissed by Chris on 16 Sept 2026" — the sentence behind a quieted pill. */

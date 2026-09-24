@@ -560,6 +560,35 @@ describe("the registrar's registrations, as warnings", () => {
   });
 });
 
+describe("electives nobody has approved, as warnings", () => {
+  const elective = (status: string, over: Record<string, unknown> = {}) => ({
+    studentId: "A001", termCode: "262710", courseCode: "SPRT-650", crns: ["23667"], status, ...over,
+  });
+
+  it("warns about an open one only — one the list allows or a coordinator approved has had its yes", async () => {
+    const { electiveWarnings } = await import("@/services/discrepancies");
+
+    const warnings = electiveWarnings([elective("open"), elective("allowed", { courseCode: "ENGL-616" }), elective("approved", { courseCode: "SPAN-603" })]);
+
+    expect(warnings.map((warning) => warning.label)).toEqual(["SPRT-650 not approved"]);
+    expect(sourceOf(warnings[0])).toBe("electives");
+    expect(describeWarning(warnings[0])).toBe("registered in SPRT-650 (23667), outside the cohort's groups, and no coordinator has approved it");
+  });
+
+  it("keeps its key while the course is held, whichever section of it", async () => {
+    // A dismissal names the course, not the section: moving to another sport slot of the
+    // same course is the same question, still unanswered.
+    const { electiveWarnings } = await import("@/services/discrepancies");
+
+    const [first] = electiveWarnings([elective("open")]);
+    const [moved] = electiveWarnings([elective("open", { crns: ["23668"] })]);
+    const [other] = electiveWarnings([elective("open", { courseCode: "SPRT-651" })]);
+
+    expect(moved.key).toBe(first.key);
+    expect(other.key).not.toBe(first.key);
+  });
+});
+
 /*
  * The Warnings column ranked a row by how many warnings it carried, which was fine while
  * every warning was record drift. It stopped being fine when the register's differences

@@ -131,6 +131,10 @@ function byStudentThenByAction(left: RegistrationChange, right: RegistrationChan
  * Built from the warnings the page has already judged rather than from the checks again,
  * because those are what the coordinator is looking at and a second answer to the same
  * question would be a second answer to disagree with.
+ *
+ * Never an unapproved elective. Whether the student may take it is the coordinator's to
+ * decide before anybody else is asked to do anything, and once they decide it may not, it
+ * is a registration to drop like any other.
  */
 export function noteChanges(
   warnings: Warning[],
@@ -139,7 +143,10 @@ export function noteChanges(
   yearOf: (studentId: string) => string = () => "",
 ): RegistrationChange[] {
   return warnings
-    .filter((warning) => warning.kind !== "no_baseline" && sourceOf(warning) !== "registration")
+    .filter(
+      (warning) =>
+        warning.kind !== "no_baseline" && sourceOf(warning) !== "registration" && sourceOf(warning) !== "electives",
+    )
     .map((warning) => ({
       studentId: warning.studentId,
       studentName: nameOf(warning.studentId),

@@ -1,5 +1,5 @@
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, ArrowRightCircle, CalendarClock, ClipboardList, EyeOff, Globe, LayoutGrid, Settings2, Users, X } from "lucide-react";
+import { AlertTriangle, ArrowRightCircle, CalendarClock, ClipboardList, EyeOff, Globe, GraduationCap, LayoutGrid, Settings2, Users, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useStaffUser } from "@/components/useStaffUser";
@@ -23,6 +23,7 @@ import {
   rulesFor,
   sharedRules,
   groupWarnings,
+  electiveWarnings,
   sourceOf,
   unjudgeable,
   warningsForCohort,
@@ -95,7 +96,7 @@ function judge(
 }
 
 /** The three records to begin with — the old "All", and the commonest answer. */
-const EVERY_RECORD: readonly WarningSource[] = ["record", "registration", "timetabling", "groups"];
+const EVERY_RECORD: readonly WarningSource[] = ["record", "registration", "timetabling", "groups", "electives"];
 
 /**
  * The three records, in the order the page's filter offers them.
@@ -108,6 +109,7 @@ const RECORDS: { id: WarningSource; counted: string }[] = [
   { id: "registration", counted: "the registrar has in other sections than we placed them in" },
   { id: "timetabling", counted: "booked into two places at one hour" },
   { id: "groups", counted: "we have not placed in a group of one of the sets" },
+  { id: "electives", counted: "taking an elective no coordinator has approved" },
 ];
 
 /**
@@ -186,6 +188,7 @@ function SourceFilter({
     { id: "registration", name: "Register", icon: ClipboardList, hint: "Where the registrar has them in other sections than we placed them in" },
     { id: "timetabling", name: "Timetabling", icon: CalendarClock, hint: "Where the hours a student is booked into cannot all be attended" },
     { id: "groups", name: "Groups", icon: LayoutGrid, hint: "Where we have not put a student in a group of one of the cohort's sets" },
+    { id: "electives", name: "Electives", icon: GraduationCap, hint: "Courses outside the cohort's groups that no coordinator has approved yet — approve them on the student's record" },
   ];
   return (
     <div
@@ -519,6 +522,9 @@ export function CohortsPage({
       out.set(cohort.id, [
         ...(judged?.byCohort.get(cohort.id) ?? []),
         ...registrationWarnings(registrationsBy.get(cohort.id) ?? [], describeMismatch, readMismatch),
+        // The courses outside the groups nobody has said yes to. Guarded like the column:
+        // a browser holding new code against a server mid-deploy sees no field.
+        ...electiveWarnings(reportsBy.get(cohort.id)?.electives ?? []),
         // A set this cohort has not placed them in, per semester, from the same reading the
         // readiness panel publishes — so the two can never disagree about who is short.
         ...readiness.terms.flatMap(({ termId, publication }) => {
@@ -528,7 +534,7 @@ export function CohortsPage({
       ]);
     }
     return out;
-  }, [cohorts, judged, registrationsBy, readiness.terms, nameOfTerm]);
+  }, [cohorts, judged, registrationsBy, reportsBy, readiness.terms, nameOfTerm]);
 
   /*
    * Every cohort's warnings by student, not only the cohort on screen.
@@ -608,6 +614,7 @@ export function CohortsPage({
     registration: flaggedIn(all, "registration"),
     timetabling: flaggedIn(all, "timetabling"),
     groups: flaggedIn(all, "groups"),
+    electives: flaggedIn(all, "electives"),
   };
   const unjudged = new Set(all.filter((warning) => warning.kind === "no_baseline").map((w) => w.studentId)).size;
   const dismissedCount = all.filter((warning) => warning.dismissed).length;

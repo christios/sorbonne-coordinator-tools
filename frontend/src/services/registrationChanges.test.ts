@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { Mismatch } from "@/services/portalLists";
-import type { Warning } from "@/services/discrepancies";
+import { electiveWarnings, type Warning } from "@/services/discrepancies";
 import { changesTable, noteChanges, registrationChanges } from "@/services/registrationChanges";
 
 const mismatch = (over: Partial<Mismatch>): Mismatch => ({
@@ -52,11 +52,11 @@ describe("the registrar's worklist", () => {
     expect(changes).toEqual([]);
   });
 
-  it("leaves the finished half of a course alone, and adds only the half running now", () => {
+  it("leaves the finished half of a course alone, and adds only the half still to come", () => {
     /*
-     * MATH-351 is taught in two halves under two section numbers. Once the second starts,
-     * only it is expected; the registrar rightly keeps the student in the first for the
-     * grade. Judging removals against today's list called that finished half a
+     * MATH-351 is taught in two halves under two section numbers. Once the first is over,
+     * only the second is expected; the registrar rightly keeps the student in the first
+     * for the grade. Judging removals against that narrower list called the finished half a
      * registration to drop, which would have un-enrolled a student from a course they had
      * already sat. A00022912 was the case that showed it.
      */
@@ -215,6 +215,14 @@ describe("the lines with no CRN to act on", () => {
     const lines = noteChanges([warning({ kind: "registration", field: "registration" })], named, "FYS-S1");
 
     expect(lines).toEqual([]);
+  });
+
+  it("never carries an elective nobody has approved, which is the coordinator's to decide first", () => {
+    const [unapproved] = electiveWarnings([
+      { studentId: "A00027997", termCode: "262710", courseCode: "SPRT-650", crns: ["23667"], status: "open" },
+    ]);
+
+    expect(noteChanges([unapproved, warning()], named, "FYS-S1").map((line) => line.source)).toEqual(["record"]);
   });
 
   it("says nothing about a student whose changes cannot be judged", () => {

@@ -552,6 +552,37 @@ describe("the register half of the Cohorts page", () => {
    */
   const pillOf = (text: RegExp | string) => screen.getByTitle(text).closest("[data-source]") as HTMLElement;
 
+  it("warns about an elective nobody has approved, under a record of its own", async () => {
+    /*
+     * Sport included: the warning stays until a coordinator says yes, on the student's
+     * record or with the cohort's allowed list. One the list covers, or one approved for
+     * this student, has had its yes and says nothing.
+     */
+    vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue({
+      ...report([], [checked()]),
+      electives: [
+        { studentId: "A001", termId: "t1", termCode: "262710", courseCode: "SPRT-650", crns: ["23667"], status: "open" },
+        { studentId: "A002", termId: "t1", termCode: "262710", courseCode: "ENGL-616", crns: ["23757"], status: "allowed" },
+        { studentId: "A002", termId: "t1", termCode: "262710", courseCode: "SPAN-603", crns: ["20598"], status: "approved" },
+      ],
+    });
+    await twoStudents();
+
+    renderPage();
+
+    expect(await screen.findByText("SPRT-650 not approved")).toBeTruthy();
+    expect(pillOf(/registered in SPRT-650 \(23667\).*no coordinator has approved it/).dataset.source).toBe("electives");
+    expect(screen.queryByText(/ENGL-616 not approved/)).toBeNull();
+    expect(screen.queryByText(/SPAN-603 not approved/)).toBeNull();
+
+    // A filter of its own: turned off, the warning goes and nothing else does.
+    // The filter, not the Electives column's header, which is a button too.
+    const electives = screen.getAllByRole("button", { name: /Electives/ }).find((button) => button.hasAttribute("aria-pressed"))!;
+    expect(electives.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(electives);
+    await waitFor(() => expect(screen.queryByText("SPRT-650 not approved")).toBeNull());
+  });
+
   it("carries the register's differences on the same rows as the record's", async () => {
     vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue(report([mismatch({ studentId: "A001" })], [checked()]));
     await twoStudents([MAJOR]);
@@ -598,9 +629,9 @@ describe("the register half of the Cohorts page", () => {
     expect(screen.getByRole("button", { name: /^Register/ }).textContent).toContain("0");
   });
 
-  it("lists a course outside the groups as an elective, and never as a warning", async () => {
-    // A student taking sport is not a fault. These were warning pills for one afternoon and
-    // a clean cohort came out with thirty of them, which said nothing anybody could act on.
+  it("lists a course outside the groups as an elective, and warns only about one nobody has approved", async () => {
+    // Every elective is in the column, routine or not. Only one nobody has said yes to is
+    // a warning — the allowed list's yes counts, and it says nothing.
     vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue({
       mismatches: [],
       coverage: [checked()],
@@ -618,12 +649,13 @@ describe("the register half of the Cohorts page", () => {
     const row = within(rowOf("Amira Haddad"));
     expect(row.getByText("SPAN-601 · SPRT-628")).toBeTruthy();
     /*
-      * And nowhere among the warnings. The row carries the admissions warning it was set
-      * up with, and that one only: no pill out of the register, which is what an elective
-      * would have been.
+      * Among the warnings, the admissions one it was set up with and one for SPAN-601 —
+      * under Electives, not the register, and nothing for the sport the list allows.
       */
     const pills = [...rowOf("Amira Haddad").querySelectorAll("[data-source]")];
-    expect(pills.map((pill) => (pill as HTMLElement).dataset.source)).toEqual(["record"]);
+    expect(pills.map((pill) => (pill as HTMLElement).dataset.source)).toEqual(["record", "electives"]);
+    expect(row.getByText("SPAN-601 not approved")).toBeTruthy();
+    expect(row.queryByText(/SPRT-628 not approved/)).toBeNull();
     // The student who holds none has an empty cell rather than somebody else's electives.
     expect(within(rowOf("Karim Nasser")).queryByText(/SPAN-601/)).toBeNull();
   });

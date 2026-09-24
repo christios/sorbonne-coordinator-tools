@@ -82,7 +82,7 @@ export type Warning = {
   key: string;
   studentId: string;
   ruleId: string;
-  kind: RuleKind | "unplaced" | "no_baseline" | "registration" | "group";
+  kind: RuleKind | "unplaced" | "no_baseline" | "registration" | "group" | "elective";
   field: string;
   /** For a change: what it was and what it became, and when. */
   from?: string;
@@ -462,6 +462,9 @@ export function describeWarning(warning: Warning): string {
     case "group":
       // Written in full by groupWarnings: which set, and what that costs the student.
       return warning.value ?? "in no group of one of the cohort's sets";
+    case "elective":
+      // Written in full by electiveWarnings: which course, and that nobody has said yes.
+      return warning.value ?? "registered in an elective no coordinator has approved";
   }
 }
 
@@ -477,13 +480,14 @@ const ENROLMENT_FIELDS = new Set([STATUS_FIELD, "STST_CODE", "ESTS_CODE"]);
  * and a coordinator clearing one does not want the other in the way — so the source is a
  * thing to filter and colour by in its own right, not a detail of the kind.
  */
-export type WarningSource = "record" | "registration" | "timetabling" | "groups";
+export type WarningSource = "record" | "registration" | "timetabling" | "groups" | "electives";
 
 export function sourceOf(warning: Warning): WarningSource {
   // Said by the builder where it knows better — a clash of hours comes out of the same
   // check as the registrations and is not one, so it says so.
   if (warning.source) return warning.source;
   if (warning.kind === "group") return "groups";
+  if (warning.kind === "elective") return "electives";
   return warning.kind === "registration" ? "registration" : "record";
 }
 
@@ -523,6 +527,8 @@ export function labelWarning(warning: Warning): string {
       return "registration differs";
     case "group":
       return "in no group";
+    case "elective":
+      return "elective not approved";
   }
 }
 
@@ -542,8 +548,8 @@ export function labelWarning(warning: Warning): string {
  *     which makes every other line about them moot.
  * 3 — the register has them somewhere we did not put them. A real person in a real room
  *     next week, or in no room at all.
- * 2 — what is true of them now disagrees with what the cohort expects, or they are in no
- *     cohort. Wrong, and wrong right now.
+ * 2 — what is true of them now disagrees with what the cohort expects, they are in no
+ *     cohort, or they take an elective nobody has approved. Wrong, and wrong right now.
  * 1 — something about them changed. Worth reading; not necessarily worth doing about.
  * 0 — nothing to act on: dismissed, or the note that changes cannot be judged at all.
  *
@@ -624,6 +630,36 @@ export function groupWarnings(
     }
   }
   return found;
+}
+
+/**
+ * The electives nobody has approved, as warnings on their row.
+ *
+ * A course a student is registered in that no set of their cohort teaches is not wrong in
+ * itself — sport, another department's language — but somebody has to have said yes to
+ * it. One the cohort's allowed list covers, or a coordinator has approved for this student,
+ * has had that yes and says nothing here. Every other one warns until it gets it.
+ *
+ * These were warnings once before and were taken off because sport alone came to thirty on
+ * a cohort nobody had approved anything for. They are back under a record of their own, so
+ * they can be worked through — or set aside — without the register's differences in the
+ * way. Approving the course on the student's record is what clears one.
+ */
+export function electiveWarnings(
+  electives: { studentId: string; termCode: string; courseCode: string; crns: string[]; status: string }[],
+): Warning[] {
+  return electives
+    .filter((elective) => elective.status === "open")
+    .map((elective) => ({
+      key: `elective|${elective.studentId}|${elective.termCode}|${elective.courseCode}`,
+      studentId: elective.studentId,
+      ruleId: "elective",
+      kind: "elective" as const,
+      field: "electives",
+      value: `registered in ${elective.courseCode}${elective.crns.length ? ` (${elective.crns.join(", ")})` : ""}, outside the cohort's groups, and no coordinator has approved it`,
+      label: `${elective.courseCode} not approved`,
+      source: "electives" as const,
+    }));
 }
 
 export function registrationWarnings<
