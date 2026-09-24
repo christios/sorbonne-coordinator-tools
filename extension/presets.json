@@ -159,7 +159,8 @@
   "MAJOR_CODE",
   "PROGRAM_CODE",
   "RE_COURSES_COUNT",
-  "ABSENCE_PER"
+  "ABSENCE_PER",
+  "MOBILE_NO"
  ],
  "verified": "2026-08-21 - counts checked live; FY+L1+L2+L3 = all years = 415; MATH+PHYS = 415",
  "fields": [

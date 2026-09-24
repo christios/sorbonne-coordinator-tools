@@ -133,6 +133,11 @@ Two things bound the result:
   substrings of the column key so a name nobody here has seen is caught too. A
   cohort table has no use for any of them, and pulling one would put it in a
   coordinator's `localStorage` for the rest of the term.
+* `RETURNED_ANYWAY` — the named exceptions, by exact key only. Since 1.9 that is
+  `MOBILE_NO`, the student's own mobile, which the department asked for. It
+  stays in the browser like the student's name (the platform sends the server
+  ids only) and is still never filterable. A guardian's mobile or a home phone
+  is still refused.
 * The `columns` list in `presets.json` — no longer a fallback but a floor: it
   is offered whether or not anybody has visited the portal.
 

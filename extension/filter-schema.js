@@ -64,6 +64,17 @@ export const NEVER_RETURNED = [
   'USER_NAME',
 ];
 
+/**
+ * Returned although NEVER_RETURNED would catch them, by exact key and by nothing else.
+ *
+ * MOBILE_NO: the department asked for the student's mobile on 24 September 2026. It is
+ * kept where the student's name is — in the browser that pulled it, since the platform
+ * sends the server ids and nothing else about a student — and it stays in
+ * NEVER_FILTERABLE, so nobody can find a student by their number. By key alone, so a
+ * guardian's mobile or a home phone the grid may also carry is still refused.
+ */
+export const RETURNED_ANYWAY = new Set(['MOBILE_NO']);
+
 /** "Date Of Birth" -> "DATE_OF_BIRTH", so a label can be read the way a key is. */
 function asKey(text) {
   return String(text || '').toUpperCase().replace(/[^A-Z0-9]+/g, '_');
@@ -79,6 +90,7 @@ function asKey(text) {
 export function mayReturn(key, label = '') {
   const name = String(key || '').toUpperCase();
   if (!FIELD_KEY.test(name)) return false;
+  if (RETURNED_ANYWAY.has(name)) return true;
   const named = asKey(label);
   return !NEVER_RETURNED.some(banned => name.includes(banned) || named.includes(banned));
 }

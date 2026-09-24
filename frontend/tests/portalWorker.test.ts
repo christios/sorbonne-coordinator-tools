@@ -57,6 +57,8 @@ async function loadWorker(): Promise<void> {
       SPRIDEN_ID: `A${String(skip + i).padStart(3, "0")}`,
       FULL_NAME: "Amira",
       PASSPORT_ID: "SECRET",
+      MOBILE_NO: "0501234567",
+      PARENT_MOBILE: "0509876543",
     }));
     return {
       status: 200,
@@ -138,8 +140,9 @@ describe("the extension's service worker", () => {
       Skip: 0,
       Take: 0,
     });
-    // The portal returns 45 columns including passports; only the allowlist survives.
-    expect(reply.rows).toEqual([{ SPRIDEN_ID: "A000", FULL_NAME: "Amira" }]);
+    // The portal returns 45 columns including passports; only the allowlist survives —
+    // which since 1.9 includes the student's own mobile, and never a parent's.
+    expect(reply.rows).toEqual([{ SPRIDEN_ID: "A000", FULL_NAME: "Amira", MOBILE_NO: "0501234567" }]);
   });
 
   /*
@@ -212,6 +215,7 @@ describe("the extension's service worker", () => {
         { key: "PASSPORT_ID", label: "Passport" },
         { key: "STUDENT_DOB", label: "Date of birth" },
         { key: "MOBILE_NO", label: "Mobile" },
+        { key: "PARENT_MOBILE", label: "Parent mobile" },
       ],
     });
 
@@ -223,11 +227,13 @@ describe("the extension's service worker", () => {
     const offered = (schema.columns as { key: string }[]).map((column) => column.key);
 
     expect(offered).toContain("FULL_NAME");
-    for (const refused of ["PASSPORT_ID", "STUDENT_DOB", "MOBILE_NO"]) {
+    // The student's own mobile is the one named exception, by its exact key.
+    expect(offered).toContain("MOBILE_NO");
+    for (const refused of ["PASSPORT_ID", "STUDENT_DOB", "PARENT_MOBILE"]) {
       expect(offered).not.toContain(refused);
       expect(reply.columns).not.toContain(refused);
     }
-    expect(reply.rows).toEqual([{ SPRIDEN_ID: "A000", FULL_NAME: "Amira" }]);
+    expect(reply.rows).toEqual([{ SPRIDEN_ID: "A000", FULL_NAME: "Amira", MOBILE_NO: "0501234567" }]);
   });
 
   it("offers what the service has always returned, not only what the grid shows", async () => {
