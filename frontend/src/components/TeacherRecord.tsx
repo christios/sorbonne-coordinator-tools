@@ -13,7 +13,7 @@ import { fetchActiveCourses, fetchActiveCrns, fetchActiveTeachers, fetchFacility
 import { requisitionCheck } from "@/services/requisitionCheck";
 import { requisitionHours } from "@/services/requisitions";
 import type { ColumnSource } from "@/services/studentColumns";
-import { registrarHoursFor, sameTeacher, sectionsTaughtBy } from "@/services/teacherLoad";
+import { type BookedHours, bookedHoursOf, registrarHoursFor, sameTeacher, sectionsTaughtBy } from "@/services/teacherLoad";
 import { getTeacherRequisition, listTeacherRequisitions } from "@/services/teachers";
 import { fetchCourseCards } from "@/services/studentDatabase";
 import { fetchTimetableTerms } from "@/services/timetables";
@@ -209,7 +209,7 @@ export function TeacherRecord({
   );
   const adjusted = adjustmentsFor(notes, me, ownCrns, sameTeacher);
   // The registrar's count of their teaching, beside ours in the tiles. No warning on it.
-  const { registrarHours } = useQueries({
+  const { registrarHours, booked } = useQueries({
     queries: termCodes.map((termCode) => ({
       queryKey: ["facility-hours", termCode],
       queryFn: () => fetchFacilityHours(termCode),
@@ -218,6 +218,19 @@ export function TeacherRecord({
     })),
     combine: (reads) => ({
       registrarHours: reads.reduce((sum, read) => sum + registrarHoursFor(read.data ?? {}, teacher.fullName, sameTeacher), 0),
+      /*
+       * And per section, for the table: `term|crn -> hours`, with the terms that have
+       * answered at all, so a section the registrar has no timetable for can be told from
+       * one whose answer has not arrived.
+       */
+      booked: {
+        hours: new Map(
+          reads.flatMap((read, index) =>
+            Object.entries(read.data ?? {}).map(([crn, section]) => [`${termCodes[index]}|${crn}`, section.hours] as const),
+          ),
+        ),
+        answered: new Set(termCodes.filter((_, index) => reads[index]?.data)),
+      },
     }),
   });
   const courseOf = new Map(timetable.map((entry) => [entry.crn, `${entry.code} · CRN ${entry.crn}`]));
@@ -384,6 +397,13 @@ export function TeacherRecord({
                 <th scope="col" className="px-3 py-2 text-left">Cohort</th>
                 <th scope="col" className="px-3 py-2 text-right">CRN</th>
                 <th scope="col" className="px-3 py-2 text-right">Hours</th>
+                <th
+                  scope="col"
+                  className="whitespace-nowrap px-3 py-2 text-right"
+                  title="What the registrar's timetable books for the CRN over the whole semester"
+                >
+                  Hours <SourceMark source="registrar" />
+                </th>
                 <th scope="col" className="px-3 py-2 text-right">Students</th>
               </tr>
             </thead>
@@ -405,6 +425,13 @@ export function TeacherRecord({
                   <td className="px-3 py-2 text-right tabular-nums">
                     {section.hours || <span className="text-[#c8d0da]">—</span>}
                   </td>
+                  <td className="px-3 py-2 text-right tabular-nums">
+                    <RegistrarHours
+                      termCode={links.data?.[section.termId] ?? ""}
+                      crn={section.crn}
+                      booked={booked}
+                    />
+                  </td>
                   <td className="px-3 py-2 text-right tabular-nums">{section.students}</td>
                 </tr>
               ))}
@@ -424,4 +451,19 @@ export function TeacherRecord({
       ) : null}
     </Modal>
   );
+}
+
+/** One section's registrar hours, or a quiet mark saying why there are none — see bookedHoursOf. */
+function RegistrarHours({ termCode, crn, booked }: { termCode: string; crn: string; booked: BookedHours }) {
+  const said = bookedHoursOf(booked, termCode, crn);
+  if (typeof said === "number") return <>{said}</>;
+  if (said === "waiting") return <span className="text-[#c8d0da]">…</span>;
+  if (said === "none") {
+    return (
+      <span className="text-[#c8d0da]" title="The registrar's timetable has no meetings for this CRN">
+        none
+      </span>
+    );
+  }
+  return <span className="text-[#c8d0da]">—</span>;
 }

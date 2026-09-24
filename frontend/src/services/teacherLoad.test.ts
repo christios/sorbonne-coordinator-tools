@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { buildCards } from "@/services/courseCards";
-import { asTaught, hoursColumn, hoursColumns, taughtLoads, loadRows, loadTotals, registrarHoursFor, sameTeacher, sectionsTaughtBy, shownHoursColumns, teacherLoads } from "@/services/teacherLoad";
+import { asTaught, bookedHoursOf, hoursColumn, hoursColumns, taughtLoads, loadRows, loadTotals, registrarHoursFor, sameTeacher, sectionsTaughtBy, shownHoursColumns, teacherLoads } from "@/services/teacherLoad";
 import type { ActiveTeacher } from "@/services/portalLists";
 import { EMPTY_REQUEST, EMPTY_SECTION, type CohortCatalogue } from "@/services/studentDatabase";
 import { requestSheets, type RequestRow, type RequestSheet } from "@/services/timetableExport";
@@ -280,6 +280,24 @@ describe("the registrar's hours beside ours", () => {
     };
     expect(registrarHoursFor(booked, "Grace Younes", sameTeacher)).toBe(52.5);
     expect(registrarHoursFor(booked, "", sameTeacher)).toBe(0);
+  });
+});
+
+describe("one section's hours, as the registrar books them", () => {
+  const booked = { hours: new Map([["262710|23436", 16.25]]), answered: new Set(["262710"]) };
+
+  it("reads the CRN's own hours for its term", () => {
+    expect(bookedHoursOf(booked, "262710", "23436")).toBe(16.25);
+  });
+
+  it("tells a CRN the registrar has no meetings for from one whose term has not answered", () => {
+    expect(bookedHoursOf(booked, "262710", "99999")).toBe("none");
+    expect(bookedHoursOf(booked, "262720", "23436")).toBe("waiting");
+  });
+
+  it("asks nothing of a section with no CRN, or no portal term", () => {
+    expect(bookedHoursOf(booked, "262710", "")).toBe("no-crn");
+    expect(bookedHoursOf(booked, "", "23436")).toBe("no-crn");
   });
 });
 

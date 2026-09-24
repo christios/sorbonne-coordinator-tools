@@ -312,6 +312,21 @@ export function registrarHoursFor(
   return Math.round(total * 100) / 100;
 }
 
+/** The registrar's hours per section, `term|crn -> hours`, and which terms have answered at all. */
+export type BookedHours = { hours: Map<string, number>; answered: Set<string> };
+
+/**
+ * One section's hours as the registrar's timetable books them over the semester — or why
+ * there are none: no CRN to ask about, a term whose timetable has not answered yet, or a
+ * CRN the registrar has no meetings for.
+ */
+export function bookedHoursOf(booked: BookedHours, termCode: string, crn: string): number | "no-crn" | "waiting" | "none" {
+  if (!crn || !termCode) return "no-crn";
+  const hours = booked.hours.get(`${termCode}|${crn}`);
+  if (hours !== undefined) return Math.round(hours * 100) / 100;
+  return booked.answered.has(termCode) ? "none" : "waiting";
+}
+
 /** `teacher name -> CRNs`, from the same rows the hours come from, keyed as `teacherLoads` keys. */
 export function crnsByTeacher(sheets: RequestSheet[]): (teacher: string) => string[] {
   const held = new Map<string, Set<string>>();
