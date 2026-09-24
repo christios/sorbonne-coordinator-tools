@@ -1,3 +1,4 @@
+import { X } from "lucide-react";
 import { useEffect, useId, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
@@ -66,10 +67,28 @@ export function Modal({
         onMouseDown={(event) => event.stopPropagation()}
       >
         <header className="border-b border-[#e4e8ef] px-5 py-4">
-          <h2 id={titleId} className="text-lg font-semibold text-[#171717]">
-            {title}
-          </h2>
-          {description ? <p className="mt-1 text-sm text-[#667085]">{description}</p> : null}
+          {/*
+            * A way out that can be seen. Escape and a click outside always closed it, and
+            * neither is something a reader finds by looking — a student's record, a CRN's,
+            * a teacher's had nothing on screen that said how to leave.
+            */}
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h2 id={titleId} className="text-lg font-semibold text-[#171717]">
+                {title}
+              </h2>
+              {description ? <p className="mt-1 text-sm text-[#667085]">{description}</p> : null}
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close"
+              title="Close (Esc)"
+              className="-mr-1 shrink-0 rounded p-1 text-[#667085] hover:bg-[#f2f4f7] hover:text-[#344054]"
+            >
+              <X size={18} aria-hidden="true" />
+            </button>
+          </div>
           {header}
         </header>
 
