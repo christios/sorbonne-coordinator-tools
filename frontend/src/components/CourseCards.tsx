@@ -1,5 +1,5 @@
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, FileSpreadsheet, Plus, Search } from "lucide-react";
+import { FileSpreadsheet, Plus, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 
@@ -7,7 +7,6 @@ import { AddFromPortal } from "@/components/AddFromPortal";
 import { CourseDetail } from "@/components/CourseDetail";
 import { WarningBanner, WarningRows, type WarningKind } from "@/components/WarningBanner";
 import type { FillReport } from "@/components/FillBlock";
-import { Modal } from "@/components/Modal";
 import { SelectMenu } from "@/components/SelectMenu";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { TableFilterBar } from "@/components/TableFilterBar";
@@ -22,8 +21,6 @@ import { type Cohort, fetchCourseCards } from "@/services/studentDatabase";
 import { optionsFor, plainCellText } from "@/services/studentColumns";
 import { COHORT } from "@/services/remembered";
 import { applyFilters, type FilterModel } from "@/services/tableFilter";
-import { downloadTimetableWorkbook, requestSheets } from "@/services/timetableExport";
-import { shortYear } from "@/services/workbookExport";
 import { fetchTimetableTerms } from "@/services/timetables";
 
 /**
@@ -146,9 +143,6 @@ export function CourseCards({
 
   const [tools, setTools] = useState(false);
   const [adding, setAdding] = useState(false);
-  const [requesting, setRequesting] = useState(false);
-  const [requestTerm, setRequestTerm] = useState("");
-  const [building, setBuilding] = useState(false);
   const [filled, setFilled] = useState<FillReport | null>(null);
 
   const refresh = () => {
@@ -441,24 +435,6 @@ export function CourseCards({
               teachers={teachers.data ?? []}
               portal={portalOf(chosenCard.termId)}
               teacherDrift={teacherDrift}
-              action={
-                /*
-                 * The request is the whole semester's — a sheet per cohort, the CRN table,
-                 * the teacher hours — not this course's. It stands where the semester is
-                 * named, and says its own breadth so nobody reads it as "this course".
-                 */
-                <button
-                  type="button"
-                  onClick={() => {
-                    setRequestTerm(chosenCard.termId || termIds[0] || "");
-                    setRequesting(true);
-                  }}
-                  title="The workbook the timetabler gets: every cohort of this semester"
-                  className="inline-flex items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-2.5 py-1 text-xs font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]"
-                >
-                  <Download size={13} aria-hidden="true" /> Timetable request
-                </button>
-              }
               unassigned={unassignedOf(chosenCard)}
               clashes={clashes}
               onPlaceStudents={onPlaceStudents}
@@ -472,61 +448,8 @@ export function CourseCards({
         </div>
       )}
 
-      <Modal
-        open={requesting}
-        title="Timetable request"
-        description="The workbook the timetabler gets: a sheet per cohort for one semester, the CRN table, teacher hours."
-        onClose={() => setRequesting(false)}
-        footer={
-          <div className="flex items-center justify-end gap-3">
-            <button type="button" onClick={() => setRequesting(false)} className="text-sm font-semibold text-[#667085]">Cancel</button>
-            <button
-              type="button"
-              disabled={!requestTerm || building}
-              onClick={async () => {
-                setBuilding(true);
-                try {
-                  const sheets = requestSheets(
-                    cards,
-                    requestTerm,
-                    termName(requestTerm),
-                    // The Degree column: the cohort's majors as the portal codes them, else its name.
-                    (cohortId) => {
-                      const cohort = cohorts.find((candidate) => candidate.id === cohortId);
-                      return cohort?.majors.join(" / ") || cohort?.name || "";
-                    },
-                    nameOf,
-                    // The sheet's own name, which each cohort answers for itself.
-                    (cohortId) => cohorts.find((candidate) => candidate.id === cohortId) ?? { name: "" },
-                  );
-                  /*
-                   * The name the department's own file has: one workbook a year, not one
-                   * per semester with the semester spelled out in it.
-                   */
-                  const year = shortYear(cohorts.find((cohort) => cohort.term)?.term ?? "");
-                  await downloadTimetableWorkbook(sheets, `Time-Tables-${year || "request"}.xlsx`, year);
-                  setRequesting(false);
-                } finally {
-                  setBuilding(false);
-                }
-              }}
-              className="rounded-md bg-[#1f4e79] px-4 py-2 text-sm font-semibold text-white disabled:bg-[#9ba8b5]"
-            >
-              {building ? "Building…" : "Download"}
-            </button>
-          </div>
-        }
-      >
-        <SelectMenu label="Semester" value={requestTerm} onChange={setRequestTerm} placeholder="Which semester…" options={termIds.map((id) => ({ value: id, label: termName(id) }))} />
-        {requestTerm ? (
-          <p className="mt-3 text-sm text-[#667085]">
-            {cards.filter((card) => card.termId === requestTerm).length} course{cards.filter((card) => card.termId === requestTerm).length === 1 ? "" : "s"} across{" "}
-            {new Set(cards.filter((card) => card.termId === requestTerm).map((card) => card.cohortId)).size} cohort(s). Teachers come from Active teachers; a section nobody has chosen keeps the portal&apos;s name.
-          </p>
-        ) : null}
-      </Modal>
       {adding ? <AddFromPortal open cohorts={cohorts} terms={terms.data ?? []} activeCourses={activeCourses.data ?? []} onClose={() => setAdding(false)} onAdded={() => { setAdding(false); refresh(); }} /> : null}
-      <WorkbookTools open={tools} cohorts={cohorts} terms={terms.data ?? []} onClose={() => setTools(false)} />
+      <WorkbookTools open={tools} cohorts={cohorts} terms={terms.data ?? []} cards={cards} teacherName={nameOf} onClose={() => setTools(false)} />
     </section>
   );
 }

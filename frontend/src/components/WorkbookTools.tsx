@@ -10,7 +10,8 @@ import { fetchActiveCourses, fetchActiveTeachers } from "@/services/portalLists"
 import { fieldHeld, namesHeld } from "@/services/rosterStore";
 import { type Cohort, fetchAssignmentMajors, fetchAssignments, fetchCatalogue, fetchMemberIds } from "@/services/studentDatabase";
 import type { TimetableTerm } from "@/services/timetables";
-import { sheetTitle, semesterLabel } from "@/services/timetableExport";
+import type { Card } from "@/services/courseCards";
+import { downloadTimetableWorkbook, requestSheets, sheetTitle, semesterLabel } from "@/services/timetableExport";
 import { downloadWorkbook, prefixOf, shortYear } from "@/services/workbookExport";
 
 /**
@@ -45,11 +46,17 @@ export function WorkbookTools({
   open,
   cohorts,
   terms,
+  cards = [],
+  teacherName = () => "",
   onClose,
 }: {
   open: boolean;
   cohorts: Cohort[];
   terms: TimetableTerm[];
+  /** Every cohort's course cards, which the timetable is built from. */
+  cards?: Card[];
+  /** An Active teacher's name, by id. */
+  teacherName?: (teacherId: string) => string;
   onClose: () => void;
 }) {
   const [cohortId, setCohortId] = useState(cohorts[0]?.id ?? "");
@@ -71,7 +78,9 @@ export function WorkbookTools({
     (section.teacherId ? (teachers.data ?? []).find((teacher) => teacher.id === section.teacherId)?.fullName : "") ||
     section.teacher;
   const scopes = catalogue.data?.scopes ?? [];
-  const [exporting, setExporting] = useState<"" | "workbook" | "list" | "handout">("");
+  const [exporting, setExporting] = useState<"" | "workbook" | "list" | "handout" | "timetable">("");
+  // The timetable is the one file here that can be every cohort's at once.
+  const [everyCohort, setEveryCohort] = useState(false);
   const [heldNames, setHeldNames] = useState(0);
   useEffect(() => {
     if (!open) return;
@@ -143,6 +152,41 @@ export function WorkbookTools({
     }
   };
 
+  /*
+   * The timetable: the workbook the timetabler gets — a sheet per cohort, the CRN table,
+   * the teacher hours. It lived on every course card as "Timetable request", where it read
+   * as that course's, and could only ever be the whole semester's. Here it is the chosen
+   * cohort's, or every cohort's, for the chosen semester.
+   */
+  const termName = terms.find((candidate) => candidate.id === termId)?.name ?? "";
+  const timetableCards = cards.filter(
+    (card) => card.termId === termId && (everyCohort || card.cohortId === cohortId),
+  );
+  const exportTimetable = async () => {
+    setExporting("timetable");
+    try {
+      const sheets = requestSheets(
+        timetableCards,
+        termId,
+        termName,
+        // The Degree column: the cohort's majors as the portal codes them, else its name.
+        (id) => {
+          const held = cohorts.find((candidate) => candidate.id === id);
+          return held?.majors.join(" / ") || held?.name || "";
+        },
+        teacherName,
+        // The sheet's own name, which each cohort answers for itself.
+        (id) => cohorts.find((candidate) => candidate.id === id) ?? { name: "" },
+      );
+      // One workbook a year, as the department's own file is named; a cohort's says whose.
+      const year = shortYear((everyCohort ? cohorts.find((candidate) => candidate.term) : cohort)?.term ?? "");
+      const whose = everyCohort || !cohort ? "" : `-${cohort.name.replace(/[^A-Za-z0-9]+/g, "-")}`;
+      await downloadTimetableWorkbook(sheets, `Time-Tables-${year || "request"}${whose}.xlsx`, year);
+    } finally {
+      setExporting("");
+    }
+  };
+
   /**
    * The file the students get, which is the only one of the three they will ever see.
    *
@@ -188,7 +232,7 @@ export function WorkbookTools({
   const button = "inline-flex items-center gap-2 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc] disabled:opacity-50";
 
   return (
-    <Modal open={open} title="Workbook and lists" description="One cohort, one semester: the group workbook in and out, and the admissions list out." onClose={onClose}>
+    <Modal open={open} title="Workbook and lists" description="One cohort, one semester: the group workbook, the admissions list, the student handout and the timetable." onClose={onClose}>
       <div className="mb-4 grid gap-3 sm:grid-cols-2">
         <SelectMenu label="Cohort" value={cohortId} onChange={setCohortId} options={cohorts.map((candidate) => ({ value: candidate.id, label: candidate.name }))} />
         <SelectMenu label="Semester" value={termId} onChange={setTermId} placeholder="Choose a semester" options={terms.map((term) => ({ value: term.id, label: term.name }))} />
@@ -211,7 +255,41 @@ export function WorkbookTools({
           {exporting === "handout" ? "Building…" : "Student handout"}
         </button>
       </div>
+      {/*
+        * The timetable on a line of its own, because it is the one file that can be more
+        * than the chosen cohort's: the choice beside it says whose it is.
+        */}
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <button type="button" onClick={exportTimetable} disabled={!termId || exporting !== "" || timetableCards.length === 0} className={button}>
+          {exporting === "timetable" ? <Loader2 size={16} className="animate-spin" aria-hidden="true" /> : <Download size={16} aria-hidden="true" />}
+          {exporting === "timetable" ? "Building…" : "Timetable"}
+        </button>
+        <div role="radiogroup" aria-label="Whose timetable" className="inline-flex rounded-md border border-[#b7bec8] bg-white p-0.5 text-xs font-semibold">
+          {[
+            { every: false, label: cohort?.name ?? "This cohort" },
+            { every: true, label: "All cohorts" },
+          ].map(({ every, label }) => (
+            <button
+              key={label}
+              type="button"
+              role="radio"
+              aria-checked={everyCohort === every}
+              onClick={() => setEveryCohort(every)}
+              className={`rounded px-2.5 py-1.5 ${everyCohort === every ? "bg-[#1f4e79] text-white" : "text-[#667085] hover:bg-[#f5f7fa]"}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <span className="text-xs text-[#98a2b3]">
+          {termId
+            ? `${timetableCards.length} course${timetableCards.length === 1 ? "" : "s"} across ${new Set(timetableCards.map((card) => card.cohortId)).size} cohort(s).`
+            : ""}
+        </span>
+      </div>
       <p className="mt-4 border-t border-[#eef1f5] pt-3 text-xs text-[#98a2b3]">
+        The timetable is the workbook the timetabler gets: a sheet per cohort, the CRN table and the teacher
+        hours. Teachers come from Active teachers; a section nobody has chosen one for keeps the portal&apos;s name.
         The student handout is the one file here that students themselves read: a row each, alphabetical by
         family name, with their CRN and teacher written out under a colour per set. Reading a workbook back in
         is off for now. It matched a file&apos;s sets to the semester&apos;s by their code and
