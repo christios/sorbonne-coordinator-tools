@@ -755,21 +755,19 @@ export function WindowMark({ window }: { window: string }) {
 
 /** A small word after a heading saying whose fact this is. */
 export function SourceMark({ source }: { source: ColumnSource }) {
+  // One pill for the portal, whichever of its lists or its timetable the fact came from.
   const look =
-    source === "portal"
-      ? "bg-[#eef1f5] text-[#667085]"
+    source === "portal" || source === "registrar"
+      ? "bg-[#fdf9ee] text-[#8a6116]"
       : source === "planning"
         ? "bg-[#e8edf3] text-[#1f4e79]"
-        : source === "registrar"
-          ? "bg-[#fdf9ee] text-[#8a6116]"
-          : "bg-[#f8f6fd] text-[#5b4d8a]";
+        : "bg-[#f8f6fd] text-[#5b4d8a]";
   return (
     <span
       title={`From ${SOURCE_WORDS[source]}`}
       className={`ml-1.5 inline-block rounded px-1 py-px align-middle text-[9px] font-semibold uppercase tracking-wide ${look}`}
     >
-      {/* The registrar's timetable is read from the portal, and says so: "portal", in its own colour. */}
-      {source === "planning" ? "ours" : source === "part-time" ? "PT db" : source === "registrar" ? "portal" : source}
+      {source === "planning" ? "ours" : source === "part-time" ? "PT db" : "portal"}
     </span>
   );
 }
