@@ -986,7 +986,7 @@ function MajorsEditor({ group, programmes, onChanged }: { group: CatalogueGroup;
             event.preventDefault();
             add.mutate(adding.trim());
           }}
-          placeholder={majors.length ? "+ another major, then Enter" : "a major, as the registrar spells it"}
+          placeholder={majors.length ? "+ another major, then Enter" : "a major, as the portal spells it"}
           className="w-full rounded-md border border-dashed border-[#cbd5e1] bg-transparent px-1.5 py-0.5 text-xs text-[#667085]"
         />
       ) : null}

@@ -241,10 +241,10 @@ export function SemesterTimetable({ term, onBack }: { term: TimetableTerm; onBac
                     className="ml-2 text-[#8a6116]"
                     title={[
                       notDrawn.unasked.length
-                        ? `${notDrawn.unasked.length} never swept from the registrar — run a portal sync`
+                        ? `${notDrawn.unasked.length} never swept from the portal — run a portal sync`
                         : "",
-                      notDrawn.gone.length ? `${notDrawn.gone.length} the registrar has stopped answering for` : "",
-                      notDrawn.unbooked.length ? `${notDrawn.unbooked.length} the registrar has booked no hours for` : "",
+                      notDrawn.gone.length ? `${notDrawn.gone.length} the portal has stopped answering for` : "",
+                      notDrawn.unbooked.length ? `${notDrawn.unbooked.length} the portal has booked no hours for` : "",
                       notDrawn.setAside
                         ? `${notDrawn.setAside} course-level row(s) are not counted — they hold no hours of their own`
                         : "",
@@ -274,7 +274,7 @@ export function SemesterTimetable({ term, onBack }: { term: TimetableTerm; onBac
 
       {held.isError ? (
         <p className="rounded-md border border-[#e8d9ac] bg-[#fdf9ee] px-4 py-3 text-sm text-[#8a6116]">
-          This semester is not linked to a portal term, so the registrar has nothing to show for it.
+          This semester is not linked to a portal term, so the portal has nothing to show for it.
         </p>
       ) : (
         <SectionTimetable
@@ -291,7 +291,7 @@ export function SemesterTimetable({ term, onBack }: { term: TimetableTerm; onBac
           emptyMessage={
             all.length
               ? "Nothing matches those filters."
-              : "No section of this semester has been swept from the registrar's timetable yet."
+              : "No section of this semester has been swept from the portal's timetable yet."
           }
         />
       )}

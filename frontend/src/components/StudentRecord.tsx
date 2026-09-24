@@ -532,7 +532,7 @@ export function StudentRecord({
           {/* ---------------------------------------------------------- timetable */}
         <Card
           title="Timetable"
-          note="Their week as the registrar has booked it: the sections they are registered in, and the ones their groups stand for."
+          note="Their week as the portal has booked it: the sections they are registered in, and the ones their groups stand for."
         >
           <SectionTimetable
             entries={timetable}
@@ -667,7 +667,7 @@ export function StudentRecord({
           {/* --------------------------------------------- ours against the portal */}
           <Card
             title="CRNs"
-            note="What their groups come to, what the registrar has, and where the two part company."
+            note="What their groups come to, what the portal has, and where the two part company."
             beside={
               /*
                * The registrar's worklist for this one student. The table's copy answers
@@ -721,7 +721,7 @@ export function StudentRecord({
                       <th scope="col" className="py-1.5 pr-3 text-left">CRN</th>
                       <th scope="col" className="py-1.5 pr-3 text-left">Course</th>
                       <th scope="col" className="py-1.5 pr-3 text-left">Their group</th>
-                      <th scope="col" className="py-1.5 pr-3 text-left">Registrar</th>
+                      <th scope="col" className="py-1.5 pr-3 text-left">Portal</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -793,7 +793,7 @@ export function StudentRecord({
                           ) : excusedLine(line, excused) ? (
                             <span
                               className="inline-flex items-center gap-1 text-[#667085]"
-                              title="They do not take this course, so the registrar is right not to have them in it."
+                              title="They do not take this course, so the portal is right not to have them in it."
                             >
                               <MinusCircle size={13} aria-hidden="true" /> exempt
                             </span>
@@ -908,7 +908,7 @@ export function StudentRecord({
                     {entry.line.authorName || entry.line.author ? (
                       <span className="text-[#98a2b3]"> · by {entry.line.authorName || entry.line.author}</span>
                     ) : (
-                      <span className="text-[#98a2b3]"> · the registrar&apos;s pull</span>
+                      <span className="text-[#98a2b3]"> · the portal&apos;s pull</span>
                     )}
                   </span>
                 ) : entry.pull?.kind === "arrived" ? (

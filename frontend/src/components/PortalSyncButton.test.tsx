@@ -316,7 +316,7 @@ describe("the registrar's timetable in the run", () => {
     show();
     await sync();
 
-    const step = (await screen.findByText(/Registrar timetable/)).closest("li");
+    const step = (await screen.findByText(/Portal timetable/)).closest("li");
     expect(step?.textContent).toContain("1 returned");
     expect(screen.queryByText(/with nothing booked/)).toBeNull();
     expect(screen.queryByText(/sections timetabled/)).toBeNull();
@@ -338,7 +338,7 @@ describe("the registrar's timetable in the run", () => {
     show();
     await sync();
 
-    expect(screen.queryByText(/Registrar timetable/)).toBeNull();
+    expect(screen.queryByText(/Portal timetable/)).toBeNull();
   });
 });
 

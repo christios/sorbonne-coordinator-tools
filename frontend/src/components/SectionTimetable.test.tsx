@@ -49,7 +49,7 @@ describe("a handful of sections, as the registrar has them", () => {
     // One read per term, for exactly the sections asked about.
     expect(read).toHaveBeenCalledWith("262710", ["23436", "99999"]);
     const cannot = screen.getByLabelText("What the timetable cannot show");
-    expect(within(cannot).getByText(/Nobody has asked the registrar about 99999/)).toBeTruthy();
+    expect(within(cannot).getByText(/Nobody has asked the portal about 99999/)).toBeTruthy();
   });
 
   it("draws only the dates a stand-in was actually in the room", async () => {

@@ -105,7 +105,7 @@ const EVERY_RECORD: readonly WarningSource[] = ["record", "registration", "timet
  */
 const RECORDS: { id: WarningSource; counted: string }[] = [
   { id: "record", counted: "with a record that has drifted from admissions" },
-  { id: "registration", counted: "the registrar has in other sections than we placed them in" },
+  { id: "registration", counted: "the portal has in other sections than we placed them in" },
   { id: "timetabling", counted: "booked into two places at one hour" },
   { id: "groups", counted: "we have not placed in a group of one of the sets" },
   { id: "electives", counted: "taking an elective no coordinator has approved" },
@@ -184,7 +184,7 @@ function SourceFilter({
    */
   const options: { id: WarningSource; name: string; icon: typeof AlertTriangle; hint: string }[] = [
     { id: "record", name: "Admissions", icon: AlertTriangle, hint: "Where the portal's record and ours have drifted apart" },
-    { id: "registration", name: "Register", icon: ClipboardList, hint: "Where the registrar has them in other sections than we placed them in" },
+    { id: "registration", name: "Register", icon: ClipboardList, hint: "Where the portal has them in other sections than we placed them in" },
     { id: "timetabling", name: "Timetabling", icon: CalendarClock, hint: "Where the hours a student is booked into cannot all be attended" },
     { id: "groups", name: "Groups", icon: LayoutGrid, hint: "Where we have not put a student in a group of one of the cohort's sets" },
     { id: "electives", name: "Electives", icon: GraduationCap, hint: "Courses outside the cohort's groups that no coordinator has approved yet — approve them on the student's record" },

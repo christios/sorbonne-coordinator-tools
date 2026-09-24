@@ -120,7 +120,7 @@ export function SectionTimetable(props: TimetableProps) {
   return (
     <>
       <Timetable {...props} onExpand={() => setExpanded(true)} />
-      <Modal open={expanded} size="wide" title={props.title ?? "Timetable"} description="As the registrar has booked it." onClose={() => setExpanded(false)}>
+      <Modal open={expanded} size="wide" title={props.title ?? "Timetable"} description="As the portal has booked it." onClose={() => setExpanded(false)}>
         <Timetable {...props} compact={false} />
       </Modal>
     </>
@@ -204,7 +204,7 @@ function Timetable({
   }, [coverage]);
 
   if (entries.length === 0) return <Empty>{emptyMessage}</Empty>;
-  if (loading && sessions.length === 0) return <Empty>Reading the registrar's timetable…</Empty>;
+  if (loading && sessions.length === 0) return <Empty>Reading the portal's timetable…</Empty>;
   if (failed && sessions.length === 0) {
     return (
       <p role="alert" className="text-sm text-[#a6292f]">
@@ -251,7 +251,7 @@ function Timetable({
   return (
     <div className={`${compact ? "max-w-[32rem]" : ""} ${fills ? "flex min-h-0 flex-1 flex-col" : ""}`}>
       {sessions.length === 0 ? (
-        <Empty>The registrar's sweep holds no meetings for {entries.length === 1 ? "this section" : "these sections"}.</Empty>
+        <Empty>The portal's sweep holds no meetings for {entries.length === 1 ? "this section" : "these sections"}.</Empty>
       ) : (
         <>
           {navInto ? createPortal(weekNav, navInto) : weekNav}
@@ -299,7 +299,7 @@ function Timetable({
             * count above instead.
             */}
           {!fills && [...courses.values()].some((course) => course.tone === "outline") ? (
-            <p className={`mt-1 text-[#98a2b3] ${small}`}>Dashed: in a group of theirs, and the registrar has not registered them for it.</p>
+            <p className={`mt-1 text-[#98a2b3] ${small}`}>Dashed: in a group of theirs, and the portal has not registered them for it.</p>
           ) : null}
           {/* Only where there is one to read. A key to a mark nobody can see is clutter. */}
           {!fills && sessions.some((session) => session.change?.kind === "covered") ? (
@@ -409,9 +409,9 @@ function keyOf(entry: TimetableEntry): string {
 /** What the grid could not show, said rather than left as an empty afternoon. */
 function Coverage({ unasked, gone, unbooked, unlinked, compact }: Pick<Assembled, "unasked" | "gone" | "unbooked" | "unlinked"> & { compact: boolean }) {
   const lines = [
-    unasked.length ? `Nobody has asked the registrar about ${list(unasked)} — run a portal sync.` : "",
-    unbooked.length ? `Asked, and the registrar has booked no room for ${list(unbooked)}.` : "",
-    gone.length ? `The registrar has stopped answering for ${list(gone)}; ${gone.length === 1 ? "its" : "their"} classes are not drawn.` : "",
+    unasked.length ? `Nobody has asked the portal about ${list(unasked)} — run a portal sync.` : "",
+    unbooked.length ? `Asked, and the portal has booked no room for ${list(unbooked)}.` : "",
+    gone.length ? `The portal has stopped answering for ${list(gone)}; ${gone.length === 1 ? "its" : "their"} classes are not drawn.` : "",
     unlinked.length ? `${list(unlinked)} ${unlinked.length === 1 ? "is" : "are"} in a semester linked to no portal term.` : "",
   ].filter(Boolean);
   if (lines.length === 0) return null;

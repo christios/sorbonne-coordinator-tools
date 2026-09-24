@@ -143,10 +143,10 @@ export function toneOf(verdict?: CrnVerdict): VerdictTone {
 export function describeClashCoverage(coverage: TimetableCoverage | undefined): string {
   if (!coverage) return "";
   if (!coverage.linked) {
-    return "No portal term is linked to this semester, so the registrar has never been asked when any of it meets.";
+    return "No portal term is linked to this semester, so the portal has never been asked when any of it meets.";
   }
   if (!coverage.pulledAt && !coverage.timetabled) {
-    return "Nobody has pulled the registrar's timetable for this semester, so no clash can be found in any of it.";
+    return "Nobody has pulled the portal's timetable for this semester, so no clash can be found in any of it.";
   }
   const blind = coverage.blind.length;
   if (!blind) return "";

@@ -123,7 +123,7 @@ export function WorkbookReview({
         {preview.placements.unknownStudents.length > 0 ? (
           <Note>
             {preview.placements.unknownStudents.length} id(s) in this workbook are not students in
-            this cohort, so they are not offered here. The roster comes from the registrar — sync it
+            this cohort, so they are not offered here. The roster comes from the portal — sync it
             and move them into the cohort first if they belong to it.
           </Note>
         ) : null}

@@ -84,7 +84,7 @@ export function ClassChangesBanner({ className = "" }: { className?: string }) {
         <p className="flex items-start gap-2 text-sm text-[#7a5d00]">
           <AlertTriangle size={18} className="mt-0.5 shrink-0" />
           <span>
-            The registrar has changed the classes in{" "}
+            The portal has changed the classes in{" "}
             <strong>
               {waiting.length} section{waiting.length === 1 ? "" : "s"}
             </strong>{" "}
@@ -102,7 +102,7 @@ export function ClassChangesBanner({ className = "" }: { className?: string }) {
       <Modal
         open={open}
         onClose={() => setOpen(false)}
-        title="Classes the registrar has changed"
+        title="Classes the portal has changed"
         description="Each month the section touches, with what still meets, what has gone and what has arrived. Approving one keeps it out of the banner until something else about it changes."
         size="wide"
       >

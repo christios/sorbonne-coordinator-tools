@@ -408,7 +408,7 @@ export function TimeSheetsCard({ teacherId, className = "" }: { teacherId: strin
                 )}
                 {period.stranded ? (
                   <span className="mt-1 block text-xs text-[#8a6116]">
-                    {period.stranded} note{period.stranded === 1 ? "" : "s"} about an hour the registrar has moved
+                    {period.stranded} note{period.stranded === 1 ? "" : "s"} about an hour the portal has moved
                   </span>
                 ) : null}
               </div>

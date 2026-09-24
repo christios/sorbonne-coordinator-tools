@@ -104,7 +104,7 @@ export function StaleSyncWarning() {
       open
       onClose={close}
       title={`The portal data is ${ageInWords(syncedAt, now)} old`}
-      description="Everything the student pages show was true when the registrar was last asked. Sections, staffing and registrations move during the day."
+      description="Everything the student pages show was true when the portal was last asked. Sections, staffing and registrations move during the day."
       footer={
         <div className="flex flex-wrap items-center justify-end gap-2">
           <button
@@ -130,12 +130,12 @@ export function StaleSyncWarning() {
         <AlertTriangle size={18} className="mt-0.5 shrink-0 text-[#c9a227]" aria-hidden="true" />
         <span>
           A sync asks the portal for every list again and takes a few minutes. Until then the pages answer the question
-          the registrar was asked {ageInWords(syncedAt, now)} ago.
+          the portal was asked {ageInWords(syncedAt, now)} ago.
         </span>
       </p>
       {missing ? (
         <p role="alert" className="mt-3 rounded-md border border-[#e5b7b9] bg-[#fdf3f3] px-3 py-2 text-sm text-[#a6292f]">
-          The registrar extension did not answer, so nothing can be asked of the portal from here. Open Chrome with the
+          The portal extension did not answer, so nothing can be asked of the portal from here. Open Chrome with the
           extension installed, then sync from the button at the top right.
         </p>
       ) : null}

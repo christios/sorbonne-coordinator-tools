@@ -104,8 +104,8 @@ export function warningsFor(figures: TeacherFigures, apart: number = DEFAULT_APA
       teacherKey: who,
       kind: "plan_vs_registrar",
       severity: bySize(apartBy, apart),
-      label: `Registrar ${figures.registrar < figures.planned ? "short" : "over"} ${hours(apartBy)}`,
-      sentence: `${name}: we plan ${hours(figures.planned)} and the registrar has booked ${hours(figures.registrar)}.`,
+      label: `Portal ${figures.registrar < figures.planned ? "short" : "over"} ${hours(apartBy)}`,
+      sentence: `${name}: we plan ${hours(figures.planned)} and the portal has booked ${hours(figures.registrar)}.`,
       apart: apartBy,
     });
   }

@@ -751,7 +751,7 @@ export function describeSectionDates(coverage: TermCoverage, termName = ""): str
   if (!coverage.termCode || !coverage.undatedCrns.length) return "";
   const term = termName || `Semester ${coverage.termCode}`;
   const sections = coverage.undatedCrns.length;
-  return `${term}: the registrar has given no timetable for ${sections} of this cohort's sections, so a course taught in two halves is expected in both halves all year, even once one has finished.`;
+  return `${term}: the portal has given no timetable for ${sections} of this cohort's sections, so a course taught in two halves is expected in both halves all year, even once one has finished.`;
 }
 
 // ------------------------------------------- the registrar's own timetable

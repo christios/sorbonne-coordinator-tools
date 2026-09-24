@@ -53,7 +53,7 @@ export function SessionChangeList({
           <span className={`font-medium ${change.kind === "cancelled" ? "text-[#a6292f]" : "text-[#1f4e79]"}`}>{describeChange(change)}</span>
           {change.note ? <span className="text-[#667085]">{change.note}</span> : null}
           {orphaned.has(change.id) ? (
-            <span className="text-xs text-[#8a6116]">the registrar no longer has a class at this hour</span>
+            <span className="text-xs text-[#8a6116]">the portal no longer has a class at this hour</span>
           ) : null}
           <span className="ml-auto text-xs text-[#98a2b3]">
             {change.authorName || change.authorEmail || "somebody"} · {new Date(change.updatedAt).toLocaleDateString("en-GB")}

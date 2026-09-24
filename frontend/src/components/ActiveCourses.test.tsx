@@ -74,7 +74,7 @@ describe("who the registrar says teaches a section", () => {
 
     show();
 
-    const pill = await screen.findByTitle(/We say Sara Khaled, the registrar says Diaa Mereib/);
+    const pill = await screen.findByTitle(/We say Sara Khaled, the portal says Diaa Mereib/);
     expect(pill.textContent).toBe("Staffed differently");
     expect(pill.closest("tr")?.textContent).toContain("23638");
   });
@@ -90,7 +90,7 @@ describe("who the registrar says teaches a section", () => {
 
     show();
 
-    expect(await screen.findByText("Staffed only by the registrar")).toBeTruthy();
+    expect(await screen.findByText("Staffed only in the portal")).toBeTruthy();
     expect(screen.queryByText("Staffed differently")).toBeNull();
   });
 });
@@ -181,7 +181,7 @@ describe("a CRN gets a record of its own", () => {
     show();
     fireEvent.click(await screen.findByText("23638"));
 
-    expect(await screen.findByText(/Nobody has asked the registrar about this CRN/)).toBeTruthy();
+    expect(await screen.findByText(/Nobody has asked the portal about this CRN/)).toBeTruthy();
   });
 });
 

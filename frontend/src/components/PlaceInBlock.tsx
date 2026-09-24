@@ -533,7 +533,7 @@ function Proposed({
   if (blind) {
     return (
       <Note>
-        The timetable&apos;s word on clashes is not in — the registrar&apos;s sweep and the Student Hub were both
+        The timetable&apos;s word on clashes is not in — the portal&apos;s sweep and the Student Hub were both
         silent. Proposing waits for it rather than risk two rooms at once.
       </Note>
     );

@@ -15,7 +15,7 @@ const WORDS = {
   registrations: "Course registration",
   // Last, and much the longest: one call per section against the registrar's own
   // timetable. It reads the registrations above, so it cannot run before them.
-  timetable: "Registrar timetable",
+  timetable: "Portal timetable",
 } as const;
 const ORDER = Object.keys(WORDS) as (keyof typeof WORDS)[];
 
@@ -168,7 +168,7 @@ export function PortalSyncButton() {
                 ? "See how the sync is going"
                 : steps.length
                   ? "See what the last sync did"
-                  : "Ask the registrar portal for every list"
+                  : "Ask the portal for every list"
           }
           className="inline-flex items-center gap-2 rounded-md border border-[#d9dee7] bg-white px-3 py-2 text-sm font-semibold text-[#1f4e79] shadow-sm hover:bg-[#f2f7fb] disabled:opacity-50"
         >

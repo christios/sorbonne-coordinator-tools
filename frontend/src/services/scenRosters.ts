@@ -244,12 +244,12 @@ function messageFor(code: string, detail = ""): string {
   switch (code) {
     case "gave_up":
       return (
-        "The registrar portal was still answering after ten minutes, so this list was " +
+        "The portal was still answering after ten minutes, so this list was " +
         "given up on. The portal is not well; try again later, or narrow the filter."
       );
     case "timed_out":
       return (
-        "The registrar portal did not finish answering. A whole term is thousands of " +
+        "The portal did not finish answering. A whole term is thousands of " +
         "students in one request — try again, or narrow the view's filter."
       );
     case "extension_unavailable":
@@ -259,16 +259,16 @@ function messageFor(code: string, detail = ""): string {
         ? "The SCEN Rosters extension was updated. Reload this page to reconnect to it."
         : "The SCEN Rosters extension did not answer. Install it, or reload this page after enabling it.";
     case "auth":
-      return "Your registrar portal session has expired. Open the portal, sign in, then pull again.";
+      return "Your portal session has expired. Open the portal, sign in, then pull again.";
     case "network":
-      return "The registrar portal could not be reached from your browser.";
+      return "The portal could not be reached from your browser.";
     case "unknown_preset":
       return "That saved search is no longer in the extension.";
     case "filter_refused":
       // The extension decides what may be asked, so its refusal is the whole answer.
       return `The extension would not ask the portal that: ${detail || "the filter was refused"}.`;
     case "http":
-      return `The registrar portal answered with an error${detail ? ` (${detail})` : ""}.`;
+      return `The portal answered with an error${detail ? ` (${detail})` : ""}.`;
     case "internal":
       return `The SCEN Rosters extension failed${detail ? `: ${detail}` : ""}.`;
     case "unknown_message":
@@ -285,7 +285,7 @@ function messageFor(code: string, detail = ""): string {
         "that yet. Update it in chrome://extensions and reload."
       );
     default:
-      return `The registrar portal returned an unexpected error${detail ? `: ${detail}` : ""}.`;
+      return `The portal returned an unexpected error${detail ? `: ${detail}` : ""}.`;
   }
 }
 

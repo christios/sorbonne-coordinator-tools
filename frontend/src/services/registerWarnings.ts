@@ -60,10 +60,10 @@ export function warningsByCrn(report: RegisterCheck | undefined): Map<string, Cr
     add(row.crn, { kind: "unregistered", text: "On a card, and registered nowhere" });
   }
   for (const row of report.teacherDiffers) {
-    add(row.crn, { kind: "teacherDiffers", text: `We say ${row.ours}, the registrar says ${row.theirs}` });
+    add(row.crn, { kind: "teacherDiffers", text: `We say ${row.ours}, the portal says ${row.theirs}` });
   }
   for (const row of report.teacherUnnamed) {
-    add(row.crn, { kind: "teacherUnnamed", text: `The registrar staffs it ${row.theirs} and we have not` });
+    add(row.crn, { kind: "teacherUnnamed", text: `The portal staffs it ${row.theirs} and we have not` });
   }
   for (const [crn, warnings] of found) {
     found.set(crn, [...warnings].sort((left, right) => RANK[right.kind] - RANK[left.kind]));
@@ -88,5 +88,5 @@ export const WORDS: Record<CrnWarningKind, string> = {
   gone: "Gone from the portal",
   unregistered: "Registered nowhere",
   teacherDiffers: "Staffed differently",
-  teacherUnnamed: "Staffed only by the registrar",
+  teacherUnnamed: "Staffed only in the portal",
 };

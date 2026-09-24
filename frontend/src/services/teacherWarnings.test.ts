@@ -30,12 +30,12 @@ describe("ours against the registrar's", () => {
     const [warning] = warningsFor(figures({ registrar: 189 }));
 
     expect(warning.kind).toBe("plan_vs_registrar");
-    expect(warning.label).toBe("Registrar short 6 h");
-    expect(warning.sentence).toContain("we plan 195 h and the registrar has booked 189 h");
+    expect(warning.label).toBe("Portal short 6 h");
+    expect(warning.sentence).toContain("we plan 195 h and the portal has booked 189 h");
   });
 
   it("says which way round it is", () => {
-    expect(warningsFor(figures({ registrar: 205 }))[0].label).toBe("Registrar over 10 h");
+    expect(warningsFor(figures({ registrar: 205 }))[0].label).toBe("Portal over 10 h");
   });
 
   it("is silent where the registrar has been asked about nothing", () => {

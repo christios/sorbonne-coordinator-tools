@@ -135,7 +135,7 @@ export function SemesterList({
 
               <p className="border-b border-[#e4e8ef] bg-[#fdf9ee] px-6 py-3 text-sm text-[#8a6116]">
                 <strong className="font-semibold">Uploading a timetable is retired.</strong> The hours a clash is
-                worked out from come from the registrar&apos;s own timetable now, swept section by section as the
+                worked out from come from the portal&apos;s own timetable now, swept section by section as the
                 last step of Portal sync. An uploaded file was a photograph taken in week one: out of date the
                 moment a room moved, and only ever covering the cohorts whose file somebody made — 43 courses of
                 141 sections, which is why three cohorts in four reported no clashes and meant nothing by it.

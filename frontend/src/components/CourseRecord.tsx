@@ -114,8 +114,8 @@ export function CourseRecord({
         ...report.gone.filter((row) => row.courseCode.toUpperCase() === code).map((row) => `${row.crn} — we hold it, the portal has stopped listing it`),
         ...report.arrived.filter((row) => row.courseCode.toUpperCase() === code).map((row) => `${row.crn} — the portal lists it and we have not taken it in`),
         ...report.unregistered.filter((row) => row.courseCode.toUpperCase() === code).map((row) => `${row.crn} — on a card, and registered nowhere`),
-        ...report.teacherDiffers.filter((row) => row.courseCode.toUpperCase() === code).map((row) => `${row.crn} ${row.groupLabel} — we say ${row.ours}, the registrar says ${row.theirs}`),
-        ...report.teacherUnnamed.filter((row) => row.courseCode.toUpperCase() === code).map((row) => `${row.crn} ${row.groupLabel} — the registrar staffs it ${row.theirs} and we have not`),
+        ...report.teacherDiffers.filter((row) => row.courseCode.toUpperCase() === code).map((row) => `${row.crn} ${row.groupLabel} — we say ${row.ours}, the portal says ${row.theirs}`),
+        ...report.teacherUnnamed.filter((row) => row.courseCode.toUpperCase() === code).map((row) => `${row.crn} ${row.groupLabel} — the portal staffs it ${row.theirs} and we have not`),
         ...report.collides.filter((row) => row.ourCourse.toUpperCase() === code).map((row) => `${row.ourCrn} — ${row.weekday} ${row.startsAt}–${row.endsAt} against ${row.theirs.map((other) => other.courseCode || other.crn).join(", ")}`),
       ]
     : [];
@@ -203,14 +203,14 @@ export function CourseRecord({
             )}
           </Card>
 
-          <Card title="When it meets" note="Every section of it on the registrar's timetable, one colour per CRN.">
+          <Card title="When it meets" note="Every section of it on the portal's timetable, one colour per CRN.">
             <SectionTimetable
               entries={timetable}
               compact
               title={`${code} — timetable`}
               openable={(crn) => held.some((row) => row.crn === crn)}
               onOpenCrn={(crn) => setShowingCrn(held.find((row) => row.crn === crn) ?? null)}
-              emptyMessage="Not in the register, so the registrar has not been asked when it meets."
+              emptyMessage="Not in the register, so the portal has not been asked when it meets."
             />
           </Card>
         </div>

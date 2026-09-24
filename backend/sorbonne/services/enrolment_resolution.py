@@ -320,7 +320,7 @@ def _verdict_of(crns: list[str], course_code: str, by_crn: dict[str, Section]) -
             return {
                 "status": "unknown",
                 "detail": (
-                    f"No timetable for CRN {crn} yet — the registrar has not been asked "
+                    f"No timetable for CRN {crn} yet — the portal has not been asked "
                     "about it, or has booked no room for it."
                 ),
             }

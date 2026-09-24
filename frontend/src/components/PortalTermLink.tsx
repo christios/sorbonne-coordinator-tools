@@ -113,7 +113,7 @@ export function UnlinkedTermWarning({ termId }: { termId: string }) {
   return (
     <a
       href={`#${locationFor("database", "semesters")}`}
-      title="Without a portal term there is no registrar timetable and no clash check for this semester"
+      title="Without a portal term there is no portal timetable and no clash check for this semester"
       className="inline-flex items-center gap-1 rounded-full bg-[#fdf3f3] px-2 py-0.5 text-xs font-semibold text-[#a6292f] hover:underline"
     >
       <AlertTriangle size={12} aria-hidden="true" />

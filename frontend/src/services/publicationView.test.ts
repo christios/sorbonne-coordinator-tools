@@ -227,7 +227,7 @@ describe("what a clash count does not cover", () => {
     // Before the first sweep the number of blind sections is every section, and reciting
     // it is less use than saying nobody has asked.
     expect(describeClashCoverage({ ...covered, pulledAt: "", timetabled: 0, blind: ["1"] })).toMatch(
-      /Nobody has pulled the registrar's timetable/,
+      /Nobody has pulled the portal's timetable/,
     );
   });
 

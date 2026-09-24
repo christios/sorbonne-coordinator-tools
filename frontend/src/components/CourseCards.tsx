@@ -372,7 +372,7 @@ export function CourseCards({
           * every clash count here, and it is silent once every section has hours.
           */}
         {coverage ? (
-          <span className="text-xs text-[#98a2b3]" title="The registrar's timetable, as last swept">
+          <span className="text-xs text-[#98a2b3]" title="The portal's timetable, as last swept">
             · {coverage}
           </span>
         ) : null}

@@ -355,7 +355,7 @@ export function TeacherRecord({
         <section>
           <h4 className="text-sm font-semibold text-[#171717]">When they teach <SourceMark source="registrar" /></h4>
           <p className="mb-2 text-xs text-[#98a2b3]">
-            From the registrar&apos;s timetable: the sections above, any the portal staffs with them, and the
+            From the portal&apos;s timetable: the sections above, any the portal staffs with them, and the
             classes they stood in for — on the days they stood in.
           </p>
           <SectionTimetable
@@ -400,7 +400,7 @@ export function TeacherRecord({
                 <th
                   scope="col"
                   className="whitespace-nowrap px-3 py-2 text-right"
-                  title="What the registrar's timetable books for the CRN over the whole semester"
+                  title="What the portal's timetable books for the CRN over the whole semester"
                 >
                   Hours <SourceMark source="registrar" />
                 </th>
@@ -460,7 +460,7 @@ function RegistrarHours({ termCode, crn, booked }: { termCode: string; crn: stri
   if (said === "waiting") return <span className="text-[#c8d0da]">…</span>;
   if (said === "none") {
     return (
-      <span className="text-[#c8d0da]" title="The registrar's timetable has no meetings for this CRN">
+      <span className="text-[#c8d0da]" title="The portal's timetable has no meetings for this CRN">
         none
       </span>
     );

@@ -349,7 +349,7 @@ export function TeacherHours({ onOpenTeacher }: { onOpenTeacher?: (teacher: Teac
       <p className="mt-3 text-xs text-[#98a2b3]">
         The same count the timetable workbook&apos;s Teacher Hours sheet carries, from the same rows — with the hours
         nobody is teaching shown, which the sheet leaves out. Hours a section does not state are its course&apos;s.
-        Registrar hours are what the portal&apos;s timetable has booked for the sections it staffs with each teacher.
+        Portal hours are what the portal&apos;s timetable has booked for the sections it staffs with each teacher.
         Cancelled and covered hours come from the notes on the CRNs&apos; calendars. All three sit beside the plan, not
         inside it.
       </p>

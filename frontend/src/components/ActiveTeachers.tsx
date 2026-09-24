@@ -392,7 +392,7 @@ function NotOnTheList({
         ) : null}
       </div>
       <p className="mt-1 text-xs text-[#a6292f]">
-        Their teaching is missing from every count here and on Teacher hours. Where the registrar has somebody by
+        Their teaching is missing from every count here and on Teacher hours. Where the portal has somebody by
         almost the same name, that profile is offered — a spelling is a suggestion, not proof.
       </p>
       <ul className="mt-2 divide-y divide-[#f0d9da]">

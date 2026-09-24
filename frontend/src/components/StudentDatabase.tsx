@@ -37,25 +37,25 @@ const PAGES = [
    * the registrar's portal says — the students, the cohorts they were put in, the courses
    * they are registered in, and the staff teaching them.
    */
-  { id: "students", name: "Students", icon: Users, group: "Registrar validation" },
+  { id: "students", name: "Students", icon: Users, group: "Portal validation" },
   // Directly under Students, as its sub-tab: the pane draws a child beneath its parent.
   // Both halves of the registrar check: whether admissions still agrees with us about who
   // a student is, and whether the registrar registered them in the sections we placed them
   // in. Course Registration was a page of its own; it was the same table over the same
   // students, so it is a filter on this one now.
-  { id: "cohorts", name: "Cohorts", icon: ListChecks, group: "Registrar validation", parent: "students" },
-  { id: "courses", name: "Courses", icon: BookOpen, group: "Registrar validation" },
+  { id: "cohorts", name: "Cohorts", icon: ListChecks, group: "Portal validation", parent: "students" },
+  { id: "courses", name: "Courses", icon: BookOpen, group: "Portal validation" },
   // The department's own register: one row per CRN, not per course. It was called Active
   // courses, which is what it was taken in by — a course brings its CRNs with it — but not
   // what it lists, and a UE or a teacher read as a fact of the row it sat on.
-  { id: "active-courses", name: "Active CRNs", icon: BookMarked, group: "Registrar validation", parent: "courses" },
-  { id: "teachers", name: "Teachers", icon: GraduationCap, group: "Registrar validation" },
+  { id: "active-courses", name: "Active CRNs", icon: BookMarked, group: "Portal validation", parent: "courses" },
+  { id: "teachers", name: "Teachers", icon: GraduationCap, group: "Portal validation" },
   // The department's own list, chosen from the portal's or brought from the part-time database.
-  { id: "active-teachers", name: "Active teachers", icon: UserCheck, group: "Registrar validation", parent: "teachers" },
+  { id: "active-teachers", name: "Active teachers", icon: UserCheck, group: "Portal validation", parent: "teachers" },
   // The part-time teachers' own records: profiles, requisitions, time sheets. It was an
   // application of its own beside this one, which put half of what is known about a
   // teacher behind a different front door.
-  { id: "part-time-teachers", name: "Part-time Teachers", icon: Contact, group: "Registrar validation", parent: "teachers" },
+  { id: "part-time-teachers", name: "Part-time Teachers", icon: Contact, group: "Portal validation", parent: "teachers" },
   { id: "semesters", name: "Semesters", icon: CalendarDays, group: "Timetables" },
   // The timetable request itself: the sections a semester is taught in, and how full they
   // are. It is what the semester above it publishes, not a check against the registrar.
@@ -104,7 +104,7 @@ const TITLES: Record<PageId, { title: string; blurb?: string }> = {
   },
   cohorts: {
     title: "Cohorts",
-    blurb: "Where admissions has drifted from where the department put a student, and where the registrar has them in other sections than we did.",
+    blurb: "Where admissions has drifted from where the department put a student, and where the portal has them in other sections than we did.",
   },
   "group-schema": {
     title: "Group schema",
@@ -124,7 +124,7 @@ const TITLES: Record<PageId, { title: string; blurb?: string }> = {
   },
   courses: {
     title: "Courses",
-    blurb: "The term's CRNs as the registrar portal lists them — what everything else checks against.",
+    blurb: "The term's CRNs as the portal lists them — what everything else checks against.",
   },
   "active-courses": {
     title: "Active CRNs",

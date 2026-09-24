@@ -223,15 +223,15 @@ export function CrnRecord({
             )}
           </Card>
 
-          <Card title="When the registrar has it" note="From the sweep of their timetable, not from anything we asked for.">
+          <Card title="When the portal has it" note="From the sweep of their timetable, not from anything we asked for.">
             {days.isLoading ? (
               <Empty>Reading the sweep…</Empty>
             ) : !days.data ? (
-              <Empty>No semester is linked to a portal term, so the registrar has not been asked.</Empty>
+              <Empty>No semester is linked to a portal term, so the portal has not been asked.</Empty>
             ) : !asked ? (
-              <Empty>Nobody has asked the registrar about this CRN. Run a portal sync.</Empty>
+              <Empty>Nobody has asked the portal about this CRN. Run a portal sync.</Empty>
             ) : meets.length === 0 ? (
-              <Empty>Asked, and the registrar has booked no room for it.</Empty>
+              <Empty>Asked, and the portal has booked no room for it.</Empty>
             ) : (
               <>
                 <p className="text-sm text-[#344054]">{meets.join(" · ")}</p>
@@ -258,7 +258,7 @@ export function CrnRecord({
 
           <Card
             title={`Registered in it${inIt.data ? ` · ${inIt.data.length}` : ""}`}
-            note="Who the registrar has in this section, and the group of ours it stands for. Names are this browser's."
+            note="Who the portal has in this section, and the group of ours it stands for. Names are this browser's."
             action={
               addresses.found.length ? (
                 <CopyButton
@@ -272,7 +272,7 @@ export function CrnRecord({
             }
           >
             {!row.termCode ? (
-              <Empty>No portal term, so the registrar cannot be asked.</Empty>
+              <Empty>No portal term, so the portal cannot be asked.</Empty>
             ) : inIt.isLoading ? (
               <Empty>Reading the registrations…</Empty>
             ) : inIt.error ? (
@@ -356,7 +356,7 @@ export function CrnRecord({
                   clashes: false,
                 })
               }
-              empty={row.termCode ? "Nothing noted. Every class stands as the registrar booked it." : "No portal term, so nothing can be noted."}
+              empty={row.termCode ? "Nothing noted. Every class stands as the portal booked it." : "No portal term, so nothing can be noted."}
             />
           </Card>
         </div>
