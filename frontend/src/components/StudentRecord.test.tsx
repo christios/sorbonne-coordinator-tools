@@ -143,6 +143,24 @@ describe("a student's record", () => {
     expect(within(table).getByText("23223")).toBeTruthy();
   });
 
+  it("takes them out of one group from the group itself, after asking once", async () => {
+    const assigned = vi.spyOn(database, "assignStudents").mockResolvedValue({ assigned: 0, skipped: [] });
+    show();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Take out of TD 1" }));
+    // Nothing yet: the question is asked in words first, and "Keep" leaves them where they are.
+    expect(assigned).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Keep" }));
+    expect(screen.queryByText(/Take them out of TD 1\?/)).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Take out of TD 1" }));
+    expect(screen.getByText("Take them out of TD 1?")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Take out" }));
+
+    // Out of that set alone — a null group in that set, for this one student.
+    await waitFor(() => expect(assigned).toHaveBeenCalledWith("scope-td", ["A001"], null));
+  });
+
   it("says exempt, not a fault, for a CRN of a course they do not take", async () => {
     /*
      * 23652 is a CRN their group gives them and the registrar has not registered them for.

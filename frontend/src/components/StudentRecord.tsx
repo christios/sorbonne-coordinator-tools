@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, ArrowRightCircle, Check, ChevronDown, ClipboardList, EyeOff, GraduationCap, MinusCircle, ShieldCheck, Wand2, X } from "lucide-react";
+import { AlertTriangle, ArrowRightCircle, Check, ChevronDown, ClipboardList, EyeOff, GraduationCap, MinusCircle, ShieldCheck, UserMinus, Wand2, X } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { CommentThread } from "@/components/CommentThread";
@@ -37,6 +37,7 @@ import type { StudentRow } from "@/services/rosterView";
 import { fetchSchema } from "@/services/scenRosters";
 import {
   type Cohort,
+  assignStudents,
   clearApproval,
   clearExemption,
   describeHistory,
@@ -281,6 +282,26 @@ export function StudentRecord({
       // register's answer is the slowest thing the server builds. Asking for all four
       // put the next click behind three answers nobody was waiting for.
       void client.invalidateQueries({ queryKey: ["registration-check", cohortId] });
+    },
+  });
+  /*
+   * Taking them out of one group, from the group itself.
+   *
+   * It could only be done from the Students table: tick the row, "Take out of groups", and
+   * then it was every group of a semester at once. Here it is one set, the one pressed on,
+   * and asked once more in words before it happens — the rest of their groups stay.
+   */
+  const [leaving, setLeaving] = useState("");
+  const takeOut = useMutation({
+    mutationFn: async (scopeId: string) => {
+      const report = await assignStudents(scopeId, [row.studentId], null);
+      if (report.skipped.includes(row.studentId)) throw new Error("That set belongs to another cohort, so they were left in it.");
+    },
+    onSuccess: () => {
+      setLeaving("");
+      afterPlacement(client);
+      // Which sub-row they sat on goes with the group.
+      void client.invalidateQueries({ queryKey: ["assignment-majors"] });
     },
   });
   /*
@@ -550,6 +571,37 @@ export function StudentRecord({
                       {scope.code} {group ? subRowLabel(group.label, major?.program ?? "", (group.majors ?? []).length) : "?"}
                     </span>
                     <span className="pt-0.5 text-xs text-[#98a2b3]">{termName(scope.termId ?? "")}</span>
+                    {group ? (
+                      leaving === scope.id ? (
+                        <span className="ml-auto inline-flex items-center gap-2 text-xs">
+                          <span className="text-[#a6292f]">Take them out of {scope.code} {group.label}?</span>
+                          <button
+                            type="button"
+                            disabled={takeOut.isPending}
+                            onClick={() => takeOut.mutate(scope.id)}
+                            className="rounded bg-[#a6292f] px-2 py-0.5 font-semibold text-white disabled:opacity-60"
+                          >
+                            {takeOut.isPending ? "Taking out…" : "Take out"}
+                          </button>
+                          <button type="button" onClick={() => setLeaving("")} className="font-semibold text-[#667085]">
+                            Keep
+                          </button>
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          aria-label={`Take out of ${scope.code} ${group.label}`}
+                          title={`Take them out of ${scope.code} ${group.label}. Their other groups stay.`}
+                          onClick={() => {
+                            takeOut.reset();
+                            setLeaving(scope.id);
+                          }}
+                          className="ml-auto rounded p-1 text-[#c8d0da] hover:bg-[#fdf3f3] hover:text-[#a6292f]"
+                        >
+                          <UserMinus size={14} aria-hidden="true" />
+                        </button>
+                      )
+                    ) : null}
                     <ul className="flex basis-full flex-wrap gap-x-4 gap-y-0.5 pl-1 text-xs text-[#667085]">
                       {crns.map((cell) => {
                         // A course handed over mid-semester is two CRNs of one course, so
@@ -589,6 +641,11 @@ export function StudentRecord({
                 ))}
               </ul>
             )}
+            {takeOut.error ? (
+              <p role="alert" className="mt-2 text-xs text-[#a6292f]">
+                {(takeOut.error as Error).message}
+              </p>
+            ) : null}
             {cohort ? (
               <PlaceInBlock
                 open={placing}
