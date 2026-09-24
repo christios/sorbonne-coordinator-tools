@@ -376,7 +376,7 @@ export function hoursColumns(sheetTitles: string[], window = ""): GridColumn<Loa
     { id: "total", displayName: "Total", type: "number", accessor: window ? (row) => row.total : asTaught, defaultWidth: 110, source: "planning", ...when },
     // The registrar's count beside ours. A comparison with no warning on it: teachers and
     // hours move during a semester, and cover is normal.
-    { id: "registrarHours", displayName: "Registrar", type: "number", accessor: (row) => row.registrarHours, defaultWidth: 100, source: "registrar", ...when },
+    { id: "registrarHours", displayName: "Portal", type: "number", accessor: (row) => row.registrarHours, defaultWidth: 100, source: "registrar", ...when },
     ...sheetTitles.map((title, index) => ({
       id: `sheet:${title}`,
       displayName: hoursColumn(title),

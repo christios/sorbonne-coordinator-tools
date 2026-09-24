@@ -276,7 +276,7 @@ export function TeacherRecord({
           <p className="mt-0.5 text-xs text-[#98a2b3]">as the timetable request has them</p>
         </div>
         <div className="rounded-lg border border-[#d9dee7] bg-white px-4 py-3">
-          <p className="text-xs font-semibold uppercase tracking-wide text-[#8a94a4]">Registrar hours <SourceMark source="registrar" /></p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-[#8a94a4]">Portal hours <SourceMark source="registrar" /></p>
           <p className="mt-1 text-2xl font-semibold tabular-nums text-[#171717]">{registrarHours || "—"}</p>
           <p className="mt-0.5 text-xs text-[#98a2b3]">booked on the portal&apos;s timetable</p>
         </div>

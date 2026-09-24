@@ -50,7 +50,7 @@ export const SOURCE_WORDS: Record<ColumnSource, string> = {
   portal: "the portal",
   planning: "our planning",
   "part-time": "the part-time database",
-  registrar: "the registrar's timetable",
+  registrar: "the portal's timetable",
 };
 
 /**

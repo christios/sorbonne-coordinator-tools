@@ -768,7 +768,8 @@ export function SourceMark({ source }: { source: ColumnSource }) {
       title={`From ${SOURCE_WORDS[source]}`}
       className={`ml-1.5 inline-block rounded px-1 py-px align-middle text-[9px] font-semibold uppercase tracking-wide ${look}`}
     >
-      {source === "planning" ? "ours" : source === "part-time" ? "PT db" : source}
+      {/* The registrar's timetable is read from the portal, and says so: "portal", in its own colour. */}
+      {source === "planning" ? "ours" : source === "part-time" ? "PT db" : source === "registrar" ? "portal" : source}
     </span>
   );
 }

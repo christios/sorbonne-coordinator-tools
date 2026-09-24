@@ -449,7 +449,7 @@ export function StudentRecord({
           <Field label="ID">
             <span className="font-mono text-[#667085]">{row.studentId}</span>
           </Field>
-          <Field label="Registrar">
+          <Field label="Portal">
             {row.status === "not_in_portal" ? <Pill tone="bad">Not in portal</Pill> : <Pill tone="good">In portal</Pill>}
           </Field>
           <Field label="Cohort">
