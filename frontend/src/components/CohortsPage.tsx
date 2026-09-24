@@ -1,11 +1,10 @@
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, ArrowRightCircle, CalendarClock, ClipboardList, EyeOff, Globe, GraduationCap, LayoutGrid, Settings2, Users, X } from "lucide-react";
+import { AlertTriangle, ArrowRightCircle, CalendarClock, ClipboardList, EyeOff, Globe, GraduationCap, LayoutGrid, Users, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useStaffUser } from "@/components/useStaffUser";
 import { CohortActions } from "@/components/CohortActions";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
-import { DiscrepancyRulesEditor } from "@/components/DiscrepancyRulesEditor";
 import { LabelledPicker } from "@/components/LabelledPicker";
 import { NewCohort } from "@/components/NewCohort";
 import { ScreenLoading } from "@/components/ScreenLoading";
@@ -277,7 +276,6 @@ export function CohortsPage({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
-  const [editingRules, setEditingRules] = useState(false);
   const sent = focus?.studentIds.join(",") ?? "";
   useEffect(() => {
     if (focus?.cohortId) chooseCohort(focus.cohortId);
@@ -653,7 +651,6 @@ export function CohortsPage({
           : "Nobody has asked the register about this cohort yet.";
   const arrivals = cohort ? (judged?.arrivals.get(cohort.id) ?? []).filter((arrival) => !dismissed.has(arrival.key)) : [];
   const applied = cohort ? rulesFor(rules.data ?? [], cohort.id) : sharedRules(rules.data ?? []);
-  const ownRules = cohort ? (rules.data ?? []).filter((rule) => rule.cohortId === cohort.id) : [];
   const silent = evidence && rules.data ? unjudgeable(rules.data.filter((rule) => rule.field !== STATUS_FIELD), evidence.carried) : [];
   const expects = cohort
     ? [
@@ -760,21 +757,6 @@ export function CohortsPage({
         {cohort ? <CohortActions key={cohort.id} cohort={cohort} /> : null}
         {/* Making one, which until now could only happen as a side effect of moving students. */}
         <NewCohort onCreated={(created) => chooseCohort(created.id)} />
-
-        {/* This cohort's own rules; the shared ones have their button at the page's title. */}
-        {cohort ? (
-          <button
-            type="button"
-            onClick={() => setEditingRules(true)}
-            className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc]"
-          >
-            <Settings2 size={15} aria-hidden="true" />
-            Cohort rules
-            <span className="tabular-nums text-xs font-normal text-[#98a2b3]" title="This cohort's own rules, on top of the shared ones">
-              {ownRules.length}
-            </span>
-          </button>
-        ) : null}
       </div>
 
       <p className="mt-3 text-xs text-[#98a2b3]">
@@ -925,9 +907,6 @@ export function CohortsPage({
         />
       </div>
 
-      {cohort ? (
-        <DiscrepancyRulesEditor open={editingRules} scope={{ kind: "cohort", cohort }} onClose={() => setEditingRules(false)} />
-      ) : null}
     </section>
   );
 }

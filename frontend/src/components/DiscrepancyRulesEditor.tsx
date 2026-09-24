@@ -1,12 +1,21 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp, Plus, Trash2, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import type { Dispatch, SetStateAction } from "react";
 
 import { Modal } from "@/components/Modal";
 import { SelectMenu } from "@/components/SelectMenu";
 import { STATUS_FIELD, STATUS_OPTIONS, labelOf, type RuleKind } from "@/services/discrepancies";
+import {
+  BELONGS_FIELDS,
+  DIFFERS_FIELDS,
+  type Draft,
+  type RulesScope,
+  STATUS_KINDS,
+  rulesDescription,
+  schemaNote,
+  useRuleDrafts,
+} from "@/services/ruleDrafts";
 import { fetchSchema, type PortalField } from "@/services/scenRosters";
-import { type Cohort, fetchDiscrepancyRules, saveDiscrepancyRules } from "@/services/studentDatabase";
 
 /**
  * What counts as a discrepancy, in the coordinators' own terms.
@@ -20,8 +29,6 @@ import { type Cohort, fetchDiscrepancyRules, saveDiscrepancyRules } from "@/serv
  * Saved as one list, shared by everybody: cohorts are shared, so the rules that judge
  * them should be too.
  */
-type Draft = { id: string; field: string; kind: RuleKind; values: string[]; cohortId: string };
-
 const KINDS: { value: RuleKind; label: string; hint: string }[] = [
   { value: "changed", label: "changes at all", hint: "since the student was placed in the cohort" },
   { value: "changed_to", label: "changes to…", hint: "since placement, to one of the values you pick" },
@@ -30,13 +37,6 @@ const KINDS: { value: RuleKind; label: string; hint: string }[] = [
   { value: "differs", label: "differs from the cohort's", hint: "major against the cohort's majors, term against its terms, year level against its year level" },
   { value: "belongs", label: "belongs to the cohort, but is not in it", hint: "a student outside the cohort whose major, term and year level are what the cohort expects — listed above the cohort's table" },
 ];
-/** Belonging is judged from the major first, so the rule sits on it. */
-const BELONGS_FIELDS = ["MAJOR_CODE", "MAJOR_CODE_DESC"];
-
-/** What a cohort carries, so what a `differs` rule can compare against. */
-const DIFFERS_FIELDS = ["MAJOR_CODE", "MAJOR_CODE_DESC", "TERM_CODE", "YEARLEVEL_CODE"];
-/** The status is a fact of now, not of the pull history: it has no "changed". */
-const STATUS_KINDS: RuleKind[] = ["is", "is_not"];
 
 /** The fields the portal offers, with a few that always matter first, and the status. */
 function fieldChoices(fields: PortalField[]): { value: string; label: string }[] {
@@ -50,31 +50,76 @@ function fieldChoices(fields: PortalField[]): { value: string; label: string }[]
   return [{ value: STATUS_FIELD, label: "Status — in the portal or not (ours)" }, ...portal];
 }
 
-/** Which rules the dialog edits: the shared ones, or one cohort's own. */
-export type RulesScope = { kind: "shared" } | { kind: "cohort"; cohort: Cohort };
+export type { RulesScope } from "@/services/ruleDrafts";
 
 export function DiscrepancyRulesEditor({ open, scope, onClose }: { open: boolean; scope: RulesScope; onClose: () => void }) {
   const client = useQueryClient();
-  const rules = useQuery({ queryKey: ["discrepancy-rules"], queryFn: fetchDiscrepancyRules, enabled: open });
+  const rules = useRuleDrafts(scope, open);
   const schema = useQuery({ queryKey: ["portal-schema"], queryFn: fetchSchema, enabled: open });
-  const [drafts, setDrafts] = useState<Draft[]>([]);
-  const cohortId = scope.kind === "cohort" ? scope.cohort.id : "";
-  const inScope = (rule: { cohortId?: string }) => (rule.cohortId ?? "") === cohortId;
-
-  // Start from what is saved for this scope, each time the dialog opens.
-  useEffect(() => {
-    if (open && rules.data) setDrafts(rules.data.filter(inScope).map((rule) => ({ ...rule, cohortId })));
-  }, [open, rules.data]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // The server keeps one list, so the rules outside this scope go back untouched.
   const save = useMutation({
-    mutationFn: () => saveDiscrepancyRules([...(rules.data ?? []).filter((rule) => !inScope(rule)), ...drafts]),
+    mutationFn: rules.save,
     onSuccess: (saved) => {
       client.setQueryData(["discrepancy-rules"], saved);
       onClose();
     },
   });
 
+  return (
+    <Modal
+      open={open}
+      title={scope.kind === "shared" ? "Rules for every cohort" : `Rules for ${scope.cohort.name}`}
+      description={rulesDescription(scope)}
+      onClose={onClose}
+      footer={
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-xs text-[#98a2b3]">
+            {save.error ? (
+              <span role="alert" className="text-[#a6292f]">
+                {(save.error as Error).message}
+              </span>
+            ) : (
+              schemaNote(schema.data?.source)
+            )}
+          </span>
+          <div className="flex items-center gap-3">
+            <button type="button" onClick={onClose} className="text-sm font-semibold text-[#667085]">
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={!rules.complete || save.isPending}
+              onClick={() => save.mutate()}
+              className="rounded-md bg-[#1f4e79] px-4 py-2 text-sm font-semibold text-white disabled:bg-[#9ba8b5]"
+            >
+              {save.isPending ? "Saving…" : "Save rules"}
+            </button>
+          </div>
+        </div>
+      }
+    >
+      <RulesList scope={scope} drafts={rules.drafts} setDrafts={rules.setDrafts} cohortId={rules.cohortId} open={open} />
+    </Modal>
+  );
+}
+
+/**
+ * The rules themselves, as a list to edit — in the shared rules' dialog, or in a tab of a
+ * cohort's settings. Nothing here saves: whoever holds the list does.
+ */
+export function RulesList({
+  scope,
+  drafts,
+  setDrafts,
+  cohortId,
+  open,
+}: {
+  scope: RulesScope;
+  drafts: Draft[];
+  setDrafts: Dispatch<SetStateAction<Draft[]>>;
+  cohortId: string;
+  open: boolean;
+}) {
+  const schema = useQuery({ queryKey: ["portal-schema"], queryFn: fetchSchema, enabled: open });
   const fields = fieldChoices(schema.data?.fields ?? []);
   const valuesFor = (field: string) =>
     field === STATUS_FIELD
@@ -92,54 +137,8 @@ export function DiscrepancyRulesEditor({ open, scope, onClose }: { open: boolean
       return next;
     });
 
-  const complete = drafts.every(
-    (draft) =>
-      draft.field &&
-      (draft.kind === "changed" || draft.kind === "differs" || draft.kind === "belongs" || draft.values.length > 0) &&
-      (draft.kind !== "differs" || DIFFERS_FIELDS.includes(draft.field)) &&
-      (draft.kind !== "belongs" || BELONGS_FIELDS.includes(draft.field)) &&
-      (draft.field !== STATUS_FIELD || STATUS_KINDS.includes(draft.kind)),
-  );
-
   return (
-    <Modal
-      open={open}
-      title={scope.kind === "shared" ? "Rules for every cohort" : `Rules for ${scope.cohort.name}`}
-      description={
-        scope.kind === "shared"
-          ? "Shared with every coordinator and applied to every cohort, and to the students in none. Change rules are measured from the moment a student was placed in their cohort."
-          : `Applied to ${scope.cohort.name} on top of the shared rules. Change rules are measured from the moment a student was placed in the cohort.`
-      }
-      onClose={onClose}
-      footer={
-        <div className="flex items-center justify-between gap-3">
-          <span className="text-xs text-[#98a2b3]">
-            {save.error ? (
-              <span role="alert" className="text-[#a6292f]">
-                {(save.error as Error).message}
-              </span>
-            ) : schema.data?.source === "portal" ? (
-              "Values are the portal's own, as the extension last read them."
-            ) : (
-              "Sign in to the portal once so the extension can read its values; until then these are the built-in ones."
-            )}
-          </span>
-          <div className="flex items-center gap-3">
-            <button type="button" onClick={onClose} className="text-sm font-semibold text-[#667085]">
-              Cancel
-            </button>
-            <button
-              type="button"
-              disabled={!complete || save.isPending}
-              onClick={() => save.mutate()}
-              className="rounded-md bg-[#1f4e79] px-4 py-2 text-sm font-semibold text-white disabled:bg-[#9ba8b5]"
-            >
-              {save.isPending ? "Saving…" : "Save rules"}
-            </button>
-          </div>
-        </div>
-      }
-    >
+    <>
       {/*
         * The checks used to sit here, above the rules, with a cohort able to answer them
         * for itself. They are the department's now, in Settings, and an administrator's to
@@ -298,7 +297,7 @@ export function DiscrepancyRulesEditor({ open, scope, onClose }: { open: boolean
       >
         <Plus size={14} aria-hidden="true" /> Add a rule
       </button>
-    </Modal>
+    </>
   );
 }
 

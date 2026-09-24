@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus } from "lucide-react";
+import { Plus, Users } from "lucide-react";
 import { useState } from "react";
 
 import { Modal } from "@/components/Modal";
@@ -34,12 +34,21 @@ export function NewCohort({ onCreated }: { onCreated?: (cohort: Cohort) => void 
 
   return (
     <>
+      {/*
+        * An icon, beside the cohort's own settings and bin: a group of people with a plus,
+        * so it reads as "another cohort" rather than the bare + that could add anything.
+        */}
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="inline-flex items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc]"
+        aria-label="New cohort"
+        title="New cohort"
+        className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-[#b7bec8] bg-white text-[#1f4e79] hover:bg-[#f2f7fb]"
       >
-        <Plus size={15} aria-hidden="true" /> New cohort
+        <span className="relative inline-flex" aria-hidden="true">
+          <Users size={17} />
+          <Plus size={11} strokeWidth={3} className="absolute -bottom-1 -right-1.5 rounded-full bg-white" />
+        </span>
       </button>
 
       <Modal

@@ -629,6 +629,51 @@ describe("the register half of the Cohorts page", () => {
     expect(screen.getByRole("button", { name: /^Register/ }).textContent).toContain("0");
   });
 
+  it("keeps the cohort's own rules in a tab of its settings, saved with the rest", async () => {
+    // "Cohort rules" was a button of its own beside the table; it is a tab now.
+    vi.spyOn(lists, "fetchPortalCourses").mockResolvedValue({ terms: [], courses: [] });
+    vi.spyOn(lists, "fetchTermLinks").mockResolvedValue({});
+    const updated = vi.spyOn(database, "updateCohort").mockResolvedValue(L1);
+    const saved = vi.spyOn(database, "saveDiscrepancyRules").mockImplementation(async (rules) => rules as never);
+    await twoStudents();
+
+    renderPage();
+    await screen.findByRole("button", { name: `${L1.name} settings` });
+    expect(screen.queryByRole("button", { name: /Cohort rules/ })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: `${L1.name} settings` }));
+    fireEvent.click(await screen.findByRole("tab", { name: /Rules/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Add a rule/ }));
+
+    // A rule with no values yet is not a sentence: nothing saves until it is one.
+    const save = screen.getByRole("button", { name: "Save" });
+    expect((save as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(await screen.findByLabelText("Values for rule 1"), { target: { value: "WD" } });
+    expect((save as HTMLButtonElement).disabled).toBe(false);
+
+    fireEvent.click(save);
+    await waitFor(() => expect(saved).toHaveBeenCalledTimes(1));
+    expect(updated).toHaveBeenCalledTimes(1);
+    expect(saved.mock.calls[0][0]).toEqual([
+      expect.objectContaining({ field: "STST_CODE", kind: "changed_to", values: ["WD"], cohortId: L1.id }),
+    ]);
+  });
+
+  it("saves no rules when only the cohort itself was changed", async () => {
+    vi.spyOn(lists, "fetchPortalCourses").mockResolvedValue({ terms: [], courses: [] });
+    vi.spyOn(lists, "fetchTermLinks").mockResolvedValue({});
+    const updated = vi.spyOn(database, "updateCohort").mockResolvedValue(L1);
+    const saved = vi.spyOn(database, "saveDiscrepancyRules");
+    await twoStudents();
+
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: `${L1.name} settings` }));
+    fireEvent.click(await screen.findByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(updated).toHaveBeenCalledTimes(1));
+    expect(saved).not.toHaveBeenCalled();
+  });
+
   it("asks the register again when the cohort is saved, so a newly allowed subject stops warning", async () => {
     // SPRT was added to FYS-S1's allowed list and every sport warning stayed on screen:
     // saving refreshed the cohort list and left the register's old verdict in place.
@@ -645,7 +690,7 @@ describe("the register half of the Cohorts page", () => {
     expect(await screen.findByText("SPRT-650 not approved")).toBeTruthy();
 
     check.mockResolvedValue({ ...report([], [checked()]), electives: [{ ...sport, status: "allowed" }] });
-    fireEvent.click(screen.getByRole("button", { name: `Edit ${L1.name}` }));
+    fireEvent.click(screen.getByRole("button", { name: `${L1.name} settings` }));
     fireEvent.click(await screen.findByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(screen.queryByText("SPRT-650 not approved")).toBeNull());

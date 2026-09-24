@@ -1,11 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Pencil, Plus, Trash2, Users } from "lucide-react";
+import { Plus, Settings, Trash2, Users } from "lucide-react";
 import { useState } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { RulesList } from "@/components/DiscrepancyRulesEditor";
 import { Modal } from "@/components/Modal";
 import { SelectMenu, type SelectOption } from "@/components/SelectMenu";
 import { electiveOptions } from "@/services/electiveOptions";
+import { rulesDescription, schemaNote, useRuleDrafts } from "@/services/ruleDrafts";
 import { fetchPortalCourses, fetchRegistrationCheck, fetchTermLinks } from "@/services/portalLists";
 import { rowsHeld } from "@/services/rosterStore";
 import { fetchSchema, type PortalField, type RosterRow } from "@/services/scenRosters";
@@ -88,6 +90,14 @@ export function CohortActions({
   const [workbookTab, setWorkbookTab] = useState(cohort.workbookTab);
   const [firstSemester, setFirstSemester] = useState(String(cohort.firstSemester || ""));
   const [allowedCodes, setAllowedCodes] = useState<string[]>(cohort.allowedCodes);
+  /*
+   * The cohort's settings are two things: what it is and expects, and its own rules on top
+   * of the shared ones. The rules had a button of their own beside the table; they are a
+   * tab here, and save with the rest when anything in them has changed.
+   */
+  const [tab, setTab] = useState<"cohort" | "rules">("cohort");
+  const scope = { kind: "cohort" as const, cohort };
+  const rules = useRuleDrafts(scope, editing);
   const schema = useQuery({ queryKey: ["portal-schema"], queryFn: fetchSchema, enabled: editing, staleTime: 60_000 });
   const held = useQuery({ queryKey: ["roster-rows-held"], queryFn: rowsHeld, enabled: editing, staleTime: 60_000 });
   const portalTerms = useQuery({ queryKey: ["portal", "courses", ""], queryFn: () => fetchPortalCourses("", ""), enabled: editing, retry: false });
@@ -103,8 +113,8 @@ export function CohortActions({
 
   const refresh = () => client.invalidateQueries({ queryKey: ["cohorts"] });
   const save = useMutation({
-    mutationFn: () =>
-      updateCohort(cohort.id, {
+    mutationFn: async () => {
+      await updateCohort(cohort.id, {
         name: name.trim(),
         term: term.trim(),
         notes: cohort.notes,
@@ -114,8 +124,11 @@ export function CohortActions({
         workbookTab: workbookTab.trim(),
         firstSemester: Number(firstSemester) || 0,
         allowedCodes,
-      }),
-    onSuccess: () => {
+      });
+      return rules.changed ? rules.save() : null;
+    },
+    onSuccess: (savedRules) => {
+      if (savedRules) client.setQueryData(["discrepancy-rules"], savedRules);
       setEditing(false);
       refresh();
       /*
@@ -161,7 +174,7 @@ export function CohortActions({
             type="button"
             onClick={() => onShowMembers(cohort)}
             title={`Show the ${cohort.memberCount} students in ${cohort.name}`}
-            className="inline-flex items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-2.5 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc]"
+            className="inline-flex h-10 items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-2.5 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc]"
           >
             <Users size={15} aria-hidden="true" />
             <span className="tabular-nums">{cohort.memberCount}</span>
@@ -169,8 +182,10 @@ export function CohortActions({
         ) : null}
         <button
           type="button"
-          aria-label={`Edit ${cohort.name}`}
+          aria-label={`${cohort.name} settings`}
+          title={`${cohort.name} settings — what it expects, and its own rules`}
           onClick={() => {
+            setTab("cohort");
             setName(cohort.name);
             setTerm(cohort.term);
             setMajors(cohort.majors);
@@ -181,42 +196,81 @@ export function CohortActions({
             setAllowedCodes(cohort.allowedCodes);
             setEditing(true);
           }}
-          className="rounded-md border border-[#b7bec8] bg-white p-2 text-[#344054] hover:bg-[#f8fafc]"
+          className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-[#b7bec8] bg-white text-[#344054] hover:bg-[#f8fafc]"
         >
-          <Pencil size={15} aria-hidden="true" />
+          <Settings size={16} aria-hidden="true" />
         </button>
         <button
           type="button"
           aria-label={`Delete ${cohort.name}`}
           onClick={() => setDeleting(true)}
-          className="rounded-md border border-[#e5b7b9] bg-white p-2 text-[#a6292f] hover:bg-[#fdf3f3]"
+          className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-[#e5b7b9] bg-white text-[#a6292f] hover:bg-[#fdf3f3]"
         >
-          <Trash2 size={15} aria-hidden="true" />
+          <Trash2 size={16} aria-hidden="true" />
         </button>
       </div>
 
       <Modal
         open={editing}
-        title="This cohort"
-        description="Its name and year, and what it expects of its students in the portal's own codes. A cohort that expects nothing is judged on status alone."
+        title={`${cohort.name} settings`}
+        description={
+          tab === "cohort"
+            ? "Its name and year, and what it expects of its students in the portal's own codes. A cohort that expects nothing is judged on status alone."
+            : rulesDescription(scope)
+        }
         onClose={() => setEditing(false)}
+        header={
+          <div role="tablist" aria-label="Cohort settings" className="-mb-4 mt-3 flex gap-1">
+            {(
+              [
+                { id: "cohort", label: "Cohort" },
+                { id: "rules", label: `Rules · ${rules.drafts.length}` },
+              ] as const
+            ).map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                role="tab"
+                aria-selected={tab === item.id}
+                onClick={() => setTab(item.id)}
+                className={`border-b-2 px-3 py-2 text-sm font-semibold transition-colors ${
+                  tab === item.id ? "border-[#1f4e79] text-[#1f4e79]" : "border-transparent text-[#667085] hover:border-[#b7bec8] hover:text-[#344054]"
+                }`}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+        }
         footer={
-          <div className="flex items-center justify-end gap-3">
-            <button type="button" onClick={() => setEditing(false)} className="text-sm font-semibold text-[#667085]">
-              Cancel
-            </button>
-            <button
-              type="button"
-              disabled={!name.trim() || save.isPending}
-              onClick={() => save.mutate()}
-              className="rounded-md bg-[#1f4e79] px-4 py-2 text-sm font-semibold text-white disabled:bg-[#9ba8b5]"
-            >
-              Save
-            </button>
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-xs text-[#98a2b3]">
+              {rules.changed && !rules.complete
+                ? "A rule on the Rules tab is not finished yet."
+                : tab === "rules"
+                  ? schemaNote(schema.data?.source)
+                  : ""}
+            </span>
+            <div className="flex items-center gap-3">
+              <button type="button" onClick={() => setEditing(false)} className="text-sm font-semibold text-[#667085]">
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={!name.trim() || (rules.changed && !rules.complete) || save.isPending}
+                onClick={() => save.mutate()}
+                className="rounded-md bg-[#1f4e79] px-4 py-2 text-sm font-semibold text-white disabled:bg-[#9ba8b5]"
+              >
+                {save.isPending ? "Saving…" : "Save"}
+              </button>
+            </div>
           </div>
         }
       >
-        <div className="space-y-4">
+        {tab === "rules" ? (
+          <RulesList scope={scope} drafts={rules.drafts} setDrafts={rules.setDrafts} cohortId={rules.cohortId} open={editing} />
+        ) : null}
+        <div className={tab === "cohort" ? "space-y-4" : "hidden"}>
           <div className="grid gap-4 sm:grid-cols-[1fr_9rem]">
             <label className="block text-sm font-semibold text-[#344054]">
               Name
@@ -323,12 +377,12 @@ export function CohortActions({
               </span>
             </label>
           </div>
-          {save.error ? (
-            <p role="alert" className="rounded-md border border-[#e5b7b9] bg-[#fdf3f3] px-4 py-3 text-sm text-[#a6292f]">
-              {(save.error as Error).message}
-            </p>
-          ) : null}
         </div>
+        {save.error ? (
+          <p role="alert" className="mt-4 rounded-md border border-[#e5b7b9] bg-[#fdf3f3] px-4 py-3 text-sm text-[#a6292f]">
+            {(save.error as Error).message}
+          </p>
+        ) : null}
       </Modal>
 
       <ConfirmDialog
