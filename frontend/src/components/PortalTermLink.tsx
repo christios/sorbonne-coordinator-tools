@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, ScanSearch } from "lucide-react";
+import { AlertTriangle, Loader2, ScanSearch } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import { locationFor } from "@/routes/toolRoute";
 import { fetchTermCheck, fetchTermLinks, linkTerm } from "@/services/portalLists";
 
 /**
@@ -92,5 +93,31 @@ export function PortalTermLink({ termId }: { termId: string }) {
         </div>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * On a course card, the semester's portal term — only when it is missing.
+ *
+ * Every consequence of a missing link shows up on the cards: no registrar timetable, no
+ * clashes, every section reading "no timetable yet". So the card is where it has to be
+ * noticed. But the link is the semester's, not the course's, and an editable box on every
+ * card let one stray keystroke relink the whole semester from inside a single course. So
+ * the card says it is missing and points to Semesters, where it is set and checked, and
+ * says nothing at all once it is there.
+ */
+export function UnlinkedTermWarning({ termId }: { termId: string }) {
+  const links = useQuery({ queryKey: ["term-links"], queryFn: fetchTermLinks, retry: false });
+  // Silent while the answer is coming or could not be had: a warning is for a fact.
+  if (!links.data || links.data[termId]) return null;
+  return (
+    <a
+      href={`#${locationFor("database", "semesters")}`}
+      title="Without a portal term there is no registrar timetable and no clash check for this semester"
+      className="inline-flex items-center gap-1 rounded-full bg-[#fdf3f3] px-2 py-0.5 text-xs font-semibold text-[#a6292f] hover:underline"
+    >
+      <AlertTriangle size={12} aria-hidden="true" />
+      Semester not linked to a portal term — link it on Semesters
+    </a>
   );
 }
