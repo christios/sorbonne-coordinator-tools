@@ -308,3 +308,21 @@ export function cardColumns(nameOf: (teacherId: string) => string): GridColumn<C
     },
   ];
 }
+
+/**
+ * The group of ours each CRN teaches — "CM Mathematics", "TD 3" — walked off the cards,
+ * since nothing indexes the matrix by CRN. The first card naming a CRN wins.
+ */
+export function groupNamesByCrn(cohorts: CohortCatalogue[]): Map<string, string> {
+  const names = new Map<string, string>();
+  for (const card of buildCards(cohorts, () => "", [])) {
+    for (const set of card.sets) {
+      for (const row of set.rows.filter((entry) => teaches(entry)).flatMap((entry) => rowsPerPart(entry))) {
+        const crn = row.section?.crn;
+        if (!crn || names.has(crn)) continue;
+        names.set(crn, `${set.scope.code} ${subRowLabel(row.group.label, row.major?.program ?? "", (row.group.majors ?? []).length)}`.trim());
+      }
+    }
+  }
+  return names;
+}

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildSchedulePdf,
+  classLabel,
   hourRange,
   scheduleFilename,
   scheduleWeeks,
@@ -14,6 +15,7 @@ const TD: ScheduleSection = {
   courseCode: "MATH-100",
   title: "Mathematics 1",
   teacher: "Amina Menaa",
+  group: "TD 2",
   // Out of order on purpose: the pages read in date order whatever the sweep's order was.
   meetings: [
     { meetsOn: "2026-09-17", startsAt: "08:15", endsAt: "10:15", room: "5.105/.107" },
@@ -43,7 +45,7 @@ const CM: ScheduleSection = {
 };
 
 describe("a CRN's schedule, a page per week", () => {
-  it("gives every week with a class a page, in order, numbered from Week 1", () => {
+  it("gives every week from the first class to the last a page, in order, numbered from Week 1", () => {
     const weeks = scheduleWeeks(ONE);
 
     expect(weeks.map((week) => [week.monday, week.week])).toEqual([
@@ -69,8 +71,33 @@ describe("a CRN's schedule, a page per week", () => {
     expect(scheduleWeeks({ ...ONE, weekOne: undefined }).every((week) => week.week === null)).toBe(true);
   });
 
-  it("shows the same hours on every page, from the earliest class to the latest", () => {
-    expect(hourRange(ONE)).toEqual([8, 13]);
+  it("keeps an empty week's page, drawn empty, rather than skipping it", () => {
+    const withBreak: ScheduleInput = {
+      ...ONE,
+      sections: [{ ...TD, meetings: [...TD.meetings, { meetsOn: "2026-10-15", startsAt: "08:15", endsAt: "10:15", room: "5.111" }] }],
+    };
+
+    const weeks = scheduleWeeks(withBreak);
+
+    expect(weeks.map((week) => week.week)).toEqual([2, 3, 4, 5, 6, 7]);
+    expect(weeks.filter((week) => week.classes.length === 0).map((week) => [week.week, week.days.length])).toEqual([
+      [5, 5],
+      [6, 5],
+    ]);
+  });
+
+  it("shows 08:00 to 18:00 on every page, as the app does, and more where a class needs it", () => {
+    expect(hourRange(ONE)).toEqual([8, 18]);
+    const late: ScheduleInput = { ...ONE, sections: [{ ...TD, meetings: [{ meetsOn: "2026-09-10", startsAt: "07:30", endsAt: "19:15", room: "" }] }] };
+    expect(hourRange(late)).toEqual([7, 20]);
+  });
+
+  it("calls each box what the app calls it: the group on one course's page, the course on several", () => {
+    const entry = { crn: "23049", courseCode: "MATH-330", group: "CM Mathematics" };
+
+    expect(classLabel(entry, true)).toBe("CM Mathematics");
+    expect(classLabel(entry, false)).toBe("MATH-330");
+    expect(classLabel({ ...entry, group: "" }, true)).toBe("MATH-330");
   });
 
   it("is named for its course and CRN", () => {

@@ -20,6 +20,7 @@ function reads(over: Partial<ScheduleReads> = {}): ScheduleReads {
     links: async () => ({ "term-1": "262710" }),
     weeks: async () => ({ "term-1": "2026-08-31" }),
     semesterNames: async () => ({ "term-1": "Semester 1 2026-27" }),
+    groups: async () => new Map([["24059", "TD 2"]]),
     ...over,
   };
 }
@@ -37,6 +38,8 @@ describe("what a joint schedule is drawn from", () => {
     const tutorial = input.sections.find((section) => section.crn === "24059")!;
     expect(tutorial.teacher).toBe("Amina Menaa");
     expect(tutorial.notes.map((note) => note.coverTeacherName)).toEqual(["Grace Younes"]);
+    // The group of ours it teaches, off the course cards, for the boxes to say.
+    expect(tutorial.group).toBe("TD 2");
     // The register's teacher stands in where the portal names nobody.
     expect(input.sections.find((section) => section.crn === "23436")!.teacher).toBe("From the register");
   });
@@ -51,5 +54,11 @@ describe("what a joint schedule is drawn from", () => {
     const input = await scheduleInputFor([row("24059", "MATH-100")], reads({ semesterNames: async () => Promise.reject(new Error("Hub down")) }));
 
     expect(input.semester).toBe("Term 262710");
+  });
+
+  it("still exports, without groups, when the course cards cannot be read", async () => {
+    const input = await scheduleInputFor([row("24059", "MATH-100")], reads({ groups: async () => Promise.reject(new Error("Hub down")) }));
+
+    expect(input.sections[0].group).toBe("");
   });
 });

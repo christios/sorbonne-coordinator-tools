@@ -14,6 +14,7 @@ import { ScreenLoading } from "@/components/ScreenLoading";
 import { SelectMenu } from "@/components/SelectMenu";
 import { SelectionBar } from "@/components/SelectionActions";
 import { downloadSchedulePdf } from "@/services/crnSchedulePdf";
+import { groupNamesByCrn } from "@/services/courseCards";
 import { scheduleInputFor } from "@/services/crnScheduleInput";
 import { fetchSessionChanges } from "@/services/sessionChanges";
 import { fetchTermWeeks } from "@/services/termWeeks";
@@ -34,6 +35,7 @@ import {
   setParentCrn,
 } from "@/services/portalLists";
 import type { GridColumn } from "@/services/studentColumns";
+import { fetchCourseCards } from "@/services/studentDatabase";
 
 const COLUMNS: GridColumn<ActiveCrn>[] = [
   { id: "crn", displayName: "CRN", type: "text", accessor: (row) => row.crn, required: true, defaultWidth: 90 },
@@ -194,6 +196,7 @@ export function ActiveCourses({ onShowStudents }: { onShowStudents?: (ids: strin
           Object.fromEntries(
             (await client.fetchQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms })).map((entry) => [entry.id, entry.name]),
           ),
+        groups: async () => groupNamesByCrn(await client.fetchQuery({ queryKey: ["course-cards"], queryFn: fetchCourseCards })),
       });
       const empty = input.sections.filter((section) => section.meetings.length === 0);
       if (empty.length === input.sections.length) {

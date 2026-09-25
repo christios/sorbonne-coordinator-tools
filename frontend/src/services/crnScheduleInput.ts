@@ -20,6 +20,8 @@ export type ScheduleReads = {
   weeks: () => Promise<Record<string, string>>;
   /** Student Hub semester id → its name. */
   semesterNames: () => Promise<Record<string, string>>;
+  /** CRN → the group of ours it teaches, off the course cards: "CM Mathematics". */
+  groups: () => Promise<Map<string, string>>;
 };
 
 /**
@@ -27,17 +29,19 @@ export type ScheduleReads = {
  *
  * The semester is named, and the weeks numbered, only when every CRN is of one semester:
  * two semesters on one grid have no one Week 1 to count from. A name that cannot be read
- * falls back to the portal's term code rather than stopping the export.
+ * falls back to the portal's term code rather than stopping the export, and groups that
+ * cannot be read leave the boxes without them.
  */
 export async function scheduleInputFor(rows: ActiveCrn[], read: ScheduleReads): Promise<ScheduleInput> {
   const ordered = [...rows].sort(
     (left, right) => left.courseCode.localeCompare(right.courseCode) || left.crn.localeCompare(right.crn),
   );
   const termCodes = [...new Set(ordered.map((row) => row.termCode).filter(Boolean))];
-  const [links, weeks, names] = await Promise.all([
+  const [links, weeks, names, groups] = await Promise.all([
     read.links().catch(() => ({}) as Record<string, string>),
     read.weeks().catch(() => ({}) as Record<string, string>),
     read.semesterNames().catch(() => ({}) as Record<string, string>),
+    read.groups().catch(() => new Map<string, string>()),
   ]);
   const byTerm = new Map(
     await Promise.all(
@@ -63,6 +67,7 @@ export async function scheduleInputFor(rows: ActiveCrn[], read: ScheduleReads): 
         courseCode: row.courseCode,
         title: row.courseTitle || row.portalTitle,
         teacher: section?.teacherName || row.teacherName,
+        group: groups.get(row.crn) ?? "",
         meetings: section?.meetings ?? [],
         notes: (held?.notes ?? []).filter((note) => note.crn === row.crn),
       };

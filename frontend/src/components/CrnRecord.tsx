@@ -10,7 +10,7 @@ import { SessionChangeList } from "@/components/SessionChangeList";
 import { fetchSessionChanges, noteOn, slotKey } from "@/services/sessionChanges";
 import { fieldHeld, namesHeld } from "@/services/rosterStore";
 import type { PlacedSession } from "@/services/weekSchedule";
-import { buildCards, rowsPerPart, teaches } from "@/services/courseCards";
+import { buildCards, groupNamesByCrn, rowsPerPart, teaches } from "@/services/courseCards";
 import { filled } from "@/services/courseRequest";
 import {
   fetchActiveCourses,
@@ -158,6 +158,7 @@ export function CrnRecord({
             courseCode: row.courseCode,
             title: row.courseTitle || row.portalTitle,
             teacher: section?.teacherName || row.teacherName,
+            group: groupNamesByCrn(catalogues.data ?? []).get(row.crn) ?? "",
             meetings: section?.meetings ?? [],
             notes: mine,
           },
