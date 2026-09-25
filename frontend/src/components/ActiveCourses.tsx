@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, BookPlus, Link2Off, Plus, Trash2 } from "lucide-react";
+import { AlertTriangle, BookPlus, Download, Link2Off, Loader2, Plus, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { CourseRecord } from "@/components/CourseRecord";
@@ -12,6 +12,12 @@ import { ClassChangesBanner } from "@/components/ClassChanges";
 import { Modal } from "@/components/Modal";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { SelectMenu } from "@/components/SelectMenu";
+import { SelectionBar } from "@/components/SelectionActions";
+import { downloadSchedulePdf } from "@/services/crnSchedulePdf";
+import { scheduleInputFor } from "@/services/crnScheduleInput";
+import { fetchSessionChanges } from "@/services/sessionChanges";
+import { fetchTermWeeks } from "@/services/termWeeks";
+import { fetchTimetableTerms } from "@/services/timetables";
 import {
   type ActiveCourse,
   MUTUALIZED_WORDS,
@@ -21,7 +27,9 @@ import {
   addActiveCrns,
   fetchActiveCourses,
   fetchActiveCrns,
+  fetchFacilitySections,
   fetchRegisterCheck,
+  fetchTermLinks,
   removeActiveCrn,
   setParentCrn,
 } from "@/services/portalLists";
@@ -164,6 +172,44 @@ export function ActiveCourses({ onShowStudents }: { onShowStudents?: (ids: strin
     if (terms.length && !terms.includes(term)) setTerm(terms[0]);
   }, [terms, term]);
   const rows = useMemo(() => held.filter((row) => !term || row.termCode === term), [held, term]);
+
+  /*
+   * The ticked CRNs' schedule, as one PDF: every one of them on the same week grid, a page
+   * per teaching week — a group's week, or a teacher's. The CRN record exports one; this is
+   * the same drawing for as many as are ticked.
+   */
+  const [exporting, setExporting] = useState(false);
+  const [exportSaid, setExportSaid] = useState("");
+  const exportSchedules = async () => {
+    const chosen = held.filter((row) => selected.has(row.id));
+    setExporting(true);
+    setExportSaid("");
+    try {
+      const input = await scheduleInputFor(chosen, {
+        sections: (termCode, crns) => fetchFacilitySections(termCode, crns),
+        notes: (termCode) => client.fetchQuery({ queryKey: ["session-changes", termCode], queryFn: () => fetchSessionChanges(termCode) }),
+        links: () => client.fetchQuery({ queryKey: ["term-links"], queryFn: fetchTermLinks }),
+        weeks: () => client.fetchQuery({ queryKey: ["term-weeks"], queryFn: fetchTermWeeks }),
+        semesterNames: async () =>
+          Object.fromEntries(
+            (await client.fetchQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms })).map((entry) => [entry.id, entry.name]),
+          ),
+      });
+      const empty = input.sections.filter((section) => section.meetings.length === 0);
+      if (empty.length === input.sections.length) {
+        setExportSaid("The portal has booked no classes for these CRNs — run a portal sync if that is new.");
+        return;
+      }
+      await downloadSchedulePdf(input);
+      if (empty.length) {
+        setExportSaid(`${empty.map((section) => section.crn).join(", ")} had no classes booked, so ${empty.length === 1 ? "it is" : "they are"} in the legend and nowhere on the grid.`);
+      }
+    } catch (error) {
+      setExportSaid((error as Error).message || "The schedule could not be exported.");
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const renderCell = (row: ActiveCrn, column: GridColumn<ActiveCrn>) => {
     if (column.id === "portalStatus") {
@@ -319,6 +365,26 @@ export function ActiveCourses({ onShowStudents }: { onShowStudents?: (ids: strin
           {showingCourse ? (
             <CourseRecord open courseCode={showingCourse} onClose={() => setShowingCourse("")} />
           ) : null}
+
+          <SelectionBar
+            count={selected.size}
+            onClear={() => {
+              setSelected(new Set());
+              setExportSaid("");
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => void exportSchedules()}
+              disabled={exporting}
+              title="Every ticked CRN on one week grid, a page per teaching week, as a PDF"
+              className="inline-flex items-center gap-1.5 rounded-md bg-[#1f4e79] px-3 py-1.5 text-sm font-semibold text-white hover:bg-[#183f63] disabled:opacity-60"
+            >
+              {exporting ? <Loader2 size={14} className="animate-spin" aria-hidden="true" /> : <Download size={14} aria-hidden="true" />}
+              Export schedule
+            </button>
+            {exportSaid ? <span className="max-w-xs text-xs text-[#8a6116]">{exportSaid}</span> : null}
+          </SelectionBar>
 
           <p className="mt-2 text-xs text-[#98a2b3]">
             {(courses.data ?? []).length} course{(courses.data ?? []).length === 1 ? "" : "s"} on the department&apos;s list,

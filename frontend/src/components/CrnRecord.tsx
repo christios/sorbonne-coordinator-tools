@@ -151,13 +151,17 @@ export function CrnRecord({
     setExporting(true);
     try {
       await downloadSchedulePdf({
-        crn: row.crn,
-        courseCode: row.courseCode,
-        title: row.courseTitle || row.portalTitle,
         semester: termId ? termName(termId) : row.termCode ? `Term ${row.termCode}` : "",
-        teacher: section?.teacherName || row.teacherName,
-        meetings: section?.meetings ?? [],
-        notes: mine,
+        sections: [
+          {
+            crn: row.crn,
+            courseCode: row.courseCode,
+            title: row.courseTitle || row.portalTitle,
+            teacher: section?.teacherName || row.teacherName,
+            meetings: section?.meetings ?? [],
+            notes: mine,
+          },
+        ],
         weekOne: termId ? weeks.data?.[termId] : undefined,
         sweptAt: sweep.data?.pulledAt,
       });
