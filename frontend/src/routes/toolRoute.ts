@@ -2,7 +2,7 @@
 export type ToolId = "roster" | "syllabus" | "database" | "settings";
 
 /** The pages of Settings, each its own entry in the account menu and its own address. */
-export type SettingsSection = "users" | "tokens" | "checks";
+export type SettingsSection = "users" | "tokens" | "checks" | "programme-codes";
 
 const tools = new Set<ToolId>(["roster", "syllabus", "database", "settings"]);
 

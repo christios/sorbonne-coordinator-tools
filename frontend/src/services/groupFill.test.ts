@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { type FillCandidate, type FillGroup, clashKey, placementsByGroup, planFill, sortCandidates } from "@/services/groupFill";
+import { rememberProgrammeCodes } from "@/services/programmes";
 
 const group = (id: string, extra: Partial<FillGroup> = {}): FillGroup => ({
   id,
@@ -101,6 +102,24 @@ describe("a group with sub-rows", () => {
     });
     expect(where(open)).toEqual({ A1: "g1" });
     expect(open.placements[0].majorId).toBe("m-phys");
+  });
+
+  it("seats a recoded student on the row of the code their new one means", () => {
+    // L2's Mathematics became MATS; the department's list says MATS means MATH.
+    const mathsRow = { id: "m-math", program: "MATH - Mathematics", seats: 0, assigned: 0 };
+    const run = () =>
+      plan({
+        groups: [group("g1", { majors: [mathsRow, { ...physics, program: "PHYS - Physics" }] })],
+        candidates: [student("A1", { program: "MATS - MAth" })],
+      });
+
+    expect(run().unplaced.map((row) => row.why)).toEqual(["no group of this set holds a sub-row for their programme"]);
+    rememberProgrammeCodes([{ code: "MATS", sameAs: "MATH" }]);
+    try {
+      expect(run().placements.map((placement) => placement.majorId)).toEqual(["m-math"]);
+    } finally {
+      rememberProgrammeCodes([]);
+    }
   });
 
   it("keeps a sub-row's seats hard where the sub-rows are taught different things", () => {

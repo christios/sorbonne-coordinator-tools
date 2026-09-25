@@ -23,6 +23,7 @@ from sorbonne.api import timetables as timetables_api
 from sorbonne.main import app
 from sorbonne.services.facility_timetable import FacilityTimetableStore
 from sorbonne.services.portal_lists import PortalListStore
+from sorbonne.services.programme_codes import ProgrammeCodes
 from sorbonne.services.student_database import StudentDatabase
 from sorbonne.services.student_timetables import StudentPlatformClient
 from tests.conftest import TEST_DATABASE_URL
@@ -703,6 +704,46 @@ def test_a_set_whose_groups_hold_one_programme_does_not_want_the_other_programme
     # The mathematician is not asked for a physics practical, and nothing else changes.
     assert "TP" not in report["unassigned"]
     assert not any("Practicals" in warning for warning in report["warnings"])
+
+
+def test_a_recoded_programme_is_still_expected_in_its_programmes_sets(client: TestClient, database: StudentDatabase):
+    """Admissions recoded L2's Mathematics to MATS; the department's list says MATS means MATH.
+
+    A mathematician placed on a MATS row is still the student the MATH practicals are for.
+    Without the list the two codes are two programmes, the practicals are not theirs, and
+    their absence from them is never reported.
+    """
+    cohort = database.create_cohort(name="Second year", term="2026-27")
+    with database.engine.begin() as connection:
+        connection.execute(text("DELETE FROM programme_codes"))
+        connection.execute(
+            text("""INSERT INTO students (student_id, status, cohort_id, first_seen_at, last_seen_at, updated_at)
+                    VALUES ('A001', 'in_portal', :cohort, 'now', 'now', 'now')"""),
+            {"cohort": cohort["id"]},
+        )
+    cm = database.add_scope(cohort["id"], code="CM", name="Lectures", term_id=TERM)
+    tp = database.add_scope(cohort["id"], code="TP", name="Practicals", term_id=TERM)
+    algebra = database.add_course(cm, code="MATH-223")
+    practical = database.add_course(tp, code="MATH-208")
+    lectures = database.add_group(cm, label="Mathematics")
+    practicals = database.add_group(tp, label="Mathematics")
+    recoded = database.add_major(lectures, program="MATS - MAth")
+    database.add_major(practicals, program="MATH - Mathematics")
+    database.set_cell(group_id=lectures, course_id=algebra, crn="24087")
+    database.set_cell(group_id=practicals, course_id=practical, crn="24240")
+    database.assign(student_id="A001", scope_id=cm, group_id=lectures, major_id=recoded)
+
+    def unassigned() -> dict:
+        report = client.get(f"/api/v1/publication/terms/{TERM}").json()
+        return next(entry for entry in report["cohorts"] if entry["cohort"] == "Second year")["unassigned"]
+
+    try:
+        assert "TP" not in unassigned()
+        ProgrammeCodes(database.engine).set("MATS", "MATH")
+        assert unassigned()["TP"] == ["A001"]
+    finally:
+        with database.engine.begin() as connection:
+            connection.execute(text("DELETE FROM programme_codes"))
 
 
 def test_a_student_of_that_programme_missing_from_it_is_still_named(

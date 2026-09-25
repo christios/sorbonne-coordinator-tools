@@ -4,13 +4,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { StaffMenu } from "@/components/StaffMenu";
 import { StaffContext } from "@/components/useStaffUser";
 import * as auth from "@/services/auth";
+import type { SettingsSection } from "@/routes/toolRoute";
 
 const USER = { email: "coordinator@sorbonne.ae", name: "Coordinator", isAdmin: false };
 const ADMIN = { ...USER, isAdmin: true };
 
 afterEach(() => vi.restoreAllMocks());
 
-function open(user = USER, onOpenSettings?: (section: "users" | "tokens" | "checks") => void) {
+function open(user = USER, onOpenSettings?: (section: SettingsSection) => void) {
   render(
     <StaffContext.Provider value={user}>
       <StaffMenu onOpenSettings={onOpenSettings} />
@@ -49,6 +50,7 @@ describe("StaffMenu", () => {
       "Users",
       "API tokens",
       "Checks",
+      "Programme codes",
       "Sign out",
     ]);
     fireEvent.click(screen.getByRole("menuitem", { name: /API tokens/ }));

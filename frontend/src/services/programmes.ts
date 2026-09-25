@@ -18,10 +18,29 @@
  * somebody rewrites the words after it.
  */
 
-/** "MATH - Mathematics" → "MATH"; a programme written as a bare code is already one. */
+/**
+ * The department's word on which codes are the same students: `code -> the code it means`.
+ *
+ * Admissions may move the code itself, not just the words after it — L2's MATH became
+ * MATS in September 2026, and every mathematician stopped matching the rows they sat on.
+ * Settings → Programme codes says so once ("MATS means MATH"), and every comparison below
+ * reads it. Loaded before the student pages open; empty until then, which is what the
+ * application meant before there was a list.
+ */
+let sameAs = new Map<string, string>();
+
+export function rememberProgrammeCodes(pairs: readonly { code: string; sameAs: string }[]): void {
+  sameAs = new Map(pairs.map((pair) => [pair.code.trim().toUpperCase(), pair.sameAs.trim().toUpperCase()]));
+}
+
+/**
+ * "MATH - Mathematics" → "MATH"; a programme written as a bare code is already one — and a
+ * code the department treats as another is filed under the one it means.
+ */
 export function programCode(program: string): string {
   const parts = program.split(/\s+-\s+/);
-  return (parts.length > 1 ? parts[0] : program).trim().toUpperCase();
+  const code = (parts.length > 1 ? parts[0] : program).trim().toUpperCase();
+  return sameAs.get(code) ?? code;
 }
 
 /**

@@ -3,6 +3,7 @@ import { Copy, Loader2, Pencil, Shield, ShieldCheck, Trash2, UserPlus } from "lu
 import { useEffect, useState } from "react";
 
 import { ChecksPanel } from "@/components/ChecksPanel";
+import { ProgrammeCodesPanel } from "@/components/ProgrammeCodesPanel";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { COORDINATOR_APPS, type AppId } from "@/routes/apps";
 import type { SettingsSection } from "@/routes/toolRoute";
@@ -76,7 +77,15 @@ export function StaffSettings() {
         </nav>
       ) : null}
 
-      {page === "users" ? <StaffDirectory /> : page === "tokens" ? <ApiTokens /> : <AppChecks />}
+      {page === "users" ? (
+        <StaffDirectory />
+      ) : page === "tokens" ? (
+        <ApiTokens />
+      ) : page === "programme-codes" ? (
+        <AppProgrammeCodes />
+      ) : (
+        <AppChecks />
+      )}
     </div>
   );
 }
@@ -96,6 +105,27 @@ function AppChecks() {
         department and save as you change them.
       </p>
       <ChecksPanel canChange={Boolean(user?.isAdmin)} />
+    </section>
+  );
+}
+
+/**
+ * Which programme codes are the same students, for everybody at once.
+ *
+ * Admissions recodes a programme now and then — L2's MATH became MATS — and every group
+ * row, cohort and check written in the old code stops matching. Said here once, it holds
+ * everywhere. An administrator's to change, since it moves who can be placed where.
+ */
+function AppProgrammeCodes() {
+  const user = useStaffUser();
+  return (
+    <section className="mt-6 max-w-2xl">
+      <p className="mb-4 text-sm leading-6 text-[#667085]">
+        When admissions gives a programme a new code, say here which code it means. Every group, cohort and check
+        then treats the two as the same students — placing, the cohort&apos;s expected majors, and the timetable&apos;s
+        clash check.
+      </p>
+      <ProgrammeCodesPanel canChange={Boolean(user?.isAdmin)} />
     </section>
   );
 }

@@ -26,6 +26,7 @@ from sqlalchemy.exc import IntegrityError
 
 from sorbonne.services.engine import engine_for
 from sorbonne.services.enrolment_resolution import program_code
+from sorbonne.services.programme_codes import same_as_map
 
 
 # A set is plain — its groups numbered across whatever courses it carries, one or many —
@@ -1516,6 +1517,9 @@ class StudentDatabase:
                 .mappings()
                 .all()
             )
+            # The codes the department treats as one — MATS means MATH — so two rows written
+            # either side of a recode are one programme to everything that reads this.
+            same_as = same_as_map(connection)
 
         code_of = {row["id"]: row["code"] for row in courses}
         crns = _crns_of([cell for cell in cells if not cell["major_id"]], code_of)
@@ -1525,7 +1529,7 @@ class StudentDatabase:
         # Per group, what each sub-row comes to: the shared CRNs, overridden or struck
         # out by the sub-row's own cells. What a student on that sub-row is expected in.
         by_major = _crns_by_major(list(cells), code_of, majors_of)
-        crn_programs = _crn_programs(list(cells), code_of, majors_of)
+        crn_programs = _crn_programs(list(cells), code_of, majors_of, same_as)
         struck: dict[str, set[str]] = {}
         for cell in cells:
             if cell["major_id"] and cell["not_taught"] and code_of.get(cell["course_id"]):
@@ -1541,6 +1545,8 @@ class StudentDatabase:
                     {
                         "id": major["id"],
                         "program": major["program"],
+                        # What the row is compared by: its code, as the department reads it.
+                        "programCode": program_code(major["program"], same_as),
                         "crns": by_major.get(group["id"], {}).get(major["id"], {}),
                         # The sub-row's own word: these courses are not its, so no CRN is wanted.
                         "notTaught": sorted(struck.get(major["id"], set())),
@@ -3009,7 +3015,12 @@ def _crns_by_major(
     return found
 
 
-def _crn_programs(cells: list[Any], code_of: dict[str, str], majors_of: dict[str, list[Any]]) -> dict[str, str]:
+def _crn_programs(
+    cells: list[Any],
+    code_of: dict[str, str],
+    majors_of: dict[str, list[Any]],
+    same_as: dict[str, str] | None = None,
+) -> dict[str, str]:
     """`CRN -> programme`, for the CRNs taught to one sub-row and no other of their group.
 
     A sub-row's own CRN is its programme's. A shared CRN in a group whose other sub-rows
@@ -3028,10 +3039,12 @@ def _crn_programs(cells: list[Any], code_of: dict[str, str], majors_of: dict[str
         for major in majors:
             for crns in by_major.get(group_id, {}).get(major["id"], {}).values():
                 for crn in crns:
-                    takers.setdefault(crn, {}).setdefault(program_code(major["program"]), major["program"])
+                    takers.setdefault(crn, {}).setdefault(program_code(major["program"], same_as), major["program"])
         for crn, programs in takers.items():
             if len(programs) == 1:
-                found[crn] = next(iter(programs.values()))
+                # The code, as the department reads it — not the words: whatever compares
+                # two of these has no list of which codes are the same, and needs none.
+                found[crn] = next(iter(programs))
     return found
 
 

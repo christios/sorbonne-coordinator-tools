@@ -43,7 +43,8 @@ def groups_of(cohort: dict[str, Any], key: str = "groups") -> list[Group]:
             majors=tuple(
                 Major(
                     id=major["id"],
-                    program=major.get("program", ""),
+                    # The code the department reads it by, where the store said so.
+                    program=major.get("programCode") or major.get("program", ""),
                     crns=major.get("crns", {}),
                     not_taught=frozenset(major.get("notTaught", [])),
                 )

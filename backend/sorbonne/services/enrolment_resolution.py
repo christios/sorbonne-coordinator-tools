@@ -20,7 +20,7 @@ Pure: no database, no network. The store hands it rows, the API hands it section
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -77,7 +77,7 @@ class Group:
         return frozenset(program_code(major.program) for major in self.majors if major.program.strip())
 
 
-def program_code(program: str) -> str:
+def program_code(program: str, same_as: Mapping[str, str] | None = None) -> str:
     """The code a programme is filed under: "MATH - Mathematics" -> "MATH".
 
     A programme reaches us as the registrar writes it, code and description together, and
@@ -87,9 +87,14 @@ def program_code(program: str) -> str:
     written before and after stop matching, a set goes half-closed, and two classes that
     share every student stop being able to clash with one another. The code is the part
     that does not move, so the code is what is compared.
+
+    Admissions may also move the code itself — L2's MATH became MATS in September 2026 —
+    and `same_as` is the department's word that two codes are the same students (see
+    services/programme_codes.py). Given it, a code is filed under the one it means.
     """
     head, sep, _ = program.partition(" - ")
-    return (head if sep else program).strip().casefold()
+    code = (head if sep else program).strip().casefold()
+    return (same_as or {}).get(code, code)
 
 
 @dataclass(frozen=True)

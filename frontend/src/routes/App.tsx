@@ -13,6 +13,7 @@ import { PortalSyncButton } from "@/components/PortalSyncButton";
 import { StaleSyncWarning } from "@/components/StaleSyncWarning";
 import { SyllabusBuilder } from "@/components/SyllabusBuilder";
 import { SyncRunDriver } from "@/components/SyncRunDriver";
+import { ProgrammeCodesReady } from "@/components/ProgrammeCodesReady";
 import { StudentDatabase } from "@/components/StudentDatabase";
 import { useStaffUser } from "@/components/useStaffUser";
 import { appsFor } from "@/routes/apps";
@@ -302,7 +303,11 @@ export function App() {
             </div>
           )}
         </section>
-      </div> : activeTool === "database" ? <StudentDatabase onOpenSettings={openSettings} /> : <div className="min-h-0 flex-1"><SyllabusBuilder /></div>}
+      </div> : activeTool === "database" ? (
+        <ProgrammeCodesReady>
+          <StudentDatabase onOpenSettings={openSettings} />
+        </ProgrammeCodesReady>
+      ) : <div className="min-h-0 flex-1"><SyllabusBuilder /></div>}
     </main>
   );
 }

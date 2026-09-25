@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
-import { amongPrograms, programCode, sameProgram } from "@/services/programmes";
+import { amongPrograms, programCode, rememberProgrammeCodes, sameProgram } from "@/services/programmes";
 
 describe("which programme a string names", () => {
   it("reads the code off the registrar's spelling", () => {
@@ -52,3 +52,21 @@ describe("whether two spellings are one programme", () => {
     expect(amongPrograms([], "MATH")).toBe(false);
   });
 });
+
+describe("codes the department treats as one", () => {
+  afterEach(() => rememberProgrammeCodes([]));
+
+  it("files a recoded programme under the code it means", () => {
+    // Admissions recoded L2's Mathematics from MATH to MATS in September 2026.
+    expect(sameProgram("MATS - MAth", "MATH - Mathematics")).toBe(false);
+
+    rememberProgrammeCodes([{ code: "MATS", sameAs: "MATH" }]);
+
+    expect(programCode("MATS - MAth")).toBe("MATH");
+    expect(sameProgram("MATS - MAth", "MATH - Mathematics")).toBe(true);
+    expect(amongPrograms(["MATH", "PHYS"], "mats")).toBe(true);
+    // And nothing else moves.
+    expect(sameProgram("MATS - MAth", "PHYS - Physics")).toBe(false);
+  });
+});
+
