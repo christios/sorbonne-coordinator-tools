@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 
 import { ChecksPanel } from "@/components/ChecksPanel";
 import { ProgrammeCodesPanel } from "@/components/ProgrammeCodesPanel";
+import { TermWeeksPanel } from "@/components/TermWeeksPanel";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { COORDINATOR_APPS, type AppId } from "@/routes/apps";
 import type { SettingsSection } from "@/routes/toolRoute";
@@ -83,6 +84,8 @@ export function StaffSettings() {
         <ApiTokens />
       ) : page === "programme-codes" ? (
         <AppProgrammeCodes />
+      ) : page === "semesters" ? (
+        <AppSemesters />
       ) : (
         <AppChecks />
       )}
@@ -126,6 +129,23 @@ function AppProgrammeCodes() {
         clash check.
       </p>
       <ProgrammeCodesPanel canChange={Boolean(user?.isAdmin)} />
+    </section>
+  );
+}
+
+/**
+ * Where each semester's Week 1 is, which the semester timetable counts its weeks from.
+ * An administrator's to set, since it changes the week numbers everybody sees.
+ */
+function AppSemesters() {
+  const user = useStaffUser();
+  return (
+    <section className="mt-6 max-w-2xl">
+      <p className="mb-4 text-sm leading-6 text-[#667085]">
+        The first teaching week of each semester. The semester timetable numbers its weeks from it — Week 1, Week 2 —
+        and lets you jump straight to any of them. Any day of that week will do.
+      </p>
+      <TermWeeksPanel canChange={Boolean(user?.isAdmin)} />
     </section>
   );
 }

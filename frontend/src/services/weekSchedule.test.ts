@@ -9,6 +9,9 @@ import {
   toIsoDate,
   weekDays,
   type Session,
+  weekNumber,
+  weekStartOf,
+  parseIsoDate,
 } from "@/services/weekSchedule";
 
 const at = (crn: string, date: string, start: string, end: string): Session => ({ crn, date, start, end, room: "" });
@@ -70,3 +73,21 @@ describe("marking clashes and colours", () => {
     expect(assignColors(["MATH-001", "PHYS-101"]).size).toBe(2);
   });
 });
+
+describe("teaching weeks, counted from a semester's Week 1", () => {
+  it("makes the week any day of Week 1 falls in Week 1, and counts on from its Monday", () => {
+    // Week 1 given as a Wednesday: its Monday, 31 August, starts it.
+    expect(weekNumber(parseIsoDate("2026-08-31"), "2026-09-02")).toBe(1);
+    expect(weekNumber(parseIsoDate("2026-09-06"), "2026-09-02")).toBe(1);
+    expect(weekNumber(parseIsoDate("2026-09-07"), "2026-09-02")).toBe(2);
+    expect(weekNumber(parseIsoDate("2026-12-14"), "2026-09-02")).toBe(16);
+    // Before it, nothing to call a teaching week.
+    expect(weekNumber(parseIsoDate("2026-08-24"), "2026-09-02")).toBe(0);
+  });
+
+  it("finds the Monday of any week", () => {
+    expect(toIsoDate(weekStartOf(1, "2026-09-02"))).toBe("2026-08-31");
+    expect(toIsoDate(weekStartOf(5, "2026-09-02"))).toBe("2026-09-28");
+  });
+});
+

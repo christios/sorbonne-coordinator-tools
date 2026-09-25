@@ -164,6 +164,22 @@ export function weekDays(weekStart: Date, sessions: Session[]): string[] {
   return sessions.some((session) => session.date === saturday) ? days : days.slice(0, 5);
 }
 
+/**
+ * Which teaching week a week is: 1 for the week `weekOne` falls in, counting on from its
+ * Monday; 0 or less before it. `weekOne` is any day of the first teaching week, as set per
+ * semester in Settings.
+ */
+export function weekNumber(weekStart: Date, weekOne: string): number {
+  const first = mondayOf(parseIsoDate(weekOne));
+  // Rounded, not floored: a clock change between the two Mondays is an hour, not a week.
+  return Math.round((mondayOf(weekStart).getTime() - first.getTime()) / (7 * 24 * 60 * 60 * 1000)) + 1;
+}
+
+/** The Monday of teaching week `week`. */
+export function weekStartOf(week: number, weekOne: string): Date {
+  return shiftWeek(mondayOf(parseIsoDate(weekOne)), week - 1);
+}
+
 export function weekLabel(weekStart: Date, sessions: Session[]): string {
   const days = weekDays(weekStart, sessions);
   const format = (iso: string) => {

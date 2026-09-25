@@ -5,9 +5,11 @@ import { useMemo, useState } from "react";
 import { CrnRecord } from "@/components/CrnRecord";
 import { SectionTimetable, type TimetableEntry } from "@/components/SectionTimetable";
 import { SelectMenu } from "@/components/SelectMenu";
+import { useRemembered } from "@/components/useRemembered";
 import { buildCards, rowsPerPart, subRowLabel, teaches } from "@/services/courseCards";
 import { fetchActiveCrns, fetchTermCrns, type ActiveCrn } from "@/services/portalLists";
 import { fetchCourseCards } from "@/services/studentDatabase";
+import { fetchTermWeeks } from "@/services/termWeeks";
 import type { TimetableTerm } from "@/services/timetables";
 
 /*
@@ -46,11 +48,19 @@ const HEIGHT = { min: 14, max: 56, step: 1, start: 22 };
  */
 export function SemesterTimetable({ term, onBack }: { term: TimetableTerm; onBack: () => void }) {
   const client = useQueryClient();
-  const [subjects, setSubjects] = useState<string[]>([]);
-  const [cohorts, setCohorts] = useState<string[]>([]);
-  const [teachers, setTeachers] = useState<string[]>([]);
-  const [widthZoom, setWidthZoom] = useState(WIDTH.start);
-  const [rowHeight, setRowHeight] = useState(HEIGHT.start);
+  /*
+   * The filters and the zooms, kept by this browser.
+   *
+   * They were the page's alone, so a step to a CRN's record or another page and back put
+   * every one of them to its default — the cohort, the teachers, the height an hour needs
+   * to be readable, all chosen again. A preference, not a fact about the department:
+   * this browser's, as the cohort picker's is.
+   */
+  const [subjects, setSubjects] = useKeptList("semester-timetable:subjects");
+  const [cohorts, setCohorts] = useKeptList("semester-timetable:cohorts");
+  const [teachers, setTeachers] = useKeptList("semester-timetable:teachers");
+  const [widthZoom, setWidthZoom] = useKeptNumber("semester-timetable:width", WIDTH);
+  const [rowHeight, setRowHeight] = useKeptNumber("semester-timetable:height", HEIGHT);
   const [showingCrn, setShowingCrn] = useState<ActiveCrn | null>(null);
   // Where the week's arrows and dates go, so they cost no row of their own.
   const [navSlot, setNavSlot] = useState<HTMLDivElement | null>(null);
@@ -61,6 +71,9 @@ export function SemesterTimetable({ term, onBack }: { term: TimetableTerm; onBac
     gone: [],
     unbooked: [],
   });
+
+  // Where this semester's Week 1 is, from Settings → Semesters, so the week says its number.
+  const weeks = useQuery({ queryKey: ["term-weeks"], queryFn: fetchTermWeeks, retry: false, staleTime: 60_000 });
 
   const held = useQuery({
     queryKey: ["term-crns", term.id],
@@ -285,6 +298,8 @@ export function SemesterTimetable({ term, onBack }: { term: TimetableTerm; onBac
           navInto={navSlot}
           widthZoom={widthZoom}
           rowHeight={rowHeight}
+          weekOne={weeks.data?.[term.id]}
+          keepWeekAs={`semester:${term.id}`}
           title={term.name}
           openable={(crn) => Boolean(inRegister(crn))}
           onOpenCrn={(crn) => setShowingCrn(inRegister(crn))}
@@ -344,3 +359,18 @@ function Zoom({
     </label>
   );
 }
+
+/** A list this browser keeps, one entry per line. */
+function useKeptList(key: string): [string[], (next: string[]) => void] {
+  const [held, setHeld] = useRemembered(key);
+  return [held ? held.split("\n").filter(Boolean) : [], (next) => setHeld(next.join("\n"))];
+}
+
+/** A number this browser keeps, back inside its range if the range has moved since. */
+function useKeptNumber(key: string, range: { min: number; max: number; start: number }): [number, (next: number) => void] {
+  const [held, setHeld] = useRemembered(key);
+  const value = Number(held);
+  const kept = held && Number.isFinite(value) ? Math.min(range.max, Math.max(range.min, value)) : range.start;
+  return [kept, (next) => setHeld(String(next))];
+}
+

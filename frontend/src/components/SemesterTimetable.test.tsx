@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SemesterTimetable } from "@/components/SemesterTimetable";
 import * as lists from "@/services/portalLists";
 import * as notes from "@/services/sessionChanges";
+import * as termWeeks from "@/services/termWeeks";
 import type { TimetableTerm } from "@/services/timetables";
 
 const TERM = { id: "term-1", name: "Semester 1" } as TimetableTerm;
@@ -21,7 +22,7 @@ const CRNS = {
 
 function show() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  render(
+  return render(
     <QueryClientProvider client={client}>
       <SemesterTimetable term={TERM} onBack={vi.fn()} />
     </QueryClientProvider>,
@@ -29,6 +30,10 @@ function show() {
 }
 
 beforeEach(() => {
+  // The filters, the zooms and the week are kept by the browser now; each test starts clean.
+  window.localStorage.clear();
+  window.sessionStorage.clear();
+  vi.spyOn(termWeeks, "fetchTermWeeks").mockResolvedValue({});
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(new Date(2026, 8, 9, 10, 0, 0));
   vi.spyOn(notes, "fetchSessionChanges").mockResolvedValue([]);
@@ -74,6 +79,46 @@ describe("a semester's whole week", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Every section" }));
     expect(await screen.findByText("3 of 3")).toBeTruthy();
+  });
+
+  it("keeps its filters and zooms when you leave and come back", async () => {
+    // They were the page's alone: a step to a CRN's record and back put every one to its default.
+    const first = show();
+    await screen.findByText("3 of 3");
+    fireEvent.click(screen.getByRole("combobox", { name: "Subjects" }));
+    fireEvent.click(await screen.findByRole("option", { name: "MATH" }));
+    expect(await screen.findByText("2 of 3")).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Height of a class"), { target: { value: "40" } });
+    first.unmount();
+
+    show();
+
+    expect(await screen.findByText("2 of 3")).toBeTruthy();
+    expect((screen.getByLabelText("Height of a class") as HTMLInputElement).value).toBe("40");
+  });
+
+  it("numbers the week from the semester's Week 1, and jumps to any week", async () => {
+    vi.spyOn(termWeeks, "fetchTermWeeks").mockResolvedValue({ "term-1": "2026-09-02" });
+    const first = show();
+
+    // The classes meet on 7 September; Week 1 is the week of 2 September.
+    const week = await screen.findByRole("combobox", { name: "Teaching week" });
+    expect(week.textContent).toContain("Week 2");
+    fireEvent.click(week);
+    fireEvent.click(await screen.findByRole("option", { name: /Week 1/ }));
+    expect(await screen.findByText("31 Aug 2026 – 4 Sep 2026")).toBeTruthy();
+
+    // And coming back, in this tab, lands on the week you left.
+    first.unmount();
+    show();
+    expect(await screen.findByText("31 Aug 2026 – 4 Sep 2026")).toBeTruthy();
+  });
+
+  it("says no week number where the semester has no Week 1", async () => {
+    show();
+
+    await screen.findByText("3 of 3");
+    expect(screen.queryByRole("combobox", { name: "Teaching week" })).toBeNull();
   });
 
   describe("what it says it could not draw", () => {

@@ -4,17 +4,24 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 import { Modal } from "@/components/Modal";
+import { SelectMenu } from "@/components/SelectMenu";
 import { WeekCalendar } from "@/components/WeekCalendar";
 import { WeekTimeline } from "@/components/WeekTimeline";
 import { fetchFacilitySections, type FacilitySection } from "@/services/portalLists";
 import { fetchSessionChanges, slotKey, type SessionChange } from "@/services/sessionChanges";
 import {
+  MONTH_NAMES,
   assignColors,
   defaultWeekStart,
   isoToday,
+  mondayOf,
+  parseIsoDate,
   placeSessions,
   shiftWeek,
+  toIsoDate,
   weekLabel,
+  weekNumber,
+  weekStartOf,
   type CalendarCourse,
   type PlacedSession,
   type Session,
@@ -102,6 +109,17 @@ type TimetableProps = {
    * box is pressable then; a CRN's own record is where this is offered.
    */
   onPickSession?: (session: PlacedSession) => void;
+  /**
+   * Any day of the semester's first teaching week, from Settings → Semesters. Given it,
+   * the week says which teaching week it is — "Week 5" — and that label is a picker that
+   * jumps straight to any week of the semester.
+   */
+  weekOne?: string;
+  /**
+   * A name to keep the week being looked at under, for this browser tab. Coming back to
+   * the page lands on the week you left rather than on this one; a new tab starts on this.
+   */
+  keepWeekAs?: string;
 };
 
 /**
@@ -141,6 +159,8 @@ function Timetable({
   navInto,
   hourHeight,
   onPickSession,
+  weekOne,
+  keepWeekAs,
   onExpand,
 }: TimetableProps & { onExpand?: () => void }) {
   const today = isoToday();
@@ -189,8 +209,27 @@ function Timetable({
 
   const [weekStart, setWeekStart] = useState<Date | null>(null);
   const firstSession = sessions[0] ? `${sessions[0].date}|${sessions.length}` : "";
+  // The week this tab was last looking at, when the caller asked for one to be kept.
+  const keptWeek = (): Date | null => {
+    if (!keepWeekAs) return null;
+    try {
+      const held = window.sessionStorage.getItem(`scen-week:${keepWeekAs}`);
+      return held ? mondayOf(parseIsoDate(held)) : null;
+    } catch {
+      return null;
+    }
+  };
+  const goTo = (week: Date) => {
+    setWeekStart(week);
+    if (!keepWeekAs) return;
+    try {
+      window.sessionStorage.setItem(`scen-week:${keepWeekAs}`, toIsoDate(week));
+    } catch {
+      // A tab that cannot keep it simply opens on this week next time.
+    }
+  };
   useEffect(() => {
-    setWeekStart(sessions.length ? defaultWeekStart(sessions, today) : null);
+    setWeekStart(sessions.length ? (keptWeek() ?? defaultWeekStart(sessions, today)) : null);
     // Re-aim when the sessions change, which the first date and the count stand for.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [firstSession]);
@@ -220,19 +259,20 @@ function Timetable({
   const weekNav = (
     <div className={`flex flex-wrap items-center gap-1.5 ${navInto ? "" : compact ? "mb-1.5" : "mb-2"} ${fills && !navInto ? "shrink-0" : ""}`}>
 
-            <button type="button" aria-label="Previous week" onClick={() => setWeekStart(shiftWeek(shown, -1))} className={nav(compact)}>
+            <button type="button" aria-label="Previous week" onClick={() => goTo(shiftWeek(shown, -1))} className={nav(compact)}>
               <ChevronLeft size={compact ? 12 : 14} aria-hidden="true" />
             </button>
             <button
               type="button"
-              onClick={() => setWeekStart(defaultWeekStart(sessions, today))}
+              onClick={() => goTo(defaultWeekStart(sessions, today))}
               className={`${nav(compact)} px-2 font-semibold ${small}`}
             >
               Current week
             </button>
-            <button type="button" aria-label="Next week" onClick={() => setWeekStart(shiftWeek(shown, 1))} className={nav(compact)}>
+            <button type="button" aria-label="Next week" onClick={() => goTo(shiftWeek(shown, 1))} className={nav(compact)}>
               <ChevronRight size={compact ? 12 : 14} aria-hidden="true" />
             </button>
+            {weekOne ? <TeachingWeek shown={shown} weekOne={weekOne} sessions={sessions} onGo={goTo} /> : null}
             <span className={`font-semibold text-[#344054] ${small}`}>{weekLabel(shown, sessions)}</span>
             {onExpand ? (
               <button
@@ -432,3 +472,48 @@ function list(crns: string[]): string {
 function Empty({ children }: { children: ReactNode }) {
   return <p className="text-sm text-[#667085]">{children}</p>;
 }
+
+/**
+ * Which teaching week this is, as a picker: it reads "Week 5" and jumps to any week.
+ *
+ * Counted from the semester's Week 1 in Settings. The department talks in week numbers —
+ * "the Week 5 tutorial", "from Week 8" — and finding one used to mean pressing the arrow
+ * and doing the arithmetic from the dates.
+ */
+function TeachingWeek({
+  shown,
+  weekOne,
+  sessions,
+  onGo,
+}: {
+  shown: Date;
+  weekOne: string;
+  sessions: Session[];
+  onGo: (week: Date) => void;
+}) {
+  const current = weekNumber(shown, weekOne);
+  const lastDay = sessions.reduce((last, session) => (session.date > last ? session.date : last), "");
+  const last = Math.max(1, current, lastDay ? weekNumber(parseIsoDate(lastDay), weekOne) : 1);
+  const options = Array.from({ length: last }, (_, index) => {
+    const monday = weekStartOf(index + 1, weekOne);
+    return {
+      value: String(index + 1),
+      label: `Week ${index + 1}`,
+      badge: `${monday.getDate()} ${MONTH_NAMES[monday.getMonth()]}`,
+      badgeTone: "muted" as const,
+    };
+  });
+  return (
+    <div className="w-32">
+      <SelectMenu
+        label="Teaching week"
+        value={current >= 1 ? String(current) : ""}
+        placeholder="Before Week 1"
+        searchable={options.length > 12}
+        onChange={(week) => week && onGo(weekStartOf(Number(week), weekOne))}
+        options={options}
+      />
+    </div>
+  );
+}
+

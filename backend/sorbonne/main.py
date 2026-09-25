@@ -12,6 +12,7 @@ from sorbonne.api.dev_tools import is_local as dev_is_local
 from sorbonne.api.dev_tools import router as dev_router
 from sorbonne.api.export import router as export_router
 from sorbonne.api.programme_codes import router as programme_codes_router
+from sorbonne.api.term_weeks import router as term_weeks_router
 from sorbonne.api.rosters import router as rosters_router
 from sorbonne.api.portal import router as portal_router
 from sorbonne.api.publication import router as publication_router
@@ -76,6 +77,7 @@ app.include_router(team_roster_router, prefix="/api/v1")
 app.include_router(publication_router, prefix="/api/v1")
 app.include_router(export_router, prefix="/api/v1")
 app.include_router(programme_codes_router, prefix="/api/v1")
+app.include_router(term_weeks_router, prefix="/api/v1")
 
 # Developer conveniences, mounted ONLY when the database is on this machine — so in
 # production they are a 404 rather than a guarded 403. A guard inside a mounted route is

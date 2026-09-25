@@ -7,7 +7,7 @@
  * administrator's to change.
  */
 
-import { ArrowLeftRight, KeyRound, SlidersHorizontal, Users, type LucideIcon } from "lucide-react";
+import { ArrowLeftRight, CalendarDays, KeyRound, SlidersHorizontal, Users, type LucideIcon } from "lucide-react";
 
 import type { SettingsSection } from "@/routes/toolRoute";
 
@@ -17,6 +17,8 @@ export const SETTINGS_SECTIONS: { section: SettingsSection; label: string; Icon:
   { section: "checks", label: "Checks", Icon: SlidersHorizontal, adminOnly: false },
   // Everybody's to read, since placing a student depends on it; an administrator's to change.
   { section: "programme-codes", label: "Programme codes", Icon: ArrowLeftRight, adminOnly: false },
+  // Where each semester's Week 1 is; everybody's to read, an administrator's to set.
+  { section: "semesters", label: "Semesters", Icon: CalendarDays, adminOnly: false },
 ];
 
 /** The pages this person may open, in menu order. */
