@@ -499,8 +499,8 @@ function TeachingWeek({
     return {
       value: String(index + 1),
       label: `Week ${index + 1}`,
-      badge: `${monday.getDate()} ${MONTH_NAMES[monday.getMonth()]}`,
-      badgeTone: "muted" as const,
+      // Its Monday, in the list only: the closed picker has room for "Week 4" and no more.
+      detail: `${monday.getDate()} ${MONTH_NAMES[monday.getMonth()]}`,
     };
   });
   return (

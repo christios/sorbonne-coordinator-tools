@@ -103,7 +103,8 @@ describe("a semester's whole week", () => {
 
     // The classes meet on 7 September; Week 1 is the week of 2 September.
     const week = await screen.findByRole("combobox", { name: "Teaching week" });
-    expect(week.textContent).toContain("Week 2");
+    // The closed picker says the week and nothing else: a date beside it squeezed "Week 2" to "W".
+    expect(week.textContent).toBe("Week 2");
     fireEvent.click(week);
     fireEvent.click(await screen.findByRole("option", { name: /Week 1/ }));
     expect(await screen.findByText("31 Aug 2026 – 4 Sep 2026")).toBeTruthy();

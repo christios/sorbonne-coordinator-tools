@@ -20,6 +20,12 @@ export type SelectOption = {
    */
   badgePlacement?: "leading" | "trailing";
   /**
+   * A quiet word shown beside the option in the open list only — never in the closed
+   * control, where there is room for what was chosen and nothing else. "21 Sep" beside
+   * "Week 4" helps choose a week; beside the chosen one it pushed "Week 4" down to "W".
+   */
+  detail?: string;
+  /**
    * What wants attention on this option, counted by kind rather than added up.
    *
    * It was one red number — "9 flagged" — which said that something is wrong nine times
@@ -290,6 +296,7 @@ export function SelectMenu({ label, value, onChange, options, placeholder, trail
               {option.badge !== undefined && option.badgePlacement !== "leading" ? (
                 <Badge text={option.badge} tone={option.badgeTone} />
               ) : null}
+              {option.detail ? <span className="shrink-0 text-xs font-normal tabular-nums text-[#98a2b3]">{option.detail}</span> : null}
               {option.flags ? <Flags flags={option.flags} columns /> : null}
             </button>
           ))}
