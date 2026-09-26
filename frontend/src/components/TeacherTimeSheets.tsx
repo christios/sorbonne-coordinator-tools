@@ -56,7 +56,7 @@ type Draft = { label: string; academicYear: string; url: string; periodStart: st
 
 /** The columns of a period's row, as Requisitions lays out a requisition's. */
 const SHEET_GRID =
-  "grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-1 px-4 sm:grid-cols-[minmax(14rem,1fr)_4.5rem_8rem_minmax(0,1.3fr)_auto]";
+  "grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-1 px-4 sm:grid-cols-[minmax(14rem,1fr)_4.5rem_8rem_minmax(0,1.3fr)_6.5rem]";
 
 export function TimeSheetsCard({
   teacherId,
