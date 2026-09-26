@@ -141,7 +141,7 @@ export function SyllabusLibrary({
   }
 
   return (
-    <div className="mx-auto max-w-[98rem] px-1 pb-1.5 pt-1 sm:px-1.5 lg:px-2">
+    <div className="w-full page-gutters [--page-cap:98rem] [--page-pad:1rem] sm:[--page-pad:1.5rem] lg:[--page-pad:2rem] pb-1.5 pt-1">
       <div className="flex flex-col justify-between gap-4 border-b border-[#d9dee7] pb-5 lg:flex-row lg:items-end">
         <div>
           <p className="text-sm font-medium text-[#a6292f]">SCEN workspace</p>

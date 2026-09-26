@@ -1,5 +1,17 @@
 @import "tailwindcss";
 
+/*
+ * A page's side margins, a quarter of what they were (26 Sep 2026).
+ *
+ * A page used to stop at a width (--page-cap), centred, with --page-pad inside each edge:
+ * the space either side was the band the cap left plus that padding. It is now a quarter
+ * of that at every screen size — the padding alone where the screen is narrower than the
+ * cap, and a quarter of the band too where it is wider.
+ */
+@utility page-gutters {
+  padding-inline: calc(0.25 * (max(0px, (100% - var(--page-cap, 100%)) / 2) + var(--page-pad, 1rem)));
+}
+
 body {
   margin: 0;
   min-width: 320px;

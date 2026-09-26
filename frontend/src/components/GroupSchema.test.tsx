@@ -170,6 +170,8 @@ describe("linking a set to another", () => {
 
     // On TD, whose groups are nobody's in particular until one is marked.
     fireEvent.click(await screen.findByRole("button", { name: /^TD\b/ }));
+    // Its column says what it does, one hover away.
+    expect(await screen.findByRole("button", { name: "What First for does" })).toBeTruthy();
     fireEvent.click(await screen.findByRole("combobox", { name: "The major 3 takes first" }));
     fireEvent.click(within(await screen.findByRole("listbox")).getByRole("option", { name: "PHYS - Physics" }));
 

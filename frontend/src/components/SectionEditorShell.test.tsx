@@ -28,8 +28,8 @@ describe("SectionEditorShell", () => {
     expect(screen.getByText("Details canvas")).toBeTruthy();
     expect(screen.getByTestId("editor-workspace").className).toContain("lg:overflow-y-auto");
     expect(screen.getByTestId("editor-workspace").className).toContain("lg:min-h-0");
-    expect(screen.getByTestId("editor-workspace").parentElement?.parentElement?.className).toContain("max-w-[98rem]");
-    expect(screen.getByTestId("editor-workspace").parentElement?.parentElement?.className).toContain("lg:px-2");
+    expect(screen.getByTestId("editor-workspace").parentElement?.parentElement?.className).toContain("[--page-cap:98rem]");
+    expect(screen.getByTestId("editor-workspace").parentElement?.parentElement?.className).toContain("page-gutters");
     fireEvent.click(screen.getByRole("button", { name: "2. Review" }));
     expect(onSectionChange).toHaveBeenCalledWith("review");
 

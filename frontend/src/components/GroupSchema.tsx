@@ -680,11 +680,19 @@ function SetEditor({
                     </span>
                   </th>
                   <th className="py-2 pr-3 font-semibold">In parallel with</th>
-                  <th className="py-2 pr-3 font-semibold">Sub-rows</th>
+                  <th className="w-28 py-2 pr-3 font-semibold">Sub-rows</th>
                   {scope.kind === "nested" ? <th className="py-2 pr-3 font-semibold">Goes with</th> : null}
                   {programmes.length > 1 ? (
-                    <th className="py-2 pr-3 font-semibold" title="Placed here first; other majors only once the groups that are nobody's are full">
-                      First for
+                    <th className="py-2 pr-3 font-semibold">
+                      <span className="inline-flex items-center gap-1 normal-case">
+                        <span className="uppercase">First for</span>
+                        <InfoTip label="What First for does">
+                          The major this group is filled with first. When students are placed, that major goes here
+                          before anywhere else; the other majors only come here once the groups kept for nobody in
+                          particular are full. A preference, not a wall — a student of another major can still be
+                          placed here by hand.
+                        </InfoTip>
+                      </span>
                     </th>
                   ) : null}
                   <th className="py-2 pr-3 text-right font-semibold">Placed</th>
@@ -858,7 +866,7 @@ function GroupRow({
         * is one thing for everybody. With them, a placement takes one, the fill seats a
         * student on their own, and a course may be one sub-row's and not another's.
         */}
-      <td className="py-1.5 pr-3">
+      <td className="w-28 py-1.5 pr-3">
         <MajorsEditor group={group} programmes={programmes} onChanged={onChanged} />
       </td>
       {nested ? (
@@ -888,7 +896,7 @@ function GroupRow({
         */}
       {programmes.length > 1 ? (
         <td className="py-1.5 pr-3">
-          <div className="w-36">
+          <div className="w-60">
             <SelectMenu
               label={`The major ${group.label} takes first`}
               value={group.firstFor ?? ""}
@@ -938,15 +946,17 @@ function MajorsEditor({ group, programmes, onChanged }: { group: CatalogueGroup;
   const offered = programmes.filter((program) => !majors.some((major) => major.program === program));
   const error = add.error ?? remove.error;
   return (
-    <div className="min-w-44 space-y-1">
+    <div className="w-28 space-y-1">
       {majors.map((major) => (
-        <div key={major.id} className="flex items-center gap-1.5 text-sm">
+        // Narrow on purpose: the name and its seats, and the remove button over the seats
+        // only while the pointer (or the keyboard) is on the line.
+        <div key={major.id} className="group relative flex items-center gap-1 text-[13px]">
           <span className="min-w-0 flex-1 truncate text-[#344054]" title={major.program}>
             {shortProgram(major.program)}
           </span>
           <span
             aria-label={`Seats for ${shortProgram(major.program)} in ${group.label}`}
-            className="w-12 px-1.5 py-0.5 text-right text-sm tabular-nums text-[#667085]"
+            className="shrink-0 py-0.5 text-right text-xs tabular-nums text-[#667085]"
           >
             {major.seats || "—"}
           </span>
@@ -954,7 +964,7 @@ function MajorsEditor({ group, programmes, onChanged }: { group: CatalogueGroup;
             type="button"
             aria-label={`Remove the ${shortProgram(major.program)} sub-row from ${group.label}`}
             onClick={() => remove.mutate(major)}
-            className="rounded p-0.5 text-[#c8d0da] hover:bg-[#fdf3f3] hover:text-[#a6292f]"
+            className="absolute right-0 rounded bg-white p-0.5 text-[#98a2b3] opacity-0 shadow-sm hover:bg-[#fdf3f3] hover:text-[#a6292f] focus:opacity-100 group-hover:opacity-100"
           >
             <X size={12} aria-hidden="true" />
           </button>
@@ -970,7 +980,7 @@ function MajorsEditor({ group, programmes, onChanged }: { group: CatalogueGroup;
           }}
           className="w-full rounded-md border border-dashed border-[#cbd5e1] bg-transparent px-1.5 py-0.5 text-xs text-[#667085]"
         >
-          <option value="">{majors.length ? "+ another major" : "one thing for everybody"}</option>
+          <option value="">{majors.length ? "+ major" : "Everybody"}</option>
           {offered.map((program) => (
             <option key={program} value={program}>
               {program}
@@ -989,7 +999,8 @@ function MajorsEditor({ group, programmes, onChanged }: { group: CatalogueGroup;
             event.preventDefault();
             add.mutate(adding.trim());
           }}
-          placeholder={majors.length ? "+ another major, then Enter" : "a major, as the portal spells it"}
+          placeholder={majors.length ? "+ major" : "+ a major"}
+          title="A major as the portal spells it, then Enter"
           className="w-full rounded-md border border-dashed border-[#cbd5e1] bg-transparent px-1.5 py-0.5 text-xs text-[#667085]"
         />
       ) : null}

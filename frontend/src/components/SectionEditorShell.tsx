@@ -61,7 +61,7 @@ export function SectionEditorShell({
     else if (distance >= 8 && scrollTop >= 48) updateHeaderState(true);
   }
 
-  return <div ref={containerRef} className="mx-auto h-full max-w-[98rem] overflow-y-auto px-1 py-1.25 sm:px-1.5 lg:flex lg:flex-col lg:overflow-hidden lg:px-2">
+  return <div ref={containerRef} className="h-full w-full overflow-y-auto page-gutters [--page-cap:98rem] [--page-pad:1rem] sm:[--page-pad:1.5rem] lg:[--page-pad:2rem] py-1.25 lg:flex lg:flex-col lg:overflow-hidden">
     <div data-testid="editor-header" className={`sticky top-0 z-20 shrink-0 border-b border-[#d9dee7] bg-[#f7f8fa] transition-[padding,gap] duration-200 ${headerCollapsed ? "py-2" : "pb-4"}`}>
       <div className={`flex min-w-0 flex-col gap-3 transition-[gap] duration-200 lg:flex-row lg:items-center lg:justify-between ${headerCollapsed ? "lg:gap-2" : "lg:gap-4"}`}>
         <div className="flex min-w-0 items-start gap-3"><button type="button" onClick={onBack} className={`rounded-md p-2 text-[#344054] hover:bg-[#e8edf3] focus:outline-none focus:ring-2 focus:ring-[#d7e5f3] ${headerCollapsed ? "mt-0" : "mt-1"}`} aria-label={backLabel}><ArrowLeft size={19} /></button><div className="min-w-0"><p className={`text-sm font-medium text-[#a6292f] ${headerCollapsed ? "hidden" : ""}`}>{eyebrow}</p>{titleControl ?? <h2 title={title} className={`truncate font-semibold text-[#171717] transition-[font-size] duration-200 ${headerCollapsed ? "text-lg" : "text-xl"}`}>{title}</h2>}<p className={`text-sm text-[#667085] ${headerCollapsed ? "hidden" : ""}`}>{subtitle}</p><div className={headerCollapsed ? "hidden" : ""}>{titleMeta}</div></div></div>

@@ -197,7 +197,7 @@ export function WorkbookReview({
       )}
 
       <div className="fixed inset-x-0 bottom-0 z-40 border-t border-[#d9dee7] bg-white/95 px-4 py-3 backdrop-blur sm:px-6">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="mx-auto flex max-w-[86rem] flex-wrap items-center justify-between gap-3">
           <div className="text-sm text-[#344054]">
             <b className="tabular-nums">{selected.size}</b> of {countDecisions(preview)} change(s)
             approved
