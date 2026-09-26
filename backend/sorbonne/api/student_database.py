@@ -18,6 +18,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from pydantic import BaseModel, ConfigDict, Field
 
+from sorbonne.api.team_rosters import get_rosters
 from sorbonne.config import config
 from sorbonne.services.group_assignment_import import AssignmentImportError, parse_group_assignments
 from sorbonne.services.workbook_diff import (
@@ -44,6 +45,7 @@ from sorbonne.services.student_database import (
     ScopeNotFound,
     StudentDatabase,
 )
+from sorbonne.services.team_rosters import TeamRosterStore, missing_from_channel
 
 router = APIRouter(prefix="/student-database", tags=["student-database"])
 
@@ -431,6 +433,31 @@ def list_members(cohort_id: str, database: StudentDatabase = Depends(get_databas
         return {"members": database.list_members(cohort_id)}
     except CohortNotFound as exc:
         raise _missing(exc, "cohort") from exc
+
+
+@router.get("/cohorts/{cohort_id}/teams-check")
+def teams_check(
+    cohort_id: str,
+    database: StudentDatabase = Depends(get_database),
+    rosters: TeamRosterStore = Depends(get_rosters),
+) -> dict[str, Any]:
+    """Which of this cohort's members the roster sync's last reading did not list in its channel.
+
+    The members are the ones `/members` lists. A cohort with no channel is answered as
+    such without reading them: there is nothing to hold them against.
+    """
+    try:
+        cohort = database.get_cohort(cohort_id)
+        if not cohort["teamsChannel"].strip():
+            return missing_from_channel(channel="", student_ids=[], reading=None)
+        members = database.list_members(cohort_id)
+    except CohortNotFound as exc:
+        raise _missing(exc, "cohort") from exc
+    return missing_from_channel(
+        channel=cohort["teamsChannel"],
+        student_ids=[member["studentId"] for member in members],
+        reading=rosters.latest(),
+    )
 
 
 # --------------------------------------------------------------- catalogue

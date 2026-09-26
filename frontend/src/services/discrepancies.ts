@@ -22,7 +22,7 @@
 
 import { sameProgram } from "@/services/programmes";
 import { rowText } from "@/services/copyCells";
-import { type CatalogueScope, parentsOf, partsOf } from "@/services/studentDatabase";
+import { type CatalogueScope, type TeamsCheck, parentsOf, partsOf } from "@/services/studentDatabase";
 
 export type RuleKind = "changed" | "changed_to" | "is" | "is_not" | "differs" | "belongs";
 
@@ -83,9 +83,12 @@ export type Warning = {
   key: string;
   studentId: string;
   ruleId: string;
-  kind: RuleKind | "unplaced" | "no_baseline" | "registration" | "group" | "elective";
+  kind: RuleKind | "unplaced" | "no_baseline" | "registration" | "group" | "elective" | "teams";
   field: string;
-  /** For a change: what it was and what it became, and when. */
+  /**
+   * For a change: what it was and what it became, and when. For a Teams warning, `at` is
+   * when the roster sync's reading was taken.
+   */
   from?: string;
   to?: string;
   at?: number;
@@ -468,7 +471,15 @@ export function describeWarning(warning: Warning): string {
     case "elective":
       // Written in full by electiveWarnings: which course, and that nobody has said yes.
       return warning.value ?? "registered in an elective no coordinator has approved";
+    case "teams":
+      // The channel is what the cohort expects; `at` is when the sync last looked.
+      return `Not in the ${warning.expected} Teams channel, as the roster sync last saw it${warning.at ? ` (${readingDate(warning.at)})` : ""}`;
   }
+}
+
+/** "25 Sept 2026" — the day a roster reading was taken. */
+export function readingDate(at: number): string {
+  return new Date(at).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
 }
 
 /** The fields that say whether somebody is a student here at all. */
@@ -483,7 +494,7 @@ const ENROLMENT_FIELDS = new Set([STATUS_FIELD, "STST_CODE", "ESTS_CODE"]);
  * and a coordinator clearing one does not want the other in the way — so the source is a
  * thing to filter and colour by in its own right, not a detail of the kind.
  */
-export type WarningSource = "record" | "registration" | "timetabling" | "groups" | "electives";
+export type WarningSource = "record" | "registration" | "timetabling" | "groups" | "electives" | "teams";
 
 export function sourceOf(warning: Warning): WarningSource {
   // Said by the builder where it knows better — a clash of hours comes out of the same
@@ -491,6 +502,7 @@ export function sourceOf(warning: Warning): WarningSource {
   if (warning.source) return warning.source;
   if (warning.kind === "group") return "groups";
   if (warning.kind === "elective") return "electives";
+  if (warning.kind === "teams") return "teams";
   return warning.kind === "registration" ? "registration" : "record";
 }
 
@@ -532,6 +544,8 @@ export function labelWarning(warning: Warning): string {
       return "in no group";
     case "elective":
       return "elective not approved";
+    case "teams":
+      return "not in Teams";
   }
 }
 
@@ -741,6 +755,31 @@ export function electiveWarnings(
     }));
 }
 
+/**
+ * The cohort's members the Teams roster sync did not see in the cohort's channel.
+ *
+ * Only from a check that knows: no channel, a sync that never reported, and a reading with
+ * no channel by that name are all "no answer", and none of them is a warning about anybody.
+ * The key names the channel, so a dismissal made against one channel does not carry over
+ * to the next one the cohort is given — and not the reading, so it holds from one sync to
+ * the next for as long as the student is still missing.
+ */
+export function teamsWarnings(check: TeamsCheck | null | undefined, cohortId: string): Warning[] {
+  if (!check?.known) return [];
+  const at = check.syncedAt ? Date.parse(check.syncedAt) : NaN;
+  return check.missing.map((member) => ({
+    key: `teams|${cohortId}|${check.channel}|${member.studentId}`,
+    studentId: member.studentId,
+    ruleId: "teams",
+    kind: "teams" as const,
+    field: "teams",
+    expected: check.channel,
+    at: Number.isNaN(at) ? undefined : at,
+    label: "not in Teams",
+    source: "teams" as const,
+  }));
+}
+
 export function registrationWarnings<
   M extends {
     studentId: string;
@@ -824,6 +863,9 @@ export function remedyFor(warning: Warning): string {
   }
   if (warning.kind === "elective") {
     return "Goes away when you approve the course on their record, or add it to the cohort's allowed courses in its rules.";
+  }
+  if (warning.kind === "teams") {
+    return `Goes away when the roster sync next lists them in ${warning.expected} — add them to the roster workbook, and let the flow run.`;
   }
   switch (warning.kind) {
     case "changed":

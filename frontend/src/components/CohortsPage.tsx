@@ -12,7 +12,8 @@ import { ScreenLoading } from "@/components/ScreenLoading";
 import { SelectMenu } from "@/components/SelectMenu";
 import { RegistrationChangesButton } from "@/components/RegistrationChangesButton";
 import { StudentRoster } from "@/components/StudentRoster";
-import { WARNING_ICONS, WARNING_TONES } from "@/components/StudentTable";
+import { WARNING_ICONS, WARNING_TONES, type WarningIcon } from "@/components/StudentTable";
+import { TeamsIcon } from "@/components/TeamsIcon";
 import { useRemembered } from "@/components/useRemembered";
 import { usePageState } from "@/components/usePageState";
 import {
@@ -27,6 +28,7 @@ import {
   exemptGroupWarnings,
   linkWarnings,
   sourceOf,
+  teamsWarnings,
   unjudgeable,
   warningsForCohort,
   type Arrival,
@@ -48,9 +50,11 @@ import {
   fetchEveryExemption,
   fetchDiscrepancyRules,
   fetchStudents,
+  fetchTeamsCheck,
   setCohort,
   type Cohort,
   type Student,
+  type TeamsCheck,
 } from "@/services/studentDatabase";
 import { fetchPublication } from "@/services/publication";
 import { afterPlacement } from "@/services/afterPlacement";
@@ -99,7 +103,7 @@ function judge(
 }
 
 /** The three records to begin with — the old "All", and the commonest answer. */
-const EVERY_RECORD: readonly WarningSource[] = ["record", "registration", "timetabling", "groups", "electives"];
+const EVERY_RECORD: readonly WarningSource[] = ["record", "registration", "timetabling", "groups", "electives", "teams"];
 
 /**
  * The three records, in the order the page's filter offers them.
@@ -113,6 +117,7 @@ const RECORDS: { id: WarningSource; counted: string }[] = [
   { id: "timetabling", counted: "booked into two places at one hour" },
   { id: "groups", counted: "we have not placed in a group of one of the sets" },
   { id: "electives", counted: "taking an elective no coordinator has approved" },
+  { id: "teams", counted: "the roster sync did not see in the cohort's Teams channel" },
 ];
 
 /**
@@ -162,23 +167,32 @@ function SourceFilter({
   showing,
   onToggle,
   counts,
+  teams,
 }: {
   /** The records whose warnings are shown. Any combination; none shows nothing. */
   showing: ReadonlySet<WarningSource>;
   onToggle: (id: WarningSource) => void;
   counts: Record<WarningSource, number>;
+  /**
+   * Whether the Teams toggle is offered: only for a cohort that names its channel and whose
+   * channel the roster sync's last reading knows. Otherwise there is nothing it could show.
+   */
+  teams: boolean;
 }) {
   /*
    * Three toggles, any combination — the same control as the "Registrations to change"
    * dialog, so the two read alike. There used to be an "All" beside them, which made the
    * three a choice of one; two records at once was not something the page could show.
    */
-  const options: { id: WarningSource; name: string; icon: typeof AlertTriangle; hint: string }[] = [
+  const options: { id: WarningSource; name: string; icon: WarningIcon; hint: string }[] = [
     { id: "record", name: "Status", icon: AlertTriangle, hint: "Where the portal's record and ours have drifted apart" },
     { id: "registration", name: "Registration", icon: ClipboardList, hint: "Where the portal has them in other sections than we placed them in" },
     { id: "timetabling", name: "Timetabling", icon: CalendarClock, hint: "Where the hours a student is booked into cannot all be attended" },
     { id: "groups", name: "Groups", icon: LayoutGrid, hint: "Where we have not put a student in a group of one of the cohort's sets" },
     { id: "electives", name: "Electives", icon: GraduationCap, hint: "Courses outside the cohort's groups that no coordinator has approved yet — approve them on the student's record" },
+    ...(teams
+      ? [{ id: "teams" as const, name: "Teams", icon: TeamsIcon, hint: "Members the roster sync's last reading did not list in the cohort's Teams channel" }]
+      : []),
   ];
   return (
     <div
@@ -524,6 +538,28 @@ export function CohortsPage({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [cohorts, ...placements.map((read) => read.dataUpdatedAt)],
   );
+  /*
+   * Who the Teams roster sync did not see in each cohort's channel, for every cohort that
+   * names one — every cohort for the same reason as the register's check: the table can be
+   * widened to all of them. A cohort with no channel is not asked, and an answer held from
+   * before its channel was cleared is not read.
+   */
+  const teamsChecks = useQueries({
+    queries: cohorts.map((cohort) => ({
+      queryKey: ["teams-check", cohort.id],
+      queryFn: () => fetchTeamsCheck(cohort.id),
+      enabled: Boolean(cohort.teamsChannel?.trim()),
+      retry: false,
+    })),
+  });
+  const teamsBy = useMemo(
+    () =>
+      new Map<string, TeamsCheck | null>(
+        cohorts.map((cohort, index) => [cohort.id, cohort.teamsChannel?.trim() ? (teamsChecks[index]?.data ?? null) : null]),
+      ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [cohorts, ...teamsChecks.map((read) => read.dataUpdatedAt)],
+  );
 
   /**
    * Every cohort's warnings from both records, folded into one list per cohort.
@@ -563,10 +599,12 @@ export function CohortsPage({
           placedBy.get(cohort.id) ?? {},
           everyExemption.data ?? [],
         ),
+        // Members the roster sync did not see in the cohort's Teams channel.
+        ...teamsWarnings(teamsBy.get(cohort.id), cohort.id),
       ]);
     }
     return out;
-  }, [cohorts, judged, registrationsBy, reportsBy, readiness.terms, nameOfTerm, catalogues.data, placedBy, everyExemption.data]);
+  }, [cohorts, judged, registrationsBy, reportsBy, readiness.terms, nameOfTerm, catalogues.data, placedBy, everyExemption.data, teamsBy]);
 
   /*
    * Every cohort's warnings by student, not only the cohort on screen.
@@ -647,7 +685,11 @@ export function CohortsPage({
     timetabling: flaggedIn(all, "timetabling"),
     groups: flaggedIn(all, "groups"),
     electives: flaggedIn(all, "electives"),
+    teams: flaggedIn(all, "teams"),
   };
+  // The Teams toggle and its column in the picker only where there is a reading to judge by.
+  const teamsKnown = Boolean(teamsBy.get(cohortId)?.known);
+  const records = [...teamsBy.values()].some((check) => check?.known) ? RECORDS : RECORDS.filter((record) => record.id !== "teams");
   const dismissedCount = all.filter((warning) => warning.dismissed).length;
 
   const arrivals = cohort ? (judged?.arrivals.get(cohort.id) ?? []).filter((arrival) => !dismissed.has(arrival.key)) : [];
@@ -734,7 +776,7 @@ export function CohortsPage({
                    * The counts are of STUDENTS, per record, so they do not add up: one
                    * person flagged by two records is counted under both.
                    */
-                  flags: RECORDS.map((record) => ({
+                  flags: records.map((record) => ({
                     key: record.id,
                     count: flaggedIn(held, record.id),
                     title: record.counted,
@@ -795,7 +837,7 @@ export function CohortsPage({
         */}
       {flaggedStudents || dismissedCount ? (
         <div className="mt-3 flex flex-wrap items-center gap-2">
-          {flaggedStudents ? <SourceFilter showing={showing} onToggle={toggleShowing} counts={counts} /> : null}
+          {flaggedStudents ? <SourceFilter showing={showing} onToggle={toggleShowing} counts={counts} teams={teamsKnown} /> : null}
           {/*
             * The dismissed warnings, beside the toggles that choose which warnings show —
             * the same kind of control, where they used to be two links at the end of a

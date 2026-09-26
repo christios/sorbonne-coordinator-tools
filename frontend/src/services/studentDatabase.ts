@@ -33,6 +33,11 @@ export type Cohort = {
    * verdict of the register, until a coordinator approves it on their record.
    */
   allowedCodes: string[];
+  /**
+   * The private Teams channel these students belong in, spelled as Teams spells it.
+   * Empty means the cohort is not compared against the roster sync at all.
+   */
+  teamsChannel?: string;
   memberCount: number;
   scopeCount: number;
   createdAt: string;
@@ -282,6 +287,11 @@ export type CohortInput = {
   workbookTab?: string;
   firstSemester?: number;
   allowedCodes?: string[];
+  /**
+   * Left out, the server keeps the channel as it is; "" clears it. Deliberately not in
+   * `COHORT_DEFAULTS`: a default would blank the channel on every save that did not name it.
+   */
+  teamsChannel?: string;
 };
 
 const COHORT_DEFAULTS = {
@@ -416,6 +426,29 @@ export function placeStudents(
 export async function fetchMemberIds(cohortId: string): Promise<Set<string>> {
   const payload = await request<{ members: { studentId: string }[] }>(`${BASE}/cohorts/${cohortId}/members`);
   return new Set(payload.members.map((member) => member.studentId));
+}
+
+/**
+ * Which of a cohort's members the Teams roster sync last saw outside the cohort's channel.
+ *
+ * `known` is false whenever there is no answer to give — no channel named, the sync never
+ * reported, or its last reading had no channel by that name — and `reason` says which,
+ * because "nobody is missing" and "we have never been told" would otherwise look alike.
+ */
+export type TeamsCheck = {
+  known: boolean;
+  reason: "" | "no_channel" | "never_synced" | "channel_not_in_sync";
+  /** The cohort's channel as it names it; empty when it names none. */
+  channel: string;
+  /** How many addresses the reading listed for the channel. Only when known. */
+  listed?: number;
+  missing: { studentId: string; address: string }[];
+  /** When the reading was taken, as the sync said. Only when known. */
+  syncedAt?: string;
+};
+
+export function fetchTeamsCheck(cohortId: string): Promise<TeamsCheck> {
+  return request<TeamsCheck>(`${BASE}/cohorts/${cohortId}/teams-check`);
 }
 
 export async function fetchAssignments(cohortId: string): Promise<Record<string, Record<string, string>>> {

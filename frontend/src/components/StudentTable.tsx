@@ -1,8 +1,9 @@
 import { AlertTriangle, CalendarClock, ClipboardList, Clock3, GraduationCap, LayoutGrid, RotateCcw, X } from "lucide-react";
-import { memo, useCallback } from "react";
+import { memo, useCallback, type ComponentType } from "react";
 
 import { CommentPeek } from "@/components/CommentPeek";
 import { DataTable, type Sort } from "@/components/DataTable";
+import { TeamsIcon } from "@/components/TeamsIcon";
 import { describeWarning, labelWarning, remedyFor, sourceOf, type WarningSource } from "@/services/discrepancies";
 import type { StudentRow } from "@/services/rosterView";
 import type { ColumnLayout, StudentColumn } from "@/services/studentColumns";
@@ -158,14 +159,20 @@ export const WARNING_TONES: Record<WarningSource, string> = {
   groups: "bg-[#e4f3ec] text-[#1f6b45]",
   // Rose for a course outside the groups that is waiting on a coordinator's yes.
   electives: "bg-[#fcebf2] text-[#8a2452]",
+  // Teams' own purple, for a student the roster sync did not see in the cohort's channel.
+  teams: "bg-[#ecedfb] text-[#464eb8]",
 };
 
-export const WARNING_ICONS: Record<WarningSource, typeof AlertTriangle> = {
+/** What a warning's icon has to accept: lucide's, and the Teams mark drawn here. */
+export type WarningIcon = ComponentType<{ size?: number; className?: string; "aria-hidden"?: boolean | "true" }>;
+
+export const WARNING_ICONS: Record<WarningSource, WarningIcon> = {
   record: AlertTriangle,
   registration: ClipboardList,
   timetabling: CalendarClock,
   groups: LayoutGrid,
   electives: GraduationCap,
+  teams: TeamsIcon,
 };
 
 /** "dismissed by Chris on 16 Sept 2026" — the sentence behind a quieted pill. */

@@ -1,16 +1,34 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Settings, Trash2, Users } from "lucide-react";
-import { useState } from "react";
+import { useId, useState } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { RulesList } from "@/components/DiscrepancyRulesEditor";
+import { InfoTip } from "@/components/InfoTip";
 import { Modal } from "@/components/Modal";
 import { CodesField, CohortExpectationsFields, missingExpectations } from "@/components/CohortExpectations";
+import { readingDate } from "@/services/discrepancies";
 import { electiveOptions } from "@/services/electiveOptions";
 import { rulesDescription, schemaNote, useRuleDrafts } from "@/services/ruleDrafts";
 import { fetchPortalCourses, fetchRegistrationCheck } from "@/services/portalLists";
 import { fetchSchema } from "@/services/scenRosters";
-import { type Cohort, deleteCohort, updateCohort } from "@/services/studentDatabase";
+import { type Cohort, type TeamsCheck, deleteCohort, fetchTeamsCheck, updateCohort } from "@/services/studentDatabase";
+
+/**
+ * One line on what the roster sync's last reading makes of the cohort's channel, or nothing
+ * when there is nothing to say — no channel saved, or the answer not in yet.
+ */
+function teamsStatus(check: TeamsCheck | undefined, members: number): string {
+  if (!check) return "";
+  if (check.reason === "never_synced") return "The roster sync has not reported yet";
+  if (check.reason === "channel_not_in_sync") return `The roster sync's last reading has no channel called ${check.channel}`;
+  if (!check.known) return "";
+  const at = check.syncedAt ? Date.parse(check.syncedAt) : NaN;
+  const when = Number.isNaN(at) ? "Last reading" : `Last reading ${readingDate(at)}`;
+  return check.missing.length
+    ? `${when}: ${check.missing.length} of ${members} not in it`
+    : `${when}: every member is in it`;
+}
 
 
 /**
@@ -43,6 +61,8 @@ export function CohortActions({
   const [workbookTab, setWorkbookTab] = useState(cohort.workbookTab);
   const [firstSemester, setFirstSemester] = useState(String(cohort.firstSemester || ""));
   const [allowedCodes, setAllowedCodes] = useState<string[]>(cohort.allowedCodes);
+  const [teamsChannel, setTeamsChannel] = useState(cohort.teamsChannel ?? "");
+  const teamsChannelId = useId();
   /*
    * The cohort's settings are two things: what it is and expects, and its own rules on top
    * of the shared ones. The rules had a button of their own beside the table; they are a
@@ -61,6 +81,17 @@ export function CohortActions({
     enabled: editing,
     retry: false,
   });
+  // What the roster sync last made of the channel as saved — the Cohorts page's own query.
+  const savedChannel = (cohort.teamsChannel ?? "").trim();
+  const teams = useQuery({
+    queryKey: ["teams-check", cohort.id],
+    queryFn: () => fetchTeamsCheck(cohort.id),
+    enabled: editing && Boolean(savedChannel),
+    retry: false,
+  });
+  // Said of the saved channel only: a name being typed has not been compared with anything.
+  const teamsLine =
+    savedChannel && teamsChannel.trim() === savedChannel ? teamsStatus(teams.data, cohort.memberCount) : "";
 
   const refresh = () => client.invalidateQueries({ queryKey: ["cohorts"] });
   const save = useMutation({
@@ -75,6 +106,12 @@ export function CohortActions({
         workbookTab: workbookTab.trim(),
         firstSemester: Number(firstSemester) || 0,
         allowedCodes,
+        /*
+         * Always the field's value, so saving anything else keeps the channel rather than
+         * blanking it — except from a cohort read without the field at all, where an
+         * untouched empty box is left out and the server keeps what it holds.
+         */
+        teamsChannel: cohort.teamsChannel === undefined && !teamsChannel.trim() ? undefined : teamsChannel.trim(),
       });
       return rules.changed ? rules.save() : null;
     },
@@ -89,6 +126,8 @@ export function CohortActions({
        * every sport warning still there until the page was reloaded.
        */
       void client.invalidateQueries({ queryKey: ["registration-check", cohort.id] });
+      // And who is not in its Teams channel, which reads the channel just saved.
+      void client.invalidateQueries({ queryKey: ["teams-check", cohort.id] });
     },
   });
   const remove = useMutation({
@@ -134,6 +173,7 @@ export function CohortActions({
             setWorkbookTab(cohort.workbookTab);
             setFirstSemester(String(cohort.firstSemester || ""));
             setAllowedCodes(cohort.allowedCodes);
+            setTeamsChannel(cohort.teamsChannel ?? "");
             setEditing(true);
           }}
           className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-[#b7bec8] bg-white text-[#344054] hover:bg-[#f8fafc]"
@@ -299,6 +339,27 @@ export function CohortActions({
                 3 for Licence 2, so its sheets are S3 and S4.
               </span>
             </label>
+          </div>
+
+          {/* Where these students should be on Teams, held against what the roster sync last saw. */}
+          <div>
+            <div className="flex items-center gap-1">
+              <label htmlFor={teamsChannelId} className="text-sm font-semibold text-[#344054]">
+                Teams channel
+              </label>
+              <InfoTip label="What the Teams channel is for">
+                The private channel these students belong in, spelled as Teams spells it. The roster sync&apos;s last
+                reading is compared against the cohort&apos;s members.
+              </InfoTip>
+            </div>
+            <input
+              id={teamsChannelId}
+              value={teamsChannel}
+              onChange={(event) => setTeamsChannel(event.target.value)}
+              placeholder="L2 Students"
+              className="mt-1.5 block w-full rounded-md border border-[#cbd5e1] px-3 py-2 text-sm font-normal"
+            />
+            {teamsLine ? <p className="mt-1 text-xs text-[#98a2b3]">{teamsLine}</p> : null}
           </div>
         </div>
         {save.error ? (
