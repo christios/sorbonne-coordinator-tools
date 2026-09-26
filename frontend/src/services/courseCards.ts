@@ -199,7 +199,7 @@ function subRows(
       },
     ];
   }
-  const rows = majors.map((major, index) => {
+  const rows = majors.map((major) => {
     const own = group.byMajor?.[major.id]?.[course.id];
     const section = sectionFor(group, major.id, course.id);
     return {
@@ -212,8 +212,14 @@ function subRows(
       major,
       notTaught: Boolean(own?.notTaught),
       sharedCell: Boolean(section) && !own,
-      firstSubRow: index === 0,
+      firstSubRow: false,
     };
+  });
+  // The row that counts the shared cell is the first that SHOWS it, which is not the first
+  // sub-row when that one has a class of its own; a class of its own is always counted.
+  const firstShared = rows.findIndex((row) => row.sharedCell);
+  rows.forEach((row, index) => {
+    row.firstSubRow = row.sharedCell ? index === firstShared : true;
   });
   /*
    * A lecture every taught sub-row shares is one class, and one row: L1's CM is one group

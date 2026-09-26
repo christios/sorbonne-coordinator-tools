@@ -121,6 +121,44 @@ describe("the request sheets", () => {
     ]);
   });
 
+  it("send a shared lecture once even when the first sub-row has a class of its own", () => {
+    const cards = buildCards(
+      [
+        {
+          ...FYS,
+          scopes: [
+            {
+              ...FYS.scopes[0],
+              groups: [
+                {
+                  id: "cm-1", label: "1", capacity: 0, note: "", parentGroupId: "", assigned: 0,
+                  majors: [
+                    { id: "m-maths", program: "MATH - Mathematics", seats: 90, assigned: 80 },
+                    { id: "m-phys", program: "PHYS - Physics", seats: 20, assigned: 18 },
+                    { id: "m-chem", program: "CHEM - Chemistry", seats: 10, assigned: 9 },
+                  ],
+                  crns: { "td-math": { ...EMPTY_SECTION, crn: "22100", hours: "30" } },
+                  byMajor: { "m-maths": { "td-math": { ...EMPTY_SECTION, crn: "22101", hours: "30", majorId: "m-maths" } } },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+      termName,
+      ACTIVE,
+      PARENTS,
+    );
+
+    const [sheet] = requestSheets(cards, "term-1", termName("term-1"), () => "Foundation Year for Sciences", nameOf);
+
+    // Mathematics' own class, then the one the physicists and chemists share — once, for 30.
+    expect(sheet.rows.map((row) => [row.crn, row.anticipated])).toEqual([
+      ["22101", 90],
+      ["22100", 30],
+    ]);
+  });
+
   it("write one row per section in the workbook's columns, with the retired ones marked", () => {
     const cards = buildCards([FYS], termName, ACTIVE, PARENTS);
 
