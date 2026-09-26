@@ -6,6 +6,7 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { SelectMenu } from "@/components/SelectMenu";
 import { TaskFormDialog, type TaskFormValues } from "@/components/TaskFormDialog";
 import { TaskRow } from "@/components/TaskRow";
+import { usePageState } from "@/components/usePageState";
 import {
   compareTeacherTasks,
   summarizeTasks,
@@ -42,9 +43,9 @@ export function TasksOverview({
   onOpenTeacher: (id: string) => void;
 }) {
   const client = useQueryClient();
-  const [status, setStatus] = useState<StatusFilter>("OPEN");
+  const [status, setStatus] = usePageState<StatusFilter>("tasks:status", "OPEN");
   const [teacherId, setTeacherId] = useState("");
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = usePageState("tasks:search", "");
   const [folderId, setFolderId] = useState("");
   const [urgency, setUrgency] = useState<UrgencyFilter>("ALL");
   const [formOpen, setFormOpen] = useState(false);

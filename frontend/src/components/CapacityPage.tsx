@@ -7,6 +7,7 @@ import { LabelledPicker } from "@/components/LabelledPicker";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { SelectMenu } from "@/components/SelectMenu";
 import { useRemembered } from "@/components/useRemembered";
+import { usePageState } from "@/components/usePageState";
 import {
   capacityByGroup,
   capacityBySet,
@@ -216,7 +217,7 @@ export function CapacityPage() {
     const held = (registered.data ?? []).find((entry) => entry.crn === crn);
     if (held) setShowingCrn(held);
   };
-  const [showingOver, setShowingOver] = useState(false);
+  const [showingOver, setShowingOver] = usePageState("capacity:over", false);
 
   const rows = useMemo(() => {
     const termName = (id: string) => (terms.data ?? []).find((term) => term.id === id)?.name ?? (id ? "unknown semester" : "");

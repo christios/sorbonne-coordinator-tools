@@ -8,6 +8,7 @@ import { ScreenLoading } from "@/components/ScreenLoading";
 import { SelectMenu } from "@/components/SelectMenu";
 import { useRemembered } from "@/components/useRemembered";
 import { WarningBanner, WarningRows, type WarningKind } from "@/components/WarningBanner";
+import { usePageState } from "@/components/usePageState";
 import { fetchActiveCourses } from "@/services/portalLists";
 import { fieldHeld } from "@/services/rosterStore";
 import { COHORT, SCHEMA_TERM } from "@/services/remembered";
@@ -131,7 +132,7 @@ export function GroupSchema({
   // semester on its own, since this is the only page that asks for one.
   const [termId, setTermId] = useRemembered(SCHEMA_TERM);
   const [cohortId, setCohortId] = useRemembered(COHORT);
-  const [chosenId, setChosenId] = useState("");
+  const [chosenId, setChosenId] = usePageState("group-schema:set", "");
   // The two panes fill the room under the totals, and each scrolls inside itself.
 
   const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, retry: false });
@@ -271,7 +272,7 @@ export function GroupSchema({
       });
     }
     return found;
-  }, [readings, programmes, pulledFrom, cohort]);
+  }, [readings, programmes, pulledFrom, cohort, setChosenId]);
 
   if (!terms.isLoading && !(terms.data ?? []).length) {
     return (

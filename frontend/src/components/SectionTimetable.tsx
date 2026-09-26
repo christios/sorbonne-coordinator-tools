@@ -110,6 +110,12 @@ type TimetableProps = {
    */
   onPickSession?: (session: PlacedSession) => void;
   /**
+   * Draw only the classes this says yes to. For a filter on the classes themselves — a
+   * room, a weekday — where the sections are already chosen: a section that meets in
+   * 5.111 on Monday and 4.124 on Wednesday shows its Monday alone when 5.111 is asked for.
+   */
+  sessionFilter?: (session: { crn: string; date: string; start: string; end: string; room: string }) => boolean;
+  /**
    * Any day of the semester's first teaching week, from Settings → Semesters. Given it,
    * the week says which teaching week it is — "Week 5" — and that label is a picker that
    * jumps straight to any week of the semester.
@@ -161,6 +167,7 @@ function Timetable({
   onPickSession,
   weekOne,
   keepWeekAs,
+  sessionFilter,
   onExpand,
 }: TimetableProps & { onExpand?: () => void }) {
   const today = isoToday();
@@ -203,8 +210,8 @@ function Timetable({
   });
 
   const { sessions, courses, unasked, gone, unbooked, unlinked } = useMemo(
-    () => assemble(entries, sections, notes, onPickSession ? () => true : openable),
-    [entries, sections, notes, openable, onPickSession],
+    () => assemble(entries, sections, notes, onPickSession ? () => true : openable, sessionFilter),
+    [entries, sections, notes, openable, onPickSession, sessionFilter],
   );
 
   const [weekStart, setWeekStart] = useState<Date | null>(null);
@@ -378,6 +385,7 @@ function assemble(
   sections: (FacilitySection & { termCode: string })[],
   notes: SessionChange[],
   openable?: (crn: string) => boolean,
+  sessionFilter?: TimetableProps["sessionFilter"],
 ): Assembled {
   const said = new Map(notes.map((note) => [slotKey(note), note]));
   const wanted = new Map<string, TimetableEntry>();
@@ -413,6 +421,18 @@ function assemble(
     for (const meeting of section.meetings) {
       // A section the caller asked for by date is drawn on those days and no others.
       if (entry.onlyOn && !entry.onlyOn.includes(meeting.meetsOn)) continue;
+      if (
+        sessionFilter &&
+        !sessionFilter({
+          crn: section.crn,
+          date: meeting.meetsOn,
+          start: meeting.startsAt.slice(0, 5),
+          end: meeting.endsAt.slice(0, 5),
+          room: meeting.room,
+        })
+      ) {
+        continue;
+      }
       const note = said.get(slotKey({ termCode: section.termCode, crn: section.crn, meetsOn: meeting.meetsOn, startsAt: meeting.startsAt }));
       sessions.push({
         crn: section.crn,

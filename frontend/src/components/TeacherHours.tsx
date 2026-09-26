@@ -21,6 +21,7 @@ import {
   listEverySubmittedTimeSheet,
 } from "@/services/teachers";
 import type { TeacherRef } from "@/components/TeacherRecord";
+import { usePageState } from "@/components/usePageState";
 import { buildCards } from "@/services/courseCards";
 import {
   fetchActiveCourses,
@@ -73,7 +74,7 @@ export function TeacherHours({ onOpenTeacher }: { onOpenTeacher?: (teacher: Teac
   const teachers = useQuery({ queryKey: ["active-teachers"], queryFn: fetchActiveTeachers });
   const cohorts = useQuery({ queryKey: ["cohorts"], queryFn: fetchCohorts });
   const registered = useQuery({ queryKey: ["active-crns"], queryFn: () => fetchActiveCrns() });
-  const [termId, setTermId] = useState("");
+  const [termId, setTermId] = usePageState("teacher-hours:term", "");
 
   const termName = (id: string) => (terms.data ?? []).find((term) => term.id === id)?.name ?? (id ? "unknown semester" : "");
   const parentOf = useMemo(
@@ -126,7 +127,7 @@ export function TeacherHours({ onOpenTeacher }: { onOpenTeacher?: (teacher: Teac
    */
   const cycles = useQuery({ queryKey: ["pay-cycles"], queryFn: fetchPayCycles });
   const opensOn = opensOnFor(cycles.data?.cycles ?? {}, chosenTerm, cycles.data?.default ?? PERIOD_OPENS_ON);
-  const [chosenWindow, setWindow] = useState<HourWindow>(WHOLE_SEMESTER);
+  const [chosenWindow, setWindow] = usePageState<HourWindow>("teacher-hours:window", WHOLE_SEMESTER);
   const [commentingOn, setCommentingOn] = useState<{ id: string; label: string } | null>(null);
   /*
    * The other three places a teacher's hours are written down, so the column can tell

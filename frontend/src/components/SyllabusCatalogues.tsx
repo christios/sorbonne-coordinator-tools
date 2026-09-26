@@ -1,4 +1,5 @@
 import { SelectMenu } from "@/components/SelectMenu";
+import { usePageState } from "@/components/usePageState";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { DownloadCloud, FilePlus2, Loader2, Pencil, Search, Trash2 } from "lucide-react";
 import { FormEvent, useState } from "react";
@@ -70,7 +71,7 @@ function useCatalogue(category: CatalogueCategory, query = "", parentId?: string
 }
 
 function PeopleCatalogue() {
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = usePageState("catalogues:PeopleCatalogue:search", "");
   const [showCreate, setShowCreate] = useState(false);
   const catalogue = useCatalogue("people", query);
   const client = useQueryClient();
@@ -145,7 +146,7 @@ function matching(entries: CatalogueEntry[], query: string, fields: string[] = [
 
 function ProgrammesCatalogue() {
   const [showCreate, setShowCreate] = useState(false);
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = usePageState("catalogues:ProgrammesCatalogue:search", "");
   const programmes = useCatalogue("programmes");
   const [selectedId, setSelectedId] = useState("");
   const shown = matching(programmes.data ?? [], query);
@@ -155,7 +156,7 @@ function ProgrammesCatalogue() {
 
 function PloCatalogue({ programme }: { programme: CatalogueEntry }) {
   const [showCreate, setShowCreate] = useState(false);
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = usePageState("catalogues:PloCatalogue:search", "");
   const plos = useCatalogue("plos", "", programme.id);
   return <><CatalogueHeader title={`${programme.label} PLOs`} description="These outcomes become read-only choices when this programme is selected in a SCEN syllabus." action={<button type="button" onClick={() => setShowCreate(true)} className="inline-flex items-center gap-2 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#1f4e79]"><FilePlus2 size={16} /> Add PLO</button>} /><SearchField label="Search outcomes" value={query} onChange={setQuery} />{showCreate ? <PloForm programme={programme} onCancel={() => setShowCreate(false)} onSaved={() => setShowCreate(false)} /> : null}<CatalogueEntries category="plos" entries={matching(plos.data ?? [], query)} isLoading={plos.isLoading} renderDetails={(entry) => <p className="mt-1 text-sm leading-6 text-[#667085]">{stringValue(entry.payload.outcome)}</p>} /></>;
 }
@@ -431,7 +432,7 @@ function CurriculumMappingCatalogue() {
   const [programmeId, setProgrammeId] = useState("");
   const [showCreate, setShowCreate] = useState(false);
   const [selectedId, setSelectedId] = useState("");
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = usePageState("catalogues:CurriculumMappingCatalogue:search", "");
   const chosen = programmeId || programmes.data?.[0]?.id || "";
   const mapping = useQuery({
     queryKey: ["syllabus-catalogues", "curriculum-mapping", chosen],

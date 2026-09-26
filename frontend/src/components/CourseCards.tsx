@@ -12,6 +12,7 @@ import { ScreenLoading } from "@/components/ScreenLoading";
 import { TableFilterBar } from "@/components/TableFilterBar";
 import { useRemembered } from "@/components/useRemembered";
 import { WorkbookTools } from "@/components/WorkbookTools";
+import { usePageState } from "@/components/usePageState";
 import { afterPlacement } from "@/services/afterPlacement";
 import { buildCards, cardColumns, rowsPerPart, teaches, type Card } from "@/services/courseCards";
 import { fetchActiveCourses, fetchActiveCrns, fetchActiveTeachers, fetchRegisterCheck, fetchTermCrns } from "@/services/portalLists";
@@ -119,9 +120,9 @@ export function CourseCards({
 
   const nameOf = (teacherId: string) => (teachers.data ?? []).find((teacher) => teacher.id === teacherId)?.fullName ?? "";
   const columns = useMemo(() => cardColumns(nameOf), [teachers.data]); // eslint-disable-line react-hooks/exhaustive-deps
-  const [filters, setFilters] = useState<FilterModel[]>([]);
+  const [filters, setFilters] = usePageState<FilterModel[]>("course-cards:filters", []);
   // The two panes fill the room under the toolbar, and each scrolls inside itself.
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = usePageState("course-cards:search", "");
   /*
    * One cohort at a time.
    *

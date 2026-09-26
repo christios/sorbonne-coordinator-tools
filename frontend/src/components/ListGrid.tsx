@@ -6,6 +6,7 @@ import { CopyButton } from "@/components/CopyButton";
 import { CopyPresetMenu } from "@/components/CopyPresetMenu";
 import { DataTable, type Sort } from "@/components/DataTable";
 import { TableFilterBar } from "@/components/TableFilterBar";
+import { usePageState } from "@/components/usePageState";
 import { copyTable } from "@/services/copyCells";
 import { presetBlock, rowsForCopy } from "@/services/copyPresets";
 import {
@@ -75,9 +76,10 @@ export function ListGrid<T>({
   onRowClick?: (row: T) => void;
 }) {
   const [layout, setLayout] = useState<ColumnLayout | null>(null);
-  const [filters, setFilters] = useState<FilterModel[]>([]);
-  const [query, setQuery] = useState("");
-  const [sort, setSort] = useState<Sort>(initialSort ?? { key: columns[0]?.id ?? "", ascending: true });
+  // Kept ten minutes, so a step to a record or another page does not undo them.
+  const [filters, setFilters] = usePageState<FilterModel[]>(`list:${layoutKey}:filters`, []);
+  const [query, setQuery] = usePageState(`list:${layoutKey}:search`, "");
+  const [sort, setSort] = usePageState<Sort>(`list:${layoutKey}:sort`, initialSort ?? { key: columns[0]?.id ?? "", ascending: true });
   const [ownSelected, setOwnSelected] = useState<Set<string>>(new Set());
   const chosen = selected ?? ownSelected;
   const choose = useCallback(
@@ -142,7 +144,7 @@ export function ListGrid<T>({
   }, [choose, idOf]);
   const sortBy = useCallback((key: string) => {
     setSort((current) => ({ key, ascending: current.key === key ? !current.ascending : true }));
-  }, []);
+  }, [setSort]);
   const resize = useCallback(
     (id: string, width: number) => {
       if (layoutRef.current) arrange(resizeColumn(layoutRef.current, id, width, columns));

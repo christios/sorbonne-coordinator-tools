@@ -1,13 +1,17 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, CalendarRange } from "lucide-react";
+import { ArrowLeft, CalendarRange, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { CrnRecord } from "@/components/CrnRecord";
 import { SectionTimetable, type TimetableEntry } from "@/components/SectionTimetable";
-import { SelectMenu } from "@/components/SelectMenu";
+import { TableFilterBar } from "@/components/TableFilterBar";
+import { usePageState } from "@/components/usePageState";
 import { useRemembered } from "@/components/useRemembered";
 import { buildCards, rowsPerPart, subRowLabel, teaches } from "@/services/courseCards";
-import { fetchActiveCrns, fetchTermCrns, type ActiveCrn } from "@/services/portalLists";
+import { fetchActiveCrns, fetchFacilitySections, fetchTermCrns, type ActiveCrn } from "@/services/portalLists";
+import { optionsFor, type GridColumn } from "@/services/studentColumns";
+import { applyFilters, type FilterColumn, type FilterModel } from "@/services/tableFilter";
+import { DAY_NAMES, formatRoom, parseIsoDate } from "@/services/weekSchedule";
 import { fetchCourseCards } from "@/services/studentDatabase";
 import { fetchTermWeeks } from "@/services/termWeeks";
 import type { TimetableTerm } from "@/services/timetables";
@@ -23,6 +27,40 @@ import type { TimetableTerm } from "@/services/timetables";
  */
 const WIDTH = { min: 1, max: 6, step: 0.1, start: 1 };
 const HEIGHT = { min: 14, max: 56, step: 1, start: 22 };
+
+/** A section as the filters read it: the entry, and what its cohort, set and classes are. */
+type SectionRow = TimetableEntry & { cohort: string; subject: string; set: string; rooms: string[]; days: string[] };
+
+/** The subject is the code's first segment: MATH-222 and MATH-351 are one subject. */
+const subjectOf = (code: string) => (code.split("-", 1)[0] || code).toUpperCase();
+/** "Mon", for a class's date. */
+const dayOf = (date: string) => DAY_NAMES[parseIsoDate(date).getDay()];
+
+const column = (id: string, displayName: string, type: GridColumn<SectionRow>["type"], accessor: (row: SectionRow) => unknown): GridColumn<SectionRow> => ({
+  id,
+  displayName,
+  type,
+  accessor,
+  defaultWidth: 120,
+});
+/** Everything a section can be filtered on, the way a table's columns can. */
+const COLUMNS: GridColumn<SectionRow>[] = [
+  column("cohort", "Cohort", "option", (row) => row.cohort),
+  column("subject", "Subject", "option", (row) => row.subject),
+  column("code", "Course", "option", (row) => row.code),
+  column("title", "Title", "text", (row) => row.title),
+  column("crn", "CRN", "text", (row) => row.crn),
+  column("set", "Set", "option", (row) => row.set),
+  column("group", "Group", "option", (row) => row.group ?? ""),
+  column("staff", "Teacher", "option", (row) => row.staff ?? ""),
+  column("rooms", "Room", "multiOption", (row) => row.rooms),
+  column("days", "Day", "multiOption", (row) => row.days),
+];
+/** The two that are the classes' own, for keeping a kept section's matching classes only. */
+const CLASS_COLUMNS: FilterColumn<{ rooms: string[]; days: string[] }>[] = [
+  { id: "rooms", displayName: "Room", type: "multiOption", accessor: (row) => row.rooms },
+  { id: "days", displayName: "Day", type: "multiOption", accessor: (row) => row.days },
+];
 
 /**
  * A whole semester's week, as a page rather than a card.
@@ -56,9 +94,9 @@ export function SemesterTimetable({ term, onBack }: { term: TimetableTerm; onBac
    * to be readable, all chosen again. A preference, not a fact about the department:
    * this browser's, as the cohort picker's is.
    */
-  const [subjects, setSubjects] = useKeptList("semester-timetable:subjects");
-  const [cohorts, setCohorts] = useKeptList("semester-timetable:cohorts");
-  const [teachers, setTeachers] = useKeptList("semester-timetable:teachers");
+  // The filters and the search are the tables' own, kept ten minutes like theirs.
+  const [filters, setFilters] = usePageState<FilterModel[]>("semester-timetable:filters", []);
+  const [query, setQuery] = usePageState("semester-timetable:search", "");
   const [widthZoom, setWidthZoom] = useKeptNumber("semester-timetable:width", WIDTH);
   const [rowHeight, setRowHeight] = useKeptNumber("semester-timetable:height", HEIGHT);
   const [showingCrn, setShowingCrn] = useState<ActiveCrn | null>(null);
@@ -153,33 +191,61 @@ export function SemesterTimetable({ term, onBack }: { term: TimetableTerm; onBac
       }));
   }, [held.data, groupOf]);
 
-  /** The subject is the code's first segment: MATH-222 and MATH-351 are one subject. */
-  const subjectOf = (code: string) => (code.split("-", 1)[0] || code).toUpperCase();
-
-  const subjectOptions = useMemo(
-    () => [...new Set(all.map((entry) => subjectOf(entry.code)).filter(Boolean))].sort().map((value) => ({ value, label: value })),
-    [all],
+  /*
+   * Every section with what can be asked of it, for the same filter bar the tables have.
+   *
+   * The rooms and the weekdays are the classes', read from the same sweep the grid draws:
+   * a section is kept when any of its classes answers, and the grid then draws only the
+   * classes that do — asking for 5.111 shows Monday in 5.111, not the Wednesday elsewhere.
+   */
+  const termCode = held.data?.portalTermCode ?? "";
+  const meetings = useQuery({
+    queryKey: ["facility-sections", termCode, all.map((entry) => entry.crn).sort().join(",")],
+    queryFn: () => fetchFacilitySections(termCode, all.map((entry) => entry.crn).sort()),
+    enabled: Boolean(termCode) && all.length > 0,
+    retry: false,
+  });
+  const classesOf = useMemo(
+    () => new Map((meetings.data?.sections ?? []).map((section) => [section.crn, section.meetings])),
+    [meetings.data],
   );
-  const teacherOptions = useMemo(
-    () => [...new Set(all.map((entry) => entry.staff ?? "").filter(Boolean))].sort().map((value) => ({ value, label: value })),
-    [all],
-  );
-
-  const cohortOptions = useMemo(
-    () => [...new Set([...cohortOf.values()].filter(Boolean))].sort().map((value) => ({ value, label: value })),
-    [cohortOf],
-  );
-  const shown = useMemo(
+  const rows = useMemo<SectionRow[]>(
     () =>
-      all.filter(
-        (entry) =>
-          (subjects.length === 0 || subjects.includes(subjectOf(entry.code))) &&
-          (teachers.length === 0 || teachers.includes(entry.staff ?? "")) &&
-          (cohorts.length === 0 || cohorts.includes(cohortOf.get(entry.crn) ?? "")),
-      ),
-    [all, subjects, teachers, cohorts, cohortOf],
+      all.map((entry) => {
+        const classes = classesOf.get(entry.crn) ?? [];
+        return {
+          ...entry,
+          cohort: cohortOf.get(entry.crn) ?? "",
+          subject: subjectOf(entry.code),
+          set: (entry.group ?? "").split(" ", 1)[0] ?? "",
+          rooms: [...new Set(classes.map((meeting) => formatRoom(meeting.room)).filter(Boolean))],
+          days: [...new Set(classes.map((meeting) => dayOf(meeting.meetsOn)))],
+        };
+      }),
+    [all, classesOf, cohortOf],
   );
-  const narrowed = subjects.length > 0 || teachers.length > 0 || cohorts.length > 0;
+  const searched = useMemo(() => {
+    const words = query.trim().toLowerCase();
+    if (!words) return rows;
+    return rows.filter((row) =>
+      [row.crn, row.code, row.title, row.staff ?? "", row.group ?? "", row.cohort, ...row.rooms]
+        .join(" ")
+        .toLowerCase()
+        .includes(words),
+    );
+  }, [rows, query]);
+  const shown = useMemo(() => applyFilters(searched, COLUMNS, filters), [searched, filters]);
+  // The classes of a kept section that the room and weekday filters keep.
+  const perClass = useMemo(() => filters.filter((filter) => filter.columnId === "rooms" || filter.columnId === "days"), [filters]);
+  const sessionFilter = useMemo(
+    () =>
+      perClass.some((filter) => filter.values.length)
+        ? (session: { room: string; date: string }) =>
+            applyFilters([{ rooms: [formatRoom(session.room)], days: [dayOf(session.date)] }], CLASS_COLUMNS, perClass).length > 0
+        : undefined,
+    [perClass],
+  );
+  const narrowed = filters.some((filter) => filter.values.length) || Boolean(query.trim());
 
   return (
     /*
@@ -209,42 +275,18 @@ export function SemesterTimetable({ term, onBack }: { term: TimetableTerm; onBac
           */}
         <div ref={setNavSlot} className="shrink-0" />
         <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-              <div className="w-40">
-                <SelectMenu
-                  label="Cohorts"
-                  value={cohorts.join("\n")}
-                  multiple
-                  itemNoun="cohort"
-                  placeholder="Every cohort"
-                  onChange={(next) => setCohorts(next ? next.split("\n").filter(Boolean) : [])}
-                  options={cohortOptions}
+              <TableFilterBar columns={COLUMNS} filters={filters} optionsFor={(column) => optionsFor(rows, column)} onChange={setFilters} />
+              <label className="relative block w-48">
+                <Search size={15} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[#667085]" aria-hidden="true" />
+                <input
+                  type="search"
+                  aria-label="Search sections"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder="Search"
+                  className="w-full rounded-md border border-[#d3d9e2] bg-white py-1.5 pl-8 pr-2 text-sm"
                 />
-              </div>
-
-              <div className="w-36">
-                <SelectMenu
-                  label="Subjects"
-                  value={subjects.join("\n")}
-                  multiple
-                  itemNoun="subject"
-                  placeholder="Every subject"
-                  searchable={subjectOptions.length > 12}
-                  onChange={(next) => setSubjects(next ? next.split("\n").filter(Boolean) : [])}
-                  options={subjectOptions}
-                />
-              </div>
-              <div className="w-40">
-                <SelectMenu
-                  label="Teachers"
-                  value={teachers.join("\n")}
-                  multiple
-                  itemNoun="teacher"
-                  placeholder="Every teacher"
-                  searchable={teacherOptions.length > 12}
-                  onChange={(next) => setTeachers(next ? next.split("\n").filter(Boolean) : [])}
-                  options={teacherOptions}
-                />
-              </div>
+              </label>
               <Zoom label="Width" value={widthZoom} {...WIDTH} onChange={setWidthZoom} />
               <Zoom label="Height" value={rowHeight} {...HEIGHT} onChange={setRowHeight} />
               <span className="text-xs text-[#98a2b3]">
@@ -273,9 +315,8 @@ export function SemesterTimetable({ term, onBack }: { term: TimetableTerm; onBac
                 <button
                   type="button"
                   onClick={() => {
-                    setSubjects([]);
-                    setTeachers([]);
-                    setCohorts([]);
+                    setFilters([]);
+                    setQuery("");
                   }}
                   className="text-xs font-semibold text-[#1f4e79] underline"
                 >
@@ -293,6 +334,7 @@ export function SemesterTimetable({ term, onBack }: { term: TimetableTerm; onBac
         <SectionTimetable
           fills
           entries={shown}
+          sessionFilter={sessionFilter}
           daysDown
           onCoverage={setMissing}
           navInto={navSlot}
@@ -358,12 +400,6 @@ function Zoom({
       />
     </label>
   );
-}
-
-/** A list this browser keeps, one entry per line. */
-function useKeptList(key: string): [string[], (next: string[]) => void] {
-  const [held, setHeld] = useRemembered(key);
-  return [held ? held.split("\n").filter(Boolean) : [], (next) => setHeld(next.join("\n"))];
 }
 
 /** A number this browser keeps, back inside its range if the range has moved since. */

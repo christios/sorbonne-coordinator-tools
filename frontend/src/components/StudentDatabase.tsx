@@ -24,6 +24,7 @@ import { StudentRoster } from "@/components/StudentRoster";
 import { SidePane } from "@/components/SidePane";
 import { placeOf, rememberPlace } from "@/services/lastPlace";
 import { ViewBar } from "@/components/ViewBar";
+import { usePageState } from "@/components/usePageState";
 import { detailFromLocation, locationFor, pageFromLocation, type SettingsSection } from "@/routes/toolRoute";
 import { fetchCohorts, fetchDiscrepancyRules, fetchStudents, fetchViews } from "@/services/studentDatabase";
 import { fetchTimetableStatus } from "@/services/timetables";
@@ -238,7 +239,7 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: (section:
     enabled: onPlatform || page === "groups",
   });
 
-  const [viewId, setViewId] = useState("");
+  const [viewId, setViewId] = usePageState("students:view", "");
   /*
    * A page that wants the whole width, not the reading column.
    *
@@ -266,7 +267,7 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: (section:
   useEffect(() => {
     if (!available.length) return;
     if (!available.some((candidate) => candidate.id === viewId)) setViewId(available[0].id);
-  }, [available, viewId]);
+  }, [available, viewId, setViewId]);
 
   /*
    * The two student lists the pages need, fetched before either page asks. The Students

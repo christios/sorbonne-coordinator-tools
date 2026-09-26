@@ -51,6 +51,7 @@ import {
 } from "@/components/TaskVisuals";
 import { taskUrgency } from "@/components/taskPresentation";
 import { saveFailureState } from "@/components/syllabusSaveState";
+import { usePageState } from "@/components/usePageState";
 import {
   formatTeachingHours,
   lastIncompleteRequisitionStep,
@@ -330,7 +331,7 @@ function TeacherLibrary({
   const [showFolderForm, setShowFolderForm] = useState(false);
   const [activeFolder, setActiveFolder] = useState("all");
   const [showArchived, setShowArchived] = useState(false);
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = usePageState("teacher-database:search", "");
   const [folderName, setFolderName] = useState("");
   const [draft, setDraft] = useState({
     fullName: "",

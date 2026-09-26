@@ -13,6 +13,7 @@ import { RegistrationChangesButton } from "@/components/RegistrationChangesButto
 import { StudentRoster } from "@/components/StudentRoster";
 import { WARNING_ICONS, WARNING_TONES } from "@/components/StudentTable";
 import { useRemembered } from "@/components/useRemembered";
+import { usePageState } from "@/components/usePageState";
 import {
   STATUS_FIELD,
   STATUS_OPTIONS,
@@ -247,7 +248,7 @@ export function CohortsPage({
   const [cohortId, setCohortId] = useState(focus?.cohortId ?? remembered);
   // Whether the table shows every cohort rather than the chosen one. Back to this one on
   // every change of cohort, as it was when the table remounted with its own switch.
-  const [everywhere, setEverywhere] = useState(false);
+  const [everywhere, setEverywhere] = usePageState("cohorts:everywhere", false);
   const chooseCohort = useCallback(
     (next: string) => {
       setCohortId(next);
@@ -264,8 +265,15 @@ export function CohortsPage({
   useEffect(() => {
     if (focus?.cohortId) chooseCohort(focus.cohortId);
   }, [focus?.cohortId, sent, chooseCohort]);
-  const [showDismissed, setShowDismissed] = useState(false);
-  const [showing, setShowing] = useState<Set<WarningSource>>(() => new Set(EVERY_RECORD));
+  const [showDismissed, setShowDismissed] = usePageState("cohorts:show-dismissed", false);
+  // Kept as a list, which is what survives being written down; read as a set.
+  const [showingList, setShowingList] = usePageState<WarningSource[]>("cohorts:showing", () => [...EVERY_RECORD]);
+  const showing = useMemo(() => new Set(showingList), [showingList]);
+  const setShowing = useCallback(
+    (next: Set<WarningSource> | ((current: Set<WarningSource>) => Set<WarningSource>)) =>
+      setShowingList((current) => [...(typeof next === "function" ? next(new Set(current)) : next)]),
+    [setShowingList],
+  );
   const toggleShowing = useCallback((id: WarningSource) => {
     setShowing((current) => {
       const next = new Set(current);
@@ -273,7 +281,7 @@ export function CohortsPage({
       else next.add(id);
       return next;
     });
-  }, []);
+  }, [setShowing]);
   /*
    * Taking an arrival in, from the banner that says they are due. The same move as the
    * Students table's, with the shared sets kept — the languages are the university's.

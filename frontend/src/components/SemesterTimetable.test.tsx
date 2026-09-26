@@ -63,7 +63,15 @@ describe("a semester's whole week", () => {
     expect(lists.fetchFacilitySections).toHaveBeenCalledWith("262710", ["22610", "23436", "24092"]);
   });
 
-  it("narrows to a subject, and says so, and can be widened again", async () => {
+  /** Compose a filter the way a table's is: pick the column, then the value. */
+  const filterOn = async (column: string, value: string) => {
+    fireEvent.click(screen.getByRole("button", { name: /^(Filter|Add filter)$/ }));
+    fireEvent.click(await screen.findByRole("button", { name: column }));
+    fireEvent.click(await screen.findByRole("combobox", { name: `${column} value` }));
+    fireEvent.click(await screen.findByRole("option", { name: value }));
+  };
+
+  it("narrows with the tables' own filters, says so, and can be widened again", async () => {
     /*
      * The filters are part of the feature rather than a refinement of it: at the worst
      * hour of a real semester sixteen sections share one weekday and start time, which is
@@ -72,8 +80,7 @@ describe("a semester's whole week", () => {
     show();
     await screen.findByText("3 of 3");
 
-    fireEvent.click(screen.getByRole("combobox", { name: "Subjects" }));
-    fireEvent.click(await screen.findByRole("option", { name: "MATH" }));
+    await filterOn("Subject", "MATH");
 
     expect(await screen.findByText("2 of 3")).toBeTruthy();
 
@@ -81,12 +88,41 @@ describe("a semester's whole week", () => {
     expect(await screen.findByText("3 of 3")).toBeTruthy();
   });
 
+  it("filters on a class's room, and draws only the classes in it", async () => {
+    vi.spyOn(lists, "fetchFacilitySections").mockResolvedValue({
+      termCode: "262710",
+      pulledAt: "2026-09-01T00:00:00+00:00",
+      sections: [
+        { crn: "23436", courseCode: "MATH-351", title: "Algebra", teacherName: "Grace Younes", state: "published", meetings: [MONDAY, { ...MONDAY, meetsOn: "2026-09-09", room: "4.124" }] },
+        { crn: "22610", courseCode: "PHYS-210", title: "Maths for Physics", teacherName: "Gianluca Mola", state: "published", meetings: [MONDAY] },
+        { crn: "24092", courseCode: "MATH-257", title: "Graphs", teacherName: "Grace Younes", state: "published", meetings: [MONDAY] },
+      ],
+    });
+    show();
+    await screen.findByText("3 of 3");
+
+    await filterOn("Room", "4.124");
+
+    expect(await screen.findByText("1 of 3")).toBeTruthy();
+    // Algebra's Wednesday in 4.124 is drawn; its Monday in 5.101 is not.
+    expect(document.querySelector('[title*="4.124"]')).toBeTruthy();
+    expect(document.querySelector('[title*="5.101"]')).toBeNull();
+  });
+
+  it("searches the sections as a table does", async () => {
+    show();
+    await screen.findByText("3 of 3");
+
+    fireEvent.change(screen.getByLabelText("Search sections"), { target: { value: "mola" } });
+
+    expect(await screen.findByText("1 of 3")).toBeTruthy();
+  });
+
   it("keeps its filters and zooms when you leave and come back", async () => {
     // They were the page's alone: a step to a CRN's record and back put every one to its default.
     const first = show();
     await screen.findByText("3 of 3");
-    fireEvent.click(screen.getByRole("combobox", { name: "Subjects" }));
-    fireEvent.click(await screen.findByRole("option", { name: "MATH" }));
+    await filterOn("Subject", "MATH");
     expect(await screen.findByText("2 of 3")).toBeTruthy();
     fireEvent.change(screen.getByLabelText("Height of a class"), { target: { value: "40" } });
     first.unmount();

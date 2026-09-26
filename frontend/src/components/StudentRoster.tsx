@@ -18,6 +18,7 @@ import { MoveToCohort } from "@/components/MoveToCohort";
 import { RemoveFromGroups } from "@/components/RemoveFromGroups";
 import { SelectionFloating, type SelectionActionsProps } from "@/components/SelectionActions";
 import { TableFilterBar } from "@/components/TableFilterBar";
+import { usePageState } from "@/components/usePageState";
 import { costOfMove, describeCost } from "@/services/cohortMove";
 import { copyTable } from "@/services/copyCells";
 import { presetBlock, rowsForCopy } from "@/services/copyPresets";
@@ -227,9 +228,11 @@ export function StudentRoster({
     [commentSummary.data],
   );
   const [layout, setLayout] = useState<ColumnLayout | null>(null);
-  const [filters, setFilters] = useState<FilterModel[]>([]);
-  const [query, setQuery] = useState("");
-  const [sort, setSort] = useState<Sort>(defaultSort ?? { key: "studentId", ascending: true });
+  // Kept ten minutes, per table — the Students page's view, or the cohort on Cohorts.
+  const stateKey = scope ? `cohorts:${everyCohort ? "every" : (scope.cohortId ?? "none")}` : `students:${viewId || "all"}`;
+  const [filters, setFilters] = usePageState<FilterModel[]>(`roster:${stateKey}:filters`, []);
+  const [query, setQuery] = usePageState(`roster:${stateKey}:search`, "");
+  const [sort, setSort] = usePageState<Sort>(`roster:${stateKey}:sort`, defaultSort ?? { key: "studentId", ascending: true });
   const [selected, setSelected] = useState<Set<string>>(new Set());
   /*
    * What the portal last said about each student, from whichever view asked most
@@ -370,7 +373,7 @@ export function StudentRoster({
     if (!filterCohort) return;
     setEveryStudent(true);
     setFilters([{ columnId: "cohortName", type: "option", operator: "is", values: [filterCohort] }]);
-  }, [filterCohort]);
+  }, [filterCohort, setFilters]);
 
   /** Create a cohort and put the selection in it, which is the only reason to make one here. */
   const createAndMove = useMutation({
@@ -545,7 +548,7 @@ export function StudentRoster({
 
   const sortBy = useCallback((key: string) => {
     setSort((current) => ({ key, ascending: current.key === key ? !current.ascending : true }));
-  }, []);
+  }, [setSort]);
   const resize = useCallback(
     (id: string, width: number) => {
       if (layoutRef.current) arrange(resizeColumn(layoutRef.current, id, width, allColumns));

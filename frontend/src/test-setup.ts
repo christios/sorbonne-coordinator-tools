@@ -23,3 +23,19 @@ if (typeof Element !== "undefined") {
     configurable: true,
   });
 }
+
+/*
+ * What a page keeps for ten minutes is kept in localStorage, so one test's filters would
+ * otherwise greet the next. Each test starts as a coordinator arriving fresh.
+ */
+import { beforeEach } from "vitest";
+
+beforeEach(() => {
+  try {
+    for (const key of Object.keys(window.localStorage)) {
+      if (key.startsWith("scen-page:")) window.localStorage.removeItem(key);
+    }
+  } catch {
+    // No storage in this environment: nothing to clear.
+  }
+});

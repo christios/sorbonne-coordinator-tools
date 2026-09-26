@@ -13,6 +13,7 @@ import { Modal } from "@/components/Modal";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { SelectMenu } from "@/components/SelectMenu";
 import { SelectionBar } from "@/components/SelectionActions";
+import { usePageState } from "@/components/usePageState";
 import { downloadSchedulePdf } from "@/services/crnSchedulePdf";
 import { groupNamesByCrn } from "@/services/courseCards";
 import { scheduleInputFor } from "@/services/crnScheduleInput";
@@ -128,7 +129,7 @@ const labelOf = (row: ActiveCrn) => `${row.courseCode} ${row.crn}`;
  */
 export function ActiveCourses({ onShowStudents }: { onShowStudents?: (ids: string[]) => void } = {}) {
   const client = useQueryClient();
-  const [term, setTerm] = useState("");
+  const [term, setTerm] = usePageState("active-crns:term", "");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<ActiveCrn | null>(null);
@@ -172,7 +173,7 @@ export function ActiveCourses({ onShowStudents }: { onShowStudents?: (ids: strin
   const terms = useMemo(() => [...new Set(held.map((row) => row.termCode))].sort().reverse(), [held]);
   useEffect(() => {
     if (terms.length && !terms.includes(term)) setTerm(terms[0]);
-  }, [terms, term]);
+  }, [terms, term, setTerm]);
   const rows = useMemo(() => held.filter((row) => !term || row.termCode === term), [held, term]);
 
   /*

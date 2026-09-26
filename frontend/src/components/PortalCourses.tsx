@@ -6,6 +6,7 @@ import { ListGrid, StatePill } from "@/components/ListGrid";
 import { PortalFilterBar } from "@/components/PortalFilterBar";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { SelectMenu } from "@/components/SelectMenu";
+import { usePageState } from "@/components/usePageState";
 import { type PortalCourse, addActiveCourses, fetchActiveCourses, fetchPortalCourses } from "@/services/portalLists";
 import type { GridColumn } from "@/services/studentColumns";
 
@@ -54,7 +55,7 @@ const labelOf = (row: PortalCourse) => `${row.courseCode} ${row.crn}`;
 export function PortalCourses() {
   const client = useQueryClient();
   const [filterId, setFilterId] = useState(() => remembered(FILTER_KEY));
-  const [term, setTerm] = useState("");
+  const [term, setTerm] = usePageState("portal-courses:term", "");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const courses = useQuery({ queryKey: ["portal", "courses", filterId], queryFn: () => fetchPortalCourses("", filterId) });
   const active = useQuery({ queryKey: ["active-courses"], queryFn: fetchActiveCourses });
@@ -82,7 +83,7 @@ export function PortalCourses() {
   const terms = useMemo(() => courses.data?.terms ?? [], [courses.data]);
   useEffect(() => {
     if (terms.length && !terms.includes(term)) setTerm(terms[0]);
-  }, [terms, term]);
+  }, [terms, term, setTerm]);
   const rows = useMemo(
     () => (courses.data?.courses ?? []).filter((course) => !term || course.termCode === term),
     [courses.data, term],

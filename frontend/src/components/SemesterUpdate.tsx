@@ -12,6 +12,7 @@ import {
 import { useEffect, useMemo, useState } from "react";
 
 import { Modal } from "@/components/Modal";
+import { usePageState } from "@/components/usePageState";
 
 import {
   type DiffCourse,
@@ -80,7 +81,7 @@ export function SemesterUpdate({
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<TimetablePreview | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [filter, setFilter] = useState<DiffFilter>("all");
+  const [filter, setFilter] = usePageState<DiffFilter>("semester-update:filter", "all");
   const [applied, setApplied] = useState<TimetableTerm | null>(null);
 
   const check = useMutation({
