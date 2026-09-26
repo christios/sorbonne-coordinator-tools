@@ -49,3 +49,18 @@ describe("a record's calendar as a timetable", () => {
     expect(timetablesFilename(["A", "B", "C"], "students")).toBe("timetables-3-students.pdf");
   });
 });
+
+describe("a term linked to two semesters", () => {
+  it("counts its weeks from whichever of them says where Week 1 is", async () => {
+    const input = await scheduleFromEntries(
+      [{ termCode: "262710", crn: "23436", code: "MATH-351", title: "Algebra" }],
+      { title: "Grace Younes" },
+      {
+        ...read,
+        links: async () => ({ "term-old": "262710", "term-1": "262710" }),
+        weeks: async () => ({ "term-1": "2026-09-07" }),
+      },
+    );
+    expect(input.weekOne).toBe("2026-09-07");
+  });
+});

@@ -219,6 +219,26 @@ describe("the week number on a record's calendar", () => {
     expect(await screen.findByText("Week 2")).toBeTruthy();
   });
 
+  it("finds the Week 1 when two semesters are linked to the term and only one says it", async () => {
+    vi.spyOn(lists, "fetchFacilitySections").mockResolvedValue({
+      termCode: "262710",
+      pulledAt: "2026-09-01T00:00:00+00:00",
+      sections: [
+        { crn: "23436", courseCode: "MATH-351", title: "Algebra", teacherName: "Grace Younes", state: "published", meetings: [MONDAY] },
+      ],
+    });
+    vi.spyOn(lists, "fetchTermLinks").mockResolvedValue({ "term-old": "262710", "term-1": "262710" });
+    vi.spyOn(termWeeks, "fetchTermWeeks").mockResolvedValue({ "term-1": "2026-08-31" });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <SectionTimetable compact title="Algebra" entries={[{ termCode: "262710", crn: "23436", code: "MATH-351", title: "Algebra" }]} />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText("Week 2")).toBeTruthy();
+  });
+
   it("says no week where the semester has no Week 1", async () => {
     vi.spyOn(lists, "fetchFacilitySections").mockResolvedValue({
       termCode: "262710",

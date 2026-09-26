@@ -37,3 +37,24 @@ export async function setWeekOne(termId: string, weekOne: string): Promise<Recor
     }),
   );
 }
+
+/**
+ * The Week 1 for a portal term: from whichever semester linked to it says where Week 1 is.
+ *
+ * More than one semester can be linked to the same portal term — a test copy, a semester
+ * made twice — and only one of them may have its Week 1 set. Taking the first link found
+ * gave no week number at all when that one happened to be the other.
+ */
+export function weekOneOf(termCode: string, links: Record<string, string>, weeks: Record<string, string>): string | undefined {
+  if (!termCode) return undefined;
+  return Object.entries(links)
+    .filter(([, code]) => code === termCode)
+    .map(([termId]) => weeks[termId])
+    .find(Boolean);
+}
+
+/** The semester linked to a portal term, preferring one that says where its Week 1 is. */
+export function semesterOf(termCode: string, links: Record<string, string>, weeks: Record<string, string>): string {
+  const linked = Object.entries(links).filter(([, code]) => code === termCode).map(([termId]) => termId);
+  return linked.find((termId) => weeks[termId]) ?? linked[0] ?? "";
+}

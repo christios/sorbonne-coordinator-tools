@@ -10,6 +10,7 @@
 import type { ScheduleInput } from "@/services/crnSchedulePdf";
 import type { ActiveCrn, FacilityTimetable } from "@/services/portalLists";
 import type { SessionChange } from "@/services/sessionChanges";
+import { semesterOf } from "@/services/termWeeks";
 
 export type ScheduleReads = {
   sections: (termCode: string, crns: string[]) => Promise<FacilityTimetable>;
@@ -53,7 +54,8 @@ export async function scheduleInputFor(rows: ActiveCrn[], read: ScheduleReads): 
     ),
   );
   const only = termCodes.length === 1 ? termCodes[0] : "";
-  const semesterId = only ? (Object.entries(links).find(([, code]) => code === only)?.[0] ?? "") : "";
+  // Several semesters may be linked to one term; the one that says where its Week 1 is.
+  const semesterId = only ? semesterOf(only, links, weeks) : "";
   const swept = [...byTerm.values()].map((entry) => entry.sweep.pulledAt ?? "").filter(Boolean).sort();
   return {
     semester: only ? (semesterId && names[semesterId]) || `Term ${only}` : "",

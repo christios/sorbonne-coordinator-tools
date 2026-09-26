@@ -12,6 +12,7 @@
 import type { TimetableEntry } from "@/components/SectionTimetable";
 import type { ScheduleInput, ScheduleNote, ScheduleSection } from "@/services/crnSchedulePdf";
 import type { ScheduleReads } from "@/services/crnScheduleInput";
+import { semesterOf } from "@/services/termWeeks";
 
 /** What a heading says: whose timetable, and what they are. */
 export type ScheduleHeading = { title: string; subtitle?: string };
@@ -47,7 +48,8 @@ export async function scheduleFromEntries(
     ),
   );
   const only = termCodes.length === 1 ? termCodes[0] : "";
-  const semesterId = only ? (Object.entries(links).find(([, code]) => code === only)?.[0] ?? "") : "";
+  // Several semesters may be linked to one term; the one that says where its Week 1 is.
+  const semesterId = only ? semesterOf(only, links, weeks) : "";
   const swept = [...byTerm.values()].map((entry) => entry.sweep.pulledAt ?? "").filter(Boolean).sort();
   const semester = only ? (semesterId && names[semesterId]) || `Term ${only}` : "";
 

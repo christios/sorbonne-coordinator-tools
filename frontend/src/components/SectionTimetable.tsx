@@ -8,7 +8,7 @@ import { SelectMenu } from "@/components/SelectMenu";
 import { WeekCalendar } from "@/components/WeekCalendar";
 import { WeekTimeline } from "@/components/WeekTimeline";
 import { fetchFacilitySections, fetchTermLinks, type FacilitySection } from "@/services/portalLists";
-import { fetchTermWeeks } from "@/services/termWeeks";
+import { fetchTermWeeks, weekOneOf } from "@/services/termWeeks";
 import { fetchSessionChanges, slotKey, type SessionChange } from "@/services/sessionChanges";
 import {
   DAY_NAMES,
@@ -215,27 +215,22 @@ function Timetable({
    * student's — says "Week 5" as the semester's own week does. Only where the sections are
    * all of one term; a calendar across two semesters has no one week to count from.
    */
-  const soleTerm = byTerm.length === 1 ? byTerm[0].termCode : "";
   const links = useQuery({
     queryKey: ["term-links"],
     queryFn: fetchTermLinks,
-    enabled: weekOneGiven === undefined && Boolean(soleTerm),
+    enabled: weekOneGiven === undefined && byTerm.length > 0,
     retry: false,
     staleTime: 60_000,
   });
   const weeks = useQuery({
     queryKey: ["term-weeks"],
     queryFn: fetchTermWeeks,
-    enabled: weekOneGiven === undefined && Boolean(soleTerm),
+    enabled: weekOneGiven === undefined && byTerm.length > 0,
     retry: false,
     staleTime: 60_000,
   });
-  const weekOne =
-    weekOneGiven ??
-    (() => {
-      const termId = Object.entries(links.data ?? {}).find(([, code]) => code === soleTerm)?.[0];
-      return termId ? weeks.data?.[termId] : undefined;
-    })();
+  /** The Week 1 of the term a week's classes are filed under — a student's two semesters each count their own. */
+  const weekOneFor = (termCode: string) => weekOneGiven ?? weekOneOf(termCode, links.data ?? {}, weeks.data ?? {});
 
   // What the coordinators have said about the term's classes, by slot.
   const { notes } = useQueries({
@@ -307,6 +302,13 @@ function Timetable({
   const shown = weekStart ?? defaultWeekStart(sessions, today);
   const small = compact ? "text-[10px]" : "text-xs";
   const oneDay = daysDown && byRoom === "day";
+  // The term of the week on screen: its own classes say which, else the one term there is.
+  const shownFrom = toIsoDate(shown);
+  const shownTo = toIsoDate(shiftWeek(shown, 1));
+  const weekTerm =
+    sessions.find((session) => session.date >= shownFrom && session.date < shownTo)?.termCode ??
+    (byTerm.length === 1 ? byTerm[0].termCode : "");
+  const weekOne = weekOneFor(weekTerm ?? "");
   const days = weekDays(shown, sessions);
   const shownDay = days.includes(day) ? day : preferredDay(days, sessions, today);
   /** The next teaching day either way: Sunday never, Saturday only when something is on it. */
