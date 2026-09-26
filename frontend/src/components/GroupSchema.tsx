@@ -10,7 +10,7 @@ import { SelectMenu } from "@/components/SelectMenu";
 import { useRemembered } from "@/components/useRemembered";
 import { WarningBanner, WarningRows, type WarningKind } from "@/components/WarningBanner";
 import { usePageState } from "@/components/usePageState";
-import { fetchActiveCourses } from "@/services/portalLists";
+import { fetchActiveCourses, fetchTermLinks } from "@/services/portalLists";
 import { fieldHeld } from "@/services/rosterStore";
 import { COHORT, SCHEMA_TERM } from "@/services/remembered";
 import { labelsFrom, readSets, subRowsNobodyIsOn, totalsOf, unknownMajors, type SetReading } from "@/services/groupSchema";
@@ -386,6 +386,13 @@ function NewSet({
   onMade: (scopeId: string) => void;
 }) {
   const [code, setCode] = useState("");
+  /*
+   * A set is added only to a semester linked to a portal term: the registration check reads
+   * a semester's sets and sections through that link. The server refuses it too; this says
+   * so before anybody types a code.
+   */
+  const links = useQuery({ queryKey: ["term-links"], queryFn: fetchTermLinks, retry: false });
+  const unlinked = Boolean(links.data) && !links.data?.[termId];
   // Uniqueness is per cohort and semester, so another cohort's shared set is no clash.
   const taken = scopes
     .filter((scope) => (scope.cohortId ?? cohortId) === cohortId)
@@ -404,7 +411,7 @@ function NewSet({
       className="mt-2 border-t border-[#eef1f5] px-1 pt-2"
       onSubmit={(event) => {
         event.preventDefault();
-        if (code.trim() && !taken) make.mutate();
+        if (code.trim() && !taken && !unlinked) make.mutate();
       }}
     >
       <label className="sr-only" htmlFor="new-set-code">New set</label>
@@ -419,13 +426,18 @@ function NewSet({
         />
         <button
           type="submit"
-          disabled={!code.trim() || taken || make.isPending}
+          disabled={!code.trim() || taken || unlinked || make.isPending}
           className="inline-flex items-center gap-1 rounded-md bg-[#1f4e79] px-2.5 py-1.5 text-sm font-semibold text-white disabled:bg-[#9ba8b5]"
         >
           <Plus size={14} aria-hidden="true" /> Set
         </button>
       </div>
       {taken ? <p className="mt-1 text-[11px] text-[#a6292f]">This cohort already has a set called {code.trim()}.</p> : null}
+      {unlinked ? (
+        <p className="mt-1 text-[11px] text-[#a6292f]">
+          Link this semester to a portal term on the Semesters page before adding sets to it.
+        </p>
+      ) : null}
       {make.error ? <p role="alert" className="mt-1 text-[11px] text-[#a6292f]">{(make.error as Error).message}</p> : null}
     </form>
   );

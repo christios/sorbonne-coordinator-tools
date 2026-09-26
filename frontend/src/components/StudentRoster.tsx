@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { ColumnMenu } from "@/components/ColumnMenu";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { CommentThread } from "@/components/CommentThread";
+import { CohortExpectationsFields, missingExpectations } from "@/components/CohortExpectations";
 import { Modal } from "@/components/Modal";
 import { CopyButton } from "@/components/CopyButton";
 import { CopyPresetMenu } from "@/components/CopyPresetMenu";
@@ -326,6 +327,11 @@ export function StudentRoster({
 
   const [naming, setNaming] = useState(false);
   const [newName, setNewName] = useState("");
+  // What the new cohort expects, required: the Cohorts page finds who belongs by these.
+  const [newMajors, setNewMajors] = useState<string[]>([]);
+  const [newTerms, setNewTerms] = useState<string[]>([]);
+  const [newYearLevel, setNewYearLevel] = useState("");
+  const newMissing = missingExpectations({ majors: newMajors, terms: newTerms, yearLevel: newYearLevel });
   const [placing, setPlacing] = useState(false);
   // Which cohort these students should be in — asked in a dialog, like where they sit.
   const [moving, setMoving] = useState(false);
@@ -381,7 +387,12 @@ export function StudentRoster({
   /** Create a cohort and put the selection in it, which is the only reason to make one here. */
   const createAndMove = useMutation({
     mutationFn: async () => {
-      const created = await createCohort({ name: newName.trim() });
+      const created = await createCohort({
+        name: newName.trim(),
+        majors: newMajors,
+        terms: newTerms,
+        yearLevel: newYearLevel.trim(),
+      });
       await setCohort([...selected], created.id, true);
       return created;
     },
@@ -885,12 +896,13 @@ export function StudentRoster({
         onClose={() => setNaming(false)}
         footer={
           <div className="flex items-center justify-end gap-3">
+            {newMissing.length ? <span className="mr-auto text-xs text-[#98a2b3]">Say its {newMissing.join(", ")}.</span> : null}
             <button type="button" onClick={() => setNaming(false)} className="text-sm font-semibold text-[#667085]">
               Cancel
             </button>
             <button
               type="button"
-              disabled={!newName.trim() || !chosen.length || createAndMove.isPending}
+              disabled={!newName.trim() || newMissing.length > 0 || !chosen.length || createAndMove.isPending}
               onClick={() => createAndMove.mutate()}
               className="rounded-md bg-[#1f4e79] px-4 py-2 text-sm font-semibold text-white disabled:bg-[#9ba8b5]"
             >
@@ -909,6 +921,17 @@ export function StudentRoster({
             className="mt-1.5 block w-full rounded-md border border-[#cbd5e1] px-3 py-2 text-sm font-normal"
           />
         </label>
+        <div className="mt-4 space-y-4">
+          <CohortExpectationsFields
+            majors={newMajors}
+            terms={newTerms}
+            yearLevel={newYearLevel}
+            onMajors={setNewMajors}
+            onTerms={setNewTerms}
+            onYearLevel={setNewYearLevel}
+            enabled={naming}
+          />
+        </div>
         {/* A cohort that does not exist yet holds nobody, so everyone placed loses their groups. */}
         {newCohortCost ? (
           <p className="mt-3 rounded-md border border-[#e8d9ac] bg-[#fdf9ee] px-4 py-3 text-sm leading-6 text-[#8a6116]">

@@ -7,7 +7,7 @@ import { EMPTY_SECTION, type CatalogueGroup, type CatalogueScope } from "@/servi
 const group = (id: string, label: string, extra: Partial<CatalogueGroup> = {}): CatalogueGroup => ({
   id,
   label,
-  capacity: 0,
+  capacity: 30,
   note: "",
   parentGroupId: "",
   assigned: 0,
@@ -176,8 +176,8 @@ describe("what the walk would write", () => {
 });
 
 describe("a cohort where the major decides", () => {
-  const maths = (id: string) => ({ id, program: "MATH - Mathematics", seats: 0, assigned: 0 });
-  const physics = (id: string) => ({ id, program: "PHYS - Physics", seats: 0, assigned: 0 });
+  const maths = (id: string) => ({ id, program: "MATH - Mathematics", seats: 30, assigned: 0 });
+  const physics = (id: string) => ({ id, program: "PHYS - Physics", seats: 30, assigned: 0 });
   // L1, much reduced: TD 3 first for physicists; Philosophy the mathematicians' and linked
   // to TD; Optics the physicists' and linked to TD 3 only.
   const l1 = () => [

@@ -311,14 +311,16 @@ class StudentDatabase:
         workbook_tab: str = "",
         first_semester: int = 0,
         allowed_codes: list[str] | None = None,
-        teams_channel: str = "",
+        teams_channel: str | None = None,
     ) -> dict[str, Any]:
+        """Every column as sent — except the Teams channel, which only a caller that names it
+        changes. The form does not show it, so saving the form used to blank it."""
         with self.engine.begin() as connection:
             updated = connection.execute(
                 text("""UPDATE student_cohorts SET name = :name, term = :term, notes = :notes,
                             major_codes = :majors, term_codes = :terms, year_level = :year_level,
                             workbook_tab = :workbook_tab, first_semester = :first_semester,
-                            allowed_codes = :allowed, teams_channel = :teams_channel,
+                            allowed_codes = :allowed, teams_channel = COALESCE(:teams_channel, teams_channel),
                             updated_at = :now WHERE id = :id"""),
                 {
                     "id": cohort_id,
@@ -331,7 +333,7 @@ class StudentDatabase:
                     "workbook_tab": _text(workbook_tab),
                     "first_semester": max(0, int(first_semester or 0)),
                     "allowed": json.dumps(_course_codes(allowed_codes)),
-                    "teams_channel": _text(teams_channel),
+                    "teams_channel": None if teams_channel is None else _text(teams_channel),
                     "now": _now(),
                 },
             )
@@ -2539,6 +2541,72 @@ class StudentDatabase:
         if asked in majors:
             return asked
         return majors[0] if len(majors) == 1 else ""
+
+    # ------------------------------------------------------------- guards
+
+    def semester_is_linked(self, term_id: str) -> bool:
+        """Whether this semester is joined to a portal term: what the registration check reads."""
+        if not term_id:
+            return False
+        with self.engine.connect() as connection:
+            return bool(
+                connection.execute(
+                    text("SELECT 1 FROM term_links WHERE term_id = :t AND portal_term_code <> ''"), {"t": term_id}
+                ).first()
+            )
+
+    def semester_of_group(self, group_id: str) -> str:
+        """The semester a group's set belongs to."""
+        with self.engine.connect() as connection:
+            term_id = connection.execute(
+                text("""SELECT s.term_id FROM scope_groups g JOIN cohort_scopes s ON s.id = g.scope_id
+                        WHERE g.id = :id"""),
+                {"id": group_id},
+            ).scalar()
+        if term_id is None:
+            raise GroupNotFound(group_id)
+        return str(term_id)
+
+    def unseated(self, placements: dict[str, list[str]], majors: dict[str, str]) -> list[str]:
+        """Where these placements would put somebody on no seats: "TD 2", "CM 1 · Physics".
+
+        The over-capacity check has nothing to measure a group against until it has seats,
+        so nobody is placed in one before it does. A group with sub-rows is read through the
+        sub-row each student takes, and through its sub-rows added up where none is named.
+        """
+        found: list[str] = []
+        with self.engine.connect() as connection:
+            for group_id, students in placements.items():
+                if not group_id or not students:
+                    continue
+                group = (
+                    connection.execute(
+                        text("""SELECT g.label, g.capacity, s.code FROM scope_groups g
+                                JOIN cohort_scopes s ON s.id = g.scope_id WHERE g.id = :id"""),
+                        {"id": group_id},
+                    )
+                    .mappings()
+                    .first()
+                )
+                if group is None:
+                    raise GroupNotFound(group_id)
+                rows = connection.execute(
+                    text("SELECT id, program, seats FROM group_majors WHERE group_id = :id"), {"id": group_id}
+                ).mappings().all()
+                where = f"{group['code']} {group['label']}"
+                if not rows:
+                    if not group["capacity"]:
+                        found.append(where)
+                    continue
+                by_id = {row["id"]: row for row in rows}
+                for student in students:
+                    row = by_id.get(majors.get(student, ""))
+                    seats = row["seats"] if row else sum(int(r["seats"] or 0) for r in rows)
+                    if not seats:
+                        label = f"{where} · {row['program'].split(' - ')[-1]}" if row else where
+                        if label not in found:
+                            found.append(label)
+        return found
 
     def _scope_of_group(self, connection: Connection, group_id: str) -> str:
         scope_id = connection.execute(

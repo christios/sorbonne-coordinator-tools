@@ -121,8 +121,8 @@ def build_cohort(database: StudentDatabase, *, term_id: str = TERM, assign: bool
     td = database.add_scope(cohort["id"], code="TD", name="Tutorials", term_id=term_id)
     maths = database.add_course(cm, code="MATH-001")
     algorithms = database.add_course(td, code="MATH-011")
-    group_a = database.add_group(cm, label="A")
-    group_1 = database.add_group(td, label="1")
+    group_a = database.add_group(cm, label="A", capacity=30)
+    group_1 = database.add_group(td, label="1", capacity=30)
     database.set_cell(group_id=group_a, course_id=maths, crn="22151")
     database.set_cell(group_id=group_1, course_id=algorithms, crn="23652")
 
@@ -264,7 +264,7 @@ def test_publishing_sends_every_cohort_on_the_semester(client: TestClient, datab
         )
     scope = database.add_scope(second["id"], code="TD", name="Tutorials", term_id=TERM)
     course = database.add_course(scope, code="MATH-011")
-    group = database.add_group(scope, label="2")
+    group = database.add_group(scope, label="2", capacity=30)
     database.set_cell(group_id=group, course_id=course, crn="23653")
     database.assign(student_id="A003", scope_id=scope, group_id=group)
 
@@ -325,7 +325,7 @@ def put_assignment(client: TestClient, scope_id: str, group_id: str | None, stud
 def test_assigning_puts_a_student_in_a_group_and_replaces_what_they_had(client: TestClient, database: StudentDatabase):
     """One group per scope: assigning again moves them rather than adding a second."""
     built = build_cohort(database, assign=False)
-    other = database.add_group(built["cm"], label="B")
+    other = database.add_group(built["cm"], label="B", capacity=30)
 
     put_assignment(client, built["cm"], built["groupA"])
     put_assignment(client, built["cm"], other)
@@ -421,7 +421,7 @@ def build_shared_language(database: StudentDatabase, owner: dict) -> dict:
     """
     lang = database.add_scope(owner["cohort"]["id"], code="LANG", name="Languages", term_id=TERM, open_to_all=True)
     french = database.add_course(lang, code="MATH-011")
-    a1 = database.add_group(lang, label="A1")
+    a1 = database.add_group(lang, label="A1", capacity=30)
     database.set_cell(group_id=a1, course_id=french, crn="23652")
 
     l1 = database.create_cohort(name="L1", term="2026-27")
@@ -434,7 +434,7 @@ def build_shared_language(database: StudentDatabase, owner: dict) -> dict:
         )
     cm = database.add_scope(l1["id"], code="CM", name="Lectures", term_id=TERM)
     maths = database.add_course(cm, code="MATH-001")
-    group_a = database.add_group(cm, label="A")
+    group_a = database.add_group(cm, label="A", capacity=30)
     database.set_cell(group_id=group_a, course_id=maths, crn="22151")
 
     database.assign(student_id="B001", scope_id=cm, group_id=group_a)
@@ -681,9 +681,9 @@ def test_a_set_whose_groups_hold_one_programme_does_not_want_the_other_programme
     tp = database.add_scope(cohort["id"], code="TP", name="Practicals", term_id=TERM)
     algebra = database.add_course(cm, code="MATH-223")
     practical = database.add_course(tp, code="PHYS-208")
-    maths_group = database.add_group(cm, label="Mathematics")
-    physics_group = database.add_group(cm, label="Physics")
-    practicals = database.add_group(tp, label="Physics")
+    maths_group = database.add_group(cm, label="Mathematics", capacity=30)
+    physics_group = database.add_group(cm, label="Physics", capacity=30)
+    practicals = database.add_group(tp, label="Physics", capacity=30)
     # Each group holds one major: the groups say who they are for, not a tag.
     on_maths = database.add_major(maths_group, program="Mathematics")
     on_physics = database.add_major(physics_group, program="Physics")
@@ -725,8 +725,8 @@ def test_a_recoded_programme_is_still_expected_in_its_programmes_sets(client: Te
     tp = database.add_scope(cohort["id"], code="TP", name="Practicals", term_id=TERM)
     algebra = database.add_course(cm, code="MATH-223")
     practical = database.add_course(tp, code="MATH-208")
-    lectures = database.add_group(cm, label="Mathematics")
-    practicals = database.add_group(tp, label="Mathematics")
+    lectures = database.add_group(cm, label="Mathematics", capacity=30)
+    practicals = database.add_group(tp, label="Mathematics", capacity=30)
     recoded = database.add_major(lectures, program="MATS - MAth")
     database.add_major(practicals, program="MATH - Mathematics")
     database.set_cell(group_id=lectures, course_id=algebra, crn="24087")
@@ -762,8 +762,8 @@ def test_a_student_of_that_programme_missing_from_it_is_still_named(
     tp = database.add_scope(cohort["id"], code="TP", name="Practicals", term_id=TERM)
     algebra = database.add_course(cm, code="MATH-223")
     practical = database.add_course(tp, code="PHYS-208")
-    physics_group = database.add_group(cm, label="Physics")
-    practicals = database.add_group(tp, label="Physics")
+    physics_group = database.add_group(cm, label="Physics", capacity=30)
+    practicals = database.add_group(tp, label="Physics", capacity=30)
     on_physics = database.add_major(physics_group, program="Physics")
     database.add_major(practicals, program="Physics")
     database.set_cell(group_id=physics_group, course_id=algebra, crn="24088")

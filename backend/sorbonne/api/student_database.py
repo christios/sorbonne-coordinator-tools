@@ -59,8 +59,9 @@ class CohortInput(BaseModel):
     term: str = Field(default="", max_length=80)
     notes: str = Field(default="", max_length=2000)
     # What the cohort expects of its students, as the portal codes it: the majors and the
-    # portal terms it spans, and a year level. Optional: a cohort that states none of them
-    # is judged on status alone.
+    # portal terms it spans, and a year level. Required (see `_expecting`): the Cohorts
+    # page finds the students who belong to a cohort and are not in it by these, and a
+    # cohort that stated none was never offered any — L2-S1 lost sixteen that way.
     majors: list[str] = Field(default_factory=list, max_length=20)
     terms: list[str] = Field(default_factory=list, max_length=20)
     yearLevel: str = Field(default="", max_length=40)
@@ -73,7 +74,8 @@ class CohortInput(BaseModel):
     allowedCodes: list[str] = Field(default_factory=list, max_length=100)
     # The private Teams channel these students belong in, spelled as Teams spells it.
     # Empty — every cohort until somebody says otherwise — means no comparison is made.
-    teamsChannel: str = Field(default="", max_length=120)
+    # Left out, it is left as it is: the cohort form does not show it.
+    teamsChannel: str | None = Field(default=None, max_length=120)
 
 
 class MoveInput(BaseModel):
@@ -218,6 +220,54 @@ class CellInput(BaseModel):
     not_taught: bool = Field(default=False, alias="notTaught")
 
 
+def _refused(detail: str) -> HTTPException:
+    return HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=detail)
+
+
+def _expecting(body: CohortInput) -> None:
+    """A cohort states what its students are, or the check that finds them cannot run."""
+    missing = [
+        label
+        for label, value in (
+            ("its majors", [code for code in body.majors if code.strip()]),
+            ("the portal term its students are in", [code for code in body.terms if code.strip()]),
+            ("its year level", body.yearLevel.strip()),
+        )
+        if not value
+    ]
+    if missing:
+        raise _refused(
+            f"Say {', '.join(missing[:-1]) + ' and ' + missing[-1] if len(missing) > 1 else missing[0]}. "
+            "The Cohorts page reads them to find the students who belong to this cohort and are not in it."
+        )
+
+
+def _linked(database: StudentDatabase, term_id: str) -> None:
+    """Sets and sections belong to a semester the registration check can read.
+
+    A set that names no semester at all is not one the pages make — every set is made in a
+    semester — and is left to the routes that predate semesters.
+    """
+    if term_id and not database.semester_is_linked(term_id):
+        raise _refused(
+            "Link this semester to a portal term on the Semesters page first. "
+            "The registration check reads its sets and sections through that link."
+        )
+
+
+def _seated(database: StudentDatabase, placements: dict[str, list[str]], majors: dict[str, str]) -> None:
+    """Nobody is placed where there are no seats to measure them against."""
+    try:
+        unseated = database.unseated(placements, majors)
+    except GroupNotFound as exc:
+        raise _missing(exc, "group") from exc
+    if unseated:
+        raise _refused(
+            f"Give {', '.join(unseated)} seats first, on Groups & CRNs. "
+            "Nobody is placed in a group with no seats: there would be nothing to check it against."
+        )
+
+
 def _missing(exc: Exception, what: str) -> HTTPException:
     return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"That {what} no longer exists.")
 
@@ -236,6 +286,7 @@ def list_cohorts(database: StudentDatabase = Depends(get_database)) -> dict[str,
 
 @router.post("/cohorts", status_code=status.HTTP_201_CREATED)
 def create_cohort(body: CohortInput, database: StudentDatabase = Depends(get_database)) -> dict[str, Any]:
+    _expecting(body)
     return database.create_cohort(
         name=body.name,
         term=body.term,
@@ -251,6 +302,7 @@ def create_cohort(body: CohortInput, database: StudentDatabase = Depends(get_dat
 def update_cohort(
     cohort_id: str, body: CohortInput, database: StudentDatabase = Depends(get_database)
 ) -> dict[str, Any]:
+    _expecting(body)
     try:
         return database.update_cohort(
             cohort_id,
@@ -517,6 +569,7 @@ def apply_workbook(
 def add_scope(
     cohort_id: str, body: ScopeInput, database: StudentDatabase = Depends(get_database)
 ) -> dict[str, str]:
+    _linked(database, body.term_id)
     try:
         return {
             "id": database.add_scope(
@@ -661,6 +714,12 @@ def assign_students(
     so assigning replaces whatever they had for this scope rather than adding to it. An id
     the block's cohort does not hold comes back under `skipped` rather than being placed.
     """
+    if body.group_id:
+        _seated(
+            database,
+            {body.group_id: body.student_ids},
+            {student: body.majors.get(student) or body.major_id for student in body.student_ids},
+        )
     staff = getattr(request.state, "staff_user", None)
     actor = getattr(staff, "email", "") or ""
     try:
@@ -703,6 +762,7 @@ def place_students(
     """
     if sum(len(students) for students in body.placements.values()) > MAX_PLACEMENTS:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="That is too many students at once.")
+    _seated(database, body.placements, body.majors)
     staff = getattr(request.state, "staff_user", None)
     actor = getattr(staff, "email", "") or ""
     try:
@@ -882,7 +942,7 @@ def add_comment(
 ) -> dict[str, Any]:
     """One line on the thread, signed by whoever is signed in and dated by the server."""
     if not body.body.strip():
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="A comment has to say something.")
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="A comment has to say something.")
     staff = getattr(request.state, "staff_user", None)
     email = getattr(staff, "email", "") or ""
     return database.add_comment(
@@ -1039,7 +1099,7 @@ def set_approval(  # noqa: PLR0913 - the path names the approval, the body its n
             student_id=student_id, term_code=term_code, course_code=course_code, note=body.note, actor=email
         )
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
     return _named(saved, "approvedBy")
 
 
@@ -1072,6 +1132,12 @@ def _named(entry: dict[str, Any], key: str) -> dict[str, Any]:
 def set_cell(
     group_id: str, course_id: str, body: CellInput, database: StudentDatabase = Depends(get_database)
 ) -> dict[str, bool]:
+    # A CRN is what the registration check compares; clearing one, or "not taught", needs no link.
+    if body.crn.strip() and not body.not_taught:
+        try:
+            _linked(database, database.semester_of_group(group_id))
+        except GroupNotFound as exc:
+            raise _missing(exc, "group") from exc
     database.set_cell(
         group_id=group_id,
         course_id=course_id,

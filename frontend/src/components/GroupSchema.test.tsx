@@ -179,3 +179,28 @@ describe("linking a set to another", () => {
     await waitFor(() => expect(update).toHaveBeenCalledWith("td-3", expect.objectContaining({ firstFor: "PHYS - Physics" })));
   });
 });
+
+describe("adding a set", () => {
+  it("is refused in a semester linked to no portal term, and says where to link it", async () => {
+    vi.spyOn(database, "fetchCatalogue").mockResolvedValue(catalogue(["PHYS - Physics"]));
+    vi.spyOn(portal, "fetchTermLinks").mockResolvedValue({});
+    shown();
+
+    fireEvent.change(await screen.findByLabelText("New set"), { target: { value: "TP" } });
+
+    expect(await screen.findByText(/Link this semester to a portal term on the Semesters page/)).toBeTruthy();
+    expect((screen.getByRole("button", { name: /Set$/ }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("is offered in a semester linked to a portal term", async () => {
+    vi.spyOn(database, "fetchCatalogue").mockResolvedValue(catalogue(["PHYS - Physics"]));
+    vi.spyOn(portal, "fetchTermLinks").mockResolvedValue({ "term-1": "262710" });
+    shown();
+
+    fireEvent.change(await screen.findByLabelText("New set"), { target: { value: "TP" } });
+
+    await waitFor(() => expect((screen.getByRole("button", { name: /Set$/ }) as HTMLButtonElement).disabled).toBe(false));
+    expect(screen.queryByText(/Link this semester to a portal term/)).toBeNull();
+  });
+});
+

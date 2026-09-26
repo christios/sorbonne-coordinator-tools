@@ -3,10 +3,13 @@ import { describe, expect, it } from "vitest";
 import { type FillCandidate, type FillGroup, clashKey, placementsByGroup, planFill, sortCandidates } from "@/services/groupFill";
 import { rememberProgrammeCodes } from "@/services/programmes";
 
+// Plenty of seats unless a test says otherwise: no seats now means nobody is placed.
+const ROOMY = 99;
+
 const group = (id: string, extra: Partial<FillGroup> = {}): FillGroup => ({
   id,
   label: id.toUpperCase(),
-  capacity: 0,
+  capacity: ROOMY,
   assigned: 0,
   ...extra,
 });
@@ -45,8 +48,8 @@ describe("balanced", () => {
 
     expect(where(result)).toEqual({ A9: "g2" });
     expect(result.sizes).toEqual([
-      { groupId: "g1", label: "G1", before: 20, after: 20, capacity: 0 },
-      { groupId: "g2", label: "G2", before: 18, after: 19, capacity: 0 },
+      { groupId: "g1", label: "G1", before: 20, after: 20, capacity: ROOMY },
+      { groupId: "g2", label: "G2", before: 18, after: 19, capacity: ROOMY },
     ]);
   });
 
@@ -69,14 +72,14 @@ describe("packed", () => {
     expect(result.placements[0].why).toBe("next seat");
   });
 
-  it("puts everyone in the first group when nothing has a capacity, which is what packed means", () => {
+  it("puts everyone in the first group while it has seats, which is what packed means", () => {
     expect(where(plan({ policy: "packed" }))).toEqual({ A1: "g1", A2: "g1", A3: "g1" });
   });
 });
 
 describe("a group with sub-rows", () => {
-  const maths = { id: "m-maths", program: "Mathematics", seats: 0, assigned: 0 };
-  const physics = { id: "m-phys", program: "Physics", seats: 0, assigned: 0 };
+  const maths = { id: "m-maths", program: "Mathematics", seats: ROOMY, assigned: 0 };
+  const physics = { id: "m-phys", program: "Physics", seats: ROOMY, assigned: 0 };
 
   it("seats a student on the sub-row of their own programme first, then anybody elsewhere", () => {
     const result = plan({
@@ -109,7 +112,7 @@ describe("a group with sub-rows", () => {
 
   it("seats a recoded student on the row of the code their new one means", () => {
     // L2's Mathematics became MATS; the department's list says MATS means MATH.
-    const mathsRow = { id: "m-math", program: "MATH - Mathematics", seats: 0, assigned: 0 };
+    const mathsRow = { id: "m-math", program: "MATH - Mathematics", seats: ROOMY, assigned: 0 };
     const run = () =>
       plan({
         groups: [group("g1", { majors: [mathsRow, { ...physics, program: "PHYS - Physics" }] })],
@@ -307,3 +310,33 @@ describe("what leaves the browser", () => {
     expect(plan({ groups: [] }).unplaced[0].why).toBe("the block has no groups");
   });
 });
+
+describe("a group with no seats", () => {
+  it("takes nobody: the fill goes round it", () => {
+    const result = plan({ groups: [group("g1", { capacity: 0 }), group("g2")] });
+
+    expect(where(result)).toEqual({ A1: "g2", A2: "g2", A3: "g2" });
+  });
+
+  it("leaves the students out, and says where to set seats, when no group has any", () => {
+    const result = plan({ groups: [group("g1", { capacity: 0 }), group("g2", { capacity: 0 })] });
+
+    expect(result.placements).toEqual([]);
+    expect(result.unplaced.map((entry) => entry.why)).toEqual(
+      Array(3).fill("no group of this set has seats yet — set them on Groups & CRNs"),
+    );
+  });
+
+  it("takes nobody on a sub-row with no seats, and says it is their sub-row", () => {
+    const maths = { id: "m-maths", program: "Mathematics", seats: 0, assigned: 0 };
+    const physics = { id: "m-phys", program: "Physics", seats: ROOMY, assigned: 0 };
+    const result = plan({
+      groups: [group("g1", { majors: [maths, physics] })],
+      candidates: [student("A1", { program: "Mathematics" }), student("A2", { program: "Physics" })],
+    });
+
+    expect(where(result)).toEqual({ A2: "g1" });
+    expect(result.unplaced).toEqual([{ studentId: "A1", why: "their sub-row has no seats yet — set them on Groups & CRNs" }]);
+  });
+});
+

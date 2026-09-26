@@ -134,8 +134,15 @@ export function planFill({
   const placements: Placement[] = [];
   const unplaced: Unplaced[] = [];
 
-  const hasRoom = (group: FillGroup) => group.capacity === 0 || (counts.get(group.id) ?? 0) < group.capacity;
-  const majorHasRoom = (major: FillMajor) => major.seats === 0 || (onMajor.get(major.id) ?? 0) < major.seats;
+  /*
+   * No seats is no room, not endless room. It used to read as "no limit", which is how a
+   * group nobody had sized filled without a warning; the server now refuses to place anyone
+   * where there are no seats, so the fill leaves such a group, or sub-row, alone and says so.
+   */
+  const seated = (group: FillGroup) =>
+    (group.majors ?? []).length ? (group.majors ?? []).some((major) => major.seats > 0) : group.capacity > 0;
+  const hasRoom = (group: FillGroup) => (counts.get(group.id) ?? 0) < group.capacity;
+  const majorHasRoom = (major: FillMajor) => (onMajor.get(major.id) ?? 0) < major.seats;
   /** The sub-row of their own programme, where the group holds it. */
   const ownMajor = (group: FillGroup, candidate: FillCandidate) =>
     (group.majors ?? []).find((major) => sameProgram(major.program, candidate.program)) ?? null;
@@ -156,8 +163,8 @@ export function planFill({
     if (majors.length === 0) return null;
     const own = ownMajor(group, candidate);
     if (!own && !group.identical) return undefined;
-    if (own && (over || majorHasRoom(own))) return own;
-    if (group.identical) return majors.find(majorHasRoom) ?? (over ? majors[0] : undefined);
+    if (own && own.seats > 0 && (over || majorHasRoom(own))) return own;
+    if (group.identical) return majors.find(majorHasRoom) ?? (over ? majors.find((major) => major.seats > 0) : undefined);
     return undefined;
   };
   /** The groups of the parent set this one goes with. */
@@ -165,6 +172,7 @@ export function planFill({
     group.parentGroupIds?.length ? group.parentGroupIds : group.parentGroupId ? [group.parentGroupId] : [];
   const permitted = (candidate: FillCandidate) =>
     groups.filter((group) => {
+      if (!seated(group)) return false;
       if (parentScopeId && !parentsOf(group).includes(candidate.held[parentScopeId])) return false;
       if (candidate.within && !candidate.within.includes(group.id)) return false;
       if (seatIn(group, candidate, true) === undefined) return false;
@@ -212,8 +220,12 @@ export function planFill({
     } else if (allowed.length === 0) {
       unplaced.push({
         studentId: candidate.studentId,
-        why: groups.every((group) => seatIn(group, candidate, true) === undefined)
-          ? "no group of this set holds a sub-row for their programme"
+        why: !groups.some(seated)
+          ? "no group of this set has seats yet — set them on Groups & CRNs"
+          : groups.every((group) => seatIn(group, candidate, true) === undefined)
+          ? groups.some((group) => ownMajor(group, candidate))
+            ? "their sub-row has no seats yet — set them on Groups & CRNs"
+            : "no group of this set holds a sub-row for their programme"
           : parentScopeId && !groups.some((group) => parentsOf(group).includes(candidate.held[parentScopeId]))
             ? "no group of this set goes with their group in the set it follows"
             : candidate.within && !groups.some((group) => candidate.within?.includes(group.id))

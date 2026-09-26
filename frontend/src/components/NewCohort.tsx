@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus, Users } from "lucide-react";
 import { useState } from "react";
 
+import { CohortExpectationsFields, missingExpectations } from "@/components/CohortExpectations";
 import { Modal } from "@/components/Modal";
 import { createCohort, type Cohort } from "@/services/studentDatabase";
 
@@ -18,13 +19,21 @@ export function NewCohort({ onCreated }: { onCreated?: (cohort: Cohort) => void 
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [term, setTerm] = useState("");
+  // What it expects of its students, required: the Cohorts page finds who belongs by these.
+  const [majors, setMajors] = useState<string[]>([]);
+  const [terms, setTerms] = useState<string[]>([]);
+  const [yearLevel, setYearLevel] = useState("");
+  const missing = missingExpectations({ majors, terms, yearLevel });
 
   const create = useMutation({
-    mutationFn: () => createCohort({ name: name.trim(), term: term.trim() }),
+    mutationFn: () => createCohort({ name: name.trim(), term: term.trim(), majors, terms, yearLevel: yearLevel.trim() }),
     onSuccess: (cohort) => {
       setOpen(false);
       setName("");
       setTerm("");
+      setMajors([]);
+      setTerms([]);
+      setYearLevel("");
       client.invalidateQueries({ queryKey: ["cohorts"] });
       onCreated?.(cohort);
     },
@@ -58,12 +67,13 @@ export function NewCohort({ onCreated }: { onCreated?: (cohort: Cohort) => void 
         onClose={() => setOpen(false)}
         footer={
           <div className="flex items-center justify-end gap-3">
+            {missing.length ? <span className="mr-auto text-xs text-[#98a2b3]">Say its {missing.join(", ")}.</span> : null}
             <button type="button" onClick={() => setOpen(false)} className="text-sm font-semibold text-[#667085]">
               Cancel
             </button>
             <button
               type="button"
-              disabled={!name.trim() || create.isPending}
+              disabled={!name.trim() || missing.length > 0 || create.isPending}
               onClick={() => create.mutate()}
               className="rounded-md bg-[#1f4e79] px-4 py-2 text-sm font-semibold text-white disabled:bg-[#9ba8b5]"
             >
@@ -82,10 +92,17 @@ export function NewCohort({ onCreated }: { onCreated?: (cohort: Cohort) => void 
             <input value={term} onChange={(event) => setTerm(event.target.value)} placeholder="2026-27" className={field} />
           </label>
         </div>
-        <p className="mt-3 text-xs text-[#98a2b3]">
-          It starts empty. Students join it from the Students table, and what it expects of them — the majors, the
-          portal terms, the year level — is said afterwards with the pencil beside its name.
-        </p>
+        <div className="mt-4 space-y-4">
+          <CohortExpectationsFields
+            majors={majors}
+            terms={terms}
+            yearLevel={yearLevel}
+            onMajors={setMajors}
+            onTerms={setTerms}
+            onYearLevel={setYearLevel}
+            enabled={open}
+          />
+        </div>
         {create.error ? (
           <p role="alert" className="mt-3 rounded-md border border-[#e5b7b9] bg-[#fdf3f3] px-4 py-3 text-sm text-[#a6292f]">
             {(create.error as Error).message}

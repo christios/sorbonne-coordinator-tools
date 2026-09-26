@@ -27,6 +27,8 @@ from sorbonne.services.student_database import StudentDatabase
 from sorbonne.services.teacher_store import TeacherStore
 from tests.conftest import TEST_DATABASE_URL
 
+# What every cohort must state: the Cohorts page finds who belongs to it by these.
+EXPECTS = {"majors": ["MATH"], "terms": ["262710"], "yearLevel": "FY"}
 BASE = "/api/v1/portal"
 TERM = "262710"
 HUB_TERM = "term-1"
@@ -1087,7 +1089,9 @@ def test_an_elective_outside_our_groups_is_listed_and_never_a_warning(
 
     def allow(codes: list[str]) -> None:
         response = client.patch(
-            f"/api/v1/student-database/cohorts/{cohort_id}", json={"name": "Foundation Year", "allowedCodes": codes}
+            f"/api/v1/student-database/cohorts/{cohort_id}",
+            # What every cohort must state, alongside what it allows.
+            json={"name": "Foundation Year", "allowedCodes": codes, **EXPECTS},
         )
         assert response.status_code == status.HTTP_200_OK, response.text
         assert response.json()["allowedCodes"] == codes

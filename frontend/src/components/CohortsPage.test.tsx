@@ -76,6 +76,9 @@ async function portalSays(rows: Record<string, string>[]) {
   });
 }
 
+/** L1 with everything a cohort must state, for a test that saves it. */
+const STATED: Cohort = { ...L1, terms: ["262710"] };
+
 function renderPage(cohorts = [L1]) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
@@ -605,7 +608,7 @@ describe("the register half of the Cohorts page", () => {
     const saved = vi.spyOn(database, "saveDiscrepancyRules").mockImplementation(async (rules) => rules as never);
     await twoStudents();
 
-    renderPage();
+    renderPage([STATED]);
     await screen.findByRole("button", { name: `${L1.name} settings` });
     expect(screen.queryByRole("button", { name: /Cohort rules/ })).toBeNull();
 
@@ -634,12 +637,30 @@ describe("the register half of the Cohorts page", () => {
     const saved = vi.spyOn(database, "saveDiscrepancyRules");
     await twoStudents();
 
-    renderPage();
+    renderPage([STATED]);
     fireEvent.click(await screen.findByRole("button", { name: `${L1.name} settings` }));
     fireEvent.click(await screen.findByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(updated).toHaveBeenCalledTimes(1));
     expect(saved).not.toHaveBeenCalled();
+  });
+
+  it("will not save a cohort that does not say what its students are, and says what is missing", async () => {
+    vi.spyOn(lists, "fetchPortalCourses").mockResolvedValue({ terms: [], courses: [] });
+    vi.spyOn(lists, "fetchTermLinks").mockResolvedValue({});
+    const updated = vi.spyOn(database, "updateCohort").mockResolvedValue(L1);
+    await twoStudents();
+
+    // L1 states its majors and year level and no portal term: the check that finds who
+    // belongs to it cannot run, as it could not for L2-S1.
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: `${L1.name} settings` }));
+
+    const save = await screen.findByRole("button", { name: "Save" });
+    expect((save as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText("Say the cohort's portal term to save it.")).toBeTruthy();
+    fireEvent.click(save);
+    expect(updated).not.toHaveBeenCalled();
   });
 
   it("asks the register again when the cohort is saved, so a newly allowed subject stops warning", async () => {

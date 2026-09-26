@@ -506,17 +506,16 @@ export function PlaceInBlock({
                       value: group.id,
                       label: `Group ${group.label}`,
                       // An empty group says nothing rather than a bare "0", which reads as a label.
-                      badge: clashes
-                        ? `would clash with ${clashes}`
-                        : astray
-                          ? astray
-                          : group.capacity
-                            ? `${group.assigned}/${group.capacity}`
-                            : group.assigned
-                              ? `${group.assigned} placed`
-                              : undefined,
+                      // Nobody is placed where there are no seats: the server refuses it, so say so first.
+                      badge: !group.capacity
+                        ? "no seats — set them on Groups & CRNs"
+                        : clashes
+                          ? `would clash with ${clashes}`
+                          : astray
+                            ? astray
+                            : `${group.assigned}/${group.capacity}`,
                       badgeTone:
-                        clashes || astray
+                        !group.capacity || clashes || astray
                           ? ("bad" as const)
                           : group.capacity && group.assigned >= group.capacity
                             ? ("muted" as const)

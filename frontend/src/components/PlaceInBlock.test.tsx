@@ -33,7 +33,7 @@ const CATALOGUE: database.Catalogue = {
       courses: [],
       groups: [
         { id: "group-1", label: "1", capacity: 24, note: "", parentGroupId: "", assigned: 20, crns: {} },
-        { id: "group-2", label: "2", capacity: 0, note: "", parentGroupId: "", assigned: 0, crns: {} },
+        { id: "group-2", label: "2", capacity: 30, note: "", parentGroupId: "", assigned: 0, crns: {} },
       ],
     },
   ],
@@ -254,9 +254,9 @@ describe("placing into several sets at once", () => {
     scopes: [
       CATALOGUE.scopes[0],
       { ...CATALOGUE.scopes[0], id: "scope-cm", code: "CM", name: "Lectures",
-        groups: [{ id: "cm-a", label: "A", capacity: 0, note: "", parentGroupId: "", assigned: 0, crns: {} }] },
+        groups: [{ id: "cm-a", label: "A", capacity: 30, note: "", parentGroupId: "", assigned: 0, crns: {} }] },
       { ...CATALOGUE.scopes[0], id: "scope-lang", code: "LANG", name: "Languages", openToAll: true,
-        groups: [{ id: "lang-a1", label: "A1", capacity: 0, note: "", parentGroupId: "", assigned: 0, crns: {} }] },
+        groups: [{ id: "lang-a1", label: "A1", capacity: 30, note: "", parentGroupId: "", assigned: 0, crns: {} }] },
     ],
   };
 
@@ -493,8 +493,8 @@ describe("proposing the groups instead of naming them", () => {
         {
           ...CATALOGUE.scopes[0],
           groups: [
-            { ...CATALOGUE.scopes[0].groups[0], majors: [{ id: "m-1", program: "MATH - Mathematics", seats: 0, assigned: 0 }] },
-            { ...CATALOGUE.scopes[0].groups[1], majors: [{ id: "m-2", program: "PHYS - Physics", seats: 0, assigned: 0 }] },
+            { ...CATALOGUE.scopes[0].groups[0], majors: [{ id: "m-1", program: "MATH - Mathematics", seats: 30, assigned: 0 }] },
+            { ...CATALOGUE.scopes[0].groups[1], majors: [{ id: "m-2", program: "PHYS - Physics", seats: 30, assigned: 0 }] },
           ],
         },
       ],
@@ -518,7 +518,7 @@ describe("naming a group that would clash", () => {
         ...CATALOGUE.scopes,
         {
           id: "scope-cm", code: "CM", name: "Lectures", note: "", kind: "shared", parentScopeId: "", openToAll: false, courses: [],
-          groups: [{ id: "group-cm", label: "A", capacity: 0, note: "", parentGroupId: "", assigned: 40, crns: {} }],
+          groups: [{ id: "group-cm", label: "A", capacity: 30, note: "", parentGroupId: "", assigned: 40, crns: {} }],
         },
       ],
     };
