@@ -10,7 +10,7 @@
 
 import type { Card, SectionRow } from "@/services/courseCards";
 import { filled } from "@/services/courseRequest";
-import { rowsPerPart } from "@/services/courseCards";
+import { anticipatedOf, rowsPerPart } from "@/services/courseCards";
 import { hoursColumn, teacherLoads } from "@/services/teacherLoad";
 
 export { hoursColumn } from "@/services/teacherLoad";
@@ -103,6 +103,21 @@ export function requestSheets(
     if (card.termId !== termId) continue;
     const held = byCohort.get(card.cohortId) ?? { name: card.cohortName, rows: [] };
     const code = splitCourseCode(card.code);
+    /*
+     * One class however many groups hold its CRN. L1's CM lectures are one CRN under both
+     * "1 Mathematics" and "1 Physics", and the timetabler books one room for all of them:
+     * the class's seats are every holder's added up, said on the first line of that CRN
+     * and left blank on the others, so nobody is counted twice.
+     */
+    const classOf = new Map<string, number>();
+    for (const set of card.sets) {
+      for (const row of set.rows.flatMap((entry) => rowsPerPart(entry))) {
+        const crn = row.section?.crn.trim();
+        if (!crn || row.section?.retired || (row.sharedCell && !row.firstSubRow)) continue;
+        classOf.set(crn, (classOf.get(crn) ?? 0) + anticipatedOf(row));
+      }
+    }
+    const told = new Set<string>();
     for (const set of card.sets) {
       /*
        * One line per PART of each section. A course handed from one professor to another
@@ -117,6 +132,9 @@ export function requestSheets(
         const section = row.section ? filled(row.section, set.course.request) : null;
         if (!section) continue;
         const comments = [section.comments, section.retired ? "Retired group" : ""].filter(Boolean).join("; ");
+        const crn = section.crn.trim();
+        const anticipated = !crn ? anticipatedOf(row) : told.has(crn) ? 0 : (classOf.get(crn) ?? anticipatedOf(row));
+        if (crn) told.add(crn);
         held.rows.push({
           courseName: sectionName(card, row),
           degree: cohortDegree(card.cohortId),
@@ -136,7 +154,8 @@ export function requestSheets(
           constraints: [section.constraints, parallelNote(row.group, labelOfGroup)].filter(Boolean).join("; "),
           weeks: section.sessionsPerWeek || section.weeks,
           duration: section.duration,
-          anticipated: section.anticipated || "",
+          // The class's seats, not a number typed beside them — see anticipatedOf.
+          anticipated: anticipated || "",
           retired: section.retired,
           comments,
         });

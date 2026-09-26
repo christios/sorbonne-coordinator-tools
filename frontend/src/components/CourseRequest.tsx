@@ -94,11 +94,8 @@ export function CourseRequestDialog({
         </label>
       </div>
 
-      <div className="mt-4 grid gap-4 sm:grid-cols-4">
-        <label className={fieldLabel}>
-          Anticipated students
-          <input aria-label={`Anticipated students for ${title}`} value={draft.anticipated || ""} inputMode="numeric" onChange={(event) => set({ anticipated: Number(event.target.value) || 0 })} className={field} />
-        </label>
+      {/* No "anticipated students": a class is as big as its seats, set on its card. */}
+      <div className="mt-4 grid gap-4 sm:grid-cols-3">
         <label className={fieldLabel}>
           Room preference
           <input aria-label={`Room preference for ${title}`} value={draft.roomPref} onChange={(event) => set({ roomPref: event.target.value })} className={field} />
@@ -173,7 +170,6 @@ export function CourseRequestLine({
         ) : (
           <>
             {request.hours ? <Pill>{request.hours} h in all</Pill> : null}
-            {request.anticipated ? <Pill>{request.anticipated} expected</Pill> : null}
             {spreadOver ? <span className="text-[11px] tabular-nums text-[#667085]">{spreadOver}</span> : null}
           </>
         )}

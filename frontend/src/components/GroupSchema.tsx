@@ -33,7 +33,6 @@ import {
   removeMajor,
   shortProgram,
   updateGroup,
-  updateMajor,
   updateScope,
 } from "@/services/studentDatabase";
 import { fetchTimetableTerms } from "@/services/timetables";
@@ -671,7 +670,15 @@ function SetEditor({
               <thead className="bg-[#fbfcfe] text-[11px] uppercase tracking-wide text-[#8a94a4]">
                 <tr>
                   <th className="py-2 pl-4 pr-3 font-semibold">Group</th>
-                  <th className="py-2 pr-3 font-semibold">Seats</th>
+                  <th className="py-2 pr-3 font-semibold">
+                    <span className="inline-flex items-center gap-1 normal-case">
+                      <span className="uppercase">Seats</span>
+                      <InfoTip label="Where seats are set">
+                        Set on Groups &amp; CRNs, from any of the group&apos;s cards. The schema says what the groups
+                        are; the cards say how big each one is, and that is what the timetabler is told to expect.
+                      </InfoTip>
+                    </span>
+                  </th>
                   <th className="py-2 pr-3 font-semibold">In parallel with</th>
                   <th className="py-2 pr-3 font-semibold">Sub-rows</th>
                   {scope.kind === "nested" ? <th className="py-2 pr-3 font-semibold">Goes with</th> : null}
@@ -788,14 +795,13 @@ function GroupRow({
   onRemove: () => void;
 }) {
   const [label, setLabel] = useState(group.label);
-  const [capacity, setCapacity] = useState(String(group.capacity || ""));
   const save = useMutation({
     mutationFn: (
-      next: Partial<{ label: string; capacity: number; parentGroupIds: string[]; firstFor: string; parallelWith: string[] }>,
+      next: Partial<{ label: string; parentGroupIds: string[]; firstFor: string; parallelWith: string[] }>,
     ) =>
       updateGroup(group.id, {
         label: next.label ?? label,
-        capacity: next.capacity ?? Number(capacity || 0),
+        capacity: group.capacity,
         note: group.note,
         parentGroupIds: next.parentGroupIds ?? parentsOf(group),
         firstFor: next.firstFor ?? group.firstFor ?? "",
@@ -817,22 +823,14 @@ function GroupRow({
         />
       </td>
       <td className="py-1.5 pr-3">
-        {majors.length ? (
-          // With sub-rows the seats are theirs to add up; the group's own number is retired.
-          <span className="inline-block w-14 px-2 py-1 text-sm tabular-nums text-[#667085]" title="What the sub-rows add up to">
-            {group.capacity || "—"}
-          </span>
-        ) : (
-          <input
-            aria-label={`Seats in ${group.label}`}
-            value={capacity}
-            inputMode="numeric"
-            onChange={(event) => setCapacity(event.target.value.replace(/[^0-9]/g, ""))}
-            onBlur={() => Number(capacity || 0) !== group.capacity && save.mutate({ capacity: Number(capacity || 0) })}
-            placeholder="—"
-            className="w-14 rounded-md border border-transparent px-2 py-1 text-sm tabular-nums hover:border-[#cbd5e1] focus:border-[#cbd5e1]"
-          />
-        )}
+        {/* Read here, set on Groups & CRNs. With sub-rows it is what they add up to. */}
+        <span
+          aria-label={`Seats in ${group.label}`}
+          className="inline-block w-14 px-2 py-1 text-sm tabular-nums text-[#667085]"
+          title={majors.length ? "What the sub-rows add up to" : undefined}
+        >
+          {group.capacity || "—"}
+        </span>
       </td>
       {/*
         * The groups this one must be scheduled at the same hour as — TD 1 with PHIL-TD 1,
@@ -927,7 +925,6 @@ function GroupRow({
 function MajorsEditor({ group, programmes, onChanged }: { group: CatalogueGroup; programmes: string[]; onChanged: () => void }) {
   const majors = group.majors ?? [];
   const [adding, setAdding] = useState("");
-  const [seats, setSeats] = useState<Record<string, string>>({});
   const add = useMutation({
     mutationFn: (program: string) => addMajor(group.id, { program, seats: 0 }),
     onSuccess: () => {
@@ -935,14 +932,9 @@ function MajorsEditor({ group, programmes, onChanged }: { group: CatalogueGroup;
       onChanged();
     },
   });
-  const resize = useMutation({
-    mutationFn: ({ major, next }: { major: CatalogueMajor; next: number }) =>
-      updateMajor(major.id, { program: major.program, seats: next }),
-    onSuccess: onChanged,
-  });
   const remove = useMutation({ mutationFn: (major: CatalogueMajor) => removeMajor(major.id), onSuccess: onChanged });
   const offered = programmes.filter((program) => !majors.some((major) => major.program === program));
-  const error = add.error ?? resize.error ?? remove.error;
+  const error = add.error ?? remove.error;
   return (
     <div className="min-w-44 space-y-1">
       {majors.map((major) => (
@@ -950,18 +942,12 @@ function MajorsEditor({ group, programmes, onChanged }: { group: CatalogueGroup;
           <span className="min-w-0 flex-1 truncate text-[#344054]" title={major.program}>
             {shortProgram(major.program)}
           </span>
-          <input
+          <span
             aria-label={`Seats for ${shortProgram(major.program)} in ${group.label}`}
-            value={seats[major.id] ?? String(major.seats || "")}
-            inputMode="numeric"
-            onChange={(event) => setSeats((held) => ({ ...held, [major.id]: event.target.value.replace(/[^0-9]/g, "") }))}
-            onBlur={() => {
-              const next = Number(seats[major.id] ?? major.seats) || 0;
-              if (next !== major.seats) resize.mutate({ major, next });
-            }}
-            placeholder="∞"
-            className="w-12 rounded-md border border-transparent px-1.5 py-0.5 text-right text-sm tabular-nums hover:border-[#cbd5e1] focus:border-[#cbd5e1]"
-          />
+            className="w-12 px-1.5 py-0.5 text-right text-sm tabular-nums text-[#667085]"
+          >
+            {major.seats || "—"}
+          </span>
           <span className="text-xs tabular-nums text-[#98a2b3]" title="Placed on this sub-row">{major.assigned}</span>
           <button
             type="button"

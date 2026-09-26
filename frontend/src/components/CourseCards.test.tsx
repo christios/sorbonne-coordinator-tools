@@ -121,6 +121,28 @@ describe("the course cards", () => {
     await waitFor(() => expect(saveDetails).toHaveBeenCalledWith("td-2", "td-math", expect.objectContaining({ teacherId: "act-2" })));
   });
 
+  it("sets a group's seats from its card, for every course of the set, and writes no empty section", async () => {
+    const resize = vi.spyOn(database, "updateGroup").mockResolvedValue();
+    const saveCrn = vi.spyOn(database, "setGroupCrn").mockResolvedValue();
+    const saveDetails = vi.spyOn(database, "updateSection").mockResolvedValue();
+    show();
+
+    // TD 2 holds nothing for Algorithms yet: offered as a section to add.
+    const courses = await screen.findByRole("navigation", { name: "Courses" });
+    fireEvent.click(within(courses).getByText("MATH011"));
+    fireEvent.click(await screen.findByRole("button", { name: "2" }));
+    const seats = await screen.findByLabelText("Seats for TD 2");
+    expect((seats as HTMLInputElement).value).toBe("33");
+    fireEvent.change(seats, { target: { value: "28" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(resize).toHaveBeenCalledWith("td-2", expect.objectContaining({ label: "2", capacity: 28, note: "" })),
+    );
+    expect(saveCrn).not.toHaveBeenCalled();
+    expect(saveDetails).not.toHaveBeenCalled();
+  });
+
   it("says on the card when a course is taught to both degrees at once", async () => {
     vi.spyOn(lists, "fetchActiveCourses").mockResolvedValue([
       { id: "a1", courseCode: "MATH001", title: "Pre-calculus 1", ue: "UL1MA001", mutualized: "yes" as const, addedAt: "", addedBy: "", crnCount: 3, portalCrnCount: 3, termCount: 1, lastTerm: "262710", portalParentCrn: "24226" },
@@ -139,13 +161,13 @@ describe("the course cards", () => {
     expect(screen.queryByText(/Mutualized|One degree only/)).toBeNull();
   });
 
-  it("says the hours, the expected students and the seats as figures rather than prose", async () => {
+  it("says the hours and the seats as figures rather than prose", async () => {
     show();
 
     const one = (await screen.findByLabelText("Edit TD 1 MATH001")) as HTMLElement;
-    // The three the timetable is built from, each with its own reading.
+    // The two the timetable is built from, each with its own reading.
     expect(within(one).getByTitle("50 hours")).toBeTruthy();
-    // How many are expected is a mark on the seats now, and absent when nobody has said.
+    // No "expected" beside the seats: the class's seats are what the timetabler expects.
     expect(within(one).queryByLabelText(/expected$/)).toBeNull();
     expect(within(one).getByTitle("30 of 33 seats taken")).toBeTruthy();
 

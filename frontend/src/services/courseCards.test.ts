@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { teaches, buildCards, cardColumns, sectionsOf, teachersOf } from "@/services/courseCards";
+import { anticipatedOf, buildCards, cardColumns, cardSeats, cardSubRows, sectionsOf, teaches, teachersOf } from "@/services/courseCards";
 import { type CatalogueScope, type CohortCatalogue, EMPTY_REQUEST, EMPTY_SECTION } from "@/services/studentDatabase";
 
 const section = (crn: string, teacherId = "") => ({ ...EMPTY_SECTION, crn, teacherId });
@@ -130,6 +130,38 @@ describe("a group with sub-rows, one per major it holds", () => {
     expect(teaches(physics)).toBe(false);
   });
 
+  it("seats a shared lecture with every sub-row taught it, and expects that many", () => {
+    const [lecture] = rowsOf("CPSC-100");
+    expect(cardSeats(lecture)).toEqual({ seats: 110, placed: 100 });
+    expect(anticipatedOf(lecture)).toBe(110);
+    // Its seats are edited sub-row by sub-row, from the one card the class is drawn as.
+    expect(cardSubRows(lecture).map((major) => major.id)).toEqual(["m-maths", "m-phys"]);
+  });
+
+  it("seats a sub-row's own class with its own seats, and a sub-row not taught with none", () => {
+    const [maths, physics] = rowsOf("MATH-113");
+    expect([cardSeats(maths), anticipatedOf(maths)]).toEqual([{ seats: 90, placed: 85 }, 90]);
+    expect([cardSeats(physics), anticipatedOf(physics), cardSubRows(physics)]).toEqual([{ seats: 0, placed: 0 }, 0, []]);
+  });
+
+  it("counts a shared cell for the sub-rows that share it, not one with a class of its own", () => {
+    const split: CatalogueScope = {
+      ...scope,
+      groups: [
+        {
+          ...scope.groups[0],
+          byMajor: { "m-maths": { "c-shared": { ...EMPTY_SECTION, crn: "22999", majorId: "m-maths" } } },
+        },
+      ],
+    };
+    const rows = buildCards([{ cohort: { id: "c1", name: "L1-S1", term: "2026-27" }, scopes: [split] }], () => "Semester 1")
+      .find((card) => card.code === "CPSC-100")?.sets[0]?.rows ?? [];
+    expect(rows.map((row) => [row.group.label, row.sharedCell, anticipatedOf(row)])).toEqual([
+      ["1 · Mathematics", false, 90],
+      ["1 · Physics", true, 20],
+    ]);
+  });
+
   it("leaves a group with no sub-rows exactly as it was", () => {
     const plain = buildCards(
       [{ cohort: { id: "c1", name: "FYS", term: "2026-27" }, scopes: [{ ...scope, groups: [{ ...scope.groups[0], majors: [], byMajor: {} }] }] }],
@@ -137,5 +169,7 @@ describe("a group with sub-rows, one per major it holds", () => {
     );
     const [row] = plain[0].sets[0].rows;
     expect([row.group.label, row.major, row.sharedCell, teaches(row)]).toEqual(["1", null, false, true]);
+    // Its seats are its own, and so is the class.
+    expect([cardSeats(row), anticipatedOf(row), cardSubRows(row)]).toEqual([{ seats: 110, placed: 100 }, 110, []]);
   });
 });

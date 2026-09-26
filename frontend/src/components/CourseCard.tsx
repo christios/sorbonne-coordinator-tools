@@ -1,15 +1,26 @@
 import { useMutation } from "@tanstack/react-query";
-import { AlertTriangle, Check, ChevronDown, ChevronRight, HelpCircle, Pencil, Wand2, UserRound } from "lucide-react";
+import { AlertTriangle, Check, ChevronDown, ChevronRight, HelpCircle, Pencil, Wand2 } from "lucide-react";
 import { useState } from "react";
 
 import { FillBlock, type FillReport } from "@/components/FillBlock";
+import { InfoTip } from "@/components/InfoTip";
 import { Modal } from "@/components/Modal";
 import { SelectMenu } from "@/components/SelectMenu";
-import type { Card, CardSet, SectionRow } from "@/services/courseCards";
+import { anticipatedOf, cardSubRows, type Card, type CardSet, type SectionRow } from "@/services/courseCards";
 import { MUTUALIZED_WORDS, type ActiveTeacher, type TermCrns } from "@/services/portalLists";
 import type { CrnVerdict, GroupClash } from "@/services/publication";
 import { toneOf, verdictFor, type VerdictTone } from "@/services/publicationView";
-import { type Cohort, EMPTY_PART, type SectionPart, setGroupCrn, shortProgram, updateSection } from "@/services/studentDatabase";
+import {
+  type Cohort,
+  EMPTY_PART,
+  parentsOf,
+  type SectionPart,
+  setGroupCrn,
+  shortProgram,
+  updateGroup,
+  updateMajor,
+  updateSection,
+} from "@/services/studentDatabase";
 
 const KIND_WORD = { shared: "own groups", nested: "nested" } as const;
 
@@ -264,16 +275,6 @@ const empty = <span className="text-[#c8d0da]">—</span>;
         <span className="flex items-center gap-1 text-[11px] text-[#98a2b3]">
           <span>{row.group.capacity ? `${row.group.assigned}/${row.group.capacity}` : `${row.group.assigned} placed`}</span>
           {/* How many the timetabler was told to expect, as a mark on the seats rather than a pill of its own. */}
-          {held.anticipated ? (
-            <span
-              className="inline-flex items-center gap-0.5 text-[#9089b8]"
-              title={`${held.anticipated} expected, as the timetable request says`}
-              aria-label={`${held.anticipated} expected`}
-            >
-              <UserRound size={10} aria-hidden="true" />
-              <span className="tabular-nums">{held.anticipated}</span>
-            </span>
-          ) : null}
 
         </span>
       </td>
@@ -327,7 +328,7 @@ const empty = <span className="text-[#c8d0da]">—</span>;
       <td className="py-2 pr-3">{held.sessionsPerWeek || empty}</td>
       <td className="py-2 pr-3 text-right tabular-nums">{held.duration || empty}</td>
       <td className="py-2 pr-3">{held.weeks || empty}</td>
-      <td className="py-2 pr-3 text-right tabular-nums">{held.anticipated || empty}</td>
+      <td className="py-2 pr-3 text-right tabular-nums">{anticipatedOf(row) || empty}</td>
       <td className="max-w-[18rem] truncate py-2 pr-3 text-xs text-[#667085]" title={asked}>
         {asked || empty}
       </td>
@@ -388,6 +389,39 @@ export function SectionDialog({
   );
   const majorId = whose === "everyone" || !row.major ? "" : row.major.id;
 
+  /*
+   * The seats, set here rather than on Group schema: the schema says what the groups are,
+   * and the cards say how big each one is. They are the group's — or its sub-row's — for
+   * every course of the set, so a change here shows on every card of the group, and the
+   * class's seats are what the timetabler is told to expect.
+   */
+  const holders = cardSubRows(row);
+  const [seats, setSeats] = useState<Record<string, string>>(() =>
+    Object.fromEntries(
+      holders.length
+        ? holders.map((major) => [major.id, String(major.seats || "")])
+        : [[row.group.id, String(row.group.capacity || "")]],
+    ),
+  );
+  const resize = async () => {
+    if (row.notTaught) return;
+    for (const major of holders) {
+      const next = Number(seats[major.id] || 0);
+      if (next !== major.seats) await updateMajor(major.id, { program: major.program, seats: next });
+    }
+    const next = Number(seats[row.group.id] || 0);
+    if (!holders.length && next !== row.group.capacity) {
+      await updateGroup(row.group.id, {
+        label: row.group.label,
+        capacity: next,
+        note: row.group.note,
+        parentGroupIds: parentsOf(row.group),
+        firstFor: row.group.firstFor ?? "",
+        parallelWith: row.group.parallelWith,
+      });
+    }
+  };
+
   // The portal's CRNs of this course in this semester, the one already held first.
   const crnOptions = portal
     ? Object.entries(portal.crns)
@@ -430,10 +464,13 @@ export function SectionDialog({
 
   const save = useMutation({
     mutationFn: async () => {
+      await resize();
       const crn = draft.crn.trim();
       // The part being edited, so a handover's second half is written to its own row
       // rather than over the first professor's.
       const part = held.part || 1;
+      // Only the seats changed on a row nobody has started: no empty section is written for it.
+      if (!row.section && whose !== "not-taught" && JSON.stringify(draft) === JSON.stringify(held)) return;
       if (whose === "not-taught" && row.major) {
         // The sub-row's word about the course; it has no CRN and no request of its own.
         await setGroupCrn(row.group.id, row.course.id, { crn: "", part, majorId: row.major.id, notTaught: true });
@@ -584,10 +621,37 @@ export function SectionDialog({
       </div>
 
       <div className="mt-4 grid gap-4 sm:grid-cols-4">
-        <label className={fieldLabel}>
-          Anticipated students
-          <input aria-label={`Anticipated students for ${label}`} value={draft.anticipated || ""} inputMode="numeric" onChange={(event) => set({ anticipated: Number(event.target.value) || 0 })} placeholder={String(row.group.capacity || "")} className={field} />
-        </label>
+        {row.notTaught ? (
+          <span />
+        ) : (
+          <div>
+            <span className={`${fieldLabel} flex items-center gap-1`}>
+              Seats
+              <InfoTip label="About seats">
+                {holders.length > 1
+                  ? `Each sub-row's seats in ${row.scope.code} ${row.group.label}, for every course of the set. Placing fills up to them, and the timetabler is told to expect them added up.`
+                  : `${row.scope.code} ${row.group.label}'s seats, for every course of the set. Placing fills up to them, and the timetabler is told to expect this many.`}
+              </InfoTip>
+            </span>
+            <div className={holders.length > 1 ? "mt-1 flex gap-2" : ""}>
+              {(holders.length ? holders.map((major) => ({ id: major.id, name: shortProgram(major.program) })) : [{ id: row.group.id, name: "" }]).map(
+                (holder) => (
+                  <label key={holder.id} className={holders.length > 1 ? "min-w-0 flex-1 text-[11px] text-[#667085]" : ""}>
+                    {holders.length > 1 ? holder.name : null}
+                    <input
+                      aria-label={`Seats for ${holders.length > 1 ? `${holder.name} in ` : ""}${row.scope.code} ${row.group.label}`}
+                      value={seats[holder.id] ?? ""}
+                      inputMode="numeric"
+                      onChange={(event) => setSeats((held) => ({ ...held, [holder.id]: event.target.value.replace(/[^0-9]/g, "") }))}
+                      placeholder="—"
+                      className={holders.length > 1 ? `${field} mt-0.5` : field}
+                    />
+                  </label>
+                ),
+              )}
+            </div>
+          </div>
+        )}
         <label className={fieldLabel}>
           Room preference
           <input aria-label={`Room preference for ${label}`} value={draft.roomPref} onChange={(event) => set({ roomPref: event.target.value })} className={field} />

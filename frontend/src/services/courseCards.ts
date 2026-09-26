@@ -242,6 +242,58 @@ function subRows(
   ];
 }
 
+type SeatedRow = Pick<SectionRow, "group" | "course" | "major" | "notTaught">;
+
+/**
+ * The sub-rows that sit in this row's class. Empty for a group with none, and for a
+ * sub-row not taught the course.
+ *
+ * A sub-row with a cell of its own is a class of its own. The cell the sub-rows share is
+ * one class for every sub-row without a cell of its own — and a sub-row's word that it is
+ * not taught is a cell of its own, so it is in no shared class either.
+ */
+export function classSubRows(row: SeatedRow): CatalogueMajor[] {
+  const majors = row.group.majors ?? [];
+  if (!majors.length || row.notTaught) return [];
+  const own = (major: CatalogueMajor) => Boolean(row.group.byMajor?.[major.id]?.[row.course.id]);
+  if (row.major && own(row.major)) return [row.major];
+  return majors.filter((major) => !own(major));
+}
+
+/**
+ * Whose seats a card stands for, and so what editing its seats changes: its own sub-row,
+ * or on the one card a shared class is drawn as, every sub-row in that class. Empty means
+ * the group itself.
+ */
+export function cardSubRows(row: SeatedRow): CatalogueMajor[] {
+  if (row.notTaught) return [];
+  return row.major ? [row.major] : classSubRows(row);
+}
+
+const added = (majors: CatalogueMajor[], count: (major: CatalogueMajor) => number) =>
+  majors.reduce((sum, major) => sum + (count(major) || 0), 0);
+
+/** The seats a card shows, and how many sit on them. */
+export function cardSeats(row: SeatedRow): { seats: number; placed: number } {
+  const subRows = cardSubRows(row);
+  if (!subRows.length) return row.notTaught ? { seats: 0, placed: 0 } : { seats: row.group.capacity, placed: row.group.assigned };
+  return { seats: added(subRows, (major) => major.seats), placed: added(subRows, (major) => major.assigned) };
+}
+
+/**
+ * How many students the timetabler is told to expect: the seats of the class.
+ *
+ * Not a number of its own any more. It was typed on each section, beside seats typed on
+ * Group schema, and the two drifted — a card read "20 seats, 24 expected" and nobody
+ * could say which was meant. The class is as big as its seats: a group's own, one
+ * sub-row's, or every sub-row that shares the cell added up.
+ */
+export function anticipatedOf(row: SeatedRow): number {
+  const subRows = classSubRows(row);
+  if (row.notTaught) return 0;
+  return subRows.length ? added(subRows, (major) => major.seats) : row.group.majors?.length ? 0 : row.group.capacity;
+}
+
 /** The group as one sub-row sees it: the sub-row's label, seats and count, the group's id. */
 export function subRowGroup(group: CatalogueGroup, major: CatalogueMajor): CatalogueGroup {
   return {

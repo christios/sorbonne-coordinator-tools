@@ -88,6 +88,39 @@ describe("the request sheets", () => {
     expect(sheet.rows[1].teacher).toBe("TBD");
   });
 
+  it("expect each class's seats, not a number typed beside them, and a shared CRN's once", () => {
+    const shared = { ...EMPTY_SECTION, crn: "22135", hours: "30", anticipated: 999 };
+    const cards = buildCards(
+      [
+        {
+          ...FYS,
+          scopes: [
+            {
+              ...FYS.scopes[0],
+              groups: [
+                // One lecture under two groups: the timetabler books one room for 120.
+                { id: "cm-maths", label: "1 Mathematics", capacity: 100, note: "", parentGroupId: "", assigned: 91, crns: { "td-math": shared } },
+                { id: "cm-phys", label: "1 Physics", capacity: 20, note: "", parentGroupId: "", assigned: 18, crns: { "td-math": { ...shared, anticipated: 0 } } },
+                { id: "td-3", label: "3", capacity: 40, note: "", parentGroupId: "", assigned: 36, crns: { "td-math": { ...EMPTY_SECTION, crn: "23300", anticipated: 30 } } },
+              ],
+            },
+          ],
+        },
+      ],
+      termName,
+      ACTIVE,
+      PARENTS,
+    );
+
+    const [sheet] = requestSheets(cards, "term-1", termName("term-1"), () => "Foundation Year for Sciences", nameOf);
+
+    expect(sheet.rows.map((row) => [row.crn, row.anticipated])).toEqual([
+      ["22135", 120],
+      ["22135", ""],
+      ["23300", 40],
+    ]);
+  });
+
   it("write one row per section in the workbook's columns, with the retired ones marked", () => {
     const cards = buildCards([FYS], termName, ACTIVE, PARENTS);
 

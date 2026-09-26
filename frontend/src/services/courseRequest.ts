@@ -21,7 +21,6 @@ import type { Request } from "@/services/studentDatabase";
 export function isSilent(request: Request): boolean {
   return (
     !request.hours &&
-    !request.anticipated &&
     !request.teacherId &&
     !request.sessionsPerWeek &&
     !request.duration &&

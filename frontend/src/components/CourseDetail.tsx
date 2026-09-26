@@ -7,7 +7,7 @@ import { SectionDialog } from "@/components/CourseCard";
 import { CourseRequestDialog, CourseRequestLine } from "@/components/CourseRequest";
 import { UnlinkedTermWarning } from "@/components/PortalTermLink";
 import { YearPill } from "@/components/YearPill";
-import { type Card, type CardSet, type SectionRow, rowKey, teaches } from "@/services/courseCards";
+import { type Card, type CardSet, type SectionRow, cardSeats, rowKey, teaches } from "@/services/courseCards";
 import { MUTUALIZED_WORDS, type ActiveTeacher, type TermCrns } from "@/services/portalLists";
 import type { GroupClash } from "@/services/publication";
 import { EMPTY_PART, partsOf, type Cohort, type SectionPart } from "@/services/studentDatabase";
@@ -17,7 +17,7 @@ const chip = "rounded-full px-2 py-0.5 text-xs font-semibold";
 /**
  * One figure the timetabler works from, said loudly enough to be read at a glance.
  *
- * Total hours and anticipated students are not two more numbers among six: they are what
+ * Total hours and the class's seats are not two more numbers among six: they are what
  * a teacher's load is computed from and what a room is chosen by, and everything else on
  * this line — sessions a week, hours each, which weeks — follows from them. They spent a
  * long time in the same eleven-pixel grey run-on as the rest, where the eye slid over
@@ -40,15 +40,8 @@ const FIGURES = {
     number: "text-[#1f4e79]",
     word: "text-[#6d8fb4]",
   },
-  expected: {
-    icon: UserRound,
-    shape: "rounded-full",
-    said: "border-[#d9d3e9] bg-[#f8f6fd]",
-    number: "text-[#5b4d8a]",
-    word: "text-[#9089b8]",
-  },
-  // Amber, and the same round shape as "expected", because it is a count of the same
-  // people — the ones this class will not have in it.
+  // Amber and round, a count of people rather than a span of time: the ones this class
+  // will not have in it.
   exempt: {
     icon: UserRound,
     shape: "rounded-full",
@@ -107,7 +100,7 @@ function seatsVerdict(placed: number, seats: number): keyof typeof SEATS {
   return "room";
 }
 
-function Seats({ placed, seats, expected = 0, dim }: { placed: number; seats: number; expected?: number; dim: boolean }) {
+function Seats({ placed, seats, dim }: { placed: number; seats: number; dim: boolean }) {
   const verdict = seatsVerdict(placed, seats);
   const skin = SEATS[verdict];
   return (
@@ -123,19 +116,6 @@ function Seats({ placed, seats, expected = 0, dim }: { placed: number; seats: nu
       <span className={`text-[10px] font-semibold uppercase leading-none tracking-wide ${dim ? "text-[#e4e9ef]" : skin.word}`}>
         seats
       </span>
-      {/* How many the timetabler was told to expect: a mark on the seats, not a pill of its own. */}
-      {expected ? (
-        <span
-          title={`${expected} expected, as the timetable request says`}
-          aria-label={`${expected} expected`}
-          className={`ml-1 inline-flex items-center gap-0.5 border-l pl-1.5 text-[11px] font-semibold tabular-nums ${
-            dim ? "border-[#f2f5f9] text-[#d5dce4]" : "border-[#d9d3e9] text-[#5b4d8a]"
-          }`}
-        >
-          <UserRound size={10} aria-hidden="true" />
-          {expected}
-        </span>
-      ) : null}
     </span>
   );
 }
@@ -325,6 +305,8 @@ function SectionBlock({
   const label = `${row.scope.code} ${row.group.label} ${row.course.code}`;
   // Dim the whole card only when NOTHING it teaches is still running.
   const dim = parts.length > 0 && parts.every((part) => part.retired);
+  // The class's seats are what the timetabler is told to expect, so there is one number, not two.
+  const { seats, placed } = cardSeats(row);
 
   if (row.notTaught) {
     /*
@@ -469,7 +451,7 @@ function SectionBlock({
         */}
       <div className="mt-2 flex flex-wrap gap-1.5">
         {row.exempt ? <Figure label="exempt" value={String(row.exempt)} dim={dim} /> : null}
-        <Seats placed={row.group.assigned} seats={row.group.capacity} expected={row.section?.anticipated ?? 0} dim={dim} />
+        <Seats placed={placed} seats={seats} dim={dim} />
       </div>
 
       {/*
@@ -481,7 +463,7 @@ function SectionBlock({
         * Keeping Fullness's mt-3 preserves the 12px gap on every card.
         */}
       <span aria-hidden="true" className="flex-1" />
-      <Fullness placed={row.group.assigned} seats={row.group.capacity} dim={dim} />
+      <Fullness placed={placed} seats={seats} dim={dim} />
     </article>
   );
 }
