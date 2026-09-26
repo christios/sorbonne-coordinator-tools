@@ -54,9 +54,16 @@ export function StaffSettings() {
     window.history.replaceState(null, "", `#/settings/${next}`);
     setPage(next);
   };
+  /*
+   * Underlined tabs from `sm` up; on a phone, buttons that wrap onto a few lines with the
+   * open one filled. Seven tabs ran off the right of a phone in one row, and on the later
+   * ones the tab you were on was off the screen too.
+   */
   const tab = (active: boolean) =>
-    `-mb-px inline-flex items-center gap-2 border-b-2 px-3 py-2 text-sm font-semibold ${
-      active ? "border-[#1f4e79] text-[#1f4e79]" : "border-transparent text-[#667085] hover:text-[#1f4e79]"
+    `inline-flex items-center gap-2 text-sm font-semibold max-sm:rounded-full max-sm:border max-sm:px-3 max-sm:py-1.5 sm:-mb-px sm:border-b-2 sm:px-3 sm:py-2 ${
+      active
+        ? "max-sm:border-[#1f4e79] max-sm:bg-[#1f4e79] max-sm:text-white sm:border-[#1f4e79] sm:text-[#1f4e79]"
+        : "max-sm:border-[#d9dee7] max-sm:bg-white text-[#667085] hover:text-[#1f4e79] sm:border-transparent"
     }`;
 
   return (
@@ -68,7 +75,7 @@ export function StaffSettings() {
 
       {/* One page on offer needs no tabs to choose between. */}
       {offered.length > 1 ? (
-        <nav className="mt-6 flex gap-1 border-b border-[#d9dee7]">
+        <nav className="mt-4 flex flex-wrap gap-1.5 sm:mt-6 sm:flex-nowrap sm:gap-1 sm:border-b sm:border-[#d9dee7]">
           {offered.map(({ section, label, Icon }) => (
             <button key={section} type="button" onClick={() => open(section)} className={tab(page === section)}>
               <Icon size={15} aria-hidden="true" /> {label}
