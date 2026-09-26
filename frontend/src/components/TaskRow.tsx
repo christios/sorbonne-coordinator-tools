@@ -31,6 +31,7 @@ export function TaskRow({
   onDelete,
   isBusy = false,
   compact = false,
+  flush = false,
 }: {
   task: ScopedTask;
   meta?: React.ReactNode;
@@ -44,12 +45,18 @@ export function TaskRow({
    * a time sheet's title over three lines.
    */
   compact?: boolean;
+  /** A row of a bordered list — the tab's — rather than a card of its own. */
+  flush?: boolean;
 }) {
   const [historyOpen, setHistoryOpen] = useState(false);
   const completed = task.status === "COMPLETED";
   return (
     <li
-      className={`${compact ? "group relative p-2.5" : "p-3"} rounded-md border border-[#d9dee7] ${completed ? "bg-[#fcfcfd]" : "bg-white"}`}
+      className={
+        flush
+          ? `border-b border-[#eef1f5] px-4 py-3 last:border-b-0 hover:bg-[#f8fafc] ${completed ? "bg-[#fcfcfd]" : ""}`
+          : `${compact ? "group relative p-2.5" : "p-3"} rounded-md border border-[#d9dee7] ${completed ? "bg-[#fcfcfd]" : "bg-white"}`
+      }
     >
       <div className="flex items-start gap-3">
         <TaskCompletionToggle

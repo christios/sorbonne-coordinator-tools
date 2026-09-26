@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 import { useState } from "react";
 
+import { InfoTip } from "@/components/InfoTip";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { SelectMenu } from "@/components/SelectMenu";
 import { TaskFormDialog, type TaskFormValues } from "@/components/TaskFormDialog";
@@ -35,7 +36,7 @@ export function TaskPanel({
    * the template picker on a line of its own, since the rail is too narrow to hold it
    * beside the button.
    */
-  variant?: "card" | "rail";
+  variant?: "card" | "rail" | "tab";
 }) {
   const client = useQueryClient();
   const tasks = useQuery({
@@ -96,9 +97,10 @@ export function TaskPanel({
   );
   const ordered = [...(tasks.data ?? [])].sort(compareTeacherTasks);
   const rail = variant === "rail";
-  const gap = rail ? "mt-3" : "mt-4";
+  const tab = variant === "tab";
+  const gap = rail || tab ? "mt-3" : "mt-4";
   const templatePicker = availableTemplates.length ? (
-    <div className={rail ? "mt-2" : "min-w-44"}>
+    <div className={rail ? "mt-2" : tab ? "w-64" : "min-w-44"}>
       <SelectMenu
         label="Add tasks from a template"
         value=""
@@ -113,38 +115,61 @@ export function TaskPanel({
   ) : null;
   return (
     <section
-      aria-label={rail ? "Tasks" : undefined}
-      className={rail ? className : `rounded-lg border border-[#d9dee7] bg-white p-5 ${className}`}
+      aria-label={rail || tab ? "Tasks" : undefined}
+      className={rail || tab ? className : `rounded-lg border border-[#d9dee7] bg-white p-5 ${className}`}
     >
-      <div className="flex items-center justify-between gap-3">
-        <h3
-          className={
-            rail
-              ? "text-xs font-semibold uppercase tracking-wide text-[#667085]"
-              : "text-lg font-semibold"
-          }
-        >
-          Tasks
-        </h3>
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          {rail ? null : templatePicker}
+      {tab ? (
+        // A tab of its own: the tab says "Tasks", so no heading — a toolbar as Requisitions has.
+        <div className="flex flex-wrap items-center gap-2">
+          {templatePicker}
+          <InfoTip label="What tasks are">
+            What is still to do for this teacher. A template adds its whole set at once; a time sheet&apos;s task
+            closes itself when the sheet is filed.
+          </InfoTip>
           <button
             type="button"
             onClick={() => {
               setEditing(null);
               setFormOpen(true);
             }}
-            className={
-              rail
-                ? "inline-flex items-center gap-1 rounded-md px-2 py-1 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]"
-                : "inline-flex items-center gap-2 rounded-md border border-[#b7bec8] px-3 py-2 text-sm font-semibold text-[#1f4e79]"
-            }
+            className="ml-auto inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white hover:bg-[#173b5c]"
           >
-            <Plus size={rail ? 15 : 16} /> Add task
+            <Plus size={16} /> Add task
           </button>
         </div>
-      </div>
-      {rail ? templatePicker : null}
+      ) : (
+        <>
+          <div className="flex items-center justify-between gap-3">
+            <h3
+              className={
+                rail
+                  ? "text-xs font-semibold uppercase tracking-wide text-[#667085]"
+                  : "text-lg font-semibold"
+              }
+            >
+              Tasks
+            </h3>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {rail ? null : templatePicker}
+              <button
+                type="button"
+                onClick={() => {
+                  setEditing(null);
+                  setFormOpen(true);
+                }}
+                className={
+                  rail
+                    ? "inline-flex items-center gap-1 rounded-md px-2 py-1 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]"
+                    : "inline-flex items-center gap-2 rounded-md border border-[#b7bec8] px-3 py-2 text-sm font-semibold text-[#1f4e79]"
+                }
+              >
+                <Plus size={rail ? 15 : 16} /> Add task
+              </button>
+            </div>
+          </div>
+          {rail ? templatePicker : null}
+        </>
+      )}
       {tasks.isLoading ? (
         <p className={`${gap} text-sm text-[#667085]`}>Loading tasks…</p>
       ) : null}
@@ -154,13 +179,14 @@ export function TaskPanel({
         </p>
       ) : null}
       {ordered.length ? (
-        <ul className={`${gap} grid gap-2`}>
+        <ul className={tab ? `${gap} rounded-lg border border-[#e4e8ef]` : `${gap} grid gap-2`}>
           {ordered.map((task) => (
             <TaskRow
               key={task.id}
               task={task}
               isBusy={update.isPending}
               compact={rail}
+              flush={tab}
               onToggleComplete={() =>
                 update.mutate({
                   ...task,

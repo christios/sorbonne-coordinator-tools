@@ -199,15 +199,19 @@ describe("a teacher's profile", () => {
     return onOpenRequisition;
   }
 
-  it("keeps the contact, notes, documents and tasks in the rail beside the tabs", async () => {
+  it("keeps the contact, notes and documents in the rail, and the tasks in a tab of their own", async () => {
     profile();
 
     const rail = await screen.findByRole("complementary", { name: "Teacher summary" });
     expect(within(rail).getByText("marie@example.edu")).toBeTruthy();
     expect(within(rail).getByText("Physics labs.")).toBeTruthy();
     expect(within(rail).getByRole("region", { name: /Documents/ })).toBeTruthy();
-    expect(within(rail).getByRole("region", { name: "Tasks" })).toBeTruthy();
+    expect(within(rail).queryByRole("region", { name: "Tasks" })).toBeNull();
     expect(screen.getByRole("heading", { name: "Marie Curie" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("tab", { name: /^Tasks/ }));
+    expect(await screen.findByRole("region", { name: "Tasks" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Add task/ })).toBeTruthy();
   });
 
   it("shows each requisition with its teaching and admin hours", async () => {
@@ -233,20 +237,14 @@ describe("a teacher's profile", () => {
     expect(await screen.findByRole("combobox", { name: "Semester for the hours" })).toBeTruthy();
   });
 
-  it("offers their timetable only when they are joined to an Active teacher", async () => {
+  it("has Requisitions, Time sheets and Tasks, and no Timetable tab", async () => {
     profile();
     await screen.findByRole("tab", { name: /Requisitions/ });
-    await waitFor(() => expect(lists.fetchActiveTeachers).toHaveBeenCalled());
-    expect(screen.queryByRole("tab", { name: "Timetable" })).toBeNull();
-  });
-
-  it("has a Timetable tab for a teacher joined to an Active teacher", async () => {
-    vi.spyOn(lists, "fetchActiveTeachers").mockResolvedValue([
-      { id: "act-1", fullName: "Marie Curie", partTimeTeacherId: "t-marie" },
-    ] as never);
-    profile();
-
-    expect(await screen.findByRole("tab", { name: "Timetable" })).toBeTruthy();
+    expect(screen.getAllByRole("tab").map((tab) => tab.textContent?.replace(/\d+$/, ""))).toEqual([
+      "Requisitions",
+      "Time sheets",
+      "Tasks",
+    ]);
   });
 
   it("starts a requisition from a dialog whose fields sit side by side, and opens it", async () => {

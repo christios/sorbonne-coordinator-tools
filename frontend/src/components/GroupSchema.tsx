@@ -684,12 +684,12 @@ function SetEditor({
                     <span className="inline-flex items-center gap-1 normal-case">
                       <span className="uppercase">Sub-rows</span>
                       <InfoTip label="What sub-rows are">
-                        A group split by major, for when its majors are taught differently or need seats of their
-                        own. Each sub-row has its own seats and, on Groups &amp; CRNs, its own section for a course —
-                        or &ldquo;not taught&rdquo;. A student sits on their major&apos;s sub-row. Not the same as First
-                        for: sub-rows change what the group&apos;s students are taught and how its seats are counted;
-                        First for only decides which major is placed in the group first, and everybody in it is
-                        taught the same.
+                        <span className="block">Adding a major splits the group by major:</span>
+                        <span className="mt-1 block">• Placing puts each student on their major&apos;s sub-row, up to its seats.</span>
+                        <span className="block">• On Groups &amp; CRNs each sub-row can have its own section of a course, or be marked not taught it.</span>
+                        <span className="block">• Registration checks expect a student only in their sub-row&apos;s CRNs.</span>
+                        <span className="block">• Capacity, the timetabler&apos;s workbook and Teacher hours count each sub-row apart.</span>
+                        <span className="mt-1 block">First for changes none of this — only which major placing puts here first.</span>
                       </InfoTip>
                     </span>
                   </th>

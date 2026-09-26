@@ -46,7 +46,6 @@ import {
   TeacherPaperwork,
   TeacherRowActions,
 } from "@/components/TeacherRowDetail";
-import { TeacherProfileTimetable } from "@/components/TeacherProfileTimetable";
 import { TimeSheetsCard } from "@/components/TeacherTimeSheets";
 import { SelectMenu, type SelectOption } from "@/components/SelectMenu";
 import { TaskPanel } from "@/components/TaskPanel";
@@ -57,7 +56,6 @@ import {
 import { taskUrgency } from "@/components/taskPresentation";
 import { saveFailureState } from "@/components/syllabusSaveState";
 import { usePageState } from "@/components/usePageState";
-import { fetchActiveTeachers } from "@/services/portalLists";
 import { optionsFor } from "@/services/studentColumns";
 import { applyFilters, type FilterModel } from "@/services/tableFilter";
 import { TEACHER_COLUMNS, type TeacherFilterRow } from "@/services/teacherFilters";
@@ -964,7 +962,7 @@ function NewFolderDialog({
   );
 }
 
-type ProfileTab = "requisitions" | "time-sheets" | "timetable";
+type ProfileTab = "requisitions" | "time-sheets" | "tasks";
 type RequisitionTotals = { teaching: number; admin: number };
 
 /**
@@ -1005,17 +1003,11 @@ export function TeacherProfile({
     queryKey: ["teacher-folders"],
     queryFn: listTeacherFolders,
   });
-  /*
-   * The join to an Active teacher, made on the Active teachers page. It is what says which
-   * sections are theirs — the time sheets read it the same way — so the Timetable tab is
-   * offered only when there is one. Without it there is no week to draw.
-   */
-  const actives = useQuery({
-    queryKey: ["active-teachers"],
-    queryFn: fetchActiveTeachers,
-    retry: false,
+  // The same read the Tasks tab makes, for the count on the tab: what is still open.
+  const tasks = useQuery({
+    queryKey: ["tasks", "teacher", teacherId],
+    queryFn: () => listTasks("teacher", teacherId),
   });
-  const linked = (actives.data ?? []).find((row) => row.partTimeTeacherId === teacherId) ?? null;
   /*
    * Each requisition's hours, for its row. The list the server gives carries only the
    * label and year; a teacher has a handful, and the editor reads the same entries, so
@@ -1037,7 +1029,8 @@ export function TeacherProfile({
       ) as Record<string, RequisitionTotals>,
   });
   const [tab, setTab] = usePageState<ProfileTab>(`teacher-profile:${teacherId}:tab`, "requisitions");
-  const shownTab: ProfileTab = tab === "timetable" && !linked ? "requisitions" : tab;
+  // A tab remembered from before it existed — "timetable" — opens the first one.
+  const shownTab: ProfileTab = (["requisitions", "time-sheets", "tasks"] as const).includes(tab) ? tab : "requisitions";
   const [editing, setEditing] = useState(false);
   const [newRequestOpen, setNewRequestOpen] = useState(false);
   const tabId = useId();
@@ -1101,7 +1094,7 @@ export function TeacherProfile({
   const tabs: { id: ProfileTab; label: string; count?: number }[] = [
     { id: "requisitions", label: "Requisitions", count: requisitions.data?.length },
     { id: "time-sheets", label: "Time sheets", count: summary.data?.[teacherId]?.timeSheets },
-    ...(linked ? [{ id: "timetable" as const, label: "Timetable" }] : []),
+    { id: "tasks", label: "Tasks", count: (tasks.data ?? []).filter((task) => task.status !== "COMPLETED").length },
   ];
   const actionError = (archive.error ?? restore.error ?? removeRequest.error)?.message;
 
@@ -1188,12 +1181,6 @@ export function TeacherProfile({
             <TeacherHoursFigures summary={summary.data?.[teacherId]} loading={summary.isLoading} />
           </RailSection>
           <TeacherDocumentsSection teacherId={teacherId} />
-          <TaskPanel
-            variant="rail"
-            resourceType="teacher"
-            resourceId={teacherId}
-            className="px-4 py-4"
-          />
         </aside>
         <section className="flex min-w-0 flex-1 flex-col rounded-lg border border-[#d9dee7] bg-white lg:min-h-0">
           <div
@@ -1258,7 +1245,7 @@ export function TeacherProfile({
               />
             ) : null}
             {shownTab === "time-sheets" ? <TimeSheetsCard teacherId={teacherId} bare /> : null}
-            {shownTab === "timetable" && linked ? <TeacherProfileTimetable teacher={linked} /> : null}
+            {shownTab === "tasks" ? <TaskPanel variant="tab" resourceType="teacher" resourceId={teacherId} /> : null}
           </div>
         </section>
       </div>

@@ -54,6 +54,10 @@ import { isWebLink, linkHost } from "@/services/timeSheetLinks";
 
 type Draft = { label: string; academicYear: string; url: string; periodStart: string };
 
+/** The columns of a period's row, as Requisitions lays out a requisition's. */
+const SHEET_GRID =
+  "grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-1 px-4 sm:grid-cols-[minmax(14rem,1fr)_4.5rem_8rem_minmax(0,1.3fr)_auto]";
+
 export function TimeSheetsCard({
   teacherId,
   className = "",
@@ -413,79 +417,98 @@ export function TimeSheetsCard({
         * instead of being cut.
         */}
       {periods.length ? (
-        <div role="list" className="mt-4 grid gap-3" aria-label="Pay periods">
-          {periods.map((period) => (
-            <article
-              key={period.start}
-              role="listitem"
-              className="flex min-w-0 items-center gap-3 rounded-lg border border-[#d9dee7] p-4"
-            >
-              <div className="min-w-0 flex-1">
-                <p className="flex flex-wrap items-baseline gap-x-3">
-                  <span className="font-semibold text-[#344054]">{periodLabel(period.start)}</span>
-                  <span className="tabular-nums text-[#1f4e79]">{asHours(period.minutes)} h</span>
-                  <span className="text-xs text-[#98a2b3]">
-                    {period.classes} class{period.classes === 1 ? "" : "es"}
-                    {period.covered ? ` · ${period.covered} covered for somebody` : ""}
+        // Laid out as Requisitions are: one bordered list, a heading row, a period a row.
+        <div className="mt-3 rounded-lg border border-[#e4e8ef]">
+          <div
+            aria-hidden="true"
+            className={`${SHEET_GRID} hidden rounded-t-lg border-b border-[#e4e8ef] bg-[#f8fafc] py-1.5 text-[11px] font-semibold uppercase tracking-wide text-[#98a2b3] sm:grid`}
+          >
+            <span>Period</span>
+            <span className="text-right">Taught</span>
+            <span>Classes</span>
+            <span>Time sheet</span>
+            <span />
+          </div>
+          <div role="list" aria-label="Pay periods">
+            {periods.map((period) => (
+              <article
+                key={period.start}
+                role="listitem"
+                className={`${SHEET_GRID} grid items-center border-b border-[#eef1f5] py-3 transition-colors last:rounded-b-lg last:border-b-0 hover:bg-[#f8fafc]`}
+              >
+                <div className="min-w-0">
+                  <span className="block whitespace-nowrap font-semibold text-[#171717]">{periodLabel(period.start)}</span>
+                  {/* Below `sm` the figures fold into one line under the period. */}
+                  <span className="mt-0.5 block text-xs text-[#667085] sm:hidden">
+                    {asHours(period.minutes)} h · {period.classes} class{period.classes === 1 ? "" : "es"}
                   </span>
-                </p>
-                {period.sheet ? (
-                  <a
-                    href={period.sheet.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    title={period.sheet.url}
-                    className="mt-1 flex max-w-full items-center gap-1.5 text-sm font-semibold text-[#1f4e79] hover:underline"
-                  >
-                    <FileSpreadsheet size={14} className="shrink-0 text-[#1f6b47]" aria-hidden="true" />
-                    <span className="truncate">{period.sheet.label}</span>
-                    <ExternalLink size={13} className="shrink-0" aria-hidden="true" />
-                  </a>
-                ) : period.submitted ? (
-                  <Submitted sheet={period.submitted} taught={asHours(period.minutes)} />
-                ) : (
-                  <span className="mt-1 block text-sm text-[#a6292f]">No sheet filed</span>
-                )}
-                {period.stranded ? (
-                  <span className="mt-1 block text-xs text-[#8a6116]">
-                    {period.stranded} note{period.stranded === 1 ? "" : "s"} about an hour the portal has moved
-                  </span>
-                ) : null}
-              </div>
-              <div className="flex shrink-0 items-center gap-1">
-                {period.submitted && !period.sheet ? null : period.sheet ? (
-                  <>
+                  {period.stranded ? (
+                    <span className="mt-0.5 block text-xs text-[#8a6116]">
+                      {period.stranded} note{period.stranded === 1 ? "" : "s"} about an hour the portal has moved
+                    </span>
+                  ) : null}
+                </div>
+                <span className="hidden text-right text-sm font-semibold tabular-nums text-[#1f4e79] sm:block">
+                  {asHours(period.minutes)} h
+                </span>
+                <span className="hidden text-xs text-[#667085] sm:block">
+                  {period.classes} class{period.classes === 1 ? "" : "es"}
+                  {period.covered ? ` · ${period.covered} covered for somebody` : ""}
+                </span>
+                <div className="min-w-0 max-sm:col-span-2 max-sm:row-start-2">
+                  {period.sheet ? (
+                    <a
+                      href={period.sheet.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      title={period.sheet.url}
+                      className="flex max-w-full items-center gap-1.5 text-sm font-semibold text-[#1f4e79] hover:underline"
+                    >
+                      <FileSpreadsheet size={14} className="shrink-0 text-[#1f6b47]" aria-hidden="true" />
+                      <span className="truncate">{period.sheet.label}</span>
+                      <ExternalLink size={13} className="shrink-0" aria-hidden="true" />
+                    </a>
+                  ) : period.submitted ? (
+                    <Submitted sheet={period.submitted} taught={asHours(period.minutes)} />
+                  ) : (
+                    <span className="text-sm text-[#a6292f]">No sheet filed</span>
+                  )}
+                </div>
+                <div className="flex shrink-0 items-center justify-end gap-1 max-sm:col-start-2 max-sm:row-start-1">
+                  {period.submitted && !period.sheet ? null : period.sheet ? (
+                    <>
+                      <button
+                        type="button"
+                        aria-label={`Edit ${period.sheet.label}`}
+                        onClick={() => period.sheet && editSheet(period.sheet)}
+                        className="rounded p-1.5 text-[#344054] hover:bg-[#eef1f5]"
+                      >
+                        <Pencil size={16} />
+                      </button>
+                      <button
+                        type="button"
+                        disabled={remove.isPending}
+                        aria-label={`Remove ${period.sheet.label}`}
+                        onClick={() => setPendingDeletion(period.sheet)}
+                        className="rounded p-1.5 text-[#a6292f] hover:bg-[#fff1f2] disabled:opacity-50"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </>
+                  ) : (
                     <button
                       type="button"
-                      aria-label={`Edit ${period.sheet.label}`}
-                      onClick={() => period.sheet && editSheet(period.sheet)}
-                      className="rounded p-1.5 text-[#344054] hover:bg-[#eef1f5]"
+                      aria-label={`File a sheet for ${periodLabel(period.start)}`}
+                      onClick={() => fileFor(period.start)}
+                      className="rounded-md border border-[#b7bec8] px-3 py-1.5 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc]"
                     >
-                      <Pencil size={16} />
+                      File one
                     </button>
-                    <button
-                      type="button"
-                      disabled={remove.isPending}
-                      aria-label={`Remove ${period.sheet.label}`}
-                      onClick={() => setPendingDeletion(period.sheet)}
-                      className="rounded p-1.5 text-[#a6292f] hover:bg-[#fff1f2] disabled:opacity-50"
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  </>
-                ) : (
-                  <button
-                    type="button"
-                    aria-label={`File a sheet for ${periodLabel(period.start)}`}
-                    onClick={() => fileFor(period.start)}
-                    className="rounded-md border border-[#b7bec8] px-3 py-1.5 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc]"
-                  >
-                    File one
-                  </button>
-                )}
-              </div>
-            </article>
-          ))}
+                  )}
+                </div>
+              </article>
+            ))}
+          </div>
         </div>
       ) : null}
 
@@ -493,9 +516,13 @@ export function TimeSheetsCard({
       {loose.length ? (
         <div className="mt-4">
           <p className="text-xs font-semibold uppercase tracking-wide text-[#98a2b3]">Not against a period here</p>
-          <div role="list" className="mt-2 grid gap-2" aria-label="Other time sheets">
+          <div role="list" className="mt-2 rounded-lg border border-[#e4e8ef]" aria-label="Other time sheets">
             {loose.map((sheet) => (
-              <article key={sheet.id} role="listitem" className="flex min-w-0 items-center gap-3 rounded-lg border border-[#e4e8ef] p-3">
+              <article
+                key={sheet.id}
+                role="listitem"
+                className="flex min-w-0 items-center gap-3 border-b border-[#eef1f5] px-4 py-3 last:border-b-0 hover:bg-[#f8fafc]"
+              >
                 <FileSpreadsheet size={16} className="shrink-0 text-[#1f6b47]" aria-hidden="true" />
                 <div className="min-w-0 flex-1">
                   <a href={sheet.url} target="_blank" rel="noreferrer" title={sheet.url} className="flex max-w-full items-center gap-1.5 text-sm font-semibold text-[#1f4e79] hover:underline">
