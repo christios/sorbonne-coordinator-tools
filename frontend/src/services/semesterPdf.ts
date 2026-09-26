@@ -435,7 +435,7 @@ export async function buildSemesterPdf(input: SemesterExportInput, zoom: ExportZ
   const frame = frameOf(input.layout);
   const doc = new jsPDF({ unit: "pt", format: "a4", orientation: "landscape" });
   const pages = semesterPages(input, zoom);
-  const heading = `${input.semester} · ${input.layout === "days" ? "Timetable" : "Rooms"}`;
+  const heading = `${input.semester} · ${input.layout === "days" ? "Semester Timetable" : "Rooms"}`;
 
   if (!pages.length) {
     doc.setFont("helvetica", "bold");

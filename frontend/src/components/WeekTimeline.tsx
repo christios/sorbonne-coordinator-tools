@@ -196,9 +196,16 @@ export function WeekTimeline({
   const bandWidth = minutes * perMinute;
   const width = bandWidth * bands.length;
   const headerHeight = HOURS_HEIGHT + (bands.length > 1 ? DAYS_HEIGHT : 0);
-  const lane = fills
-    ? fittedRowHeight(room.height - headerHeight - 1, laid.map(({ rows }) => rows), rowHeight, LABEL_HEIGHT)
-    : rowHeight;
+  // The header's own border is inside its height; each row but the last has one line under it.
+  const available = room.height - headerHeight;
+  const lane = fills ? fittedRowHeight(available, laid.map(({ rows }) => rows), rowHeight, LABEL_HEIGHT) : rowHeight;
+  /*
+   * What a whole-pixel class height leaves at the foot, shared among the rows so the week
+   * ends where the screen does. A few pixels a row, but thirty rows of rounding down was a
+   * visible strip of white under Friday.
+   */
+  const used = laid.reduce((total, { rows }) => total + Math.max(LABEL_HEIGHT, rows * lane + 6), 0) + Math.max(0, laid.length - 1);
+  const spare = fills && room.height > 0 && used < available && laid.length ? (available - used) / laid.length : 0;
 
   const hours: number[] = [];
   for (let minute = Math.ceil(startMinute / 60) * 60; minute <= endMinute; minute += 60) hours.push(minute);
@@ -303,7 +310,7 @@ export function WeekTimeline({
                     : `${line.sessions.length} class${line.sessions.length === 1 ? "" : "es"}`}
               </span>
             </div>
-            <div className="relative" style={{ width, height: Math.max(LABEL_HEIGHT, rows * lane + 6) }}>
+            <div className="relative" style={{ width, height: Math.max(LABEL_HEIGHT, rows * lane + 6) + spare }}>
               {bands.map((band, index) => (
                 <div key={band ?? "grid"}>
                   {quarters.map((minute) => (
@@ -326,7 +333,7 @@ export function WeekTimeline({
                 * wide week without drifting into the one above it.
                 */}
               {Array.from({ length: rows - 1 }, (_, row) => (
-                <div key={`r${row}`} className="absolute inset-x-0 border-t border-[#e4e8ef]" style={{ top: (row + 1) * lane + 3 }} />
+                <div key={`r${row}`} className="absolute inset-x-0 border-t border-[#e4e8ef]" style={{ top: (row + 1) * lane + 3 + spare / 2 }} />
               ))}
               {boxes.map(({ session, lane: at, lanes, band }) => (
                 <Class
@@ -336,7 +343,7 @@ export function WeekTimeline({
                   course={courses.get(session.crn)}
                   left={leftOf(minutesOf(session.start), band)}
                   boxWidth={Math.max(18, (minutesOf(session.end) - minutesOf(session.start)) * perMinute - 3)}
-                  top={at * lane + 3}
+                  top={at * lane + 3 + spare / 2}
                   height={lane - 3}
                   onPick={onPick}
                   clash={byRoom ? "booked into this room at the same time as another class" : "overlaps another class"}

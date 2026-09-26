@@ -61,7 +61,7 @@ const PAGES = [
   { id: "semesters", name: "Semesters", icon: CalendarDays, group: "Timetables" },
   // The department's whole week, one semester at a time. It was a screen opened from a
   // row of the list; it is where an afternoon of moving classes is spent, so it is a page.
-  { id: "timetable", name: "Timetable", icon: CalendarRange, group: "Timetables", parent: "semesters" },
+  { id: "timetable", name: "Semester Timetable", icon: CalendarRange, group: "Timetables", parent: "semesters" },
   // The same week with the rooms down the side: what is in a room, and when it is free.
   { id: "rooms", name: "Rooms", icon: DoorOpen, group: "Timetables", parent: "semesters" },
   // The timetable request itself: the sections a semester is taught in, and how full they
@@ -160,7 +160,7 @@ const TITLES: Record<PageId, { title: string; blurb?: string }> = {
     title: "Semesters",
     blurb: "What the Student Hub holds, and whether students can see it yet.",
   },
-  timetable: { title: "Timetable" },
+  timetable: { title: "Semester Timetable" },
   rooms: { title: "Rooms" },
   announcements: {
     title: "Announcements",

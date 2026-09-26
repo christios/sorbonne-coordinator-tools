@@ -357,7 +357,7 @@ function SemesterWeek({ layout, term, picker }: { layout: Layout; term: Timetabl
       <div className="mb-2 flex shrink-0 flex-wrap items-center gap-3">
         <h2 className="flex shrink-0 items-center gap-2 text-lg font-semibold text-[#171717]">
           {rooms ? <DoorOpen size={18} aria-hidden="true" /> : <CalendarRange size={18} aria-hidden="true" />}
-          {rooms ? "Rooms" : "Timetable"}
+          {rooms ? "Rooms" : "Semester Timetable"}
         </h2>
         {picker}
         {/*
