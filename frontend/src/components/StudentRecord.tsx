@@ -29,6 +29,7 @@ import {
   fetchTermLinks,
   type ActiveCrn,
 } from "@/services/portalLists";
+import { placementsOf, studentTimetable } from "@/services/personTimetable";
 import { allChanges, historyFor, type PullHistory } from "@/services/pullHistory";
 import { copyTable } from "@/services/copyCells";
 import { CHANGE_COLUMNS, changesRows, noteChanges, registrationChanges } from "@/services/registrationChanges";
@@ -51,8 +52,6 @@ import {
   fetchExemptions,
   fetchStudentHistory,
   parentsOf,
-  partsOf,
-  sectionFor,
   setApproval,
   setExemption,
 } from "@/services/studentDatabase";
@@ -235,32 +234,8 @@ export function StudentRecord({
     if (!parent || !theirs || parentsOf(group).includes(theirs)) return "";
     return `doesn't go with ${parent.code} ${parent.groups.find((candidate) => candidate.id === theirs)?.label ?? "?"}`;
   };
-  const placements = (catalogue.data?.scopes ?? [])
-    .filter((scope) => held[scope.id])
-    .map((scope) => {
-      const group = scope.groups.find((candidate) => candidate.id === held[scope.id]);
-      const majorId = onSubRow[scope.id] ?? "";
-      const major = group?.majors?.find((candidate) => candidate.id === majorId) ?? null;
-      return {
-        scope,
-        group,
-        major,
-        /*
-         * One line per PART, not per course. A course handed from one professor to
-         * another at mid-semester is taught under a CRN per half, and both are this
-         * student's — a list carrying only the first would show the registrar's second
-         * half as a registration nobody placed them in. And what THEIR sub-row comes to:
-         * a course the sub-row is not taught is no line at all.
-         */
-        crns: scope.courses.flatMap((course) => {
-          if (group && majorId && group.byMajor?.[majorId]?.[course.id]?.notTaught) return [];
-          const parts = partsOf(group ? sectionFor(group, majorId, course.id) : null).filter((part) => part.crn);
-          return parts.length
-            ? parts.map((part) => ({ courseId: course.id, courseCode: course.code, courseName: course.name, crn: part.crn }))
-            : [{ courseId: course.id, courseCode: course.code, courseName: course.name, crn: "" }];
-        }),
-      };
-    });
+  // Their groups, set by set, and the CRNs each comes to — see services/personTimetable.
+  const placements = placementsOf(catalogue.data?.scopes ?? [], held, onSubRow);
   const client = useQueryClient();
   const registered = new Set((registrations.data ?? []).filter((r) => r.status === "in_portal").map((r) => r.crn));
   /*
@@ -473,30 +448,12 @@ export function StudentRecord({
    * option, is drawn like any other, because it is where they will be on that afternoon
    * and it is exactly the class our groups cannot see a clash with.
    */
-  const placedCrns = new Set(placements.flatMap(({ crns }) => crns.map((cell) => cell.crn)).filter(Boolean));
-  const timetable: TimetableEntry[] = [
-    ...placements.flatMap(({ scope, group, major, crns }) =>
-      crns
-        .filter((cell) => cell.crn && !excused.has(cell.courseId))
-        .map((cell) => ({
-          termCode: links.data?.[scope.termId ?? ""] ?? "",
-          crn: cell.crn,
-          code: cell.courseCode,
-          title: cell.courseName,
-          group: `${scope.code} ${group ? subRowLabel(group.label, major?.program ?? "", (group.majors ?? []).length) : ""}`.trim(),
-          tone: registered.has(cell.crn) ? ("solid" as const) : ("outline" as const),
-        })),
-    ),
-    ...(registrations.data ?? [])
-      .filter((registration) => registration.status === "in_portal" && !placedCrns.has(registration.crn))
-      .map((registration) => ({
-        termCode: registration.termCode,
-        crn: registration.crn,
-        code: registration.courseCode,
-        title: registration.title,
-        staff: registration.teacherName,
-      })),
-  ];
+  const timetable: TimetableEntry[] = studentTimetable({
+    placements,
+    excused,
+    links: links.data ?? {},
+    registrations: registrations.data ?? [],
+  });
 
   return (
     <Modal

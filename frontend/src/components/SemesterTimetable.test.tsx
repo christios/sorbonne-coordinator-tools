@@ -240,8 +240,8 @@ describe("a semester's whole week", () => {
     // One week of classes: one page, A4, the week across its whole width.
     expect(within(dialog).getByRole("button", { name: "Export 1 page" })).toBeTruthy();
     expect(within(dialog).queryByRole("group", { name: /Paper|Width/ })).toBeNull();
-    // The height and the ceiling are the only choices.
-    expect(within(dialog).getByLabelText("Height of a class on the page")).toBeTruthy();
+    // The ceiling is the only choice: how many pages a week may take.
+    expect(within(dialog).queryByLabelText("Height of a class on the page")).toBeNull();
     fireEvent.click(within(dialog).getByRole("button", { name: "1" }));
     expect(within(dialog).getByRole("button", { name: "1" }).getAttribute("aria-pressed")).toBe("true");
     expect(within(dialog).getByRole("img", { name: /7 Sep – 11 Sep 2026/ })).toBeTruthy();

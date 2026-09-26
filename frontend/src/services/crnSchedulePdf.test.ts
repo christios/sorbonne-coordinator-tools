@@ -92,12 +92,12 @@ describe("a CRN's schedule, a page per week", () => {
     expect(hourRange(late)).toEqual([7, 20]);
   });
 
-  it("calls each box what the app calls it: the group on one course's page, the course on several", () => {
+  it("names each box's course and group itself, with no legend to look them up in", () => {
     const entry = { crn: "23049", courseCode: "MATH-330", group: "CM Mathematics" };
 
-    expect(classLabel(entry, true)).toBe("CM Mathematics");
-    expect(classLabel(entry, false)).toBe("MATH-330");
-    expect(classLabel({ ...entry, group: "" }, true)).toBe("MATH-330");
+    expect(classLabel(entry)).toBe("MATH-330 · CM Mathematics");
+    expect(classLabel({ ...entry, group: "" })).toBe("MATH-330");
+    expect(classLabel({ ...entry, courseCode: "", group: "" })).toBe("23049");
   });
 
   it("is named for its course and CRN", () => {
@@ -105,7 +105,7 @@ describe("a CRN's schedule, a page per week", () => {
   });
 
   it("comes out as a PDF", async () => {
-    const pdf = await buildSchedulePdf(ONE, new Date(2026, 8, 25));
+    const pdf = await buildSchedulePdf(ONE);
 
     expect(new TextDecoder().decode(new Uint8Array(pdf).slice(0, 5))).toBe("%PDF-");
   });
@@ -139,7 +139,7 @@ describe("several CRNs on one grid", () => {
 
   it("is named for how many CRNs it holds, and still comes out as a PDF", async () => {
     expect(scheduleFilename(BOTH)).toBe("schedule-2-CRNs.pdf");
-    const pdf = await buildSchedulePdf(BOTH, new Date(2026, 8, 25));
+    const pdf = await buildSchedulePdf(BOTH);
     expect(new TextDecoder().decode(new Uint8Array(pdf).slice(0, 5))).toBe("%PDF-");
   });
 });

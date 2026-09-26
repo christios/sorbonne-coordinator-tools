@@ -14,12 +14,15 @@
  * sign-in pages at the end of a payroll run.
  */
 
-import { useMutation, useQueries } from "@tanstack/react-query";
+import { useMutation, useQueries, useQueryClient } from "@tanstack/react-query";
 import { Download, ExternalLink, FileSpreadsheet, X } from "lucide-react";
 import { useState } from "react";
 
 import { Modal } from "@/components/Modal";
 import { SelectionBar } from "@/components/SelectionActions";
+import { TimetablesButton } from "@/components/TimetablesButton";
+import { fetchActiveTeachers } from "@/services/portalLists";
+import { exportTeacherTimetables } from "@/services/timetableExports";
 import { periodLabel } from "@/services/payPeriods";
 import {
   type Teacher,
@@ -65,6 +68,7 @@ export function TeacherBulkActions({
   teachers: Teacher[];
   onClear: () => void;
 }) {
+  const client = useQueryClient();
   const [showingSheets, setShowingSheets] = useState(false);
   const [said, setSaid] = useState("");
   const nameOf = (id: string) => teachers.find((teacher) => teacher.id === id)?.fullName ?? id;
@@ -121,6 +125,16 @@ export function TeacherBulkActions({
         >
           <FileSpreadsheet size={15} aria-hidden="true" /> Time sheets…
         </button>
+        {/* Their teaching, found through the department's list they are linked to, or by name. */}
+        <TimetablesButton
+          make={async () => {
+            const active = await client.fetchQuery({ queryKey: ["active-teachers"], queryFn: fetchActiveTeachers });
+            return exportTeacherTimetables(
+              client,
+              chosen.map((id) => ({ id: active.find((row) => row.partTimeTeacherId === id)?.id ?? "", fullName: nameOf(id) })),
+            );
+          }}
+        />
         {said ? <span className="text-[#2f6b3d]">{said}</span> : null}
         {requisitions.error ? (
           <span role="alert" className="text-[#8f1f25]">

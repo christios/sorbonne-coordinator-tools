@@ -6,10 +6,10 @@
  * neighbour. Every week of the semester gets its pages, from the first class to the last;
  * a week with none keeps its page, drawn empty, as the CRN schedules do.
  *
- * One page shape, A4 landscape, and the week always spans its full width. The only size
- * chosen is how tall a class is, with a ceiling on how many pages one week may take; the
- * layout then grows every page's classes until the page is full, so no sheet ends in a
- * band of white. The same layout drives the preview and the file, so what the preview
+ * One page shape, A4 landscape, and the week always spans its full width. The only thing
+ * chosen is at most how many pages one week may take: a week is drawn at a comfortable
+ * size on as few pages as that needs, smaller only when it would run past the ceiling, and
+ * then every page's classes grow until the page is full, so no sheet ends in white. The same layout drives the preview and the file, so what the preview
  * shows is what prints.
  *
  * Built in the browser from the portal's dated meetings and the department's notes on
@@ -35,14 +35,18 @@ import {
 /** Days down the side (the Timetable page), or rooms: a week along each row, or one day. */
 export type SemesterLayout = "days" | "rooms-week" | "rooms-day";
 /**
- * How large it is drawn: how tall a class is, in points, and at most how many pages one
- * week may take. A week that would need more is drawn smaller until it fits; `null` is no
- * ceiling.
+ * At most how many pages one week may take; `null` is no ceiling. A week that would need
+ * more at a comfortable size is drawn smaller until it fits.
  */
-export type ExportZoom = { classHeight: number; maxPages: number | null };
+export type ExportZoom = { maxPages: number | null };
 
-export const CLASS_HEIGHT = { min: 10, max: 40, start: 16 };
 export const MAX_PAGES = [1, 2, 3, 4] as const;
+/**
+ * How tall a class is when nothing squeezes it: two lines of a box read without leaning in.
+ * It decides how many pages a week takes when the ceiling allows more; the page then grows
+ * the classes to fill itself either way.
+ */
+const COMFORTABLE_CLASS = 18;
 
 /**
  * A4 landscape, and only that. A PDF prints to whatever paper is in the tray, scaled; a
@@ -304,15 +308,14 @@ function largest(low: number, high: number, fits: (height: number) => boolean): 
 /**
  * How tall a unit's classes are drawn, and on how many pages.
  *
- * Three steps. The height asked for says how many pages a week needs. Past the ceiling,
- * the classes shrink until the week fits it. Then they grow again as far as they can
- * without needing another page — so the height chosen decides the number of pages, and
- * the pages are as full as that number allows. What is left at the foot of each page
- * after that is shared out among its own rows.
+ * Three steps. At a comfortable size the week needs some number of pages. Past the
+ * ceiling, the classes shrink until the week fits it. Then they grow again as far as they
+ * can without needing another page, so the pages are as full as their number allows.
+ * What is left at the foot of each page after that is shared out among its own rows.
  */
 function unitHeight(rows: Row[], zoom: ExportZoom, available: number, labelHeight: number): { classHeight: number; pages: Piece[][] } {
   const pagesAt = (height: number) => packed(rows, height, available, labelHeight).length;
-  let height = Math.max(SMALLEST_CLASS, zoom.classHeight);
+  let height = COMFORTABLE_CLASS;
   const ceiling = zoom.maxPages;
   if (ceiling && pagesAt(height) > ceiling) {
     height = largest(SMALLEST_CLASS, height, (candidate) => pagesAt(candidate) <= ceiling);
@@ -426,13 +429,8 @@ const HEADER: Rgb = [248, 250, 252];
 const SOFT: Rgb = [102, 112, 133];
 const FAINT: Rgb = [152, 162, 179];
 
-/** "Mon 28 Sep 2026". */
-function dayWords(iso: string): string {
-  const day = parseIsoDate(iso);
-  return `${DAY_NAMES[day.getDay()]} ${day.getDate()} ${MONTH_NAMES[day.getMonth()]} ${day.getFullYear()}`;
-}
 
-export async function buildSemesterPdf(input: SemesterExportInput, zoom: ExportZoom, today = new Date()): Promise<ArrayBuffer> {
+export async function buildSemesterPdf(input: SemesterExportInput, zoom: ExportZoom): Promise<ArrayBuffer> {
   const { jsPDF } = await import("jspdf");
   const frame = frameOf(input.layout);
   const doc = new jsPDF({ unit: "pt", format: "a4", orientation: "landscape" });
@@ -515,14 +513,13 @@ export async function buildSemesterPdf(input: SemesterExportInput, zoom: ExportZ
     for (const box of page.boxes) drawBox(doc, box);
   });
 
+  // Page numbers and nothing else: a timetable handed out is not a report of where it came from.
   const total = doc.getNumberOfPages();
-  const swept = input.sweptAt ? `, as the portal's timetable stood on ${dayWords(input.sweptAt.slice(0, 10))}` : "";
   for (let page = 1; page <= total; page += 1) {
     doc.setPage(page);
     doc.setFont("helvetica", "normal");
     doc.setFontSize(6.5);
     doc.setTextColor(140);
-    doc.text(`Exported ${dayWords(toIsoDate(today))} from Academic Coordinator Tools${swept}.`, frame.left, frame.footerY);
     doc.text(`Page ${page} of ${total}`, frame.right, frame.footerY, { align: "right" });
   }
   return doc.output("arraybuffer");

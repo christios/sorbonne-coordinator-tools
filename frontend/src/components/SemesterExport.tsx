@@ -4,7 +4,6 @@ import { useMemo, useState } from "react";
 import { Modal } from "@/components/Modal";
 import { usePageState } from "@/components/usePageState";
 import {
-  CLASS_HEIGHT,
   MAX_PAGES,
   downloadSemesterPdf,
   frameOf,
@@ -15,16 +14,15 @@ import {
   type SemesterPage,
 } from "@/services/semesterPdf";
 
-const START: ExportZoom = { classHeight: CLASS_HEIGHT.start, maxPages: null };
+const START: ExportZoom = { maxPages: 1 };
 
 /**
  * The whole semester as a PDF, with its size chosen first and the pages it will take shown.
  *
  * A week drawn large enough to read every box is more than one sheet of paper, and a
  * semester is sixteen weeks of them. Nobody should find that out from the printer. The
- * week always spans the page's width; what is chosen is how tall a class is, and at most
- * how many pages a week may take — and the preview draws a week's pages exactly as the
- * file will.
+ * week always spans the page's width; what is chosen is at most how many pages a week may
+ * take — and the preview draws a week's pages exactly as the file will.
  */
 export function SemesterExport({
   open,
@@ -38,7 +36,7 @@ export function SemesterExport({
   /** "20 of 162 sections", so the filters on the page are not a surprise in the file. */
   shown: string;
 }) {
-  const [kept, setZoom] = usePageState<ExportZoom>("semester-export:zoom:v2", START);
+  const [kept, setZoom] = usePageState<ExportZoom>("semester-export:zoom:v3", START);
   const zoom = { ...START, ...kept };
   const units = useMemo(() => (open ? semesterUnits(input) : []), [open, input]);
   const pages = useMemo(() => (open ? semesterPages(input, zoom, units) : []), [open, input, zoom, units]);
@@ -58,7 +56,7 @@ export function SemesterExport({
     const perUnit = new Map<number, number>();
     for (const page of free) perUnit.set(page.unit, (perUnit.get(page.unit) ?? 0) + 1);
     return [...perUnit.values()].filter((pages) => pages > (zoom.maxPages ?? Infinity)).length;
-  }, [open, input, units, zoom.classHeight, zoom.maxPages]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [open, input, units, zoom.maxPages]); // eslint-disable-line react-hooks/exhaustive-deps
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState("");
   const noun = input.layout === "rooms-day" ? "day" : "week";
@@ -106,23 +104,6 @@ export function SemesterExport({
       }
     >
       <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
-        <label className="block">
-          <span className="mb-1 block text-xs font-semibold text-[#667085]">Height of a class</span>
-          <span className="inline-flex items-center gap-2 rounded-md border border-[#d3d9e2] bg-white px-2 py-1.5">
-            <span className="text-[11px] text-[#98a2b3]">Small</span>
-            <input
-              type="range"
-              min={CLASS_HEIGHT.min}
-              max={CLASS_HEIGHT.max}
-              step={1}
-              value={zoom.classHeight}
-              aria-label="Height of a class on the page"
-              onChange={(event) => setZoom({ ...zoom, classHeight: Number(event.target.value) })}
-              className="h-1 w-40 cursor-pointer accent-[#1f4e79]"
-            />
-            <span className="text-[11px] text-[#98a2b3]">Large</span>
-          </span>
-        </label>
         <Choice
           label={`Pages per ${noun}, at most`}
           value={zoom.maxPages ? String(zoom.maxPages) : ""}
@@ -143,7 +124,7 @@ export function SemesterExport({
             {units.length} {noun}s; the {noun} below takes {ofUnit.length}. Every page is A4 landscape, filled to its
             edges.
             {squeezed
-              ? ` ${squeezed} ${noun}${squeezed === 1 ? " is" : "s are"} drawn smaller than chosen, to stay within ${zoom.maxPages} page${zoom.maxPages === 1 ? "" : "s"}.`
+              ? ` ${squeezed} ${noun}${squeezed === 1 ? " is" : "s are"} drawn smaller to stay within ${zoom.maxPages} page${zoom.maxPages === 1 ? "" : "s"}.`
               : ""}
           </>
         )}

@@ -33,6 +33,13 @@ export type ScheduleSection = {
 };
 
 export type ScheduleInput = {
+  /**
+   * Whose timetable this is, for a person's or a course's: "Grace Younes", "MATH-351 ·
+   * Algebra". Left out, the heading names the CRNs, as a CRN's own schedule does.
+   */
+  title?: string;
+  /** The line under it: "Teacher · Semester 1". Left out, the CRN's facts or the semester. */
+  subtitle?: string;
   /** The semester, named; blank when the CRNs span more than one. */
   semester: string;
   sections: ScheduleSection[];
@@ -46,6 +53,8 @@ export type ScheduleInput = {
 export type ScheduleClass = {
   crn: string;
   courseCode: string;
+  /** The course's name, said in its box: there is no legend to look it up in. */
+  title: string;
   group: string;
   teacher: string;
   day: string;
@@ -141,6 +150,7 @@ export function scheduleWeeks(input: ScheduleInput): ScheduleWeek[] {
         {
           crn: section.crn,
           courseCode: section.courseCode,
+          title: section.title?.trim() ?? "",
           group: section.group?.trim() ?? "",
           teacher: section.teacher,
           day: meeting.meetsOn,
@@ -186,11 +196,11 @@ export function hourRange(input: ScheduleInput): [number, number] {
 }
 
 /**
- * What a box is called, as in the app. Every class of one course: its group, since the
- * course is in the heading — the course's own calendar. Several courses: the course.
+ * What a box is called: the course and its group, "MATH-351 · TD 1". With no legend beside
+ * the grid, every box says what it is on its own.
  */
-export function classLabel(entry: Pick<ScheduleClass, "courseCode" | "group" | "crn">, oneCourse: boolean): string {
-  return (oneCourse && entry.group) || entry.courseCode || entry.crn;
+export function classLabel(entry: Pick<ScheduleClass, "courseCode" | "group" | "crn">): string {
+  return [entry.courseCode || entry.crn, entry.group].filter(Boolean).join(" · ");
 }
 
 /** "MATH-351-23436-schedule.pdf" for one; "schedule-4-CRNs.pdf" for several. */
@@ -302,9 +312,33 @@ export function fitted(doc: JsPdf, text: string, width: number): string {
 /** One line of a class's box: its words, and what it is drawn with. */
 type BoxLine = { text: string; size: number; bold?: boolean; icon?: keyof typeof ICONS; ink: Rgb; strike?: boolean; keep: number };
 
-export async function buildSchedulePdf(input: ScheduleInput, today = new Date()): Promise<ArrayBuffer> {
+/**
+ * One or several timetables in one file. Several are for a selection — a handful of
+ * teachers, a group of students — each starting on a page of its own, one after another,
+ * so the file prints as a stack to hand out.
+ */
+export async function buildSchedulePdf(given: ScheduleInput | ScheduleInput[]): Promise<ArrayBuffer> {
   const { jsPDF } = await import("jspdf");
   const doc = new jsPDF({ unit: "pt", format: "a4", orientation: "landscape" });
+  const inputs = Array.isArray(given) ? given : [given];
+  inputs.forEach((input, index) => drawSchedule(doc, input, index > 0));
+
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const pages = doc.getNumberOfPages();
+  // Page numbers and nothing else: a timetable handed out is not a report of where it came from.
+  for (let page = 1; page <= pages; page += 1) {
+    doc.setPage(page);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    doc.setTextColor(140);
+    doc.text(`Page ${page} of ${pages}`, pageWidth - 40, pageHeight - 22, { align: "right" });
+  }
+  return doc.output("arraybuffer");
+}
+
+/** One timetable's pages, drawn into the file — after what is there already when `after` says so. */
+function drawSchedule(doc: JsPdf, input: ScheduleInput, after: boolean): void {
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
   const left = 40;
@@ -317,13 +351,11 @@ export async function buildSchedulePdf(input: ScheduleInput, today = new Date())
   const colorOf = new Map(input.sections.map((section, index) => [section.crn, rgbOf(COURSE_COLORS[index % COURSE_COLORS.length])]));
 
   /*
-   * The legend, for several CRNs: a swatch and a line each, laid in columns across the
-   * page. Measured once, since every page carries it and the grid starts below it.
+   * No legend. It listed every CRN beside a swatch above the grid, which a teacher's or a
+   * student's dozen courses turned into a band of small print the grid paid for in height;
+   * each box names its course, group and CRN itself instead.
    */
-  const legendColumns = 3;
-  const legendRows = one ? 0 : Math.ceil(input.sections.length / legendColumns);
-  const legendTop = 84;
-  const subtitleY = legendTop + legendRows * 13 + (one ? 6 : 14);
+  const subtitleY = 90;
   const headTop = subtitleY + 12;
   const top = headTop + 30;
   const [firstHour, lastHour] = hourRange(input);
@@ -336,11 +368,16 @@ export async function buildSchedulePdf(input: ScheduleInput, today = new Date())
     doc.setFont("helvetica", "bold");
     doc.setFontSize(16);
     doc.text(
-      one
-        ? `${one.courseCode}${one.title ? ` · ${one.title}` : ""}`
-        : oneCourse
-          ? `${input.sections[0].courseCode} · ${input.sections.length} CRNs`
-          : `${input.sections.length} CRNs`,
+      fitted(
+        doc,
+        input.title ??
+          (one
+            ? `${one.courseCode}${one.title ? ` · ${one.title}` : ""}`
+            : oneCourse
+              ? `${input.sections[0].courseCode} · ${input.sections.length} CRNs`
+              : `${input.sections.length} CRNs`),
+        right - left,
+      ),
       left,
       50,
     );
@@ -348,34 +385,24 @@ export async function buildSchedulePdf(input: ScheduleInput, today = new Date())
     doc.setFontSize(10);
     doc.setTextColor(...SOFT);
     doc.text(
-      (one ? [`CRN ${one.crn}`, one.group, input.semester, one.teacher] : [input.semester]).filter(Boolean).join("   ·   "),
+      input.subtitle ??
+        (one ? [`CRN ${one.crn}`, one.group, input.semester, one.teacher] : [input.semester]).filter(Boolean).join("   ·   "),
       left,
       68,
     );
-    if (!one) {
-      const columnWidth = (right - left) / legendColumns;
-      input.sections.forEach((section, index) => {
-        const x = left + (index % legendColumns) * columnWidth;
-        const y = legendTop + Math.floor(index / legendColumns) * 13;
-        doc.setFillColor(...(colorOf.get(section.crn) ?? rgbOf(COURSE_COLORS[0])));
-        doc.roundedRect(x, y - 7, 9, 9, 1.5, 1.5, "F");
-        doc.setFontSize(8.5);
-        doc.setTextColor(52, 64, 84);
-        // The teacher before the title: when a line has to be cut, the course's name is the part to lose.
-        const words = [`${section.courseCode} · ${section.crn}`, section.group, section.teacher, section.title].filter(Boolean).join(" · ");
-        doc.text(fitted(doc, words, columnWidth - 18), x + 14, y);
-      });
-    }
     doc.setFont("helvetica", "bold");
     doc.setFontSize(12);
     doc.setTextColor(31, 78, 121);
     doc.text(subtitle, left, subtitleY);
   };
 
-  if (!weeks.length) heading("The portal has booked no classes for these CRNs.");
+  if (!weeks.length) {
+    if (after) doc.addPage();
+    heading("The portal has booked no classes for these CRNs.");
+  }
 
   weeks.forEach((week, index) => {
-    if (index > 0) doc.addPage();
+    if (index > 0 || after) doc.addPage();
     const last = week.days[week.days.length - 1];
     heading(`${week.week ? `Week ${week.week}   ·   ` : ""}${shortDay(week.monday)} – ${shortDay(last)} ${parseIsoDate(last).getFullYear()}`);
 
@@ -464,13 +491,14 @@ export async function buildSchedulePdf(input: ScheduleInput, today = new Date())
        * nowhere else to put. A line that does not fit is dropped rather than cut in half.
        */
       const lines: BoxLine[] = [
-        { text: classLabel(entry, oneCourse), size: 8.5, bold: true, ink: [255, 255, 255] as Rgb, strike: cancelled, keep: 0 },
+        { text: classLabel(entry), size: 8.5, bold: true, ink: [255, 255, 255] as Rgb, strike: cancelled, keep: 0 },
+        { text: entry.title, size: 7.5, ink: ink(0.9), keep: 2 },
         { text: `${entry.startsAt}–${entry.endsAt}`, size: 8, ink: ink(0.9), keep: 1 },
-        { text: formatRoom(entry.room), size: 8, icon: "pin" as const, ink: ink(0.85), keep: 2 },
-        { text: [entry.group, `CRN ${entry.crn}`].filter(Boolean).join(" · "), size: 7, ink: ink(0.8), keep: 4 },
+        { text: formatRoom(entry.room), size: 8, icon: "pin" as const, ink: ink(0.85), keep: 3 },
+        { text: `CRN ${entry.crn}`, size: 7, ink: ink(0.8), keep: 5 },
         covered
           ? { text: entry.cover || "somebody else", size: 8, bold: true, icon: "cover" as const, ink: [255, 255, 255] as Rgb, keep: 3 }
-          : { text: entry.teacher, size: 8, icon: "person" as const, ink: ink(0.85), keep: 5 },
+          : { text: entry.teacher, size: 8, icon: "person" as const, ink: ink(0.85), keep: 4 },
         { text: entry.note, size: 7, ink: ink(0.85), keep: 6 },
       ].filter((line) => line.text);
       const kept = new Set<BoxLine>();
@@ -522,26 +550,15 @@ export async function buildSchedulePdf(input: ScheduleInput, today = new Date())
     }
   });
 
-  const pages = doc.getNumberOfPages();
-  const swept = input.sweptAt ? `, as the portal's timetable stood on ${dayWords(input.sweptAt.slice(0, 10))}` : "";
-  for (let page = 1; page <= pages; page += 1) {
-    doc.setPage(page);
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(8);
-    doc.setTextColor(140);
-    doc.text(`Exported ${dayWords(toIsoDate(today))} from Academic Coordinator Tools${swept}.`, left, pageHeight - 22);
-    doc.text(`Page ${page} of ${pages}`, right, pageHeight - 22, { align: "right" });
-  }
-  return doc.output("arraybuffer");
 }
 
 /** Build it and hand it to the browser as a download. */
-export async function downloadSchedulePdf(input: ScheduleInput): Promise<void> {
+export async function downloadSchedulePdf(input: ScheduleInput | ScheduleInput[], filename?: string): Promise<void> {
   const blob = new Blob([await buildSchedulePdf(input)], { type: "application/pdf" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = scheduleFilename(input);
+  link.download = filename ?? scheduleFilename(Array.isArray(input) ? { sections: input.flatMap((one) => one.sections) } : input);
   link.click();
   URL.revokeObjectURL(url);
 }

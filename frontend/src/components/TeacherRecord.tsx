@@ -11,6 +11,7 @@ import { adjustmentsFor, fetchSessionChanges } from "@/services/sessionChanges";
 import { buildCards } from "@/services/courseCards";
 import { fetchActiveCourses, fetchActiveCrns, fetchActiveTeachers, fetchFacilityHours, fetchTermLinks, type ActiveCrn, type ActiveTeacher } from "@/services/portalLists";
 import { requisitionCheck } from "@/services/requisitionCheck";
+import { teacherTimetable } from "@/services/personTimetable";
 import { requisitionHours, totalAdminHours } from "@/services/requisitions";
 import type { ColumnSource } from "@/services/studentColumns";
 import { type BookedHours, bookedHoursOf, registrarHoursFor, sameTeacher, sectionsTaughtBy } from "@/services/teacherLoad";
@@ -117,7 +118,6 @@ export function TeacherRecord({
   const contractRead = Boolean(partTimeId) && !requisitionList.isLoading && !requisitionsLoading;
   const contractWarnings = contractRead && requisitions.length ? requisitionCheck(sections, requisitions) : [];
 
-  const live = sections.filter((section) => !section.retired);
   /*
    * When they teach, from the registrar's sweep.
    *
@@ -127,21 +127,7 @@ export function TeacherRecord({
    * in a room, which is what a calendar is for.
    */
   const links = useQuery({ queryKey: ["term-links"], queryFn: fetchTermLinks, enabled: open, retry: false });
-  const ours: TimetableEntry[] = live
-    .filter((section) => section.crn)
-    .map((section) => ({
-      termCode: links.data?.[section.termId] ?? "",
-      crn: section.crn,
-      code: section.courseCode,
-      title: section.courseName,
-      label: section.courseCode,
-      group: `${section.scopeCode} ${section.groupLabel}`,
-    }));
-  const named = new Set(ours.map((entry) => entry.crn));
-  const theirs: TimetableEntry[] = (registered.data ?? [])
-    .filter((row) => !named.has(row.crn) && row.portalStatus === "in_portal" && sameTeacher(row.teacherName, teacher.fullName))
-    .map((row) => ({ termCode: row.termCode, crn: row.crn, code: row.courseCode, title: row.courseTitle || row.portalTitle }));
-  const mine = [...ours, ...theirs];
+  const live = sections.filter((section) => !section.retired);
   const [showingCrn, setShowingCrn] = useState<ActiveCrn | null>(null);
 
   /*
@@ -165,44 +151,21 @@ export function TeacherRecord({
     })),
     combine: (reads) => ({ notes: reads.flatMap((read) => read.data ?? []) }),
   });
-  const ownCrns = new Set(mine.map((entry) => entry.crn));
   const me = { id: held?.id ?? teacher.id ?? "", name: teacher.fullName };
-
-  /*
-   * The classes they stood in for, on the days they stood in and on no others.
-   *
-   * A cover is one afternoon, not a standing commitment. Adding the CRN to their week
-   * outright would put them in that room every week of the semester on the strength of one
-   * Tuesday — so the dates the notes name are the only ones drawn.
-   *
-   * It used to appear on the week of the teacher who was down for the class and nowhere
-   * else, which made the stand-in's own week wrong about where they were.
-   */
-  const covering: TimetableEntry[] = useMemo(() => {
-    const byCrn = new Map<string, { termCode: string; dates: string[] }>();
-    for (const note of notes) {
-      if (note.kind !== "covered" || ownCrns.has(note.crn)) continue;
-      const theirs = (me.id && note.coverTeacherId === me.id) || sameTeacher(note.coverTeacherName, me.name);
-      if (!theirs) continue;
-      const seen = byCrn.get(note.crn) ?? { termCode: note.termCode, dates: [] };
-      seen.dates.push(note.meetsOn);
-      byCrn.set(note.crn, seen);
-    }
-    return [...byCrn.entries()].map(([crn, seen]) => ({
-      termCode: seen.termCode,
-      crn,
-      // Somebody else's section: the sweep names the course and whose class it is.
-      code: "",
-      title: "",
-      onlyOn: seen.dates,
-      standingIn: true,
-      // Its own colour, so a cover is never read as one more hour of a course they teach.
-      colorKey: `cover:${crn}`,
-    }));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [notes, [...ownCrns].join(","), me.id, me.name]);
-
-  const timetable = [...mine, ...covering];
+  // Their week — see services/personTimetable, which the timetable export reads too.
+  const timetable: TimetableEntry[] = useMemo(
+    () =>
+      teacherTimetable({
+        cards,
+        links: links.data ?? {},
+        registered: registered.data ?? [],
+        notes,
+        teacher: { id: me.id, fullName: me.name },
+      }),
+    [cards, links.data, registered.data, notes, me.id, me.name],
+  );
+  const mine = timetable.filter((entry) => !entry.standingIn);
+  const ownCrns = new Set(mine.map((entry) => entry.crn));
   const termCodes = [...new Set(mine.map((entry) => entry.termCode).filter(Boolean))];
   const concerning = notes.filter(
     (note) =>

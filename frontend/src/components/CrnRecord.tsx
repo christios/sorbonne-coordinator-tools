@@ -1,5 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
-import { Download, Loader2 } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
 
 import { CrnDialog } from "@/components/ActiveCourses";
@@ -7,10 +6,11 @@ import { Modal } from "@/components/Modal";
 import { SectionTimetable } from "@/components/SectionTimetable";
 import { SessionChangeDialog } from "@/components/SessionChangeDialog";
 import { SessionChangeList } from "@/components/SessionChangeList";
+import { TimetablesButton } from "@/components/TimetablesButton";
 import { fetchSessionChanges, noteOn, slotKey } from "@/services/sessionChanges";
 import { fieldHeld, namesHeld } from "@/services/rosterStore";
 import type { PlacedSession } from "@/services/weekSchedule";
-import { buildCards, groupNamesByCrn, rowsPerPart, teaches } from "@/services/courseCards";
+import { buildCards, rowsPerPart, teaches } from "@/services/courseCards";
 import { filled } from "@/services/courseRequest";
 import {
   fetchActiveCourses,
@@ -20,11 +20,9 @@ import {
   fetchRegisterCheck,
   fetchSectionDays,
   fetchTermCrns,
-  fetchTermLinks,
   type ActiveCrn,
 } from "@/services/portalLists";
-import { downloadSchedulePdf } from "@/services/crnSchedulePdf";
-import { fetchTermWeeks } from "@/services/termWeeks";
+import { exportCrnTimetable } from "@/services/timetableExports";
 import { warningsByCrn, WORDS } from "@/services/registerWarnings";
 import { CopyButton } from "@/components/CopyButton";
 import { asMailList, emailsFor } from "@/services/studentEmails";
@@ -136,40 +134,8 @@ export function CrnRecord({
     ),
   );
   const orphaned = new Set(mine.filter((note) => booked.size > 0 && !booked.has(slotKey(note))).map((note) => note.id));
-  /*
-   * Its schedule as a PDF: the week grid below for every teaching week, a page each, with
-   * the notes on its classes — for a teacher, or a noticeboard. The semester is named, and
-   * the weeks numbered,
-   * where the portal term is linked to one and Settings → Semesters says where Week 1 is.
-   */
-  const links = useQuery({ queryKey: ["term-links"], queryFn: fetchTermLinks, enabled: open, retry: false });
-  const weeks = useQuery({ queryKey: ["term-weeks"], queryFn: fetchTermWeeks, enabled: open, retry: false });
-  const [exporting, setExporting] = useState(false);
   const section = (sweep.data?.sections ?? []).find((entry) => entry.crn === row.crn);
-  const exportSchedule = async () => {
-    const termId = Object.entries(links.data ?? {}).find(([, code]) => code === row.termCode)?.[0] ?? "";
-    setExporting(true);
-    try {
-      await downloadSchedulePdf({
-        semester: termId ? termName(termId) : row.termCode ? `Term ${row.termCode}` : "",
-        sections: [
-          {
-            crn: row.crn,
-            courseCode: row.courseCode,
-            title: row.courseTitle || row.portalTitle,
-            teacher: section?.teacherName || row.teacherName,
-            group: groupNamesByCrn(catalogues.data ?? []).get(row.crn) ?? "",
-            meetings: section?.meetings ?? [],
-            notes: mine,
-          },
-        ],
-        weekOne: termId ? weeks.data?.[termId] : undefined,
-        sweptAt: sweep.data?.pulledAt,
-      });
-    } finally {
-      setExporting(false);
-    }
-  };
+  const client = useQueryClient();
   /*
    * Who the registrar has in it. Ids from the server; names from this browser, which is
    * the only place they are. Beside each, the group of ours the CRN stands for — blank is
@@ -266,16 +232,8 @@ export function CrnRecord({
             note="From the sweep of their timetable, not from anything we asked for."
             action={
               section?.meetings.length ? (
-                <button
-                  type="button"
-                  onClick={() => void exportSchedule()}
-                  disabled={exporting}
-                  title="The week grid for every teaching week of the semester, a page each, as a PDF"
-                  className="inline-flex items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-2.5 py-1 text-xs font-semibold text-[#1f4e79] hover:bg-[#f2f7fb] disabled:opacity-60"
-                >
-                  {exporting ? <Loader2 size={13} className="animate-spin" aria-hidden="true" /> : <Download size={13} aria-hidden="true" />}
-                  Export schedule
-                </button>
+                // Its schedule as a PDF: this week grid for every teaching week, a page each.
+                <TimetablesButton small label="Export schedule" make={() => exportCrnTimetable(client, [row])} />
               ) : null
             }
           >

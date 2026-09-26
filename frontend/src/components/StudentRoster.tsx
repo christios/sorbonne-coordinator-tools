@@ -17,6 +17,8 @@ import { StudentTable, cellText, type Sort } from "@/components/StudentTable";
 import { MoveToCohort } from "@/components/MoveToCohort";
 import { RemoveFromGroups } from "@/components/RemoveFromGroups";
 import { SelectionFloating, type SelectionActionsProps } from "@/components/SelectionActions";
+import { TimetablesButton } from "@/components/TimetablesButton";
+import { exportStudentTimetables } from "@/services/timetableExports";
 import { TableFilterBar } from "@/components/TableFilterBar";
 import { usePageState } from "@/components/usePageState";
 import { costOfMove, describeCost } from "@/services/cohortMove";
@@ -656,6 +658,27 @@ export function StudentRoster({
     // and is not a move.
     onOutOfCohort: () => setConfirmMove({ ids: chosen, cohortId: null }),
     onClear: () => setSelected(new Set()),
+    /*
+     * Their timetables, one after another in one PDF — each built as their record builds
+     * it, so the file and the record never disagree about a week.
+     */
+    extra: (
+      <TimetablesButton
+        make={() =>
+          exportStudentTimetables(
+            client,
+            rows
+              .filter((row) => selected.has(row.studentId))
+              .map((row) => ({
+                studentId: row.studentId,
+                name: row.name,
+                cohortId: row.cohortId,
+                cohortName: cohorts.find((candidate) => candidate.id === row.cohortId)?.name,
+              })),
+          )
+        }
+      />
+    ),
   };
 
   return (

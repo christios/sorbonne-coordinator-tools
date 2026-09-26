@@ -36,29 +36,29 @@ describe("the semester's pages", () => {
     ]);
     // Monday of Week 1 holds two overlapping classes, stacked.
     expect(units[0].rows[0]).toMatchObject({ label: "Mon 7", sub: "2 classes", lanes: 2 });
-    expect(semesterPages(input(), { classHeight: 16, maxPages: null })).toHaveLength(3);
+    expect(semesterPages(input(), { maxPages: null })).toHaveLength(3);
   });
 
   it("spans the whole width of the page with the week's hours, never cutting them", () => {
-    const [page] = semesterPages(input(), { classHeight: 16, maxPages: null });
+    const [page] = semesterPages(input(), { maxPages: null });
     const frame = frameOf("days");
     // 08:00 at the grid's left edge and 18:00 at the page's right one.
     expect(page.ticks[0].x).toBeCloseTo(frame.left + frame.labelWidth);
     expect(page.ticks[page.ticks.length - 1].x).toBeCloseTo(frame.right);
   });
 
-  it("fills every page to its foot, whatever the height chosen", () => {
+  it("fills every page to its foot, whatever the ceiling", () => {
     const frame = frameOf("days");
-    for (const classHeight of [10, 16, 40]) {
-      for (const page of semesterPages(input(), { classHeight, maxPages: null })) {
+    for (const maxPages of [1, 2, null]) {
+      for (const page of semesterPages(input(), { maxPages })) {
         expect(page.gridBottom).toBeCloseTo(frame.bottom, 0);
       }
     }
   });
 
-  it("carries rows on to another page when a class is drawn too tall for one", () => {
+  it("carries a day on to another page when its classes will not fit one", () => {
     const busy = Array.from({ length: 30 }, (_, index) => section(String(30000 + index), `MATH-${100 + index}`, [meeting("2026-09-07")]));
-    const pages = semesterPages(input("days", busy), { classHeight: 40, maxPages: null });
+    const pages = semesterPages(input("days", busy), { maxPages: null });
     const first = pages.filter((page) => page.unit === 0);
     expect(first.length).toBeGreaterThan(1);
     // Monday is cut between its stacked classes and says so on the page it carries on to.
@@ -70,8 +70,8 @@ describe("the semester's pages", () => {
 
   it("draws a week smaller rather than past the most pages it may take", () => {
     const busy = Array.from({ length: 30 }, (_, index) => section(String(30000 + index), `MATH-${100 + index}`, [meeting("2026-09-07")]));
-    const free = semesterPages(input("days", busy), { classHeight: 40, maxPages: null }).filter((page) => page.unit === 0);
-    const capped = semesterPages(input("days", busy), { classHeight: 40, maxPages: 1 }).filter((page) => page.unit === 0);
+    const free = semesterPages(input("days", busy), { maxPages: null }).filter((page) => page.unit === 0);
+    const capped = semesterPages(input("days", busy), { maxPages: 1 }).filter((page) => page.unit === 0);
 
     expect(free.length).toBeGreaterThan(1);
     expect(capped).toHaveLength(1);
@@ -100,8 +100,8 @@ describe("the semester's pages", () => {
   });
 
   it("makes the PDF with as many pages as the preview counted", async () => {
-    const zoom = { classHeight: 16, maxPages: null };
-    const bytes = new Uint8Array(await buildSemesterPdf(input(), zoom, new Date(2026, 8, 26)));
+    const zoom = { maxPages: null };
+    const bytes = new Uint8Array(await buildSemesterPdf(input(), zoom));
     const text = new TextDecoder("latin1").decode(bytes);
     expect(text.startsWith("%PDF")).toBe(true);
     expect(text.match(/\/Type \/Page\b/g)?.length).toBe(semesterPages(input(), zoom).length);

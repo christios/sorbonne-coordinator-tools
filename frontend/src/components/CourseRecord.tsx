@@ -5,6 +5,7 @@ import { CrnRecord } from "@/components/CrnRecord";
 import { Modal } from "@/components/Modal";
 import { SelectMenu } from "@/components/SelectMenu";
 import { SectionTimetable } from "@/components/SectionTimetable";
+import { TimetablesButton } from "@/components/TimetablesButton";
 import { buildCards, rowsPerPart, teaches, type Card as CourseCard } from "@/services/courseCards";
 import { filled } from "@/services/courseRequest";
 import {
@@ -20,6 +21,7 @@ import {
 } from "@/services/portalLists";
 import { fetchCourseCards } from "@/services/studentDatabase";
 import { fetchTimetableTerms } from "@/services/timetables";
+import { exportCrnTimetable } from "@/services/timetableExports";
 
 /**
  * One course, in full — what the student record is for a person.
@@ -203,7 +205,29 @@ export function CourseRecord({
             )}
           </Card>
 
-          <Card title="When it meets" note="Every section of it on the portal's timetable, one colour per CRN.">
+          <Card
+            title="When it meets"
+            note="Every section of it on the portal's timetable, one colour per CRN."
+            action={
+              held.length ? (
+                /*
+                 * The course's whole semester as a PDF, a page per teaching week: every CRN
+                 * of it on one grid, as Active CRNs exports a ticked handful.
+                 */
+                <TimetablesButton
+                  small
+                  label="Export timetable"
+                  make={() =>
+                    exportCrnTimetable(client, held, {
+                      title: [code, course?.title || held[0]?.courseTitle || held[0]?.portalTitle || ""].filter(Boolean).join(" · "),
+                      subtitle: "Course",
+                      filename: `${code.replace(/[^A-Za-z0-9-]+/g, "-")}-timetable.pdf`,
+                    })
+                  }
+                />
+              ) : null
+            }
+          >
             <SectionTimetable
               entries={timetable}
               compact
@@ -341,10 +365,13 @@ function TaughtIn({ card, nameOf }: { card: CourseCard; nameOf: (teacherId: stri
   );
 }
 
-function Card({ title, note, children }: { title: string; note?: string; children: ReactNode }) {
+function Card({ title, note, action, children }: { title: string; note?: string; action?: ReactNode; children: ReactNode }) {
   return (
     <section className="rounded-lg border border-[#e4e8ef] bg-white px-4 py-3">
-      <h3 className="text-sm font-semibold text-[#171717]">{title}</h3>
+      <div className="flex items-start justify-between gap-2">
+        <h3 className="text-sm font-semibold text-[#171717]">{title}</h3>
+        {action}
+      </div>
       {note ? <p className="mb-2 text-xs text-[#98a2b3]">{note}</p> : <div className="mb-2" />}
       {children}
     </section>

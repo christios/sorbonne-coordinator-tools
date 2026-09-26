@@ -13,6 +13,8 @@ export type SelectionActionsProps = {
   /** Out of the cohort altogether, which gives up every group in every semester. */
   onOutOfCohort: () => void;
   onClear: () => void;
+  /** Anything else the page offers for the selection, after the placing: "Timetables". */
+  extra?: ReactNode;
 };
 
 const PLACE_HINT = "A group belongs to one cohort — select students who share one";
@@ -53,6 +55,7 @@ function Controls({ props }: { props: SelectionActionsProps }) {
       >
         <LayoutGrid size={15} aria-hidden="true" /> Place in groups…
       </button>
+      {props.extra}
 
       {/*
         * Removing, as two buttons rather than as the last line of a dialog about moving.

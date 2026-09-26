@@ -8,6 +8,8 @@ import type { TeacherRef } from "@/components/TeacherRecord";
 import { ListGrid, Pills, StatePill } from "@/components/ListGrid";
 import { Modal } from "@/components/Modal";
 import { ScreenLoading } from "@/components/ScreenLoading";
+import { SelectionBar } from "@/components/SelectionActions";
+import { TimetablesButton } from "@/components/TimetablesButton";
 import {
   type ActiveTeacher,
   type PartTimeMatch,
@@ -28,6 +30,7 @@ import { fetchActiveCourses, fetchActiveCrns, splitCodes } from "@/services/port
 import type { GridColumn } from "@/services/studentColumns";
 import { fetchCourseCards } from "@/services/studentDatabase";
 import { sectionsTaughtBy } from "@/services/teacherLoad";
+import { exportTeacherTimetables } from "@/services/timetableExports";
 import { fetchTimetableTerms } from "@/services/timetables";
 
 /**
@@ -310,6 +313,18 @@ export function ActiveTeachers({ onOpenTeacher }: { onOpenTeacher?: (teacher: Te
           }
         />
       )}
+
+      {/* The same bar the other lists float over their tables, for the one thing done to several. */}
+      <SelectionBar count={selected.size} onClear={() => setSelected(new Set())}>
+        <TimetablesButton
+          make={() =>
+            exportTeacherTimetables(
+              client,
+              (active.data ?? []).filter((row) => selected.has(row.id)).map((row) => ({ id: row.id, fullName: row.fullName })),
+            )
+          }
+        />
+      </SelectionBar>
 
       <PartTimePicker
         open={picking}
