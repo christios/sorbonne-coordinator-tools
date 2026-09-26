@@ -1,4 +1,4 @@
-import { CheckCircle2, Circle, TriangleAlert } from "lucide-react";
+import { CheckCircle2, Circle, ListChecks, TriangleAlert } from "lucide-react";
 
 import { ScopedTask } from "@/services/workflow";
 import { taskUrgency } from "@/components/taskPresentation";
@@ -82,9 +82,11 @@ export function TaskProgressBadge({ tasks }: { tasks: ScopedTask[] }) {
         : "text-[#667085] bg-[#f2f4f7]";
   return (
     <span
-      className={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${tone}`}
+      title={`${completed} of ${tasks.length} tasks done`}
+      className={`inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ${tone}`}
     >
-      {completed}/{tasks.length} tasks done
+      <ListChecks size={12} aria-hidden="true" />
+      {completed}/{tasks.length} tasks
     </span>
   );
 }

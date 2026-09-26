@@ -11,7 +11,7 @@ import { adjustmentsFor, fetchSessionChanges } from "@/services/sessionChanges";
 import { buildCards } from "@/services/courseCards";
 import { fetchActiveCourses, fetchActiveCrns, fetchActiveTeachers, fetchFacilityHours, fetchTermLinks, type ActiveCrn, type ActiveTeacher } from "@/services/portalLists";
 import { requisitionCheck } from "@/services/requisitionCheck";
-import { requisitionHours } from "@/services/requisitions";
+import { requisitionHours, totalAdminHours } from "@/services/requisitions";
 import type { ColumnSource } from "@/services/studentColumns";
 import { type BookedHours, bookedHoursOf, registrarHoursFor, sameTeacher, sectionsTaughtBy } from "@/services/teacherLoad";
 import { getTeacherRequisition, listTeacherRequisitions } from "@/services/teachers";
@@ -110,6 +110,8 @@ export function TeacherRecord({
     }),
   });
   const contracted = requisitionHours(requisitions);
+  // Paid on the same requisitions and never taught, so said beside the teaching, not in it.
+  const admin = requisitions.reduce((sum, requisition) => sum + totalAdminHours(requisition.content), 0);
   // The contract against the cards, both ways — only once every requisition has been read,
   // or a course still loading would read as one the requisition never paid for.
   const contractRead = Boolean(partTimeId) && !requisitionList.isLoading && !requisitionsLoading;
@@ -281,7 +283,7 @@ export function TeacherRecord({
           <p className="mt-0.5 text-xs text-[#98a2b3]">booked on the portal&apos;s timetable</p>
         </div>
         <div className="rounded-lg border border-[#d9dee7] bg-white px-4 py-3">
-          <p className="text-xs font-semibold uppercase tracking-wide text-[#8a94a4]">Requisition hours <SourceMark source="part-time" /></p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-[#8a94a4]">Requisition teaching hours <SourceMark source="part-time" /></p>
           <p className="mt-1 text-2xl font-semibold tabular-nums text-[#171717]" aria-label="Requisition hours">
             {partTimeId && contracted.total ? contracted.total : "—"}
           </p>
@@ -291,7 +293,10 @@ export function TeacherRecord({
               : requisitionList.isLoading || requisitionsLoading
                 ? "reading the requisitions…"
                 : contracted.byLabel.length
-                  ? contracted.byLabel.map((entry) => `${entry.label}: ${entry.hours} h`).join(" · ")
+                  ? [
+                      ...contracted.byLabel.map((entry) => `${entry.label}: ${entry.hours} h`),
+                      ...(admin ? [`and ${Math.round(admin * 1000) / 1000} h of admin`] : []),
+                    ].join(" · ")
                   : "no requisition yet"}
           </p>
         </div>

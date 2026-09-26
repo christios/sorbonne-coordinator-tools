@@ -34,7 +34,6 @@ export type CourseCatalogueEntry = {
   importedAt: string;
   obsoleteAt: string | null;
 };
-export type CourseCatalogueImportResult = { imported: number; retained: number; obsoleted: number; totalActive: number };
 export type TeacherDocumentFolder = { teacherId: string; driveFolderId: string; driveFolderUrl: string; responseFingerprint: string; responseTimestamp: string; syncedAt: string; createdAt: string; updatedAt: string };
 export type TeacherDocumentIssue = { id: string; sourceEmail: string; sourceTimestamp: string; reason: "UNMATCHED_EMAIL" | "AMBIGUOUS_EMAIL" | "COPY_FAILED"; message: string; status: "OPEN" | "RESOLVED"; createdAt: string; updatedAt: string };
 export type TeacherDocumentSyncResult = { updated: number; skipped: number; needsReview: number };
@@ -58,7 +57,6 @@ export function archiveTeacher(id: string): Promise<Teacher> { return request<Te
 export function restoreTeacher(id: string): Promise<Teacher> { return request<Teacher>(`/teachers/${id}/restore`, { method: "POST" }); }
 export async function listTeacherFolders(): Promise<TeacherFolder[]> { return (await request<{ items: TeacherFolder[] }>("/teachers/folders")).items; }
 export async function listCourseCatalogue(query = "", includeObsolete = false): Promise<CourseCatalogueEntry[]> { return (await request<{ items: CourseCatalogueEntry[] }>(`/teachers/courses?query=${encodeURIComponent(query)}&includeObsolete=${includeObsolete}`)).items; }
-export function importCourseCatalogue(file: File): Promise<CourseCatalogueImportResult> { const body = new FormData(); body.set("file", file); return request<CourseCatalogueImportResult>("/teachers/courses/import", { method: "POST", body }); }
 export function createTeacherFolder(input: { name: string; parentId?: string | null }): Promise<TeacherFolder> { return request<TeacherFolder>("/teachers/folders", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) }); }
 export async function deleteTeacherFolder(id: string): Promise<void> { await emptyRequest(`/teachers/folders/${id}`, { method: "DELETE" }); }
 export function moveTeacherToFolder(id: string, folderId: string | null): Promise<Teacher> { return request<Teacher>(`/teachers/${id}/folder`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ folderId }) }); }
@@ -99,7 +97,12 @@ export type TimeSheetInput = { label: string; academicYear: string; url: string;
  */
 export type TeacherSummary = {
   requisitions: number;
+  /** The teaching hours the requisitions pay for — what the planning is held against. */
   contractedHours: number;
+  /** The admin hours they pay for, which nothing is taught in. */
+  adminHours?: number;
+  /** Both, per academic year ("2026-2027"), for a page about one semester. */
+  byYear?: Record<string, { requisitions: number; teachingHours: number; adminHours: number }>;
   timeSheets: number;
   newestTimeSheet: TeacherTimeSheet | null;
   hasDocuments: boolean;
@@ -255,12 +258,16 @@ async function saveResponse(response: Response, fallbackName: string): Promise<v
   URL.revokeObjectURL(url);
 }
 
-function documentAuth(credential: string): HeadersInit { return { Authorization: `Bearer ${credential}` }; }
-export async function getTeacherDocuments(teacherId: string, credential: string): Promise<TeacherDocumentFolder | null> { return (await request<{ folder: TeacherDocumentFolder | null }>(`/teacher-documents/teachers/${teacherId}`, { headers: documentAuth(credential) })).folder; }
-export async function listTeacherDocumentIssues(credential: string): Promise<TeacherDocumentIssue[]> { return (await request<{ items: TeacherDocumentIssue[] }>("/teacher-documents/issues", { headers: documentAuth(credential) })).items; }
-export function syncTeacherDocuments(credential: string, driveAccessToken: string): Promise<TeacherDocumentSyncResult> { return request<TeacherDocumentSyncResult>("/teacher-documents/sync", { method: "POST", headers: { ...documentAuth(credential), "X-Google-Drive-Access-Token": driveAccessToken } }); }
-export async function downloadTeacherDocuments(teacherId: string, credential: string): Promise<void> {
-  const response = await apiFetch(`${API_BASE_URL}/api/v1/teacher-documents/teachers/${teacherId}/download`, { headers: documentAuth(credential) });
+/*
+ * Teachers' documents are reached with the application's own sign-in: the server knows who
+ * is asking from the session, and keeps them to its narrower allowlist. Only a sync needs
+ * more — Google's permission to write the Drive folders — asked for at the moment of it.
+ */
+export async function getTeacherDocuments(teacherId: string): Promise<TeacherDocumentFolder | null> { return (await request<{ folder: TeacherDocumentFolder | null }>(`/teacher-documents/teachers/${teacherId}`)).folder; }
+export async function listTeacherDocumentIssues(): Promise<TeacherDocumentIssue[]> { return (await request<{ items: TeacherDocumentIssue[] }>("/teacher-documents/issues")).items; }
+export function syncTeacherDocuments(driveAccessToken: string): Promise<TeacherDocumentSyncResult> { return request<TeacherDocumentSyncResult>("/teacher-documents/sync", { method: "POST", headers: { "X-Google-Drive-Access-Token": driveAccessToken } }); }
+export async function downloadTeacherDocuments(teacherId: string): Promise<void> {
+  const response = await apiFetch(`${API_BASE_URL}/api/v1/teacher-documents/teachers/${teacherId}/download`);
   if (!response.ok) { const body = await response.json().catch(() => ({})) as { detail?: string }; throw new Error(body.detail ?? `Download failed with status ${response.status}`); }
   const filename = /filename="?([^";]+)"?/.exec(response.headers.get("content-disposition") ?? "")?.[1] ?? "teacher-documents.zip";
   const url = URL.createObjectURL(await response.blob()); const link = document.createElement("a"); link.href = url; link.download = filename; link.click(); URL.revokeObjectURL(url);

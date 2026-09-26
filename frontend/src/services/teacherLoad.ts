@@ -260,6 +260,12 @@ export type LoadRow = TeacherLoad & {
   coverTaken: number;
   /** The registrar's booked hours on the sections the portal staffs with them. Zero until read. */
   registrarHours: number;
+  /**
+   * The admin hours their requisitions pay for — invigilation, coordination — in this
+   * semester's academic year. Never taught, so no part of any total or warning here; shown
+   * beside them so a teacher's whole pay is on one row. Zero until read.
+   */
+  adminHours: number;
   /** Where this teacher's hours disagree with themselves. Empty until the figures are read. */
   warnings: TeacherWarning[];
   /**
@@ -289,6 +295,7 @@ export function loadRows(loads: TeacherLoad[], active: ActiveTeacher[], crnsOf: 
     coverGiven: 0,
     coverTaken: 0,
     registrarHours: 0,
+    adminHours: 0,
     warnings: [],
   }));
 }
@@ -374,9 +381,16 @@ export function hoursColumns(sheetTitles: string[], window = ""): GridColumn<Loa
      * exactly the bug this comment replaces.
      */
     { id: "total", displayName: "Total", type: "number", accessor: window ? (row) => row.total : asTaught, defaultWidth: 110, source: "planning", ...when },
-    // The registrar's count beside ours. A comparison with no warning on it: teachers and
-    // hours move during a semester, and cover is normal.
-    { id: "registrarHours", displayName: "Portal", type: "number", accessor: (row) => row.registrarHours, defaultWidth: 100, source: "registrar", ...when },
+    // The registrar's count beside ours, named as ours is: the total, as the portal has it.
+    // A comparison with no warning on it: teachers and hours move during a semester, and
+    // cover is normal.
+    { id: "registrarHours", displayName: "Total", type: "number", accessor: (row) => row.registrarHours, defaultWidth: 110, source: "registrar", ...when },
+    /*
+     * Admin hours, from their requisitions: paid, never taught. A column of their own
+     * rather than a share of the total, so the total stays what the planning and the
+     * portal can be held against. The requisition's figure for the year, not the window's.
+     */
+    { id: "adminHours", displayName: "Admin", type: "number", accessor: (row) => row.adminHours, defaultWidth: 100, source: "part-time" },
     ...sheetTitles.map((title, index) => ({
       id: `sheet:${title}`,
       displayName: hoursColumn(title),
@@ -451,6 +465,7 @@ export function shownHoursColumns(sheetTitles: string[]): string[] {
     "total",
     "warnings",
     "registrarHours",
+    "adminHours",
     "sections",
     "cancelledHours",
     "coverTaken",

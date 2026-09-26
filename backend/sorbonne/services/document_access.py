@@ -1,13 +1,8 @@
 from __future__ import annotations
 
-from fastapi import Depends, HTTPException, status
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from google.auth.transport.requests import Request
-from google.oauth2 import id_token
+from fastapi import HTTPException, Request, status
 
 from sorbonne.config import config
-
-_bearer = HTTPBearer(auto_error=False)
 
 
 def document_access_emails() -> frozenset[str]:
@@ -16,32 +11,25 @@ def document_access_emails() -> frozenset[str]:
     )
 
 
-def require_document_access(
-    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
-) -> str:
-    """Validate a Google ID token and enforce the document-workflow allowlist."""
-    if not config.google_documents_oauth_client_id or not document_access_emails():
+def require_document_access(request: Request) -> str:
+    """The signed-in person, if they are on the document-workflow allowlist.
+
+    Teachers' documents — passports, degrees — asked for a second Google sign-in on top of
+    the application's own, which had already proved who was at the keyboard. The session
+    is enough to say who it is. What it cannot do is decide who may read these: that is
+    still the allowlist's, narrower than the application's.
+
+    A person, not a script: an API token speaks for its owner in the tables, but a token
+    left in a shell history should not also open a teacher's passport.
+    """
+    if not document_access_emails():
         raise HTTPException(status_code=503, detail="Document workflow is not configured.")
-    if credentials is None or credentials.scheme.lower() != "bearer":
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Google sign-in is required.")
-    try:
-        claims = _verify_google_id_token(credentials.credentials)
-        email = str(claims.get("email", "")).strip().casefold()
-        verified = claims.get("email_verified") is True
-    except Exception as exc:  # Token verification details must not leave the server.
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Google sign-in is required.") from exc
-    if not verified or email not in document_access_emails():
+    user = getattr(request.state, "staff_user", None)
+    if user is None or getattr(request.state, "auth_kind", "") == "token":
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sign in to reach teacher documents.")
+    email = str(getattr(user, "email", "")).strip().casefold()
+    if email not in document_access_emails():
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="You do not have access to teacher documents."
         )
     return email
-
-
-def _verify_google_id_token(token: str) -> dict[str, object]:
-    if not config.google_documents_oauth_client_id:
-        raise ValueError("Google OAuth client ID is not configured")
-    claims = id_token.verify_oauth2_token(token, Request(), config.google_documents_oauth_client_id)
-    issuer = claims.get("iss")
-    if issuer not in {"accounts.google.com", "https://accounts.google.com"}:
-        raise ValueError("Unexpected token issuer")
-    return dict(claims)

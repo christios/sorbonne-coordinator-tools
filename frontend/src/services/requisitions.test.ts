@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { formatTeachingHours, lastIncompleteRequisitionStep, missingRequisitionFields, requisitionHours, totalTeachingHours } from "./requisitions";
+import { formatTeachingHours, lastIncompleteRequisitionStep, missingRequisitionFields, requisitionHours, totalAdminHours, totalTeachingHours } from "./requisitions";
 
 describe("missingRequisitionFields", () => {
   it("reports incomplete request details and manual course fields before save or export", () => {
@@ -22,8 +22,8 @@ describe("missingRequisitionFields", () => {
       "Hiring department",
       "Programme",
       "Type of class",
-      "Contract from",
-      "Contract to",
+      "Requisition from",
+      "Requisition to",
       "Course 1 title",
       "Course 1 number",
       "Course 1 level",
@@ -93,5 +93,43 @@ describe("the hours a requisition pays for", () => {
       { label: "Semester 1 2026-2027", hours: 42 },
       { label: "Semester 2 2026-2027", hours: 15 },
     ]);
+  });
+});
+
+describe("admin hours", () => {
+  const content = {
+    department: "Department of Sciences and Engineering",
+    program: "Bachelor in Physics",
+    jobTitle: "Part Time Lecturer",
+    classType: "TD",
+    employeeType: "PT" as const,
+    contractFrom: "2026-08-31",
+    contractTo: "2026-12-31",
+    courses: [{ id: "course-1", title: "Mechanics", subjectCode: "PHY", courseNumber: "101", level: "L1", hours: "24", classType: "TD" }],
+  };
+
+  it("needs only what the work is and its hours", () => {
+    const admin = [
+      { id: "a1", title: "Exam invigilation", subjectCode: "", courseNumber: "", level: "", hours: "10" },
+      { id: "a2", title: "", subjectCode: "", courseNumber: "", level: "", hours: "" },
+    ];
+    expect(missingRequisitionFields({ label: "S1", academicYear: "2026-2027", content: { ...content, admin } })).toEqual([
+      "Admin entry 2 title",
+    ]);
+    expect(lastIncompleteRequisitionStep({ label: "S1", academicYear: "2026-2027", content: { ...content, admin } })).toEqual({
+      section: "admin",
+      focusTarget: "admin:a2:title",
+    });
+  });
+
+  it("is added up apart from the teaching, which alone is held against the planning", () => {
+    const admin = [{ id: "a1", title: "Coordination", subjectCode: "", courseNumber: "", level: "", hours: "8,5 h" }];
+    expect(totalAdminHours({ admin })).toBe(8.5);
+    expect(requisitionHours([{ label: "S1", academicYear: "2026-2027", content: { ...content, admin } }]).total).toBe(24);
+  });
+
+  it("is nothing on a requisition written before it existed", () => {
+    expect(totalAdminHours({})).toBe(0);
+    expect(missingRequisitionFields({ label: "S1", academicYear: "2026-2027", content })).toEqual([]);
   });
 });

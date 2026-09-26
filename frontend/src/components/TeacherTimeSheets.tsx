@@ -211,6 +211,7 @@ export function TimeSheetsCard({ teacherId, className = "" }: { teacherId: strin
   /** Sheets against no period, or a period nothing else knows about. Nothing disappears. */
   const loose = rows.filter((sheet) => !periods.some((period) => period.sheet?.id === sheet.id));
   const contracted = summary.data?.[teacherId]?.contractedHours ?? 0;
+  const admin = summary.data?.[teacherId]?.adminHours ?? 0;
 
   const fileFor = (start: string) => {
     setEditingId(null);
@@ -263,7 +264,7 @@ export function TimeSheetsCard({ teacherId, className = "" }: { teacherId: strin
       <p className="mt-1 text-sm text-[#667085]">
         One row per pay period: what they actually taught in it, and the sheet claiming it.
         The workbooks stay in OneDrive where they are kept.
-        {contracted ? ` Contracted for ${contracted} h.` : ""}
+        {contracted ? ` Requisitioned for ${contracted} h of teaching${admin ? ` and ${admin} h of admin` : ""}.` : ""}
       </p>
       <div className="mt-3 w-52">
         <SelectMenu

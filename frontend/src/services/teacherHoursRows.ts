@@ -45,6 +45,8 @@ export type HoursSource = {
   owners: Map<string, { id: string; name: string }>;
   submitted: SubmittedTimeSheet[];
   contracts: Record<string, TeacherSummary>;
+  /** The semester's academic year, "2026-2027", for the requisitions of that year; "" for all of them. */
+  academicYear?: string;
   decided: Map<string, Dismissal>;
   /** How far apart two figures have to be before the department wants to hear about it. */
   threshold: number;
@@ -115,6 +117,10 @@ export function hoursRowsFor(source: HoursSource, window: Window, whole: boolean
         : bookedInWindow(sections, row.teacher, window),
     };
     const partTime = row.active?.partTimeTeacherId ?? "";
+    const paid = contracts[partTime];
+    mine.adminHours = source.academicYear
+      ? (paid?.byYear?.[source.academicYear]?.adminHours ?? 0)
+      : (paid?.adminHours ?? 0);
     const claims = submitted
       .filter((sheet) => sheet.teacherId && sheet.teacherId === partTime)
       .map((sheet) => ({
@@ -129,7 +135,8 @@ export function hoursRowsFor(source: HoursSource, window: Window, whole: boolean
         teacher: row.teacher,
         planned: row.total,
         registrar: mine.registrarHours,
-        contracted: contracts[partTime]?.contractedHours ?? 0,
+        // Teaching only: admin hours are paid, not taught, and have nothing to meet.
+        contracted: paid?.contractedHours ?? 0,
         taughtSoFar: hoursBetween(source, row, { from: "0000-01-01", to: today }),
         claims,
       },
@@ -142,6 +149,12 @@ export function hoursRowsFor(source: HoursSource, window: Window, whole: boolean
     });
     return { ...mine, warnings };
   });
+}
+
+/** "2026-2027" for the portal's 262710: the two years a term code's first four digits name. */
+export function academicYearOfTerm(termCode: string): string {
+  const digits = termCode.replace(/\D/g, "");
+  return digits.length >= 4 ? `20${digits.slice(0, 2)}-20${digits.slice(2, 4)}` : "";
 }
 
 export { DEFAULT_APART };

@@ -5,7 +5,6 @@ import {
   CircleUserRound,
   Download,
   FilePlus2,
-  FileUp,
   Folder,
   FolderPlus,
   Pencil,
@@ -33,15 +32,15 @@ import { FolderMoveMenu } from "@/components/FolderMoveMenu";
 import { FormFieldLabel } from "@/components/FormFieldLabel";
 import { FieldInfoProvider } from "@/components/FieldInfo";
 import {
-  GoogleDocumentSignInButton,
   GoogleDocumentSyncButton,
   documentsConfigured,
-} from "@/components/GoogleDocumentSignInButton";
+} from "@/components/GoogleDocumentSyncButton";
 import { LibraryRecordTimestamps } from "@/components/LibraryRecordTimestamps";
 import { RequisitionCourseEditor } from "@/components/RequisitionCourseEditor";
 import { SectionEditorShell } from "@/components/SectionEditorShell";
 import { TeacherBulkActions } from "@/components/TeacherBulkActions";
-import { TeacherFacts, TeacherRowActions } from "@/components/TeacherRowDetail";
+import { TableFilterBar } from "@/components/TableFilterBar";
+import { TeacherHoursFigures, TeacherPaperwork, TeacherRowActions } from "@/components/TeacherRowDetail";
 import { TimeSheetsCard } from "@/components/TeacherTimeSheets";
 import { SelectMenu } from "@/components/SelectMenu";
 import { TaskPanel } from "@/components/TaskPanel";
@@ -52,11 +51,15 @@ import {
 import { taskUrgency } from "@/components/taskPresentation";
 import { saveFailureState } from "@/components/syllabusSaveState";
 import { usePageState } from "@/components/usePageState";
+import { optionsFor } from "@/services/studentColumns";
+import { applyFilters, type FilterModel } from "@/services/tableFilter";
+import { TEACHER_COLUMNS, type TeacherFilterRow } from "@/services/teacherFilters";
 import {
   formatTeachingHours,
   lastIncompleteRequisitionStep,
   missingRequisitionFields,
   RequisitionContent,
+  totalAdminHours,
   totalTeachingHours,
 } from "@/services/requisitions";
 import {
@@ -75,7 +78,6 @@ import {
   getTeacher,
   getTeacherDocuments,
   getTeacherRequisition,
-  importCourseCatalogue,
   listCourseCatalogue,
   listTeacherFolders,
   listTeacherDocumentIssues,
@@ -123,7 +125,6 @@ export function TeacherDatabase({ header }: { header?: HTMLElement | null } = {}
     | { view: "profile"; teacherId: string }
     | { view: "requisition"; teacherId: string; requisitionId: string }
   >({ view: "library" });
-  const [documentCredential, setDocumentCredential] = useState("");
   // Same reason as the shell: move to the top of the new screen before it paints.
   useLayoutEffect(() => {
     window.scrollTo(0, 0);
@@ -177,23 +178,6 @@ export function TeacherDatabase({ header }: { header?: HTMLElement | null } = {}
     mutationFn: deleteTeacherFolder,
     onSuccess: refreshLibrary,
   });
-  const [catalogueMessage, setCatalogueMessage] = useState("");
-  const importCatalogue = useMutation({
-    mutationFn: importCourseCatalogue,
-    onSuccess: (result) => {
-      client.invalidateQueries({ queryKey: ["course-catalogue"] });
-      setCatalogueMessage(
-        `Imported ${result.imported} course${result.imported === 1 ? "" : "s"}; ${result.retained} unchanged and ${result.obsoleted} older entr${result.obsoleted === 1 ? "y" : "ies"} marked obsolete.`,
-      );
-    },
-    onError: (error) =>
-      setCatalogueMessage(
-        error instanceof Error
-          ? error.message
-          : "The course list could not be imported.",
-      ),
-  });
-
   if (screen.view === "library")
     return (
       <TeacherLibrary
@@ -228,25 +212,17 @@ export function TeacherDatabase({ header }: { header?: HTMLElement | null } = {}
         deletingFolderId={
           removeFolder.isPending ? removeFolder.variables : null
         }
-        catalogueMessage={catalogueMessage}
-        importingCatalogue={importCatalogue.isPending}
-        catalogueImportFailed={importCatalogue.isError}
-        documentCredential={documentCredential}
-        onDocumentCredential={setDocumentCredential}
         onOpen={(teacherId) => setScreen({ view: "profile", teacherId })}
         onCreate={create.mutate}
         onCreateFolder={createFolder.mutate}
         onMove={(id, folderId) => move.mutate({ id, folderId })}
         onDeleteFolder={removeFolder.mutate}
-        onImportCatalogue={importCatalogue.mutate}
       />
     );
   if (screen.view === "profile")
     return (
       <TeacherProfile
         teacherId={screen.teacherId}
-        documentCredential={documentCredential}
-        onDocumentCredential={setDocumentCredential}
         onBack={() => setScreen({ view: "library" })}
         onOpenRequisition={(requisitionId) =>
           setScreen({
@@ -283,17 +259,11 @@ function TeacherLibrary({
   creatingFolder,
   movingId,
   deletingFolderId,
-  catalogueMessage,
-  importingCatalogue,
-  catalogueImportFailed,
-  documentCredential,
-  onDocumentCredential,
   onOpen,
   onCreate,
   onCreateFolder,
   onMove,
   onDeleteFolder,
-  onImportCatalogue,
 }: {
   /** The page's own heading row, which this fills with its buttons rather than adding one. */
   header?: HTMLElement | null;
@@ -312,17 +282,11 @@ function TeacherLibrary({
   creatingFolder: boolean;
   movingId: string | null;
   deletingFolderId: string | null;
-  catalogueMessage: string;
-  importingCatalogue: boolean;
-  catalogueImportFailed: boolean;
-  documentCredential: string;
-  onDocumentCredential: (credential: string) => void;
   onOpen: (id: string) => void;
   onCreate: (teacher: import("@/services/teachers").TeacherInput) => void;
   onCreateFolder: (input: { name: string; parentId?: string | null }) => void;
   onMove: (id: string, folderId: string | null) => void;
   onDeleteFolder: (id: string) => void;
-  onImportCatalogue: (file: File) => void;
 }) {
   const [showTeacherForm, setShowTeacherForm] = useState(false);
   const [libraryView, setLibraryView] = useState<"teachers" | "tasks">(
@@ -356,7 +320,7 @@ function TeacherLibrary({
       else next.add(id);
       return next;
     });
-  const visible = teachers
+  const inView = teachers
     .filter((teacher) => Boolean(teacher.archivedAt) === showArchived)
     .filter((teacher) =>
       activeFolder === "all"
@@ -384,6 +348,18 @@ function TeacherLibrary({
   const paths = new Map(
     folderTree.map(({ folder, path }) => [folder.id, path]),
   );
+  /*
+   * The tables' own filters, over what a row says: the hours, the paperwork, the tasks.
+   * Kept ten minutes like every page's, so a step into a profile and back keeps them.
+   */
+  const [filters, setFilters] = usePageState<FilterModel[]>("teacher-database:filters", []);
+  const filterRows: TeacherFilterRow[] = inView.map((teacher) => ({
+    teacher,
+    summary: summary?.[teacher.id],
+    tasks: tasksByTeacher.get(teacher.id) ?? [],
+    folder: teacher.folderId ? (paths.get(teacher.folderId) ?? []).map((folder) => folder.name).join(" › ") : "",
+  }));
+  const visible = applyFilters(filterRows, TEACHER_COLUMNS, filters).map((row) => row.teacher);
   function submitTeacher(event: FormEvent) {
     event.preventDefault();
     onCreate(draft);
@@ -406,22 +382,6 @@ function TeacherLibrary({
    */
   const controls = (
     <div className="flex flex-wrap gap-2">
-      <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]">
-        <FileUp size={16} />{" "}
-            {importingCatalogue ? "Importing…" : "Import course list"}
-            <input
-              aria-label="Import course list"
-              type="file"
-              accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-              disabled={importingCatalogue}
-              className="sr-only"
-              onChange={(event) => {
-                const [file] = Array.from(event.target.files ?? []);
-                if (file) onImportCatalogue(file);
-                event.currentTarget.value = "";
-              }}
-            />
-          </label>
           <button
             type="button"
             onClick={() => setShowFolderForm((value) => !value)}
@@ -456,10 +416,7 @@ function TeacherLibrary({
         * local server, which is where it was read most often.
         */}
       {documentsConfigured ? (
-        <TeacherDocumentSyncPanel
-          credential={documentCredential}
-          onCredential={onDocumentCredential}
-        />
+        <TeacherDocumentSyncPanel />
       ) : null}
       {error ? (
         <p
@@ -467,14 +424,6 @@ function TeacherLibrary({
           className="mt-4 rounded-md border border-[#efc9cb] bg-[#fff5f5] px-3 py-2 text-sm text-[#8f1f25]"
         >
           {error}
-        </p>
-      ) : null}
-      {catalogueMessage ? (
-        <p
-          role="status"
-          className={`mt-4 rounded-md border px-3 py-2 text-sm ${catalogueImportFailed ? "border-[#efc9cb] bg-[#fff5f5] text-[#8f1f25]" : "border-[#c9dfcf] bg-[#f4fbf5] text-[#256237]"}`}
-        >
-          {catalogueMessage}
         </p>
       ) : null}
       {showTeacherForm ? (
@@ -692,7 +641,18 @@ function TeacherLibrary({
                   />
                   All
                 </label>
-                <label className="relative block flex-1">
+                <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                  <TableFilterBar
+                    columns={TEACHER_COLUMNS}
+                    filters={filters}
+                    optionsFor={(column) => optionsFor(filterRows, column)}
+                    onChange={setFilters}
+                  />
+                </div>
+                <span className="shrink-0 text-xs tabular-nums text-[#98a2b3]">
+                  {visible.length === inView.length ? `${inView.length}` : `${visible.length} of ${inView.length}`}
+                </span>
+                <label className="relative block w-64 shrink-0">
                   <Search
                     size={17}
                     className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#667085]"
@@ -712,12 +672,32 @@ function TeacherLibrary({
                   Loading teachers…
                 </p>
               ) : visible.length ? (
-                <div role="list" className="min-h-0 flex-1 divide-y divide-[#e5e7eb] overflow-y-auto">
-                  {visible.map((teacher) => (
+                <div role="list" className="min-h-0 flex-1 overflow-y-auto">
+                  {/*
+                    * Columns that line up down the list, under a quiet heading: who, what
+                    * the requisitions pay for, the paperwork, and what can be done. It was
+                    * a sentence of facts under each name, which read fine on one row and
+                    * made two dozen of them a paragraph to hunt through.
+                    */}
+                  <div aria-hidden="true" className={`${ROW_GRID} sticky top-0 z-10 hidden border-b border-[#e5e7eb] bg-[#f8fafc] py-1.5 text-[11px] font-semibold uppercase tracking-wide text-[#98a2b3] sm:grid`}>
+                    <span />
+                    <span>Teacher</span>
+                    <span>Requisitions</span>
+                    <span>Paperwork</span>
+                    <span />
+                  </div>
+                  {visible.map((teacher) => {
+                    const theirTasks = tasksByTeacher.get(teacher.id) ?? [];
+                    const folderPath = teacher.folderId
+                      ? paths.get(teacher.folderId)?.map((folder) => folder.name).join(" › ")
+                      : "";
+                    return (
                     <div
                       key={teacher.id}
                       role="listitem"
-                      className="group grid gap-2 px-4 py-2.5 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-center"
+                      className={`${ROW_GRID} group grid border-b border-[#eef1f5] py-2.5 transition-colors hover:bg-[#fafbfd] ${
+                        chosen.has(teacher.id) ? "bg-[#f5f9fd]" : ""
+                      }`}
                     >
                       {/*
                         * Out of the way until it is wanted. A column of empty boxes down a
@@ -736,67 +716,41 @@ function TeacherLibrary({
                           anyChosen ? "opacity-100" : "opacity-0"
                         }`}
                       />
-                      {/*
-                        * Two lines, not five. Who they are on the first, what they have
-                        * on the second, and everything that used to have a line of its
-                        * own — the e-mail, the folder, the task count — folded in beside
-                        * what it belongs with. A list somebody scans two dozen of should
-                        * fit on one screen.
-                        */}
                       <button
                         type="button"
                         onClick={() => onOpen(teacher.id)}
-                        className="min-w-0 text-left"
+                        className="flex min-w-0 items-center gap-3 text-left"
                       >
-                        <span className="flex min-w-0 items-center gap-3">
-                          <TeacherAvatar fullName={teacher.fullName} />
-                          <span className="min-w-0">
-                            {/*
-                              * Who they are on one line, what they have on the next. The
-                              * e-mail and the folder used to take a line each, which made
-                              * a row nobody could scan two dozen of without scrolling.
-                              */}
-                            <span className="flex flex-wrap items-baseline gap-x-2">
-                              <span className="truncate font-semibold text-[#171717]">
-                                {teacher.fullName}
+                        <TeacherAvatar fullName={teacher.fullName} />
+                        <span className="min-w-0">
+                          <span className="block truncate font-semibold text-[#171717] group-hover:text-[#1f4e79]">
+                            {teacher.fullName}
+                            {teacher.archivedAt ? (
+                              <span className="ml-2 rounded bg-[#f2f4f7] px-1.5 py-0.5 text-[11px] font-medium text-[#667085]">
+                                Archived
                               </span>
-                              <span className="truncate text-sm text-[#667085]">
-                                {teacher.email || "No email"}
-                                {teacher.archivedAt ? " · Archived" : ""}
+                            ) : null}
+                          </span>
+                          <span className="flex min-w-0 items-center gap-1.5 text-xs text-[#667085]">
+                            <span className={`truncate ${teacher.email ? "" : "italic text-[#98a2b3]"}`}>
+                              {teacher.email || "No email"}
+                            </span>
+                            {folderPath ? (
+                              <span className="inline-flex shrink-0 items-center gap-1 text-[#98a2b3]">
+                                <Folder size={12} aria-hidden="true" />
+                                {folderPath}
                               </span>
-                              {teacher.folderId ? (
-                                <span className="inline-flex items-center gap-1 text-xs text-[#667085]">
-                                  <Folder size={13} />
-                                  {paths
-                                    .get(teacher.folderId)
-                                    ?.map((folder) => folder.name)
-                                    .join(" › ")}
-                                </span>
-                              ) : null}
-                              {/*
-                                * The task count rides with the name rather than with the
-                                * facts. It is the one thing here somebody has to keep up,
-                                * it reads 0/0 on nearly everybody, and on the line below
-                                * it was what pushed the facts onto a third row.
-                                */}
-                              <TaskProgressBadge
-                                tasks={tasksByTeacher.get(teacher.id) ?? []}
-                              />
-                              <TeacherTaskWarning
-                                tasks={tasksByTeacher.get(teacher.id) ?? []}
-                              />
-                            </span>
-                            {/* What the system works out for itself, and never has to be told. */}
-                            <span className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1.5">
-                              <TeacherFacts
-                                summary={summary?.[teacher.id]}
-                                loading={summaryLoading}
-                              />
-                            </span>
+                            ) : null}
                           </span>
                         </span>
                       </button>
-                      <span className="flex flex-wrap items-center justify-end gap-2">
+                      <TeacherHoursFigures summary={summary?.[teacher.id]} loading={summaryLoading} />
+                      <span className="flex min-w-0 flex-wrap items-center gap-1.5">
+                        <TeacherPaperwork summary={summary?.[teacher.id]} loading={summaryLoading} />
+                        {theirTasks.length ? <TaskProgressBadge tasks={theirTasks} /> : null}
+                        <TeacherTaskWarning tasks={theirTasks} />
+                      </span>
+                      <span className="flex flex-nowrap items-center justify-end gap-1">
                         <TeacherRowActions
                           teacher={teacher}
                           summary={summary?.[teacher.id]}
@@ -813,7 +767,8 @@ function TeacherLibrary({
                         />
                       </span>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               ) : (
                 <p className="grid min-h-96 place-items-center p-12 text-center text-sm text-[#667085]">
@@ -851,6 +806,10 @@ function TeacherLibrary({
   );
 }
 
+/** The list's columns, shared by its heading and every row so they line up. */
+const ROW_GRID =
+  "gap-x-5 gap-y-2 px-4 sm:grid-cols-[1rem_minmax(11rem,1fr)_9.5rem_minmax(0,1.1fr)_auto] sm:items-center";
+
 function TeacherTaskWarning({ tasks }: { tasks: ScopedTask[] }) {
   const overdue = tasks.some((task) => taskUrgency(task) === "OVERDUE");
   const dueSoon = tasks.some((task) => taskUrgency(task) === "DUE_SOON");
@@ -866,15 +825,11 @@ function TeacherTaskWarning({ tasks }: { tasks: ScopedTask[] }) {
 
 function TeacherProfile({
   teacherId,
-  documentCredential,
-  onDocumentCredential,
   onBack,
   onOpenRequisition,
   onChanged,
 }: {
   teacherId: string;
-  documentCredential: string;
-  onDocumentCredential: (credential: string) => void;
   onBack: () => void;
   onOpenRequisition: (id: string) => void;
   onChanged: () => void;
@@ -996,12 +951,7 @@ function TeacherProfile({
           resourceId={teacherId}
           className="h-full"
         />
-        <TeacherDocumentsCard
-          teacherId={teacherId}
-          credential={documentCredential}
-          onCredential={onDocumentCredential}
-          className="mt-0 h-full"
-        />
+        <TeacherDocumentsCard teacherId={teacherId} className="mt-0 h-full" />
       </div>
       {/*
         * Requisitions and time sheets share a row: both are the paperwork of one
@@ -1270,21 +1220,19 @@ export function TeacherAvatar({
   );
 }
 
-function TeacherDocumentSyncPanel({
-  credential,
-  onCredential,
-}: {
-  credential: string;
-  onCredential: (credential: string) => void;
-}) {
+function TeacherDocumentSyncPanel() {
+  /*
+   * No sign-in of its own. The application's already says who is asking, and the server
+   * keeps teachers' documents to its own list of people; only the sync needs Google's
+   * permission to write Drive folders, and that is asked for when Sync is pressed.
+   */
   const issues = useQuery({
-    queryKey: ["teacher-document-issues", credential],
-    queryFn: () => listTeacherDocumentIssues(credential),
-    enabled: Boolean(credential),
+    queryKey: ["teacher-document-issues"],
+    queryFn: () => listTeacherDocumentIssues(),
+    retry: false,
   });
   const sync = useMutation({
-    mutationFn: (driveAccessToken: string) =>
-      syncTeacherDocuments(credential, driveAccessToken),
+    mutationFn: (driveAccessToken: string) => syncTeacherDocuments(driveAccessToken),
     onSuccess: () => issues.refetch(),
   });
   /*
@@ -1300,14 +1248,10 @@ function TeacherDocumentSyncPanel({
         latest responses into each teacher&apos;s Drive folder
       </span>
       <span className="ml-auto flex items-center gap-3">
-        {credential ? (
-          <GoogleDocumentSyncButton
-            disabled={sync.isPending}
-            onAccessToken={(driveAccessToken) => sync.mutate(driveAccessToken)}
-          />
-        ) : (
-          <GoogleDocumentSignInButton onCredential={onCredential} />
-        )}
+        <GoogleDocumentSyncButton
+          disabled={sync.isPending}
+          onAccessToken={(driveAccessToken) => sync.mutate(driveAccessToken)}
+        />
       </span>
       {sync.isSuccess ? (
         <span role="status" className="basis-full text-[#256237]">
@@ -1320,7 +1264,7 @@ function TeacherDocumentSyncPanel({
           {(sync.error ?? issues.error)?.message}
         </span>
       ) : null}
-      {credential && issues.data?.length ? (
+      {issues.data?.length ? (
         <span className="basis-full text-[#8f1f25]">
           {issues.data.length} response{issues.data.length === 1 ? "" : "s"}{" "}
           need review.
@@ -1332,22 +1276,18 @@ function TeacherDocumentSyncPanel({
 
 function TeacherDocumentsCard({
   teacherId,
-  credential,
-  onCredential,
   className = "mt-6",
 }: {
   teacherId: string;
-  credential: string;
-  onCredential: (credential: string) => void;
   className?: string;
 }) {
   const documents = useQuery({
-    queryKey: ["teacher-documents", teacherId, credential],
-    queryFn: () => getTeacherDocuments(teacherId, credential),
-    enabled: Boolean(credential),
+    queryKey: ["teacher-documents", teacherId],
+    queryFn: () => getTeacherDocuments(teacherId),
+    retry: false,
   });
   const download = useMutation({
-    mutationFn: () => downloadTeacherDocuments(teacherId, credential),
+    mutationFn: () => downloadTeacherDocuments(teacherId),
   });
   return (
     <section
@@ -1361,19 +1301,16 @@ function TeacherDocumentsCard({
             folder.
           </p>
         </div>
-        {credential ? null : (
-          <GoogleDocumentSignInButton onCredential={onCredential} />
-        )}
       </div>
-      {credential && documents.isLoading ? (
+      {documents.isLoading ? (
         <p className="mt-4 text-sm text-[#667085]">Loading documents…</p>
       ) : null}
-      {credential && documents.error ? (
+      {documents.error ? (
         <p role="alert" className="mt-4 text-sm text-[#8f1f25]">
           {documents.error.message}
         </p>
       ) : null}
-      {credential && documents.data ? (
+      {documents.data ? (
         <div className="mt-4 flex flex-wrap items-center gap-3">
           <a
             href={documents.data.driveFolderUrl}
@@ -1399,7 +1336,7 @@ function TeacherDocumentsCard({
           ) : null}
         </div>
       ) : null}
-      {credential && documents.isSuccess && !documents.data ? (
+      {documents.isSuccess && !documents.data ? (
         <p className="mt-4 text-sm text-[#667085]">
           No Google Form response has been matched to this profile yet.
         </p>
@@ -1596,7 +1533,7 @@ export function TeacherRequisitionEditor({
     queryFn: () => listCourseCatalogue(),
   });
   const [draft, setDraft] = useState<TeacherRequisition | null>(null);
-  const [active, setActive] = useState<"details" | "courses" | "review">(
+  const [active, setActive] = useState<"details" | "courses" | "admin" | "review">(
     "details",
   );
   const [editingTitle, setEditingTitle] = useState(false);
@@ -1749,6 +1686,7 @@ export function TeacherRequisitionEditor({
       content: { ...current.content, ...patch },
     }));
   const total = totalTeachingHours(draft.content.courses);
+  const adminTotal = totalAdminHours(draft.content);
   const teacherName = teacher.data?.fullName ?? "Loading teacher…";
   function validate() {
     if (!draft) return false;
@@ -1825,7 +1763,8 @@ export function TeacherRequisitionEditor({
         sections={[
           { id: "details", label: "1. Request details" },
           { id: "courses", label: "2. Teaching load" },
-          { id: "review", label: "3. Review" },
+          { id: "admin", label: "3. Admin hours" },
+          { id: "review", label: "4. Review" },
         ]}
         activeSection={active}
         onSectionChange={(section) => setActive(section as typeof active)}
@@ -1896,11 +1835,28 @@ export function TeacherRequisitionEditor({
               </div>
             </>
           ) : null}
+          {active === "admin" ? (
+            <>
+              {/* Paid on this requisition, and never taught: counted apart from the teaching everywhere. */}
+              <p className="rounded-md bg-[#f4efe6] px-3 py-2 text-sm font-semibold text-[#7a5a1d]">
+                Total: {formatTeachingHours(adminTotal)} admin hours
+              </p>
+              <div className="mt-4">
+                <RequisitionCourseEditor
+                  kind="admin"
+                  courses={draft.content.admin ?? []}
+                  onChange={(admin) => updateContent({ admin })}
+                  catalogueCourses={catalogue.data ?? []}
+                />
+              </div>
+            </>
+          ) : null}
           {active === "review" ? (
             <RequisitionReview
               teacherName={teacherName}
               requisition={draft}
               totalHours={total}
+              adminHours={adminTotal}
             />
           ) : null}
         </section>
@@ -2025,7 +1981,7 @@ export function RequisitionDetails({
       </RequisitionFieldAnchor>
       <RequisitionFieldAnchor target="contract-from">
         <DateField
-          label="Contract from"
+          label="Requisition from"
           fieldKey="contractFrom"
           value={content.contractFrom}
           required
@@ -2034,7 +1990,7 @@ export function RequisitionDetails({
       </RequisitionFieldAnchor>
       <RequisitionFieldAnchor target="contract-to">
         <DateField
-          label="Contract to"
+          label="Requisition to"
           fieldKey="contractTo"
           value={content.contractTo}
           required
@@ -2059,13 +2015,16 @@ export function RequisitionReview({
   teacherName,
   requisition,
   totalHours,
+  adminHours = 0,
 }: {
   teacherName: string;
   requisition: TeacherRequisition;
   totalHours: number;
+  adminHours?: number;
 }) {
   const missing = missingRequisitionFields(requisition);
   const courseCount = requisition.content.courses.length;
+  const adminCount = (requisition.content.admin ?? []).length;
   return (
     <div>
       <div>
@@ -2110,7 +2069,7 @@ export function RequisitionReview({
           value={requisition.content.classType || "Not set"}
         />
         <ReviewDetail
-          label="Contract period"
+          label="Requisition period"
           value={
             requisition.content.contractFrom && requisition.content.contractTo
               ? `${requisition.content.contractFrom} to ${requisition.content.contractTo}`
@@ -2120,6 +2079,18 @@ export function RequisitionReview({
         <ReviewDetail
           label="Teaching load"
           value={`${courseCount} ${courseCount === 1 ? "course" : "courses"} · ${formatTeachingHours(totalHours)} hours`}
+        />
+        <ReviewDetail
+          label="Admin hours"
+          value={
+            adminCount
+              ? `${adminCount} ${adminCount === 1 ? "entry" : "entries"} · ${formatTeachingHours(adminHours)} hours`
+              : "None"
+          }
+        />
+        <ReviewDetail
+          label="Total on the form"
+          value={`${formatTeachingHours(Math.round((totalHours + adminHours) * 1000) / 1000)} hours`}
         />
       </dl>
       {missing.length ? (

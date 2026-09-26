@@ -1,21 +1,17 @@
 from pathlib import Path
-from io import BytesIO
 from tempfile import NamedTemporaryFile, TemporaryDirectory
 from typing import Any
 from uuid import uuid4
-from zipfile import ZIP_DEFLATED, BadZipFile, ZipFile
+from zipfile import ZIP_DEFLATED, ZipFile
 
-import openpyxl
 from fastapi import (
     APIRouter,
     BackgroundTasks,
     Depends,
-    File,
     HTTPException,
     Query,
     Request,
     Response,
-    UploadFile,
 )
 from pydantic import BaseModel, Field
 from starlette.responses import FileResponse
@@ -204,75 +200,6 @@ def list_course_catalogue(
 ) -> dict[str, list[dict[str, Any]]]:
     return {"items": store.list_course_catalogue(query=query, include_obsolete=includeObsolete)}
 
-
-@router.post("/courses/import")
-async def import_course_catalogue(
-    file: UploadFile = File(...), store: TeacherStore = Depends(get_store)
-) -> dict[str, int]:
-    filename = file.filename or ""
-    if not filename.lower().endswith(".xlsx"):
-        raise HTTPException(status_code=422, detail="Upload an Excel .xlsx course list.")
-    try:
-        rows = _read_course_catalogue(await file.read())
-        return store.import_course_catalogue(rows)
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    except (OSError, openpyxl.utils.exceptions.InvalidFileException) as exc:
-        raise HTTPException(status_code=422, detail="The uploaded file is not a readable Excel workbook.") from exc
-
-
-def _read_course_catalogue(contents: bytes) -> list[dict[str, str]]:
-    if not contents:
-        raise ValueError("The uploaded workbook is empty.")
-    try:
-        workbook = openpyxl.load_workbook(BytesIO(contents), read_only=True, data_only=True)
-    except (BadZipFile, OSError, ValueError, openpyxl.utils.exceptions.InvalidFileException) as exc:
-        raise ValueError("The uploaded file is not a readable Excel workbook.") from exc
-    try:
-        sheet = workbook.active
-        rows = sheet.iter_rows(values_only=True)
-        headers = next(rows, None)
-        if headers is None:
-            raise ValueError("The workbook does not have a header row.")
-        column_by_header = {_cell_text(value): index for index, value in enumerate(headers) if _cell_text(value)}
-        required = {"CRN": "crn", "Course Code": "courseCode", "Course Title": "courseTitle"}
-        missing = [header for header in required if header not in column_by_header]
-        if missing:
-            raise ValueError(f"The workbook is missing required column(s): {', '.join(missing)}.")
-        fields = {
-            "Term": "term",
-            "CRN": "crn",
-            "Course Code": "courseCode",
-            "Course Title": "courseTitle",
-            "Seq.": "sequence",
-            "Credit": "credit",
-            "Dept.": "department",
-            "Level": "level",
-            "College": "college",
-            "Contact HRS": "contactHours",
-        }
-        result: list[dict[str, str]] = []
-        for index, source_row in enumerate(rows, start=2):
-            record = {
-                target: _cell_text(source_row[column_by_header[source]]) if source in column_by_header else ""
-                for source, target in fields.items()
-            }
-            if not any(record.values()):
-                continue
-            if not record["crn"] or not record["courseCode"] or not record["courseTitle"]:
-                raise ValueError(f"Row {index} must include CRN, Course Code, and Course Title.")
-            result.append(record)
-        if not result:
-            raise ValueError("The workbook does not contain any course rows.")
-        return result
-    finally:
-        workbook.close()
-
-
-def _cell_text(value: object) -> str:
-    if value is None:
-        return ""
-    return str(value).strip()
 
 
 @router.post("/export/requisitions")

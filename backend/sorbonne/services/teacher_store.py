@@ -623,7 +623,7 @@ class TeacherStore:
         with self.engine.connect() as connection:
             requisitions = (
                 connection.execute(
-                    text("SELECT teacher_id, content_json::text AS content FROM teacher_requisitions")
+                    text("SELECT teacher_id, academic_year, content_json::text AS content FROM teacher_requisitions")
                 )
                 .mappings()
                 .all()
@@ -649,7 +649,12 @@ class TeacherStore:
                 teacher_id,
                 {
                     "requisitions": 0,
+                    # Teaching only: what the planning and the registrar's hours are held against.
                     "contractedHours": 0.0,
+                    # Paid on the same requisitions, and never taught, so kept apart.
+                    "adminHours": 0.0,
+                    # The same two, per academic year, for a page that is about one semester.
+                    "byYear": {},
                     "timeSheets": 0,
                     "newestTimeSheet": None,
                     "hasDocuments": teacher_id in with_documents,
@@ -659,7 +664,16 @@ class TeacherStore:
         for row in requisitions:
             mine = entry(row["teacher_id"])
             mine["requisitions"] += 1
-            mine["contractedHours"] += _contracted_hours(row["content"])
+            teaching = _requisition_hours(row["content"], "courses")
+            admin = _requisition_hours(row["content"], "admin")
+            mine["contractedHours"] += teaching
+            mine["adminHours"] += admin
+            year = mine["byYear"].setdefault(
+                str(row["academic_year"] or ""), {"requisitions": 0, "teachingHours": 0.0, "adminHours": 0.0}
+            )
+            year["requisitions"] += 1
+            year["teachingHours"] = round(year["teachingHours"] + teaching, 3)
+            year["adminHours"] = round(year["adminHours"] + admin, 3)
         for row in sheets:
             mine = entry(row["teacher_id"])
             mine["timeSheets"] += 1
@@ -670,6 +684,7 @@ class TeacherStore:
             entry(teacher_id)
         for mine in found.values():
             mine["contractedHours"] = round(mine["contractedHours"] + 0.0, 3)
+            mine["adminHours"] = round(mine["adminHours"] + 0.0, 3)
         return found
 
     def delete_time_sheet(self, time_sheet_id: str) -> None:
@@ -677,101 +692,8 @@ class TeacherStore:
         with self.engine.begin() as connection:
             connection.execute(text("DELETE FROM teacher_time_sheets WHERE id = :id"), {"id": time_sheet_id})
 
-    def import_course_catalogue(self, rows: list[dict[str, str]]) -> dict[str, int]:
-        """Replace the active catalogue snapshot while retaining prior course versions.
-
-        CRN is the source-system identity. A changed record with the same CRN is
-        retained as an obsolete version, rather than updated in place, so older
-        requisitions can continue to describe the course they originally used.
-        """
-        catalogue_rows = [_catalogue_row(row) for row in rows]
-        crns = [row["crn"] for row in catalogue_rows]
-        if not catalogue_rows:
-            raise ValueError("The workbook does not contain any courses with a CRN, course code, and course title.")
-        if len(set(crns)) != len(crns):
-            raise ValueError("The workbook contains more than one row with the same CRN.")
-
-        now = _timestamp()
-        imported = retained = obsoleted = 0
-        with self.engine.begin() as connection:
-            active_rows = (
-                connection.execute(
-                    text(
-                        """
-                    SELECT id, crn, term, course_code, course_title, sequence, credit,
-                           department, level, college, contact_hours, is_obsolete, imported_at, obsolete_at
-                    FROM course_catalogue_entries
-                    WHERE is_obsolete = FALSE
-                    """
-                    )
-                )
-                .mappings()
-                .all()
-            )
-            active_by_crn = {row["crn"]: row for row in active_rows}
-
-            for record in catalogue_rows:
-                current = active_by_crn.get(record["crn"])
-                if current is not None and _catalogue_matches(current, record):
-                    retained += 1
-                    connection.execute(
-                        text("UPDATE course_catalogue_entries SET imported_at = :imported_at WHERE id = :id"),
-                        {"id": current["id"], "imported_at": now},
-                    )
-                    continue
-
-                if current is not None:
-                    connection.execute(
-                        text(
-                            """
-                            UPDATE course_catalogue_entries
-                            SET is_obsolete = TRUE, obsolete_at = :obsolete_at
-                            WHERE id = :id
-                            """
-                        ),
-                        {"id": current["id"], "obsolete_at": now},
-                    )
-                    obsoleted += 1
-
-                entry = {"id": str(uuid4()), **record, "importedAt": now, "obsoleteAt": None}
-                connection.execute(
-                    text(
-                        """
-                        INSERT INTO course_catalogue_entries (
-                            id, crn, term, course_code, course_title, sequence, credit,
-                            department, level, college, contact_hours, is_obsolete, imported_at, obsolete_at
-                        ) VALUES (
-                            :id, :crn, :term, :course_code, :course_title, :sequence, :credit,
-                            :department, :level, :college, :contact_hours, FALSE, :imported_at, :obsolete_at
-                        )
-                        """
-                    ),
-                    _catalogue_params(entry),
-                )
-                imported += 1
-
-            for current in active_rows:
-                if current["crn"] in crns:
-                    continue
-                connection.execute(
-                    text(
-                        """
-                        UPDATE course_catalogue_entries
-                        SET is_obsolete = TRUE, obsolete_at = :obsolete_at
-                        WHERE id = :id
-                        """
-                    ),
-                    {"id": current["id"], "obsolete_at": now},
-                )
-                obsoleted += 1
-
-            total_active = connection.execute(
-                text("SELECT COUNT(*) FROM course_catalogue_entries WHERE is_obsolete = FALSE")
-            ).scalar_one()
-        return {"imported": imported, "retained": retained, "obsoleted": obsoleted, "totalActive": total_active}
-
     def list_academic_years(self) -> list[str]:
-        """The academic years the imported courses belong to.
+        """The academic years the course list's courses belong to.
 
         The portal names a term by a code whose first four digits are the two years it
         spans: 262710 is the 2026-2027 year. Nothing else the portal gives us says the
@@ -779,7 +701,7 @@ class TeacherStore:
         """
         with self.engine.connect() as connection:
             codes = connection.execute(
-                text("SELECT DISTINCT term FROM course_catalogue_entries WHERE term <> ''")
+                text(f"SELECT DISTINCT term FROM ({COURSE_LIST}) AS course_list WHERE term <> ''")  # noqa: S608
             ).scalars()
         years = {year for year in (_academic_year(code) for code in codes) if year}
         return sorted(years, reverse=True)
@@ -805,7 +727,7 @@ class TeacherStore:
                         f"""
                     SELECT course_code, course_title, sequence, credit, department,
                            college, contact_hours, term, crn
-                    FROM course_catalogue_entries
+                    FROM ({COURSE_LIST}) AS course_list
                     WHERE {" AND ".join(filters)}
                     """
                     ),
@@ -865,7 +787,7 @@ class TeacherStore:
                         f"""
                     SELECT id, crn, term, course_code, course_title, sequence, credit,
                            department, level, college, contact_hours, is_obsolete, imported_at, obsolete_at
-                    FROM course_catalogue_entries
+                    FROM ({COURSE_LIST}) AS course_list
                     {where}
                     ORDER BY is_obsolete ASC, course_title ASC, course_code ASC, crn ASC
                     """
@@ -885,6 +807,29 @@ class TeacherStore:
             )
 
 
+# The course list requisitions pick from and syllabuses are written for: the portal's own,
+# the one the Courses page shows.
+#
+# It was a spreadsheet somebody exported from the portal and uploaded here — the same rows,
+# a step behind whenever nobody remembered to upload the new one. The portal's list is kept
+# current by every portal sync, so it is read directly. What was uploaded before stays for
+# the terms the portal has not synced, so a past year's syllabuses keep their courses; where
+# both know a section, the portal's word is the one taken.
+COURSE_LIST = """
+    SELECT id, crn, term, course_code, course_title, sequence, credit, department, level,
+           college, contact_hours, is_obsolete, imported_at, obsolete_at
+    FROM course_catalogue_entries AS kept
+    WHERE NOT EXISTS (
+        SELECT 1 FROM portal_courses AS portal WHERE portal.term_code = kept.term AND portal.crn = kept.crn
+    )
+    UNION ALL
+    SELECT 'portal:' || term_code || ':' || crn, crn, term_code, course_code, title, sequence, credits,
+           department, level, college, contact_hours, status <> 'in_portal', first_seen_at,
+           CASE WHEN status <> 'in_portal' THEN last_seen_at END
+    FROM portal_courses
+"""
+
+
 def _timestamp() -> str:
     return datetime.now(UTC).isoformat()
 
@@ -899,6 +844,7 @@ def default_content() -> dict[str, Any]:
         "contractFrom": "",
         "contractTo": "",
         "courses": [],
+        "admin": [],
     }
 
 
@@ -958,8 +904,8 @@ def _web_link(url: str) -> str:
 _HOURS = re.compile(r"\d+(?:[.,]\d+)?")
 
 
-def _contracted_hours(content_json: str) -> float:
-    """What one requisition's courses come to, read the way the editor adds them up.
+def _requisition_hours(content_json: str, part: str) -> float:
+    """What one requisition's teaching ("courses") or admin hours come to, read the way the editor adds them up.
 
     The hours are typed by a person, so "21", "21 h" and "21,5" all occur; the first
     number in the cell is the figure, which is what `totalTeachingHours` in the browser
@@ -967,8 +913,8 @@ def _contracted_hours(content_json: str) -> float:
     nothing rather than breaking the page it is counted for.
     """
     try:
-        courses = json.loads(content_json or "{}").get("courses") or []
-    except (TypeError, ValueError):
+        courses = json.loads(content_json or "{}").get(part) or []
+    except (TypeError, ValueError, AttributeError):
         return 0.0
     total = 0.0
     for course in courses:
@@ -1046,31 +992,6 @@ def _requisition_params(requisition: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-_CATALOGUE_FIELDS = (
-    "crn",
-    "term",
-    "courseCode",
-    "courseTitle",
-    "sequence",
-    "credit",
-    "department",
-    "level",
-    "college",
-    "contactHours",
-)
-
-
-def _catalogue_row(row: dict[str, str]) -> dict[str, str]:
-    normalized = {field: str(row.get(field, "") or "").strip() for field in _CATALOGUE_FIELDS}
-    if not normalized["crn"] or not normalized["courseCode"] or not normalized["courseTitle"]:
-        raise ValueError("Every imported course must have a CRN, course code, and course title.")
-    return normalized
-
-
-def _catalogue_matches(current: Any, candidate: dict[str, str]) -> bool:
-    return all(current[_snake_case(field)] == candidate[field] for field in _CATALOGUE_FIELDS)
-
-
 def _catalogue_from_row(row: Any) -> dict[str, Any]:
     return {
         "id": row["id"],
@@ -1088,32 +1009,6 @@ def _catalogue_from_row(row: Any) -> dict[str, Any]:
         "importedAt": row["imported_at"],
         "obsoleteAt": row["obsolete_at"],
     }
-
-
-def _catalogue_params(entry: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "id": entry["id"],
-        "crn": entry["crn"],
-        "term": entry["term"],
-        "course_code": entry["courseCode"],
-        "course_title": entry["courseTitle"],
-        "sequence": entry["sequence"],
-        "credit": entry["credit"],
-        "department": entry["department"],
-        "level": entry["level"],
-        "college": entry["college"],
-        "contact_hours": entry["contactHours"],
-        "imported_at": entry["importedAt"],
-        "obsolete_at": entry["obsoleteAt"],
-    }
-
-
-def _snake_case(field: str) -> str:
-    return {
-        "courseCode": "course_code",
-        "courseTitle": "course_title",
-        "contactHours": "contact_hours",
-    }.get(field, field)
 
 
 def _academic_year(term_code: str) -> str:

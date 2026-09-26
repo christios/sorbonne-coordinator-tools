@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 
 declare global {
   interface Window {
@@ -12,7 +12,7 @@ declare global {
 const CLIENT_ID = import.meta.env.VITE_GOOGLE_DOCUMENTS_CLIENT_ID as string | undefined;
 
 /**
- * Whether this deployment can sign in to Google at all.
+ * Whether this deployment can ask Google for Drive access at all.
  *
  * Exported so a page can leave the whole feature out rather than draw a panel whose only
  * content is a sentence saying it does nothing. Production sets the id; a local server
@@ -29,31 +29,6 @@ function loadGoogleIdentity(): Promise<void> {
   return new Promise((resolve, reject) => {
     const script = document.createElement("script"); script.id = GOOGLE_IDENTITY_SCRIPT_ID; script.src = "https://accounts.google.com/gsi/client"; script.async = true; script.onload = () => resolve(); script.onerror = () => reject(new Error("Google sign-in could not be loaded.")); document.head.append(script);
   });
-}
-
-export function GoogleDocumentSignInButton({ onCredential }: { onCredential: (credential: string) => void }) {
-  const mount = useRef<HTMLDivElement>(null);
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    if (!CLIENT_ID || !mount.current) return;
-    const render = () => {
-      if (!window.google || !mount.current) return;
-      window.google.accounts.id.initialize({ client_id: CLIENT_ID, callback: ({ credential }) => onCredential(credential) });
-      mount.current.replaceChildren();
-      window.google.accounts.id.renderButton(mount.current, { theme: "outline", size: "large", text: "signin_with", shape: "rectangular" });
-    };
-    const existing = document.getElementById(GOOGLE_IDENTITY_SCRIPT_ID);
-    if (existing) { render(); return; }
-    const script = document.createElement("script"); script.id = GOOGLE_IDENTITY_SCRIPT_ID; script.src = "https://accounts.google.com/gsi/client"; script.async = true; script.onload = render; script.onerror = () => setError("Google sign-in could not be loaded."); document.head.append(script);
-  }, [onCredential]);
-
-  if (!CLIENT_ID) return <p className="text-sm text-[#667085]">Document sign-in is not configured for this deployment.</p>;
-  // Google paints a plain "Sign in with Google" button first and swaps in the personalised
-  // "Sign in as …" one a frame later, and until that swap its wrapper is twice the button's
-  // height. Pinning the mount to the button's own height (40px, the "large" size) keeps the
-  // swap from yanking the rest of the page up — the visible glitch on every screen change.
-  return <><div ref={mount} aria-label="Sign in with Google" className="h-10 overflow-hidden" />{error ? <p role="alert" className="mt-2 text-sm text-[#8f1f25]">{error}</p> : null}</>;
 }
 
 export function GoogleDocumentSyncButton({ disabled = false, onAccessToken }: { disabled?: boolean; onAccessToken: (accessToken: string) => void }) {

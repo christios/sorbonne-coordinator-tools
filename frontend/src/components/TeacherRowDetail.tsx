@@ -13,7 +13,7 @@
  */
 
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { ExternalLink } from "lucide-react";
+import { Download, ExternalLink, FileCheck, FileClock, FilePlus, FileX } from "lucide-react";
 import { useState } from "react";
 
 import { Modal } from "@/components/Modal";
@@ -30,57 +30,91 @@ import {
 const NOTHING: TeacherSummary = {
   requisitions: 0,
   contractedHours: 0,
+  adminHours: 0,
   timeSheets: 0,
   newestTimeSheet: null,
   hasDocuments: false,
 };
 
+/** A row's small square buttons: the jobs everybody knows by their icon, named on hover. */
+const ICON_BUTTON =
+  "inline-flex size-7 items-center justify-center rounded-md border border-[#d0d5dd] bg-white text-[#475467] hover:border-[#b7bec8] hover:bg-[#f2f7fb] hover:text-[#1f4e79] disabled:border-[#eef1f5] disabled:text-[#d0d5dd] disabled:hover:bg-white";
+
+/** "40", "10.5": hours as a person reads them, without a trailing ".0". */
+function hoursText(hours: number): string {
+  return String(Math.round(hours * 10) / 10);
+}
+
 /**
- * The line of facts under a teacher's name.
+ * What the requisitions pay for, as two figures side by side: teaching and admin.
  *
- * Plain text separated by middots rather than a row of bordered pills. The pills read
- * well on their own and cost a row most of its height once there are four of them, and
- * the list is two dozen rows that somebody scans. Only a gap is given a background, so
- * the thing worth spotting is still the thing that stands out.
+ * They were one number, "50 h", which was right until a requisition could pay for admin
+ * work too — hours nobody teaches, which the planning and the registrar know nothing
+ * about. Read as one figure they made every teacher with admin look over-planned. The
+ * columns line up down the list, so the eye runs down a column of figures rather than
+ * hunting through a sentence on each row.
  */
-export function TeacherFacts({ summary, loading }: { summary?: TeacherSummary; loading: boolean }) {
-  if (loading && !summary) {
-    return <span className="text-xs text-[#98a2b3]">Reading…</span>;
+export function TeacherHoursFigures({ summary, loading }: { summary?: TeacherSummary; loading: boolean }) {
+  if (loading && !summary) return <span className="text-xs text-[#98a2b3]">Reading…</span>;
+  const held = summary ?? NOTHING;
+  if (!held.requisitions) {
+    return <span className="rounded bg-[#fdf9ee] px-1.5 py-0.5 text-xs font-semibold text-[#8a6116]">No requisition</span>;
   }
+  const figure = (value: number, label: string, tone: string) => (
+    <span className="flex min-w-[3.25rem] flex-col leading-tight">
+      <span className={`text-sm font-semibold tabular-nums ${value ? tone : "text-[#c8d0da]"}`}>{hoursText(value)} h</span>
+      <span className="text-[10px] font-semibold uppercase tracking-wide text-[#98a2b3]">{label}</span>
+    </span>
+  );
+  return (
+    <span className="flex items-center gap-3" title={`${held.requisitions} requisition${held.requisitions === 1 ? "" : "s"}`}>
+      {figure(held.contractedHours, "teaching", "text-[#1f4e79]")}
+      {figure(held.adminHours ?? 0, "admin", "text-[#7a5a1d]")}
+      <span className="flex min-w-[2rem] flex-col leading-tight">
+        <span className="text-sm font-semibold tabular-nums text-[#344054]">{held.requisitions}</span>
+        <span className="text-[10px] font-semibold uppercase tracking-wide text-[#98a2b3]">filed</span>
+      </span>
+    </span>
+  );
+}
+
+/**
+ * The paperwork, as marks that say themselves: the newest time sheet, the documents.
+ *
+ * Only a gap is coloured, so the thing worth spotting is still the thing that stands out.
+ * It does NOT say "overdue": a teacher not teaching this period is not late, so a sheet
+ * for an earlier period is quiet rather than red.
+ */
+export function TeacherPaperwork({ summary, loading }: { summary?: TeacherSummary; loading: boolean }) {
+  if (loading && !summary) return null;
   const held = summary ?? NOTHING;
   const sheet = held.newestTimeSheet;
   const behind = sheet ? periodsBehind(sheet.periodStart) : null;
-  const facts: { text: string; missing?: boolean; quiet?: boolean }[] = [
-    held.requisitions
-      ? { text: `${held.requisitions} requisition${held.requisitions === 1 ? "" : "s"}` }
-      : { text: "no requisition", missing: true },
-    ...(held.contractedHours ? [{ text: `${held.contractedHours} h` }] : []),
-    !sheet
-      ? { text: "no time sheet", missing: true }
-      : sheet.periodStart
-        ? // Not a fault, just a fact: the newest sheet is not for the period running now.
-          { text: `sheet ${shortPeriodLabel(sheet.periodStart)}`, quiet: behind !== null && behind > 0 }
-        : { text: "sheet, no period", quiet: true },
-    held.hasDocuments ? { text: "docs" } : { text: "no docs", missing: true },
-  ];
+  const pill = "inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium";
+  const gap = `${pill} bg-[#fdf9ee] text-[#8a6116]`;
   return (
-    <span className="flex flex-wrap items-center gap-x-1.5 text-xs text-[#667085]">
-      {facts.map((fact, index) => (
-        <span key={fact.text} className="flex items-center gap-x-1.5">
-          {index ? <span className="text-[#c8d0da]">·</span> : null}
-          <span
-            className={
-              fact.missing
-                ? "rounded bg-[#fdf9ee] px-1.5 py-0.5 font-semibold text-[#8a6116]"
-                : fact.quiet
-                  ? "text-[#98a2b3]"
-                  : "text-[#475467]"
-            }
-          >
-            {fact.text}
-          </span>
+    <span className="flex items-center gap-1.5">
+      {!sheet ? (
+        <span className={gap}>
+          <FileClock size={12} aria-hidden="true" /> No time sheet
         </span>
-      ))}
+      ) : (
+        <span
+          className={`${pill} ${behind !== null && behind > 0 ? "bg-[#f2f4f7] text-[#667085]" : "bg-[#eaf1f8] text-[#1f4e79]"}`}
+          title={sheet.periodStart ? `Newest time sheet: ${sheet.label}` : "The newest time sheet says no period"}
+        >
+          <FileClock size={12} aria-hidden="true" /> {sheet.periodStart ? shortPeriodLabel(sheet.periodStart) : "No period"}
+        </span>
+      )}
+      {held.hasDocuments ? (
+        <span className={`${pill} bg-[#f4fbf5] text-[#256237]`}>
+          <FileCheck size={12} aria-hidden="true" /> Docs
+        </span>
+      ) : (
+        <span className={gap}>
+          <FileX size={12} aria-hidden="true" /> No docs
+        </span>
+      )}
     </span>
   );
 }
@@ -145,7 +179,7 @@ export function TeacherRowActions({
         * rows, which is fine to look at and useless to listen to: read aloud, the page
         * was "New requisition" sixty-two times with nothing to tell them apart.
         */}
-      <span className="flex flex-wrap items-center gap-1.5">
+      <span className="flex flex-nowrap items-center gap-1">
         {/*
           * With one sheet the button is the link itself, because a dialog to choose
           * between one thing is a dialog that should not exist.
@@ -183,9 +217,9 @@ export function TeacherRowActions({
           }}
           title={held.requisitions === 0 ? "No requisition to download" : "Choose which to download"}
           aria-label={`Download requisitions for ${teacher.fullName}`}
-          className="inline-flex items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-2 py-1 text-xs font-semibold text-[#344054] hover:bg-[#f8fafc] disabled:border-[#e4e8ef] disabled:text-[#c8d0da] disabled:hover:bg-white"
+          className={ICON_BUTTON}
         >
-          Download
+          <Download size={14} aria-hidden="true" />
         </button>
         <button
           type="button"
@@ -195,9 +229,10 @@ export function TeacherRowActions({
             setPicking("new");
           }}
           aria-label={`New requisition for ${teacher.fullName}`}
-          className="inline-flex items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-2 py-1 text-xs font-semibold text-[#344054] hover:bg-[#f8fafc]"
+          title="New requisition"
+          className={ICON_BUTTON}
         >
-          New requisition
+          <FilePlus size={14} aria-hidden="true" />
         </button>
       </span>
 
@@ -328,7 +363,7 @@ export function TeacherRowActions({
               autoFocus
               value={label}
               onChange={(event) => setLabel(event.target.value)}
-              placeholder="Physics TD contract"
+              placeholder="Physics TD requisition"
               className="rounded-md border border-[#b7bec8] px-3 py-2 font-normal"
             />
           </label>

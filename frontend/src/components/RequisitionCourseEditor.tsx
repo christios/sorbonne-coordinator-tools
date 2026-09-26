@@ -13,7 +13,35 @@ type Props = {
   courses: CourseRow[];
   onChange: (courses: CourseRow[]) => void;
   catalogueCourses?: CourseCatalogueEntry[];
+  /**
+   * Teaching, or admin work paid on the same requisition. The editor is the same one; an
+   * admin entry needs only what the work is and its hours — invigilation or coordinating
+   * a course has no class type, and often no course behind it at all.
+   */
+  kind?: "teaching" | "admin";
 };
+
+/** What changes between teaching and admin: the words, and which fields must be filled. */
+const KINDS = {
+  teaching: {
+    heading: "Teaching load",
+    prefix: "course",
+    noun: "course",
+    untitled: "Untitled course",
+    empty: "No courses added yet.",
+    add: "Add course",
+    titleLabel: "Course title as per Sorbonne Space",
+  },
+  admin: {
+    heading: "Admin hours",
+    prefix: "admin",
+    noun: "admin entry",
+    untitled: "Untitled admin entry",
+    empty: "No admin hours added yet.",
+    add: "Add admin hours",
+    titleLabel: "What the work is",
+  },
+} as const;
 
 const LEVELS = [
   "Foundation Year",
@@ -30,7 +58,11 @@ export function RequisitionCourseEditor({
   courses,
   onChange,
   catalogueCourses = [],
+  kind = "teaching",
 }: Props) {
+  const words = KINDS[kind];
+  const admin = kind === "admin";
+  const isComplete = (course: CourseRow) => (admin ? Boolean(course.title && course.hours) : isCompleteCourse(course));
   const [expandedId, setExpandedId] = useState<string | null>(
     () => courses.find((course) => !isComplete(course))?.id ?? null,
   );
@@ -46,6 +78,7 @@ export function RequisitionCourseEditor({
         ? current
         : (courses.find((course) => !isComplete(course))?.id ?? null),
     );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [courses]);
 
   useEffect(() => {
@@ -89,7 +122,7 @@ export function RequisitionCourseEditor({
     setExpandedId(course.id);
     window.requestAnimationFrame(() =>
       document
-        .getElementById(`course-${course.id}`)
+        .getElementById(`${words.prefix}-${course.id}`)
         ?.scrollIntoView({ behavior: "smooth", block: "center" }),
     );
   };
@@ -123,12 +156,12 @@ export function RequisitionCourseEditor({
 
   return (
     <section>
-      <h3 className="text-lg font-semibold text-[#171717]">Teaching load</h3>
+      <h3 className="text-lg font-semibold text-[#171717]">{words.heading}</h3>
       {courses.length ? (
         <div className="mt-4 grid gap-3">
           {courses.map((course) => {
             const expanded = expandedId === course.id;
-            const title = course.title.trim() || "Untitled course";
+            const title = course.title.trim() || words.untitled;
             const destinations = courses.filter(
               (item) =>
                 item.id !== course.id &&
@@ -139,10 +172,10 @@ export function RequisitionCourseEditor({
             return (
               <CollapsibleEntryCard
                 key={course.id}
-                id={`course-${course.id}`}
+                id={`${words.prefix}-${course.id}`}
                 expanded={expanded}
                 onToggle={() => toggle(course.id)}
-                toggleLabel={`${expanded ? "Collapse" : "Expand"} course: ${title}`}
+                toggleLabel={`${expanded ? "Collapse" : "Expand"} ${words.noun}: ${title}`}
                 title={title}
                 summary={courseSummary(course)}
                 actions={
@@ -154,8 +187,8 @@ export function RequisitionCourseEditor({
                         setMoveQuery("");
                       }}
                       className="rounded p-2 text-[#1f4e79] hover:bg-[#e8edf3]"
-                      aria-label={`Move course: ${title}`}
-                      title="Move course"
+                      aria-label={`Move ${words.noun}: ${title}`}
+                      title={`Move ${words.noun}`}
                     >
                       <ArrowDownUp size={17} />
                     </button>
@@ -163,8 +196,8 @@ export function RequisitionCourseEditor({
                       type="button"
                       onClick={() => setCoursePendingRemoval(course.id)}
                       className="rounded p-2 text-[#a6292f] hover:bg-[#fff1f2]"
-                      aria-label={`Remove course: ${title}`}
-                      title="Remove course"
+                      aria-label={`Remove ${words.noun}: ${title}`}
+                      title={`Remove ${words.noun}`}
                     >
                       <Trash2 size={17} />
                     </button>
@@ -177,7 +210,7 @@ export function RequisitionCourseEditor({
                       className="absolute right-0 top-full z-[90] isolate mt-2 w-80 max-w-full rounded-lg border border-[#d9dee7] bg-white p-3 shadow-lg"
                     >
                       <p className="text-sm font-semibold text-[#344054]">
-                        Place this course before
+                        Place this {words.noun} before
                       </p>
                       <input
                         type="search"
@@ -226,7 +259,7 @@ export function RequisitionCourseEditor({
                       placeholder={
                         catalogueCourses.length
                           ? "Choose from course list"
-                          : "No imported courses available"
+                          : "No courses on the course list"
                       }
                       options={catalogueCourses.map((item) => ({
                         value: item.id,
@@ -247,54 +280,57 @@ export function RequisitionCourseEditor({
                     </p>
                   ) : null}
                   <TextField
-                    focusTarget={`course:${course.id}:title`}
-                    label="Course title as per Sorbonne Space"
+                    focusTarget={`${words.prefix}:${course.id}:title`}
+                    label={words.titleLabel}
                     value={course.title}
                     onChange={(title) => update(course.id, { title })}
                     required
                   />
                   <TextField
-                    focusTarget={`course:${course.id}:subject-code`}
+                    focusTarget={`${words.prefix}:${course.id}:subject-code`}
                     label="Subject code"
                     value={course.subjectCode}
                     onChange={(subjectCode) =>
                       update(course.id, { subjectCode })
                     }
-                    required
+                    required={!admin}
                   />
                   <TextField
-                    focusTarget={`course:${course.id}:course-number`}
+                    focusTarget={`${words.prefix}:${course.id}:course-number`}
                     label="Course number"
                     value={course.courseNumber}
                     onChange={(courseNumber) =>
                       update(course.id, { courseNumber })
                     }
-                    required
+                    required={!admin}
                   />
                   <CourseSelectField
-                    focusTarget={`course:${course.id}:level`}
-                    fieldKey="courses.level"
+                    focusTarget={`${words.prefix}:${course.id}:level`}
+                    fieldKey={admin ? "admin.level" : "courses.level"}
                     label="Level"
                     value={course.level}
                     onChange={(level) => update(course.id, { level })}
                     options={LEVELS}
+                    required={!admin}
                   />
                   <TextField
-                    focusTarget={`course:${course.id}:hours`}
+                    focusTarget={`${words.prefix}:${course.id}:hours`}
                     label="Hours"
                     value={course.hours}
                     onChange={(hours) => update(course.id, { hours })}
-                    hint="Use a number; choose the class type separately."
+                    hint={admin ? "Use a number." : "Use a number; choose the class type separately."}
                     required
                   />
-                  <CourseSelectField
-                    focusTarget={`course:${course.id}:class-type`}
-                    fieldKey="courses.classType"
-                    label="Course class type"
-                    value={course.classType ?? legacyClassType(course.hours)}
-                    onChange={(classType) => update(course.id, { classType })}
-                    options={CLASS_TYPES}
-                  />
+                  {admin ? null : (
+                    <CourseSelectField
+                      focusTarget={`course:${course.id}:class-type`}
+                      fieldKey="courses.classType"
+                      label="Course class type"
+                      value={course.classType ?? legacyClassType(course.hours)}
+                      onChange={(classType) => update(course.id, { classType })}
+                      options={CLASS_TYPES}
+                    />
+                  )}
                 </div>
               </CollapsibleEntryCard>
             );
@@ -302,17 +338,17 @@ export function RequisitionCourseEditor({
         </div>
       ) : (
         <p className="mt-4 rounded-md border border-dashed border-[#d0d5dd] px-3 py-4 text-sm text-[#667085]">
-          No courses added yet.
+          {words.empty}
         </p>
       )}
-      <div data-requisition-field="add-course">
-        <AddEntryButton onClick={add} label="Add course" />
+      <div data-requisition-field={`add-${words.prefix}`}>
+        <AddEntryButton onClick={add} label={words.add} />
       </div>
       <ConfirmDialog
         open={Boolean(pendingCourse)}
-        title="Remove course?"
-        description={`Remove ${pendingCourse?.title || "this course"} from this requisition?`}
-        confirmLabel="Remove course"
+        title={`Remove ${words.noun}?`}
+        description={`Remove ${pendingCourse?.title || `this ${words.noun}`} from this requisition?`}
+        confirmLabel={`Remove ${words.noun}`}
         onClose={() => setCoursePendingRemoval(null)}
         onConfirm={() => {
           if (pendingCourse)
@@ -333,6 +369,7 @@ function CourseSelectField({
   value,
   onChange,
   options,
+  required = true,
 }: {
   focusTarget: string;
   fieldKey: string;
@@ -340,13 +377,14 @@ function CourseSelectField({
   value: string;
   onChange: (value: string) => void;
   options: string[];
+  required?: boolean;
 }) {
   return (
     <div
       data-requisition-field={focusTarget}
       className="grid self-start gap-1 text-sm font-medium text-[#344054]"
     >
-      <FormFieldLabel required fieldKey={fieldKey}>
+      <FormFieldLabel required={required} fieldKey={fieldKey}>
         {label}
       </FormFieldLabel>
       <SelectMenu
@@ -354,7 +392,7 @@ function CourseSelectField({
         value={value}
         onChange={onChange}
         placeholder={`Select ${label.toLowerCase()}`}
-        required
+        required={required}
         options={options.map((option) => ({ value: option, label: option }))}
       />
     </div>
@@ -389,7 +427,11 @@ function TextField({
         */}
       <FormFieldLabel
         required={required}
-        fieldKey={focusTarget ? `courses.${focusTarget.split(":")[2]}` : undefined}
+        fieldKey={
+          focusTarget
+            ? `${focusTarget.startsWith("admin:") ? "admin" : "courses"}.${focusTarget.split(":")[2]}`
+            : undefined
+        }
       >
         {label}
       </FormFieldLabel>
@@ -439,7 +481,7 @@ function catalogueCourse(
   };
 }
 
-function isComplete(course: CourseRow) {
+function isCompleteCourse(course: CourseRow) {
   return Boolean(
     course.subjectCode &&
     course.courseNumber &&

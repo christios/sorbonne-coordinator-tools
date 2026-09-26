@@ -275,12 +275,12 @@ describe("RequisitionDetails", () => {
     ).toBe("true");
     expect(
       screen
-        .getByRole("button", { name: "Contract from" })
+        .getByRole("button", { name: "Requisition from" })
         .getAttribute("aria-required"),
     ).toBe("true");
     expect(
       screen
-        .getByRole("button", { name: "Contract to" })
+        .getByRole("button", { name: "Requisition to" })
         .getAttribute("aria-required"),
     ).toBe("true");
     const requiredMarkers = screen.getAllByText("*", {

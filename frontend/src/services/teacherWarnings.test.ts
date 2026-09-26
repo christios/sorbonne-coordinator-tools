@@ -54,7 +54,7 @@ describe("ours against their contract", () => {
     const [warning] = warningsFor(figures({ contracted: 150 }));
 
     expect(warning.kind).toBe("plan_vs_contract");
-    expect(warning.label).toBe("Contract short 45 h");
+    expect(warning.label).toBe("Requisition short 45 h");
   });
 
   it("stays silent for somebody who has no requisition at all", () => {
@@ -99,13 +99,13 @@ describe("a contract running out", () => {
     const [warning] = warningsFor(running({ taughtSoFar: 59 }));
 
     expect(warning.kind).toBe("contract_nearly_spent");
-    expect(warning.label).toBe("1 h of contract left");
+    expect(warning.label).toBe("1 h of requisition left");
   });
 
   it("says how far past it they are once it is spent", () => {
     const [warning] = warningsFor(running({ taughtSoFar: 66 }));
 
-    expect(warning.label).toBe("6 h past contract");
+    expect(warning.label).toBe("6 h past requisition");
     expect(warning.sentence).toContain("past it");
   });
 

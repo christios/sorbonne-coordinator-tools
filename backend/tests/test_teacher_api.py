@@ -77,6 +77,25 @@ def test_a_row_is_told_what_the_teacher_has_in_one_answer(client: TestClient, st
     assert summary["hasDocuments"] is False
 
 
+def test_admin_hours_are_counted_apart_from_teaching(client: TestClient, store: TeacherStore):
+    """Admin work is paid, never taught: the planning and the registrar are held against teaching alone."""
+    teacher = a_teacher(store)
+    made = with_hours(store, teacher["id"], "Physics TD", ["21"])
+    store.update_requisition(
+        made["id"],
+        expected_revision=made["revision"],
+        label="Physics TD",
+        academic_year="2026-2027",
+        content={**made["content"], "admin": [{"id": "a", "title": "Coordination", "hours": "8,5 h"}]},
+    )
+
+    summary = client.get(f"{BASE}/summary").json()["summary"][teacher["id"]]
+
+    assert summary["contractedHours"] == 21
+    assert summary["adminHours"] == 8.5
+    assert summary["byYear"] == {"2026-2027": {"requisitions": 1, "teachingHours": 21, "adminHours": 8.5}}
+
+
 def test_a_teacher_with_nothing_is_absent_from_the_summary_rather_than_wrong(
     client: TestClient, store: TeacherStore
 ):

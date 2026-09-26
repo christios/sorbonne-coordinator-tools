@@ -11,7 +11,7 @@ import { CommentThread } from "@/components/CommentThread";
 import { CommentPeek } from "@/components/CommentPeek";
 import { Modal } from "@/components/Modal";
 import { datesOf, isWholeSemester, WHOLE_SEMESTER, type HourWindow } from "@/services/hourWindow";
-import { hoursRowsFor, type HoursSource } from "@/services/teacherHoursRows";
+import { academicYearOfTerm, hoursRowsFor, type HoursSource } from "@/services/teacherHoursRows";
 import { downloadTeacherHours, periodsCovering } from "@/services/hoursExport";
 import { opensOnFor, periodChoices, periodEnd, PERIOD_OPENS_ON } from "@/services/payPeriods";
 import {
@@ -190,11 +190,12 @@ export function TeacherHours({ onOpenTeacher }: { onOpenTeacher?: (teacher: Teac
       owners,
       submitted: submitted.data ?? [],
       contracts: contracts.data ?? {},
+      academicYear: academicYearOfTerm(termCode),
       decided,
       threshold: apart?.enabled === false ? Number.POSITIVE_INFINITY : (apart?.threshold ?? DEFAULT_APART),
       today,
     }),
-    [sheets, teachers.data, notes.data, met.data, booked.data, owners, submitted.data, contracts.data,
+    [sheets, teachers.data, notes.data, met.data, booked.data, owners, submitted.data, contracts.data, termCode,
      decided, apart?.enabled, apart?.threshold, today],
   );
   const rows = useMemo(
@@ -324,22 +325,27 @@ export function TeacherHours({ onOpenTeacher }: { onOpenTeacher?: (teacher: Teac
               renderCell(row, column)
             )
           }
-          rowActions={(row) =>
-            row.active?.partTimeTeacherId || row.active?.id ? (
+          /*
+           * On the row, beside its tick box, as the Students table has them: in view when
+           * there is something to read, and under the pointer when there is not. At the far
+           * end of a wide table they were a column nobody scrolled to.
+           */
+          rowLead={(row) => {
+            const id = row.active?.partTimeTeacherId || row.active?.id || "";
+            if (!id) return null;
+            const count = commentCounts.data?.[id]?.count ?? 0;
+            return (
               <CommentPeek
-                studentId={row.active?.partTimeTeacherId || row.active?.id || ""}
+                studentId={id}
                 label={row.teacher}
-                count={commentCounts.data?.[row.active?.partTimeTeacherId || row.active?.id || ""]?.count ?? 0}
-                onOpen={() =>
-                  setCommentingOn({
-                    id: row.active?.partTimeTeacherId || row.active?.id || "",
-                    label: row.teacher,
-                  })
-                }
-                className="inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[11px] tabular-nums text-[#98a2b3] hover:bg-[#f2f7fb]"
+                count={count}
+                onOpen={() => setCommentingOn({ id, label: row.teacher })}
+                className={`inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[11px] tabular-nums hover:bg-[#f2f7fb] ${
+                  count ? "text-[#1f4e79]" : "text-[#98a2b3] opacity-0 focus-visible:opacity-100 group-hover:opacity-100"
+                }`}
               />
-            ) : null
-          }
+            );
+          }}
           onRowClick={(row) => {
             if (!row.teacher || !onOpenTeacher) return;
             onOpenTeacher(row.active ?? { id: row.teacherId, fullName: row.teacher });

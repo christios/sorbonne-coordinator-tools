@@ -48,6 +48,7 @@ export function ListGrid<T>({
   selected,
   onSelectedChange,
   renderCell,
+  rowLead,
   rowActions,
   onRowClick,
 }: {
@@ -72,6 +73,8 @@ export function ListGrid<T>({
   selected?: Set<string>;
   onSelectedChange?: (selected: Set<string>) => void;
   renderCell?: (row: T, column: GridColumn<T>) => ReactNode | undefined;
+  /** Beside the row's tick box, as the Students table keeps a row's comments. */
+  rowLead?: (row: T) => ReactNode;
   rowActions?: (row: T) => ReactNode;
   onRowClick?: (row: T) => void;
 }) {
@@ -220,6 +223,7 @@ export function ListGrid<T>({
         idOf={idOf}
         labelOf={labelOf}
         renderCell={renderCell}
+        rowLead={rowLead}
         rowActions={rowActions}
         onRowClick={onRowClick}
         onSort={sortBy}

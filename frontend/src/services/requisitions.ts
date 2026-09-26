@@ -21,6 +21,12 @@ export type RequisitionContent = {
   contractFrom: string;
   contractTo: string;
   courses: CourseRow[];
+  /**
+   * Admin work paid on the same requisition — invigilation, coordination. Kept apart from
+   * the teaching because nothing is taught in it: the planning and the registrar's hours
+   * are held against the courses alone. Absent from requisitions written before it existed.
+   */
+  admin?: CourseRow[];
 };
 
 /** Sums the numeric portion of each course load without discarding decimal hours. */
@@ -30,6 +36,18 @@ export function totalTeachingHours(courses: CourseRow[]): number {
     return sum + (match ? Number(match[0].replace(",", ".")) : 0);
   }, 0);
   return Math.round((total + Number.EPSILON) * 1_000) / 1_000;
+}
+
+/** The admin hours on a requisition, added up the way the teaching is. */
+export function totalAdminHours(content: Pick<RequisitionContent, "admin">): number {
+  return totalTeachingHours(content.admin ?? []);
+}
+
+/** An admin entry needs what the work is and its hours; the course fields are optional. */
+function adminIncomplete(entry: CourseRow): "title" | "hours" | null {
+  if (!entry.title.trim()) return "title";
+  if (!entry.hours.trim()) return "hours";
+  return null;
 }
 
 export function formatTeachingHours(hours: number): string {
@@ -44,8 +62,8 @@ export function missingRequisitionFields(requisition: { label: string; academicY
   if (!requisition.content.program.trim()) missing.push("Programme");
   if (!requisition.content.jobTitle.trim()) missing.push("Job title");
   if (!requisition.content.classType.trim()) missing.push("Type of class");
-  if (!requisition.content.contractFrom) missing.push("Contract from");
-  if (!requisition.content.contractTo) missing.push("Contract to");
+  if (!requisition.content.contractFrom) missing.push("Requisition from");
+  if (!requisition.content.contractTo) missing.push("Requisition to");
   if (!requisition.content.courses.length) missing.push("At least one course");
   requisition.content.courses.forEach((course, index) => {
     const prefix = `Course ${index + 1}`;
@@ -56,15 +74,22 @@ export function missingRequisitionFields(requisition: { label: string; academicY
     if (!course.hours.trim()) missing.push(`${prefix} hours`);
     if (!course.classType?.trim() && !/\b(CM|TD|TP|Coach)\b/i.test(course.hours)) missing.push(`${prefix} class type`);
   });
+  (requisition.content.admin ?? []).forEach((entry, index) => {
+    const gap = adminIncomplete(entry);
+    if (gap) missing.push(`Admin entry ${index + 1} ${gap}`);
+  });
   return missing;
 }
 
 type RequisitionCompletionInput = { label: string; academicYear: string; content: RequisitionContent };
 
 /** Identifies the furthest incomplete part of the guided requisition workflow. */
-export function lastIncompleteRequisitionStep(requisition: RequisitionCompletionInput): { section: "details" | "courses"; focusTarget: string } | null {
+export function lastIncompleteRequisitionStep(requisition: RequisitionCompletionInput): { section: "details" | "courses" | "admin"; focusTarget: string } | null {
   const { content } = requisition;
   const incompleteCourse = content.courses.find((course) => !course.title.trim() || !course.subjectCode.trim() || !course.courseNumber.trim() || !course.level.trim() || !course.hours.trim() || (!course.classType?.trim() && !/\b(CM|TD|TP|Coach)\b/i.test(course.hours)));
+  // Furthest first: the admin hours come after the teaching load.
+  const incompleteAdmin = (content.admin ?? []).find((entry) => adminIncomplete(entry));
+  if (incompleteAdmin) return { section: "admin", focusTarget: `admin:${incompleteAdmin.id}:${adminIncomplete(incompleteAdmin)}` };
   if (!content.courses.length) return { section: "courses", focusTarget: "add-course" };
   if (incompleteCourse) {
     const field = !incompleteCourse.title.trim() ? "title" : !incompleteCourse.subjectCode.trim() ? "subject-code" : !incompleteCourse.courseNumber.trim() ? "course-number" : !incompleteCourse.level.trim() ? "level" : !incompleteCourse.hours.trim() ? "hours" : "class-type";
@@ -86,10 +111,11 @@ export function lastIncompleteRequisitionStep(requisition: RequisitionCompletion
  *
  * Read beside the hours the planning gives them and the hours the registrar has booked:
  * three counts of the same teaching from three places, shown together so a gap is seen
- * while a contract can still be amended. No warning on it here; the comparison is the point.
+ * while a requisition can still be amended. No warning on it here; the comparison is the point.
+ * Teaching only: admin hours are paid but never planned or booked, so they have nothing to meet.
  */
 export function requisitionHours(
-  requisitions: { label: string; academicYear: string; content: Pick<RequisitionContent, "courses"> }[],
+  requisitions: { label: string; academicYear: string; content: Pick<RequisitionContent, "courses" | "admin"> }[],
 ): { total: number; byLabel: { label: string; hours: number }[] } {
   const byLabel = requisitions.map((requisition) => ({
     label: [requisition.label, requisition.academicYear].filter(Boolean).join(" "),

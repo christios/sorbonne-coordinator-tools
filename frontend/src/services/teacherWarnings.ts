@@ -110,8 +110,9 @@ export function warningsFor(figures: TeacherFigures, apart: number = DEFAULT_APA
     });
   }
 
-  // Ours against their contract. Silent for anybody with no requisition, which is most of
-  // the full-time staff.
+  // Ours against their requisitions' teaching hours — never their admin hours, which are
+  // paid but not taught. Silent for anybody with no requisition, which is most of the
+  // full-time staff.
   if (figures.contracted > 0 && figures.planned > 0 && gap(figures.planned, figures.contracted) >= apart) {
     const apartBy = gap(figures.planned, figures.contracted);
     found.push({
@@ -119,8 +120,8 @@ export function warningsFor(figures: TeacherFigures, apart: number = DEFAULT_APA
       teacherKey: who,
       kind: "plan_vs_contract",
       severity: bySize(apartBy, apart),
-      label: `Contract ${figures.contracted < figures.planned ? "short" : "over"} ${hours(apartBy)}`,
-      sentence: `${name}: we plan ${hours(figures.planned)} and their requisitions contract ${hours(figures.contracted)}.`,
+      label: `Requisition ${figures.contracted < figures.planned ? "short" : "over"} ${hours(apartBy)}`,
+      sentence: `${name}: we plan ${hours(figures.planned)} and their requisitions pay for ${hours(figures.contracted)} of teaching.`,
       apart: apartBy,
     });
   }
@@ -142,11 +143,11 @@ export function warningsFor(figures: TeacherFigures, apart: number = DEFAULT_APA
   }
 
   /*
-   * Running out of contracted hours, said before they run out rather than after.
+   * Running out of requisitioned teaching hours, said before they run out rather than after.
    *
    * The threshold is doing a different job here: it is how close to the end is close
-   * enough to mention, not how far apart two numbers are. Over the contract it always
-   * shows, whatever the threshold.
+   * enough to mention, not how far apart two numbers are. Over the requisition it always
+   * shows, whatever the threshold. Admin hours are no part of it: nothing is taught in them.
    */
   if (figures.contracted > 0 && figures.taughtSoFar > 0 && figures.taughtSoFar + apart >= figures.contracted) {
     const left = Math.round((figures.contracted - figures.taughtSoFar) * 100) / 100;
@@ -156,15 +157,15 @@ export function warningsFor(figures: TeacherFigures, apart: number = DEFAULT_APA
       kind: "contract_nearly_spent",
       /*
        * The one place size does not say severity, and says the opposite of it: a small
-       * number of hours left is the urgent case, and being past the contract is the one
+       * number of hours left is the urgent case, and being past the requisition is the one
        * somebody has to act on today.
        */
       severity: left < 0 ? "high" : left === 0 ? "medium" : "low",
-      label: left < 0 ? `${hours(Math.abs(left))} past contract` : left === 0 ? "Contract used up" : `${hours(left)} of contract left`,
+      label: left < 0 ? `${hours(Math.abs(left))} past requisition` : left === 0 ? "Requisition used up" : `${hours(left)} of requisition left`,
       sentence:
         left < 0
-          ? `${name} has taught ${hours(figures.taughtSoFar)} against a contract of ${hours(figures.contracted)} — ${hours(Math.abs(left))} past it.`
-          : `${name} has taught ${hours(figures.taughtSoFar)} of ${hours(figures.contracted)} contracted, with ${hours(left)} left.`,
+          ? `${name} has taught ${hours(figures.taughtSoFar)} against a requisition of ${hours(figures.contracted)} — ${hours(Math.abs(left))} past it.`
+          : `${name} has taught ${hours(figures.taughtSoFar)} of the ${hours(figures.contracted)} requisitioned, with ${hours(left)} left.`,
       apart: Math.abs(left),
     });
   }

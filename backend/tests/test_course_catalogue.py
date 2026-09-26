@@ -1,6 +1,8 @@
 import os
 from uuid import uuid4
 
+from sqlalchemy import text
+
 from sorbonne.services.teacher_store import TeacherStore
 import importlib.util as _importlib_util
 from pathlib import Path as _Path
@@ -22,107 +24,79 @@ TEST_DATABASE_URL = os.getenv(
 )
 
 
-def test_import_keeps_changed_crns_as_obsolete_historical_entries() -> None:
+def _portal_course(store: TeacherStore, crn: str, term: str, code: str, title: str, status: str = "in_portal") -> None:
+    """A row as a portal sync of Courses leaves it."""
+    with store.engine.begin() as connection:
+        connection.execute(
+            text(
+                """INSERT INTO portal_courses (term_code, crn, course_code, title, sequence, credits, department,
+                                               level, college, contact_hours, status, first_seen_at, last_seen_at)
+                   VALUES (:term, :crn, :code, :title, '1', '4', 'PHY', 'L1', 'P4', '30', :status,
+                           '2026-09-01T00:00:00+00:00', '2026-09-20T00:00:00+00:00')"""
+            ),
+            {"term": term, "crn": crn, "code": code, "title": title, "status": status},
+        )
+
+
+def _uploaded_course(store: TeacherStore, crn: str, term: str, code: str, title: str) -> None:
+    """A row the retired spreadsheet upload left behind."""
+    with store.engine.begin() as connection:
+        connection.execute(
+            text(
+                """INSERT INTO course_catalogue_entries (id, crn, term, course_code, course_title, sequence, credit,
+                                                         department, level, college, contact_hours, is_obsolete,
+                                                         imported_at, obsolete_at)
+                   VALUES (:id, :crn, :term, :code, :title, '1', '4', 'PHY', 'L1', 'P4', '30', FALSE,
+                           '2025-09-01T00:00:00+00:00', NULL)"""
+            ),
+            {"id": str(uuid4()), "crn": crn, "term": term, "code": code, "title": title},
+        )
+
+
+def test_the_course_list_is_the_portal_s_courses() -> None:
+    """What a requisition picks from is what the Courses page shows, kept current by every sync."""
     store = TeacherStore(TEST_DATABASE_URL)
     crn = f"CRN-{uuid4()}"
+    _portal_course(store, crn, "262710", "PHY-118", "Geometric Optics")
 
-    first = store.import_course_catalogue(
-        [
-            {
-                "crn": crn,
-                "term": "262710",
-                "courseCode": "APLL-500",
-                "courseTitle": "Didactique du français",
-                "sequence": "1",
-                "credit": "4",
-                "department": "FRCL",
-                "level": "M1",
-                "college": "P4",
-                "contactHours": "30",
-            }
-        ]
-    )
+    [entry] = store.list_course_catalogue(query=crn)
 
-    assert first["imported"] == 1
-    assert first["retained"] == 0
-    active_before_change = store.list_course_catalogue(query=crn)
-    assert len(active_before_change) == 1
-    assert active_before_change[0] == {
-        **active_before_change[0],
+    assert entry == {
+        **entry,
         "crn": crn,
-        "courseCode": "APLL-500",
-        "courseTitle": "Didactique du français",
+        "term": "262710",
+        "courseCode": "PHY-118",
+        "courseTitle": "Geometric Optics",
+        "level": "L1",
+        "contactHours": "30",
         "isObsolete": False,
         "obsoleteAt": None,
     }
-
-    changed = store.import_course_catalogue(
-        [
-            {
-                "crn": crn,
-                "term": "262710",
-                "courseCode": "APLL-500",
-                "courseTitle": "Didactique du français — updated",
-                "sequence": "1",
-                "credit": "4",
-                "department": "FRCL",
-                "level": "M1",
-                "college": "P4",
-                "contactHours": "30",
-            }
-        ]
-    )
-
-    assert changed["imported"] == 1
-    assert changed["retained"] == 0
-    assert changed["obsoleted"] == 1
-    active = store.list_course_catalogue(query=crn)
-    assert len(active) == 1
-    assert active[0]["courseTitle"] == "Didactique du français — updated"
-    history = store.list_course_catalogue(query=crn, include_obsolete=True)
-    assert len(history) == 2
-    assert {entry["isObsolete"] for entry in history} == {False, True}
+    assert "2026-2027" in store.list_academic_years()
+    by_code = store.list_courses_by_code(query="PHY-118")
+    assert any(crn in course["crns"] for course in by_code)
 
 
-def test_import_marks_courses_absent_from_the_next_catalogue_as_obsolete() -> None:
+def test_a_section_the_portal_has_dropped_is_no_longer_offered() -> None:
     store = TeacherStore(TEST_DATABASE_URL)
-    first_crn = f"CRN-{uuid4()}"
-    second_crn = f"CRN-{uuid4()}"
-    rows = [
-        {
-            "crn": first_crn,
-            "term": "262710",
-            "courseCode": "PHY-101",
-            "courseTitle": "Physics",
-            "sequence": "1",
-            "credit": "4",
-            "department": "PHY",
-            "level": "L1",
-            "college": "P4",
-            "contactHours": "30",
-        },
-        {
-            "crn": second_crn,
-            "term": "262710",
-            "courseCode": "MAT-101",
-            "courseTitle": "Mathematics",
-            "sequence": "1",
-            "credit": "4",
-            "department": "MAT",
-            "level": "L1",
-            "college": "P4",
-            "contactHours": "30",
-        },
-    ]
-    store.import_course_catalogue(rows)
+    crn = f"CRN-{uuid4()}"
+    _portal_course(store, crn, "262710", "PHY-119", "Withdrawn", status="not_in_portal")
 
-    result = store.import_course_catalogue([rows[0]])
+    assert store.list_course_catalogue(query=crn) == []
+    assert store.list_course_catalogue(query=crn, include_obsolete=True)[0]["isObsolete"] is True
 
-    assert result["retained"] == 1
-    assert result["obsoleted"] == 1
-    assert {entry["crn"] for entry in store.list_course_catalogue(query=first_crn)} == {first_crn}
-    assert store.list_course_catalogue(query=second_crn) == []
-    assert store.list_course_catalogue(query=second_crn, include_obsolete=True)[0]["isObsolete"] is True
+
+def test_an_earlier_upload_stays_for_terms_the_portal_has_not_synced() -> None:
+    """A past year's syllabuses keep their courses; where both know a section, the portal's word wins."""
+    store = TeacherStore(TEST_DATABASE_URL)
+    old = f"CRN-{uuid4()}"
+    both = f"CRN-{uuid4()}"
+    _uploaded_course(store, old, "242510", "PHY-100", "Mechanics")
+    _uploaded_course(store, both, "262710", "PHY-120", "Optics (as uploaded)")
+    _portal_course(store, both, "262710", "PHY-120", "Optics")
+
+    assert [entry["courseTitle"] for entry in store.list_course_catalogue(query=old)] == ["Mechanics"]
+    assert [entry["courseTitle"] for entry in store.list_course_catalogue(query=both)] == ["Optics"]
 
 
 def test_reads_the_academic_year_out_of_the_portal_term_code() -> None:

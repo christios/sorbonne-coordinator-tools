@@ -88,6 +88,21 @@ def test_writes_one_course_row_per_course_with_the_level_control(tmp_path) -> No
     assert identifiers != [element.get(qn("w:val")) for element in courses.rows[2]._tr.iter(qn("w:id"))]
 
 
+def test_lists_admin_hours_with_the_courses_and_counts_them_in_the_total(tmp_path) -> None:
+    """Admin work is paid on the same requisition, so HR's form carries it, marked as admin."""
+    output = tmp_path / "admin.docx"
+    build_requisition_docx(
+        _requisition(content={"admin": [{"title": "Exam invigilation", "hours": "10"}]}),
+        output,
+    )
+
+    document = Document(output)
+    assert document.tables[0].rows[6].cells[1].text == "46"
+    courses = document.tables[1]
+    assert [row.cells[0].text for row in courses.rows] == ["Subject Code", "PHY", "PHY", ""]
+    assert [cell.text for cell in courses.rows[3].cells] == ["", "", "Exam invigilation", "10 Admin"]
+
+
 def test_appends_a_course_specific_class_type_to_numeric_hours(tmp_path) -> None:
     output = tmp_path / "course-class-type.docx"
     build_requisition_docx(

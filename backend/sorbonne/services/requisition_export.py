@@ -34,14 +34,16 @@ def build_requisition_docx(requisition: dict[str, Any], output_path: Path) -> No
     contract = _row_with(details, "Contract period from")
     _set_date(contract, 0, _text(content.get("contractFrom")))
     _set_date(contract, 1, _text(content.get("contractTo")))
-    _set_cell(_cells(_row_with(details, "Total number of hours"))[1], total_hours(content.get("courses")))
+    # Admin work is paid on the same requisition, so it is listed with the courses and counted in the total.
+    lines = _rows(content.get("courses")) + [_as_admin(row) for row in _rows(content.get("admin"))]
+    _set_cell(_cells(_row_with(details, "Total number of hours"))[1], total_hours(lines))
 
     part_time = _text(content.get("employeeType")) != "FT"
     employee_type = _row_with(details, "Employee Type")
     _set_checkbox(employee_type, 0, not part_time)
     _set_checkbox(employee_type, 1, part_time)
 
-    _fill_courses(_table_with(body, "Subject Code"), _rows(content.get("courses")))
+    _fill_courses(_table_with(body, "Subject Code"), lines)
     _normalise_content_controls(body)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     document.save(output_path)
@@ -57,6 +59,11 @@ def total_hours(courses: Any) -> str:
         Decimal(),
     )
     return format(total.normalize(), "f")
+
+
+def _as_admin(row: dict[str, Any]) -> dict[str, Any]:
+    """An admin entry as a line of the course table: its hours marked "Admin" where a class type would go."""
+    return {**row, "classType": "Admin"}
 
 
 def _fill_courses(table: Any, courses: list[dict[str, Any]]) -> None:
