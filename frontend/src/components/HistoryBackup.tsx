@@ -1,6 +1,7 @@
 import { AlertTriangle, Check, FolderOpen, HardDriveDownload, RotateCcw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
+import { InfoTip } from "@/components/InfoTip";
 import { Modal } from "@/components/Modal";
 import {
   backUpHistory,
@@ -112,7 +113,6 @@ export function HistoryBackup({
       <Modal
         open={open}
         title="Keep a copy of the history"
-        description="What the portal has said, pull by pull, lives in this browser alone — the server is never told a student's name. Clearing site data ends it, and so does a new machine. This keeps a copy in a folder of your choosing."
         onClose={() => {
           setOpen(false);
           setSaid("");
@@ -129,7 +129,14 @@ export function HistoryBackup({
 
         {canWriteToFolder() ? (
           <div className="mt-4">
-            <p className="text-sm font-medium text-[#344054]">Folder</p>
+            <p className="flex items-center gap-1.5 text-sm font-medium text-[#344054]">
+              Folder
+              <InfoTip label="Why keep a copy in a folder">
+                The history lives in this browser alone — the server is never told a student&apos;s name — so clearing
+                site data ends it, and so does a new machine. Once a folder is chosen the copy is rewritten there after
+                every sync, without asking.
+              </InfoTip>
+            </p>
             {folder ? (
               <p className="mt-1 text-sm text-[#344054]">
                 <span className="font-medium">{folder}</span>
@@ -153,8 +160,16 @@ export function HistoryBackup({
               </p>
             ) : null}
 
-            <label className="mt-3 block">
-              <span className="text-sm font-medium text-[#344054]">File name</span>
+            {/* Not a label round the input: the ⓘ beside the caption is a button, and a label
+                holds one control. The input carries its own name. */}
+            <div className="mt-3">
+              <span className="flex items-center gap-1.5 text-sm font-medium text-[#344054]">
+                File name
+                <InfoTip label="What renaming the file does">
+                  Renaming writes to the new name from the next save. Anything written under the old name stays in
+                  the folder — take it away yourself if you do not want it.
+                </InfoTip>
+              </span>
               <input
                 aria-label="Backup file name"
                 value={filename}
@@ -171,19 +186,13 @@ export function HistoryBackup({
                 }}
                 className="mt-1 w-full rounded border border-[#cbd5e1] px-2 py-1.5 text-sm"
               />
-            </label>
+            </div>
             {badName ? (
               <p role="alert" className="mt-1 text-sm text-[#a6292f]">
                 That is not a name a file can have. Leave out slashes — the file goes in
                 the folder above.
               </p>
-            ) : (
-              <p className="mt-1 text-xs text-[#98a2b3]">
-                Renaming writes to the new name from the next save. Anything written under
-                the old name stays in the folder — take it away yourself if you do not
-                want it.
-              </p>
-            )}
+            ) : null}
 
             <div className="mt-3 flex flex-wrap gap-2">
               <button
@@ -219,9 +228,6 @@ export function HistoryBackup({
                 </>
               ) : null}
             </div>
-            <p className="mt-2 text-xs text-[#98a2b3]">
-              Once a folder is chosen the copy is rewritten after every sync, without asking.
-            </p>
           </div>
         ) : (
           <p className="mt-4 rounded-md border border-[#d9dee7] bg-[#f8fafc] px-3 py-2 text-sm text-[#667085]">
@@ -231,10 +237,12 @@ export function HistoryBackup({
         )}
 
         <div className="mt-5 border-t border-[#eef1f5] pt-4">
-          <p className="text-sm font-medium text-[#344054]">Restore</p>
-          <p className="mt-1 text-sm text-[#667085]">
-            Reads a saved file back in, alongside whatever this browser already has. Pulls
-            it already knows are left alone, so restoring twice changes nothing.
+          <p className="flex items-center gap-1.5 text-sm font-medium text-[#344054]">
+            Restore
+            <InfoTip label="What restoring does">
+              Reads a saved file back in, alongside whatever this browser already has. Pulls it already knows are left
+              alone, so restoring twice changes nothing.
+            </InfoTip>
           </p>
           <input
             ref={file}

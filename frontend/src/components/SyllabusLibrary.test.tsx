@@ -93,7 +93,9 @@ describe("SyllabusLibrary", () => {
     fireEvent.click(screen.getByRole("button", { name: "Duplicate Climate Policy" }));
     expect(screen.getByText("Start a syllabus")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Duplicate and edit" })).toBeTruthy();
-    expect(screen.getByText("Choose a mapped template, such as Foundation Year, to carry comparable content into a new syllabus in the same series.")).toBeTruthy();
+    // Carrying a syllabus over offers advice on the template, one hover away rather than on the page.
+    expect(screen.getByRole("button", { name: "Which template to choose" })).toBeTruthy();
+    expect(screen.queryByText(/Choose a mapped template/)).toBeNull();
   });
 
   it("confirms deletion for empty folders and protects populated folders", () => {

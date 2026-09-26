@@ -147,7 +147,6 @@ export function TeacherBulkActions({
         open={showingSheets}
         size="wide"
         title={`Time sheets for ${chosen.length} teacher${chosen.length === 1 ? "" : "s"}`}
-        description="The workbooks live in OneDrive and stay there. What this can hand over is the list and the links."
         onClose={() => setShowingSheets(false)}
         footer={
           <div className="flex flex-wrap items-center justify-end gap-3">

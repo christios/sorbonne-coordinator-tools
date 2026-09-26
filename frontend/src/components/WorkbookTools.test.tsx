@@ -43,7 +43,8 @@ describe("the workbook tools", () => {
      * the students moved into it.
      */
     expect(screen.queryByText("Upload workbook")).toBeNull();
-    expect(screen.getByText(/Reading a workbook back in is off/)).toBeTruthy();
+    // Said on the ⓘ now rather than on the page; what matters is that nothing offers it.
+    expect(screen.queryByRole("button", { name: /upload|import|read.*back/i })).toBeNull();
     expect(check).not.toHaveBeenCalled();
   });
 });

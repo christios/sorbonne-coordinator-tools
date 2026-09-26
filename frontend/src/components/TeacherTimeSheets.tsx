@@ -23,6 +23,7 @@ import { CheckCircle2, ChevronDown, ExternalLink, FileSpreadsheet, Pencil, Plus,
 import { useMemo, useState } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { InfoTip } from "@/components/InfoTip";
 import { SelectMenu } from "@/components/SelectMenu";
 import { buildCards } from "@/services/courseCards";
 import { asHours, hoursTaught, minutesByTeacher } from "@/services/hoursInPeriod";
@@ -238,7 +239,13 @@ export function TimeSheetsCard({ teacherId, className = "" }: { teacherId: strin
         * button off the heading it belongs to.
         */}
       <div className="flex items-center justify-between gap-3">
-        <h3 className="text-lg font-semibold">Time sheets</h3>
+        <h3 className="flex items-center gap-1.5 text-lg font-semibold">
+          Time sheets
+          <InfoTip label="What the time sheets are">
+            One row per pay period: what they actually taught in it, and the sheet claiming it. The workbooks stay in
+            OneDrive.
+          </InfoTip>
+        </h3>
         <button
           type="button"
           onClick={() => {
@@ -261,11 +268,12 @@ export function TimeSheetsCard({ teacherId, className = "" }: { teacherId: strin
           <Plus size={16} /> Add one by hand
         </button>
       </div>
-      <p className="mt-1 text-sm text-[#667085]">
-        One row per pay period: what they actually taught in it, and the sheet claiming it.
-        The workbooks stay in OneDrive where they are kept.
-        {contracted ? ` Requisitioned for ${contracted} h of teaching${admin ? ` and ${admin} h of admin` : ""}.` : ""}
-      </p>
+      {/* A figure, so it stays on the page; what the list is for sits behind the ⓘ by its title. */}
+      {contracted ? (
+        <p className="mt-1 text-sm text-[#667085]">
+          Requisitioned for {contracted} h of teaching{admin ? ` and ${admin} h of admin` : ""}.
+        </p>
+      ) : null}
       <div className="mt-3 w-52">
         <SelectMenu
           label="Semester for the hours"

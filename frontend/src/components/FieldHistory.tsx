@@ -101,7 +101,7 @@ export function FieldHistorySidebar({ field, onClose }: { field: HistoryField | 
 
   return (
     <aside className="fixed inset-y-0 right-0 z-40 flex w-full max-w-md flex-col border-l border-[#d9dee7] bg-white shadow-2xl" aria-label="Field edit history">
-      <div className="flex items-start justify-between border-b border-[#d9dee7] p-5"><div><p className="text-sm font-medium text-[#a6292f]">Edit history</p><h2 className="mt-1 text-lg font-semibold text-[#171717]">{field.label}</h2><p className="mt-1 break-all text-xs text-[#667085]">Saved changes for this field</p></div><button type="button" onClick={onClose} className="rounded p-2 text-[#475467] hover:bg-[#f2f4f7]" aria-label="Close field edit history"><PanelRightClose size={19} /></button></div>
+      <div className="flex items-start justify-between border-b border-[#d9dee7] p-5"><div><p className="text-sm font-medium text-[#a6292f]">Edit history</p><h2 className="mt-1 text-lg font-semibold text-[#171717]">{field.label}</h2></div><button type="button" onClick={onClose} className="rounded p-2 text-[#475467] hover:bg-[#f2f4f7]" aria-label="Close field edit history"><PanelRightClose size={19} /></button></div>
       <div className="flex-1 overflow-y-auto p-5"><HistoryList entries={history.data} isLoading={history.isLoading} /></div>
     </aside>
   );
@@ -109,7 +109,7 @@ export function FieldHistorySidebar({ field, onClose }: { field: HistoryField | 
 
 function HistoryList({ entries, isLoading }: { entries?: FieldHistoryEntry[]; isLoading: boolean }) {
   if (isLoading) return <div className="flex items-center gap-2 text-sm text-[#667085]"><Loader2 size={16} className="animate-spin" /> Loading changes</div>;
-  if (!entries?.length) return <p className="rounded-md border border-dashed border-[#d0d5dd] p-4 text-sm leading-6 text-[#667085]">No saved changes yet. The first edit to this field will appear here after autosave.</p>;
+  if (!entries?.length) return <p className="rounded-md border border-dashed border-[#d0d5dd] p-4 text-sm leading-6 text-[#667085]">No saved changes yet. The first edit appears here once it has saved.</p>;
   return <ol className="space-y-4">{entries.map((entry) => <li key={`${entry.revision}-${entry.changedAt}`} className="rounded-md border border-[#d9dee7] p-4"><HistoryPreview entry={entry} /></li>)}</ol>;
 }
 

@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { CourseRecord } from "@/components/CourseRecord";
 import { CrnRecord } from "@/components/CrnRecord";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { InfoTip } from "@/components/InfoTip";
 import { removeEach, stillSelected } from "@/services/bulkRemove";
 import { REMEDIES, warningsByCrn, worstOf, WORDS, type CrnWarning, type CrnWarningKind } from "@/services/registerWarnings";
 import { ListGrid, StatePill } from "@/components/ListGrid";
@@ -338,7 +339,7 @@ export function ActiveCourses({ onShowStudents }: { onShowStudents?: (ids: strin
           <p className="mt-2 text-xs text-[#98a2b3]">
             {(courses.data ?? []).length} course{(courses.data ?? []).length === 1 ? "" : "s"} on the department&apos;s list,
             {" "}
-            {rows.length} of their CRNs registered{term ? ` for ${term}` : ""}. Press a row to say what it hangs from.
+            {rows.length} of their CRNs registered{term ? ` for ${term}` : ""}.
           </p>
         </>
       )}
@@ -469,7 +470,7 @@ function ByHandDialog({
     <Modal
       open={open}
       title="Add a course by hand"
-      description="For a course the portal has not made CRNs for yet. When it does, choosing it on the Courses page brings its CRNs into the register."
+      description="For a course the portal has no CRNs for yet."
       onClose={onClose}
       footer={
         <div className="flex items-center justify-end gap-3">
@@ -567,12 +568,19 @@ export function CrnDialog({
     <>
       <div>
         <div>
-          <span className="block text-sm font-semibold text-[#344054]">Parent CRN</span>
-          <span className="block text-xs font-normal text-[#98a2b3]">
-            {isParent
-              ? `${row.childCount} CRN(s) hang from this one, so it is the top of the course and has no parent itself.`
-              : "Chosen from this course's CRNs that are not sections themselves, so the register holds a link."}
+          <span className="flex items-center gap-1 text-sm font-semibold text-[#344054]">
+            Parent CRN
+            <InfoTip label="How the parent CRN is chosen">
+              From this course&apos;s CRNs that are not sections themselves, so the register holds a link rather than a
+              number.
+            </InfoTip>
           </span>
+          {/* Why the field is shut, which is a fact about this CRN rather than an explanation. */}
+          {isParent ? (
+            <span className="block text-xs font-normal text-[#98a2b3]">
+              {row.childCount} CRN(s) hang from this one, so it has no parent itself.
+            </span>
+          ) : null}
           <div className="mt-1.5">
             <SelectMenu
               label={`Parent CRN for ${row.crn}`}
@@ -616,9 +624,7 @@ export function CrnDialog({
             <dd className="text-[#344054]">{MUTUALIZED_WORDS[row.mutualized] || <span className="text-[#c8d0da]">not said</span>}</dd>
           </div>
         </dl>
-        <p className="mt-1 text-xs text-[#98a2b3]">
-          {row.courseCode}&apos;s, and the same on every CRN of it. Change it on the course&apos;s record.
-        </p>
+        <p className="mt-1 text-xs text-[#98a2b3]">Change it on the course&apos;s record.</p>
       </div>
       {row.usedBy ? (
         <p className="mt-3 text-xs text-[#667085]">

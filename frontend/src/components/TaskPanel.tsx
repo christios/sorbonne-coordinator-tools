@@ -93,12 +93,7 @@ export function TaskPanel({
       className={`rounded-lg border border-[#d9dee7] bg-white p-5 ${className}`}
     >
       <div className="flex items-center justify-between gap-3">
-        <div>
-          <h3 className="text-lg font-semibold">Tasks</h3>
-          <p className="mt-1 text-sm text-[#667085]">
-            Track the administrative actions for this teacher.
-          </p>
-        </div>
+        <h3 className="text-lg font-semibold">Tasks</h3>
         <div className="flex flex-wrap items-center justify-end gap-2">
           {availableTemplates.length ? (
             <div className="min-w-44">

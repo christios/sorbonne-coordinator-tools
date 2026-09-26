@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useStaffUser } from "@/components/useStaffUser";
 import { CohortActions } from "@/components/CohortActions";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { InfoTip } from "@/components/InfoTip";
 import { LabelledPicker } from "@/components/LabelledPicker";
 import { NewCohort } from "@/components/NewCohort";
 import { ScreenLoading } from "@/components/ScreenLoading";
@@ -911,6 +912,10 @@ function ArrivalsBanner({
         <ArrowRightCircle size={16} aria-hidden="true" />
         {arrivals.length === 1 ? "One student belongs" : `${arrivals.length} students belong`} to {cohort.name} by what it expects and{" "}
         {arrivals.length === 1 ? "is" : "are"} not in it.
+        <InfoTip label="What adding them does">
+          Adding moves them out of the cohort they are in and drops the groups they held there; the shared sets, the
+          languages, stay. Dismiss the line if they are out on purpose.
+        </InfoTip>
       </p>
       <ul className="mt-1.5 space-y-0.5 pl-6">
         {shown.map((arrival) => (
@@ -953,7 +958,6 @@ function ArrivalsBanner({
           {open ? "Show fewer" : `Show all ${arrivals.length}`}
         </button>
       ) : null}
-      <p className="mt-1.5 pl-6 text-xs text-[#5b7a9a]">Adding moves them out of the cohort they are in and drops the groups they held there; the shared sets, the languages, stay. Dismiss the line if they are out on purpose.</p>
     </div>
   );
 }

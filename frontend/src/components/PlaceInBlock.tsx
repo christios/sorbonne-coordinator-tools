@@ -2,6 +2,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { AlertTriangle, Loader2, Plus, Wand2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
+import { InfoTip } from "@/components/InfoTip";
 import { Modal } from "@/components/Modal";
 import { SelectMenu } from "@/components/SelectMenu";
 import { type FillCandidate, clashKey } from "@/services/groupFill";
@@ -389,6 +390,13 @@ export function PlaceInBlock({
       onClose={onClose}
       footer={
         <div className="flex flex-wrap items-center justify-end gap-3">
+          {/* The fine print of a proposal, beside the button it is about rather than under the list. */}
+          {mode === "proposed" && proposed ? (
+            <InfoTip label="How a proposal is written">
+              One request per set, so a failure halfway leaves the earlier ones written. Capacity is counted in this
+              browser, so a fill running elsewhere at the same moment could still overfill a group.
+            </InfoTip>
+          ) : null}
           <button type="button" onClick={onClose} className="text-sm font-semibold text-[#667085]">
             Cancel
           </button>
@@ -700,13 +708,6 @@ function Proposed({
             </li>
           ))}
         </ul>
-      ) : null}
-
-      {placing.length ? (
-        <p className="text-xs text-[#98a2b3]">
-          One request per set, so a failure halfway leaves the earlier ones written. Capacity is counted in this
-          browser, so a fill running elsewhere at this moment could still overfill a group.
-        </p>
       ) : null}
     </div>
   );

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Copy, Loader2, Pencil, Shield, ShieldCheck, Trash2, UserPlus } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import { ChecksPanel } from "@/components/ChecksPanel";
 import { ExemptionReasonsPanel } from "@/components/ExemptionReasonsPanel";
@@ -8,6 +8,7 @@ import { ProgrammeCodesPanel } from "@/components/ProgrammeCodesPanel";
 import { TermWeeksPanel } from "@/components/TermWeeksPanel";
 import { ThisBrowser } from "@/components/ThisBrowser";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { InfoTip } from "@/components/InfoTip";
 import { COORDINATOR_APPS, type AppId } from "@/routes/apps";
 import type { SettingsSection } from "@/routes/toolRoute";
 import { sectionFrom, sectionsFor } from "@/services/settingsSections";
@@ -60,13 +61,9 @@ export function StaffSettings() {
 
   return (
     <div className="mx-auto max-w-[70rem] px-4 py-8 sm:px-6 lg:px-8">
+      {/* No line under the title: the tabs below already say what Settings holds. */}
       <header>
         <h2 className="text-2xl font-semibold tracking-tight text-[#171717]">Settings</h2>
-        <p className="mt-2 text-sm leading-6 text-[#667085]">
-          {isAdmin
-            ? "Who can sign in to Academic Coordinator Tools, what they may do here, and what the application warns about."
-            : "What the application warns about, and how big a thing has to be before it does."}
-        </p>
       </header>
 
       {/* One page on offer needs no tabs to choose between. */}
@@ -100,6 +97,19 @@ export function StaffSettings() {
 }
 
 /**
+ * A settings page's own small heading, with what used to be its opening paragraph one hover
+ * away: the paragraph is wanted the first time, and is a line of grey every time after.
+ */
+function PageHeading({ title, about, children }: { title: string; about: string; children: ReactNode }) {
+  return (
+    <h3 className="mb-4 flex items-center gap-1.5 text-sm font-semibold text-[#344054]">
+      {title}
+      <InfoTip label={about}>{children}</InfoTip>
+    </h3>
+  );
+}
+
+/**
  * Every check the department runs, in one place, and an administrator's to change.
  *
  * Switching a check off hides a warning from every coordinator, so it is decided once,
@@ -109,10 +119,10 @@ function AppChecks() {
   const user = useStaffUser();
   return (
     <section className="mt-6 max-w-2xl">
-      <p className="mb-4 text-sm leading-6 text-[#667085]">
-        Which warnings the application raises, and how big a thing has to be before it does. They apply to the whole
+      <PageHeading title="Warnings the application raises" about="How the checks work">
+        Each check can be switched off, or told how big a thing has to be before it warns. They apply to the whole
         department and save as you change them.
-      </p>
+      </PageHeading>
       <ChecksPanel canChange={Boolean(user?.isAdmin)} />
     </section>
   );
@@ -123,6 +133,10 @@ function AppExemptionReasons() {
   const user = useStaffUser();
   return (
     <section className="mt-6 max-w-2xl">
+      <PageHeading title="Reasons the Exempt button offers" about="How exemption reasons are used">
+        Picked rather than typed, so the Students and Cohorts tables can be filtered on them. Taking a reason off the
+        list changes nothing already recorded.
+      </PageHeading>
       <ExemptionReasonsPanel canChange={Boolean(user?.isAdmin)} />
     </section>
   );
@@ -139,11 +153,10 @@ function AppProgrammeCodes() {
   const user = useStaffUser();
   return (
     <section className="mt-6 max-w-2xl">
-      <p className="mb-4 text-sm leading-6 text-[#667085]">
-        When admissions gives a programme a new code, say here which code it means. Every group, cohort and check
-        then treats the two as the same students — placing, the cohort&apos;s expected majors, and the timetable&apos;s
-        clash check.
-      </p>
+      <PageHeading title="Codes that mean the same programme" about="What a programme code line does">
+        When admissions gives a programme a new code, say here which code it means. Every group, cohort and check then
+        treats the two as the same students.
+      </PageHeading>
       <ProgrammeCodesPanel canChange={Boolean(user?.isAdmin)} />
     </section>
   );
@@ -157,10 +170,10 @@ function AppSemesters() {
   const user = useStaffUser();
   return (
     <section className="mt-6 max-w-2xl">
-      <p className="mb-4 text-sm leading-6 text-[#667085]">
-        The first teaching week of each semester. The semester timetable numbers its weeks from it — Week 1, Week 2 —
-        and lets you jump straight to any of them. Any day of that week will do.
-      </p>
+      <PageHeading title="Week 1 of each semester" about="What Week 1 is used for">
+        The semester timetable numbers its weeks from the first teaching week, and lets you jump straight to any of
+        them. Any day of that week will do.
+      </PageHeading>
       <TermWeeksPanel canChange={Boolean(user?.isAdmin)} />
     </section>
   );
@@ -209,11 +222,10 @@ function ApiTokens() {
 
   return (
     <section className="mt-6 space-y-5">
-      <p className="max-w-2xl text-sm leading-6 text-[#667085]">
-        A token lets a program call this application as you — the same access, from a script or a terminal. Send it as
-        an <code className="rounded bg-[#f2f4f7] px-1">Authorization: Bearer</code> header. Keep it as you would a
-        password: anyone holding it can do what you can do, until it expires or you revoke it.
-      </p>
+      <PageHeading title="Tokens for scripts" about="What a token is">
+        A token lets a program call this application as you, with the same access. Send it as an{" "}
+        <code className="rounded bg-[#f2f4f7] px-1">Authorization: Bearer</code> header.
+      </PageHeading>
 
       <form
         className="flex flex-wrap items-end gap-3 rounded-lg border border-[#e5e9f0] bg-[#f8fafc] p-4"
@@ -260,8 +272,10 @@ function ApiTokens() {
 
       {made ? (
         <div className="rounded-lg border border-[#bfdcc6] bg-[#f4faf5] p-4">
+          {/* The warning stays on screen, where the token is: it is the one moment it matters. */}
           <p className="text-sm font-semibold text-[#2f6b3d]">
-            Copy {made.record.name} now — this is the only time it is shown.
+            Copy {made.record.name} now — this is the only time it is shown. Keep it as you would a password: anyone
+            holding it can do what you can, until it expires or you revoke it.
           </p>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <code className="min-w-0 flex-1 break-all rounded-md border border-[#bfdcc6] bg-white px-3 py-2 font-mono text-xs text-[#171717]">
@@ -410,12 +424,14 @@ function StaffDirectory() {
           if (email.trim()) invite.mutate();
         }}
       >
-        <label htmlFor="invite-email" className="block text-sm font-semibold text-[#344054]">
-          Invite a colleague
-        </label>
-        <p className="mt-1 text-sm text-[#667085]">
-          They sign in with the Google account for this address; nobody else can get in.
-        </p>
+        <div className="flex items-center gap-1.5">
+          <label htmlFor="invite-email" className="text-sm font-semibold text-[#344054]">
+            Invite a colleague
+          </label>
+          <InfoTip label="How an invited colleague signs in">
+            They sign in with the Google account for this address; nobody else can get in.
+          </InfoTip>
+        </div>
         <div className="mt-3 flex flex-wrap items-center gap-3">
           <input
             id="invite-email"
@@ -443,9 +459,11 @@ function StaffDirectory() {
             Invite
           </button>
         </div>
-        <p id="invite-apps-hint" className="mt-4 text-sm text-[#667085]">
-          Which apps they may open. An app left at <span className="font-semibold">No access</span> is one they will
-          not see at all.
+        <p className="mt-4 flex items-center gap-1.5 text-sm text-[#667085]">
+          <span id="invite-apps-hint">Apps they may open</span>
+          <InfoTip label="What No access means">
+            An app left at <span className="font-semibold">No access</span> is one they will not see at all.
+          </InfoTip>
         </p>
         <div className="mt-2">
           <AppAccessEditor value={inviteApps} onChange={setInviteApps} describedBy="invite-apps-hint" />
@@ -487,12 +505,14 @@ function StaffDirectory() {
 
       {staff.data && staff.data.owners.length > 0 ? (
         <section className="rounded-lg border border-[#e5e9f0] bg-[#f8fafc] p-4">
-          <h3 className="text-sm font-semibold text-[#344054]">Owners</h3>
-          <p className="mt-1 text-sm leading-6 text-[#667085]">
-            Always administrators, set with{" "}
-            <code className="rounded bg-white px-1 py-0.5 text-[13px]">COORDINATOR_ACCESS_EMAILS</code>. Their access
-            is changed there rather than here — their name can be set here.
-          </p>
+          <h3 className="flex items-center gap-1.5 text-sm font-semibold text-[#344054]">
+            Owners
+            <InfoTip label="Who the owners are">
+              Always administrators, set with{" "}
+              <code className="rounded bg-[#f2f4f7] px-1 py-0.5">COORDINATOR_ACCESS_EMAILS</code>. Their access is
+              changed there rather than here — their name can be set here.
+            </InfoTip>
+          </h3>
           <ul className="mt-2 space-y-1">
             {staff.data.owners.map((owner) => (
               <li key={owner.email}>
@@ -733,8 +753,11 @@ function AccountRow({
 
       <div className="order-last w-full">
         {account.isAdmin ? (
-          <p className="text-xs text-[#667085]">
-            An administrator opens every app: they hand out access and cannot be shut out of what they hand out.
+          <p className="flex items-center gap-1 text-xs text-[#667085]">
+            Opens every app
+            <InfoTip label="Why an administrator opens every app">
+              An administrator hands out access, and cannot be shut out of what they hand out.
+            </InfoTip>
           </p>
         ) : (
           <AppAccessEditor value={account.apps ?? {}} onChange={onChangeApps} disabled={busy} />

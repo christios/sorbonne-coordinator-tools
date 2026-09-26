@@ -112,7 +112,8 @@ describe("a view is a fixed question", () => {
     renderApp();
     fireEvent.click(await screen.findByRole("button", { name: "New portal filter" }));
 
-    expect(await screen.findByText(/fixed now and cannot be changed afterwards/i)).toBeTruthy();
+    // The warning's wording moved when the dialog's description went; the warning did not.
+    expect(await screen.findByText(/Fixed once created/i)).toBeTruthy();
   });
 
   it("says there is nothing to show until a view exists", async () => {

@@ -83,7 +83,7 @@ export function SemesterExport({
       open={open}
       size="wide"
       title={`Export ${input.semester}`}
-      description={`Every ${noun} of the semester, drawn as the page draws it: ${shown}, with the page's filters.`}
+      description={`Every ${noun}: ${shown}, with the page's filters.`}
       onClose={onClose}
       footer={
         <>
@@ -131,8 +131,7 @@ export function SemesterExport({
         ) : (
           <>
             <strong className="font-semibold">{pages.length} pages</strong> for the whole semester, over{" "}
-            {units.length} {noun}s; the {noun} below takes {ofUnit.length}. Every page is filled to its edges, and
-            every class says all it has.
+            {units.length} {noun}s; the {noun} below takes {ofUnit.length}.
             {squeezed
               ? ` ${squeezed - overCeiling} ${noun}${squeezed - overCeiling === 1 ? " is" : "s are"} drawn smaller to stay within ${zoom.maxPages} page${zoom.maxPages === 1 ? "" : "s"}.`
               : ""}

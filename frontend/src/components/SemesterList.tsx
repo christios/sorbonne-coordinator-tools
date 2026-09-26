@@ -3,6 +3,7 @@ import { CalendarDays, Pencil } from "lucide-react";
 import { useState } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { InfoTip } from "@/components/InfoTip";
 import { Modal } from "@/components/Modal";
 import { PayCycleCell } from "@/components/PayCycleCell";
 import { PortalTermLink } from "@/components/PortalTermLink";
@@ -105,12 +106,15 @@ export function SemesterList({
               </header>
 
               <p className="border-b border-[#e4e8ef] bg-[#fdf9ee] px-6 py-3 text-sm text-[#8a6116]">
-                <strong className="font-semibold">Uploading a timetable is retired.</strong> The hours a clash is
-                worked out from come from the portal&apos;s own timetable now, swept section by section as the
-                last step of Portal sync. An uploaded file was a photograph taken in week one: out of date the
-                moment a room moved, and only ever covering the cohorts whose file somebody made — 43 courses of
-                141 sections, which is why three cohorts in four reported no clashes and meant nothing by it.
-                What is listed below is whatever was last uploaded, kept so nothing is lost.
+                {/* The notice stays said; the history of why is one hover away. */}
+                <strong className="font-semibold">Uploading a timetable is retired.</strong> Clash hours come from
+                the portal&apos;s own timetable, swept at the end of Portal sync. Below is what was last uploaded, kept
+                so nothing is lost.{" "}
+                <InfoTip label="Why uploading was retired">
+                  An uploaded file was a photograph taken in week one: out of date the moment a room moved, and only
+                  covering the cohorts whose file somebody made — 43 courses of 141 sections, which is why three cohorts
+                  in four reported no clashes and meant nothing by it.
+                </InfoTip>
               </p>
 
               {terms.isLoading ? (
@@ -233,7 +237,7 @@ export function SemesterList({
       <Modal
         open={renaming !== null}
         title="Rename this semester"
-        description="What coordinators and students see it called. Its address for students stays the same, so links keep working."
+        description="Students' links to it keep working."
         onClose={() => setRenaming(null)}
         footer={
           <div className="flex items-center justify-end gap-3">

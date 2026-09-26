@@ -9,6 +9,7 @@ import { AnnouncementEditor } from "@/components/AnnouncementEditor";
 import { CohortsPage } from "@/components/CohortsPage";
 import { TeacherDatabase } from "@/components/TeacherDatabase";
 import { GroupSchema } from "@/components/GroupSchema";
+import { InfoTip } from "@/components/InfoTip";
 import { CapacityPage } from "@/components/CapacityPage";
 import { TeacherHours } from "@/components/TeacherHours";
 import { TeacherRecord, type TeacherRef } from "@/components/TeacherRecord";
@@ -138,11 +139,11 @@ const TITLES: Record<PageId, { title: string; blurb?: string }> = {
   },
   capacity: {
     title: "Capacity",
-    blurb: "How full every group is: its seats, who is in it, and where there is room.",
+    blurb: "How full every group is: its seats, who is in it, and where there is room. Each bar is the group's own seats — the line is the last one — so what spills past it is over.",
   },
   courses: {
     title: "Courses",
-    blurb: "The term's CRNs as the portal lists them — what everything else checks against.",
+    blurb: "The term's CRNs as the portal lists them — what everything else checks against, so keep the department's filter synced. Add the courses the department deals with to Active CRNs; a course brings its CRNs with it.",
   },
   "active-courses": {
     title: "Active CRNs",
@@ -150,7 +151,7 @@ const TITLES: Record<PageId, { title: string; blurb?: string }> = {
   },
   teachers: {
     title: "Teachers",
-    blurb: "The portal's staff list — choose the teachers the department deals with from it.",
+    blurb: "The portal's staff list, pulled by filter — choose the teachers the department deals with and add them to Active teachers. Personal contact details never leave the portal.",
   },
   "active-teachers": {
     title: "Active teachers",
@@ -354,16 +355,18 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: (section:
               fullBleed ? "hidden" : FILLS.has(page) ? "pb-3" : "pb-5"
             }`}
           >
-            <div>
-              <h2 title={TITLES[page].blurb} className="text-2xl font-semibold text-[#171717]">{TITLES[page].title}</h2>
-              {/*
-                * A page whose panes fill the screen keeps its blurb to a tooltip.
-                *
-                * Every line above the panes is a line they do not get, and this one is a
-                * sentence you read once. The title carries it for anyone who wants it.
-                */}
-              {TITLES[page].blurb && !FILLS.has(page) ? (
-                <p className="mt-1 text-sm text-[#667085]">{TITLES[page].blurb}</p>
+            {/*
+              * Every page keeps its blurb to an ⓘ beside the title.
+              *
+              * It was a line of grey under the title on the pages that scroll, and a tooltip on
+              * the title only where the panes fill the screen. Either way it is a sentence read
+              * once, and every line above the page's own content is a line that content does
+              * not get — so it sits one hover away on every page alike.
+              */}
+            <div className="flex items-center gap-1.5">
+              <h2 className="text-2xl font-semibold text-[#171717]">{TITLES[page].title}</h2>
+              {TITLES[page].blurb ? (
+                <InfoTip label={`About ${TITLES[page].title}`}>{TITLES[page].blurb}</InfoTip>
               ) : null}
             </div>
 

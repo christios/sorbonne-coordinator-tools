@@ -28,6 +28,7 @@ import {
   parsePhoneValue,
 } from "@/components/CountryCodeCombobox";
 import { DateField } from "@/components/DateField";
+import { InfoTip } from "@/components/InfoTip";
 import { FolderMoveMenu } from "@/components/FolderMoveMenu";
 import { FormFieldLabel } from "@/components/FormFieldLabel";
 import { FieldInfoProvider } from "@/components/FieldInfo";
@@ -963,11 +964,12 @@ function TeacherProfile({
         <section className="h-full rounded-lg border border-[#d9dee7] bg-white p-5">
           <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
             <div>
-              <h3 className="text-lg font-semibold">Requisitions</h3>
-              <p className="mt-1 text-sm text-[#667085]">
-                Create labelled requests for this teacher without limiting the
-                number per year.
-              </p>
+              <h3 className="flex items-center gap-1.5 text-lg font-semibold">
+                Requisitions
+                <InfoTip label="What requisitions are">
+                  Labelled requests for this teacher — as many a year as are needed.
+                </InfoTip>
+              </h3>
             </div>
             <button
               type="button"
@@ -1243,9 +1245,11 @@ function TeacherDocumentSyncPanel() {
    */
   return (
     <section className="flex flex-wrap items-center gap-x-3 gap-y-2 py-2 text-sm">
-      <span className="font-semibold text-[#344054]">Google Form documents</span>
-      <span className="text-[#98a2b3]" title="Copy the latest response for each matched teacher into their managed Google Drive folder.">
-        latest responses into each teacher&apos;s Drive folder
+      <span className="flex items-center gap-1.5 font-semibold text-[#344054]">
+        Google Form documents
+        <InfoTip label="What syncing the Google Form documents does">
+          Copies the latest response for each matched teacher into their managed Google Drive folder.
+        </InfoTip>
       </span>
       <span className="ml-auto flex items-center gap-3">
         <GoogleDocumentSyncButton
@@ -1295,11 +1299,12 @@ function TeacherDocumentsCard({
     >
       <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
         <div>
-          <h3 className="text-lg font-semibold">Documents</h3>
-          <p className="mt-1 text-sm text-[#667085]">
-            Latest Google Form documents, stored in the managed Google Drive
-            folder.
-          </p>
+          <h3 className="flex items-center gap-1.5 text-lg font-semibold">
+            Documents
+            <InfoTip label="Where the documents come from">
+              The latest Google Form documents, stored in the managed Google Drive folder.
+            </InfoTip>
+          </h3>
         </div>
       </div>
       {documents.isLoading ? (
@@ -2029,10 +2034,6 @@ export function RequisitionReview({
     <div>
       <div>
         <h3 className="text-lg font-semibold">Review</h3>
-        <p className="mt-1 text-sm text-[#667085]">
-          Confirm the request details below before exporting the institutional
-          form.
-        </p>
       </div>
       <dl className="mt-5 grid gap-4 sm:grid-cols-2">
         <ReviewDetail label="Teacher" value={teacherName} />

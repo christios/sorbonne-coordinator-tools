@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { CommentThread } from "@/components/CommentThread";
 import { CrnRecord } from "@/components/CrnRecord";
+import { InfoTip } from "@/components/InfoTip";
 import { Modal } from "@/components/Modal";
 import { PlaceInBlock } from "@/components/PlaceInBlock";
 import { SectionTimetable, type TimetableEntry } from "@/components/SectionTimetable";
@@ -928,7 +929,7 @@ export function StudentRecord({
       <Card
         className="mt-5"
         title="History"
-        note="On the server: every cohort move, placement, registration change and approval, signed. From this browser's pull history: what changed in the portal's record."
+        note="Every cohort move, placement, registration change and approval, signed, from the server; and what changed in the portal's record, from this browser's pulls."
       >
         {entries.length === 0 ? (
           <Empty>{serverHistory.isLoading ? "Reading…" : "No changes recorded."}</Empty>
@@ -1005,11 +1006,17 @@ function Card({
         fitted ? "flex max-h-[32rem] flex-col lg:absolute lg:inset-0 lg:max-h-none" : ""
       } ${className}`}
     >
-      <div className="flex shrink-0 items-start gap-3">
-        <h3 className="flex-1 text-sm font-semibold text-[#171717]">{title}</h3>
+      {/*
+        * What the card is and where it lives sits on an ⓘ by its title rather than a line
+        * under it: a record is opened many times a day, and the sentence is read once.
+        */}
+      <div className="mb-2 flex shrink-0 items-start gap-3">
+        <div className="flex flex-1 items-center gap-1.5">
+          <h3 className="text-sm font-semibold text-[#171717]">{title}</h3>
+          {note ? <InfoTip label={`About ${title.charAt(0).toLowerCase()}${title.slice(1)}`}>{note}</InfoTip> : null}
+        </div>
         {beside ? <div className="shrink-0">{beside}</div> : null}
       </div>
-      {note ? <p className="mb-2 shrink-0 text-xs text-[#98a2b3]">{note}</p> : <div className="mb-2 shrink-0" />}
       {fitted ? <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">{children}</div> : children}
     </section>
   );

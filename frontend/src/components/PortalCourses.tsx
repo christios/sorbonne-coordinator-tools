@@ -95,12 +95,8 @@ export function PortalCourses() {
 
   return (
     <section>
-      <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
-        <p className="max-w-xl text-sm text-[#667085]">
-          One row per CRN, as the portal lists it. Groups &amp; CRNs and Semesters check their CRNs against this
-          list, so keep the filter that covers the department synced. Select the courses the department deals with
-          and add them to Active CRNs — a course brings its CRNs with it.
-        </p>
+      {/* What the list is for is on the page title's ⓘ; the filter is all this row needs. */}
+      <div className="mb-4 flex flex-wrap items-start justify-end gap-4">
         <PortalFilterBar
           kind="courses"
           filterId={filterId}

@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp, Plus, Trash2, X } from "lucide-react";
 import type { Dispatch, SetStateAction } from "react";
 
+import { InfoTip } from "@/components/InfoTip";
 import { Modal } from "@/components/Modal";
 import { SelectMenu } from "@/components/SelectMenu";
 import { STATUS_FIELD, STATUS_OPTIONS, labelOf, type RuleKind } from "@/services/discrepancies";
@@ -68,7 +69,6 @@ export function DiscrepancyRulesEditor({ open, scope, onClose }: { open: boolean
     <Modal
       open={open}
       title={scope.kind === "shared" ? "Rules for every cohort" : `Rules for ${scope.cohort.name}`}
-      description={rulesDescription(scope)}
       onClose={onClose}
       footer={
         <div className="flex items-center justify-between gap-3">
@@ -97,7 +97,14 @@ export function DiscrepancyRulesEditor({ open, scope, onClose }: { open: boolean
         </div>
       }
     >
-      <RulesList scope={scope} drafts={rules.drafts} setDrafts={rules.setDrafts} cohortId={rules.cohortId} open={open} />
+      <RulesList
+        scope={scope}
+        drafts={rules.drafts}
+        setDrafts={rules.setDrafts}
+        cohortId={rules.cohortId}
+        open={open}
+        about={rulesDescription(scope)}
+      />
     </Modal>
   );
 }
@@ -112,12 +119,18 @@ export function RulesList({
   setDrafts,
   cohortId,
   open,
+  about,
 }: {
   scope: RulesScope;
   drafts: Draft[];
   setDrafts: Dispatch<SetStateAction<Draft[]>>;
   cohortId: string;
   open: boolean;
+  /**
+   * What these rules apply to, for a caller with nowhere else to say it. The shared rules'
+   * dialog passes it; a cohort's settings say it in their own dialog and do not.
+   */
+  about?: string;
 }) {
   const schema = useQuery({ queryKey: ["portal-schema"], queryFn: fetchSchema, enabled: open });
   const fields = fieldChoices(schema.data?.fields ?? []);
@@ -142,18 +155,18 @@ export function RulesList({
       {/*
         * The checks used to sit here, above the rules, with a cohort able to answer them
         * for itself. They are the department's now, in Settings, and an administrator's to
-        * change: switching one off hides a warning from everybody. Said here in one line,
-        * because this is where people will come looking for them.
+        * change: switching one off hides a warning from everybody. Said on the ⓘ beside the
+        * heading, because this is where people will come looking for them — and a boxed line
+        * above every rule list was a lot of page for a signpost.
         */}
-      <p className="mb-5 rounded-md border border-[#e4e8ef] bg-[#f8fafc] px-3 py-2 text-xs text-[#667085]">
-        The department&apos;s checks — which warnings run, and how big a thing has to be before one appears — are in
-        Settings, under Checks.
-      </p>
-
-      <h3 className="text-sm font-semibold text-[#344054]">Rules</h3>
-      <p className="mb-2 mt-0.5 text-xs text-[#667085]">
-        What counts as a discrepancy in a student&apos;s record. These save with the button below.
-      </p>
+      <div className="mb-2 flex items-center gap-1.5">
+        <h3 className="text-sm font-semibold text-[#344054]">Rules</h3>
+        <InfoTip label="What the rules are">
+          What counts as a discrepancy in a student&apos;s record; they save with the button below.
+          {about ? ` ${about}` : ""} The department&apos;s checks — which warnings run, and how big a thing has to be
+          before one appears — are in Settings, under Checks.
+        </InfoTip>
+      </div>
 
       {drafts.length === 0 ? (
         <p className="rounded-md border border-dashed border-[#cbd5e1] px-4 py-6 text-center text-sm text-[#667085]">
@@ -171,6 +184,7 @@ export function RulesList({
           const badDiffers = draft.kind === "differs" && !DIFFERS_FIELDS.includes(draft.field);
           const badMoved = draft.kind === "belongs" && !BELONGS_FIELDS.includes(draft.field);
           const badStatus = draft.field === STATUS_FIELD && !STATUS_KINDS.includes(draft.kind);
+          const condition = KINDS.find((kind) => kind.value === draft.kind);
           return (
             <li key={draft.id || `new-${index}`} className="rounded-md border border-[#d9dee7] bg-white p-3">
               <div className="flex flex-wrap items-center gap-2 text-sm text-[#344054]">
@@ -208,6 +222,10 @@ export function RulesList({
                     variant="tinted"
                   />
                 </div>
+                {/* What the chosen condition measures, beside it rather than on a line of its own. */}
+                {condition ? (
+                  <InfoTip label={`What “${condition.label}” means in rule ${index + 1}`}>{condition.hint}</InfoTip>
+                ) : null}
                 <span className="ml-auto flex items-center gap-1">
                   <button
                     type="button"
@@ -237,7 +255,6 @@ export function RulesList({
                   </button>
                 </span>
               </div>
-              <p className="mt-1 text-xs text-[#98a2b3]">{KINDS.find((kind) => kind.value === draft.kind)?.hint}</p>
 
               {badDiffers ? (
                 <p role="alert" className="mt-2 text-sm text-[#a6292f]">

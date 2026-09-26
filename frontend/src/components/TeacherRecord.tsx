@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 
 import { CrnRecord } from "@/components/CrnRecord";
 import { SourceMark } from "@/components/DataTable";
+import { InfoTip } from "@/components/InfoTip";
 import { Modal } from "@/components/Modal";
 import { SectionTimetable, type TimetableEntry } from "@/components/SectionTimetable";
 import { SessionChangeList } from "@/components/SessionChangeList";
@@ -216,16 +217,16 @@ export function TeacherRecord({
       open={open}
       size="wide"
       title={teacher.fullName || "This teacher"}
-      description={
-        [facts.type, facts.department, facts.institution].filter(Boolean).join(" · ") ||
-        "What the portal and the part-time database say, and what they are teaching."
-      }
+      description={[facts.type, facts.department, facts.institution].filter(Boolean).join(" · ") || undefined}
       onClose={onClose}
     >
       {/*
         * Three counts of the same teaching, side by side: what our planning asks for, what
         * the registrar has booked, and what the contract pays for. A comparison, not a
         * verdict — hours move during a semester — but one that used to take three pages.
+        *
+        * The pill on each label says where its number comes from, so the two hours tiles
+        * carry no line underneath saying it again; the others keep theirs, which are figures.
         */}
       <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-5">
         <div className="rounded-lg border border-[#d9dee7] bg-white px-4 py-3">
@@ -238,12 +239,10 @@ export function TeacherRecord({
         <div className="rounded-lg border border-[#d9dee7] bg-white px-4 py-3">
           <p className="text-xs font-semibold uppercase tracking-wide text-[#8a94a4]">Planned hours <SourceMark source="planning" /></p>
           <p className="mt-1 text-2xl font-semibold tabular-nums text-[#171717]">{hours || "—"}</p>
-          <p className="mt-0.5 text-xs text-[#98a2b3]">as the timetable request has them</p>
         </div>
         <div className="rounded-lg border border-[#d9dee7] bg-white px-4 py-3">
           <p className="text-xs font-semibold uppercase tracking-wide text-[#8a94a4]">Portal hours <SourceMark source="registrar" /></p>
           <p className="mt-1 text-2xl font-semibold tabular-nums text-[#171717]">{registrarHours || "—"}</p>
-          <p className="mt-0.5 text-xs text-[#98a2b3]">booked on the portal&apos;s timetable</p>
         </div>
         <div className="rounded-lg border border-[#d9dee7] bg-white px-4 py-3">
           <p className="text-xs font-semibold uppercase tracking-wide text-[#8a94a4]">Requisition teaching hours <SourceMark source="part-time" /></p>
@@ -321,11 +320,7 @@ export function TeacherRecord({
           <Fact label="Courses the portal lists" value={facts.courses ?? ""} source="portal" />
         </div>
         <section>
-          <h4 className="text-sm font-semibold text-[#171717]">When they teach <SourceMark source="registrar" /></h4>
-          <p className="mb-2 text-xs text-[#98a2b3]">
-            From the portal&apos;s timetable: the sections above, any the portal staffs with them, and the
-            classes they stood in for — on the days they stood in.
-          </p>
+          <h4 className="mb-2 text-sm font-semibold text-[#171717]">When they teach <SourceMark source="registrar" /></h4>
           <SectionTimetable
             entries={timetable}
             compact
@@ -337,11 +332,16 @@ export function TeacherRecord({
         </section>
       </div>
 
-      <h4 className="mt-6 text-sm font-semibold text-[#171717]">Changes to their classes <SourceMark source="planning" /></h4>
-      <p className="mb-2 text-xs text-[#98a2b3]">
-        Cancelled, covered by somebody else, or covered by them — as said on the CRNs&apos; calendars.
-        {tally ? ` ${tally}.` : ""}
-      </p>
+      <div className="mt-6 mb-2">
+        <div className="flex items-center gap-1.5">
+          <h4 className="text-sm font-semibold text-[#171717]">Changes to their classes <SourceMark source="planning" /></h4>
+          <InfoTip label="About changes to their classes">
+            Cancelled, covered by somebody else, or covered by them — as said on the CRNs&apos; calendars.
+          </InfoTip>
+        </div>
+        {/* The tally is figures, so it stays on the page; what the list holds is on the ⓘ. */}
+        {tally ? <p className="text-xs text-[#98a2b3]">{tally}.</p> : null}
+      </div>
       <SessionChangeList
         changes={concerning}
         nameOf={(crn) => courseOf.get(crn) ?? `CRN ${crn}`}

@@ -34,6 +34,7 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { DateField } from "@/components/DateField";
 import { FieldInfoProvider } from "@/components/FieldInfo";
 import { HistoryTextField } from "@/components/HistoryTextField";
+import { InfoTip } from "@/components/InfoTip";
 import {
   FieldHistoryControl,
   FieldHistoryProvider,
@@ -540,6 +541,7 @@ function SectionForm({
     onChange: (value: string) => void,
     multiline = false,
     size: FieldSize = "full",
+    hint?: string,
   ) => (
     <Field
       label={label}
@@ -547,6 +549,7 @@ function SectionForm({
       onChange={onChange}
       multiline={multiline}
       size={size}
+      hint={hint}
       isDate={isDateField(active, label)}
       history={history(label)}
     />
@@ -659,12 +662,13 @@ function SectionForm({
     if (active === "learningOutcomes")
       return (
         <Section title="Course learning outcomes">
-          <p className="text-sm text-[#667085]">Enter one CLO per line.</p>
           {text(
             "Course learning outcomes",
             section.closText,
             (closText) => save({ ...section, closText }),
             true,
+            "full",
+            "Enter one CLO per line.",
           )}
         </Section>
       );
@@ -988,11 +992,13 @@ function TeachingApproachSection({
   return (
     <div className="grid grid-cols-[minmax(0,1fr)] gap-4">
       <section className="rounded-lg border border-[#d9dee7] bg-white p-5">
-        <h3 className="text-lg font-semibold text-[#171717]">Teaching and learning approach</h3>
-        <p className="mt-1 text-sm text-[#667085]">
-          Choose the kinds of session this course uses. Each one brings its own methods,
-          engagement and feedback, written by the department.
-        </p>
+        <h3 className="flex items-center gap-1.5 text-lg font-semibold text-[#171717]">
+          Teaching and learning approach
+          <InfoTip label="How the teaching approach is chosen">
+            Choose the kinds of session this course uses. Each one brings its own methods, engagement and feedback,
+            written by the department.
+          </InfoTip>
+        </h3>
         {/* Four short choices: across the card, not stacked down a tenth of it. */}
         <div className="mt-4 flex flex-wrap gap-x-8 gap-y-2">
           {presets.length ? (
@@ -1083,7 +1089,12 @@ function FysFacultyDirectoryPicker({
       </label>
       {selected ? (
         <div className="rounded-md border border-[#d9dee7] bg-[#f8fafc] p-4 text-sm text-[#475467]">
-          <p className="font-semibold text-[#344054]">{selected.label}</p>
+          <p className="flex items-center gap-1.5 font-semibold text-[#344054]">
+            {selected.label}
+            <InfoTip label="Why these details cannot be edited here">
+              Live directory details are read-only in the syllabus; they are changed in the People catalogue.
+            </InfoTip>
+          </p>
           <p className="mt-1">
             {[
               stringify(selected.payload.academicRank),
@@ -1093,9 +1104,6 @@ function FysFacultyDirectoryPicker({
             ]
               .filter(Boolean)
               .join(" · ") || "Directory details will appear in exports."}
-          </p>
-          <p className="mt-2 text-xs text-[#667085]">
-            Live directory details are read-only in the syllabus.
           </p>
         </div>
       ) : null}
@@ -1167,11 +1175,13 @@ function LearningOutcomesEditor({
     .filter(Boolean);
   return (
     <section className="min-w-0 rounded-lg border border-[#d9dee7] bg-white p-5">
-      <h3 className="text-lg font-semibold text-[#171717]">Learning outcomes</h3>
-      <p className="mt-1 text-sm text-[#667085]">
-        Programme learning outcomes and graduate competencies are maintained in the
-        catalogue. Align each course outcome to them here.
-      </p>
+      <h3 className="flex items-center gap-1.5 text-lg font-semibold text-[#171717]">
+        Learning outcomes
+        <InfoTip label="Where the programme outcomes come from">
+          Programme learning outcomes and graduate competencies are maintained in the catalogue. Align each course
+          outcome to them here.
+        </InfoTip>
+      </h3>
       {catalogueProgrammeId ? null : (
         <p
           role="note"

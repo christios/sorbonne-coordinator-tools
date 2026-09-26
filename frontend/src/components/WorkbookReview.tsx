@@ -1,6 +1,7 @@
 import { AlertTriangle, ArrowLeft, Loader2 } from "lucide-react";
 import { useMemo, useState } from "react";
 
+import { InfoTip } from "@/components/InfoTip";
 import {
   type Operation,
   type PlacementRow,
@@ -85,13 +86,17 @@ export function WorkbookReview({
       </button>
 
       <div className="rounded-lg border border-[#d9dee7] bg-white p-5">
-        <h3 className="text-base font-semibold text-[#171717]">
-          {preview.filename} against this semester
-        </h3>
-        <p className="mt-1 max-w-3xl text-sm leading-6 text-[#667085]">
-          Nothing has been written yet. Tick what should be applied — anything left unticked keeps
-          the value it has now, so a correction made here survives a workbook that has not caught up.
-        </p>
+        <div className="flex items-center gap-1.5">
+          <h3 className="text-base font-semibold text-[#171717]">
+            {preview.filename} against this semester
+          </h3>
+          <InfoTip label="What ticking does">
+            Anything left unticked keeps the value it has now, so a correction made here survives a workbook that has
+            not caught up.
+          </InfoTip>
+        </div>
+        {/* That nothing is written yet is the state of things, so it stays on the page. */}
+        <p className="mt-1 text-sm text-[#667085]">Nothing has been written yet. Tick what should be applied.</p>
 
         <dl className="mt-4 flex flex-wrap gap-x-8 gap-y-2 text-sm">
           <Count label="New blocks" value={preview.reference.summary.blocksNew} />

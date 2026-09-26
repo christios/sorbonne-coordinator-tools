@@ -33,7 +33,7 @@ export function ProgrammeCodesPanel({ canChange }: { canChange: boolean }) {
       {codes.isLoading ? <p className="text-sm text-[#667085]">Reading the list…</p> : null}
       {codes.data && codes.data.length === 0 ? (
         <p className="rounded-md border border-dashed border-[#cbd5e1] px-4 py-5 text-center text-sm text-[#667085]">
-          No codes are treated as the same yet. Every programme is matched on the code the portal gives it.
+          No codes are treated as the same yet.
         </p>
       ) : null}
       {codes.data?.length ? (

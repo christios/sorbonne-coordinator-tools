@@ -3,6 +3,7 @@ import { AlertTriangle, ChevronRight, Copy } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { CrnRecord } from "@/components/CrnRecord";
+import { InfoTip } from "@/components/InfoTip";
 import { LabelledPicker } from "@/components/LabelledPicker";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { SelectMenu } from "@/components/SelectMenu";
@@ -375,13 +376,18 @@ export function CapacityPage() {
             <div className="mb-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
               <h3 className="text-sm font-semibold text-[#1f4e79]">{set.code}</h3>
               {set.shared ? (
-                <span className="rounded-full bg-[#e8edf3] px-2 py-0.5 text-xs font-semibold text-[#1f4e79]">Across cohorts</span>
+                <span className="inline-flex items-center gap-1 self-center">
+                  <span className="rounded-full bg-[#e8edf3] px-2 py-0.5 text-xs font-semibold text-[#1f4e79]">Across cohorts</span>
+                  <InfoTip label="What across cohorts means">
+                    Its seats are shared with every cohort: it holds this cohort&apos;s students among everybody else&apos;s,
+                    so it is counted apart from the totals above.
+                  </InfoTip>
+                </span>
               ) : null}
               <p className="text-xs text-[#667085]">
                 {set.groups.length} group{set.groups.length === 1 ? "" : "s"} · {set.enrolled.toLocaleString()} in{" "}
                 {set.capacity.toLocaleString()} seats
                 {set.over ? <span className="font-semibold text-[#a6292f]"> · {set.over} over</span> : null}
-                {set.shared ? " · seats shared with every cohort" : ""}
               </p>
             </div>
             <div className="divide-y divide-[#f2f4f7]">
@@ -404,13 +410,6 @@ export function CapacityPage() {
           onSaved={() => void client.invalidateQueries({ queryKey: ["active-crns"] })}
         />
       ) : null}
-
-      <p className="mt-4 text-xs text-[#98a2b3]">
-        A group&apos;s enrolment is the group&apos;s, whatever its set carries; its sections are named under it, and each
-        opens its own CRN. Each bar is
-        that group&apos;s own seats — the line is the last one — so what spills past it is what is over. A set shared across cohorts holds
-        this cohort&apos;s students among everybody else&apos;s, so its seats are counted apart from the totals above.
-      </p>
     </section>
   );
 }

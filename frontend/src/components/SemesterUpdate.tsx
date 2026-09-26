@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
+import { InfoTip } from "@/components/InfoTip";
 import { Modal } from "@/components/Modal";
 import { usePageState } from "@/components/usePageState";
 
@@ -158,7 +159,7 @@ export function SemesterUpdate({
       <Modal
         open
         title={`Update ${term.name}`}
-        description="Nothing changes until you have looked at what differs and ticked it — anything you leave unticked keeps the value students see today."
+        description="Nothing changes until you have ticked it."
         onClose={onBack}
         footer={
           <>
@@ -205,11 +206,13 @@ export function SemesterUpdate({
       </button>
 
       <div className="rounded-lg border border-[#d9dee7] bg-white p-6">
-        <h3 className="text-lg font-semibold text-[#171717]">Update {term.name}</h3>
-        <p className="mt-2 max-w-3xl text-sm leading-6 text-[#667085]">
-          Nothing changes until you have looked at what differs and ticked it — anything you leave
-          unticked keeps the value students see today.
-        </p>
+        <div className="flex items-center gap-1.5">
+          <h3 className="text-lg font-semibold text-[#171717]">Update {term.name}</h3>
+          <InfoTip label="What ticking does">
+            Nothing changes until you have looked at what differs and ticked it — anything you leave unticked keeps the
+            value students see today.
+          </InfoTip>
+        </div>
 
         <p className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-[#667085]">
           <FileSpreadsheet size={15} className="text-[#1f4e79]" aria-hidden="true" />

@@ -2,6 +2,7 @@ import { useQueries } from "@tanstack/react-query";
 import { ClipboardList } from "lucide-react";
 import { useState } from "react";
 
+import { InfoTip } from "@/components/InfoTip";
 import { Modal } from "@/components/Modal";
 import { copyTable } from "@/services/copyCells";
 import { fetchRegistrationCheck } from "@/services/portalLists";
@@ -138,7 +139,6 @@ export function RegistrationChangesButton({
       <Modal
         open={open}
         title="Registrations to change"
-        description="One table for whoever acts on it: the id and the name once per student, then a line each. A register line carries the CRN to add or drop; an admissions or timetabling line carries what is wrong with them instead. Choose the records that whoever receives it acts on."
         onClose={() => setOpen(false)}
       >
         {/*
@@ -146,20 +146,30 @@ export function RegistrationChangesButton({
           * as the page's own filter. A student flagged by two records appears under each,
           * carrying only that record's lines.
           */}
-        <div role="group" aria-label="Which records to copy" className="mb-3 inline-flex flex-wrap gap-1 rounded-md border border-[#d3d9e2] bg-white p-0.5">
-          {RECORDS.map((option) => (
-            <button
-              key={option.id}
-              type="button"
-              aria-pressed={records.has(option.id)}
-              onClick={() => toggle(option.id)}
-              className={`rounded px-2.5 py-1 text-sm font-semibold ${
-                records.has(option.id) ? "bg-[#1f4e79] text-white" : "text-[#344054] hover:bg-[#f2f4f7]"
-              }`}
-            >
-              {option.name}
-            </button>
-          ))}
+        {/*
+          * What the copied table looks like is on the ⓘ beside the choice it depends on. It was
+          * the dialog's description, three sentences above the two controls it was about.
+          */}
+        <div className="mb-3 flex items-center gap-1.5">
+          <div role="group" aria-label="Which records to copy" className="inline-flex flex-wrap gap-1 rounded-md border border-[#d3d9e2] bg-white p-0.5">
+            {RECORDS.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                aria-pressed={records.has(option.id)}
+                onClick={() => toggle(option.id)}
+                className={`rounded px-2.5 py-1 text-sm font-semibold ${
+                  records.has(option.id) ? "bg-[#1f4e79] text-white" : "text-[#344054] hover:bg-[#f2f4f7]"
+                }`}
+              >
+                {option.name}
+              </button>
+            ))}
+          </div>
+          <InfoTip label="What the copy holds">
+            One table: each student&apos;s id and name once, then a line each. A register line carries the CRN to add or
+            drop; an admissions or timetabling line says what is wrong instead. Choose the records the recipient acts on.
+          </InfoTip>
         </div>
         {records.size === 0 ? (
           <p className="mb-3 text-xs text-[#98a2b3]">No record chosen, so there is nothing to copy.</p>
@@ -177,9 +187,7 @@ export function RegistrationChangesButton({
                   copied={copied}
                   onCopy={() => copy(picked)}
                 />
-                <p className="text-xs text-[#98a2b3]">
-                  A selection is what this copies while it stands. Clear the ticks to copy the whole cohort again.
-                </p>
+                <p className="text-xs text-[#98a2b3]">Clear the ticks to copy the whole cohort again.</p>
               </>
             ) : (
               <>

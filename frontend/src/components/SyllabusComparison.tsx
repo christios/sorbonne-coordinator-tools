@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 
 import { Syllabus, SyllabusChange, SyllabusComparisonRow, SyllabusSummary, WordDiffOperation, compareSyllabi } from "@/services/syllabi";
+import { InfoTip } from "@/components/InfoTip";
 import { SelectMenu } from "@/components/SelectMenu";
 
 export function SyllabusComparison({ syllabus, candidates, onBack }: { syllabus: Syllabus; candidates: SyllabusSummary[]; onBack: () => void }) {
@@ -27,7 +28,6 @@ export function SyllabusComparison({ syllabus, candidates, onBack }: { syllabus:
           <div>
             <p className="text-sm font-medium text-[#a6292f]">Year-over-year review</p>
             <h2 className="text-xl font-semibold text-[#171717]">Compare syllabus versions</h2>
-            <p className="text-sm text-[#667085]">Text changes are highlighted word by word.</p>
           </div>
         </div>
         <label className="grid gap-1 text-sm font-medium text-[#344054]">
@@ -93,11 +93,14 @@ export function ComparisonStatus({ row, leftTemplate, rightTemplate }: { row: Sy
 
 function DiffLegend() {
   return (
-    <p className="mt-1 text-xs text-[#667085]">
-      <span className="mr-2 rounded bg-[#fee4e2] px-1 text-[#b42318] line-through">Deleted</span>
-      <span className="mr-2 rounded bg-[#dcfae6] px-1 text-[#067647]">Inserted</span>
+    <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-[#667085]">
+      <span className="rounded bg-[#fee4e2] px-1 text-[#b42318] line-through">Deleted</span>
+      <span className="rounded bg-[#dcfae6] px-1 text-[#067647]">Inserted</span>
       <span className="rounded bg-[#fef0c7] px-1 text-[#92400e]">Substitution: old → new</span>
-      <span className="mt-1 block">Kept means mapped content carried over unchanged. “Only in” identifies template-specific fields.</span>
+      <InfoTip label="What Kept and Only in mean">
+        Text changes are highlighted word by word. Kept means mapped content carried over unchanged; “Only in” marks a
+        field one template has and the other does not.
+      </InfoTip>
     </p>
   );
 }

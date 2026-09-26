@@ -3,6 +3,7 @@ import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from "reac
 
 import { CreateFolderInput, CreateSyllabusInput, SyllabusFolder, SyllabusSummary, SyllabusTemplate, syllabusTemplateDocumentUrl } from "@/services/syllabi";
 import { FolderMoveMenu } from "@/components/FolderMoveMenu";
+import { InfoTip } from "@/components/InfoTip";
 import { LibraryRecordTimestamps } from "@/components/LibraryRecordTimestamps";
 import { SelectMenu } from "@/components/SelectMenu";
 import { SyllabusStatusPill } from "@/components/SyllabusStatusPill";
@@ -145,7 +146,6 @@ export function SyllabusLibrary({
         <div>
           <p className="text-sm font-medium text-[#a6292f]">SCEN workspace</p>
           <h2 className="mt-1 text-2xl font-semibold text-[#171717]">Syllabus library</h2>
-          <p className="mt-1 text-sm text-[#667085]">Create, organize, and compare course syllabi across academic years.</p>
         </div>
         <div className="flex flex-wrap gap-3 lg:justify-end">
           {/* The catalogue is the standards, not a working document: whoever may not change
@@ -168,12 +168,12 @@ export function SyllabusLibrary({
 
       {showForm ? (
         <form onSubmit={submitSyllabus} className="mt-6 grid gap-4 rounded-lg border border-[#cbd5e1] bg-white p-5 md:grid-cols-2">
-          <div className="md:col-span-2"><h3 className="text-base font-semibold text-[#171717]">Start a syllabus</h3><p className="mt-1 text-sm text-[#667085]">Start blank or carry an existing syllabus into a new academic year.</p></div>
+          <div className="md:col-span-2"><h3 className="text-base font-semibold text-[#171717]">Start a syllabus</h3></div>
           <label className="grid gap-1 text-sm font-medium text-[#344054]">Course title<input required value={title} onChange={(event) => setTitle(event.target.value)} className="rounded-md border border-[#b7bec8] px-3 py-2 font-normal" /></label>
           <label className="grid gap-1 text-sm font-medium text-[#344054]">Academic year<input required value={year} onChange={(event) => setYear(event.target.value)} placeholder="2026-2027" className="rounded-md border border-[#b7bec8] px-3 py-2 font-normal" /></label>
           <label className="grid gap-1 text-sm font-medium text-[#344054]">Course code <span className="font-normal text-[#667085]">(optional)</span><input value={code} onChange={(event) => setCode(event.target.value)} className="rounded-md border border-[#b7bec8] px-3 py-2 font-normal" /></label>
           <label className="grid gap-1 text-sm font-medium text-[#344054]">Starting point<SelectMenu label="Starting point" value={sourceId} onChange={(nextSourceId) => { setSourceId(nextSourceId); const source = syllabi.find((syllabus) => syllabus.id === nextSourceId); if (source) { setTemplateId(source.templateId); setTitle(source.courseTitle); setCode(source.courseCode); } }} placeholder="Blank syllabus" options={[{ value: "", label: "Blank syllabus" }, ...syllabi.map((syllabus) => ({ value: syllabus.id, label: `${syllabus.courseTitle} — ${syllabus.academicYear}` }))]} /></label>
-          <div className="grid gap-1 text-sm font-medium text-[#344054] md:col-span-2"><span>Template</span><SelectMenu label="Syllabus template" value={templateId} onChange={setTemplateId} placeholder="Choose a template" options={templates.map((template) => ({ value: template.id, label: template.name }))} />{selectedTemplate ? <a href={syllabusTemplateDocumentUrl(selectedTemplate)} className="inline-flex w-fit items-center gap-1.5 text-sm font-medium text-[#1f4e79] hover:underline"><FileText size={16} aria-hidden="true" /> View Word template</a> : null}{sourceId ? <p className="text-sm font-normal text-[#667085]">Choose a mapped template, such as Foundation Year, to carry comparable content into a new syllabus in the same series.</p> : null}</div>
+          <div className="grid gap-1 text-sm font-medium text-[#344054] md:col-span-2"><span className="flex items-center gap-1.5">Template{sourceId ? <InfoTip label="Which template to choose">Choose a mapped template, such as Foundation Year, to carry comparable content into a new syllabus in the same series.</InfoTip> : null}</span><SelectMenu label="Syllabus template" value={templateId} onChange={setTemplateId} placeholder="Choose a template" options={templates.map((template) => ({ value: template.id, label: template.name }))} />{selectedTemplate ? <a href={syllabusTemplateDocumentUrl(selectedTemplate)} className="inline-flex w-fit items-center gap-1.5 text-sm font-medium text-[#1f4e79] hover:underline"><FileText size={16} aria-hidden="true" /> View Word template</a> : null}</div>
           <div className="flex gap-3 md:col-span-2"><button disabled={isCreating} className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-4 py-2 text-sm font-semibold text-white disabled:bg-[#9ba8b5]">{isCreating ? <Loader2 className="animate-spin" size={16} /> : sourceId ? <Copy size={16} /> : <FilePlus2 size={16} />}{sourceId ? "Duplicate and edit" : "Create blank syllabus"}</button><button type="button" onClick={() => setShowForm(false)} className="rounded-md border border-[#b7bec8] px-4 py-2 text-sm font-semibold text-[#344054]">Cancel</button></div>
         </form>
       ) : null}
@@ -280,7 +280,7 @@ function flattenFolders(folders: SyllabusFolder[]): Array<{ folder: SyllabusFold
 }
 
 function EmptyLibraryState({ hasSyllabi, hasSearch }: { hasSyllabi: boolean; hasSearch: boolean }) {
-  return <div className="flex min-h-72 flex-col items-center justify-center px-6 text-center"><div className="rounded-md bg-[#e8edf3] p-3 text-[#1f4e79]"><FolderOpen size={28} /></div><h3 className="mt-4 text-lg font-semibold text-[#171717]">{hasSearch ? "No matching syllabi" : hasSyllabi ? "No syllabi in this folder" : "No syllabi yet"}</h3><p className="mt-2 max-w-sm text-sm leading-6 text-[#667085]">{hasSearch ? "Try a different course title, code, or academic year." : hasSyllabi ? "Move a syllabus here from the library list." : "Create the first shared SCEN syllabus. Its full template will be available in the section workspace."}</p></div>;
+  return <div className="flex min-h-72 flex-col items-center justify-center px-6 text-center"><div className="rounded-md bg-[#e8edf3] p-3 text-[#1f4e79]"><FolderOpen size={28} /></div><h3 className="mt-4 text-lg font-semibold text-[#171717]">{hasSearch ? "No matching syllabi" : hasSyllabi ? "No syllabi in this folder" : "No syllabi yet"}</h3><p className="mt-2 max-w-sm text-sm leading-6 text-[#667085]">{hasSearch ? "Try a different course title, code, or academic year." : hasSyllabi ? "Move a syllabus here from the library list." : "Create the first shared SCEN syllabus."}</p></div>;
 }
 
 function DeleteDialog({ syllabus, isDeleting, onCancel, onDelete }: { syllabus: SyllabusSummary; isDeleting: boolean; onCancel: () => void; onDelete: () => void }) {

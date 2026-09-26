@@ -61,7 +61,7 @@ export function ChecksPanel({ canChange }: { canChange: boolean }) {
     <div className="space-y-5">
       {canChange ? null : (
         <p className="rounded-md border border-[#e4e8ef] bg-[#f8fafc] px-3 py-2 text-sm text-[#667085]">
-          Only an administrator can change these. They are shown so you can see why a warning does or does not appear.
+          Only an administrator can change these.
         </p>
       )}
       {save.error ? (

@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Download, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import { InfoTip } from "@/components/InfoTip";
 import { Modal } from "@/components/Modal";
 import { SelectMenu } from "@/components/SelectMenu";
 import { downloadAdmissionsList } from "@/services/admissionsExport";
@@ -244,7 +245,7 @@ export function WorkbookTools({
   const button = "inline-flex items-center gap-2 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc] disabled:opacity-50";
 
   return (
-    <Modal open={open} title="Workbook and lists" description="One cohort, one semester: the group workbook, the admissions list, the student handout and the timetable." onClose={onClose}>
+    <Modal open={open} title="Workbook and lists" onClose={onClose}>
       <div className="mb-4 grid gap-3 sm:grid-cols-2">
         <SelectMenu label="Cohort" value={cohortId} onChange={setCohortId} options={cohorts.map((candidate) => ({ value: candidate.id, label: candidate.name }))} />
         <SelectMenu label="Semester" value={termId} onChange={setTermId} placeholder="Choose a semester" options={terms.map((term) => ({ value: term.id, label: term.name }))} />
@@ -266,6 +267,15 @@ export function WorkbookTools({
           {exporting === "handout" ? <Loader2 size={16} className="animate-spin" aria-hidden="true" /> : <Download size={16} aria-hidden="true" />}
           {exporting === "handout" ? "Building…" : "Student handout"}
         </button>
+        {/*
+          * What each file is, beside the buttons that make them. It was a paragraph at the
+          * foot of the dialog, read once and scrolled past every time after.
+          */}
+        <InfoTip label="About these files">
+          The student handout is the one file here that students read: a row each, alphabetical by family name, with
+          their CRN and teacher under a colour per set. Reading a workbook back in is off for now; the schema is edited
+          on the Group schema page.
+        </InfoTip>
       </div>
       {/*
         * The timetable on a line of its own, because it is the one file that can be more
@@ -293,21 +303,16 @@ export function WorkbookTools({
             </button>
           ))}
         </div>
+        <InfoTip label="About the timetable file">
+          The workbook the timetabler gets: a sheet per cohort, the CRN table and the teacher hours. Teachers come from
+          Active teachers; a section with none chosen keeps the portal&apos;s name.
+        </InfoTip>
         <span className="text-xs text-[#98a2b3]">
           {termId
             ? `${timetableCards.length} course${timetableCards.length === 1 ? "" : "s"} across ${new Set(timetableCards.map((card) => card.cohortId)).size} cohort(s).`
             : ""}
         </span>
       </div>
-      <p className="mt-4 border-t border-[#eef1f5] pt-3 text-xs text-[#98a2b3]">
-        The timetable is the workbook the timetabler gets: a sheet per cohort, the CRN table and the teacher
-        hours. Teachers come from Active teachers; a section nobody has chosen one for keeps the portal&apos;s name.
-        The student handout is the one file here that students themselves read: a row each, alphabetical by
-        family name, with their CRN and teacher written out under a colour per set. Reading a workbook back in
-        is off for now. It matched a file&apos;s sets to the semester&apos;s by their code and
-        made a new one where it could not match, so a set renamed since the file was written came back as a second set
-        with the students moved into it. The schema is edited on the Group schema page instead.
-      </p>
     </Modal>
   );
 }

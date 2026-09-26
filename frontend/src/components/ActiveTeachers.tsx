@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { ClassChangesBanner } from "@/components/ClassChanges";
+import { InfoTip } from "@/components/InfoTip";
 import type { TeacherRef } from "@/components/TeacherRecord";
 import { ListGrid, Pills, StatePill } from "@/components/ListGrid";
 import { Modal } from "@/components/Modal";
@@ -394,6 +395,10 @@ function NotOnTheList({
         <p className="flex items-center gap-2 text-sm font-semibold text-[#a6292f]">
           <AlertTriangle size={15} aria-hidden="true" />
           {gaps.length} {gaps.length === 1 ? "teacher is" : "teachers are"} named on our sections and not on this list
+          <InfoTip label="How a profile is offered">
+            Where the portal has somebody by almost the same name, that profile is offered — a spelling is a
+            suggestion, not proof.
+          </InfoTip>
         </p>
         {offered.length > 1 ? (
           <button
@@ -406,10 +411,8 @@ function NotOnTheList({
           </button>
         ) : null}
       </div>
-      <p className="mt-1 text-xs text-[#a6292f]">
-        Their teaching is missing from every count here and on Teacher hours. Where the portal has somebody by
-        almost the same name, that profile is offered — a spelling is a suggestion, not proof.
-      </p>
+      {/* The warning's cost stays said; how a candidate is found is on the ⓘ. */}
+      <p className="mt-1 text-xs text-[#a6292f]">Their teaching is missing from every count here and on Teacher hours.</p>
       <ul className="mt-2 divide-y divide-[#f0d9da]">
         {gaps.map((gap) => (
           <li key={gap.name} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 py-2 text-sm">
@@ -474,6 +477,10 @@ function AlsoPartTime({
         <p className="flex items-center gap-2 text-sm font-semibold text-[#1f4e79]">
           <Link2 size={15} aria-hidden="true" />
           {matches.length} {matches.length === 1 ? "teacher is" : "teachers are"} also in the part-time database
+          <InfoTip label="What joining them does">
+            They were chosen from the portal, so nothing here says they are also a part-time record. Joining the two adds
+            the tag and changes nothing else — the portal&apos;s profile still leads.
+          </InfoTip>
         </p>
         {matches.length > 1 ? (
           <button
@@ -486,10 +493,6 @@ function AlsoPartTime({
           </button>
         ) : null}
       </div>
-      <p className="mt-1 text-xs text-[#3d6c96]">
-        They were chosen from the portal, so nothing here says the department also holds them as a part-time record.
-        Joining the two adds the tag and changes nothing else — the portal&apos;s profile still leads.
-      </p>
       <ul className="mt-2 divide-y divide-[#dce7f1]">
         {matches.map((match) => (
           <li key={match.activeId} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 py-2 text-sm">
@@ -542,10 +545,10 @@ function SameSomebody({
         <AlertTriangle size={15} aria-hidden="true" />
         {matches.length} {matches.length === 1 ? "teacher is" : "teachers are"} now in the portal under their own
         profile
-      </p>
-      <p className="mt-1 text-xs text-[#8a6116]">
-        They were brought from the part-time database before the portal listed them. Linking makes them one person, and
-        the portal&apos;s profile is the one that counts from then on — its name, its address, its department.
+        <InfoTip label="What linking them does">
+          They were brought from the part-time database before the portal listed them. Linking makes them one person, and
+          the portal&apos;s profile counts from then on — its name, its address, its department.
+        </InfoTip>
       </p>
       <ul className="mt-2 divide-y divide-[#f0e4c8]">
         {matches.map((match) => (
@@ -605,7 +608,7 @@ function PartTimePicker({
     <Modal
       open={open}
       title="Add from the part-time teacher database"
-      description="Tick the teachers to add. One whose university e-mail is already on the list is joined to that row rather than added twice."
+      description="One whose e-mail is already on the list is joined to that row, not added twice."
       onClose={onClose}
       footer={
         <div className="flex items-center justify-end gap-3">

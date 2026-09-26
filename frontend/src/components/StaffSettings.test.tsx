@@ -110,7 +110,10 @@ describe("StaffSettings", () => {
   it("offers a coordinator who does not administer the application only the checks, to read", async () => {
     renderSettings({ ...ADMIN, isAdmin: false });
 
-    expect(await screen.findByText(/What the application warns about/)).toBeTruthy();
+    expect(await screen.findByText("No checks yet.")).toBeTruthy();
+    // The page's explanation is one hover away, not a paragraph under the title.
+    expect(screen.queryByText(/What the application warns about/)).toBeNull();
+    expect(screen.getByRole("button", { name: "How the checks work" })).toBeTruthy();
     // One page on offer needs no tabs, and the pages they may not use are not dangled.
     expect(screen.queryByRole("button", { name: /Users/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /API tokens/ })).toBeNull();

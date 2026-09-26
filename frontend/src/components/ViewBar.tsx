@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { FilterBuilder } from "@/components/FilterBuilder";
+import { InfoTip } from "@/components/InfoTip";
 import { Modal } from "@/components/Modal";
 import { SelectMenu } from "@/components/SelectMenu";
 import { useStaffUser } from "@/components/useStaffUser";
@@ -143,7 +144,17 @@ export function ViewBar({
       <Modal
         open={showingFilter && view !== null}
         title={view ? `What ${view.name} asks the portal` : ""}
-        description="Fixed when the portal filter was made and never edited since, which is what lets it tell you who has left. A different question would be a different portal filter."
+        // That it cannot be edited stays on the page — there is no edit button to wonder about —
+        // and why is one hover away.
+        header={
+          <p className="mt-1 text-sm text-[#667085]">
+            Fixed when the portal filter was made.{" "}
+            <InfoTip label="Why a portal filter cannot be edited">
+              Never edited since, which is what lets it tell you who has left. A different question would be a
+              different portal filter.
+            </InfoTip>
+          </p>
+        }
         onClose={() => setShowingFilter(false)}
       >
         {view ? <FilterReading filter={view.filter as Filter} fields={fields} /> : null}
@@ -152,7 +163,6 @@ export function ViewBar({
       <Modal
         open={composing !== null}
         title="New portal filter"
-        description="A portal filter is a population. What it asks the portal is fixed now and cannot be changed afterwards — that is what lets it tell you who has left."
         onClose={() => setComposing(null)}
         footer={
           <>
@@ -181,10 +191,13 @@ export function ViewBar({
           </>
         }
       >
+        {/* A warning, so it stays in view: what is chosen here cannot be changed afterwards. */}
         <p className="mb-3 rounded-md border border-[#cfe0ef] bg-[#f2f7fb] px-3 py-2 text-sm text-[#1f4e79]">
-          Leave everything blank for every student the portal returns. Whatever you choose here
-          is what this view will ask for every time it is synced, so a student outside it will be
-          shown as no longer in this view.
+          Fixed once created: every sync asks the same, and a student outside it shows as no longer in this view.{" "}
+          <InfoTip label="What a portal filter is">
+            A portal filter is a population. Leave everything blank for every student the portal returns. Being
+            fixed is what lets it tell you who has left.
+          </InfoTip>
         </p>
 
         {make.error ? (

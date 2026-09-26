@@ -3,6 +3,7 @@ import { ArrowDown, ArrowUp, Download, RotateCcw, X } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { HourWindowPicker } from "@/components/HourWindowPicker";
+import { InfoTip } from "@/components/InfoTip";
 import { LabelledPicker } from "@/components/LabelledPicker";
 import { ListGrid, StatePill } from "@/components/ListGrid";
 import { ScreenLoading } from "@/components/ScreenLoading";
@@ -269,11 +270,16 @@ export function TeacherHours({ onOpenTeacher }: { onOpenTeacher?: (teacher: Teac
           />
         </LabelledPicker>
         <div className="min-w-0">
-          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[#667085]">
+          <p className="mb-1 flex items-center text-xs font-semibold uppercase tracking-wide text-[#667085]">
             Counting
-            <span className="ml-1.5 font-normal normal-case text-[#98a2b3]">
+            <span className="ml-1.5 mr-1 font-normal normal-case text-[#98a2b3]">
               {whole ? "the semester as planned" : "what actually met in it"}
             </span>
+            <InfoTip label="Where these hours come from">
+              Hours a section does not state are its course&apos;s. Portal hours are what the portal&apos;s timetable
+              booked for each teacher&apos;s sections; cancelled and covered hours come from the notes on the CRNs&apos;
+              calendars. Both sit beside the plan, not inside it.
+            </InfoTip>
           </p>
           <HourWindowPicker window={chosenWindow} periods={periods} onChange={setWindow} />
         </div>
@@ -298,7 +304,7 @@ export function TeacherHours({ onOpenTeacher }: { onOpenTeacher?: (teacher: Teac
           open
           onClose={() => setCommentingOn(null)}
           title={`Comments on ${commentingOn.label}`}
-          description="Said to everybody who opens this teacher, and kept with them."
+          description="Seen by everybody who opens this teacher."
         >
           <CommentThread studentId={commentingOn.id} label={commentingOn.label} thread={TEACHER_THREAD} />
         </Modal>
@@ -352,14 +358,6 @@ export function TeacherHours({ onOpenTeacher }: { onOpenTeacher?: (teacher: Teac
           }}
         />
       </div>
-
-      <p className="mt-3 text-xs text-[#98a2b3]">
-        The same count the timetable workbook&apos;s Teacher Hours sheet carries, from the same rows — with the hours
-        nobody is teaching shown, which the sheet leaves out. Hours a section does not state are its course&apos;s.
-        Portal hours are what the portal&apos;s timetable has booked for the sections it staffs with each teacher.
-        Cancelled and covered hours come from the notes on the CRNs&apos; calendars. All three sit beside the plan, not
-        inside it.
-      </p>
     </section>
   );
 }

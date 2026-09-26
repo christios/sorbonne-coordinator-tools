@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
 
 import { CrnDialog } from "@/components/ActiveCourses";
+import { InfoTip } from "@/components/InfoTip";
 import { Modal } from "@/components/Modal";
 import { SectionTimetable } from "@/components/SectionTimetable";
 import { SessionChangeDialog } from "@/components/SessionChangeDialog";
@@ -229,7 +230,6 @@ export function CrnRecord({
 
           <Card
             title="When the portal has it"
-            note="From the sweep of their timetable, not from anything we asked for."
             action={
               section?.meetings.length ? (
                 // Its schedule as a PDF: this week grid for every teaching week, a page each.
@@ -348,7 +348,7 @@ export function CrnRecord({
 
           <Card
             title="Changes to its classes"
-            note="Cancelled, or covered by somebody else. Press a date to say something else about that class, or that it ran as planned after all. Teacher hours read these."
+            note="Classes cancelled, or covered by somebody else. Press a date to change what is noted about that class; Teacher hours read these."
           >
             <SessionChangeList
               changes={mine}
@@ -374,7 +374,7 @@ export function CrnRecord({
           </Card>
         </div>
         <div className="space-y-3">
-          <Card title="What is wrong with it" note="The register's own verdicts about this CRN, in full.">
+          <Card title="What is wrong with it">
             {check.isLoading ? (
               <Empty>Reading the register…</Empty>
             ) : warnings.length === 0 ? (
@@ -427,11 +427,18 @@ function Card({
 }) {
   return (
     <section className="rounded-lg border border-[#e4e8ef] bg-white px-4 py-3">
-      <div className="flex items-start justify-between gap-2">
-        <h3 className="text-sm font-semibold text-[#171717]">{title}</h3>
+      {/*
+        * The note is an ⓘ beside the title, not a line under it. It says what the card is
+        * for, which is read once; a record opened twenty times a day was paying a line of
+        * grey on every card for it.
+        */}
+      <div className="mb-2 flex items-start justify-between gap-2">
+        <div className="flex items-center gap-1.5">
+          <h3 className="text-sm font-semibold text-[#171717]">{title}</h3>
+          {note ? <InfoTip label={`About ${title.charAt(0).toLowerCase()}${title.slice(1)}`}>{note}</InfoTip> : null}
+        </div>
         {action}
       </div>
-      {note ? <p className="mb-2 text-xs text-[#98a2b3]">{note}</p> : <div className="mb-2" />}
       {children}
     </section>
   );

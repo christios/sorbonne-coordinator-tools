@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
 
 import { CrnRecord } from "@/components/CrnRecord";
+import { InfoTip } from "@/components/InfoTip";
 import { Modal } from "@/components/Modal";
 import { SelectMenu } from "@/components/SelectMenu";
 import { SectionTimetable } from "@/components/SectionTimetable";
@@ -207,7 +208,6 @@ export function CourseRecord({
 
           <Card
             title="When it meets"
-            note="Every section of it on the portal's timetable, one colour per CRN."
             action={
               held.length ? (
                 /*
@@ -265,9 +265,9 @@ function CourseFacts({ course, onSaved }: { course: ActiveCourse; onSaved: () =>
   return (
     <div className="space-y-3">
       <label className="block text-sm font-semibold text-[#344054]">
-        UE
-        <span className="block text-xs font-normal text-[#98a2b3]">
-          The Sorbonne unit this course is registered under in Paris.
+        <span className="flex items-center gap-1">
+          UE
+          <InfoTip label="What the UE is">The Sorbonne unit this course is registered under in Paris.</InfoTip>
         </span>
         <input
           aria-label={`UE of ${course.courseCode}`}
@@ -278,10 +278,12 @@ function CourseFacts({ course, onSaved }: { course: ActiveCourse; onSaved: () =>
         />
       </label>
       <div>
-        <span className="block text-sm font-semibold text-[#344054]">Mutualized</span>
-        <span className="block text-xs font-normal text-[#98a2b3]">
-          Whether the mathematicians and the physicists are taught it together, which is what decides
-          whether it needs one group or two.
+        <span className="flex items-center gap-1 text-sm font-semibold text-[#344054]">
+          Mutualized
+          <InfoTip label="What mutualized means">
+            Whether the mathematicians and the physicists are taught it together — which decides whether it needs one
+            group or two.
+          </InfoTip>
         </span>
         <div className="mt-1.5">
           <SelectMenu
@@ -368,11 +370,14 @@ function TaughtIn({ card, nameOf }: { card: CourseCard; nameOf: (teacherId: stri
 function Card({ title, note, action, children }: { title: string; note?: string; action?: ReactNode; children: ReactNode }) {
   return (
     <section className="rounded-lg border border-[#e4e8ef] bg-white px-4 py-3">
-      <div className="flex items-start justify-between gap-2">
-        <h3 className="text-sm font-semibold text-[#171717]">{title}</h3>
+      {/* What the card is for sits on an ⓘ by its title: read once, not paid for on every opening. */}
+      <div className="mb-2 flex items-start justify-between gap-2">
+        <div className="flex items-center gap-1.5">
+          <h3 className="text-sm font-semibold text-[#171717]">{title}</h3>
+          {note ? <InfoTip label={`About ${title.charAt(0).toLowerCase()}${title.slice(1)}`}>{note}</InfoTip> : null}
+        </div>
         {action}
       </div>
-      {note ? <p className="mb-2 text-xs text-[#98a2b3]">{note}</p> : <div className="mb-2" />}
       {children}
     </section>
   );

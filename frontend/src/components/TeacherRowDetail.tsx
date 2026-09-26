@@ -239,7 +239,6 @@ export function TeacherRowActions({
       <Modal
         open={picking === "time sheets"}
         title={`${teacher.fullName} — time sheets`}
-        description="Each one opens in OneDrive, where the workbook lives."
         onClose={() => setPicking(null)}
       >
         {sheets.isLoading ? <p className="text-sm text-[#667085]">Reading the time sheets…</p> : null}
@@ -269,7 +268,6 @@ export function TeacherRowActions({
       <Modal
         open={picking === "requisitions"}
         title={`${teacher.fullName} — download requisitions`}
-        description="One arrives as a document. Several arrive as one zip."
         onClose={() => setPicking(null)}
         footer={
           <div className="flex items-center justify-end gap-3">
@@ -280,6 +278,7 @@ export function TeacherRowActions({
               type="button"
               disabled={!chosen.length || download.isPending}
               onClick={() => download.mutate(chosen)}
+              title="One arrives as a document; several arrive as one zip."
               className="rounded-md bg-[#1f4e79] px-4 py-2 text-sm font-semibold text-white disabled:bg-[#9ba8b5]"
             >
               {download.isPending ? "Preparing…" : `Download ${chosen.length || ""}`.trim()}
@@ -338,7 +337,6 @@ export function TeacherRowActions({
       <Modal
         open={picking === "new"}
         title={`New requisition for ${teacher.fullName}`}
-        description="It opens in the editor once it is made."
         onClose={() => setPicking(null)}
         footer={
           <div className="flex items-center justify-end gap-3">

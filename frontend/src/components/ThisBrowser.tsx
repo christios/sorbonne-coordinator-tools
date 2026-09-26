@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { HistoryBackup } from "@/components/HistoryBackup";
+import { InfoTip } from "@/components/InfoTip";
 import { forgetHistory } from "@/services/pullHistory";
 import { describeAge, forgetRosters, latestPullAt, namesHeld } from "@/services/rosterStore";
 
@@ -29,12 +30,15 @@ export function ThisBrowser() {
   return (
     <section className="mt-6 max-w-2xl space-y-6">
       <div className="rounded-lg border border-[#e4e8ef] bg-white px-5 py-4">
-        <h3 className="text-sm font-semibold text-[#171717]">Names from the portal</h3>
+        <h3 className="flex items-center gap-1.5 text-sm font-semibold text-[#171717]">
+          Names from the portal
+          <InfoTip label="Who sees these names">Nobody else sees them: the server holds ids only.</InfoTip>
+        </h3>
         <p className="mt-1 text-sm leading-6 text-[#667085]">
           {held === null
             ? "Reading…"
             : held
-              ? `${held} student${held === 1 ? "" : "s"} named in this browser${syncedAt ? `, last synced ${describeAge(syncedAt)}` : ""}. Nobody else sees them: the server holds ids only.`
+              ? `${held} student${held === 1 ? "" : "s"} named in this browser${syncedAt ? `, last synced ${describeAge(syncedAt)}` : ""}.`
               : "No names in this browser yet. Sync on the Students page to fill them in."}
         </p>
         {forgotten ? <p className="mt-2 text-sm text-[#2f6b3d]">Forgotten. Sync again and the names come back.</p> : null}
@@ -49,11 +53,13 @@ export function ThisBrowser() {
       </div>
 
       <div className="rounded-lg border border-[#e4e8ef] bg-white px-5 py-4">
-        <h3 className="text-sm font-semibold text-[#171717]">History of what the portal said</h3>
-        <p className="mt-1 text-sm leading-6 text-[#667085]">
-          It exists in this browser alone, so clearing site data ends it. Back it up to a folder and it is written
-          there after every sync.
-        </p>
+        <h3 className="flex items-center gap-1.5 text-sm font-semibold text-[#171717]">
+          History of what the portal said
+          <InfoTip label="Where the history is kept">
+            It exists in this browser alone, so clearing site data ends it. Back it up to a folder and it is written
+            there after every sync.
+          </InfoTip>
+        </h3>
         <div className="mt-3 text-sm">
           <HistoryBackup
             onRestored={read}
