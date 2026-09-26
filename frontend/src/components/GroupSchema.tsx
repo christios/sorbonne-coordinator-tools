@@ -819,7 +819,9 @@ function GroupRow({
           value={label}
           onChange={(event) => setLabel(event.target.value)}
           onBlur={() => label.trim() && label !== group.label && save.mutate({ label: label.trim() })}
-          className="w-20 rounded-md border border-transparent px-2 py-1 text-sm font-medium hover:border-[#cbd5e1] focus:border-[#cbd5e1]"
+          // As wide as the name it holds: "1 Mathematics" was cut to "1 Mat".
+          style={{ width: `${Math.max(5, label.length + 3)}ch` }}
+          className="rounded-md border border-transparent px-2 py-1 text-sm font-medium hover:border-[#cbd5e1] focus:border-[#cbd5e1]"
         />
       </td>
       <td className="py-1.5 pr-3">
@@ -948,7 +950,6 @@ function MajorsEditor({ group, programmes, onChanged }: { group: CatalogueGroup;
           >
             {major.seats || "—"}
           </span>
-          <span className="text-xs tabular-nums text-[#98a2b3]" title="Placed on this sub-row">{major.assigned}</span>
           <button
             type="button"
             aria-label={`Remove the ${shortProgram(major.program)} sub-row from ${group.label}`}

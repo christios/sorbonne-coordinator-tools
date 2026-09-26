@@ -19,7 +19,7 @@ export function SyllabusComparison({ syllabus, candidates, onBack }: { syllabus:
   const visible = changesOnly ? fields.filter((field) => field.status !== "mapped" || field.kind === "changed") : fields;
 
   return (
-    <div className="mx-auto max-w-[98rem] px-4 py-5 sm:px-6 lg:px-8">
+    <div className="mx-auto max-w-[98rem] px-1 py-1.25 sm:px-1.5 lg:px-2">
       <div className="flex flex-col gap-4 border-b border-[#d9dee7] pb-4 lg:flex-row lg:items-end lg:justify-between">
         <div className="flex items-start gap-3">
           <button onClick={onBack} className="mt-1 rounded-md p-2 hover:bg-[#e8edf3]" aria-label="Back to syllabus">

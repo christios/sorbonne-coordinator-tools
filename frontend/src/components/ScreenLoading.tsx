@@ -13,7 +13,7 @@ export function ScreenLoading({ label }: { label: string }) {
     <div
       role="status"
       aria-live="polite"
-      className="mx-auto flex min-h-[60vh] max-w-[98rem] items-center justify-center px-4 text-sm text-[#667085]"
+      className="mx-auto flex min-h-[60vh] max-w-[98rem] items-center justify-center px-1 text-sm text-[#667085]"
     >
       <span className="inline-flex items-center gap-2">
         <Loader2 size={16} className="animate-spin" aria-hidden="true" /> {label}

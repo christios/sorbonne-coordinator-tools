@@ -60,7 +60,7 @@ export function StaffSettings() {
     }`;
 
   return (
-    <div className="mx-auto max-w-[70rem] px-4 py-8 sm:px-6 lg:px-8">
+    <div className="mx-auto max-w-[70rem] px-1 py-2 sm:px-1.5 lg:px-2">
       {/* No line under the title: the tabs below already say what Settings holds. */}
       <header>
         <h2 className="text-2xl font-semibold tracking-tight text-[#171717]">Settings</h2>
