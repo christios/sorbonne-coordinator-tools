@@ -1,8 +1,12 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, CalendarRange, Search } from "lucide-react";
-import { useMemo, useState } from "react";
+import { CalendarRange, DoorOpen, Download, Search, TriangleAlert } from "lucide-react";
+import { Tooltip } from "radix-ui";
+import { useMemo, useState, type ReactNode } from "react";
 
 import { CrnRecord } from "@/components/CrnRecord";
+import { ScreenLoading } from "@/components/ScreenLoading";
+import { SelectMenu } from "@/components/SelectMenu";
+import { SemesterExport } from "@/components/SemesterExport";
 import { SectionTimetable, type TimetableEntry } from "@/components/SectionTimetable";
 import { TableFilterBar } from "@/components/TableFilterBar";
 import { usePageState } from "@/components/usePageState";
@@ -14,7 +18,9 @@ import { applyFilters, type FilterColumn, type FilterModel } from "@/services/ta
 import { DAY_NAMES, formatRoom, parseIsoDate } from "@/services/weekSchedule";
 import { fetchCourseCards } from "@/services/studentDatabase";
 import { fetchTermWeeks } from "@/services/termWeeks";
-import type { TimetableTerm } from "@/services/timetables";
+import { fetchSessionChanges } from "@/services/sessionChanges";
+import type { SemesterExportInput } from "@/services/semesterPdf";
+import { fetchTimetableTerms, type TimetableTerm } from "@/services/timetables";
 
 /*
  * The two zooms, as the range a slider runs over.
@@ -84,8 +90,52 @@ const CLASS_COLUMNS: FilterColumn<{ rooms: string[]; days: string[] }>[] = [
  *   reason this one should be the exception, and it is the calendar you are most likely to
  *   be looking at when you want to know what a section actually is.
  */
-export function SemesterTimetable({ term, onBack }: { term: TimetableTerm; onBack: () => void }) {
+export function SemesterTimetable({
+  layout = "days",
+  termId,
+  onPickTerm,
+}: {
+  /** Days down the side — the Timetable page — or rooms, for the Rooms page. */
+  layout?: Layout;
+  /** The semester the address names; the published one when it names none we know. */
+  termId: string;
+  onPickTerm: (termId: string) => void;
+}) {
+  const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms });
+  const all = terms.data ?? [];
+  if (terms.isLoading) return <ScreenLoading label="Loading semesters…" />;
+  if (terms.isError) {
+    return (
+      <p role="alert" className="text-sm text-[#a6292f]">
+        {terms.error.message}
+      </p>
+    );
+  }
+  if (all.length === 0) return <p className="text-sm text-[#667085]">The Student Hub holds no semester yet.</p>;
+  const term = all.find((candidate) => candidate.id === termId) ?? all.find((candidate) => candidate.isPublished) ?? all[0];
+  const picker = (
+    <div className="w-44">
+      <SelectMenu
+        label="Semester"
+        value={term.id}
+        onChange={(next) => next && onPickTerm(next)}
+        options={all.map((candidate) => ({
+          value: candidate.id,
+          label: candidate.name,
+          detail: candidate.isPublished ? "Published" : "Hidden",
+        }))}
+      />
+    </div>
+  );
+  // Keyed on the semester, so one semester's week and coverage never carry into another's.
+  return <SemesterWeek key={term.id} layout={layout} term={term} picker={picker} />;
+}
+
+type Layout = "days" | "rooms";
+
+function SemesterWeek({ layout, term, picker }: { layout: Layout; term: TimetableTerm; picker: ReactNode }) {
   const client = useQueryClient();
+  const rooms = layout === "rooms";
   /*
    * The filters and the zooms, kept by this browser.
    *
@@ -95,8 +145,11 @@ export function SemesterTimetable({ term, onBack }: { term: TimetableTerm; onBac
    * this browser's, as the cohort picker's is.
    */
   // The filters and the search are the tables' own, kept ten minutes like theirs.
-  const [filters, setFilters] = usePageState<FilterModel[]>("semester-timetable:filters", []);
-  const [query, setQuery] = usePageState("semester-timetable:search", "");
+  const kept = rooms ? "rooms" : "semester-timetable";
+  const [filters, setFilters] = usePageState<FilterModel[]>(`${kept}:filters`, []);
+  const [query, setQuery] = usePageState(`${kept}:search`, "");
+  // A room's whole week along one line, or one day with room to read every box.
+  const [span, setSpan] = usePageState<"day" | "week">("rooms:span", "day");
   const [widthZoom, setWidthZoom] = useKeptNumber("semester-timetable:width", WIDTH);
   const [rowHeight, setRowHeight] = useKeptNumber("semester-timetable:height", HEIGHT);
   const [showingCrn, setShowingCrn] = useState<ActiveCrn | null>(null);
@@ -247,6 +300,51 @@ export function SemesterTimetable({ term, onBack }: { term: TimetableTerm; onBac
   );
   const narrowed = filters.some((filter) => filter.values.length) || Boolean(query.trim());
 
+  /*
+   * The export: what is on the page, every week of it. The notes — cancelled, covered —
+   * are read only once somebody asks for the file; the grid reads its own.
+   */
+  const [exporting, setExporting] = useState(false);
+  const notes = useQuery({
+    queryKey: ["session-changes", termCode],
+    queryFn: () => fetchSessionChanges(termCode),
+    enabled: exporting && Boolean(termCode),
+    retry: false,
+  });
+  const exportInput = useMemo<SemesterExportInput>(() => {
+    const swept = new Map((meetings.data?.sections ?? []).map((section) => [section.crn, section]));
+    return {
+      semester: term.name,
+      layout: rooms ? (span === "day" ? "rooms-day" : "rooms-week") : "days",
+      weekOne: weeks.data?.[term.id],
+      sweptAt: meetings.data?.pulledAt,
+      sections: shown.map((row) => {
+        const section = swept.get(row.crn);
+        return {
+          crn: row.crn,
+          courseCode: row.code,
+          title: row.title,
+          teacher: row.staff || section?.teacherName || "",
+          group: row.group ?? "",
+          meetings: (section?.meetings ?? []).filter(
+            (meeting) =>
+              !sessionFilter ||
+              sessionFilter({ date: meeting.meetsOn, room: meeting.room }),
+          ),
+          notes: (notes.data ?? [])
+            .filter((note) => note.crn === row.crn)
+            .map((note) => ({
+              meetsOn: note.meetsOn,
+              startsAt: note.startsAt,
+              kind: note.kind,
+              coverTeacherName: note.coverTeacherName,
+              note: note.note,
+            })),
+        };
+      }),
+    };
+  }, [meetings.data, notes.data, rooms, sessionFilter, shown, span, term.id, term.name, weeks.data]);
+
   return (
     /*
      * The page is exactly the screen and the grid scrolls inside it.
@@ -256,74 +354,90 @@ export function SemesterTimetable({ term, onBack }: { term: TimetableTerm; onBac
      * at Friday.
      */
     <section className="flex h-full min-h-0 flex-col">
-      <div className="mb-3 flex shrink-0 flex-wrap items-center gap-3">
-        <button
-          type="button"
-          onClick={onBack}
-          className="inline-flex items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc]"
-        >
-          <ArrowLeft size={15} aria-hidden="true" /> Semesters
-        </button>
+      <div className="mb-2 flex shrink-0 flex-wrap items-center gap-3">
         <h2 className="flex shrink-0 items-center gap-2 text-lg font-semibold text-[#171717]">
-          <CalendarRange size={18} aria-hidden="true" /> {term.name}
+          {rooms ? <DoorOpen size={18} aria-hidden="true" /> : <CalendarRange size={18} aria-hidden="true" />}
+          {rooms ? "Rooms" : "Timetable"}
         </h2>
+        {picker}
         {/*
-          * Everything you steer by on one row, pushed to the right.
-          *
-          * It was three rows — a title, the filters, the zooms — over a grid that wanted
-          * every pixel of height it could get. Two of them were mostly white space.
+          * Everything you steer by on one row, pushed to the right; the filters get the row
+          * under it, where a long run of them has the whole width to grow into.
           */}
         <div ref={setNavSlot} className="shrink-0" />
         <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-              <TableFilterBar columns={COLUMNS} filters={filters} optionsFor={(column) => optionsFor(rows, column)} onChange={setFilters} />
-              <label className="relative block w-48">
-                <Search size={15} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[#667085]" aria-hidden="true" />
-                <input
-                  type="search"
-                  aria-label="Search sections"
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  placeholder="Search"
-                  className="w-full rounded-md border border-[#d3d9e2] bg-white py-1.5 pl-8 pr-2 text-sm"
-                />
-              </label>
-              <Zoom label="Width" value={widthZoom} {...WIDTH} onChange={setWidthZoom} />
-              <Zoom label="Height" value={rowHeight} {...HEIGHT} onChange={setRowHeight} />
-              <span className="text-xs text-[#98a2b3]">
-                {`${shown.length} of ${all.length}`}
-                {notDrawn.total ? (
-                  <span
-                    className="ml-2 text-[#8a6116]"
-                    title={[
-                      notDrawn.unasked.length
-                        ? `${notDrawn.unasked.length} never swept from the portal — run a portal sync`
-                        : "",
-                      notDrawn.gone.length ? `${notDrawn.gone.length} the portal has stopped answering for` : "",
-                      notDrawn.unbooked.length ? `${notDrawn.unbooked.length} the portal has booked no hours for` : "",
-                      notDrawn.setAside
-                        ? `${notDrawn.setAside} course-level row(s) are not counted — they hold no hours of their own`
-                        : "",
-                    ]
-                      .filter(Boolean)
-                      .join(". ")}
-                  >
-                    {notDrawn.total} not drawn
-                  </span>
-                ) : null}
-              </span>
-              {narrowed ? (
+          <label className="relative block w-64">
+            <Search size={15} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[#667085]" aria-hidden="true" />
+            <input
+              type="search"
+              aria-label="Search sections"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search"
+              className="w-full rounded-md border border-[#d3d9e2] bg-white py-1.5 pl-8 pr-2 text-sm"
+            />
+          </label>
+          {rooms ? (
+            <span role="group" aria-label="Across the page" className="inline-flex overflow-hidden rounded-md border border-[#d3d9e2]">
+              {(["day", "week"] as const).map((choice) => (
                 <button
+                  key={choice}
                   type="button"
-                  onClick={() => {
-                    setFilters([]);
-                    setQuery("");
-                  }}
-                  className="text-xs font-semibold text-[#1f4e79] underline"
+                  aria-pressed={span === choice}
+                  onClick={() => setSpan(choice)}
+                  className={`border-l border-[#d3d9e2] px-2.5 py-1.5 text-xs font-semibold first:border-l-0 ${
+                    span === choice ? "bg-[#1f4e79] text-white" : "bg-white text-[#344054] hover:bg-[#f8fafc]"
+                  }`}
                 >
-                  Every section
+                  {choice === "day" ? "Day" : "Week"}
                 </button>
-              ) : null}
+              ))}
+            </span>
+          ) : null}
+          <Zoom label="Width" value={widthZoom} {...WIDTH} onChange={setWidthZoom} />
+          <Zoom label="Height" value={rowHeight} {...HEIGHT} onChange={setRowHeight} />
+          <button
+            type="button"
+            onClick={() => setExporting(true)}
+            disabled={!meetings.data}
+            className="inline-flex items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-2.5 py-1.5 text-xs font-semibold text-[#344054] hover:bg-[#f8fafc] disabled:opacity-50"
+          >
+            <Download size={14} aria-hidden="true" /> Export
+          </button>
+          <span className="inline-flex items-center gap-1.5 text-xs text-[#98a2b3]">
+            {`${shown.length} of ${all.length}`}
+            {notDrawn.total ? (
+              <Warning
+                label={`${notDrawn.total} section${notDrawn.total === 1 ? "" : "s"} not drawn`}
+                lines={[
+                  notDrawn.unasked.length
+                    ? `${notDrawn.unasked.length} never swept from the portal — run a portal sync.`
+                    : "",
+                  notDrawn.gone.length ? `${notDrawn.gone.length} the portal has stopped answering for.` : "",
+                  notDrawn.unbooked.length ? `${notDrawn.unbooked.length} the portal has booked no hours for.` : "",
+                  notDrawn.setAside
+                    ? `${notDrawn.setAside} course-level row${notDrawn.setAside === 1 ? " is" : "s are"} not counted — they hold no hours of their own.`
+                    : "",
+                ].filter(Boolean)}
+              />
+            ) : null}
+          </span>
+          {narrowed ? (
+            <button
+              type="button"
+              onClick={() => {
+                setFilters([]);
+                setQuery("");
+              }}
+              className="text-xs font-semibold text-[#1f4e79] underline"
+            >
+              Every section
+            </button>
+          ) : null}
         </div>
+      </div>
+      <div className="mb-3 flex shrink-0 flex-wrap items-center gap-2">
+        <TableFilterBar columns={COLUMNS} filters={filters} optionsFor={(column) => optionsFor(rows, column)} onChange={setFilters} />
       </div>
 
       {held.isError ? (
@@ -336,6 +450,7 @@ export function SemesterTimetable({ term, onBack }: { term: TimetableTerm; onBac
           entries={shown}
           sessionFilter={sessionFilter}
           daysDown
+          byRoom={rooms ? span : undefined}
           onCoverage={setMissing}
           navInto={navSlot}
           widthZoom={widthZoom}
@@ -353,6 +468,15 @@ export function SemesterTimetable({ term, onBack }: { term: TimetableTerm; onBac
         />
       )}
 
+      {exporting ? (
+        <SemesterExport
+          open
+          onClose={() => setExporting(false)}
+          input={exportInput}
+          shown={`${shown.length} of ${all.length} sections`}
+        />
+      ) : null}
+
       {showingCrn ? (
         <CrnRecord
           open
@@ -365,6 +489,43 @@ export function SemesterTimetable({ term, onBack }: { term: TimetableTerm; onBac
         />
       ) : null}
     </section>
+  );
+}
+
+/**
+ * What the grid could not draw, as one mark that explains itself on hover.
+ *
+ * It was a line of amber words — "18 not drawn" — on the row the page steers by, read
+ * every time the eye went to the zooms and needed only when somebody wonders why a class
+ * is missing. The mark says there is something to know; the hover says what.
+ */
+function Warning({ label, lines }: { label: string; lines: string[] }) {
+  return (
+    <Tooltip.Provider delayDuration={100}>
+      <Tooltip.Root>
+        <Tooltip.Trigger asChild>
+          <button type="button" aria-label={`${label}. ${lines.join(" ")}`} className="rounded p-0.5 text-[#b7791f] hover:bg-[#fdf3e1]">
+            <TriangleAlert size={15} aria-hidden="true" />
+          </button>
+        </Tooltip.Trigger>
+        <Tooltip.Portal>
+          <Tooltip.Content
+            side="bottom"
+            align="end"
+            sideOffset={6}
+            collisionPadding={12}
+            className="z-[100] w-72 rounded-lg border border-[#d9dee7] bg-white p-3 text-xs leading-5 text-[#475467] shadow-lg"
+          >
+            <p className="font-semibold text-[#171717]">{label}</p>
+            <ul className="mt-1 space-y-0.5">
+              {lines.map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+          </Tooltip.Content>
+        </Tooltip.Portal>
+      </Tooltip.Root>
+    </Tooltip.Provider>
   );
 }
 

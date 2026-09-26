@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Blocks, BookMarked, BookOpen, CalendarDays, Clock3, Contact, GaugeCircle, GraduationCap, ListChecks, ListTree, Megaphone, UserCheck, Users } from "lucide-react";
+import { Blocks, BookMarked, BookOpen, CalendarDays, CalendarRange, Clock3, DoorOpen, Contact, GaugeCircle, GraduationCap, ListChecks, ListTree, Megaphone, UserCheck, Users } from "lucide-react";
 import { Globe } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
@@ -19,6 +19,7 @@ import { PortalCourses } from "@/components/PortalCourses";
 import { PortalTeachers } from "@/components/PortalTeachers";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { SemesterList } from "@/components/SemesterList";
+import { SemesterTimetable } from "@/components/SemesterTimetable";
 import { StaffMenu } from "@/components/StaffMenu";
 import { StudentRoster } from "@/components/StudentRoster";
 import { SidePane } from "@/components/SidePane";
@@ -58,6 +59,11 @@ const PAGES = [
   // teacher behind a different front door.
   { id: "part-time-teachers", name: "Part-time Teachers", icon: Contact, group: "Portal validation", parent: "teachers" },
   { id: "semesters", name: "Semesters", icon: CalendarDays, group: "Timetables" },
+  // The department's whole week, one semester at a time. It was a screen opened from a
+  // row of the list; it is where an afternoon of moving classes is spent, so it is a page.
+  { id: "timetable", name: "Timetable", icon: CalendarRange, group: "Timetables", parent: "semesters" },
+  // The same week with the rooms down the side: what is in a room, and when it is free.
+  { id: "rooms", name: "Rooms", icon: DoorOpen, group: "Timetables", parent: "semesters" },
   // The timetable request itself: the sections a semester is taught in, and how full they
   // are. It is what the semester above it publishes, not a check against the registrar.
   { id: "groups", name: "Groups & CRNs", icon: ListTree, group: "Timetables" },
@@ -82,6 +88,18 @@ type PageId = (typeof PAGES)[number]["id"];
  * where its address goes.
  */
 const MOVED: Record<string, PageId> = { registrations: "cohorts", teachers: "part-time-teachers" };
+
+/**
+ * A semester's week used to open inside Semesters, as "semesters/timetable:<id>"; it is
+ * the Timetable page now. A kept link, and the place this browser remembers, still land
+ * on that semester's week.
+ */
+function movedWeek(page: PageId, detail: string): { page: PageId; detail: string } {
+  if (page === "semesters" && detail.startsWith("timetable:")) {
+    return { page: "timetable", detail: detail.slice("timetable:".length) };
+  }
+  return { page, detail };
+}
 
 /** The page the address names, or the one to open when it names none we know. */
 function pageOf(hash: string): PageId {
@@ -142,6 +160,8 @@ const TITLES: Record<PageId, { title: string; blurb?: string }> = {
     title: "Semesters",
     blurb: "What the Student Hub holds, and whether students can see it yet.",
   },
+  timetable: { title: "Timetable" },
+  rooms: { title: "Rooms" },
   announcements: {
     title: "Announcements",
     blurb: "The notice strip above the students' timetable.",
@@ -170,7 +190,9 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: (section:
    * could not be sent to anybody. The address is now the truth, and the sidebar writes to
    * it rather than to a variable.
    */
-  const [page, setPage] = useState<PageId>(() => pageOf(window.location.hash));
+  const [page, setPage] = useState<PageId>(
+    () => movedWeek(pageOf(window.location.hash), detailFromLocation(window.location.hash)).page,
+  );
   /*
    * And what is open WITHIN the page — the week of one semester, say.
    *
@@ -180,23 +202,29 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: (section:
    * front of the semester list again, however long they had spent in the week they had
    * open.
    */
-  const [detail, setDetail] = useState<string>(() => detailFromLocation(window.location.hash));
+  const [detail, setDetail] = useState<string>(
+    () => movedWeek(pageOf(window.location.hash), detailFromLocation(window.location.hash)).detail,
+  );
 
   useEffect(() => {
     const follow = () => {
-      setPage(pageOf(window.location.hash));
-      setDetail(detailFromLocation(window.location.hash));
+      const where = movedWeek(pageOf(window.location.hash), detailFromLocation(window.location.hash));
+      setPage(where.page);
+      setDetail(where.detail);
     };
     window.addEventListener("hashchange", follow);
     return () => window.removeEventListener("hashchange", follow);
   }, []);
 
   const openPage = useCallback(
-    (next: PageId) => {
+    (asked: PageId, at?: string) => {
       // Where this page was left, unless the coordinator is already on it: pressing the
       // page you are on is how you ask for its front door, and a memory that overrode that
       // would leave no way back to the list but the open screen's own.
-      const back = next === page ? "" : placeOf(next);
+      const where = movedWeek(asked, at ?? (asked === page ? "" : placeOf(asked)));
+      const next = where.page;
+      const back = where.detail;
+      if (at !== undefined) rememberPlace(next, back);
       setPage(next);
       setDetail(back);
       // Replace rather than push: which page you are on inside a tool is where you are, not
@@ -232,7 +260,7 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: (section:
   const [preselect, setPreselect] = useState<string[]>([]);
   // Set when a cohort's member count is pressed: the Students table filters to that cohort.
   const [filterCohort] = useState("");
-  const onPlatform = page === "semesters" || page === "announcements";
+  const onPlatform = page === "semesters" || page === "timetable" || page === "rooms" || page === "announcements";
   const status = useQuery({
     queryKey: ["timetable-status"],
     queryFn: fetchTimetableStatus,
@@ -248,7 +276,7 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: (section:
    * every pixel the shell keeps for margins is a pixel of Friday afternoon. It asks, the
    * shell gives, and it gives it back on the way out.
    */
-  const [fullBleed, setFullBleed] = useState(false);
+  const fullBleed = page === "timetable" || page === "rooms";
   // The slot beside the page's title, for a page with controls of its own to put there.
   const [pageHeader, setPageHeader] = useState<HTMLDivElement | null>(null);
   // The teacher whose record is open, whichever list or page asked for it.
@@ -437,12 +465,10 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: (section:
           ) : null}
           {onPlatform && !status.isLoading && !status.data?.configured ? <PlatformNotConfigured /> : null}
           {page === "semesters" && status.data?.configured ? (
-            <SemesterList
-              host={status.data.host}
-              onFullBleed={setFullBleed}
-              open={detail}
-              onOpen={openDetail}
-            />
+            <SemesterList host={status.data.host} onOpenWeek={(termId) => openPage("timetable", termId)} />
+          ) : null}
+          {(page === "timetable" || page === "rooms") && status.data?.configured ? (
+            <SemesterTimetable layout={page === "rooms" ? "rooms" : "days"} termId={detail} onPickTerm={openDetail} />
           ) : null}
           {page === "announcements" && status.data?.configured ? <AnnouncementEditor /> : null}
         </div>

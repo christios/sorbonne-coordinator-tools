@@ -200,19 +200,19 @@ export function scheduleFilename(input: Pick<ScheduleInput, "sections">): string
   return `${[only.courseCode, only.crn].filter(Boolean).join("-").replace(/[^A-Za-z0-9-]+/g, "-")}-schedule.pdf`;
 }
 
-type Rgb = [number, number, number];
+export type Rgb = [number, number, number];
 const LINE: Rgb = [228, 232, 239];
 const HEADER: Rgb = [248, 250, 252];
 const SOFT: Rgb = [102, 112, 133];
 const FAINT: Rgb = [152, 162, 179];
 
-function rgbOf(hex: string): Rgb {
+export function rgbOf(hex: string): Rgb {
   const value = hex.replace("#", "");
   return [0, 2, 4].map((at) => parseInt(value.slice(at, at + 2), 16)) as Rgb;
 }
 
 /** A colour moved towards white by `amount` — how the calendar fades and stripes, and its white text at part opacity. */
-function towardsWhite([r, g, b]: Rgb, amount: number): Rgb {
+export function towardsWhite([r, g, b]: Rgb, amount: number): Rgb {
   return [r, g, b].map((part) => Math.round(part + (255 - part) * amount)) as Rgb;
 }
 
@@ -277,7 +277,7 @@ const ICONS: Record<"pin" | "person" | "cover", Icon> = {
   },
 };
 
-function drawIcon(doc: JsPdf, icon: keyof typeof ICONS, x: number, y: number, size: number, color: Rgb) {
+export function drawIcon(doc: JsPdf, icon: keyof typeof ICONS, x: number, y: number, size: number, color: Rgb) {
   const scale = size / 24;
   doc.setDrawColor(...color);
   doc.setLineWidth(2 * scale);
@@ -292,7 +292,7 @@ function drawIcon(doc: JsPdf, icon: keyof typeof ICONS, x: number, y: number, si
 }
 
 /** As much of the words as fits, cut with an ellipsis as the app cuts a box's line. */
-function fitted(doc: JsPdf, text: string, width: number): string {
+export function fitted(doc: JsPdf, text: string, width: number): string {
   if (doc.getTextWidth(text) <= width) return text;
   let cut = text;
   while (cut.length > 1 && doc.getTextWidth(`${cut}…`) > width) cut = cut.slice(0, -1);

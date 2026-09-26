@@ -121,32 +121,13 @@ describe("uploading a timetable, retired", () => {
  * that a reload, a link, and a step to another page and back all return to the same place.
  */
 describe("the week of one semester", () => {
-  it("says which week it is opening rather than opening it itself", async () => {
-    const onOpen = vi.fn();
-    renderList({ onOpen });
+  it("opens it on the Timetable page, which is a page of its own now", async () => {
+    const onOpenWeek = vi.fn();
+    renderList({ onOpenWeek });
     await screen.findByRole("row", { name: /Physics & Maths/ });
 
     fireEvent.click(screen.getByRole("button", { name: "Timetable" }));
 
-    expect(onOpen).toHaveBeenCalledWith("timetable:term-1");
-  });
-
-  it("draws the week the address names, with no button pressed", async () => {
-    const onFullBleed = vi.fn();
-    renderList({ open: "timetable:term-1", onFullBleed });
-
-    // The list is not what is on screen; the week is, with its way back.
-    expect(await screen.findByRole("button", { name: /Semesters/ })).toBeTruthy();
-    expect(screen.queryByRole("row", { name: /Physics & Maths/ })).toBeNull();
-    // And it takes the page, which the press used to be the only thing to say.
-    await waitFor(() => expect(onFullBleed).toHaveBeenCalledWith(true));
-  });
-
-  it("gives the page back its width when the week is left", async () => {
-    const onFullBleed = vi.fn();
-    renderList({ onFullBleed });
-    await screen.findByRole("row", { name: /Physics & Maths/ });
-
-    expect(onFullBleed).toHaveBeenCalledWith(false);
+    expect(onOpenWeek).toHaveBeenCalledWith("term-1");
   });
 });

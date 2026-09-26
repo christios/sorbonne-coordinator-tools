@@ -1,14 +1,16 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SemesterTimetable } from "@/components/SemesterTimetable";
 import * as lists from "@/services/portalLists";
 import * as notes from "@/services/sessionChanges";
 import * as termWeeks from "@/services/termWeeks";
+import * as timetables from "@/services/timetables";
 import type { TimetableTerm } from "@/services/timetables";
 
-const TERM = { id: "term-1", name: "Semester 1" } as TimetableTerm;
+const TERM = { id: "term-1", name: "Semester 1", isPublished: true } as TimetableTerm;
+const SPRING = { id: "term-2", name: "Semester 2", isPublished: false } as TimetableTerm;
 const MONDAY = { meetsOn: "2026-09-07", startsAt: "08:30", endsAt: "10:00", room: "5.101" };
 
 /** Three sections of two subjects, taught by two people. */
@@ -20,11 +22,11 @@ const CRNS = {
   "11111": { courseCode: "MATH-999", title: "Withdrawn", teacherName: "Nobody", status: "not_in_portal" },
 };
 
-function show() {
+function show(props: Partial<Parameters<typeof SemesterTimetable>[0]> = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <SemesterTimetable term={TERM} onBack={vi.fn()} />
+      <SemesterTimetable termId="" onPickTerm={vi.fn()} {...props} />
     </QueryClientProvider>,
   );
 }
@@ -34,6 +36,7 @@ beforeEach(() => {
   window.localStorage.clear();
   window.sessionStorage.clear();
   vi.spyOn(termWeeks, "fetchTermWeeks").mockResolvedValue({});
+  vi.spyOn(timetables, "fetchTimetableTerms").mockResolvedValue([SPRING, TERM]);
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(new Date(2026, 8, 9, 10, 0, 0));
   vi.spyOn(notes, "fetchSessionChanges").mockResolvedValue([]);
@@ -190,7 +193,7 @@ describe("a semester's whole week", () => {
       vi.spyOn(lists, "fetchActiveCrns").mockResolvedValue([row("24001", 0, 1), row("24248", 4, 0)]);
       show();
 
-      expect(await screen.findByText("1 not drawn")).toBeTruthy();
+      expect(await screen.findByRole("button", { name: /^1 section not drawn\. 1 never swept/ })).toBeTruthy();
     });
 
     it("counts a parent that is itself taught, whose absence from the week is real", async () => {
@@ -198,7 +201,91 @@ describe("a semester's whole week", () => {
       vi.spyOn(lists, "fetchActiveCrns").mockResolvedValue([row("24001", 0, 1), row("24248", 4, 2)]);
       show();
 
-      expect(await screen.findByText("2 not drawn")).toBeTruthy();
+      expect(await screen.findByRole("button", { name: /^2 sections not drawn\. 2 never swept/ })).toBeTruthy();
+      // A mark on the row, not a line of words across it.
+      expect(screen.queryByText(/not drawn/)).toBeNull();
+    });
+  });
+
+  it("opens on the published semester, and on any other the picker chooses", async () => {
+    const onPickTerm = vi.fn();
+    show({ onPickTerm });
+
+    const semester = await screen.findByRole("combobox", { name: "Semester" });
+    expect(semester.textContent).toContain("Semester 1");
+    expect(lists.fetchTermCrns).toHaveBeenCalledWith("term-1");
+
+    fireEvent.click(semester);
+    fireEvent.click(await screen.findByRole("option", { name: /Semester 2/ }));
+    expect(onPickTerm).toHaveBeenCalledWith("term-2");
+  });
+
+  it("puts the filters on a row of their own, under the one the page steers by", async () => {
+    show();
+    await screen.findByText("3 of 3");
+
+    const filter = screen.getByRole("button", { name: /^(Filter|Add filter)$/ });
+    const search = screen.getByLabelText("Search sections");
+    expect(filter.closest("div.mb-3")).toBeTruthy();
+    expect(search.closest("div.mb-3")).toBeNull();
+  });
+
+  it("exports the whole semester, saying how many pages the size chosen will take", async () => {
+    show();
+    await screen.findByText("3 of 3");
+
+    fireEvent.click(await screen.findByRole("button", { name: "Export" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Export Semester 1" });
+    // One week of classes, drawn one page wide: one page.
+    expect(within(dialog).getByRole("button", { name: "Export 1 page" })).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: "2 pages" }));
+    expect(within(dialog).getByRole("button", { name: "Export 2 pages" })).toBeTruthy();
+    // And the preview shows the week as it will be cut: its morning, then its afternoon.
+    expect(within(dialog).getByRole("img", { name: /08:00–13:00/ })).toBeTruthy();
+    expect(within(dialog).getByRole("img", { name: /13:00–18:00/ })).toBeTruthy();
+  });
+
+  describe("the rooms", () => {
+    const TWO_ROOMS: lists.FacilityTimetable = {
+      termCode: "262710",
+      pulledAt: "2026-09-01T00:00:00+00:00",
+      sections: [
+        { crn: "23436", courseCode: "MATH-351", title: "Algebra", teacherName: "Grace Younes", state: "published", meetings: [MONDAY] },
+        // In Algebra's room at Algebra's hour: booked twice.
+        { crn: "22610", courseCode: "PHYS-210", title: "Maths for Physics", teacherName: "Gianluca Mola", state: "published", meetings: [MONDAY] },
+        { crn: "24092", courseCode: "MATH-257", title: "Graphs", teacherName: "Grace Younes", state: "published", meetings: [{ ...MONDAY, room: "4.124", meetsOn: "2026-09-08" }] },
+      ],
+    };
+
+    it("draws a row per room, one day at a time", async () => {
+      vi.spyOn(lists, "fetchFacilitySections").mockResolvedValue(TWO_ROOMS);
+      show({ layout: "rooms" });
+
+      expect(await screen.findByRole("heading", { name: "Rooms" })).toBeTruthy();
+      // The clock says Wednesday 9 September; Monday is a press away.
+      fireEvent.click(await screen.findByRole("button", { name: "Mon 7" }));
+      expect(screen.getByText("4.124")).toBeTruthy();
+      expect(screen.getByText("5.101")).toBeTruthy();
+      // Monday's two classes in 5.101, and they are booked into it at the same time.
+      expect(document.querySelectorAll('[title*="same time as another class"]').length).toBe(2);
+      // Tuesday's class is not Monday's.
+      expect(document.querySelector('[title*="Graphs"]')).toBeNull();
+
+      fireEvent.click(screen.getByRole("button", { name: "Next day" }));
+      expect(document.querySelector('[title*="Graphs"]')).toBeTruthy();
+    });
+
+    it("lays the whole week along each room's row", async () => {
+      vi.spyOn(lists, "fetchFacilitySections").mockResolvedValue(TWO_ROOMS);
+      show({ layout: "rooms" });
+      await screen.findByRole("heading", { name: "Rooms" });
+
+      fireEvent.click(await screen.findByRole("button", { name: "Week" }));
+
+      expect(await screen.findByText("7 Sep 2026 – 11 Sep 2026")).toBeTruthy();
+      expect(document.querySelector('[title*="Graphs"]')).toBeTruthy();
+      expect(document.querySelectorAll('[title*="Algebra"]').length).toBe(1);
     });
   });
 

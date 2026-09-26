@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CalendarDays, Pencil } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Modal } from "@/components/Modal";
@@ -8,7 +8,6 @@ import { PayCycleCell } from "@/components/PayCycleCell";
 import { PortalTermLink } from "@/components/PortalTermLink";
 import { SemesterImport } from "@/components/SemesterImport";
 import { SemesterPublish } from "@/components/SemesterPublish";
-import { SemesterTimetable } from "@/components/SemesterTimetable";
 import { SemesterUpdate } from "@/components/SemesterUpdate";
 import {
   TimetableTerm,
@@ -28,20 +27,11 @@ import {
  */
 export function SemesterList({
   host,
-  onFullBleed,
-  open = "",
-  onOpen,
+  onOpenWeek,
 }: {
   host: string | null;
-  /** The week takes the whole width; the list does not. Said as it opens and as it closes. */
-  onFullBleed?: (on: boolean) => void;
-  /**
-   * Which screen of this page is open, as the address says it: "timetable:<semester>", or
-   * nothing for the list. Held up there rather than here so that a reload, a link, and a
-   * step to another page and back all come back to the same screen — see services/lastPlace.
-   */
-  open?: string;
-  onOpen?: (next: string) => void;
+  /** Open this semester on the Timetable page, which is a page of its own now. */
+  onOpenWeek?: (termId: string) => void;
 }) {
   const queryClient = useQueryClient();
   const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms });
@@ -49,25 +39,10 @@ export function SemesterList({
   const [updating, setUpdating] = useState<TimetableTerm | null>(null);
   const [importing, setImporting] = useState(false);
   const [publishing, setPublishing] = useState<TimetableTerm | null>(null);
-  // The whole week takes the page, like publishing does: it is not a card-sized thing.
-  const timetableId = open.startsWith("timetable:") ? open.slice("timetable:".length) : "";
-  const timetableOf = timetableId ? (terms.data ?? []).find((term) => term.id === timetableId) ?? null : null;
   const [renaming, setRenaming] = useState<TimetableTerm | null>(null);
   const [newName, setNewName] = useState("");
   // An update starts as a dialog over this list and takes the screen once it has a diff.
   const [updateStage, setUpdateStage] = useState<"pick" | "review">("pick");
-
-  /*
-   * The width follows the screen rather than the press.
-   *
-   * It used to be said by the button that opened the week and by the button that closed
-   * it, which was right until the week could also be arrived at — by a reload, a link, or
-   * coming back to this page — with no button pressed at all. Then the week was drawn in
-   * the column the list uses and lost half the screen.
-   */
-  useEffect(() => {
-    onFullBleed?.(Boolean(timetableId));
-  }, [timetableId, onFullBleed]);
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["timetable-terms"] });
   const publishMutation = useMutation({
@@ -88,10 +63,6 @@ export function SemesterList({
   });
 
   const error = publishMutation.error?.message ?? deleteMutation.error?.message ?? null;
-
-  if (timetableOf) {
-    return <SemesterTimetable term={timetableOf} onBack={() => onOpen?.("")} />;
-  }
 
   if (publishing) {
     const current = (terms.data ?? []).find((term) => term.id === publishing.id) ?? publishing;
@@ -218,7 +189,7 @@ export function SemesterList({
                               {/* The whole department's week, which no other calendar shows. */}
                               <button
                                 type="button"
-                                onClick={() => onOpen?.(`timetable:${term.id}`)}
+                                onClick={() => onOpenWeek?.(term.id)}
                                 title={`See every section of ${term.name} in one week`}
                                 className="rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc]"
                               >

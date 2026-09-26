@@ -10,6 +10,7 @@ import { WeekTimeline } from "@/components/WeekTimeline";
 import { fetchFacilitySections, type FacilitySection } from "@/services/portalLists";
 import { fetchSessionChanges, slotKey, type SessionChange } from "@/services/sessionChanges";
 import {
+  DAY_NAMES,
   MONTH_NAMES,
   assignColors,
   defaultWeekStart,
@@ -17,8 +18,10 @@ import {
   mondayOf,
   parseIsoDate,
   placeSessions,
+  preferredDay,
   shiftWeek,
   toIsoDate,
+  weekDays,
   weekLabel,
   weekNumber,
   weekStartOf,
@@ -78,6 +81,11 @@ type TimetableProps = {
    * ignored by the ordinary calendar.
    */
   daysDown?: boolean;
+  /**
+   * Rooms down the side instead of days: the whole week side by side, or one day at a
+   * time with its hours across the page. Only with `daysDown` — see `WeekTimeline`.
+   */
+  byRoom?: "week" | "day";
   /** How many screens wide the week is drawn; 1 fills it exactly. */
   widthZoom?: number;
   rowHeight?: number;
@@ -158,6 +166,7 @@ function Timetable({
   onOpenCrn,
   openable,
   daysDown = false,
+  byRoom,
   widthZoom = 1,
   rowHeight = 22,
   fills = false,
@@ -235,6 +244,12 @@ function Timetable({
       // A tab that cannot keep it simply opens on this week next time.
     }
   };
+  /*
+   * The day shown, when the rooms are drawn a day at a time. Any day outside the week on
+   * screen gives way to that week's own best day — today, or its first day with a class —
+   * so stepping a week along lands on a day of the new week rather than on nothing.
+   */
+  const [day, setDay] = useState("");
   useEffect(() => {
     setWeekStart(sessions.length ? (keptWeek() ?? defaultWeekStart(sessions, today)) : null);
     // Re-aim when the sessions change, which the first date and the count stand for.
@@ -262,25 +277,64 @@ function Timetable({
   const legend = [...new Map([...courses.values()].map((course) => [course.colorKey, course])).values()];
   const shown = weekStart ?? defaultWeekStart(sessions, today);
   const small = compact ? "text-[10px]" : "text-xs";
+  const oneDay = daysDown && byRoom === "day";
+  const days = weekDays(shown, sessions);
+  const shownDay = days.includes(day) ? day : preferredDay(days, sessions, today);
+  /** The next teaching day either way: Sunday never, Saturday only when something is on it. */
+  const stepDay = (by: number) => {
+    const next = parseIsoDate(shownDay);
+    do next.setDate(next.getDate() + by);
+    while (next.getDay() === 0 || (next.getDay() === 6 && !sessions.some((session) => session.date === toIsoDate(next))));
+    setDay(toIsoDate(next));
+    goTo(mondayOf(next));
+  };
+  const back = oneDay ? () => stepDay(-1) : () => goTo(shiftWeek(shown, -1));
+  const onward = oneDay ? () => stepDay(1) : () => goTo(shiftWeek(shown, 1));
 
   const weekNav = (
     <div className={`flex flex-wrap items-center gap-1.5 ${navInto ? "" : compact ? "mb-1.5" : "mb-2"} ${fills && !navInto ? "shrink-0" : ""}`}>
 
-            <button type="button" aria-label="Previous week" onClick={() => goTo(shiftWeek(shown, -1))} className={nav(compact)}>
+            <button type="button" aria-label={oneDay ? "Previous day" : "Previous week"} onClick={back} className={nav(compact)}>
               <ChevronLeft size={compact ? 12 : 14} aria-hidden="true" />
             </button>
             <button
               type="button"
-              onClick={() => goTo(defaultWeekStart(sessions, today))}
+              onClick={() => {
+                setDay("");
+                goTo(defaultWeekStart(sessions, today));
+              }}
               className={`${nav(compact)} px-2 font-semibold ${small}`}
             >
-              Current week
+              {oneDay ? "Today" : "Current week"}
             </button>
-            <button type="button" aria-label="Next week" onClick={() => goTo(shiftWeek(shown, 1))} className={nav(compact)}>
+            <button type="button" aria-label={oneDay ? "Next day" : "Next week"} onClick={onward} className={nav(compact)}>
               <ChevronRight size={compact ? 12 : 14} aria-hidden="true" />
             </button>
             {weekOne ? <TeachingWeek shown={shown} weekOne={weekOne} sessions={sessions} onGo={goTo} /> : null}
-            <span className={`font-semibold text-[#344054] ${small}`}>{weekLabel(shown, sessions)}</span>
+            {oneDay ? (
+              // The week's days as one control, so any of them is a press away.
+              <span role="group" aria-label="Day" className="inline-flex overflow-hidden rounded-md border border-[#d9dee7]">
+                {days.map((date) => {
+                  const when = parseIsoDate(date);
+                  const on = date === shownDay;
+                  return (
+                    <button
+                      key={date}
+                      type="button"
+                      aria-pressed={on}
+                      onClick={() => setDay(date)}
+                      className={`h-7 border-l border-[#d9dee7] px-2 font-semibold first:border-l-0 ${small} ${
+                        on ? "bg-[#1f4e79] text-white" : date === today ? "bg-white text-[#1f4e79]" : "bg-white text-[#344054] hover:bg-[#f8fafc]"
+                      }`}
+                    >
+                      {DAY_NAMES[when.getDay()]} {when.getDate()}
+                    </button>
+                  );
+                })}
+              </span>
+            ) : (
+              <span className={`font-semibold text-[#344054] ${small}`}>{weekLabel(shown, sessions)}</span>
+            )}
             {onExpand ? (
               <button
                 type="button"
@@ -311,6 +365,8 @@ function Timetable({
               today={today}
               widthZoom={widthZoom}
               rowHeight={rowHeight}
+              rowsBy={byRoom ? "room" : "day"}
+              day={oneDay ? shownDay : undefined}
               onPick={onPickSession ?? (onOpenCrn ? (session) => onOpenCrn(session.crn) : undefined)}
             />
           ) : (
