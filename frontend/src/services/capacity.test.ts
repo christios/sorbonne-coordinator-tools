@@ -72,7 +72,7 @@ describe("how full every group is", () => {
     expect(rows.find((row) => row.set === "TD")!.shared).toBe(false);
   });
 
-  it("falls back to the section's anticipated students when a group has no capacity", () => {
+  it("reads seats only, never a number typed on the section beside them", () => {
     const loose: CohortCatalogue = {
       ...FYS,
       scopes: [{ ...FYS.scopes[0], groups: [group("td-1", "1", 0, 5, { "td-math": section("23223", { anticipated: 40 }) })] }],
@@ -80,7 +80,7 @@ describe("how full every group is", () => {
 
     const [row] = capacityRows([loose], termName);
 
-    expect([row.capacity, row.free, row.status]).toEqual([40, 35, "Room"]);
+    expect([row.capacity, row.free, row.status]).toEqual([0, 0, "No capacity set"]);
   });
 
   it("counts seats only where a group states a capacity, and says how many state none", () => {

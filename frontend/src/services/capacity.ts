@@ -36,7 +36,7 @@ export type CapacityRow = {
   ue: string;
   crn: string;
   teacher: string;
-  /** The seats the group has. Its capacity, or the section's anticipated students. */
+  /** The seats the group (or sub-row) has; 0 when nobody has set them. */
   capacity: number;
   enrolled: number;
   /** Negative when the group is over its seats, which is the number worth seeing. */
@@ -107,9 +107,9 @@ export function capacityRows(
            */
           for (const section of partsOf(seat.section)) {
             if (section.retired) continue;
-            // The seats; a group that never had a capacity falls back to what the
-            // timetable was told to expect for this section.
-            const capacity = seat.seats || Number(section.anticipated) || 0;
+            // The seats, and only the seats: they are what the timetable is told to expect
+            // too, so a number typed on the section no longer stands in for them.
+            const capacity = seat.seats || 0;
             const enrolled = seat.assigned;
             rows.push({
               key: `${held.cohort.id}|${scope.id}|${group.id}|${seat.keyPart}|${course.id}|${section.part}`,
