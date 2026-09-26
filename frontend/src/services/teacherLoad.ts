@@ -261,6 +261,11 @@ export type LoadRow = TeacherLoad & {
   /** The registrar's booked hours on the sections the portal staffs with them. Zero until read. */
   registrarHours: number;
   /**
+   * The teaching hours their requisitions pay for in this semester's academic year: what
+   * the planning and the portal are held against, beside them on the row. Zero until read.
+   */
+  requisitionedHours: number;
+  /**
    * The admin hours their requisitions pay for — invigilation, coordination — in this
    * semester's academic year. Never taught, so no part of any total or warning here; shown
    * beside them so a teacher's whole pay is on one row. Zero until read.
@@ -295,6 +300,7 @@ export function loadRows(loads: TeacherLoad[], active: ActiveTeacher[], crnsOf: 
     coverGiven: 0,
     coverTaken: 0,
     registrarHours: 0,
+    requisitionedHours: 0,
     adminHours: 0,
     warnings: [],
   }));
@@ -390,6 +396,8 @@ export function hoursColumns(sheetTitles: string[], window = ""): GridColumn<Loa
      * rather than a share of the total, so the total stays what the planning and the
      * portal can be held against. The requisition's figure for the year, not the window's.
      */
+    // What their requisitions pay for, taught and not: the year's figures, like Admin beside it.
+    { id: "requisitionedHours", displayName: "Teaching", type: "number", accessor: (row) => row.requisitionedHours, defaultWidth: 110, source: "part-time" },
     { id: "adminHours", displayName: "Admin", type: "number", accessor: (row) => row.adminHours, defaultWidth: 100, source: "part-time" },
     ...sheetTitles.map((title, index) => ({
       id: `sheet:${title}`,
@@ -465,6 +473,7 @@ export function shownHoursColumns(sheetTitles: string[]): string[] {
     "total",
     "warnings",
     "registrarHours",
+    "requisitionedHours",
     "adminHours",
     "sections",
     "cancelledHours",

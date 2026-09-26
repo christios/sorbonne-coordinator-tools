@@ -18,6 +18,7 @@ const row = (teacher: string, over: Partial<LoadRow> = {}): LoadRow => ({
   cancelledHours: 0,
   coverTaken: 0,
   coverGiven: 0,
+  requisitionedHours: 0,
   adminHours: 0,
   registrarHours: 0,
   warnings: [],

@@ -175,7 +175,7 @@ describe("the table's rows and columns", () => {
     const columns = hoursColumns(["FYS-S1", "BSc-L2-S3"]);
 
     expect(columns.map((column) => column.id)).toEqual([
-      "teacher", "standing", "total", "registrarHours", "adminHours", "sheet:FYS-S1", "sheet:BSc-L2-S3",
+      "teacher", "standing", "total", "registrarHours", "requisitionedHours", "adminHours", "sheet:FYS-S1", "sheet:BSc-L2-S3",
       "type:CM", "type:TD", "type:TP", "sections",
       // What the semester did to the plan, beside it.
       "cancelledHours", "coverTaken", "coverGiven",
@@ -319,12 +319,13 @@ describe("the mark saying what a column is counting", () => {
 
   it("is on every number once the question narrows, not only on one of them", () => {
     const columns = hoursColumns(["FYS-S1"], "SEP-OCT");
-    // Admin hours are the requisition's for the year, not anything counted in a window.
-    const numbers = columns.filter((column) => column.type === "number" && column.id !== "adminHours");
+    // The requisition's hours are for the year, not anything counted in a window.
+    const yearly = ["requisitionedHours", "adminHours"];
+    const numbers = columns.filter((column) => column.type === "number" && !yearly.includes(column.id));
 
     expect(numbers.length).toBeGreaterThan(4);
     expect(numbers.every((column) => column.window === "SEP-OCT")).toBe(true);
-    expect(columns.find((column) => column.id === "adminHours")?.window).toBeUndefined();
+    for (const id of yearly) expect(columns.find((column) => column.id === id)?.window).toBeUndefined();
   });
 
   it("names the portal's count as ours is named — the total — and keeps admin hours apart", () => {
@@ -332,6 +333,7 @@ describe("the mark saying what a column is counting", () => {
 
     expect(columns.find((column) => column.id === "registrarHours")).toMatchObject({ displayName: "Total", source: "registrar" });
     expect(columns.find((column) => column.id === "adminHours")).toMatchObject({ displayName: "Admin", source: "part-time" });
+    expect(columns.find((column) => column.id === "requisitionedHours")).toMatchObject({ displayName: "Teaching", source: "part-time" });
   });
 
   it("leaves the columns that are not counts alone", () => {

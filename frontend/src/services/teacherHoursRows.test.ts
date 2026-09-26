@@ -53,6 +53,12 @@ describe("admin hours on Teacher hours", () => {
     expect(hani.total).toBe(40);
   });
 
+  it("show the teaching the requisitions pay for beside them, the same year's", () => {
+    expect(hoursRowsFor(source({ academicYear: "2026-2027" }), WHOLE, true)[0].requisitionedHours).toBe(40);
+    expect(hoursRowsFor(source({ academicYear: "2025-2026" }), WHOLE, true)[0].requisitionedHours).toBe(0);
+    expect(hoursRowsFor(source(), WHOLE, true)[0].requisitionedHours).toBe(40);
+  });
+
   it("are every year's where the semester's year is not known", () => {
     expect(hoursRowsFor(source(), WHOLE, true)[0].adminHours).toBe(20);
   });

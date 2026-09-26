@@ -376,9 +376,16 @@ export function reconcileLayout(
   const known = new Map(columns.map((column) => [column.id, column]));
   const fallback = defaultLayout(columns, shown);
   const order = (stored?.order ?? []).filter((id) => known.has(id));
-  for (const column of columns) {
-    if (!order.includes(column.id)) order.push(column.id);
-  }
+  // A column new since the layout was saved takes its place beside the column it follows,
+  // not the far end of a wide table: Teaching arrives beside Admin, where it is read.
+  columns.forEach((column, index) => {
+    if (order.includes(column.id)) return;
+    const before = columns
+      .slice(0, index)
+      .reverse()
+      .find((candidate) => order.includes(candidate.id));
+    order.splice(before ? order.indexOf(before.id) + 1 : order.length, 0, column.id);
+  });
   // A column the portal has only just started offering starts hidden, like the rest of
   // the ones nobody asked for — appearing unannounced would rearrange the table.
   const carriedOver = stored?.order ?? [];

@@ -118,6 +118,9 @@ export function hoursRowsFor(source: HoursSource, window: Window, whole: boolean
     };
     const partTime = row.active?.partTimeTeacherId ?? "";
     const paid = contracts[partTime];
+    mine.requisitionedHours = source.academicYear
+      ? (paid?.byYear?.[source.academicYear]?.teachingHours ?? 0)
+      : (paid?.contractedHours ?? 0);
     mine.adminHours = source.academicYear
       ? (paid?.byYear?.[source.academicYear]?.adminHours ?? 0)
       : (paid?.adminHours ?? 0);

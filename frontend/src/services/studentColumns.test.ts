@@ -131,8 +131,17 @@ describe("the stored arrangement", () => {
     const repaired = reconcileLayout(older, COLUMNS);
 
     expect(repaired.order).toHaveLength(COLUMNS.length);
-    expect(repaired.order.slice(0, 3)).toEqual(["status", "studentId", "portal:FULL_NAME"]);
+    // What was arranged keeps its order; a new column sits beside its neighbour, hidden.
+    expect(repaired.order.filter((id) => older.order.includes(id))).toEqual(["status", "studentId", "portal:FULL_NAME"]);
     expect(repaired.hidden).toContain("portal:ABSENCE_PER");
+  });
+
+  it("puts a column shown by default beside the one it follows, not at the far end", () => {
+    const columns = [{ id: "a" }, { id: "b" }, { id: "new" }, { id: "c" }] as never;
+    const repaired = reconcileLayout({ order: ["c", "a", "b"], hidden: [], widths: {} }, columns, ["a", "b", "new", "c"]);
+
+    expect(repaired.order).toEqual(["c", "a", "b", "new"]);
+    expect(repaired.hidden).not.toContain("new");
   });
 
   it("drops a column the portal no longer offers", () => {
