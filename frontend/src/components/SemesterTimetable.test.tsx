@@ -239,7 +239,8 @@ describe("a semester's whole week", () => {
     const dialog = await screen.findByRole("dialog", { name: "Export Semester 1" });
     // One week of classes: one page, A4, the week across its whole width.
     expect(within(dialog).getByRole("button", { name: "Export 1 page" })).toBeTruthy();
-    expect(within(dialog).queryByRole("group", { name: /Paper|Width/ })).toBeNull();
+    expect(within(dialog).getByRole("group", { name: "Paper" })).toBeTruthy();
+    expect(within(dialog).queryByRole("group", { name: /Width/ })).toBeNull();
     // The ceiling is the only choice: how many pages a week may take.
     expect(within(dialog).queryByLabelText("Height of a class on the page")).toBeNull();
     fireEvent.click(within(dialog).getByRole("button", { name: "1" }));

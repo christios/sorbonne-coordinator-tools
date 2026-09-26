@@ -5,16 +5,18 @@ import { Modal } from "@/components/Modal";
 import { usePageState } from "@/components/usePageState";
 import {
   MAX_PAGES,
+  PAPER,
   downloadSemesterPdf,
   frameOf,
   semesterPages,
   semesterUnits,
   type ExportZoom,
+  type PaperSize,
   type SemesterExportInput,
   type SemesterPage,
 } from "@/services/semesterPdf";
 
-const START: ExportZoom = { maxPages: 1 };
+const START: ExportZoom = { paper: "a4", maxPages: 1 };
 
 /**
  * The whole semester as a PDF, with its size chosen first and the pages it will take shown.
@@ -36,7 +38,7 @@ export function SemesterExport({
   /** "20 of 162 sections", so the filters on the page are not a surprise in the file. */
   shown: string;
 }) {
-  const [kept, setZoom] = usePageState<ExportZoom>("semester-export:zoom:v3", START);
+  const [kept, setZoom] = usePageState<ExportZoom>("semester-export:zoom:v4", START);
   const zoom = { ...START, ...kept };
   const units = useMemo(() => (open ? semesterUnits(input) : []), [open, input]);
   const pages = useMemo(() => (open ? semesterPages(input, zoom, units) : []), [open, input, zoom, units]);
@@ -56,7 +58,9 @@ export function SemesterExport({
     const perUnit = new Map<number, number>();
     for (const page of free) perUnit.set(page.unit, (perUnit.get(page.unit) ?? 0) + 1);
     return [...perUnit.values()].filter((pages) => pages > (zoom.maxPages ?? Infinity)).length;
-  }, [open, input, units, zoom.maxPages]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [open, input, units, zoom.maxPages, zoom.paper]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Weeks that took more than the ceiling, because every class had to stay readable.
+  const overCeiling = new Set(pages.filter((page) => page.overCeiling).map((page) => page.unit)).size;
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState("");
   const noun = input.layout === "rooms-day" ? "day" : "week";
@@ -105,6 +109,12 @@ export function SemesterExport({
     >
       <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
         <Choice
+          label="Paper"
+          value={zoom.paper ?? "a4"}
+          options={(Object.keys(PAPER) as PaperSize[]).map((paper) => ({ value: paper, label: `${PAPER[paper].name} landscape` }))}
+          onChange={(paper) => setZoom({ ...zoom, paper: paper as PaperSize })}
+        />
+        <Choice
           label={`Pages per ${noun}, at most`}
           value={zoom.maxPages ? String(zoom.maxPages) : ""}
           options={[
@@ -121,10 +131,13 @@ export function SemesterExport({
         ) : (
           <>
             <strong className="font-semibold">{pages.length} pages</strong> for the whole semester, over{" "}
-            {units.length} {noun}s; the {noun} below takes {ofUnit.length}. Every page is A4 landscape, filled to its
-            edges.
+            {units.length} {noun}s; the {noun} below takes {ofUnit.length}. Every page is filled to its edges, and
+            every class says all it has.
             {squeezed
-              ? ` ${squeezed} ${noun}${squeezed === 1 ? " is" : "s are"} drawn smaller to stay within ${zoom.maxPages} page${zoom.maxPages === 1 ? "" : "s"}.`
+              ? ` ${squeezed - overCeiling} ${noun}${squeezed - overCeiling === 1 ? " is" : "s are"} drawn smaller to stay within ${zoom.maxPages} page${zoom.maxPages === 1 ? "" : "s"}.`
+              : ""}
+            {overCeiling
+              ? ` ${overCeiling} ${noun}${overCeiling === 1 ? " needs" : "s need"} more, or ${overCeiling === 1 ? "its" : "their"} classes would be too small to read — A3 fits more.`
               : ""}
           </>
         )}
@@ -160,7 +173,7 @@ export function SemesterExport({
           <div className={`grid gap-3 ${ofUnit.length > 1 ? "sm:grid-cols-2" : ""}`} aria-label="Pages of this week">
             {ofUnit.map((page) => (
               <figure key={page.line} className="m-0">
-                <PagePreview page={page} layout={input.layout} />
+                <PagePreview page={page} layout={input.layout} paper={zoom.paper ?? "a4"} />
                 <figcaption className="mt-0.5 text-center text-[11px] text-[#667085]">
                   Page {pages.indexOf(page) + 1}
                   {page.part ? ` · ${page.part}` : ""}
@@ -212,8 +225,8 @@ function Choice({
  * One page, small: the same layout the PDF is drawn from, in outline. Too small to read a
  * box, and not meant to be — it shows where the page cuts the week and how full it is.
  */
-function PagePreview({ page, layout }: { page: SemesterPage; layout: SemesterExportInput["layout"] }) {
-  const frame = frameOf(layout);
+function PagePreview({ page, layout, paper }: { page: SemesterPage; layout: SemesterExportInput["layout"]; paper: PaperSize }) {
+  const frame = frameOf(layout, paper);
   const gridLeft = frame.left + frame.labelWidth;
   return (
     <svg

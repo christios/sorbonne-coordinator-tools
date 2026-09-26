@@ -78,7 +78,8 @@ export async function scheduleFromEntries(
     sections.push({
       crn: entry.crn,
       courseCode: entry.code || section?.courseCode || "",
-      title: entry.title || section?.title || "",
+      // The portal's own title for the section first: it is current, and a register's copy can lag.
+      title: section?.title || entry.title || "",
       teacher: entry.staff || section?.teacherName || "",
       group: entry.group ?? "",
       outline: entry.tone === "outline",

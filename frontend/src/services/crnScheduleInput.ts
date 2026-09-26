@@ -67,7 +67,8 @@ export async function scheduleInputFor(rows: ActiveCrn[], read: ScheduleReads): 
       return {
         crn: row.crn,
         courseCode: row.courseCode,
-        title: row.courseTitle || row.portalTitle,
+        // The portal's current title for the section first; the register's copy can lag.
+        title: section?.title || row.portalTitle || row.courseTitle,
         teacher: section?.teacherName || row.teacherName,
         group: groups.get(row.crn) ?? "",
         meetings: section?.meetings ?? [],

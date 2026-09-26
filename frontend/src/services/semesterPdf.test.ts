@@ -69,7 +69,10 @@ describe("the semester's pages", () => {
   });
 
   it("draws a week smaller rather than past the most pages it may take", () => {
-    const busy = Array.from({ length: 30 }, (_, index) => section(String(30000 + index), `MATH-${100 + index}`, [meeting("2026-09-07")]));
+    // Long classes: every word fits on one line of a box, so they can shrink a long way.
+    const busy = Array.from({ length: 30 }, (_, index) =>
+      section(String(30000 + index), `MATH-${100 + index}`, [meeting("2026-09-07", "08:00", "12:00")]),
+    );
     const free = semesterPages(input("days", busy), { maxPages: null }).filter((page) => page.unit === 0);
     const capped = semesterPages(input("days", busy), { maxPages: 1 }).filter((page) => page.unit === 0);
 
@@ -77,6 +80,19 @@ describe("the semester's pages", () => {
     expect(capped).toHaveLength(1);
     expect(capped[0].boxes).toHaveLength(30);
     expect(capped[0].boxes[0].h).toBeLessThan(free[0].boxes[0].h);
+    expect(capped[0].overCeiling).toBe(false);
+  });
+
+  it("takes a page more than the ceiling rather than a class too small to say everything", () => {
+    // Short classes: their words need two or three lines, which thirty of cannot fit on one A4 page.
+    const busy = Array.from({ length: 30 }, (_, index) => section(String(30000 + index), `MATH-${100 + index}`, [meeting("2026-09-07")]));
+    const a4 = semesterPages(input("days", busy), { paper: "a4", maxPages: 1 }).filter((page) => page.unit === 0);
+    const a3 = semesterPages(input("days", busy), { paper: "a3", maxPages: 1 }).filter((page) => page.unit === 0);
+
+    expect(a4.length).toBeGreaterThan(1);
+    expect(a4[0].overCeiling).toBe(true);
+    // A3 has the room: the same words, the same size, one page.
+    expect(a3).toHaveLength(1);
   });
 
   it("puts the rooms down the side, and a room's week along its row", () => {

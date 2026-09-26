@@ -19,6 +19,7 @@
 import type { jsPDF as JsPdf } from "jspdf";
 
 import { drawIcon, fitted, rgbOf, towardsWhite, type Rgb, type ScheduleSection } from "@/services/crnSchedulePdf";
+import { textWidth } from "@/services/textWidth";
 import {
   DAY_NAMES,
   MONTH_NAMES,
@@ -35,10 +36,12 @@ import {
 /** Days down the side (the Timetable page), or rooms: a week along each row, or one day. */
 export type SemesterLayout = "days" | "rooms-week" | "rooms-day";
 /**
- * At most how many pages one week may take; `null` is no ceiling. A week that would need
- * more at a comfortable size is drawn smaller until it fits.
+ * The paper, and at most how many pages one week may take; `null` is no ceiling. A week
+ * that would need more at a comfortable size is drawn smaller until it fits — but never so
+ * small that a class cannot say all it has to, which may take a page more than asked.
  */
-export type ExportZoom = { maxPages: number | null };
+export type PaperSize = "a4" | "a3";
+export type ExportZoom = { paper?: PaperSize; maxPages: number | null };
 
 export const MAX_PAGES = [1, 2, 3, 4] as const;
 /**
@@ -49,11 +52,18 @@ export const MAX_PAGES = [1, 2, 3, 4] as const;
 const COMFORTABLE_CLASS = 18;
 
 /**
- * A4 landscape, and only that. A PDF prints to whatever paper is in the tray, scaled; a
- * second page size only changed how many rows fit a page, which the class height already
- * decides. One shape means the page breaks are the same whoever prints it.
+ * A4 or A3, landscape. The words are the same size on either: A3 is more rows to a page
+ * and wider classes, so a week takes fewer pages, not bigger type.
  */
-const PAGE = { width: 841.89, height: 595.28 };
+export const PAPER: Record<PaperSize, { width: number; height: number; name: string }> = {
+  a4: { width: 841.89, height: 595.28, name: "A4" },
+  a3: { width: 1190.55, height: 841.89, name: "A3" },
+};
+/** The smallest the words in a class are set: below it nobody reads them on paper. */
+const SMALLEST_TYPE = 5;
+const LINE_HEIGHT = 1.18;
+const PAD_X = 2;
+const PAD_Y = 1.2;
 /** The smallest a class is drawn to keep a week inside its page ceiling, and the tallest a page stretches one. */
 const SMALLEST_CLASS = 6;
 const TALLEST_CLASS = 160;
@@ -112,6 +122,8 @@ export type SemesterPage = {
   title: string;
   /** "Mon 7 – Wed 9 · page 1 of 2", where a unit takes more than one page; "" otherwise. */
   part: string;
+  /** Its week needed more pages than the ceiling to keep every class readable. */
+  overCeiling?: boolean;
   line: number;
   gridTop: number;
   gridBottom: number;
@@ -126,8 +138,8 @@ export type SemesterPage = {
 };
 
 /** Where things go on the sheet: thin margins, one line of heading, the column of labels. */
-export function frameOf(layout: SemesterLayout) {
-  const { width, height } = PAGE;
+export function frameOf(layout: SemesterLayout, paper: PaperSize = "a4") {
+  const { width, height } = PAPER[paper];
   const rooms = layout !== "days";
   const gridTop = 30;
   const daysHeight = layout === "rooms-week" ? 12 : 0;
@@ -313,21 +325,30 @@ function largest(low: number, high: number, fits: (height: number) => boolean): 
  * can without needing another page, so the pages are as full as their number allows.
  * What is left at the foot of each page after that is shared out among its own rows.
  */
-function unitHeight(rows: Row[], zoom: ExportZoom, available: number, labelHeight: number): { classHeight: number; pages: Piece[][] } {
+function unitHeight(
+  rows: Row[],
+  zoom: ExportZoom,
+  available: number,
+  labelHeight: number,
+  readable: number,
+): { classHeight: number; pages: Piece[][]; overCeiling: boolean } {
   const pagesAt = (height: number) => packed(rows, height, available, labelHeight).length;
-  let height = COMFORTABLE_CLASS;
+  // Never below what lets every class say all its words at the smallest readable type.
+  const floor = Math.max(SMALLEST_CLASS, readable);
+  let height = Math.max(COMFORTABLE_CLASS, floor);
   const ceiling = zoom.maxPages;
   if (ceiling && pagesAt(height) > ceiling) {
-    height = largest(SMALLEST_CLASS, height, (candidate) => pagesAt(candidate) <= ceiling);
+    height = largest(floor, height, (candidate) => pagesAt(candidate) <= ceiling);
   }
+  const overCeiling = Boolean(ceiling) && pagesAt(height) > (ceiling ?? Infinity);
   const pages = pagesAt(height);
   height = largest(height, TALLEST_CLASS, (candidate) => pagesAt(candidate) <= pages);
-  return { classHeight: height, pages: packed(rows, height, available, labelHeight) };
+  return { classHeight: height, pages: packed(rows, height, available, labelHeight), overCeiling };
 }
 
 /** Every page of the export, laid out. */
 export function semesterPages(input: SemesterExportInput, zoom: ExportZoom, units = semesterUnits(input)): SemesterPage[] {
-  const frame = frameOf(input.layout);
+  const frame = frameOf(input.layout, zoom.paper);
   const classes = units.flatMap((unit) => unit.rows.flatMap((row) => row.boxes.map((box) => box.klass)));
   const [startMinute, endMinute] = hoursOf(classes);
   const colors = assignColors(input.sections.map((section) => section.courseCode));
@@ -363,7 +384,17 @@ export function semesterPages(input: SemesterExportInput, zoom: ExportZoom, unit
       if (band && unit.bands.length > 1) days.push({ x: gridLeft + index * bandWidth, w: bandWidth, label: dayName(band) });
     });
 
-    const { classHeight, pages: downs } = unitHeight(unit.rows, zoom, available, frame.labelHeight);
+    // The height the most demanding class needs to say everything at the smallest type.
+    const readable = unit.rows.reduce(
+      (most, row) =>
+        row.boxes.reduce((tallest, { klass }) => {
+          const wide = (minutesOf(klass.end) - minutesOf(klass.start)) * perMinute - 1.5 - PAD_X * 2;
+          const lines = linesFor(wordsOf(klass, [0, 0, 0]), SMALLEST_TYPE, wide);
+          return Math.max(tallest, lines * SMALLEST_TYPE * LINE_HEIGHT + PAD_Y * 2 + 1.5);
+        }, most),
+      0,
+    );
+    const { classHeight, pages: downs, overCeiling } = unitHeight(unit.rows, zoom, available, frame.labelHeight, readable);
     downs.forEach((down, line) => {
       // The foot of this page shared out among its own rows, so it ends where the sheet does.
       const lanes = down.map((piece) => piece.to - piece.from);
@@ -398,6 +429,7 @@ export function semesterPages(input: SemesterExportInput, zoom: ExportZoom, unit
       const labels = down.map((piece) => piece.row.label);
       pages.push({
         unit: unitIndex,
+        overCeiling,
         title: unit.title,
         part:
           downs.length > 1 && labels.length
@@ -432,8 +464,9 @@ const FAINT: Rgb = [152, 162, 179];
 
 export async function buildSemesterPdf(input: SemesterExportInput, zoom: ExportZoom): Promise<ArrayBuffer> {
   const { jsPDF } = await import("jspdf");
-  const frame = frameOf(input.layout);
-  const doc = new jsPDF({ unit: "pt", format: "a4", orientation: "landscape" });
+  const paper = zoom.paper ?? "a4";
+  const frame = frameOf(input.layout, paper);
+  const doc = new jsPDF({ unit: "pt", format: paper, orientation: "landscape" });
   const pages = semesterPages(input, zoom);
   const heading = `${input.semester} · ${input.layout === "days" ? "Semester Timetable" : "Rooms"}`;
 
@@ -448,7 +481,7 @@ export async function buildSemesterPdf(input: SemesterExportInput, zoom: ExportZ
   }
 
   pages.forEach((page, index) => {
-    if (index > 0) doc.addPage("a4", "landscape");
+    if (index > 0) doc.addPage(paper, "landscape");
     // One line of heading: the semester, the week, and which part of the week this is.
     doc.setFont("helvetica", "bold");
     doc.setFontSize(11);
@@ -537,70 +570,70 @@ function wordsOf(klass: Klass, fill: Rgb): Word[] {
   const white: Rgb = [255, 255, 255];
   const soft = towardsWhite(fill, 0.85);
   const cancelled = klass.state === "cancelled";
-  const fields: { text: string; bold?: boolean; ink: Rgb; icon?: Word["icon"]; strike?: boolean }[] = [
+  // Only names and notes wrap inside themselves; "CRN 24234", an hour or a room kept whole.
+  const fields: { text: string; bold?: boolean; ink: Rgb; icon?: Word["icon"]; strike?: boolean; wraps?: boolean }[] = [
     { text: klass.courseCode || klass.crn, bold: true, ink: white, strike: cancelled },
     { text: klass.group, bold: true, ink: soft },
     { text: cancelled ? "CANCELLED" : "", bold: true, ink: white },
     { text: `${klass.start}–${klass.end}`, ink: soft },
     { text: formatRoom(klass.room), ink: soft, icon: "pin" },
-    { text: klass.teacher, ink: soft, icon: "person" },
-    { text: klass.state === "covered" ? `covered by ${klass.cover || "somebody else"}` : "", bold: true, ink: white, icon: "cover" },
+    { text: klass.teacher, ink: soft, icon: "person", wraps: true },
+    { text: klass.state === "covered" ? `covered by ${klass.cover || "somebody else"}` : "", bold: true, ink: white, icon: "cover", wraps: true },
     { text: `CRN ${klass.crn}`, ink: soft },
-    { text: klass.note, ink: soft },
+    { text: klass.note, ink: soft, wraps: true },
   ];
   return fields
     .filter((field) => field.text.trim())
     .flatMap((field) =>
-      field.text
-        .trim()
-        .split(/\s+/)
-        .map((text, index) => ({
-          text,
-          bold: Boolean(field.bold),
-          ink: field.ink,
-          icon: index === 0 ? field.icon : undefined,
-          strike: field.strike,
-          opens: index === 0,
-        })),
+      (field.wraps ? field.text.trim().split(/\s+/) : [field.text.trim()]).map((text, index) => ({
+        text,
+        bold: Boolean(field.bold),
+        ink: field.ink,
+        icon: index === 0 ? field.icon : undefined,
+        strike: field.strike,
+        opens: index === 0,
+      })),
     );
 }
 
 type Placed = { word: Word; x: number; line: number };
 
+/** How wide a word sets, with its icon. */
+function wordWidth(word: Word, size: number): number {
+  return (word.icon ? size * 1.05 : 0) + textWidth(word.text, size, word.bold);
+}
+
 /**
  * The words flowed into the box at one size: where each goes, or null when they do not
  * all fit. A field starts with a wider gap than the words inside it, so "5.101" and
- * "Grace Younes" still read as two things when they share a line.
+ * "Grace Younes" still read as two things when they share a line. A word wider than the
+ * box has a line of its own and is cut there, since there is nowhere else for it to go.
  */
-function flow(doc: JsPdf, words: Word[], size: number, width: number, height: number, force = false): Placed[] | null {
-  const lineHeight = size * 1.18;
-  const lines = Math.max(1, Math.floor((height + size * 0.18) / lineHeight));
-  const icon = size * 1.05;
+function flow(words: Word[], size: number, width: number, height: number): Placed[] | null {
+  const lines = Math.max(1, Math.floor((height + size * (LINE_HEIGHT - 1)) / (size * LINE_HEIGHT)));
   const placed: Placed[] = [];
   let x = 0;
   let line = 0;
-  doc.setFontSize(size);
   for (const word of words) {
-    doc.setFont("helvetica", word.bold ? "bold" : "normal");
-    const gap = x === 0 ? 0 : word.opens ? size * 0.7 : doc.getTextWidth(" ");
-    let wide = (word.icon ? icon : 0) + doc.getTextWidth(word.text);
+    const gap = x === 0 ? 0 : word.opens ? size * 0.7 : textWidth(" ", size, word.bold);
+    const wide = Math.min(width, wordWidth(word, size));
     if (x > 0 && x + gap + wide > width) {
       line += 1;
       x = 0;
     }
-    if (wide > width) {
-      if (!force) return null;
-      wide = width;
-    }
-    if (line >= lines) {
-      if (!force) return null;
-      break;
-    }
+    if (line >= lines) return null;
     const at = x === 0 ? 0 : x + gap;
     placed.push({ word, x: at, line });
     x = at + wide;
   }
   return placed;
+}
+
+/** How many lines the words take at one size in a box this wide. */
+function linesFor(words: Word[], size: number, width: number): number {
+  if (width <= 0) return 1;
+  const placed = flow(words, size, width, Number.MAX_SAFE_INTEGER);
+  return (placed ?? []).reduce((most, entry) => Math.max(most, entry.line + 1), 1);
 }
 
 /**
@@ -620,23 +653,25 @@ function drawBox(doc: JsPdf, box: PageBox) {
     doc.setLineWidth(0.8);
     doc.roundedRect(box.x + 0.6, box.y + 0.6, box.w - 1.2, box.h - 1.2, 1.2, 1.2, "S");
   }
-  const padX = 2;
-  const padY = 1.2;
+  const padX = PAD_X;
+  const padY = PAD_Y;
   const width = box.w - padX * 2;
   const height = box.h - padY * 2;
   if (width < 4 || height < 3) return;
   const words = wordsOf(box.klass, fill);
+  // The largest type from 8 points down that says everything; the layout gave every class
+  // the height to say it at the smallest.
   let size = 8;
   let placed: Placed[] | null = null;
-  for (; size >= 3.5; size -= 0.25) {
-    placed = flow(doc, words, size, width, height);
+  for (; size >= SMALLEST_TYPE; size -= 0.25) {
+    placed = flow(words, size, width, height);
     if (placed) break;
   }
   if (!placed) {
-    size = 3.5;
-    placed = flow(doc, words, size, width, height, true) ?? [];
+    size = SMALLEST_TYPE;
+    placed = flow(words, size, width, Number.MAX_SAFE_INTEGER) ?? [];
   }
-  const lineHeight = size * 1.18;
+  const lineHeight = size * LINE_HEIGHT;
   const used = (placed.reduce((most, entry) => Math.max(most, entry.line), 0) + 1) * lineHeight;
   const top = box.y + padY + Math.max(0, (height - used) / 2) + size * 0.86;
   doc.setFontSize(size);

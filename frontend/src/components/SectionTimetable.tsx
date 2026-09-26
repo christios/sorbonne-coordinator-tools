@@ -502,7 +502,8 @@ function assemble(
     courses.set(section.crn, {
       crn: section.crn,
       code: entry.code || section.courseCode,
-      title: entry.title || section.title,
+      // The portal's current title for the section first; the register's copy can lag.
+      title: section.title || entry.title,
       label: entry.label || entry.code || section.courseCode,
       group: entry.group ?? "",
       // The sweep names the teacher for every section it answered about, so a box has
