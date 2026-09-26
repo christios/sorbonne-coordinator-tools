@@ -680,7 +680,19 @@ function SetEditor({
                     </span>
                   </th>
                   <th className="py-2 pr-3 font-semibold">In parallel with</th>
-                  <th className="w-28 py-2 pr-3 font-semibold">Sub-rows</th>
+                  <th className="w-28 py-2 pr-3 font-semibold">
+                    <span className="inline-flex items-center gap-1 normal-case">
+                      <span className="uppercase">Sub-rows</span>
+                      <InfoTip label="What sub-rows are">
+                        A group split by major, for when its majors are taught differently or need seats of their
+                        own. Each sub-row has its own seats and, on Groups &amp; CRNs, its own section for a course —
+                        or &ldquo;not taught&rdquo;. A student sits on their major&apos;s sub-row. Not the same as First
+                        for: sub-rows change what the group&apos;s students are taught and how its seats are counted;
+                        First for only decides which major is placed in the group first, and everybody in it is
+                        taught the same.
+                      </InfoTip>
+                    </span>
+                  </th>
                   {scope.kind === "nested" ? <th className="py-2 pr-3 font-semibold">Goes with</th> : null}
                   {programmes.length > 1 ? (
                     <th className="py-2 pr-3 font-semibold">
@@ -690,7 +702,8 @@ function SetEditor({
                           The major this group is filled with first. When students are placed, that major goes here
                           before anywhere else; the other majors only come here once the groups kept for nobody in
                           particular are full. A preference, not a wall — a student of another major can still be
-                          placed here by hand.
+                          placed here by hand. Unlike sub-rows, it does not split the group: everybody in it is taught
+                          the same and shares its seats.
                         </InfoTip>
                       </span>
                     </th>

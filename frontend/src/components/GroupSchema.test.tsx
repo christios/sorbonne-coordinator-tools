@@ -172,6 +172,7 @@ describe("linking a set to another", () => {
     fireEvent.click(await screen.findByRole("button", { name: /^TD\b/ }));
     // Its column says what it does, one hover away.
     expect(await screen.findByRole("button", { name: "What First for does" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "What sub-rows are" })).toBeTruthy();
     fireEvent.click(await screen.findByRole("combobox", { name: "The major 3 takes first" }));
     fireEvent.click(within(await screen.findByRole("listbox")).getByRole("option", { name: "PHYS - Physics" }));
 
