@@ -534,7 +534,10 @@ export function CourseDetail({
         <p className="text-[#344054]">{card.name || <span className="text-[#98a2b3]">untitled</span>}</p>
         {card.ue ? <span className="text-xs tabular-nums text-[#98a2b3]">{card.ue}</span> : null}
         {card.active?.mutualized ? (
-          <span className={`${chip} ${card.active.mutualized === "yes" ? "bg-[#e8edf3] text-[#1f4e79]" : "bg-[#f2f4f7] text-[#667085]"}`}>
+          <span
+            title="Set on the course's own record, under Courses — not here"
+            className={`${chip} ${card.active.mutualized === "yes" ? "bg-[#e8edf3] text-[#1f4e79]" : "bg-[#f2f4f7] text-[#667085]"}`}
+          >
             {MUTUALIZED_WORDS[card.active.mutualized]}
           </span>
         ) : null}
