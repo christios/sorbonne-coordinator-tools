@@ -442,7 +442,7 @@ function Timetable({
             * count above instead.
             */}
           {!fills && [...courses.values()].some((course) => course.tone === "outline") ? (
-            <p className={`mt-1 text-[#98a2b3] ${small}`}>Dashed: in a group of theirs, and the portal has not registered them for it.</p>
+            <p className={`mt-1 text-[#98a2b3] ${small}`}>Dashed: in a group of theirs and not registered for it, or registered for a course they are exempt from.</p>
           ) : null}
           {/* Only where there is one to read. A key to a mark nobody can see is clutter. */}
           {!fills && sessions.some((session) => session.change?.kind === "covered") ? (

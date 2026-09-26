@@ -28,6 +28,11 @@ export type ScheduleSection = {
   teacher: string;
   /** The group of ours it teaches — "CM Mathematics", "TD 3" — where a course card says. */
   group?: string;
+  /**
+   * Drawn empty with a dashed edge, as the calendar draws it: a class the student is
+   * expected at and not registered for, or registered for and exempt from.
+   */
+  outline?: boolean;
   meetings: ScheduleMeeting[];
   notes: ScheduleNote[];
 };
@@ -56,6 +61,7 @@ export type ScheduleClass = {
   /** The course's name, said in its box: there is no legend to look it up in. */
   title: string;
   group: string;
+  outline: boolean;
   teacher: string;
   day: string;
   startsAt: string;
@@ -152,6 +158,7 @@ export function scheduleWeeks(input: ScheduleInput): ScheduleWeek[] {
           courseCode: section.courseCode,
           title: section.title?.trim() ?? "",
           group: section.group?.trim() ?? "",
+          outline: Boolean(section.outline),
           teacher: section.teacher,
           day: meeting.meetsOn,
           startsAt: meeting.startsAt,
@@ -462,9 +469,26 @@ function drawSchedule(doc: JsPdf, input: ScheduleInput, after: boolean): void {
       const covered = entry.state === "covered";
       // Faded as the calendar fades it: the box at a little over half its colour.
       const fill = cancelled ? towardsWhite(color, 0.45) : color;
-      const ink = (opacity: number): Rgb => (cancelled ? [255, 255, 255] : towardsWhite(fill, opacity));
-      doc.setFillColor(...fill);
-      doc.roundedRect(box.x, box.y, box.w, box.h, 3, 3, "F");
+      /*
+       * Empty with a dashed edge, as the calendar draws it, for a class expected and not
+       * registered, or registered and exempt from: the words go in the course's colour.
+       */
+      const outline = entry.outline;
+      const strong: Rgb = outline ? color : [255, 255, 255];
+      const ink = (opacity: number): Rgb =>
+        outline ? towardsWhite(color, 0.2) : cancelled ? [255, 255, 255] : towardsWhite(fill, opacity);
+      if (outline) {
+        doc.setFillColor(255, 255, 255);
+        doc.roundedRect(box.x, box.y, box.w, box.h, 3, 3, "F");
+        doc.setDrawColor(...color);
+        doc.setLineWidth(1.2);
+        doc.setLineDashPattern([3, 2], 0);
+        doc.roundedRect(box.x + 0.6, box.y + 0.6, box.w - 1.2, box.h - 1.2, 2.6, 2.6, "S");
+        doc.setLineDashPattern([], 0);
+      } else {
+        doc.setFillColor(...fill);
+        doc.roundedRect(box.x, box.y, box.w, box.h, 3, 3, "F");
+      }
       if (covered) {
         // Stripes, and a pale edge inside, as on screen: still the class, plainly not the usual one.
         // Held inside the box's own rounded edge, so no stripe's end pokes out past it.
@@ -491,13 +515,13 @@ function drawSchedule(doc: JsPdf, input: ScheduleInput, after: boolean): void {
        * nowhere else to put. A line that does not fit is dropped rather than cut in half.
        */
       const lines: BoxLine[] = [
-        { text: classLabel(entry), size: 8.5, bold: true, ink: [255, 255, 255] as Rgb, strike: cancelled, keep: 0 },
+        { text: classLabel(entry), size: 8.5, bold: true, ink: strong, strike: cancelled, keep: 0 },
         { text: entry.title, size: 7.5, ink: ink(0.9), keep: 2 },
         { text: `${entry.startsAt}–${entry.endsAt}`, size: 8, ink: ink(0.9), keep: 1 },
         { text: formatRoom(entry.room), size: 8, icon: "pin" as const, ink: ink(0.85), keep: 3 },
         { text: `CRN ${entry.crn}`, size: 7, ink: ink(0.8), keep: 5 },
         covered
-          ? { text: entry.cover || "somebody else", size: 8, bold: true, icon: "cover" as const, ink: [255, 255, 255] as Rgb, keep: 3 }
+          ? { text: entry.cover || "somebody else", size: 8, bold: true, icon: "cover" as const, ink: strong, keep: 3 }
           : { text: entry.teacher, size: 8, icon: "person" as const, ink: ink(0.85), keep: 4 },
         { text: entry.note, size: 7, ink: ink(0.85), keep: 6 },
       ].filter((line) => line.text);

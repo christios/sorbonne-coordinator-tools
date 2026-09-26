@@ -180,6 +180,20 @@ describe("a student's record", () => {
     expect(within(table.closest("section") ?? table).queryByText(/not registered/)).toBeNull();
   });
 
+  it("says exempt and still registered, in amber, where the registrar has them in it all the same", async () => {
+    // Recorded as not taking MATH-011, and the registrar has them in its 23652 all the same.
+    vi.spyOn(database, "fetchExemptions").mockResolvedValue([
+      { studentId: "A001", courseId: "c-algo", courseCode: "MATH-011", scopeId: "scope-td", scopeCode: "TD", termId: "term-1", reason: "" },
+    ]);
+    vi.spyOn(lists, "fetchRegistrations").mockResolvedValue([
+      { termCode: "262710", crn: "23652", courseCode: "MATH-011", title: "Algorithms", teacherName: "Dr Ahmed", status: "in_portal", lastSeenAt: "" },
+    ]);
+    show();
+
+    const table = await screen.findByLabelText("CRNs");
+    await waitFor(() => expect(within(table).getByText("23652").closest("tr")?.textContent).toContain("exempt · still registered"));
+  });
+
   it("still calls an unregistered CRN a fault when nothing excuses it", async () => {
     show();
 

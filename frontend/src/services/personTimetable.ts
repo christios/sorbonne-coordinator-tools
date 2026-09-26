@@ -58,8 +58,9 @@ export function placementsOf(
 /**
  * A student's week: every section their groups stand for, and every one the registrar has
  * registered them in. Where the two agree the box is solid; a group's section they are not
- * registered for is dashed; a registration outside any group of theirs — a language, an
- * option — is drawn like any other, because it is where they will be that afternoon.
+ * registered for is dashed, and so is one of a course they are exempt from that the
+ * registrar still has them in; a registration outside any group of theirs — a language,
+ * an option — is drawn like any other, because it is where they will be that afternoon.
  */
 export function studentTimetable({
   placements,
@@ -79,15 +80,21 @@ export function studentTimetable({
   return [
     ...placements.flatMap(({ scope, group, major, crns }) =>
       crns
-        .filter((cell) => cell.crn && !excused.has(cell.courseId))
-        .map((cell) => ({
-          termCode: links[scope.termId ?? ""] ?? "",
-          crn: cell.crn,
-          code: cell.courseCode,
-          title: cell.courseName,
-          group: `${scope.code} ${group ? subRowLabel(group.label, major?.program ?? "", (group.majors ?? []).length) : ""}`.trim(),
-          tone: registered.has(cell.crn) ? ("solid" as const) : ("outline" as const),
-        })),
+        // A course they are exempt from is off their week — unless the registrar still has
+        // them in it, when it is drawn empty and dashed and says so: the portal expects them.
+        .filter((cell) => cell.crn && (!excused.has(cell.courseId) || registered.has(cell.crn)))
+        .map((cell) => {
+          const exempt = excused.has(cell.courseId);
+          const label = `${scope.code} ${group ? subRowLabel(group.label, major?.program ?? "", (group.majors ?? []).length) : ""}`.trim();
+          return {
+            termCode: links[scope.termId ?? ""] ?? "",
+            crn: cell.crn,
+            code: cell.courseCode,
+            title: cell.courseName,
+            group: exempt ? `${label} · exempt` : label,
+            tone: exempt || !registered.has(cell.crn) ? ("outline" as const) : ("solid" as const),
+          };
+        }),
     ),
     ...registrations
       .filter((registration) => registration.status === "in_portal" && !placedCrns.has(registration.crn))

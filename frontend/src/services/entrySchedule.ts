@@ -20,9 +20,9 @@ export type ScheduleHeading = { title: string; subtitle?: string };
  * One person's — or one course's — entries as one timetable.
  *
  * A cover is drawn on the dates it happened and no others, marked as covered by whoever
- * stood in. A section the registrar has no meetings for is in the legend and nowhere on
- * the grid, as on the CRN schedule. The semester is named, and its weeks numbered, only
- * when every entry is of one term.
+ * stood in. A section the registrar has no meetings for is nowhere on the grid, and the
+ * export says which. The semester is named, and its weeks numbered, only when every entry
+ * is of one term.
  */
 export async function scheduleFromEntries(
   entries: TimetableEntry[],
@@ -79,6 +79,7 @@ export async function scheduleFromEntries(
       title: entry.title || section?.title || "",
       teacher: entry.staff || section?.teacherName || "",
       group: entry.group ?? "",
+      outline: entry.tone === "outline",
       meetings,
       notes,
     });

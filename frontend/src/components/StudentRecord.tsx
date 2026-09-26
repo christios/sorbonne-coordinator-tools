@@ -701,7 +701,9 @@ export function StudentRecord({
                           teacher={cell.crn ? portalTeacher(cell.crn) : ""}
                           state={
                             excused.has(cell.courseId)
-                              ? "exempt"
+                              ? cell.crn && registered.has(cell.crn)
+                                ? "exempt, registered"
+                                : "exempt"
                               : !cell.crn
                                 ? "no crn"
                                 : registered.has(cell.crn)
@@ -1046,14 +1048,20 @@ function CrnRow({
   courseName?: string;
   /** Who teaches it, as the portal has it. */
   teacher: string;
-  state: "registered" | "not registered" | "exempt" | "no crn" | "outside";
+  state: "registered" | "not registered" | "exempt" | "exempt, registered" | "no crn" | "outside";
   onOpen?: () => void;
   exempting?: boolean;
   onExempt?: (on: boolean) => void;
   /** For a row outside their groups: what to say in the portal column instead. */
   outside?: ReactNode;
 }) {
-  const off = state === "exempt";
+  const off = state === "exempt" || state === "exempt, registered";
+  /*
+   * Exempt, and the registrar has them in it all the same. One of the two is the mistake
+   * and it is not ours to guess which — but it is not the quiet "exempt" of a course they
+   * are rightly out of, so it says so in the colour of something to act on.
+   */
+  const stillRegistered = state === "exempt, registered";
   return (
     <tr className={`group border-t border-[#f2f4f7] align-top ${off ? "text-[#98a2b3]" : ""}`}>
       {/* A little in from the set's band, so each group's CRNs read as its own. */}
@@ -1083,6 +1091,13 @@ function CrnRow({
           (state === "registered" ? (
             <span className="inline-flex items-center gap-1 text-[#2f6b3d]">
               <Check size={13} aria-hidden="true" /> registered
+            </span>
+          ) : stillRegistered ? (
+            <span
+              className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-[#fdf3e1] px-2 py-0.5 font-semibold text-[#8a6116]"
+              title={`Recorded as not taking ${courseCode}, and the portal still has them in ${crn}. Either the exemption or the registration is wrong.`}
+            >
+              <MinusCircle size={12} aria-hidden="true" /> exempt · still registered
             </span>
           ) : off ? (
             <span
