@@ -571,6 +571,11 @@ class FacilityTimetableStore:
         about an afternoon that may well have a lecture in it. So an unchecked section is a
         row with no meetings and the word `unchecked` on it, and the page says so.
 
+        A section the registrar's timetable has never once answered about is `never`, not
+        `gone`: it was not dropped, it was never booked — a TD whose hours sit under its
+        lecture, say. What a sweep learns first is the course, so an empty course code on a
+        gone section is one it never heard from. The page says the right thing for each.
+
         `gone` contributes no meetings, `silent` keeps its last ones — exactly as
         `sessions_for` reads them, so the calendar and the clash count never disagree
         about whether a class is happening.
@@ -620,7 +625,7 @@ class FacilityTimetableStore:
                     "courseCode": (sections[crn]["course_code"] if crn in sections else "") or "",
                     "title": (sections[crn]["title"] if crn in sections else "") or "",
                     "teacherName": (sections[crn]["teacher_name"] if crn in sections else "") or "",
-                    "state": sections[crn]["schedule_state"] if crn in sections else "unchecked",
+                    "state": _calendar_state(sections.get(crn)),
                     "meetings": by_crn.get(crn, []),
                 }
                 for crn in wanted
@@ -765,3 +770,12 @@ def _now() -> str:
     from datetime import datetime, timezone  # noqa: PLC0415 - one caller, and it is here
 
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _calendar_state(row: Any) -> str:
+    """The state a calendar shows: `never` for a gone section the timetable never answered about."""
+    if row is None:
+        return "unchecked"
+    if row["schedule_state"] == "gone" and not row["course_code"]:
+        return "never"
+    return str(row["schedule_state"])

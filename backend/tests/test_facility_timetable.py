@@ -273,6 +273,17 @@ def test_a_calendar_read_answers_for_every_section_asked_about_and_says_which_it
     assert read["pulledAt"]
 
 
+def test_a_section_the_timetable_never_answered_about_is_never_booked_not_gone(store: FacilityTimetableStore):
+    """PHYS-221's TD has fifteen students and not one class of its own in the portal's
+    timetable, sync after sync. It did not stop answering — it never answered."""
+    for _ in range(3):
+        store.record_pull(term_code=TERM, asked=["24240"], sections=[], silent=["24240"], failed=[], complete=True)
+
+    [row] = store.timetable_for(TERM, ["24240"])["sections"]
+
+    assert (row["state"], row["meetings"]) == ("never", [])
+
+
 def test_a_calendar_read_with_nothing_asked_is_empty_rather_than_the_whole_term(store: FacilityTimetableStore):
     store.record_pull(term_code=TERM, asked=["23436"], sections=[section("23436", meetings=[MONDAY])],
                       silent=[], failed=[], complete=True)

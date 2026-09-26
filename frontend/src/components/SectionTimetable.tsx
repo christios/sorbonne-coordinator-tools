@@ -516,6 +516,7 @@ function assemble(
     });
     if (section.state === "unchecked") unasked.push(section.crn);
     else if (section.state === "gone") gone.push(section.crn);
+    // Never booked — asked, and never a class under it — is the same fact as no classes.
     else if (section.meetings.length === 0) unbooked.push(section.crn);
     for (const meeting of section.meetings) {
       // A section the caller asked for by date is drawn on those days and no others.
@@ -569,7 +570,7 @@ function keyOf(entry: TimetableEntry): string {
 function Coverage({ unasked, gone, unbooked, unlinked, compact }: Pick<Assembled, "unasked" | "gone" | "unbooked" | "unlinked"> & { compact: boolean }) {
   const lines = [
     unasked.length ? `Nobody has asked the portal about ${list(unasked)} — run a portal sync.` : "",
-    unbooked.length ? `Asked, and the portal has booked no room for ${list(unbooked)}.` : "",
+    unbooked.length ? `The portal's timetable has no classes booked for ${list(unbooked)}.` : "",
     gone.length ? `The portal has stopped answering for ${list(gone)}; ${gone.length === 1 ? "its" : "their"} classes are not drawn.` : "",
     unlinked.length ? `${list(unlinked)} ${unlinked.length === 1 ? "is" : "are"} in a semester linked to no portal term.` : "",
   ].filter(Boolean);

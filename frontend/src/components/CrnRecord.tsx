@@ -244,7 +244,7 @@ export function CrnRecord({
             ) : !asked ? (
               <Empty>Nobody has asked the portal about this CRN. Run a portal sync.</Empty>
             ) : meets.length === 0 ? (
-              <Empty>Asked, and the portal has booked no room for it.</Empty>
+              <Empty>The portal&apos;s timetable has no classes booked for it.</Empty>
             ) : (
               <>
                 <p className="text-sm text-[#344054]">{meets.join(" · ")}</p>

@@ -785,8 +785,11 @@ export type FacilitySection = {
   courseCode: string;
   title: string;
   teacherName: string;
-  /** `unchecked` when nobody has asked the registrar about it; `gone` when they have stopped answering. */
-  state: "published" | "silent" | "gone" | "unchecked";
+  /**
+   * `unchecked` when nobody has asked the registrar about it; `gone` when they have stopped
+   * answering; `never` when they have been asked and have never had a class under it.
+   */
+  state: "published" | "silent" | "gone" | "never" | "unchecked";
   meetings: { meetsOn: string; startsAt: string; endsAt: string; room: string }[];
 };
 

@@ -151,8 +151,21 @@ describe("a handful of sections, as the registrar has them", () => {
     show([{ termCode: "262710", crn: "23436", code: "MATH-351", title: "" }]);
 
     expect(await screen.findByText(/holds no meetings for this section/)).toBeTruthy();
-    expect(screen.getByText(/booked no room for 23436/)).toBeTruthy();
+    expect(screen.getByText(/no classes booked for 23436/)).toBeTruthy();
     expect(screen.queryByLabelText("Next week")).toBeNull();
+  });
+
+  it("says a section the portal never had a class under has none booked, not that it stopped answering", async () => {
+    vi.spyOn(lists, "fetchFacilitySections").mockResolvedValue({
+      termCode: "262710",
+      pulledAt: "",
+      sections: [{ crn: "24240", courseCode: "", title: "", teacherName: "", state: "never", meetings: [] }],
+    });
+
+    show([{ termCode: "262710", crn: "24240", code: "PHYS-221", title: "" }]);
+
+    expect(await screen.findByText(/no classes booked for 24240/)).toBeTruthy();
+    expect(screen.queryByText(/stopped answering/)).toBeNull();
   });
 
   it("has nothing to ask about with no entries", () => {
