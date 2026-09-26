@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { LabelledPicker } from "@/components/LabelledPicker";
 import { ScreenLoading } from "@/components/ScreenLoading";
+import { InfoTip } from "@/components/InfoTip";
 import { SelectMenu } from "@/components/SelectMenu";
 import { useRemembered } from "@/components/useRemembered";
 import { WarningBanner, WarningRows, type WarningKind } from "@/components/WarningBanner";
@@ -37,10 +38,6 @@ import {
 } from "@/services/studentDatabase";
 import { fetchTimetableTerms } from "@/services/timetables";
 
-const KIND_WORDS: Record<ScopeKind, string> = {
-  shared: "Its own groups — a student is in one of them",
-  nested: "Linked to another set — each group goes with one or more of that set's groups",
-};
 
 const chip = "rounded-full px-2 py-0.5 text-xs font-semibold";
 const field = "mt-1 block w-full rounded-md border border-[#cbd5e1] px-3 py-2 text-sm";
@@ -277,7 +274,7 @@ export function GroupSchema({
   if (!terms.isLoading && !(terms.data ?? []).length) {
     return (
       <p className="rounded-lg border border-dashed border-[#c8d0da] bg-white px-5 py-8 text-center text-sm text-[#667085]">
-        No semester on the Student Hub yet. A group set belongs to one, so make a semester first on the Semesters page.
+        No semester yet — make one on the Semesters page first.
       </p>
     );
   }
@@ -286,7 +283,7 @@ export function GroupSchema({
     <section className="flex flex-col lg:min-h-0 lg:flex-1">
       <div className="mb-3 flex flex-wrap items-end gap-3">
         {/* The semester first: a set belongs to one, and the cohort means nothing until it is settled. */}
-        <LabelledPicker label="Semester" hint="a set belongs to one">
+        <LabelledPicker label="Semester">
           <SelectMenu
             label="Semester"
             value={termId}
@@ -304,8 +301,15 @@ export function GroupSchema({
             options={cohorts.map((cohort) => ({ value: cohort.id, label: cohort.name, year: cohort.term }))}
           />
         </LabelledPicker>
+        {/* The cohort's totals beside its pickers, rather than a line of their own under them. */}
+        {cohortId && termId && !catalogue.isLoading ? (
+          <span className="pb-2 text-xs tabular-nums text-[#98a2b3]">
+            {totals.sets} set{totals.sets === 1 ? "" : "s"} · {totals.groups} group{totals.groups === 1 ? "" : "s"} ·{" "}
+            {totals.courses} course{totals.courses === 1 ? "" : "s"} · {totals.placed} placed
+          </span>
+        ) : null}
         {onOpenGroups ? (
-          <button type="button" onClick={onOpenGroups} className="ml-auto inline-flex items-center gap-1.5 text-sm font-semibold text-[#1f4e79] hover:underline">
+          <button type="button" onClick={onOpenGroups} className="ml-auto inline-flex items-center gap-1.5 pb-2 text-sm font-semibold text-[#1f4e79] hover:underline">
             Fill it in on Groups &amp; CRNs <ArrowRight size={14} aria-hidden="true" />
           </button>
         ) : null}
@@ -319,12 +323,6 @@ export function GroupSchema({
         <ScreenLoading label="Reading the schema…" />
       ) : (
         <div className="flex flex-col lg:min-h-0 lg:flex-1">
-          <p className="mb-3 text-xs tabular-nums text-[#98a2b3]">
-            {totals.sets} set{totals.sets === 1 ? "" : "s"} · {totals.groups} group{totals.groups === 1 ? "" : "s"} ·{" "}
-            {totals.courses} course{totals.courses === 1 ? "" : "s"} · {totals.placed} student placement
-            {totals.placed === 1 ? "" : "s"}
-          </p>
-
           <WarningBanner title="Needs attention" kinds={warnings} />
 
           <div className="grid items-stretch gap-4 lg:min-h-0 lg:flex-1 lg:grid-cols-[19rem_1fr] lg:overflow-hidden lg:[grid-template-rows:minmax(0,1fr)]">
@@ -366,8 +364,7 @@ export function GroupSchema({
               </div>
             ) : (
               <p className="rounded-lg border border-dashed border-[#c8d0da] bg-white px-5 py-10 text-center text-sm text-[#667085]">
-                No sets in this semester yet. A set is one way the cohort is split — the lectures, the tutorials, the
-                practicals — and its groups are the classes inside it.
+                No sets in this semester yet. Add one on the left — the lectures, the tutorials, the practicals.
               </p>
             )}
           </div>
@@ -512,21 +509,100 @@ function SetEditor({
       * name over them is a page you have to scroll back up to identify.
       */
     <section className="flex min-w-0 flex-col rounded-lg border border-[#d9dee7] bg-white lg:h-full lg:min-h-0">
-      <header className="shrink-0 border-b border-[#eef1f5] px-5 py-4">
-        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1.5">
+      {/*
+        * The set's name stays put while everything about it scrolls under it; its settings
+        * sit on one line beneath, each explained on its ⓘ rather than in a paragraph.
+        */}
+      <header className="shrink-0 border-b border-[#eef1f5] px-5 pb-3 pt-4">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
           <h3 className="text-lg font-semibold text-[#1f4e79]">{scope.code}</h3>
-          {scope.name && scope.name !== scope.code ? <p className="text-[#344054]">{scope.name}</p> : null}
+          {scope.name && scope.name !== scope.code ? <span className="text-sm text-[#667085]">{scope.name}</span> : null}
           {reading.shared ? <span className={`${chip} bg-[#e8edf3] text-[#1f4e79]`}>Across cohorts</span> : null}
           {scope.kind === "nested" ? (
-            <span className={`${chip} bg-[#f2f4f7] text-[#667085]`}>
-              Linked to {scopes.find((candidate) => candidate.id === scope.parentScopeId)?.code ?? "nothing"}
-            </span>
+            <span className={`${chip} bg-[#f2f4f7] text-[#667085]`}>Linked to {scopes.find((candidate) => candidate.id === scope.parentScopeId)?.code ?? "nothing"}</span>
           ) : null}
           <span className="ml-auto text-xs tabular-nums text-[#98a2b3]">
             {reading.groups} group{reading.groups === 1 ? "" : "s"} · {reading.placed} placed
           </span>
+          <button
+            type="button"
+            onClick={() => setRemoving(true)}
+            aria-label={`Remove ${scope.code}`}
+            title="Remove this set"
+            className="rounded-md p-1.5 text-[#c8d0da] hover:bg-[#fdf3f3] hover:text-[#a6292f]"
+          >
+            <Trash2 size={15} aria-hidden="true" />
+          </button>
         </div>
-        <p className="mt-1 text-sm text-[#667085]">{KIND_WORDS[scope.kind]}</p>
+
+        <div className="mt-3 flex flex-wrap items-end gap-x-4 gap-y-2">
+          <label className="block w-28">
+            <span className={caption}>Code</span>
+            <input
+              aria-label="Set code"
+              value={code}
+              onChange={(event) => setCode(event.target.value)}
+              onBlur={() => code.trim() && code !== scope.code && save.mutate({ code: code.trim() })}
+              className={field}
+            />
+          </label>
+          <label className="block min-w-40 flex-1">
+            <span className={caption}>Name</span>
+            <input
+              aria-label="Set name"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              onBlur={() => name !== scope.name && save.mutate({ name })}
+              placeholder="Tutorials, Lectures, Readiness…"
+              className={field}
+            />
+          </label>
+          {/*
+            * One question, where there used to be two dropdowns — a kind, then "inside" what:
+            * does this set depend on another? Linked, each of its groups says which groups of
+            * that set it goes with, and placing a student proposes only groups that go with theirs.
+            */}
+          <div className="w-44">
+            <span className={`${caption} flex items-center gap-1`}>
+              Linked to
+              <InfoTip label="What linking a set does">
+                Link it when its groups depend on another set&apos;s — the Mechanics TP halves on the TD. Each group then
+                says which groups of that set it goes with, and placing a student offers only those.
+              </InfoTip>
+            </span>
+            <div className="mt-1">
+              <SelectMenu
+                label="The set this one is linked to"
+                value={kind === "nested" ? parentScopeId : ""}
+                onChange={(value) => {
+                  setKind(value ? "nested" : "shared");
+                  setParentScopeId(value);
+                  save.mutate(value ? { kind: "nested", parentScopeId: value } : { kind: "shared" });
+                }}
+                options={[
+                  { value: "", label: "Not linked" },
+                  ...parents.map((candidate) => ({ value: candidate.id, label: candidate.code })),
+                ]}
+              />
+            </div>
+          </div>
+          <label className="flex h-[38px] items-center gap-2 text-sm text-[#344054]">
+            <input
+              type="checkbox"
+              aria-label="Open to every cohort"
+              checked={openToAll}
+              onChange={(event) => {
+                setOpenToAll(event.target.checked);
+                save.mutate({ openToAll: event.target.checked });
+              }}
+            />
+            <span className="font-semibold">Open to every cohort</span>
+            <InfoTip label="What open to every cohort means">
+              For a class the whole department shares, like the languages: any student may be in it, whatever year they
+              are in, and each is still counted under their own cohort.
+            </InfoTip>
+          </label>
+        </div>
       </header>
 
       <div className="relative lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:overscroll-none">
@@ -536,90 +612,18 @@ function SetEditor({
         </p>
       ) : null}
 
-      {/* ------------------------------------------------------------ what it is */}
-      <div className="grid gap-4 border-b border-[#eef1f5] px-5 py-4 sm:grid-cols-2">
-        <label className="block">
-          <span className={caption}>Code</span>
-          <input
-            aria-label="Set code"
-            value={code}
-            onChange={(event) => setCode(event.target.value)}
-            onBlur={() => code.trim() && code !== scope.code && save.mutate({ code: code.trim() })}
-            className={field}
-          />
-        </label>
-        <label className="block">
-          <span className={caption}>Name</span>
-          <input
-            aria-label="Set name"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            onBlur={() => name !== scope.name && save.mutate({ name })}
-            placeholder="Tutorials, Lectures, Readiness…"
-            className={field}
-          />
-        </label>
-        {/*
-          * One question, where there used to be two dropdowns — a kind, then "inside" what:
-          * does this set depend on another? Linked, each of its groups says which groups of
-          * that set it goes with (Mechanics TP 2A with TD 2; Philosophy 2 with TD 2 and TD 3),
-          * and placing a student proposes only groups that go with theirs.
-          */}
-        <div className="sm:col-span-2">
-          <p className={caption} aria-hidden="true">Linked to</p>
-          <div className="mt-1 max-w-xs">
-            <SelectMenu
-              label="The set this one is linked to"
-              value={kind === "nested" ? parentScopeId : ""}
-              onChange={(value) => {
-                setKind(value ? "nested" : "shared");
-                setParentScopeId(value);
-                save.mutate(value ? { kind: "nested", parentScopeId: value } : { kind: "shared" });
-              }}
-              options={[
-                { value: "", label: "Not linked" },
-                ...parents.map((candidate) => ({ value: candidate.id, label: candidate.code })),
-              ]}
-            />
-          </div>
-          <p className="mt-1 text-xs text-[#667085]">
-            Link it when its groups depend on another set&apos;s — the Mechanics TP halves on the TD. Each group
-            then says which groups of that set it goes with.
-          </p>
-        </div>
-        <label className="flex items-start gap-2 text-sm text-[#344054] sm:col-span-2">
-          <input
-            type="checkbox"
-            aria-label="Open to every cohort"
-            checked={openToAll}
-            onChange={(event) => {
-              setOpenToAll(event.target.checked);
-              save.mutate({ openToAll: event.target.checked });
-            }}
-            className="mt-0.5"
-          />
-          <span>
-            <span className="font-semibold">Open to every cohort</span>
-            <span className="block text-xs text-[#667085]">
-              For a class the whole department shares, like the languages: any student may be in it, whatever year they
-              are in, and each is still counted under their own cohort.
-            </span>
-          </span>
-        </label>
-      </div>
-
       {/* -------------------------------------------------------- what it carries */}
       <div className="border-b border-[#eef1f5] px-5 py-4">
-        <p className="flex items-center gap-2 text-sm font-semibold text-[#344054]">
-          <Layers size={15} className="text-[#98a2b3]" aria-hidden="true" /> Courses this set carries
+        <p className="flex items-center gap-1.5 text-sm font-semibold text-[#344054]">
+          <Layers size={15} className="text-[#98a2b3]" aria-hidden="true" /> Courses
+          <InfoTip label="What the set's courses mean">
+            Every group of the set gets a section of each — unless the course and the group name different programmes, in
+            which case the course is not taught to that group and no CRN is expected.
+          </InfoTip>
         </p>
-        <p className="mt-0.5 text-xs text-[#667085]">
-          Every group of the set gets a section of each — unless the course and the group name different
-          programmes, in which case the course is not taught to that group and no CRN is expected.
-        </p>
-        <ul className="mt-2 flex flex-wrap gap-2">
+        <div className="mt-2 flex flex-wrap items-center gap-2">
           {scope.courses.map((course) => (
-            <li key={course.id} className="inline-flex items-center gap-1.5 rounded-full border border-[#d9dee7] bg-white py-1 pl-3 pr-1.5 text-sm">
+            <span key={course.id} className="inline-flex items-center gap-1.5 rounded-full border border-[#d9dee7] bg-white py-1 pl-3 pr-1.5 text-sm">
               <span className="tabular-nums text-[#344054]">{course.code}</span>
               <button
                 type="button"
@@ -629,18 +633,10 @@ function SetEditor({
               >
                 <Trash2 size={12} aria-hidden="true" />
               </button>
-            </li>
+            </span>
           ))}
-          {!scope.courses.length ? <li className="text-sm text-[#98a2b3]">None yet.</li> : null}
-        </ul>
-        <form
-          className="mt-3 flex flex-wrap gap-2"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (newCourse.trim()) addOne.mutate(newCourse.trim().toUpperCase());
-          }}
-        >
-          <div className="w-64">
+          {/* The next course goes where the chips end, not on a row of its own. */}
+          <div className="w-52">
             <SelectMenu
               label={`Add a course to ${scope.code}`}
               value={newCourse}
@@ -655,25 +651,23 @@ function SetEditor({
                 .map((course) => ({ value: course.code, label: course.code, badge: course.title || undefined, badgeTone: "muted" as const }))}
             />
           </div>
-        </form>
+        </div>
       </div>
 
       {/* ---------------------------------------------------------- who is in it */}
       <div className="px-5 py-4">
-        <p className="flex items-center gap-2 text-sm font-semibold text-[#344054]">
+        <p className="flex items-center gap-1.5 text-sm font-semibold text-[#344054]">
           <Users size={15} className="text-[#98a2b3]" aria-hidden="true" /> Groups
-        </p>
-        <p className="mt-0.5 text-xs text-[#667085]">
-          The classes inside this set. A student sits in one of them
-          {scope.kind === "nested"
-            ? `, one that goes with their ${scopes.find((candidate) => candidate.id === scope.parentScopeId)?.code ?? "linked"} group`
-            : ""}
-          .
+          <InfoTip label="What the set's groups are">
+            The classes inside this set. A student sits in one of them
+            {scope.kind === "nested" ? `, one that goes with their ${scopes.find((candidate) => candidate.id === scope.parentScopeId)?.code ?? "linked"} group` : ""}. A
+            group's seats are its sub-rows' added up; a sub-row holds one programme's students.
+          </InfoTip>
         </p>
 
         {scope.groups.length ? (
-          <div className="mt-2 overflow-hidden rounded-lg border border-[#e4e8ef]">
-            <table className="w-full text-left text-sm">
+          <div className="mt-2 overflow-x-auto rounded-lg border border-[#e4e8ef]">
+            <table className="w-full min-w-max text-left text-sm">
               <thead className="bg-[#fbfcfe] text-[11px] uppercase tracking-wide text-[#8a94a4]">
                 <tr>
                   <th className="py-2 pl-4 pr-3 font-semibold">Group</th>
@@ -707,9 +701,7 @@ function SetEditor({
             </table>
           </div>
         ) : (
-          <p className="mt-2 rounded-lg border border-dashed border-[#c8d0da] px-4 py-4 text-sm text-[#667085]">
-            No groups yet. Add them below — a range makes them all at once.
-          </p>
+          <p className="mt-2 rounded-lg border border-dashed border-[#c8d0da] px-4 py-4 text-sm text-[#667085]">No groups yet.</p>
         )}
 
         <form
@@ -726,12 +718,13 @@ function SetEditor({
             value={newGroups}
             onChange={(event) => setNewGroups(event.target.value)}
             placeholder="1-6, or A1-G1"
-            className="w-48 rounded-md border border-[#cbd5e1] px-3 py-2 text-sm"
+            title="One label, or a range that makes them all at once"
+            className="w-44 rounded-md border border-[#cbd5e1] px-3 py-1.5 text-sm"
           />
           <button
             type="submit"
             disabled={!newGroups.trim() || makeGroups.isPending}
-            className="inline-flex items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb] disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-3 py-1.5 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb] disabled:opacity-50"
           >
             <Plus size={14} aria-hidden="true" />
             {makeGroups.isPending ? "Adding…" : labelsFrom(newGroups).length > 1 ? `Add ${labelsFrom(newGroups).length} groups` : "Add group"}
@@ -741,16 +734,6 @@ function SetEditor({
           ) : null}
         </form>
       </div>
-
-      <footer className="flex items-center justify-end border-t border-[#eef1f5] px-5 py-3">
-        <button
-          type="button"
-          onClick={() => setRemoving(true)}
-          className="inline-flex items-center gap-1.5 rounded-md border border-[#e5b7b9] bg-white px-3 py-1.5 text-sm font-semibold text-[#a6292f] hover:bg-[#fdf3f3]"
-        >
-          <Trash2 size={14} aria-hidden="true" /> Remove this set
-        </button>
-      </footer>
 
       <ConfirmDialog
         open={removing}
@@ -830,13 +813,13 @@ function GroupRow({
           value={label}
           onChange={(event) => setLabel(event.target.value)}
           onBlur={() => label.trim() && label !== group.label && save.mutate({ label: label.trim() })}
-          className="w-28 rounded-md border border-transparent px-2 py-1 text-sm font-medium hover:border-[#cbd5e1] focus:border-[#cbd5e1]"
+          className="w-20 rounded-md border border-transparent px-2 py-1 text-sm font-medium hover:border-[#cbd5e1] focus:border-[#cbd5e1]"
         />
       </td>
       <td className="py-1.5 pr-3">
         {majors.length ? (
           // With sub-rows the seats are theirs to add up; the group's own number is retired.
-          <span className="inline-block w-20 px-2 py-1 text-sm tabular-nums text-[#667085]" title="What the sub-rows add up to">
+          <span className="inline-block w-14 px-2 py-1 text-sm tabular-nums text-[#667085]" title="What the sub-rows add up to">
             {group.capacity || "—"}
           </span>
         ) : (
@@ -847,7 +830,7 @@ function GroupRow({
             onChange={(event) => setCapacity(event.target.value.replace(/[^0-9]/g, ""))}
             onBlur={() => Number(capacity || 0) !== group.capacity && save.mutate({ capacity: Number(capacity || 0) })}
             placeholder="—"
-            className="w-20 rounded-md border border-transparent px-2 py-1 text-sm tabular-nums hover:border-[#cbd5e1] focus:border-[#cbd5e1]"
+            className="w-14 rounded-md border border-transparent px-2 py-1 text-sm tabular-nums hover:border-[#cbd5e1] focus:border-[#cbd5e1]"
           />
         )}
       </td>
@@ -857,7 +840,7 @@ function GroupRow({
         * timetable request as a constraint on the row.
         */}
       <td className="py-1.5 pr-3">
-        <div className="w-44">
+        <div className="w-36">
           <SelectMenu
             label={`Groups ${group.label} runs in parallel with`}
             multiple
@@ -881,7 +864,7 @@ function GroupRow({
       {nested ? (
         <td className="py-1.5 pr-3">
           {/* Several where the pairing is not one-to-one: Philosophy 2 goes with TD 2 and TD 3. */}
-          <div className="w-44">
+          <div className="w-36">
             <SelectMenu
               label={`The groups ${group.label} goes with`}
               multiple
