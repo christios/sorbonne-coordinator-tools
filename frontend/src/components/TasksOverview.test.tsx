@@ -233,3 +233,40 @@ describe("TasksOverview", () => {
     expect(screen.getByText("No tasks match these filters.")).toBeTruthy();
   });
 });
+
+describe("TasksOverview, laid out", () => {
+  it("groups the list by how soon each task is due, and counts each group", () => {
+    renderOverview();
+
+    expect(screen.getByRole("region", { name: "Overdue: 1" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "No deadline: 1" })).toBeTruthy();
+  });
+
+  it("says a deadline as somebody would, beside whose task it is", () => {
+    renderOverview();
+
+    const overdue = screen.getByRole("region", { name: "Overdue: 1" });
+    expect(within(overdue).getByText(/days overdue$/)).toBeTruthy();
+    expect(within(overdue).getByText("Physics")).toBeTruthy();
+  });
+
+  it("scrolls the list under its filters, which stay put", () => {
+    renderOverview();
+
+    const list = screen.getByRole("region", { name: "Overdue: 1" }).parentElement;
+    expect(list?.className).toContain("overflow-y-auto");
+    expect(screen.getByLabelText("Search tasks").closest(".shrink-0")).toBeTruthy();
+  });
+});
+
+describe("dueWords", () => {
+  const today = new Date(2026, 8, 26);
+  it("counts the days either side of today", async () => {
+    const { dueWords } = await import("@/components/taskPresentation");
+    expect(dueWords(task({ id: "a", dueDate: "2026-09-23" }), today)).toBe("3 days overdue");
+    expect(dueWords(task({ id: "b", dueDate: "2026-09-26" }), today)).toBe("due today");
+    expect(dueWords(task({ id: "c", dueDate: "2026-09-27" }), today)).toBe("due tomorrow");
+    expect(dueWords(task({ id: "d", dueDate: "2026-10-06" }), today)).toBe("in 10 days");
+    expect(dueWords(task({ id: "e", status: "COMPLETED", completedAt: "2026-09-20T08:00:00Z" }), today)).toBe("done 20 Sept 2026");
+  });
+});

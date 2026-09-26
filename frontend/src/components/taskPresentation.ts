@@ -67,3 +67,20 @@ export function formatTaskDate(value: string): string {
     year: "numeric",
   });
 }
+
+/** "3 days overdue", "due tomorrow", "in 12 days": the deadline as somebody says it. */
+export function dueWords(task: ScopedTask, today = new Date()): string {
+  if (task.status === "COMPLETED") {
+    return task.completedAt ? `done ${formatTaskDate(task.completedAt.slice(0, 10))}` : "done";
+  }
+  if (!task.dueDate) return "whenever";
+  const [year, month, day] = task.dueDate.split("-").map(Number);
+  const due = new Date(year, month - 1, day);
+  const start = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const days = Math.round((due.getTime() - start.getTime()) / 86_400_000);
+  if (days < -1) return `${-days} days overdue`;
+  if (days === -1) return "1 day overdue";
+  if (days === 0) return "due today";
+  if (days === 1) return "due tomorrow";
+  return `in ${days} days`;
+}
