@@ -101,11 +101,11 @@ beforeEach(() => {
 
 afterEach(() => vi.restoreAllMocks());
 
-function show() {
+function show(row: StudentRow = ROW) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
-      <StudentRecord open row={ROW} cohorts={[COHORT]} history={HISTORY} onClose={() => {}} />
+      <StudentRecord open row={row} cohorts={[COHORT]} history={HISTORY} onClose={() => {}} />
     </QueryClientProvider>,
   );
   return queryClient;
@@ -186,6 +186,20 @@ describe("a student's record", () => {
     const table = await screen.findByLabelText("CRNs");
     const row = within(table).getByText("23652").closest("tr");
     expect(row?.textContent).toContain("not registered");
+  });
+
+  it("gives the portal's mobile number beside the e-mail, as a number to ring", async () => {
+    show({ ...ROW, portal: { ...ROW.portal, MOBILE_NO: " +971 50 123 4567 " } });
+
+    const mobile = await screen.findByRole("link", { name: "+971 50 123 4567" });
+    expect(mobile.getAttribute("href")).toBe("tel:+971501234567");
+  });
+
+  it("says nothing about a mobile the portal has not given", async () => {
+    show();
+
+    await screen.findByLabelText("CRNs");
+    expect(screen.queryByText("Mobile")).toBeNull();
   });
 
   it("reads the history from this browser", async () => {

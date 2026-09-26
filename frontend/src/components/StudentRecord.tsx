@@ -66,7 +66,7 @@ import { afterPlacement } from "@/services/afterPlacement";
 const GROUPS: { title: string; keys: string[] }[] = [
   { title: "Programme", keys: ["MAJOR_CODE_DESC", "MAJOR_CODE", "PROGRAM_CODE", "PROGRAM_DESC", "YEARLEVEL_CODE", "LEVEL_CODE", "DEPT_DESC", "DEPT_CODE", "COLLEGE_CODE", "COLLEGE_DESC", "CAMPUS_CODE"] },
   { title: "Status", keys: ["STST_CODE", "STST_DESC", "ESTS_CODE", "ESTS_DESC", "STYP_DESC", "STYP_CODE", "TERM_CODE", "RE_COURSES_COUNT", "ABSENCE_PER"] },
-  { title: "Contact", keys: ["PSUAD_EMAIL", "FIRST_NAME", "LAST_NAME"] },
+  { title: "Contact", keys: ["PSUAD_EMAIL", "MOBILE_NO", "FIRST_NAME", "LAST_NAME"] },
 ];
 const NAMED = new Set(GROUPS.flatMap((group) => group.keys).concat(["FULL_NAME", "SPRIDEN_ID"]));
 
@@ -87,6 +87,7 @@ const LABELS: Record<string, string> = {
   ABSENCE_PER: "absence %",
   FIRST_NAME: "first name",
   LAST_NAME: "last name",
+  MOBILE_NO: "mobile",
 };
 
 function nameOf(field: string): string {
@@ -480,6 +481,14 @@ export function StudentRecord({
             <Field label="E-mail">
               <a href={`mailto:${row.email}`} className="text-[#1f4e79] underline">
                 {row.email}
+              </a>
+            </Field>
+          ) : null}
+          {/* The portal's number, as this browser last pulled it; a tap on a phone rings it. */}
+          {(row.portal.MOBILE_NO ?? "").trim() ? (
+            <Field label="Mobile">
+              <a href={`tel:${row.portal.MOBILE_NO.replace(/[^\d+]/g, "")}`} className="tabular-nums text-[#1f4e79] underline">
+                {row.portal.MOBILE_NO.trim()}
               </a>
             </Field>
           ) : null}
