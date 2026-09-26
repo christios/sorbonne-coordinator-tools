@@ -14,18 +14,24 @@
 
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Download, ExternalLink, FileCheck, FileClock, FilePlus, FileX } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useId, useState } from "react";
 
 import { Modal } from "@/components/Modal";
+import { SelectMenu } from "@/components/SelectMenu";
 import { periodsBehind, shortPeriodLabel } from "@/services/payPeriods";
 import {
+  type RequisitionInput,
   type Teacher,
+  type TeacherRequisitionSummary,
   type TeacherSummary,
   createTeacherRequisition,
   downloadTeacherRequisitions,
   listTeacherRequisitions,
   listTeacherTimeSheets,
 } from "@/services/teachers";
+
+/** The year a new requisition or time sheet is for unless somebody says otherwise. */
+const DEFAULT_ACADEMIC_YEAR = "2026-2027";
 
 const NOTHING: TeacherSummary = {
   requisitions: 0,
@@ -143,25 +149,24 @@ export function TeacherRowActions({
   const held = summary ?? NOTHING;
   const [picking, setPicking] = useState<"time sheets" | "requisitions" | "new" | null>(null);
   const [chosen, setChosen] = useState<string[]>([]);
-  const [label, setLabel] = useState("");
-  const [academicYear, setAcademicYear] = useState("2026-2027");
 
   const sheets = useQuery({
     queryKey: ["teacher-time-sheets", teacher.id],
     queryFn: () => listTeacherTimeSheets(teacher.id),
     enabled: picking === "time sheets",
   });
+  // For the download dialog, and for the new one's "start as a copy of".
   const requisitions = useQuery({
     queryKey: ["teacher-requisitions", teacher.id],
     queryFn: () => listTeacherRequisitions(teacher.id),
-    enabled: picking === "requisitions",
+    enabled: picking === "requisitions" || picking === "new",
   });
   const download = useMutation({
     mutationFn: (ids: string[]) => downloadTeacherRequisitions(teacher.id, ids),
     onSuccess: () => setPicking(null),
   });
   const start = useMutation({
-    mutationFn: () => createTeacherRequisition(teacher.id, { label: label.trim(), academicYear: academicYear.trim() }),
+    mutationFn: (input: RequisitionInput) => createTeacherRequisition(teacher.id, input),
     onSuccess: (made) => {
       setPicking(null);
       onChanged();
@@ -224,7 +229,6 @@ export function TeacherRowActions({
         <button
           type="button"
           onClick={() => {
-            setLabel("");
             start.reset();
             setPicking("new");
           }}
@@ -330,56 +334,141 @@ export function TeacherRowActions({
       </Modal>
 
       {/*
-        * A requisition is named before it exists, the same two things the profile asks
-        * for. Inventing a label from the row would put a name nobody chose on a document
-        * that goes to human resources.
+        * A requisition is named before it exists, the same things the profile asks for.
+        * Inventing a label from the row would put a name nobody chose on a document that
+        * goes to human resources.
         */}
-      <Modal
+      <NewRequisitionDialog
         open={picking === "new"}
-        title={`New requisition for ${teacher.fullName}`}
+        teacherName={teacher.fullName}
+        sources={requisitions.data ?? []}
+        creating={start.isPending}
+        error={start.error ? (start.error as Error).message : null}
         onClose={() => setPicking(null)}
-        footer={
-          <div className="flex items-center justify-end gap-3">
-            <button type="button" onClick={() => setPicking(null)} className="text-sm font-semibold text-[#667085]">
-              Cancel
-            </button>
-            <button
-              type="button"
-              disabled={!label.trim() || start.isPending}
-              onClick={() => start.mutate()}
-              className="rounded-md bg-[#1f4e79] px-4 py-2 text-sm font-semibold text-white disabled:bg-[#9ba8b5]"
-            >
-              {start.isPending ? "Creating…" : "Create and edit"}
-            </button>
-          </div>
-        }
-      >
-        <div className="grid gap-3 sm:grid-cols-[1fr_10rem]">
-          <label className="grid gap-1 text-sm font-medium text-[#344054]">
-            <span>Request label</span>
-            <input
-              autoFocus
-              value={label}
-              onChange={(event) => setLabel(event.target.value)}
-              placeholder="Physics TD requisition"
-              className="rounded-md border border-[#b7bec8] px-3 py-2 font-normal"
-            />
-          </label>
-          <label className="grid gap-1 text-sm font-medium text-[#344054]">
-            <span>Academic year</span>
-            <input
-              value={academicYear}
-              onChange={(event) => setAcademicYear(event.target.value)}
-              className="rounded-md border border-[#b7bec8] px-3 py-2 font-normal"
-            />
-          </label>
-        </div>
-        {start.error ? (
-          <p role="alert" className="mt-2 text-sm text-[#8f1f25]">
-            {(start.error as Error).message}
-          </p>
-        ) : null}
-      </Modal>
+        onCreate={(input) => start.mutate(input)}
+      />
     </>
+  );
+}
+
+/**
+ * Starting a requisition: what it is called, the academic year, and whether it begins
+ * blank or as a copy of one already written. The same dialog from a row of the list and
+ * from the teacher's profile.
+ */
+export function NewRequisitionDialog({
+  open,
+  teacherName,
+  sources,
+  creating,
+  error,
+  onClose,
+  onCreate,
+}: {
+  open: boolean;
+  teacherName: string;
+  /** Earlier requisitions a new one can start as a copy of. */
+  sources: TeacherRequisitionSummary[];
+  creating: boolean;
+  error?: string | null;
+  onClose: () => void;
+  onCreate: (input: RequisitionInput) => void;
+}) {
+  const formId = useId();
+  const [label, setLabel] = useState("");
+  const [academicYear, setAcademicYear] = useState(DEFAULT_ACADEMIC_YEAR);
+  const [sourceId, setSourceId] = useState("");
+  // Each opening starts clean: a label half-typed for somebody else is not this one's.
+  useEffect(() => {
+    if (!open) return;
+    setLabel("");
+    setAcademicYear(DEFAULT_ACADEMIC_YEAR);
+    setSourceId("");
+  }, [open]);
+  const ready = Boolean(label.trim() && academicYear.trim());
+  const field = "grid min-w-0 gap-1 text-sm font-medium text-[#344054]";
+  const input = "h-10 w-full min-w-0 rounded-md border border-[#b7bec8] px-3 font-normal focus:border-[#1f4e79] focus:outline-none focus:ring-2 focus:ring-[#d7e5f3]";
+  return (
+    <Modal
+      open={open}
+      title={`New requisition for ${teacherName}`}
+      onClose={onClose}
+      footer={
+        <div className="flex items-center justify-end gap-3">
+          <button type="button" onClick={onClose} className="text-sm font-semibold text-[#667085]">
+            Cancel
+          </button>
+          <button
+            type="submit"
+            form={formId}
+            disabled={!ready || creating}
+            className="rounded-md bg-[#1f4e79] px-4 py-2 text-sm font-semibold text-white disabled:bg-[#9ba8b5]"
+          >
+            {creating ? "Creating…" : "Create and edit"}
+          </button>
+        </div>
+      }
+    >
+      <form
+        id={formId}
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (!ready || creating) return;
+          onCreate({
+            label: label.trim(),
+            academicYear: academicYear.trim(),
+            sourceRequisitionId: sourceId || undefined,
+          });
+        }}
+        className="grid items-start gap-4 sm:grid-cols-[minmax(0,1fr)_11rem]"
+      >
+        <label className={field}>
+          <span>
+            Request label<span aria-hidden="true" className="ml-1 text-[#a6292f]">*</span>
+          </span>
+          <input
+            autoFocus
+            required
+            value={label}
+            onChange={(event) => setLabel(event.target.value)}
+            placeholder="Physics TD requisition"
+            className={input}
+          />
+        </label>
+        <label className={field}>
+          <span>
+            Academic year<span aria-hidden="true" className="ml-1 text-[#a6292f]">*</span>
+          </span>
+          <input
+            required
+            value={academicYear}
+            onChange={(event) => setAcademicYear(event.target.value)}
+            placeholder={DEFAULT_ACADEMIC_YEAR}
+            className={input}
+          />
+        </label>
+        <div className={`${field} sm:col-span-2`}>
+          <span>Starting point</span>
+          <SelectMenu
+            label="Starting point"
+            value={sourceId}
+            onChange={setSourceId}
+            placeholder="Blank requisition"
+            options={[
+              { value: "", label: "Blank requisition" },
+              ...sources.map((item) => ({
+                value: item.id,
+                label: `Copy of ${item.label} — ${item.academicYear}`,
+              })),
+            ]}
+          />
+        </div>
+      </form>
+      {error ? (
+        <p role="alert" className="mt-3 text-sm text-[#8f1f25]">
+          {error}
+        </p>
+      ) : null}
+    </Modal>
   );
 }

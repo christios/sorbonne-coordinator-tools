@@ -30,6 +30,7 @@ export function TaskRow({
   onEdit,
   onDelete,
   isBusy = false,
+  compact = false,
 }: {
   task: ScopedTask;
   meta?: React.ReactNode;
@@ -37,12 +38,18 @@ export function TaskRow({
   onEdit: () => void;
   onDelete: () => void;
   isBusy?: boolean;
+  /**
+   * For a narrow column — a profile's side rail. The three actions wait for the pointer
+   * (or the keyboard) over the row instead of taking a third of its width, which wrapped
+   * a time sheet's title over three lines.
+   */
+  compact?: boolean;
 }) {
   const [historyOpen, setHistoryOpen] = useState(false);
   const completed = task.status === "COMPLETED";
   return (
     <li
-      className={`rounded-md border border-[#d9dee7] p-3 ${completed ? "bg-[#fcfcfd]" : "bg-white"}`}
+      className={`${compact ? "group relative p-2.5" : "p-3"} rounded-md border border-[#d9dee7] ${completed ? "bg-[#fcfcfd]" : "bg-white"}`}
     >
       <div className="flex items-start gap-3">
         <TaskCompletionToggle
@@ -60,7 +67,7 @@ export function TaskRow({
             <TaskUrgencyIndicator task={task} />
           </div>
           {task.description ? (
-            <p className="mt-1 whitespace-pre-line text-sm leading-6 text-[#475467]">
+            <p className={`mt-1 whitespace-pre-line text-[#475467] ${compact ? "text-xs leading-5" : "text-sm leading-6"}`}>
               {task.description}
             </p>
           ) : null}
@@ -71,31 +78,37 @@ export function TaskRow({
             </span>
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-1">
+        <div
+          className={
+            compact
+              ? "absolute right-1.5 top-1.5 flex items-center gap-0.5 rounded-md border border-[#e4e8ef] bg-white/95 opacity-0 shadow-sm transition-opacity group-hover:opacity-100 focus-within:opacity-100"
+              : "flex shrink-0 items-center gap-1"
+          }
+        >
           <button
             type="button"
             onClick={() => setHistoryOpen((open) => !open)}
             aria-expanded={historyOpen}
             aria-label={`${historyOpen ? "Hide" : "Show"} activity for ${task.title}`}
-            className={`rounded p-2 hover:bg-[#e8edf3] ${historyOpen ? "bg-[#e8edf3] text-[#1f4e79]" : "text-[#667085]"}`}
+            className={`rounded ${compact ? "p-1" : "p-2"} hover:bg-[#e8edf3] ${historyOpen ? "bg-[#e8edf3] text-[#1f4e79]" : "text-[#667085]"}`}
           >
-            <History size={16} />
+            <History size={compact ? 14 : 16} />
           </button>
           <button
             type="button"
             onClick={onEdit}
             aria-label={`Edit ${task.title}`}
-            className="rounded p-2 text-[#1f4e79] hover:bg-[#e8edf3]"
+            className={`rounded ${compact ? "p-1" : "p-2"} text-[#1f4e79] hover:bg-[#e8edf3]`}
           >
-            <Pencil size={16} />
+            <Pencil size={compact ? 14 : 16} />
           </button>
           <button
             type="button"
             onClick={onDelete}
             aria-label={`Delete ${task.title}`}
-            className="rounded p-2 text-[#a6292f] hover:bg-[#fff1f2]"
+            className={`rounded ${compact ? "p-1" : "p-2"} text-[#a6292f] hover:bg-[#fff1f2]`}
           >
-            <Trash2 size={16} />
+            <Trash2 size={compact ? 14 : 16} />
           </button>
         </div>
       </div>

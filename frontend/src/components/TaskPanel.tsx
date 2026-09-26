@@ -25,10 +25,17 @@ export function TaskPanel({
   resourceType,
   resourceId,
   className = "",
+  variant = "card",
 }: {
   resourceType: string;
   resourceId: string;
   className?: string;
+  /**
+   * "rail" for a section of a profile's side rail: no card of its own, a small heading, and
+   * the template picker on a line of its own, since the rail is too narrow to hold it
+   * beside the button.
+   */
+  variant?: "card" | "rail";
 }) {
   const client = useQueryClient();
   const tasks = useQuery({
@@ -88,54 +95,72 @@ export function TaskPanel({
     ),
   );
   const ordered = [...(tasks.data ?? [])].sort(compareTeacherTasks);
+  const rail = variant === "rail";
+  const gap = rail ? "mt-3" : "mt-4";
+  const templatePicker = availableTemplates.length ? (
+    <div className={rail ? "mt-2" : "min-w-44"}>
+      <SelectMenu
+        label="Add tasks from a template"
+        value=""
+        onChange={(templateId) => applyTemplate.mutate(templateId)}
+        placeholder="Add template"
+        options={availableTemplates.map((template) => ({
+          value: template.id,
+          label: template.title,
+        }))}
+      />
+    </div>
+  ) : null;
   return (
     <section
-      className={`rounded-lg border border-[#d9dee7] bg-white p-5 ${className}`}
+      aria-label={rail ? "Tasks" : undefined}
+      className={rail ? className : `rounded-lg border border-[#d9dee7] bg-white p-5 ${className}`}
     >
       <div className="flex items-center justify-between gap-3">
-        <h3 className="text-lg font-semibold">Tasks</h3>
+        <h3
+          className={
+            rail
+              ? "text-xs font-semibold uppercase tracking-wide text-[#667085]"
+              : "text-lg font-semibold"
+          }
+        >
+          Tasks
+        </h3>
         <div className="flex flex-wrap items-center justify-end gap-2">
-          {availableTemplates.length ? (
-            <div className="min-w-44">
-              <SelectMenu
-                label="Add tasks from a template"
-                value=""
-                onChange={(templateId) => applyTemplate.mutate(templateId)}
-                placeholder="Add template"
-                options={availableTemplates.map((template) => ({
-                  value: template.id,
-                  label: template.title,
-                }))}
-              />
-            </div>
-          ) : null}
+          {rail ? null : templatePicker}
           <button
             type="button"
             onClick={() => {
               setEditing(null);
               setFormOpen(true);
             }}
-            className="inline-flex items-center gap-2 rounded-md border border-[#b7bec8] px-3 py-2 text-sm font-semibold text-[#1f4e79]"
+            className={
+              rail
+                ? "inline-flex items-center gap-1 rounded-md px-2 py-1 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]"
+                : "inline-flex items-center gap-2 rounded-md border border-[#b7bec8] px-3 py-2 text-sm font-semibold text-[#1f4e79]"
+            }
           >
-            <Plus size={16} /> Add task
+            <Plus size={rail ? 15 : 16} /> Add task
           </button>
         </div>
       </div>
+      {rail ? templatePicker : null}
       {tasks.isLoading ? (
-        <p className="mt-4 text-sm text-[#667085]">Loading tasks…</p>
+        <p className={`${gap} text-sm text-[#667085]`}>Loading tasks…</p>
       ) : null}
       {tasks.error ? (
-        <p role="alert" className="mt-4 text-sm text-[#8f1f25]">
+        <p role="alert" className={`${gap} text-sm text-[#8f1f25]`}>
           {tasks.error.message}
         </p>
       ) : null}
       {ordered.length ? (
-        <ul className="mt-4 grid gap-2">
+        <ul className={`${gap} grid gap-2`}>
           {ordered.map((task) => (
             <TaskRow
               key={task.id}
               task={task}
               isBusy={update.isPending}
+              compact={rail}
               onToggleComplete={() =>
                 update.mutate({
                   ...task,
@@ -152,7 +177,7 @@ export function TaskPanel({
           ))}
         </ul>
       ) : (
-        <p className="mt-4 rounded-md border border-dashed border-[#d0d5dd] px-3 py-4 text-sm text-[#667085]">
+        <p className={`${gap} rounded-md border border-dashed border-[#d0d5dd] px-3 py-4 text-sm text-[#667085]`}>
           No tasks yet.
         </p>
       )}

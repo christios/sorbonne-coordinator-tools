@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
+import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import { RequisitionCourseEditor } from "./RequisitionCourseEditor";
@@ -10,6 +11,15 @@ describe("RequisitionCourseEditor", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Add course" }));
 
+    // Open for writing, focus in its title, and not part of the requisition yet.
+    const title = screen.getByRole("textbox", {
+      name: "Course title as per Sorbonne Space",
+    });
+    expect(document.activeElement).toBe(title);
+    expect(onChange).not.toHaveBeenCalled();
+
+    // The first thing written in it is what adds it.
+    fireEvent.change(title, { target: { value: "Mechanics" } });
     expect(onChange).toHaveBeenCalledTimes(1);
     const courses = onChange.mock.calls[0][0];
     expect(courses).toHaveLength(1);
@@ -17,10 +27,61 @@ describe("RequisitionCourseEditor", () => {
       subjectCode: "",
       courseNumber: "",
       level: "",
-      title: "",
+      title: "Mechanics",
       hours: "",
       classType: "",
     });
+  });
+
+  it("discards a new admin entry nobody has written in, leaving nothing behind", () => {
+    const onChange = vi.fn();
+    render(<RequisitionCourseEditor kind="admin" courses={[]} onChange={onChange} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Add admin hours" }));
+    expect(document.activeElement).toBe(screen.getByRole("textbox", { name: "What the work is" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Discard" }));
+
+    expect(screen.queryByRole("textbox", { name: "What the work is" })).toBeNull();
+    expect(screen.getByText("No admin hours added yet.")).toBeTruthy();
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("removes an entry with nothing in it without asking", () => {
+    const onChange = vi.fn();
+    render(
+      <RequisitionCourseEditor
+        kind="admin"
+        courses={[{ id: "blank", subjectCode: "", courseNumber: "", level: "", title: "", hours: "", classType: "" }]}
+        onChange={onChange}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove admin entry: Untitled admin entry" }));
+
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(onChange).toHaveBeenCalledWith([]);
+  });
+
+  it("says the hours need a number only while they are not one", () => {
+    const Harness = () => {
+      const [courses, setCourses] = useState([
+        { id: "invigilation", subjectCode: "", courseNumber: "", level: "", title: "Invigilation", hours: "" },
+      ]);
+      return <RequisitionCourseEditor kind="admin" courses={courses} onChange={setCourses} />;
+    };
+    render(<Harness />);
+
+    // Incomplete, so it opens by itself.
+    const hours = screen.getByRole("textbox", { name: "Hours" });
+    expect(screen.queryByText("Use a number.")).toBeNull();
+
+    fireEvent.change(hours, { target: { value: "six" } });
+    expect(screen.getByText("Use a number.")).toBeTruthy();
+    expect(hours.getAttribute("aria-invalid")).toBe("true");
+
+    fireEvent.change(hours, { target: { value: "6" } });
+    expect(screen.queryByText("Use a number.")).toBeNull();
   });
 
   it("adds a card before offering the list picker or manual fields", () => {

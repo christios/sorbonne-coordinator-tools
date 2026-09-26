@@ -54,7 +54,19 @@ import { isWebLink, linkHost } from "@/services/timeSheetLinks";
 
 type Draft = { label: string; academicYear: string; url: string; periodStart: string };
 
-export function TimeSheetsCard({ teacherId, className = "" }: { teacherId: string; className?: string }) {
+export function TimeSheetsCard({
+  teacherId,
+  className = "",
+  bare = false,
+}: {
+  teacherId: string;
+  className?: string;
+  /**
+   * Without a card or a heading of its own, for a tab that already says "Time sheets":
+   * the semester, the ⓘ and the by-hand button on one toolbar line instead.
+   */
+  bare?: boolean;
+}) {
   const client = useQueryClient();
   /*
    * The period a new sheet is for defaults to the one running now, because that is the
@@ -230,59 +242,78 @@ export function TimeSheetsCard({ teacherId, className = "" }: { teacherId: strin
     save.reset();
   };
 
-  return (
-    <section className={`${className} rounded-lg border border-[#d9dee7] bg-white p-5`}>
+  const about = (
+    <InfoTip label="What the time sheets are">
+      One row per pay period: what they actually taught in it, and the sheet claiming it. The workbooks stay in
+      OneDrive.
+    </InfoTip>
+  );
+  const byHand = (
+    <button
+      type="button"
+      onClick={() => {
+        if (draft && !editingId) close();
+        else {
+          setEditingId(null);
+          setDraft(blank);
+          save.reset();
+        }
+      }}
+      title="For a period with no class in it, or a teacher with no classes at all"
+      className="inline-flex shrink-0 items-center gap-2 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc]"
+    >
       {/*
-        * The description sits under the whole header rather than beside the button. This
-        * card shares a row with Requisitions, so its column is half a page wide, and a
-        * sentence squeezed next to a button there wraps to four lines and pushes the
-        * button off the heading it belongs to.
+        * The escape hatch, not the main road: each period files its own sheet now.
+        * It stays because two things still need it — a period where no class was
+        * scheduled, and a teacher nobody has joined to an Active teacher, who has no
+        * periods at all and could otherwise file nothing.
         */}
-      <div className="flex items-center justify-between gap-3">
-        <h3 className="flex items-center gap-1.5 text-lg font-semibold">
-          Time sheets
-          <InfoTip label="What the time sheets are">
-            One row per pay period: what they actually taught in it, and the sheet claiming it. The workbooks stay in
-            OneDrive.
-          </InfoTip>
-        </h3>
-        <button
-          type="button"
-          onClick={() => {
-            if (draft && !editingId) close();
-            else {
-              setEditingId(null);
-              setDraft(blank);
-              save.reset();
-            }
-          }}
-          title="For a period with no class in it, or a teacher with no classes at all"
-          className="inline-flex shrink-0 items-center gap-2 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc]"
-        >
+      <Plus size={16} /> Add one by hand
+    </button>
+  );
+  const semester = (
+    <div className="w-52">
+      <SelectMenu
+        label="Semester for the hours"
+        value={chosenTerm}
+        onChange={setTermId}
+        options={(terms.data ?? []).map((term) => ({ value: term.id, label: term.name }))}
+        placeholder="Which semester…"
+      />
+    </div>
+  );
+  // A figure, so it stays on the page; what the list is for sits behind the ⓘ.
+  const requisitioned = contracted
+    ? `Requisitioned for ${contracted} h of teaching${admin ? ` and ${admin} h of admin` : ""}.`
+    : "";
+
+  return (
+    <section className={bare ? className : `${className} rounded-lg border border-[#d9dee7] bg-white p-5`}>
+      {bare ? (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          {semester}
+          {about}
+          {requisitioned ? <p className="text-sm text-[#667085]">{requisitioned}</p> : null}
+          <span className="ml-auto">{byHand}</span>
+        </div>
+      ) : (
+        <>
           {/*
-            * The escape hatch, not the main road: each period files its own sheet now.
-            * It stays because two things still need it — a period where no class was
-            * scheduled, and a teacher nobody has joined to an Active teacher, who has no
-            * periods at all and could otherwise file nothing.
+            * The description sits under the whole header rather than beside the button. In
+            * a column half a page wide, a sentence squeezed next to a button wraps to four
+            * lines and pushes the button off the heading it belongs to.
             */}
-          <Plus size={16} /> Add one by hand
-        </button>
-      </div>
-      {/* A figure, so it stays on the page; what the list is for sits behind the ⓘ by its title. */}
-      {contracted ? (
-        <p className="mt-1 text-sm text-[#667085]">
-          Requisitioned for {contracted} h of teaching{admin ? ` and ${admin} h of admin` : ""}.
-        </p>
-      ) : null}
-      <div className="mt-3 w-52">
-        <SelectMenu
-          label="Semester for the hours"
-          value={chosenTerm}
-          onChange={setTermId}
-          options={(terms.data ?? []).map((term) => ({ value: term.id, label: term.name }))}
-          placeholder="Which semester…"
-        />
-      </div>
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="flex items-center gap-1.5 text-lg font-semibold">
+              Time sheets
+              {about}
+            </h3>
+            {byHand}
+          </div>
+          {requisitioned ? <p className="mt-1 text-sm text-[#667085]">{requisitioned}</p> : null}
+          <div className="mt-3">{semester}</div>
+        </>
+      )}
 
       {draft ? (
         <form
@@ -372,8 +403,8 @@ export function TimeSheetsCard({ teacherId, className = "" }: { teacherId: strin
       ) : null}
 
       {/*
-        * No breakpoint on a row below, and nothing in one that cannot shrink. The card
-        * sits in half a page's width whatever the window is doing, so a `sm:` rule would
+        * No breakpoint on a row below, and nothing in one that cannot shrink. The card's
+        * width is its column's, whatever the window is doing, so a `sm:` rule would
         * be answering a question about the window rather than about the column, and the
         * created/updated chips a requisition shows would push the buttons straight out of
         * the card. `min-w-0` on the row is load-bearing for the same reason: a grid item

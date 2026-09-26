@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -441,6 +441,53 @@ describe("TeacherRequisitionEditor", () => {
       { timeout: 1500 },
     );
     expect(screen.getByText("Saved")).toBeTruthy();
+  });
+
+  it("keeps one header and the steps down the side on every step", async () => {
+    const requisition = {
+      id: "request-1",
+      teacherId: "teacher-1",
+      label: "Semester 1",
+      academicYear: "2026-2027",
+      revision: 1,
+      createdAt: "2026-07-24T08:00:00Z",
+      updatedAt: "2026-07-24T08:00:00Z",
+      content: {
+        department: "Science",
+        program: "Foundation year in Sciences",
+        jobTitle: "Part Time Lecturer",
+        classType: "TD",
+        employeeType: "PT" as const,
+        contractFrom: "2026-09-01",
+        contractTo: "2026-12-20",
+        courses: [
+          { id: "course-1", title: "Physics", subjectCode: "PHY", courseNumber: "101", level: "L1", hours: "24", classType: "TD" },
+        ],
+      },
+    };
+    teacherService.getTeacherRequisition.mockResolvedValue(requisition);
+    teacherService.getTeacher.mockResolvedValue({ id: "teacher-1", fullName: "Sachin Valera" });
+    teacherService.listCourseCatalogue.mockResolvedValue([]);
+
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <TeacherRequisitionEditor requisitionId="request-1" teacherId="teacher-1" onBack={vi.fn()} />
+      </QueryClientProvider>,
+    );
+
+    const steps = await screen.findByRole("navigation", { name: "Requisition steps" });
+    for (const step of ["Request details", "Teaching load", "Admin hours", "Review"]) {
+      fireEvent.click(within(steps).getByRole("button", { name: new RegExp(step) }));
+      expect(within(steps).getByRole("button", { name: new RegExp(step) }).getAttribute("aria-current")).toBe("step");
+      const header = screen.getByTestId("editor-header");
+      expect(within(header).getByRole("button", { name: "Semester 1" })).toBeTruthy();
+      expect(within(header).getByText("Sachin Valera")).toBeTruthy();
+      expect(within(header).getByText(/2026-2027/)).toBeTruthy();
+      expect(within(header).getByRole("button", { name: "Export DOCX" })).toBeTruthy();
+      expect(within(header).getByText("Saved")).toBeTruthy();
+    }
+    // The teaching total rides along in the steps, so it is seen from any step.
+    expect(within(steps).getByText("24 h")).toBeTruthy();
   });
 
   it("takes export validation to the missing teaching-load field", async () => {
