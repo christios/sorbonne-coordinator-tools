@@ -1,4 +1,4 @@
-import { useQueries } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight, Maximize2 } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
@@ -7,7 +7,8 @@ import { Modal } from "@/components/Modal";
 import { SelectMenu } from "@/components/SelectMenu";
 import { WeekCalendar } from "@/components/WeekCalendar";
 import { WeekTimeline } from "@/components/WeekTimeline";
-import { fetchFacilitySections, type FacilitySection } from "@/services/portalLists";
+import { fetchFacilitySections, fetchTermLinks, type FacilitySection } from "@/services/portalLists";
+import { fetchTermWeeks } from "@/services/termWeeks";
 import { fetchSessionChanges, slotKey, type SessionChange } from "@/services/sessionChanges";
 import {
   DAY_NAMES,
@@ -174,7 +175,7 @@ function Timetable({
   navInto,
   hourHeight,
   onPickSession,
-  weekOne,
+  weekOne: weekOneGiven,
   keepWeekAs,
   sessionFilter,
   onExpand,
@@ -207,6 +208,34 @@ function Timetable({
       ),
     }),
   });
+
+  /*
+   * The semester's Week 1, where the caller did not give it: found from the portal term the
+   * sections are filed under, so every record's calendar — a CRN's, a teacher's, a
+   * student's — says "Week 5" as the semester's own week does. Only where the sections are
+   * all of one term; a calendar across two semesters has no one week to count from.
+   */
+  const soleTerm = byTerm.length === 1 ? byTerm[0].termCode : "";
+  const links = useQuery({
+    queryKey: ["term-links"],
+    queryFn: fetchTermLinks,
+    enabled: weekOneGiven === undefined && Boolean(soleTerm),
+    retry: false,
+    staleTime: 60_000,
+  });
+  const weeks = useQuery({
+    queryKey: ["term-weeks"],
+    queryFn: fetchTermWeeks,
+    enabled: weekOneGiven === undefined && Boolean(soleTerm),
+    retry: false,
+    staleTime: 60_000,
+  });
+  const weekOne =
+    weekOneGiven ??
+    (() => {
+      const termId = Object.entries(links.data ?? {}).find(([, code]) => code === soleTerm)?.[0];
+      return termId ? weeks.data?.[termId] : undefined;
+    })();
 
   // What the coordinators have said about the term's classes, by slot.
   const { notes } = useQueries({
@@ -310,7 +339,18 @@ function Timetable({
             <button type="button" aria-label={oneDay ? "Next day" : "Next week"} onClick={onward} className={nav(compact)}>
               <ChevronRight size={compact ? 12 : 14} aria-hidden="true" />
             </button>
-            {weekOne ? <TeachingWeek shown={shown} weekOne={weekOne} sessions={sessions} onGo={goTo} /> : null}
+            {weekOne ? (
+              compact ? (
+                // A card has no room for the picker; it says the week, and the full-size view picks.
+                weekNumber(shown, weekOne) >= 1 ? (
+                  <span className={`rounded bg-[#eaf1f8] px-1.5 py-0.5 font-semibold text-[#1f4e79] ${small}`}>
+                    Week {weekNumber(shown, weekOne)}
+                  </span>
+                ) : null
+              ) : (
+                <TeachingWeek shown={shown} weekOne={weekOne} sessions={sessions} onGo={goTo} />
+              )
+            ) : null}
             {oneDay ? (
               // The week's days as one control, so any of them is a press away.
               <span role="group" aria-label="Day" className="inline-flex overflow-hidden rounded-md border border-[#d9dee7]">

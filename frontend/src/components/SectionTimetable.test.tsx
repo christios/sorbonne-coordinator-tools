@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SectionTimetable, type TimetableEntry } from "@/components/SectionTimetable";
 import * as lists from "@/services/portalLists";
 import * as notes from "@/services/sessionChanges";
+import * as termWeeks from "@/services/termWeeks";
 
 const MONDAY = { meetsOn: "2026-09-07", startsAt: "08:30", endsAt: "10:00", room: "5.101" };
 const TUESDAY = { meetsOn: "2026-09-08", startsAt: "13:30", endsAt: "15:00", room: "5.202" };
@@ -193,5 +194,44 @@ describe("what the coordinators have said about the classes", () => {
     fireEvent.click(await screen.findByLabelText(/^Open CRN 23436/));
     expect(picked).toHaveBeenCalledWith(expect.objectContaining({ crn: "23436", date: "2026-09-07", termCode: "262710" }));
     expect(screen.getByText(/Press a class to say it was cancelled/)).toBeTruthy();
+  });
+});
+
+describe("the week number on a record's calendar", () => {
+  it("is found from the term the sections are filed under, and said on a card as on the full week", async () => {
+    vi.spyOn(lists, "fetchFacilitySections").mockResolvedValue({
+      termCode: "262710",
+      pulledAt: "2026-09-01T00:00:00+00:00",
+      sections: [
+        { crn: "23436", courseCode: "MATH-351", title: "Algebra", teacherName: "Grace Younes", state: "published", meetings: [MONDAY] },
+      ],
+    });
+    vi.spyOn(lists, "fetchTermLinks").mockResolvedValue({ "term-1": "262710" });
+    vi.spyOn(termWeeks, "fetchTermWeeks").mockResolvedValue({ "term-1": "2026-08-31" });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <SectionTimetable compact title="Algebra" entries={[{ termCode: "262710", crn: "23436", code: "MATH-351", title: "Algebra" }]} />
+      </QueryClientProvider>,
+    );
+
+    // Week 1 is the week of 31 August; the class on 7 September is in Week 2.
+    expect(await screen.findByText("Week 2")).toBeTruthy();
+  });
+
+  it("says no week where the semester has no Week 1", async () => {
+    vi.spyOn(lists, "fetchFacilitySections").mockResolvedValue({
+      termCode: "262710",
+      pulledAt: "2026-09-01T00:00:00+00:00",
+      sections: [
+        { crn: "23436", courseCode: "MATH-351", title: "Algebra", teacherName: "Grace Younes", state: "published", meetings: [MONDAY] },
+      ],
+    });
+    vi.spyOn(lists, "fetchTermLinks").mockResolvedValue({ "term-1": "262710" });
+    vi.spyOn(termWeeks, "fetchTermWeeks").mockResolvedValue({});
+    show([{ termCode: "262710", crn: "23436", code: "MATH-351", title: "Algebra" }]);
+
+    expect(await screen.findByText("7 Sep 2026 – 11 Sep 2026")).toBeTruthy();
+    expect(screen.queryByRole("combobox", { name: "Teaching week" })).toBeNull();
   });
 });

@@ -1,5 +1,5 @@
 import { MapPin, Repeat, User } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 
 import { fittedRowHeight } from "@/services/timelineFit";
 import {
@@ -169,15 +169,26 @@ export function WeekTimeline({
    */
   const box = useRef<HTMLDivElement>(null);
   const [room, setRoom] = useState({ width: 0, height: 0 });
-  useEffect(() => {
+  /*
+   * Measured before the first paint, again whenever the box changes size, and again
+   * whenever the week or day on screen changes. The last is belt and braces: a week that
+   * opened on a stale measurement kept its thin rows until something happened to resize
+   * the box — stepping to another week did, which is how it showed.
+   */
+  const shownKey = `${weekStart.getTime()}|${day ?? ""}|${rowsBy}`;
+  useLayoutEffect(() => {
     const element = box.current;
-    if (!element || typeof ResizeObserver === "undefined") return;
-    const read = () => setRoom({ width: element.clientWidth, height: element.clientHeight });
+    if (!element) return;
+    const read = () => {
+      const next = { width: element.clientWidth || 0, height: element.clientHeight || 0 };
+      setRoom((held) => (held.width === next.width && held.height === next.height ? held : next));
+    };
     read();
+    if (typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(read);
     observer.observe(element);
     return () => observer.disconnect();
-  }, []);
+  }, [shownKey]);
   const minutes = Math.max(1, endMinute - startMinute);
   // Unmeasured — the first paint, or a test — gets a workable scale rather than none.
   const screenFit = room.width > 0 ? (room.width - LABEL_WIDTH) / (minutes * bands.length) : 1.6;
