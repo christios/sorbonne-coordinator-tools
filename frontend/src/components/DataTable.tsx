@@ -190,7 +190,9 @@ export function DataTable<T>({
       onKeyDown={(event) => {
         if (event.key === "Escape" && picking) setPicked(new Set());
       }}
-      className="always-scrollbar relative mt-3 min-h-[16rem] overflow-auto overscroll-none rounded-lg border border-[#d9dee7] bg-white"
+      // Sideways overscroll stays in the table — a sideways swipe at its edge was a "back"
+      // on a trackpad — and scrolling up or down carries on to the page at either end.
+      className="always-scrollbar relative mt-3 min-h-[16rem] overflow-auto overscroll-x-none rounded-lg border border-[#d9dee7] bg-white"
     >
       <table className="text-left text-sm" style={{ tableLayout: "fixed", width: "max-content", minWidth: "100%" }}>
         <colgroup>

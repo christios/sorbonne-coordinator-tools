@@ -294,7 +294,8 @@ export function CrnRecord({
               <Empty>Nobody, in the last registrations pull.</Empty>
             ) : (
               <>
-                <ul className="max-h-72 divide-y divide-[#f2f4f7] overflow-y-auto text-sm" aria-label="Registered students">
+                {/* A box of its own only on a wide screen; on a phone, a scroll inside a scroll traps the thumb. */}
+                <ul className="divide-y divide-[#f2f4f7] text-sm lg:max-h-72 lg:overflow-y-auto" aria-label="Registered students">
                   {inIt.data.map((student) => (
                     <li key={student.studentId} className="flex flex-wrap items-baseline gap-x-3 py-1">
                       {onShowStudents ? (

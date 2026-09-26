@@ -165,7 +165,11 @@ export function ListGrid<T>({
 
   return (
     <div>
-      <div className="mt-3 flex flex-wrap items-center gap-2">
+      {/*
+        * On a phone the controls above the table scroll away and this row stays at the top,
+        * so the table has the rest of the screen (the table measures from here: data-sticks).
+        */}
+      <div data-sticks className="mt-3 flex flex-wrap items-center gap-2 max-lg:sticky max-lg:top-0 max-lg:z-20 max-lg:-mx-1 max-lg:bg-[#f7f8fa] max-lg:px-1 max-lg:py-2">
         <TableFilterBar
           columns={columns}
           hidden={new Set(layout.hidden)}
@@ -186,7 +190,8 @@ export function ListGrid<T>({
             }}
           />
         </div>
-        <label className="relative block w-full sm:w-60">
+        {/* Shares its line with Columns and Copy on a phone, so the pinned row stays short. */}
+        <label className="relative block min-w-[8rem] flex-1 sm:w-60 sm:flex-none">
           <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#667085]" />
           <input
             aria-label={searchLabel}

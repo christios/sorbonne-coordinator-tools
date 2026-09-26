@@ -651,7 +651,12 @@ export function StudentRecord({
             ) : (
               <>
 
-                <table className="w-full table-fixed border-collapse text-sm" aria-label="CRNs">
+                {/*
+                  * A table from `sm` up; on a phone each CRN is a small stack — the CRN beside
+                  * the course, the teacher under it, then its state and Exempt — since the
+                  * five fixed columns were wider than the screen and ran into each other.
+                  */}
+                <table className="w-full table-fixed border-collapse text-sm max-sm:block" aria-label="CRNs">
                   <colgroup>
                     <col className="w-[4.5rem]" />
                     <col />
@@ -660,9 +665,9 @@ export function StudentRecord({
                     <col className="w-[4.75rem]" />
                   </colgroup>
                   {placements.map(({ scope, group, major, crns }) => (
-                    <tbody key={scope.id} aria-label={`${scope.code} ${group?.label ?? ""}`}>
-                      <tr>
-                        <th colSpan={5} scope="rowgroup" className="pb-1 pt-3 text-left font-normal first:pt-0">
+                    <tbody key={scope.id} aria-label={`${scope.code} ${group?.label ?? ""}`} className="max-sm:block">
+                      <tr className="max-sm:block">
+                        <th colSpan={5} scope="rowgroup" className="pb-1 pt-3 text-left font-normal first:pt-0 max-sm:block">
                           <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
                             {/* A fixed width, so the group names line up down the card. */}
                             <span className="inline-flex w-[5.25rem] shrink-0">
@@ -770,9 +775,9 @@ export function StudentRecord({
                     * it is, since "no group of theirs" is true and reads as an accusation.
                     */}
                   {outside.length || approvedAlone.length ? (
-                    <tbody aria-label="Outside their groups">
-                      <tr>
-                        <th colSpan={5} scope="rowgroup" className="pb-1 pt-4 text-left text-xs font-semibold text-[#344054]">
+                    <tbody aria-label="Outside their groups" className="max-sm:block">
+                      <tr className="max-sm:block">
+                        <th colSpan={5} scope="rowgroup" className="pb-1 pt-4 text-left text-xs font-semibold text-[#344054] max-sm:block">
                           Outside their groups
                         </th>
                       </tr>
@@ -995,7 +1000,7 @@ function Card({
   /**
    * Takes the height of the card beside it and scrolls inside, rather than setting the
    * row's height itself — so its bottom lines up with its neighbour's. On a narrow screen,
-   * where nothing is beside it, it is capped instead.
+   * where nothing is beside it, it simply runs its full length in the record.
    */
   fitted?: boolean;
   children: ReactNode;
@@ -1003,7 +1008,7 @@ function Card({
   const card = (
     <section
       className={`rounded-lg border border-[#e4e8ef] bg-white px-4 py-3 ${
-        fitted ? "flex max-h-[32rem] flex-col lg:absolute lg:inset-0 lg:max-h-none" : ""
+        fitted ? "lg:absolute lg:inset-0 lg:flex lg:flex-col" : ""
       } ${className}`}
     >
       {/*
@@ -1017,7 +1022,12 @@ function Card({
         </div>
         {beside ? <div className="shrink-0">{beside}</div> : null}
       </div>
-      {fitted ? <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">{children}</div> : children}
+      {/*
+        * Scrolls inside only where it sits beside a neighbour, and hands the scroll on to the
+        * record at either end rather than holding it. On a narrow screen it is not a box of
+        * its own at all: a scroll inside a scroll traps the thumb, so it is just the page.
+        */}
+      {fitted ? <div className="lg:min-h-0 lg:flex-1 lg:overflow-y-auto">{children}</div> : children}
     </section>
   );
   // In the flow it would set the row's height; out of it, the neighbour does.
@@ -1025,12 +1035,23 @@ function Card({
 }
 
 function Facts({ entries }: { entries: [string, string][] }) {
+  /*
+   * One line per label. A field's code and its description share a name — "Student
+   * status", "AS" and "Active" — and drawn as two lines they said the same thing twice
+   * (and gave React two rows with one key). Their values are joined on the one line.
+   */
+  const merged = new Map<string, string[]>();
+  for (const [label, value] of entries) {
+    const held = merged.get(label) ?? [];
+    if (!held.includes(value)) held.push(value);
+    merged.set(label, held);
+  }
   return (
     <dl className="grid grid-cols-[minmax(8rem,auto)_1fr] gap-x-4 gap-y-1 text-sm">
-      {entries.map(([label, value]) => (
+      {[...merged.entries()].map(([label, values]) => (
         <div key={label} className="contents">
           <dt className="text-[#667085]">{label}</dt>
-          <dd className="break-words text-[#171717]">{value}</dd>
+          <dd className="break-words text-[#171717]">{values.join(" · ")}</dd>
         </div>
       ))}
     </dl>
@@ -1147,9 +1168,13 @@ function CrnRow({
   // What the pill says: exempt, from which part, and why.
   const said = ["exempt", !whole && parts > 1 ? `${scopeCode} only` : "", reason].filter(Boolean).join(" · ");
   return (
-    <tr className={`group border-t border-[#f2f4f7] align-top ${off ? "text-[#98a2b3]" : ""}`}>
+    <tr
+      className={`group border-t border-[#f2f4f7] align-top max-sm:grid max-sm:grid-cols-[3.75rem_minmax(0,1fr)] max-sm:gap-x-2 max-sm:py-1.5 ${
+        off ? "text-[#98a2b3]" : ""
+      }`}
+    >
       {/* A little in from the set's band, so each group's CRNs read as its own. */}
-      <td className="py-1.5 pl-3 pr-2 tabular-nums">
+      <td className="py-1.5 pl-3 pr-2 tabular-nums max-sm:row-span-3 max-sm:py-0 max-sm:pl-1 max-sm:pr-0">
         {crn && onOpen ? (
           <button
             type="button"
@@ -1163,18 +1188,18 @@ function CrnRow({
           <span className={off ? "line-through" : "text-[#344054]"}>{crn || "—"}</span>
         )}
       </td>
-      <td className="py-1.5 pr-2">
+      <td className="min-w-0 py-1.5 pr-2 max-sm:py-0">
         <span className={`whitespace-nowrap ${off ? "" : "font-medium text-[#344054]"}`}>{courseCode}</span>
         {courseName ? <span className="block truncate text-xs text-[#98a2b3]" title={courseName}>{courseName}</span> : null}
       </td>
-      <td className="py-1.5 pr-2 text-xs">
+      <td className="py-1.5 pr-2 text-xs max-sm:col-start-2 max-sm:py-0">
         <span className={off ? "" : "text-[#344054]"}>{teacher || "—"}</span>
       </td>
       {/*
         * The state and what can be done about it, in one cell. The pill and a button in
         * cells of their own ran into each other once the pill said more than one word.
         */}
-      <td className="py-1.5 pr-1 text-xs" colSpan={2}>
+      <td className="py-1.5 pr-1 text-xs max-sm:col-start-2 max-sm:py-0 max-sm:pt-1" colSpan={2}>
         {/* One line: the pill may wrap its own words, the undo stays beside it. */}
         <span className="flex items-center justify-between gap-1">
           {outside ??

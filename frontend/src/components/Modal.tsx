@@ -54,19 +54,21 @@ export function Modal({
     <div
       // Below SelectMenu's popovers (z-100) so a dropdown inside the dialog is not buried
       // by it, and below ConfirmDialog (z-110) so a confirmation still lands on top.
-      className="fixed inset-0 z-[90] grid place-items-center bg-[#101828]/35 p-4"
+      // The whole screen on a phone: a record in a box with a margin round it left a
+      // letterbox to read through. A floating panel from `sm` up.
+      className="fixed inset-0 z-[90] grid place-items-center bg-[#101828]/35 sm:p-4"
       onMouseDown={onClose}
     >
       <section
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className={`flex max-h-[85vh] w-full flex-col rounded-lg border border-[#d9dee7] bg-white shadow-xl ${
+        className={`flex h-[100dvh] w-full min-w-0 flex-col bg-white shadow-xl sm:h-auto sm:max-h-[85vh] sm:rounded-lg sm:border sm:border-[#d9dee7] ${
           size === "wide" ? "max-w-5xl" : "max-w-3xl"
         }`}
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <header className="border-b border-[#e4e8ef] px-5 py-4">
+        <header className="border-b border-[#e4e8ef] px-4 py-3 sm:px-5 sm:py-4">
           {/*
             * A way out that can be seen. Escape and a click outside always closed it, and
             * neither is something a reader finds by looking — a student's record, a CRN's,
@@ -92,7 +94,7 @@ export function Modal({
           {header}
         </header>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">{children}</div>
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3 sm:px-5 sm:py-4">{children}</div>
 
         {footer ? (
           <footer className="flex flex-wrap items-center justify-end gap-3 border-t border-[#e4e8ef] px-5 py-4">

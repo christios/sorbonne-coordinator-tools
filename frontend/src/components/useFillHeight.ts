@@ -12,6 +12,31 @@ function scrollerOf(element: HTMLElement): HTMLElement | null {
   return null;
 }
 
+/** The row marked to stick above this box, inside the same scroller, if there is one. */
+function stickyAbove(element: HTMLElement, scroller: HTMLElement | null): HTMLElement | null {
+  const within = scroller ?? document.body;
+  const candidates = [...within.querySelectorAll<HTMLElement>("[data-sticks]")].filter(
+    (candidate) => candidate.compareDocumentPosition(element) & Node.DOCUMENT_POSITION_FOLLOWING,
+  );
+  return candidates[candidates.length - 1] ?? null;
+}
+
+/**
+ * How far below the top of a pinned row the box starts, as the page lays them out.
+ *
+ * Not the two positions on screen: once the row has stuck, it no longer sits where the
+ * page put it, and a measurement taken while scrolled read the box as starting above the
+ * row — and gave it a height taller than the screen. The element after the row moves with
+ * the box, so the row's own height plus the distance from that element to the box is the
+ * same however far the page is scrolled.
+ */
+function pinnedDistance(pinned: HTMLElement, boxTop: number): number {
+  const next = pinned.nextElementSibling as HTMLElement | null;
+  if (!next) return boxTop - pinned.getBoundingClientRect().top;
+  const nextTop = next.getBoundingClientRect().top - parseFloat(getComputedStyle(next).marginTop || "0");
+  return pinned.offsetHeight + (boxTop - nextTop);
+}
+
 /**
  * Everything that comes after the box inside the page: the count line under it, and the
  * padding and borders of everything it sits inside. The box has to leave room for all of
@@ -78,9 +103,17 @@ export function useFillHeight<T extends HTMLElement = HTMLElement>({ fill = fals
        * not move when that thing is scrolled, so that is what it is measured from.
        */
       const rect = node.getBoundingClientRect();
-      const within = scroller
-        ? rect.top - scroller.getBoundingClientRect().top + scroller.scrollTop
-        : rect.top + window.scrollY;
+      /*
+       * On a narrow screen a row above the box sticks to the top once the page is scrolled
+       * to it (`data-sticks`: the table's filters), so the box has the room under that row,
+       * not under everything that scrolls away above it.
+       */
+      const pinned = window.innerWidth < 1024 ? stickyAbove(node, scroller) : null;
+      const within = pinned
+        ? pinnedDistance(pinned, rect.top)
+        : scroller
+          ? rect.top - scroller.getBoundingClientRect().top + scroller.scrollTop
+          : rect.top + window.scrollY;
       const visible = scroller ? scroller.clientHeight : window.innerHeight;
       const room = visible - within - spaceBelow(node, scroller) - BOTTOM_GAP;
       const height = `${Math.max(240, Math.floor(room))}px`;
