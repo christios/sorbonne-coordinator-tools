@@ -284,7 +284,7 @@ describe("the groups and their CRNs, against the portal", () => {
     expect(screen.getByText(/1 registered as placed · 1 outside their groups/)).toBeTruthy();
   });
 
-  it("names who teaches each CRN, and the portal's teachers too where they differ", async () => {
+  it("names who teaches each CRN as the portal has it, whatever the group was planned with", async () => {
     vi.spyOn(database, "fetchCatalogue").mockResolvedValue({
       scopes: [
         {
@@ -301,8 +301,20 @@ describe("the groups and their CRNs, against the portal", () => {
     show();
 
     const row = within(await screen.findByLabelText("TD 1")).getByText("23652").closest("tr") as HTMLElement;
-    expect(row.textContent).toContain("Sara Khaled");
-    expect(row.textContent).toContain("portal: Diaa Mereib, Sara Khaled");
+    expect(row.textContent).toContain("Diaa Mereib, Sara Khaled");
+    expect(row.textContent).not.toContain("portal:");
+  });
+
+  it("finds the portal's teacher in the register for a CRN they are not registered in", async () => {
+    vi.spyOn(lists, "fetchRegistrations").mockResolvedValue([]);
+    vi.spyOn(lists, "fetchActiveCrns").mockResolvedValue([
+      { id: "r3", crn: "23652", parentCrn: "", courseCode: "MATH-011", teacherName: "Grace Younes" },
+    ] as unknown as lists.ActiveCrn[]);
+    show();
+
+    const row = within(await screen.findByLabelText("TD 1")).getByText("23652").closest("tr") as HTMLElement;
+    expect(row.textContent).toContain("Grace Younes");
+    expect(row.textContent).toContain("not registered");
   });
 
   it("exempts from a course with a word on a button, in every set, and undoes it the same way", async () => {

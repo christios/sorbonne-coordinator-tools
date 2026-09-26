@@ -34,7 +34,6 @@ import { copyTable } from "@/services/copyCells";
 import { CHANGE_COLUMNS, changesRows, noteChanges, registrationChanges } from "@/services/registrationChanges";
 import { reconcile, tally } from "@/services/registrationLists";
 import type { StudentRow } from "@/services/rosterView";
-import { fetchActiveTeachers } from "@/services/portalLists";
 import { fetchSchema } from "@/services/scenRosters";
 import {
   type CatalogueGroup,
@@ -157,10 +156,6 @@ export function StudentRecord({
   // The register says which CRN hangs from which, which is what lets the list below read
   // as courses with their sections rather than as a flat pile of numbers.
   const register = useQuery({ queryKey: ["active-crns", ""], queryFn: () => fetchActiveCrns(), enabled: open, retry: false });
-  // The department's names for the teachers a section has chosen, by id.
-  const activeTeachers = useQuery({ queryKey: ["active-teachers"], queryFn: fetchActiveTeachers, enabled: open, retry: false });
-  const teacherName = (teacherId: string) =>
-    (activeTeachers.data ?? []).find((teacher) => teacher.id === teacherId)?.fullName ?? "";
   const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, enabled: open, retry: false });
   /*
    * With the sets shared across cohorts, or a language group is invisible here.
@@ -260,16 +255,9 @@ export function StudentRecord({
         crns: scope.courses.flatMap((course) => {
           if (group && majorId && group.byMajor?.[majorId]?.[course.id]?.notTaught) return [];
           const parts = partsOf(group ? sectionFor(group, majorId, course.id) : null).filter((part) => part.crn);
-          // Who teaches it: the department's teacher where one was chosen, else the name typed.
           return parts.length
-            ? parts.map((part) => ({
-                courseId: course.id,
-                courseCode: course.code,
-                courseName: course.name,
-                crn: part.crn,
-                teacher: (part.teacherId && teacherName(part.teacherId)) || part.teacher || "",
-              }))
-            : [{ courseId: course.id, courseCode: course.code, courseName: course.name, crn: "", teacher: "" }];
+            ? parts.map((part) => ({ courseId: course.id, courseCode: course.code, courseName: course.name, crn: part.crn }))
+            : [{ courseId: course.id, courseCode: course.code, courseName: course.name, crn: "" }];
         }),
       };
     });
@@ -367,8 +355,12 @@ export function StudentRecord({
   const counted = tally(lines, excused);
   // What the portal has them in that no group of theirs gives them.
   const outside = lines.filter((line) => !line.ours && line.portal);
-  // Who the portal says teaches each section they are registered in.
+  /*
+   * Who teaches a CRN, as the portal has it: from their own registration in it, else from
+   * the register's list of CRNs — a section they are not registered in still has a teacher.
+   */
   const portalTeacherOf = new Map((registrations.data ?? []).map((entry) => [entry.crn, entry.teacherName ?? ""]));
+  const portalTeacher = (crn: string) => portalTeacherOf.get(crn) || inRegister(crn)?.teacherName || "";
   const mismatches: Mismatch[] = (check.data?.mismatches ?? []).filter(
     (mismatch) => mismatch.studentId === row.studentId,
   );
@@ -662,7 +654,7 @@ export function StudentRecord({
                 </p>
                 <table className="w-full table-fixed border-collapse text-sm" aria-label="CRNs">
                   <colgroup>
-                    <col className="w-[3.75rem]" />
+                    <col className="w-[4.5rem]" />
                     <col />
                     <col className="w-[27%]" />
                     <col className="w-[6.75rem]" />
@@ -734,8 +726,7 @@ export function StudentRecord({
                           crn={cell.crn}
                           courseCode={cell.courseCode}
                           courseName={cell.courseName}
-                          teacher={cell.teacher}
-                          portalTeacher={cell.crn ? (portalTeacherOf.get(cell.crn) ?? "") : ""}
+                          teacher={cell.crn ? portalTeacher(cell.crn) : ""}
                           state={
                             excused.has(cell.courseId)
                               ? "exempt"
@@ -772,8 +763,7 @@ export function StudentRecord({
                             crn={line.crn}
                             courseCode={line.courseCode}
                             courseName={line.title}
-                            teacher={portalTeacherOf.get(line.crn) ?? ""}
-                            portalTeacher=""
+                            teacher={portalTeacher(line.crn)}
                             state="outside"
                             onOpen={inRegister(line.crn) ? () => setShowingCrn(inRegister(line.crn)) : undefined}
                             outside={
@@ -1055,23 +1045,10 @@ function Pill({ tone, children }: { tone: "good" | "bad" | "muted" | "accent"; c
   return <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${look}`}>{children}</span>;
 }
 
-/** "Mereib, Sara Khaled" and "Sara Khaled; Diaa Mereib" are the same people, whatever the order. */
-function samePeople(left: string, right: string): boolean {
-  const names = (text: string) =>
-    text
-      .toLowerCase()
-      .normalize("NFKD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .split(/[,;/&]| and /)
-      .map((name) => name.split(/\s+/).filter(Boolean).sort().join(" "))
-      .filter(Boolean)
-      .sort()
-      .join("|");
-  return names(left) === names(right);
-}
-
 /**
  * One CRN of the student's: the section, its course, who teaches it, and what the portal says.
+ *
+ * Who teaches it is the portal's word, the one students and the registrar go by.
  *
  * Exempting is on the row because the row is where the question arises — "they are not
  * registered in PHYS-125 TD" — and it is a word on a button rather than a bare "exempt?",
@@ -1083,7 +1060,6 @@ function CrnRow({
   courseCode,
   courseName,
   teacher,
-  portalTeacher,
   state,
   onOpen,
   exempting = false,
@@ -1093,8 +1069,8 @@ function CrnRow({
   crn: string;
   courseCode: string;
   courseName?: string;
+  /** Who teaches it, as the portal has it. */
   teacher: string;
-  portalTeacher: string;
   state: "registered" | "not registered" | "exempt" | "no crn" | "outside";
   onOpen?: () => void;
   exempting?: boolean;
@@ -1103,10 +1079,10 @@ function CrnRow({
   outside?: ReactNode;
 }) {
   const off = state === "exempt";
-  const differs = Boolean(portalTeacher) && !samePeople(teacher, portalTeacher);
   return (
     <tr className={`group border-t border-[#f2f4f7] align-top ${off ? "text-[#98a2b3]" : ""}`}>
-      <td className="py-1.5 pr-2 tabular-nums">
+      {/* A little in from the set's band, so each group's CRNs read as its own. */}
+      <td className="py-1.5 pl-3 pr-2 tabular-nums">
         {crn && onOpen ? (
           <button
             type="button"
@@ -1125,12 +1101,7 @@ function CrnRow({
         {courseName ? <span className="block truncate text-xs text-[#98a2b3]" title={courseName}>{courseName}</span> : null}
       </td>
       <td className="py-1.5 pr-2 text-xs">
-        {/* Ours where the department has said; the portal's where it alone has. */}
-        <span className={off ? "" : "text-[#344054]"} title={teacher ? undefined : portalTeacher ? "As the portal has it" : undefined}>
-          {teacher || portalTeacher || "—"}
-        </span>
-        {/* Where the registrar names somebody else, or more people, both are said. */}
-        {differs && teacher ? <span className="block text-[#98a2b3]">portal: {portalTeacher}</span> : null}
+        <span className={off ? "" : "text-[#344054]"}>{teacher || "—"}</span>
       </td>
       <td className="py-1.5 pr-2 text-xs">
         {outside ??
