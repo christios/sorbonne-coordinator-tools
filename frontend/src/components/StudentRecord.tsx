@@ -32,8 +32,9 @@ import {
 import { allChanges, historyFor, type PullHistory } from "@/services/pullHistory";
 import { copyTable } from "@/services/copyCells";
 import { CHANGE_COLUMNS, changesRows, noteChanges, registrationChanges } from "@/services/registrationChanges";
-import { excusedLine, reconcile, tally } from "@/services/registrationLists";
+import { reconcile, tally } from "@/services/registrationLists";
 import type { StudentRow } from "@/services/rosterView";
+import { fetchActiveTeachers } from "@/services/portalLists";
 import { fetchSchema } from "@/services/scenRosters";
 import {
   type CatalogueGroup,
@@ -156,6 +157,10 @@ export function StudentRecord({
   // The register says which CRN hangs from which, which is what lets the list below read
   // as courses with their sections rather than as a flat pile of numbers.
   const register = useQuery({ queryKey: ["active-crns", ""], queryFn: () => fetchActiveCrns(), enabled: open, retry: false });
+  // The department's names for the teachers a section has chosen, by id.
+  const activeTeachers = useQuery({ queryKey: ["active-teachers"], queryFn: fetchActiveTeachers, enabled: open, retry: false });
+  const teacherName = (teacherId: string) =>
+    (activeTeachers.data ?? []).find((teacher) => teacher.id === teacherId)?.fullName ?? "";
   const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, enabled: open, retry: false });
   /*
    * With the sets shared across cohorts, or a language group is invisible here.
@@ -255,9 +260,16 @@ export function StudentRecord({
         crns: scope.courses.flatMap((course) => {
           if (group && majorId && group.byMajor?.[majorId]?.[course.id]?.notTaught) return [];
           const parts = partsOf(group ? sectionFor(group, majorId, course.id) : null).filter((part) => part.crn);
+          // Who teaches it: the department's teacher where one was chosen, else the name typed.
           return parts.length
-            ? parts.map((part) => ({ courseId: course.id, courseCode: course.code, courseName: course.name, crn: part.crn }))
-            : [{ courseId: course.id, courseCode: course.code, courseName: course.name, crn: "" }];
+            ? parts.map((part) => ({
+                courseId: course.id,
+                courseCode: course.code,
+                courseName: course.name,
+                crn: part.crn,
+                teacher: (part.teacherId && teacherName(part.teacherId)) || part.teacher || "",
+              }))
+            : [{ courseId: course.id, courseCode: course.code, courseName: course.name, crn: "", teacher: "" }];
         }),
       };
     });
@@ -284,9 +296,22 @@ export function StudentRecord({
       ),
     [exemptions.data, row.studentId],
   );
+  /*
+   * Exempt from a course, not from one set's row of it: "not taking PHYS-125" is its
+   * lecture, its tutorial and its practical at once, which is how the register reads it.
+   * Marked one set at a time, a student exempt from a course was still chased for the
+   * set nobody had got round to.
+   */
   const exempt = useMutation({
-    mutationFn: ({ courseId, on }: { courseId: string; on: boolean }) =>
-      on ? setExemption(row.studentId, courseId) : clearExemption(row.studentId, courseId),
+    mutationFn: async ({ courseCode, on }: { courseCode: string; on: boolean }) => {
+      const courseIds = [
+        ...new Set(placements.flatMap((placement) => placement.crns).filter((cell) => cell.courseCode === courseCode).map((cell) => cell.courseId)),
+      ];
+      for (const courseId of courseIds) {
+        if (on) await setExemption(row.studentId, courseId);
+        else await clearExemption(row.studentId, courseId);
+      }
+    },
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ["exemptions", cohortId ?? ""] });
       void client.invalidateQueries({ queryKey: ["course-cards"] });
@@ -340,6 +365,10 @@ export function StudentRecord({
    */
   const lines = reconcile(placements, registrations.data ?? []);
   const counted = tally(lines, excused);
+  // What the portal has them in that no group of theirs gives them.
+  const outside = lines.filter((line) => !line.ours && line.portal);
+  // Who the portal says teaches each section they are registered in.
+  const portalTeacherOf = new Map((registrations.data ?? []).map((entry) => [entry.crn, entry.teacherName ?? ""]));
   const mismatches: Mismatch[] = (check.data?.mismatches ?? []).filter(
     (mismatch) => mismatch.studentId === row.studentId,
   );
@@ -522,7 +551,7 @@ export function StudentRecord({
         </ul>
       ) : null}
 
-      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)]">
         {/* ------------------------------------------------------------ the portal */}
         <div className="space-y-5">
         <Card title="From the portal" note="As this browser last saw it. Nothing here is on the server.">
@@ -566,279 +595,232 @@ export function StudentRecord({
         </div>
 
         <div className="space-y-5">
-          {/* ------------------------------------------------------------ groups */}
-          <Card title="Groups" note={cohort ? `Where ${cohort.name} put them, and the CRNs each group stands for.` : "Where the department put them."}>
-            {cohort ? (
-              <button
-                type="button"
-                onClick={() => setPlacing(true)}
-                className="mb-3 inline-flex items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-2.5 py-1 text-xs font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]"
-              >
-                <Wand2 size={13} aria-hidden="true" /> Place in every set…
-              </button>
-            ) : null}
-            {!cohortId ? (
-              <Empty>In no cohort, so in no group.</Empty>
-            ) : catalogue.isLoading || assignments.isLoading ? (
+          {/* ------------------------------------------------- groups and their CRNs */}
+          {/*
+            * One card where there were two: "Groups" said where they sit and "CRNs" said what
+            * the portal has, and every question a coordinator asks — is this student where
+            * they should be, and does the registrar agree — needed both, read against each
+            * other by eye. Now each set is a band, its CRNs under it with who teaches them and
+            * the portal's word on each; what the portal has outside their groups comes last.
+            */}
+          <Card
+            title="Groups and CRNs"
+            note={
+              cohort
+                ? `Where ${cohort.name} put them, who teaches each CRN, and whether the portal has them in it.`
+                : "What the portal has them in."
+            }
+            beside={
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                {cohort ? (
+                  <button
+                    type="button"
+                    onClick={() => setPlacing(true)}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-2 py-1 text-xs font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]"
+                  >
+                    <Wand2 size={13} aria-hidden="true" /> Place in every set…
+                  </button>
+                ) : null}
+                {/*
+                  * The registrar's worklist for this one student. The table's copy answers
+                  * "what does this cohort owe the registrar"; somebody looking at one student
+                  * is asking the same question about them.
+                  */}
+                <button
+                  type="button"
+                  onClick={() => void copyChanges()}
+                  disabled={!myChanges.length}
+                  title={
+                    myChanges.length
+                      ? `Copy the ${myChanges.length} line${myChanges.length === 1 ? "" : "s"} the registrar needs for this student`
+                      : "Nothing to change for this student"
+                  }
+                  aria-label="Copy this student's registrations to change"
+                  className="inline-flex items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-2 py-1 text-xs font-semibold text-[#344054] hover:bg-[#f8fafc] disabled:cursor-not-allowed disabled:text-[#c8d0da]"
+                >
+                  <ClipboardList size={13} aria-hidden="true" />
+                  {copied || (myChanges.length ? `Copy ${myChanges.length}` : "Nothing to copy")}
+                </button>
+              </div>
+            }
+          >
+            {/*
+              * The exemptions are waited for too. They decide whether a row reads "exempt"
+              * or "not registered" in red, and arriving a moment late drew the red first.
+              */}
+            {catalogue.isLoading || assignments.isLoading || registrations.isLoading || exemptions.isLoading ? (
               <Empty>Reading…</Empty>
-            ) : placements.length === 0 ? (
-              <Empty>In no group yet.</Empty>
+            ) : placements.length === 0 && outside.length === 0 ? (
+              <Empty>{cohortId ? "In no group yet, and registered in nothing." : "In no cohort, so in no group, and registered in nothing."}</Empty>
             ) : (
-              <ul className="space-y-2.5" aria-label="Groups">
-                {placements.map(({ scope, group, major, crns }) => (
-                  <li key={scope.id} className="flex flex-wrap items-start gap-x-3 gap-y-1">
-                    <span className="inline-flex items-center rounded-full bg-[#eef1f5] px-2.5 py-0.5 text-sm font-semibold text-[#344054]">
-                      {scope.code} {group ? subRowLabel(group.label, major?.program ?? "", (group.majors ?? []).length) : "?"}
-                    </span>
-                    <span className="pt-0.5 text-xs text-[#98a2b3]">{termName(scope.termId ?? "")}</span>
-                    {/*
-                      * A group of a linked set that does not go with their group in the set it
-                      * is linked to: Philosophy 1 under TD 2. Said, not fixed — a few sit there
-                      * on purpose, and moving them is a decision.
-                      */}
-                    {group && misfitOf(scope, group) ? (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-[#fdf9ee] px-2 py-0.5 text-xs font-semibold text-[#8a6116]">
-                        <AlertTriangle size={11} aria-hidden="true" /> {misfitOf(scope, group)}
-                      </span>
-                    ) : null}
-                    {group ? (
-                      leaving === scope.id ? (
-                        <span className="ml-auto inline-flex items-center gap-2 text-xs">
-                          <span className="text-[#a6292f]">Take them out of {scope.code} {group.label}?</span>
-                          <button
-                            type="button"
-                            disabled={takeOut.isPending}
-                            onClick={() => takeOut.mutate(scope.id)}
-                            className="rounded bg-[#a6292f] px-2 py-0.5 font-semibold text-white disabled:opacity-60"
-                          >
-                            {takeOut.isPending ? "Taking out…" : "Take out"}
-                          </button>
-                          <button type="button" onClick={() => setLeaving("")} className="font-semibold text-[#667085]">
-                            Keep
-                          </button>
-                        </span>
-                      ) : (
-                        <button
-                          type="button"
-                          aria-label={`Take out of ${scope.code} ${group.label}`}
-                          title={`Take them out of ${scope.code} ${group.label}. Their other groups stay.`}
-                          onClick={() => {
-                            takeOut.reset();
-                            setLeaving(scope.id);
-                          }}
-                          className="ml-auto rounded p-1 text-[#c8d0da] hover:bg-[#fdf3f3] hover:text-[#a6292f]"
-                        >
-                          <UserMinus size={14} aria-hidden="true" />
-                        </button>
-                      )
-                    ) : null}
-                    <ul className="flex basis-full flex-wrap gap-x-4 gap-y-0.5 pl-1 text-xs text-[#667085]">
-                      {crns.map((cell) => {
-                        // A course handed over mid-semester is two CRNs of one course, so
-                        // the code alone is no longer unique down this list.
-                        const off = excused.has(cell.courseId);
-                        return (
-                          <li key={`${cell.courseId}|${cell.crn}`} className="inline-flex items-center gap-1 tabular-nums">
-                            <span className={off ? "text-[#c8d0da] line-through" : "text-[#344054]"}>{cell.courseCode}</span>{" "}
-                            <span className={off ? "text-[#c8d0da]" : ""}>{cell.crn || "—"}</span>
-                            {cell.crn && registered.has(cell.crn) && !off ? (
-                              <Check size={12} className="text-[#2f6b3d]" aria-label="registered" />
+              <>
+                <p className="mb-2 text-xs text-[#98a2b3]">
+                  {counted.agree} registered as placed
+                  {counted.onlyOurs ? ` · ${counted.onlyOurs} not registered` : ""}
+                  {counted.exempt ? ` · ${counted.exempt} exempt` : ""}
+                  {outside.length ? ` · ${outside.length} outside their groups` : ""}
+                </p>
+                <table className="w-full table-fixed border-collapse text-sm" aria-label="CRNs">
+                  <colgroup>
+                    <col className="w-[3.75rem]" />
+                    <col />
+                    <col className="w-[27%]" />
+                    <col className="w-[6.75rem]" />
+                    <col className="w-[4.75rem]" />
+                  </colgroup>
+                  {placements.map(({ scope, group, major, crns }) => (
+                    <tbody key={scope.id} aria-label={`${scope.code} ${group?.label ?? ""}`}>
+                      <tr>
+                        <th colSpan={5} scope="rowgroup" className="pb-1 pt-3 text-left font-normal first:pt-0">
+                          <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                            <span className="inline-flex items-center rounded-full bg-[#e8edf3] px-2.5 py-0.5 text-xs font-semibold text-[#1f4e79]">
+                              {scope.code}
+                            </span>
+                            <span className="font-semibold text-[#171717]">
+                              {group ? subRowLabel(group.label, major?.program ?? "", (group.majors ?? []).length) : "?"}
+                            </span>
+                            {/* The semester by name; a code this browser cannot name is no help. */}
+                            {scope.termId && termName(scope.termId) !== scope.termId ? (
+                              <span className="text-xs text-[#98a2b3]">{termName(scope.termId)}</span>
                             ) : null}
                             {/*
-                              * Marked here as well as on the group's roster: this is the
-                              * one surface organised by student, so somebody's whole
-                              * situation — every set, every course — is settled in one pass.
+                              * A group of a linked set that does not go with their group in the
+                              * set it is linked to: Philosophy 1 under TD 2. Said, not fixed — a
+                              * few sit there on purpose, and moving them is a decision.
                               */}
-                            <button
-                              type="button"
-                              aria-pressed={off}
-                              disabled={exempt.isPending}
-                              title={
-                                off
-                                  ? `Exempt from ${cell.courseCode}. Press to put them back in it.`
-                                  : `Mark as not taking ${cell.courseCode}`
-                              }
-                              onClick={() => exempt.mutate({ courseId: cell.courseId, on: !off })}
-                              className="rounded px-1 text-[10px] font-semibold text-[#c8d0da] hover:bg-[#f2f4f7] hover:text-[#8a6116]"
-                            >
-                              {off ? "exempt" : "exempt?"}
-                            </button>
-                          </li>
+                            {group && misfitOf(scope, group) ? (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-[#fdf9ee] px-2 py-0.5 text-xs font-semibold text-[#8a6116]">
+                                <AlertTriangle size={11} aria-hidden="true" /> {misfitOf(scope, group)}
+                              </span>
+                            ) : null}
+                            {group ? (
+                              leaving === scope.id ? (
+                                <span className="ml-auto inline-flex items-center gap-2 text-xs">
+                                  <span className="text-[#a6292f]">Take them out of {scope.code} {group.label}?</span>
+                                  <button
+                                    type="button"
+                                    disabled={takeOut.isPending}
+                                    onClick={() => takeOut.mutate(scope.id)}
+                                    className="rounded bg-[#a6292f] px-2 py-0.5 font-semibold text-white disabled:opacity-60"
+                                  >
+                                    {takeOut.isPending ? "Taking out…" : "Take out"}
+                                  </button>
+                                  <button type="button" onClick={() => setLeaving("")} className="font-semibold text-[#667085]">
+                                    Keep
+                                  </button>
+                                </span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  aria-label={`Take out of ${scope.code} ${group.label}`}
+                                  title={`Take them out of ${scope.code} ${group.label}. Their other groups stay.`}
+                                  onClick={() => {
+                                    takeOut.reset();
+                                    setLeaving(scope.id);
+                                  }}
+                                  className="ml-auto rounded p-1 text-[#c8d0da] hover:bg-[#fdf3f3] hover:text-[#a6292f]"
+                                >
+                                  <UserMinus size={14} aria-hidden="true" />
+                                </button>
+                              )
+                            ) : null}
+                          </span>
+                        </th>
+                      </tr>
+                      {crns.map((cell) => (
+                        <CrnRow
+                          // A course handed over mid-semester is two CRNs of one course.
+                          key={`${cell.courseId}|${cell.crn}`}
+                          crn={cell.crn}
+                          courseCode={cell.courseCode}
+                          courseName={cell.courseName}
+                          teacher={cell.teacher}
+                          portalTeacher={cell.crn ? (portalTeacherOf.get(cell.crn) ?? "") : ""}
+                          state={
+                            excused.has(cell.courseId)
+                              ? "exempt"
+                              : !cell.crn
+                                ? "no crn"
+                                : registered.has(cell.crn)
+                                  ? "registered"
+                                  : "not registered"
+                          }
+                          onOpen={cell.crn && inRegister(cell.crn) ? () => setShowingCrn(inRegister(cell.crn)) : undefined}
+                          exempting={exempt.isPending}
+                          onExempt={(on) => exempt.mutate({ courseCode: cell.courseCode, on })}
+                        />
+                      ))}
+                    </tbody>
+                  ))}
+                  {/*
+                    * What the portal has them in that no group of theirs gives them. An
+                    * elective — sport, a language another department runs — is named as what
+                    * it is, since "no group of theirs" is true and reads as an accusation.
+                    */}
+                  {outside.length ? (
+                    <tbody aria-label="Registered outside their groups">
+                      <tr>
+                        <th colSpan={5} scope="rowgroup" className="pb-1 pt-4 text-left text-xs font-semibold text-[#344054]">
+                          Registered outside their groups
+                        </th>
+                      </tr>
+                      {outside.map((line) => {
+                        const elective = electiveOf.get(line.crn);
+                        return (
+                          <CrnRow
+                            key={line.crn}
+                            crn={line.crn}
+                            courseCode={line.courseCode}
+                            courseName={line.title}
+                            teacher={portalTeacherOf.get(line.crn) ?? ""}
+                            portalTeacher=""
+                            state="outside"
+                            onOpen={inRegister(line.crn) ? () => setShowingCrn(inRegister(line.crn)) : undefined}
+                            outside={
+                              elective ? (
+                                <span className="inline-flex flex-wrap items-center gap-1">
+                                  <span className="inline-flex items-center gap-1 rounded-full bg-[#e9e3f8] px-2 py-0.5 text-xs font-semibold text-[#4b3b8f]">
+                                    <GraduationCap size={11} aria-hidden="true" /> Elective
+                                  </span>
+                                  {elective.status === "allowed" ? (
+                                    <span className="text-xs text-[#667085]">on the list</span>
+                                  ) : elective.status === "approved" ? (
+                                    <span className="inline-flex items-center gap-1 text-xs text-[#2f6b3d]">
+                                      <ShieldCheck size={11} aria-hidden="true" /> approved
+                                    </span>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      disabled={approve.isPending}
+                                      title={`Record that ${elective.courseCode} is approved for this student`}
+                                      onClick={() =>
+                                        approve.mutate({ termCode: elective.termCode, courseCode: elective.courseCode, on: true })
+                                      }
+                                      className="rounded border border-[#cfc4ea] bg-white px-1.5 py-0.5 text-[11px] font-semibold text-[#4b3b8f] hover:bg-[#f6f3fd]"
+                                    >
+                                      Approve
+                                    </button>
+                                  )}
+                                </span>
+                              ) : (
+                                <span className="text-xs text-[#a6292f]">no group of theirs</span>
+                              )
+                            }
+                          />
                         );
                       })}
-                    </ul>
-                  </li>
-                ))}
-              </ul>
+                    </tbody>
+                  ) : null}
+                </table>
+              </>
             )}
+            {registrations.error ? <p className="mt-2 text-sm text-[#a6292f]">{(registrations.error as Error).message}</p> : null}
             {takeOut.error ? (
               <p role="alert" className="mt-2 text-xs text-[#a6292f]">
                 {(takeOut.error as Error).message}
               </p>
             ) : null}
-            {cohort ? (
-              <PlaceInBlock
-                open={placing}
-                cohort={cohort}
-                studentIds={[row.studentId]}
-                opens="proposed"
-                onClose={() => setPlacing(false)}
-                onPlaced={() => {
-                  setPlacing(false);
-                  // The same list the roster uses after a placement. Invalidating only the
-                  // groups and the catalogue left the row behind this record — its Groups
-                  // column and its registration warnings — reading as before until reload.
-                  afterPlacement(client);
-                }}
-              />
-            ) : null}
-          </Card>
-
-          {/* --------------------------------------------- ours against the portal */}
-          <Card
-            title="CRNs"
-            note="What their groups come to, what the portal has, and where the two part company."
-            beside={
-              /*
-               * The registrar's worklist for this one student. The table's copy answers
-               * "what does this cohort owe the registrar"; somebody looking at one student
-               * is asking the same question about them, and should not have to go back to
-               * the table and tick a box to ask it.
-               */
-              <button
-                type="button"
-                onClick={() => void copyChanges()}
-                disabled={!myChanges.length}
-                title={
-                  myChanges.length
-                    ? `Copy the ${myChanges.length} line${myChanges.length === 1 ? "" : "s"} the registrar needs for this student`
-                    : "Nothing to change for this student"
-                }
-                aria-label="Copy this student's registrations to change"
-                className="inline-flex items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-2 py-1 text-xs font-semibold text-[#344054] hover:bg-[#f8fafc] disabled:cursor-not-allowed disabled:text-[#c8d0da]"
-              >
-                <ClipboardList size={13} aria-hidden="true" />
-                {copied || (myChanges.length ? `Copy ${myChanges.length}` : "Nothing to copy")}
-              </button>
-            }
-          >
-            {/*
-              * The exemptions are waited for too. They decide whether a row reads "exempt"
-              * or "not registered" in red, and arriving a moment late drew the red first —
-              * the exact false alarm this is here to stop. A student in no cohort is never
-              * asked for, so this never waits on a read that will not happen.
-              */}
-            {catalogue.isLoading || registrations.isLoading || exemptions.isLoading ? (
-              <Empty>Reading…</Empty>
-            ) : lines.length === 0 ? (
-              <Empty>No CRNs on either side yet.</Empty>
-            ) : (
-              <>
-                <p className="mb-2 text-xs text-[#98a2b3]">
-                  {counted.agree} agree
-                  {counted.onlyOurs ? ` · ${counted.onlyOurs} not registered` : ""}
-                  {counted.exempt ? ` · ${counted.exempt} exempt` : ""}
-                  {counted.onlyPortal - electiveOf.size > 0
-                    ? ` · ${counted.onlyPortal - electiveOf.size} registered that is no group of theirs`
-                    : ""}
-                  {theirElectives.length
-                    ? ` · ${theirElectives.length} elective${theirElectives.length === 1 ? "" : "s"} outside the groups`
-                    : ""}
-                </p>
-                <table className="w-full border-collapse text-sm" aria-label="CRNs">
-                  <thead>
-                    <tr className="border-b border-[#e4e8ef] text-[11px] font-semibold uppercase tracking-wide text-[#8a94a4]">
-                      <th scope="col" className="py-1.5 pr-3 text-left">CRN</th>
-                      <th scope="col" className="py-1.5 pr-3 text-left">Course</th>
-                      <th scope="col" className="py-1.5 pr-3 text-left">Their group</th>
-                      <th scope="col" className="py-1.5 pr-3 text-left">Portal</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {lines.map((line) => {
-                      const elective = electiveOf.get(line.crn);
-                      return (
-                      <tr
-                        key={line.crn}
-                        className={`border-b border-[#f2f4f7] last:border-0 align-top ${elective ? "bg-[#f4f1fb]" : ""}`}
-                      >
-                        <td className="py-1.5 pr-3 tabular-nums text-[#344054]">{line.crn}</td>
-                        <td className="py-1.5 pr-3">
-                          <span className={elective ? "font-semibold text-[#4b3b8f]" : "text-[#344054]"}>{line.courseCode}</span>
-                          {line.title ? <span className="ml-2 text-xs text-[#98a2b3]">{line.title}</span> : null}
-                        </td>
-                        {/*
-                          * A blank on one side is the whole point of the table, so it is
-                          * said rather than left empty: an empty cell reads as "not looked
-                          * at", and these have been looked at.
-                          *
-                          * An elective is the exception: it is outside our groups by
-                          * nature, so "no group of theirs" would be an accusation about a
-                          * student who has done nothing but take sport. It is named as
-                          * what it is, and the row is tinted to match.
-                          */}
-                        <td className="py-1.5 pr-3">
-                          {line.ours ? (
-                            <span className="text-[#344054]">{line.from}</span>
-                          ) : elective ? (
-                            <span className="inline-flex flex-wrap items-center gap-1.5">
-                              <span className="inline-flex items-center gap-1 rounded-full bg-[#e9e3f8] px-2 py-0.5 text-xs font-semibold text-[#4b3b8f]">
-                                <GraduationCap size={11} aria-hidden="true" /> Elective
-                              </span>
-                              {elective.status === "allowed" ? (
-                                <span className="text-xs text-[#667085]">on the cohort&apos;s list</span>
-                              ) : elective.status === "approved" ? (
-                                <span className="inline-flex items-center gap-1 text-xs text-[#2f6b3d]">
-                                  <ShieldCheck size={11} aria-hidden="true" /> approved
-                                </span>
-                              ) : (
-                                <button
-                                  type="button"
-                                  disabled={approve.isPending}
-                                  title={`Record that ${elective.courseCode} is approved for this student`}
-                                  onClick={() =>
-                                    approve.mutate({ termCode: elective.termCode, courseCode: elective.courseCode, on: true })
-                                  }
-                                  className="rounded border border-[#cfc4ea] bg-white px-1.5 py-0.5 text-[11px] font-semibold text-[#4b3b8f] hover:bg-[#f6f3fd]"
-                                >
-                                  Approve
-                                </button>
-                              )}
-                            </span>
-                          ) : (
-                            <span className="text-[#a6292f]">no group of theirs</span>
-                          )}
-                        </td>
-                        <td className="py-1.5 pr-3">
-                          {/*
-                            * "Not registered" is a fault to chase. On a course they are
-                            * exempt from it is the opposite: a registration that must
-                            * never be made, drawn in the colour that asks for one. So an
-                            * exemption is said plainly and quietly instead.
-                            */}
-                          {line.portal ? (
-                            <span className="inline-flex items-center gap-1 text-[#2f6b3d]">
-                              <Check size={13} aria-hidden="true" /> registered
-                            </span>
-                          ) : excusedLine(line, excused) ? (
-                            <span
-                              className="inline-flex items-center gap-1 text-[#667085]"
-                              title="They do not take this course, so the portal is right not to have them in it."
-                            >
-                              <MinusCircle size={13} aria-hidden="true" /> exempt
-                            </span>
-                          ) : (
-                            <span className="text-[#a6292f]">not registered</span>
-                          )}
-                        </td>
-                      </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </>
-            )}
-            {registrations.error ? <p className="mt-2 text-sm text-[#a6292f]">{(registrations.error as Error).message}</p> : null}
+            {exempt.error ? <p className="mt-2 text-xs text-[#a6292f]">{(exempt.error as Error).message}</p> : null}
             {/*
               * The check's own verdicts, in its own words. The table above says which CRNs
               * are on one side only; the check says what that comes to for a course — a
@@ -903,6 +885,22 @@ export function StudentRecord({
               <p className="mt-3 text-xs text-[#98a2b3]">
                 No semester is linked to a portal term yet, so nothing is compared. Set the portal term on the Semesters page.
               </p>
+            ) : null}
+            {cohort ? (
+              <PlaceInBlock
+                open={placing}
+                cohort={cohort}
+                studentIds={[row.studentId]}
+                opens="proposed"
+                onClose={() => setPlacing(false)}
+                onPlaced={() => {
+                  setPlacing(false);
+                  // The same list the roster uses after a placement. Invalidating only the
+                  // groups and the catalogue left the row behind this record — its Groups
+                  // column and its registration warnings — reading as before until reload.
+                  afterPlacement(client);
+                }}
+              />
             ) : null}
           </Card>
 
@@ -1055,4 +1053,130 @@ function Pill({ tone, children }: { tone: "good" | "bad" | "muted" | "accent"; c
           ? "bg-[#e8edf3] text-[#1f4e79]"
           : "bg-[#eef1f5] text-[#344054]";
   return <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${look}`}>{children}</span>;
+}
+
+/** "Mereib, Sara Khaled" and "Sara Khaled; Diaa Mereib" are the same people, whatever the order. */
+function samePeople(left: string, right: string): boolean {
+  const names = (text: string) =>
+    text
+      .toLowerCase()
+      .normalize("NFKD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .split(/[,;/&]| and /)
+      .map((name) => name.split(/\s+/).filter(Boolean).sort().join(" "))
+      .filter(Boolean)
+      .sort()
+      .join("|");
+  return names(left) === names(right);
+}
+
+/**
+ * One CRN of the student's: the section, its course, who teaches it, and what the portal says.
+ *
+ * Exempting is on the row because the row is where the question arises — "they are not
+ * registered in PHYS-125 TD" — and it is a word on a button rather than a bare "exempt?",
+ * which read as a status. It is shown when the row is pointed at, and always on a touch
+ * screen, where nothing is pointed at; an exempt row says so and offers the way back.
+ */
+function CrnRow({
+  crn,
+  courseCode,
+  courseName,
+  teacher,
+  portalTeacher,
+  state,
+  onOpen,
+  exempting = false,
+  onExempt,
+  outside,
+}: {
+  crn: string;
+  courseCode: string;
+  courseName?: string;
+  teacher: string;
+  portalTeacher: string;
+  state: "registered" | "not registered" | "exempt" | "no crn" | "outside";
+  onOpen?: () => void;
+  exempting?: boolean;
+  onExempt?: (on: boolean) => void;
+  /** For a row outside their groups: what to say in the portal column instead. */
+  outside?: ReactNode;
+}) {
+  const off = state === "exempt";
+  const differs = Boolean(portalTeacher) && !samePeople(teacher, portalTeacher);
+  return (
+    <tr className={`group border-t border-[#f2f4f7] align-top ${off ? "text-[#98a2b3]" : ""}`}>
+      <td className="py-1.5 pr-2 tabular-nums">
+        {crn && onOpen ? (
+          <button
+            type="button"
+            onClick={onOpen}
+            title={`Open CRN ${crn}`}
+            className={`text-[#1f4e79] underline-offset-2 hover:underline ${off ? "line-through opacity-60" : ""}`}
+          >
+            {crn}
+          </button>
+        ) : (
+          <span className={off ? "line-through" : "text-[#344054]"}>{crn || "—"}</span>
+        )}
+      </td>
+      <td className="py-1.5 pr-2">
+        <span className={`whitespace-nowrap ${off ? "" : "font-medium text-[#344054]"}`}>{courseCode}</span>
+        {courseName ? <span className="block truncate text-xs text-[#98a2b3]" title={courseName}>{courseName}</span> : null}
+      </td>
+      <td className="py-1.5 pr-2 text-xs">
+        {/* Ours where the department has said; the portal's where it alone has. */}
+        <span className={off ? "" : "text-[#344054]"} title={teacher ? undefined : portalTeacher ? "As the portal has it" : undefined}>
+          {teacher || portalTeacher || "—"}
+        </span>
+        {/* Where the registrar names somebody else, or more people, both are said. */}
+        {differs && teacher ? <span className="block text-[#98a2b3]">portal: {portalTeacher}</span> : null}
+      </td>
+      <td className="py-1.5 pr-2 text-xs">
+        {outside ??
+          (state === "registered" ? (
+            <span className="inline-flex items-center gap-1 text-[#2f6b3d]">
+              <Check size={13} aria-hidden="true" /> registered
+            </span>
+          ) : off ? (
+            <span
+              className="inline-flex items-center gap-1 rounded-full bg-[#f2f4f7] px-2 py-0.5 font-semibold text-[#667085]"
+              title={`They do not take ${courseCode}, so the portal is right not to have them in it.`}
+            >
+              <MinusCircle size={12} aria-hidden="true" /> exempt
+            </span>
+          ) : state === "no crn" ? (
+            <span className="text-[#98a2b3]">no CRN yet</span>
+          ) : (
+            <span className="text-[#a6292f]">not registered</span>
+          ))}
+      </td>
+      <td className="py-1.5 text-right">
+        {onExempt ? (
+          off ? (
+            <button
+              type="button"
+              disabled={exempting}
+              onClick={() => onExempt(false)}
+              title={`Put them back in ${courseCode}`}
+              className="rounded px-1.5 py-0.5 text-xs font-semibold text-[#1f4e79] hover:bg-[#f2f7fb] disabled:opacity-50"
+            >
+              Undo
+            </button>
+          ) : (
+            <button
+              type="button"
+              disabled={exempting}
+              onClick={() => onExempt(true)}
+              aria-label={`Exempt from ${courseCode}`}
+              title={`Not taking ${courseCode} — its lecture, tutorial and practical. The portal is then not expected to have them in it.`}
+              className="inline-flex items-center gap-1 rounded border border-[#d9dee7] bg-white px-1.5 py-0.5 text-xs font-semibold text-[#667085] hover:border-[#b7bec8] hover:text-[#344054] focus:opacity-100 disabled:opacity-50 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
+            >
+              <MinusCircle size={12} aria-hidden="true" /> Exempt
+            </button>
+          )
+        ) : null}
+      </td>
+    </tr>
+  );
 }

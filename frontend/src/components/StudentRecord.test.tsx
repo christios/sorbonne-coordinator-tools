@@ -127,10 +127,10 @@ describe("a student's record", () => {
     expect(await screen.findByRole("heading", { name: "Amira Haddad" })).toBeTruthy();
     expect(screen.getByText("AS")).toBeTruthy();
 
-    const groups = await screen.findByLabelText("Groups");
-    expect(groups.textContent).toContain("TD 1");
-    expect(groups.textContent).toContain("Semester 1");
-    expect(groups.textContent).toContain("MATH-011 23652");
+    // Each set is a band of the one table, its CRNs under it.
+    const td = await screen.findByLabelText("TD 1");
+    expect(td.textContent).toContain("Semester 1");
+    expect(within(td).getByText("23652").closest("tr")?.textContent).toContain("MATH-011");
 
     // The check's verdicts sit under the CRNs table, this student's only.
     const verdicts = await screen.findByLabelText("What the check says");
@@ -261,27 +261,89 @@ describe("a course the registrar has not touched", () => {
   });
 });
 
-describe("the two lists of CRNs", () => {
-  it("shows what the groups come to against what the registrar has, and marks each gap", async () => {
+describe("the groups and their CRNs, against the portal", () => {
+  const cells = (row: HTMLElement) => within(row).getAllByRole("cell").map((cell) => cell.textContent?.trim());
+
+  it("puts each CRN under its group, and what the portal has outside the groups last", async () => {
     vi.spyOn(lists, "fetchRegistrations").mockResolvedValue([
       // One both sides have, and one the registrar has that is no group of theirs.
-      { crn: "23652", courseCode: "MATH-011", title: "Algorithms G.1-TD", termCode: "262710", status: "in_portal" },
-      { crn: "23421", courseCode: "SCEN-101", title: "French A0", termCode: "262710", status: "in_portal" },
+      { crn: "23652", courseCode: "MATH-011", title: "Algorithms G.1-TD", termCode: "262710", teacherName: "Dr Ahmed", status: "in_portal" },
+      { crn: "23421", courseCode: "SCEN-101", title: "French A0", termCode: "262710", teacherName: "Mme Roux", status: "in_portal" },
     ] as never);
 
     show();
 
-    const table = await screen.findByLabelText("CRNs");
-    const rows = within(table).getAllByRole("row").slice(1).map((row) =>
-      within(row).getAllByRole("cell").map((cell) => cell.textContent?.trim()),
-    );
-
-    expect(rows).toEqual([
-      ["23652", "MATH-011Algorithms G.1-TD", "TD 1", "registered"],
-      ["23421", "SCEN-101French A0", "no group of theirs", "registered"],
+    const td = await screen.findByLabelText("TD 1");
+    expect(cells(within(td).getByText("23652").closest("tr") as HTMLElement).slice(0, 4)).toEqual([
+      "23652", "MATH-011Algorithms", "Dr Ahmed", "registered",
     ]);
-    expect(screen.getByText(/1 agree/)).toBeTruthy();
-    expect(screen.getByText(/1 registered that is no group of theirs/)).toBeTruthy();
+    const outside = screen.getByLabelText("Registered outside their groups");
+    expect(cells(within(outside).getByText("23421").closest("tr") as HTMLElement).slice(0, 4)).toEqual([
+      "23421", "SCEN-101French A0", "Mme Roux", "no group of theirs",
+    ]);
+    expect(screen.getByText(/1 registered as placed · 1 outside their groups/)).toBeTruthy();
+  });
+
+  it("names who teaches each CRN, and the portal's teachers too where they differ", async () => {
+    vi.spyOn(database, "fetchCatalogue").mockResolvedValue({
+      scopes: [
+        {
+          id: "scope-td", code: "TD", name: "Tutorials", note: "", termId: "term-1",
+          kind: "shared", parentScopeId: "", openToAll: false, courses: [{ id: "c-algo", code: "MATH-011", name: "Algorithms", component: "TD", request: EMPTY_REQUEST }],
+          groups: [{ id: "td-1", label: "1", capacity: 0, note: "", parentGroupId: "", assigned: 1, crns: { "c-algo": { ...EMPTY_SECTION, crn: "23652", teacher: "Sara Khaled" } } }],
+        },
+      ],
+    });
+    vi.spyOn(lists, "fetchRegistrations").mockResolvedValue([
+      { crn: "23652", courseCode: "MATH-011", title: "Algorithms", termCode: "262710", teacherName: "Diaa Mereib, Sara Khaled", status: "in_portal" },
+    ] as never);
+
+    show();
+
+    const row = within(await screen.findByLabelText("TD 1")).getByText("23652").closest("tr") as HTMLElement;
+    expect(row.textContent).toContain("Sara Khaled");
+    expect(row.textContent).toContain("portal: Diaa Mereib, Sara Khaled");
+  });
+
+  it("exempts from a course with a word on a button, in every set, and undoes it the same way", async () => {
+    // The same course in two sets: its lecture and its tutorial are one exemption.
+    vi.spyOn(database, "fetchCatalogue").mockResolvedValue({
+      scopes: [
+        {
+          id: "scope-cm", code: "CM", name: "", note: "", termId: "term-1", kind: "shared", parentScopeId: "", openToAll: false,
+          courses: [{ id: "c-algo-cm", code: "MATH-011", name: "Algorithms", component: "CM", request: EMPTY_REQUEST }],
+          groups: [{ id: "cm-a", label: "A", capacity: 0, note: "", parentGroupId: "", assigned: 1, crns: { "c-algo-cm": { ...EMPTY_SECTION, crn: "23600" } } }],
+        },
+        {
+          id: "scope-td", code: "TD", name: "", note: "", termId: "term-1", kind: "shared", parentScopeId: "", openToAll: false,
+          courses: [{ id: "c-algo", code: "MATH-011", name: "Algorithms", component: "TD", request: EMPTY_REQUEST }],
+          groups: [{ id: "td-1", label: "1", capacity: 0, note: "", parentGroupId: "", assigned: 1, crns: { "c-algo": { ...EMPTY_SECTION, crn: "23652" } } }],
+        },
+      ],
+    });
+    vi.spyOn(database, "fetchAssignments").mockResolvedValue({ A001: { "scope-cm": "cm-a", "scope-td": "td-1" } });
+    const set = vi.spyOn(database, "setExemption").mockResolvedValue(undefined as never);
+    show();
+
+    const buttons = await screen.findAllByRole("button", { name: "Exempt from MATH-011" });
+    fireEvent.click(buttons[0]);
+
+    await waitFor(() => expect(set).toHaveBeenCalledTimes(2));
+    expect(set.mock.calls.map((call) => call[1]).sort()).toEqual(["c-algo", "c-algo-cm"]);
+  });
+
+  it("says exempt, and offers the way back, on a course they do not take", async () => {
+    vi.spyOn(database, "fetchExemptions").mockResolvedValue([
+      { studentId: "A001", courseId: "c-algo", courseCode: "MATH-011", scopeId: "scope-td", scopeCode: "TD", termId: "term-1", reason: "" },
+    ]);
+    const clear = vi.spyOn(database, "clearExemption").mockResolvedValue(undefined as never);
+    show();
+
+    const row = within(await screen.findByLabelText("TD 1")).getByText("23652").closest("tr") as HTMLElement;
+    expect(row.textContent).toContain("exempt");
+    fireEvent.click(within(row).getByRole("button", { name: "Undo" }));
+
+    await waitFor(() => expect(clear).toHaveBeenCalledWith("A001", "c-algo"));
   });
 });
 
@@ -293,7 +355,7 @@ describe("placing one student from their own record", () => {
      * about one person, not about a set.
      */
     show();
-    await screen.findByLabelText("Groups");
+    await screen.findByLabelText("TD 1");
 
     fireEvent.click(screen.getByRole("button", { name: /Place in every set/ }));
 
@@ -311,7 +373,7 @@ describe("after placing them from their own record", () => {
     vi.spyOn(database, "assignStudents").mockResolvedValue({ assigned: 1, skipped: [] });
     const client = show();
     const invalidated = vi.spyOn(client, "invalidateQueries");
-    await screen.findByLabelText("Groups");
+    await screen.findByLabelText("TD 1");
     fireEvent.click(screen.getByRole("button", { name: /Place in every set/ }));
 
     await pick("Groups", "I'll choose");
