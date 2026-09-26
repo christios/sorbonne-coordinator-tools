@@ -49,7 +49,7 @@ export type ColumnMeta = {
 export const SOURCE_WORDS: Record<ColumnSource, string> = {
   portal: "the portal",
   planning: "our planning",
-  "part-time": "the part-time database",
+  "part-time": "their requisitions",
   registrar: "the portal's timetable",
 };
 
