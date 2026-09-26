@@ -169,6 +169,11 @@ export function sheetTitle(
   cohort: { name: string; workbookTab?: string; firstSemester?: number },
   termName: string,
 ): string {
+  // A cohort already named the way a tab is — "L1-S1", "FYS-S1" — is its own tab. Taken
+  // for initials it lost letters ("FYS" became "F"), and numbered again it said its
+  // semester twice, or "US" for a semester this page could not name.
+  const named = cohort.name.trim();
+  if (!cohort.workbookTab?.trim() && /^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*-S\d+$/i.test(named)) return named.slice(0, 31);
   const prefix = cohort.workbookTab?.trim() || sheetPrefix(cohort.name);
   const within = Number(termName.match(/semester\s*(\d+)/i)?.[1] ?? 0);
   const first = cohort.firstSemester ?? 0;

@@ -57,6 +57,14 @@ describe("the sheet's name", () => {
     // A tab without a numbering still numbers from the semester itself.
     expect(sheetTitle({ name: "Foundation Year", workbookTab: "FYS" }, "Semester 1")).toBe("FYS-S1");
   });
+
+  it("is the cohort's name when it is already named like a tab, semester and all", () => {
+    expect(sheetTitle({ name: "FYS-S1" }, "Semester 1 2026-27")).toBe("FYS-S1");
+    expect(sheetTitle({ name: "L1-S1", firstSemester: 0 }, "unknown semester")).toBe("L1-S1");
+    // And the Teacher hours column names the cohort, not the semester the page is already in.
+    expect(hoursColumn(sheetTitle({ name: "FYS-S1" }, "Semester 1"))).toBe("FYS");
+    expect(hoursColumn(sheetTitle({ name: "L2-S1" }, "Semester 1"))).toBe("L2");
+  });
 });
 
 describe("the request sheets", () => {
