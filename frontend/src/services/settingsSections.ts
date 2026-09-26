@@ -7,7 +7,7 @@
  * administrator's to change.
  */
 
-import { ArrowLeftRight, CalendarDays, KeyRound, SlidersHorizontal, Users, type LucideIcon } from "lucide-react";
+import { ArrowLeftRight, CalendarDays, HardDrive, KeyRound, SlidersHorizontal, Users, type LucideIcon } from "lucide-react";
 
 import type { SettingsSection } from "@/routes/toolRoute";
 
@@ -19,6 +19,8 @@ export const SETTINGS_SECTIONS: { section: SettingsSection; label: string; Icon:
   { section: "programme-codes", label: "Programme codes", Icon: ArrowLeftRight, adminOnly: false },
   // Where each semester's Week 1 is; everybody's to read, an administrator's to set.
   { section: "semesters", label: "Semesters", Icon: CalendarDays, adminOnly: false },
+  // What this browser holds and nobody else does: the portal's names and their history.
+  { section: "this-browser", label: "This browser", Icon: HardDrive, adminOnly: false },
 ];
 
 /** The pages this person may open, in menu order. */

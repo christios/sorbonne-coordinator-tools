@@ -149,7 +149,8 @@ describe("the Cohorts page", () => {
     // The warning sits on Amira's row; Karim's row has none.
     expect(within(rowOf("Amira Haddad")).getByTitle(/major is Physics, cohort expects/)).toBeTruthy();
     expect(within(rowOf("Karim Nasser")).queryByText(/cohort expects/)).toBeNull();
-    expect(screen.getByText(/1 of 2 students flagged/)).toBeTruthy();
+    // How many are flagged is on the toggle for the record that flags them.
+    expect(screen.getByRole("button", { name: /Admissions\s*1/ })).toBeTruthy();
   });
 
   it("has no Cohort column — every row would say the same thing — and pills the groups", async () => {
@@ -237,17 +238,6 @@ describe("the Cohorts page", () => {
     expect(await screen.findByTitle(/student status changed to WD \(was AS\)/)).toBeTruthy();
   });
 
-  it("says when the evidence is from, and what the cohort expects", async () => {
-    vi.spyOn(database, "fetchStudents").mockResolvedValue([student("A001", "c1")]);
-    vi.spyOn(database, "fetchDiscrepancyRules").mockResolvedValue([MAJOR]);
-    await portalSays([{ SPRIDEN_ID: "A001", FULL_NAME: "Amira Haddad", MAJOR_CODE_DESC: "Physics" }]);
-
-    renderPage();
-
-    expect(await screen.findByText(/As of this browser's last sync/)).toBeTruthy();
-    expect(screen.getByText(/This cohort expects major Applied Mathematics and Physics, year level L1/)).toBeTruthy();
-  });
-
   it("dismisses a warning from its row, for everybody, and can bring it back", async () => {
     vi.spyOn(database, "fetchStudents").mockResolvedValue([student("A001", "c1")]);
     vi.spyOn(database, "fetchDiscrepancyRules").mockResolvedValue([MAJOR]);
@@ -259,30 +249,17 @@ describe("the Cohorts page", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Dismiss: major is Physics/ }));
 
     await waitFor(() => expect(screen.queryByTitle(/major is Physics/)).toBeNull());
-    expect(screen.getByText(/Nothing to flag among 1/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Dismissed\s*1/ })).toBeTruthy();
     // On the server, not in this browser: the next coordinator to open the page meets
     // the decision already made rather than the warning again.
     await waitFor(() => expect(onServer.map((entry) => entry.key).join(" ")).toContain("A001:r2:"));
     expect(window.localStorage.getItem("scen-discrepancy-dismissed:v1")).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: /Show 1 dismissed/ }));
+    // Beside the toggles, a toggle of its own shows the dismissed ones back on their rows.
+    fireEvent.click(screen.getByRole("button", { name: /Dismissed\s*1/ }));
     fireEvent.click(await screen.findByRole("button", { name: /^Restore: major is Physics/ }));
 
-    expect(await screen.findByText(/1 of 1 students flagged/)).toBeTruthy();
-  });
-
-  it("says once, in the summary, that placements predate the record — not on every row", async () => {
-    vi.spyOn(database, "fetchStudents").mockResolvedValue([student("A001", "c1", ""), student("A002", "c1", "")]);
-    vi.spyOn(database, "fetchDiscrepancyRules").mockResolvedValue([WITHDRAWN]);
-    await portalSays([
-      { SPRIDEN_ID: "A001", FULL_NAME: "Amira Haddad", STST_CODE: "AS" },
-      { SPRIDEN_ID: "A002", FULL_NAME: "Karim Nasser", STST_CODE: "AS" },
-    ]);
-
-    renderPage();
-
-    expect(await screen.findByText(/All were placed before the moment of placement was recorded/)).toBeTruthy();
-    expect(screen.queryByText(/changes cannot be judged/)).toBeNull();
+    expect(await screen.findByRole("button", { name: /Admissions\s*1/ })).toBeTruthy();
   });
 
   it("shows the error when the rules cannot be loaded, rather than an empty cohort", async () => {
@@ -295,15 +272,6 @@ describe("the Cohorts page", () => {
     expect(await screen.findByRole("alert")).toHaveProperty("textContent", "The rules could not be loaded.");
   });
 
-  it("says plainly when there are no rules yet", async () => {
-    vi.spyOn(database, "fetchStudents").mockResolvedValue([student("A001", "c1")]);
-    vi.spyOn(database, "fetchDiscrepancyRules").mockResolvedValue([]);
-    await portalSays([{ SPRIDEN_ID: "A001", FULL_NAME: "Amira Haddad" }]);
-
-    renderPage();
-
-    expect(await screen.findByText(/No rules apply here/)).toBeTruthy();
-  });
 });
 
 describe("the cohort a coordinator is working on", () => {
@@ -518,7 +486,7 @@ describe("dismissals belong to the coordinator, not to the page on screen", () =
     const theirKey = "registration|A003|262710|PHYS-118|missing|22150|";
     onServer = [...onServer, { key: theirKey, byEmail: "c@sorbonne.ae", byName: "Colleague", at: "2026-09-15T09:00:00Z" }];
 
-    fireEvent.click(await screen.findByRole("button", { name: /Bring 1 back/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Bring back" }));
 
     expect(await screen.findByTitle(/major is Physics/)).toBeTruthy();
     expect(held()).not.toContain("A001:r2:");
@@ -808,7 +776,7 @@ describe("the register half of the Cohorts page", () => {
     });
   });
 
-  it("counts a student once however many of their courses differ, and says what kind", async () => {
+  it("counts a student once however many of their courses differ", async () => {
     vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue(report([
       mismatch({ studentId: "A001", courseCode: "MATH-001" }),
       mismatch({ studentId: "A001", courseCode: "MATH-009", kind: "wrong", expected: ["23365"], registered: ["23366"] }),
@@ -818,66 +786,14 @@ describe("the register half of the Cohorts page", () => {
     renderPage();
     await screen.findByText("Amira Haddad");
 
-    expect(screen.getByText(/The register differs about 1 of them/)).toBeTruthy();
-    expect(screen.getByText(/1 not registered in a section we placed them in/)).toBeTruthy();
-    expect(screen.getByText(/1 registered in another section/)).toBeTruthy();
-  });
-
-  it("says the register could not be asked, rather than that it agrees", async () => {
-    // The request itself fell over. Reporting that as "every student is registered
-    // correctly" is the exact mistake this page exists to prevent.
-    vi.spyOn(lists, "fetchRegistrationCheck").mockRejectedValue(new Error("no semester"));
-    await twoStudents();
-
-    renderPage();
-
-    expect(await screen.findByText(/The register could not be asked about this cohort at all/)).toBeTruthy();
-    expect(screen.queryByText(/exactly the sections their groups give them/)).toBeNull();
+    // Two of her courses differ; she is one student on the Register toggle.
+    expect(screen.getByRole("button", { name: /Register\s*1/ })).toBeTruthy();
   });
 
   /*
    * The four things "no differences" can mean, and the three of them that are not
    * agreement. Each is a separate sentence because each is a separate thing to go and do.
    */
-  it("names a semester nobody has linked to a portal term", async () => {
-    vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue(
-      report([], [checked({ termCode: "", judged: 0, blind: 2, skipped: ["A001", "A002"], pulledInTerm: 0 })]),
-    );
-    await twoStudents();
-
-    renderPage();
-
-    expect(
-      await screen.findByText(/is not linked to a portal term, so none of its 2 students have been checked/),
-    ).toBeTruthy();
-    expect(screen.getByText(/Nobody has asked the register about this cohort yet/)).toBeTruthy();
-    expect(screen.queryByText(/exactly the sections their groups give them/)).toBeNull();
-  });
-
-  it("names a semester nothing has been pulled for", async () => {
-    vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue(
-      report([], [checked({ judged: 0, blind: 2, skipped: ["A001", "A002"], pulledInTerm: 0 })]),
-    );
-    await twoStudents();
-
-    renderPage();
-
-    expect(await screen.findByText(/Nothing has been pulled for .*so none of its 2 students have been checked/)).toBeTruthy();
-  });
-
-  it("tells a filter scoped to the wrong population from one that never ran", async () => {
-    // Registrations were pulled — just nobody from here. Without `pulledInTerm` on the
-    // wire this reads exactly like a sync that was never done, and the fix is different.
-    vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue(
-      report([], [checked({ judged: 0, blind: 2, skipped: ["A001", "A002"], pulledInTerm: 400 })]),
-    );
-    await twoStudents();
-
-    renderPage();
-
-    expect(await screen.findByText(/the filter that ran covers another population/)).toBeTruthy();
-  });
-
   it("counts the stragglers a pull did not return, without flagging them", async () => {
     vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue(
       report([], [checked({ judged: 1, blind: 1, skipped: ["A002"] })]),
@@ -886,7 +802,7 @@ describe("the register half of the Cohorts page", () => {
 
     renderPage();
 
-    expect(await screen.findByText(/1 of 2 students checked — 1 no pull has returned/)).toBeTruthy();
+    await screen.findByText("Amira Haddad");
     /*
      * A floor is not a flag. The straggler must not become a warning on a row, must not
      * raise the source filter — which only appears when there is something to choose
@@ -895,39 +811,6 @@ describe("the register half of the Cohorts page", () => {
     expect(document.querySelectorAll("[data-source]")).toHaveLength(0);
     expect(screen.queryByRole("button", { name: /^Register/ })).toBeNull();
     expect(screen.queryByText(/flagged/)).toBeNull();
-  });
-
-  it("says when it has no timetable to tell a finished half of a course", async () => {
-    /*
-     * Knowing a half is over takes the registrar's own timetable. Without it a finished
-     * half goes on being expected every day of the year — kept on purpose because
-     * narrowing on no evidence is worse — and that has to be said out loud.
-     */
-    vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue(
-      report([], [checked({ undatedCrns: ["22151", "23652", "23820"] })]),
-    );
-    await twoStudents();
-
-    renderPage();
-
-    expect(
-      await screen.findByText(/no timetable for 3 of this cohort's sections, so a course taught in two halves/),
-    ).toBeTruthy();
-    // Still not a flag: nobody is warned, and the students were all checked.
-    expect(document.querySelectorAll("[data-source]")).toHaveLength(0);
-    expect(screen.queryByText(/students checked/)).toBeNull();
-  });
-
-  it("says nothing at all about a semester it saw all of", async () => {
-    vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue(report([], [checked()]));
-    await twoStudents();
-
-    renderPage();
-
-    expect(await screen.findByText(/exactly the sections their groups give them/)).toBeTruthy();
-    // The one silence on this page that has been earned.
-    expect(screen.queryByText(/students checked/)).toBeNull();
-    expect(screen.queryByText(/it could see/)).toBeNull();
   });
 
   it("lets a difference be dismissed, and keeps it dismissed for everybody", async () => {
@@ -939,7 +822,7 @@ describe("the register half of the Cohorts page", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Dismiss: MATH-001/ }));
 
     await waitFor(() => expect(screen.queryByTitle("MATH-001: not registered in 23223")).toBeNull());
-    expect(screen.getByText(/Show 1 dismissed/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Dismissed\s*1/ })).toBeTruthy();
     await waitFor(() => expect(onServer.map((entry) => entry.key).join(" ")).toContain("registration|A001"));
   });
 
@@ -961,7 +844,7 @@ describe("the register half of the Cohorts page", () => {
     await twoStudents();
 
     renderPage();
-    fireEvent.click(await screen.findByRole("button", { name: /Show 1 dismissed/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /Dismissed\s*1/ }));
 
     const pill = await screen.findByTitle(/MATH-001: not registered in 23223 — dismissed by Lina Haddad on .*2026/);
     expect(pill.textContent).toContain("Lina Haddad");
@@ -982,7 +865,7 @@ describe("the register half of the Cohorts page", () => {
 
     renderPage();
     await screen.findByText("Amira Haddad");
-    await screen.findByText(/every student in exactly the sections their groups give them/);
+    await waitFor(() => expect(lists.fetchRegistrationCheck).toHaveBeenCalled());
 
     // Still held, and saying nothing: the warning it named is not reported any more, so
     // there is nothing on screen for it to quieten and nothing to bring back.
@@ -1023,7 +906,7 @@ describe("a student caught between our hour and another department's", () => {
     expect(await screen.findByTitle(/SCEN-101 \(23302\) is at the same hour as 22590 — Tue 16:30–18:00/)).toBeTruthy();
   });
 
-  it("is counted among the register's differences, in its own words", async () => {
+  it("is counted among the timetabling warnings", async () => {
     vi.spyOn(database, "fetchStudents").mockResolvedValue([student("A001", "c1")]);
     vi.spyOn(database, "fetchDiscrepancyRules").mockResolvedValue([]);
     vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue(
@@ -1033,9 +916,7 @@ describe("a student caught between our hour and another department's", () => {
 
     renderPage();
 
-    expect(
-      await screen.findByText(/1 in one of our hours and another department's at once/),
-    ).toBeTruthy();
+    expect(await screen.findByRole("button", { name: /Timetabling\s*1/ })).toBeTruthy();
   });
 });
 

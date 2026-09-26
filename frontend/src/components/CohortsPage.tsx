@@ -1,5 +1,5 @@
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, ArrowRightCircle, CalendarClock, ClipboardList, EyeOff, Globe, GraduationCap, LayoutGrid, Users, X } from "lucide-react";
+import { AlertTriangle, ArrowRightCircle, CalendarClock, ClipboardList, EyeOff, Globe, GraduationCap, LayoutGrid, RotateCcw, Users, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useStaffUser } from "@/components/useStaffUser";
@@ -20,7 +20,6 @@ import {
   labelOf,
   registrationWarnings,
   rulesFor,
-  sharedRules,
   groupWarnings,
   electiveWarnings,
   sourceOf,
@@ -34,18 +33,10 @@ import {
   type WarningSource,
 } from "@/services/discrepancies";
 import { type Dismissal, dismissalsByKey, fetchDismissals, setDismissal } from "@/services/warningDismissals";
-import {
-  describeCoverage,
-  describeMismatch,
-  describeSectionDates,
-  fetchRegistrationCheck,
-  type Mismatch,
-  type RegistrationReport,
-  type TermCoverage,
-} from "@/services/portalLists";
+import { describeMismatch, fetchRegistrationCheck, type Mismatch, type RegistrationReport } from "@/services/portalLists";
 import { allChanges } from "@/services/pullHistory";
 import { COHORT } from "@/services/remembered";
-import { describeAge, latestPullAt, rowsHeld } from "@/services/rosterStore";
+import { latestPullAt, rowsHeld } from "@/services/rosterStore";
 import { displayNameOf, fetchSchema, studentIdOf, type RosterRow } from "@/services/scenRosters";
 import { fetchDiscrepancyRules, fetchStudents, setCohort, type Cohort, type Student } from "@/services/studentDatabase";
 import { fetchPublication } from "@/services/publication";
@@ -142,22 +133,6 @@ const readMismatch = (mismatch: Mismatch) => ({
   label: SAID[mismatch.kind].say(mismatch),
   source: SAID[mismatch.kind].source,
 });
-
-/** "5 not registered · 2 in another section" — what the register's differences are. */
-function describeKinds(mismatches: Mismatch[]): string {
-  const said: Record<Mismatch["kind"], string> = {
-    missing: "not registered in a section we placed them in",
-    wrong: "registered in another section",
-    extra: "registered in a section that is no group of theirs",
-    unplaced: "registered in a course we have not placed them in",
-    doubled: "registered in two groups of one set",
-    collides: "in one of our hours and another department's at once",
-    exempt: "registered in a course we recorded them as not taking",
-  };
-  const counted = new Map<Mismatch["kind"], number>();
-  for (const mismatch of mismatches) counted.set(mismatch.kind, (counted.get(mismatch.kind) ?? 0) + 1);
-  return [...counted.entries()].map(([kind, count]) => `${count} ${said[kind]}`).join(" · ");
-}
 
 /**
  * Which of the two records the table is showing, with how many students each has flagged.
@@ -614,51 +589,10 @@ export function CohortsPage({
     groups: flaggedIn(all, "groups"),
     electives: flaggedIn(all, "electives"),
   };
-  const unjudged = new Set(all.filter((warning) => warning.kind === "no_baseline").map((w) => w.studentId)).size;
   const dismissedCount = all.filter((warning) => warning.dismissed).length;
-  const population = students.data ? students.data.filter((student) => student.cohortId === cohortId).length : 0;
 
-  /*
-   * What the register says about this cohort — including when it has said nothing.
-   *
-   * "No differences" is two different facts wearing one sentence: the registrar agrees
-   * with us, or nobody has ever asked it. The check now reports the ground it stood on, so
-   * the cases can be told apart instead of hedged over.
-   */
-  const mismatches = registrationsBy.get(cohortId) ?? [];
-  const check = checks[cohorts.findIndex((candidate) => candidate.id === cohortId)];
-  const coverage: TermCoverage[] = reportsBy.get(cohortId)?.coverage ?? [];
-  /*
-   * What the check could not see, semester by semester: how much of the cohort, and how
-   * much of its timetable. Up to two lines each, and none at all for a semester seen
-   * whole — the only silence here that has been earned.
-   */
-  const gaps = coverage.flatMap((term) => {
-    const name = nameOfTerm(term.termId);
-    return [describeCoverage(term, name), describeSectionDates(term, name)]
-      .filter(Boolean)
-      .map((said, index) => ({ key: `${term.termId}:${index}`, said }));
-  });
-  const anyChecked = coverage.some((term) => term.judged > 0);
-  const registerSays = check?.isError
-    ? "The register could not be asked about this cohort at all."
-    : check?.isPending
-      ? "Still asking the register…"
-      : mismatches.length
-        ? `The register differs about ${counts.registration} of them — ${describeKinds(mismatches)}.`
-        : anyChecked
-          ? `The register has every student ${gaps.length ? "it could see " : ""}in exactly the sections their groups give them.`
-          : "Nobody has asked the register about this cohort yet.";
   const arrivals = cohort ? (judged?.arrivals.get(cohort.id) ?? []).filter((arrival) => !dismissed.has(arrival.key)) : [];
-  const applied = cohort ? rulesFor(rules.data ?? [], cohort.id) : sharedRules(rules.data ?? []);
   const silent = evidence && rules.data ? unjudgeable(rules.data.filter((rule) => rule.field !== STATUS_FIELD), evidence.carried) : [];
-  const expects = cohort
-    ? [
-        cohort.majors.length ? `major ${cohort.majors.join(" or ")}` : "",
-        cohort.terms.length ? `term ${cohort.terms.join(" or ")}` : "",
-        cohort.yearLevel ? `year level ${cohort.yearLevel}` : "",
-      ].filter(Boolean)
-    : [];
 
   if (students.isLoading || rules.isLoading || !evidence) return <ScreenLoading label="Reading what the portal said…" />;
   if (students.error || rules.error) {
@@ -759,65 +693,6 @@ export function CohortsPage({
         <NewCohort onCreated={(created) => chooseCohort(created.id)} />
       </div>
 
-      <p className="mt-3 text-xs text-[#98a2b3]">
-        {evidence.asOf
-          ? `As of this browser's last sync, ${describeAge(evidence.asOf)}. `
-          : "This browser has never synced, so there is nothing to judge against. "}
-        {expects.length ? (
-          <>This cohort expects {expects.join(", ")}. </>
-        ) : (
-          "This cohort states no major, term or year level, so it is judged on status alone. "
-        )}
-        {flaggedStudents
-          ? `${flaggedStudents} of ${population} students flagged.`
-          : applied.length
-            ? `Nothing to flag among ${population}.`
-            : "No rules apply here — nothing counts as a discrepancy until you add one."}
-        {cohort ? <> {registerSays}</> : null}
-        {unjudged ? (
-          <>
-            {" "}
-            {unjudged === population ? "All" : unjudged} {unjudged === 1 ? "was" : "were"} placed before the moment of
-            placement was recorded, so change rules cannot judge them — only what is true now.
-          </>
-        ) : null}
-        {dismissedCount ? (
-          <>
-            {" · "}
-            <button type="button" onClick={() => setShowDismissed((current) => !current)} className="underline">
-              {showDismissed ? "Hide" : "Show"} {dismissedCount} dismissed
-            </button>
-            {" · "}
-            {/* Exactly the ones on screen — another cohort's, and another family's, stay put. */}
-            <button
-              type="button"
-              onClick={() => decide.mutate({ keys: all.filter((warning) => warning.dismissed).map((warning) => warning.key), dismissed: false })}
-              className="underline"
-            >
-              Bring {dismissedCount} back
-            </button>
-          </>
-        ) : null}
-      </p>
-
-      {/*
-        * How much of the cohort the register was actually asked about.
-        *
-        * Muted and never a warning: a floor is not a flag. It must not enter the flagged
-        * count nor the cohort picker's alert, because "we have not looked" is not a thing
-        * a coordinator can clear — it is a thing they can go and fix by syncing.
-        */}
-      {gaps.length ? (
-        <ul role="status" className="mt-2 space-y-0.5 text-xs text-[#98a2b3]">
-          {gaps.map(({ key, said }) => (
-            <li key={key} className="flex items-start gap-1.5">
-              <EyeOff size={12} className="mt-0.5 shrink-0" aria-hidden="true" />
-              <span>{said}</span>
-            </li>
-          ))}
-        </ul>
-      ) : null}
-
       {silent.length ? (
         <p role="status" className="mt-3 rounded-md border border-[#e8d9ac] bg-[#fdf9ee] px-4 py-2.5 text-sm text-[#8a6116]">
           {silent.length === 1 ? "One rule cannot be judged" : `${silent.length} rules cannot be judged`}: no pull this browser
@@ -859,9 +734,41 @@ export function CohortsPage({
         * Only once there is something to choose between — on a cohort with nothing wrong
         * it would be three zeroes and a question nobody asked.
         */}
-      {flaggedStudents ? (
-        <div className="mt-3">
-          <SourceFilter showing={showing} onToggle={toggleShowing} counts={counts} />
+      {flaggedStudents || dismissedCount ? (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          {flaggedStudents ? <SourceFilter showing={showing} onToggle={toggleShowing} counts={counts} /> : null}
+          {/*
+            * The dismissed warnings, beside the toggles that choose which warnings show —
+            * the same kind of control, where they used to be two links at the end of a
+            * sentence nobody reads to the end of.
+            */}
+          {dismissedCount ? (
+            <div role="group" aria-label="Dismissed warnings" className="inline-flex gap-1 rounded-md border border-[#d3d9e2] bg-white p-1">
+              <button
+                type="button"
+                aria-pressed={showDismissed}
+                onClick={() => setShowDismissed((current) => !current)}
+                className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-semibold transition-colors ${
+                  showDismissed ? "bg-[#1f4e79] text-white" : "text-[#667085] hover:bg-[#f6f8fb]"
+                }`}
+              >
+                <EyeOff size={12} aria-hidden="true" />
+                Dismissed
+                <span className={`tabular-nums font-normal ${showDismissed ? "text-white/75" : "text-[#98a2b3]"}`}>{dismissedCount}</span>
+              </button>
+              {/* Exactly the ones on screen — another cohort's, and another family's, stay put. */}
+              <button
+                type="button"
+                disabled={decide.isPending}
+                title={`Bring the ${dismissedCount} dismissed warning${dismissedCount === 1 ? "" : "s"} back`}
+                onClick={() => decide.mutate({ keys: all.filter((warning) => warning.dismissed).map((warning) => warning.key), dismissed: false })}
+                className="inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-semibold text-[#667085] transition-colors hover:bg-[#f6f8fb] disabled:opacity-50"
+              >
+                <RotateCcw size={12} aria-hidden="true" />
+                Bring back
+              </button>
+            </div>
+          ) : null}
         </div>
       ) : null}
 

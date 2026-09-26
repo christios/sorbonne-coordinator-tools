@@ -104,7 +104,6 @@ const TITLES: Record<PageId, { title: string; blurb?: string }> = {
   },
   cohorts: {
     title: "Cohorts",
-    blurb: "Where admissions has drifted from where the department put a student, and where the portal has them in other sections than we did.",
   },
   "group-schema": {
     title: "Group schema",

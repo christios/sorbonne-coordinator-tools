@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { ChecksPanel } from "@/components/ChecksPanel";
 import { ProgrammeCodesPanel } from "@/components/ProgrammeCodesPanel";
 import { TermWeeksPanel } from "@/components/TermWeeksPanel";
+import { ThisBrowser } from "@/components/ThisBrowser";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { COORDINATOR_APPS, type AppId } from "@/routes/apps";
 import type { SettingsSection } from "@/routes/toolRoute";
@@ -86,6 +87,8 @@ export function StaffSettings() {
         <AppProgrammeCodes />
       ) : page === "semesters" ? (
         <AppSemesters />
+      ) : page === "this-browser" ? (
+        <ThisBrowser />
       ) : (
         <AppChecks />
       )}

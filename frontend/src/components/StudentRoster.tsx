@@ -9,7 +9,6 @@ import { Modal } from "@/components/Modal";
 import { CopyButton } from "@/components/CopyButton";
 import { CopyPresetMenu } from "@/components/CopyPresetMenu";
 import { FilterTabs } from "@/components/FilterTabs";
-import { HistoryBackup } from "@/components/HistoryBackup";
 import { PlaceInBlock } from "@/components/PlaceInBlock";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { StudentHistoryPane } from "@/components/StudentHistoryPane";
@@ -27,7 +26,6 @@ import { groupCrns } from "@/services/meets";
 import { fetchCourseCards } from "@/services/studentDatabase";
 import { fetchSectionDays, fetchTermLinks } from "@/services/portalLists";
 import {
-  forgetHistory,
   historyHolding,
   loadHistories,
   newestHistory,
@@ -40,7 +38,6 @@ import type { Warning } from "@/services/discrepancies";
 import { changesFromRecord, changesSince, sharedCohort, studentRows, type StudentRow } from "@/services/rosterView";
 import { PortalError } from "@/services/scenRosters";
 import {
-  forgetRosters,
   lastSync,
   loadPull,
   rowsHeld,
@@ -234,7 +231,6 @@ export function StudentRoster({
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<Sort>(defaultSort ?? { key: "studentId", ascending: true });
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [confirmForget, setConfirmForget] = useState(false);
   /*
    * What the portal last said about each student, from whichever view asked most
    * recently. A view chooses which students, not what is true about them.
@@ -909,27 +905,16 @@ export function StudentRoster({
         </p>
       ) : null}
 
-      <p className="mt-2 text-xs text-[#98a2b3]">
-        {rows.length} student{rows.length === 1 ? "" : "s"} held
-        {visible.length !== rows.length ? `, ${visible.length} shown` : ""}
-        {portalRows.length ? (
-          <>
-            {". Names came from the portal in this browser. "}
-            <button type="button" onClick={() => setConfirmForget(true)} className="underline">
-              Forget stored rosters
-            </button>
-          </>
-        ) : (
-          ". No names held in this browser yet — sync to fill them in."
-        )}
-        {". "}
-        <HistoryBackup
-          onRestored={() => {
-            // A restore changes the history behind the changed column, so read it again.
-            void loadHistories().then(setHistories);
-          }}
-        />
-        {"."}
+      {/*
+        * How many, plainly: all of them, or so many of them once a filter narrows the table,
+        * and so many chosen once any are ticked. What this browser holds, and clearing it,
+        * is in Settings → This browser.
+        */}
+      <p className="mt-2 text-xs font-semibold tabular-nums text-[#667085]" aria-live="polite">
+        {visible.length !== rows.length
+          ? `${visible.length} of ${rows.length} student${rows.length === 1 ? "" : "s"}`
+          : `${rows.length} student${rows.length === 1 ? "" : "s"}`}
+        {selected.size ? ` · ${selected.size} of ${visible.length} selected` : ""}
       </p>
 
       <StudentTable
@@ -979,29 +964,7 @@ export function StudentRoster({
         onClose={() => setConfirmMove(null)}
       />
 
-      <ConfirmDialog
-        open={confirmForget}
-        title="Forget the rosters stored in this browser?"
-        description={
-          "The names, e-mail addresses and year levels pulled from the portal are held in this " +
-          "browser and will be cleared, along with the history of what the portal has said. No " +
-          "student leaves the list and no cohort changes — the ids we keep are on the server and " +
-          "are not touched. Sync again and the names come back."
-        }
-        confirmLabel="Forget rosters"
-        onConfirm={() => {
-          void Promise.all([forgetRosters(), forgetHistory()]).then(() => {
-            setStored({});
-            setHistories({});
-            // The names on screen come from every view now, not this one's pull, so
-            // forgetting has to take them away here too or they sit there until reload.
-            setPortalRows([]);
-            setSyncedAt("");
-          });
-          setConfirmForget(false);
-        }}
-        onClose={() => setConfirmForget(false)}
-      />
+
 
       <StudentHistoryPane
         row={historyOf}

@@ -25,7 +25,14 @@ import { describeAge } from "@/services/rosterStore";
  * this browser alone — so clearing site data ends it. This writes it to a folder after
  * every sync and reads it back when there is nothing to read.
  */
-export function HistoryBackup({ onRestored }: { onRestored: () => void }) {
+export function HistoryBackup({
+  onRestored,
+  className = "text-[#1f4e79] underline",
+}: {
+  onRestored: () => void;
+  /** How the button that opens it looks: a link in a sentence, or a button of its own. */
+  className?: string;
+}) {
   const [open, setOpen] = useState(false);
   const [folder, setFolder] = useState<string | null>(null);
   const [permission, setPermission] = useState<"granted" | "denied" | "prompt" | null>(null);
@@ -98,11 +105,7 @@ export function HistoryBackup({ onRestored }: { onRestored: () => void }) {
 
   return (
     <>
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="text-[#1f4e79] underline"
-      >
+      <button type="button" onClick={() => setOpen(true)} className={className}>
         Back up the history
       </button>
 

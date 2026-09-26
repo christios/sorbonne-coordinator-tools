@@ -74,7 +74,7 @@ function storageTrouble(storage: StorageReport | null): string {
   if (!storage.stored) {
     return (
       "The students synced, but this browser had no room to keep their names, so the table " +
-      "will show ids only. Use “Forget stored rosters” on the Students page, then sync again."
+      "will show ids only. Use “Forget stored rosters” in Settings → This browser, then sync again."
     );
   }
   if (!storage.shed.length) return "";

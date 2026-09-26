@@ -32,7 +32,7 @@ import {
 import { allChanges, historyFor, type PullHistory } from "@/services/pullHistory";
 import { copyTable } from "@/services/copyCells";
 import { CHANGE_COLUMNS, changesRows, noteChanges, registrationChanges } from "@/services/registrationChanges";
-import { reconcile, tally } from "@/services/registrationLists";
+import { reconcile } from "@/services/registrationLists";
 import type { StudentRow } from "@/services/rosterView";
 import { fetchSchema } from "@/services/scenRosters";
 import {
@@ -352,7 +352,6 @@ export function StudentRecord({
    * a list of courses on the other, with the warnings folded in among the courses.
    */
   const lines = reconcile(placements, registrations.data ?? []);
-  const counted = tally(lines, excused);
   // What the portal has them in that no group of theirs gives them.
   const outside = lines.filter((line) => !line.ours && line.portal);
   /*
@@ -361,6 +360,40 @@ export function StudentRecord({
    */
   const portalTeacherOf = new Map((registrations.data ?? []).map((entry) => [entry.crn, entry.teacherName ?? ""]));
   const portalTeacher = (crn: string) => portalTeacherOf.get(crn) || inRegister(crn)?.teacherName || "";
+  /*
+   * An elective's approval sits on its own row, not in a second list under the table: the
+   * course, who approved it and when, and the way to withdraw it, where the registration
+   * is. An approval for a course they are no longer registered in keeps a row of its own.
+   */
+  const approvalOf = (courseCode: string) =>
+    (approvals.data ?? []).find((approval) => approval.courseCode.toUpperCase() === courseCode.toUpperCase()) ?? null;
+  const approvedAlone = (approvals.data ?? []).filter(
+    (approval) => !outside.some((line) => line.courseCode.toUpperCase() === approval.courseCode.toUpperCase()),
+  );
+  const approvedSaid = (approval: NonNullable<ReturnType<typeof approvalOf>>, registeredToo: boolean) => (
+    <span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+      <span className="inline-flex items-center gap-1 text-[#2f6b3d]">
+        <ShieldCheck size={11} aria-hidden="true" /> approved
+      </span>
+      <span className="text-[#98a2b3]">
+        {approval.approvedByName || approval.approvedBy ? `by ${approval.approvedByName || approval.approvedBy}` : ""}
+        {approval.approvedAt
+          ? ` · ${new Date(approval.approvedAt).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}`
+          : ""}
+        {registeredToo ? "" : " · not registered"}
+      </span>
+      <button
+        type="button"
+        disabled={approve.isPending}
+        title={`Withdraw the approval of ${approval.courseCode}`}
+        aria-label={`Withdraw the approval of ${approval.courseCode}`}
+        onClick={() => approve.mutate({ termCode: approval.termCode, courseCode: approval.courseCode, on: false })}
+        className="rounded p-0.5 text-[#98a2b3] hover:bg-[#f2f4f7] hover:text-[#a6292f]"
+      >
+        <X size={12} aria-hidden="true" />
+      </button>
+    </span>
+  );
   const mismatches: Mismatch[] = (check.data?.mismatches ?? []).filter(
     (mismatch) => mismatch.studentId === row.studentId,
   );
@@ -543,9 +576,13 @@ export function StudentRecord({
         </ul>
       ) : null}
 
+      {/*
+        * Two rows of two, then the history across the foot. The portal's facts and the
+        * timetable set the rows' heights; what sits beside each takes that height and
+        * scrolls inside, so the two columns end level rather than one running on.
+        */}
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)]">
         {/* ------------------------------------------------------------ the portal */}
-        <div className="space-y-5">
         <Card title="From the portal" note="As this browser last saw it. Nothing here is on the server.">
           {Object.keys(portal).length === 0 ? (
             <Empty>No portal pull holds this student. Sync a portal filter on the Students page.</Empty>
@@ -570,23 +607,7 @@ export function StudentRecord({
           )}
         </Card>
 
-          {/* ---------------------------------------------------------- timetable */}
-        <Card
-          title="Timetable"
-          note="Their week as the portal has booked it: the sections they are registered in, and the ones their groups stand for."
-        >
-          <SectionTimetable
-            entries={timetable}
-            compact
-            title={`${row.name || row.studentId} — timetable`}
-            openable={(crn) => Boolean(inRegister(crn))}
-            onOpenCrn={(crn) => setShowingCrn(inRegister(crn))}
-            emptyMessage="In no group and registered in nothing, so there is no week to show."
-          />
-        </Card>
-        </div>
 
-        <div className="space-y-5">
           {/* ------------------------------------------------- groups and their CRNs */}
           {/*
             * One card where there were two: "Groups" said where they sit and "CRNs" said what
@@ -597,11 +618,7 @@ export function StudentRecord({
             */}
           <Card
             title="Groups and CRNs"
-            note={
-              cohort
-                ? `Where ${cohort.name} put them, who teaches each CRN, and whether the portal has them in it.`
-                : "What the portal has them in."
-            }
+            fitted
             beside={
               <div className="flex flex-wrap items-center justify-end gap-2">
                 {cohort ? (
@@ -646,12 +663,7 @@ export function StudentRecord({
               <Empty>{cohortId ? "In no group yet, and registered in nothing." : "In no cohort, so in no group, and registered in nothing."}</Empty>
             ) : (
               <>
-                <p className="mb-2 text-xs text-[#98a2b3]">
-                  {counted.agree} registered as placed
-                  {counted.onlyOurs ? ` · ${counted.onlyOurs} not registered` : ""}
-                  {counted.exempt ? ` · ${counted.exempt} exempt` : ""}
-                  {outside.length ? ` · ${outside.length} outside their groups` : ""}
-                </p>
+
                 <table className="w-full table-fixed border-collapse text-sm" aria-label="CRNs">
                   <colgroup>
                     <col className="w-[4.5rem]" />
@@ -665,8 +677,11 @@ export function StudentRecord({
                       <tr>
                         <th colSpan={5} scope="rowgroup" className="pb-1 pt-3 text-left font-normal first:pt-0">
                           <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                            <span className="inline-flex items-center rounded-full bg-[#e8edf3] px-2.5 py-0.5 text-xs font-semibold text-[#1f4e79]">
-                              {scope.code}
+                            {/* A fixed width, so the group names line up down the card. */}
+                            <span className="inline-flex w-[5.25rem] shrink-0">
+                              <span className="inline-flex items-center rounded-full bg-[#e8edf3] px-2.5 py-0.5 text-xs font-semibold text-[#1f4e79]">
+                                {scope.code}
+                              </span>
                             </span>
                             <span className="font-semibold text-[#171717]">
                               {group ? subRowLabel(group.label, major?.program ?? "", (group.majors ?? []).length) : "?"}
@@ -748,11 +763,11 @@ export function StudentRecord({
                     * elective — sport, a language another department runs — is named as what
                     * it is, since "no group of theirs" is true and reads as an accusation.
                     */}
-                  {outside.length ? (
-                    <tbody aria-label="Registered outside their groups">
+                  {outside.length || approvedAlone.length ? (
+                    <tbody aria-label="Outside their groups">
                       <tr>
                         <th colSpan={5} scope="rowgroup" className="pb-1 pt-4 text-left text-xs font-semibold text-[#344054]">
-                          Registered outside their groups
+                          Outside their groups
                         </th>
                       </tr>
                       {outside.map((line) => {
@@ -775,9 +790,13 @@ export function StudentRecord({
                                   {elective.status === "allowed" ? (
                                     <span className="text-xs text-[#667085]">on the list</span>
                                   ) : elective.status === "approved" ? (
-                                    <span className="inline-flex items-center gap-1 text-xs text-[#2f6b3d]">
-                                      <ShieldCheck size={11} aria-hidden="true" /> approved
-                                    </span>
+                                    approvalOf(line.courseCode) ? (
+                                      approvedSaid(approvalOf(line.courseCode)!, true)
+                                    ) : (
+                                      <span className="inline-flex items-center gap-1 text-xs text-[#2f6b3d]">
+                                        <ShieldCheck size={11} aria-hidden="true" /> approved
+                                      </span>
+                                    )
                                   ) : (
                                     <button
                                       type="button"
@@ -799,6 +818,16 @@ export function StudentRecord({
                           />
                         );
                       })}
+                      {approvedAlone.map((approval) => (
+                        <CrnRow
+                          key={`approved|${approval.termCode}|${approval.courseCode}`}
+                          crn=""
+                          courseCode={approval.courseCode}
+                          teacher=""
+                          state="outside"
+                          outside={approvedSaid(approval, false)}
+                        />
+                      ))}
                     </tbody>
                   ) : null}
                 </table>
@@ -828,34 +857,6 @@ export function StudentRecord({
                   </li>
                 ))}
               </ul>
-            ) : null}
-            {(approvals.data ?? []).length ? (
-              <div className="mt-3">
-                <h4 className="text-[11px] font-semibold uppercase tracking-wide text-[#98a2b3]">Approved outside the groups</h4>
-                <ul className="mt-1 space-y-1" aria-label="Approved outside the groups">
-                  {(approvals.data ?? []).map((approval) => (
-                    <li key={`${approval.termCode}|${approval.courseCode}`} className="flex items-center gap-2 text-xs text-[#344054]">
-                      <ShieldCheck size={12} className="shrink-0 text-[#2f6b3d]" aria-hidden="true" />
-                      <span className="font-semibold">{approval.courseCode}</span>
-                      <span className="text-[#98a2b3]">
-                        {approval.termCode}
-                        {approval.approvedByName || approval.approvedBy ? ` · by ${approval.approvedByName || approval.approvedBy}` : ""}
-                        {approval.approvedAt ? ` · ${new Date(approval.approvedAt).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}` : ""}
-                      </span>
-                      <button
-                        type="button"
-                        disabled={approve.isPending}
-                        title={`Withdraw the approval of ${approval.courseCode}`}
-                        aria-label={`Withdraw the approval of ${approval.courseCode}`}
-                        onClick={() => approve.mutate({ termCode: approval.termCode, courseCode: approval.courseCode, on: false })}
-                        className="ml-auto rounded p-0.5 text-[#98a2b3] hover:bg-[#f2f4f7] hover:text-[#a6292f]"
-                      >
-                        <X size={12} aria-hidden="true" />
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </div>
             ) : null}
             {approve.error ? <p className="mt-2 text-xs text-[#a6292f]">{(approve.error as Error).message}</p> : null}
             {!mismatches.length && cohortId && check.data && (registrations.data ?? []).length ? (
@@ -894,22 +895,27 @@ export function StudentRecord({
             ) : null}
           </Card>
 
-        </div>
-      </div>
+          {/* ---------------------------------------------------------- timetable */}
+        <Card title="Timetable">
+          <SectionTimetable
+            entries={timetable}
+            compact
+            title={`${row.name || row.studentId} — timetable`}
+            openable={(crn) => Boolean(inRegister(crn))}
+            onOpenCrn={(crn) => setShowingCrn(inRegister(crn))}
+            emptyMessage="In no group and registered in nothing, so there is no week to show."
+          />
+        </Card>
 
-
-      {/*
-        * The second row: what people have said, beside what the portal's record has done.
-        * Both are short and both are read after the facts, so they share a row rather than
-        * each taking a full one with half of it empty.
-        */}
-      <div className="mt-5 grid gap-5 lg:grid-cols-2">
           {/* ----------------------------------------------------------- comments */}
-          <Card title="Comments" note="On the server: every coordinator who opens this student reads the same thread.">
+          <Card title="Comments" fitted note="On the server: every coordinator who opens this student reads the same thread.">
             <CommentThread studentId={row.studentId} label={row.name || row.studentId} />
           </Card>
+      </div>
+
       {/* ---------------------------------------------------------------- history */}
       <Card
+        className="mt-5"
         title="History"
         note="On the server: every cohort move, placement, registration change and approval, signed. From this browser's pull history: what changed in the portal's record."
       >
@@ -947,7 +953,6 @@ export function StudentRecord({
           </ol>
         )}
       </Card>
-      </div>
       {showingCrn ? (
         <CrnRecord
           open
@@ -967,6 +972,7 @@ function Card({
   note,
   className = "",
   beside,
+  fitted = false,
   children,
 }: {
   title: string;
@@ -974,18 +980,30 @@ function Card({
   className?: string;
   /** A control belonging to this card, at its top right beside the heading. */
   beside?: ReactNode;
+  /**
+   * Takes the height of the card beside it and scrolls inside, rather than setting the
+   * row's height itself — so its bottom lines up with its neighbour's. On a narrow screen,
+   * where nothing is beside it, it is capped instead.
+   */
+  fitted?: boolean;
   children: ReactNode;
 }) {
-  return (
-    <section className={`rounded-lg border border-[#e4e8ef] bg-white px-4 py-3 ${className}`}>
-      <div className="flex items-start gap-3">
+  const card = (
+    <section
+      className={`rounded-lg border border-[#e4e8ef] bg-white px-4 py-3 ${
+        fitted ? "flex max-h-[32rem] flex-col lg:absolute lg:inset-0 lg:max-h-none" : ""
+      } ${className}`}
+    >
+      <div className="flex shrink-0 items-start gap-3">
         <h3 className="flex-1 text-sm font-semibold text-[#171717]">{title}</h3>
         {beside ? <div className="shrink-0">{beside}</div> : null}
       </div>
-      {note ? <p className="mb-2 text-xs text-[#98a2b3]">{note}</p> : <div className="mb-2" />}
-      {children}
+      {note ? <p className="mb-2 shrink-0 text-xs text-[#98a2b3]">{note}</p> : <div className="mb-2 shrink-0" />}
+      {fitted ? <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">{children}</div> : children}
     </section>
   );
+  // In the flow it would set the row's height; out of it, the neighbour does.
+  return fitted ? <div className="relative lg:min-h-[18rem]">{card}</div> : card;
 }
 
 function Facts({ entries }: { entries: [string, string][] }) {

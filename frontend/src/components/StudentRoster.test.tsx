@@ -191,7 +191,7 @@ describe("StudentRoster", () => {
 
     expect(await screen.findByText("A001")).toBeTruthy();
     expect(screen.getByText("A999")).toBeTruthy();
-    expect(screen.getByText(/4 students held/)).toBeTruthy();
+    expect(screen.getByText("4 students")).toBeTruthy();
   });
 
   it("names them from the pull this browser is holding", async () => {
@@ -934,18 +934,14 @@ describe("StudentRoster", () => {
     });
   });
 
-  it("keeps every student when the stored rosters are forgotten", async () => {
+  it("says how many students there are, and leaves forgetting the names to Settings", async () => {
     await withNames();
     renderRoster();
     await screen.findByText("Amira Haddad");
 
-    fireEvent.click(screen.getByRole("button", { name: /forget stored rosters/i }));
-    expect(await screen.findByText(/No student leaves the list/i)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Forget rosters" }));
-
-    await waitFor(() => expect(screen.queryByText("Amira Haddad")).toBeNull());
-    expect(screen.getByText("A001")).toBeTruthy();
-    expect(screen.getByText(/4 students held/)).toBeTruthy();
+    expect(screen.getByText("4 students")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /forget stored rosters/i })).toBeNull();
+    expect(screen.queryByText(/Names came from the portal/)).toBeNull();
   });
 
   it("uses the shared select control, not a native one", async () => {
@@ -1159,7 +1155,7 @@ describe("students sent here from Groups & CRNs", () => {
     renderRoster(["A001", "A003"]);
 
     await screen.findByText("A001");
-    expect(screen.getByText(/2 selected/)).toBeTruthy();
+    expect(screen.getByText(/· 2 of \d+ selected/)).toBeTruthy();
     const place = screen.getByRole("button", { name: /Place in groups/ }) as HTMLButtonElement;
     // A001 is in a cohort and A003 is not, so this selection has no single block list.
     expect(place.disabled).toBe(true);

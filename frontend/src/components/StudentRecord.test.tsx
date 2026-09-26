@@ -277,11 +277,10 @@ describe("the groups and their CRNs, against the portal", () => {
     expect(cells(within(td).getByText("23652").closest("tr") as HTMLElement).slice(0, 4)).toEqual([
       "23652", "MATH-011Algorithms", "Dr Ahmed", "registered",
     ]);
-    const outside = screen.getByLabelText("Registered outside their groups");
+    const outside = screen.getByLabelText("Outside their groups");
     expect(cells(within(outside).getByText("23421").closest("tr") as HTMLElement).slice(0, 4)).toEqual([
       "23421", "SCEN-101French A0", "Mme Roux", "no group of theirs",
     ]);
-    expect(screen.getByText(/1 registered as placed · 1 outside their groups/)).toBeTruthy();
   });
 
   it("names who teaches each CRN as the portal has it, whatever the group was planned with", async () => {
@@ -356,6 +355,33 @@ describe("the groups and their CRNs, against the portal", () => {
     fireEvent.click(within(row).getByRole("button", { name: "Undo" }));
 
     await waitFor(() => expect(clear).toHaveBeenCalledWith("A001", "c-algo"));
+  });
+});
+
+describe("electives and their approvals", () => {
+  it("says who approved an elective on its own row, and keeps an approval they are not registered in", async () => {
+    vi.spyOn(lists, "fetchRegistrations").mockResolvedValue([
+      { crn: "22592", courseCode: "ENGL-631", title: "English", termCode: "262710", teacherName: "Ms Reed", status: "in_portal" },
+    ] as never);
+    vi.spyOn(lists, "fetchRegistrationCheck").mockResolvedValue({
+      mismatches: [], coverage: [], electives: [
+        { studentId: "A001", termId: "term-1", termCode: "262710", courseCode: "ENGL-631", crns: ["22592"], status: "approved" },
+      ],
+    } as never);
+    vi.spyOn(database, "fetchApprovals").mockResolvedValue([
+      { studentId: "A001", termCode: "262710", courseCode: "ENGL-631", note: "", approvedBy: "p@sorbonne.ae", approvedByName: "Patricia Chahwane", approvedAt: "2026-09-24T09:00:00Z" },
+      { studentId: "A001", termCode: "262710", courseCode: "SPRT-650", note: "", approvedBy: "p@sorbonne.ae", approvedByName: "Patricia Chahwane", approvedAt: "2026-09-16T09:00:00Z" },
+    ]);
+    show();
+
+    const outside = await screen.findByLabelText("Outside their groups");
+    await waitFor(() => expect(within(outside).getByText("22592").closest("tr")?.textContent).toContain("by Patricia Chahwane"));
+    // Approved, and not registered in it now: a row of its own, still withdrawable.
+    const alone = within(outside).getByText("SPRT-650").closest("tr") as HTMLElement;
+    expect(alone.textContent).toContain("not registered");
+    expect(within(alone).getByRole("button", { name: "Withdraw the approval of SPRT-650" })).toBeTruthy();
+    // And no second list under the table.
+    expect(screen.queryByText("Approved outside the groups")).toBeNull();
   });
 });
 

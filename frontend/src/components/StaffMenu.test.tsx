@@ -52,6 +52,7 @@ describe("StaffMenu", () => {
       "Checks",
       "Programme codes",
       "Semesters",
+      "This browser",
       "Sign out",
     ]);
     fireEvent.click(screen.getByRole("menuitem", { name: /API tokens/ }));

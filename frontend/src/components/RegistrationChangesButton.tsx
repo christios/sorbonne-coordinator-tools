@@ -126,11 +126,13 @@ export function RegistrationChangesButton({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        title="Copy the CRNs to add and drop, as a table for the registrar"
+        title="Copy the registrations to change, as a table for admissions"
         aria-label="Registrations to change"
-        className="inline-flex items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-2 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc]"
+        className="inline-flex items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-2.5 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc]"
       >
         <ClipboardList size={15} aria-hidden="true" />
+        {/* Named for who it goes to: an icon alone left people guessing what it copied. */}
+        Admissions
       </button>
 
       <Modal
