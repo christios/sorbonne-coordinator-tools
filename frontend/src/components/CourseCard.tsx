@@ -388,6 +388,9 @@ export function SectionDialog({
     row.notTaught ? "not-taught" : row.major && held.majorId === row.major.id ? "own" : "everyone",
   );
   const majorId = whose === "everyone" || !row.major ? "" : row.major.id;
+  // A group with one sub-row: taught or not, and taught keeps the cell where it already is.
+  const alone = (row.group.majors ?? []).length < 2;
+  const taughtAs: Whose = row.major && held.majorId === row.major.id && !held.notTaught ? "own" : "everyone";
 
   /*
    * The seats, set here rather than on Group schema: the schema says what the groups are,
@@ -532,32 +535,49 @@ export function SectionDialog({
     >
       {row.major ? (
         /*
-         * Whose cell this is, on a group with sub-rows. The default reads what is there:
-         * the shared cell says "everyone", a cell of the sub-row's own says the sub-row.
+         * Whose cell this is, on a group with sub-rows, in words that fit any department: the
+         * sub-row is named in the title above, not on every button.
+         *
+         * With one sub-row, "the whole group" and "this sub-row" are the same people, so the
+         * only question left is whether the group is taught the course at all.
          */
         <div className="mb-4">
-          <span className={fieldLabel}>This cell is for</span>
+          <span className={fieldLabel}>{alone ? "Is this group taught the course?" : "This section is for"}</span>
           <div className="mt-1 flex flex-wrap gap-2" role="radiogroup" aria-label={`Whose cell ${label} is`}>
-            {(
-              [
-                ["everyone", "Everyone in the group", "One CRN under every sub-row — the mutualized class."],
-                ["own", `${shortProgram(row.major.program)} only`, "This sub-row's own section; the others keep theirs."],
-                ["not-taught", `Not taught to ${shortProgram(row.major.program)}`, "No class for this sub-row, and no CRN wanted."],
-              ] as const
-            ).map(([value, title, hint]) => (
-              <label
-                key={value}
-                className={`flex cursor-pointer items-start gap-2 rounded-md border px-3 py-2 text-sm ${
-                  whose === value ? "border-[#1f4e79] bg-[#f2f7fb]" : "border-[#d9dee7] bg-white"
-                }`}
-              >
-                <input type="radio" name="whose-cell" value={value} checked={whose === value} onChange={() => setWhose(value)} className="mt-0.5" />
-                <span>
-                  <span className="block font-medium text-[#344054]">{title}</span>
-                  <span className="block text-[11px] text-[#98a2b3]">{hint}</span>
-                </span>
-              </label>
-            ))}
+            {(alone
+              ? ([
+                  ["taught", "Taught", "The group takes this course."],
+                  ["not-taught", "Not taught", "No class and no CRN for this group."],
+                ] as const)
+              : ([
+                  ["everyone", "Whole group", "One section for every sub-row."],
+                  ["own", "This sub-row only", "Its own section; the other sub-rows keep theirs."],
+                  ["not-taught", "Not taught to this sub-row", "No class and no CRN for it."],
+                ] as const)
+            ).map(([value, title, hint]) => {
+              const chosen = value === "taught" ? whose !== "not-taught" : whose === value;
+              return (
+                <label
+                  key={value}
+                  className={`flex cursor-pointer items-start gap-2 rounded-md border px-3 py-2 text-sm ${
+                    chosen ? "border-[#1f4e79] bg-[#f2f7fb]" : "border-[#d9dee7] bg-white"
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="whose-cell"
+                    value={value}
+                    checked={chosen}
+                    onChange={() => setWhose(value === "taught" ? taughtAs : value)}
+                    className="mt-0.5"
+                  />
+                  <span>
+                    <span className="block font-medium text-[#344054]">{title}</span>
+                    <span className="block text-[11px] text-[#98a2b3]">{hint}</span>
+                  </span>
+                </label>
+              );
+            })}
           </div>
         </div>
       ) : null}

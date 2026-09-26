@@ -390,4 +390,19 @@ describe("a set whose groups hold one major each", () => {
     expect(await screen.findByText(/2 courses/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: /sections without a CRN/ })).toBeNull();
   });
+
+  it("asks a group with one sub-row only whether it is taught, in words that fit any department", async () => {
+    vi.spyOn(database, "fetchCourseCards").mockResolvedValue(byMajor(true));
+    show();
+
+    fireEvent.click(await screen.findByLabelText("Edit CM Mathematics MATH001"));
+    const choice = await screen.findByRole("radiogroup", { name: /Whose cell/ });
+    expect(within(choice).getAllByRole("radio").map((radio) => (radio.closest("label")?.textContent ?? "").split(/The|No /)[0])).toEqual([
+      "Taught",
+      "Not taught",
+    ]);
+    expect((within(choice).getByRole("radio", { name: /^Taught/ }) as HTMLInputElement).checked).toBe(true);
+    // No programme's name on a button, and no department's word for a shared class.
+    expect(choice.textContent).not.toMatch(/Mathematics|mutuali/i);
+  });
 });
