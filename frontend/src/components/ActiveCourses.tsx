@@ -590,6 +590,7 @@ export function CrnDialog({
               disabled={isParent}
               placeholder={isParent ? "The top of the course" : "None yet"}
               options={options}
+              wrap
             />
           </div>
           {!isParent && suggested && parent !== suggested ? (

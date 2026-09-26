@@ -141,7 +141,7 @@ export function CourseRecord({
        * Two columns, read down then across: the registrar's side — what it holds and what
        * is wrong with it — and ours — where we teach it and when it meets.
        */}
-      <div className="grid gap-3 lg:grid-cols-2 lg:items-start">
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2 lg:items-start">
         <div className="space-y-3">
           {/*
             * The two things about a course that are ours to say rather than the portal's.

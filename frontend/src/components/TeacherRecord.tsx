@@ -228,7 +228,12 @@ export function TeacherRecord({
         * The pill on each label says where its number comes from, so the two hours tiles
         * carry no line underneath saying it again; the others keep theirs, which are figures.
         */}
-      <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-5">
+      {/*
+        * Two to a row on a phone, where one each made five screens-widths of tiles to
+        * scroll past before the week. The requisition tile, whose line underneath is the
+        * longest, goes last there and takes the row.
+        */}
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-4 lg:grid-cols-5">
         <div className="rounded-lg border border-[#d9dee7] bg-white px-4 py-3">
           <p className="text-xs font-semibold uppercase tracking-wide text-[#8a94a4]">Sections</p>
           <p className="mt-1 text-2xl font-semibold tabular-nums text-[#171717]">{live.length}</p>
@@ -244,7 +249,7 @@ export function TeacherRecord({
           <p className="text-xs font-semibold uppercase tracking-wide text-[#8a94a4]">Portal hours <SourceMark source="registrar" /></p>
           <p className="mt-1 text-2xl font-semibold tabular-nums text-[#171717]">{registrarHours || "—"}</p>
         </div>
-        <div className="rounded-lg border border-[#d9dee7] bg-white px-4 py-3">
+        <div className="rounded-lg border border-[#d9dee7] bg-white px-4 py-3 max-sm:order-last max-sm:col-span-2">
           <p className="text-xs font-semibold uppercase tracking-wide text-[#8a94a4]">Requisition teaching hours <SourceMark source="part-time" /></p>
           <p className="mt-1 text-2xl font-semibold tabular-nums text-[#171717]" aria-label="Requisition hours">
             {partTimeId && contracted.total ? contracted.total : "—"}
@@ -357,8 +362,13 @@ export function TeacherRecord({
         </p>
       ) : (
         <div className="mt-2 overflow-x-auto rounded-lg border border-[#d9dee7] bg-white">
-          <table className="w-full min-w-[38rem] border-collapse text-sm">
-            <thead>
+          {/*
+            * Seven columns do not fit a phone, and a table read sideways loses its course
+            * the moment the numbers come into view. There a section is three lines: the
+            * course; its group, cohort and CRN; its hours and students, each named.
+            */}
+          <table className="w-full border-collapse text-sm max-sm:block sm:min-w-[38rem]">
+            <thead className="max-sm:hidden">
               <tr className="border-b border-[#e4e8ef] text-xs font-semibold uppercase tracking-wide text-[#8a94a4]">
                 <th scope="col" className="px-3 py-2 text-left">Course</th>
                 <th scope="col" className="px-3 py-2 text-left">Section</th>
@@ -375,32 +385,49 @@ export function TeacherRecord({
                 <th scope="col" className="px-3 py-2 text-right">Students</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="max-sm:block">
               {sections.map((section) => (
-                <tr key={section.key} className={`border-b border-[#f2f4f7] last:border-0 ${section.retired ? "text-[#c8d0da]" : ""}`}>
-                  <td className="px-3 py-2">
-                    <span className="font-medium tabular-nums">{section.courseCode}</span>
+                <tr
+                  key={section.key}
+                  className={`border-b border-[#f2f4f7] last:border-0 max-sm:grid max-sm:grid-cols-3 max-sm:gap-x-2 max-sm:gap-y-0.5 max-sm:px-3 max-sm:py-2 ${
+                    section.retired ? "text-[#c8d0da]" : ""
+                  }`}
+                >
+                  <td className="px-3 py-2 max-sm:col-span-3 max-sm:p-0">
+                    <span className="whitespace-nowrap font-medium tabular-nums">{section.courseCode}</span>
                     <span className={`ml-2 ${section.retired ? "" : "text-[#667085]"}`}>{section.courseName}</span>
                     {section.retired ? <span className="ml-2 text-[11px]">retired</span> : null}
                   </td>
-                  <td className="px-3 py-2">{section.scopeCode} {section.groupLabel}</td>
-                  <td className={`px-3 py-2 ${section.retired ? "" : "text-[#667085]"}`}>
+                  <td className="px-3 py-2 max-sm:col-span-2 max-sm:p-0 max-sm:text-xs">
+                    {section.scopeCode} {section.groupLabel}
+                    <span className={`sm:hidden ${section.retired ? "" : "text-[#667085]"}`}>
+                      {" "}
+                      · {section.cohortName} · {section.termName || "no semester"}
+                    </span>
+                  </td>
+                  <td className={`px-3 py-2 max-sm:hidden ${section.retired ? "" : "text-[#667085]"}`}>
                     {section.cohortName} · {section.termName || "no semester"}
                   </td>
-                  <td className="px-3 py-2 text-right tabular-nums">
+                  <td className="px-3 py-2 text-right tabular-nums max-sm:p-0 max-sm:text-xs">
+                    <PhoneLabel>CRN</PhoneLabel>
                     {section.crn || <span className="text-[#c8d0da]">none</span>}
                   </td>
-                  <td className="px-3 py-2 text-right tabular-nums">
+                  <td className="px-3 py-2 text-right tabular-nums max-sm:p-0 max-sm:text-left max-sm:text-xs">
+                    <PhoneLabel>Hours</PhoneLabel>
                     {section.hours || <span className="text-[#c8d0da]">—</span>}
                   </td>
-                  <td className="px-3 py-2 text-right tabular-nums">
+                  <td className="px-3 py-2 text-right tabular-nums max-sm:p-0 max-sm:text-left max-sm:text-xs">
+                    <PhoneLabel>Portal</PhoneLabel>
                     <RegistrarHours
                       termCode={links.data?.[section.termId] ?? ""}
                       crn={section.crn}
                       booked={booked}
                     />
                   </td>
-                  <td className="px-3 py-2 text-right tabular-nums">{section.students}</td>
+                  <td className="px-3 py-2 text-right tabular-nums max-sm:p-0 max-sm:text-xs">
+                    <PhoneLabel>Students</PhoneLabel>
+                    {section.students}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -419,6 +446,11 @@ export function TeacherRecord({
       ) : null}
     </Modal>
   );
+}
+
+/** A column's name beside its figure, on a phone, where the table has no header row. */
+function PhoneLabel({ children }: { children: string }) {
+  return <span className="mr-1 text-[#98a2b3] sm:hidden">{children}</span>;
 }
 
 /** One section's registrar hours, or a quiet mark saying why there are none — see bookedHoursOf. */

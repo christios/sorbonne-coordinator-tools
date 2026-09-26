@@ -195,7 +195,7 @@ export function CrnRecord({
        * Two columns: what the section is — who teaches it and when — and what the register
        * makes of it — its verdicts and the parent it hangs from.
        */}
-      <div className="grid gap-3 lg:grid-cols-2 lg:items-start">
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2 lg:items-start">
         <div className="space-y-3">
           <Card title="Who teaches it" note="The group of ours this CRN stands for, and what the timetabler was asked for.">
             {taught.length === 0 ? (

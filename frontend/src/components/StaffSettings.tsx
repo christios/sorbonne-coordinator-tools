@@ -604,7 +604,12 @@ function OwnerRow({
 
   return (
     <div className="flex flex-wrap items-center gap-2 rounded-md border border-[#d9dee7] bg-white px-3 py-2">
-      <span className="min-w-0 flex-1 truncate text-sm text-[#344054]">
+      {/*
+        * Whole, wrapping if it must: a name cut to "christian.kha.wo…" names nobody on a
+        * phone. The basis is what makes the button drop below rather than squeeze the name
+        * into a column a letter wide.
+        */}
+      <span className="min-w-0 flex-1 basis-56 break-words text-sm text-[#344054]">
         {named ? <span className="font-semibold text-[#171717]">{owner.name}</span> : null}
         {named ? <span className="ml-2 text-xs text-[#667085]">{owner.email}</span> : owner.email}
       </span>
@@ -712,7 +717,8 @@ function AccountRow({
 
   return (
     <div className="flex flex-wrap items-center gap-3 border-b border-[#edf0f4] px-4 py-3 last:border-b-0">
-      <div className="min-w-0 flex-1">
+      {/* Room for a whole name before the buttons, which go under it when there is not. */}
+      <div className="min-w-0 flex-1 basis-64">
         {renaming ? (
           <form
             className="flex flex-wrap items-center gap-2"
@@ -746,13 +752,13 @@ function AccountRow({
           </form>
         ) : (
         <div className="flex flex-wrap items-center gap-2">
-          <span className="truncate text-sm font-semibold text-[#171717]">{account.name || account.email}</span>
+          <span className="min-w-0 break-words text-sm font-semibold text-[#171717]">{account.name || account.email}</span>
           {account.isAdmin ? <Badge tone="admin">Administrator</Badge> : null}
           {account.isActive ? null : <Badge tone="warning">Suspended</Badge>}
           {account.lastSeenAt ? null : <Badge tone="quiet">Not signed in yet</Badge>}
         </div>
         )}
-        <p className="mt-0.5 truncate text-xs text-[#667085]">
+        <p className="mt-0.5 break-words text-xs text-[#667085]">
           {account.name ? `${account.email} · ` : ""}
           {account.lastSeenAt ? `last signed in ${formatDay(account.lastSeenAt)}` : `invited ${formatDay(account.createdAt)}`}
         </p>

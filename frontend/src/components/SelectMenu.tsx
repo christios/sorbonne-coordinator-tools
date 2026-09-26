@@ -81,10 +81,16 @@ function Flags({ flags, columns = false }: { flags: OptionFlag[]; columns?: bool
   );
 }
 
-function Badge({ text, tone }: { text: string; tone: SelectOption["badgeTone"] }) {
+/**
+ * `fit` in the closed control, where the badge shares one line with the choice: it gives
+ * way first, so a phone shows "24272 — the course's own row" and a cut title rather than
+ * "24272 — t" beside a whole one.
+ */
+function Badge({ text, tone, fit = false }: { text: string; tone: SelectOption["badgeTone"]; fit?: boolean }) {
   return (
     <span
-      className={`ml-2 shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums ${
+      title={fit ? text : undefined}
+      className={`ml-2 rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums ${fit ? "min-w-0 max-w-[45%] truncate" : "shrink-0"} ${
         tone === "muted" ? "bg-[#eef1f5] text-[#667085]" : tone === "bad" ? "bg-[#fdf3f3] text-[#a6292f]" : "bg-[#e8edf3] text-[#1f4e79]"
       }`}
     >
@@ -262,7 +268,7 @@ export function SelectMenu({ label, value, onChange, options, placeholder, trail
           )}
           {selected.length === 1 && selected[0].year ? <YearPill year={selected[0].year} className="ml-2" /> : null}
           {selected.length === 1 && selected[0].badge !== undefined && selected[0].badgePlacement !== "leading" ? (
-            <Badge text={selected[0].badge} tone={selected[0].badgeTone} />
+            <Badge text={selected[0].badge} tone={selected[0].badgeTone} fit />
           ) : null}
           {selected.length === 1 && selected[0].flags ? <Flags flags={selected[0].flags} /> : null}
         </span>
