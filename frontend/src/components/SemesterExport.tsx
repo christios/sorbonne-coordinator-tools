@@ -4,28 +4,27 @@ import { useMemo, useState } from "react";
 import { Modal } from "@/components/Modal";
 import { usePageState } from "@/components/usePageState";
 import {
-  ACROSS,
   CLASS_HEIGHT,
-  PAPER,
+  MAX_PAGES,
   downloadSemesterPdf,
   frameOf,
   semesterPages,
   semesterUnits,
   type ExportZoom,
-  type PaperSize,
   type SemesterExportInput,
   type SemesterPage,
 } from "@/services/semesterPdf";
 
-const START: ExportZoom = { paper: "a4", across: 1, classHeight: CLASS_HEIGHT.start };
+const START: ExportZoom = { classHeight: CLASS_HEIGHT.start, maxPages: null };
 
 /**
  * The whole semester as a PDF, with its size chosen first and the pages it will take shown.
  *
- * A week drawn large enough to read every box is several sheets of paper, and a semester
- * is sixteen weeks of them. Nobody should find that out from the printer. The two zooms
- * are the page's own — how wide a week is, how tall a class is — counted in pages here,
- * and the preview draws the pages of a week exactly as the file will, cuts and all.
+ * A week drawn large enough to read every box is more than one sheet of paper, and a
+ * semester is sixteen weeks of them. Nobody should find that out from the printer. The
+ * week always spans the page's width; what is chosen is how tall a class is, and at most
+ * how many pages a week may take — and the preview draws a week's pages exactly as the
+ * file will.
  */
 export function SemesterExport({
   open,
@@ -39,7 +38,8 @@ export function SemesterExport({
   /** "20 of 162 sections", so the filters on the page are not a surprise in the file. */
   shown: string;
 }) {
-  const [zoom, setZoom] = usePageState<ExportZoom>("semester-export:zoom", START);
+  const [kept, setZoom] = usePageState<ExportZoom>("semester-export:zoom:v2", START);
+  const zoom = { ...START, ...kept };
   const units = useMemo(() => (open ? semesterUnits(input) : []), [open, input]);
   const pages = useMemo(() => (open ? semesterPages(input, zoom, units) : []), [open, input, zoom, units]);
   // The unit to preview: the one that takes the most pages, unless one has been chosen.
@@ -51,9 +51,14 @@ export function SemesterExport({
   const [chosen, setChosen] = useState<number | null>(null);
   const unit = Math.min(units.length - 1, chosen ?? fullest);
   const ofUnit = pages.filter((page) => page.unit === unit);
-  const down = ofUnit.reduce((most, page) => Math.max(most, page.line + 1), 0);
-  // As it is cut, which is not always as asked: five days of rooms fall two to a page, not four.
-  const across = ofUnit.reduce((most, page) => Math.max(most, page.column + 1), 0);
+  // Weeks the ceiling made smaller than asked: said, so a small class is not a surprise.
+  const squeezed = useMemo(() => {
+    if (!zoom.maxPages) return 0;
+    const free = open ? semesterPages(input, { ...zoom, maxPages: null }, units) : [];
+    const perUnit = new Map<number, number>();
+    for (const page of free) perUnit.set(page.unit, (perUnit.get(page.unit) ?? 0) + 1);
+    return [...perUnit.values()].filter((pages) => pages > (zoom.maxPages ?? Infinity)).length;
+  }, [open, input, units, zoom.classHeight, zoom.maxPages]); // eslint-disable-line react-hooks/exhaustive-deps
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState("");
   const noun = input.layout === "rooms-day" ? "day" : "week";
@@ -101,21 +106,6 @@ export function SemesterExport({
       }
     >
       <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
-        <Choice
-          label="Paper"
-          value={zoom.paper}
-          options={(Object.keys(PAPER) as PaperSize[]).map((paper) => ({ value: paper, label: `${PAPER[paper].name} landscape` }))}
-          onChange={(paper) => setZoom({ ...zoom, paper: paper as PaperSize })}
-        />
-        <Choice
-          label={`Width of a ${noun}`}
-          value={String(zoom.across)}
-          options={Array.from({ length: ACROSS.max - ACROSS.min + 1 }, (_, index) => {
-            const across = ACROSS.min + index;
-            return { value: String(across), label: `${across} page${across === 1 ? "" : "s"}` };
-          })}
-          onChange={(across) => setZoom({ ...zoom, across: Number(across) })}
-        />
         <label className="block">
           <span className="mb-1 block text-xs font-semibold text-[#667085]">Height of a class</span>
           <span className="inline-flex items-center gap-2 rounded-md border border-[#d3d9e2] bg-white px-2 py-1.5">
@@ -128,11 +118,20 @@ export function SemesterExport({
               value={zoom.classHeight}
               aria-label="Height of a class on the page"
               onChange={(event) => setZoom({ ...zoom, classHeight: Number(event.target.value) })}
-              className="h-1 w-32 cursor-pointer accent-[#1f4e79]"
+              className="h-1 w-40 cursor-pointer accent-[#1f4e79]"
             />
             <span className="text-[11px] text-[#98a2b3]">Large</span>
           </span>
         </label>
+        <Choice
+          label={`Pages per ${noun}, at most`}
+          value={zoom.maxPages ? String(zoom.maxPages) : ""}
+          options={[
+            ...MAX_PAGES.map((pages) => ({ value: String(pages), label: String(pages) })),
+            { value: "", label: "No limit" },
+          ]}
+          onChange={(pages) => setZoom({ ...zoom, maxPages: pages ? Number(pages) : null })}
+        />
       </div>
 
       <p className="mt-4 text-sm text-[#344054]" aria-live="polite">
@@ -141,7 +140,11 @@ export function SemesterExport({
         ) : (
           <>
             <strong className="font-semibold">{pages.length} pages</strong> for the whole semester, over{" "}
-            {units.length} {noun}s. The {noun} below takes {across} across and {down} down.
+            {units.length} {noun}s; the {noun} below takes {ofUnit.length}. Every page is A4 landscape, filled to its
+            edges.
+            {squeezed
+              ? ` ${squeezed} ${noun}${squeezed === 1 ? " is" : "s are"} drawn smaller than chosen, to stay within ${zoom.maxPages} page${zoom.maxPages === 1 ? "" : "s"}.`
+              : ""}
           </>
         )}
       </p>
@@ -173,11 +176,10 @@ export function SemesterExport({
               {ofUnit.length} page{ofUnit.length === 1 ? "" : "s"}
             </span>
           </div>
-          {/* Laid out as the pages tile: a week's width left to right, its rows top to bottom. */}
-          <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${Math.max(1, across)}, minmax(0, 1fr))` }} aria-label="Pages of this week">
+          <div className={`grid gap-3 ${ofUnit.length > 1 ? "sm:grid-cols-2" : ""}`} aria-label="Pages of this week">
             {ofUnit.map((page) => (
-              <figure key={`${page.line}-${page.column}`} className="m-0">
-                <PagePreview page={page} paper={zoom.paper} layout={input.layout} />
+              <figure key={page.line} className="m-0">
+                <PagePreview page={page} layout={input.layout} />
                 <figcaption className="mt-0.5 text-center text-[11px] text-[#667085]">
                   Page {pages.indexOf(page) + 1}
                   {page.part ? ` · ${page.part}` : ""}
@@ -229,8 +231,8 @@ function Choice({
  * One page, small: the same layout the PDF is drawn from, in outline. Too small to read a
  * box, and not meant to be — it shows where the page cuts the week and how full it is.
  */
-function PagePreview({ page, paper, layout }: { page: SemesterPage; paper: PaperSize; layout: SemesterExportInput["layout"] }) {
-  const frame = frameOf(paper, layout);
+function PagePreview({ page, layout }: { page: SemesterPage; layout: SemesterExportInput["layout"] }) {
+  const frame = frameOf(layout);
   const gridLeft = frame.left + frame.labelWidth;
   return (
     <svg
@@ -239,7 +241,7 @@ function PagePreview({ page, paper, layout }: { page: SemesterPage; paper: Paper
       aria-label={`${page.title}${page.part ? `, ${page.part}` : ""}`}
       className="block w-full rounded border border-[#d9dee7] bg-white shadow-sm"
     >
-      <text x={frame.left} y={30} fontSize={13} fontWeight={700} fill="#171717">
+      <text x={frame.left} y={frame.titleY} fontSize={11} fontWeight={700} fill="#1f4e79">
         {page.title}
       </text>
       <rect x={frame.left} y={page.gridTop} width={frame.right - frame.left} height={frame.contentTop - page.gridTop} fill="#f8fafc" />
@@ -277,7 +279,7 @@ function PagePreview({ page, paper, layout }: { page: SemesterPage; paper: Paper
           y={box.y}
           width={box.w}
           height={box.h}
-          rx={box.cutLeft || box.cutRight ? 0 : 2}
+          rx={1.5}
           fill={box.color}
           opacity={box.klass.state === "cancelled" ? 0.5 : 1}
         />

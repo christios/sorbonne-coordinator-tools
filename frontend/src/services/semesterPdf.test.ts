@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { ScheduleSection } from "@/services/crnSchedulePdf";
-import { buildSemesterPdf, semesterFilename, semesterPages, semesterUnits, type SemesterExportInput } from "@/services/semesterPdf";
+import { buildSemesterPdf, frameOf, semesterFilename, semesterPages, semesterUnits, type SemesterExportInput } from "@/services/semesterPdf";
 
 const meeting = (meetsOn: string, startsAt = "08:30", endsAt = "10:00", room = "5.101") => ({ meetsOn, startsAt, endsAt, room });
 const section = (crn: string, courseCode: string, meetings: ScheduleSection["meetings"], group = ""): ScheduleSection => ({
@@ -36,27 +36,47 @@ describe("the semester's pages", () => {
     ]);
     // Monday of Week 1 holds two overlapping classes, stacked.
     expect(units[0].rows[0]).toMatchObject({ label: "Mon 7", sub: "2 classes", lanes: 2 });
-    expect(semesterPages(input(), { paper: "a4", across: 1, classHeight: 16 })).toHaveLength(3);
+    expect(semesterPages(input(), { classHeight: 16, maxPages: null })).toHaveLength(3);
   });
 
-  it("cuts a week across as many pages as it is wide, each with its stretch of hours", () => {
-    const pages = semesterPages(input(), { paper: "a4", across: 2, classHeight: 16 });
-    expect(pages).toHaveLength(6);
-    expect(pages.filter((page) => page.unit === 0).map((page) => page.part)).toEqual(["08:00–13:00", "13:00–18:00"]);
-    // The morning's classes are on the first page of the week, and none on the second.
-    expect(pages[0].boxes).toHaveLength(2);
-    expect(pages[1].boxes).toHaveLength(0);
+  it("spans the whole width of the page with the week's hours, never cutting them", () => {
+    const [page] = semesterPages(input(), { classHeight: 16, maxPages: null });
+    const frame = frameOf("days");
+    // 08:00 at the grid's left edge and 18:00 at the page's right one.
+    expect(page.ticks[0].x).toBeCloseTo(frame.left + frame.labelWidth);
+    expect(page.ticks[page.ticks.length - 1].x).toBeCloseTo(frame.right);
+  });
+
+  it("fills every page to its foot, whatever the height chosen", () => {
+    const frame = frameOf("days");
+    for (const classHeight of [10, 16, 40]) {
+      for (const page of semesterPages(input(), { classHeight, maxPages: null })) {
+        expect(page.gridBottom).toBeCloseTo(frame.bottom, 0);
+      }
+    }
   });
 
   it("carries rows on to another page when a class is drawn too tall for one", () => {
     const busy = Array.from({ length: 30 }, (_, index) => section(String(30000 + index), `MATH-${100 + index}`, [meeting("2026-09-07")]));
-    const pages = semesterPages(input("days", busy), { paper: "a4", across: 1, classHeight: 40 });
+    const pages = semesterPages(input("days", busy), { classHeight: 40, maxPages: null });
     const first = pages.filter((page) => page.unit === 0);
     expect(first.length).toBeGreaterThan(1);
     // Monday is cut between its stacked classes and says so on the page it carries on to.
     expect(first[1].rows[0]).toMatchObject({ label: "Mon 7", sub: "continued" });
+    expect(first[1].part).toMatch(/page 2 of/);
     // Every class is drawn once.
     expect(first.reduce((total, page) => total + page.boxes.length, 0)).toBe(30);
+  });
+
+  it("draws a week smaller rather than past the most pages it may take", () => {
+    const busy = Array.from({ length: 30 }, (_, index) => section(String(30000 + index), `MATH-${100 + index}`, [meeting("2026-09-07")]));
+    const free = semesterPages(input("days", busy), { classHeight: 40, maxPages: null }).filter((page) => page.unit === 0);
+    const capped = semesterPages(input("days", busy), { classHeight: 40, maxPages: 1 }).filter((page) => page.unit === 0);
+
+    expect(free.length).toBeGreaterThan(1);
+    expect(capped).toHaveLength(1);
+    expect(capped[0].boxes).toHaveLength(30);
+    expect(capped[0].boxes[0].h).toBeLessThan(free[0].boxes[0].h);
   });
 
   it("puts the rooms down the side, and a room's week along its row", () => {
@@ -80,7 +100,7 @@ describe("the semester's pages", () => {
   });
 
   it("makes the PDF with as many pages as the preview counted", async () => {
-    const zoom = { paper: "a4" as const, across: 2, classHeight: 16 };
+    const zoom = { classHeight: 16, maxPages: null };
     const bytes = new Uint8Array(await buildSemesterPdf(input(), zoom, new Date(2026, 8, 26)));
     const text = new TextDecoder("latin1").decode(bytes);
     expect(text.startsWith("%PDF")).toBe(true);

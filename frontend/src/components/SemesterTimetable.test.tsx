@@ -237,13 +237,14 @@ describe("a semester's whole week", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Export" }));
 
     const dialog = await screen.findByRole("dialog", { name: "Export Semester 1" });
-    // One week of classes, drawn one page wide: one page.
+    // One week of classes: one page, A4, the week across its whole width.
     expect(within(dialog).getByRole("button", { name: "Export 1 page" })).toBeTruthy();
-    fireEvent.click(within(dialog).getByRole("button", { name: "2 pages" }));
-    expect(within(dialog).getByRole("button", { name: "Export 2 pages" })).toBeTruthy();
-    // And the preview shows the week as it will be cut: its morning, then its afternoon.
-    expect(within(dialog).getByRole("img", { name: /08:00–13:00/ })).toBeTruthy();
-    expect(within(dialog).getByRole("img", { name: /13:00–18:00/ })).toBeTruthy();
+    expect(within(dialog).queryByRole("group", { name: /Paper|Width/ })).toBeNull();
+    // The height and the ceiling are the only choices.
+    expect(within(dialog).getByLabelText("Height of a class on the page")).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: "1" }));
+    expect(within(dialog).getByRole("button", { name: "1" }).getAttribute("aria-pressed")).toBe("true");
+    expect(within(dialog).getByRole("img", { name: /7 Sep – 11 Sep 2026/ })).toBeTruthy();
   });
 
   describe("the rooms", () => {

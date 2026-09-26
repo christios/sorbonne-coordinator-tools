@@ -6,10 +6,11 @@
  * neighbour. Every week of the semester gets its pages, from the first class to the last;
  * a week with none keeps its page, drawn empty, as the CRN schedules do.
  *
- * How large it is drawn is the reader's choice, as on screen: how many pages wide a week
- * is, and how tall a class is. Wider or taller means more pages, and the export says how
- * many before it makes them — the same layout drives the preview and the file, so what the
- * preview shows is what prints.
+ * One page shape, A4 landscape, and the week always spans its full width. The only size
+ * chosen is how tall a class is, with a ceiling on how many pages one week may take; the
+ * layout then grows every page's classes until the page is full, so no sheet ends in a
+ * band of white. The same layout drives the preview and the file, so what the preview
+ * shows is what prints.
  *
  * Built in the browser from the portal's dated meetings and the department's notes on
  * them. It holds no student names.
@@ -33,16 +34,27 @@ import {
 
 /** Days down the side (the Timetable page), or rooms: a week along each row, or one day. */
 export type SemesterLayout = "days" | "rooms-week" | "rooms-day";
-export type PaperSize = "a4" | "a3";
-/** The two zooms: how many pages wide a week is, and how tall one class is, in points. */
-export type ExportZoom = { paper: PaperSize; across: number; classHeight: number };
+/**
+ * How large it is drawn: how tall a class is, in points, and at most how many pages one
+ * week may take. A week that would need more is drawn smaller until it fits; `null` is no
+ * ceiling.
+ */
+export type ExportZoom = { classHeight: number; maxPages: number | null };
 
-export const PAPER: Record<PaperSize, { width: number; height: number; name: string }> = {
-  a4: { width: 841.89, height: 595.28, name: "A4" },
-  a3: { width: 1190.55, height: 841.89, name: "A3" },
-};
-export const ACROSS = { min: 1, max: 4 };
 export const CLASS_HEIGHT = { min: 10, max: 40, start: 16 };
+export const MAX_PAGES = [1, 2, 3, 4] as const;
+
+/**
+ * A4 landscape, and only that. A PDF prints to whatever paper is in the tray, scaled; a
+ * second page size only changed how many rows fit a page, which the class height already
+ * decides. One shape means the page breaks are the same whoever prints it.
+ */
+const PAGE = { width: 841.89, height: 595.28 };
+/** The smallest a class is drawn to keep a week inside its page ceiling, and the tallest a page stretches one. */
+const SMALLEST_CLASS = 6;
+const TALLEST_CLASS = 160;
+/** Room above and below the classes stacked in a row. */
+const ROW_PAD = 2;
 
 export type SemesterExportInput = {
   semester: string;
@@ -65,7 +77,10 @@ type Klass = {
   room: string;
   state: "" | "cancelled" | "covered";
   cover: string;
+  note: string;
 };
+
+type Row = { label: string; sub: string; boxes: { klass: Klass; lane: number; band: number }[]; lanes: number };
 
 /** A stretch of the semester that is drawn as a unit: a week, or one day of rooms. */
 type Unit = {
@@ -73,7 +88,7 @@ type Unit = {
   title: string;
   /** The days across the page, when a room's week runs along its row; one entry otherwise. */
   bands: (string | null)[];
-  rows: { label: string; sub: string; boxes: { klass: Klass; lane: number; band: number }[]; lanes: number }[];
+  rows: Row[];
 };
 
 /** A class's box on one page, in points from the page's corner. */
@@ -84,9 +99,6 @@ export type PageBox = {
   h: number;
   color: string;
   klass: Klass;
-  /** Cut by the page's edge: the class runs on over the page before or after. */
-  cutLeft: boolean;
-  cutRight: boolean;
 };
 
 /** One page, laid out: everything either renderer needs, in points. */
@@ -94,13 +106,12 @@ export type SemesterPage = {
   /** Which unit it belongs to, and where it sits among that unit's pages. */
   unit: number;
   title: string;
-  /** "Mon – Wed · 08:00–13:00", or "" for a unit on a single page. */
+  /** "Mon 7 – Wed 9 · page 1 of 2", where a unit takes more than one page; "" otherwise. */
   part: string;
-  column: number;
   line: number;
   gridTop: number;
   gridBottom: number;
-  /** Where the day names go, over their stretch of this page, when a room's week is drawn. */
+  /** Where the day names go, when a room's week is drawn. */
   days: { x: number; w: number; label: string }[];
   ticks: { x: number; weight: "hour" | "half" | "quarter" }[];
   hours: { x: number; label: string }[];
@@ -110,29 +121,28 @@ export type SemesterPage = {
   boxes: PageBox[];
 };
 
-/** Where things go on a sheet: the margins, the heading and the column of labels. */
-export function frameOf(paper: PaperSize, layout: SemesterLayout) {
-  const { width, height } = PAPER[paper];
-  const left = 28;
-  const right = width - 28;
+/** Where things go on the sheet: thin margins, one line of heading, the column of labels. */
+export function frameOf(layout: SemesterLayout) {
+  const { width, height } = PAGE;
   const rooms = layout !== "days";
-  const gridTop = 58;
-  const daysHeight = layout === "rooms-week" ? 14 : 0;
-  const hoursHeight = 15;
-  const labelWidth = rooms ? 78 : 56;
+  const gridTop = 30;
+  const daysHeight = layout === "rooms-week" ? 12 : 0;
+  const hoursHeight = 12;
   return {
     width,
     height,
-    left,
-    right,
+    left: 16,
+    right: width - 16,
+    titleY: 20,
     gridTop,
     daysHeight,
     hoursHeight,
     contentTop: gridTop + daysHeight + hoursHeight,
-    bottom: height - 30,
-    labelWidth,
+    bottom: height - 18,
+    footerY: height - 7,
+    labelWidth: rooms ? 64 : 46,
     // A row is never shorter than its label: two lines for a day, one for a room.
-    labelHeight: rooms ? 13 : 24,
+    labelHeight: rooms ? 11 : 22,
   };
 }
 
@@ -173,6 +183,7 @@ function classesOf(input: SemesterExportInput): Klass[] {
         room: meeting.room,
         state: note?.kind ?? "",
         cover: note?.kind === "covered" ? note.coverTeacherName.trim() : "",
+        note: note?.note.trim() ?? "",
       };
     });
   });
@@ -216,7 +227,7 @@ export function semesterUnits(input: SemesterExportInput): Unit[] {
     const days = inWeek.some((klass) => klass.date === all[5]) ? all : all.slice(0, 5);
     const counted = input.weekOne ? weekNumber(parseIsoDate(monday), input.weekOne) : 0;
     const week = `${counted >= 1 ? `Week ${counted} · ` : ""}${shortDay(days[0])} – ${shortDay(days[days.length - 1])} ${parseIsoDate(days[days.length - 1]).getFullYear()}`;
-    const roomRow = (room: string, among: Klass[], bands: (string | null)[]) => {
+    const roomRow = (room: string, among: Klass[], bands: (string | null)[]): Row => {
       const here = among.filter((klass) => roomOf(klass) === room);
       return { label: room || "No room", sub: here.length ? String(here.length) : "—", ...stacked(here, bands) };
     };
@@ -247,157 +258,158 @@ export function semesterUnits(input: SemesterExportInput): Unit[] {
   return units;
 }
 
+/** A row, or the part of one that fits a page: lanes `from` up to `to`. */
+type Piece = { row: Row; from: number; to: number };
+
 /**
- * Every page of the export, laid out.
- *
- * A unit is cut both ways. Across, into `across` pages that each carry a stretch of the
- * hours, the labels repeated on each so a page can be read on its own. Down, as its rows
- * run past the foot of the sheet: a row moves whole to the next page when it can, and only
- * one taller than a whole page is cut, between two of its stacked classes.
+ * The rows gathered into pages at one class height. A row moves whole to the next page
+ * when it can; only a row taller than a whole page is cut, between two stacked classes.
  */
+function packed(rows: Row[], classHeight: number, available: number, labelHeight: number): Piece[][] {
+  const tall = (lanes: number) => Math.max(labelHeight, lanes * classHeight + ROW_PAD * 2);
+  const perPage = Math.max(1, Math.floor((available - ROW_PAD * 2) / classHeight));
+  const pieces = rows.flatMap((row) => {
+    if (tall(row.lanes) <= available) return [{ row, from: 0, to: row.lanes }];
+    const cut: Piece[] = [];
+    for (let from = 0; from < row.lanes; from += perPage) cut.push({ row, from, to: Math.min(row.lanes, from + perPage) });
+    return cut;
+  });
+  const pages: Piece[][] = [[]];
+  let used = 0;
+  for (const piece of pieces) {
+    const height = tall(piece.to - piece.from);
+    if (used + height > available && pages[pages.length - 1].length) {
+      pages.push([]);
+      used = 0;
+    }
+    pages[pages.length - 1].push(piece);
+    used += height;
+  }
+  return pages;
+}
+
+/** The largest height in [low, high] that `fits` accepts, to a quarter of a point; `low` if none does. */
+function largest(low: number, high: number, fits: (height: number) => boolean): number {
+  if (!fits(low)) return low;
+  let lo = low;
+  let hi = high;
+  while (hi - lo > 0.25) {
+    const middle = (lo + hi) / 2;
+    if (fits(middle)) lo = middle;
+    else hi = middle;
+  }
+  return lo;
+}
+
+/**
+ * How tall a unit's classes are drawn, and on how many pages.
+ *
+ * Three steps. The height asked for says how many pages a week needs. Past the ceiling,
+ * the classes shrink until the week fits it. Then they grow again as far as they can
+ * without needing another page — so the height chosen decides the number of pages, and
+ * the pages are as full as that number allows. What is left at the foot of each page
+ * after that is shared out among its own rows.
+ */
+function unitHeight(rows: Row[], zoom: ExportZoom, available: number, labelHeight: number): { classHeight: number; pages: Piece[][] } {
+  const pagesAt = (height: number) => packed(rows, height, available, labelHeight).length;
+  let height = Math.max(SMALLEST_CLASS, zoom.classHeight);
+  const ceiling = zoom.maxPages;
+  if (ceiling && pagesAt(height) > ceiling) {
+    height = largest(SMALLEST_CLASS, height, (candidate) => pagesAt(candidate) <= ceiling);
+  }
+  const pages = pagesAt(height);
+  height = largest(height, TALLEST_CLASS, (candidate) => pagesAt(candidate) <= pages);
+  return { classHeight: height, pages: packed(rows, height, available, labelHeight) };
+}
+
+/** Every page of the export, laid out. */
 export function semesterPages(input: SemesterExportInput, zoom: ExportZoom, units = semesterUnits(input)): SemesterPage[] {
-  const frame = frameOf(zoom.paper, input.layout);
+  const frame = frameOf(input.layout);
   const classes = units.flatMap((unit) => unit.rows.flatMap((row) => row.boxes.map((box) => box.klass)));
   const [startMinute, endMinute] = hoursOf(classes);
   const colors = assignColors(input.sections.map((section) => section.courseCode));
-  const across = Math.min(ACROSS.max, Math.max(ACROSS.min, Math.round(zoom.across)));
-  const classHeight = zoom.classHeight;
-  const sliceWidth = frame.right - frame.left - frame.labelWidth;
+  const width = frame.right - frame.left - frame.labelWidth;
   const available = frame.bottom - frame.contentTop;
+  const gridLeft = frame.left + frame.labelWidth;
   const pages: SemesterPage[] = [];
 
   units.forEach((unit, unitIndex) => {
-    /*
-     * Where the pages cut, chosen so each page starts somewhere you can name: on the hour
-     * when the hours run across, at midnight when the days of a room's week do. A cut at
-     * 13:30 is a page nobody can find the afternoon on.
-     *
-     * So the last page can run past the day's last hour, or hold fewer days than the
-     * others, and a room's week asked to be four pages wide may take three: five days fall
-     * two to a page. The preview counts the pages as they are, not as they were asked for.
-     */
-    const dayCount = unit.bands.length;
-    const perPage = dayCount > 1 ? Math.ceil(dayCount / across) : Math.ceil((endMinute - startMinute) / across / 60) * 60;
-    const columns = dayCount > 1 ? Math.ceil(dayCount / perPage) : across;
-    const shownEnd = dayCount > 1 ? endMinute : Math.min(24 * 60, startMinute + across * perPage);
+    // The whole week across the whole width, whatever the height: the hours are never cut.
     const minutes = endMinute - startMinute;
-    const perMinute = dayCount > 1 ? sliceWidth / (perPage * minutes) : sliceWidth / perPage;
+    const perMinute = width / (minutes * unit.bands.length);
     const bandWidth = minutes * perMinute;
-    const xOf = (minute: number, band: number) => band * bandWidth + (minute - startMinute) * perMinute;
+    const xOf = (minute: number, band: number) => gridLeft + band * bandWidth + (minute - startMinute) * perMinute;
 
-    // The rows as pieces no taller than a page, then gathered into pages down.
-    const lanesPerPage = Math.max(1, Math.floor((available - 4) / classHeight));
-    const pieces = unit.rows.flatMap((row) => {
-      const whole = Math.max(frame.labelHeight, row.lanes * classHeight + 4);
-      if (whole <= available) return [{ row, from: 0, to: row.lanes, h: whole }];
-      const cut: { row: typeof row; from: number; to: number; h: number }[] = [];
-      for (let from = 0; from < row.lanes; from += lanesPerPage) {
-        const to = Math.min(row.lanes, from + lanesPerPage);
-        cut.push({ row, from, to, h: Math.max(frame.labelHeight, (to - from) * classHeight + 4) });
-      }
-      return cut;
-    });
-    const downs: (typeof pieces)[] = [[]];
-    let used = 0;
-    for (const piece of pieces) {
-      if (used + piece.h > available && downs[downs.length - 1].length) {
-        downs.push([]);
-        used = 0;
-      }
-      downs[downs.length - 1].push(piece);
-      used += piece.h;
-    }
-
-    downs.forEach((down, line) => {
-      for (let column = 0; column < columns; column += 1) {
-        const from = column * sliceWidth;
-        const to = from + sliceWidth;
-        const onPage = (x: number) => frame.left + frame.labelWidth + (x - from);
-        const within = (x: number) => x >= from - 0.01 && x <= to + 0.01;
-
-        const ticks: SemesterPage["ticks"] = [];
-        const hours: SemesterPage["hours"] = [];
-        const days: SemesterPage["days"] = [];
-        const seams: number[] = [];
-        const step = [1, 2, 3, 4, 6].find((apart) => perMinute * 60 * apart >= 26) ?? 6;
-        unit.bands.forEach((band, index) => {
-          for (let minute = Math.ceil(startMinute / 15) * 15; minute <= shownEnd; minute += 15) {
-            const x = xOf(minute, index);
-            if (!within(x)) continue;
-            const weight = minute % 60 === 0 ? "hour" : minute % 30 === 0 ? "half" : "quarter";
-            const spacing = weight === "half" ? perMinute * 30 : perMinute * 15;
-            if (weight !== "hour" && spacing < 7) continue;
-            ticks.push({ x: onPage(x), weight });
-            const edge = minute === startMinute || minute === endMinute || x === from || x === to;
-            if (weight === "hour" && (minute / 60) % step === 0 && (unit.bands.length === 1 || !edge)) {
-              hours.push({ x: onPage(x), label: time(minute) });
-            }
-          }
-          if (index > 0 && within(index * bandWidth)) seams.push(onPage(index * bandWidth));
-          if (band && unit.bands.length > 1) {
-            const start = Math.max(from, index * bandWidth);
-            const end = Math.min(to, (index + 1) * bandWidth);
-            if (end - start > 1) days.push({ x: onPage(start), w: end - start, label: dayName(band) });
-          }
-        });
-
-        const rows: SemesterPage["rows"] = [];
-        const boxes: PageBox[] = [];
-        let y = frame.contentTop;
-        for (const piece of down) {
-          rows.push({
-            y,
-            h: piece.h,
-            label: piece.row.label,
-            sub: piece.from > 0 ? "continued" : piece.row.sub,
-          });
-          for (const { klass, lane, band } of piece.row.boxes) {
-            if (lane < piece.from || lane >= piece.to) continue;
-            const x0 = xOf(minutesOf(klass.start), band);
-            const x1 = xOf(minutesOf(klass.end), band);
-            if (x1 <= from || x0 >= to) continue;
-            const left = Math.max(x0, from);
-            const right = Math.min(x1, to);
-            boxes.push({
-              x: onPage(left) + (left === x0 ? 1 : 0),
-              y: y + 2 + (lane - piece.from) * classHeight,
-              w: Math.max(2, right - left - (left === x0 ? 1 : 0) - (right === x1 ? 1 : 0)),
-              h: classHeight - 2,
-              color: colors.get(klass.courseCode) ?? "#1f4e79",
-              klass,
-              cutLeft: x0 < from,
-              cutRight: x1 > to,
-            });
-          }
-          y += piece.h;
+    const ticks: SemesterPage["ticks"] = [];
+    const hours: SemesterPage["hours"] = [];
+    const days: SemesterPage["days"] = [];
+    const seams: number[] = [];
+    const step = [1, 2, 3, 4, 6].find((apart) => perMinute * 60 * apart >= 26) ?? 6;
+    unit.bands.forEach((band, index) => {
+      for (let minute = Math.ceil(startMinute / 15) * 15; minute <= endMinute; minute += 15) {
+        const weight = minute % 60 === 0 ? "hour" : minute % 30 === 0 ? "half" : "quarter";
+        const spacing = weight === "half" ? perMinute * 30 : perMinute * 15;
+        if (weight !== "hour" && spacing < 7) continue;
+        ticks.push({ x: xOf(minute, index), weight });
+        const edge = minute === startMinute || minute === endMinute;
+        if (weight === "hour" && (minute / 60) % step === 0 && (unit.bands.length === 1 || !edge)) {
+          hours.push({ x: xOf(minute, index), label: time(minute) });
         }
-
-        const labels = down.map((piece) => piece.row.label);
-        const partRows =
-          downs.length > 1 && labels.length
-            ? labels.length === 1
-              ? labels[0]
-              : `${labels[0]} – ${labels[labels.length - 1]}`
-            : "";
-        const partHours =
-          columns > 1 ? `${time(Math.round(startMinute + from / perMinute))}–${time(Math.min(24 * 60, Math.round(startMinute + to / perMinute)))}` : "";
-        pages.push({
-          unit: unitIndex,
-          title: unit.title,
-          // Side by side, a page's stretch of hours crosses days; its day names say which.
-          part: [partRows, unit.bands.length > 1 ? "" : partHours].filter(Boolean).join(" · "),
-          column,
-          line,
-          gridTop: frame.gridTop,
-          gridBottom: y,
-          days,
-          ticks,
-          hours,
-          seams,
-          rows,
-          boxes,
-        });
       }
+      if (index > 0) seams.push(gridLeft + index * bandWidth);
+      if (band && unit.bands.length > 1) days.push({ x: gridLeft + index * bandWidth, w: bandWidth, label: dayName(band) });
+    });
+
+    const { classHeight, pages: downs } = unitHeight(unit.rows, zoom, available, frame.labelHeight);
+    downs.forEach((down, line) => {
+      // The foot of this page shared out among its own rows, so it ends where the sheet does.
+      const lanes = down.map((piece) => piece.to - piece.from);
+      const needs = (height: number) =>
+        lanes.reduce((total, rows) => total + Math.max(frame.labelHeight, rows * height + ROW_PAD * 2), 0);
+      const lane = largest(classHeight, TALLEST_CLASS, (height) => needs(height) <= available);
+      const spare = down.length ? Math.max(0, available - needs(lane)) / down.length : 0;
+
+      const rows: SemesterPage["rows"] = [];
+      const boxes: PageBox[] = [];
+      let y = frame.contentTop;
+      for (const piece of down) {
+        const tall = Math.max(frame.labelHeight, (piece.to - piece.from) * lane + ROW_PAD * 2) + spare;
+        rows.push({ y, h: tall, label: piece.row.label, sub: piece.from > 0 ? "continued" : piece.row.sub });
+        // A row taller than its classes — a label's height, or its share of the foot — centres them.
+        const top = y + (tall - (piece.to - piece.from) * lane) / 2;
+        for (const { klass, lane: at, band } of piece.row.boxes) {
+          if (at < piece.from || at >= piece.to) continue;
+          const x0 = xOf(minutesOf(klass.start), band);
+          const x1 = xOf(minutesOf(klass.end), band);
+          boxes.push({
+            x: x0 + 0.75,
+            y: top + (at - piece.from) * lane + 0.75,
+            w: Math.max(2, x1 - x0 - 1.5),
+            h: Math.max(2, lane - 1.5),
+            color: colors.get(klass.courseCode) ?? "#1f4e79",
+            klass,
+          });
+        }
+        y += tall;
+      }
+      const labels = down.map((piece) => piece.row.label);
+      pages.push({
+        unit: unitIndex,
+        title: unit.title,
+        part:
+          downs.length > 1 && labels.length
+            ? `${labels[0]}${labels.length > 1 && labels[labels.length - 1] !== labels[0] ? ` – ${labels[labels.length - 1]}` : ""} · page ${line + 1} of ${downs.length}`
+            : "",
+        line,
+        gridTop: frame.gridTop,
+        gridBottom: y,
+        days,
+        ticks,
+        hours,
+        seams,
+        rows,
+        boxes,
+      });
     });
   });
   return pages;
@@ -422,39 +434,39 @@ function dayWords(iso: string): string {
 
 export async function buildSemesterPdf(input: SemesterExportInput, zoom: ExportZoom, today = new Date()): Promise<ArrayBuffer> {
   const { jsPDF } = await import("jspdf");
-  const frame = frameOf(zoom.paper, input.layout);
-  const doc = new jsPDF({ unit: "pt", format: zoom.paper, orientation: "landscape" });
+  const frame = frameOf(input.layout);
+  const doc = new jsPDF({ unit: "pt", format: "a4", orientation: "landscape" });
   const pages = semesterPages(input, zoom);
   const heading = `${input.semester} · ${input.layout === "days" ? "Timetable" : "Rooms"}`;
 
   if (!pages.length) {
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(14);
-    doc.text(heading, frame.left, 34);
+    doc.setFontSize(12);
+    doc.text(heading, frame.left, frame.titleY);
     doc.setFont("helvetica", "normal");
-    doc.setFontSize(10);
+    doc.setFontSize(9);
     doc.setTextColor(...SOFT);
-    doc.text("The portal has booked no classes for these sections.", frame.left, 52);
+    doc.text("The portal has booked no classes for these sections.", frame.left, frame.titleY + 16);
   }
 
   pages.forEach((page, index) => {
-    if (index > 0) doc.addPage(zoom.paper, "landscape");
+    if (index > 0) doc.addPage("a4", "landscape");
+    // One line of heading: the semester, the week, and which part of the week this is.
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(13);
+    doc.setFontSize(11);
     doc.setTextColor(23);
-    doc.text(heading, frame.left, 30);
-    doc.setFontSize(10);
+    doc.text(heading, frame.left, frame.titleY);
+    const headingWidth = doc.getTextWidth(heading);
     doc.setTextColor(31, 78, 121);
-    doc.text(page.title, frame.left, 46);
+    doc.text(page.title, frame.left + headingWidth + 14, frame.titleY);
     if (page.part) {
       doc.setFont("helvetica", "normal");
-      doc.setFontSize(9);
+      doc.setFontSize(8.5);
       doc.setTextColor(...SOFT);
-      doc.text(page.part, frame.right, 46, { align: "right" });
+      doc.text(page.part, frame.right, frame.titleY, { align: "right" });
     }
 
     const gridLeft = frame.left + frame.labelWidth;
-    // The heading band, the frame, and the column of labels.
     doc.setFillColor(...HEADER);
     doc.rect(frame.left, page.gridTop, frame.right - frame.left, frame.contentTop - page.gridTop, "F");
     for (const tick of page.ticks) {
@@ -468,14 +480,10 @@ export async function buildSemesterPdf(input: SemesterExportInput, zoom: ExportZ
     doc.setFont("helvetica", "bold");
     doc.setFontSize(7.5);
     doc.setTextColor(52, 64, 84);
-    for (const day of page.days) {
-      doc.text(fitted(doc, day.label, Math.max(6, day.w - 6)), day.x + 4, page.gridTop + 10);
-    }
-    doc.setFontSize(7);
+    for (const day of page.days) doc.text(fitted(doc, day.label, Math.max(6, day.w - 6)), day.x + 4, page.gridTop + 9);
+    doc.setFontSize(6.5);
     doc.setTextColor(...SOFT);
-    for (const hour of page.hours) {
-      doc.text(hour.label, hour.x, frame.contentTop - 4.5, { align: "center" });
-    }
+    for (const hour of page.hours) doc.text(hour.label, hour.x, frame.contentTop - 3.5, { align: "center" });
 
     doc.setDrawColor(...LINE);
     doc.setLineWidth(0.6);
@@ -485,17 +493,17 @@ export async function buildSemesterPdf(input: SemesterExportInput, zoom: ExportZ
       doc.setFontSize(7.5);
       doc.setTextColor(52, 64, 84);
       if (input.layout === "days") {
-        doc.text(row.label, frame.left + 4, row.y + 10);
+        doc.text(row.label, frame.left + 3, row.y + 9);
         doc.setFont("helvetica", "normal");
         doc.setFontSize(6.5);
         doc.setTextColor(...FAINT);
-        doc.text(row.sub, frame.left + 4, row.y + 18);
+        doc.text(row.sub, frame.left + 3, row.y + 17);
       } else {
-        doc.text(fitted(doc, row.label, frame.labelWidth - 22), frame.left + 4, row.y + 9);
+        doc.text(fitted(doc, row.label, frame.labelWidth - 16), frame.left + 3, row.y + 8.5);
         doc.setFont("helvetica", "normal");
         doc.setFontSize(6.5);
         doc.setTextColor(...FAINT);
-        doc.text(row.sub, gridLeft - 4, row.y + 9, { align: "right" });
+        doc.text(row.sub, gridLeft - 3, row.y + 8.5, { align: "right" });
       }
     }
     doc.setDrawColor(...LINE);
@@ -504,7 +512,7 @@ export async function buildSemesterPdf(input: SemesterExportInput, zoom: ExportZ
     doc.line(gridLeft, page.gridTop, gridLeft, page.gridBottom);
     doc.roundedRect(frame.left, page.gridTop, frame.right - frame.left, page.gridBottom - page.gridTop, 3, 3, "S");
 
-    for (const box of page.boxes) drawBox(doc, box, input.layout);
+    for (const box of page.boxes) drawBox(doc, box);
   });
 
   const total = doc.getNumberOfPages();
@@ -512,67 +520,147 @@ export async function buildSemesterPdf(input: SemesterExportInput, zoom: ExportZ
   for (let page = 1; page <= total; page += 1) {
     doc.setPage(page);
     doc.setFont("helvetica", "normal");
-    doc.setFontSize(7.5);
+    doc.setFontSize(6.5);
     doc.setTextColor(140);
-    doc.text(`Exported ${dayWords(toIsoDate(today))} from Academic Coordinator Tools${swept}.`, frame.left, frame.height - 14);
-    doc.text(`Page ${page} of ${total}`, frame.right, frame.height - 14, { align: "right" });
+    doc.text(`Exported ${dayWords(toIsoDate(today))} from Academic Coordinator Tools${swept}.`, frame.left, frame.footerY);
+    doc.text(`Page ${page} of ${total}`, frame.right, frame.footerY, { align: "right" });
   }
   return doc.output("arraybuffer");
 }
 
+/** A piece of what a box says: one word, and how it is drawn. */
+type Word = { text: string; bold: boolean; ink: Rgb; icon?: "pin" | "person" | "cover"; strike?: boolean; opens: boolean };
+
 /**
- * One class, as its box on screen says it: the course and its group on the first line;
- * the room and the teacher on a second when the box is tall enough for one. On the Rooms
- * pages the room is the row, so the second line keeps the teacher alone.
+ * Everything the box on screen says, and what its tooltip adds, in the order the screen
+ * gives it: the course and its group, the hours, the room, who teaches it, the CRN — and
+ * what happened to it, where something did. Split into words so a narrow box can wrap it.
  */
-function drawBox(doc: JsPdf, box: PageBox, layout: SemesterLayout) {
+function wordsOf(klass: Klass, fill: Rgb): Word[] {
+  const white: Rgb = [255, 255, 255];
+  const soft = towardsWhite(fill, 0.85);
+  const cancelled = klass.state === "cancelled";
+  const fields: { text: string; bold?: boolean; ink: Rgb; icon?: Word["icon"]; strike?: boolean }[] = [
+    { text: klass.courseCode || klass.crn, bold: true, ink: white, strike: cancelled },
+    { text: klass.group, bold: true, ink: soft },
+    { text: cancelled ? "CANCELLED" : "", bold: true, ink: white },
+    { text: `${klass.start}–${klass.end}`, ink: soft },
+    { text: formatRoom(klass.room), ink: soft, icon: "pin" },
+    { text: klass.teacher, ink: soft, icon: "person" },
+    { text: klass.state === "covered" ? `covered by ${klass.cover || "somebody else"}` : "", bold: true, ink: white, icon: "cover" },
+    { text: `CRN ${klass.crn}`, ink: soft },
+    { text: klass.note, ink: soft },
+  ];
+  return fields
+    .filter((field) => field.text.trim())
+    .flatMap((field) =>
+      field.text
+        .trim()
+        .split(/\s+/)
+        .map((text, index) => ({
+          text,
+          bold: Boolean(field.bold),
+          ink: field.ink,
+          icon: index === 0 ? field.icon : undefined,
+          strike: field.strike,
+          opens: index === 0,
+        })),
+    );
+}
+
+type Placed = { word: Word; x: number; line: number };
+
+/**
+ * The words flowed into the box at one size: where each goes, or null when they do not
+ * all fit. A field starts with a wider gap than the words inside it, so "5.101" and
+ * "Grace Younes" still read as two things when they share a line.
+ */
+function flow(doc: JsPdf, words: Word[], size: number, width: number, height: number, force = false): Placed[] | null {
+  const lineHeight = size * 1.18;
+  const lines = Math.max(1, Math.floor((height + size * 0.18) / lineHeight));
+  const icon = size * 1.05;
+  const placed: Placed[] = [];
+  let x = 0;
+  let line = 0;
+  doc.setFontSize(size);
+  for (const word of words) {
+    doc.setFont("helvetica", word.bold ? "bold" : "normal");
+    const gap = x === 0 ? 0 : word.opens ? size * 0.7 : doc.getTextWidth(" ");
+    let wide = (word.icon ? icon : 0) + doc.getTextWidth(word.text);
+    if (x > 0 && x + gap + wide > width) {
+      line += 1;
+      x = 0;
+    }
+    if (wide > width) {
+      if (!force) return null;
+      wide = width;
+    }
+    if (line >= lines) {
+      if (!force) return null;
+      break;
+    }
+    const at = x === 0 ? 0 : x + gap;
+    placed.push({ word, x: at, line });
+    x = at + wide;
+  }
+  return placed;
+}
+
+/**
+ * One class: its colour, and every word it has, as large as the box allows. The size is
+ * the box's own — the largest from 8 points down that fits everything — so a long class
+ * reads at a glance and a short one still says all of it, smaller.
+ */
+function drawBox(doc: JsPdf, box: PageBox) {
   const color = rgbOf(box.color);
   const cancelled = box.klass.state === "cancelled";
   const covered = box.klass.state === "covered";
   const fill = cancelled ? towardsWhite(color, 0.45) : color;
   doc.setFillColor(...fill);
-  if (box.cutLeft || box.cutRight) doc.rect(box.x, box.y, box.w, box.h, "F");
-  else doc.roundedRect(box.x, box.y, box.w, box.h, 2, 2, "F");
+  doc.roundedRect(box.x, box.y, box.w, box.h, 1.5, 1.5, "F");
   if (covered) {
     doc.setDrawColor(...towardsWhite(color, 0.7));
-    doc.setLineWidth(1);
-    doc.rect(box.x + 0.8, box.y + 0.8, box.w - 1.6, box.h - 1.6, "S");
+    doc.setLineWidth(0.8);
+    doc.roundedRect(box.x + 0.6, box.y + 0.6, box.w - 1.2, box.h - 1.2, 1.2, 1.2, "S");
   }
-  if (box.w < 10 || box.h < 7) return;
-  const size = Math.min(7, Math.max(5, box.h - 4));
-  const two = box.h >= size * 2 + 5;
-  const top = two ? box.y + (box.h - (size * 2 + 2)) / 2 + size * 0.85 : box.y + box.h / 2 + size * 0.35;
-  const words = [box.klass.courseCode || box.klass.crn, box.klass.group].filter(Boolean).join("  ");
-  doc.setFont("helvetica", "bold");
+  const padX = 2;
+  const padY = 1.2;
+  const width = box.w - padX * 2;
+  const height = box.h - padY * 2;
+  if (width < 4 || height < 3) return;
+  const words = wordsOf(box.klass, fill);
+  let size = 8;
+  let placed: Placed[] | null = null;
+  for (; size >= 3.5; size -= 0.25) {
+    placed = flow(doc, words, size, width, height);
+    if (placed) break;
+  }
+  if (!placed) {
+    size = 3.5;
+    placed = flow(doc, words, size, width, height, true) ?? [];
+  }
+  const lineHeight = size * 1.18;
+  const used = (placed.reduce((most, entry) => Math.max(most, entry.line), 0) + 1) * lineHeight;
+  const top = box.y + padY + Math.max(0, (height - used) / 2) + size * 0.86;
   doc.setFontSize(size);
-  doc.setTextColor(255);
-  const first = fitted(doc, words, box.w - 5);
-  doc.text(first, box.x + 2.5, top);
-  if (cancelled) {
-    doc.setDrawColor(255);
-    doc.setLineWidth(0.5);
-    doc.line(box.x + 2.5, top - size * 0.3, box.x + 2.5 + doc.getTextWidth(first), top - size * 0.3);
-  }
-  if (!two) return;
-  const ink = towardsWhite(fill, 0.85);
-  const y = top + size + 2;
-  let x = box.x + 2.5;
-  const room = layout === "days" ? formatRoom(box.klass.room) : "";
-  const who = covered ? box.klass.cover || "somebody else" : box.klass.teacher;
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(size - 0.5);
-  doc.setTextColor(...ink);
-  for (const [icon, text] of [
-    ["pin", room],
-    [covered ? "cover" : "person", who],
-  ] as const) {
-    if (!text) continue;
-    const space = box.x + box.w - 2.5 - x;
-    if (space < size * 2) break;
-    drawIcon(doc, icon, x, y - size * 0.8, size * 0.85, ink);
-    const said = fitted(doc, text, space - size - 1);
-    doc.text(said, x + size + 1, y);
-    x += size + 1 + doc.getTextWidth(said) + 5;
+  for (const { word, x, line } of placed) {
+    const left = box.x + padX + x;
+    const baseline = top + line * lineHeight;
+    doc.setFont("helvetica", word.bold ? "bold" : "normal");
+    doc.setTextColor(...word.ink);
+    let at = left;
+    if (word.icon) {
+      drawIcon(doc, word.icon, left, baseline - size * 0.8, size * 0.85, word.ink);
+      at += size * 1.05;
+    }
+    const room = box.x + box.w - padX - at;
+    const text = doc.getTextWidth(word.text) > room ? fitted(doc, word.text, Math.max(2, room)) : word.text;
+    doc.text(text, at, baseline);
+    if (word.strike) {
+      doc.setDrawColor(...word.ink);
+      doc.setLineWidth(0.5);
+      doc.line(at, baseline - size * 0.3, at + doc.getTextWidth(text), baseline - size * 0.3);
+    }
   }
 }
 
