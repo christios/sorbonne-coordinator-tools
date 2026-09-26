@@ -30,8 +30,9 @@ export function LabelledPicker({
         {label}
         {hint ? <span className="ml-1.5 font-normal normal-case text-[#98a2b3]">{hint}</span> : null}
       </p>
-      <div className="flex items-center gap-1.5">
-        <div className="w-fit min-w-[12rem] max-w-[24rem]">{children}</div>
+      {/* Wraps on a phone rather than pushing what sits beside the picker off the screen. */}
+      <div className="flex max-w-full flex-wrap items-center gap-1.5">
+        <div className="w-fit min-w-[12rem] max-w-[min(24rem,100%)]">{children}</div>
         {beside}
       </div>
     </div>

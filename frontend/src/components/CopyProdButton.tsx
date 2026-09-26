@@ -86,6 +86,7 @@ export function CopyProdButton() {
         onClick={() => setAsking(true)}
         disabled={copy.isPending}
         title="Development only: replace this machine's data with production's"
+        aria-label="Copy prod"
         className="inline-flex items-center gap-2 rounded-md border border-dashed border-[#c8b78a] bg-[#fdfaf2] px-3 py-2 text-sm font-semibold text-[#8a6116] hover:bg-[#fdf6e7] disabled:opacity-50"
       >
         {copy.isPending ? (
@@ -93,7 +94,7 @@ export function CopyProdButton() {
         ) : (
           <CloudDownload size={15} className="shrink-0" aria-hidden="true" />
         )}
-        {copy.isPending ? "Copying…" : "Copy prod"}
+        <span className="hidden sm:inline">{copy.isPending ? "Copying…" : "Copy prod"}</span>
       </button>
 
       <ConfirmDialog

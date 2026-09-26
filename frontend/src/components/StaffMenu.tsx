@@ -58,13 +58,14 @@ export function StaffMenu({ variant = "header", onOpenSettings }: Props) {
         <span className="grid size-7 shrink-0 place-items-center rounded-full bg-[#eaf1f8] text-xs font-semibold text-[#1f4e79]">
           {user.name.trim().charAt(0).toUpperCase() || "?"}
         </span>
-        <span className="min-w-0 flex-1">
+        {/* In the header on a phone the initial alone: the name took the row's last room. */}
+        <span className={`min-w-0 flex-1 ${inSidebar ? "" : "hidden sm:block"}`}>
           <span className="block truncate text-sm font-semibold text-[#344054]" title={user.email}>
             {user.name}
           </span>
           {inSidebar ? <span className="block truncate text-xs text-[#667085]">{user.email}</span> : null}
         </span>
-        <ChevronsUpDown size={15} className="shrink-0 text-[#667085]" aria-hidden="true" />
+        <ChevronsUpDown size={15} className={`shrink-0 text-[#667085] ${inSidebar ? "" : "hidden sm:block"}`} aria-hidden="true" />
       </button>
 
       {isOpen ? (

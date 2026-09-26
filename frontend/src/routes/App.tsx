@@ -161,16 +161,22 @@ export function App() {
           * floating in the middle of nothing on a wide screen. The padding is the pane's
           * own, so All apps starts where "Students and timetables" starts.
           */}
-        <div data-testid="app-header" className={`flex flex-col items-start gap-3 px-6 transition-[padding,gap] duration-200 lg:flex-row lg:items-center lg:justify-between ${compactSyllabusHeader ? "py-2" : "py-5"}`}>
-          <div className="flex items-center gap-3.5">
+        {/*
+          * On a phone, one row: the way back as an arrow, the mark, a smaller title, and the
+          * buttons on the right. It was three stacked rows there — a third of the screen gone
+          * before any page began, and the account menu pushed off its edge.
+          */}
+        <div data-testid="app-header" className={`flex flex-row items-center justify-between gap-2 px-3 transition-[padding,gap] duration-200 sm:gap-3 sm:px-6 ${compactSyllabusHeader ? "py-2" : "py-2 sm:py-5"}`}>
+          <div className="flex min-w-0 items-center gap-2 sm:gap-3.5">
             {/* The way back stands before everything, where a way back is looked for. */}
             {activeTool ? (
               <button
                 type="button"
                 onClick={showAllApps}
-                className="mr-1 inline-flex items-center gap-2 rounded-md border border-[#d9dee7] bg-white px-3 py-2 text-sm font-semibold text-[#1f4e79] shadow-sm hover:bg-[#f2f7fb]"
+                aria-label="All apps"
+                className="inline-flex shrink-0 items-center gap-2 rounded-md border border-[#d9dee7] bg-white px-2.5 py-2 text-sm font-semibold text-[#1f4e79] shadow-sm hover:bg-[#f2f7fb] sm:mr-1 sm:px-3"
               >
-                <span aria-hidden="true">←</span> All apps
+                <span aria-hidden="true">←</span> <span className="hidden sm:inline">All apps</span>
               </button>
             ) : null}
             {/*
@@ -182,14 +188,17 @@ export function App() {
             <img
               src="/assets/logos/coordinator-tools-mark.svg"
               alt=""
-              className={`w-auto shrink-0 transition-[height] duration-200 ${compactSyllabusHeader ? "h-7" : "h-11"}`}
+              className={`w-auto shrink-0 transition-[height] duration-200 ${compactSyllabusHeader ? "h-7" : "h-8 sm:h-11"}`}
             />
-            <div>
-              <p className={`text-xs font-semibold uppercase tracking-normal text-[#a6292f] ${compactSyllabusHeader ? "hidden" : ""}`}>Sorbonne University Abu Dhabi</p>
-              <h1 className={`font-semibold tracking-normal text-[#171717] transition-[font-size,margin] duration-200 ${compactSyllabusHeader ? "text-base" : "mt-1 text-2xl"}`}>Academic Coordinator Tools</h1>
+            <div className="min-w-0">
+              <p className={`text-xs font-semibold uppercase tracking-normal text-[#a6292f] ${compactSyllabusHeader ? "hidden" : "hidden sm:block"}`}>Sorbonne University Abu Dhabi</p>
+              {/* On a phone the mark says whose tools these are; the name, cut short, only crowded it. */}
+              <h1 className={`truncate font-semibold tracking-normal text-[#171717] transition-[font-size,margin] duration-200 ${compactSyllabusHeader ? "text-base" : "sr-only sm:not-sr-only sm:mt-1 sm:text-2xl"}`}>
+                Academic Coordinator Tools
+              </h1>
             </div>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex shrink-0 items-center gap-2 sm:gap-3">
             {/*
               * Portal sync belongs to the student pages, and stays in sight anywhere while
               * a run it started is still going, so its report can be read wherever the

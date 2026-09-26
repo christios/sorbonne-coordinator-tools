@@ -347,7 +347,7 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: (section:
           */}
         <div
           className={`flex flex-col ${
-            fullBleed ? "h-full w-full px-0.75 py-0.75" : "w-full page-gutters [--page-cap:86rem] [--page-pad:1rem] sm:[--page-pad:1.5rem] py-1.5"
+            fullBleed ? "h-full w-full px-0.75 py-0.75" : "w-full page-gutters [--page-cap:86rem] [--page-pad:1rem] sm:[--page-pad:1.5rem] py-1.5 max-lg:pb-16"
           } ${fullBleed ? "" : FILLS.has(page) ? "min-h-full lg:h-full" : "min-h-full"}`}
         >
           <header

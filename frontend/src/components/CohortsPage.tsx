@@ -185,7 +185,7 @@ function SourceFilter({
       role="group"
       aria-label="Which warnings to show"
       title="A student flagged by both records is counted under both, so these do not add up"
-      className="inline-flex gap-1 rounded-md border border-[#d3d9e2] bg-white p-1"
+      className="inline-flex max-w-full flex-wrap gap-1 rounded-md border border-[#d3d9e2] bg-white p-1"
     >
       {options.map(({ id, name, icon: Icon, hint }) => (
         <button

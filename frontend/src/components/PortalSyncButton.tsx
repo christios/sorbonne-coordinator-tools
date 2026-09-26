@@ -196,14 +196,15 @@ export function PortalSyncButton() {
             </span>
           ) : (
             <span className="flex items-baseline gap-1.5">
-              <span>Portal sync</span>
+              <span className="hidden sm:inline">Portal sync</span>
+              <span className="sm:hidden">Sync</span>
               {/*
                 * How stale the oldest list is, on the button rather than greyed in the
                 * middle of a page. It is the one thing worth knowing without opening
                 * anything: everything on screen was read from a pull of that age.
                 */}
               {syncedAt ? (
-                <span className="font-normal text-[11px] tabular-nums text-[#98a2b3]">{describeAge(syncedAt, now)}</span>
+                <span className="hidden font-normal text-[11px] tabular-nums text-[#98a2b3] sm:inline">{describeAge(syncedAt, now)}</span>
               ) : null}
             </span>
           )}

@@ -32,6 +32,12 @@ import { fetchTimetableTerms, type TimetableTerm } from "@/services/timetables";
  * what decides how many of a busy day's classes you see without scrolling.
  */
 const WIDTH = { min: 1, max: 6, step: 0.1, start: 1 };
+/*
+ * On a phone a week one screen wide is a column of slivers — "MATH-" and "SCEN" — so it
+ * opens three and a half screens wide there, readable, and scrolls sideways under the
+ * days, which stay put. Only where this browser has not chosen a width of its own.
+ */
+const widthStart = () => (typeof window !== "undefined" && window.innerWidth < 640 ? 3.5 : WIDTH.start);
 const HEIGHT = { min: 14, max: 56, step: 1, start: 22 };
 
 /** A section as the filters read it: the entry, and what its cohort, set and classes are. */
@@ -150,7 +156,7 @@ function SemesterWeek({ layout, term, picker }: { layout: Layout; term: Timetabl
   const [query, setQuery] = usePageState(`${kept}:search`, "");
   // A room's whole week along one line, or one day with room to read every box.
   const [span, setSpan] = usePageState<"day" | "week">("rooms:span", "day");
-  const [widthZoom, setWidthZoom] = useKeptNumber("semester-timetable:width", WIDTH);
+  const [widthZoom, setWidthZoom] = useKeptNumber("semester-timetable:width", { ...WIDTH, start: widthStart() });
   const [rowHeight, setRowHeight] = useKeptNumber("semester-timetable:height", HEIGHT);
   const [showingCrn, setShowingCrn] = useState<ActiveCrn | null>(null);
   // Where the week's arrows and dates go, so they cost no row of their own.
@@ -364,9 +370,9 @@ function SemesterWeek({ layout, term, picker }: { layout: Layout; term: Timetabl
           * Everything you steer by on one row, pushed to the right; the filters get the row
           * under it, where a long run of them has the whole width to grow into.
           */}
-        <div ref={setNavSlot} className="shrink-0" />
-        <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-          <label className="relative block w-64">
+        <div ref={setNavSlot} className="min-w-0 max-w-full shrink-0" />
+        <div className="flex w-full flex-wrap items-center gap-2 sm:ml-auto sm:w-auto sm:justify-end">
+          <label className="relative block w-full sm:w-64">
             <Search size={15} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[#667085]" aria-hidden="true" />
             <input
               type="search"
