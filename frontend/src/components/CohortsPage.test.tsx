@@ -561,7 +561,7 @@ describe("the register half of the Cohorts page", () => {
     const row = within(rowOf("Amira Haddad"));
     // Both records, one row, one column.
     expect(row.getByTitle(/major is Physics, cohort expects/)).toBeTruthy();
-    expect(row.getByTitle("MATH-001: not registered in 23223")).toBeTruthy();
+    expect(row.getByTitle(/^MATH-001: not registered in 23223 Goes away/)).toBeTruthy();
     // The student both records agree about carries neither.
     expect(within(rowOf("Karim Nasser")).queryByText(/MATH-001/)).toBeNull();
   });
@@ -700,12 +700,12 @@ describe("the register half of the Cohorts page", () => {
     await twoStudents([MAJOR]);
 
     renderPage();
-    await screen.findByTitle("MATH-001: not registered in 23223");
+    await screen.findByTitle(/^MATH-001: not registered in 23223 Goes away/);
 
-    expect(pillOf("MATH-001: not registered in 23223").dataset.source).toBe("registration");
+    expect(pillOf(/^MATH-001: not registered in 23223 Goes away/).dataset.source).toBe("registration");
     expect(pillOf(/major is Physics, cohort expects/).dataset.source).toBe("record");
     // And not only in the markup: the two are drawn in different colours.
-    expect(pillOf("MATH-001: not registered in 23223").className).not.toEqual(
+    expect(pillOf(/^MATH-001: not registered in 23223 Goes away/).className).not.toEqual(
       pillOf(/major is Physics, cohort expects/).className,
     );
   });
@@ -715,7 +715,7 @@ describe("the register half of the Cohorts page", () => {
     await twoStudents([MAJOR]);
 
     renderPage();
-    await screen.findByTitle("MATH-001: not registered in 23223");
+    await screen.findByTitle(/^MATH-001: not registered in 23223 Goes away/);
 
     // One student flagged by each record; all three records on to begin with, no "All".
     const admissions = screen.getByRole("button", { name: "Status 1" });
@@ -728,16 +728,16 @@ describe("the register half of the Cohorts page", () => {
     // Turn admissions off: the register's warning stays, the admissions one goes.
     fireEvent.click(admissions);
     await waitFor(() => expect(screen.queryByTitle(/major is Physics, cohort expects/)).toBeNull());
-    expect(screen.getByTitle("MATH-001: not registered in 23223")).toBeTruthy();
+    expect(screen.getByTitle(/^MATH-001: not registered in 23223 Goes away/)).toBeTruthy();
 
     // Turn the register off too: nothing is shown, which is what nothing chosen means.
     fireEvent.click(register);
-    await waitFor(() => expect(screen.queryByTitle("MATH-001: not registered in 23223")).toBeNull());
+    await waitFor(() => expect(screen.queryByTitle(/^MATH-001: not registered in 23223 Goes away/)).toBeNull());
 
     // And back on, in any order.
     fireEvent.click(admissions);
     expect(await screen.findByTitle(/major is Physics, cohort expects/)).toBeTruthy();
-    expect(screen.queryByTitle("MATH-001: not registered in 23223")).toBeNull();
+    expect(screen.queryByTitle(/^MATH-001: not registered in 23223 Goes away/)).toBeNull();
   });
 
   it("puts a withdrawal above any number of registration differences", async () => {
@@ -765,7 +765,7 @@ describe("the register half of the Cohorts page", () => {
      * moment when the table honestly had only half the warnings. Which made the test pass
      * or fail depending on how loaded the machine was.
      */
-    await screen.findByTitle("MATH-001: not registered in 23223");
+    await screen.findByTitle(/^MATH-001: not registered in 23223 Goes away/);
     await screen.findByText(/student status is WD/);
 
     await waitFor(() => {
@@ -818,10 +818,10 @@ describe("the register half of the Cohorts page", () => {
     await twoStudents();
 
     renderPage();
-    await screen.findByTitle("MATH-001: not registered in 23223");
+    await screen.findByTitle(/^MATH-001: not registered in 23223 Goes away/);
     fireEvent.click(screen.getByRole("button", { name: /^Dismiss: MATH-001/ }));
 
-    await waitFor(() => expect(screen.queryByTitle("MATH-001: not registered in 23223")).toBeNull());
+    await waitFor(() => expect(screen.queryByTitle(/^MATH-001: not registered in 23223 Goes away/)).toBeNull());
     expect(screen.getByRole("button", { name: /Dismissed\s*1/ })).toBeTruthy();
     await waitFor(() => expect(onServer.map((entry) => entry.key).join(" ")).toContain("registration|A001"));
   });

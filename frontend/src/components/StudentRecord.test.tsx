@@ -133,11 +133,10 @@ describe("a student's record", () => {
     expect(td.textContent).toContain("Semester 1");
     expect(within(td).getByText("23652").closest("tr")?.textContent).toContain("MATH-011");
 
-    // The check's verdicts sit under the CRNs table, this student's only.
-    const verdicts = await screen.findByLabelText("What the check says");
-    expect(within(verdicts).getAllByRole("listitem").map((item) => item.textContent)).toEqual([
-      "MATH-011: registered in 23653, we placed them in 23652",
-    ]);
+    // Registered in 23653, placed in 23652: both are rows of the table, so no line repeats it.
+    const table0 = await screen.findByLabelText("CRNs");
+    expect(within(table0).getByText("23653")).toBeTruthy();
+    expect(screen.queryByLabelText("What the check says")).toBeNull();
     // What the registrar registered is a row of the CRNs table, not a card of its own.
     expect(screen.queryByText("Registered in the portal")).toBeNull();
     const table = screen.getByLabelText("CRNs");

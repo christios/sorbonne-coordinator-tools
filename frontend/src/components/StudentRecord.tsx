@@ -15,10 +15,12 @@ import {
   arrivalsFor,
   describeWarning,
   labelOf,
+  remedyFor,
   rulesFor,
   warningsForCohort,
   type Change,
   type Options,
+  type Warning,
 } from "@/services/discrepancies";
 import {
   type Elective,
@@ -389,6 +391,17 @@ export function StudentRecord({
     (mismatch) => mismatch.studentId === row.studentId,
   );
   /*
+   * What the rows cannot show. Every registration is a row — under its group, or outside
+   * them — and every section of their groups is a row; so a verdict about those says
+   * nothing the table has not. A clash of hours, two groups of one set at once, and a
+   * section we expect that is no row of theirs are the ones left to say in words.
+   */
+  const rowCrns = new Set(placements.flatMap((placement) => placement.crns.map((cell) => cell.crn)).filter(Boolean));
+  const unseen = mismatches.filter(
+    (warning) =>
+      warning.kind === "collides" || warning.kind === "doubled" || warning.expected.some((crn) => !rowCrns.has(crn)),
+  );
+  /*
    * The courses they take outside their cohort's groups, by CRN.
    *
    * Not a fault and not a warning — sport, a language another department runs. The table
@@ -673,12 +686,12 @@ export function StudentRecord({
                               * gives them nothing to attend, which is a placement to look at.
                               */}
                             {group && crns.some((cell) => cell.crn) && crns.every((cell) => excused.has(cell.courseId)) ? (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-[#fdf9ee] px-2 py-0.5 text-xs font-semibold text-[#8a6116]">
+                              <span title={ALL_EXEMPT_REMEDY} className="inline-flex items-center gap-1 rounded-full bg-[#fdf9ee] px-2 py-0.5 text-xs font-semibold text-[#8a6116]">
                                 <AlertTriangle size={11} aria-hidden="true" /> exempt from all of it
                               </span>
                             ) : null}
                             {group && misfitOf(scope, group) ? (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-[#fdf9ee] px-2 py-0.5 text-xs font-semibold text-[#8a6116]">
+                              <span title={MISFIT_REMEDY} className="inline-flex items-center gap-1 rounded-full bg-[#fdf9ee] px-2 py-0.5 text-xs font-semibold text-[#8a6116]">
                                 <AlertTriangle size={11} aria-hidden="true" /> {misfitOf(scope, group)}
                               </span>
                             ) : null}
@@ -837,11 +850,17 @@ export function StudentRecord({
               * are on one side only; the check says what that comes to for a course — a
               * doubled group, a collision — which no one row of the table can.
               */}
-            {mismatches.length ? (
+            {/*
+              * Only what the rows above cannot say. "Not registered", "registered elsewhere",
+              * an extra section and an exemption the registrar has not acted on are all on
+              * the rows already; a clash of hours, and two groups of one set at once, are not.
+              */}
+            {unseen.length ? (
               <ul className="mt-3 space-y-1" aria-label="What the check says">
-                {mismatches.map((warning) => (
+                {unseen.map((warning) => (
                   <li
                     key={`${warning.termCode}|${warning.courseCode}|${warning.kind}|${warning.scopeCode ?? ""}`}
+                    title={remedyFor({ kind: "registration", verdict: warning.kind, expected: warning.expected.join(" and ") } as Warning)}
                     className="flex items-start gap-1.5 rounded-md border border-[#e8d9ac] bg-[#fdf9ee] px-2.5 py-1.5 text-xs text-[#8a6116]"
                   >
                     <AlertTriangle size={12} className="mt-0.5 shrink-0" aria-hidden="true" />
@@ -1065,6 +1084,11 @@ function Pill({ tone, children }: { tone: "good" | "bad" | "muted" | "accent"; c
  * which read as a status. It is shown when the row is pointed at, and always on a touch
  * screen, where nothing is pointed at; an exempt row says so and offers the way back.
  */
+/** What makes each of the record's warnings go away, for whoever hovers it. */
+const MISFIT_REMEDY = "Goes away when you move them to a group that goes with their group in the linked set, or add that pairing on Group schema.";
+const ALL_EXEMPT_REMEDY = "Goes away when you take them out of the group, or undo one of the exemptions below.";
+const STILL_REGISTERED_REMEDY = "Goes away when the registrar drops them from it, or when you undo the exemption.";
+
 function CrnRow({
   crn,
   courseCode,
@@ -1144,7 +1168,8 @@ function CrnRow({
         * cells of their own ran into each other once the pill said more than one word.
         */}
       <td className="py-1.5 pr-1 text-xs" colSpan={2}>
-        <span className="flex flex-wrap items-center justify-between gap-1">
+        {/* One line: the pill may wrap its own words, the undo stays beside it. */}
+        <span className="flex items-center justify-between gap-1">
           {outside ??
             (state === "registered" ? (
               <span className="inline-flex items-center gap-1 text-[#2f6b3d]">
@@ -1152,12 +1177,12 @@ function CrnRow({
               </span>
             ) : off ? (
               <span
-                className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-semibold ${
+                className={`inline-flex min-w-0 items-center gap-1 rounded-2xl px-2 py-0.5 font-semibold ${
                   stillRegistered ? "bg-[#fdf3e1] text-[#8a6116]" : "bg-[#f2f4f7] text-[#667085]"
                 }`}
                 title={
                   stillRegistered
-                    ? `Recorded as not taking ${whole ? courseCode : `${scopeCode}'s ${courseCode}`}, and the portal still has them in ${crn}. Either the exemption or the registration is wrong.`
+                    ? `Recorded as not taking ${whole ? courseCode : `${scopeCode}'s ${courseCode}`}, and the portal still has them in ${crn}. ${STILL_REGISTERED_REMEDY}`
                     : `They do not take ${whole ? courseCode : `${scopeCode}'s ${courseCode}`}, so the portal is right not to have them in it.`
                 }
               >
@@ -1178,7 +1203,7 @@ function CrnRow({
                 onClick={() => onExempt(false)}
                 aria-label={`Undo the exemption from ${courseCode}`}
                 title={whole ? `Put them back in ${courseCode}` : `Put them back in ${scopeCode}'s ${courseCode}`}
-                className="rounded p-1 text-[#1f4e79] hover:bg-[#f2f7fb] disabled:opacity-50"
+                className="shrink-0 rounded p-1 text-[#1f4e79] hover:bg-[#f2f7fb] disabled:opacity-50"
               >
                 <Undo2 size={13} aria-hidden="true" />
               </button>
@@ -1196,7 +1221,7 @@ function CrnRow({
                     disabled={exempting}
                     aria-label={`Exempt from ${courseCode}`}
                     title={`Not taking ${courseCode}, or one part of it`}
-                    className={`inline-flex items-center gap-1 rounded border border-[#d9dee7] bg-white px-1.5 py-0.5 text-xs font-semibold text-[#667085] hover:border-[#b7bec8] hover:text-[#344054] focus:opacity-100 disabled:opacity-50 ${
+                    className={`inline-flex shrink-0 items-center gap-1 rounded border border-[#d9dee7] bg-white px-1.5 py-0.5 text-xs font-semibold text-[#667085] hover:border-[#b7bec8] hover:text-[#344054] focus:opacity-100 disabled:opacity-50 ${
                       choosing ? "opacity-100" : "sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
                     }`}
                   >

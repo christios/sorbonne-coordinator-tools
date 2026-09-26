@@ -6,7 +6,7 @@ import { CourseRecord } from "@/components/CourseRecord";
 import { CrnRecord } from "@/components/CrnRecord";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { removeEach, stillSelected } from "@/services/bulkRemove";
-import { warningsByCrn, worstOf, WORDS, type CrnWarning, type CrnWarningKind } from "@/services/registerWarnings";
+import { REMEDIES, warningsByCrn, worstOf, WORDS, type CrnWarning, type CrnWarningKind } from "@/services/registerWarnings";
 import { ListGrid, StatePill } from "@/components/ListGrid";
 import { ClassChangesBanner } from "@/components/ClassChanges";
 import { Modal } from "@/components/Modal";
@@ -201,7 +201,7 @@ export function ActiveCourses({ onShowStudents }: { onShowStudents?: (ids: strin
           {mine.map((warning) => (
             <span
               key={`${warning.kind}|${warning.text}`}
-              title={warning.text}
+              title={`${warning.text}\n${REMEDIES[warning.kind]}`}
               className={`inline-flex max-w-full items-center truncate rounded-full px-2 py-0.5 text-[11px] font-semibold ${
                 warning.kind === "gone" || warning.kind === "unregistered"
                   ? "bg-[#fdf3f3] text-[#a6292f]"

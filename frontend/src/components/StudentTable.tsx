@@ -3,7 +3,7 @@ import { memo, useCallback } from "react";
 
 import { CommentPeek } from "@/components/CommentPeek";
 import { DataTable, type Sort } from "@/components/DataTable";
-import { describeWarning, labelWarning, sourceOf, type WarningSource } from "@/services/discrepancies";
+import { describeWarning, labelWarning, remedyFor, sourceOf, type WarningSource } from "@/services/discrepancies";
 import type { StudentRow } from "@/services/rosterView";
 import type { ColumnLayout, StudentColumn } from "@/services/studentColumns";
 
@@ -193,7 +193,11 @@ function studentCell(
           <span
             key={warning.key}
             data-source={source}
-            title={warning.dismissed ? `${describeWarning(warning)} — ${decidedBy(warning)}` : describeWarning(warning)}
+            title={
+              warning.dismissed
+                ? `${describeWarning(warning)} — ${decidedBy(warning)}`
+                : `${describeWarning(warning)}\n${remedyFor(warning)}`
+            }
             className={`inline-flex max-w-full items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${
               warning.dismissed ? "bg-[#f2f4f7] text-[#98a2b3]" : WARNING_TONES[source]
             }`}

@@ -84,6 +84,14 @@ export function worstOf(warnings: CrnWarning[]): CrnWarningKind | "" {
  * disagreement" is the question somebody filters this column to answer, and a number
  * cannot be filtered to it.
  */
+/** What makes each go away, for whoever hovers the pill. */
+export const REMEDIES: Record<CrnWarningKind, string> = {
+  gone: "Goes away when the portal lists the CRN again, or when you take it off the register.",
+  unregistered: "Goes away when the portal registers a student in it, or when you take it off the register.",
+  teacherDiffers: "Goes away when the teacher on its group matches the portal's, on Groups & CRNs or in the portal.",
+  teacherUnnamed: "Goes away when you name the teacher on its group on Groups & CRNs.",
+};
+
 export const WORDS: Record<CrnWarningKind, string> = {
   gone: "Gone from the portal",
   unregistered: "Registered nowhere",

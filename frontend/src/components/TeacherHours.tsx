@@ -46,7 +46,7 @@ import { loadLayout, visibleColumns, type GridColumn } from "@/services/studentC
 import { fetchCohorts, fetchCourseCards } from "@/services/studentDatabase";
 import { fetchTimetableTerms } from "@/services/timetables";
 import { TEACHER_THREAD } from "@/services/threads";
-import { DEFAULT_APART, type Severity } from "@/services/teacherWarnings";
+import { DEFAULT_APART, TEACHER_REMEDIES, type Severity } from "@/services/teacherWarnings";
 import { dismissalsByKey, fetchDismissals, setDismissal } from "@/services/warningDismissals";
 
 /**
@@ -459,7 +459,7 @@ function Warnings({ row, onDecide }: { row: LoadRow; onDecide: (key: string, dis
           title={
             warning.dismissed
               ? `${warning.sentence} — dismissed by ${warning.dismissedBy || "somebody"}`
-              : warning.sentence
+              : `${warning.sentence}\n${TEACHER_REMEDIES[warning.kind] ?? ""}`.trim()
           }
           className={`inline-flex max-w-full items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${
             warning.dismissed ? "bg-[#f2f4f7] text-[#98a2b3]" : TONES[warning.severity]

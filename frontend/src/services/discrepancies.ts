@@ -99,6 +99,8 @@ export type Warning = {
   label?: string;
   /** Which record it came out of, where the kind cannot say — see `sourceOf`. */
   source?: WarningSource;
+  /** For a registration warning, the register's own word for it: "missing", "exempt". */
+  verdict?: string;
   /** Set by the page when somebody has decided to live with this warning. */
   dismissed?: boolean;
   /**
@@ -777,8 +779,65 @@ export function registrationWarnings<
       expected: mismatch.expected.join(" and "),
       label,
       source,
+      verdict: mismatch.kind,
     };
   });
+}
+
+/**
+ * What makes a warning go away, said on its pill for whoever hovers it.
+ *
+ * A warning that says only what is wrong leaves the reader to work out which of three
+ * people to ask and what to change; the pill knows, so it says. Dismissing is always the
+ * last resort and is not repeated on every one — the pill's own button says it.
+ */
+export function remedyFor(warning: Warning): string {
+  if (warning.kind === "registration") {
+    const where = warning.expected ? ` in ${warning.expected}` : "";
+    switch (warning.verdict) {
+      case "missing":
+        return `Goes away when the registrar registers them${where}, when you place them in the group of the section they are in, or when you exempt them from it.`;
+      case "wrong":
+        return "Goes away when the registrar moves them to our section, or when you move them to the group whose section they are in.";
+      case "extra":
+        return "Goes away when the registrar drops the section we did not place them in.";
+      case "unplaced":
+        return "Goes away when you place them in a group of the set that teaches it, or approve the course on their record.";
+      case "doubled":
+        return "Goes away when the registrar drops one of the two sections of the set.";
+      case "collides":
+        return "Goes away when one of the two classes moves to another hour, or they change to a section that does not clash.";
+      case "exempt":
+        return "Goes away when the registrar drops them from it, or when you undo the exemption on their record.";
+      default:
+        return "Goes away when the registrar's sections and their groups agree.";
+    }
+  }
+  if (warning.kind === "group") {
+    if (warning.ruleId === "link") {
+      return "Goes away when you move them to a group that goes with their group in the linked set, or add that pairing on Group schema.";
+    }
+    if (warning.ruleId === "exempt-group") {
+      return "Goes away when you take them out of the group, or undo one of the exemptions on their record.";
+    }
+    return "Goes away when you place them in a group of that set — Place in groups on the selection bar.";
+  }
+  if (warning.kind === "elective") {
+    return "Goes away when you approve the course on their record, or add it to the cohort's allowed courses in its rules.";
+  }
+  switch (warning.kind) {
+    case "changed":
+    case "changed_to":
+      return "Goes away once you dismiss it, having looked; it comes back only if their record changes again.";
+    case "belongs":
+      return "Goes away when you move them into that cohort, or when the rule that says they belong is changed.";
+    case "unplaced":
+      return "Goes away when you place them in a cohort.";
+    case "no_baseline":
+      return "Goes away the next time they are moved, which records when.";
+    default:
+      return "Goes away when admissions corrects their record to what the cohort expects, when you move them to the right cohort, or when the cohort's rule is changed.";
+  }
 }
 
 /** The whole list as a spreadsheet block, for handing to admissions. */

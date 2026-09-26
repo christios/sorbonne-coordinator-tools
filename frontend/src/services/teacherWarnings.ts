@@ -177,3 +177,11 @@ export function warningsFor(figures: TeacherFigures, apart: number = DEFAULT_APA
 export function warningRank(warnings: TeacherWarning[]): number {
   return warnings.filter((warning) => !warning.dismissed).reduce((worst, warning) => Math.max(worst, warning.apart), 0);
 }
+
+/** What makes each kind of teacher warning go away, for whoever hovers it. */
+export const TEACHER_REMEDIES: Record<string, string> = {
+  plan_vs_registrar: "Goes away when the portal's staffing and hours for their sections match ours — change the teacher or hours on Groups & CRNs, or ask the registrar to.",
+  plan_vs_contract: "Goes away when their requisitions' teaching hours match the plan — amend the requisition, or the sections planned for them.",
+  claim_vs_taught: "Goes away when the time sheet's claim for that period matches what the timetable says they taught.",
+  contract_nearly_spent: "Goes away with a requisition for more teaching hours, or when the plan asks less of them.",
+};

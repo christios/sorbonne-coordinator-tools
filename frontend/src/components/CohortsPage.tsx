@@ -193,13 +193,14 @@ function SourceFilter({
           aria-pressed={showing.has(id)}
           title={hint}
           onClick={() => onToggle(id)}
+          // On, it takes the colour its pills have in the table, so the toggle and what it shows read as one.
           className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-semibold transition-colors ${
-            showing.has(id) ? "bg-[#1f4e79] text-white" : "text-[#667085] hover:bg-[#f6f8fb]"
+            showing.has(id) ? WARNING_TONES[id] : "text-[#98a2b3] hover:bg-[#f6f8fb]"
           }`}
         >
           <Icon size={12} aria-hidden="true" />
           {name}
-          <span className={`tabular-nums font-normal ${showing.has(id) ? "text-white/75" : "text-[#98a2b3]"}`}>{counts[id]}</span>
+          <span className={`tabular-nums font-normal ${showing.has(id) ? "opacity-75" : "text-[#98a2b3]"}`}>{counts[id]}</span>
         </button>
       ))}
     </div>
