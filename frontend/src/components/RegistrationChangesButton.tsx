@@ -19,8 +19,8 @@ import type { Cohort } from "@/services/studentDatabase";
  * wants all three. One-at-a-time meant copying twice and pasting twice.
  */
 const RECORDS: { id: WarningSource; name: string }[] = [
-  { id: "record", name: "Admissions" },
-  { id: "registration", name: "Register" },
+  { id: "record", name: "Status" },
+  { id: "registration", name: "Registration" },
   { id: "timetabling", name: "Timetabling" },
 ];
 

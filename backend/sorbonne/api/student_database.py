@@ -964,6 +964,12 @@ def set_dismissal(
     }
 
 
+@router.get("/exemptions")
+def list_every_exemption(database: StudentDatabase = Depends(get_database)) -> dict[str, Any]:
+    """Every student's exemptions, for the Students table's "Exempt from" column."""
+    return {"exemptions": database.every_exemption()}
+
+
 @router.get("/cohorts/{cohort_id}/exemptions")
 def list_exemptions(cohort_id: str, database: StudentDatabase = Depends(get_database)) -> dict[str, Any]:
     """Who, in this cohort's sets, does not take one of the courses their group teaches."""

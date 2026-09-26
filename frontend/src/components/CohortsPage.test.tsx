@@ -150,7 +150,7 @@ describe("the Cohorts page", () => {
     expect(within(rowOf("Amira Haddad")).getByTitle(/major is Physics, cohort expects/)).toBeTruthy();
     expect(within(rowOf("Karim Nasser")).queryByText(/cohort expects/)).toBeNull();
     // How many are flagged is on the toggle for the record that flags them.
-    expect(screen.getByRole("button", { name: /Admissions\s*1/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Status\s*1/ })).toBeTruthy();
   });
 
   it("has no Cohort column — every row would say the same thing — and pills the groups", async () => {
@@ -259,7 +259,7 @@ describe("the Cohorts page", () => {
     fireEvent.click(screen.getByRole("button", { name: /Dismissed\s*1/ }));
     fireEvent.click(await screen.findByRole("button", { name: /^Restore: major is Physics/ }));
 
-    expect(await screen.findByRole("button", { name: /Admissions\s*1/ })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: /Status\s*1/ })).toBeTruthy();
   });
 
   it("shows the error when the rules cannot be loaded, rather than an empty cohort", async () => {
@@ -594,7 +594,7 @@ describe("the register half of the Cohorts page", () => {
     expect(other.getByTitle(/in no CM group/)).toBeTruthy();
     expect(other.queryByTitle(/in no TD group/)).toBeNull();
     // And the register's own count is untouched by any of it.
-    expect(screen.getByRole("button", { name: /^Register/ }).textContent).toContain("0");
+    expect(screen.getByRole("button", { name: /^Registration\s*\d/ }).textContent).toContain("0");
   });
 
   it("keeps the cohort's own rules in a tab of its settings, saved with the rest", async () => {
@@ -718,8 +718,8 @@ describe("the register half of the Cohorts page", () => {
     await screen.findByTitle("MATH-001: not registered in 23223");
 
     // One student flagged by each record; all three records on to begin with, no "All".
-    const admissions = screen.getByRole("button", { name: "Admissions 1" });
-    const register = screen.getByRole("button", { name: "Register 1" });
+    const admissions = screen.getByRole("button", { name: "Status 1" });
+    const register = screen.getByRole("button", { name: "Registration 1" });
     expect(screen.getByRole("button", { name: "Timetabling 0" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /^All / })).toBeNull();
     expect(admissions.getAttribute("aria-pressed")).toBe("true");
@@ -786,8 +786,8 @@ describe("the register half of the Cohorts page", () => {
     renderPage();
     await screen.findByText("Amira Haddad");
 
-    // Two of her courses differ; she is one student on the Register toggle.
-    expect(screen.getByRole("button", { name: /Register\s*1/ })).toBeTruthy();
+    // Two of her courses differ; she is one student on the Registration toggle.
+    expect(screen.getByRole("button", { name: /Registration\s*1/ })).toBeTruthy();
   });
 
   /*
@@ -809,7 +809,7 @@ describe("the register half of the Cohorts page", () => {
      * between — and must not put "N flagged" beside the cohort in the picker.
      */
     expect(document.querySelectorAll("[data-source]")).toHaveLength(0);
-    expect(screen.queryByRole("button", { name: /^Register/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Registration\s*\d/ })).toBeNull();
     expect(screen.queryByText(/flagged/)).toBeNull();
   });
 
@@ -1033,8 +1033,8 @@ describe("three records, three kinds of trouble", () => {
     ]);
 
     renderPage();
-    fireEvent.click(await screen.findByRole("button", { name: /Admissions/ }));
-    fireEvent.click(screen.getByRole("button", { name: /Register/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Status/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Registration\s*\d/ }));
 
     expect(screen.getByRole("button", { name: /Timetabling/ }).getAttribute("aria-pressed")).toBe("true");
     expect(await screen.findByText(/MATH-001/)).toBeTruthy();
@@ -1075,7 +1075,7 @@ describe("copying whichever records the reader acts on", () => {
      */
     const dialog = await bothKinds();
 
-    fireEvent.click(within(dialog).getByRole("button", { name: "Admissions" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Status" }));
     fireEvent.click(within(dialog).getByRole("button", { name: "Timetabling" }));
     fireEvent.click(within(dialog).getAllByRole("button", { name: "Copy" })[0]);
 
@@ -1087,7 +1087,7 @@ describe("copying whichever records the reader acts on", () => {
   it("copies what is wrong instead of a CRN for an admissions line", async () => {
     const dialog = await bothKinds();
 
-    fireEvent.click(within(dialog).getByRole("button", { name: "Register" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Registration" }));
     fireEvent.click(within(dialog).getByRole("button", { name: "Timetabling" }));
     fireEvent.click(within(dialog).getAllByRole("button", { name: "Copy" })[0]);
 
@@ -1167,7 +1167,7 @@ describe("choosing a combination of records", () => {
     renderPage();
     fireEvent.click(await screen.findByRole("button", { name: "Registrations to change" }));
     const dialog = await screen.findByRole("dialog");
-    fireEvent.click(within(dialog).getByRole("button", { name: "Admissions" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Status" }));
     fireEvent.click(within(dialog).getAllByRole("button", { name: "Copy" })[0]);
 
     await waitFor(() => expect(copied).toHaveLength(1));
@@ -1186,7 +1186,7 @@ describe("choosing a combination of records", () => {
     renderPage();
     fireEvent.click(await screen.findByRole("button", { name: "Registrations to change" }));
     const dialog = await screen.findByRole("dialog");
-    for (const name of ["Admissions", "Register", "Timetabling"]) {
+    for (const name of ["Status", "Registration", "Timetabling"]) {
       fireEvent.click(within(dialog).getByRole("button", { name }));
     }
 

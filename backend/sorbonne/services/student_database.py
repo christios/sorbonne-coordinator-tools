@@ -1806,6 +1806,11 @@ class StudentDatabase:
                 {"student": _text(student_id), "course": course_id},
             )
 
+    def every_exemption(self) -> list[dict[str, Any]]:
+        """Every exemption of every student, for the tables that list them all — the
+        Students page is not one cohort, and it filters on what a student does not take."""
+        return self._exemptions("", every=True)
+
     def exemptions_of(self, cohort_id: str) -> list[dict[str, Any]]:
         """Every exemption against a course of a set this cohort's students are taught in.
 
@@ -1820,6 +1825,9 @@ class StudentDatabase:
         why the warning stopped and the strikethrough did not appear, and why the two
         disagreed on screen about the same fact.
         """
+        return self._exemptions(cohort_id)
+
+    def _exemptions(self, cohort_id: str, *, every: bool = False) -> list[dict[str, Any]]:
         with self.engine.connect() as connection:
             rows = (
                 connection.execute(
@@ -1828,9 +1836,9 @@ class StudentDatabase:
                             FROM course_exemptions e
                             JOIN scope_courses c ON c.id = e.course_id
                             JOIN cohort_scopes s ON s.id = c.scope_id
-                            WHERE s.cohort_id = :id OR s.open_to_all
+                            WHERE :every OR s.cohort_id = :id OR s.open_to_all
                             ORDER BY e.student_id, c.code"""),
-                    {"id": cohort_id},
+                    {"id": cohort_id, "every": every},
                 )
                 .mappings()
                 .all()
@@ -1848,8 +1856,12 @@ class StudentDatabase:
             for row in rows
         ]
 
-    def exempt_codes(self, term_id: str) -> dict[str, set[str]]:
-        """`{student id: {course code}}` for one semester — what the register must not expect.
+    def exempt_sets(self, term_id: str) -> dict[str, dict[str, dict[str, str]]]:
+        """`{student id: {course code: {set id: set code}}}` for one semester.
+
+        Which SETS' share of a course each student does not take. Exempt in every set of
+        theirs that carries the course is not taking it at all; exempt in one — the practical
+        of a course whose lecture and tutorial they do take — is not taking that part.
 
         Every set of the semester, whichever cohort's row holds it, for the same reason
         `exemptions_of` reads by set: the languages belong to one cohort's row and are
@@ -1857,15 +1869,15 @@ class StudentDatabase:
         """
         with self.engine.connect() as connection:
             rows = connection.execute(
-                text("""SELECT e.student_id, c.code FROM course_exemptions e
+                text("""SELECT e.student_id, c.code, s.id, s.code FROM course_exemptions e
                         JOIN scope_courses c ON c.id = e.course_id
                         JOIN cohort_scopes s ON s.id = c.scope_id
                         WHERE s.term_id = :term"""),
                 {"term": term_id},
             ).all()
-        found: dict[str, set[str]] = {}
-        for student, code in rows:
-            found.setdefault(student, set()).add(code)
+        found: dict[str, dict[str, dict[str, str]]] = {}
+        for student, code, scope_id, scope_code in rows:
+            found.setdefault(student, {}).setdefault(code, {})[scope_id] = scope_code
         return found
 
     def scope_terms(self, cohort_id: str) -> list[str]:

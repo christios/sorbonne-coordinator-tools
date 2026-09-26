@@ -2306,6 +2306,72 @@ def test_lifting_an_exemption_brings_the_difference_back(client: TestClient, dat
     assert [m["courseCode"] for m in found if m["studentId"] == "A001"] == ["MATH-011"]
 
 
+def _course_in(database: StudentDatabase, cohort_id: str, scope_code: str, code: str) -> dict:
+    """One set's share of a course: its lecture, or its tutorial."""
+    scope = next(scope for scope in database.read_catalogue(cohort_id)["scopes"] if scope["code"] == scope_code)
+    return next(course for course in scope["courses"] if course["code"] == code)
+
+
+def _math_verdicts(client: TestClient, cohort_id: str) -> list[tuple[str, str, tuple[str, ...], tuple[str, ...]]]:
+    found = client.get(f"{BASE}/cohorts/{cohort_id}/registration-check").json()["mismatches"]
+    return sorted(
+        (m["kind"], m["scopeCode"], tuple(m["expected"]), tuple(m["registered"]))
+        for m in found
+        if m["studentId"] == "A001" and m["courseCode"] == "MATH-001"
+    )
+
+
+def test_exempt_from_one_part_of_a_course_leaves_its_other_parts_expected(
+    client: TestClient, database: StudentDatabase
+):
+    """The practical of a course whose lecture and tutorial they do take.
+
+    Exempt from the tutorial set's MATH-001 only: its section is no longer expected, and the
+    lecture they are registered in is not a registration of a course they do not take.
+    """
+    cohort_id = build_cohort(database, maths_in_tutorials="23700")
+    client.put(f"{BASE}/term-links/{HUB_TERM}", json={"portalTermCode": TERM})
+    registrations(client, [{"studentId": "A001", "crn": "22151", "courseCode": "MATH-001"}])
+    # In the lecture, not the tutorial: missing from the course's tutorial section.
+    assert _math_verdicts(client, cohort_id) == [("missing", "", ("22151", "23700"), ("22151",))]
+
+    tutorial = _course_in(database, cohort_id, "TD", "MATH-001")
+    client.put(f"/api/v1/student-database/students/A001/exemptions/{tutorial['id']}", json={"reason": ""})
+
+    assert _math_verdicts(client, cohort_id) == []
+
+
+def test_a_registration_in_the_part_they_are_exempt_from_is_named_with_the_part(
+    client: TestClient, database: StudentDatabase
+):
+    cohort_id = build_cohort(database, maths_in_tutorials="23700")
+    client.put(f"{BASE}/term-links/{HUB_TERM}", json={"portalTermCode": TERM})
+    registrations(
+        client,
+        [
+            {"studentId": "A001", "crn": "22151", "courseCode": "MATH-001"},
+            {"studentId": "A001", "crn": "23700", "courseCode": "MATH-001"},
+        ],
+    )
+    tutorial = _course_in(database, cohort_id, "TD", "MATH-001")
+    client.put(f"/api/v1/student-database/students/A001/exemptions/{tutorial['id']}", json={"reason": ""})
+
+    # The tutorial they hold is flagged, as the part; the lecture is theirs and says nothing.
+    assert _math_verdicts(client, cohort_id) == [("exempt", "TD", (), ("23700",))]
+
+
+def test_exempt_from_every_part_is_exempt_from_the_course(client: TestClient, database: StudentDatabase):
+    cohort_id = build_cohort(database, maths_in_tutorials="23700")
+    client.put(f"{BASE}/term-links/{HUB_TERM}", json={"portalTermCode": TERM})
+    registrations(client, [{"studentId": "A001", "crn": "22151", "courseCode": "MATH-001"}])
+    for scope_code in ("CM", "TD"):
+        course = _course_in(database, cohort_id, scope_code, "MATH-001")
+        client.put(f"/api/v1/student-database/students/A001/exemptions/{course['id']}", json={"reason": ""})
+
+    # The whole course, every section of it: said once, with no part named.
+    assert _math_verdicts(client, cohort_id) == [("exempt", "", (), ("22151",))]
+
+
 def _course_named(database: StudentDatabase, cohort_id: str, code: str) -> dict:
     for scope in database.read_catalogue(cohort_id)["scopes"]:
         for course in scope["courses"]:

@@ -26,7 +26,8 @@ import { copyTable } from "@/services/copyCells";
 import { presetBlock, rowsForCopy } from "@/services/copyPresets";
 import { afterPlacement } from "@/services/afterPlacement";
 import { groupCrns } from "@/services/meets";
-import { fetchCourseCards } from "@/services/studentDatabase";
+import { fetchCourseCards, fetchEveryExemption } from "@/services/studentDatabase";
+import { exemptionTokens } from "@/services/exemptionTokens";
 import { fetchSectionDays, fetchTermLinks } from "@/services/portalLists";
 import {
   historyHolding,
@@ -457,6 +458,13 @@ export function StudentRoster({
     retry: false,
   });
   const crnsOf = useMemo(() => groupCrns(catalogues.data ?? []), [catalogues.data]);
+  // What each student does not take, and why — the Exempt from column.
+  const exemptions = useQuery({ queryKey: ["exemptions", "every"], queryFn: fetchEveryExemption, retry: false });
+  const exemptionsFor = useMemo(() => {
+    const cohortOf = new Map((students.data ?? []).map((student) => [student.studentId, student.cohortId]));
+    const tokens = exemptionTokens(exemptions.data ?? [], (studentId) => cohortOf.get(studentId) ?? null, catalogues.data ?? []);
+    return (studentId: string) => tokens.get(studentId) ?? [];
+  }, [exemptions.data, students.data, catalogues.data]);
 
   const everyRow = useMemo(
     () =>
@@ -470,8 +478,9 @@ export function StudentRoster({
         crnsOf,
         sectionDays.data?.days ?? {},
         electivesFor,
+        exemptionsFor,
       ),
-    [students.data, portalRows, changes, syncedAt, termNames, warningsFor, crnsOf, sectionDays.data, electivesFor],
+    [students.data, portalRows, changes, syncedAt, termNames, warningsFor, crnsOf, sectionDays.data, electivesFor, exemptionsFor],
   );
   const rows = useMemo(() => {
     /*

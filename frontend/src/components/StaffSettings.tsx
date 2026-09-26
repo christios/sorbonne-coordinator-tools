@@ -3,6 +3,7 @@ import { Copy, Loader2, Pencil, Shield, ShieldCheck, Trash2, UserPlus } from "lu
 import { useEffect, useState } from "react";
 
 import { ChecksPanel } from "@/components/ChecksPanel";
+import { ExemptionReasonsPanel } from "@/components/ExemptionReasonsPanel";
 import { ProgrammeCodesPanel } from "@/components/ProgrammeCodesPanel";
 import { TermWeeksPanel } from "@/components/TermWeeksPanel";
 import { ThisBrowser } from "@/components/ThisBrowser";
@@ -85,6 +86,8 @@ export function StaffSettings() {
         <ApiTokens />
       ) : page === "programme-codes" ? (
         <AppProgrammeCodes />
+      ) : page === "exemption-reasons" ? (
+        <AppExemptionReasons />
       ) : page === "semesters" ? (
         <AppSemesters />
       ) : page === "this-browser" ? (
@@ -111,6 +114,16 @@ function AppChecks() {
         department and save as you change them.
       </p>
       <ChecksPanel canChange={Boolean(user?.isAdmin)} />
+    </section>
+  );
+}
+
+/** The reasons the Exempt button offers, and the tables filter on. */
+function AppExemptionReasons() {
+  const user = useStaffUser();
+  return (
+    <section className="mt-6 max-w-2xl">
+      <ExemptionReasonsPanel canChange={Boolean(user?.isAdmin)} />
     </section>
   );
 }

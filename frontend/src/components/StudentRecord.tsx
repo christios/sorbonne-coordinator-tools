@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, ArrowRightCircle, Check, ChevronDown, ClipboardList, EyeOff, GraduationCap, MinusCircle, ShieldCheck, UserMinus, Wand2, X } from "lucide-react";
+import { AlertTriangle, ArrowRightCircle, Check, ChevronDown, ClipboardList, EyeOff, GraduationCap, MinusCircle, ShieldCheck, Undo2, UserMinus, Wand2, X } from "lucide-react";
+import { Popover } from "radix-ui";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { CommentThread } from "@/components/CommentThread";
@@ -29,6 +30,7 @@ import {
   fetchTermLinks,
   type ActiveCrn,
 } from "@/services/portalLists";
+import { fetchExemptionReasons } from "@/services/exemptionReasons";
 import { placementsOf, studentTimetable } from "@/services/personTimetable";
 import { allChanges, historyFor, type PullHistory } from "@/services/pullHistory";
 import { copyTable } from "@/services/copyCells";
@@ -259,24 +261,38 @@ export function StudentRecord({
       ),
     [exemptions.data, row.studentId],
   );
+  // Why, where a reason was given: "LEA track". The words the list offered on the day.
+  const reasonOf = (courseId: string) =>
+    (exemptions.data ?? []).find((entry) => entry.studentId === row.studentId && entry.courseId === courseId)?.reason ?? "";
+  // The reasons Settings keeps, offered on the Exempt button.
+  const reasons = useQuery({ queryKey: ["exemption-reasons"], queryFn: fetchExemptionReasons, enabled: open, retry: false });
   /*
-   * Exempt from a course, not from one set's row of it: "not taking PHYS-125" is its
-   * lecture, its tutorial and its practical at once, which is how the register reads it.
-   * Marked one set at a time, a student exempt from a course was still chased for the
-   * set nobody had got round to.
+   * Exempt from a course, or from one set's part of it.
+   *
+   * The whole course by default: "not taking PHYS-125" is its lecture, its tutorial and its
+   * practical at once, and marked one set at a time a student was still chased for the set
+   * nobody had got round to. But a student may take the lecture and the tutorial and not
+   * the practical, so one set's part can be chosen instead — and the register then judges
+   * that part alone.
+   *
+   * Undone the way it was given: a whole course comes back whole; one part, that part.
    */
+  const courseIdsOf = (courseCode: string) => [
+    ...new Set(placements.flatMap((placement) => placement.crns).filter((cell) => cell.courseCode === courseCode).map((cell) => cell.courseId)),
+  ];
   const exempt = useMutation({
-    mutationFn: async ({ courseCode, on }: { courseCode: string; on: boolean }) => {
-      const courseIds = [
-        ...new Set(placements.flatMap((placement) => placement.crns).filter((cell) => cell.courseCode === courseCode).map((cell) => cell.courseId)),
-      ];
-      for (const courseId of courseIds) {
-        if (on) await setExemption(row.studentId, courseId);
-        else await clearExemption(row.studentId, courseId);
+    mutationFn: async ({ courseCode, courseId, on, whole = true, reason = "" }: { courseCode: string; courseId: string; on: boolean; whole?: boolean; reason?: string }) => {
+      const every = courseIdsOf(courseCode);
+      const wholeNow = every.length > 0 && every.every((id) => excused.has(id));
+      const touched = on ? (whole ? every : [courseId]) : wholeNow ? every : [courseId];
+      for (const id of touched) {
+        if (on) await setExemption(row.studentId, id, reason);
+        else await clearExemption(row.studentId, id);
       }
     },
     onSuccess: () => {
-      void client.invalidateQueries({ queryKey: ["exemptions", cohortId ?? ""] });
+      // This cohort's, and the tables' list of everybody's.
+      void client.invalidateQueries({ queryKey: ["exemptions"] });
       void client.invalidateQueries({ queryKey: ["course-cards"] });
       // This cohort's verdict, not every cohort's: a student belongs to one, and the
       // register's answer is the slowest thing the server builds. Asking for all four
@@ -652,6 +668,15 @@ export function StudentRecord({
                               * set it is linked to: Philosophy 1 under TD 2. Said, not fixed — a
                               * few sit there on purpose, and moving them is a decision.
                               */}
+                            {/*
+                              * In the group and exempt from every course it carries: the group
+                              * gives them nothing to attend, which is a placement to look at.
+                              */}
+                            {group && crns.some((cell) => cell.crn) && crns.every((cell) => excused.has(cell.courseId)) ? (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-[#fdf9ee] px-2 py-0.5 text-xs font-semibold text-[#8a6116]">
+                                <AlertTriangle size={11} aria-hidden="true" /> exempt from all of it
+                              </span>
+                            ) : null}
                             {group && misfitOf(scope, group) ? (
                               <span className="inline-flex items-center gap-1 rounded-full bg-[#fdf9ee] px-2 py-0.5 text-xs font-semibold text-[#8a6116]">
                                 <AlertTriangle size={11} aria-hidden="true" /> {misfitOf(scope, group)}
@@ -712,7 +737,15 @@ export function StudentRecord({
                           }
                           onOpen={cell.crn && inRegister(cell.crn) ? () => setShowingCrn(inRegister(cell.crn)) : undefined}
                           exempting={exempt.isPending}
-                          onExempt={(on) => exempt.mutate({ courseCode: cell.courseCode, on })}
+                          scopeCode={scope.code}
+                          // How many of their sets carry this course: one, and there is no part to choose.
+                          parts={courseIdsOf(cell.courseCode).length}
+                          whole={courseIdsOf(cell.courseCode).every((id) => excused.has(id))}
+                          reason={reasonOf(cell.courseId)}
+                          reasons={(reasons.data ?? []).map((entry) => entry.label)}
+                          onExempt={(on, choice) =>
+                            exempt.mutate({ courseCode: cell.courseCode, courseId: cell.courseId, on, whole: choice?.whole, reason: choice?.reason })
+                          }
                         />
                       ))}
                     </tbody>
@@ -1042,6 +1075,11 @@ function CrnRow({
   exempting = false,
   onExempt,
   outside,
+  scopeCode = "",
+  parts = 1,
+  whole = true,
+  reason = "",
+  reasons = [],
 }: {
   crn: string;
   courseCode: string;
@@ -1051,9 +1089,20 @@ function CrnRow({
   state: "registered" | "not registered" | "exempt" | "exempt, registered" | "no crn" | "outside";
   onOpen?: () => void;
   exempting?: boolean;
-  onExempt?: (on: boolean) => void;
+  /** Exempt them — from the whole course, or from this set's part of it — or undo it. */
+  onExempt?: (on: boolean, choice?: { whole: boolean; reason: string }) => void;
   /** For a row outside their groups: what to say in the portal column instead. */
   outside?: ReactNode;
+  /** The set this row is in, for "only MTP". */
+  scopeCode?: string;
+  /** How many of their sets carry this course; with one there is no part to choose. */
+  parts?: number;
+  /** Exempt from every part of the course, rather than from this set's alone. */
+  whole?: boolean;
+  /** Why, where a reason was given. */
+  reason?: string;
+  /** The reasons Settings keeps, to choose from. */
+  reasons?: string[];
 }) {
   const off = state === "exempt" || state === "exempt, registered";
   /*
@@ -1062,6 +1111,10 @@ function CrnRow({
    * are rightly out of, so it says so in the colour of something to act on.
    */
   const stillRegistered = state === "exempt, registered";
+  const [choosing, setChoosing] = useState(false);
+  const [onlyThis, setOnlyThis] = useState(false);
+  // What the pill says: exempt, from which part, and why.
+  const said = ["exempt", !whole && parts > 1 ? `${scopeCode} only` : "", reason].filter(Boolean).join(" · ");
   return (
     <tr className={`group border-t border-[#f2f4f7] align-top ${off ? "text-[#98a2b3]" : ""}`}>
       {/* A little in from the set's band, so each group's CRNs read as its own. */}
@@ -1086,57 +1139,127 @@ function CrnRow({
       <td className="py-1.5 pr-2 text-xs">
         <span className={off ? "" : "text-[#344054]"}>{teacher || "—"}</span>
       </td>
-      <td className="py-1.5 pr-2 text-xs">
-        {outside ??
-          (state === "registered" ? (
-            <span className="inline-flex items-center gap-1 text-[#2f6b3d]">
-              <Check size={13} aria-hidden="true" /> registered
-            </span>
-          ) : stillRegistered ? (
-            <span
-              className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-[#fdf3e1] px-2 py-0.5 font-semibold text-[#8a6116]"
-              title={`Recorded as not taking ${courseCode}, and the portal still has them in ${crn}. Either the exemption or the registration is wrong.`}
-            >
-              <MinusCircle size={12} aria-hidden="true" /> exempt · still registered
-            </span>
-          ) : off ? (
-            <span
-              className="inline-flex items-center gap-1 rounded-full bg-[#f2f4f7] px-2 py-0.5 font-semibold text-[#667085]"
-              title={`They do not take ${courseCode}, so the portal is right not to have them in it.`}
-            >
-              <MinusCircle size={12} aria-hidden="true" /> exempt
-            </span>
-          ) : state === "no crn" ? (
-            <span className="text-[#98a2b3]">no CRN yet</span>
-          ) : (
-            <span className="text-[#a6292f]">not registered</span>
-          ))}
-      </td>
-      <td className="py-1.5 text-right">
-        {onExempt ? (
-          off ? (
-            <button
-              type="button"
-              disabled={exempting}
-              onClick={() => onExempt(false)}
-              title={`Put them back in ${courseCode}`}
-              className="rounded px-1.5 py-0.5 text-xs font-semibold text-[#1f4e79] hover:bg-[#f2f7fb] disabled:opacity-50"
-            >
-              Undo
-            </button>
-          ) : (
-            <button
-              type="button"
-              disabled={exempting}
-              onClick={() => onExempt(true)}
-              aria-label={`Exempt from ${courseCode}`}
-              title={`Not taking ${courseCode} — its lecture, tutorial and practical. The portal is then not expected to have them in it.`}
-              className="inline-flex items-center gap-1 rounded border border-[#d9dee7] bg-white px-1.5 py-0.5 text-xs font-semibold text-[#667085] hover:border-[#b7bec8] hover:text-[#344054] focus:opacity-100 disabled:opacity-50 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
-            >
-              <MinusCircle size={12} aria-hidden="true" /> Exempt
-            </button>
-          )
-        ) : null}
+      {/*
+        * The state and what can be done about it, in one cell. The pill and a button in
+        * cells of their own ran into each other once the pill said more than one word.
+        */}
+      <td className="py-1.5 pr-1 text-xs" colSpan={2}>
+        <span className="flex flex-wrap items-center justify-between gap-1">
+          {outside ??
+            (state === "registered" ? (
+              <span className="inline-flex items-center gap-1 text-[#2f6b3d]">
+                <Check size={13} aria-hidden="true" /> registered
+              </span>
+            ) : off ? (
+              <span
+                className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-semibold ${
+                  stillRegistered ? "bg-[#fdf3e1] text-[#8a6116]" : "bg-[#f2f4f7] text-[#667085]"
+                }`}
+                title={
+                  stillRegistered
+                    ? `Recorded as not taking ${whole ? courseCode : `${scopeCode}'s ${courseCode}`}, and the portal still has them in ${crn}. Either the exemption or the registration is wrong.`
+                    : `They do not take ${whole ? courseCode : `${scopeCode}'s ${courseCode}`}, so the portal is right not to have them in it.`
+                }
+              >
+                <MinusCircle size={12} className="shrink-0" aria-hidden="true" />
+                {said}
+                {stillRegistered ? " · still registered" : ""}
+              </span>
+            ) : state === "no crn" ? (
+              <span className="text-[#98a2b3]">no CRN yet</span>
+            ) : (
+              <span className="text-[#a6292f]">not registered</span>
+            ))}
+          {onExempt ? (
+            off ? (
+              <button
+                type="button"
+                disabled={exempting}
+                onClick={() => onExempt(false)}
+                aria-label={`Undo the exemption from ${courseCode}`}
+                title={whole ? `Put them back in ${courseCode}` : `Put them back in ${scopeCode}'s ${courseCode}`}
+                className="rounded p-1 text-[#1f4e79] hover:bg-[#f2f7fb] disabled:opacity-50"
+              >
+                <Undo2 size={13} aria-hidden="true" />
+              </button>
+            ) : (
+              <Popover.Root
+                open={choosing}
+                onOpenChange={(open) => {
+                  setChoosing(open);
+                  if (open) setOnlyThis(false);
+                }}
+              >
+                <Popover.Trigger asChild>
+                  <button
+                    type="button"
+                    disabled={exempting}
+                    aria-label={`Exempt from ${courseCode}`}
+                    title={`Not taking ${courseCode}, or one part of it`}
+                    className={`inline-flex items-center gap-1 rounded border border-[#d9dee7] bg-white px-1.5 py-0.5 text-xs font-semibold text-[#667085] hover:border-[#b7bec8] hover:text-[#344054] focus:opacity-100 disabled:opacity-50 ${
+                      choosing ? "opacity-100" : "sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
+                    }`}
+                  >
+                    <MinusCircle size={12} aria-hidden="true" /> Exempt
+                  </button>
+                </Popover.Trigger>
+                <Popover.Portal>
+                  <Popover.Content
+                    side="bottom"
+                    align="end"
+                    sideOffset={4}
+                    collisionPadding={12}
+                    className="z-[120] w-64 rounded-lg border border-[#d9dee7] bg-white p-3 text-sm shadow-lg"
+                    aria-label={`Exempt from ${courseCode}`}
+                  >
+                    <p className="font-semibold text-[#171717]">Not taking {courseCode}</p>
+                    {/* A part to choose only where the course is in more than one set of theirs. */}
+                    {parts > 1 ? (
+                      <span role="group" aria-label="Which part" className="mt-2 flex overflow-hidden rounded-md border border-[#d3d9e2] text-xs font-semibold">
+                        {[
+                          { value: false, label: "The whole course" },
+                          { value: true, label: `Only ${scopeCode}` },
+                        ].map((option) => (
+                          <button
+                            key={option.label}
+                            type="button"
+                            aria-pressed={onlyThis === option.value}
+                            onClick={() => setOnlyThis(option.value)}
+                            className={`flex-1 border-l border-[#d3d9e2] px-2 py-1 first:border-l-0 ${
+                              onlyThis === option.value ? "bg-[#1f4e79] text-white" : "bg-white text-[#344054] hover:bg-[#f8fafc]"
+                            }`}
+                          >
+                            {option.label}
+                          </button>
+                        ))}
+                      </span>
+                    ) : null}
+                    <p className="mt-2 text-xs font-semibold text-[#667085]">Because</p>
+                    <span className="mt-1 flex flex-wrap gap-1">
+                      {[...reasons, ""].map((option) => (
+                        <button
+                          key={option || "none"}
+                          type="button"
+                          onClick={() => {
+                            setChoosing(false);
+                            onExempt(true, { whole: !onlyThis, reason: option });
+                          }}
+                          className={`rounded-full border px-2 py-0.5 text-xs font-semibold ${
+                            option
+                              ? "border-[#c9d6e6] bg-[#f5f8fb] text-[#1f4e79] hover:bg-[#eaf1f8]"
+                              : "border-[#d9dee7] bg-white text-[#667085] hover:bg-[#f8fafc]"
+                          }`}
+                        >
+                          {option || "No reason"}
+                        </button>
+                      ))}
+                    </span>
+                  </Popover.Content>
+                </Popover.Portal>
+              </Popover.Root>
+            )
+          ) : null}
+        </span>
       </td>
     </tr>
   );

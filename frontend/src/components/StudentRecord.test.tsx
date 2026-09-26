@@ -10,6 +10,7 @@ import type { PullHistory } from "@/services/pullHistory";
 import type { StudentRow } from "@/services/rosterView";
 import * as comments from "@/services/studentComments";
 import * as database from "@/services/studentDatabase";
+import * as reasonsApi from "@/services/exemptionReasons";
 import * as timetables from "@/services/timetables";
 
 const ROW: StudentRow = {
@@ -28,7 +29,7 @@ const ROW: StudentRow = {
   isNew: false,
   changes: [],
   warnings: [],
-  groups: ["TD 1"], sets: [], meets: [], signature: "TD 1", electives: [],
+  groups: ["TD 1"], sets: [], meets: [], signature: "TD 1", electives: [], exemptions: [],
 };
 
 const COHORT: database.Cohort = {
@@ -288,8 +289,9 @@ describe("the groups and their CRNs, against the portal", () => {
     show();
 
     const td = await screen.findByLabelText("TD 1");
+    // The state and the way to change it share a cell: "registered", and the Exempt button.
     expect(cells(within(td).getByText("23652").closest("tr") as HTMLElement).slice(0, 4)).toEqual([
-      "23652", "MATH-011Algorithms", "Dr Ahmed", "registered",
+      "23652", "MATH-011Algorithms", "Dr Ahmed", "registered Exempt",
     ]);
     const outside = screen.getByLabelText("Outside their groups");
     expect(cells(within(outside).getByText("23421").closest("tr") as HTMLElement).slice(0, 4)).toEqual([
@@ -352,9 +354,40 @@ describe("the groups and their CRNs, against the portal", () => {
 
     const buttons = await screen.findAllByRole("button", { name: "Exempt from MATH-011" });
     fireEvent.click(buttons[0]);
+    // The whole course unless one part is chosen, and a reason — or none.
+    fireEvent.click(await screen.findByRole("button", { name: "No reason" }));
 
     await waitFor(() => expect(set).toHaveBeenCalledTimes(2));
     expect(set.mock.calls.map((call) => call[1]).sort()).toEqual(["c-algo", "c-algo-cm"]);
+  });
+
+  it("exempts from one set's part of a course, with a reason from the list", async () => {
+    vi.spyOn(database, "fetchCatalogue").mockResolvedValue({
+      scopes: [
+        {
+          id: "scope-cm", code: "CM", name: "", note: "", termId: "term-1", kind: "shared", parentScopeId: "", openToAll: false,
+          courses: [{ id: "c-algo-cm", code: "MATH-011", name: "Algorithms", component: "CM", request: EMPTY_REQUEST }],
+          groups: [{ id: "cm-a", label: "A", capacity: 0, note: "", parentGroupId: "", assigned: 1, crns: { "c-algo-cm": { ...EMPTY_SECTION, crn: "23600" } } }],
+        },
+        {
+          id: "scope-td", code: "TD", name: "", note: "", termId: "term-1", kind: "shared", parentScopeId: "", openToAll: false,
+          courses: [{ id: "c-algo", code: "MATH-011", name: "Algorithms", component: "TD", request: EMPTY_REQUEST }],
+          groups: [{ id: "td-1", label: "1", capacity: 0, note: "", parentGroupId: "", assigned: 1, crns: { "c-algo": { ...EMPTY_SECTION, crn: "23652" } } }],
+        },
+      ],
+    });
+    vi.spyOn(database, "fetchAssignments").mockResolvedValue({ A001: { "scope-cm": "cm-a", "scope-td": "td-1" } });
+    vi.spyOn(reasonsApi, "fetchExemptionReasons").mockResolvedValue([{ label: "Repeater", createdAt: "", createdBy: "" }]);
+    const set = vi.spyOn(database, "setExemption").mockResolvedValue(undefined as never);
+    show();
+
+    const td = await screen.findByLabelText("TD 1");
+    fireEvent.click(within(td).getByRole("button", { name: "Exempt from MATH-011" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Only TD" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Repeater" }));
+
+    await waitFor(() => expect(set).toHaveBeenCalledTimes(1));
+    expect(set).toHaveBeenCalledWith("A001", "c-algo", "Repeater");
   });
 
   it("says exempt, and offers the way back, on a course they do not take", async () => {
@@ -366,7 +399,7 @@ describe("the groups and their CRNs, against the portal", () => {
 
     const row = within(await screen.findByLabelText("TD 1")).getByText("23652").closest("tr") as HTMLElement;
     expect(row.textContent).toContain("exempt");
-    fireEvent.click(within(row).getByRole("button", { name: "Undo" }));
+    fireEvent.click(within(row).getByRole("button", { name: "Undo the exemption from MATH-011" }));
 
     await waitFor(() => expect(clear).toHaveBeenCalledWith("A001", "c-algo"));
   });

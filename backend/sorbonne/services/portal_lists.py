@@ -262,7 +262,7 @@ class _TermReads:
         self._registered: dict[str, dict[str, dict[str, list[str]]]] = {}
         self._pulled: dict[str, set[str]] = {}
         self._whole: dict[str, bool] = {}
-        self._exempt: dict[str, dict[str, set[str]]] = {}
+        self._exempt: dict[str, dict[str, dict[str, dict[str, str]]]] = {}
         self._approved: dict[str, dict[str, set[str]]] = {}
         self._collisions: dict[str, list[dict[str, Any]]] = {}
         self._scope_crns: dict[str, list[dict[str, Any]]] = {}
@@ -292,9 +292,9 @@ class _TermReads:
             self._whole[term_code] = self._store.pull_was_whole(term_code)
         return self._whole[term_code]
 
-    def exempt(self, term_id: str) -> dict[str, set[str]]:
+    def exempt(self, term_id: str) -> dict[str, dict[str, dict[str, str]]]:
         if term_id not in self._exempt:
-            self._exempt[term_id] = self._database.exempt_codes(term_id)
+            self._exempt[term_id] = self._database.exempt_sets(term_id)
         return self._exempt[term_id]
 
     def approved(self, term_code: str) -> dict[str, set[str]]:
@@ -2206,6 +2206,12 @@ class PortalListStore:
                     expected.setdefault(row["studentId"], {}).setdefault(code, {}).setdefault(
                         group["scopeId"], set()
                     ).update(crn for crn in crns if crn)
+            # Every CRN each set gives a course, whichever group and sub-row: the sections a
+            # student exempt from that set's part must be neither expected nor in.
+            set_crns: dict[str, dict[str, set[str]]] = {}
+            for group in groups.values():
+                for code, crns in _every_cell(group).items():
+                    set_crns.setdefault(group["scopeId"], {}).setdefault(code, set()).update(crn for crn in crns if crn)
             registered = reads.registered(term_code)
             # What is always allowed outside our groups, and what a coordinator has approved
             # for one student — the two things that keep an elective from being a verdict.
@@ -2225,28 +2231,19 @@ class PortalListStore:
             for student in cohort["students"]:
                 if student not in pulled_here and not whole:
                     continue
-                excused = exempt.get(student, set())
-                found.extend(
-                    _judge(
-                        student,
-                        term_id,
-                        term_code,
-                        code,
-                        _unfinished(expected.get(student, {}).get(code, {}), windows, today),
-                        _every_section(expected.get(student, {}).get(code, {})),
-                        registered.get(student, {}).get(code, []),
+                excused = exempt.get(student, {})
+                for code in course_codes:
+                    found.extend(
+                        _judge_course(
+                            (student, term_id, term_code, code),
+                            expected.get(student, {}).get(code, {}),
+                            registered.get(student, {}).get(code, []),
+                            excused.get(code, {}),
+                            set_crns,
+                            windows,
+                            today,
+                        )
                     )
-                    for code in course_codes
-                    if code not in excused
-                )
-                # An exemption says they do not take the course. It stops us EXPECTING them
-                # in its sections; it must not also hide the fact that the registrar still
-                # has them in one, which is the only half anybody can act on.
-                found.extend(
-                    _exempted(student, term_id, term_code, code, registered.get(student, {}).get(code, []))
-                    for code in course_codes
-                    if code in excused
-                )
                 electives.extend(
                     _electives(
                         student,
@@ -2492,7 +2489,43 @@ def _judge(  # noqa: PLR0913 - one argument per part of the verdict
     return Mismatch(student, term_id, term_code, code, kind, current, held, ever_expected=mine)
 
 
-def _exempted(student: str, term_id: str, term_code: str, code: str, registered: list[str]) -> Mismatch | None:
+def _judge_course(  # noqa: PLR0913 - one argument per part of the verdict
+    who: tuple[str, str, str, str],
+    by_set: dict[str, set[str]],
+    held: list[str],
+    off: dict[str, str],
+    set_crns: dict[str, dict[str, set[str]]],
+    windows: dict[str, tuple[str, str]],
+    today: str,
+) -> list[Mismatch | None]:
+    """One student and one course: what is missing, wrong or extra, and what they are exempt from.
+
+    An exemption says they do not take the course — or, set by set, one part of it. It
+    stops us EXPECTING them in those sections; it must not also hide the fact that the
+    registrar still has them in one, which is the only half anybody can act on.
+    """
+    student, term_id, term_code, code = who
+    if off and set(by_set) <= set(off):
+        # Every set of theirs that carries it: the whole course, every section of it, ours included.
+        return [_exempted(student, term_id, term_code, code, held)]
+    found: list[Mismatch | None] = []
+    if off:
+        # One part: that set's sections are neither expected nor allowed, and the course's
+        # other parts are judged as ever.
+        part = {crn for scope in off for crn in set_crns.get(scope, {}).get(code, set())}
+        by_set = {scope: crns for scope, crns in by_set.items() if scope not in off}
+        in_part = [crn for crn in held if crn in part]
+        found.append(_exempted(student, term_id, term_code, code, in_part, scope_code=", ".join(sorted(off.values()))))
+        held = [crn for crn in held if crn not in part]
+    found.append(
+        _judge(student, term_id, term_code, code, _unfinished(by_set, windows, today), _every_section(by_set), held)
+    )
+    return found
+
+
+def _exempted(  # noqa: PLR0913 - one argument per part of the verdict
+    student: str, term_id: str, term_code: str, code: str, registered: list[str], scope_code: str = ""
+) -> Mismatch | None:
     """A course we recorded them as not taking, that the registrar still has them in.
 
     The exemption was built to stop the register reporting a student as missing from a
@@ -2510,7 +2543,8 @@ def _exempted(student: str, term_id: str, term_code: str, code: str, registered:
     held = sorted(set(registered))
     if not held:
         return None
-    return Mismatch(student, term_id, term_code, code, "exempt", [], held)
+    # `scope_code` names the part they do not take — "MTP" — where it is one part and not the course.
+    return Mismatch(student, term_id, term_code, code, "exempt", [], held, scope_code=scope_code)
 
 
 def _electives(  # noqa: PLR0913 - one argument per part of the listing

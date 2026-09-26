@@ -7,7 +7,7 @@
  * administrator's to change.
  */
 
-import { ArrowLeftRight, CalendarDays, HardDrive, KeyRound, SlidersHorizontal, Users, type LucideIcon } from "lucide-react";
+import { ArrowLeftRight, CalendarDays, HardDrive, KeyRound, MinusCircle, SlidersHorizontal, Users, type LucideIcon } from "lucide-react";
 
 import type { SettingsSection } from "@/routes/toolRoute";
 
@@ -17,6 +17,8 @@ export const SETTINGS_SECTIONS: { section: SettingsSection; label: string; Icon:
   { section: "checks", label: "Checks", Icon: SlidersHorizontal, adminOnly: false },
   // Everybody's to read, since placing a student depends on it; an administrator's to change.
   { section: "programme-codes", label: "Programme codes", Icon: ArrowLeftRight, adminOnly: false },
+  // What the Exempt button offers — "LEA track", "Repeater"; everybody's to read.
+  { section: "exemption-reasons", label: "Exemption reasons", Icon: MinusCircle, adminOnly: false },
   // Where each semester's Week 1 is; everybody's to read, an administrator's to set.
   { section: "semesters", label: "Semesters", Icon: CalendarDays, adminOnly: false },
   // What this browser holds and nobody else does: the portal's names and their history.

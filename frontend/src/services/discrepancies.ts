@@ -22,7 +22,7 @@
 
 import { sameProgram } from "@/services/programmes";
 import { rowText } from "@/services/copyCells";
-import { type CatalogueScope, parentsOf } from "@/services/studentDatabase";
+import { type CatalogueScope, parentsOf, partsOf } from "@/services/studentDatabase";
 
 export type RuleKind = "changed" | "changed_to" | "is" | "is_not" | "differs" | "belongs";
 
@@ -661,6 +661,47 @@ export function linkWarnings(
         field: "groups",
         value: `in ${scope.code} ${group.label}, which does not go with their ${parent.code} ${theirs.label}`,
         label: `${scope.code} ${group.label} not with ${parent.code} ${theirs.label}`,
+        source: "groups",
+      });
+    }
+  }
+  return found;
+}
+
+/**
+ * A student in a group they are exempt from every course of: the group gives them nothing
+ * to attend. Either the exemptions are too wide or the placement is not needed — both are
+ * a decision somebody should look at, so it is said on their row.
+ */
+export function exemptGroupWarnings(
+  scopes: Pick<CatalogueScope, "id" | "code" | "groups" | "courses">[],
+  assignments: Record<string, Record<string, string>>,
+  exemptions: { studentId: string; courseId: string }[],
+): Warning[] {
+  const excused = new Map<string, Set<string>>();
+  for (const entry of exemptions) {
+    const held = excused.get(entry.studentId) ?? new Set<string>();
+    held.add(entry.courseId);
+    excused.set(entry.studentId, held);
+  }
+  const found: Warning[] = [];
+  for (const [studentId, held] of Object.entries(assignments)) {
+    const theirs = excused.get(studentId);
+    if (!theirs) continue;
+    for (const scope of scopes) {
+      const group = scope.groups.find((candidate) => candidate.id === held[scope.id]);
+      if (!group) continue;
+      // The courses this group actually teaches: a cell with a CRN in it.
+      const taught = scope.courses.filter((course) => partsOf(group.crns?.[course.id]).some((part) => part.crn));
+      if (!taught.length || !taught.every((course) => theirs.has(course.id))) continue;
+      found.push({
+        key: `exempt-group|${studentId}|${scope.id}|${group.id}`,
+        studentId,
+        ruleId: "exempt-group",
+        kind: "group" as const,
+        field: "groups",
+        value: `in ${scope.code} ${group.label}, and exempt from every course it carries`,
+        label: `exempt from all of ${scope.code} ${group.label}`,
         source: "groups",
       });
     }

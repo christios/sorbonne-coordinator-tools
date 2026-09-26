@@ -23,6 +23,7 @@ import {
   rulesFor,
   groupWarnings,
   electiveWarnings,
+  exemptGroupWarnings,
   linkWarnings,
   sourceOf,
   unjudgeable,
@@ -43,6 +44,7 @@ import { displayNameOf, fetchSchema, studentIdOf, type RosterRow } from "@/servi
 import {
   fetchAssignments,
   fetchCourseCards,
+  fetchEveryExemption,
   fetchDiscrepancyRules,
   fetchStudents,
   setCohort,
@@ -128,7 +130,10 @@ const SAID: Record<Mismatch["kind"], { say: (mismatch: Mismatch) => string; sour
   doubled: { say: (m) => `${m.scopeCode} twice`, source: "registration" },
   // Which of ours, and when — the two things that tell one clash from another.
   collides: { say: (m) => `${m.courseCode} ${m.scopeCode}`, source: "timetabling" },
-  exempt: { say: (m) => `${m.courseCode} exempt, still registered`, source: "registration" },
+  exempt: {
+    say: (m) => `${m.courseCode}${m.scopeCode ? ` (${m.scopeCode})` : ""} exempt, still registered`,
+    source: "registration",
+  },
 };
 
 /**
@@ -168,8 +173,8 @@ function SourceFilter({
    * three a choice of one; two records at once was not something the page could show.
    */
   const options: { id: WarningSource; name: string; icon: typeof AlertTriangle; hint: string }[] = [
-    { id: "record", name: "Admissions", icon: AlertTriangle, hint: "Where the portal's record and ours have drifted apart" },
-    { id: "registration", name: "Register", icon: ClipboardList, hint: "Where the portal has them in other sections than we placed them in" },
+    { id: "record", name: "Status", icon: AlertTriangle, hint: "Where the portal's record and ours have drifted apart" },
+    { id: "registration", name: "Registration", icon: ClipboardList, hint: "Where the portal has them in other sections than we placed them in" },
     { id: "timetabling", name: "Timetabling", icon: CalendarClock, hint: "Where the hours a student is booked into cannot all be attended" },
     { id: "groups", name: "Groups", icon: LayoutGrid, hint: "Where we have not put a student in a group of one of the cohort's sets" },
     { id: "electives", name: "Electives", icon: GraduationCap, hint: "Courses outside the cohort's groups that no coordinator has approved yet — approve them on the student's record" },
@@ -503,6 +508,8 @@ export function CohortsPage({
    * they are linked to. The course cards' reading, which every page already shares.
    */
   const catalogues = useQuery({ queryKey: ["course-cards"], queryFn: fetchCourseCards, retry: false });
+  // Everybody's exemptions, for the group they are exempt from every course of.
+  const everyExemption = useQuery({ queryKey: ["exemptions", "every"], queryFn: fetchEveryExemption, retry: false });
   const placements = useQueries({
     queries: cohorts.map((cohort) => ({
       queryKey: ["assignments", cohort.id],
@@ -544,10 +551,20 @@ export function CohortsPage({
           catalogues.data?.find((held) => held.cohort.id === cohort.id)?.scopes ?? [],
           placedBy.get(cohort.id) ?? {},
         ),
+        // A group they are exempt from every course of. The shared sets count too: a
+        // language group is on another cohort's row and taken by this one's students.
+        ...exemptGroupWarnings(
+          [
+            ...(catalogues.data?.find((held) => held.cohort.id === cohort.id)?.scopes ?? []),
+            ...(catalogues.data ?? []).filter((held) => held.cohort.id !== cohort.id).flatMap((held) => held.scopes.filter((scope) => scope.openToAll)),
+          ],
+          placedBy.get(cohort.id) ?? {},
+          everyExemption.data ?? [],
+        ),
       ]);
     }
     return out;
-  }, [cohorts, judged, registrationsBy, reportsBy, readiness.terms, nameOfTerm, catalogues.data, placedBy]);
+  }, [cohorts, judged, registrationsBy, reportsBy, readiness.terms, nameOfTerm, catalogues.data, placedBy, everyExemption.data]);
 
   /*
    * Every cohort's warnings by student, not only the cohort on screen.

@@ -51,6 +51,7 @@ describe("StaffMenu", () => {
       "API tokens",
       "Checks",
       "Programme codes",
+      "Exemption reasons",
       "Semesters",
       "This browser",
       "Sign out",

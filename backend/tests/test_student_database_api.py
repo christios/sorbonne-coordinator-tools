@@ -1628,3 +1628,17 @@ def test_a_group_may_go_with_several_groups_and_be_first_for_a_major(client: Tes
     client.patch(f"/api/v1/student-database/groups/{two['id']}", json={"label": "2", "parentGroupIds": []})
     group = scope_of(catalogue(client, cohort_id), "PHIL-TD")["groups"][0]
     assert (group["parentGroupIds"], group["parentGroupId"]) == ([], "")
+
+
+def test_every_exemption_is_listed_for_the_tables_that_filter_on_them(client: TestClient):
+    database = StudentDatabase(TEST_DATABASE_URL)
+    cohort = database.create_cohort(name="Every exemption", term="2026-27")
+    scope = database.add_scope(cohort["id"], code="LANG", name="Languages", term_id="term-every")
+    course = database.add_course(scope, code="SCEN-101")
+    client.put(f"/api/v1/student-database/students/X900/exemptions/{course}", json={"reason": "LEA track"})
+
+    listed = client.get("/api/v1/student-database/exemptions").json()["exemptions"]
+
+    assert {"studentId": "X900", "courseCode": "SCEN-101", "scopeCode": "LANG", "reason": "LEA track"}.items() <= next(
+        row for row in listed if row["studentId"] == "X900"
+    ).items()

@@ -751,6 +751,11 @@ export async function fetchExemptions(cohortId: string): Promise<Exemption[]> {
   return answer.exemptions;
 }
 
+/** Every student's exemptions, for the tables that filter on what a student does not take. */
+export async function fetchEveryExemption(): Promise<Exemption[]> {
+  return (await request<{ exemptions: Exemption[] }>(`${BASE}/exemptions`)).exemptions;
+}
+
 export function setExemption(studentId: string, courseId: string, reason = ""): Promise<void> {
   return send<void>(`${BASE}/students/${encodeURIComponent(studentId)}/exemptions/${courseId}`, "PUT", { reason });
 }

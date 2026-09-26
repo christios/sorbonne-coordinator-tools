@@ -248,6 +248,19 @@ const ELECTIVES_COLUMN: StudentColumn = {
   defaultWidth: 200,
 };
 
+/**
+ * What each student does not take, and why: "SCEN-101 · LEA track". Several per student,
+ * so it filters as "include any of" — everyone on the LEA track is one tick.
+ */
+const EXEMPTIONS_COLUMN: StudentColumn = {
+  id: "exemptions",
+  displayName: "Exempt from",
+  type: "multiOption",
+  accessor: (row) => row.exemptions,
+  display: (row) => (row.exemptions.length ? row.exemptions.join(" · ") : "—"),
+  defaultWidth: 220,
+};
+
 const MEETS_COLUMN: StudentColumn = {
   id: "meets",
   displayName: "Meets",
@@ -302,7 +315,7 @@ export function buildColumns(
   // a table that is one cohort's, the Cohort column would say the same thing on every row.
   const own = withoutCohort ? OWN_COLUMNS.filter((column) => column.id !== "cohortName") : OWN_COLUMNS;
   const columns = withWarnings ? [own[0], WARNINGS_COLUMN, ...own.slice(1)] : [...own];
-  columns.push(SET_COLUMN, SIGNATURE_COLUMN, MEETS_COLUMN);
+  columns.push(SET_COLUMN, SIGNATURE_COLUMN, MEETS_COLUMN, EXEMPTIONS_COLUMN);
   // Only where the register has been asked; elsewhere every row would read empty.
   if (withElectives) columns.push(ELECTIVES_COLUMN);
   for (const column of portal) {

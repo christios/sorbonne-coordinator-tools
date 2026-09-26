@@ -1032,7 +1032,10 @@ export function describeMismatch(mismatch: Mismatch): string {
     // `scopeCode` carries the slot here — the weekday and the hour the two share.
     case "collides":
       return `${mismatch.courseCode} (${mismatch.expected.join(", ")}) is at the same hour as ${mismatch.registered.join(", ")} — ${mismatch.scopeCode}`;
+    // `scopeCode` names the part — "MTP" — where they are exempt from one part and not the course.
     case "exempt":
-      return `${mismatch.courseCode}: recorded as not taking it, and still registered in ${mismatch.registered.join(", ")}`;
+      return mismatch.scopeCode
+        ? `${mismatch.courseCode}: recorded as not taking its ${mismatch.scopeCode} part, and still registered in ${mismatch.registered.join(", ")}`
+        : `${mismatch.courseCode}: recorded as not taking it, and still registered in ${mismatch.registered.join(", ")}`;
   }
 }

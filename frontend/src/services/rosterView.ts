@@ -59,6 +59,11 @@ export type StudentRow = {
    * register has not been asked.
    */
   electives: string[];
+  /**
+   * What they do not take: "SCEN-101 · LEA track", "PHYS-125 (MTP)" for one set's part.
+   * For filtering the table on who is exempt, and why.
+   */
+  exemptions: string[];
 };
 
 export type SortKey = "name" | "studentId" | "yearLevel" | "major" | "status" | "cohortName";
@@ -193,6 +198,8 @@ export function studentRows(
   days: Record<string, string[]> = {},
   /** The courses outside their cohort's sets, listed rather than judged. */
   electivesFor: (studentId: string) => string[] = () => [],
+  /** What they are exempt from, as the Exempt from column says it. */
+  exemptionsFor: (studentId: string) => string[] = () => [],
 ): StudentRow[] {
   const pulled = new Map<string, RosterRow>();
   for (const row of portal) {
@@ -233,6 +240,7 @@ export function studentRows(
       changes: changes.get(student.studentId) ?? [],
       warnings: warningsFor(student.studentId),
       electives: electivesFor(student.studentId),
+      exemptions: exemptionsFor(student.studentId),
     };
   });
 }
