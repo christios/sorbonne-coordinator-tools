@@ -102,7 +102,7 @@ describe("walking a student through every set of a semester", () => {
     expect(result.steps[0].plan.sizes.map((size) => size.groupId)).toEqual(["td-2"]);
   });
 
-  it("places the sets it can and names the one where every group is full", () => {
+  it("places a student over capacity rather than leaving the set, and says so", () => {
     const result = walk(
       [
         set("cm", "CM", [group("cm-a", "A")]),
@@ -112,29 +112,19 @@ describe("walking a student through every set of a semester", () => {
     );
 
     expect(result.steps[0].plan.placements).toHaveLength(1);
-    expect(result.steps[1].plan.unplaced).toEqual([{ studentId: "A1", why: "every group is full" }]);
+    expect(result.steps[1].plan.placements.map((placement) => [placement.groupId, placement.over])).toEqual([["td-1", true]]);
   });
 
-  it("plans a set open to every cohort, and marks it as a guess", () => {
+  it("leaves the languages for a person", () => {
     /*
-     * The languages. A group there is decided by a placement test the platform holds no
-     * result for, so one picked on capacity and clash can be confidently wrong.
-     *
-     * It used to be declined outright, which was safe and left a coordinator placing a new
-     * arrival to do the languages by hand every time with nothing to start from. Now it is
-     * planned and marked, so the screen can say which half of the proposal to read twice.
+     * They go by a placement test's level, which the platform does not hold. Planned on
+     * capacity and clash, every student was proposed the emptiest group — the highest
+     * level — which was wrong for nearly all of them.
      */
     const result = walk([set("lang", "LANG", [group("a0-f1", "A0-F1")], { openToAll: true })], [student("A1")]);
 
-    expect(result.steps.map((step) => [step.scopeCode, step.guessed])).toEqual([["LANG", true]]);
-    expect(result.steps[0].plan.placements.map((placement) => placement.groupId)).toEqual(["a0-f1"]);
-    expect(result.skipped).toEqual([]);
-  });
-
-  it("marks a cohort's own set as no guess at all", () => {
-    const result = walk([set("td", "TD", [group("td-1", "1")])], [student("A1")]);
-
-    expect(result.steps.map((step) => step.guessed)).toEqual([false]);
+    expect(result.steps).toEqual([]);
+    expect(result.skipped).toEqual([{ scopeId: "lang", scopeCode: "LANG", why: "chosen by level — choose it yourself" }]);
   });
 
   it("says nothing about a set the student is already in", () => {
@@ -178,8 +168,81 @@ describe("what the walk would write", () => {
   });
 
   it("asks for nothing for a set nobody could be placed in", () => {
-    const result = walk([set("td", "TD", [group("td-1", "1", { capacity: 1, assigned: 1 })])], [student("A1")]);
+    const clashes = new Set([clashKey("td-1", "cm-a")]);
+    const result = walk([set("td", "TD", [group("td-1", "1")])], [student("A1", { cm: "cm-a" })], clashes);
 
     expect(walkPlacements(result)).toEqual([]);
+  });
+});
+
+describe("a cohort where the major decides", () => {
+  const maths = (id: string) => ({ id, program: "MATH - Mathematics", seats: 0, assigned: 0 });
+  const physics = (id: string) => ({ id, program: "PHYS - Physics", seats: 0, assigned: 0 });
+  // L1, much reduced: TD 3 first for physicists; Philosophy the mathematicians' and linked
+  // to TD; Optics the physicists' and linked to TD 3 only.
+  const l1 = () => [
+    set("td", "TD", [
+      group("td-1", "1"),
+      group("td-2", "2"),
+      group("td-3", "3", { firstFor: "PHYS - Physics" }),
+    ]),
+    set("phil", "PHIL-TD", [
+      group("phil-1", "1", { parentGroupIds: ["td-1"], majors: [maths("phil-1-m")] }),
+      group("phil-2", "2", { parentGroupIds: ["td-2", "td-3"], majors: [maths("phil-2-m")] }),
+    ], { kind: "nested", parentScopeId: "td" }),
+    set("opt", "OPT-TD", [group("opt-1", "1", { parentGroupIds: ["td-3"], majors: [physics("opt-1-p")] })], {
+      kind: "nested",
+      parentScopeId: "td",
+    }),
+  ];
+  const as = (studentId: string, program: string, held: Record<string, string> = {}) => ({ ...student(studentId, held), program });
+  const placed = (result: ReturnType<typeof walk>, studentId: string) =>
+    Object.fromEntries(
+      result.steps.flatMap((step) =>
+        step.plan.placements.filter((placement) => placement.studentId === studentId).map((placement) => [step.scopeCode, placement.groupId]),
+      ),
+    );
+
+  it("puts a physicist in TD 3 with Optics, and never in Philosophy", () => {
+    const result = walk(l1(), [as("P1", "PHYS - Physics")]);
+
+    expect(placed(result, "P1")).toEqual({ TD: "td-3", "OPT-TD": "opt-1" });
+    expect(result.skipped).toContainEqual({ scopeId: "phil", scopeCode: "PHIL-TD", why: "not taken by their major" });
+  });
+
+  it("keeps a physicist in TD 3 when TD 3 is full, because their Optics goes with nothing else", () => {
+    const full = l1();
+    full[0].groups[2] = { ...full[0].groups[2], capacity: 1, assigned: 1 };
+
+    const result = walk(full, [as("P1", "PHYS - Physics")]);
+
+    expect(placed(result, "P1").TD).toBe("td-3");
+  });
+
+  it("puts a mathematician in TD 1 or 2 and the Philosophy group that goes with it", () => {
+    const result = walk(l1(), [as("M1", "MATH - Mathematics"), as("M2", "MATH - Mathematics")]);
+
+    expect(placed(result, "M1")).toEqual({ TD: "td-1", "PHIL-TD": "phil-1" });
+    expect(placed(result, "M2")).toEqual({ TD: "td-2", "PHIL-TD": "phil-2" });
+  });
+
+  it("keeps a TD that the Philosophy group they already hold goes with", () => {
+    const result = walk(l1(), [as("M1", "MATH - Mathematics", { phil: "phil-2" })]);
+
+    expect(placed(result, "M1").TD).toBe("td-2");
+  });
+
+  it("proposes nothing for a student whose major is not known here", () => {
+    const result = walk(l1(), [student("X1")]);
+
+    expect(result.steps.flatMap((step) => step.plan.placements)).toEqual([]);
+    expect(result.notProposed).toEqual([{ studentId: "X1", why: "their major is not in this browser" }]);
+  });
+
+  it("still proposes where nothing depends on the major, as in Foundation Year", () => {
+    const result = walk([set("td", "TD", [group("td-1", "1")])], [student("X1")]);
+
+    expect(result.notProposed).toEqual([]);
+    expect(result.steps[0].plan.placements).toHaveLength(1);
   });
 });

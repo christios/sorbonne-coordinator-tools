@@ -6,19 +6,22 @@ import { Modal } from "@/components/Modal";
 import { SelectMenu } from "@/components/SelectMenu";
 import { type FillCandidate, clashKey } from "@/services/groupFill";
 import { sameProgram } from "@/services/programmes";
-import { type Walk, walkPlacements, walkSets } from "@/services/groupWalk";
+import { type Walk, type WalkStep, walkPlacements, walkSets } from "@/services/groupWalk";
 import { teachersOfGroup, teachersSaid } from "@/services/groupTeachers";
 import { fetchActiveTeachers } from "@/services/portalLists";
 import { fetchPublication } from "@/services/publication";
 import { clashesIn } from "@/services/publicationView";
 import { fieldHeld, namesHeld } from "@/services/rosterStore";
 import {
+  type CatalogueGroup,
+  type CatalogueScope,
   type Cohort,
   type PlacementReport,
   assignStudents,
   fetchAssignments,
   fetchCatalogue,
   groupIsRetired,
+  parentsOf,
   placeStudents,
 } from "@/services/studentDatabase";
 import { fetchTimetableTerms } from "@/services/timetables";
@@ -79,9 +82,13 @@ export function PlaceInBlock({
    * one of them goes missing. The server already takes one set at a time and already says
    * whom it turned away, so this is N of the call it has always made.
    */
-  const [rows, setRows] = useState<{ scopeId: string; groupId: string }[]>([{ scopeId: "", groupId: "" }]);
+  /*
+   * `because` is set on a row the dialog added or changed itself — the TP half that had to
+   * follow a new TD — so the row can say why it is there.
+   */
+  const [rows, setRows] = useState<{ scopeId: string; groupId: string; because?: string }[]>([{ scopeId: "", groupId: "" }]);
   const setRow = (index: number, patch: Partial<{ scopeId: string; groupId: string }>) =>
-    setRows((held) => held.map((row, at) => (at === index ? { ...row, ...patch } : row)));
+    setRows((current) => follow(current.map((row, at) => (at === index ? { ...row, ...patch, because: "" } : row)), index));
 
   const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, enabled: open });
   // So a section that has chosen a teacher is named by the department's record rather than
@@ -133,6 +140,9 @@ export function PlaceInBlock({
     enabled: wantsClashes,
     retry: false,
   });
+  // Both ways of placing: a group chosen by hand still needs each student's major to seat
+  // them on their own sub-row. Read only for the proposal, a group picked by hand put every
+  // student on no sub-row — taught only what the group shares.
   const held = useQuery({
     queryKey: ["fields-held", "walk"],
     queryFn: async () => ({
@@ -141,7 +151,7 @@ export function PlaceInBlock({
       last: await fieldHeld("LAST_NAME"),
       program: await fieldHeld("MAJOR_CODE_DESC"),
     }),
-    enabled: proposing,
+    enabled: open && Boolean(termId),
     staleTime: 0,
   });
 
@@ -202,6 +212,70 @@ export function PlaceInBlock({
     [proposing, catalogue.data, assignments.data, held.data, publication.data, scopes, candidates, clashSet],
   );
 
+  /*
+   * The sets that go with another follow it.
+   *
+   * Moving a student from TD 2 to TD 3 used to leave their Mechanics TP half in 2A, which
+   * goes with TD 2: a timetable nobody has. So when a row names a group, every set that goes
+   * with that row's set is looked at, and where what the students hold there (or what a
+   * row already chose) does not go with the new group, a row for it is added or changed to
+   * the emptiest group that does. It is a proposal like any other row, and says so.
+   */
+  const follow = (current: typeof rows, index: number): typeof rows => {
+    const changed = current[index];
+    const parent = scopeOf(changed?.scopeId ?? "");
+    if (!parent || !changed.groupId || changed.groupId === OUT) return current;
+    const parentLabel = parent.groups.find((group) => group.id === changed.groupId)?.label ?? "";
+    let next = current;
+    for (const child of scopes.filter((scope) => scope.kind === "nested" && scope.parentScopeId === parent.id)) {
+      const rowAt = next.findIndex((row) => row.scopeId === child.id);
+      const chosen = rowAt >= 0 ? next[rowAt].groupId : "";
+      const holding = chosen
+        ? [chosen]
+        : studentIds.map((studentId) => assignments.data?.[studentId]?.[child.id] ?? "").filter(Boolean);
+      const misfit = holding.some((groupId) => {
+        const group = child.groups.find((candidate) => candidate.id === groupId);
+        return group && groupId !== OUT && !parentsOf(group).includes(changed.groupId);
+      });
+      if (!misfit) continue;
+      const fits = child.groups
+        .filter((group) => !groupIsRetired(group) && parentsOf(group).includes(changed.groupId))
+        .filter((group) => opensTo(group))
+        .sort((one, other) => one.assigned - other.assigned);
+      const because = `${child.code} changed to go with ${parent.code} ${parentLabel}`;
+      const row = { scopeId: child.id, groupId: fits[0]?.id ?? "", because };
+      next = rowAt >= 0 ? next.map((held, at) => (at === rowAt ? row : held)) : [...next, row];
+    }
+    return next;
+  };
+  /** Whether a group takes these students' major: no sub-rows, or one of theirs. */
+  const opensTo = (group: CatalogueGroup) => {
+    const majors = group.majors ?? [];
+    if (majors.length === 0) return true;
+    return studentIds.every((studentId) =>
+      majors.some((major) => sameProgram(major.program, held.data?.program[studentId] ?? "")),
+    );
+  };
+  /**
+   * "doesn't go with TD 2": for a group of a set that goes with another, the parent groups
+   * of these students — chosen in this dialog or already held — that it does not go with.
+   * Shown, not refused: a student may sit somewhere that does not fit, and the few who do
+   * are flagged rather than moved.
+   */
+  const notGoingWith = (scope: CatalogueScope | null, group: CatalogueGroup, rowIndex: number): string => {
+    if (!scope || scope.kind !== "nested") return "";
+    const parent = scopeOf(scope.parentScopeId);
+    if (!parent) return "";
+    const chosen = rows.find((row, at) => at !== rowIndex && row.scopeId === parent.id && row.groupId && row.groupId !== OUT);
+    const theirs = chosen
+      ? [chosen.groupId]
+      : [...new Set(studentIds.map((studentId) => assignments.data?.[studentId]?.[parent.id] ?? "").filter(Boolean))];
+    const misfits = theirs.filter((groupId) => !parentsOf(group).includes(groupId));
+    if (!misfits.length) return "";
+    const labels = misfits.map((groupId) => parent.groups.find((candidate) => candidate.id === groupId)?.label ?? "?");
+    return `doesn't go with ${parent.code} ${labels.join(", ")}`;
+  };
+
   const propose = useMutation({
     /*
      * One request per set, and each one is a write. A failure halfway leaves the earlier
@@ -211,7 +285,7 @@ export function PlaceInBlock({
     mutationFn: async () => {
       let assigned = 0;
       const written: string[] = [];
-      for (const step of walkPlacements(proposal ?? { steps: [], skipped: [] })) {
+      for (const step of walkPlacements(proposal ?? { steps: [], skipped: [], notProposed: [] })) {
         const code = scopeOf(step.scopeId)?.code ?? "the set";
         try {
           const report = await placeStudents(step.scopeId, step.byGroup, step.majors);
@@ -296,10 +370,6 @@ export function PlaceInBlock({
 
   const ready = chosen.length === rows.length && chosen.length > 0 && studentIds.length > 0;
   const proposed = (proposal?.steps ?? []).reduce((count, step) => count + step.plan.placements.length, 0);
-  // How much of what the button would write rests on a level nobody here can read.
-  const guesses = (proposal?.steps ?? [])
-    .filter((step) => step.guessed)
-    .reduce((count, step) => count + step.plan.placements.length, 0);
   const waiting = proposing && (catalogue.isLoading || assignments.isLoading || held.isLoading || publication.isLoading);
   const nameOf = (id: string) => held.data?.names[id] ?? id;
 
@@ -319,13 +389,6 @@ export function PlaceInBlock({
       onClose={onClose}
       footer={
         <div className="flex flex-wrap items-center justify-end gap-3">
-          {mode === "proposed" && guesses ? (
-            <p className="mr-auto flex items-center gap-1.5 text-xs text-[#8a6116]">
-              <AlertTriangle size={13} className="shrink-0" aria-hidden="true" />
-              {guesses} of these {guesses === 1 ? "is a language placement" : "are language placements"} chosen without a
-              level
-            </p>
-          ) : null}
           <button type="button" onClick={onClose} className="text-sm font-semibold text-[#667085]">
             Cancel
           </button>
@@ -430,18 +493,26 @@ export function PlaceInBlock({
                      * the option, before the choice, from the same report the proposal reads.
                      */
                     const clashes = wouldClash(group.id, index);
+                    const astray = notGoingWith(scope, group, index);
                     return {
                       value: group.id,
                       label: `Group ${group.label}`,
                       // An empty group says nothing rather than a bare "0", which reads as a label.
                       badge: clashes
                         ? `would clash with ${clashes}`
-                        : group.capacity
-                          ? `${group.assigned}/${group.capacity}`
-                          : group.assigned
-                            ? `${group.assigned} placed`
+                        : astray
+                          ? astray
+                          : group.capacity
+                            ? `${group.assigned}/${group.capacity}`
+                            : group.assigned
+                              ? `${group.assigned} placed`
+                              : undefined,
+                      badgeTone:
+                        clashes || astray
+                          ? ("bad" as const)
+                          : group.capacity && group.assigned >= group.capacity
+                            ? ("muted" as const)
                             : undefined,
-                      badgeTone: clashes ? ("bad" as const) : group.capacity && group.assigned >= group.capacity ? ("muted" as const) : undefined,
                     };
                   }),
                   ...(row.scopeId ? [{ value: OUT, label: "Take them out of this set" }] : []),
@@ -449,6 +520,9 @@ export function PlaceInBlock({
                 onChange={(value) => setRow(index, { groupId: value })}
                 disabled={!row.scopeId}
               />
+              {row.because ? (
+                <p className="text-xs text-[#667085]">{row.because} — change it if you like.</p>
+              ) : null}
               {row.groupId && row.groupId !== OUT && misfits(row.groupId).length ? (
                 <p className="text-xs text-[#8a6116]">
                   {misfits(row.groupId).length === studentIds.length
@@ -542,12 +616,24 @@ function Proposed({
 
   const placing = walk.steps.filter((step) => step.plan.placements.length > 0);
   const stuck = walk.steps.filter((step) => step.plan.unplaced.length > 0);
-  if (!placing.length && !stuck.length && !walk.skipped.length) {
+  if (!placing.length && !stuck.length && !walk.skipped.length && !walk.notProposed.length) {
     return <Note>This semester has no sets to place anybody in yet.</Note>;
   }
 
   return (
     <div className="space-y-3">
+      {/*
+        * Nothing, rather than a guess: where a group is one major's, the proposal needs the
+        * major, and a guessed one is how a mathematician was once proposed the physicists'
+        * lecture.
+        */}
+      {walk.notProposed.length ? (
+        <Note>
+          {walk.notProposed.map((entry) => nameOf(entry.studentId)).join(", ")}:{" "}
+          {walk.notProposed.length === 1 ? "their" : "these students'"} major is not in this browser, so nothing is
+          proposed. Pull them from the portal, or choose by hand.
+        </Note>
+      ) : null}
       {placing.map((step) => (
         <div key={step.scopeId}>
           <p className="flex flex-wrap items-baseline gap-x-2 text-sm font-semibold text-[#344054]">
@@ -557,16 +643,6 @@ function Proposed({
                 <span className="ml-1.5 font-normal text-[#98a2b3]">{step.scopeName}</span>
               ) : null}
             </span>
-            {/*
-              * These go by a placement test's level, which the platform does not hold, so
-              * capacity and clash — everything the plan knows — do not decide them. Worth
-              * proposing as a starting point; not worth writing unread.
-              */}
-            {step.guessed ? (
-              <span className="inline-flex items-center gap-1 rounded-full bg-[#fdf9ee] px-2 py-0.5 text-xs font-semibold text-[#8a6116]">
-                <AlertTriangle size={11} aria-hidden="true" /> level not known — check before writing
-              </span>
-            ) : null}
           </p>
           <ul className="mt-0.5 space-y-0.5 text-sm" aria-label={`Proposed for ${step.scopeCode}`}>
             {step.plan.placements.map((placement) => (
@@ -576,6 +652,12 @@ function Proposed({
                   → Group {labelOf(step.scopeId, placement.groupId)}
                   {placement.why === "preferred" ? " · preferred" : ""}
                 </span>
+                {/* Every group they may sit in was full: placed anyway, and said. */}
+                {placement.over ? (
+                  <span className="rounded-full bg-[#fdf9ee] px-2 py-0.5 text-xs font-semibold text-[#8a6116]">
+                    over capacity {sizeOf(step, placement.groupId)}
+                  </span>
+                ) : null}
                 {/*
                   * Whom they would be handed to. A group is a room with somebody in front
                   * of it, and approving a plan that never says who is approving half of it
@@ -628,6 +710,12 @@ function Proposed({
       ) : null}
     </div>
   );
+}
+
+/** "19/16": a group's size once this plan is written, against its seats. */
+function sizeOf(step: WalkStep, groupId: string): string {
+  const size = step.plan.sizes.find((entry) => entry.groupId === groupId);
+  return size && size.capacity ? `${size.after}/${size.capacity}` : "";
 }
 
 function Note({ children }: { children: React.ReactNode }) {

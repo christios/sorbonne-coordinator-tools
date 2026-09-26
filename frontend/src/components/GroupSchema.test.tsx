@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { GroupSchema } from "@/components/GroupSchema";
@@ -115,5 +115,64 @@ describe("a cohort expecting a major nobody is on", () => {
 
     expect(await screen.findByText(/1 set · 1 group/)).toBeTruthy();
     expect(screen.queryByText(/expects a major no student is on/)).toBeNull();
+  });
+});
+
+describe("linking a set to another", () => {
+  const td = {
+    id: "s-td", code: "TD", name: "", note: "", termId: "term-1", kind: "shared", parentScopeId: "", openToAll: false,
+    cohortId: "cohort-1", courses: [],
+    groups: ["1", "2", "3"].map((label) => ({
+      id: `td-${label}`, label, capacity: 0, note: "", parentGroupId: "", assigned: 0, crns: {},
+    })),
+  };
+  const philosophy = (linked: boolean) => ({
+    id: "s-phil", code: "PHIL-TD", name: "", note: "", termId: "term-1",
+    kind: linked ? "nested" : "shared", parentScopeId: linked ? "s-td" : "", openToAll: false, cohortId: "cohort-1",
+    courses: [],
+    groups: [{ id: "phil-2", label: "2", capacity: 0, note: "", parentGroupId: "", parentGroupIds: [], assigned: 0, crns: {} }],
+  });
+  const withSets = (linked: boolean) =>
+    ({ scopes: [philosophy(linked), td] }) as unknown as { scopes: database.CatalogueScope[] };
+
+  it("is one choice — the set it is linked to — where there used to be a kind and an 'inside'", async () => {
+    vi.spyOn(database, "fetchCatalogue").mockResolvedValue(withSets(false));
+    const update = vi.spyOn(database, "updateScope").mockResolvedValue(undefined as never);
+    shown();
+
+    fireEvent.click(await screen.findByRole("combobox", { name: "The set this one is linked to" }));
+    fireEvent.click(await screen.findByRole("option", { name: "TD" }));
+
+    await waitFor(() =>
+      expect(update).toHaveBeenCalledWith("s-phil", expect.objectContaining({ kind: "nested", parentScopeId: "s-td" })),
+    );
+    expect(screen.queryByRole("combobox", { name: "Kind of set" })).toBeNull();
+  });
+
+  it("lets a group go with several groups of that set", async () => {
+    vi.spyOn(database, "fetchCatalogue").mockResolvedValue(withSets(true));
+    const update = vi.spyOn(database, "updateGroup").mockResolvedValue(undefined);
+    shown();
+
+    expect(await screen.findByText("nobody can be placed here")).toBeTruthy();
+    fireEvent.click(await screen.findByRole("combobox", { name: "The groups 2 goes with" }));
+    fireEvent.click(await screen.findByRole("option", { name: "2" }));
+
+    await waitFor(() =>
+      expect(update).toHaveBeenCalledWith("phil-2", expect.objectContaining({ parentGroupIds: ["td-2"] })),
+    );
+  });
+
+  it("says which major a group takes first", async () => {
+    vi.spyOn(database, "fetchCatalogue").mockResolvedValue(withSets(true));
+    const update = vi.spyOn(database, "updateGroup").mockResolvedValue(undefined);
+    shown();
+
+    // On TD, whose groups are nobody's in particular until one is marked.
+    fireEvent.click(await screen.findByRole("button", { name: /^TD\b/ }));
+    fireEvent.click(await screen.findByRole("combobox", { name: "The major 3 takes first" }));
+    fireEvent.click(within(await screen.findByRole("listbox")).getByRole("option", { name: "PHYS - Physics" }));
+
+    await waitFor(() => expect(update).toHaveBeenCalledWith("td-3", expect.objectContaining({ firstFor: "PHYS - Physics" })));
   });
 });

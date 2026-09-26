@@ -11,10 +11,18 @@
  *     and the groups start at the size they already are
  *   - a student never goes into a group that meets at the same hour as one they already
  *     hold in another block — the timetable's word, computed by the server from the Hub
- *   - a group that prefers a programme takes its students first, then anybody may sit there
+ *   - a group that is first for a programme — one holding a sub-row for it, or marked first
+ *     for it, as L1's TD 3 is for the physicists — takes those students first; a student of
+ *     another programme goes there only once the groups that are nobody's in particular are
+ *     full
+ *   - a group of a set that goes with another takes only students whose group in that set
+ *     it goes with: Philosophy 2 the TD 2 and TD 3 mathematicians
  *   - then the policy: *balanced* puts each student in the least-full permitted group,
  *     *packed* fills each group to capacity before opening the next
- *   - a group with a capacity is full at capacity; one without is never full
+ *   - capacity decides where a student goes while any group has room; once every group they
+ *     may sit in is full they still go — into the least full — and the plan says so. The
+ *     numbers are a coordinator's estimate and go stale; a student left unplaced because of
+ *     them was worse than a group one over
  */
 
 import { sameProgram } from "@/services/programmes";
@@ -38,6 +46,10 @@ export type FillGroup = {
   assigned: number;
   /** For a group of a nested set: the group of the parent set it sits inside. */
   parentGroupId?: string;
+  /** For a group of a nested set: every group of the parent set it goes with. Wins over the single one. */
+  parentGroupIds?: string[];
+  /** The programme this group takes first, where it has one; others only once the rest are full. */
+  firstFor?: string;
   /**
    * The majors the group holds, each with its seats. Empty for a group open to everybody.
    * Where it is not, the group is closed to anyone of another programme.
@@ -58,6 +70,11 @@ export type FillCandidate = {
   program: string;
   /** The groups this student already holds in the other blocks: `scope id -> group id`. */
   held: Record<string, string>;
+  /**
+   * Only these groups of the block, where something outside it decides: the TD groups a
+   * physicist's Optics TD goes with, say. Absent for no restriction.
+   */
+  within?: string[];
 };
 
 export type Placement = {
@@ -66,6 +83,8 @@ export type Placement = {
   /** The sub-row taken, where the group has them. */
   majorId: string;
   why: "preferred" | "least full" | "next seat";
+  /** Every group they may sit in was full, so this one is over its seats. */
+  over?: boolean;
 };
 
 export type Unplaced = {
@@ -120,35 +139,46 @@ export function planFill({
   /** The sub-row of their own programme, where the group holds it. */
   const ownMajor = (group: FillGroup, candidate: FillCandidate) =>
     (group.majors ?? []).find((major) => sameProgram(major.program, candidate.program)) ?? null;
+  /** Whether a group is somebody else's first: L1's TD 3, to a mathematician. */
+  const firstForOthers = (group: FillGroup, candidate: FillCandidate) =>
+    Boolean(group.firstFor) && !sameProgram(group.firstFor ?? "", candidate.program);
+  /** A group that is theirs first: it holds their sub-row, or is marked first for their programme. */
+  const firstForThem = (group: FillGroup, candidate: FillCandidate) =>
+    Boolean(ownMajor(group, candidate)) || (Boolean(group.firstFor) && sameProgram(group.firstFor ?? "", candidate.program));
   /**
    * The seat a student may take in a group: their own sub-row while it has room; another
    * sub-row's only where every sub-row is taught the same sections; nothing in a group that
-   * holds no sub-row for them at all — the group is closed to their programme.
+   * holds no sub-row for them at all — the group is closed to their programme. `over` is
+   * the last resort, once every group they may sit in is full: their own sub-row anyway.
    */
-  const seatIn = (group: FillGroup, candidate: FillCandidate): FillMajor | null | undefined => {
+  const seatIn = (group: FillGroup, candidate: FillCandidate, over = false): FillMajor | null | undefined => {
     const majors = group.majors ?? [];
     if (majors.length === 0) return null;
     const own = ownMajor(group, candidate);
     if (!own && !group.identical) return undefined;
-    if (own && majorHasRoom(own)) return own;
-    if (group.identical) return majors.find(majorHasRoom) ?? undefined;
+    if (own && (over || majorHasRoom(own))) return own;
+    if (group.identical) return majors.find(majorHasRoom) ?? (over ? majors[0] : undefined);
     return undefined;
   };
+  /** The groups of the parent set this one goes with. */
+  const parentsOf = (group: FillGroup) =>
+    group.parentGroupIds?.length ? group.parentGroupIds : group.parentGroupId ? [group.parentGroupId] : [];
   const permitted = (candidate: FillCandidate) =>
     groups.filter((group) => {
-      if (parentScopeId && group.parentGroupId !== candidate.held[parentScopeId]) return false;
-      if ((group.majors ?? []).length && !ownMajor(group, candidate) && !group.identical) return false;
+      if (parentScopeId && !parentsOf(group).includes(candidate.held[parentScopeId])) return false;
+      if (candidate.within && !candidate.within.includes(group.id)) return false;
+      if (seatIn(group, candidate, true) === undefined) return false;
       return !Object.values(candidate.held).some((held) => clashes.has(clashKey(held, group.id)));
     });
 
-  const seat = (candidate: FillCandidate, among: FillGroup[], why: Placement["why"]): boolean => {
-    const open = among.filter((group) => hasRoom(group) && seatIn(group, candidate) !== undefined);
+  const seat = (candidate: FillCandidate, among: FillGroup[], why: Placement["why"], over = false): boolean => {
+    const open = among.filter((group) => (over || hasRoom(group)) && seatIn(group, candidate, over) !== undefined);
     if (open.length === 0) return false;
-    const chosen =
-      policy === "packed"
-        ? open[0]
-        : open.reduce((best, group) => ((counts.get(group.id) ?? 0) < (counts.get(best.id) ?? 0) ? group : best));
-    const major = seatIn(chosen, candidate);
+    const leastFull = () =>
+      open.reduce((best, group) => ((counts.get(group.id) ?? 0) < (counts.get(best.id) ?? 0) ? group : best));
+    const chosen = policy === "packed" && !over ? open[0] : leastFull();
+    const major = seatIn(chosen, candidate, over);
+    const beyond = !hasRoom(chosen) || (major ? !majorHasRoom(major) : false);
     counts.set(chosen.id, (counts.get(chosen.id) ?? 0) + 1);
     if (major) onMajor.set(major.id, (onMajor.get(major.id) ?? 0) + 1);
     placements.push({
@@ -156,41 +186,46 @@ export function planFill({
       groupId: chosen.id,
       majorId: major?.id ?? "",
       why: policy === "packed" && why !== "preferred" ? "next seat" : why,
+      ...(beyond ? { over: true } : {}),
     });
     return true;
   };
 
   const ordered = sortCandidates(candidates, order, seed);
 
-  // First the students somebody asked for: a group that holds a sub-row for their
-  // programme takes them before the general fill, so "Physics → G3" holds even when G3
-  // is in the middle.
+  // First the students somebody asked for: a group that is first for their programme takes
+  // them before the general fill, so "Physics → G3" holds even when G3 is in the middle.
   const rest: FillCandidate[] = [];
   for (const candidate of ordered) {
-    const preferring = permitted(candidate).filter((group) => ownMajor(group, candidate));
+    const preferring = permitted(candidate).filter((group) => firstForThem(group, candidate));
     if (preferring.length === 0 || !seat(candidate, preferring, "preferred")) rest.push(candidate);
   }
 
   for (const candidate of rest) {
     const allowed = permitted(candidate);
+    // Nobody's in particular before somebody else's first, and only then over the seats.
+    const ordinary = allowed.filter((group) => !firstForOthers(group, candidate));
     if (groups.length === 0) {
       unplaced.push({ studentId: candidate.studentId, why: "the block has no groups" });
     } else if (parentScopeId && !candidate.held[parentScopeId]) {
-      unplaced.push({ studentId: candidate.studentId, why: "not yet in a group of the set this one nests in" });
+      unplaced.push({ studentId: candidate.studentId, why: "not yet in a group of the set this one goes with" });
     } else if (allowed.length === 0) {
       unplaced.push({
         studentId: candidate.studentId,
-        why: parentScopeId
-          ? "no group of this set nests in their parent group"
-          : groups.every((group) => (group.majors ?? []).length && !ownMajor(group, candidate) && !group.identical)
-            ? "no group of this set holds a sub-row for their programme"
-            : "every group meets at the same hour as one they already hold",
+        why: groups.every((group) => seatIn(group, candidate, true) === undefined)
+          ? "no group of this set holds a sub-row for their programme"
+          : parentScopeId && !groups.some((group) => parentsOf(group).includes(candidate.held[parentScopeId]))
+            ? "no group of this set goes with their group in the set it follows"
+            : candidate.within && !groups.some((group) => candidate.within?.includes(group.id))
+              ? "no group of this set goes with the groups they need in the sets that follow it"
+              : "every group they may sit in meets at the same hour as one they already hold",
       });
-    } else if (!seat(candidate, allowed, "least full")) {
-      unplaced.push({
-        studentId: candidate.studentId,
-        why: allowed.length === groups.length ? "every group is full" : "every group they may sit in is full",
-      });
+    } else if (
+      !seat(candidate, ordinary, "least full") &&
+      !seat(candidate, allowed, "least full") &&
+      !seat(candidate, ordinary.length ? ordinary : allowed, "least full", true)
+    ) {
+      unplaced.push({ studentId: candidate.studentId, why: "every group they may sit in is full" });
     }
   }
 

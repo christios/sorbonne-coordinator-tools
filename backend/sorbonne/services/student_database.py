@@ -144,6 +144,11 @@ def _ids(raw: Any) -> list[str]:
     return [str(item) for item in held if str(item).strip()] if isinstance(held, list) else []
 
 
+def _parents(ids: list[str] | None, one: str = "") -> list[str]:
+    """The groups a group goes with: the list when given, else the single one older callers send."""
+    return _group_ids(ids) if ids is not None else _group_ids([one])
+
+
 def _group_ids(ids: list[str] | None) -> list[str]:
     """Group ids as given, once each, blanks dropped. Not `_clean_ids`: those are student ids and are upper-cased."""
     seen: list[str] = []
@@ -863,6 +868,13 @@ class StudentDatabase:
                             "capacity": _capacity_of(group, majors_of.get(group["id"], [])),
                             "note": group["note"],
                             "parentGroupId": group["parent_group_id"],
+                            # Every group of the set this one follows that it goes with:
+                            # Philosophy 2 with TD 2 and TD 3. The one above is the first.
+                            "parentGroupIds": _ids(group["parent_group_ids"])
+                            or ([group["parent_group_id"]] if group["parent_group_id"] else []),
+                            # The major this group takes first, where it has one: TD 3 for
+                            # the physicists, and others only once the rest are full.
+                            "firstFor": group["first_for"],
                             # The groups this one must be scheduled at the same hour as.
                             "parallelWith": _ids(group["parallel_with"]),
                             # The majors this group holds, each with its seats and who sits
@@ -1384,10 +1396,11 @@ class StudentDatabase:
                     before = self._held_in_scope(connection, scope_id, [operation["studentId"]])
                     connection.execute(
                         text("""INSERT INTO group_assignments
-                                    (cohort_id, student_id, scope_id, group_id, updated_at, updated_by)
-                                VALUES (:cohort, :student, :scope, :group, :at, :actor)
+                                    (cohort_id, student_id, scope_id, group_id, major_id, updated_at, updated_by)
+                                VALUES (:cohort, :student, :scope, :group, :major, :at, :actor)
                                 ON CONFLICT (cohort_id, student_id, scope_id)
                                 DO UPDATE SET group_id = excluded.group_id,
+                                              major_id = excluded.major_id,
                                               updated_at = excluded.updated_at,
                                               updated_by = excluded.updated_by"""),
                         {
@@ -1395,6 +1408,9 @@ class StudentDatabase:
                             "student": operation["studentId"],
                             "scope": scope_id,
                             "group": operation["groupId"],
+                            "major": self._workbook_major(
+                                connection, operation["groupId"], _text(operation.get("majorId", ""))
+                            ),
                             "at": now,
                             "actor": _text(actor),
                         },
@@ -2193,8 +2209,11 @@ class StudentDatabase:
         note: str = "",
         parent_group_id: str = "",
         parallel_with: list[str] | None = None,
+        parent_group_ids: list[str] | None = None,
+        first_for: str = "",
     ) -> str:
         group_id = str(uuid4())
+        parents = _parents(parent_group_ids, parent_group_id)
         with self.engine.begin() as connection:
             cohort_id = self._cohort_of_scope(connection, scope_id)
             existing = connection.execute(
@@ -2205,8 +2224,10 @@ class StudentDatabase:
                 raise DuplicateLabel(label)
             connection.execute(
                 text("""INSERT INTO scope_groups
-                            (id, scope_id, label, capacity, note, parent_group_id, parallel_with, position)
-                        VALUES (:id, :scope_id, :label, :capacity, :note, :parent, :parallel,
+                            (id, scope_id, label, capacity, note, parent_group_id, parent_group_ids,
+                             first_for, parallel_with, position)
+                        VALUES (:id, :scope_id, :label, :capacity, :note, :parent, :parents, :first_for,
+                                :parallel,
                                 (SELECT coalesce(max(position), 0) + 1 FROM scope_groups
                                  WHERE scope_id = :scope_id))"""),
                 {
@@ -2215,7 +2236,9 @@ class StudentDatabase:
                     "label": _text(label),
                     "capacity": max(0, capacity),
                     "note": _text(note),
-                    "parent": _text(parent_group_id),
+                    "parent": parents[0] if parents else "",
+                    "parents": json.dumps(parents),
+                    "first_for": _text(first_for),
                     "parallel": json.dumps(_group_ids(parallel_with)),
                 },
             )
@@ -2231,7 +2254,10 @@ class StudentDatabase:
         note: str,
         parent_group_id: str = "",
         parallel_with: list[str] | None = None,
+        parent_group_ids: list[str] | None = None,
+        first_for: str = "",
     ) -> None:
+        parents = _parents(parent_group_ids, parent_group_id)
         with self.engine.begin() as connection:
             # As above: renaming a group onto a sibling is a refusal, not a crash.
             clash = connection.execute(
@@ -2245,14 +2271,17 @@ class StudentDatabase:
                 raise DuplicateLabel(label)
             updated = connection.execute(
                 text("""UPDATE scope_groups SET label = :label, capacity = :capacity, note = :note,
-                                                parent_group_id = :parent, parallel_with = :parallel
+                                                parent_group_id = :parent, parent_group_ids = :parents,
+                                                first_for = :first_for, parallel_with = :parallel
                         WHERE id = :id"""),
                 {
                     "id": group_id,
                     "label": _text(label),
                     "capacity": max(0, capacity),
                     "note": _text(note),
-                    "parent": _text(parent_group_id),
+                    "parent": parents[0] if parents else "",
+                    "parents": json.dumps(parents),
+                    "first_for": _text(first_for),
                     "parallel": json.dumps(_group_ids(parallel_with)),
                 },
             )
@@ -2480,6 +2509,24 @@ class StudentDatabase:
                 "teacher": _text(teacher),
             },
         )
+
+    def _workbook_major(self, connection: Connection, group_id: str, asked: str) -> str:
+        """The sub-row a workbook row takes in its group.
+
+        The one the browser named, when it is the group's; the group's only one, when it has
+        exactly one — L2's "Mathematics", say, which is every row of it; otherwise none. A
+        row always writes it, so a student who changes group loses the old group's sub-row.
+        """
+        majors = [
+            row[0]
+            for row in connection.execute(
+                text("SELECT id FROM group_majors WHERE group_id = :group ORDER BY position, program"),
+                {"group": group_id},
+            )
+        ]
+        if asked in majors:
+            return asked
+        return majors[0] if len(majors) == 1 else ""
 
     def _scope_of_group(self, connection: Connection, group_id: str) -> str:
         scope_id = connection.execute(

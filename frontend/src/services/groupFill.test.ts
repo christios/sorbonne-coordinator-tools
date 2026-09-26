@@ -50,11 +50,14 @@ describe("balanced", () => {
     ]);
   });
 
-  it("stops at capacity and says who did not fit", () => {
+  it("fills to capacity, then puts the rest in the least full and says they are over", () => {
+    // Capacities are an estimate that goes stale; a student left out because of one was
+    // worse than a group one over, and every L1 TP half was over its number.
     const result = plan({ groups: [group("g1", { capacity: 1 }), group("g2", { capacity: 1 })] });
 
-    expect(result.placements).toHaveLength(2);
-    expect(result.unplaced).toEqual([{ studentId: "A3", why: "every group is full" }]);
+    expect(where(result)).toEqual({ A1: "g1", A2: "g2", A3: "g1" });
+    expect(result.placements.map((placement) => Boolean(placement.over))).toEqual([false, false, true]);
+    expect(result.unplaced).toEqual([]);
   });
 });
 
@@ -122,14 +125,25 @@ describe("a group with sub-rows", () => {
     }
   });
 
-  it("keeps a sub-row's seats hard where the sub-rows are taught different things", () => {
-    // CM 1: the mathematics sub-row is full, and a mathematician may not take a physics
-    // seat — the seat would send them to the physics option.
+  it("never gives a physics seat to a mathematician where the sub-rows are taught different things", () => {
+    // CM 1: the mathematics sub-row is full, and a physics seat would send a mathematician
+    // to the physics option. They go over on their own sub-row instead, and it is said.
     const result = plan({
       groups: [group("g1", { capacity: 20, majors: [{ ...maths, seats: 1, assigned: 1 }, { ...physics, seats: 19 }] })],
       candidates: [student("A1", { program: "Mathematics" })],
     });
-    expect(result.unplaced.map((row) => row.why)).toEqual(["every group is full"]);
+    expect(result.placements.map((placement) => [placement.majorId, placement.over])).toEqual([["m-maths", true]]);
+  });
+
+  it("is closed to another programme when it holds one sub-row, whatever it teaches", () => {
+    // The walk's reading of a group: one sub-row is never "all the same" — it is that
+    // programme's group. Every sub-rowed group in production had exactly one.
+    const result = plan({
+      groups: [group("phil-2", { majors: [maths] })],
+      candidates: [student("A1", { program: "Physics" })],
+    });
+    expect(result.placements).toEqual([]);
+    expect(result.unplaced.map((row) => row.why)).toEqual(["no group of this set holds a sub-row for their programme"]);
   });
 });
 
@@ -153,14 +167,14 @@ describe("a group that clashes with one the student holds", () => {
     expect(result.unplaced[0].why).toMatch(/same hour/);
   });
 
-  it("says when the only groups they may sit in are full", () => {
+  it("still places them over capacity in the only group they may sit in, never in the clashing one", () => {
     const result = plan({
       groups: [group("g1"), group("g2", { capacity: 1, assigned: 1 })],
       clashes,
       candidates: [student("A1", { held: { "scope-rdns": "rdns-8" } })],
     });
 
-    expect(result.unplaced[0].why).toBe("every group they may sit in is full");
+    expect(result.placements.map((placement) => [placement.groupId, placement.over])).toEqual([["g2", true]]);
   });
 });
 
@@ -192,7 +206,75 @@ describe("a set nested inside another", () => {
   it("says when their parent group has no half of its own", () => {
     const result = plan({ groups: halves, parentScopeId: "scope-td", candidates: [student("A5", { held: { "scope-td": "td-5" } })] });
 
-    expect(result.unplaced[0].why).toMatch(/nests in their parent group/);
+    expect(result.unplaced[0].why).toMatch(/goes with their group/);
+  });
+});
+
+describe("a set linked to another, where a group goes with several", () => {
+  // L1 Philosophy: 1 goes with TD 1; 2 goes with TD 2 and TD 3.
+  const philosophy = [
+    group("phil-1", { parentGroupIds: ["td-1"] }),
+    group("phil-2", { parentGroupIds: ["td-2", "td-3"] }),
+  ];
+
+  it("puts each student in the group that goes with theirs", () => {
+    const result = plan({
+      groups: philosophy,
+      parentScopeId: "scope-td",
+      candidates: [
+        student("A1", { held: { "scope-td": "td-1" } }),
+        student("A2", { held: { "scope-td": "td-2" } }),
+        student("A3", { held: { "scope-td": "td-3" } }),
+      ],
+    });
+
+    expect(where(result)).toEqual({ A1: "phil-1", A2: "phil-2", A3: "phil-2" });
+  });
+
+  it("reads a single parent the older way too", () => {
+    const result = plan({
+      groups: [group("tp-2a", { parentGroupId: "td-2" })],
+      parentScopeId: "scope-td",
+      candidates: [student("A1", { held: { "scope-td": "td-2" } })],
+    });
+
+    expect(where(result)).toEqual({ A1: "tp-2a" });
+  });
+});
+
+describe("a group first for a programme", () => {
+  // L1 TD: 3 was opened for the physicists; mathematicians go there once 1 and 2 are full.
+  const tds = (full = false) => [
+    group("td-1", { capacity: 2, assigned: full ? 2 : 0 }),
+    group("td-2", { capacity: 2, assigned: full ? 2 : 1 }),
+    group("td-3", { capacity: 40, firstFor: "PHYS - Physics" }),
+  ];
+
+  it("takes its programme's students first and keeps the others out while the rest have room", () => {
+    const result = plan({
+      groups: tds(),
+      candidates: [student("A1", { program: "PHYS - Physics" }), student("A2", { program: "MATH - Mathematics" })],
+    });
+
+    expect(where(result)).toEqual({ A1: "td-3", A2: "td-1" });
+    expect(result.placements.find((placement) => placement.studentId === "A1")?.why).toBe("preferred");
+  });
+
+  it("takes the others once the groups that are nobody's are full", () => {
+    const result = plan({ groups: tds(true), candidates: [student("A2", { program: "MATH - Mathematics" })] });
+
+    expect(where(result)).toEqual({ A2: "td-3" });
+    expect(result.placements[0].over).toBeUndefined();
+  });
+
+  it("is only where the rest of their sets allow", () => {
+    // A physicist's Optics TD goes with TD 3 only: their TD is 3 even when TD 3 is full.
+    const result = plan({
+      groups: [group("td-1"), group("td-3", { capacity: 1, assigned: 1, firstFor: "PHYS - Physics" })],
+      candidates: [student("A1", { program: "PHYS - Physics", within: ["td-3"] })],
+    });
+
+    expect(result.placements.map((placement) => [placement.groupId, placement.over])).toEqual([["td-3", true]]);
   });
 });
 

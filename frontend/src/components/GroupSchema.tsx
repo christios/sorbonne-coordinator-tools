@@ -27,6 +27,7 @@ import {
   deleteScope,
   fetchCatalogue,
   moveScope,
+  parentsOf,
   removeMajor,
   shortProgram,
   updateGroup,
@@ -37,7 +38,7 @@ import { fetchTimetableTerms } from "@/services/timetables";
 
 const KIND_WORDS: Record<ScopeKind, string> = {
   shared: "Its own groups — a student is in one of them",
-  nested: "Inside another set — its groups split that set's groups",
+  nested: "Linked to another set — each group goes with one or more of that set's groups",
 };
 
 const chip = "rounded-full px-2 py-0.5 text-xs font-semibold";
@@ -517,7 +518,7 @@ function SetEditor({
           {reading.shared ? <span className={`${chip} bg-[#e8edf3] text-[#1f4e79]`}>Across cohorts</span> : null}
           {scope.kind === "nested" ? (
             <span className={`${chip} bg-[#f2f4f7] text-[#667085]`}>
-              Inside {scopes.find((candidate) => candidate.id === scope.parentScopeId)?.code ?? "nothing"}
+              Linked to {scopes.find((candidate) => candidate.id === scope.parentScopeId)?.code ?? "nothing"}
             </span>
           ) : null}
           <span className="ml-auto text-xs tabular-nums text-[#98a2b3]">
@@ -557,40 +558,34 @@ function SetEditor({
             className={field}
           />
         </label>
-        <div>
-          <p className={caption} aria-hidden="true">Kind</p>
-          <div className="mt-1">
+        {/*
+          * One question, where there used to be two dropdowns — a kind, then "inside" what:
+          * does this set depend on another? Linked, each of its groups says which groups of
+          * that set it goes with (Mechanics TP 2A with TD 2; Philosophy 2 with TD 2 and TD 3),
+          * and placing a student proposes only groups that go with theirs.
+          */}
+        <div className="sm:col-span-2">
+          <p className={caption} aria-hidden="true">Linked to</p>
+          <div className="mt-1 max-w-xs">
             <SelectMenu
-              label="Kind of set"
-              value={kind}
+              label="The set this one is linked to"
+              value={kind === "nested" ? parentScopeId : ""}
               onChange={(value) => {
-                setKind(value as ScopeKind);
-                save.mutate({ kind: value as ScopeKind });
+                setKind(value ? "nested" : "shared");
+                setParentScopeId(value);
+                save.mutate(value ? { kind: "nested", parentScopeId: value } : { kind: "shared" });
               }}
               options={[
-                { value: "shared", label: "Its own groups" },
-                { value: "nested", label: "Inside another set" },
+                { value: "", label: "Not linked" },
+                ...parents.map((candidate) => ({ value: candidate.id, label: candidate.code })),
               ]}
             />
           </div>
+          <p className="mt-1 text-xs text-[#667085]">
+            Link it when its groups depend on another set&apos;s — the Mechanics TP halves on the TD. Each group
+            then says which groups of that set it goes with.
+          </p>
         </div>
-        {kind === "nested" ? (
-          <div>
-            <p className={caption} aria-hidden="true">Inside</p>
-            <div className="mt-1">
-              <SelectMenu
-                label="The set this one sits inside"
-                value={parentScopeId}
-                onChange={(value) => {
-                  setParentScopeId(value);
-                  save.mutate({ parentScopeId: value });
-                }}
-                placeholder="Which set…"
-                options={parents.map((candidate) => ({ value: candidate.id, label: candidate.code }))}
-              />
-            </div>
-          </div>
-        ) : null}
         <label className="flex items-start gap-2 text-sm text-[#344054] sm:col-span-2">
           <input
             type="checkbox"
@@ -668,7 +663,11 @@ function SetEditor({
           <Users size={15} className="text-[#98a2b3]" aria-hidden="true" /> Groups
         </p>
         <p className="mt-0.5 text-xs text-[#667085]">
-          The classes inside this set. A student sits in one of them{scope.kind === "nested" ? ", within their group of the set above" : ""}.
+          The classes inside this set. A student sits in one of them
+          {scope.kind === "nested"
+            ? `, one that goes with their ${scopes.find((candidate) => candidate.id === scope.parentScopeId)?.code ?? "linked"} group`
+            : ""}
+          .
         </p>
 
         {scope.groups.length ? (
@@ -680,7 +679,12 @@ function SetEditor({
                   <th className="py-2 pr-3 font-semibold">Seats</th>
                   <th className="py-2 pr-3 font-semibold">In parallel with</th>
                   <th className="py-2 pr-3 font-semibold">Sub-rows</th>
-                  {scope.kind === "nested" ? <th className="py-2 pr-3 font-semibold">Inside</th> : null}
+                  {scope.kind === "nested" ? <th className="py-2 pr-3 font-semibold">Goes with</th> : null}
+                  {programmes.length > 1 ? (
+                    <th className="py-2 pr-3 font-semibold" title="Placed here first; other majors only once the groups that are nobody's are full">
+                      First for
+                    </th>
+                  ) : null}
                   <th className="py-2 pr-3 text-right font-semibold">Placed</th>
                   <th className="py-2 pr-4" />
                 </tr>
@@ -802,12 +806,15 @@ function GroupRow({
   const [label, setLabel] = useState(group.label);
   const [capacity, setCapacity] = useState(String(group.capacity || ""));
   const save = useMutation({
-    mutationFn: (next: Partial<{ label: string; capacity: number; parentGroupId: string; parallelWith: string[] }>) =>
+    mutationFn: (
+      next: Partial<{ label: string; capacity: number; parentGroupIds: string[]; firstFor: string; parallelWith: string[] }>,
+    ) =>
       updateGroup(group.id, {
         label: next.label ?? label,
         capacity: next.capacity ?? Number(capacity || 0),
         note: group.note,
-        parentGroupId: next.parentGroupId ?? group.parentGroupId,
+        parentGroupIds: next.parentGroupIds ?? parentsOf(group),
+        firstFor: next.firstFor ?? group.firstFor ?? "",
         parallelWith: next.parallelWith ?? group.parallelWith,
       }),
     onSuccess: onChanged,
@@ -872,20 +879,45 @@ function GroupRow({
       </td>
       {nested ? (
         <td className="py-1.5 pr-3">
-          <div className="w-40">
+          {/* Several where the pairing is not one-to-one: Philosophy 2 goes with TD 2 and TD 3. */}
+          <div className="w-44">
             <SelectMenu
-              label={`The group ${group.label} sits inside`}
-              value={group.parentGroupId}
-              onChange={(value) => save.mutate({ parentGroupId: value })}
-              placeholder="Nowhere yet"
+              label={`The groups ${group.label} goes with`}
+              multiple
+              itemNoun="group"
+              value={parentsOf(group).filter((id) => parentGroups.some((candidate) => candidate.id === id)).join("\n")}
+              onChange={(value) => save.mutate({ parentGroupIds: value.split("\n").filter(Boolean) })}
+              placeholder="None yet"
               options={parentGroups.map((candidate) => ({ value: candidate.id, label: candidate.label }))}
             />
           </div>
-          {!group.parentGroupId ? (
+          {!parentsOf(group).some((id) => parentGroups.some((candidate) => candidate.id === id)) ? (
             <span className="mt-0.5 inline-flex items-center gap-1 text-[11px] text-[#a6292f]">
               <AlertTriangle size={10} aria-hidden="true" /> nobody can be placed here
             </span>
           ) : null}
+        </td>
+      ) : null}
+      {/*
+        * The major placed here first — L1's TD 3, opened for the physicists. Not a wall:
+        * another major goes here once the groups that are nobody's in particular are full.
+        */}
+      {programmes.length > 1 ? (
+        <td className="py-1.5 pr-3">
+          <div className="w-36">
+            <SelectMenu
+              label={`The major ${group.label} takes first`}
+              value={group.firstFor ?? ""}
+              onChange={(value) => save.mutate({ firstFor: value })}
+              options={[
+                { value: "", label: "Nobody in particular" },
+                ...[...new Set([...programmes, ...(group.firstFor ? [group.firstFor] : [])])].map((programme) => ({
+                  value: programme,
+                  label: programme,
+                })),
+              ]}
+            />
+          </div>
         </td>
       ) : null}
       <td className="py-1.5 pr-3 text-right tabular-nums text-[#667085]">{group.assigned || ""}</td>

@@ -172,8 +172,18 @@ export type CatalogueGroup = {
   /** The seats: what the sub-rows add up to, or the group's own number when it has none. */
   capacity: number;
   note: string;
-  /** For a group of a nested set: the group of the parent set it sits inside. */
+  /** For a group of a nested set: the first group of the parent set it goes with. */
   parentGroupId: string;
+  /**
+   * Every group of the parent set it goes with: Philosophy 2 with TD 2 and TD 3. A student
+   * in one of those may sit here. Absent from older readings, which said `parentGroupId`.
+   */
+  parentGroupIds?: string[];
+  /**
+   * The major this group takes first, in the registrar's words — L1's TD 3, opened for the
+   * physicists. A preference, not a wall: others sit here once the rest are full.
+   */
+  firstFor?: string;
   /** The majors this group holds. Empty for a group that is one thing for everybody. */
   majors?: CatalogueMajor[];
   /** `major id -> course id -> section`: a sub-row's own cells, over the shared ones in `crns`. */
@@ -519,9 +529,15 @@ export function deleteCourse(courseId: string): Promise<void> {
   return request<void>(`${BASE}/courses/${courseId}`, { method: "DELETE" });
 }
 
+/** The groups of the parent set a group goes with, whichever way the reading said it. */
+export function parentsOf(group: Pick<CatalogueGroup, "parentGroupId" | "parentGroupIds">): string[] {
+  if (group.parentGroupIds?.length) return group.parentGroupIds;
+  return group.parentGroupId ? [group.parentGroupId] : [];
+}
+
 export function addGroup(
   scopeId: string,
-  input: { label: string; capacity?: number; note?: string; parentGroupId?: string },
+  input: { label: string; capacity?: number; note?: string; parentGroupId?: string; parentGroupIds?: string[]; firstFor?: string },
 ): Promise<{ id: string }> {
   return send<{ id: string }>(`${BASE}/scopes/${scopeId}/groups`, "POST", {
     capacity: 0,
@@ -532,7 +548,15 @@ export function addGroup(
 
 export function updateGroup(
   groupId: string,
-  input: { label: string; capacity: number; note: string; parentGroupId?: string; parallelWith?: string[] },
+  input: {
+    label: string;
+    capacity: number;
+    note: string;
+    parentGroupId?: string;
+    parentGroupIds?: string[];
+    firstFor?: string;
+    parallelWith?: string[];
+  },
 ): Promise<void> {
   return send<void>(`${BASE}/groups/${groupId}`, "PATCH", input);
 }

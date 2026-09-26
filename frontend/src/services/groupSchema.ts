@@ -12,7 +12,7 @@
  */
 
 import { sameProgram } from "@/services/programmes";
-import type { CatalogueScope } from "@/services/studentDatabase";
+import { type CatalogueScope, parentsOf } from "@/services/studentDatabase";
 
 /** A set as the list shows it: what it holds, and whether anything is wrong with it. */
 export type SetReading = {
@@ -89,7 +89,7 @@ export function troubleWith(
     if (!parent) trouble.push("no parent set");
     else {
       const seats = new Set(parent.groups.map((group) => group.id));
-      if (scope.groups.some((group) => !group.parentGroupId || !seats.has(group.parentGroupId))) {
+      if (scope.groups.some((group) => !parentsOf(group).some((id) => seats.has(id)))) {
         trouble.push("groups adrift");
       }
     }

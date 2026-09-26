@@ -39,8 +39,9 @@ const TD: database.CatalogueScope = {
   courses: [],
   groups: [
     { id: "td-1", label: "1", capacity: 2, note: "", parentGroupId: "", assigned: 1, crns: {} },
-    // Group 2 holds a physics sub-row: physicists are seated on it first.
-    { id: "td-2", label: "2", capacity: 2, note: "", parentGroupId: "", assigned: 0, crns: {}, majors: [{ id: "m-phys", program: "Physics", seats: 0, assigned: 0 }] },
+    // Group 2 is first for Physics: physicists are seated there first, and others only once
+    // TD 1 is full or out of reach.
+    { id: "td-2", label: "2", capacity: 2, note: "", parentGroupId: "", assigned: 0, crns: {}, firstFor: "Physics" },
   ],
 };
 
@@ -78,7 +79,7 @@ describe("filling a block", () => {
     const onFilled = show();
 
     const list = await screen.findByLabelText("Who goes where");
-    // Amira is Physics, and TD 2 prefers Physics: she goes there first. Bilal balances to TD 1's empty seat.
+    // Amira is Physics, and TD 2 is first for Physics: she goes there first. Bilal takes TD 1's empty seat.
     expect(within(list).getByText("Amira Haddad").closest("li")?.textContent).toContain("→ 2");
     expect(within(list).getByText("Bilal Saleh").closest("li")?.textContent).toContain("→ 1");
     expect(database.placeStudents).not.toHaveBeenCalled();
@@ -87,11 +88,11 @@ describe("filling a block", () => {
     expect(within(sizes).getAllByRole("row").map((row) => row.textContent)).toEqual([
       "GroupNowAfterCapacityHolds",
       "1122anyone",
-      "2012Physics ∞",
+      "2012Physics first",
     ]);
 
     fireEvent.click(screen.getByText("Place 2"));
-    await waitFor(() => expect(database.placeStudents).toHaveBeenCalledWith("scope-td", { "td-2": ["A2"], "td-1": ["A3"] }, { A2: "m-phys" }));
+    await waitFor(() => expect(database.placeStudents).toHaveBeenCalledWith("scope-td", { "td-2": ["A2"], "td-1": ["A3"] }, {}));
     expect(onFilled).toHaveBeenCalledWith({ assigned: 2, skipped: [], scopeCode: "TD", unplaced: 0 });
   });
 
@@ -108,7 +109,7 @@ describe("filling a block", () => {
     ]);
 
     const list = await screen.findByLabelText("Who goes where");
-    // Bilal holds RDNS 8, which clashes with TD 1 — so he goes to TD 2 despite it being the fuller choice now.
+    // Bilal holds RDNS 8, which clashes with TD 1 — so he goes to TD 2 though it is the physicists' first.
     expect(within(list).getByText("Bilal Saleh").closest("li")?.textContent).toContain("→ 2");
   });
 
@@ -149,7 +150,7 @@ describe("choosing who a fill acts on", () => {
     // Amira was going to TD 2 and is not asked for; Bilal is, and lands where the plan says.
     await waitFor(() => expect(within(screen.getByLabelText("Who goes where")).getAllByRole("listitem")).toHaveLength(1));
     fireEvent.click(screen.getByText("Place 1"));
-    await waitFor(() => expect(database.placeStudents).toHaveBeenCalledWith("scope-td", { "td-2": ["A3"] }, { A3: "m-phys" }));
+    await waitFor(() => expect(database.placeStudents).toHaveBeenCalledWith("scope-td", { "td-1": ["A3"] }, {}));
   });
 
   it("says there is nobody to place rather than showing an empty plan", async () => {

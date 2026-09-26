@@ -867,6 +867,8 @@ def test_a_group_set_knows_its_kind_and_a_group_its_parent(client: TestClient, c
     assert scope_of(held, "TP")["kind"] == "nested"
     assert scope_of(held, "TP")["parentScopeId"] == td["id"]
     assert scope_of(held, "TP")["groups"][0]["parentGroupId"] == td_group["id"]
+    # One group only: the list says the same thing.
+    assert scope_of(held, "TP")["groups"][0]["parentGroupIds"] == [td_group["id"]]
     # A kind nobody has heard of is treated as the ordinary one, not refused.
     odd = client.post(
         f"/api/v1/student-database/cohorts/{cohort_id}/scopes", json={"code": "X", "kind": "weird"}
@@ -1179,6 +1181,10 @@ def test_the_halves_are_listed_in_the_order_they_are_taught(client: TestClient, 
 
     with StudentDatabase(TEST_DATABASE_URL).engine.begin() as connection:
         connection.execute(text("UPDATE cohort_scopes SET term_id = 'term-s1' WHERE id = :id"), {"id": scope_id})
+        # Left over by an earlier run in the same database, when files run on their own.
+        connection.execute(text("DELETE FROM term_links WHERE term_id = 'term-s1'"))
+        connection.execute(text("DELETE FROM facility_meetings WHERE crn IN ('23820', '24313')"))
+        connection.execute(text("DELETE FROM facility_sections WHERE crn IN ('23820', '24313')"))
         connection.execute(text("INSERT INTO term_links (term_id, portal_term_code) VALUES ('term-s1', '262710')"))
         for crn, first, last in (("23820", "2026-10-22", "2026-12-17"), ("24313", "2026-09-04", "2026-10-09")):
             connection.execute(
@@ -1587,3 +1593,38 @@ def test_a_cohort_keeps_the_courses_it_always_allows_outside_its_groups(client: 
     listed = client.get("/api/v1/student-database/cohorts").json()["cohorts"]
     mine = next(cohort for cohort in listed if cohort["id"] == made.json()["id"])
     assert mine["allowedCodes"] == ["SPRT", "ENGL-101"]
+
+
+def test_a_group_may_go_with_several_groups_and_be_first_for_a_major(client: TestClient, cohort_id: str):
+    """Philosophy 2 is TD 2's and TD 3's; TD 3 was opened for the physicists."""
+    td = client.post(f"/api/v1/student-database/cohorts/{cohort_id}/scopes", json={"code": "TD"}).json()
+    td2 = client.post(f"/api/v1/student-database/scopes/{td['id']}/groups", json={"label": "2"}).json()
+    td3 = client.post(
+        f"/api/v1/student-database/scopes/{td['id']}/groups", json={"label": "3", "firstFor": "PHYS - Physics"}
+    ).json()
+    phil = client.post(
+        f"/api/v1/student-database/cohorts/{cohort_id}/scopes",
+        json={"code": "PHIL-TD", "kind": "nested", "parentScopeId": td["id"]},
+    ).json()
+    two = client.post(
+        f"/api/v1/student-database/scopes/{phil['id']}/groups",
+        json={"label": "2", "parentGroupIds": [td2["id"], td3["id"], td2["id"], ""]},
+    ).json()
+
+    group = scope_of(catalogue(client, cohort_id), "PHIL-TD")["groups"][0]
+    # Each once, in the order given; the single field keeps the first for older readers.
+    assert group["parentGroupIds"] == [td2["id"], td3["id"]]
+    assert group["parentGroupId"] == td2["id"]
+    assert scope_of(catalogue(client, cohort_id), "TD")["groups"][1]["firstFor"] == "PHYS - Physics"
+
+    # An older caller that sends only the single field still sets it, as one group.
+    client.patch(
+        f"/api/v1/student-database/groups/{two['id']}", json={"label": "2", "capacity": 0, "parentGroupId": td3["id"]}
+    )
+    group = scope_of(catalogue(client, cohort_id), "PHIL-TD")["groups"][0]
+    assert group["parentGroupIds"] == [td3["id"]]
+
+    # And an empty list clears it.
+    client.patch(f"/api/v1/student-database/groups/{two['id']}", json={"label": "2", "parentGroupIds": []})
+    group = scope_of(catalogue(client, cohort_id), "PHIL-TD")["groups"][0]
+    assert (group["parentGroupIds"], group["parentGroupId"]) == ([], "")

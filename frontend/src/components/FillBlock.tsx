@@ -293,13 +293,24 @@ export function FillBlock({
                   <tr key={size.groupId} className="border-t border-[#eef1f5] tabular-nums">
                     <td className="py-1.5 font-semibold text-[#171717]">{size.label}</td>
                     <td className="py-1.5 text-right">{size.before}</td>
-                    <td className="py-1.5 text-right font-semibold">{size.after}</td>
+                    {/* Over its seats once every group was full: placed anyway, and it shows. */}
+                    <td
+                      className={`py-1.5 text-right font-semibold ${
+                        size.capacity && size.after > size.capacity ? "text-[#8a6116]" : ""
+                      }`}
+                    >
+                      {size.after}
+                    </td>
                     <td className="py-1.5 text-right text-[#667085]">{size.capacity || "—"}</td>
                     <td className="py-1.5 text-[#667085]">
                       {/* The sub-rows and their seats — who this group is for, and how many of each. */}
-                      {(scope.groups.find((group) => group.id === size.groupId)?.majors ?? [])
-                        .map((major) => `${shortProgram(major.program)} ${major.seats || "∞"}`)
-                        .join(" · ") || "anyone"}
+                      {(() => {
+                        const group = scope.groups.find((candidate) => candidate.id === size.groupId);
+                        const seats = (group?.majors ?? []).map((major) => `${shortProgram(major.program)} ${major.seats || "∞"}`);
+                        // A group first for a programme is still anyone's, once the rest are full.
+                        if (!seats.length && group?.firstFor) return `${shortProgram(group.firstFor)} first`;
+                        return seats.join(" · ") || "anyone";
+                      })()}
                     </td>
                   </tr>
                 ))}
@@ -323,6 +334,11 @@ export function FillBlock({
                         {placement.majorId ? ` · ${shortProgram(majorName.get(placement.majorId) ?? "")}` : ""}
                         {placement.why === "preferred" ? " · own programme" : ""}
                       </span>
+                      {placement.over ? (
+                        <span className="rounded-full bg-[#fdf9ee] px-2 py-0.5 text-xs font-semibold text-[#8a6116]">
+                          over capacity
+                        </span>
+                      ) : null}
                     </li>
                   );
                 })}

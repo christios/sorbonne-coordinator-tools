@@ -36,6 +36,8 @@ import { excusedLine, reconcile, tally } from "@/services/registrationLists";
 import type { StudentRow } from "@/services/rosterView";
 import { fetchSchema } from "@/services/scenRosters";
 import {
+  type CatalogueGroup,
+  type CatalogueScope,
   type Cohort,
   assignStudents,
   clearApproval,
@@ -48,6 +50,7 @@ import {
   fetchDiscrepancyRules,
   fetchExemptions,
   fetchStudentHistory,
+  parentsOf,
   partsOf,
   sectionFor,
   setApproval,
@@ -223,6 +226,14 @@ export function StudentRecord({
   const termName = (termId: string) => (terms.data ?? []).find((term) => term.id === termId)?.name ?? termId;
   const held = assignments.data?.[row.studentId] ?? {};
   const onSubRow = subRows.data?.[row.studentId] ?? {};
+  /** "doesn't go with TD 2", for a group of a linked set that does not go with their group in that set. */
+  const misfitOf = (scope: CatalogueScope, group: CatalogueGroup): string => {
+    if (scope.kind !== "nested") return "";
+    const parent = (catalogue.data?.scopes ?? []).find((candidate) => candidate.id === scope.parentScopeId);
+    const theirs = parent ? held[parent.id] : "";
+    if (!parent || !theirs || parentsOf(group).includes(theirs)) return "";
+    return `doesn't go with ${parent.code} ${parent.groups.find((candidate) => candidate.id === theirs)?.label ?? "?"}`;
+  };
   const placements = (catalogue.data?.scopes ?? [])
     .filter((scope) => held[scope.id])
     .map((scope) => {
@@ -571,6 +582,16 @@ export function StudentRecord({
                       {scope.code} {group ? subRowLabel(group.label, major?.program ?? "", (group.majors ?? []).length) : "?"}
                     </span>
                     <span className="pt-0.5 text-xs text-[#98a2b3]">{termName(scope.termId ?? "")}</span>
+                    {/*
+                      * A group of a linked set that does not go with their group in the set it
+                      * is linked to: Philosophy 1 under TD 2. Said, not fixed — a few sit there
+                      * on purpose, and moving them is a decision.
+                      */}
+                    {group && misfitOf(scope, group) ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-[#fdf9ee] px-2 py-0.5 text-xs font-semibold text-[#8a6116]">
+                        <AlertTriangle size={11} aria-hidden="true" /> {misfitOf(scope, group)}
+                      </span>
+                    ) : null}
                     {group ? (
                       leaving === scope.id ? (
                         <span className="ml-auto inline-flex items-center gap-2 text-xs">

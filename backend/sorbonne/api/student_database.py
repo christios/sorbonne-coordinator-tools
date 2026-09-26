@@ -196,6 +196,10 @@ class GroupInput(BaseModel):
     note: str = Field(default="", max_length=400)
     # For a group of a nested set: the group of the parent set it sits inside.
     parent_group_id: str = Field(default="", alias="parentGroupId", max_length=80)
+    # Every group of that set it goes with; when given, it wins over the single one.
+    parent_group_ids: list[str] | None = Field(default=None, alias="parentGroupIds", max_length=60)
+    # The major the group takes first, in the registrar's words; blank for nobody's.
+    first_for: str = Field(default="", alias="firstFor", max_length=160)
     # The groups this one must be scheduled at the same hour as, for the timetabler.
     parallel_with: list[str] = Field(default_factory=list, alias="parallelWith", max_length=40)
 
@@ -729,7 +733,9 @@ def add_group(
                 capacity=body.capacity,
                 note=body.note,
                 parent_group_id=body.parent_group_id,
-            parallel_with=body.parallel_with,
+                parallel_with=body.parallel_with,
+                parent_group_ids=body.parent_group_ids,
+                first_for=body.first_for,
             )
         }
     except ScopeNotFound as exc:
@@ -790,6 +796,8 @@ def update_group(
             note=body.note,
             parent_group_id=body.parent_group_id,
             parallel_with=body.parallel_with,
+            parent_group_ids=body.parent_group_ids,
+            first_for=body.first_for,
         )
     except GroupNotFound as exc:
         raise _missing(exc, "group") from exc

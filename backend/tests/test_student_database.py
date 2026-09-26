@@ -170,7 +170,8 @@ def test_the_catalogue_carries_no_student_identity(database: StudentDatabase, co
 
     # A programme a group prefers is the group's, not any student's.
     assert fields == {
-        "id", "label", "capacity", "note", "parentGroupId", "parallelWith", "majors", "byMajor", "assigned", "crns",
+        "id", "label", "capacity", "note", "parentGroupId", "parentGroupIds", "firstFor", "parallelWith", "majors",
+        "byMajor", "assigned", "crns",
     }
 
 
@@ -319,3 +320,39 @@ def test_a_rule_keeps_its_id_across_a_replace(database: StudentDatabase) -> None
 def test_a_rule_that_cannot_mean_anything_is_refused(database: StudentDatabase, rule: dict, why: str) -> None:
     with pytest.raises(InvalidRule, match=why):
         database.replace_discrepancy_rules([rule])
+
+
+# ------------------------------------------------------------ workbook placements and sub-rows
+
+
+def test_a_workbook_row_takes_the_sub_row_and_drops_the_old_one(database: StudentDatabase, cohort: dict) -> None:
+    """The upload used to write no sub-row, and kept a stale one when a student changed group."""
+    scope_id = database.add_scope(cohort["id"], code="CM", name="", note="")
+    maths = database.add_group(scope_id, label="Mathematics")
+    physics = database.add_group(scope_id, label="Physics")
+    maths_row = database.add_major(maths, program="MATH - Mathematics")
+    database.add_major(physics, program="PHYS - Physics")
+    both = database.add_group(scope_id, label="1")
+    both_maths = database.add_major(both, program="MATH - Mathematics")
+    both_physics = database.add_major(both, program="PHYS - Physics")
+    database.set_cohort(["A00000001"], cohort["id"])
+
+    def placed_on() -> str:
+        return database.assignment_majors_of(cohort["id"]).get("A00000001", {}).get(scope_id, "")
+
+    # A group with one sub-row: that one, whatever the browser said.
+    database.apply_workbook_changes(cohort["id"], "", [{"op": "place", "studentId": "A00000001", "groupId": maths}])
+    assert placed_on() == maths_row
+
+    # A group with two: the one named, when it is the group's own.
+    database.apply_workbook_changes(
+        cohort["id"], "", [{"op": "place", "studentId": "A00000001", "groupId": both, "majorId": both_physics}]
+    )
+    assert placed_on() == both_physics
+
+    # Named nothing, or another group's: none — never the sub-row of the group they left.
+    database.apply_workbook_changes(
+        cohort["id"], "", [{"op": "place", "studentId": "A00000001", "groupId": both, "majorId": maths_row}]
+    )
+    assert placed_on() == ""
+    assert both_maths

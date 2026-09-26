@@ -433,11 +433,11 @@ describe("proposing the groups instead of naming them", () => {
     expect(list.textContent).toContain("no teacher yet");
   });
 
-  it("proposes the languages, and marks them as a guess", async () => {
+  it("leaves the languages for a person, and says why", async () => {
     /*
-     * They go by a placement test's level, which the platform does not hold — so capacity
-     * and clash, which is all the plan knows, do not decide them. Declining them outright
-     * left a coordinator to do the languages by hand every time with nothing to start from.
+     * They go by a placement test's level, which the platform does not hold. Proposed on
+     * capacity and clash, every student was offered the emptiest group — the highest
+     * level — which was wrong for nearly all of them.
      */
     vi.spyOn(database, "fetchCatalogue").mockResolvedValue({
       scopes: [{ ...CATALOGUE.scopes[0], id: "scope-lang", code: "LANG", name: "Languages", openToAll: true }],
@@ -445,19 +445,9 @@ describe("proposing the groups instead of naming them", () => {
     show(["A00025735"]);
     await propose();
 
-    const list = await screen.findByLabelText("Proposed for LANG");
-    expect(list.textContent).toContain("→ Group 2");
-    expect(screen.getByText(/level not known — check before writing/)).toBeTruthy();
-    expect(screen.getByText(/1 of these is a language placement chosen without a level/)).toBeTruthy();
-  });
-
-  it("marks nothing as a guess when no language set is in play", async () => {
-    show(["A00025735"]);
-    await propose();
-    await screen.findByLabelText("Proposed for TD");
-
-    expect(screen.queryByText(/level not known/)).toBeNull();
-    expect(screen.queryByText(/chosen without a level/)).toBeNull();
+    const left = await screen.findByLabelText("Sets left alone");
+    expect(left.textContent).toContain("LANG — chosen by level — choose it yourself");
+    expect(screen.queryByLabelText("Proposed for LANG")).toBeNull();
   });
 
   it("will not propose groups while the timetable's word on clashes is not in", async () => {
@@ -478,7 +468,9 @@ describe("proposing the groups instead of naming them", () => {
     expect(screen.getByText(/Choose a semester/)).toBeTruthy();
   });
 
-  it("names a set where every group is full rather than failing the whole proposal", async () => {
+  it("places a student over capacity when every group is full, and says so", async () => {
+    // The numbers go stale — every L1 TP half was over its own — and leaving the student
+    // out of the set because of them was worse than a group one over.
     vi.spyOn(database, "fetchCatalogue").mockResolvedValue({
       scopes: [
         {
@@ -490,8 +482,28 @@ describe("proposing the groups instead of naming them", () => {
     show(["A00025735"]);
     await propose();
 
-    const stuck = await screen.findByLabelText("Sets with nowhere to put them");
-    expect(stuck.textContent).toContain("every group is full");
+    const list = await screen.findByLabelText("Proposed for TD");
+    expect(list.textContent).toContain("→ Group 1");
+    expect(list.textContent).toContain("over capacity 2/1");
+  });
+
+  it("proposes nothing for a student whose major is not in this browser, where the major decides", async () => {
+    vi.spyOn(database, "fetchCatalogue").mockResolvedValue({
+      scopes: [
+        {
+          ...CATALOGUE.scopes[0],
+          groups: [
+            { ...CATALOGUE.scopes[0].groups[0], majors: [{ id: "m-1", program: "MATH - Mathematics", seats: 0, assigned: 0 }] },
+            { ...CATALOGUE.scopes[0].groups[1], majors: [{ id: "m-2", program: "PHYS - Physics", seats: 0, assigned: 0 }] },
+          ],
+        },
+      ],
+    });
+    show(["A00025735"]);
+    await propose();
+
+    expect(await screen.findByText(/major is not in this browser, so nothing is proposed/)).toBeTruthy();
+    expect(screen.queryByLabelText("Proposed for TD")).toBeNull();
   });
 });
 
@@ -551,5 +563,66 @@ describe("naming a group that would clash", () => {
       expect(screen.getByRole("option", { name: /Group 1/ }).textContent).toContain("would clash with CM A");
       expect(screen.getByRole("option", { name: /Group 2/ }).textContent).not.toContain("clash");
     });
+  });
+});
+
+describe("sets linked to another", () => {
+  /** TD 1 and 2, and Mechanics TP linked to TD: 1A goes with TD 1, 2A and 2B with TD 2. */
+  const LINKED: database.Catalogue = {
+    scopes: [
+      CATALOGUE.scopes[0],
+      {
+        id: "scope-mtp", code: "MTP", name: "Mechanics TP", note: "", kind: "nested", parentScopeId: "scope-td", openToAll: false,
+        courses: [],
+        groups: [
+          { id: "mtp-1a", label: "1A", capacity: 16, note: "", parentGroupId: "group-1", parentGroupIds: ["group-1"], assigned: 10, crns: {} },
+          { id: "mtp-2a", label: "2A", capacity: 16, note: "", parentGroupId: "group-2", parentGroupIds: ["group-2"], assigned: 9, crns: {} },
+          { id: "mtp-2b", label: "2B", capacity: 16, note: "", parentGroupId: "group-2", parentGroupIds: ["group-2"], assigned: 4, crns: {} },
+        ],
+      },
+    ],
+  };
+
+  beforeEach(() => {
+    vi.spyOn(database, "fetchCatalogue").mockResolvedValue(LINKED);
+    // Amira sits in TD 1 with its half, 1A.
+    vi.spyOn(database, "fetchAssignments").mockResolvedValue({ A00025735: { "scope-td": "group-1", "scope-mtp": "mtp-1a" } });
+    vi.spyOn(publicationService, "fetchPublication").mockRejectedValue(new Error("no timetable"));
+    vi.spyOn(roster, "namesHeld").mockResolvedValue({ A00025735: "Amira Haddad" });
+    vi.spyOn(roster, "fieldHeld").mockResolvedValue({});
+  });
+
+  it("brings the TP half along when the TD changes, and says so", async () => {
+    // Moving TD 1 → TD 2 used to leave the student in 1A, which goes with TD 1: a
+    // timetable nobody has.
+    const assign = vi.spyOn(database, "assignStudents").mockResolvedValue({ assigned: 1, skipped: [] });
+    show(["A00025735"]);
+
+    await pick("Semester", "Physics & Maths — Semester 1");
+    await pick("Block", /TD/);
+    await pick("Group", /Group 2/);
+
+    // The emptier half of TD 2, proposed and explained.
+    expect(await screen.findByText(/MTP changed to go with TD 2 — change it if you like/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Place 1/ }));
+
+    await waitFor(() => expect(assign).toHaveBeenCalledTimes(2));
+    expect(assign.mock.calls.map((call) => [call[0], call[2]])).toEqual([
+      ["scope-td", "group-2"],
+      ["scope-mtp", "mtp-2b"],
+    ]);
+  });
+
+  it("marks the halves that do not go with the student's TD, rather than hiding them", async () => {
+    show(["A00025735"]);
+
+    await pick("Semester", "Physics & Maths — Semester 1");
+    await pick("Block", /MTP/);
+    fireEvent.click(screen.getByRole("combobox", { name: "Group" }));
+
+    await screen.findByRole("option", { name: /Group 2A/ });
+    const said = screen.getAllByRole("option").map((option) => option.textContent);
+    expect(said.find((text) => text?.includes("Group 2A"))).toContain("doesn't go with TD 1");
+    expect(said.find((text) => text?.includes("Group 1A"))).not.toContain("doesn't go with");
   });
 });

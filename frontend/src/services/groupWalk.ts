@@ -22,12 +22,20 @@
  * **A group whose own sections meet at the same hour cannot hold anyone**, so it is dropped
  * before `planFill` sees it rather than being offered and then refused.
  *
- * A set open to every cohort — the languages — is planned like any other and marked as a
- * guess. Those groups are chosen by level from a placement test and the platform holds no
- * level data, so a language group picked on capacity and clash alone can be confidently
- * wrong. It used to be declined outright, which was safe and meant a coordinator placing a
- * new arrival still had to go and do the languages by hand, every time, with no starting
- * point. A marked guess is a starting point; an unmarked one would be a trap.
+ * **A set their major does not take is left out**, not reported full: a mathematician has
+ * no Optics group because mathematicians do not take Optics.
+ *
+ * **Nothing is proposed for a student whose major this browser does not know**, in a cohort
+ * where the major decides anything. Guessing it was how mathematicians were proposed the
+ * physicists' lecture.
+ *
+ * **A group is only proposed if the student can still sit in every set that follows it.**
+ * A physicist's Optics TD goes with TD 3 only, so their TD is 3; a student already in
+ * Mechanics TP 2A keeps a TD that 2A goes with.
+ *
+ * **Languages are left for a person.** They go by a placement test's level, which the
+ * platform does not hold, and every guess it made — the emptiest group, which is the highest
+ * level — was wrong. A set open to every cohort is the languages.
  */
 
 import {
@@ -39,7 +47,8 @@ import {
   clashKey,
   planFill,
 } from "@/services/groupFill";
-import { type CatalogueGroup, type CatalogueScope, groupIsRetired, partsOf, sectionFor } from "@/services/studentDatabase";
+import { sameProgram } from "@/services/programmes";
+import { type CatalogueGroup, type CatalogueScope, groupIsRetired, parentsOf, partsOf, sectionFor } from "@/services/studentDatabase";
 
 /** One set's share of the walk: the plan the fill made, and which set it was for. */
 export type WalkStep = {
@@ -47,14 +56,6 @@ export type WalkStep = {
   scopeCode: string;
   scopeName: string;
   plan: FillPlan;
-  /**
-   * Whether this set's placements rest on something the platform does not hold.
-   *
-   * True for a set open to every cohort. Those are the languages, which go by a placement
-   * test's level — so capacity, clash and major, which is everything the fill knows, do not
-   * decide them. The plan is still worth making; it is not worth trusting unread.
-   */
-  guessed: boolean;
 };
 
 /** A set the walk deliberately declined, and the reason a person can act on. */
@@ -67,6 +68,8 @@ export type WalkSkip = {
 export type Walk = {
   steps: WalkStep[];
   skipped: WalkSkip[];
+  /** Students nothing was proposed for, and why: their major is not known here. */
+  notProposed: { studentId: string; why: string }[];
 };
 
 /**
@@ -111,29 +114,55 @@ export function walkSets({
 }): Walk {
   const steps: WalkStep[] = [];
   const skipped: WalkSkip[] = [];
+  const notProposed: Walk["notProposed"] = [];
   // One mutable copy per student, folded forward as each set is decided.
   const held = new Map(candidates.map((candidate) => [candidate.studentId, { ...candidate.held }]));
+  const live = (scope: CatalogueScope) =>
+    scope.groups.filter((group) => !groupIsRetired(group) && !collidesWithItself(group.id, clashes));
+
+  // Where any group is somebody's in particular, the major decides something, and a
+  // student whose major is not known here gets nothing rather than a guess.
+  const majorDecides = scopes.some(
+    (scope) => !scope.openToAll && live(scope).some((group) => (group.majors ?? []).length || group.firstFor),
+  );
+  const known = candidates.filter((candidate) => {
+    if (!majorDecides || candidate.program.trim()) return true;
+    notProposed.push({ studentId: candidate.studentId, why: "their major is not in this browser" });
+    return false;
+  });
 
   for (const scope of parentsFirst(scopes)) {
-    const groups = scope.groups.filter(
-      (group) => !groupIsRetired(group) && !collidesWithItself(group.id, clashes),
-    );
+    if (scope.openToAll) {
+      skipped.push({ scopeId: scope.id, scopeCode: scope.code, why: "chosen by level — choose it yourself" });
+      continue;
+    }
+    const groups = live(scope);
     if (groups.length === 0) {
       skipped.push({ scopeId: scope.id, scopeCode: scope.code, why: "no group of this set can take anybody" });
       continue;
     }
-    const waiting = candidates.filter((candidate) => !held.get(candidate.studentId)?.[scope.id]);
+    const unplanned = known.filter((candidate) => !held.get(candidate.studentId)?.[scope.id]);
+    if (unplanned.length === 0) {
+      if (known.length) skipped.push({ scopeId: scope.id, scopeCode: scope.code, why: "already in a group of this set" });
+      continue;
+    }
+    const waiting = unplanned.filter((candidate) => takes(groups, candidate.program));
     if (waiting.length === 0) {
-      skipped.push({ scopeId: scope.id, scopeCode: scope.code, why: "already in a group of this set" });
+      skipped.push({ scopeId: scope.id, scopeCode: scope.code, why: "not taken by their major" });
       continue;
     }
 
+    // The sets that follow this one, for looking ahead.
+    const following = scopes.filter(
+      (other) => other.kind === "nested" && other.parentScopeId === scope.id && !other.openToAll,
+    );
     const plan = planFill({
       groups: groups.map((group) => fillGroupOf(group, scope)),
-      candidates: waiting.map((candidate) => ({
-        ...candidate,
-        held: held.get(candidate.studentId) ?? candidate.held,
-      })),
+      candidates: waiting.map((candidate) => {
+        const mine = held.get(candidate.studentId) ?? candidate.held;
+        const within = goesWithAll(groups, following.map((other) => ({ groups: live(other), held: mine[other.id] ?? "" })), candidate.program);
+        return { ...candidate, held: mine, ...(within ? { within } : {}) };
+      }),
       clashes,
       order,
       policy,
@@ -147,18 +176,60 @@ export function walkSets({
       const mine = held.get(placement.studentId);
       if (mine) mine[scope.id] = placement.groupId;
     }
-    steps.push({
-      scopeId: scope.id,
-      scopeCode: scope.code,
-      scopeName: scope.name,
-      plan,
-      // A set everybody shares is a language set, and the level that really decides it is
-      // not ours to read.
-      guessed: scope.openToAll,
-    });
+    steps.push({ scopeId: scope.id, scopeCode: scope.code, scopeName: scope.name, plan });
   }
 
-  return { steps, skipped };
+  return { steps, skipped, notProposed };
+}
+
+/**
+ * Whether a student of this programme takes the set at all.
+ *
+ * Not when every group of it is another programme's — sub-rows for other majors and none
+ * for theirs, as Optics is to a mathematician. A group with no sub-rows is anybody's.
+ */
+export function takes(groups: CatalogueGroup[], program: string): boolean {
+  return groups.some((group) => {
+    const majors = group.majors ?? [];
+    return majors.length === 0 || majors.length >= 2 || majors.some((major) => sameProgram(major.program, program));
+  });
+}
+
+/**
+ * The groups of a set a student may still be proposed, given the sets that follow it.
+ *
+ * For each following set: the group they already hold there says which of these it goes
+ * with; otherwise, if their programme takes it, one of its groups open to them must go with
+ * the one chosen here. The groups every following set allows, or nothing — no restriction —
+ * when nothing follows or the sets disagree, which a person has to untangle anyway.
+ */
+export function goesWithAll(
+  groups: CatalogueGroup[],
+  following: { groups: CatalogueGroup[]; held: string }[],
+  program: string,
+): string[] | null {
+  let allowed: string[] | null = null;
+  for (const set of following) {
+    const holding = set.groups.find((group) => group.id === set.held);
+    let parents: string[];
+    if (holding) {
+      parents = parentsOf(holding);
+    } else {
+      if (!takes(set.groups, program)) continue;
+      parents = set.groups
+        .filter((group) => {
+          const majors = group.majors ?? [];
+          return majors.length === 0 || majors.length >= 2 || majors.some((major) => sameProgram(major.program, program));
+        })
+        .flatMap((group) => parentsOf(group));
+    }
+    const these: string[] = allowed === null ? parents : allowed.filter((id: string) => parents.includes(id));
+    allowed = these;
+  }
+  if (allowed === null) return null;
+  const permitted: string[] = allowed;
+  const within = groups.map((group) => group.id).filter((id) => permitted.includes(id));
+  return within.length ? within : null;
 }
 
 /**
@@ -178,8 +249,13 @@ export function fillGroupOf(group: CatalogueGroup, scope: CatalogueScope): FillG
     capacity: group.capacity,
     assigned: group.assigned,
     parentGroupId: group.parentGroupId,
+    parentGroupIds: parentsOf(group),
+    firstFor: group.firstFor ?? "",
     majors,
-    identical: majors.length > 0 && sameSections(group, scope),
+    // A seat is a seat only between two sub-rows or more taught the same. One sub-row is a
+    // group that is that programme's alone — every sub-rowed group in production is — and
+    // reading it as "all the same" opened each of them to everybody.
+    identical: majors.length >= 2 && sameSections(group, scope),
   };
 }
 
