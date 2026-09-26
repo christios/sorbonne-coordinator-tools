@@ -199,7 +199,7 @@ function subRows(
       },
     ];
   }
-  return majors.map((major, index) => {
+  const rows = majors.map((major, index) => {
     const own = group.byMajor?.[major.id]?.[course.id];
     const section = sectionFor(group, major.id, course.id);
     return {
@@ -215,6 +215,31 @@ function subRows(
       firstSubRow: index === 0,
     };
   });
+  /*
+   * A lecture every taught sub-row shares is one class, and one row: L1's CM is one group
+   * of mathematicians and physicists, and MATH-100's lecture is theirs together. Shown once
+   * per major it was the same CRN twice on the card — the thing the merge was for. A
+   * sub-row not taught the course keeps its row, which is where that is said.
+   */
+  const taught = rows.filter((row) => !row.notTaught);
+  const shared = taught.length >= 2 && taught.every((row) => !group.byMajor?.[row.major.id]?.[course.id]);
+  if (!shared) return rows;
+  const section = group.crns[course.id] ?? null;
+  return [
+    {
+      scope,
+      group,
+      course,
+      section,
+      exempt: section?.exempt ?? 0,
+      parentCrn: (section?.crn && parentOf.get(section.crn)) || "",
+      major: null,
+      notTaught: false,
+      sharedCell: false,
+      firstSubRow: true,
+    },
+    ...rows.filter((row) => row.notTaught).map((row) => ({ ...row, firstSubRow: false })),
+  ];
 }
 
 /** The group as one sub-row sees it: the sub-row's label, seats and count, the group's id. */

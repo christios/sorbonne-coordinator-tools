@@ -12,7 +12,7 @@ import { type Cohort, fetchAssignmentMajors, fetchAssignments, fetchCatalogue, f
 import type { TimetableTerm } from "@/services/timetables";
 import type { Card } from "@/services/courseCards";
 import { downloadTimetableWorkbook, requestSheets, sheetTitle, semesterLabel } from "@/services/timetableExport";
-import { downloadWorkbook, prefixOf, shortYear } from "@/services/workbookExport";
+import { downloadWorkbook, labelIn, prefixOf, readingsFor, shortYear } from "@/services/workbookExport";
 
 /**
  * The files: the group workbook out, and the admissions list out.
@@ -98,8 +98,9 @@ export function WorkbookTools({
       const held = await namesHeld();
       const programs = await fieldHeld("MAJOR_CODE_DESC");
       const placements = await placementsOfMembers(cohort.id);
-      const byScope = new Map(scopes.map((scope) => [scope.id, scope.code]));
-      const labelOf = new Map(scopes.flatMap((scope) => scope.groups.map((group) => [group.id, group.label] as const)));
+      // Which half each placement took, where a group is written as its halves.
+      const majors = await fetchAssignmentMajors(cohort.id);
+      const byScope = new Map(scopes.map((scope) => [scope.id, scope]));
       const students = Object.entries(placements)
         .map(([studentId, byScopeId]) => ({
           studentId,
@@ -107,9 +108,9 @@ export function WorkbookTools({
           program: programs[studentId] ?? "",
           groups: Object.fromEntries(
             Object.entries(byScopeId).flatMap(([scopeId, groupId]) => {
-              const code = byScope.get(scopeId);
-              const label = labelOf.get(groupId);
-              return code && label ? [[code, label] as const] : [];
+              const scope = byScope.get(scopeId);
+              const group = scope?.groups.find((candidate) => candidate.id === groupId);
+              return scope && group ? [[scope.code, labelIn(group, scope, majors[studentId]?.[scopeId] ?? "")] as const] : [];
             }),
           ),
         }))
@@ -118,7 +119,15 @@ export function WorkbookTools({
         {
           cohortName: cohort.name,
           prefix: prefixOf(cohort.name),
-          blocks: scopes.map((scope) => ({ code: scope.code, name: scope.name, tab: scope.tab ?? "", groupColumn: scope.groupColumn ?? "", columnIndex: scope.columnIndex ?? 0, courses: scope.courses, groups: scope.groups })),
+          blocks: scopes.map((scope) => ({
+            code: scope.code,
+            name: scope.name,
+            tab: scope.tab ?? "",
+            groupColumn: scope.groupColumn ?? "",
+            columnIndex: scope.columnIndex ?? 0,
+            courses: scope.courses,
+            groups: scope.groups.map((group) => ({ ...group, readings: readingsFor(group, scope) })),
+          })),
           students,
           ueOf,
           teacherOf,
@@ -202,8 +211,11 @@ export function WorkbookTools({
       const family = await fieldHeld("LAST_NAME");
       const first = await fieldHeld("FIRST_NAME");
       const placements = await placementsOfMembers(cohort.id);
+      // Which half each placement took, so each student reads their own major's lectures.
+      const majors = await fetchAssignmentMajors(cohort.id);
       const labelOf = new Map(scopes.flatMap((scope) => scope.groups.map((group) => [group.id, group.label] as const)));
       const students = Object.entries(placements).map(([studentId, byScopeId]) => ({
+        majors: majors[studentId] ?? {},
         studentId,
         // The registrar's own split where this browser has it, and the whole name where
         // it does not — the sheet promises the list is alphabetical by family name, so

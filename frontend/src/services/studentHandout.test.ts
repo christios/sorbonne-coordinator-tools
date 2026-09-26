@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildHandoutBuffer,
   classCell,
   courseHeading,
   explain,
@@ -81,5 +82,45 @@ describe("the file the students get", () => {
     expect(labelValue("B")).toBe("B");
     expect(labelValue("3A")).toBe("3A");
     expect(labelValue("")).toBe("");
+  });
+});
+
+
+describe("a group whose majors are taught different things", () => {
+  it("gives each student their own major's lecture, not the other's", async () => {
+    // L1's CM as one group: MATH-113 for the mathematicians, PHYS-118 for the physicists.
+    const cm = scope({
+      courses: [
+        { id: "c-m113", code: "MATH-113", name: "Philosophy of AI", component: "CM", request: EMPTY_REQUEST },
+        { id: "c-p118", code: "PHYS-118", name: "Optics", component: "CM", request: EMPTY_REQUEST },
+      ],
+      groups: [
+        {
+          id: "cm-1", label: "1", capacity: 120, note: "", parentGroupId: "", assigned: 2,
+          crns: { "c-m113": { ...EMPTY_SECTION, crn: "23307" }, "c-p118": { ...EMPTY_SECTION, crn: "22150" } },
+          majors: [
+            { id: "m-math", program: "MATH - Mathematics", seats: 100, assigned: 1 },
+            { id: "m-phys", program: "PHYS - Physics", seats: 20, assigned: 1 },
+          ],
+          byMajor: {
+            "m-math": { "c-p118": { ...EMPTY_SECTION, notTaught: true } },
+            "m-phys": { "c-m113": { ...EMPTY_SECTION, notTaught: true } },
+          },
+        },
+      ],
+    });
+    const buffer = await buildHandoutBuffer({
+      cohortName: "L1-S1", semester: "Semester 1", year: "2026-27", scopes: [cm],
+      students: [{ studentId: "A2", family: "Physicist", first: "", programme: "PHYS", groups: { "s-cm": "1" }, majors: { "s-cm": "m-phys" } }],
+    });
+    const ExcelJS = await import("exceljs");
+    const book = new ExcelJS.Workbook();
+    await book.xlsx.load(buffer);
+    const row = book.worksheets[0].getRow(8);
+    const cells: string[] = [];
+    row.eachCell((cell) => cells.push(String(cell.value ?? "")));
+
+    expect(cells.join(" ")).toContain("22150");
+    expect(cells.join(" ")).not.toContain("23307");
   });
 });

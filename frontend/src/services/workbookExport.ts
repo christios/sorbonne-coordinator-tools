@@ -22,6 +22,9 @@
  * somebody's mouth.
  */
 
+import { subRowLabel } from "@/services/courseCards";
+import { type CatalogueGroup, type CatalogueScope, sectionFor } from "@/services/studentDatabase";
+
 const HEADER_FILL = "FF1F3864";
 /** Amber: the columns a coordinator types in. */
 const TYPE_HERE_FILL = "FFBF8F00";
@@ -50,8 +53,60 @@ export type ExportBlock = {
     /** The programme this group takes first, when it takes one. Empty means any. */
     program?: string;
     crns: Record<string, { crn: string; teacher: string; teacherId?: string }>;
+    /**
+     * A group whose majors are taught different things is written as its halves — L1's CM,
+     * where the mathematicians have MATH-113 and the physicists PHYS-118 — each a label a
+     * student's row can name and a set of CRNs it looks up. Absent for every other group,
+     * which is written as it always was.
+     */
+    readings?: Reading[];
   }[];
 };
+
+/** One way a group is read in the file: the label a student's row names, and its CRNs. */
+export type Reading = {
+  label: string;
+  capacity: number;
+  crns: Record<string, { crn: string; teacher: string; teacherId?: string }>;
+};
+
+/**
+ * The halves a catalogue group is written as, or nothing when it is one thing.
+ *
+ * A group with sub-rows whose readings agree course for course — a seat is a seat — is
+ * written whole, as before. Where they differ, each sub-row is a half: its label, its
+ * seats, and what it is taught (its own cells over the shared ones, the courses it is not
+ * taught left out).
+ */
+export function readingsFor(group: CatalogueGroup, scope: Pick<CatalogueScope, "courses">): Reading[] | undefined {
+  const majors = group.majors ?? [];
+  if (majors.length < 2) return undefined;
+  const readings = majors.map((major) => ({
+    label: subRowLabel(group.label, major.program, majors.length),
+    capacity: major.seats,
+    crns: Object.fromEntries(
+      scope.courses.flatMap((course) => {
+        const section = sectionFor(group, major.id, course.id);
+        return section ? [[course.id, section] as const] : [];
+      }),
+    ),
+  }));
+  const said = (reading: Reading) =>
+    scope.courses.map((course) => `${course.id}=${reading.crns[course.id]?.crn ?? "-"}`).join("|");
+  return readings.every((reading) => said(reading) === said(readings[0])) ? undefined : readings;
+}
+
+/** The label a student's row names for their group: their half's, where it has halves. */
+export function labelIn(group: CatalogueGroup, scope: Pick<CatalogueScope, "courses">, majorId: string): string {
+  if (!readingsFor(group, scope)) return group.label;
+  const major = (group.majors ?? []).find((candidate) => candidate.id === majorId);
+  return major ? subRowLabel(group.label, major.program, (group.majors ?? []).length) : group.label;
+}
+
+/** The group as the file reads it: its halves where it has them, else the group itself. */
+export function readingsOf(group: ExportBlock["groups"][number]): Reading[] {
+  return group.readings?.length ? group.readings : [{ label: group.label, capacity: group.capacity, crns: group.crns }];
+}
 
 export type ExportStudent = {
   studentId: string;
@@ -312,14 +367,16 @@ export function referenceRows(
   const rows: (string | number)[][] = [];
   for (const block of blocks) {
     const codeOf = new Map(block.courses.map((course) => [course.id, course]));
-    for (const group of block.groups) {
-      for (const [courseId, cell] of Object.entries(group.crns)) {
+    // By half, where a group has them: the lookup a student's row makes is by the label
+    // it names, so a lecture both halves share is a row under each.
+    for (const reading of block.groups.flatMap((group) => readingsOf(group))) {
+      for (const [courseId, cell] of Object.entries(reading.crns)) {
         const course = codeOf.get(courseId);
         if (!course || !cell.crn) continue;
         const key = ueOf(course.code) || course.code;
         rows.push([
           cell.crn,
-          group.label,
+          reading.label,
           block.code,
           key,
           course.name,
@@ -327,7 +384,7 @@ export function referenceRows(
           named(cell),
           block.tab || block.code,
           groupColumnName(block),
-          helperKey(block.code, group.label, key),
+          helperKey(block.code, reading.label, key),
         ]);
       }
     }
@@ -533,13 +590,14 @@ function writeReference(book: { definedNames: { add: (range: string, name: strin
     header.value = groupColumnName(block);
     header.font = { bold: true, size: 9 };
     header.alignment = { wrapText: true };
-    block.groups.forEach((group, offset) => {
-      sheet.getCell(7 + offset, column).value = group.label;
+    const labels = block.groups.flatMap((group) => readingsOf(group)).map((reading) => reading.label);
+    labels.forEach((label, offset) => {
+      sheet.getCell(7 + offset, column).value = label;
     });
-    if (block.groups.length > 0) {
+    if (labels.length > 0) {
       const letter = columnLetter(column);
       book.definedNames.add(
-        `Reference!$${letter}$7:$${letter}$${6 + block.groups.length}`,
+        `Reference!$${letter}$7:$${letter}$${6 + labels.length}`,
         groupsName(input.prefix, block.code),
       );
     }
@@ -590,7 +648,7 @@ function writeLegend(sheet: Sheet, input: ExportInput): void {
     sheet.getRow(row).height = 34;
     row += 1;
 
-    for (const group of block.groups) {
+    for (const group of block.groups.flatMap((entry) => readingsOf(entry))) {
       const label = sheet.getCell(row, 1);
       label.value = group.label;
       label.font = { bold: true, size: 10 };
@@ -644,17 +702,37 @@ function writeCapacity(sheet: Sheet, input: ExportInput): void {
   for (const block of input.blocks) {
     const courseOf = new Map(block.courses.map((course) => [course.id, course]));
     for (const group of block.groups) {
-      for (const [courseId, cell] of Object.entries(group.crns)) {
+      /*
+       * Each CRN once, with the seats of whoever takes it: a lecture both halves share has
+       * the group's seats and counts everyone in it; a half's own lecture has that half's.
+       * The count is a COUNTIF of the CRN over the data tabs, so listing a shared lecture
+       * under each half would have counted everybody twice.
+       */
+      const readings = readingsOf(group);
+      const cells = new Map<string, { courseId: string; cell: (typeof group.crns)[string]; label: string; capacity: number }>();
+      for (const reading of readings) {
+        for (const [courseId, cell] of Object.entries(reading.crns)) {
+          if (!cell.crn) continue;
+          const seen = cells.get(cell.crn);
+          cells.set(
+            cell.crn,
+            seen
+              ? { ...seen, label: group.label, capacity: group.capacity }
+              : { courseId, cell, label: reading.label, capacity: readings.length > 1 ? reading.capacity : group.capacity },
+          );
+        }
+      }
+      for (const { courseId, cell, label, capacity } of cells.values()) {
         const course = courseOf.get(courseId);
-        if (!course || !cell.crn) continue;
+        if (!course) continue;
         const values: (string | number | { formula: string })[] = [
           Number(cell.crn) || cell.crn,
           input.ueOf?.(course.code) || course.code,
           course.name,
           course.component || block.code,
-          Number(group.label) || group.label,
+          Number(label) || label,
           teacherName(input, cell),
-          group.capacity || "",
+          capacity || "",
           { formula: tally ? tally.split("%ROW%").join(String(row)) : "0" },
           { formula: `IF($G${row}="","",$G${row}-$H${row})` },
           { formula: `IF($I${row}="","",IF($I${row}<0,"OVER",IF($I${row}=0,"FULL","")))` },

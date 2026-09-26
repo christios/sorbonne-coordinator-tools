@@ -363,3 +363,39 @@ describe("a class four cohorts sit in", () => {
     expect(held.enrolled).toBe(12);
   });
 });
+
+describe("a group whose majors share some lectures", () => {
+  it("counts a lecture they all attend as one room, and a major's own lecture as its own", () => {
+    // L1's CM as one group: MATH-100 for all 109, MATH-113 the 91 mathematicians' alone.
+    const l1: CohortCatalogue = {
+      cohort: { id: "c-l1", name: "L1-S1", term: "2026-27" },
+      scopes: [
+        {
+          id: "s-cm", code: "CM", name: "Lectures", note: "", termId: "term-1", kind: "shared", parentScopeId: "", openToAll: false,
+          courses: [
+            { id: "c-m100", code: "MATH-100", name: "Mathematics 1", component: "CM", request: EMPTY_REQUEST },
+            { id: "c-m113", code: "MATH-113", name: "Philosophy of AI", component: "CM", request: EMPTY_REQUEST },
+          ],
+          groups: [
+            {
+              id: "cm-1", label: "1", capacity: 120, note: "", parentGroupId: "", assigned: 109,
+              crns: { "c-m100": { ...EMPTY_SECTION, crn: "22134" }, "c-m113": { ...EMPTY_SECTION, crn: "23307" } },
+              majors: [
+                { id: "m-math", program: "MATH - Mathematics", seats: 100, assigned: 91 },
+                { id: "m-phys", program: "PHYS - Physics", seats: 20, assigned: 18 },
+              ],
+              byMajor: { "m-phys": { "c-m113": { ...EMPTY_SECTION, notTaught: true } } },
+            },
+          ],
+        },
+      ],
+    };
+
+    const rows = capacityRows([l1], () => "Semester 1");
+
+    expect(rows.map((row) => [row.crn, row.group, row.capacity, row.enrolled])).toEqual([
+      ["22134", "1", 120, 109],
+      ["23307", "1 · Mathematics", 100, 91],
+    ]);
+  });
+});

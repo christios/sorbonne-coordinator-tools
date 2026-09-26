@@ -19,6 +19,8 @@ const TERMS = [{ id: "term-1", name: "Semester 1" } as TimetableTerm];
 
 beforeEach(() => {
   vi.spyOn(database, "fetchCatalogue").mockResolvedValue({ scopes: [] });
+  // Which half each placement took, for a group written as its halves.
+  vi.spyOn(database, "fetchAssignmentMajors").mockResolvedValue({});
 });
 
 afterEach(() => vi.restoreAllMocks());

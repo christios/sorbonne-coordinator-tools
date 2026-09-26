@@ -54,6 +54,16 @@ export function statusOf(capacity: number, enrolled: number): CapacityStatus {
   return enrolled === 0 ? "Empty" : "Room";
 }
 
+/**
+ * Whether every major of the group taught this course sits in the same class for it — the
+ * lecture both halves of L1's CM attend. That is one room holding all of them, not a
+ * room per major, so it is counted as the group.
+ */
+function sharedByAll(group: CohortCatalogue["scopes"][number]["groups"][number], courseId: string): boolean {
+  const taught = (group.majors ?? []).filter((major) => !group.byMajor?.[major.id]?.[courseId]?.notTaught);
+  return taught.length >= 2 && taught.every((major) => !group.byMajor?.[major.id]?.[courseId]);
+}
+
 export function capacityRows(
   cohorts: CohortCatalogue[],
   termName: (termId: string) => string,
@@ -73,7 +83,7 @@ export function capacityRows(
          * none is one row, as before.
          */
         const seats = scope.groups.flatMap((group) =>
-          (group.majors ?? []).length
+          (group.majors ?? []).length && !sharedByAll(group, course.id)
             ? (group.majors ?? []).map((major) => ({
                 group,
                 label: subRowLabel(group.label, major.program, (group.majors ?? []).length),

@@ -101,20 +101,23 @@ describe("a group with sub-rows, one per major it holds", () => {
   // One card per course; each carries the set's rows for that course.
   const rowsOf = (code: string) => cards.find((card) => card.code === code)?.sets[0]?.rows ?? [];
 
-  it("reads the group as one row per sub-row, labelled by the major, with the sub-row's seats", () => {
-    expect(rowsOf("CPSC-100").map((row) => [row.group.label, row.group.capacity, row.group.assigned])).toEqual([
+  it("shows a lecture every major of the group shares as one row, the group's own", () => {
+    // CPSC-100's lecture is the mathematicians' and the physicists' together: one class,
+    // one CRN, one row — not the same CRN once per major.
+    const rows = rowsOf("CPSC-100");
+    expect(rows.map((row) => [row.group.label, row.section?.crn, row.major, row.sharedCell, row.firstSubRow])).toEqual([
+      ["1", "22155", null, false, true],
+    ]);
+    // The id stays the group's: a placement is into the group.
+    expect(rows[0].group.id).toBe("g1");
+  });
+
+  it("reads a course the majors are taught differently as one row per sub-row, with the sub-row's seats", () => {
+    expect(rowsOf("MATH-113").map((row) => [row.group.label, row.group.capacity, row.group.assigned])).toEqual([
       ["1 · Mathematics", 90, 85],
       ["1 · Physics", 20, 15],
     ]);
-    // The id stays the group's: a placement is into the group, on the sub-row.
-    expect(rowsOf("CPSC-100").every((row) => row.group.id === "g1")).toBe(true);
-  });
-
-  it("shows a shared cell on every sub-row and counts it once", () => {
-    const [maths, physics] = rowsOf("CPSC-100");
-    expect([maths.section?.crn, physics.section?.crn]).toEqual(["22155", "22155"]);
-    expect([maths.sharedCell, physics.sharedCell]).toEqual([true, true]);
-    expect([maths.firstSubRow, physics.firstSubRow]).toEqual([true, false]);
+    expect(rowsOf("MATH-113").every((row) => row.group.id === "g1")).toBe(true);
   });
 
   it("gives a sub-row its own cell over the shared one, and says when it is not taught a course", () => {

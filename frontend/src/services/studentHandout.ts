@@ -12,8 +12,8 @@
  * the server holds none.
  */
 
-import { partsOf, type CatalogueScope } from "@/services/studentDatabase";
-import { SPREADSHEET_TYPE } from "@/services/workbookExport";
+import { partsOf, sectionFor, type CatalogueScope } from "@/services/studentDatabase";
+import { SPREADSHEET_TYPE, readingsFor } from "@/services/workbookExport";
 
 /**
  * A colour per set, in the order the sets come.
@@ -40,6 +40,11 @@ export type HandoutStudent = {
   programme: string;
   /** `scope id -> group label`. */
   groups: Record<string, string>;
+  /**
+   * `scope id -> the sub-row they sit on`, in a group that has them. A student reads their
+   * own major's lectures: a physicist in L1's CM is not sent to the mathematicians' one.
+   */
+  majors?: Record<string, string>;
 };
 
 export type Handout = {
@@ -264,7 +269,9 @@ export async function buildHandoutBuffer(input: Handout): Promise<ArrayBuffer> {
         // One block per part. A course handed from one professor to another at
         // mid-semester is two CRNs and two names, and a handout showing one of them sends
         // half the class to the wrong room for half the term.
-        const parts = partsOf(group?.crns[course.id]).filter((part) => part.crn);
+        const parts = partsOf(group ? sectionFor(group, student.majors?.[scope.id] ?? "", course.id) : null).filter(
+          (part) => part.crn,
+        );
         const cell = sheet.getCell(row, at + offset + 1);
         cell.value = parts.length ? parts.map((part) => classCell(part.crn, named(part))).join("\n") : "—";
         cell.font = { size: 10 };
@@ -355,7 +362,8 @@ function writeExplainer(sheet: Explainer, input: Handout, named: (section: { tea
     sheet.getRow(row).height = 24;
     row += 1;
 
-    for (const group of groupsOf(scope)) {
+    // A group whose majors are taught different things is shown as its halves.
+    for (const group of groupsOf(scope).flatMap((entry) => readingsFor(entry, scope) ?? [entry])) {
       const label = sheet.getCell(row, 1);
       label.value = labelValue(group.label);
       label.font = { size: 13, bold: true };

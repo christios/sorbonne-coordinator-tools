@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+import { type CatalogueGroup, EMPTY_REQUEST, EMPTY_SECTION } from "@/services/studentDatabase";
+
 import {
   type ExportBlock,
   type ExportStudent,
@@ -11,6 +13,8 @@ import {
   groupColumnName,
   groupsName,
   helperKey,
+  labelIn,
+  readingsFor,
   prefixOf,
   referenceRows,
   tabsOf,
@@ -307,5 +311,74 @@ describe("a course the group in front of you does not read", () => {
     const optics = tab?.getCell("F2").value as { formula?: string };
 
     expect(optics?.formula).not.toContain("COUNTIF");
+  });
+});
+
+
+describe("a group whose majors are taught different things", () => {
+  /*
+   * L1's CM as one group: MATH-100 for everybody, MATH-113 for the mathematicians,
+   * PHYS-118 for the physicists. Written whole, a physicist's row would look MATH-113 up
+   * under "1" and find the mathematicians' lecture.
+   */
+  const section = (crn: string) => ({ ...EMPTY_SECTION, crn });
+  const courses = [
+    { id: "c-m100", code: "MATH-100", name: "Mathematics 1", component: "CM", request: EMPTY_REQUEST },
+    { id: "c-m113", code: "MATH-113", name: "Philosophy of AI", component: "CM", request: EMPTY_REQUEST },
+    { id: "c-p118", code: "PHYS-118", name: "Optics", component: "CM", request: EMPTY_REQUEST },
+  ];
+  const cm: CatalogueGroup = {
+    id: "cm-1", label: "1", capacity: 120, note: "", parentGroupId: "", assigned: 109,
+    crns: { "c-m100": section("22134"), "c-m113": section("23307"), "c-p118": section("22150") },
+    majors: [
+      { id: "m-math", program: "MATH - Mathematics", seats: 100, assigned: 91 },
+      { id: "m-phys", program: "PHYS - Physics", seats: 20, assigned: 18 },
+    ],
+    byMajor: {
+      "m-math": { "c-p118": { ...EMPTY_SECTION, notTaught: true } },
+      "m-phys": { "c-m113": { ...EMPTY_SECTION, notTaught: true } },
+    },
+  };
+
+  it("is written as its halves, each taught what its majors take", () => {
+    const readings = readingsFor(cm, { courses }) ?? [];
+
+    expect(readings.map((reading) => [reading.label, reading.capacity, Object.values(reading.crns).map((cell) => cell.crn)])).toEqual([
+      ["1 · Mathematics", 100, ["22134", "23307"]],
+      ["1 · Physics", 20, ["22134", "22150"]],
+    ]);
+    // A student's row names their half.
+    expect(labelIn(cm, { courses }, "m-phys")).toBe("1 · Physics");
+  });
+
+  it("is written whole when its sub-rows are taught the same", () => {
+    const same = { ...cm, byMajor: {} , crns: { "c-m100": section("22134") } };
+
+    expect(readingsFor(same, { courses })).toBeUndefined();
+    expect(labelIn(same, { courses }, "m-phys")).toBe("1");
+  });
+
+  it("looks each half's lectures up by its own label, and counts a shared lecture once", async () => {
+    const block: ExportBlock = {
+      code: "CM", name: "", tab: "CM", groupColumn: "CM group",
+      courses: courses.map(({ id, code, name, component }) => ({ id, code, name, component })),
+      groups: [{ ...cm, readings: readingsFor(cm, { courses }) }],
+    };
+
+    expect(referenceRows([block]).map((row) => row[9]).sort()).toEqual([
+      "CM|1 · Mathematics|MATH-100",
+      "CM|1 · Mathematics|MATH-113",
+      "CM|1 · Physics|MATH-100",
+      "CM|1 · Physics|PHYS-118",
+    ]);
+
+    const book = await built([block]);
+    const capacity = book.getWorksheet("Capacity");
+    const listed: string[] = [];
+    capacity?.eachRow((row, at) => {
+      if (at >= 5) listed.push(`${row.getCell(1).value} ${row.getCell(5).value} ${row.getCell(7).value}`);
+    });
+    // The shared lecture once, with the group's seats; each half's own with its own.
+    expect(listed.sort()).toEqual(["22134 1 120", "22150 1 · Physics 20", "23307 1 · Mathematics 100"]);
   });
 });
