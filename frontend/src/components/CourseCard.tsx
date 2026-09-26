@@ -468,6 +468,10 @@ export function SectionDialog({
   const save = useMutation({
     mutationFn: async () => {
       await resize();
+      if (row.notTaught && row.major && whose !== "not-taught") {
+        // Taught again: the sub-row's word is taken back, and the group's own section shows through.
+        await setGroupCrn(row.group.id, row.course.id, { crn: "", part: 1, majorId: row.major.id });
+      }
       const crn = draft.crn.trim();
       // The part being edited, so a handover's second half is written to its own row
       // rather than over the first professor's.

@@ -589,6 +589,8 @@ export function CourseDetail({
           // Offering to add a section in a group the course is not taught to is how the
           // empty cell got there in the first place.
           const spare = set.rows.filter((row) => !row.section && teaches(row));
+          // Said not to be taught the course: no card, but pressable, so it can be taught again.
+          const untaught = set.rows.filter((row) => row.notTaught);
           return (
             <div key={set.scope.id}>
               <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
@@ -667,6 +669,23 @@ export function CourseDetail({
                       ))}
                     </div>
                   ) : null}
+                </div>
+              ) : null}
+
+              {untaught.length ? (
+                <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-[#98a2b3]">
+                  <span>Not taught to</span>
+                  {untaught.map((row) => (
+                    <button
+                      key={rowKey(row)}
+                      type="button"
+                      onClick={() => setEditing(row)}
+                      title="Press to change it, or to teach the course to this group again"
+                      className="rounded-full border border-[#e4e8ef] bg-[#f8fafc] px-2 py-0.5 font-medium text-[#98a2b3] line-through decoration-[#c8d0da] hover:border-[#1f4e79] hover:text-[#1f4e79] hover:no-underline"
+                    >
+                      {row.group.label}
+                    </button>
+                  ))}
                 </div>
               ) : null}
 

@@ -393,6 +393,25 @@ describe("a set whose groups hold one major each", () => {
     expect(screen.queryByRole("button", { name: /sections without a CRN/ })).toBeNull();
   });
 
+  it("keeps a group that is not taught the course pressable, so it can be taught again", async () => {
+    vi.spyOn(database, "fetchCourseCards").mockResolvedValue(byMajor(true));
+    const saveCrn = vi.spyOn(database, "setGroupCrn").mockResolvedValue();
+    vi.spyOn(database, "updateSection").mockResolvedValue();
+    show();
+
+    // On Analysis, the Physics group is not taught it: no card, but it is still there.
+    await screen.findByLabelText("Edit CM Mathematics MATH001");
+    fireEvent.click(screen.getByRole("button", { name: "Physics" }));
+    const choice = await screen.findByRole("radiogroup", { name: /Whose cell/ });
+    expect((within(choice).getByRole("radio", { name: /^Not taught/ }) as HTMLInputElement).checked).toBe(true);
+
+    fireEvent.click(within(choice).getByRole("radio", { name: /^Taught/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    // The sub-row's word is taken back; the group's own section shows through again.
+    await waitFor(() => expect(saveCrn).toHaveBeenCalledWith("g-phys", "c-math", { crn: "", part: 1, majorId: "m-phys" }));
+  });
+
   it("asks a group with one sub-row only whether it is taught, in words that fit any department", async () => {
     vi.spyOn(database, "fetchCourseCards").mockResolvedValue(byMajor(true));
     show();
