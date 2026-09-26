@@ -545,7 +545,8 @@ export function labelWarning(warning: Warning): string {
     case "elective":
       return "elective not approved";
     case "teams":
-      return "not in Teams";
+      // The channel, since a student can be missing from two: "not in SCEN Students".
+      return warning.expected ? `not in ${warning.expected}` : "not in Teams";
   }
 }
 
@@ -756,28 +757,32 @@ export function electiveWarnings(
 }
 
 /**
- * The cohort's members the Teams roster sync did not see in the cohort's channel.
+ * The cohort's members the Teams roster sync did not see in one of the cohort's channels,
+ * a warning for each channel they are missing from.
  *
- * Only from a check that knows: no channel, a sync that never reported, and a reading with
- * no channel by that name are all "no answer", and none of them is a warning about anybody.
- * The key names the channel, so a dismissal made against one channel does not carry over
- * to the next one the cohort is given — and not the reading, so it holds from one sync to
- * the next for as long as the student is still missing.
+ * Only from a channel the check knows: a sync that never reported and a reading with no
+ * channel by that name are "no answer", and neither is a warning about anybody. The key
+ * names the channel, so a dismissal made against one channel does not carry over to the
+ * next one the cohort is given — and not the reading, so it holds from one sync to the
+ * next for as long as the student is still missing.
  */
 export function teamsWarnings(check: TeamsCheck | null | undefined, cohortId: string): Warning[] {
-  if (!check?.known) return [];
-  const at = check.syncedAt ? Date.parse(check.syncedAt) : NaN;
-  return check.missing.map((member) => ({
-    key: `teams|${cohortId}|${check.channel}|${member.studentId}`,
-    studentId: member.studentId,
-    ruleId: "teams",
-    kind: "teams" as const,
-    field: "teams",
-    expected: check.channel,
-    at: Number.isNaN(at) ? undefined : at,
-    label: "not in Teams",
-    source: "teams" as const,
-  }));
+  return (check?.channels ?? [])
+    .filter((channel) => channel.known)
+    .flatMap((channel) => {
+      const at = channel.syncedAt ? Date.parse(channel.syncedAt) : NaN;
+      return channel.missing.map((member) => ({
+        key: `teams|${cohortId}|${channel.channel}|${member.studentId}`,
+        studentId: member.studentId,
+        ruleId: "teams",
+        kind: "teams" as const,
+        field: "teams",
+        expected: channel.channel,
+        at: Number.isNaN(at) ? undefined : at,
+        label: `not in ${channel.channel}`,
+        source: "teams" as const,
+      }));
+    });
 }
 
 export function registrationWarnings<

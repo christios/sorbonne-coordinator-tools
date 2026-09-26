@@ -70,18 +70,19 @@ def test_who_is_missing_ignores_spacing_and_case_in_the_channel_name() -> None:
     assert gap["listed"] == 1
 
 
-def test_a_cohort_remembers_its_channel(database: StudentDatabase) -> None:
+def test_a_cohort_remembers_its_channels(database: StudentDatabase) -> None:
     cohort = database.create_cohort(name="Licence 1", term="S1 2026-27")
-    assert cohort["teamsChannel"] == ""
+    assert cohort["teamsChannels"] == []
     updated = database.update_cohort(
         cohort["id"],
         name=cohort["name"],
         term=cohort["term"],
         notes="",
-        teams_channel="L1 Students",
+        teams_channels=["L1 Students", " SCEN  Students ", "L1 Students"],
     )
-    assert updated["teamsChannel"] == "L1 Students"
-    assert database.get_cohort(cohort["id"])["teamsChannel"] == "L1 Students"
+    # Tidied as codes are: spacing evened out, each once, in the order given.
+    assert updated["teamsChannels"] == ["L1 Students", "SCEN Students"]
+    assert database.get_cohort(cohort["id"])["teamsChannels"] == ["L1 Students", "SCEN Students"]
 
 
 def test_the_endpoint_takes_a_list_of_channels_and_stores_a_map(

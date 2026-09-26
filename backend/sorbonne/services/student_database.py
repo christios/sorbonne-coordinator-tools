@@ -311,16 +311,16 @@ class StudentDatabase:
         workbook_tab: str = "",
         first_semester: int = 0,
         allowed_codes: list[str] | None = None,
-        teams_channel: str | None = None,
+        teams_channels: list[str] | None = None,
     ) -> dict[str, Any]:
-        """Every column as sent — except the Teams channel, which only a caller that names it
-        changes. The form does not show it, so saving the form used to blank it."""
+        """Every column as sent — except the Teams channels, which only a caller that names
+        them changes, so a caller that never shows them cannot blank them."""
         with self.engine.begin() as connection:
             updated = connection.execute(
                 text("""UPDATE student_cohorts SET name = :name, term = :term, notes = :notes,
                             major_codes = :majors, term_codes = :terms, year_level = :year_level,
                             workbook_tab = :workbook_tab, first_semester = :first_semester,
-                            allowed_codes = :allowed, teams_channel = COALESCE(:teams_channel, teams_channel),
+                            allowed_codes = :allowed, teams_channels = COALESCE(:teams_channels, teams_channels),
                             updated_at = :now WHERE id = :id"""),
                 {
                     "id": cohort_id,
@@ -333,7 +333,7 @@ class StudentDatabase:
                     "workbook_tab": _text(workbook_tab),
                     "first_semester": max(0, int(first_semester or 0)),
                     "allowed": json.dumps(_course_codes(allowed_codes)),
-                    "teams_channel": None if teams_channel is None else _text(teams_channel),
+                    "teams_channels": None if teams_channels is None else json.dumps(_codes(teams_channels)),
                     "now": _now(),
                 },
             )
@@ -3056,9 +3056,9 @@ def _cohort(row) -> dict[str, Any]:
         # as course codes ("SPRT-101") or subject prefixes ("SPRT"). Everything else a
         # student is registered in that is in no group of theirs is an *outside* verdict.
         "allowedCodes": json.loads(row["allowed_codes"] or "[]"),
-        # The private Teams channel this cohort's students belong in, by its display name.
-        # Empty means the cohort is not compared against Teams at all.
-        "teamsChannel": row["teams_channel"] or "",
+        # The Teams channels this cohort's students belong in, by display name — their
+        # year's and "SCEN Students". None means the cohort is not compared against Teams.
+        "teamsChannels": json.loads(row["teams_channels"] or "[]"),
         "memberCount": row["member_count"],
         "scopeCount": row["scope_count"],
         "createdAt": row["created_at"],

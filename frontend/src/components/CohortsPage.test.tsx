@@ -1307,12 +1307,12 @@ describe("who a cohort claims, after a sync", () => {
   });
 });
 
-describe("who is not in the cohort's Teams channel", () => {
-  /** L1, naming the channel its students belong in. */
-  const IN_TEAMS: Cohort = { ...STATED, teamsChannel: "L1 Students" };
+describe("who is not in the cohort's Teams channels", () => {
+  /** L1, naming the channels its students belong in. */
+  const IN_TEAMS: Cohort = { ...STATED, teamsChannels: ["L1 Students", "SCEN Students"] };
 
-  /** The roster sync's last reading saw Karim in the channel and not Amira. */
-  const known = (over: Partial<database.TeamsCheck> = {}): database.TeamsCheck => ({
+  /** One channel as the last reading saw it: Karim in it and not Amira, unless said otherwise. */
+  const channel = (over: Partial<database.TeamsChannelCheck> = {}): database.TeamsChannelCheck => ({
     known: true,
     reason: "",
     channel: "L1 Students",
@@ -1320,6 +1320,12 @@ describe("who is not in the cohort's Teams channel", () => {
     missing: [{ studentId: "A001", address: "a001@sorbonne.ae" }],
     syncedAt: "2026-09-25T08:00:00Z",
     ...over,
+  });
+  /** The check of both channels: missing from L1 Students, and in SCEN Students. */
+  const known = (channels: database.TeamsChannelCheck[] = [channel(), channel({ channel: "SCEN Students", missing: [] })]) => ({
+    syncedAt: "2026-09-25T08:00:00Z",
+    offered: ["FYS Students", "L1 Students", "SCEN Students"],
+    channels,
   });
 
   async function twoStudents(rules: DiscrepancyRule[] = []) {
@@ -1337,7 +1343,7 @@ describe("who is not in the cohort's Teams channel", () => {
     vi.spyOn(lists, "fetchTermLinks").mockResolvedValue({});
   }
 
-  it("puts a Teams pill on a member the roster sync did not see, and none on one it did", async () => {
+  it("puts a pill naming the channel on a member the roster sync did not see there, and none on one it did", async () => {
     const check = vi.spyOn(database, "fetchTeamsCheck").mockResolvedValue(known());
     await twoStudents();
 
@@ -1345,13 +1351,15 @@ describe("who is not in the cohort's Teams channel", () => {
 
     await screen.findByText("Amira Haddad");
     const row = within(rowOf("Amira Haddad"));
-    const pill = (await row.findByText("not in Teams")).closest("[data-source]") as HTMLElement;
+    const pill = (await row.findByText("not in L1 Students")).closest("[data-source]") as HTMLElement;
     expect(pill.dataset.source).toBe("teams");
     expect(pill.title).toMatch(/^Not in the L1 Students Teams channel, as the roster sync last saw it \(.+2026\)/);
     expect(pill.title).toContain(
       "Goes away when the roster sync next lists them in L1 Students — add them to the roster workbook, and let the flow run.",
     );
-    expect(within(rowOf("Karim Nasser")).queryByText("not in Teams")).toBeNull();
+    // In SCEN Students, so nothing about it; and Karim is in both.
+    expect(row.queryByText("not in SCEN Students")).toBeNull();
+    expect(within(rowOf("Karim Nasser")).queryByText(/^not in /)).toBeNull();
     expect(check).toHaveBeenCalledWith("c1");
 
     // Dismissed like any other warning, under a key that names the cohort, channel and student.
@@ -1359,9 +1367,23 @@ describe("who is not in the cohort's Teams channel", () => {
     await waitFor(() => expect(dismissalStore.setDismissal).toHaveBeenCalledWith("teams|c1|L1 Students|A001", true));
   });
 
+  it("gives a member missing from two channels a pill for each", async () => {
+    vi.spyOn(database, "fetchTeamsCheck").mockResolvedValue(known([channel(), channel({ channel: "SCEN Students" })]));
+    await twoStudents();
+
+    renderPage([IN_TEAMS]);
+
+    await screen.findByText("Amira Haddad");
+    const row = within(rowOf("Amira Haddad"));
+    expect(await row.findByText("not in L1 Students")).toBeTruthy();
+    expect(row.getByText("not in SCEN Students")).toBeTruthy();
+  });
+
   it("counts them on a Teams toggle of their own, which hides and shows them", async () => {
     vi.spyOn(database, "fetchTeamsCheck").mockResolvedValue(
-      known({ missing: [{ studentId: "A001", address: "a001@sorbonne.ae" }, { studentId: "A002", address: "a002@sorbonne.ae" }] }),
+      known([
+        channel({ missing: [{ studentId: "A001", address: "a001@sorbonne.ae" }, { studentId: "A002", address: "a002@sorbonne.ae" }] }),
+      ]),
     );
     await twoStudents();
 
@@ -1370,17 +1392,17 @@ describe("who is not in the cohort's Teams channel", () => {
 
     const toggle = await screen.findByRole("button", { name: /^Teams\s*2$/ });
     expect(toggle.getAttribute("aria-pressed")).toBe("true");
-    expect(screen.getAllByText("not in Teams")).toHaveLength(2);
+    expect(screen.getAllByText("not in L1 Students")).toHaveLength(2);
 
     fireEvent.click(toggle);
     expect(toggle.getAttribute("aria-pressed")).toBe("false");
-    expect(screen.queryByText("not in Teams")).toBeNull();
+    expect(screen.queryByText("not in L1 Students")).toBeNull();
   });
 
-  it("says nothing about Teams when the roster sync's reading does not know the channel", async () => {
+  it("says nothing about Teams when the roster sync's reading does not know the channels", async () => {
     const check = vi
       .spyOn(database, "fetchTeamsCheck")
-      .mockResolvedValue({ known: false, reason: "channel_not_in_sync", channel: "L1 Students", missing: [] });
+      .mockResolvedValue(known([channel({ known: false, reason: "channel_not_in_sync", missing: [] })]));
     // A drifted major, so the toggles are on screen and the Teams one can be looked for.
     await twoStudents([MAJOR]);
 
@@ -1390,7 +1412,7 @@ describe("who is not in the cohort's Teams channel", () => {
 
     expect(await screen.findByRole("button", { name: /^Status\s*1/ })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /^Teams/ })).toBeNull();
-    expect(screen.queryByText("not in Teams")).toBeNull();
+    expect(screen.queryByText(/^not in /)).toBeNull();
   });
 
   it("does not ask about a cohort that names no channel", async () => {
@@ -1401,27 +1423,29 @@ describe("who is not in the cohort's Teams channel", () => {
     await screen.findByText("Amira Haddad");
 
     expect(check).not.toHaveBeenCalled();
-    expect(screen.queryByText("not in Teams")).toBeNull();
+    expect(screen.queryByText(/^not in /)).toBeNull();
     expect(screen.queryByRole("button", { name: /^Teams/ })).toBeNull();
   });
 
-  it("sends the channel typed in the cohort's settings", async () => {
+  it("offers the channels the last reading holds, and sends the ones chosen", async () => {
     settingsReads();
+    vi.spyOn(database, "fetchTeamsCheck").mockResolvedValue(known([]));
     const updated = vi.spyOn(database, "updateCohort").mockResolvedValue(STATED);
     await twoStudents();
 
-    renderPage([{ ...STATED, teamsChannel: "" }]);
+    renderPage([{ ...STATED, teamsChannels: [] }]);
     fireEvent.click(await screen.findByRole("button", { name: `${L1.name} settings` }));
-    const field = await screen.findByLabelText("Teams channel");
-    expect((field as HTMLInputElement).placeholder).toBe("L2 Students");
-    fireEvent.change(field, { target: { value: " L1 Students " } });
+    fireEvent.click(await screen.findByRole("combobox", { name: "Teams channels" }));
+    expect(await screen.findByRole("option", { name: "FYS Students" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("option", { name: "L1 Students" }));
+    fireEvent.click(screen.getByRole("option", { name: "SCEN Students" }));
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(updated).toHaveBeenCalledTimes(1));
-    expect(updated.mock.calls[0][1]).toEqual(expect.objectContaining({ teamsChannel: "L1 Students" }));
+    expect(updated.mock.calls[0][1]).toEqual(expect.objectContaining({ teamsChannels: ["L1 Students", "SCEN Students"] }));
   });
 
-  it("keeps the channel when something else is saved, and asks the roster sync's reading again", async () => {
+  it("keeps the channels when something else is saved, and asks the roster sync's reading again", async () => {
     settingsReads();
     const check = vi.spyOn(database, "fetchTeamsCheck").mockResolvedValue(known());
     const updated = vi.spyOn(database, "updateCohort").mockResolvedValue(IN_TEAMS);
@@ -1436,37 +1460,40 @@ describe("who is not in the cohort's Teams channel", () => {
 
     await waitFor(() => expect(updated).toHaveBeenCalledTimes(1));
     expect(updated.mock.calls[0][1]).toEqual(
-      expect.objectContaining({ name: "L1 Maths & Physics", teamsChannel: "L1 Students" }),
+      expect.objectContaining({ name: "L1 Maths & Physics", teamsChannels: ["L1 Students", "SCEN Students"] }),
     );
     await waitFor(() => expect(check.mock.calls.length).toBeGreaterThan(asked));
   });
 
-  it("says under the field what the roster sync's last reading made of the channel", async () => {
+  it("says under the field what the last reading made of each channel", async () => {
     settingsReads();
-    const check = vi.spyOn(database, "fetchTeamsCheck").mockResolvedValue(known());
+    vi.spyOn(database, "fetchTeamsCheck").mockResolvedValue(
+      known([channel(), channel({ channel: "SCEN Students", known: false, reason: "channel_not_in_sync", missing: [] })]),
+    );
     await twoStudents();
 
     renderPage([IN_TEAMS]);
     fireEvent.click(await screen.findByRole("button", { name: `${L1.name} settings` }));
-    expect(await screen.findByText(/^Last reading .+2026: 1 of 2 not in it$/)).toBeTruthy();
 
-    // Typing another name is not a comparison anybody has made yet.
-    fireEvent.change(screen.getByLabelText("Teams channel"), { target: { value: "L2 Students" } });
-    expect(screen.queryByText(/not in it$/)).toBeNull();
-    expect(check).toHaveBeenCalledWith("c1");
+    expect(
+      await screen.findByText(
+        /^Last reading .+2026 — L1 Students: 1 of 2 not in it · SCEN Students: the last reading has no channel by that name$/,
+      ),
+    ).toBeTruthy();
   });
 
-  it.each([
-    ["never_synced" as const, "The roster sync has not reported yet"],
-    ["channel_not_in_sync" as const, "The roster sync's last reading has no channel called L1 Students"],
-  ])("says so under the field when there is no answer (%s)", async (reason, said) => {
+  it("says so under the field when the roster sync has never reported", async () => {
     settingsReads();
-    vi.spyOn(database, "fetchTeamsCheck").mockResolvedValue({ known: false, reason, channel: "L1 Students", missing: [] });
+    vi.spyOn(database, "fetchTeamsCheck").mockResolvedValue({
+      syncedAt: "",
+      offered: [],
+      channels: [channel({ known: false, reason: "never_synced", missing: [] })],
+    });
     await twoStudents();
 
     renderPage([IN_TEAMS]);
     fireEvent.click(await screen.findByRole("button", { name: `${L1.name} settings` }));
 
-    expect(await screen.findByText(said)).toBeTruthy();
+    expect(await screen.findByText(/^The roster sync has not reported yet/)).toBeTruthy();
   });
 });

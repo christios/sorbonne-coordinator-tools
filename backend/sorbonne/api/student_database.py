@@ -74,10 +74,10 @@ class CohortInput(BaseModel):
     # What is always allowed outside our groups — "SPRT", "ENGL-101" — beyond which a
     # registration in no group of the student's is an *outside* verdict.
     allowedCodes: list[str] = Field(default_factory=list, max_length=100)
-    # The private Teams channel these students belong in, spelled as Teams spells it.
-    # Empty — every cohort until somebody says otherwise — means no comparison is made.
-    # Left out, it is left as it is: the cohort form does not show it.
-    teamsChannel: str | None = Field(default=None, max_length=120)
+    # The Teams channels these students belong in, spelled as Teams spells them. None —
+    # every cohort until somebody says otherwise — means no comparison is made. Left out,
+    # they are left as they are.
+    teamsChannels: list[str] | None = Field(default=None, max_length=20)
 
 
 class MoveInput(BaseModel):
@@ -317,7 +317,7 @@ def update_cohort(
             workbook_tab=body.workbookTab,
             first_semester=body.firstSemester,
             allowed_codes=body.allowedCodes,
-            teams_channel=body.teamsChannel,
+            teams_channels=body.teamsChannels,
         )
     except CohortNotFound as exc:
         raise _missing(exc, "cohort") from exc
@@ -441,23 +441,27 @@ def teams_check(
     database: StudentDatabase = Depends(get_database),
     rosters: TeamRosterStore = Depends(get_rosters),
 ) -> dict[str, Any]:
-    """Which of this cohort's members the roster sync's last reading did not list in its channel.
+    """Which of this cohort's members the roster sync's last reading did not list, channel
+    by channel, and which channels that reading holds — the ones a cohort can be given.
 
-    The members are the ones `/members` lists. A cohort with no channel is answered as
-    such without reading them: there is nothing to hold them against.
+    The members are the ones `/members` lists, read only when there is a channel to hold
+    them against.
     """
     try:
         cohort = database.get_cohort(cohort_id)
-        if not cohort["teamsChannel"].strip():
-            return missing_from_channel(channel="", student_ids=[], reading=None)
-        members = database.list_members(cohort_id)
+        channels = [channel for channel in cohort["teamsChannels"] if channel.strip()]
+        members = database.list_members(cohort_id) if channels else []
     except CohortNotFound as exc:
         raise _missing(exc, "cohort") from exc
-    return missing_from_channel(
-        channel=cohort["teamsChannel"],
-        student_ids=[member["studentId"] for member in members],
-        reading=rosters.latest(),
-    )
+    reading = rosters.latest()
+    student_ids = [member["studentId"] for member in members]
+    return {
+        "syncedAt": (reading or {}).get("syncedAt", ""),
+        "offered": sorted((reading or {}).get("channels") or {}),
+        "channels": [
+            missing_from_channel(channel=channel, student_ids=student_ids, reading=reading) for channel in channels
+        ],
+    }
 
 
 # --------------------------------------------------------------- catalogue

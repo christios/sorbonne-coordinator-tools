@@ -1685,20 +1685,25 @@ def test_a_cohort_that_does_not_say_what_its_students_are_is_refused(client: Tes
     assert "its majors" in emptied.json()["detail"]
 
 
-def test_saving_a_cohort_leaves_its_teams_channel_alone_unless_it_is_named(client: TestClient, cohort_id: str):
+def test_saving_a_cohort_leaves_its_teams_channels_alone_unless_they_are_named(client: TestClient, cohort_id: str):
     named = client.patch(
         f"/api/v1/student-database/cohorts/{cohort_id}",
-        json={**EXPECTS, "name": "Foundation Year", "teamsChannel": "FYS Students"},
+        json={**EXPECTS, "name": "Foundation Year", "teamsChannels": ["FYS Students", "SCEN Students"]},
     )
-    assert named.json()["teamsChannel"] == "FYS Students"
+    assert named.json()["teamsChannels"] == ["FYS Students", "SCEN Students"]
 
-    # The cohort form does not show the channel, so it does not send it.
+    # A caller that does not show the channels does not send them.
     saved = client.patch(f"/api/v1/student-database/cohorts/{cohort_id}", json={**EXPECTS, "name": "FYS"})
+    assert saved.json()["teamsChannels"] == ["FYS Students", "SCEN Students"]
 
-    assert saved.json()["teamsChannel"] == "FYS Students"
+    # An empty list is a choice: no channel, so no comparison.
+    cleared = client.patch(
+        f"/api/v1/student-database/cohorts/{cohort_id}", json={**EXPECTS, "name": "FYS", "teamsChannels": []}
+    )
+    assert cleared.json()["teamsChannels"] == []
 
 
-# ------------------------------------------------ who is not in the cohort's Teams channel
+# ------------------------------------------------ who is not in the cohort's Teams channels
 
 
 @pytest.fixture
@@ -1714,10 +1719,10 @@ def rosters() -> TeamRosterStore:
         app.dependency_overrides.pop(team_rosters_api.get_rosters, None)
 
 
-def name_channel(client: TestClient, cohort_id: str, channel: str) -> None:
+def name_channels(client: TestClient, cohort_id: str, *channels: str) -> None:
     response = client.patch(
         f"/api/v1/student-database/cohorts/{cohort_id}",
-        json={**EXPECTS, "name": "Foundation Year", "teamsChannel": channel},
+        json={**EXPECTS, "name": "Foundation Year", "teamsChannels": list(channels)},
     )
     assert response.status_code == status.HTTP_200_OK, response.text
 
@@ -1728,59 +1733,68 @@ def teams_check(client: TestClient, cohort_id: str) -> dict:
     return response.json()
 
 
-def test_a_cohort_with_no_teams_channel_is_not_compared(client: TestClient, cohort_id: str, rosters: TeamRosterStore):
-    rosters.record(channels={"FYS Students": []})
+def test_a_cohort_with_no_teams_channel_is_not_compared_but_is_offered_the_channels(
+    client: TestClient, cohort_id: str, rosters: TeamRosterStore
+):
+    rosters.record(channels={"SCEN Students": [], "FYS Students": []})
 
     check = teams_check(client, cohort_id)
 
-    assert check["known"] is False
-    assert check["reason"] == "no_channel"
-    assert check["missing"] == []
+    assert check["channels"] == []
+    # What it could be given: the channels the last reading holds.
+    assert check["offered"] == ["FYS Students", "SCEN Students"]
 
 
 def test_a_sync_that_never_reported_is_not_a_channel_with_nobody_missing(
     client: TestClient, cohort_id: str, rosters: TeamRosterStore
 ):
-    name_channel(client, cohort_id, "FYS Students")
+    name_channels(client, cohort_id, "FYS Students")
 
     check = teams_check(client, cohort_id)
 
-    assert check["known"] is False
-    assert check["reason"] == "never_synced"
-    assert check["channel"] == "FYS Students"
+    assert check["offered"] == []
+    assert check["channels"][0]["known"] is False
+    assert check["channels"][0]["reason"] == "never_synced"
+    assert check["channels"][0]["channel"] == "FYS Students"
 
 
 def test_a_channel_the_reading_does_not_hold_is_not_an_empty_channel(
     client: TestClient, cohort_id: str, rosters: TeamRosterStore
 ):
-    name_channel(client, cohort_id, "FYS Students")
+    name_channels(client, cohort_id, "FYS Students")
     rosters.record(channels={"L2 Students": ["a00021503@sorbonne.ae"]})
 
-    check = teams_check(client, cohort_id)
+    [check] = teams_check(client, cohort_id)["channels"]
 
     assert check["known"] is False
     assert check["reason"] == "channel_not_in_sync"
     assert check["missing"] == []
 
 
-def test_a_member_the_reading_does_not_list_is_missing_and_one_it_lists_is_not(
+def test_each_channel_says_which_members_the_reading_does_not_list_there(
     client: TestClient, cohort_id: str, view_id: str, rosters: TeamRosterStore
 ):
     sync(client, view_id, STUDENTS)
     client.post("/api/v1/student-database/students/cohort", json={"studentIds": STUDENTS[:2], "cohortId": cohort_id})
-    name_channel(client, cohort_id, "FYS Students")
+    name_channels(client, cohort_id, "FYS Students", "SCEN Students")
     rosters.record(
         synced_at="2026-09-25T08:00:00Z",
-        channels={"FYS Students": ["A00021503@Sorbonne.ae", "somebody.else@sorbonne.ae"]},
+        channels={
+            "FYS Students": ["A00021503@Sorbonne.ae", "somebody.else@sorbonne.ae"],
+            "SCEN Students": ["a00021505@sorbonne.ae"],
+        },
     )
 
     check = teams_check(client, cohort_id)
 
-    assert check["known"] is True
-    # A00021509 is not in the cohort, so is not asked about.
-    assert check["missing"] == [{"studentId": "A00021505", "address": "a00021505@sorbonne.ae"}]
-    assert check["listed"] == 2
     assert check["syncedAt"] == "2026-09-25T08:00:00Z"
+    fys, scen = check["channels"]
+    # A00021509 is not in the cohort, so is not asked about.
+    assert fys["channel"] == "FYS Students"
+    assert fys["known"] is True
+    assert fys["missing"] == [{"studentId": "A00021505", "address": "a00021505@sorbonne.ae"}]
+    assert fys["listed"] == 2
+    assert scen["missing"] == [{"studentId": "A00021503", "address": "a00021503@sorbonne.ae"}]
 
 
 def test_the_channel_is_found_whatever_its_case_and_spacing(
@@ -1788,10 +1802,10 @@ def test_the_channel_is_found_whatever_its_case_and_spacing(
 ):
     sync(client, view_id, STUDENTS[:1])
     client.post("/api/v1/student-database/students/cohort", json={"studentIds": STUDENTS[:1], "cohortId": cohort_id})
-    name_channel(client, cohort_id, "fysstudents")
+    name_channels(client, cohort_id, "fysstudents")
     rosters.record(channels={" FYS  Students ": ["a00021503@sorbonne.ae"]})
 
-    check = teams_check(client, cohort_id)
+    [check] = teams_check(client, cohort_id)["channels"]
 
     assert check["known"] is True
     assert check["missing"] == []

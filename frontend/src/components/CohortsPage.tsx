@@ -117,7 +117,7 @@ const RECORDS: { id: WarningSource; counted: string }[] = [
   { id: "timetabling", counted: "booked into two places at one hour" },
   { id: "groups", counted: "we have not placed in a group of one of the sets" },
   { id: "electives", counted: "taking an elective no coordinator has approved" },
-  { id: "teams", counted: "the roster sync did not see in the cohort's Teams channel" },
+  { id: "teams", counted: "the roster sync did not see in one of the cohort's Teams channels" },
 ];
 
 /**
@@ -174,7 +174,7 @@ function SourceFilter({
   onToggle: (id: WarningSource) => void;
   counts: Record<WarningSource, number>;
   /**
-   * Whether the Teams toggle is offered: only for a cohort that names its channel and whose
+   * Whether the Teams toggle is offered: only for a cohort that names a channel and whose
    * channel the roster sync's last reading knows. Otherwise there is nothing it could show.
    */
   teams: boolean;
@@ -191,7 +191,7 @@ function SourceFilter({
     { id: "groups", name: "Groups", icon: LayoutGrid, hint: "Where we have not put a student in a group of one of the cohort's sets" },
     { id: "electives", name: "Electives", icon: GraduationCap, hint: "Courses outside the cohort's groups that no coordinator has approved yet — approve them on the student's record" },
     ...(teams
-      ? [{ id: "teams" as const, name: "Teams", icon: TeamsIcon, hint: "Members the roster sync's last reading did not list in the cohort's Teams channel" }]
+      ? [{ id: "teams" as const, name: "Teams", icon: TeamsIcon, hint: "Members the roster sync's last reading did not list in one of the cohort's Teams channels" }]
       : []),
   ];
   return (
@@ -539,7 +539,7 @@ export function CohortsPage({
     [cohorts, ...placements.map((read) => read.dataUpdatedAt)],
   );
   /*
-   * Who the Teams roster sync did not see in each cohort's channel, for every cohort that
+   * Who the Teams roster sync did not see in each cohort's channels, for every cohort that
    * names one — every cohort for the same reason as the register's check: the table can be
    * widened to all of them. A cohort with no channel is not asked, and an answer held from
    * before its channel was cleared is not read.
@@ -548,14 +548,14 @@ export function CohortsPage({
     queries: cohorts.map((cohort) => ({
       queryKey: ["teams-check", cohort.id],
       queryFn: () => fetchTeamsCheck(cohort.id),
-      enabled: Boolean(cohort.teamsChannel?.trim()),
+      enabled: Boolean(cohort.teamsChannels?.length),
       retry: false,
     })),
   });
   const teamsBy = useMemo(
     () =>
       new Map<string, TeamsCheck | null>(
-        cohorts.map((cohort, index) => [cohort.id, cohort.teamsChannel?.trim() ? (teamsChecks[index]?.data ?? null) : null]),
+        cohorts.map((cohort, index) => [cohort.id, cohort.teamsChannels?.length ? (teamsChecks[index]?.data ?? null) : null]),
       ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [cohorts, ...teamsChecks.map((read) => read.dataUpdatedAt)],
@@ -599,7 +599,7 @@ export function CohortsPage({
           placedBy.get(cohort.id) ?? {},
           everyExemption.data ?? [],
         ),
-        // Members the roster sync did not see in the cohort's Teams channel.
+        // Members the roster sync did not see in the cohort's Teams channels.
         ...teamsWarnings(teamsBy.get(cohort.id), cohort.id),
       ]);
     }
@@ -688,8 +688,9 @@ export function CohortsPage({
     teams: flaggedIn(all, "teams"),
   };
   // The Teams toggle and its column in the picker only where there is a reading to judge by.
-  const teamsKnown = Boolean(teamsBy.get(cohortId)?.known);
-  const records = [...teamsBy.values()].some((check) => check?.known) ? RECORDS : RECORDS.filter((record) => record.id !== "teams");
+  const read = (check: TeamsCheck | null | undefined) => Boolean(check?.channels.some((channel) => channel.known));
+  const teamsKnown = read(teamsBy.get(cohortId));
+  const records = [...teamsBy.values()].some(read) ? RECORDS : RECORDS.filter((record) => record.id !== "teams");
   const dismissedCount = all.filter((warning) => warning.dismissed).length;
 
   const arrivals = cohort ? (judged?.arrivals.get(cohort.id) ?? []).filter((arrival) => !dismissed.has(arrival.key)) : [];

@@ -34,10 +34,11 @@ export type Cohort = {
    */
   allowedCodes: string[];
   /**
-   * The private Teams channel these students belong in, spelled as Teams spells it.
-   * Empty means the cohort is not compared against the roster sync at all.
+   * The Teams channels these students belong in, spelled as Teams spells them — their
+   * year's and "SCEN Students". None means the cohort is not compared against the roster
+   * sync at all.
    */
-  teamsChannel?: string;
+  teamsChannels?: string[];
   memberCount: number;
   scopeCount: number;
   createdAt: string;
@@ -288,10 +289,10 @@ export type CohortInput = {
   firstSemester?: number;
   allowedCodes?: string[];
   /**
-   * Left out, the server keeps the channel as it is; "" clears it. Deliberately not in
-   * `COHORT_DEFAULTS`: a default would blank the channel on every save that did not name it.
+   * Left out, the server keeps the channels as they are; [] clears them. Deliberately not
+   * in `COHORT_DEFAULTS`: a default would blank them on every save that did not name them.
    */
-  teamsChannel?: string;
+  teamsChannels?: string[];
 };
 
 const COHORT_DEFAULTS = {
@@ -429,22 +430,32 @@ export async function fetchMemberIds(cohortId: string): Promise<Set<string>> {
 }
 
 /**
- * Which of a cohort's members the Teams roster sync last saw outside the cohort's channel.
+ * Which of a cohort's members the Teams roster sync last saw outside one of its channels.
  *
- * `known` is false whenever there is no answer to give — no channel named, the sync never
- * reported, or its last reading had no channel by that name — and `reason` says which,
- * because "nobody is missing" and "we have never been told" would otherwise look alike.
+ * `known` is false whenever there is no answer to give — the sync never reported, or its
+ * last reading had no channel by that name — and `reason` says which, because "nobody is
+ * missing" and "we have never been told" would otherwise look alike.
  */
-export type TeamsCheck = {
+export type TeamsChannelCheck = {
   known: boolean;
   reason: "" | "no_channel" | "never_synced" | "channel_not_in_sync";
-  /** The cohort's channel as it names it; empty when it names none. */
+  /** The channel as the cohort names it. */
   channel: string;
   /** How many addresses the reading listed for the channel. Only when known. */
   listed?: number;
   missing: { studentId: string; address: string }[];
   /** When the reading was taken, as the sync said. Only when known. */
   syncedAt?: string;
+};
+
+/** A cohort's channels checked one by one, and the channels a cohort could be given. */
+export type TeamsCheck = {
+  /** When the last reading was taken; "" when the sync has never reported. */
+  syncedAt: string;
+  /** Every channel the last reading holds — what the cohort's settings offer. */
+  offered: string[];
+  /** One per channel the cohort names, in its order. */
+  channels: TeamsChannelCheck[];
 };
 
 export function fetchTeamsCheck(cohortId: string): Promise<TeamsCheck> {
