@@ -22,6 +22,12 @@ It writes straight into this machine's database, which is what makes it an exact
 local API would hand out new ids, and ids are what every other table points with. That is
 also why it is so careful about which database this is.
 
+The Student Hub is not copied: it is an application of its own, and this machine's Hub has
+semesters it imported itself, under ids of its own. Production's sets, week counts and
+portal links name production's semesters, which this Hub has never heard of — the sets
+arrived and no semester showed them. So production's semesters are paired with this
+Hub's by name, and the copy is written naming this Hub's.
+
 NEVER point this at `sorbonne_test`. `backend/tests/conftest.py` runs `alembic upgrade
 head` against TEST_DATABASE_URL session-wide, and two autouse fixtures DELETE from thirteen
 tables. One pytest run would destroy the copy — and this would destroy the tests' database.
@@ -105,6 +111,68 @@ def call(url: str, *, headers: dict[str, str], method: str = "GET", body: Any = 
         raise Refused(f"{method} {urlparse(url).path} -> {error.code}. {detail}", code=error.code) from error
 
 
+def _named(term: dict[str, Any]) -> str:
+    return " ".join(str(term.get("name", "")).lower().split())
+
+
+def _begins(a: str, b: str) -> bool:
+    return bool(a and b) and (a.startswith(f"{b} ") or b.startswith(f"{a} "))
+
+
+#: How a production semester is recognised here, most certain first.
+_SAME = (
+    lambda theirs, ours: _named(theirs) == _named(ours),
+    # "Semester 1" here for production's "Semester 1 2026-27".
+    lambda theirs, ours: _begins(_named(theirs), _named(ours)),
+    lambda theirs, ours: bool(theirs.get("timetableFilename"))
+    and theirs.get("timetableFilename") == ours.get("timetableFilename"),
+)
+
+
+def semester_pairs(production: list[dict[str, Any]], here: list[dict[str, Any]]) -> tuple[dict[str, str], list[str]]:
+    """Production's semesters paired with this Hub's: {production's id: this Hub's id}.
+
+    The same id needs no pairing — a Hub pointed at production's has them all. Otherwise
+    the same name, then a name that begins with the other, then the same timetable file.
+    A rule that finds two candidates pairs nothing rather than guess, and no semester here
+    is paired twice. The second answer names production's semesters left unpaired.
+    """
+    ours = {term["id"] for term in here}
+    taken = {term["id"] for term in production if term["id"] in ours}
+    pairs: dict[str, str] = {}
+    unpaired: list[str] = []
+    for theirs in production:
+        if theirs["id"] in ours:
+            continue
+        match = None
+        for same in _SAME:
+            found = [term for term in here if term["id"] not in taken and same(theirs, term)]
+            if found:
+                match = found[0] if len(found) == 1 else None
+                break
+        if match is None:
+            unpaired.append(str(theirs.get("name") or theirs["id"]))
+            continue
+        pairs[theirs["id"]] = match["id"]
+        taken.add(match["id"])
+    return pairs, unpaired
+
+
+def hub_semesters() -> list[dict[str, Any]] | None:
+    """This machine's Student Hub semesters, or None when no Hub is set up here."""
+    if not config.scen_student_platform_url or not config.scen_student_platform_token:
+        return None
+    hub = config.scen_student_platform_url.rstrip("/")
+    try:
+        listing = call(f"{hub}/api/v1/admin/terms", headers={"X-Admin-Token": config.scen_student_platform_token})
+    except (Refused, OSError) as failure:
+        raise Refused(
+            f"This machine's Student Hub ({urlparse(hub).netloc}) is not answering, so production's "
+            "semesters cannot be matched to its own. Start it (./dev.sh start) and copy again."
+        ) from failure
+    return listing.get("terms", []) if isinstance(listing, dict) else []
+
+
 def copy_everything(
     *,
     source: str = PROD,
@@ -134,16 +202,40 @@ def copy_everything(
         payload[table["name"]] = call(f"{source}/api/v1/export/{table['name']}", headers=headers)
         say(f"  read {table['name']}: {len(payload[table['name']]['rows'])}")
 
+    theirs = call(f"{source}/api/v1/timetables/terms", headers=headers).get("terms", [])
+    ours = hub_semesters()
+    pairs, unpaired = semester_pairs(theirs, ours) if ours is not None else ({}, [])
+    names = {term["id"]: term.get("name", "") for term in [*theirs, *(ours or [])]}
+    semesters = {
+        "paired": [{"production": names[a], "here": names[b]} for a, b in pairs.items()],
+        "unpaired": unpaired,
+    }
+    for pair in semesters["paired"]:
+        say(f"  semester: production's {pair['production']!r} is {pair['here']!r} here")
+    for name in unpaired:
+        say(f"  semester: production's {name!r} has no match on this machine's Student Hub")
+
     if dry_run:
         say("\nDRY RUN — nothing written.")
-        return {"dryRun": True, "revision": listing["revision"], "tables": {t["name"]: t["rows"] for t in tables}}
+        return {
+            "dryRun": True,
+            "revision": listing["revision"],
+            "tables": {t["name"]: t["rows"] for t in tables},
+            "semesters": semesters,
+        }
 
     try:
-        loaded = load_tables(engine_for(url), payload, source_revision=listing["revision"])
+        loaded = load_tables(engine_for(url), payload, source_revision=listing["revision"], renames=pairs)
     except SchemaMismatch as mismatch:
         raise Refused(str(mismatch)) from mismatch
     say(f"\nDone: {len(loaded)} tables, {sum(loaded.values())} rows, exactly as production holds them.")
-    return {"dryRun": False, "revision": listing["revision"], "tables": loaded, "rows": sum(loaded.values())}
+    return {
+        "dryRun": False,
+        "revision": listing["revision"],
+        "tables": loaded,
+        "rows": sum(loaded.values()),
+        "semesters": semesters,
+    }
 
 
 def main() -> int:

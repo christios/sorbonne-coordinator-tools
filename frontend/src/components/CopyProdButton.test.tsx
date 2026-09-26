@@ -57,4 +57,20 @@ describe("copying production down to this machine", () => {
 
     expect((await screen.findByRole("status")).textContent).toBe("2 tables, 3,022 rows — exactly as production holds them.");
   });
+
+  it("says which of this machine's semesters production's became, and which it could not match", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      answer({
+        tables: { cohort_scopes: 16 },
+        rows: 16,
+        semesters: { paired: [{ production: "Semester 1 2026-27", here: "Semester 1" }], unpaired: ["Summer 2027"] },
+      }),
+    );
+
+    press();
+
+    expect((await screen.findByRole("status")).textContent).toBe(
+      "1 tables, 16 rows — exactly as production holds them. Semesters: “Semester 1 2026-27” is “Semester 1” here. No semester here matches “Summer 2027”.",
+    );
+  });
 });

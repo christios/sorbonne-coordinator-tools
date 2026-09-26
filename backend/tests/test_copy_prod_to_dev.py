@@ -230,6 +230,92 @@ def test_a_copy_missing_a_table_is_refused_whole(seeded):
     assert snapshot(seeded) == before
 
 
+# ------------------------------------------------------- the Student Hub's semesters
+
+PRODUCTION_SEMESTER = "edd66bb4-053a-4556-b944-9269f43f5cb9"
+HERE_SEMESTER = "eeae2dcc-6aa8-4d37-be0a-f5ddafda6b0d"
+
+
+def test_a_semester_s_id_is_rewritten_wherever_it_is_named(seeded):
+    """In its own column, inside a key, inside JSON — and nothing else is touched."""
+    with seeded.begin() as connection:
+        connection.execute(
+            text("""INSERT INTO term_pay_cycles (term_id, opens_on, updated_at, updated_by)
+                    VALUES (:term, 20, '2026-09-22T10:41:18+04:00', 'c')"""),
+            {"term": PRODUCTION_SEMESTER},
+        )
+        connection.execute(
+            text("""INSERT INTO warning_dismissals (key, dismissed_by_email, dismissed_by_name, dismissed_at)
+                    VALUES (:key, 'c@sorbonne.ae', 'Christian', 'now')"""),
+            {"key": f"exempt-group|{PRODUCTION_SEMESTER}|A1"},
+        )
+        connection.execute(
+            text("""INSERT INTO portal_filters (id, kind, name, filter, created_at)
+                    VALUES ('f2', 'courses', 'S1', :filter, '2026-09-01')"""),
+            {"filter": f'{{"term": "{PRODUCTION_SEMESTER}"}}'},
+        )
+    before = snapshot(seeded)
+
+    load_tables(seeded, before, source_revision=revision(seeded), renames={PRODUCTION_SEMESTER: HERE_SEMESTER})
+
+    with seeded.connect() as connection:
+        cycles = dict(connection.execute(text("SELECT term_id, opens_on FROM term_pay_cycles")).all())
+        keys = set(connection.execute(text("SELECT key FROM warning_dismissals")).scalars())
+        found = connection.execute(text("SELECT filter FROM portal_filters WHERE id = 'f2'")).scalar()
+    assert cycles == {"t1": 15, HERE_SEMESTER: 20}
+    assert keys == {"group|A00025138|g1", f"exempt-group|{HERE_SEMESTER}|A1"}
+    assert found == {"term": HERE_SEMESTER}
+    after = snapshot(seeded)
+    untouched = [name for name in before if name not in {"term_pay_cycles", "warning_dismissals", "portal_filters"}]
+    assert {name: after[name] for name in untouched} == {name: before[name] for name in untouched}
+
+
+def semester(id_: str, name: str, filename: str = "") -> dict:
+    return {"id": id_, "name": name, "timetableFilename": filename}
+
+
+def test_production_s_semesters_are_paired_with_this_hub_s_by_name():
+    production = [semester("p1", "Semester 1 2026-27"), semester("p2", "Semester 2 2026-27")]
+    here = [semester("h2", "Semester 2"), semester("h1", "Semester 1")]
+
+    assert copy.semester_pairs(production, here) == ({"p1": "h1", "p2": "h2"}, [])
+
+
+def test_the_same_name_wins_over_a_name_that_begins_the_same():
+    production = [semester("p1", "Semester 1")]
+    here = [semester("h0", "Semester 1 draft"), semester("h1", "semester  1")]
+
+    assert copy.semester_pairs(production, here) == ({"p1": "h1"}, [])
+
+
+def test_a_hub_pointed_at_production_s_needs_no_pairing():
+    production = [semester("p1", "Semester 1 2026-27")]
+
+    assert copy.semester_pairs(production, production) == ({}, [])
+
+
+def test_the_same_timetable_file_pairs_what_the_names_do_not():
+    production = [semester("p1", "Autumn", "PHYS-MATHS-FY-SEM.1-Revised.xls")]
+    here = [semester("h1", "Semester 1", "PHYS-MATHS-FY-SEM.1-Revised.xls"), semester("h2", "Semester 2", "SEM.2.xls")]
+
+    assert copy.semester_pairs(production, here) == ({"p1": "h1"}, [])
+
+
+def test_two_candidates_pair_nothing_rather_than_guess():
+    production = [semester("p1", "Semester 1 2026-27")]
+    here = [semester("h1", "Semester 1"), semester("h2", "Semester 1")]
+
+    assert copy.semester_pairs(production, here) == ({}, ["Semester 1 2026-27"])
+
+
+def test_no_semester_here_is_paired_twice():
+    """A semester called "Semester 10" does not begin with "Semester 1": a word, not a letter."""
+    production = [semester("p1", "Semester 1"), semester("p2", "Semester 1 2026-27"), semester("p3", "Semester 10")]
+    here = [semester("h1", "Semester 1")]
+
+    assert copy.semester_pairs(production, here) == ({"p1": "h1"}, ["Semester 1 2026-27", "Semester 10"])
+
+
 # ------------------------------------------------------ production's side
 
 

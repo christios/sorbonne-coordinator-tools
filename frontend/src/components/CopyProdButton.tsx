@@ -19,6 +19,28 @@ import { API_BASE_URL, apiFetch } from "@/services/http";
  * like bugs in the pages. That is destructive to whatever is on this laptop, which is why
  * it asks first.
  */
+type CopyReport = {
+  tables?: Record<string, number>;
+  rows?: number;
+  semesters?: { paired: { production: string; here: string }[]; unpaired: string[] };
+};
+
+/**
+ * Which of this machine's Student Hub semesters production's became. The Hub is not
+ * copied, so its semesters keep their own ids here and the copy is rewritten to name them —
+ * and a production semester with no match here is one whose sets no page will show.
+ */
+function semestersSaid(report: CopyReport): string {
+  const paired = (report.semesters?.paired ?? []).map((pair) => `“${pair.production}” is “${pair.here}” here`);
+  const unpaired = (report.semesters?.unpaired ?? []).map((name) => `“${name}”`);
+  return [
+    paired.length ? `Semesters: ${paired.join(", ")}.` : "",
+    unpaired.length ? `No semester here matches ${unpaired.join(", ")}.` : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
 export function CopyProdButton() {
   const client = useQueryClient();
   const [asking, setAsking] = useState(false);
@@ -38,14 +60,18 @@ export function CopyProdButton() {
        * about the address, so say the status rather than let the parser speak.
        */
       const text = await answer.text();
-      const body = (text ? JSON.parse(text) : {}) as { detail?: string; tables?: Record<string, number>; rows?: number };
+      const body = (text ? JSON.parse(text) : {}) as CopyReport & { detail?: string };
       if (!answer.ok) throw new Error(body.detail ?? `The API answered ${answer.status} and said nothing.`);
       return body;
     },
     onSettled: () => setAsking(false),
     onSuccess: (report) => {
       const tables = Object.keys(report.tables ?? {}).length;
-      setDone(`${tables} tables, ${(report.rows ?? 0).toLocaleString()} rows — exactly as production holds them.`);
+      setDone(
+        [`${tables} tables, ${(report.rows ?? 0).toLocaleString()} rows — exactly as production holds them.`, semestersSaid(report)]
+          .filter(Boolean)
+          .join(" "),
+      );
       // Everything on screen was read from the database this just replaced.
       client.invalidateQueries();
     },

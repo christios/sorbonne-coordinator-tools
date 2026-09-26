@@ -9,11 +9,17 @@ removed and added classes, comments, student history, tasks, syllabi, users. Eac
 looked, on a developer's screen, like a bug in the page rather than a hole in the copy.
 
 So this copies tables, not features. Production answers with every table's rows; the
-developer's database is emptied and filled with them, ids and all. Nothing is translated,
-so nothing can be translated wrongly, and a table added tomorrow travels tomorrow without
-anybody remembering to teach the copy about it. The one thing that can still go wrong —
-a new table nobody has decided about — is caught by a test that lists the schema and
-fails on any table that is neither copied nor excluded here with its reason.
+developer's database is emptied and filled with them, ids and all, and a table added
+tomorrow travels tomorrow without anybody remembering to teach the copy about it. The one
+thing that can still go wrong — a new table nobody has decided about — is caught by a test
+that lists the schema and fails on any table that is neither copied nor excluded here with
+its reason.
+
+One kind of id is translated, because it is not this database's: a Student Hub semester's.
+The Hub is an application with a database of its own, and a developer's Hub holds the
+semesters it imported itself, under ids of its own. Whoever copies says which production
+semester is which of theirs, and every value naming one is rewritten to name the other —
+every table, every text column, so a table added tomorrow is covered tomorrow too.
 
 **No student names travel, because the server holds none.** Staff names and contact
 details do: the part-time database is copied like everything else, because a developer's
@@ -27,9 +33,9 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import MetaData, text
+from sqlalchemy import JSON, MetaData, String, text
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Connection, Engine
 
 #: The tables that do not travel, each with the reason. Everything else does. A table
 #: belongs here only when copying it would be wrong, never because it is inconvenient.
@@ -112,7 +118,38 @@ def export_table(engine: Engine, name: str) -> dict[str, Any]:
     return {"table": name, "columns": columns, "rows": [[_plain(value) for value in row] for row in rows]}
 
 
-def load_tables(engine: Engine, tables: dict[str, dict[str, Any]], *, source_revision: str) -> dict[str, int]:
+def _rename(connection: Connection, held: MetaData, names: list[str], renames: dict[str, str]) -> None:
+    """Every copied value that names one of these ids names its counterpart instead.
+
+    Wherever it is: a column of its own (a set's semester), part of a key (a dismissed
+    warning's), or inside JSON. Ids are UUIDs, so a match in the middle of a value is
+    that id and never a coincidence.
+    """
+    for name in names:
+        for column in held.tables[name].columns:
+            if isinstance(column.type, JSON | JSONB):
+                value, back = f'"{column.name}"::text', "::jsonb" if isinstance(column.type, JSONB) else "::json"
+            elif isinstance(column.type, String):
+                value, back = f'"{column.name}"', ""
+            else:
+                continue
+            for old, new in renames.items():
+                connection.execute(
+                    text(
+                        f'UPDATE "{name}" SET "{column.name}" = replace({value}, :old, :new){back} '  # noqa: S608
+                        f"WHERE strpos({value}, :old) > 0"
+                    ),
+                    {"old": old, "new": new},
+                )
+
+
+def load_tables(
+    engine: Engine,
+    tables: dict[str, dict[str, Any]],
+    *,
+    source_revision: str,
+    renames: dict[str, str] | None = None,
+) -> dict[str, int]:
     """Replace every copied table's rows with these. One transaction: all of it or none.
 
     The foreign keys are switched off for the load and only for it — the rows are whole
@@ -120,6 +157,9 @@ def load_tables(engine: Engine, tables: dict[str, dict[str, Any]], *, source_rev
     every key one row at a time would mean untangling two folder trees that point at
     themselves. Then the counters of the two tables that number their own rows are moved
     past what arrived, or the next row written locally would collide with production's.
+
+    `renames` pairs ids from outside this database — production's Student Hub semesters —
+    with this machine's; see the module's docstring.
 
     The caller has already refused anything but a developer's own database. This refuses
     the other thing that would make it wrong: two schemas that do not line up.
@@ -162,6 +202,8 @@ def load_tables(engine: Engine, tables: dict[str, dict[str, Any]], *, source_rev
             ]
             connection.execute(statement, batch)
             loaded[name] = len(batch)
+        if renames:
+            _rename(connection, held, names, renames)
         for name, column in connection.execute(
             text("""SELECT table_name, column_name FROM information_schema.columns
                     WHERE table_schema = 'public' AND is_identity = 'YES'""")
