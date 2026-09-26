@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, Settings2, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { FilterBuilder } from "@/components/FilterBuilder";
@@ -55,6 +55,15 @@ export function PortalFilterBar({
   const fields = schema.data?.fields ?? [];
   const available = filters.data ?? [];
   const chosen = available.find((candidate) => candidate.id === filterId) ?? null;
+  /*
+   * A filter this browser remembers that no longer exists — deleted, or a developer's
+   * copy of production that replaced every filter with production's — is forgotten
+   * rather than asked for. Asked for, it pulled nothing and the page read as empty.
+   */
+  const vanished = Boolean(filterId) && filters.isSuccess && !chosen;
+  useEffect(() => {
+    if (vanished) onChoose("");
+  }, [vanished, onChoose]);
   const isAdmin = Boolean(user?.isAdmin);
   const noun = NOUNS[kind];
 

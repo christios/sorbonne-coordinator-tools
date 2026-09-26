@@ -13,11 +13,11 @@ const FILTER: lists.PortalFilter = {
   held: 12, gone: 1, lastSyncedAt: "", createdAt: "", updatedBy: "",
 };
 
-function show(kind: lists.ListKind) {
+function show(kind: lists.ListKind, onChoose: (id: string) => void = () => {}) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
-      <PortalFilterBar kind={kind} filterId="f1" onChoose={() => {}} />
+      <PortalFilterBar kind={kind} filterId="f1" onChoose={onChoose} />
     </QueryClientProvider>,
   );
 }
@@ -32,6 +32,25 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe("choosing a portal filter", () => {
+  it("forgets a remembered filter that no longer exists, rather than showing nothing", async () => {
+    const onChoose = vi.fn();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <PortalFilterBar kind="courses" filterId="gone-since-copy" onChoose={onChoose} />
+      </QueryClientProvider>,
+    );
+
+    await vi.waitFor(() => expect(onChoose).toHaveBeenCalledWith(""));
+  });
+
+  it("keeps a remembered filter that still exists", async () => {
+    const onChoose = vi.fn();
+    show("registrations", onChoose);
+    await screen.findByText(/1 no longer returned/);
+    expect(onChoose).not.toHaveBeenCalled();
+  });
+
   it("says what the filter holds and what it has stopped returning", async () => {
     show("registrations");
 
