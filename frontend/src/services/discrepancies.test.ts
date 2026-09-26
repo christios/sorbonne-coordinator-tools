@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  linkWarnings,
   STATUS_FIELD,
   STATUS_OPTIONS,
   arrivalsFor,
@@ -644,5 +645,28 @@ describe("how much trouble a warning is", () => {
   it("cannot let a count carry a row up a rung, however many warnings it has", () => {
     const many = Array.from({ length: 5000 }, (_, index) => at({ key: `k${index}`, kind: "changed" }));
     expect(warningRank(many)).toBeLessThan(warningRank([at({ key: "one", kind: "differs" })]));
+  });
+});
+
+describe("a group that does not go with the student's linked group", () => {
+  const td = { id: "td", code: "TD", kind: "shared" as const, parentScopeId: "", groups: [
+    { id: "td-1", label: "1", capacity: 0, note: "", parentGroupId: "", assigned: 0, crns: {} },
+    { id: "td-2", label: "2", capacity: 0, note: "", parentGroupId: "", assigned: 0, crns: {} },
+  ] };
+  const phil = { id: "phil", code: "PHIL-TD", kind: "nested" as const, parentScopeId: "td", groups: [
+    { id: "phil-1", label: "1", capacity: 0, note: "", parentGroupId: "td-1", parentGroupIds: ["td-1"], assigned: 0, crns: {} },
+    { id: "phil-2", label: "2", capacity: 0, note: "", parentGroupId: "td-2", parentGroupIds: ["td-2"], assigned: 0, crns: {} },
+  ] };
+
+  it("warns under Groups for Philosophy 1 under TD 2, and says nothing where it fits", () => {
+    const found = linkWarnings([td, phil], {
+      A001: { td: "td-2", phil: "phil-1" },
+      A002: { td: "td-2", phil: "phil-2" },
+      A003: { phil: "phil-1" },
+    });
+
+    expect(found.map((warning) => [warning.studentId, warning.label, warning.source])).toEqual([
+      ["A001", "PHIL-TD 1 not with TD 2", "groups"],
+    ]);
   });
 });

@@ -22,6 +22,7 @@ import {
   rulesFor,
   groupWarnings,
   electiveWarnings,
+  linkWarnings,
   sourceOf,
   unjudgeable,
   warningsForCohort,
@@ -38,7 +39,15 @@ import { allChanges } from "@/services/pullHistory";
 import { COHORT } from "@/services/remembered";
 import { latestPullAt, rowsHeld } from "@/services/rosterStore";
 import { displayNameOf, fetchSchema, studentIdOf, type RosterRow } from "@/services/scenRosters";
-import { fetchDiscrepancyRules, fetchStudents, setCohort, type Cohort, type Student } from "@/services/studentDatabase";
+import {
+  fetchAssignments,
+  fetchCourseCards,
+  fetchDiscrepancyRules,
+  fetchStudents,
+  setCohort,
+  type Cohort,
+  type Student,
+} from "@/services/studentDatabase";
 import { fetchPublication } from "@/services/publication";
 import { afterPlacement } from "@/services/afterPlacement";
 import { fetchTimetableTerms } from "@/services/timetables";
@@ -481,6 +490,24 @@ export function CohortsPage({
     return judge(cohorts, students.data, rules.data, evidence, options);
   }, [cohorts, evidence, students.data, rules.data, options]);
 
+  /*
+   * Every cohort's sets and who sits where, for the groups that do not go with the group
+   * they are linked to. The course cards' reading, which every page already shares.
+   */
+  const catalogues = useQuery({ queryKey: ["course-cards"], queryFn: fetchCourseCards, retry: false });
+  const placements = useQueries({
+    queries: cohorts.map((cohort) => ({
+      queryKey: ["assignments", cohort.id],
+      queryFn: () => fetchAssignments(cohort.id),
+      retry: false,
+    })),
+  });
+  const placedBy = useMemo(
+    () => new Map(cohorts.map((cohort, index) => [cohort.id, placements[index]?.data ?? {}] as const)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [cohorts, ...placements.map((read) => read.dataUpdatedAt)],
+  );
+
   /**
    * Every cohort's warnings from both records, folded into one list per cohort.
    *
@@ -504,10 +531,15 @@ export function CohortsPage({
           const mine = publication?.cohorts.find((entry) => entry.cohortId === cohort.id);
           return mine ? groupWarnings(mine.unassigned, termId, nameOfTerm(termId)) : [];
         }),
+        // A group that does not go with their group in the set it is linked to.
+        ...linkWarnings(
+          catalogues.data?.find((held) => held.cohort.id === cohort.id)?.scopes ?? [],
+          placedBy.get(cohort.id) ?? {},
+        ),
       ]);
     }
     return out;
-  }, [cohorts, judged, registrationsBy, reportsBy, readiness.terms, nameOfTerm]);
+  }, [cohorts, judged, registrationsBy, reportsBy, readiness.terms, nameOfTerm, catalogues.data, placedBy]);
 
   /*
    * Every cohort's warnings by student, not only the cohort on screen.

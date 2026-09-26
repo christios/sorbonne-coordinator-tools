@@ -22,6 +22,7 @@
 
 import { sameProgram } from "@/services/programmes";
 import { rowText } from "@/services/copyCells";
+import { type CatalogueScope, parentsOf } from "@/services/studentDatabase";
 
 export type RuleKind = "changed" | "changed_to" | "is" | "is_not" | "differs" | "belongs";
 
@@ -625,6 +626,41 @@ export function groupWarnings(
         field: "groups",
         value: `in no ${scopeCode} group${where}, so that part of their timetable is blank`,
         label: `no ${scopeCode} group`,
+        source: "groups",
+      });
+    }
+  }
+  return found;
+}
+
+/**
+ * A student in a group that does not go with their group in the set it is linked to:
+ * Philosophy 1 under TD 2, a Mechanics TP half outside their TD. Filed under Groups, like
+ * a set they are in no group of, and dismissable like any warning — a few sit there on
+ * purpose, and dismissing them once is how that is said.
+ */
+export function linkWarnings(
+  scopes: Pick<CatalogueScope, "id" | "code" | "kind" | "parentScopeId" | "groups">[],
+  assignments: Record<string, Record<string, string>>,
+): Warning[] {
+  const found: Warning[] = [];
+  const byId = new Map(scopes.map((scope) => [scope.id, scope]));
+  for (const scope of scopes) {
+    if (scope.kind !== "nested") continue;
+    const parent = byId.get(scope.parentScopeId);
+    if (!parent) continue;
+    for (const [studentId, held] of Object.entries(assignments)) {
+      const group = scope.groups.find((candidate) => candidate.id === held[scope.id]);
+      const theirs = parent.groups.find((candidate) => candidate.id === held[parent.id]);
+      if (!group || !theirs || parentsOf(group).includes(theirs.id)) continue;
+      found.push({
+        key: `link|${studentId}|${scope.id}|${group.id}|${theirs.id}`,
+        studentId,
+        ruleId: "link",
+        kind: "group" as const,
+        field: "groups",
+        value: `in ${scope.code} ${group.label}, which does not go with their ${parent.code} ${theirs.label}`,
+        label: `${scope.code} ${group.label} not with ${parent.code} ${theirs.label}`,
         source: "groups",
       });
     }
