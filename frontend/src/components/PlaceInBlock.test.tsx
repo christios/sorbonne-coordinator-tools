@@ -618,11 +618,16 @@ describe("sets linked to another", () => {
 
     await pick("Semester", "Physics & Maths — Semester 1");
     await pick("Block", /MTP/);
+    // Opened only once it can be: clicked while the block's groups load, it stays shut.
+    await waitFor(() =>
+      expect((screen.getByRole("combobox", { name: "Group" }) as HTMLButtonElement).disabled).toBe(false),
+    );
     fireEvent.click(screen.getByRole("combobox", { name: "Group" }));
 
-    await screen.findByRole("option", { name: /Group 2A/ });
-    const said = screen.getAllByRole("option").map((option) => option.textContent);
-    expect(said.find((text) => text?.includes("Group 2A"))).toContain("doesn't go with TD 1");
-    expect(said.find((text) => text?.includes("Group 1A"))).not.toContain("doesn't go with");
+    await waitFor(() => {
+      const said = screen.getAllByRole("option").map((option) => option.textContent);
+      expect(said.find((text) => text?.includes("Group 2A"))).toContain("doesn't go with TD 1");
+      expect(said.find((text) => text?.includes("Group 1A"))).not.toContain("doesn't go with");
+    });
   });
 });
