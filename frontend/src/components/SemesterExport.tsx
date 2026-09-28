@@ -59,7 +59,8 @@ export function SemesterExport({
     for (const page of free) perUnit.set(page.unit, (perUnit.get(page.unit) ?? 0) + 1);
     return [...perUnit.values()].filter((pages) => pages > (zoom.maxPages ?? Infinity)).length;
   }, [open, input, units, zoom.maxPages, zoom.paper]); // eslint-disable-line react-hooks/exhaustive-deps
-  // Weeks that took more than the ceiling, because every class had to stay readable.
+  // Weeks squeezed into small print to keep to the ceiling, and — rarely — past it.
+  const clipped = new Set(pages.filter((page) => page.clipped).map((page) => page.unit)).size;
   const overCeiling = new Set(pages.filter((page) => page.overCeiling).map((page) => page.unit)).size;
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState("");
@@ -132,11 +133,13 @@ export function SemesterExport({
           <>
             <strong className="font-semibold">{pages.length} pages</strong> for the whole semester, over{" "}
             {units.length} {noun}s; the {noun} below takes {ofUnit.length}.
-            {squeezed
-              ? ` ${squeezed - overCeiling} ${noun}${squeezed - overCeiling === 1 ? " is" : "s are"} drawn smaller to stay within ${zoom.maxPages} page${zoom.maxPages === 1 ? "" : "s"}.`
+            {squeezed - overCeiling
+              ? ` ${squeezed - overCeiling} ${noun}${squeezed - overCeiling === 1 ? " is" : "s are"} drawn smaller to stay within ${zoom.maxPages} page${zoom.maxPages === 1 ? "" : "s"}${
+                  clipped ? `, ${clipped === squeezed - overCeiling ? "all" : clipped} in print under 5 points — A3 prints ${clipped === 1 ? "it" : "them"} larger` : ""
+                }.`
               : ""}
             {overCeiling
-              ? ` ${overCeiling} ${noun}${overCeiling === 1 ? " needs" : "s need"} more, or ${overCeiling === 1 ? "its" : "their"} classes would be too small to read — A3 fits more.`
+              ? ` ${overCeiling} ${noun}${overCeiling === 1 ? " needs" : "s need"} more even at the thinnest a class can be drawn.`
               : ""}
           </>
         )}

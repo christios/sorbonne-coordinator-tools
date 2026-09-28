@@ -8,8 +8,9 @@
  *
  * One page shape, A4 landscape, and the week always spans its full width. The only thing
  * chosen is at most how many pages one week may take: a week is drawn at a comfortable
- * size on as few pages as that needs, smaller only when it would run past the ceiling, and
- * then every page's classes grow until the page is full, so no sheet ends in white. The same layout drives the preview and the file, so what the preview
+ * size on as few pages as that needs, smaller — type and all — when it would run past the
+ * ceiling, and then every page's classes grow until the page is full, so no sheet ends in
+ * white. The same layout drives the preview and the file, so what the preview
  * shows is what prints.
  *
  * Built in the browser from the portal's dated meetings and the department's notes on
@@ -37,8 +38,9 @@ import {
 export type SemesterLayout = "days" | "rooms-week" | "rooms-day";
 /**
  * The paper, and at most how many pages one week may take; `null` is no ceiling. A week
- * that would need more at a comfortable size is drawn smaller until it fits — but never so
- * small that a class cannot say all it has to, which may take a page more than asked.
+ * that would need more at a comfortable size is drawn smaller until it fits, its type
+ * shrinking with it. The number asked for is the number made: only a week that would need
+ * its classes thinner than a hairline takes a page more.
  */
 export type PaperSize = "a4" | "a3";
 export type ExportZoom = { paper?: PaperSize; maxPages: number | null };
@@ -59,14 +61,24 @@ export const PAPER: Record<PaperSize, { width: number; height: number; name: str
   a4: { width: 841.89, height: 595.28, name: "A4" },
   a3: { width: 1190.55, height: 841.89, name: "A3" },
 };
-/** The smallest the words in a class are set: below it nobody reads them on paper. */
+/**
+ * The smallest the words in a class are set at a comfortable size, and the smallest they
+ * go when a week is squeezed into the pages asked for — small print, but the class still
+ * says what it is rather than turning into a coloured bar.
+ */
 const SMALLEST_TYPE = 5;
+const TINIEST_TYPE = 2;
 const LINE_HEIGHT = 1.18;
 const PAD_X = 2;
 const PAD_Y = 1.2;
-/** The smallest a class is drawn to keep a week inside its page ceiling, and the tallest a page stretches one. */
-const SMALLEST_CLASS = 6;
+/** The tallest a page stretches a class. */
 const TALLEST_CLASS = 160;
+/**
+ * The thinnest a class is drawn to keep a week inside its page ceiling. Asked for one page
+ * a week, a coordinator wants one page a week, and a class in small print on the right day
+ * at the right hour is worth more than a second sheet.
+ */
+const THINNEST_CLASS = 4;
 /** Room above and below the classes stacked in a row. */
 const ROW_PAD = 2;
 
@@ -122,8 +134,10 @@ export type SemesterPage = {
   title: string;
   /** "Mon 7 – Wed 9 · page 1 of 2", where a unit takes more than one page; "" otherwise. */
   part: string;
-  /** Its week needed more pages than the ceiling to keep every class readable. */
+  /** Its week needed more pages than the ceiling even at the thinnest a class is drawn. */
   overCeiling?: boolean;
+  /** Its classes were squeezed below the smallest comfortable type to keep to the ceiling. */
+  clipped?: boolean;
   line: number;
   gridTop: number;
   gridBottom: number;
@@ -320,9 +334,10 @@ function largest(low: number, high: number, fits: (height: number) => boolean): 
 /**
  * How tall a unit's classes are drawn, and on how many pages.
  *
- * Three steps. At a comfortable size the week needs some number of pages. Past the
- * ceiling, the classes shrink until the week fits it. Then they grow again as far as they
- * can without needing another page, so the pages are as full as their number allows.
+ * Three steps. At a comfortable size — tall enough for every class to say all its words at
+ * the smallest type — the week needs some number of pages. Past the ceiling, the classes
+ * shrink until the week fits it, their type with them. Then they grow again as far as
+ * they can without needing another page, so the pages are as full as their number allows.
  * What is left at the foot of each page after that is shared out among its own rows.
  */
 function unitHeight(
@@ -331,19 +346,17 @@ function unitHeight(
   available: number,
   labelHeight: number,
   readable: number,
-): { classHeight: number; pages: Piece[][]; overCeiling: boolean } {
+): { classHeight: number; pages: Piece[][]; overCeiling: boolean; clipped: boolean } {
   const pagesAt = (height: number) => packed(rows, height, available, labelHeight).length;
-  // Never below what lets every class say all its words at the smallest readable type.
-  const floor = Math.max(SMALLEST_CLASS, readable);
-  let height = Math.max(COMFORTABLE_CLASS, floor);
+  let height = Math.max(COMFORTABLE_CLASS, readable);
   const ceiling = zoom.maxPages;
   if (ceiling && pagesAt(height) > ceiling) {
-    height = largest(floor, height, (candidate) => pagesAt(candidate) <= ceiling);
+    height = largest(THINNEST_CLASS, height, (candidate) => pagesAt(candidate) <= ceiling);
   }
   const overCeiling = Boolean(ceiling) && pagesAt(height) > (ceiling ?? Infinity);
   const pages = pagesAt(height);
   height = largest(height, TALLEST_CLASS, (candidate) => pagesAt(candidate) <= pages);
-  return { classHeight: height, pages: packed(rows, height, available, labelHeight), overCeiling };
+  return { classHeight: height, pages: packed(rows, height, available, labelHeight), overCeiling, clipped: height < readable };
 }
 
 /** Every page of the export, laid out. */
@@ -394,7 +407,7 @@ export function semesterPages(input: SemesterExportInput, zoom: ExportZoom, unit
         }, most),
       0,
     );
-    const { classHeight, pages: downs, overCeiling } = unitHeight(unit.rows, zoom, available, frame.labelHeight, readable);
+    const { classHeight, pages: downs, overCeiling, clipped } = unitHeight(unit.rows, zoom, available, frame.labelHeight, readable);
     downs.forEach((down, line) => {
       // The foot of this page shared out among its own rows, so it ends where the sheet does.
       const lanes = down.map((piece) => piece.to - piece.from);
@@ -430,6 +443,7 @@ export function semesterPages(input: SemesterExportInput, zoom: ExportZoom, unit
       pages.push({
         unit: unitIndex,
         overCeiling,
+        clipped,
         title: unit.title,
         part:
           downs.length > 1 && labels.length
@@ -639,7 +653,10 @@ function linesFor(words: Word[], size: number, width: number): number {
 /**
  * One class: its colour, and every word it has, as large as the box allows. The size is
  * the box's own — the largest from 8 points down that fits everything — so a long class
- * reads at a glance and a short one still says all of it, smaller.
+ * reads at a glance and a short one still says all of it, smaller — as small as it takes,
+ * for a class squeezed to keep its week inside the pages asked for. One too thin even for
+ * that says what its lines hold, in the order the words come: the course, its group, the
+ * hours, the room, the teacher.
  */
 function drawBox(doc: JsPdf, box: PageBox) {
   const color = rgbOf(box.color);
@@ -653,23 +670,25 @@ function drawBox(doc: JsPdf, box: PageBox) {
     doc.setLineWidth(0.8);
     doc.roundedRect(box.x + 0.6, box.y + 0.6, box.w - 1.2, box.h - 1.2, 1.2, 1.2, "S");
   }
-  const padX = PAD_X;
-  const padY = PAD_Y;
+  // The margins shrink with a squeezed class, or they would be all there is of it.
+  const padX = Math.min(PAD_X, box.w * 0.08);
+  const padY = Math.min(PAD_Y, box.h * 0.08);
   const width = box.w - padX * 2;
   const height = box.h - padY * 2;
-  if (width < 4 || height < 3) return;
+  if (width < 2 || height < TINIEST_TYPE) return;
   const words = wordsOf(box.klass, fill);
-  // The largest type from 8 points down that says everything; the layout gave every class
-  // the height to say it at the smallest.
+  // The largest type from 8 points down that says everything.
   let size = 8;
   let placed: Placed[] | null = null;
-  for (; size >= SMALLEST_TYPE; size -= 0.25) {
+  for (; size >= TINIEST_TYPE; size -= 0.25) {
     placed = flow(words, size, width, height);
     if (placed) break;
   }
   if (!placed) {
-    size = SMALLEST_TYPE;
-    placed = flow(words, size, width, Number.MAX_SAFE_INTEGER) ?? [];
+    // Too thin for all of it even so: the tiniest type, and as many lines as the box holds.
+    size = TINIEST_TYPE;
+    const lines = Math.max(1, Math.floor(height / (size * LINE_HEIGHT)));
+    placed = (flow(words, size, width, Number.MAX_SAFE_INTEGER) ?? []).filter((entry) => entry.line < lines);
   }
   const lineHeight = size * LINE_HEIGHT;
   const used = (placed.reduce((most, entry) => Math.max(most, entry.line), 0) + 1) * lineHeight;
