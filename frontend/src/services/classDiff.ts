@@ -90,17 +90,24 @@ export function hoursIn(meetings: Meeting[]): number {
 }
 
 /**
- * Every month the section touches, with its classes in place.
+ * Every month of the semester, with the section's classes in place.
  *
- * Months with nothing in them are left out rather than drawn empty: a course running
- * September to December should not make the reader scroll past an empty August to reach
- * the month something happened in.
+ * Empty months are drawn too, from `span` — the semester, from its first week to its last
+ * class. A TD that only starts in October read, drawn from October, as a section with
+ * nothing wrong before it; drawn from September, the empty month says it. And every
+ * section in the list is laid against the same months, so they read side by side. Without
+ * a span, the months the section touches.
  *
  * Three lists, because three things can be true of a class: gone, still there, or newly
  * arrived. They are kept apart all the way to the square, so a day that both kept a class
  * and gained one can say so instead of picking a side.
  */
-export function monthsOfDiff(kept: Meeting[], removed: Meeting[], added: Meeting[] = []): DiffMonth[] {
+export function monthsOfDiff(
+  kept: Meeting[],
+  removed: Meeting[],
+  added: Meeting[] = [],
+  span?: { from: string; to: string },
+): DiffMonth[] {
   const days = new Map<string, DiffDay>();
   const note = (meeting: Meeting, into: "kept" | "removed" | "added") => {
     const when = parse(meeting.meetsOn);
@@ -118,24 +125,31 @@ export function monthsOfDiff(kept: Meeting[], removed: Meeting[], added: Meeting
   for (const meeting of kept) note(meeting, "kept");
   for (const meeting of removed) note(meeting, "removed");
   for (const meeting of added) note(meeting, "added");
-  if (days.size === 0) return [];
+  if (days.size === 0 && !span) return [];
 
-  const touched = [...days.keys()].sort();
-  const months = new Map<string, DiffMonth>();
-  for (const day of touched) {
+  // The first of every month to draw: the span's, and any the section reaches outside it.
+  const firsts = new Set<string>();
+  const firstOf = (value: Date) => asDay(new Date(value.getFullYear(), value.getMonth(), 1));
+  const [from, to] = [span && parse(span.from), span && parse(span.to)];
+  if (from && to && from <= to) {
+    for (let at = new Date(from.getFullYear(), from.getMonth(), 1); at <= to; at = new Date(at.getFullYear(), at.getMonth() + 1, 1)) {
+      firsts.add(firstOf(at));
+    }
+  }
+  for (const day of days.keys()) {
     const when = parse(day);
-    if (!when) continue;
-    const id = `${when.getFullYear()}-${when.getMonth()}`;
-    if (months.has(id)) continue;
-    const first = new Date(when.getFullYear(), when.getMonth(), 1);
+    if (when) firsts.add(firstOf(when));
+  }
+
+  return [...firsts].sort().map((first) => {
+    const when = parse(first)!;
     const last = new Date(when.getFullYear(), when.getMonth() + 1, 0);
-    const cells: (DiffDay | null)[] = Array.from({ length: mondayFirst(first) }, () => null);
+    const cells: (DiffDay | null)[] = Array.from({ length: mondayFirst(when) }, () => null);
     for (let date = 1; date <= last.getDate(); date += 1) {
       const on = asDay(new Date(when.getFullYear(), when.getMonth(), date));
       cells.push(days.get(on) ?? { day: on, dayOfMonth: date, kept: [], removed: [], added: [] });
     }
     while (cells.length % 7 !== 0) cells.push(null);
-    months.set(id, { label: `${MONTHS[when.getMonth()]} ${when.getFullYear()}`, days: cells });
-  }
-  return [...months.values()];
+    return { label: `${MONTHS[when.getMonth()]} ${when.getFullYear()}`, days: cells };
+  });
 }

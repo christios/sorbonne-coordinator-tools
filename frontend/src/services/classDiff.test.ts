@@ -10,7 +10,7 @@ const meeting = (meetsOn: string, startsAt = "08:30", endsAt = "10:00"): Meeting
 });
 
 describe("monthsOfDiff", () => {
-  it("draws only the months the section touches", () => {
+  it("draws only the months the section touches, when not given the semester", () => {
     const months = monthsOfDiff([meeting("2026-09-07")], [meeting("2026-11-17")]);
 
     expect(months.map((month) => month.label)).toEqual(["September 2026", "November 2026"]);
@@ -56,6 +56,13 @@ describe("monthsOfDiff", () => {
 
   it("says nothing about a section with no classes either way", () => {
     expect(monthsOfDiff([], [])).toEqual([]);
+  });
+
+  it("draws every month of the semester it is given, the empty ones too", () => {
+    // A TD that only starts in October, read against a semester from 31 August.
+    const months = monthsOfDiff([], [], [meeting("2026-10-09"), meeting("2026-11-26")], { from: "2026-08-31", to: "2026-12-10" });
+    expect(months.map((month) => month.label)).toEqual(["August 2026", "September 2026", "October 2026", "November 2026", "December 2026"]);
+    expect(months[1].days.every((day) => !day || (!day.kept.length && !day.added.length && !day.removed.length))).toBe(true);
   });
 
   it("ignores a date the registrar wrote in a way nobody can read", () => {

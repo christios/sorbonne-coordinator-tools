@@ -36,7 +36,8 @@ import { useMemo, useState } from "react";
 import { Modal } from "@/components/Modal";
 import { hoursIn, minutesOf, monthsOfDiff, stillToLookAt, unexpected, type DiffDay, type Meeting } from "@/services/classDiff";
 import { formatRoom } from "@/services/weekSchedule";
-import { fetchChangedClasses, fetchSweptTerms, type ChangedClasses } from "@/services/portalLists";
+import { fetchChangedClasses, fetchSweptTerms, fetchTermLinks, type ChangedClasses } from "@/services/portalLists";
+import { fetchTermWeeks } from "@/services/termWeeks";
 import { dismissalsByKey, fetchDismissals, setDismissal } from "@/services/warningDismissals";
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -67,6 +68,24 @@ export function ClassChangesBanner({ className = "" }: { className?: string }) {
     () => stillToLookAt(changed.data ?? [], approved),
     [changed.data, approved],
   );
+  /*
+   * The semester the months are drawn across: from its Week 1, where Settings says where
+   * that is, to the last class any listed section has. Every section is laid against the
+   * same months, the empty ones included.
+   */
+  const links = useQuery({ queryKey: ["term-links"], queryFn: fetchTermLinks, enabled: open, retry: false });
+  const weeks = useQuery({ queryKey: ["term-weeks"], queryFn: fetchTermWeeks, enabled: open, retry: false });
+  const span = useMemo(() => {
+    const dates = waiting.flatMap((section) => [...section.kept, ...section.removed, ...section.added].map((meeting) => meeting.meetsOn)).sort();
+    const starts = Object.entries(links.data ?? {})
+      .filter(([, code]) => code === termCode)
+      .map(([semesterId]) => weeks.data?.[semesterId] ?? "")
+      .filter(Boolean)
+      .sort();
+    const from = [starts[0], dates[0]].filter(Boolean).sort()[0] ?? "";
+    const to = dates[dates.length - 1] ?? "";
+    return from && to ? { from, to } : undefined;
+  }, [waiting, links.data, weeks.data, termCode]);
   const approve = useMutation({
     mutationFn: (key: string) => setDismissal(key, true),
     onSuccess: () => void client.invalidateQueries({ queryKey: ["warning-dismissals"] }),
@@ -105,7 +124,7 @@ export function ClassChangesBanner({ className = "" }: { className?: string }) {
         open={open}
         onClose={() => setOpen(false)}
         title="Classes the portal has changed"
-        description="Each month the section touches, with what still meets, what has gone and what has arrived. Approving one keeps it out of the banner until something else about it changes."
+        description="Each month of the semester, with what still meets, what has gone and what has arrived. Approving one keeps it out of the banner until something else about it changes."
         size="wide"
       >
         <div className="grid grid-cols-[minmax(0,1fr)] gap-6">
@@ -113,6 +132,7 @@ export function ClassChangesBanner({ className = "" }: { className?: string }) {
             <SectionDiff
               key={section.key}
               section={section}
+              span={span}
               onApprove={() => approve.mutate(section.key)}
               approving={approve.isPending && approve.variables === section.key}
             />
@@ -125,16 +145,19 @@ export function ClassChangesBanner({ className = "" }: { className?: string }) {
 
 function SectionDiff({
   section,
+  span,
   onApprove,
   approving,
 }: {
   section: ChangedClasses;
+  /** The semester's months, so a section with nothing in September still shows September. */
+  span?: { from: string; to: string };
   onApprove: () => void;
   approving: boolean;
 }) {
   const months = useMemo(
-    () => monthsOfDiff(section.kept, section.removed, section.added),
-    [section.kept, section.removed, section.added],
+    () => monthsOfDiff(section.kept, section.removed, section.added, span),
+    [section.kept, section.removed, section.added, span],
   );
   const news = unexpected(section.removed);
   const lost = hoursIn(news);
