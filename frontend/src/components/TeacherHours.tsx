@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp, Download, ListTree, RotateCcw, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Download, EyeOff, ListTree, RotateCcw, X } from "lucide-react";
 import { useMemo, useState } from "react";
 
+import { BringBackDialog, type DismissedGroup } from "@/components/BringBackDialog";
 import { HourWindowPicker } from "@/components/HourWindowPicker";
 import { InfoTip } from "@/components/InfoTip";
 import { LabelledPicker } from "@/components/LabelledPicker";
@@ -146,9 +147,17 @@ export function TeacherHours({ onOpenTeacher }: { onOpenTeacher?: (teacher: Teac
   const apart = checks.data?.find((check) => check.name === "teacher_hours_apart");
   const client = useQueryClient();
   const decide = useMutation({
-    mutationFn: ({ key, dismissed }: { key: string; dismissed: boolean }) => setDismissal(key, dismissed),
+    mutationFn: async ({ keys, dismissed }: { keys: string[]; dismissed: boolean }) => {
+      await Promise.all(keys.map((key) => setDismissal(key, dismissed)));
+    },
     onSuccess: () => void client.invalidateQueries({ queryKey: ["warning-dismissals"] }),
   });
+  /*
+   * Dismissed warnings, as on Cohorts: out of the way unless asked for, and brought back
+   * from a list, one at a time or a teacher at a time.
+   */
+  const [showDismissed, setShowDismissed] = usePageState("teacher-hours:show-dismissed", false);
+  const [bringingBack, setBringingBack] = useState(false);
   const decided = useMemo(() => dismissalsByKey(dismissals.data ?? []), [dismissals.data]);
   const periods = useMemo(() => periodChoices(new Date(), 14, 1, opensOn), [opensOn]);
   const counting = datesOf(chosenWindow);
@@ -208,6 +217,29 @@ export function TeacherHours({ onOpenTeacher }: { onOpenTeacher?: (teacher: Teac
     [source, counting.from, counting.to, whole],
   );
   const sheetTitles = useMemo(() => sheets.map((sheet) => sheet.title), [sheets]);
+  // The dismissed warnings, teacher by teacher, for the count and the list "Bring back" opens.
+  const dismissedGroups = useMemo<DismissedGroup[]>(
+    () =>
+      rows
+        .map((row) => ({
+          id: rowId(row),
+          title: row.teacher || "Nobody yet",
+          items: row.warnings
+            .filter((warning) => warning.dismissed)
+            .map((warning) => ({
+              key: warning.key,
+              label: warning.label,
+              detail: warning.sentence,
+              by: warning.dismissedBy,
+              at: warning.dismissedAt,
+              tone: TONES[warning.severity],
+            })),
+        }))
+        .filter((group) => group.items.length)
+        .sort((left, right) => left.title.localeCompare(right.title)),
+    [rows],
+  );
+  const dismissedCount = dismissedGroups.reduce((sum, group) => sum + group.items.length, 0);
   /*
    * Every pay period the semester's teaching falls in, from the days classes actually
    * meet. A list from the calendar would put sheets in the file for months nothing was
@@ -300,7 +332,43 @@ export function TeacherHours({ onOpenTeacher }: { onOpenTeacher?: (teacher: Teac
           <Download size={15} aria-hidden="true" />
           {exporting ? "Building…" : "Export"}
         </button>
+        {/* The dismissed warnings, as on Cohorts: seen when asked for, brought back from a list. */}
+        {dismissedCount ? (
+          <div role="group" aria-label="Dismissed warnings" className="inline-flex gap-1 rounded-md border border-[#d3d9e2] bg-white p-1">
+            <button
+              type="button"
+              aria-pressed={showDismissed}
+              onClick={() => setShowDismissed((current) => !current)}
+              className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-semibold transition-colors ${
+                showDismissed ? "bg-[#1f4e79] text-white" : "text-[#667085] hover:bg-[#f6f8fb]"
+              }`}
+            >
+              <EyeOff size={12} aria-hidden="true" />
+              Dismissed
+              <span className={`tabular-nums font-normal ${showDismissed ? "text-white/75" : "text-[#98a2b3]"}`}>{dismissedCount}</span>
+            </button>
+            <button
+              type="button"
+              disabled={decide.isPending}
+              title={`Choose which of the ${dismissedCount} dismissed warning${dismissedCount === 1 ? "" : "s"} to bring back`}
+              onClick={() => setBringingBack(true)}
+              className="inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-semibold text-[#667085] transition-colors hover:bg-[#f6f8fb] disabled:opacity-50"
+            >
+              <RotateCcw size={12} aria-hidden="true" />
+              Bring back
+            </button>
+          </div>
+        ) : null}
       </div>
+
+      {bringingBack ? (
+        <BringBackDialog
+          groups={dismissedGroups}
+          busy={decide.isPending}
+          onClose={() => setBringingBack(false)}
+          onBringBack={(keys) => decide.mutate({ keys, dismissed: false }, { onSuccess: () => setBringingBack(false) })}
+        />
+      ) : null}
 
       {(() => {
         const row = splitting === null ? null : rows.find((candidate) => rowId(candidate) === splitting);
@@ -342,7 +410,11 @@ export function TeacherHours({ onOpenTeacher }: { onOpenTeacher?: (teacher: Teac
           empty="No hours this semester. A section's hours are set on Groups & CRNs."
           renderCell={(row, column) =>
             column.id === "warnings" ? (
-              <Warnings row={row} onDecide={(key, dismissed) => decide.mutate({ key, dismissed })} />
+              <Warnings
+                row={row}
+                showDismissed={showDismissed}
+                onDecide={(key, dismissed) => decide.mutate({ keys: [key], dismissed })}
+              />
             ) : (
               renderCell(row, column)
             )
@@ -621,11 +693,20 @@ const TONES: Record<Severity, string> = {
  * from a colleague who never saw it should at least say who hid it, so it reads as a
  * decision somebody can disagree with rather than as an absence.
  */
-function Warnings({ row, onDecide }: { row: LoadRow; onDecide: (key: string, dismissed: boolean) => void }) {
-  if (!row.warnings.length) return <span className="text-[#d5dce4]">—</span>;
+function Warnings({
+  row,
+  showDismissed,
+  onDecide,
+}: {
+  row: LoadRow;
+  showDismissed: boolean;
+  onDecide: (key: string, dismissed: boolean) => void;
+}) {
+  const shown = row.warnings.filter((warning) => showDismissed || !warning.dismissed);
+  if (!shown.length) return <span className="text-[#d5dce4]">—</span>;
   return (
     <span className="flex flex-wrap gap-1">
-      {row.warnings.map((warning) => (
+      {shown.map((warning) => (
         <span
           key={warning.key}
           title={

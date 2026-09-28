@@ -13,6 +13,7 @@ import { SelectMenu } from "@/components/SelectMenu";
 import { RegistrationChangesButton } from "@/components/RegistrationChangesButton";
 import { StudentRoster } from "@/components/StudentRoster";
 import { WARNING_ICONS, WARNING_TONES, type WarningIcon } from "@/components/StudentTable";
+import { BringBackDialog, type DismissedGroup } from "@/components/BringBackDialog";
 import { TeamsIcon } from "@/components/TeamsIcon";
 import { useRemembered } from "@/components/useRemembered";
 import { usePageState } from "@/components/usePageState";
@@ -27,6 +28,8 @@ import {
   electiveWarnings,
   exemptGroupWarnings,
   linkWarnings,
+  describeWarning,
+  labelWarning,
   sourceOf,
   teamsWarnings,
   unjudgeable,
@@ -287,6 +290,7 @@ export function CohortsPage({
     if (focus?.cohortId) chooseCohort(focus.cohortId);
   }, [focus?.cohortId, sent, chooseCohort]);
   const [showDismissed, setShowDismissed] = usePageState("cohorts:show-dismissed", false);
+  const [bringingBack, setBringingBack] = useState(false);
   // Kept as a list, which is what survives being written down; read as a set.
   const [showingList, setShowingList] = usePageState<WarningSource[]>("cohorts:showing", () => [...EVERY_RECORD]);
   const showing = useMemo(() => new Set(showingList), [showingList]);
@@ -692,6 +696,27 @@ export function CohortsPage({
   const teamsKnown = read(teamsBy.get(cohortId));
   const records = [...teamsBy.values()].some(read) ? RECORDS : RECORDS.filter((record) => record.id !== "teams");
   const dismissedCount = all.filter((warning) => warning.dismissed).length;
+  // The dismissed ones, student by student, for the list "Bring back" opens.
+  const dismissedGroups: DismissedGroup[] = [];
+  for (const warning of all.filter((entry) => entry.dismissed)) {
+    const source = sourceOf(warning);
+    let group = dismissedGroups.find((entry) => entry.id === warning.studentId);
+    if (!group) {
+      const name = evidence?.names.get(warning.studentId) ?? "";
+      group = { id: warning.studentId, title: name || warning.studentId, subtitle: name ? warning.studentId : undefined, items: [] };
+      dismissedGroups.push(group);
+    }
+    group.items.push({
+      key: warning.key,
+      label: labelWarning(warning),
+      detail: describeWarning(warning),
+      by: warning.dismissedBy,
+      at: warning.dismissedAt,
+      tone: WARNING_TONES[source],
+      icon: WARNING_ICONS[source],
+    });
+  }
+  dismissedGroups.sort((left, right) => left.title.localeCompare(right.title));
 
   const arrivals = cohort ? (judged?.arrivals.get(cohort.id) ?? []).filter((arrival) => !dismissed.has(arrival.key)) : [];
   const silent = evidence && rules.data ? unjudgeable(rules.data.filter((rule) => rule.field !== STATUS_FIELD), evidence.carried) : [];
@@ -836,6 +861,15 @@ export function CohortsPage({
         * Only once there is something to choose between — on a cohort with nothing wrong
         * it would be three zeroes and a question nobody asked.
         */}
+      {bringingBack ? (
+        <BringBackDialog
+          groups={dismissedGroups}
+          busy={decide.isPending}
+          onClose={() => setBringingBack(false)}
+          onBringBack={(keys) => decide.mutate({ keys, dismissed: false }, { onSuccess: () => setBringingBack(false) })}
+        />
+      ) : null}
+
       {flaggedStudents || dismissedCount ? (
         <div className="mt-3 flex flex-wrap items-center gap-2">
           {flaggedStudents ? <SourceFilter showing={showing} onToggle={toggleShowing} counts={counts} teams={teamsKnown} /> : null}
@@ -858,12 +892,12 @@ export function CohortsPage({
                 Dismissed
                 <span className={`tabular-nums font-normal ${showDismissed ? "text-white/75" : "text-[#98a2b3]"}`}>{dismissedCount}</span>
               </button>
-              {/* Exactly the ones on screen — another cohort's, and another family's, stay put. */}
+              {/* A list of this cohort's to choose from, row by row — another cohort's stay put. */}
               <button
                 type="button"
                 disabled={decide.isPending}
-                title={`Bring the ${dismissedCount} dismissed warning${dismissedCount === 1 ? "" : "s"} back`}
-                onClick={() => decide.mutate({ keys: all.filter((warning) => warning.dismissed).map((warning) => warning.key), dismissed: false })}
+                title={`Choose which of the ${dismissedCount} dismissed warning${dismissedCount === 1 ? "" : "s"} to bring back`}
+                onClick={() => setBringingBack(true)}
                 className="inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-semibold text-[#667085] transition-colors hover:bg-[#f6f8fb] disabled:opacity-50"
               >
                 <RotateCcw size={12} aria-hidden="true" />

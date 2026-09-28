@@ -475,7 +475,7 @@ describe("dismissals belong to the coordinator, not to the page on screen", () =
     expect(held()).toContain("A001:r2:");
   });
 
-  it("brings back exactly the dismissed warnings on screen, and nobody else's", async () => {
+  it("offers back only the dismissed warnings on screen, and brings back only those ticked", async () => {
     // The other cohort's registration difference, dismissed by somebody else.
     const theirs = mismatch({ studentId: "A003", courseCode: "PHYS-118", expected: ["22150"] });
     vi.spyOn(lists, "fetchRegistrationCheck").mockImplementation(async (cohortId: string) =>
@@ -491,9 +491,19 @@ describe("dismissals belong to the coordinator, not to the page on screen", () =
 
     fireEvent.click(await screen.findByRole("button", { name: "Bring back" }));
 
+    // A list, row by row, with nothing ticked: pressing "Bring back" no longer undoes everything.
+    const list = await screen.findByRole("dialog", { name: "Bring back dismissed warnings" });
+    expect(within(list).getByText("Amira Haddad")).toBeTruthy();
+    // L2's, so not on screen, so not offered.
+    expect(within(list).queryByText(/PHYS-118/)).toBeNull();
+    const confirm = within(list).getByRole("button", { name: /^Bring back/ });
+    expect((confirm as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.click(within(list).getByRole("checkbox", { name: /^Bring back: .*major is Physics/ }));
+    fireEvent.click(within(list).getByRole("button", { name: "Bring back 1" }));
+
     expect(await screen.findByTitle(/major is Physics/)).toBeTruthy();
     expect(held()).not.toContain("A001:r2:");
-    // L2's, so not on screen, so not brought back.
     expect(held()).toContain(theirKey);
   });
 });
