@@ -21,7 +21,7 @@ import type { GridColumn } from "@/services/studentColumns";
 import type { RequestSheet } from "@/services/timetableExport";
 
 /** The name the workbook prints for a row nobody has been chosen for. */
-const UNNAMED = "TBD";
+export const UNNAMED = "TBD";
 
 /** The teaching types the workbook counts separately; anything else lands in the total alone. */
 export const LOAD_TYPES = ["CM", "TD", "TP"];

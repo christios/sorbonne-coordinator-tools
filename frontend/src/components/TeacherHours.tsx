@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp, Download, RotateCcw, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Download, ListTree, RotateCcw, X } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { HourWindowPicker } from "@/components/HourWindowPicker";
@@ -12,7 +12,7 @@ import { CommentThread } from "@/components/CommentThread";
 import { CommentPeek } from "@/components/CommentPeek";
 import { Modal } from "@/components/Modal";
 import { datesOf, isWholeSemester, WHOLE_SEMESTER, type HourWindow } from "@/services/hourWindow";
-import { academicYearOfTerm, hoursRowsFor, type HoursSource } from "@/services/teacherHoursRows";
+import { academicYearOfTerm, crnDistribution, hoursRowsFor, type CrnLine, type HoursSource } from "@/services/teacherHoursRows";
 import { downloadTeacherHours, periodsCovering } from "@/services/hoursExport";
 import { opensOnFor, periodChoices, periodEnd, PERIOD_OPENS_ON } from "@/services/payPeriods";
 import {
@@ -130,6 +130,8 @@ export function TeacherHours({ onOpenTeacher }: { onOpenTeacher?: (teacher: Teac
   const opensOn = opensOnFor(cycles.data?.cycles ?? {}, chosenTerm, cycles.data?.default ?? PERIOD_OPENS_ON);
   const [chosenWindow, setWindow] = usePageState<HourWindow>("teacher-hours:window", WHOLE_SEMESTER);
   const [commentingOn, setCommentingOn] = useState<{ id: string; label: string } | null>(null);
+  // Whose hours are open CRN by CRN, by the row's own id, so a recount keeps the same teacher.
+  const [splitting, setSplitting] = useState<string | null>(null);
   /*
    * The other three places a teacher's hours are written down, so the column can tell
    * whether they agree: their requisitions, the sheets the timesheets app has approved,
@@ -299,6 +301,19 @@ export function TeacherHours({ onOpenTeacher }: { onOpenTeacher?: (teacher: Teac
         </button>
       </div>
 
+      {(() => {
+        const row = splitting === null ? null : rows.find((candidate) => rowId(candidate) === splitting);
+        return row ? (
+          <CrnHours
+            row={row}
+            lines={crnDistribution(source, row, counting, whole)}
+            whole={whole}
+            window={chosenWindow}
+            onClose={() => setSplitting(null)}
+          />
+        ) : null;
+      })()}
+
       {commentingOn ? (
         <Modal
           open
@@ -315,7 +330,7 @@ export function TeacherHours({ onOpenTeacher }: { onOpenTeacher?: (teacher: Teac
           key={chosenTerm}
           columns={columns}
           rows={rows}
-          idOf={(row) => row.teacherId || row.teacher || "nobody"}
+          idOf={rowId}
           labelOf={(row) => row.teacher || "Nobody yet"}
           layoutKey="scen-columns:teacher-hours:v1"
           presetKey="scen-copy-presets:teacher-hours:v1"
@@ -338,18 +353,38 @@ export function TeacherHours({ onOpenTeacher }: { onOpenTeacher?: (teacher: Teac
            */
           rowLead={(row) => {
             const id = row.active?.partTimeTeacherId || row.active?.id || "";
-            if (!id) return null;
-            const count = commentCounts.data?.[id]?.count ?? 0;
+            const count = id ? (commentCounts.data?.[id]?.count ?? 0) : 0;
             return (
-              <CommentPeek
-                studentId={id}
-                label={row.teacher}
-                count={count}
-                onOpen={() => setCommentingOn({ id, label: row.teacher })}
-                className={`inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[11px] tabular-nums hover:bg-[#f2f7fb] ${
-                  count ? "text-[#1f4e79]" : "text-[#98a2b3] opacity-0 focus-visible:opacity-100 group-hover:opacity-100"
-                }`}
-              />
+              <>
+                {id ? (
+                  <CommentPeek
+                    studentId={id}
+                    label={row.teacher}
+                    count={count}
+                    onOpen={() => setCommentingOn({ id, label: row.teacher })}
+                    className={`inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[11px] tabular-nums hover:bg-[#f2f7fb] ${
+                      count ? "text-[#1f4e79]" : "text-[#98a2b3] opacity-0 focus-visible:opacity-100 group-hover:opacity-100"
+                    }`}
+                  />
+                ) : null}
+                {/*
+                  * Their hours CRN by CRN, for what the page is counting. Beside the
+                  * comments, the same way: under the pointer, and always on a screen
+                  * that has no pointer to hover with.
+                  */}
+                <button
+                  type="button"
+                  aria-label={`Hours per CRN for ${row.teacher || "nobody yet"}`}
+                  title="Hours per CRN"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setSplitting(rowId(row));
+                  }}
+                  className="inline-flex items-center rounded px-1 py-0.5 text-[#98a2b3] opacity-0 hover:bg-[#f2f7fb] hover:text-[#1f4e79] focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
+                >
+                  <ListTree size={13} aria-hidden="true" />
+                </button>
+              </>
             );
           }}
           onRowClick={(row) => {
@@ -359,6 +394,127 @@ export function TeacherHours({ onOpenTeacher }: { onOpenTeacher?: (teacher: Teac
         />
       </div>
     </section>
+  );
+}
+
+/** A row's id on the table, and how the pop-up of its CRNs finds it again after a recount. */
+function rowId(row: LoadRow): string {
+  return row.teacherId || row.teacher || "nobody";
+}
+
+/**
+ * One teacher's row, CRN by CRN, for whatever the page is counting.
+ *
+ * Over the whole semester it is the plan beside what happened to it; over a pay period or
+ * two dates, what met and what they taught. The lines add up to the row they were opened
+ * from — the total says so — and the classes they covered for somebody else are lines of
+ * their own, naming whose class it was.
+ */
+function CrnHours({
+  row,
+  lines,
+  whole,
+  window,
+  onClose,
+}: {
+  row: LoadRow;
+  lines: CrnLine[];
+  whole: boolean;
+  window: HourWindow;
+  onClose: () => void;
+}) {
+  const sum = (pick: (line: CrnLine) => number) => Math.round(lines.reduce((total, line) => total + pick(line), 0) * 100) / 100;
+  const tag = whole ? "" : window.tag;
+  const cell = "px-3 py-2 text-right tabular-nums";
+  const figure = (value: number, tone = "") =>
+    value ? <span className={tone}>{value}</span> : <span className="text-[#d5dce4]">—</span>;
+  const heads = whole
+    ? ["Planned", "Portal", "Cancelled", "Taught by others", "Taught for others"]
+    : [`Portal ${tag}`, "Cancelled", "Taught by others", `Taught ${tag}`];
+  return (
+    <Modal
+      open
+      size="wide"
+      onClose={onClose}
+      title={`${row.teacher || "Nobody yet"} — hours per CRN`}
+      description={whole ? "The whole semester: the plan, and what happened to it." : `${window.label}: what met, and what they taught.`}
+    >
+      {lines.length === 0 ? (
+        <p className="text-sm text-[#667085]">No section of theirs, and no class they covered, in this stretch.</p>
+      ) : (
+        <div className="overflow-x-auto rounded-lg border border-[#d9dee7] bg-white">
+          <table className="w-full min-w-[44rem] border-collapse text-sm">
+            <thead>
+              <tr className="border-b border-[#e4e8ef] text-xs font-semibold uppercase tracking-wide text-[#8a94a4]">
+                <th scope="col" className="px-3 py-2 text-left">Section</th>
+                <th scope="col" className="px-3 py-2 text-left">Cohort</th>
+                <th scope="col" className="px-3 py-2 text-right">CRN</th>
+                {heads.map((head) => (
+                  <th key={head} scope="col" className="whitespace-nowrap px-3 py-2 text-right">
+                    {head}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {lines.map((line) => (
+                <tr key={line.key} className="border-b border-[#f2f4f7] align-top last:border-0">
+                  <td className="px-3 py-2">
+                    <span className="font-medium text-[#171717]">{line.courseCode}</span>{" "}
+                    <span className="text-[#667085]">{line.sections.join(" · ")}</span>
+                    {line.coveringFor ? (
+                      <span className="block text-xs text-[#1f4e79]">covering for {line.coveringFor}</span>
+                    ) : null}
+                  </td>
+                  <td className="px-3 py-2 text-[#667085]">{line.cohorts.join(" · ")}</td>
+                  <td className={cell}>{line.crn || <span className="text-[#c8d0da]">none yet</span>}</td>
+                  {whole ? (
+                    <>
+                      <td className={cell}>{line.coveringFor ? "" : figure(line.planned)}</td>
+                      <td className={cell}>{line.coveringFor ? "" : figure(line.booked)}</td>
+                      <td className={cell}>{figure(line.cancelled, "text-[#a6292f]")}</td>
+                      <td className={cell}>{figure(line.coveredByOthers, "text-[#a6292f]")}</td>
+                      <td className={cell}>{line.coveringFor ? figure(line.taught, "text-[#1f4e79]") : ""}</td>
+                    </>
+                  ) : (
+                    <>
+                      <td className={cell}>{line.coveringFor ? "" : figure(line.booked)}</td>
+                      <td className={cell}>{figure(line.cancelled, "text-[#a6292f]")}</td>
+                      <td className={cell}>{figure(line.coveredByOthers, "text-[#a6292f]")}</td>
+                      <td className={`${cell} font-semibold text-[#171717]`}>{figure(line.taught)}</td>
+                    </>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+            {/* Each CRN once, so the total is the row's own figure. */}
+            <tfoot>
+              <tr className="border-t border-[#d9dee7] font-semibold text-[#171717]">
+                <td className="px-3 py-2" colSpan={3}>
+                  Total
+                </td>
+                {whole ? (
+                  <>
+                    <td className={cell}>{sum((line) => line.planned)}</td>
+                    <td className={cell}>{sum((line) => line.booked)}</td>
+                    <td className={cell}>{sum((line) => line.cancelled)}</td>
+                    <td className={cell}>{sum((line) => line.coveredByOthers)}</td>
+                    <td className={cell}>{sum((line) => (line.coveringFor ? line.taught : 0))}</td>
+                  </>
+                ) : (
+                  <>
+                    <td className={cell}>{sum((line) => line.booked)}</td>
+                    <td className={cell}>{sum((line) => line.cancelled)}</td>
+                    <td className={cell}>{sum((line) => line.coveredByOthers)}</td>
+                    <td className={cell}>{sum((line) => line.taught)}</td>
+                  </>
+                )}
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
+    </Modal>
   );
 }
 

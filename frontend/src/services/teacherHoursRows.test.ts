@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { academicYearOfTerm, hoursRowsFor, type HoursSource } from "@/services/teacherHoursRows";
+import { academicYearOfTerm, crnDistribution, hoursRowsFor, type HoursSource } from "@/services/teacherHoursRows";
 import type { ActiveTeacher } from "@/services/portalLists";
 import type { RequestRow, RequestSheet } from "@/services/timetableExport";
 
@@ -74,5 +74,57 @@ describe("the academic year of a portal term", () => {
   it("is read from the first four digits of its code", () => {
     expect(academicYearOfTerm("262710")).toBe("2026-2027");
     expect(academicYearOfTerm("")).toBe("");
+  });
+});
+
+describe("a teacher's hours, CRN by CRN", () => {
+  const meet = (meetsOn: string) => ({ meetsOn, startsAt: "08:30", endsAt: "10:30", room: "5.110" });
+  const note = (over: Record<string, string>) =>
+    ({ id: over.meetsOn, termCode: "262710", startsAt: "08:30", endsAt: "10:30", coverTeacherId: "", coverTeacherName: "", note: "", ...over }) as never;
+  /** Hani's 23223 meets three times; Samar's 23224 twice, once with Hani standing in. */
+  function busy(): HoursSource {
+    return source({
+      sheets: [
+        {
+          title: "BSc-L1-S1",
+          heading: "",
+          semester: "Semester 1",
+          rows: [row(), row({ crn: "23224", teacher: "Samar Ghantous", teacherId: "act-2", courseName: "Mechanics TD 2" })],
+        },
+      ],
+      sections: [
+        { crn: "23223", courseCode: "PHYS-101", title: "", teacherName: "Hani Sayes", state: "published", meetings: [meet("2026-09-07"), meet("2026-09-14"), meet("2026-10-05")] },
+        { crn: "23224", courseCode: "PHYS-101", title: "", teacherName: "Samar Ghantous", state: "published", meetings: [meet("2026-09-08"), meet("2026-09-15")] },
+      ],
+      notes: [
+        note({ crn: "23223", meetsOn: "2026-09-14", kind: "cancelled" }),
+        note({ crn: "23224", meetsOn: "2026-09-15", kind: "covered", coverTeacherId: "act-1", coverTeacherName: "Hani Sayes" }),
+      ],
+      owners: new Map([
+        ["23223", { id: "act-1", name: "Hani Sayes" }],
+        ["23224", { id: "act-2", name: "Samar Ghantous" }],
+      ]),
+      booked: { "23223": { courseCode: "PHYS-101", teacherName: "Hani Sayes", hours: 6 } },
+    });
+  }
+
+  it("adds up to the row over a window: what met, less the cancelled, and the class covered as a line of its own", () => {
+    const window = { from: "2026-09-01", to: "2026-09-30" };
+    const [hani] = hoursRowsFor(busy(), window, false);
+    const lines = crnDistribution(busy(), hani, window, false);
+
+    expect(lines.map((line) => [line.crn, line.booked, line.cancelled, line.taught, line.coveringFor])).toEqual([
+      ["23223", 4, 2, 2, ""],
+      ["23224", 0, 0, 2, "Samar Ghantous"],
+    ]);
+    expect(lines.reduce((sum, line) => sum + line.taught, 0)).toBe(hani.total);
+  });
+
+  it("over the whole semester, puts the plan beside what happened to it", () => {
+    const [hani] = hoursRowsFor(busy(), WHOLE, true);
+    const [own] = crnDistribution(busy(), hani, WHOLE, true);
+
+    expect(own).toMatchObject({ crn: "23223", planned: 40, booked: 6, cancelled: 2, sections: ["Mechanics TD"], cohorts: ["BSc-L1-S1"] });
+    expect(own.planned).toBe(hani.total);
   });
 });
