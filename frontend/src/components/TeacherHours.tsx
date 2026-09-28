@@ -6,6 +6,7 @@ import { HourWindowPicker } from "@/components/HourWindowPicker";
 import { InfoTip } from "@/components/InfoTip";
 import { LabelledPicker } from "@/components/LabelledPicker";
 import { ListGrid, StatePill } from "@/components/ListGrid";
+import { SourceMark, WindowMark } from "@/components/DataTable";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { SelectMenu } from "@/components/SelectMenu";
 import { CommentThread } from "@/components/CommentThread";
@@ -43,7 +44,7 @@ import {
   teacherLoads,
   type LoadRow,
 } from "@/services/teacherLoad";
-import { loadLayout, visibleColumns, type GridColumn } from "@/services/studentColumns";
+import { loadLayout, visibleColumns, type ColumnSource, type GridColumn } from "@/services/studentColumns";
 import { fetchCohorts, fetchCourseCards } from "@/services/studentDatabase";
 import { fetchTimetableTerms } from "@/services/timetables";
 import { TEACHER_THREAD } from "@/services/threads";
@@ -428,9 +429,21 @@ function CrnHours({
   const cell = "px-3 py-2 text-right tabular-nums";
   const figure = (value: number, tone = "") =>
     value ? <span className={tone}>{value}</span> : <span className="text-[#d5dce4]">—</span>;
-  const heads = whole
-    ? ["Planned", "Portal", "Cancelled", "Taught by others", "Taught for others"]
-    : [`Portal ${tag}`, "Cancelled", "Taught by others", `Taught ${tag}`];
+  // The table's own headings and marks — whose figure it is, and the stretch it counts.
+  const heads: { label: string; source: ColumnSource }[] = whole
+    ? [
+        { label: "Planned", source: "planning" },
+        { label: "Portal", source: "registrar" },
+        { label: "Cancelled", source: "planning" },
+        { label: "Covered by others", source: "planning" },
+        { label: "Covered for others", source: "planning" },
+      ]
+    : [
+        { label: "Portal", source: "registrar" },
+        { label: "Cancelled", source: "planning" },
+        { label: "Covered by others", source: "planning" },
+        { label: "Taught", source: "planning" },
+      ];
   return (
     <Modal
       open
@@ -446,12 +459,17 @@ function CrnHours({
           <table className="w-full min-w-[44rem] border-collapse text-sm">
             <thead>
               <tr className="border-b border-[#e4e8ef] text-xs font-semibold uppercase tracking-wide text-[#8a94a4]">
-                <th scope="col" className="px-3 py-2 text-left">Section</th>
-                <th scope="col" className="px-3 py-2 text-left">Cohort</th>
-                <th scope="col" className="px-3 py-2 text-right">CRN</th>
+                <th scope="col" className="min-w-[15rem] px-3 py-2 text-left align-bottom">Section</th>
+                <th scope="col" className="px-3 py-2 text-left align-bottom">Cohort</th>
+                <th scope="col" className="px-3 py-2 text-right align-bottom">CRN</th>
                 {heads.map((head) => (
-                  <th key={head} scope="col" className="whitespace-nowrap px-3 py-2 text-right">
-                    {head}
+                  <th key={head.label} scope="col" className="px-3 py-2 text-right align-bottom">
+                    {/* The marks under the heading rather than after it, so a figure's column stays a figure's width. */}
+                    <span className="block whitespace-nowrap">{head.label}</span>
+                    <span className="mt-0.5 flex justify-end whitespace-nowrap [&>span]:ml-1 [&>span:first-child]:ml-0">
+                      <SourceMark source={head.source} />
+                      {tag ? <WindowMark window={tag} /> : null}
+                    </span>
                   </th>
                 ))}
               </tr>
