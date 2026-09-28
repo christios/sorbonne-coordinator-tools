@@ -30,10 +30,12 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Check } from "lucide-react";
+import { Tooltip } from "radix-ui";
 import { useMemo, useState } from "react";
 
 import { Modal } from "@/components/Modal";
-import { hoursIn, monthsOfDiff, stillToLookAt, unexpected, type DiffDay } from "@/services/classDiff";
+import { hoursIn, minutesOf, monthsOfDiff, stillToLookAt, unexpected, type DiffDay, type Meeting } from "@/services/classDiff";
+import { formatRoom } from "@/services/weekSchedule";
 import { fetchChangedClasses, fetchSweptTerms, type ChangedClasses } from "@/services/portalLists";
 import { dismissalsByKey, fetchDismissals, setDismissal } from "@/services/warningDismissals";
 
@@ -176,8 +178,12 @@ function SectionDiff({
         * when the months are side by side. Wrapped, the last month dropped under the
         * first and the shape went with it. So the columns share the width and the days
         * shrink to fit rather than the row breaking.
+        *
+        * A month is never wider than a quarter of the row, though: a section that touches
+        * one month drew it the whole width across, squares the size of buttons, and two
+        * sections one under the other stopped looking like the same kind of thing.
         */}
-      <div className="mt-4 grid auto-cols-[minmax(9rem,1fr)] grid-flow-col gap-4 overflow-x-auto pb-1">
+      <div className="mt-4 grid auto-cols-[minmax(9rem,calc((100%-3rem)/4))] grid-flow-col gap-4 overflow-x-auto pb-1">
         {months.map((month) => (
           <div key={month.label} className="min-w-0">
             <p className="text-sm font-semibold text-[#344054]">{month.label}</p>
@@ -188,7 +194,7 @@ function SectionDiff({
                 </span>
               ))}
               {month.days.map((day, index) => (
-                <Square key={day?.day ?? `blank-${index}`} day={day} />
+                <Square key={day?.day ?? `blank-${index}`} day={day} section={section} />
               ))}
             </div>
           </div>
@@ -220,7 +226,77 @@ function SectionDiff({
   );
 }
 
-function Square({ day }: { day: DiffDay | null }) {
+const LONG_DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const LONG_MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+/** "Tuesday 15 September 2026". */
+function longDay(iso: string): string {
+  const [year, month, date] = iso.split("-").map(Number);
+  const made = new Date(year, month - 1, date);
+  return Number.isNaN(made.getTime()) ? iso : `${LONG_DAYS[made.getDay()]} ${date} ${LONG_MONTHS[month - 1]} ${year}`;
+}
+
+/** One class on the hover card: its hours, how long, and where. */
+function ClassLine({ meeting, tone, note }: { meeting: Meeting; tone: string; note?: string }) {
+  const hours = Math.round((minutesOf(meeting) / 60) * 100) / 100;
+  return (
+    <li className="flex flex-wrap items-baseline gap-x-2">
+      <span className={`font-semibold tabular-nums ${tone}`}>
+        {meeting.startsAt}–{meeting.endsAt}
+      </span>
+      <span className="tabular-nums text-[#667085]">{hours} h</span>
+      {meeting.room ? <span className="text-[#344054]">room {formatRoom(meeting.room)}</span> : null}
+      {note ? <span className="text-[#98a2b3]">{note}</span> : null}
+    </li>
+  );
+}
+
+/**
+ * Everything the day holds, on hover: which section, whose, and each class that still
+ * meets, went or arrived — its hours, length and room. The square's colour says what
+ * happened; this says to what.
+ */
+function DayCard({ day, section }: { day: DiffDay; section: ChangedClasses }) {
+  const groups: { title: string; tone: string; meetings: Meeting[] }[] = [
+    { title: "Removed", tone: "text-[#842029]", meetings: day.removed },
+    { title: "Added", tone: "text-[#0f5132]", meetings: day.added },
+    { title: "Still meets", tone: "text-[#084298]", meetings: day.kept },
+  ];
+  return (
+    <div className="space-y-2">
+      <div>
+        <p className="font-semibold text-[#171717]">{longDay(day.day)}</p>
+        <p className="text-[#344054]">
+          {section.courseCode || "A section"}
+          {section.title ? ` · ${section.title}` : ""} · CRN {section.crn}
+        </p>
+        <p className="text-[#667085]">{section.teacherName || "Nobody named on the portal"}</p>
+      </div>
+      {groups
+        .filter((group) => group.meetings.length)
+        .map((group) => (
+          <div key={group.title}>
+            <p className={`text-[11px] font-semibold uppercase tracking-wide ${group.tone}`}>{group.title}</p>
+            <ul className="mt-0.5 space-y-0.5">
+              {group.meetings.map((meeting) => (
+                <ClassLine
+                  key={`${meeting.startsAt}|${meeting.room}`}
+                  meeting={meeting}
+                  tone={group.tone}
+                  note={meeting.weCancelled ? "you had cancelled it" : undefined}
+                />
+              ))}
+            </ul>
+          </div>
+        ))}
+      {!day.removed.length && !day.added.length && !day.kept.length ? (
+        <p className="text-[#98a2b3]">No class of this section, before or now.</p>
+      ) : null}
+    </div>
+  );
+}
+
+function Square({ day, section }: { day: DiffDay | null; section: ChangedClasses }) {
   if (!day) return <span className="aspect-square w-full" />;
   const gone = day.removed.length > 0;
   const arrived = day.added.length > 0;
@@ -247,12 +323,32 @@ function Square({ day }: { day: DiffDay | null }) {
     arrived ? `${day.added.length} added` : "",
     meets ? "still meets" : "",
   ].filter(Boolean);
-  return (
+  const square = (
     <span
-      title={said.length ? `${day.day}: ${said.join(", ")}` : day.day}
-      className={`flex aspect-square w-full items-center justify-center rounded-sm text-[11px] font-medium ${paint}${also} ${gone && !arrived ? "line-through" : ""}`}
+      tabIndex={said.length ? 0 : undefined}
+      aria-label={said.length ? `${day.day}: ${said.join(", ")}` : day.day}
+      className={`flex aspect-square w-full items-center justify-center rounded-sm text-[11px] font-medium outline-none focus-visible:ring-2 focus-visible:ring-[#1f4e79] ${paint}${also} ${gone && !arrived ? "line-through" : ""}`}
     >
       {day.dayOfMonth}
     </span>
+  );
+  // A day with nothing on it has nothing to say on hover either.
+  if (!said.length) return square;
+  return (
+    <Tooltip.Provider delayDuration={120}>
+      <Tooltip.Root>
+        <Tooltip.Trigger asChild>{square}</Tooltip.Trigger>
+        <Tooltip.Portal>
+          <Tooltip.Content
+            side="top"
+            sideOffset={6}
+            collisionPadding={12}
+            className="z-[130] w-72 max-w-[calc(100vw-2rem)] rounded-md border border-[#d9dee7] bg-white px-3 py-2 text-xs leading-5 text-[#475467] shadow-lg"
+          >
+            <DayCard day={day} section={section} />
+          </Tooltip.Content>
+        </Tooltip.Portal>
+      </Tooltip.Root>
+    </Tooltip.Provider>
   );
 }

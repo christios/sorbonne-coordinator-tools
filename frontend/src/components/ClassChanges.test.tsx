@@ -72,8 +72,15 @@ describe("the banner", () => {
     expect(await screen.findByText("September 2026")).toBeTruthy();
     expect(screen.getByText(/PHYS-125/)).toBeTruthy();
     expect(screen.getByText(/2 classes gone \(4 h\), 1 unchanged \(2 h\)/)).toBeTruthy();
-    expect(screen.getByTitle("2026-09-14: 1 class removed")).toBeTruthy();
-    expect(screen.getByTitle("2026-09-07: still meets")).toBeTruthy();
+    expect(screen.getByLabelText("2026-09-14: 1 class removed")).toBeTruthy();
+    expect(screen.getByLabelText("2026-09-07: still meets")).toBeTruthy();
+
+    // Held over, a day says what it holds: the section, and each class with its hours and room.
+    fireEvent.focus(screen.getByLabelText("2026-09-14: 1 class removed"));
+    const card = await screen.findByRole("tooltip");
+    expect(card.textContent).toContain("Monday 14 September 2026");
+    expect(card.textContent).toMatch(/Removed/);
+    expect(card.textContent).toMatch(/\d{2}:\d{2}–\d{2}:\d{2}/);
   });
 
   it("approves against the changed classes themselves, not the section", async () => {
@@ -124,8 +131,8 @@ describe("a class the registrar has added", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Show what changed" }));
 
     expect(screen.getByText(/1 arrived \(2 h\), 1 unchanged \(2 h\)/)).toBeTruthy();
-    expect(screen.getByTitle("2026-09-28: 1 added")).toBeTruthy();
-    expect(screen.getByTitle("2026-09-07: still meets")).toBeTruthy();
+    expect(screen.getByLabelText("2026-09-28: 1 added")).toBeTruthy();
+    expect(screen.getByLabelText("2026-09-07: still meets")).toBeTruthy();
     expect(screen.getByText("added")).toBeTruthy();
   });
 
@@ -143,7 +150,7 @@ describe("a class the registrar has added", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Show what changed" }));
 
-    expect(screen.getByTitle("2026-09-14: 1 class removed, 1 added")).toBeTruthy();
+    expect(screen.getByLabelText("2026-09-14: 1 class removed, 1 added")).toBeTruthy();
     // And the ring around that square says so in the legend, rather than only on hover.
     expect(screen.getByText(/arrived where one was removed the same day/)).toBeTruthy();
   });
@@ -177,7 +184,7 @@ describe("a class the department had already cancelled", () => {
     fireEvent.click(screen.getByRole("button", { name: "Show what changed" }));
 
     expect(screen.getByText(/1 class gone \(2 h\), 1 you had cancelled/)).toBeTruthy();
-    expect(screen.getByTitle("2026-09-14: 1 class removed, which you had cancelled")).toBeTruthy();
+    expect(screen.getByLabelText("2026-09-14: 1 class removed, which you had cancelled")).toBeTruthy();
     expect(screen.getByText("you had cancelled it")).toBeTruthy();
   });
 });
