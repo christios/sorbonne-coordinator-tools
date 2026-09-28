@@ -1,12 +1,14 @@
 """Where each semester's Week 1 is, so the timetable can say "Week 5".
 
 One date per semester, set by an administrator in Settings. Any day of the first teaching
-week will do; the week it falls in is Week 1, and the page counts from its Monday.
+week will do; the week it falls in is Week 1, and the page counts from its Monday. Beside
+it, the weeks the semester has no classes in — a break — which the count skips.
 """
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+import json
+from datetime import UTC, date, datetime, timedelta
 
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
@@ -24,6 +26,38 @@ class TermWeeks:
         """`semester id -> the day Week 1 falls in`, for every semester that has one."""
         with self.engine.connect() as connection:
             return dict(connection.execute(text("SELECT term_id, week_one FROM term_weeks")).all())
+
+    def without(self) -> dict[str, list[str]]:
+        """`semester id -> the Mondays of its weeks without classes`, for every semester that has some."""
+        with self.engine.connect() as connection:
+            rows = connection.execute(text("SELECT term_id, without FROM term_weeks")).all()
+        return {term: days for term, raw in rows if (days := json.loads(raw or "[]"))}
+
+    def set_without(self, term_id: str, days: list[str], *, actor: str = "") -> None:
+        """Say which weeks of a semester have no classes: any day of each, kept as its Monday."""
+        mondays: set[str] = set()
+        for raw in days:
+            day = (raw or "").strip()
+            if not day:
+                continue
+            try:
+                when = date.fromisoformat(day)
+            except ValueError as exc:
+                raise InvalidWeekOne(f"{day!r} is not a date. Write it as 2026-10-12.") from exc
+            mondays.add((when - timedelta(days=when.weekday())).isoformat())
+        with self.engine.begin() as connection:
+            changed = connection.execute(
+                text("""UPDATE term_weeks SET without = :without, updated_at = :at, updated_by = :by
+                        WHERE term_id = :term"""),
+                {
+                    "term": term_id,
+                    "without": json.dumps(sorted(mondays)),
+                    "at": datetime.now(UTC).isoformat(),
+                    "by": actor,
+                },
+            )
+        if changed.rowcount == 0:
+            raise InvalidWeekOne("Set the semester's Week 1 first: the weeks without classes are counted from it.")
 
     def set(self, term_id: str, week_one: str, *, actor: str = "") -> None:
         """Say where a semester's Week 1 is; a blank date takes it away."""

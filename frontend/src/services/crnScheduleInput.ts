@@ -10,7 +10,7 @@
 import type { ScheduleInput } from "@/services/crnSchedulePdf";
 import type { ActiveCrn, FacilityTimetable } from "@/services/portalLists";
 import type { SessionChange } from "@/services/sessionChanges";
-import { semesterOf } from "@/services/termWeeks";
+import { semesterOf, type TermCalendars } from "@/services/termWeeks";
 
 export type ScheduleReads = {
   sections: (termCode: string, crns: string[]) => Promise<FacilityTimetable>;
@@ -18,7 +18,7 @@ export type ScheduleReads = {
   /** Student Hub semester id → portal term code. */
   links: () => Promise<Record<string, string>>;
   /** Student Hub semester id → any day of its Week 1. */
-  weeks: () => Promise<Record<string, string>>;
+  weeks: () => Promise<TermCalendars>;
   /** Student Hub semester id → its name. */
   semesterNames: () => Promise<Record<string, string>>;
   /** CRN → the group of ours it teaches, off the course cards: "CM Mathematics". */
@@ -40,7 +40,7 @@ export async function scheduleInputFor(rows: ActiveCrn[], read: ScheduleReads): 
   const termCodes = [...new Set(ordered.map((row) => row.termCode).filter(Boolean))];
   const [links, weeks, names, groups] = await Promise.all([
     read.links().catch(() => ({}) as Record<string, string>),
-    read.weeks().catch(() => ({}) as Record<string, string>),
+    read.weeks().catch(() => ({}) as TermCalendars),
     read.semesterNames().catch(() => ({}) as Record<string, string>),
     read.groups().catch(() => new Map<string, string>()),
   ]);

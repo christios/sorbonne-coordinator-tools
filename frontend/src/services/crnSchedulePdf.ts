@@ -15,7 +15,7 @@
 
 import type { jsPDF as JsPdf } from "jspdf";
 
-import { COURSE_COLORS, MONTH_NAMES, formatRoom, minutesOf, mondayOf, parseIsoDate, toIsoDate, weekNumber } from "@/services/weekSchedule";
+import { COURSE_COLORS, MONTH_NAMES, formatRoom, minutesOf, mondayOf, parseIsoDate, toIsoDate, weekNumber, type TeachingCalendar } from "@/services/weekSchedule";
 
 export type ScheduleMeeting = { meetsOn: string; startsAt: string; endsAt: string; room: string };
 export type ScheduleNote = { meetsOn: string; startsAt: string; kind: "cancelled" | "covered"; coverTeacherName: string; note: string };
@@ -48,8 +48,8 @@ export type ScheduleInput = {
   /** The semester, named; blank when the CRNs span more than one. */
   semester: string;
   sections: ScheduleSection[];
-  /** Any day of the semester's first teaching week, when Settings → Semesters has one. */
-  weekOne?: string;
+  /** Where the semester's weeks are counted from, and the weeks it has no classes in — Settings → Semesters. */
+  weekOne?: TeachingCalendar | string;
   /** When the portal's timetable was last swept, ISO. */
   sweptAt?: string;
 };
@@ -81,6 +81,8 @@ export type ScheduleWeek = {
   monday: string;
   /** Its teaching week, counted from Week 1; null where no Week 1 is set, or before it. */
   week: number | null;
+  /** A week the semester has no classes in, which the count skips: it says so instead. */
+  withoutClasses?: boolean;
   /** Monday to Friday, and Saturday only in a week that uses it. */
   days: string[];
   classes: ScheduleClass[];
@@ -180,7 +182,8 @@ export function scheduleWeeks(input: ScheduleInput): ScheduleWeek[] {
     const counted = input.weekOne ? weekNumber(parseIsoDate(monday), input.weekOne) : 0;
     weeks.push({
       monday,
-      week: counted >= 1 ? counted : null,
+      week: counted !== null && counted >= 1 ? counted : null,
+      withoutClasses: counted === null,
       days: classes.some((entry) => entry.day === days[5]) ? days : days.slice(0, 5),
       classes: laidSideBySide(classes),
     });
@@ -411,7 +414,7 @@ function drawSchedule(doc: JsPdf, input: ScheduleInput, after: boolean): void {
   weeks.forEach((week, index) => {
     if (index > 0 || after) doc.addPage();
     const last = week.days[week.days.length - 1];
-    heading(`${week.week ? `Week ${week.week}   ·   ` : ""}${shortDay(week.monday)} – ${shortDay(last)} ${parseIsoDate(last).getFullYear()}`);
+    heading(`${week.withoutClasses ? "No classes   ·   " : week.week ? `Week ${week.week}   ·   ` : ""}${shortDay(week.monday)} – ${shortDay(last)} ${parseIsoDate(last).getFullYear()}`);
 
     const columnWidth = (right - left - gutter) / week.days.length;
     const columnX = (column: number) => left + gutter + column * columnWidth;

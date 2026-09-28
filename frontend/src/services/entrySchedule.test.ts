@@ -16,7 +16,7 @@ const read = {
   }),
   notes: async () => [],
   links: async () => ({ "term-1": "262710" }),
-  weeks: async () => ({ "term-1": "2026-09-07" }),
+  weeks: async () => ({ "term-1": { weekOne: "2026-09-07", without: [] } }),
   semesterNames: async () => ({ "term-1": "Semester 1" }),
 };
 
@@ -32,7 +32,7 @@ describe("a record's calendar as a timetable", () => {
       "Grace Younes",
     );
 
-    expect(input).toMatchObject({ title: "Grace Younes", subtitle: "Teacher   ·   Semester 1", semester: "Semester 1", weekOne: "2026-09-07" });
+    expect(input).toMatchObject({ title: "Grace Younes", subtitle: "Teacher   ·   Semester 1", semester: "Semester 1", weekOne: { weekOne: "2026-09-07", without: [] } });
     const [algebra, cover] = [input.sections.find((s) => s.crn === "23436"), input.sections.find((s) => s.crn === "22610")];
     expect(algebra?.meetings).toHaveLength(2);
     expect(algebra?.group).toBe("TD 1");
@@ -76,9 +76,9 @@ describe("a term linked to two semesters", () => {
       {
         ...read,
         links: async () => ({ "term-old": "262710", "term-1": "262710" }),
-        weeks: async () => ({ "term-1": "2026-09-07" }),
+        weeks: async () => ({ "term-1": { weekOne: "2026-09-07", without: [] } }),
       },
     );
-    expect(input.weekOne).toBe("2026-09-07");
+    expect(input.weekOne).toEqual({ weekOne: "2026-09-07", without: [] });
   });
 });

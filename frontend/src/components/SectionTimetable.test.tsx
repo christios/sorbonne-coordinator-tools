@@ -220,7 +220,7 @@ describe("the week number on a record's calendar", () => {
       ],
     });
     vi.spyOn(lists, "fetchTermLinks").mockResolvedValue({ "term-1": "262710" });
-    vi.spyOn(termWeeks, "fetchTermWeeks").mockResolvedValue({ "term-1": "2026-08-31" });
+    vi.spyOn(termWeeks, "fetchTermWeeks").mockResolvedValue({ "term-1": { weekOne: "2026-08-31", without: [] } });
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
       <QueryClientProvider client={client}>
@@ -241,7 +241,7 @@ describe("the week number on a record's calendar", () => {
       ],
     });
     vi.spyOn(lists, "fetchTermLinks").mockResolvedValue({ "term-old": "262710", "term-1": "262710" });
-    vi.spyOn(termWeeks, "fetchTermWeeks").mockResolvedValue({ "term-1": "2026-08-31" });
+    vi.spyOn(termWeeks, "fetchTermWeeks").mockResolvedValue({ "term-1": { weekOne: "2026-08-31", without: [] } });
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
       <QueryClientProvider client={client}>

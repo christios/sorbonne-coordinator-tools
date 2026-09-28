@@ -27,6 +27,9 @@ import {
   weekLabel,
   weekNumber,
   weekStartOf,
+  weekWords,
+  withoutClasses,
+  type TeachingCalendar,
   type CalendarCourse,
   type PlacedSession,
   type Session,
@@ -131,11 +134,11 @@ type TimetableProps = {
    */
   registeredOf?: (crn: string) => number | null;
   /**
-   * Any day of the semester's first teaching week, from Settings → Semesters. Given it,
-   * the week says which teaching week it is — "Week 5" — and that label is a picker that
-   * jumps straight to any week of the semester.
+   * Where the semester's weeks are counted from, and the weeks it has no classes in, from
+   * Settings → Semesters. Given it, the week says which teaching week it is — "Week 5", or
+   * "No classes" — and that label is a picker that jumps straight to any week.
    */
-  weekOne?: string;
+  weekOne?: TeachingCalendar | string;
   /**
    * A name to keep the week being looked at under, for this browser tab. Coming back to
    * the page lands on the week you left rather than on this one; a new tab starts on this.
@@ -354,9 +357,9 @@ function Timetable({
             {weekOne ? (
               compact ? (
                 // A card has no room for the picker; it says the week, and the full-size view picks.
-                weekNumber(shown, weekOne) >= 1 ? (
+                weekWords(shown, weekOne) ? (
                   <span className={`rounded bg-[#eaf1f8] px-1.5 py-0.5 font-semibold text-[#1f4e79] ${small}`}>
-                    Week {weekNumber(shown, weekOne)}
+                    {weekWords(shown, weekOne)}
                   </span>
                 ) : null
               ) : (
@@ -620,30 +623,35 @@ function TeachingWeek({
   onGo,
 }: {
   shown: Date;
-  weekOne: string;
+  weekOne: TeachingCalendar | string;
   sessions: Session[];
   onGo: (week: Date) => void;
 }) {
-  const current = weekNumber(shown, weekOne);
+  /*
+   * Every week from Week 1 to the last class, by its Monday: the weeks without classes
+   * are in the list too, unnumbered, so the list reads as the calendar does.
+   */
+  const first = weekStartOf(1, weekOne);
   const lastDay = sessions.reduce((last, session) => (session.date > last ? session.date : last), "");
-  const last = Math.max(1, current, lastDay ? weekNumber(parseIsoDate(lastDay), weekOne) : 1);
-  const options = Array.from({ length: last }, (_, index) => {
-    const monday = weekStartOf(index + 1, weekOne);
-    return {
-      value: String(index + 1),
-      label: `Week ${index + 1}`,
+  const end = [mondayOf(shown), lastDay ? mondayOf(parseIsoDate(lastDay)) : first].reduce((a, b) => (a > b ? a : b), first);
+  const options: { value: string; label: string; detail: string }[] = [];
+  for (let monday = first; monday <= end && options.length < 60; monday = shiftWeek(monday, 1)) {
+    options.push({
+      value: toIsoDate(monday),
+      label: withoutClasses(monday, weekOne) ? "No classes" : `Week ${weekNumber(monday, weekOne)}`,
       // Its Monday, in the list only: the closed picker has room for "Week 4" and no more.
       detail: `${monday.getDate()} ${MONTH_NAMES[monday.getMonth()]}`,
-    };
-  });
+    });
+  }
+  const current = toIsoDate(mondayOf(shown));
   return (
     <div className="w-32">
       <SelectMenu
         label="Teaching week"
-        value={current >= 1 ? String(current) : ""}
+        value={options.some((option) => option.value === current) ? current : ""}
         placeholder="Before Week 1"
         searchable={options.length > 12}
-        onChange={(week) => week && onGo(weekStartOf(Number(week), weekOne))}
+        onChange={(week) => week && onGo(parseIsoDate(week))}
         options={options}
       />
     </div>

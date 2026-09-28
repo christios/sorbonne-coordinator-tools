@@ -165,19 +165,59 @@ export function weekDays(weekStart: Date, sessions: Session[]): string[] {
 }
 
 /**
- * Which teaching week a week is: 1 for the week `weekOne` falls in, counting on from its
- * Monday; 0 or less before it. `weekOne` is any day of the first teaching week, as set per
- * semester in Settings.
+ * What a semester's weeks are counted from, as set in Settings → Semesters: any day of its
+ * first teaching week, and the Mondays of the weeks it has no classes in — a break, which
+ * the timetable does not count.
  */
-export function weekNumber(weekStart: Date, weekOne: string): number {
-  const first = mondayOf(parseIsoDate(weekOne));
-  // Rounded, not floored: a clock change between the two Mondays is an hour, not a week.
-  return Math.round((mondayOf(weekStart).getTime() - first.getTime()) / (7 * 24 * 60 * 60 * 1000)) + 1;
+export type TeachingCalendar = { weekOne: string; without: string[] };
+
+function calendarOf(calendar: TeachingCalendar | string): TeachingCalendar {
+  return typeof calendar === "string" ? { weekOne: calendar, without: [] } : calendar;
 }
 
-/** The Monday of teaching week `week`. */
-export function weekStartOf(week: number, weekOne: string): Date {
-  return shiftWeek(mondayOf(parseIsoDate(weekOne)), week - 1);
+const WEEK = 7 * 24 * 60 * 60 * 1000;
+
+/** Whether the week holding `weekStart` is one the semester has no classes in. */
+export function withoutClasses(weekStart: Date, calendar: TeachingCalendar | string): boolean {
+  return calendarOf(calendar).without.includes(toIsoDate(mondayOf(weekStart)));
+}
+
+/**
+ * Which teaching week a week is: 1 for the week `weekOne` falls in, counting on from its
+ * Monday; 0 or less before it; null for a week without classes, which is not counted — the
+ * week after a break is the next number, as the timetable says it.
+ */
+export function weekNumber(weekStart: Date, calendar: TeachingCalendar | string): number | null {
+  const { weekOne, without } = calendarOf(calendar);
+  const first = mondayOf(parseIsoDate(weekOne));
+  const monday = mondayOf(weekStart);
+  const iso = toIsoDate(monday);
+  if (without.includes(iso)) return null;
+  // Rounded, not floored: a clock change between the two Mondays is an hour, not a week.
+  const counted = Math.round((monday.getTime() - first.getTime()) / WEEK) + 1;
+  const skipped = without.filter((day) => day >= toIsoDate(first) && day < iso).length;
+  return counted - skipped;
+}
+
+/** The Monday of teaching week `week`, stepping over the weeks without classes. */
+export function weekStartOf(week: number, calendar: TeachingCalendar | string): Date {
+  const { weekOne, without } = calendarOf(calendar);
+  let monday = mondayOf(parseIsoDate(weekOne));
+  if (week < 1) return shiftWeek(monday, week - 1);
+  for (let counted = 0, guard = 0; guard < 400; guard += 1) {
+    if (!without.includes(toIsoDate(monday))) {
+      counted += 1;
+      if (counted === week) return monday;
+    }
+    monday = shiftWeek(monday, 1);
+  }
+  return monday;
+}
+
+/** "Week 7", "No classes" for a week the semester has none in, "" before Week 1. */
+export function weekWords(weekStart: Date, calendar: TeachingCalendar | string): string {
+  const number = weekNumber(weekStart, calendar);
+  return number === null ? "No classes" : number >= 1 ? `Week ${number}` : "";
 }
 
 export function weekLabel(weekStart: Date, sessions: Session[]): string {

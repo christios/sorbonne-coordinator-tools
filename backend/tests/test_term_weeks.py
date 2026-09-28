@@ -31,17 +31,17 @@ def client() -> TestClient:
 
 
 def test_an_administrator_says_where_a_semesters_week_one_is(client: TestClient):
-    assert client.get(AT).json() == {"weeks": {}}
+    assert client.get(AT).json() == {"weeks": {}, "without": {}}
 
     saved = client.put(f"{AT}/term-1", json={"weekOne": "2026-08-31"})
 
     assert saved.status_code == status.HTTP_200_OK, saved.text
-    assert client.get(AT).json() == {"weeks": {"term-1": "2026-08-31"}}
+    assert client.get(AT).json() == {"weeks": {"term-1": "2026-08-31"}, "without": {}}
     # Moved, it moves; blank, it goes.
     client.put(f"{AT}/term-1", json={"weekOne": "2026-09-07"})
     assert client.get(AT).json()["weeks"]["term-1"] == "2026-09-07"
     client.put(f"{AT}/term-1", json={"weekOne": ""})
-    assert client.get(AT).json() == {"weeks": {}}
+    assert client.get(AT).json() == {"weeks": {}, "without": {}}
 
 
 def test_a_date_that_is_not_one_is_refused_in_words(client: TestClient):
@@ -60,3 +60,24 @@ def test_only_an_administrator_sets_it_and_anybody_reads_it(client: TestClient, 
 
     assert client.get(AT).status_code == status.HTTP_200_OK
     assert client.put(f"{AT}/term-1", json={"weekOne": "2026-08-31"}).status_code == status.HTTP_403_FORBIDDEN
+
+
+def test_a_semester_keeps_the_weeks_it_has_no_classes_in_as_their_mondays(client: TestClient):
+    client.put(f"{AT}/term-1", json={"weekOne": "2026-08-31"})
+
+    # Any day of the week will do; the same week twice is one.
+    saved = client.put(f"{AT}/term-1/without", json={"weeks": ["2026-10-14", "2026-10-12", "2026-12-24"]})
+
+    assert saved.status_code == status.HTTP_200_OK, saved.text
+    assert saved.json()["without"] == {"term-1": ["2026-10-12", "2026-12-21"]}
+    assert client.put(f"{AT}/term-1/without", json={"weeks": []}).json()["without"] == {}
+
+
+def test_weeks_without_classes_need_a_week_one_and_real_dates(client: TestClient):
+    unset = client.put(f"{AT}/term-2/without", json={"weeks": ["2026-10-12"]})
+    assert unset.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    assert "Week 1 first" in unset.json()["detail"]
+
+    client.put(f"{AT}/term-2", json={"weekOne": "2026-08-31"})
+    wrong = client.put(f"{AT}/term-2/without", json={"weeks": ["12/10/2026"]})
+    assert wrong.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY

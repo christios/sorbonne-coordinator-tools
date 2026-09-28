@@ -137,7 +137,7 @@ describe("a semester's whole week", () => {
   });
 
   it("numbers the week from the semester's Week 1, and jumps to any week", async () => {
-    vi.spyOn(termWeeks, "fetchTermWeeks").mockResolvedValue({ "term-1": "2026-09-02" });
+    vi.spyOn(termWeeks, "fetchTermWeeks").mockResolvedValue({ "term-1": { weekOne: "2026-09-02", without: [] } });
     const first = show();
 
     // The classes meet on 7 September; Week 1 is the week of 2 September.

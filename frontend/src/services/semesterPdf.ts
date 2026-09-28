@@ -32,6 +32,7 @@ import {
   parseIsoDate,
   toIsoDate,
   weekNumber,
+  type TeachingCalendar,
 } from "@/services/weekSchedule";
 
 /** Days down the side (the Timetable page), or rooms: a week along each row, or one day. */
@@ -97,7 +98,8 @@ export type SemesterExportInput = {
   sections: (ScheduleSection & { registered?: number })[];
   /** How many each room seats, by the name the portal gives it; a room not here is not known. */
   roomSeats?: Record<string, number>;
-  weekOne?: string;
+  /** Where the weeks are counted from, and the weeks without classes the count skips. */
+  weekOne?: TeachingCalendar | string;
   sweptAt?: string;
 };
 
@@ -274,7 +276,9 @@ export function semesterUnits(input: SemesterExportInput): Unit[] {
     const inWeek = classes.filter((klass) => klass.date >= all[0] && klass.date <= all[5]);
     const days = inWeek.some((klass) => klass.date === all[5]) ? all : all.slice(0, 5);
     const counted = input.weekOne ? weekNumber(parseIsoDate(monday), input.weekOne) : 0;
-    const week = `${counted >= 1 ? `Week ${counted} · ` : ""}${shortDay(days[0])} – ${shortDay(days[days.length - 1])} ${parseIsoDate(days[days.length - 1]).getFullYear()}`;
+    // A week without classes keeps its page, and says why it is empty rather than a number.
+    const said = counted === null ? "No classes · " : counted >= 1 ? `Week ${counted} · ` : "";
+    const week = `${said}${shortDay(days[0])} – ${shortDay(days[days.length - 1])} ${parseIsoDate(days[days.length - 1]).getFullYear()}`;
     // A room's row says what it seats — on paper, the question a room is asked.
     const roomRow = (room: string, among: Klass[], bands: (string | null)[]): Row => {
       const here = among.filter((klass) => roomOf(klass) === room);
@@ -298,7 +302,7 @@ export function semesterUnits(input: SemesterExportInput): Unit[] {
         const onDay = inWeek.filter((klass) => klass.date === day);
         const when = parseIsoDate(day);
         units.push({
-          title: `${counted >= 1 ? `Week ${counted} · ` : ""}${DAY_NAMES[when.getDay()]} ${shortDay(day)} ${when.getFullYear()}`,
+          title: `${said}${DAY_NAMES[when.getDay()]} ${shortDay(day)} ${when.getFullYear()}`,
           bands: [day],
           rows: rooms.map((room) => roomRow(room, onDay, [day])),
         });

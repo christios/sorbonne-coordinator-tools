@@ -11,6 +11,7 @@ import {
   type Session,
   weekNumber,
   weekStartOf,
+  weekWords,
   parseIsoDate,
 } from "@/services/weekSchedule";
 
@@ -91,3 +92,28 @@ describe("teaching weeks, counted from a semester's Week 1", () => {
   });
 });
 
+
+
+describe("a semester with weeks it has no classes in", () => {
+  // Week 1 from 31 August; no classes 12 to 16 October, which the timetable does not count.
+  const calendar = { weekOne: "2026-08-31", without: ["2026-10-12"] };
+
+  it("skips the week without classes, so the week after it is the next number", () => {
+    expect(weekNumber(parseIsoDate("2026-10-05"), calendar)).toBe(6);
+    expect(weekNumber(parseIsoDate("2026-10-14"), calendar)).toBeNull();
+    expect(weekNumber(parseIsoDate("2026-10-19"), calendar)).toBe(7);
+    // Before Week 1 nothing is skipped.
+    expect(weekNumber(parseIsoDate("2026-08-24"), calendar)).toBe(0);
+  });
+
+  it("jumps to a week by its number, stepping over the break", () => {
+    expect(weekStartOf(6, calendar).getDate()).toBe(5);
+    expect(weekStartOf(7, calendar).getDate()).toBe(19);
+  });
+
+  it("says a week without classes rather than numbering it", () => {
+    expect(weekWords(parseIsoDate("2026-10-13"), calendar)).toBe("No classes");
+    expect(weekWords(parseIsoDate("2026-10-20"), calendar)).toBe("Week 7");
+    expect(weekWords(parseIsoDate("2026-08-26"), calendar)).toBe("");
+  });
+});

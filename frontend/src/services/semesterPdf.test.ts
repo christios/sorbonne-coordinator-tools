@@ -39,6 +39,15 @@ describe("the semester's pages", () => {
     expect(semesterPages(input(), { maxPages: null })).toHaveLength(3);
   });
 
+  it("marks a week without classes and counts the week after it as the next", () => {
+    const units = semesterUnits({ ...input(), weekOne: { weekOne: "2026-09-07", without: ["2026-09-14"] } });
+    expect(units.map((unit) => unit.title)).toEqual([
+      "Week 1 · 7 Sep – 11 Sep 2026",
+      "No classes · 14 Sep – 18 Sep 2026",
+      "Week 2 · 21 Sep – 25 Sep 2026",
+    ]);
+  });
+
   it("spans the whole width of the page with the week's hours, never cutting them", () => {
     const [page] = semesterPages(input(), { maxPages: null });
     const frame = frameOf("days");

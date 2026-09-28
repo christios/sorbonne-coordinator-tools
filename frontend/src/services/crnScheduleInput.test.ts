@@ -18,7 +18,7 @@ function reads(over: Partial<ScheduleReads> = {}): ScheduleReads {
     })),
     notes: vi.fn(async () => [{ crn: "24059", meetsOn: "2026-09-17", startsAt: "08:15", kind: "covered", coverTeacherName: "Grace Younes", note: "" } as SessionChange]),
     links: async () => ({ "term-1": "262710" }),
-    weeks: async () => ({ "term-1": "2026-08-31" }),
+    weeks: async () => ({ "term-1": { weekOne: "2026-08-31", without: [] } }),
     semesterNames: async () => ({ "term-1": "Semester 1 2026-27" }),
     groups: async () => new Map([["24059", "TD 2"]]),
     ...over,
@@ -32,7 +32,11 @@ describe("what a joint schedule is drawn from", () => {
     const input = await scheduleInputFor([row("24059", "MATH-100"), row("23436", "MATH-351"), row("23300", "MATH-009")], read);
 
     expect(input.sections.map((section) => section.crn)).toEqual(["23300", "24059", "23436"]);
-    expect([input.semester, input.weekOne, input.sweptAt]).toEqual(["Semester 1 2026-27", "2026-08-31", "2026-09-24T07:32:11+00:00"]);
+    expect([input.semester, input.weekOne, input.sweptAt]).toEqual([
+      "Semester 1 2026-27",
+      { weekOne: "2026-08-31", without: [] },
+      "2026-09-24T07:32:11+00:00",
+    ]);
     // One read of the portal for the semester, for exactly the ticked CRNs.
     expect(read.sections).toHaveBeenCalledTimes(1);
     const tutorial = input.sections.find((section) => section.crn === "24059")!;

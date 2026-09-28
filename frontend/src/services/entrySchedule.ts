@@ -12,7 +12,7 @@
 import type { TimetableEntry } from "@/components/SectionTimetable";
 import type { ScheduleInput, ScheduleNote, ScheduleSection } from "@/services/crnSchedulePdf";
 import type { ScheduleReads } from "@/services/crnScheduleInput";
-import { semesterOf } from "@/services/termWeeks";
+import { semesterOf, type TermCalendars } from "@/services/termWeeks";
 
 /** What a heading says: whose timetable, and what they are. */
 export type ScheduleHeading = { title: string; subtitle?: string };
@@ -35,7 +35,7 @@ export async function scheduleFromEntries(
   const termCodes = [...new Set(wanted.map((entry) => entry.termCode))].sort();
   const [links, weeks, names] = await Promise.all([
     read.links().catch(() => ({}) as Record<string, string>),
-    read.weeks().catch(() => ({}) as Record<string, string>),
+    read.weeks().catch(() => ({}) as TermCalendars),
     read.semesterNames().catch(() => ({}) as Record<string, string>),
   ]);
   const byTerm = new Map(
