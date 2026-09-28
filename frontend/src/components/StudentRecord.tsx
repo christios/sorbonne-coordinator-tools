@@ -366,8 +366,19 @@ export function StudentRecord({
   );
   const approvedSaid = (approval: NonNullable<ReturnType<typeof approvalOf>>, registeredToo: boolean) => (
     <span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
-      <span className="inline-flex items-center gap-1 text-[#2f6b3d]">
+      {/* The way to withdraw it goes with the word it withdraws, never on a line of its own. */}
+      <span className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-[#2f6b3d]">
         <ShieldCheck size={11} aria-hidden="true" /> approved
+        <button
+          type="button"
+          disabled={approve.isPending}
+          title={`Withdraw the approval of ${approval.courseCode}`}
+          aria-label={`Withdraw the approval of ${approval.courseCode}`}
+          onClick={() => approve.mutate({ termCode: approval.termCode, courseCode: approval.courseCode, on: false })}
+          className="rounded p-0.5 text-[#98a2b3] hover:bg-[#f2f4f7] hover:text-[#a6292f]"
+        >
+          <X size={12} aria-hidden="true" />
+        </button>
       </span>
       <span className="text-[#98a2b3]">
         {approval.approvedByName || approval.approvedBy ? `by ${approval.approvedByName || approval.approvedBy}` : ""}
@@ -376,16 +387,6 @@ export function StudentRecord({
           : ""}
         {registeredToo ? "" : " · not registered"}
       </span>
-      <button
-        type="button"
-        disabled={approve.isPending}
-        title={`Withdraw the approval of ${approval.courseCode}`}
-        aria-label={`Withdraw the approval of ${approval.courseCode}`}
-        onClick={() => approve.mutate({ termCode: approval.termCode, courseCode: approval.courseCode, on: false })}
-        className="rounded p-0.5 text-[#98a2b3] hover:bg-[#f2f4f7] hover:text-[#a6292f]"
-      >
-        <X size={12} aria-hidden="true" />
-      </button>
     </span>
   );
   const mismatches: Mismatch[] = (check.data?.mismatches ?? []).filter(

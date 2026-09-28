@@ -253,13 +253,25 @@ function studentCell(
     );
   }
 
-  if (column.id === "groups") {
-    if (!row.groups.length) return <span className="text-[#98a2b3]">—</span>;
+  /*
+   * The lists a student carries, as pills rather than a sentence joined with dots: the
+   * groups and the sets they are in, the courses they take outside them, and what they
+   * are exempt from. Each its own quiet colour, so a row reads which list is which.
+   */
+  const LISTS: Record<string, { values: string[]; tone: string }> = {
+    groups: { values: row.groups, tone: "bg-[#eef1f5] text-[#344054]" },
+    sets: { values: row.sets, tone: "bg-[#eef1f5] text-[#344054]" },
+    electives: { values: row.electives, tone: "bg-[#f3f0fb] text-[#5b4d8a]" },
+    exemptions: { values: row.exemptions, tone: "bg-[#eef4fa] text-[#1f4e79]" },
+  };
+  const list = LISTS[column.id];
+  if (list) {
+    if (!list.values.length) return <span className="text-[#98a2b3]">—</span>;
     return (
-      <span className="flex flex-wrap gap-1" title={row.groups.join(" · ")}>
-        {row.groups.map((group) => (
-          <span key={group} className="inline-flex items-center rounded-full bg-[#eef1f5] px-2 py-0.5 text-xs font-semibold text-[#344054]">
-            {group}
+      <span className="flex flex-wrap gap-1" title={list.values.join(" · ")}>
+        {list.values.map((value) => (
+          <span key={value} className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${list.tone}`}>
+            {value}
           </span>
         ))}
       </span>

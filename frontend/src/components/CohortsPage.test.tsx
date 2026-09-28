@@ -713,7 +713,9 @@ describe("the register half of the Cohorts page", () => {
 
     // On the row, in a column of its own, both of them — routine or not.
     const row = within(rowOf("Amira Haddad"));
-    expect(row.getByText("SPAN-601 · SPRT-628")).toBeTruthy();
+    // A pill each, not one sentence.
+    expect(row.getByText("SPAN-601", { selector: "span.rounded-full" })).toBeTruthy();
+    expect(row.getByText("SPRT-628", { selector: "span.rounded-full" })).toBeTruthy();
     /*
       * Among the warnings, the admissions one it was set up with and one for SPAN-601 —
       * under Electives, not the register, and nothing for the sport the list allows.
