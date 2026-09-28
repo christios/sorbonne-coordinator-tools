@@ -44,6 +44,24 @@ describe("a record's calendar as a timetable", () => {
     ]);
   });
 
+  it("names whoever the note says covered a class, where the grid is several teachers'", async () => {
+    const input = await scheduleFromEntries(
+      [{ termCode: "262710", crn: "22610", code: "", title: "", onlyOn: ["2026-09-14"], standingIn: true }],
+      { title: "Ahmed Slimani, Grace Younes", subtitle: "2 teachers" },
+      {
+        ...read,
+        notes: async () => [
+          {
+            id: "n1", termCode: "262710", crn: "22610", meetsOn: "2026-09-14", startsAt: "08:30", endsAt: "10:00",
+            kind: "covered", coverTeacherId: "", coverTeacherName: "Grace Younes", note: "", createdBy: "", createdAt: "",
+          } as never,
+        ],
+      },
+    );
+
+    expect(input.sections[0].notes[0]).toMatchObject({ kind: "covered", coverTeacherName: "Grace Younes" });
+  });
+
   it("names the file after the one person, or counts several", () => {
     expect(timetablesFilename(["Grace Younes"], "teachers")).toBe("Grace-Younes-timetable.pdf");
     expect(timetablesFilename(["A", "B", "C"], "students")).toBe("timetables-3-students.pdf");

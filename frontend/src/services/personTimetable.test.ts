@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { studentTimetable, type Placement } from "@/services/personTimetable";
+import { mergedTeacherTimetable, studentTimetable, type Placement } from "@/services/personTimetable";
 import type { Registration } from "@/services/portalLists";
 import type { CatalogueScope } from "@/services/studentDatabase";
 
@@ -36,5 +36,42 @@ describe("a student's week", () => {
     expect(entry).toMatchObject({ crn: "23652", tone: "outline", group: "TD 1 · exempt" });
     // Once, as the group's section — not a second time as a registration outside their groups.
     expect(rest).toEqual([]);
+  });
+});
+
+describe("several teachers' weeks on one grid", () => {
+  const section = (crn: string, code = "PHYS-221") => ({ termCode: "262710", crn, code, title: "", group: "CM Physics" });
+  const cover = (crn: string, dates: string[]) => ({ termCode: "262710", crn, code: "", title: "", onlyOn: dates, standingIn: true });
+
+  it("names the teacher chosen in each box, and draws a section two of them share once with both", () => {
+    const merged = mergedTeacherTimetable([
+      { teacher: { fullName: "Ahmed Slimani" }, entries: [section("23450"), section("24240")] },
+      { teacher: { fullName: "Grace Younes" }, entries: [section("23450"), section("22606", "PHYS-208")] },
+    ]);
+
+    expect(merged.map((entry) => [entry.crn, entry.staff])).toEqual([
+      ["23450", "Ahmed Slimani & Grace Younes"],
+      ["24240", "Ahmed Slimani"],
+      ["22606", "Grace Younes"],
+    ]);
+  });
+
+  it("does not draw a covered class twice when its owner is on the grid too", () => {
+    const merged = mergedTeacherTimetable([
+      { teacher: { fullName: "Ahmed Slimani" }, entries: [section("23450")] },
+      { teacher: { fullName: "Grace Younes" }, entries: [cover("23450", ["2026-10-01"])] },
+    ]);
+
+    expect(merged).toHaveLength(1);
+    expect(merged[0]).toMatchObject({ crn: "23450", staff: "Ahmed Slimani" });
+  });
+
+  it("draws a class covered for somebody not chosen on every date covered, once", () => {
+    const merged = mergedTeacherTimetable([
+      { teacher: { fullName: "Ahmed Slimani" }, entries: [cover("24272", ["2026-10-01"])] },
+      { teacher: { fullName: "Grace Younes" }, entries: [cover("24272", ["2026-10-08", "2026-10-01"])] },
+    ]);
+
+    expect(merged).toEqual([expect.objectContaining({ crn: "24272", standingIn: true, onlyOn: ["2026-10-01", "2026-10-08"] })]);
   });
 });

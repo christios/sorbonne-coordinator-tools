@@ -167,3 +167,41 @@ export function teacherTimetable({
   }));
   return [...ours, ...theirs, ...covering];
 }
+
+/**
+ * Several teachers' weeks as one: the calendar a coordinator lays side by side when asking
+ * who is where on a Tuesday, rather than a stack of pages each to be read against the next.
+ *
+ * Each box names whose class it is — the teacher chosen, not whoever the portal has on the
+ * section — and a section two of them share (a handover at mid-semester) is drawn once with
+ * both names. A class one of them covered for another is already on the owner's box, marked
+ * as covered, so it is not drawn a second time; covered for somebody not chosen, it is drawn
+ * on the dates covered, as it is on the stand-in's own week.
+ */
+export function mergedTeacherTimetable(weeks: { teacher: { fullName: string }; entries: TimetableEntry[] }[]): TimetableEntry[] {
+  const own = new Map<string, TimetableEntry & { names: string[] }>();
+  for (const { teacher, entries } of weeks) {
+    for (const entry of entries) {
+      if (entry.standingIn) continue;
+      const key = `${entry.termCode}|${entry.crn}`;
+      const held = own.get(key);
+      if (!held) own.set(key, { ...entry, names: [teacher.fullName] });
+      else if (!held.names.includes(teacher.fullName)) held.names.push(teacher.fullName);
+    }
+  }
+  const covers = new Map<string, TimetableEntry>();
+  for (const { entries } of weeks) {
+    for (const entry of entries) {
+      const key = `${entry.termCode}|${entry.crn}`;
+      if (!entry.standingIn || own.has(key)) continue;
+      const held = covers.get(key);
+      // Two of them covering the same class on different days: one box, every date.
+      if (held) held.onlyOn = [...new Set([...(held.onlyOn ?? []), ...(entry.onlyOn ?? [])])];
+      else covers.set(key, { ...entry, onlyOn: [...(entry.onlyOn ?? [])] });
+    }
+  }
+  return [
+    ...[...own.values()].map(({ names, ...entry }) => ({ ...entry, staff: names.join(" & ") })),
+    ...covers.values(),
+  ];
+}

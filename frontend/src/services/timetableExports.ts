@@ -1,6 +1,6 @@
 /**
- * Several people's timetables as one PDF: the teachers or students ticked on a list, each
- * on pages of their own, drawn like a CRN's schedule.
+ * Several people's timetables as one PDF, drawn like a CRN's schedule: the teachers ticked
+ * on a list together on one grid, the students ticked each on pages of their own.
  *
  * Their weeks are built exactly as their records build them (services/personTimetable),
  * from what the lists share — the course cards, the register, the notes on the classes —
@@ -14,7 +14,7 @@ import { downloadSchedulePdf, type ScheduleInput } from "@/services/crnScheduleP
 import { scheduleInputFor, type ScheduleReads } from "@/services/crnScheduleInput";
 import { buildCards, groupNamesByCrn } from "@/services/courseCards";
 import { scheduleFromEntries, timetablesFilename } from "@/services/entrySchedule";
-import { placementsOf, studentTimetable, teacherTimetable } from "@/services/personTimetable";
+import { mergedTeacherTimetable, placementsOf, studentTimetable, teacherTimetable } from "@/services/personTimetable";
 import {
   fetchActiveCourses,
   fetchActiveCrns,
@@ -94,7 +94,11 @@ export async function exportCrnTimetable(
 /** Somebody whose teaching is wanted: their id on the department's list where they have one. */
 export type TeacherWanted = { id: string; fullName: string };
 
-/** Each teacher's week — their sections, what the portal staffs them on, what they covered. */
+/**
+ * The teachers' weeks on one grid — their sections, what the portal staffs them on, what
+ * they covered — each box naming whose class it is. One teacher is their own week, as
+ * their record draws it.
+ */
 export async function exportTeacherTimetables(client: QueryClient, teachers: TeacherWanted[]): Promise<ExportOutcome> {
   const read = scheduleReads(client);
   const [catalogues, terms, courses, registered, links] = await Promise.all([
@@ -112,17 +116,27 @@ export async function exportTeacherTimetables(client: QueryClient, teachers: Tea
     await Promise.all([...new Set(Object.values(links).filter(Boolean))].map((termCode) => read.notes(termCode).catch(() => [])))
   ).flat();
   const ordered = [...teachers].sort((a, b) => a.fullName.localeCompare(b.fullName));
-  const inputs = await Promise.all(
-    ordered.map((teacher) =>
-      scheduleFromEntries(
-        teacherTimetable({ cards, links, registered, notes, teacher }),
-        { title: teacher.fullName, subtitle: "Teacher" },
-        read,
-        teacher.fullName,
-      ),
-    ),
+  const weeks = ordered.map((teacher) => ({ teacher, entries: teacherTimetable({ cards, links, registered, notes, teacher }) }));
+  const names = ordered.map((teacher) => teacher.fullName);
+  const one = ordered.length === 1;
+  const input = await scheduleFromEntries(
+    one ? weeks[0].entries : mergedTeacherTimetable(weeks),
+    one ? { title: names[0], subtitle: "Teacher" } : { title: names.join(", "), subtitle: `${names.length} teachers` },
+    read,
+    one ? names[0] : "",
   );
-  return download(inputs, ordered.map((teacher) => teacher.fullName), "teachers");
+  // Who has nothing on the grid: none of their CRNs has a class the portal booked.
+  const booked = new Set(input.sections.filter((section) => section.meetings.length).map((section) => section.crn));
+  const withoutClasses = weeks.filter(({ entries }) => !entries.some((entry) => booked.has(entry.crn))).map(({ teacher }) => teacher.fullName);
+  if (withoutClasses.length === ordered.length) {
+    throw new Error(
+      one
+        ? "The portal has booked no classes for them — run a portal sync if that is new."
+        : "The portal has booked no classes for any of them — run a portal sync if that is new.",
+    );
+  }
+  await downloadSchedulePdf(input, timetablesFilename(names, "teachers"));
+  return { people: ordered.length, withoutClasses };
 }
 
 /** Somebody whose week is wanted: their id, the name this browser holds, and their cohort. */

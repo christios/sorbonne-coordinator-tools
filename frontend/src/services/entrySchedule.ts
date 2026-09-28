@@ -65,15 +65,19 @@ export async function scheduleFromEntries(
     const said: ScheduleNote[] = (held?.notes ?? [])
       .filter((note) => note.crn === entry.crn)
       .map((note) => ({ meetsOn: note.meetsOn, startsAt: note.startsAt, kind: note.kind, coverTeacherName: note.coverTeacherName, note: note.note }));
-    // Somebody else's class they stood in for: every date drawn is one they covered.
+    // Somebody else's class they stood in for: every date drawn is one they covered — by
+    // whoever the note on that date names, since several teachers' weeks can be one grid.
     const notes: ScheduleNote[] = entry.standingIn
-      ? meetings.map((meeting) => ({
-          meetsOn: meeting.meetsOn,
-          startsAt: meeting.startsAt,
-          kind: "covered" as const,
-          coverTeacherName: standIn || heading.title,
-          note: said.find((note) => note.meetsOn === meeting.meetsOn)?.note ?? "",
-        }))
+      ? meetings.map((meeting) => {
+          const note = said.find((candidate) => candidate.meetsOn === meeting.meetsOn);
+          return {
+            meetsOn: meeting.meetsOn,
+            startsAt: meeting.startsAt,
+            kind: "covered" as const,
+            coverTeacherName: standIn || note?.coverTeacherName || heading.title,
+            note: note?.note ?? "",
+          };
+        })
       : said;
     sections.push({
       crn: entry.crn,
