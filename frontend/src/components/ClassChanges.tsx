@@ -36,8 +36,7 @@ import { useMemo, useState } from "react";
 import { Modal } from "@/components/Modal";
 import { hoursIn, minutesOf, monthsOfDiff, stillToLookAt, unexpected, type DiffDay, type Meeting } from "@/services/classDiff";
 import { formatRoom } from "@/services/weekSchedule";
-import { fetchChangedClasses, fetchSweptTerms, fetchTermLinks, type ChangedClasses } from "@/services/portalLists";
-import { fetchTermWeeks } from "@/services/termWeeks";
+import { fetchChangedClasses, fetchSweptTerms, type ChangedClasses } from "@/services/portalLists";
 import { dismissalsByKey, fetchDismissals, setDismissal } from "@/services/warningDismissals";
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -69,23 +68,15 @@ export function ClassChangesBanner({ className = "" }: { className?: string }) {
     [changed.data, approved],
   );
   /*
-   * The semester the months are drawn across: from its Week 1, where Settings says where
-   * that is, to the last class any listed section has. Every section is laid against the
-   * same months, the empty ones included.
+   * The semester the months are drawn across: from the first class any listed section
+   * has to the last. Every section is laid against the same months, the empty ones
+   * included. Not from Week 1 as Settings has it: that is the week before teaching starts
+   * — 24 August — and it drew an August nobody taught in.
    */
-  const links = useQuery({ queryKey: ["term-links"], queryFn: fetchTermLinks, enabled: open, retry: false });
-  const weeks = useQuery({ queryKey: ["term-weeks"], queryFn: fetchTermWeeks, enabled: open, retry: false });
   const span = useMemo(() => {
     const dates = waiting.flatMap((section) => [...section.kept, ...section.removed, ...section.added].map((meeting) => meeting.meetsOn)).sort();
-    const starts = Object.entries(links.data ?? {})
-      .filter(([, code]) => code === termCode)
-      .map(([semesterId]) => weeks.data?.[semesterId] ?? "")
-      .filter(Boolean)
-      .sort();
-    const from = [starts[0], dates[0]].filter(Boolean).sort()[0] ?? "";
-    const to = dates[dates.length - 1] ?? "";
-    return from && to ? { from, to } : undefined;
-  }, [waiting, links.data, weeks.data, termCode]);
+    return dates.length ? { from: dates[0], to: dates[dates.length - 1] } : undefined;
+  }, [waiting]);
   const approve = useMutation({
     mutationFn: (key: string) => setDismissal(key, true),
     onSuccess: () => void client.invalidateQueries({ queryKey: ["warning-dismissals"] }),
@@ -338,7 +329,9 @@ function Square({ day, section }: { day: DiffDay | null; section: ChangedClasses
         ? "bg-[#f8d7da] text-[#842029]"
         : meets
           ? "bg-[#cfe2ff] text-[#084298]"
-          : "text-[#98a2b3]";
+          : day.outside
+            ? "text-[#d5dce4]"
+            : "text-[#98a2b3]";
   const also = arrived && gone ? " ring-2 ring-inset ring-[#e07c84]" : "";
   const said = [
     gone ? `${day.removed.length} class${day.removed.length === 1 ? "" : "es"} removed` : "",

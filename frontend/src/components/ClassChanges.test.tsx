@@ -6,7 +6,6 @@ import { ClassChangesBanner } from "@/components/ClassChanges";
 import { stillToLookAt } from "@/services/classDiff";
 import * as lists from "@/services/portalLists";
 import * as dismissals from "@/services/warningDismissals";
-import * as weeks from "@/services/termWeeks";
 
 const PHYSICS: lists.ChangedClasses = {
   crn: "23638",
@@ -37,9 +36,6 @@ beforeEach(() => {
   vi.spyOn(lists, "fetchSweptTerms").mockResolvedValue(["262710"]);
   vi.spyOn(lists, "fetchChangedClasses").mockResolvedValue([PHYSICS]);
   vi.spyOn(dismissals, "fetchDismissals").mockResolvedValue([]);
-  // Semester 1 is the portal's 262710, and its Week 1 starts on 31 August.
-  vi.spyOn(lists, "fetchTermLinks").mockResolvedValue({ "semester-1": "262710" });
-  vi.spyOn(weeks, "fetchTermWeeks").mockResolvedValue({ "semester-1": "2026-08-31" });
 });
 
 describe("the banner", () => {
@@ -87,14 +83,21 @@ describe("the banner", () => {
     expect(card.textContent).toMatch(/\d{2}:\d{2}–\d{2}:\d{2}/);
   });
 
-  it("draws the semester's months from its first week, the empty ones too", async () => {
+  it("lays every section across the same months, the empty ones too", async () => {
+    // One section in September, one that only has classes in November.
+    vi.spyOn(lists, "fetchChangedClasses").mockResolvedValue([
+      PHYSICS,
+      { ...PHYSICS, crn: "24246", key: "k2", kept: [], removed: [], added: [{ meetsOn: "2026-11-05", startsAt: "08:30", endsAt: "10:30", room: "5.110" }] },
+    ]);
     show();
 
     fireEvent.click(await screen.findByRole("button", { name: "Show what changed" }));
 
-    // The changes are all in September; the semester starts on 31 August, so August is drawn too.
-    expect(await screen.findByText("August 2026")).toBeTruthy();
-    expect(screen.getByText("September 2026")).toBeTruthy();
+    // September to November for both: the late one shows its empty September and October.
+    await screen.findAllByText("September 2026");
+    expect(screen.getAllByText("September 2026")).toHaveLength(2);
+    expect(screen.getAllByText("October 2026")).toHaveLength(2);
+    expect(screen.getAllByText("November 2026")).toHaveLength(2);
   });
 
   it("approves against the changed classes themselves, not the section", async () => {
