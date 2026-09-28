@@ -36,6 +36,7 @@ import { useMemo, useState } from "react";
 import { Modal } from "@/components/Modal";
 import { hoursIn, minutesOf, monthsOfDiff, stillToLookAt, unexpected, type DiffDay, type Meeting } from "@/services/classDiff";
 import { formatRoom } from "@/services/weekSchedule";
+import { useRooms } from "@/services/rooms";
 import { fetchChangedClasses, fetchSweptTerms, type ChangedClasses } from "@/services/portalLists";
 import { dismissalsByKey, fetchDismissals, setDismissal } from "@/services/warningDismissals";
 
@@ -253,13 +254,21 @@ function longDay(iso: string): string {
 /** One class on the hover card: its hours, how long, and where. */
 function ClassLine({ meeting, tone, note }: { meeting: Meeting; tone: string; note?: string }) {
   const hours = Math.round((minutesOf(meeting) / 60) * 100) / 100;
+  // What the room seats, as the Rooms page keeps it; read once and shared, so cheap per line.
+  const { roomOf } = useRooms();
+  const seats = meeting.room ? (roomOf(meeting.room)?.seats ?? null) : null;
   return (
     <li className="flex flex-wrap items-baseline gap-x-2">
       <span className={`font-semibold tabular-nums ${tone}`}>
         {meeting.startsAt}–{meeting.endsAt}
       </span>
       <span className="tabular-nums text-[#667085]">{hours} h</span>
-      {meeting.room ? <span className="text-[#344054]">room {formatRoom(meeting.room)}</span> : null}
+      {meeting.room ? (
+        <span className="text-[#344054]">
+          room {formatRoom(meeting.room)}
+          {seats !== null ? <span className="text-[#98a2b3]"> · {seats} seats</span> : null}
+        </span>
+      ) : null}
       {note ? <span className="text-[#98a2b3]">{note}</span> : null}
     </li>
   );

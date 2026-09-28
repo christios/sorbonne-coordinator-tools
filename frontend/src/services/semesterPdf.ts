@@ -85,8 +85,13 @@ const ROW_PAD = 2;
 export type SemesterExportInput = {
   semester: string;
   layout: SemesterLayout;
-  /** In the order the page lists them, so each course keeps the colour it has on screen. */
-  sections: ScheduleSection[];
+  /**
+   * In the order the page lists them, so each course keeps the colour it has on screen —
+   * each with how many the registrar has in it, where known.
+   */
+  sections: (ScheduleSection & { registered?: number })[];
+  /** How many each room seats, by the name the portal gives it; a room not here is not known. */
+  roomSeats?: Record<string, number>;
   weekOne?: string;
   sweptAt?: string;
 };
@@ -104,6 +109,9 @@ type Klass = {
   state: "" | "cancelled" | "covered";
   cover: string;
   note: string;
+  /** Its room's seats and its registered students, where known — a class too big for its room says so. */
+  seats: number | null;
+  registered: number | null;
 };
 
 type Row = { label: string; sub: string; boxes: { klass: Klass; lane: number; band: number }[]; lanes: number };
@@ -170,7 +178,7 @@ export function frameOf(layout: SemesterLayout, paper: PaperSize = "a4") {
     contentTop: gridTop + daysHeight + hoursHeight,
     bottom: height - 18,
     footerY: height - 7,
-    labelWidth: rooms ? 64 : 46,
+    labelWidth: rooms ? 84 : 46,
     // A row is never shorter than its label: two lines for a day, one for a room.
     labelHeight: rooms ? 11 : 22,
   };
@@ -214,6 +222,8 @@ function classesOf(input: SemesterExportInput): Klass[] {
         state: note?.kind ?? "",
         cover: note?.kind === "covered" ? note.coverTeacherName.trim() : "",
         note: note?.note.trim() ?? "",
+        seats: input.roomSeats?.[meeting.room] ?? null,
+        registered: section.registered ?? null,
       };
     });
   });
@@ -247,6 +257,7 @@ export function semesterUnits(input: SemesterExportInput): Unit[] {
   const dates = classes.map((klass) => klass.date).sort();
   const firstMonday = toIsoDate(mondayOf(parseIsoDate(dates[0])));
   const lastDate = dates[dates.length - 1];
+  const seatsOf = new Map(classes.map((klass) => [roomOf(klass), klass.seats]));
   const rooms = [...new Set(classes.map(roomOf))].sort((a, b) =>
     a ? (b ? a.localeCompare(b, undefined, { numeric: true }) : -1) : 1,
   );
@@ -257,9 +268,11 @@ export function semesterUnits(input: SemesterExportInput): Unit[] {
     const days = inWeek.some((klass) => klass.date === all[5]) ? all : all.slice(0, 5);
     const counted = input.weekOne ? weekNumber(parseIsoDate(monday), input.weekOne) : 0;
     const week = `${counted >= 1 ? `Week ${counted} · ` : ""}${shortDay(days[0])} – ${shortDay(days[days.length - 1])} ${parseIsoDate(days[days.length - 1]).getFullYear()}`;
+    // A room's row says what it seats — on paper, the question a room is asked.
     const roomRow = (room: string, among: Klass[], bands: (string | null)[]): Row => {
       const here = among.filter((klass) => roomOf(klass) === room);
-      return { label: room || "No room", sub: here.length ? String(here.length) : "—", ...stacked(here, bands) };
+      const seats = seatsOf.get(room);
+      return { label: room || "No room", sub: seats !== undefined && seats !== null ? `${seats} seats` : "—", ...stacked(here, bands) };
     };
     if (input.layout === "days") {
       units.push({
@@ -544,7 +557,7 @@ export async function buildSemesterPdf(input: SemesterExportInput, zoom: ExportZ
         doc.setTextColor(...FAINT);
         doc.text(row.sub, frame.left + 3, row.y + 17);
       } else {
-        doc.text(fitted(doc, row.label, frame.labelWidth - 16), frame.left + 3, row.y + 8.5);
+        doc.text(fitted(doc, row.label, frame.labelWidth - 30), frame.left + 3, row.y + 8.5);
         doc.setFont("helvetica", "normal");
         doc.setFontSize(6.5);
         doc.setTextColor(...FAINT);
@@ -588,6 +601,12 @@ function wordsOf(klass: Klass, fill: Rgb): Word[] {
   const fields: { text: string; bold?: boolean; ink: Rgb; icon?: Word["icon"]; strike?: boolean; wraps?: boolean }[] = [
     { text: klass.courseCode || klass.crn, bold: true, ink: white, strike: cancelled },
     { text: klass.group, bold: true, ink: soft },
+    // More registered than the room seats, said beside the course, where it is seen first.
+    {
+      text: klass.seats !== null && klass.registered !== null && klass.registered > klass.seats ? `${klass.registered} for ${klass.seats} seats` : "",
+      bold: true,
+      ink: white,
+    },
     { text: cancelled ? "CANCELLED" : "", bold: true, ink: white },
     { text: `${klass.start}–${klass.end}`, ink: soft },
     { text: formatRoom(klass.room), ink: soft, icon: "pin" },

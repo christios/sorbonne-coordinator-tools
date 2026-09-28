@@ -38,7 +38,7 @@ function ticks(from: number, to: number, every: number, worth: boolean): number[
 }
 
 /** A room as the grid names it, or "" for a class the portal has put in none. */
-const roomOf = (session: { room: string }) => formatRoom(session.room).trim();
+const roomNameOf = (session: { room: string }) => formatRoom(session.room).trim();
 
 type WeekTimelineProps = {
   weekStart: Date;
@@ -70,6 +70,10 @@ type WeekTimelineProps = {
    */
   rowsBy?: "day" | "room";
   day?: string;
+  /** How many a room seats, by the name the portal gives it; null where nobody has said. */
+  seatsOf?: (room: string) => number | null;
+  /** How many the registrar has in a section, for a class too big for its room. */
+  registeredOf?: (crn: string) => number | null;
 };
 
 /** One row of the grid: a day, or a room, and the classes on it. */
@@ -109,6 +113,8 @@ export function WeekTimeline({
   fills = false,
   rowsBy = "day",
   day,
+  seatsOf,
+  registeredOf,
 }: WeekTimelineProps) {
   const days = weekDays(weekStart, sessions);
   const inWeek = sessionsInRange(sessions, days[0], days[days.length - 1]);
@@ -128,13 +134,13 @@ export function WeekTimeline({
    * the page as you stepped through it.
    */
   const lines: Line[] = byRoom
-    ? [...new Set(sessions.map(roomOf))]
+    ? [...new Set(sessions.map(roomNameOf))]
         .sort((a, b) => (a ? (b ? a.localeCompare(b, undefined, { numeric: true }) : -1) : 1))
         .map((room) => ({
           key: room || "none",
           title: room || "No room",
           today: false,
-          sessions: drawn.filter((session) => roomOf(session) === room),
+          sessions: drawn.filter((session) => roomNameOf(session) === room),
         }))
     : days.map((date) => {
         const when = parseIsoDate(date);
@@ -299,16 +305,26 @@ export function WeekTimeline({
               <span className="block min-w-0 truncate" title={line.title}>
                 {line.title}
               </span>
-              <span
-                className="block shrink-0 text-[11px] font-normal leading-4 tabular-nums text-[#98a2b3]"
-                title={byRoom ? `${line.sessions.length} class${line.sessions.length === 1 ? "" : "es"}` : undefined}
-              >
-                {line.sessions.length === 0
-                  ? "—"
-                  : byRoom
-                    ? line.sessions.length
-                    : `${line.sessions.length} class${line.sessions.length === 1 ? "" : "es"}`}
-              </span>
+              {(() => {
+                // By room, what the room seats: the question a room's row is asked. Its
+                // count of classes this week is on the hover.
+                const seats = byRoom && line.title && seatsOf ? seatsOf(line.title) : null;
+                const classes = `${line.sessions.length} class${line.sessions.length === 1 ? "" : "es"} this week`;
+                return (
+                  <span
+                    className="block shrink-0 text-[11px] font-normal leading-4 tabular-nums text-[#98a2b3]"
+                    title={byRoom ? (seats !== null ? `${seats} seats · ${classes}` : `Seats not known · ${classes}`) : undefined}
+                  >
+                    {byRoom
+                      ? seats !== null
+                        ? `${seats} seats`
+                        : line.sessions.length || "—"
+                      : line.sessions.length === 0
+                        ? "—"
+                        : `${line.sessions.length} class${line.sessions.length === 1 ? "" : "es"}`}
+                  </span>
+                );
+              })()}
             </div>
             <div className="relative" style={{ width, height: Math.max(LABEL_HEIGHT, rows * lane + 6) + spare }}>
               {bands.map((band, index) => (
@@ -347,6 +363,8 @@ export function WeekTimeline({
                   height={lane - 3}
                   onPick={onPick}
                   clash={byRoom ? "booked into this room at the same time as another class" : "overlaps another class"}
+                  seats={session.room && seatsOf ? seatsOf(session.room) : null}
+                  registered={registeredOf ? registeredOf(session.crn) : null}
                 />
               ))}
             </div>
@@ -406,6 +424,8 @@ function Class({
   height,
   onPick,
   clash = "overlaps another class",
+  seats = null,
+  registered = null,
 }: {
   session: PlacedSession;
   course?: CalendarCourse;
@@ -416,12 +436,17 @@ function Class({
   onPick?: (session: PlacedSession) => void;
   /** What an overlap means here, for the tooltip. */
   clash?: string;
+  /** How many its room seats, and how many the registrar has in it, where known. */
+  seats?: number | null;
+  registered?: number | null;
 }) {
   const color = course?.color ?? "#1f4e79";
   const outline = course?.tone === "outline";
   const label = course?.label || course?.code || session.crn;
   const cancelled = session.change?.kind === "cancelled";
   const covered = session.change?.kind === "covered" ? session.change : null;
+  // More registered than the room seats: the students standing at the back.
+  const crowded = seats !== null && registered !== null && registered > seats;
   const details = [
     ...new Set(
       [
@@ -429,9 +454,10 @@ function Class({
         course?.title,
         `CRN ${session.crn}`,
         `${session.start}–${session.end}`,
-        formatRoom(session.room),
+        seats !== null && session.room ? `${formatRoom(session.room)} (${seats} seats)` : formatRoom(session.room),
         course?.staff,
         course?.group,
+        crowded ? `${registered} registered for ${seats} seats` : "",
         cancelled ? "CANCELLED" : "",
         covered ? `covered by ${covered.coverTeacherName}` : "",
         session.change?.note ?? "",
@@ -471,6 +497,12 @@ function Class({
         {covered ? <Repeat size={9} className="shrink-0" aria-hidden="true" /> : null}
         {/* Never dropped: a box with no name on it says nothing at all. */}
         <b className={`min-w-0 shrink-0 truncate font-semibold ${cancelled ? "line-through" : ""}`}>{label}</b>
+        {/* Never dropped either: a room too small is the thing to see at a glance. */}
+        {crowded ? (
+          <span className="shrink-0 rounded bg-[#a6292f] px-1 py-px text-[10px] font-semibold tabular-nums text-white">
+            {registered}/{seats}
+          </span>
+        ) : null}
         {fits.group && course?.group ? (
           <span className="shrink-0 rounded bg-white/25 px-1 font-medium">{course.group}</span>
         ) : null}

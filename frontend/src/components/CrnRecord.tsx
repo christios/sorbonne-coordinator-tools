@@ -9,6 +9,8 @@ import { SessionChangeDialog } from "@/components/SessionChangeDialog";
 import { SessionChangeList } from "@/components/SessionChangeList";
 import { TimetablesButton } from "@/components/TimetablesButton";
 import { fetchSessionChanges, noteOn, slotKey } from "@/services/sessionChanges";
+import { useRooms } from "@/services/rooms";
+import { formatRoom } from "@/services/weekSchedule";
 import { fieldHeld, namesHeld } from "@/services/rosterStore";
 import type { PlacedSession } from "@/services/weekSchedule";
 import { buildCards, rowsPerPart, teaches } from "@/services/courseCards";
@@ -138,6 +140,18 @@ export function CrnRecord({
   const section = (sweep.data?.sections ?? []).find((entry) => entry.crn === row.crn);
   const client = useQueryClient();
   /*
+   * The rooms it meets in, each with its seats and how many of its classes are there, and
+   * any too small for the students registered in it.
+   */
+  const { roomOf } = useRooms(open);
+  const roomsUsed = [...new Set((section?.meetings ?? []).map((meeting) => meeting.room).filter(Boolean))].map((name) => ({
+    // The list's own code where the room is on it — "5.104", not the portal's "5.104(Phys".
+    name: roomOf(name)?.code ?? formatRoom(name),
+    room: roomOf(name),
+    classes: (section?.meetings ?? []).filter((meeting) => meeting.room === name).length,
+  }));
+  const tooSmall = roomsUsed.filter(({ room }) => room && room.seats !== null && row.registered > room.seats);
+  /*
    * Who the registrar has in it. Ids from the server; names from this browser, which is
    * the only place they are. Beside each, the group of ours the CRN stands for — blank is
    * the line worth reading, a student in a section none of their groups gives them.
@@ -248,6 +262,20 @@ export function CrnRecord({
             ) : (
               <>
                 <p className="text-sm text-[#344054]">{meets.join(" · ")}</p>
+                {roomsUsed.length ? (
+                  <p className="mt-1 text-xs text-[#667085]" aria-label="Rooms">
+                    {roomsUsed.map(({ name, room, classes }, index) => (
+                      <span key={name}>
+                        {index ? " · " : ""}
+                        <span className={room && room.seats !== null && row.registered > room.seats ? "font-semibold text-[#a6292f]" : "text-[#344054]"}>
+                          {name}
+                        </span>{" "}
+                        {room && room.seats !== null ? `${room.seats} seats` : "seats not known"}
+                        {roomsUsed.length > 1 ? `, ${classes} class${classes === 1 ? "" : "es"}` : ""}
+                      </span>
+                    ))}
+                  </p>
+                ) : null}
                 {/* The dates under those weekdays: a handover, a moved room, a week off. */}
                 <div className="mt-3">
                   <SectionTimetable
@@ -378,14 +406,23 @@ export function CrnRecord({
           <Card title="What is wrong with it">
             {check.isLoading ? (
               <Empty>Reading the register…</Empty>
-            ) : warnings.length === 0 ? (
-              <Empty>Nothing. It is registered, staffed as we have it, and clear of other departments.</Empty>
+            ) : warnings.length === 0 && tooSmall.length === 0 ? (
+              <Empty>Nothing. It is registered, staffed as we have it, clear of other departments, and in rooms that seat its students.</Empty>
             ) : (
               <ul className="space-y-1 text-sm">
                 {warnings.map((warning) => (
                   <li key={`${warning.kind}|${warning.text}`}>
                     <span className="font-semibold text-[#8a6116]">{WORDS[warning.kind]}</span>{" "}
                     <span className="text-[#667085]">{warning.text}</span>
+                  </li>
+                ))}
+                {/* A room too small for the students registered in it: they stand at the back. */}
+                {tooSmall.map(({ name, room, classes }) => (
+                  <li key={`room|${name}`}>
+                    <span className="font-semibold text-[#a6292f]">Room too small</span>{" "}
+                    <span className="text-[#667085]">
+                      {row.registered} registered for {room!.seats} seats in {name}, {classes === 1 ? "on 1 class" : `on ${classes} classes`}.
+                    </span>
                   </li>
                 ))}
               </ul>

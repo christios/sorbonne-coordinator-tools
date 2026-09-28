@@ -8,6 +8,7 @@ import { SelectMenu } from "@/components/SelectMenu";
 import { WeekCalendar } from "@/components/WeekCalendar";
 import { WeekTimeline } from "@/components/WeekTimeline";
 import { fetchFacilitySections, fetchTermLinks, type FacilitySection } from "@/services/portalLists";
+import { useRooms } from "@/services/rooms";
 import { fetchTermWeeks, weekOneOf } from "@/services/termWeeks";
 import { fetchSessionChanges, slotKey, type SessionChange } from "@/services/sessionChanges";
 import {
@@ -125,6 +126,11 @@ type TimetableProps = {
    */
   sessionFilter?: (session: { crn: string; date: string; start: string; end: string; room: string }) => boolean;
   /**
+   * How many the registrar has in a section, so a class in a room too small for it is
+   * marked — on the department's week, where rooms are what is being looked at.
+   */
+  registeredOf?: (crn: string) => number | null;
+  /**
    * Any day of the semester's first teaching week, from Settings → Semesters. Given it,
    * the week says which teaching week it is — "Week 5" — and that label is a picker that
    * jumps straight to any week of the semester.
@@ -178,9 +184,13 @@ function Timetable({
   weekOne: weekOneGiven,
   keepWeekAs,
   sessionFilter,
+  registeredOf,
   onExpand,
 }: TimetableProps & { onExpand?: () => void }) {
   const today = isoToday();
+  // The rooms' seats, for every class's hover and a room's row: read once, shared.
+  const { roomOf } = useRooms();
+  const seatsOf = useMemo(() => (room: string) => roomOf(room)?.seats ?? null, [roomOf]);
   const byTerm = useMemo(() => {
     const held = new Map<string, string[]>();
     for (const entry of entries) {
@@ -409,6 +419,8 @@ function Timetable({
               rowHeight={rowHeight}
               rowsBy={byRoom ? "room" : "day"}
               day={oneDay ? shownDay : undefined}
+              seatsOf={seatsOf}
+              registeredOf={registeredOf}
               onPick={onPickSession ?? (onOpenCrn ? (session) => onOpenCrn(session.crn) : undefined)}
             />
           ) : (
@@ -419,6 +431,7 @@ function Timetable({
               today={today}
               compact={compact}
               hourHeight={hourHeight ?? (compact ? 24 : 48)}
+              seatsOf={seatsOf}
               onPick={onPickSession ?? (onOpenCrn ? (session) => onOpenCrn(session.crn) : undefined)}
             />
           )}

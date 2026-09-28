@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, ChevronRight, Copy } from "lucide-react";
 import { useMemo, useState } from "react";
 
@@ -19,7 +19,9 @@ import {
 } from "@/services/capacity";
 import { copyTable } from "@/services/copyCells";
 import { COHORT } from "@/services/remembered";
-import { type ActiveCrn, fetchActiveCourses, fetchActiveCrns, fetchActiveTeachers } from "@/services/portalLists";
+import { type ActiveCrn, fetchActiveCourses, fetchActiveCrns, fetchActiveTeachers, fetchFacilitySections, fetchTermLinks } from "@/services/portalLists";
+import { useRooms } from "@/services/rooms";
+import { formatRoom } from "@/services/weekSchedule";
 import { fetchCohorts, fetchCourseCards } from "@/services/studentDatabase";
 import { fetchTimetableTerms } from "@/services/timetables";
 
@@ -78,7 +80,20 @@ const SPILL = 24;
  * close again. They are one line under the bar now, and each opens its own CRN rather than
  * opening nothing.
  */
-function GroupBar({ group, peak, onOpenCrn }: { group: GroupCapacity; peak: number; onOpenCrn: (crn: string) => void }) {
+/** Where a CRN usually meets — the room most of its classes are in — and what that room seats. */
+type UsualRoom = { name: string; seats: number | null };
+
+function GroupBar({
+  group,
+  peak,
+  onOpenCrn,
+  roomFor,
+}: {
+  group: GroupCapacity;
+  peak: number;
+  onOpenCrn: (crn: string) => void;
+  roomFor?: (crn: string) => UsualRoom | null;
+}) {
   const stated = group.capacity > 0;
   const filled = stated ? Math.min(1, group.enrolled / group.capacity) : Math.min(1, group.enrolled / peak);
   const over = stated ? Math.max(0, group.enrolled - group.capacity) : 0;
@@ -157,17 +172,33 @@ function GroupBar({ group, peak, onOpenCrn }: { group: GroupCapacity; peak: numb
           ) : null}
           {group.sections.map((section) => {
             const said = `${section.courseCode}${section.component ? ` ${section.component}` : ""} · ${section.teacher || "no teacher yet"}`;
+            /*
+             * The room it is booked in, beside the group's seats: a group of 30 seats timetabled
+             * into a room of 24 is full at 24, whatever the bar says.
+             */
+            const room = section.crn && roomFor ? roomFor(section.crn) : null;
+            const small = Boolean(room && room.seats !== null && group.capacity > room.seats);
             return (
               <li key={section.key}>
                 {section.crn ? (
                   <button
                     type="button"
                     onClick={() => onOpenCrn(section.crn)}
-                    title={`Open ${section.crn} — ${said}`}
-                    className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-[#e4e8ef] bg-white px-2 py-0.5 text-xs text-[#667085] hover:border-[#b7cbe0] hover:bg-[#f2f7fb] hover:text-[#1f4e79]"
+                    title={`Open ${section.crn} — ${said}${
+                      room ? ` · ${room.name}${room.seats !== null ? `, ${room.seats} seats` : ", seats not known"}${small ? ` — fewer than the group's ${group.capacity}` : ""}` : ""
+                    }`}
+                    className={`inline-flex max-w-full items-center gap-1.5 rounded-full border bg-white px-2 py-0.5 text-xs text-[#667085] hover:bg-[#f2f7fb] hover:text-[#1f4e79] ${
+                      small ? "border-[#efc9cb] hover:border-[#e5a3a7]" : "border-[#e4e8ef] hover:border-[#b7cbe0]"
+                    }`}
                   >
                     <span className="tabular-nums font-semibold text-[#344054]">{section.crn}</span>
                     <span className="min-w-0 truncate">{said}</span>
+                    {room ? (
+                      <span className={`shrink-0 tabular-nums ${small ? "font-semibold text-[#a6292f]" : "text-[#98a2b3]"}`}>
+                        {room.name}
+                        {room.seats !== null ? ` · ${room.seats} seats` : ""}
+                      </span>
+                    ) : null}
                   </button>
                 ) : (
                   <span
@@ -255,6 +286,41 @@ export function CapacityPage() {
     [mine, everyones],
   );
   const totals = useMemo(() => groupTotals(mine), [mine]);
+  /*
+   * Where each CRN on the page usually meets, from the portal's timetable, and what that
+   * room seats — beside each group's own seats.
+   */
+  const links = useQuery({ queryKey: ["term-links"], queryFn: fetchTermLinks, retry: false });
+  const crnsByTerm = useMemo(() => {
+    const held = new Map<string, Set<string>>();
+    for (const row of [...mine, ...everyones]) {
+      const termCode = links.data?.[row.termId] ?? "";
+      if (termCode && row.crn) held.set(termCode, (held.get(termCode) ?? new Set()).add(row.crn));
+    }
+    return [...held.entries()].map(([termCode, crns]) => ({ termCode, crns: [...crns].sort() }));
+  }, [mine, everyones, links.data]);
+  const sweeps = useQueries({
+    queries: crnsByTerm.map(({ termCode, crns }) => ({
+      queryKey: ["facility-sections", termCode, crns.join(",")],
+      queryFn: () => fetchFacilitySections(termCode, crns),
+      retry: false,
+    })),
+  });
+  const { roomOf } = useRooms();
+  const usual = useMemo(() => {
+    const held = new Map<string, UsualRoom>();
+    for (const read of sweeps) {
+      for (const section of read.data?.sections ?? []) {
+        const counts = new Map<string, number>();
+        for (const meeting of section.meetings) if (meeting.room) counts.set(meeting.room, (counts.get(meeting.room) ?? 0) + 1);
+        const [name] = [...counts.entries()].sort((a, b) => b[1] - a[1])[0] ?? [];
+        if (name) held.set(section.crn, { name: roomOf(name)?.code ?? formatRoom(name), seats: roomOf(name)?.seats ?? null });
+      }
+    }
+    return held;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the reads, by when each answered: one value however many there are
+  }, [roomOf, sweeps.map((read) => read.dataUpdatedAt).join(",")]);
+  const roomFor = (crn: string) => usual.get(crn) ?? null;
   const over = useMemo(() => capacityByGroup(mine).filter((group) => group.status === "Over"), [mine]);
   // The cohort's own headcount, which its groups cannot be added up to give.
   const members = (known.data ?? []).find((cohort) => cohort.id === chosen?.id)?.memberCount ?? 0;
@@ -392,7 +458,7 @@ export function CapacityPage() {
             </div>
             <div className="divide-y divide-[#f2f4f7]">
               {set.groups.map((group) => (
-                <GroupBar key={group.key} group={group} peak={set.peak} onOpenCrn={openCrn} />
+                <GroupBar key={group.key} group={group} peak={set.peak} onOpenCrn={openCrn} roomFor={roomFor} />
               ))}
             </div>
           </section>

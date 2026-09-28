@@ -116,6 +116,23 @@ describe("the semester's pages", () => {
     expect(units[1].rows.map((row) => row.sub)).toEqual(["—", "—"]);
   });
 
+  it("says what each room seats, and carries a class's students against them", () => {
+    const base = input("rooms-week");
+    const withSeats: SemesterExportInput = {
+      ...base,
+      sections: [{ ...base.sections[0], registered: 30 }, base.sections[1]],
+      roomSeats: { "5.101": 24 },
+    };
+    const [week] = semesterUnits(withSeats);
+    expect(week.rows.map((row) => [row.label, row.sub])).toEqual([
+      ["4.124", "—"],
+      ["5.101", "24 seats"],
+    ]);
+    const [page] = semesterPages(withSeats, { maxPages: null });
+    const crowded = page.boxes.find((box) => box.klass.crn === "23436");
+    expect(crowded?.klass).toMatchObject({ seats: 24, registered: 30 });
+  });
+
   it("gives each day its own pages, one day of rooms at a time", () => {
     const units = semesterUnits(input("rooms-day"));
     // Monday of Week 1 to Monday of Week 3: eleven weekdays.

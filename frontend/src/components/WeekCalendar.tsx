@@ -54,6 +54,8 @@ type WeekCalendarProps = {
   stack?: boolean;
   /** The narrowest a day column may be before the week scrolls sideways — the width zoom. */
   dayWidth?: number;
+  /** How many a room seats, by the name the portal gives it, for the hover details. */
+  seatsOf?: (room: string) => number | null;
 };
 
 /**
@@ -78,6 +80,7 @@ export function WeekCalendar({
   onPick,
   stack = false,
   dayWidth,
+  seatsOf,
 }: WeekCalendarProps) {
   const days = weekDays(weekStart, sessions);
   const inWeek = sessionsInRange(sessions, days[0], days[days.length - 1]);
@@ -200,6 +203,7 @@ export function WeekCalendar({
               stack={stack}
               onPick={onPick}
               nowAt={day === today && nowMinute >= startMinute && nowMinute <= endMinute ? topOf(nowMinute) : null}
+              seatsOf={seatsOf}
             />
           ))}
         </div>
@@ -229,9 +233,10 @@ type DayColumnProps = {
   onPick?: (session: PlacedSession) => void;
   /** Where the current time falls in this column, when the column is today and the hour is on the grid. */
   nowAt: number | null;
+  seatsOf?: (room: string) => number | null;
 };
 
-function DayColumn({ day, sessions, courses, height, hours, topOf, pixelsPerMinute, compact, stack, onPick, nowAt }: DayColumnProps) {
+function DayColumn({ day, sessions, courses, height, hours, topOf, pixelsPerMinute, compact, stack, onPick, nowAt, seatsOf }: DayColumnProps) {
   return (
     <div className="relative border-l border-[#e4e8ef]" style={{ height }}>
       {hours.slice(1, -1).map((minute) => (
@@ -287,7 +292,10 @@ function DayColumn({ day, sessions, courses, height, hours, topOf, pixelsPerMinu
               course?.code,
               `CRN ${session.crn}`,
               `${session.start}–${session.end}`,
-              formatRoom(session.room),
+              (() => {
+                const seats = session.room && seatsOf ? seatsOf(session.room) : null;
+                return seats !== null ? `${formatRoom(session.room)} (${seats} seats)` : formatRoom(session.room);
+              })(),
               // On a stand-in's week the section's own teacher IS the "covering for" line
               // below, and naming them twice reads as two people.
               covered?.standingIn ? "" : course?.staff,

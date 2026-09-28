@@ -6,6 +6,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import { CrnRecord } from "@/components/CrnRecord";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { SelectMenu } from "@/components/SelectMenu";
+import { RoomsEditor } from "@/components/RoomsEditor";
 import { SemesterExport } from "@/components/SemesterExport";
 import { SectionTimetable, type TimetableEntry } from "@/components/SectionTimetable";
 import { TableFilterBar } from "@/components/TableFilterBar";
@@ -19,6 +20,7 @@ import { DAY_NAMES, formatRoom, parseIsoDate } from "@/services/weekSchedule";
 import { fetchCourseCards } from "@/services/studentDatabase";
 import { fetchTermWeeks } from "@/services/termWeeks";
 import { fetchSessionChanges } from "@/services/sessionChanges";
+import { useRooms } from "@/services/rooms";
 import type { SemesterExportInput } from "@/services/semesterPdf";
 import { fetchTimetableTerms, type TimetableTerm } from "@/services/timetables";
 
@@ -311,6 +313,17 @@ function SemesterWeek({ layout, term, picker }: { layout: Layout; term: Timetabl
    * are read only once somebody asks for the file; the grid reads its own.
    */
   const [exporting, setExporting] = useState(false);
+  const [editingRooms, setEditingRooms] = useState(false);
+  /*
+   * How many the registrar has in each section, and how many each room seats: a class
+   * with more students than its room is marked on the week and in the file.
+   */
+  const { roomOf } = useRooms();
+  const registeredBy = useMemo(
+    () => new Map((register.data ?? []).filter((row) => row.termCode === termCode).map((row) => [row.crn, row.registered] as const)),
+    [register.data, termCode],
+  );
+  const registeredOf = useMemo(() => (crn: string) => registeredBy.get(crn) ?? null, [registeredBy]);
   const notes = useQuery({
     queryKey: ["session-changes", termCode],
     queryFn: () => fetchSessionChanges(termCode),
@@ -319,8 +332,16 @@ function SemesterWeek({ layout, term, picker }: { layout: Layout; term: Timetabl
   });
   const exportInput = useMemo<SemesterExportInput>(() => {
     const swept = new Map((meetings.data?.sections ?? []).map((section) => [section.crn, section]));
+    const roomSeats: Record<string, number> = {};
+    for (const section of meetings.data?.sections ?? []) {
+      for (const meeting of section.meetings) {
+        const seats = meeting.room ? roomOf(meeting.room)?.seats : null;
+        if (seats !== null && seats !== undefined) roomSeats[meeting.room] = seats;
+      }
+    }
     return {
       semester: term.name,
+      roomSeats,
       layout: rooms ? (span === "day" ? "rooms-day" : "rooms-week") : "days",
       weekOne: weeks.data?.[term.id],
       sweptAt: meetings.data?.pulledAt,
@@ -328,6 +349,7 @@ function SemesterWeek({ layout, term, picker }: { layout: Layout; term: Timetabl
         const section = swept.get(row.crn);
         return {
           crn: row.crn,
+          registered: registeredBy.get(row.crn),
           courseCode: row.code,
           title: row.title,
           teacher: row.staff || section?.teacherName || "",
@@ -349,7 +371,7 @@ function SemesterWeek({ layout, term, picker }: { layout: Layout; term: Timetabl
         };
       }),
     };
-  }, [meetings.data, notes.data, rooms, sessionFilter, shown, span, term.id, term.name, weeks.data]);
+  }, [meetings.data, notes.data, rooms, sessionFilter, shown, span, term.id, term.name, weeks.data, roomOf, registeredBy]);
 
   return (
     /*
@@ -410,6 +432,16 @@ function SemesterWeek({ layout, term, picker }: { layout: Layout; term: Timetabl
           >
             <Download size={14} aria-hidden="true" /> Export
           </button>
+          {/* The rooms' seats, kept here where the rooms are looked at. */}
+          {rooms ? (
+            <button
+              type="button"
+              onClick={() => setEditingRooms(true)}
+              className="inline-flex items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-2.5 py-1.5 text-xs font-semibold text-[#344054] hover:bg-[#f8fafc]"
+            >
+              <DoorOpen size={14} aria-hidden="true" /> Rooms &amp; seats
+            </button>
+          ) : null}
           <span className="inline-flex items-center gap-1.5 text-xs text-[#98a2b3]">
             {`${shown.length} of ${all.length}`}
             {notDrawn.total ? (
@@ -455,6 +487,7 @@ function SemesterWeek({ layout, term, picker }: { layout: Layout; term: Timetabl
           fills
           entries={shown}
           sessionFilter={sessionFilter}
+          registeredOf={registeredOf}
           daysDown
           byRoom={rooms ? span : undefined}
           onCoverage={setMissing}
@@ -473,6 +506,13 @@ function SemesterWeek({ layout, term, picker }: { layout: Layout; term: Timetabl
           }
         />
       )}
+
+      {editingRooms ? (
+        <RoomsEditor
+          portalRooms={(meetings.data?.sections ?? []).flatMap((section) => section.meetings.map((meeting) => meeting.room))}
+          onClose={() => setEditingRooms(false)}
+        />
+      ) : null}
 
       {exporting ? (
         <SemesterExport
