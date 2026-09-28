@@ -23,6 +23,13 @@ import type { RequestSheet } from "@/services/timetableExport";
 /** The name the workbook prints for a row nobody has been chosen for. */
 export const UNNAMED = "TBD";
 
+/** A row's warnings nobody has dismissed. */
+function liveWarnings(row: { warnings: { dismissed?: boolean }[] }) {
+  return row.warnings.filter((warning) => !warning.dismissed) as LoadRow["warnings"];
+}
+
+const SEVERITY_RANK = { high: 3, medium: 2, low: 1 } as const;
+
 /** The teaching types the workbook counts separately; anything else lands in the total alone. */
 export const LOAD_TYPES = ["CM", "TD", "TP"];
 
@@ -432,7 +439,15 @@ export function hoursColumns(sheetTitles: string[], window = ""): GridColumn<Loa
       id: "warnings",
       displayName: "Warnings",
       type: "text",
-      accessor: (row) => row.warnings.map((warning) => warning.label).join(", "),
+      // What is still standing: a dismissed warning is out of the filter and the copy, as
+      // it is out of the cell unless asked for.
+      accessor: (row) => liveWarnings(row).map((warning) => warning.label).join(", "),
+      // Worst first, as on Cohorts: by the worst standing warning's severity, then by how
+      // far apart its figures are. A dismissed one ranks the row as though it were not
+      // there — sorting on the words put a row whose only warning was dismissed among the
+      // rows that still needed looking at.
+      sortValue: (row) =>
+        liveWarnings(row).reduce((worst, warning) => Math.max(worst, SEVERITY_RANK[warning.severity] * 100000 + warning.apart), 0),
       defaultWidth: 260,
     },
     { id: "type", displayName: "Type", type: "option", accessor: (row) => row.active?.type ?? "", defaultWidth: 190, source: "portal" },

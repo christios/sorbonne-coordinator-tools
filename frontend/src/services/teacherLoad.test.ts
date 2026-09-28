@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { buildCards } from "@/services/courseCards";
 import { asTaught, bookedHoursOf, hoursColumn, hoursColumns, taughtLoads, loadRows, loadTotals, registrarHoursFor, sameTeacher, sectionsTaughtBy, shownHoursColumns, teacherLoads } from "@/services/teacherLoad";
 import type { ActiveTeacher } from "@/services/portalLists";
+import { sortByColumn } from "@/services/studentColumns";
 import { EMPTY_REQUEST, EMPTY_SECTION, type CohortCatalogue } from "@/services/studentDatabase";
 import { requestSheets, type RequestRow, type RequestSheet } from "@/services/timetableExport";
 
@@ -430,5 +431,23 @@ describe("asTaught", () => {
 
   it("reaches zero rather than going odd when the whole plan was cancelled", () => {
     expect(asTaught(row({ total: 1.5, cancelledHours: 1.5 }))).toBe(0);
+  });
+});
+
+describe("sorting Teacher hours by its warnings", () => {
+  const warned = (teacher: string, severity: "high" | "medium" | "low", apart: number, dismissed = false) =>
+    ({
+      ...loadRows([{ teacherId: teacher, teacher, bySheet: [], byType: {}, total: 0, sections: 0 }], [])[0],
+      warnings: [{ key: `${teacher}|w`, teacherKey: teacher, kind: "plan_vs_registrar", label: "Portal over", sentence: "", apart, severity, dismissed }],
+    }) as ReturnType<typeof loadRows>[number];
+  const column = hoursColumns(["FYS-S1"]).find((candidate) => candidate.id === "warnings")!;
+
+  it("ranks by what is still standing, worst first, and a dismissed warning as none", () => {
+    const rows = [warned("Dismissed high", "high", 40, true), warned("Medium", "medium", 5), warned("High", "high", 12), warned("Low", "low", 30)];
+    const order = sortByColumn(rows, { key: "warnings", ascending: false }, [column], (row) => row.teacher).map((row) => row.teacher);
+
+    expect(order).toEqual(["High", "Medium", "Low", "Dismissed high"]);
+    // Nor is a dismissed one filtered or copied on.
+    expect(column.accessor(rows[0])).toBe("");
   });
 });

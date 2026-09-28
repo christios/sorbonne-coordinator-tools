@@ -289,6 +289,8 @@ export function hoursRowsFor(source: HoursSource, window: Window, whole: boolean
         teachers,
         crnsByTeacher(sheets),
       );
+  // The plan, whatever the window, for the warnings: see below.
+  const planOf = new Map(planned.map((row) => [row.teacherId || row.teacher.trim().toLowerCase(), row]));
   return held.map((row) => {
     const adjusted = adjustmentsFor(notesHere, { id: row.active?.id ?? row.teacherId, name: row.teacher }, new Set(row.crns), sameTeacher);
     const mine = {
@@ -316,12 +318,20 @@ export function hoursRowsFor(source: HoursSource, window: Window, whole: boolean
         claimed: sheet.claimedHours,
         taught: hoursBetween(source, row, { from: sheet.periodStart, to: periodEnd(sheet.periodStart) }),
       }));
+    /*
+     * The warnings are the semester's, whatever the page is counting. They compare the
+     * plan with the portal, the contract and the claims — facts about the term — and a
+     * window counting October used to hold October's taught hours against the whole
+     * contract, so picking a month changed which teachers were flagged and, with the
+     * figures, the keys their dismissals were held against.
+     */
+    const plan = planOf.get(row.teacherId || row.teacher.trim().toLowerCase());
     const warnings = warningsFor(
       {
         teacherKey: row.active?.id || row.teacherId || row.teacher,
         teacher: row.teacher,
-        planned: row.total,
-        registrar: mine.registrarHours,
+        planned: plan?.total ?? 0,
+        registrar: registrarHoursFor(booked, row.teacher, sameTeacher),
         // Teaching only: admin hours are paid, not taught, and have nothing to meet.
         contracted: paid?.contractedHours ?? 0,
         taughtSoFar: hoursBetween(source, row, { from: "0000-01-01", to: today }),

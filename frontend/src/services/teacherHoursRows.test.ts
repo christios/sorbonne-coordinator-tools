@@ -120,6 +120,14 @@ describe("a teacher's hours, CRN by CRN", () => {
     expect(lines.reduce((sum, line) => sum + line.taught, 0)).toBe(hani.total);
   });
 
+  it("keeps the semester's warnings whatever window is being counted", () => {
+    const whole = hoursRowsFor(busy(), WHOLE, true)[0].warnings.map((warning) => warning.key);
+    const september = hoursRowsFor(busy(), { from: "2026-09-01", to: "2026-09-30" }, false)[0].warnings.map((warning) => warning.key);
+
+    expect(whole.length).toBeGreaterThan(0);
+    expect(september).toEqual(whole);
+  });
+
   it("over the whole semester, puts the plan beside what happened to it", () => {
     const [hani] = hoursRowsFor(busy(), WHOLE, true);
     const [own] = crnDistribution(busy(), hani, WHOLE, true);
