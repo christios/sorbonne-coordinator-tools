@@ -100,6 +100,21 @@ describe("the semester's pages", () => {
     expect(a3[0].clipped).toBe(false);
   });
 
+  it("squeezes the rows' labels too when sixty rooms' names are taller than the page", () => {
+    // Sixty rooms, one class each on the Monday: sixty labels at their own height overflow A4.
+    const rooms = Array.from({ length: 60 }, (_, index) =>
+      section(String(40000 + index), `MATH-${100 + index}`, [meeting("2026-09-07", "08:30", "10:00", `5.${String(100 + index)}`)]),
+    );
+    const free = semesterPages(input("rooms-day", rooms), { paper: "a4", maxPages: null }).filter((page) => page.unit === 0);
+    const one = semesterPages(input("rooms-day", rooms), { paper: "a4", maxPages: 1 }).filter((page) => page.unit === 0);
+
+    expect(free.length).toBeGreaterThan(1);
+    expect(one).toHaveLength(1);
+    expect(one[0].rows).toHaveLength(60);
+    expect(one[0].labelHeight).toBeLessThan(frameOf("rooms-day").labelHeight);
+    expect(one[0]).toMatchObject({ overCeiling: false, clipped: true });
+  });
+
   it("goes past the ceiling only when a class would have to be thinner than it can be drawn", () => {
     const crowd = Array.from({ length: 200 }, (_, index) => section(String(30000 + index), `MATH-${100 + index}`, [meeting("2026-09-07")]));
     const pages = semesterPages(input("days", crowd), { paper: "a4", maxPages: 1 }).filter((page) => page.unit === 0);

@@ -262,7 +262,14 @@ function PagePreview({ page, layout, paper }: { page: SemesterPage; layout: Seme
       {page.rows.map((row) => (
         <g key={`${row.y}-${row.label}`}>
           <line x1={frame.left} x2={frame.right} y1={row.y} y2={row.y} stroke="#e4e8ef" strokeWidth={0.8} />
-          <text x={frame.left + 4} y={row.y + 10} fontSize={8} fontWeight={700} fill="#344054">
+          {/* Squeezed with the page, as the file squeezes it. */}
+          <text
+            x={frame.left + 4}
+            y={row.y + 10 * Math.min(1, page.labelHeight / frame.labelHeight)}
+            fontSize={8 * Math.min(1, page.labelHeight / frame.labelHeight)}
+            fontWeight={700}
+            fill="#344054"
+          >
             {row.label}
           </text>
         </g>

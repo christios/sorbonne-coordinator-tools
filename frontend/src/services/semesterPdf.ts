@@ -79,6 +79,11 @@ const TALLEST_CLASS = 160;
  * at the right hour is worth more than a second sheet.
  */
 const THINNEST_CLASS = 4;
+/**
+ * The shortest a row's label is squeezed to when even the thinnest classes will not keep a
+ * week inside its pages: sixty rooms' names are taller than a sheet of A4 at their own size.
+ */
+const SHORTEST_LABEL = 5;
 /** Room above and below the classes stacked in a row. */
 const ROW_PAD = 2;
 
@@ -139,6 +144,8 @@ export type PageBox = {
 export type SemesterPage = {
   /** Which unit it belongs to, and where it sits among that unit's pages. */
   unit: number;
+  /** How tall a row's label is on this page: the frame's own, or less where it was squeezed. */
+  labelHeight: number;
   title: string;
   /** "Mon 7 – Wed 9 · page 1 of 2", where a unit takes more than one page; "" otherwise. */
   part: string;
@@ -359,17 +366,31 @@ function unitHeight(
   available: number,
   labelHeight: number,
   readable: number,
-): { classHeight: number; pages: Piece[][]; overCeiling: boolean; clipped: boolean } {
-  const pagesAt = (height: number) => packed(rows, height, available, labelHeight).length;
-  let height = Math.max(COMFORTABLE_CLASS, readable);
+): { classHeight: number; labelHeight: number; pages: Piece[][]; overCeiling: boolean; clipped: boolean } {
+  let label = labelHeight;
+  const pagesAt = (height: number) => packed(rows, height, available, label).length;
+  const comfortable = Math.max(COMFORTABLE_CLASS, readable);
+  let height = comfortable;
   const ceiling = zoom.maxPages;
   if (ceiling && pagesAt(height) > ceiling) {
     height = largest(THINNEST_CLASS, height, (candidate) => pagesAt(candidate) <= ceiling);
+    // Still over at the thinnest a class is drawn: the labels give way too, and the classes
+    // then take back whatever height the smaller labels leave them.
+    if (pagesAt(height) > ceiling) {
+      label = largest(SHORTEST_LABEL, labelHeight, (candidate) => packed(rows, THINNEST_CLASS, available, candidate).length <= ceiling);
+      height = largest(THINNEST_CLASS, comfortable, (candidate) => pagesAt(candidate) <= ceiling);
+    }
   }
   const overCeiling = Boolean(ceiling) && pagesAt(height) > (ceiling ?? Infinity);
   const pages = pagesAt(height);
   height = largest(height, TALLEST_CLASS, (candidate) => pagesAt(candidate) <= pages);
-  return { classHeight: height, pages: packed(rows, height, available, labelHeight), overCeiling, clipped: height < readable };
+  return {
+    classHeight: height,
+    labelHeight: label,
+    pages: packed(rows, height, available, label),
+    overCeiling,
+    clipped: height < readable || label < labelHeight,
+  };
 }
 
 /** Every page of the export, laid out. */
@@ -420,12 +441,12 @@ export function semesterPages(input: SemesterExportInput, zoom: ExportZoom, unit
         }, most),
       0,
     );
-    const { classHeight, pages: downs, overCeiling, clipped } = unitHeight(unit.rows, zoom, available, frame.labelHeight, readable);
+    const { classHeight, labelHeight, pages: downs, overCeiling, clipped } = unitHeight(unit.rows, zoom, available, frame.labelHeight, readable);
     downs.forEach((down, line) => {
       // The foot of this page shared out among its own rows, so it ends where the sheet does.
       const lanes = down.map((piece) => piece.to - piece.from);
       const needs = (height: number) =>
-        lanes.reduce((total, rows) => total + Math.max(frame.labelHeight, rows * height + ROW_PAD * 2), 0);
+        lanes.reduce((total, rows) => total + Math.max(labelHeight, rows * height + ROW_PAD * 2), 0);
       const lane = largest(classHeight, TALLEST_CLASS, (height) => needs(height) <= available);
       const spare = down.length ? Math.max(0, available - needs(lane)) / down.length : 0;
 
@@ -433,7 +454,7 @@ export function semesterPages(input: SemesterExportInput, zoom: ExportZoom, unit
       const boxes: PageBox[] = [];
       let y = frame.contentTop;
       for (const piece of down) {
-        const tall = Math.max(frame.labelHeight, (piece.to - piece.from) * lane + ROW_PAD * 2) + spare;
+        const tall = Math.max(labelHeight, (piece.to - piece.from) * lane + ROW_PAD * 2) + spare;
         rows.push({ y, h: tall, label: piece.row.label, sub: piece.from > 0 ? "continued" : piece.row.sub });
         // A row taller than its classes — a label's height, or its share of the foot — centres them.
         const top = y + (tall - (piece.to - piece.from) * lane) / 2;
@@ -455,6 +476,7 @@ export function semesterPages(input: SemesterExportInput, zoom: ExportZoom, unit
       const labels = down.map((piece) => piece.row.label);
       pages.push({
         unit: unitIndex,
+        labelHeight,
         overCeiling,
         clipped,
         title: unit.title,
@@ -550,18 +572,21 @@ export async function buildSemesterPdf(input: SemesterExportInput, zoom: ExportZ
       doc.setFont("helvetica", "bold");
       doc.setFontSize(7.5);
       doc.setTextColor(52, 64, 84);
+      // Labels squeezed to keep a week on its pages are set smaller with them.
+      const scale = Math.min(1, page.labelHeight / frame.labelHeight);
+      doc.setFontSize(7.5 * scale);
       if (input.layout === "days") {
-        doc.text(row.label, frame.left + 3, row.y + 9);
+        doc.text(row.label, frame.left + 3, row.y + 9 * scale);
         doc.setFont("helvetica", "normal");
-        doc.setFontSize(6.5);
+        doc.setFontSize(6.5 * scale);
         doc.setTextColor(...FAINT);
-        doc.text(row.sub, frame.left + 3, row.y + 17);
+        doc.text(row.sub, frame.left + 3, row.y + 17 * scale);
       } else {
-        doc.text(fitted(doc, row.label, frame.labelWidth - 30), frame.left + 3, row.y + 8.5);
+        doc.text(fitted(doc, row.label, frame.labelWidth - 30 * scale), frame.left + 3, row.y + 8.5 * scale);
         doc.setFont("helvetica", "normal");
-        doc.setFontSize(6.5);
+        doc.setFontSize(6.5 * scale);
         doc.setTextColor(...FAINT);
-        doc.text(row.sub, gridLeft - 3, row.y + 8.5, { align: "right" });
+        doc.text(row.sub, gridLeft - 3, row.y + 8.5 * scale, { align: "right" });
       }
     }
     doc.setDrawColor(...LINE);
