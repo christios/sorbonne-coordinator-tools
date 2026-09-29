@@ -475,6 +475,30 @@ describe("dismissals belong to the coordinator, not to the page on screen", () =
     expect(held()).toContain("A001:r2:");
   });
 
+  it("counts every cohort's dismissed warnings when the table shows every cohort", async () => {
+    // L2's registration difference, dismissed by somebody else; L1 has one of its own.
+    const theirs = mismatch({ studentId: "A003", courseCode: "PHYS-118", expected: ["22150"] });
+    vi.spyOn(lists, "fetchRegistrationCheck").mockImplementation(async (cohortId: string) =>
+      report(cohortId === "c2" ? [theirs] : [], [checked()]),
+    );
+    onServer = [
+      ...onServer,
+      { key: "registration|A003|262710|PHYS-118|missing|22150|", byEmail: "c@sorbonne.ae", byName: "Colleague", at: "2026-09-15T09:00:00Z" },
+    ];
+    await twoCohorts();
+    await screen.findByTitle(/major is Physics/);
+    fireEvent.click(screen.getByRole("button", { name: /^Dismiss: major is Physics/ }));
+    await waitFor(() => expect(held()).toContain("A001:r2:"));
+
+    // The picked cohort alone: its one.
+    expect(await screen.findByRole("button", { name: /^Dismissed\s*1$/ })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("radio", { name: "Every cohort" }));
+
+    // Every cohort's, as the table now shows them.
+    expect(await screen.findByRole("button", { name: /^Dismissed\s*2$/ })).toBeTruthy();
+  });
+
   it("offers back only the dismissed warnings on screen, and brings back only those ticked", async () => {
     // The other cohort's registration difference, dismissed by somebody else.
     const theirs = mismatch({ studentId: "A003", courseCode: "PHYS-118", expected: ["22150"] });

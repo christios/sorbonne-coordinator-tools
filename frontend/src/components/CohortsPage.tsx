@@ -681,7 +681,18 @@ export function CohortsPage({
         .map((warning) => warning.studentId),
     ).size;
 
-  const all = mine;
+  /*
+   * What the table is showing: this cohort's warnings, or every cohort's when the table is
+   * showing every cohort. The counts, the Dismissed toggle and the Bring back list follow
+   * the table — they read the picked cohort alone, so "Dismissed 4" sat over a table of
+   * thirty dismissed pills from the other cohorts.
+   */
+  const everyones = useMemo(() => {
+    const held = new Map<string, Warning>();
+    for (const list of byStudent.values()) for (const warning of list) held.set(warning.key, warning);
+    return [...held.values()];
+  }, [byStudent]);
+  const all = everywhere ? everyones : mine;
   const flaggedStudents = flaggedIn(all);
   const counts: Record<WarningSource, number> = {
     record: flaggedIn(all, "record"),
