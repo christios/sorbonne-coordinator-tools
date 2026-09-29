@@ -327,7 +327,7 @@ describe("the registrar's timetable in the run", () => {
     show();
     await sync();
 
-    expect(rosters.pullTimetable).toHaveBeenCalledWith("262710", ["22151", "24001"], expect.any(Function));
+    expect(rosters.pullTimetable).toHaveBeenCalledWith("262710", ["22151", "24001"], expect.any(Function), expect.anything());
   });
 
   it("leaves the run alone when no semester is linked to a portal term", async () => {
@@ -372,7 +372,7 @@ describe("a step that is many requests, not one", () => {
 
     expect(await screen.findByText(/1 of 2,/)).toBeTruthy();
     // And the footer stops claiming there is nothing to count.
-    expect(screen.getByText(/one request per section, two at a time/)).toBeTruthy();
+    expect(screen.getByText(/one request per section, a second apart/)).toBeTruthy();
 
     finish({
       termCode: "262710", asked: ["22151", "23652"], sections: [], silent: [],

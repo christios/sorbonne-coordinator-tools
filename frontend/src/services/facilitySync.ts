@@ -6,15 +6,28 @@
  * electives — the asking is the extension's, because only a coordinator's own portal
  * session may ask, and the answer goes back to our server, which is never told a name.
  *
- * Slow by construction. The extension asks about one section at a time, two at a time, and
- * a term is a hundred and sixty sections: minutes, not seconds. Pushed harder the portal
- * answers an empty list for about one call in seven, and an empty list is exactly what a
- * section with nothing booked looks like — so a sweep that hurried would report a term's
- * teaching as cancelled.
+ * Slow by construction. One section at a time, a second apart, and a term is a hundred
+ * and sixty sections: about three minutes. Pushed harder the portal answers an empty list
+ * for about one call in seven, and an empty list is exactly what a section with nothing
+ * booked looks like — so a sweep that hurried would report a term's teaching as cancelled.
+ * And the portal is the registrar's working system, not ours to hurry.
  */
 
 import { fetchTimetableTargets, recordFacilityPull, type FacilityPullReport } from "@/services/portalLists";
-import { pullTimetable, type PullProgress } from "@/services/scenRosters";
+import { pullTimetable, type PullProgress, type TimetableSoFar } from "@/services/scenRosters";
+
+/**
+ * A sweep part-way through, with what it set out to ask: kept after every section, so a
+ * reload carries on from the section it had got to instead of asking the portal again
+ * about all the ones it already had.
+ *
+ * The list asked about travels with it. Fetched again after a reload it could differ —
+ * a registration made in between — and a sweep must account for exactly what it asked.
+ */
+export type SweepSoFar = TimetableSoFar & { asked: string[]; ours: string[]; theirs: number };
+
+/** Where a sweep keeps what it has so far; the sync run decides where that is. */
+export type SweepMemo = { load: () => SweepSoFar | null; save: (sofar: SweepSoFar) => void };
 
 export type FacilitySweep = FacilityPullReport & {
   /** Rows the extension could not read a time from. Never silently dropped. */
@@ -35,18 +48,43 @@ export type FacilitySweep = FacilityPullReport & {
  */
 export async function sweepFacilityTimetable(
   termCode: string,
-  { theirsToo = true }: { theirsToo?: boolean } = {},
+  {
+    theirsToo = true,
+    memo,
+    stop,
+  }: {
+    theirsToo?: boolean;
+    /** Where the sweep so far is kept, so a reload can carry on from it. */
+    memo?: SweepMemo;
+    /** Asked before every section: true once the run has been given up on. */
+    stop?: () => boolean;
+  } = {},
   onProgress?: (progress: PullProgress) => void,
 ): Promise<FacilitySweep> {
-  const targets = await fetchTimetableTargets(termCode);
-  const crns = [...new Set(theirsToo ? [...targets.ours, ...targets.registered] : targets.ours)];
+  const held = memo?.load() ?? null;
+  const from = held && held.asked.length ? held : null;
+  let ours: string[];
+  let crns: string[];
+  let theirs: number;
+  if (from) {
+    ({ ours, asked: crns, theirs } = from);
+  } else {
+    const targets = await fetchTimetableTargets(termCode);
+    ours = targets.ours;
+    crns = [...new Set(theirsToo ? [...targets.ours, ...targets.registered] : targets.ours)];
+    theirs = targets.registered.length;
+  }
   if (!crns.length) {
     // Nothing registered for this term yet. Writing an empty sweep would be worse than
     // doing nothing: a complete sweep that asked about nothing still counts as a pull.
     return { asked: 0, answered: 0, silent: 0, failed: 0, complete: false, malformed: 0, warning: "nothing_to_ask", theirs: 0 };
   }
 
-  const pull = await pullTimetable(termCode, crns, onProgress);
+  const pull = await pullTimetable(termCode, crns, onProgress, {
+    from,
+    keep: memo ? (sofar) => memo.save({ ...sofar, asked: crns, ours, theirs }) : undefined,
+    stop,
+  });
   /*
    * Which of the answers are OUR sections, marked here rather than in the extension.
    *
@@ -59,7 +97,7 @@ export async function sweepFacilityTimetable(
    * deliberately, because another department's enrolment is a fact about them. Without
    * this every head count was dropped — 145 sections, none with a count.
    */
-  const mine = new Set(targets.ours);
+  const mine = new Set(ours);
   const sections = pull.sections.map((section) => ({
     ...section,
     ours: mine.has(section.crn),
@@ -80,7 +118,7 @@ export async function sweepFacilityTimetable(
     failed: pull.failed,
     complete: pull.complete,
   });
-  return { ...report, malformed: pull.malformed, warning: pull.warning, theirs: targets.registered.length };
+  return { ...report, malformed: pull.malformed, warning: pull.warning, theirs };
 }
 
 /**

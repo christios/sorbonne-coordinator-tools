@@ -26,7 +26,7 @@ import {
 } from "@/services/portalLists";
 import { recordPull } from "@/services/pullHistory";
 import { rememberPull, rememberSync, storageReport, type StorageReport } from "@/services/rosterStore";
-import { describeSweep, sweepFacilityTimetable } from "@/services/facilitySync";
+import { describeSweep, sweepFacilityTimetable, type SweepMemo } from "@/services/facilitySync";
 import { pullFilter, studentIdOf, type PortalRoster, type PullProgress } from "@/services/scenRosters";
 import { syncView } from "@/services/studentDatabase";
 
@@ -130,6 +130,8 @@ export async function syncTarget(
   target: SyncTarget,
   onProgress?: (progress: PullProgress) => void,
   budgetMs: number = SERVER_BUDGET_MS,
+  /** For the timetable: where its sweep so far is kept, and whether it is still wanted. */
+  { memo, stop }: { memo?: SweepMemo; stop?: () => boolean } = {},
 ): Promise<SyncOutcome> {
   /*
    * The budget covers the leg to OUR server and nothing else.
@@ -153,11 +155,11 @@ export async function syncTarget(
   /*
    * The timetable first, because it is not a filter pull at all and everything below
    * assumes one. It has its own budget too: `pullTimetable` is a hundred and sixty calls
-   * inside the extension, and wrapping it in the ninety seconds our own server gets would
+   * a second apart, and wrapping it in the ninety seconds our own server gets would
    * abandon a sweep that is working perfectly.
    */
   if (target.kind === "timetable") {
-    const sweep = await sweepFacilityTimetable(target.id, { theirsToo: true }, onProgress);
+    const sweep = await sweepFacilityTimetable(target.id, { theirsToo: true, memo, stop }, onProgress);
     return {
       // `seen` is what the step shows: sections the registrar answered for. Silences are
       // not failures and not absences, so they travel in the warning instead of the count.

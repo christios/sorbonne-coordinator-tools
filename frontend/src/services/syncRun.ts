@@ -10,21 +10,38 @@
  * be synced, which are done, which failed and why. Changing pages does not touch it,
  * because the driver lives above the pages. A reload ends the pull that was in flight —
  * nothing in a browser can hold a request across that — and the run picks that list up
- * again from the top when the page comes back, which is safe because a sync is asking
- * the same question again and writing the same answer.
+ * again when the page comes back, which is safe because a sync is asking the same
+ * question again and writing the same answer. The timetable does better: it keeps what
+ * it has after every section, and carries on from the section it had got to.
  *
- * One tab does the work. A run carries the id of the tab driving it and a heartbeat, and
- * another tab only takes over once that heartbeat has gone quiet, so two open tabs do
- * not pull the portal twice over.
+ * One tab does the work, and the browser says which. The tab driving a run holds a lock
+ * the browser takes away the moment that page goes — reloaded, closed, crashed — so the
+ * next page waiting on it takes over at once rather than guessing from a heartbeat, and
+ * two open tabs never pull the portal twice over. The heartbeat is still written, for a
+ * browser without locks.
  */
 
+import type { SweepMemo, SweepSoFar } from "@/services/facilitySync";
 import { syncTarget, type SyncKind, type SyncTarget } from "@/services/portalSync";
-import { PortalError } from "@/services/scenRosters";
+import { PortalError, portalPace } from "@/services/scenRosters";
 
 const KEY = "scen-sync-run:v1";
+/** What each timetable step of the run has gathered so far, by step. */
+const SWEEPS = "scen-sync-sweeps:v1";
+/** Held by whichever page is driving the run; the browser lets go of it when that page goes. */
+const LOCK = "scen-sync-run";
 /** After this long without a heartbeat, the tab that was driving is taken to be gone. */
 const ABANDONED_MS = 90_000;
 const BEAT_MS = 15_000;
+/**
+ * How long a list a reload cut off waits before it is asked again.
+ *
+ * The request it had sent is still with the portal: nothing in a page can recall it, and
+ * the extension goes on waiting for the answer after the page has gone. Asked again at
+ * once, the portal would be doing the heaviest thing it does twice over — so the list
+ * waits out the minute a whole list takes to come back.
+ */
+const REASK_LIST_AFTER_MS = 60_000;
 
 export type StepState = "waiting" | "running" | "done" | "failed";
 
@@ -37,6 +54,11 @@ export type SyncStep = {
   state: StepState;
   /** When the portal was asked, so a slow list can be told from a stuck one. */
   startedAt?: number;
+  /**
+   * Not to be asked before this: set on a step a reload caught in flight, while the
+   * portal finishes answering the request the reload cut off.
+   */
+  notBefore?: number;
   /** What the sync reported, once it has: how many rows the portal returned. */
   seen?: number;
   /**
@@ -75,6 +97,14 @@ const TAB = `tab-${Math.random().toString(36).slice(2)}-${Date.now()}`;
 
 let listeners: ((run: SyncRun | null) => void)[] = [];
 let driving = false;
+
+function lockManager(): LockManager | null {
+  try {
+    return typeof navigator !== "undefined" && navigator.locks ? navigator.locks : null;
+  } catch {
+    return null;
+  }
+}
 
 function read(): SyncRun | null {
   try {
@@ -129,10 +159,24 @@ export function stepsFor(targets: SyncTarget[]): SyncStep[] {
   }));
 }
 
+/**
+ * Whether some page is driving this run right now.
+ *
+ * Asked of the browser where it can answer: the lock is held exactly as long as the page
+ * holding it is alive. Without locks, the heartbeat is the best there is.
+ */
+async function beingDriven(run: SyncRun): Promise<boolean> {
+  if (driving) return true;
+  const manager = lockManager();
+  if (!manager) return !isAbandoned(run);
+  const state = await manager.query();
+  return (state.held ?? []).some((lock) => lock.name === LOCK);
+}
+
 /** Begin a run, replacing any that has finished. Does nothing while one is going. */
-export function startRun(targets: SyncTarget[], onStep?: (step: SyncStep) => void): Promise<void> {
+export async function startRun(targets: SyncTarget[], onStep?: (step: SyncStep) => void): Promise<void> {
   const held = read();
-  if (isRunning(held) && !isAbandoned(held)) return Promise.resolve();
+  if (isRunning(held) && (await beingDriven(held))) return;
   const run: SyncRun = {
     id: `run-${Date.now()}`,
     startedAt: Date.now(),
@@ -141,8 +185,42 @@ export function startRun(targets: SyncTarget[], onStep?: (step: SyncStep) => voi
     beatAt: Date.now(),
     steps: stepsFor(targets),
   };
+  forgetSweeps();
   write(run);
-  return drive(targets, onStep);
+  await carryOn(run.id, targets, onStep);
+}
+
+/**
+ * A step a reload caught in flight, set back to waiting — and told when it may go again.
+ *
+ * A list waits out the request the reload cut off (see REASK_LIST_AFTER_MS). A timetable
+ * step lost at most the one section it was asking about, and a second covers that.
+ */
+function setBack(step: SyncStep, now: number): SyncStep {
+  if (step.state !== "running") return step;
+  const notBefore = step.kind === "timetable" ? now + portalPace.apart : (step.startedAt ?? 0) + REASK_LIST_AFTER_MS;
+  return { ...step, state: "waiting", notBefore };
+}
+
+/**
+ * Take the run over and drive it, once no other page is.
+ *
+ * Waits its turn for the lock, so a page that opens while another is driving sits behind
+ * it and takes over the moment that page goes — and, when that page finishes instead,
+ * finds nothing left to do.
+ */
+async function carryOn(runId: string, targets: SyncTarget[], onStep?: (step: SyncStep) => void): Promise<boolean> {
+  const take = async (): Promise<boolean> => {
+    const held = read();
+    if (!isRunning(held) || held.id !== runId || driving) return false;
+    driving = true;
+    const now = Date.now();
+    write({ ...held, owner: TAB, beatAt: now, steps: held.steps.map((step) => setBack(step, now)) });
+    await drive(runId, targets, onStep);
+    return true;
+  };
+  const manager = lockManager();
+  return manager ? manager.request(LOCK, () => take()) : take();
 }
 
 /**
@@ -166,16 +244,10 @@ export async function resumeRun(targets: SyncTarget[], onStep?: (step: SyncStep)
   if (driving) return false;
   const held = read();
   if (!isRunning(held)) return false;
-  if (held.owner !== TAB && !isAbandoned(held)) return false;
-  const run: SyncRun = {
-    ...held,
-    owner: TAB,
-    beatAt: Date.now(),
-    steps: held.steps.map((step) => (step.state === "running" ? { ...step, state: "waiting" } : step)),
-  };
-  write(run);
-  await drive(targets, onStep);
-  return true;
+  // Without locks, a heartbeat that is still going is the only sign another tab is alive.
+  // With them, this waits in line for that tab instead.
+  if (!lockManager() && held.owner !== TAB && !isAbandoned(held)) return false;
+  return carryOn(held.id, targets, onStep);
 }
 
 /**
@@ -212,6 +284,7 @@ export function retryFailed(): number {
 export function clearRun(): void {
   const held = read();
   if (isRunning(held)) return;
+  forgetSweeps();
   write(null);
 }
 
@@ -226,16 +299,71 @@ export function clearRun(): void {
  *
  * This is the other verb: deliberate, asked for, and destructive on purpose. The pull
  * already in flight cannot be recalled — nothing can un-ask the portal — but it is no
- * longer written down when it lands, and nothing will resume it.
+ * longer written down when it lands, and nothing will resume it. A timetable sweep stops
+ * before its next section.
  */
 export function abandonRun(): void {
   driving = false;
+  forgetSweeps();
   write(null);
 }
 
-function patch(key: string, change: Partial<SyncStep>): SyncStep | null {
+/**
+ * Where a timetable step keeps its sweep so far: beside the run, by step.
+ *
+ * Kept through a failure, so "Retry" carries on from the section where the portal session
+ * ran out; forgotten when the step is done or the run is let go.
+ */
+function sweepMemo(runId: string, stepKey: string): SweepMemo & { forget: () => void } {
+  const all = (): { run: string; steps: Record<string, SweepSoFar> } | null => {
+    try {
+      return JSON.parse(window.localStorage.getItem(SWEEPS) ?? "null");
+    } catch {
+      return null;
+    }
+  };
+  const put = (steps: Record<string, SweepSoFar>) => {
+    try {
+      window.localStorage.setItem(SWEEPS, JSON.stringify({ run: runId, steps }));
+    } catch {
+      // A sweep that cannot be written down still runs; a reload just starts it again.
+    }
+  };
+  const mine = () => {
+    const held = all();
+    return held && held.run === runId ? held.steps : {};
+  };
+  return {
+    load: () => mine()[stepKey] ?? null,
+    save: (sofar) => put({ ...mine(), [stepKey]: sofar }),
+    forget: () => {
+      const rest = { ...mine() };
+      delete rest[stepKey];
+      put(rest);
+    },
+  };
+}
+
+function forgetSweeps(): void {
+  try {
+    window.localStorage.removeItem(SWEEPS);
+  } catch {
+    // Nothing kept, nothing to forget.
+  }
+}
+
+const pause = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
+
+/** Whether this page is still the one driving this run: not given up on, not replaced, not taken over. */
+function stillMine(runId: string): boolean {
   const held = read();
-  if (!held) return null;
+  return Boolean(held && held.id === runId && held.finishedAt === null && held.owner === TAB);
+}
+
+/** Change one step of this run — and only of this run, never of one that has replaced it. */
+function patch(runId: string, key: string, change: Partial<SyncStep>): SyncStep | null {
+  const held = read();
+  if (!held || held.id !== runId) return null;
   let touched: SyncStep | null = null;
   const steps = held.steps.map((step) => {
     if (step.key !== key) return step;
@@ -275,30 +403,36 @@ function settle(step: SyncStep | null, onStep?: (step: SyncStep) => void): void 
  * A list that fails does not stop the rest. Its reason is kept on its step, and the run
  * ends saying what did not work rather than stopping at the first thing that did not.
  */
-async function drive(targets: SyncTarget[], onStep?: (step: SyncStep) => void): Promise<void> {
-  if (driving) return;
+async function drive(runId: string, targets: SyncTarget[], onStep?: (step: SyncStep) => void): Promise<void> {
   driving = true;
   // While a pull is running there is nothing to write down, so the heartbeat says the
   // tab is still here on its own.
   const beat = window.setInterval(() => {
     const held = read();
-    if (held && held.owner === TAB && held.finishedAt === null) write({ ...held, beatAt: Date.now() });
+    if (held && held.id === runId && held.owner === TAB && held.finishedAt === null) write({ ...held, beatAt: Date.now() });
   }, BEAT_MS);
   try {
     for (;;) {
-      const held = read();
-      if (!held || held.finishedAt !== null || held.owner !== TAB) return;
-      const next = held.steps.find((step) => step.state === "waiting");
+      if (!stillMine(runId)) return;
+      const next = read()!.steps.find((step) => step.state === "waiting");
       if (!next) break;
+      // A list a reload cut off is still being answered for the page that went. Waited out
+      // a little at a time, so a run given up on meanwhile is noticed.
+      const early = (next.notBefore ?? 0) - Date.now();
+      if (early > 0) {
+        await pause(Math.min(early, BEAT_MS));
+        continue;
+      }
       const target = targets.find((candidate) => `${candidate.kind}:${candidate.id}` === next.key);
       if (!target) {
         // The view or portal filter was deleted between the run starting and getting here.
         // Written down first and told afterwards: what the run says must never depend on
         // anyone listening, and `f?.(g())` does not call g at all when f is not there.
-        settle(patch(next.key, { state: "failed", error: "This list no longer exists." }), onStep);
+        settle(patch(runId, next.key, { state: "failed", error: "This list no longer exists." }), onStep);
         continue;
       }
-      patch(next.key, { state: "running", startedAt: Date.now() });
+      patch(runId, next.key, { state: "running", startedAt: Date.now(), notBefore: undefined });
+      const memo = target.kind === "timetable" ? sweepMemo(runId, next.key) : undefined;
       try {
         /*
          * Count what can be counted, while it is happening.
@@ -312,13 +446,21 @@ async function drive(targets: SyncTarget[], onStep?: (step: SyncStep) => void): 
          * run's own onStep is not, because that re-reads every page's data and doing it
          * a hundred and sixty times would be worse than saying nothing.
          */
-        const outcome = await syncTarget(target, (at) => {
-          if (at.total) patch(next.key, { seen: at.fetched, of: at.total });
-        });
-        settle(patch(next.key, { state: "done", seen: outcome.report.seen, warning: outcome.warning }), onStep);
+        const outcome = await syncTarget(
+          target,
+          (at) => {
+            if (at.total) patch(runId, next.key, { seen: at.fetched, of: at.total });
+          },
+          undefined,
+          // The sweep asks before every section whether anybody still wants it, so "Give
+          // up" stops the portal being asked within a second rather than three minutes.
+          { memo, stop: () => !stillMine(runId) },
+        );
+        memo?.forget();
+        settle(patch(runId, next.key, { state: "done", seen: outcome.report.seen, warning: outcome.warning }), onStep);
       } catch (error) {
         settle(
-          patch(next.key, {
+          patch(runId, next.key, {
             state: "failed",
             error: (error as Error).message,
             errorCode: codeOf(error),
@@ -328,7 +470,7 @@ async function drive(targets: SyncTarget[], onStep?: (step: SyncStep) => void): 
       }
     }
     const done = read();
-    if (done && done.owner === TAB) write({ ...done, finishedAt: Date.now(), beatAt: Date.now() });
+    if (done && done.id === runId && done.owner === TAB) write({ ...done, finishedAt: Date.now(), beatAt: Date.now() });
   } finally {
     window.clearInterval(beat);
     driving = false;

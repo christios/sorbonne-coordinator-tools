@@ -1,7 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 
-import { getRun, isRunning, resumeRun } from "@/services/syncRun";
+import { getRun, isRunning, resumeRun, subscribe, type SyncRun } from "@/services/syncRun";
 import { freshen, useSyncTargets } from "@/services/syncTargets";
 
 /**
@@ -10,31 +10,32 @@ import { freshen, useSyncTargets } from "@/services/syncTargets";
  * A run is written down as it goes, but somebody has to pick it up again after a reload,
  * and the button that started it may not be on screen — a reload can land in another app
  * entirely. So this sits above the whole application, sees an unfinished run, and carries
- * on with it. It refuses runs another tab is still driving, and its own, which are
- * already going.
+ * on with it.
+ *
+ * It waits in line rather than asking once. A run another tab is driving is left to that
+ * tab, and this page takes it over the moment that tab goes. It used to try once, on
+ * load, and a refusal then — a reload inside the ninety seconds the old page was still
+ * trusted — left the run stuck until somebody reloaded again. It follows runs started
+ * elsewhere after it loaded, for the same reason.
  */
 export function SyncRunDriver() {
   const client = useQueryClient();
   const { targets, ready } = useSyncTargets();
-  const resumed = useRef("");
+  // The newest list of what there is to sync, whenever the run is finally taken over.
+  const latest = useRef(targets);
+  latest.current = targets;
+  const following = useRef("");
 
   useEffect(() => {
-    const held = getRun();
-    if (!ready || !isRunning(held) || resumed.current === held.id) return;
-    /*
-     * Marked as attempted only once the attempt was ACCEPTED.
-     *
-     * `resumeRun` refuses a run that belongs to another tab and is not yet abandoned, and
-     * a refusal used to be indistinguishable from taking it on — so a single reload inside
-     * the ninety seconds the other tab is still trusted burned this tab's one attempt, and
-     * it would never pick the run up again however long that tab had been dead. A timetable
-     * sweep is the longest window anybody will ever reload during.
-     */
-    void resumeRun(targets, () => freshen(client)).then((took) => {
-      if (took) resumed.current = held.id;
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready]);
+    if (!ready) return;
+    const follow = (run: SyncRun | null) => {
+      if (!isRunning(run) || following.current === run.id) return;
+      following.current = run.id;
+      void resumeRun(latest.current, () => freshen(client));
+    };
+    follow(getRun());
+    return subscribe(follow);
+  }, [ready, client]);
 
   return null;
 }

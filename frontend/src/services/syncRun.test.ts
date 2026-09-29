@@ -295,3 +295,228 @@ describe("retrying only what failed", () => {
     expect(run.retryFailed()).toBe(0);
   });
 });
+
+/**
+ * A stand-in for the browser's own locks: held until the work given it is done, and taken
+ * away from a page that goes — which here is `hold` being let go.
+ */
+function fakeLocks() {
+  const held = new Set<string>();
+  const waiting = new Map<string, (() => void)[]>();
+  const release = (name: string) => {
+    const next = waiting.get(name)?.shift();
+    if (next) next();
+    else held.delete(name);
+  };
+  const acquire = (name: string) =>
+    new Promise<void>((resolve) => {
+      if (!held.has(name)) {
+        held.add(name);
+        resolve();
+      } else {
+        waiting.set(name, [...(waiting.get(name) ?? []), resolve]);
+      }
+    });
+  const manager = {
+    async request(name: string, ...rest: unknown[]) {
+      const callback = rest[rest.length - 1] as (lock: unknown) => unknown;
+      const options = (rest.length > 1 ? rest[0] : {}) as { ifAvailable?: boolean };
+      if (options.ifAvailable && held.has(name)) return callback(null);
+      await acquire(name);
+      try {
+        return await callback({ name });
+      } finally {
+        release(name);
+      }
+    },
+    async query() {
+      return { held: [...held].map((name) => ({ name })), pending: [] };
+    },
+  };
+  Object.defineProperty(window.navigator, "locks", { value: manager, configurable: true });
+  return {
+    /** Another page holding the lock, until it goes. */
+    hold(name: string) {
+      held.add(name);
+      return () => release(name);
+    },
+  };
+}
+
+const settleDown = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+describe("a reload in the middle of a run", () => {
+  afterEach(() => {
+    delete (window.navigator as { locks?: unknown }).locks;
+    vi.useRealTimers();
+  });
+
+  const interrupted = (step: Record<string, unknown>, beatAt = Date.now()) =>
+    window.localStorage.setItem(
+      KEY,
+      JSON.stringify({
+        id: "run-9", startedAt: 1, finishedAt: null, owner: "the page before the reload", beatAt,
+        steps: [{ key: "courses:f1", kind: "courses", id: "f1", name: "Courses", state: "waiting", ...step }],
+      }),
+    );
+
+  it("is taken over at once, not ninety seconds later", async () => {
+    // The page that was reloaded wrote a heartbeat a moment ago. Without locks that looks
+    // like a tab still at work; the lock says it has gone.
+    fakeLocks();
+    interrupted({ state: "waiting" });
+    const run = await load();
+
+    expect(await run.resumeRun(TARGETS)).toBe(true);
+    expect(syncTarget).toHaveBeenCalledTimes(1);
+    expect(run.getRun()!.finishedAt).not.toBeNull();
+  });
+
+  it("waits in line behind a page still driving it, and takes over when that page goes", async () => {
+    const locks = fakeLocks();
+    const gone = locks.hold("scen-sync-run");
+    interrupted({ state: "running", startedAt: 1 });
+    const run = await load();
+
+    const resumed = run.resumeRun(TARGETS);
+    await settleDown();
+    expect(syncTarget).not.toHaveBeenCalled();
+    // Nor may a fresh run barge in while that page is alive.
+    await run.startRun(TARGETS);
+    expect(run.getRun()!.id).toBe("run-9");
+
+    gone();
+    expect(await resumed).toBe(true);
+    expect(syncTarget.mock.calls.map(([target]) => target.id)).toEqual(["f1"]);
+  });
+
+  it("finds nothing to do when the page ahead of it finished the run", async () => {
+    const locks = fakeLocks();
+    const done = locks.hold("scen-sync-run");
+    interrupted({ state: "running", startedAt: 1 });
+    const run = await load();
+
+    const resumed = run.resumeRun(TARGETS);
+    window.localStorage.setItem(KEY, JSON.stringify({ ...held(), finishedAt: 2, steps: [{ ...held().steps[0], state: "done" }] }));
+    done();
+
+    expect(await resumed).toBe(false);
+    expect(syncTarget).not.toHaveBeenCalled();
+  });
+
+  it("waits a minute before asking again for a list the reload cut off", async () => {
+    // The portal is still answering the request the page that went had sent. Asking again
+    // at once is the heaviest thing the portal does, twice over.
+    vi.useFakeTimers();
+    interrupted({ state: "running", startedAt: Date.now() - 10_000 }, 0);
+    const run = await load();
+
+    const resumed = run.resumeRun(TARGETS);
+    await vi.advanceTimersByTimeAsync(45_000);
+    expect(syncTarget).not.toHaveBeenCalled();
+    expect(held().steps[0]).toMatchObject({ state: "waiting", notBefore: expect.any(Number) });
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(await resumed).toBe(true);
+    expect(syncTarget).toHaveBeenCalledTimes(1);
+    expect(held().steps[0].notBefore).toBeUndefined();
+  });
+
+  it("waits only a second for a timetable, which lost one section at most", async () => {
+    vi.useFakeTimers();
+    window.localStorage.setItem(
+      KEY,
+      JSON.stringify({
+        id: "run-9", startedAt: 1, finishedAt: null, owner: "gone", beatAt: 0,
+        steps: [{ key: "timetable:262710", kind: "timetable", id: "262710", name: "S1", state: "running", startedAt: Date.now() }],
+      }),
+    );
+    const run = await load();
+
+    const resumed = run.resumeRun([{ kind: "timetable", id: "262710", name: "S1", filter: {} }]);
+    await vi.advanceTimersByTimeAsync(1_100);
+
+    expect(await resumed).toBe(true);
+    expect(syncTarget).toHaveBeenCalledTimes(1);
+  });
+
+  it("hands the timetable what it had gathered before the reload", async () => {
+    const sofar = { termCode: "262710", asked: ["a", "b"], ours: ["a"], theirs: 1, sections: [], silent: ["a"], failed: [], malformed: 0 };
+    window.localStorage.setItem(
+      KEY,
+      JSON.stringify({
+        id: "run-9", startedAt: 1, finishedAt: null, owner: "gone", beatAt: 0,
+        steps: [{ key: "timetable:262710", kind: "timetable", id: "262710", name: "S1", state: "waiting" }],
+      }),
+    );
+    window.localStorage.setItem("scen-sync-sweeps:v1", JSON.stringify({ run: "run-9", steps: { "timetable:262710": sofar } }));
+    let given: unknown = null;
+    syncTarget.mockImplementation(async (_target, _progress, _budget, options) => {
+      given = options.memo.load();
+      return answers(2);
+    });
+    const run = await load();
+
+    await run.resumeRun([{ kind: "timetable", id: "262710", name: "S1", filter: {} }]);
+
+    expect(given).toEqual(sofar);
+    // Done, so forgotten: a later run must not carry on from this one.
+    expect(JSON.parse(window.localStorage.getItem("scen-sync-sweeps:v1")!).steps).toEqual({});
+  });
+
+  it("keeps the sweep through a failure, so a retry carries on from it", async () => {
+    const TIMETABLE: SyncTarget = { kind: "timetable", id: "262710", name: "S1", filter: {} };
+    syncTarget.mockImplementationOnce(async (_target, _progress, _budget, options) => {
+      options.memo.save({ termCode: "262710", asked: ["a", "b"], ours: [], theirs: 0, sections: [], silent: ["a"], failed: [], malformed: 0 });
+      throw new Error("Your portal session has expired.");
+    });
+    let given: { silent: string[] } | null = null;
+    syncTarget.mockImplementationOnce(async (_target, _progress, _budget, options) => {
+      given = options.memo.load();
+      return answers(1);
+    });
+    const run = await load();
+
+    await run.startRun([TIMETABLE]);
+    expect(run.getRun()!.steps[0].state).toBe("failed");
+    run.retryFailed();
+    await run.resumeRun([TIMETABLE]);
+
+    expect(given).toMatchObject({ silent: ["a"] });
+  });
+
+  it("stops the sweep when the run is given up on", async () => {
+    let stop: () => boolean = () => false;
+    let release = () => {};
+    syncTarget.mockImplementation((_target, _progress, _budget, options) => {
+      stop = options.stop;
+      return new Promise((resolve) => (release = () => resolve(answers(1))));
+    });
+    const run = await load();
+
+    const going = run.startRun([{ kind: "timetable", id: "262710", name: "S1", filter: {} }]);
+    await settleDown();
+    expect(stop()).toBe(false);
+    run.abandonRun();
+
+    expect(stop()).toBe(true);
+    release();
+    await going;
+  });
+
+  it("never writes a run's late answer into the run that replaced it", async () => {
+    let release = () => {};
+    syncTarget.mockImplementationOnce(() => new Promise((resolve) => (release = () => resolve(answers(99)))));
+    syncTarget.mockResolvedValue(answers(2));
+    const run = await load();
+
+    const first = run.startRun(TARGETS.slice(0, 1));
+    await settleDown();
+    run.abandonRun();
+    await run.startRun(TARGETS.slice(0, 1));
+    release();
+    await first;
+
+    expect(run.getRun()!.steps[0]).toMatchObject({ state: "done", seen: 2 });
+  });
+});

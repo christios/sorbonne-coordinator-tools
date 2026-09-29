@@ -97,9 +97,19 @@ export function useSyncTargets(): SyncTargets {
     ...LISTS.flatMap((_, index) => (lists[index]?.data ?? []) as { lastSyncedAt?: string }[]),
   ].map((row) => (row.lastSyncedAt ? Date.parse(row.lastSyncedAt) : Number.NaN));
 
+  /*
+   * Ready only once every question has its answer, failed or not.
+   *
+   * It used to be ready as soon as there was one thing to sync, which is the moment the
+   * views landed — before the semesters had. A run resumed after a reload in that moment
+   * had no timetable among its targets, and wrote the timetable step off as a list that
+   * "no longer exists".
+   */
+  const settled = [views, ...lists, links, terms].every((query) => !query.isPending);
+
   return {
     targets,
-    ready: targets.length > 0,
+    ready: settled && targets.length > 0,
     // A list nobody has ever synced makes the whole answer "never", not "as old as the
     // others" — there is no age to report when part of the picture has no age at all.
     syncedAt: ages.length && ages.every((at) => !Number.isNaN(at)) ? Math.min(...ages) : null,

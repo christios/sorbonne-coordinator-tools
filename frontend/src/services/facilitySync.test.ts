@@ -31,7 +31,7 @@ describe("one sweep of the registrar's timetable", () => {
 
     const sweep = await sweepFacilityTimetable("262710");
 
-    expect(asked).toHaveBeenCalledWith("262710", ["22151", "23652", "24001"], undefined);
+    expect(asked).toHaveBeenCalledWith("262710", ["22151", "23652", "24001"], undefined, expect.anything());
     expect(sweep.theirs).toBe(1);
   });
 
@@ -42,7 +42,7 @@ describe("one sweep of the registrar's timetable", () => {
 
     await sweepFacilityTimetable("262710", { theirsToo: false });
 
-    expect(asked).toHaveBeenCalledWith("262710", ["22151"], undefined);
+    expect(asked).toHaveBeenCalledWith("262710", ["22151"], undefined, expect.anything());
   });
 
   it("writes down exactly what the extension said it asked, not what we sent", async () => {
@@ -92,7 +92,7 @@ describe("one sweep of the registrar's timetable", () => {
 
     await sweepFacilityTimetable("262710");
 
-    expect(asked).toHaveBeenCalledWith("262710", ["22151", "24001"], undefined);
+    expect(asked).toHaveBeenCalledWith("262710", ["22151", "24001"], undefined, expect.anything());
   });
 });
 
@@ -177,5 +177,49 @@ describe("saying which of the answers are ours", () => {
     const [sent] = wrote.mock.calls[0][0].sections as { rooms: string[] }[];
     // Each once, and a meeting with no room booked contributes nothing rather than "".
     expect(sent.rooms).toEqual(["5.111", "5.112"]);
+  });
+});
+
+describe("a sweep a reload interrupted", () => {
+  const held = {
+    termCode: "262710",
+    asked: ["22151", "24001"],
+    ours: ["22151"],
+    theirs: 1,
+    sections: [],
+    silent: ["22151"],
+    failed: [],
+    malformed: 0,
+  };
+
+  it("carries on from what it had, asking about exactly what it set out to", async () => {
+    /*
+     * Not the targets fetched again: a registration made in between would change the list,
+     * and a sweep has to account for exactly what it asked.
+     */
+    const targets = vi.spyOn(lists, "fetchTimetableTargets");
+    const asked = vi.spyOn(rosters, "pullTimetable").mockResolvedValue(pull({ asked: held.asked, silent: ["22151", "24001"] }));
+    vi.spyOn(lists, "recordFacilityPull").mockResolvedValue(REPORT);
+
+    const sweep = await sweepFacilityTimetable("262710", { memo: { load: () => held, save: () => undefined } });
+
+    expect(targets).not.toHaveBeenCalled();
+    expect(asked.mock.calls[0][1]).toEqual(["22151", "24001"]);
+    expect(asked.mock.calls[0][3]?.from).toBe(held);
+    expect(sweep.theirs).toBe(1);
+  });
+
+  it("keeps, with every section, the list it set out to ask about", async () => {
+    vi.spyOn(lists, "fetchTimetableTargets").mockResolvedValue({ ours: ["22151"], registered: ["24001"] });
+    const asked = vi.spyOn(rosters, "pullTimetable").mockResolvedValue(pull());
+    vi.spyOn(lists, "recordFacilityPull").mockResolvedValue(REPORT);
+    const save = vi.fn();
+
+    await sweepFacilityTimetable("262710", { memo: { load: () => null, save } });
+    asked.mock.calls[0][3]?.keep?.({ termCode: "262710", sections: [], silent: ["22151"], failed: [], malformed: 0 });
+
+    expect(save).toHaveBeenCalledWith(
+      expect.objectContaining({ asked: ["22151", "24001"], ours: ["22151"], theirs: 1, silent: ["22151"] }),
+    );
   });
 });

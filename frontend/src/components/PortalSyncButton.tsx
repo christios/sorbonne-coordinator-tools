@@ -308,6 +308,17 @@ export function PortalSyncButton() {
                           {since(step.startedAt, now)}
                         </span>
                       ) : null}
+                      {/*
+                        * A list a reload cut off waits for the portal to finish answering the
+                        * page that went, and says so — a step sitting still with no reason
+                        * given reads as a stuck one.
+                        */}
+                      {step.state === "waiting" && step.notBefore && step.notBefore > now ? (
+                        <span className="text-[#98a2b3]">
+                          {" — "}asked again in {since(now, step.notBefore)}, once the portal has answered the page that was
+                          reloaded
+                        </span>
+                      ) : null}
                       {step.warning ? <span className="block text-[#8a6116]">{step.warning}</span> : null}
                       {step.error && !oneReason ? <span className="block text-[#a6292f]">{step.error}</span> : null}
                     </span>
@@ -321,11 +332,11 @@ export function PortalSyncButton() {
                   current
                     ? `${current.name} is with the portal now${
                         current.of
-                          ? ` — one request per section, two at a time, so this is the long one. `
+                          ? ` — one request per section, a second apart, so this is the long one. `
                           : " — one slow request, with nothing to count until it lands. "
                       }`
                     : ""
-                }This keeps going if you change page, and picks up where it was if you reload.`
+                }The portal is asked one thing at a time, never in a rush. This keeps going if you change page, and picks up where it was if you reload.`
               : `${done} of ${steps.length} synced${failed.length ? `, ${failed.length} did not` : ""}.`}
           </p>
         </div>

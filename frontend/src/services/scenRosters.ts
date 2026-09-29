@@ -16,22 +16,78 @@ const CHANNEL = "scen-rosters";
 /*
  * The clock is for silence, not for length.
  *
- * The extension pages the portal now and reports each page as it lands, and every report
- * starts this again — so a whole term takes as long as it takes, and only a pull that has
- * genuinely stopped hits the limit. A minute without a word is stopped.
+ * Any word from the extension starts it again, so only a pull that has genuinely stopped
+ * hits it. A minute without a word is stopped — for one section of the timetable, which
+ * is a moment's question. A whole list is not asked on this clock: see LIST_SILENCE_MS.
  */
 const FETCH_TIMEOUT_MS = 60_000;
 /*
  * And a limit on the whole thing.
  *
- * The clock above is for silence, and the extension beats every five seconds while it
- * waits on the portal — so a request the portal never answers is a page that waits for
- * ever, looking exactly like one that is working. Ten minutes is far longer than the
- * slowest real pull (a whole term of students is about a minute) and short enough that
- * nobody sits watching a spinner that will never stop.
+ * Ten minutes is far longer than the slowest real pull (a whole term of students is about
+ * a minute) and short enough that nobody sits watching a spinner that will never stop.
  */
 const PULL_LIMIT_MS = 10 * 60_000;
+/*
+ * How long a whole list may be silent: as long as it may take at all.
+ *
+ * The extension means to beat every five seconds while it waits on the portal, but it
+ * sends the beat with `chrome.runtime.sendMessage`, which Chrome does not deliver to
+ * content scripts ("extensions cannot send messages to content scripts using this
+ * method") — so no beat has ever reached a page. A list that took more than a minute was
+ * given up on here while the portal was still working on it, and the run went on to ask
+ * for the next list on top of it: two of the heaviest things the portal does, at once.
+ *
+ * A missing extension is not what this clock is for any more. The run asks for a ping
+ * before it starts, and an extension that goes away mid-pull closes its message port,
+ * which the bridge reports at once.
+ */
+const LIST_SILENCE_MS = PULL_LIMIT_MS;
 const PING_TIMEOUT_MS = 1_500;
+
+/*
+ * How hard the portal is asked: one request at a time, a second apart at least, and a
+ * breath after every whole list.
+ *
+ * On the morning of 29 September 2026 a sync asked the registrar's timetable about 167
+ * sections in about nine seconds — two at a time, each the moment the last came back —
+ * and the registrar's system was in trouble that morning. Nothing a sync does is urgent
+ * enough to be worth that: a second apart, the sweep is three minutes. So every request
+ * that reaches the portal waits its turn here, whichever step it belongs to.
+ *
+ * The clock is here with the pace so a test can keep time itself; nothing else replaces it.
+ */
+export const portalPace = {
+  /** From the start of one request to the start of the next. */
+  apart: 1_000,
+  /** After a whole list has landed, before the portal is asked anything else. */
+  afterList: 5_000,
+  now: () => Date.now(),
+  sleep: (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
+};
+
+let portalFreeAt = 0;
+let portalQueue: Promise<unknown> = Promise.resolve();
+
+/**
+ * Wait for the portal's turn, then ask it.
+ *
+ * @param rest how long the portal is left alone after this request has been answered.
+ */
+export function portalTurn<T>(rest: number, work: () => Promise<T>): Promise<T> {
+  const turn = portalQueue.then(async () => {
+    const wait = portalFreeAt - portalPace.now();
+    if (wait > 0) await portalPace.sleep(wait);
+    portalFreeAt = portalPace.now() + portalPace.apart;
+    try {
+      return await work();
+    } finally {
+      portalFreeAt = Math.max(portalFreeAt, portalPace.now() + rest);
+    }
+  });
+  portalQueue = turn.catch(() => undefined);
+  return turn;
+}
 
 export type RosterRow = {
   SPRIDEN_ID?: string;
@@ -342,13 +398,43 @@ export type TimetablePull = {
   fetchedAt: number;
 };
 
+/** What a sweep has gathered so far: handed out after every section, so a reload can carry on from it. */
+export type TimetableSoFar = {
+  termCode: string;
+  sections: FacilitySection[];
+  silent: string[];
+  failed: string[];
+  malformed: number;
+};
+
+export type SweepOptions = {
+  /** What an earlier attempt at this same sweep had already gathered. */
+  from?: TimetableSoFar | null;
+  /** Told after every section, with everything gathered so far. */
+  keep?: (sofar: TimetableSoFar) => void;
+  /** Asked before every section: true once nobody wants the answer any more. */
+  stop?: () => boolean;
+};
+
+/** The sweep was given up on, or replaced by another, part-way through. */
+export class SweepStopped extends Error {
+  readonly code = "stopped";
+
+  constructor() {
+    super("The sync was stopped before the timetable was finished.");
+    this.name = "SweepStopped";
+  }
+}
+
 /**
  * Ask the registrar what it has booked for these sections.
  *
- * One call per CRN inside the extension, two at a time — the portal answers an empty list
- * for about one call in seven when pushed harder, and an empty list is what a section with
- * nothing booked looks like. So this is slow by construction: a hundred and sixty CRNs is
- * minutes, not seconds, and the timeout is the long one for exactly that reason.
+ * One section per request, and each request waits its turn with the portal: a second
+ * apart, never two at once. It used to be the whole list in one message, which the
+ * extension worked through two at a time as fast as the portal answered — 167 sections in
+ * nine seconds — and a page reloaded half-way lost everything asked so far, while the
+ * extension carried on asking for a page that was no longer there to hear it. Asked from
+ * here, a reload costs at most the one section in flight, and `keep` holds the rest.
  *
  * No category crosses the bridge. The extension will only ask about a CRN; Student and
  * Teacher would return a named person's whole week, which is not a question about a room.
@@ -357,22 +443,79 @@ export async function pullTimetable(
   termCode: string,
   crns: string[],
   onProgress?: (progress: PullProgress) => void,
+  options: SweepOptions = {},
 ): Promise<TimetablePull> {
-  const reply = await ask("timetable", { termCode, crns }, FETCH_TIMEOUT_MS, onProgress);
-  if (!reply.ok) {
-    const detail = String(reply.message ?? reply.detail ?? reply.status ?? "");
-    throw new PortalError(await diagnose(String(reply.error ?? "unknown")), detail);
+  return sweepOneByOne(
+    termCode,
+    crns,
+    (crn) => portalTurn(0, () => ask("timetable", { termCode, crns: [crn] }, FETCH_TIMEOUT_MS)),
+    onProgress,
+    options,
+  );
+}
+
+/**
+ * The sweep itself, given the way to ask about one section — apart from the asking so it
+ * can be tested without an extension, since jsdom will not deliver postMessage on a clock.
+ */
+export async function sweepOneByOne(
+  termCode: string,
+  crns: string[],
+  askOne: (crn: string) => Promise<Reply>,
+  onProgress?: (progress: PullProgress) => void,
+  { from, keep, stop }: SweepOptions = {},
+): Promise<TimetablePull> {
+  const asked = [...new Set(crns.map((crn) => String(crn).trim()).filter(Boolean))];
+  const sofar: TimetableSoFar = {
+    termCode: from?.termCode || termCode,
+    sections: [...(from?.sections ?? [])],
+    silent: [...(from?.silent ?? [])],
+    failed: [...(from?.failed ?? [])],
+    malformed: from?.malformed ?? 0,
+  };
+  const accounted = new Set([...sofar.sections.map((section) => section.crn), ...sofar.silent, ...sofar.failed]);
+  let done = asked.filter((crn) => accounted.has(crn)).length;
+  let truncated = false;
+  if (done) onProgress?.({ fetched: done, total: asked.length });
+
+  for (const crn of asked) {
+    if (accounted.has(crn)) continue;
+    if (stop?.()) throw new SweepStopped();
+    const reply = await askOne(crn);
+    if (!reply.ok) {
+      // An expired session or a missing extension fails every section after this one the
+      // same way, so the sweep stops and says so once. What it had stays with `keep`.
+      const detail = String(reply.message ?? reply.detail ?? reply.status ?? "");
+      throw new PortalError(await diagnose(String(reply.error ?? "unknown")), detail);
+    }
+    /*
+     * Every section asked about lands in exactly one list, because the store refuses a
+     * sweep that cannot account for what it asked. An answer that somehow says nothing
+     * about it is a failure — never a silence, which is evidence the section is gone.
+     */
+    const section = ((reply.sections as FacilitySection[]) ?? []).find((one) => one.crn === crn);
+    if (section) sofar.sections.push(section);
+    else if (((reply.silent as string[]) ?? []).includes(crn)) sofar.silent.push(crn);
+    else sofar.failed.push(crn);
+    sofar.malformed += Number(reply.malformed ?? 0);
+    if (reply.termCode) sofar.termCode = String(reply.termCode);
+    if (reply.warning === "truncated") truncated = true;
+    accounted.add(crn);
+    done += 1;
+    keep?.(sofar);
+    onProgress?.({ fetched: done, total: asked.length });
   }
+
   return {
-    termCode: String(reply.termCode ?? termCode),
-    asked: (reply.asked as string[]) ?? [],
-    sections: (reply.sections as FacilitySection[]) ?? [],
-    silent: (reply.silent as string[]) ?? [],
-    failed: (reply.failed as string[]) ?? [],
-    complete: Boolean(reply.complete),
-    malformed: Number(reply.malformed ?? 0),
-    warning: (reply.warning as string | null) ?? null,
-    fetchedAt: Number(reply.fetchedAt ?? Date.now()),
+    termCode: sofar.termCode,
+    asked,
+    sections: sofar.sections,
+    silent: sofar.silent,
+    failed: sofar.failed,
+    complete: !truncated,
+    malformed: sofar.malformed,
+    warning: truncated ? "truncated" : sofar.malformed ? "malformed_times" : null,
+    fetchedAt: Date.now(),
   };
 }
 
@@ -381,7 +524,9 @@ async function run(
   presetId: string,
   onProgress?: (progress: PullProgress) => void,
 ): Promise<PortalRoster> {
-  const reply = await ask("fetch", request, FETCH_TIMEOUT_MS, onProgress);
+  // A whole list is the heaviest thing the portal is asked, so it is left alone for a
+  // while after answering one.
+  const reply = await portalTurn(portalPace.afterList, () => ask("fetch", request, LIST_SILENCE_MS, onProgress));
   if (!reply.ok) {
     // A refusal explains itself in `detail`; a failure further out uses `message`.
     const detail = String(reply.message ?? reply.detail ?? reply.status ?? "");
