@@ -309,7 +309,7 @@ export function TeacherRecord({
        * is a small grid; each on a row of its own left half the width empty.
        */}
       <div className="mt-5 grid gap-4 lg:grid-cols-2">
-        <div className="grid gap-4 self-start rounded-lg border border-[#e4e8ef] bg-[#fbfcfe] px-4 py-3 sm:grid-cols-2">
+        <div className="grid content-start gap-4 rounded-lg border border-[#e4e8ef] bg-[#fbfcfe] px-4 py-3 sm:grid-cols-2">
           <Fact label="E-mail" value={facts.email || teacher.psuadEmail || ""} source="portal" />
           <Fact label="Rank" value={facts.rank ?? ""} source="portal" />
           <Fact label="Category" value={facts.category ?? ""} source="portal" />

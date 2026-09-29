@@ -138,35 +138,47 @@ export function CourseRecord({
       }
     >
       {/*
-       * Two columns, read down then across: the registrar's side — what it holds and what
-       * is wrong with it — and ours — where we teach it and when it meets.
+       * In rows, so the cards line up across the page: what we say about the course beside
+       * where we teach it; then the register and what is wrong with it, beside when it meets.
+       * Each row's cards are as tall as each other — two columns stacked on their own ended
+       * wherever their cards happened to.
        */}
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2 lg:items-start">
-        <div className="space-y-3">
-          {/*
-            * The two things about a course that are ours to say rather than the portal's.
-            *
-            * They were written from a CRN's dialog, which is where they were read. Both
-            * belong to the course — every CRN of it has the same UE, and a course is
-            * mutualized or it is not — so editing them from one section said something
-            * untrue about what they are, and left the course, which is the thing they
-            * describe, with nowhere to say them.
-            */}
-          <Card title="What we say about it" note="The course's own facts, the same on every CRN of it.">
-            {course ? (
-              <CourseFacts
-                key={course.id}
-                course={course}
-                onSaved={() => {
-                  client.invalidateQueries({ queryKey: ["active-courses"] });
-                  client.invalidateQueries({ queryKey: ["active-crns"] });
-                }}
-              />
-            ) : (
-              <Empty>Not in the register, so there is nothing to say about it yet.</Empty>
-            )}
-          </Card>
-
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+        {/*
+          * The two things about a course that are ours to say rather than the portal's.
+          *
+          * They were written from a CRN's dialog, which is where they were read. Both
+          * belong to the course — every CRN of it has the same UE, and a course is
+          * mutualized or it is not — so editing them from one section said something
+          * untrue about what they are, and left the course, which is the thing they
+          * describe, with nowhere to say them.
+          */}
+        <Card title="What we say about it" note="The course's own facts, the same on every CRN of it.">
+          {course ? (
+            <CourseFacts
+              key={course.id}
+              course={course}
+              onSaved={() => {
+                client.invalidateQueries({ queryKey: ["active-courses"] });
+                client.invalidateQueries({ queryKey: ["active-crns"] });
+              }}
+            />
+          ) : (
+            <Empty>Not in the register, so there is nothing to say about it yet.</Empty>
+          )}
+        </Card>
+        <Card title="Where we teach it" note="Every group of every set that holds a section of this course.">
+          {cards.length === 0 ? (
+            <Empty>On no course card yet. Add it to a set on Group schema.</Empty>
+          ) : (
+            <ul className="space-y-3 text-sm">
+              {cards.map((card) => (
+                <TaughtIn key={card.key} card={card} nameOf={nameOf} />
+              ))}
+            </ul>
+          )}
+        </Card>
+        <div className="flex flex-col gap-3">
           <Card title="In the register" note="The CRNs the department answers for, and what the portal says about each.">
             {held.length === 0 ? (
               <Empty>Not in the register. Take the course in on Active CRNs and its CRNs come with it.</Empty>
@@ -178,8 +190,7 @@ export function CourseRecord({
               </ul>
             )}
           </Card>
-
-          <Card title="What is wrong with it" note="The differences that name this course, and nothing else's.">
+          <Card title="What is wrong with it" note="The differences that name this course, and nothing else's." className="flex-1">
             {check.isLoading ? (
               <Empty>Reading the register…</Empty>
             ) : differences.length === 0 ? (
@@ -193,51 +204,37 @@ export function CourseRecord({
             )}
           </Card>
         </div>
-        <div className="space-y-3">
-          <Card title="Where we teach it" note="Every group of every set that holds a section of this course.">
-            {cards.length === 0 ? (
-              <Empty>On no course card yet. Add it to a set on Group schema.</Empty>
-            ) : (
-              <ul className="space-y-3 text-sm">
-                {cards.map((card) => (
-                  <TaughtIn key={card.key} card={card} nameOf={nameOf} />
-                ))}
-              </ul>
-            )}
-          </Card>
-
-          <Card
-            title="When it meets"
-            action={
-              held.length ? (
-                /*
-                 * The course's whole semester as a PDF, a page per teaching week: every CRN
-                 * of it on one grid, as Active CRNs exports a ticked handful.
-                 */
-                <TimetablesButton
-                  small
-                  label="Export timetable"
-                  make={() =>
-                    exportCrnTimetable(client, held, {
-                      title: [code, course?.title || held[0]?.courseTitle || held[0]?.portalTitle || ""].filter(Boolean).join(" · "),
-                      subtitle: "Course",
-                      filename: `${code.replace(/[^A-Za-z0-9-]+/g, "-")}-timetable.pdf`,
-                    })
-                  }
-                />
-              ) : null
-            }
-          >
-            <SectionTimetable
-              entries={timetable}
-              compact
-              title={`${code} — timetable`}
-              openable={(crn) => held.some((row) => row.crn === crn)}
-              onOpenCrn={(crn) => setShowingCrn(held.find((row) => row.crn === crn) ?? null)}
-              emptyMessage="Not in the register, so the portal has not been asked when it meets."
-            />
-          </Card>
-        </div>
+        <Card
+          title="When it meets"
+          action={
+            held.length ? (
+              /*
+               * The course's whole semester as a PDF, a page per teaching week: every CRN
+               * of it on one grid, as Active CRNs exports a ticked handful.
+               */
+              <TimetablesButton
+                small
+                label="Export timetable"
+                make={() =>
+                  exportCrnTimetable(client, held, {
+                    title: [code, course?.title || held[0]?.courseTitle || held[0]?.portalTitle || ""].filter(Boolean).join(" · "),
+                    subtitle: "Course",
+                    filename: `${code.replace(/[^A-Za-z0-9-]+/g, "-")}-timetable.pdf`,
+                  })
+                }
+              />
+            ) : null
+          }
+        >
+          <SectionTimetable
+            entries={timetable}
+            compact
+            title={`${code} — timetable`}
+            openable={(crn) => held.some((row) => row.crn === crn)}
+            onOpenCrn={(crn) => setShowingCrn(held.find((row) => row.crn === crn) ?? null)}
+            emptyMessage="Not in the register, so the portal has not been asked when it meets."
+          />
+        </Card>
       </div>
         {showingCrn ? (
           <CrnRecord
@@ -367,9 +364,22 @@ function TaughtIn({ card, nameOf }: { card: CourseCard; nameOf: (teacherId: stri
   );
 }
 
-function Card({ title, note, action, children }: { title: string; note?: string; action?: ReactNode; children: ReactNode }) {
+function Card({
+  title,
+  note,
+  action,
+  className = "",
+  children,
+}: {
+  title: string;
+  note?: string;
+  action?: ReactNode;
+  /** `flex-1` for the last card of a column, so it reaches the foot of its row. */
+  className?: string;
+  children: ReactNode;
+}) {
   return (
-    <section className="rounded-lg border border-[#e4e8ef] bg-white px-4 py-3">
+    <section className={`rounded-lg border border-[#e4e8ef] bg-white px-4 py-3 ${className}`}>
       {/* What the card is for sits on an ⓘ by its title: read once, not paid for on every opening. */}
       <div className="mb-2 flex items-start justify-between gap-2">
         <div className="flex items-center gap-1.5">

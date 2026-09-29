@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, ArrowRightCircle, Check, ChevronDown, ClipboardList, EyeOff, GraduationCap, MinusCircle, ShieldCheck, Undo2, UserMinus, Wand2, X } from "lucide-react";
+import { AlertTriangle, ArrowLeftRight, ArrowRightCircle, Check, ChevronDown, ClipboardList, EyeOff, GraduationCap, MinusCircle, ShieldCheck, Undo2, UserMinus, Wand2, X } from "lucide-react";
 import { Popover } from "radix-ui";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
@@ -8,6 +8,7 @@ import { CrnRecord } from "@/components/CrnRecord";
 import { InfoTip } from "@/components/InfoTip";
 import { Modal } from "@/components/Modal";
 import { PlaceInBlock } from "@/components/PlaceInBlock";
+import { SelectMenu } from "@/components/SelectMenu";
 import { SectionTimetable, type TimetableEntry } from "@/components/SectionTimetable";
 import { subRowLabel } from "@/services/courseCards";
 import {
@@ -323,6 +324,46 @@ export function StudentRecord({
       void client.invalidateQueries({ queryKey: ["assignment-majors"] });
     },
   });
+  /*
+   * Moving them to another group of the same set, from the group itself — the other half
+   * of taking them out, and the more usual one: a student is rarely taken out of TD 1 to
+   * sit in no TD. The group, or a sub-row of it where it has several, as the set has them.
+   */
+  const [moving, setMoving] = useState("");
+  const move = useMutation({
+    mutationFn: async ({ scopeId, target }: { scopeId: string; target: string }) => {
+      const [groupId, majorId] = target.split("|");
+      const report = await assignStudents(scopeId, [row.studentId], groupId, majorId ? { [row.studentId]: majorId } : {});
+      if (report.skipped.includes(row.studentId)) throw new Error("That set belongs to another cohort, so they were left where they are.");
+    },
+    onSuccess: () => {
+      setMoving("");
+      afterPlacement(client);
+      void client.invalidateQueries({ queryKey: ["assignment-majors"] });
+    },
+  });
+  /** Every other place in the set they could sit: each group, or each sub-row of a group that has them. */
+  const movesIn = (scope: CatalogueScope, current: { groupId: string; majorId: string }) =>
+    scope.groups.flatMap((group) => {
+      const majors = group.majors ?? [];
+      const places = majors.length
+        ? majors.map((major) => ({
+            value: `${group.id}|${major.id}`,
+            label: subRowLabel(group.label, major.program, majors.length),
+            seats: major.seats,
+            taken: major.assigned,
+          }))
+        : [{ value: `${group.id}|`, label: group.label, seats: group.capacity, taken: group.assigned }];
+      return places
+        .filter((place) => place.value !== `${current.groupId}|${current.majorId}` && place.value !== `${current.groupId}|`)
+        .map((place) => ({
+          value: place.value,
+          label: place.label,
+          // Seats left where they are this cohort's to count; a shared set's seats are everybody's.
+          badge: !place.seats ? "no seats" : scope.openToAll ? `${place.seats} seats` : `${Math.max(0, place.seats - place.taken)} free`,
+          badgeTone: !place.seats || (!scope.openToAll && place.seats - place.taken <= 0) ? ("bad" as const) : ("muted" as const),
+        }));
+    });
   /*
    * Approving an elective: the register's *outside* verdict on this course goes away for
    * this student, for everybody who looks, and the History card says whose decision it was.
@@ -703,7 +744,26 @@ export function StudentRecord({
                               </span>
                             ) : null}
                             {group ? (
-                              leaving === scope.id ? (
+                              moving === scope.id ? (
+                                <span className="ml-auto inline-flex items-center gap-2 text-xs">
+                                  <span className="text-[#344054]">Move to</span>
+                                  <span className="w-44">
+                                    <SelectMenu
+                                      label={`Move from ${scope.code} ${group.label} to`}
+                                      value=""
+                                      placeholder="Choose a group"
+                                      searchable={scope.groups.length > 12}
+                                      disabled={move.isPending}
+                                      onChange={(target) => target && move.mutate({ scopeId: scope.id, target })}
+                                      options={movesIn(scope, { groupId: group.id, majorId: major?.id ?? "" })}
+                                    />
+                                  </span>
+                                  <button type="button" onClick={() => setMoving("")} className="font-semibold text-[#667085]">
+                                    Cancel
+                                  </button>
+                                  {move.error ? <span className="text-[#a6292f]">{(move.error as Error).message}</span> : null}
+                                </span>
+                              ) : leaving === scope.id ? (
                                 <span className="ml-auto inline-flex items-center gap-2 text-xs">
                                   <span className="text-[#a6292f]">Take them out of {scope.code} {group.label}?</span>
                                   <button
@@ -719,18 +779,34 @@ export function StudentRecord({
                                   </button>
                                 </span>
                               ) : (
-                                <button
-                                  type="button"
-                                  aria-label={`Take out of ${scope.code} ${group.label}`}
-                                  title={`Take them out of ${scope.code} ${group.label}. Their other groups stay.`}
-                                  onClick={() => {
-                                    takeOut.reset();
-                                    setLeaving(scope.id);
-                                  }}
-                                  className="ml-auto rounded p-1 text-[#c8d0da] hover:bg-[#fdf3f3] hover:text-[#a6292f]"
-                                >
-                                  <UserMinus size={14} aria-hidden="true" />
-                                </button>
+                                <span className="ml-auto inline-flex items-center">
+                                  <button
+                                    type="button"
+                                    aria-label={`Change group in ${scope.code}`}
+                                    title={`Move them from ${scope.code} ${group.label} to another group of ${scope.code}. Their other groups stay.`}
+                                    onClick={() => {
+                                      move.reset();
+                                      setLeaving("");
+                                      setMoving(scope.id);
+                                    }}
+                                    className="rounded p-1 text-[#c8d0da] hover:bg-[#f2f7fb] hover:text-[#1f4e79]"
+                                  >
+                                    <ArrowLeftRight size={14} aria-hidden="true" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    aria-label={`Take out of ${scope.code} ${group.label}`}
+                                    title={`Take them out of ${scope.code} ${group.label}. Their other groups stay.`}
+                                    onClick={() => {
+                                      takeOut.reset();
+                                      setMoving("");
+                                      setLeaving(scope.id);
+                                    }}
+                                    className="rounded p-1 text-[#c8d0da] hover:bg-[#fdf3f3] hover:text-[#a6292f]"
+                                  >
+                                    <UserMinus size={14} aria-hidden="true" />
+                                  </button>
+                                </span>
                               )
                             ) : null}
                           </span>

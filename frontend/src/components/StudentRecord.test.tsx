@@ -161,6 +161,60 @@ describe("a student's record", () => {
     await waitFor(() => expect(assigned).toHaveBeenCalledWith("scope-td", ["A001"], null));
   });
 
+  it("moves them to another group of the set from the group itself, sub-row and all", async () => {
+    const assigned = vi.spyOn(database, "assignStudents").mockResolvedValue({ assigned: 1, skipped: [] });
+    const section = { ...EMPTY_SECTION, crn: "", teacher: "" };
+    vi.spyOn(database, "fetchCatalogue").mockResolvedValue({
+      scopes: [
+        {
+          id: "scope-td", code: "TD", name: "Tutorials", note: "", termId: "term-1",
+          kind: "shared", parentScopeId: "", openToAll: false, courses: [{ id: "c-algo", code: "MATH-011", name: "Algorithms", component: "TD", request: EMPTY_REQUEST }],
+          groups: [
+            { id: "td-1", label: "1", capacity: 24, note: "", parentGroupId: "", assigned: 20, crns: { "c-algo": { ...section, crn: "23652" } } },
+            { id: "td-2", label: "2", capacity: 24, note: "", parentGroupId: "", assigned: 21, crns: { "c-algo": section } },
+            {
+              id: "td-3", label: "3", capacity: 30, note: "", parentGroupId: "", assigned: 12, crns: { "c-algo": section },
+              majors: [
+                { id: "m-phys", program: "PHYS - Physics", seats: 20, assigned: 12 },
+                { id: "m-math", program: "MATH - Mathematics", seats: 10, assigned: 10 },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+    show();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Change group in TD" }));
+    await pick("Move from TD 1 to", /TD 3 · Physics|3 · Physics/);
+
+    // Into that group's sub-row, in that set alone: their other groups stay.
+    await waitFor(() => expect(assigned).toHaveBeenCalledWith("scope-td", ["A001"], "td-3", { A001: "m-phys" }));
+  });
+
+  it("offers every other group with its free seats, and not the one they are in", async () => {
+    vi.spyOn(database, "fetchCatalogue").mockResolvedValue({
+      scopes: [
+        {
+          id: "scope-td", code: "TD", name: "Tutorials", note: "", termId: "term-1",
+          kind: "shared", parentScopeId: "", openToAll: false, courses: [{ id: "c-algo", code: "MATH-011", name: "Algorithms", component: "TD", request: EMPTY_REQUEST }],
+          groups: [
+            { id: "td-1", label: "1", capacity: 24, note: "", parentGroupId: "", assigned: 20, crns: { "c-algo": { ...EMPTY_SECTION, crn: "23652", teacher: "" } } },
+            { id: "td-2", label: "2", capacity: 24, note: "", parentGroupId: "", assigned: 21, crns: {} },
+          ],
+        },
+      ],
+    });
+    show();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Change group in TD" }));
+    fireEvent.click(screen.getByRole("combobox", { name: "Move from TD 1 to" }));
+    // TD 1 is where they are, so only TD 2 — with its 24 seats less the 21 in it.
+    const options = await screen.findAllByRole("option");
+    expect(options).toHaveLength(1);
+    expect(options[0].textContent).toMatch(/2.*3 free$/);
+  });
+
   it("says exempt, not a fault, for a CRN of a course they do not take", async () => {
     /*
      * 23652 is a CRN their group gives them and the registrar has not registered them for.
