@@ -476,6 +476,17 @@ export function StudentRoster({
     const tokens = exemptionTokens(exemptions.data ?? [], (studentId) => cohortOf.get(studentId) ?? null, catalogues.data ?? []);
     return (studentId: string) => tokens.get(studentId) ?? [];
   }, [exemptions.data, students.data, catalogues.data]);
+  // The same exemptions by course, so Meets leaves out the days of a course they do not take.
+  const excusedFor = useMemo(() => {
+    const held = new Map<string, Set<string>>();
+    for (const entry of exemptions.data ?? []) {
+      const courses = held.get(entry.studentId) ?? new Set<string>();
+      courses.add(entry.courseId);
+      held.set(entry.studentId, courses);
+    }
+    const none = new Set<string>();
+    return (studentId: string): ReadonlySet<string> => held.get(studentId) ?? none;
+  }, [exemptions.data]);
 
   const everyRow = useMemo(
     () =>
@@ -490,8 +501,9 @@ export function StudentRoster({
         sectionDays.data?.days ?? {},
         electivesFor,
         exemptionsFor,
+        excusedFor,
       ),
-    [students.data, portalRows, changes, syncedAt, termNames, warningsFor, crnsOf, sectionDays.data, electivesFor, exemptionsFor],
+    [students.data, portalRows, changes, syncedAt, termNames, warningsFor, crnsOf, sectionDays.data, electivesFor, exemptionsFor, excusedFor],
   );
   const rows = useMemo(() => {
     /*

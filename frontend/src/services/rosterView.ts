@@ -200,6 +200,8 @@ export function studentRows(
   electivesFor: (studentId: string) => string[] = () => [],
   /** What they are exempt from, as the Exempt from column says it. */
   exemptionsFor: (studentId: string) => string[] = () => [],
+  /** The same, by our own course id: what Meets leaves out. */
+  excusedFor: (studentId: string) => ReadonlySet<string> = () => new Set(),
 ): StudentRow[] {
   const pulled = new Map<string, RosterRow>();
   for (const row of portal) {
@@ -232,6 +234,7 @@ export function studentRows(
         crnsOf,
         days,
         termNames,
+        excusedFor(student.studentId),
       ),
       firstSeenAt: student.firstSeenAt,
       lastSeenAt: student.lastSeenAt,

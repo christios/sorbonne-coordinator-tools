@@ -1,8 +1,11 @@
 import { shortTerm } from "@/services/rosterView";
 import { partsOf, type Catalogue } from "@/services/studentDatabase";
 
-/** What a group holds, from the cohort-blind course-cards read. */
-export type GroupCrns = Record<string, string[]>;
+/**
+ * What a group holds, from the cohort-blind course-cards read: each section's CRN and the
+ * course it is a section of — the course, so a student exempt from it can be left out.
+ */
+export type GroupCrns = Record<string, { crn: string; courseId: string }[]>;
 
 /** The registrar's answer: `crn -> ["Mon","Tue"]`, plus the sections nobody asked about. */
 export type SectionDays = { days: Record<string, string[]>; blind: string[] };
@@ -36,15 +39,25 @@ export function meetsTokens(
   crnsOf: GroupCrns,
   days: Record<string, string[]>,
   termNames: Record<string, string> = {},
+  /** The courses this student is exempt from, by our own course id. */
+  excused: ReadonlySet<string> = new Set(),
 ): string[] {
   const terms = new Set(placements.map((placement) => placement.termId));
   const tokens = new Set<string>();
   for (const placement of placements) {
     const term = termNames[placement.termId];
     const prefix = terms.size > 1 && term ? `${shortTerm(term)} · ` : "";
-    const crns = crnsOf[placement.groupId] ?? [];
+    const held = crnsOf[placement.groupId] ?? [];
+    /*
+     * A course they are exempt from is not a class they are in, though their group is. Its
+     * days used to count, so a student exempt from CPSC-100 still "met" on its afternoon.
+     * Exempt from everything the group gives them, they meet on no day of that set at all —
+     * which is not the same as not knowing which day.
+     */
+    const theirs = held.filter((section) => !excused.has(section.courseId));
+    if (held.length && !theirs.length) continue;
     // A group with no sections yet is not a group that meets on no days.
-    const known = crns.flatMap((crn) => days[crn] ?? []);
+    const known = theirs.flatMap(({ crn }) => days[crn] ?? []);
     const said = known.length ? [...new Set(known)] : [DAY_UNKNOWN];
     for (const day of said) tokens.add(`${prefix}${placement.scopeCode} ${day}`);
   }
@@ -83,11 +96,18 @@ export function groupCrns(catalogues: Catalogue[]): GroupCrns {
         // an afternoon they are in a lecture.
         // The shared cells and every sub-row's own: a group is busy whenever any of its
         // students is. What one student is in comes from their own sub-row elsewhere.
-        const crns = [...Object.values(group.crns ?? {}), ...Object.values(group.byMajor ?? {}).flatMap((own) => Object.values(own))]
-          .flatMap((section) => partsOf(section))
-          .filter((part) => part.crn && !part.retired && !part.notTaught)
-          .map((part) => part.crn);
-        if (crns.length) held[group.id] = [...new Set([...(held[group.id] ?? []), ...crns])];
+        const sections = [...Object.entries(group.crns ?? {}), ...Object.values(group.byMajor ?? {}).flatMap((own) => Object.entries(own))]
+          .flatMap(([courseId, section]) =>
+            partsOf(section)
+              .filter((part) => part.crn && !part.retired && !part.notTaught)
+              .map((part) => ({ crn: part.crn, courseId })),
+          );
+        if (!sections.length) continue;
+        const kept = [...(held[group.id] ?? [])];
+        for (const section of sections) {
+          if (!kept.some((other) => other.crn === section.crn && other.courseId === section.courseId)) kept.push(section);
+        }
+        held[group.id] = kept;
       }
     }
   }
