@@ -124,3 +124,27 @@ describe("a group whose majors are taught different things", () => {
     expect(cells.join(" ")).not.toContain("23307");
   });
 });
+
+describe("a course the student is exempt from", () => {
+  it("says Exempt, not the class number their group is given", async () => {
+    const buffer = await buildHandoutBuffer({
+      cohortName: "L1-S1", semester: "Semester 1", year: "2026-27", scopes: [scope({})],
+      students: [
+        { studentId: "A1", family: "Exempt", first: "", programme: "", groups: { "s-cm": "1" }, exempt: ["c1"] },
+        { studentId: "A2", family: "Placed", first: "", programme: "", groups: { "s-cm": "1" } },
+      ],
+    });
+    const ExcelJS = await import("exceljs");
+    const book = new ExcelJS.Workbook();
+    await book.xlsx.load(buffer);
+    const text = (row: number) => {
+      const cells: string[] = [];
+      book.worksheets[0].getRow(row).eachCell((cell) => cells.push(String(cell.value ?? "")));
+      return cells.join(" ");
+    };
+
+    expect(text(8)).toContain("Exempt");
+    expect(text(8)).not.toContain("22151");
+    expect(text(9)).toContain("CRN 22151");
+  });
+});

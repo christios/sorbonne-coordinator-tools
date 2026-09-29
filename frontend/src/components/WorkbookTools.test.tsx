@@ -21,6 +21,7 @@ beforeEach(() => {
   vi.spyOn(database, "fetchCatalogue").mockResolvedValue({ scopes: [] });
   // Which half each placement took, for a group written as its halves.
   vi.spyOn(database, "fetchAssignmentMajors").mockResolvedValue({});
+  vi.spyOn(database, "fetchEveryExemption").mockResolvedValue([]);
 });
 
 afterEach(() => vi.restoreAllMocks());
@@ -89,6 +90,46 @@ describe("who the exports are about", () => {
 
     await waitFor(() => expect(exported).toHaveBeenCalled());
     expect(exported.mock.calls[0][0].students.map((s: { studentId: string }) => s.studentId)).toEqual(["A001"]);
+  });
+});
+
+describe("what a student is exempt from", () => {
+  it("goes into the workbook with them, for the courses in it and no others", async () => {
+    // Four L1 students exempt from CPSC-100 were given its CRN all the same.
+    const exported = vi.fn();
+    vi.spyOn(workbook, "downloadWorkbook").mockImplementation(async (input) => void exported(input));
+    vi.spyOn(database, "fetchCatalogue").mockResolvedValue({
+      scopes: [
+        {
+          id: "scope-cm", code: "CM", name: "Lectures", note: "", kind: "shared", parentScopeId: "", openToAll: false,
+          courses: [{ id: "c-cpsc", code: "CPSC-100", name: "Computing", component: "CM", request: database.EMPTY_REQUEST }],
+          groups: [{ id: "cm-a", label: "A", capacity: 0, note: "", parentGroupId: "", assigned: 1, crns: {} }],
+        },
+      ],
+    });
+    vi.spyOn(database, "fetchAssignments").mockResolvedValue({ A001: { "scope-cm": "cm-a" } });
+    vi.spyOn(database, "fetchMemberIds").mockResolvedValue(new Set(["A001"]));
+    const exemption = { courseCode: "", scopeId: "", scopeCode: "", termId: "", reason: "" };
+    vi.spyOn(database, "fetchEveryExemption").mockResolvedValue([
+      { ...exemption, studentId: "A001", courseId: "c-cpsc" },
+      // Another semester's course: not in this file, so not its business.
+      { ...exemption, studentId: "A001", courseId: "c-elsewhere" },
+    ]);
+    vi.spyOn(roster, "namesHeld").mockResolvedValue({});
+    vi.spyOn(roster, "fieldHeld").mockResolvedValue({});
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <WorkbookTools open cohorts={[COHORT]} terms={TERMS} onClose={() => {}} />
+      </QueryClientProvider>,
+    );
+
+    const button = await screen.findByRole("button", { name: /Export workbook/ });
+    await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(button);
+
+    await waitFor(() => expect(exported).toHaveBeenCalled());
+    expect(exported.mock.calls[0][0].students[0].exempt).toEqual(["c-cpsc"]);
   });
 });
 

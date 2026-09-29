@@ -45,6 +45,8 @@ export type HandoutStudent = {
    * own major's lectures: a physicist in L1's CM is not sent to the mathematicians' one.
    */
   majors?: Record<string, string>;
+  /** The courses they are exempt from, by our own course id. */
+  exempt?: string[];
 };
 
 export type Handout = {
@@ -273,7 +275,12 @@ export async function buildHandoutBuffer(input: Handout): Promise<ArrayBuffer> {
           (part) => part.crn,
         );
         const cell = sheet.getCell(row, at + offset + 1);
-        cell.value = parts.length ? parts.map((part) => classCell(part.crn, named(part))).join("\n") : "—";
+        // Their group is taught it; they are not, and a class number here would send them to it.
+        cell.value = student.exempt?.includes(course.id)
+          ? "Exempt"
+          : parts.length
+            ? parts.map((part) => classCell(part.crn, named(part))).join("\n")
+            : "—";
         cell.font = { size: 10 };
         cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
         cell.border = ruled();

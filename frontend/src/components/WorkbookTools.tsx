@@ -9,7 +9,7 @@ import { downloadAdmissionsList } from "@/services/admissionsExport";
 import { downloadHandout, handoutName } from "@/services/studentHandout";
 import { fetchActiveCourses, fetchActiveTeachers } from "@/services/portalLists";
 import { fieldHeld, namesHeld } from "@/services/rosterStore";
-import { type Cohort, fetchAssignmentMajors, fetchAssignments, fetchCatalogue, fetchMemberIds } from "@/services/studentDatabase";
+import { type CatalogueScope, type Cohort, fetchAssignmentMajors, fetchAssignments, fetchCatalogue, fetchEveryExemption, fetchMemberIds } from "@/services/studentDatabase";
 import type { TimetableTerm } from "@/services/timetables";
 import type { Card } from "@/services/courseCards";
 import { downloadTimetableWorkbook, requestSheets, sheetTitle, semesterLabel } from "@/services/timetableExport";
@@ -41,6 +41,24 @@ import { downloadWorkbook, labelIn, prefixOf, readingsFor, shortYear } from "@/s
 async function placementsOfMembers(cohortId: string): Promise<Record<string, Record<string, string>>> {
   const [placements, members] = await Promise.all([fetchAssignments(cohortId), fetchMemberIds(cohortId)]);
   return Object.fromEntries(Object.entries(placements).filter(([studentId]) => members.has(studentId)));
+}
+
+/**
+ * The courses each student is exempt from, by our own course id — for these blocks only.
+ *
+ * Every exemption, then kept to the courses in the file, rather than asking by cohort: an
+ * exemption is filed wherever its course's set lives, and a file that asked the wrong
+ * cohort would hand an exempt student their class number all the same. All three files
+ * used to, for every exemption there was — the group still teaches the course, so its CRN
+ * was found and written against somebody who does not take it.
+ */
+async function exemptionsIn(scopes: CatalogueScope[]): Promise<Record<string, string[]>> {
+  const courses = new Set(scopes.flatMap((scope) => scope.courses.map((course) => course.id)));
+  const held: Record<string, string[]> = {};
+  for (const entry of await fetchEveryExemption()) {
+    if (courses.has(entry.courseId)) (held[entry.studentId] ??= []).push(entry.courseId);
+  }
+  return held;
 }
 
 export function WorkbookTools({
@@ -101,12 +119,14 @@ export function WorkbookTools({
       const placements = await placementsOfMembers(cohort.id);
       // Which half each placement took, where a group is written as its halves.
       const majors = await fetchAssignmentMajors(cohort.id);
+      const exempt = await exemptionsIn(scopes);
       const byScope = new Map(scopes.map((scope) => [scope.id, scope]));
       const students = Object.entries(placements)
         .map(([studentId, byScopeId]) => ({
           studentId,
           name: held[studentId] ?? "",
           program: programs[studentId] ?? "",
+          exempt: exempt[studentId] ?? [],
           groups: Object.fromEntries(
             Object.entries(byScopeId).flatMap(([scopeId, groupId]) => {
               const scope = byScope.get(scopeId);
@@ -148,12 +168,19 @@ export function WorkbookTools({
       const placements = await placementsOfMembers(cohort.id);
       // Which major each placement took, so a student reads their major's own cells.
       const majors = await fetchAssignmentMajors(cohort.id);
+      const exempt = await exemptionsIn(scopes);
       await downloadAdmissionsList(
         {
           prefix: prefixOf(cohort.name),
           year: shortYear(cohort.term),
           scopes,
-          students: Object.entries(placements).map(([studentId, groups]) => ({ studentId, name: held[studentId] ?? "", groups, majors: majors[studentId] ?? {} })),
+          students: Object.entries(placements).map(([studentId, groups]) => ({
+            studentId,
+            name: held[studentId] ?? "",
+            groups,
+            majors: majors[studentId] ?? {},
+            exempt: exempt[studentId] ?? [],
+          })),
         },
         `${cohort.name.replace(/[^A-Za-z0-9]+/g, "-")}-admissions.xlsx`,
       );
@@ -214,9 +241,11 @@ export function WorkbookTools({
       const placements = await placementsOfMembers(cohort.id);
       // Which half each placement took, so each student reads their own major's lectures.
       const majors = await fetchAssignmentMajors(cohort.id);
+      const exempt = await exemptionsIn(scopes);
       const labelOf = new Map(scopes.flatMap((scope) => scope.groups.map((group) => [group.id, group.label] as const)));
       const students = Object.entries(placements).map(([studentId, byScopeId]) => ({
         majors: majors[studentId] ?? {},
+        exempt: exempt[studentId] ?? [],
         studentId,
         // The registrar's own split where this browser has it, and the whole name where
         // it does not — the sheet promises the list is alphabetical by family name, so

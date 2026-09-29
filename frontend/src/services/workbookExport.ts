@@ -115,6 +115,8 @@ export type ExportStudent = {
   groups: Record<string, string>;
   /** The programme the portal has them on, when this browser knows it. */
   program?: string;
+  /** The courses they are exempt from, by our own course id. */
+  exempt?: string[];
 };
 
 export type ExportInput = {
@@ -211,6 +213,16 @@ export function helperKey(scopeCode: string, groupLabel: string, courseCode: str
  * ninety of them down one column is ninety invitations to look into nothing.
  */
 const NOT_TAKEN = "";
+
+/**
+ * What a CRN cell says for a course the student is exempt from.
+ *
+ * Written as a word, not worked out by the formula: the group they are in still teaches
+ * the course, so the formula would find its CRN and put an exempt student in a class they
+ * do not take — which is what the file did, for every exemption there was. And a word
+ * rather than a blank, because a blank there reads as "not placed yet".
+ */
+export const EXEMPT = "Exempt";
 
 /**
  * What a block's amber column is called — on the student tabs, on the Reference sheet and
@@ -501,6 +513,7 @@ function writeStudentTab(sheet: Sheet, blocks: ExportBlock[], input: ExportInput
       cell.border = ruled();
     }
 
+    const excused = new Set(student?.exempt ?? []);
     for (const { block, group, courses } of placed) {
       const letter = columnLetter(group);
       // Named only where the block has groups; without a list COUNTIF would have no range.
@@ -514,8 +527,9 @@ function writeStudentTab(sheet: Sheet, blocks: ExportBlock[], input: ExportInput
 
       block.courses.forEach((course, offset) => {
         const cell = sheet.getCell(row, courses + offset);
-        cell.value = { formula: crnFormula(input.prefix, block.code, letter, keyOf(input, course), row, groups) };
-        cell.font = { name: "Calibri", size: 11 };
+        const exempt = excused.has(course.id);
+        cell.value = exempt ? EXEMPT : { formula: crnFormula(input.prefix, block.code, letter, keyOf(input, course), row, groups) };
+        cell.font = exempt ? { name: "Calibri", size: 11, italic: true, color: { argb: "FF667085" } } : { name: "Calibri", size: 11 };
         cell.alignment = { horizontal: "center", vertical: "middle" };
         cell.border = ruled();
         paint(cell, CALCULATED_FILL);

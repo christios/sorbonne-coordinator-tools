@@ -42,6 +42,8 @@ export type AdmissionsStudent = {
    * gets no CRN for it — the same reading as their record and the registration check.
    */
   majors?: Record<string, string>;
+  /** The courses they are exempt from, by our own course id: never registered in those. */
+  exempt?: string[];
 };
 
 /** The CRNs a group gives a student on one sub-row for one course, in the order taught. */
@@ -82,7 +84,9 @@ export function admissionsColumns(scopes: CatalogueScope[]): AdmissionsColumn[] 
 /**
  * The rows, sorted by name as admissions read them. A cell is the CRN the student's
  * group holds for that course and half, and blank when they are in no group for the block,
- * the group has no CRN there, or their major is not taught the course — never a guess.
+ * the group has no CRN there, their major is not taught the course, or they are exempt
+ * from it — never a guess. Blank, not "Exempt": admissions register from this sheet, and
+ * blank is the one thing it already says for "do not register".
  */
 export function admissionsRows(
   scopes: CatalogueScope[],
@@ -97,6 +101,7 @@ export function admissionsRows(
       studentId: student.studentId,
       name: student.name,
       crns: columns.map((column) => {
+        if (student.exempt?.includes(column.courseId)) return null;
         const group = groupsById.get(student.groups[column.scopeId] ?? "");
         if (!group) return null;
         return crnsFor(group, student.majors?.[column.scopeId] ?? "", column.courseId)[column.part] || null;

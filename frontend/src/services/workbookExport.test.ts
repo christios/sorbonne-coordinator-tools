@@ -382,3 +382,35 @@ describe("a group whose majors are taught different things", () => {
     expect(listed.sort()).toEqual(["22134 1 120", "22150 1 · Physics 20", "23307 1 · Mathematics 100"]);
   });
 });
+
+describe("a course the student is exempt from", () => {
+  /*
+   * Their group still teaches it, so the formula would find its CRN and put them in a class
+   * they do not take. Four L1 students exempt from CPSC-100 came out with its CRN.
+   */
+  async function withExemption() {
+    const buffer = await buildWorkbookBuffer({
+      cohortName: "Foundation Year",
+      prefix: "FYS",
+      blocks: [TD, RDNS],
+      students: [{ ...STUDENTS[0], exempt: ["c2"] }, STUDENTS[1]],
+    });
+    const ExcelJS = await import("exceljs");
+    const book = new ExcelJS.Workbook();
+    await book.xlsx.load(buffer);
+    return book.getWorksheet("TD");
+  }
+
+  it("says Exempt in that course's CRN cell instead of looking the group up", async () => {
+    const tab = await withExemption();
+
+    expect(tab?.getCell("G2").value).toBe("Exempt");
+  });
+
+  it("still gives them their other courses, and gives everybody else theirs", async () => {
+    const tab = await withExemption();
+
+    expect((tab?.getCell("F2").value as { formula?: string }).formula).toContain('MATCH("TD|"&$E2&"|MATH001"');
+    expect((tab?.getCell("G3").value as { formula?: string }).formula).toContain('MATCH("TD|"&$E3&"|MATH009"');
+  });
+});

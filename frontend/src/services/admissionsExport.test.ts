@@ -182,3 +182,19 @@ describe("the file", () => {
     expect(admissionsSheetName("A-very-long-cohort-prefix-indeed").length).toBeLessThanOrEqual(31);
   });
 });
+
+describe("a course the student is exempt from", () => {
+  it("is left blank, so admissions do not register them in it", () => {
+    // Amir's group teaches Algorithms; Amir is exempt from it.
+    const rows = admissionsRows([CM, TD], [{ ...STUDENTS[1], exempt: ["t-algo"] }]);
+
+    expect(rows[0].crns).toEqual(["22151", "23652", null]);
+  });
+
+  it("is by the course in that block, not every course with the same code", () => {
+    // Exempt from the MATH001 tutorial is not exempt from the MATH001 lecture.
+    const rows = admissionsRows([CM, TD], [{ ...STUDENTS[1], exempt: ["t-math"] }]);
+
+    expect(rows[0].crns).toEqual(["22151", null, "23365"]);
+  });
+});
