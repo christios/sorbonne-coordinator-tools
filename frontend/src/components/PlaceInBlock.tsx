@@ -179,9 +179,13 @@ export function PlaceInBlock({
   };
   const wouldClash = (groupId: string, rowIndex: number): string => {
     const against = new Set<string>();
+    // A set another row of this dialog is deciding afresh no longer holds them where it did.
+    const decided = new Set(
+      rows.filter((row, at) => at !== rowIndex && row.scopeId && row.groupId).map((row) => row.scopeId),
+    );
     for (const studentId of studentIds) {
       for (const [scopeId, heldGroup] of Object.entries(assignments.data?.[studentId] ?? {})) {
-        if (heldGroup && scopeId !== rows[rowIndex]?.scopeId) against.add(heldGroup);
+        if (heldGroup && scopeId !== rows[rowIndex]?.scopeId && !decided.has(scopeId)) against.add(heldGroup);
       }
     }
     rows.forEach((row, at) => {
@@ -190,6 +194,15 @@ export function PlaceInBlock({
     const hits = [...against].filter((other) => other !== groupId && clashSet.has(clashKey(groupId, other)));
     return hits.map(labelOfGroup).filter(Boolean).join(", ");
   };
+  /*
+   * What each chosen group would clash with, said again once it is chosen and before
+   * anything is placed — the option's tag is easy to pass over, the button is not.
+   */
+  const clashOfRow = (index: number): string => {
+    const row = rows[index];
+    return row?.groupId && row.groupId !== OUT ? wouldClash(row.groupId, index) : "";
+  };
+  const anyClash = mode === "by hand" && rows.some((_, index) => clashOfRow(index));
 
   const candidates = useMemo<FillCandidate[]>(
     () =>
@@ -405,10 +418,14 @@ export function PlaceInBlock({
               type="button"
               disabled={!ready || place.isPending}
               onClick={() => place.mutate()}
-              className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-4 py-2 text-sm font-semibold text-white disabled:bg-[#9ba8b5]"
+              className={`inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-semibold text-white disabled:bg-[#9ba8b5] ${
+                anyClash ? "bg-[#a6292f]" : "bg-[#1f4e79]"
+              }`}
             >
               {place.isPending ? <Loader2 size={16} className="animate-spin" aria-hidden="true" /> : null}
-              {chosen.length && chosen.every((row) => row.groupId === OUT) ? "Take them out" : `Place ${studentIds.length}`}
+              {chosen.length && chosen.every((row) => row.groupId === OUT)
+                ? "Take them out"
+                : `Place ${studentIds.length}${anyClash ? " anyway" : ""}`}
             </button>
           ) : (
             <button
@@ -529,6 +546,15 @@ export function PlaceInBlock({
               />
               {row.because ? (
                 <p className="text-xs text-[#667085]">{row.because} — change it if you like.</p>
+              ) : null}
+              {clashOfRow(index) ? (
+                <p role="alert" className="flex items-start gap-1.5 text-xs font-semibold text-[#a6292f]">
+                  <AlertTriangle size={12} className="mt-0.5 shrink-0" aria-hidden="true" />
+                  <span>
+                    Would clash with {clashOfRow(index)} — they meet at the same hour
+                    {studentIds.length > 1 ? ", for at least one of them" : ""}.
+                  </span>
+                </p>
               ) : null}
               {row.groupId && row.groupId !== OUT && misfits(row.groupId).length ? (
                 <p className="text-xs text-[#8a6116]">

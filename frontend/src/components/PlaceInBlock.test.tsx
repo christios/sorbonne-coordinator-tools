@@ -563,6 +563,15 @@ describe("naming a group that would clash", () => {
       expect(screen.getByRole("option", { name: /Group 1/ }).textContent).toContain("would clash with CM A");
       expect(screen.getByRole("option", { name: /Group 2/ }).textContent).not.toContain("clash");
     });
+
+    // Chosen, it is said again before anything is placed, and the button says so too.
+    // The list re-mounts as its answers arrive, so the choice is made once it holds still.
+    await waitFor(() => {
+      if (!screen.queryByRole("option", { name: /Group 1/ })) fireEvent.click(screen.getByRole("combobox", { name: "Group" }));
+      fireEvent.click(screen.getByRole("option", { name: /Group 1/ }));
+    });
+    expect((await screen.findByRole("alert")).textContent).toMatch(/Would clash with CM A — they meet at the same hour/);
+    expect(screen.getByRole("button", { name: /Place 1 anyway/ })).toBeTruthy();
   });
 });
 
