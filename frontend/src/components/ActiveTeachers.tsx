@@ -10,8 +10,12 @@ import { ListGrid, Pills, StatePill } from "@/components/ListGrid";
 import { Modal } from "@/components/Modal";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { SelectionBar } from "@/components/SelectionActions";
+import { AvailabilityCell, AvailabilityTabs, FreeWhenPicker, type Showing } from "@/components/TeacherAvailability";
 import { TimetablesButton } from "@/components/TimetablesButton";
+import { usePageState } from "@/components/usePageState";
+import { useTeacherAvailability } from "@/components/useTeacherAvailability";
 import {
+  type ActiveCrn,
   type ActiveTeacher,
   type PartTimeMatch,
   type PartTimeTeacher,
@@ -30,6 +34,7 @@ import { buildCards } from "@/services/courseCards";
 import { fetchActiveCourses, fetchActiveCrns, splitCodes } from "@/services/portalLists";
 import type { GridColumn } from "@/services/studentColumns";
 import { fetchCourseCards } from "@/services/studentDatabase";
+import { STATE_WORDS, breakWords, type Availability, type AvailabilityState, type FreeWindow } from "@/services/teacherAvailability";
 import { sectionsTaughtBy } from "@/services/teacherLoad";
 import { exportTeacherTimetables } from "@/services/timetableExports";
 import { fetchTimetableTerms } from "@/services/timetables";
@@ -37,9 +42,10 @@ import { fetchTimetableTerms } from "@/services/timetables";
 /**
  * An Active teacher with what the planning has them teaching: the kinds of class their
  * sections are, the cohorts those sections belong to, and the portal's course codes split
- * apart so each is a value of its own rather than a sentence to read.
+ * apart so each is a value of its own rather than a sentence to read. And, while somebody
+ * is asking who is free, their answer.
  */
-type TeacherRow = ActiveTeacher & { teaches: string[]; cohorts: string[]; courseList: string[] };
+type TeacherRow = ActiveTeacher & { teaches: string[]; cohorts: string[]; courseList: string[]; availability?: Availability };
 
 const COLUMNS: GridColumn<TeacherRow>[] = [
   { id: "fullName", displayName: "Name", type: "text", accessor: (row) => row.fullName, required: true, defaultWidth: 220 },
@@ -129,6 +135,31 @@ const COLUMNS: GridColumn<TeacherRow>[] = [
 ];
 const SHOWN = ["fullName", "email", "source", "type", "department", "teaches", "cohorts", "courses", "lastTerm"];
 
+const RANK: Record<AvailabilityState, number> = { free: 0, busy: 1, unknown: 2 };
+
+/*
+ * Whether they are free in the window being asked about — only while one is, beside the
+ * name, and not one that can be hidden: the list is narrowed by it, and a list narrowed by
+ * a column nobody can see would be a list nobody can explain.
+ */
+const AVAILABILITY: GridColumn<TeacherRow> = {
+  id: "availability",
+  displayName: "Availability",
+  type: "option",
+  accessor: (row) => (row.availability ? STATE_WORDS[row.availability.state] : ""),
+  sortValue: (row) => (row.availability ? RANK[row.availability.state] : 9),
+  required: true,
+  defaultWidth: 340,
+  source: "registrar",
+};
+const ASKING_COLUMNS = [COLUMNS[0], AVAILABILITY, ...COLUMNS.slice(1)];
+
+/** What the count line calls the rows when the list is narrowed to one answer. */
+const SHOWING_WORDS: Record<AvailabilityState, string> = { free: "free", busy: "busy", unknown: "unknown" };
+
+const NO_TEACHERS: ActiveTeacher[] = [];
+const NO_CRNS: ActiveCrn[] = [];
+
 const idOf = (row: TeacherRow) => row.id;
 
 /** How many sections have chosen the teachers about to be removed. */
@@ -148,6 +179,7 @@ const renderCell = (row: TeacherRow, column: GridColumn<TeacherRow>) => {
   if (column.id === "cohorts") return <Pills values={row.cohorts} tone="accent" />;
   if (column.id === "teaches") return <Pills values={row.teaches} tone="accent" />;
   if (column.id === "courses") return <Pills values={row.courseList} tone="muted" />;
+  if (column.id === "availability") return <AvailabilityCell answer={row.availability} />;
   return undefined;
 };
 
@@ -167,10 +199,12 @@ export function ActiveTeachers({ onOpenTeacher }: { onOpenTeacher?: (teacher: Te
   const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, retry: false });
   const courses = useQuery({ queryKey: ["active-courses"], queryFn: fetchActiveCourses });
   const registered = useQuery({ queryKey: ["active-crns"], queryFn: () => fetchActiveCrns() });
-  const rows = useMemo<TeacherRow[]>(() => {
+  const cards = useMemo(() => {
     const termName = (id: string) => (terms.data ?? []).find((term) => term.id === id)?.name ?? "";
     const parentOf = new Map((registered.data ?? []).filter((row) => row.parentCrn).map((row) => [row.crn, row.parentCrn]));
-    const cards = buildCards(catalogues.data ?? [], termName, courses.data ?? [], parentOf);
+    return buildCards(catalogues.data ?? [], termName, courses.data ?? [], parentOf);
+  }, [catalogues.data, terms.data, courses.data, registered.data]);
+  const rows = useMemo<TeacherRow[]>(() => {
     const order = ["CM", "TD", "TP"];
     return (active.data ?? []).map((teacher) => {
       const live = sectionsTaughtBy(cards, teacher.id, teacher.fullName).filter((section) => !section.retired);
@@ -183,7 +217,38 @@ export function ActiveTeachers({ onOpenTeacher }: { onOpenTeacher?: (teacher: Te
         courseList: splitCodes(teacher.courses),
       };
     });
-  }, [active.data, catalogues.data, terms.data, courses.data, registered.data]);
+  }, [active.data, cards]);
+
+  /*
+   * Who is free in a window of time, asked from the toolbar.
+   *
+   * The list narrows to one answer at a time — free first, since that is the question — and
+   * the other two are a press away, so "why is Samar not on it" is answered by the Busy
+   * pile rather than by opening her record. Kept like the filters, for a detour's length.
+   */
+  const [freeWhen, setFreeWhen] = usePageState<FreeWindow | null>("active-teachers:free-when", null);
+  const [showing, setShowing] = usePageState<Showing>("active-teachers:free-showing", "free");
+  const availability = useTeacherAvailability({
+    window: freeWhen,
+    teachers: active.data ?? NO_TEACHERS,
+    cards,
+    registered: registered.data ?? NO_CRNS,
+    ready: !catalogues.isLoading && !registered.isLoading,
+  });
+  const asking = freeWhen !== null;
+  const answered = asking && !availability.loading;
+  const counts = useMemo(() => {
+    const held: Record<AvailabilityState, number> = { free: 0, busy: 0, unknown: 0 };
+    for (const answer of availability.byId.values()) held[answer.state] += 1;
+    return held;
+  }, [availability.byId]);
+  const listed = useMemo<TeacherRow[]>(() => {
+    if (!asking) return rows;
+    const withAnswers = rows.map((row) => ({ ...row, availability: availability.byId.get(row.id) }));
+    return answered && showing !== "all" ? withAnswers.filter((row) => row.availability?.state === showing) : withAnswers;
+  }, [rows, asking, answered, showing, availability.byId]);
+  const noun = answered && showing !== "all" ? `${SHOWING_WORDS[showing]} of ${rows.length} teachers` : "teachers";
+
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [picking, setPicking] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
@@ -272,14 +337,24 @@ export function ActiveTeachers({ onOpenTeacher }: { onOpenTeacher?: (teacher: Te
         onAdd={(ids) => add.mutate({ portalTeacherIds: ids })}
       />
 
+      {/* What the answer could not see, once above the list rather than on every row. */}
+      {asking && availability.failed ? (
+        <p role="alert" className="mb-2 text-xs text-[#a6292f]">
+          {availability.failed} Whoever it concerns is counted as unknown, not free.
+        </p>
+      ) : null}
+      {answered && availability.breaks.length ? (
+        <p className="mb-2 text-xs text-[#667085]">{breakWords(availability.breaks)}</p>
+      ) : null}
+
       {active.isLoading ? (
         <ScreenLoading label="Loading active teachers…" />
       ) : active.error ? (
         <p role="alert" className="text-sm text-[#a6292f]">{(active.error as Error).message}</p>
       ) : (
         <ListGrid
-          columns={COLUMNS}
-          rows={rows}
+          columns={asking ? ASKING_COLUMNS : COLUMNS}
+          rows={listed}
           idOf={idOf}
           labelOf={labelOf}
           layoutKey="scen-columns:active-teachers:v1"
@@ -287,7 +362,7 @@ export function ActiveTeachers({ onOpenTeacher }: { onOpenTeacher?: (teacher: Te
           shown={SHOWN}
           initialSort={{ key: "fullName", ascending: true }}
           searchLabel="Search active teachers"
-          noun="teachers"
+          noun={noun}
           selected={selected}
           onSelectedChange={setSelected}
           renderCell={renderCell}
@@ -310,6 +385,19 @@ export function ActiveTeachers({ onOpenTeacher }: { onOpenTeacher?: (teacher: Te
               >
                 <Trash2 size={15} aria-hidden="true" /> {selected.size ? `Remove ${selected.size}` : "Remove"}
               </button>
+              <FreeWhenPicker
+                window={freeWhen}
+                onChange={(next) => {
+                  setFreeWhen(next);
+                  // A new question starts on its own answer, not on the pile the last one was left at.
+                  if (next) setShowing("free");
+                }}
+              />
+              {!asking ? null : availability.loading ? (
+                <span className="text-sm text-[#667085]">Reading the portal&apos;s timetable…</span>
+              ) : (
+                <AvailabilityTabs counts={counts} total={rows.length} showing={showing} onShow={setShowing} />
+              )}
             </>
           }
         />

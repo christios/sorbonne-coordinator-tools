@@ -4,7 +4,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ActiveTeachers } from "@/components/ActiveTeachers";
 import * as lists from "@/services/portalLists";
+import * as sessionChanges from "@/services/sessionChanges";
 import * as database from "@/services/studentDatabase";
+import * as termWeeks from "@/services/termWeeks";
 import * as timetables from "@/services/timetables";
 import { ApiError } from "@/services/portalLists";
 
@@ -341,5 +343,185 @@ describe("what a teacher takes", () => {
     const row = (await screen.findByText("Ahlem Trabelsi")).closest("tr") as HTMLElement;
 
     await waitFor(() => expect(within(row).getByText("ECON-101")).toBeTruthy());
+  });
+});
+
+describe("who is free in a window of time", () => {
+  const teacher = (id: string, fullName: string) =>
+    ({
+      id, portalTeacherId: "", partTimeTeacherId: "", fullName, email: "", source: "portal", addedAt: "", addedBy: "",
+      teacherStatus: "", category: "", type: "", lastTerm: "", department: "", rank: "", courses: "", institution: "",
+      portalStatus: "in_portal",
+    }) as lists.ActiveTeacher;
+  const meeting = (meetsOn: string, startsAt: string, endsAt: string) => ({ meetsOn, startsAt, endsAt, room: "5.111" });
+  const sweep: Record<string, lists.FacilitySection> = {
+    // Ahlem's lecture is on Thursday afternoon; her tutorial, by name only, on Tuesday morning.
+    "22001": { crn: "22001", courseCode: "ECON-101", title: "Economics", teacherName: "", state: "published", meetings: [meeting("2026-10-01", "14:00", "16:00")] },
+    "22002": { crn: "22002", courseCode: "ECON-101", title: "Economics", teacherName: "", state: "published", meetings: [meeting("2026-10-06", "10:00", "12:00")] },
+    // Grace teaches on Thursday morning only.
+    "22003": { crn: "22003", courseCode: "MATH-101", title: "Algebra", teacherName: "", state: "published", meetings: [meeting("2026-10-01", "08:30", "10:00")] },
+  };
+
+  beforeEach(() => {
+    vi.spyOn(lists, "fetchActiveTeachers").mockResolvedValue([
+      teacher("act-1", "Ahlem Trabelsi"),
+      teacher("act-2", "Grace Younes"),
+      // On the list, and on no section at all.
+      teacher("act-3", "Carla Nasr"),
+    ]);
+    vi.spyOn(database, "fetchCourseCards").mockResolvedValue([
+      {
+        cohort: { id: "c1", name: "L1-S1", term: "2026-27" },
+        scopes: [
+          {
+            id: "s-cm", code: "CM", name: "Lectures", note: "", termId: "term-1", kind: "shared", parentScopeId: "", openToAll: false,
+            courses: [
+              { id: "c-econ", code: "ECON-101", name: "Economics", component: "CM", request: database.EMPTY_REQUEST },
+              { id: "c-math", code: "MATH-101", name: "Algebra", component: "CM", request: database.EMPTY_REQUEST },
+            ],
+            groups: [
+              {
+                id: "g-a", label: "A", capacity: 0, note: "", parentGroupId: "", assigned: 20,
+                crns: {
+                  "c-econ": { ...database.EMPTY_SECTION, crn: "22001", teacherId: "act-1" },
+                  "c-math": { ...database.EMPTY_SECTION, crn: "22003", teacherId: "act-2" },
+                },
+              },
+            ],
+          },
+          {
+            id: "s-td", code: "TD", name: "Tutorials", note: "", termId: "term-1", kind: "shared", parentScopeId: "", openToAll: false,
+            courses: [{ id: "t-econ", code: "ECON-101", name: "Economics", component: "TD", request: database.EMPTY_REQUEST }],
+            groups: [{ id: "g-1", label: "1", capacity: 0, note: "", parentGroupId: "", assigned: 20, crns: { "t-econ": { ...database.EMPTY_SECTION, crn: "22002", teacher: "Ahlem Trabelsi" } } }],
+          },
+        ],
+      },
+    ]);
+    vi.spyOn(lists, "fetchTermLinks").mockResolvedValue({ "term-1": "262710" });
+    vi.spyOn(termWeeks, "fetchTermWeeks").mockResolvedValue({ "term-1": { weekOne: "2026-08-31", without: ["2026-10-12"] } });
+    vi.spyOn(sessionChanges, "fetchSessionChanges").mockResolvedValue([]);
+    vi.spyOn(lists, "fetchFacilitySections").mockImplementation(async (termCode, crns) => ({
+      termCode,
+      pulledAt: "",
+      sections: crns.map((crn) => sweep[crn] ?? { crn, courseCode: "", title: "", teacherName: "", state: "unchecked", meetings: [] }),
+    }));
+  });
+
+  async function ask({ from, to = from, start, end, weekdays = [] }: { from: string; to?: string; start: string; end: string; weekdays?: string[] }) {
+    show();
+    await screen.findByText("Grace Younes");
+    fireEvent.click(screen.getByRole("button", { name: "Who is free" }));
+    fireEvent.change(await screen.findByLabelText("First day"), { target: { value: from } });
+    fireEvent.change(screen.getByLabelText("Last day"), { target: { value: to } });
+    fireEvent.change(screen.getByLabelText("Starts at"), { target: { value: start } });
+    fireEvent.change(screen.getByLabelText("Ends at"), { target: { value: end } });
+    for (const day of weekdays) fireEvent.click(screen.getByRole("button", { name: day }));
+    fireEvent.click(screen.getByRole("button", { name: "Show who is free" }));
+    // The answer is in once the piles are counted.
+    await screen.findByRole("group", { name: "Show" });
+  }
+
+  const rowOf = (name: string) => screen.getByText(name).closest("tr") as HTMLElement;
+
+  it("narrows the list to who is free, and says how many of how many", async () => {
+    await ask({ from: "2026-10-01", start: "14:00", end: "16:00" });
+
+    expect(screen.getByText("1 free of 3 teachers")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Free 1" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: "Busy 1" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Unknown 1" })).toBeTruthy();
+    expect(within(rowOf("Grace Younes")).getByText("Free")).toBeTruthy();
+    expect(screen.queryByText("Ahlem Trabelsi")).toBeNull();
+    // The button says what is being asked, because the rows underneath do not.
+    expect(screen.getByRole("button", { name: /Who is free: Thu 1 Oct · 14:00–16:00/ })).toBeTruthy();
+  });
+
+  it("says what a busy teacher has in the window", async () => {
+    await ask({ from: "2026-10-01", start: "14:00", end: "16:00" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Busy 1" }));
+
+    const row = rowOf("Ahlem Trabelsi");
+    expect(within(row).getByText("Busy")).toBeTruthy();
+    expect(within(row).getByText("ECON-101 · CRN 22001 · Thu 1 Oct 14:00–16:00")).toBeTruthy();
+    expect(screen.getByText("1 busy of 3 teachers")).toBeTruthy();
+  });
+
+  it("never calls somebody free whose classes are not known", async () => {
+    await ask({ from: "2026-10-01", start: "14:00", end: "16:00" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Unknown 1" }));
+
+    const row = rowOf("Carla Nasr");
+    expect(within(row).getByText("Unknown")).toBeTruthy();
+    expect(within(row).getByText("no CRN matched to them")).toBeTruthy();
+  });
+
+  it("does not take an empty timetable for a free afternoon", async () => {
+    // Grace's section has never been asked about: her Thursday is a hole, not a gap.
+    vi.spyOn(lists, "fetchFacilitySections").mockImplementation(async (termCode, crns) => ({
+      termCode,
+      pulledAt: "",
+      sections: crns.map((crn) => (crn === "22003" ? { ...sweep[crn], state: "unchecked" as const, meetings: [] } : sweep[crn])),
+    }));
+    await ask({ from: "2026-10-01", start: "14:00", end: "16:00" });
+
+    expect(screen.getByRole("button", { name: "Free 0" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Unknown 2" }));
+    expect(within(rowOf("Grace Younes")).getByText("CRN 22003: not swept yet")).toBeTruthy();
+  });
+
+  it("counts a cancelled class as no class", async () => {
+    vi.spyOn(sessionChanges, "fetchSessionChanges").mockResolvedValue([
+      {
+        id: "n1", termCode: "262710", crn: "22001", meetsOn: "2026-10-01", startsAt: "14:00", endsAt: "16:00", kind: "cancelled",
+        coverTeacherId: "", coverTeacherName: "", note: "", authorEmail: "", authorName: "", createdAt: "", updatedAt: "",
+      },
+    ]);
+    await ask({ from: "2026-10-01", start: "14:00", end: "16:00" });
+
+    expect(screen.getByText("2 free of 3 teachers")).toBeTruthy();
+    expect(within(rowOf("Ahlem Trabelsi")).getByText("ECON-101 cancelled")).toBeTruthy();
+  });
+
+  it("answers for a weekday over several weeks, and says the week without classes", async () => {
+    await ask({ from: "2026-10-05", to: "2026-10-23", start: "10:00", end: "12:00", weekdays: ["Tue"] });
+
+    fireEvent.click(screen.getByRole("button", { name: "Busy 1" }));
+
+    // The tutorial is on one of the three Tuesdays: busy, and by how much.
+    expect(within(rowOf("Ahlem Trabelsi")).getByText("ECON-101 · CRN 22002 · Tue 6 Oct 10:00–12:00 · 1 of 3 days")).toBeTruthy();
+    expect(screen.getByText("The week of 12 Oct has no classes (Settings → Semesters).")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Who is free: Tuesdays · 10:00–12:00 · 5 Oct – 23 Oct/ })).toBeTruthy();
+  });
+
+  it("shows everybody again, without the column, when the question is put away", async () => {
+    await ask({ from: "2026-10-01", start: "14:00", end: "16:00" });
+    expect(screen.getByRole("button", { name: "Sort by Availability" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Stop asking who is free" }));
+
+    expect(await screen.findByText("Ahlem Trabelsi")).toBeTruthy();
+    expect(screen.getByText("3 teachers")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Sort by Availability" })).toBeNull();
+  });
+
+  it("asks nothing of the portal's timetable until somebody asks who is free", async () => {
+    const sections = vi.spyOn(lists, "fetchFacilitySections");
+    show();
+
+    await screen.findByText("Grace Younes");
+    expect(sections).not.toHaveBeenCalled();
+  });
+
+  it("will not ask a window that ends before it starts", async () => {
+    show();
+    await screen.findByText("Grace Younes");
+    fireEvent.click(screen.getByRole("button", { name: "Who is free" }));
+    fireEvent.change(await screen.findByLabelText("Starts at"), { target: { value: "16:00" } });
+    fireEvent.change(screen.getByLabelText("Ends at"), { target: { value: "14:00" } });
+
+    expect(screen.getByText("The window has to end after it starts.")).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Show who is free" }) as HTMLButtonElement).disabled).toBe(true);
   });
 });
