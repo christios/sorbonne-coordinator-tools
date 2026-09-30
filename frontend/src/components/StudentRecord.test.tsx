@@ -12,6 +12,7 @@ import * as comments from "@/services/studentComments";
 import * as database from "@/services/studentDatabase";
 import * as reasonsApi from "@/services/exemptionReasons";
 import * as timetables from "@/services/timetables";
+import * as publication from "@/services/publication";
 
 const ROW: StudentRow = {
   studentId: "A001",
@@ -98,6 +99,7 @@ beforeEach(() => {
   // Which courses a student does not take. The CRNs table waits for this before it draws,
   // since it decides whether a row reads "exempt" or "not registered" in red.
   vi.spyOn(database, "fetchExemptions").mockResolvedValue([]);
+  vi.spyOn(publication, "fetchPublication").mockResolvedValue({ cohorts: [], validation: {}, unmatchedCrns: 0 } as never);
 });
 
 afterEach(() => vi.restoreAllMocks());
@@ -188,6 +190,10 @@ describe("a student's record", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Change group in TD" }));
     await pick("Move from TD 1 to", /TD 3 · Physics|3 · Physics/);
 
+    // Choosing is not moving: nothing is written until the button says so.
+    expect(assigned).not.toHaveBeenCalled();
+    fireEvent.click(await screen.findByRole("button", { name: "Move" }));
+
     // Into that group's sub-row, in that set alone: their other groups stay.
     await waitFor(() => expect(assigned).toHaveBeenCalledWith("scope-td", ["A001"], "td-3", { A001: "m-phys" }));
   });
@@ -213,6 +219,83 @@ describe("a student's record", () => {
     const options = await screen.findAllByRole("option");
     expect(options).toHaveLength(1);
     expect(options[0].textContent).toMatch(/2.*3 free$/);
+  });
+
+  it("says, once a group is chosen and before moving, which of their other groups it would clash with", async () => {
+    const assigned = vi.spyOn(database, "assignStudents").mockResolvedValue({ assigned: 1, skipped: [] });
+    // TD 2 meets at the same hour as CM A, which they sit in: the option says so.
+    vi.spyOn(database, "fetchCatalogue").mockResolvedValue({
+      scopes: [
+        {
+          id: "scope-td", code: "TD", name: "Tutorials", note: "", termId: "term-1",
+          kind: "shared", parentScopeId: "", openToAll: false, courses: [{ id: "c-algo", code: "MATH-011", name: "Algorithms", component: "TD", request: EMPTY_REQUEST }],
+          groups: [
+            { id: "td-1", label: "1", capacity: 24, note: "", parentGroupId: "", assigned: 20, crns: { "c-algo": { ...EMPTY_SECTION, crn: "23652", teacher: "" } } },
+            { id: "td-2", label: "2", capacity: 24, note: "", parentGroupId: "", assigned: 21, crns: {} },
+            { id: "td-3", label: "3", capacity: 24, note: "", parentGroupId: "", assigned: 10, crns: {} },
+          ],
+        },
+        {
+          id: "scope-cm", code: "CM", name: "Lectures", note: "", termId: "term-1",
+          kind: "shared", parentScopeId: "", openToAll: false, courses: [],
+          groups: [{ id: "cm-a", label: "A", capacity: 120, note: "", parentGroupId: "", assigned: 100, crns: {} }],
+        },
+      ],
+    });
+    vi.spyOn(database, "fetchAssignments").mockResolvedValue({ A001: { "scope-td": "td-1", "scope-cm": "cm-a" } });
+    vi.spyOn(publication, "fetchPublication").mockResolvedValue({
+      cohorts: [
+        {
+          cohortId: "cohort-1",
+          clashes: [
+            {
+              groups: [
+                { id: "td-2", scopeId: "scope-td", scopeCode: "TD", label: "2" },
+                { id: "cm-a", scopeId: "scope-cm", scopeCode: "CM", label: "A" },
+              ],
+              windows: [],
+              students: [],
+            },
+          ],
+        },
+      ],
+      validation: {},
+      unmatchedCrns: 0,
+    } as never);
+    show();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Change group in TD" }));
+    await pick("Move from TD 1 to", /^2/);
+
+    // TD 2 meets at the same hour as CM A: said after choosing, before anything is written.
+    expect((await screen.findByRole("alert")).textContent).toMatch(/Would clash with CM A/);
+    expect(assigned).not.toHaveBeenCalled();
+
+    // The choice is still theirs.
+    fireEvent.click(screen.getByRole("button", { name: "Move anyway" }));
+    await waitFor(() => expect(assigned).toHaveBeenCalledWith("scope-td", ["A001"], "td-2", {}));
+  });
+
+  it("says nothing of a clash for a group that meets at no hour of theirs", async () => {
+    vi.spyOn(database, "fetchCatalogue").mockResolvedValue({
+      scopes: [
+        {
+          id: "scope-td", code: "TD", name: "Tutorials", note: "", termId: "term-1",
+          kind: "shared", parentScopeId: "", openToAll: false, courses: [{ id: "c-algo", code: "MATH-011", name: "Algorithms", component: "TD", request: EMPTY_REQUEST }],
+          groups: [
+            { id: "td-1", label: "1", capacity: 24, note: "", parentGroupId: "", assigned: 20, crns: { "c-algo": { ...EMPTY_SECTION, crn: "23652", teacher: "" } } },
+            { id: "td-3", label: "3", capacity: 24, note: "", parentGroupId: "", assigned: 10, crns: {} },
+          ],
+        },
+      ],
+    });
+    show();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Change group in TD" }));
+    await pick("Move from TD 1 to", /^3/);
+
+    expect(await screen.findByRole("button", { name: "Move" })).toBeTruthy();
+    expect(screen.queryByText(/Would clash/)).toBeNull();
   });
 
   it("says exempt, not a fault, for a CRN of a course they do not take", async () => {

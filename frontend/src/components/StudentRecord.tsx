@@ -36,6 +36,9 @@ import {
 } from "@/services/portalLists";
 import { fetchExemptionReasons } from "@/services/exemptionReasons";
 import { placementsOf, studentTimetable } from "@/services/personTimetable";
+import { fetchPublication } from "@/services/publication";
+import { clashesIn } from "@/services/publicationView";
+import { clashKey } from "@/services/groupFill";
 import { allChanges, historyFor, type PullHistory } from "@/services/pullHistory";
 import { copyTable } from "@/services/copyCells";
 import { CHANGE_COLUMNS, changesRows, noteChanges, registrationChanges } from "@/services/registrationChanges";
@@ -330,6 +333,11 @@ export function StudentRecord({
    * sit in no TD. The group, or a sub-row of it where it has several, as the set has them.
    */
   const [moving, setMoving] = useState("");
+  /*
+   * The group chosen to move them to, before it is done. Choosing is not moving: the
+   * choice is said back with what it would clash with, and the move waits for the button.
+   */
+  const [target, setTarget] = useState("");
   const move = useMutation({
     mutationFn: async ({ scopeId, target }: { scopeId: string; target: string }) => {
       const [groupId, majorId] = target.split("|");
@@ -338,11 +346,41 @@ export function StudentRecord({
     },
     onSuccess: () => {
       setMoving("");
+      setTarget("");
       afterPlacement(client);
       void client.invalidateQueries({ queryKey: ["assignment-majors"] });
     },
   });
   /** Every other place in the set they could sit: each group, or each sub-row of a group that has them. */
+  /*
+   * Which groups meet at the same hour, for the set a group is being changed in: the same
+   * report "Place in every set…" warns from, read only once somebody opens the list.
+   */
+  const movingTerm = (catalogue.data?.scopes ?? []).find((scope) => scope.id === moving)?.termId ?? "";
+  const publication = useQuery({
+    queryKey: ["publication", movingTerm],
+    queryFn: () => fetchPublication(movingTerm),
+    enabled: open && Boolean(movingTerm),
+    retry: false,
+  });
+  const clashing = useMemo(() => {
+    const keys = new Set<string>();
+    for (const clash of publication.data && cohortId ? clashesIn(publication.data, cohortId) : []) {
+      if (clash.groups.length === 2) keys.add(clashKey(clash.groups[0].id, clash.groups[1].id));
+    }
+    return keys;
+  }, [publication.data, cohortId]);
+  /** "TD 2, PHIL-TD 1": the groups they hold in their other sets that this one meets at the same hour as. */
+  const clashesWith = (scope: CatalogueScope, groupId: string): string =>
+    Object.entries(held)
+      .filter(([scopeId, other]) => scopeId !== scope.id && other && clashing.has(clashKey(groupId, other)))
+      .map(([scopeId, other]) => {
+        const theirs = (catalogue.data?.scopes ?? []).find((candidate) => candidate.id === scopeId);
+        const label = theirs?.groups.find((candidate) => candidate.id === other)?.label;
+        return theirs && label ? `${theirs.code} ${label}` : "";
+      })
+      .filter(Boolean)
+      .join(", ");
   const movesIn = (scope: CatalogueScope, current: { groupId: string; majorId: string }) =>
     scope.groups.flatMap((group) => {
       const majors = group.majors ?? [];
@@ -356,13 +394,16 @@ export function StudentRecord({
         : [{ value: `${group.id}|`, label: group.label, seats: group.capacity, taken: group.assigned }];
       return places
         .filter((place) => place.value !== `${current.groupId}|${current.majorId}` && place.value !== `${current.groupId}|`)
-        .map((place) => ({
-          value: place.value,
-          label: place.label,
+        .map((place) => {
           // Seats left where they are this cohort's to count; a shared set's seats are everybody's.
-          badge: !place.seats ? "no seats" : scope.openToAll ? `${place.seats} seats` : `${Math.max(0, place.seats - place.taken)} free`,
-          badgeTone: !place.seats || (!scope.openToAll && place.seats - place.taken <= 0) ? ("bad" as const) : ("muted" as const),
-        }));
+          const seats = !place.seats ? "no seats" : scope.openToAll ? `${place.seats} seats` : `${Math.max(0, place.seats - place.taken)} free`;
+          return {
+            value: place.value,
+            label: place.label,
+            badge: seats,
+            badgeTone: !place.seats || (!scope.openToAll && place.seats - place.taken <= 0) ? ("bad" as const) : ("muted" as const),
+          };
+        });
     });
   /*
    * Approving an elective: the register's *outside* verdict on this course goes away for
@@ -745,23 +786,56 @@ export function StudentRecord({
                             ) : null}
                             {group ? (
                               moving === scope.id ? (
-                                <span className="ml-auto inline-flex items-center gap-2 text-xs">
+                                <span className="ml-auto inline-flex flex-wrap items-center justify-end gap-2 text-xs">
                                   <span className="text-[#344054]">Move to</span>
                                   <span className="w-44">
                                     <SelectMenu
                                       label={`Move from ${scope.code} ${group.label} to`}
-                                      value=""
+                                      value={target}
                                       placeholder="Choose a group"
                                       searchable={scope.groups.length > 12}
                                       disabled={move.isPending}
-                                      onChange={(target) => target && move.mutate({ scopeId: scope.id, target })}
+                                      onChange={setTarget}
                                       options={movesIn(scope, { groupId: group.id, majorId: major?.id ?? "" })}
                                     />
                                   </span>
-                                  <button type="button" onClick={() => setMoving("")} className="font-semibold text-[#667085]">
+                                  {target ? (
+                                    <button
+                                      type="button"
+                                      disabled={move.isPending || (Boolean(movingTerm) && publication.isPending)}
+                                      onClick={() => move.mutate({ scopeId: scope.id, target })}
+                                      className={`rounded px-2 py-0.5 font-semibold text-white disabled:opacity-60 ${
+                                        clashesWith(scope, target.split("|")[0]) ? "bg-[#a6292f]" : "bg-[#1f4e79]"
+                                      }`}
+                                    >
+                                      {move.isPending ? "Moving…" : clashesWith(scope, target.split("|")[0]) ? "Move anyway" : "Move"}
+                                    </button>
+                                  ) : null}
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setMoving("");
+                                      setTarget("");
+                                    }}
+                                    className="font-semibold text-[#667085]"
+                                  >
                                     Cancel
                                   </button>
                                   {move.error ? <span className="text-[#a6292f]">{(move.error as Error).message}</span> : null}
+                                  {/*
+                                    * The group chosen, said back before anything is written: what it
+                                    * would meet at the same hour as, among the groups they keep.
+                                    */}
+                                  {target && movingTerm && publication.isPending ? (
+                                    <span className="basis-full text-right text-[#98a2b3]">Checking the timetable for clashes…</span>
+                                  ) : target && clashesWith(scope, target.split("|")[0]) ? (
+                                    <span role="alert" className="basis-full text-right font-semibold text-[#a6292f]">
+                                      <AlertTriangle size={11} className="mr-1 inline align-[-1px]" aria-hidden="true" />
+                                      Would clash with {clashesWith(scope, target.split("|")[0])} — they meet at the same hour.
+                                    </span>
+                                  ) : target && publication.isError ? (
+                                    <span className="basis-full text-right text-[#8a6116]">The timetable could not be read, so clashes were not checked.</span>
+                                  ) : null}
                                 </span>
                               ) : leaving === scope.id ? (
                                 <span className="ml-auto inline-flex items-center gap-2 text-xs">
@@ -787,6 +861,7 @@ export function StudentRecord({
                                     onClick={() => {
                                       move.reset();
                                       setLeaving("");
+                                      setTarget("");
                                       setMoving(scope.id);
                                     }}
                                     className="rounded p-1 text-[#c8d0da] hover:bg-[#f2f7fb] hover:text-[#1f4e79]"
