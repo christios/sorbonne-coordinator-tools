@@ -1,5 +1,5 @@
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, ChevronRight, Copy } from "lucide-react";
+import { AlertTriangle, Copy } from "lucide-react";
 import { Tooltip } from "radix-ui";
 import { type ReactNode, useMemo, useState } from "react";
 
@@ -9,7 +9,6 @@ import { LabelledPicker } from "@/components/LabelledPicker";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { SelectMenu } from "@/components/SelectMenu";
 import { useRemembered } from "@/components/useRemembered";
-import { usePageState } from "@/components/usePageState";
 import {
   capacityByGroup,
   capacityBySet,
@@ -373,7 +372,6 @@ export function CapacityPage() {
     const held = (registered.data ?? []).find((entry) => entry.crn === crn);
     if (held) setShowingCrn(held);
   };
-  const [showingOver, setShowingOver] = usePageState("capacity:over", false);
 
   const rows = useMemo(() => {
     const termName = (id: string) => (terms.data ?? []).find((term) => term.id === id)?.name ?? (id ? "unknown semester" : "");
@@ -564,44 +562,6 @@ export function CapacityPage() {
           }
         />
       </div>
-
-      {/*
-        * The groups over their seats, as a line that opens rather than a paragraph naming
-        * twelve of them in a row. The count is the thing to act on; which ones is the next
-        * question, and it is one click away.
-        */}
-      {over.length ? (
-        <section className="mt-3">
-          <button
-            type="button"
-            onClick={() => setShowingOver((was) => !was)}
-            aria-expanded={showingOver}
-            className="inline-flex items-center gap-2 rounded-full border border-[#e5b7b9] bg-[#fdf3f3] px-3.5 py-1.5 text-sm font-semibold text-[#a6292f] hover:bg-[#fbeaea]"
-          >
-            <AlertTriangle size={14} aria-hidden="true" />
-            {over.length} group{over.length === 1 ? " is" : "s are"} over their room
-            <ChevronRight size={14} className={showingOver ? "rotate-90" : ""} aria-hidden="true" />
-          </button>
-
-          {showingOver ? (
-            <ul className="mt-2 divide-y divide-[#f7e6e7] overflow-hidden rounded-lg border border-[#f0d7d9] bg-white text-sm">
-              {over.map((line) => (
-                <li key={line.key} className="flex items-baseline gap-3 px-4 py-2">
-                  <span className="font-medium text-[#1f4e79]">{line.set}</span>
-                  <span className="text-[#344054]">{line.label}</span>
-                  <span className="text-xs text-[#98a2b3]">{line.reading.main?.name ?? "our plan"}</span>
-                  <span className="ml-auto tabular-nums text-[#667085]">
-                    {line.reading.enrolled} / {line.reading.against}
-                  </span>
-                  <span className="w-16 text-right font-semibold tabular-nums text-[#a6292f]">
-                    +{line.reading.enrolled - line.reading.against}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          ) : null}
-        </section>
-      ) : null}
 
       <div className="mt-5 space-y-5">
         {sets.map((set) => (
