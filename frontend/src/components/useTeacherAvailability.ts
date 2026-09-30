@@ -6,7 +6,7 @@ import type { Card } from "@/services/courseCards";
 import { teacherTimetable } from "@/services/personTimetable";
 import { fetchFacilitySections, fetchTermLinks, type ActiveCrn, type ActiveTeacher, type FacilitySection, type FacilityTimetable } from "@/services/portalLists";
 import { fetchSessionChanges, type SessionChange } from "@/services/sessionChanges";
-import { availabilityOf, breakWeeks, termBounds, windowProblem, type Availability, type FreeWindow } from "@/services/teacherAvailability";
+import { availabilityOf, breakWeekOf, termBounds, windowProblem, type Availability, type FreeWindow } from "@/services/teacherAvailability";
 import { sectionsTaughtBy } from "@/services/teacherLoad";
 import { fetchTermWeeks, weekOneOf } from "@/services/termWeeks";
 
@@ -16,8 +16,8 @@ export type AvailabilityRead = {
   loading: boolean;
   /** Something could not be read; the teachers it concerns are unknown rather than free. */
   failed: string;
-  /** The Mondays of the weeks without classes the window touches. */
-  breaks: string[];
+  /** The Monday of the day's week, when the semester has no classes that week; "" otherwise. */
+  breakWeek: string;
 };
 
 /** The registrar is asked about this many CRNs at a time, well inside what one request may name. */
@@ -25,7 +25,7 @@ const ASK_AT_ONCE = 200;
 
 const NO_ANSWERS = new Map<string, Availability>();
 const NO_WEEKS = new Map<string, TimetableEntry[]>();
-const NOTHING: AvailabilityRead = { byId: NO_ANSWERS, loading: false, failed: "", breaks: [] };
+const NOTHING: AvailabilityRead = { byId: NO_ANSWERS, loading: false, failed: "", breakWeek: "" };
 
 /*
  * Outside the hook so their identity holds: an inline `combine` runs on every render and
@@ -159,7 +159,7 @@ export function useTeacherAvailability({
         }),
       ]),
     );
-    return { byId, breaks: breakWeeks(window, Object.values(weeks.data ?? {})) };
+    return { byId, breakWeek: breakWeekOf(window, Object.values(weeks.data ?? {})) };
   }, [window, asking, loading, swept.sweeps, linkedTerms, links.data, weeks.data, registered, teachers, weekOf, cards, notes.notes]);
 
   if (!asking) return NOTHING;
@@ -168,5 +168,5 @@ export function useTeacherAvailability({
     : swept.failed
       ? `The portal's timetable could not be read: ${swept.failed}`
       : "";
-  return { byId: answered?.byId ?? NO_ANSWERS, loading, failed, breaks: answered?.breaks ?? [] };
+  return { byId: answered?.byId ?? NO_ANSWERS, loading, failed, breakWeek: answered?.breakWeek ?? "" };
 }

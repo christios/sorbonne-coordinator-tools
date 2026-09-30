@@ -135,7 +135,7 @@ const COLUMNS: GridColumn<TeacherRow>[] = [
 ];
 const SHOWN = ["fullName", "email", "source", "type", "department", "teaches", "cohorts", "courses", "lastTerm"];
 
-const RANK: Record<AvailabilityState, number> = { free: 0, busy: 1, unknown: 2 };
+const RANK: Record<AvailabilityState, number> = { free: 0, notTeaching: 1, busy: 2, unknown: 3 };
 
 /*
  * Whether they are free in the window being asked about — only while one is, beside the
@@ -155,7 +155,12 @@ const AVAILABILITY: GridColumn<TeacherRow> = {
 const ASKING_COLUMNS = [COLUMNS[0], AVAILABILITY, ...COLUMNS.slice(1)];
 
 /** What the count line calls the rows when the list is narrowed to one answer. */
-const SHOWING_WORDS: Record<AvailabilityState, string> = { free: "free", busy: "busy", unknown: "unknown" };
+const SHOWING_WORDS: Record<AvailabilityState, string> = {
+  free: "free",
+  notTeaching: "not teaching that day,",
+  busy: "busy",
+  unknown: "unknown",
+};
 
 const NO_TEACHERS: ActiveTeacher[] = [];
 const NO_CRNS: ActiveCrn[] = [];
@@ -223,11 +228,14 @@ export function ActiveTeachers({ onOpenTeacher }: { onOpenTeacher?: (teacher: Te
    * Who is free in a window of time, asked from the toolbar.
    *
    * The list narrows to one answer at a time — free first, since that is the question — and
-   * the other two are a press away, so "why is Samar not on it" is answered by the Busy
-   * pile rather than by opening her record. Kept like the filters, for a detour's length.
+   * the others are a press away, so "why is Samar not on it" is answered by the Busy pile
+   * rather than by opening her record. Kept like the filters, for a detour's length, and the
+   * "teaching that day" tick with it, since it is part of the question.
    */
-  const [freeWhen, setFreeWhen] = usePageState<FreeWindow | null>("active-teachers:free-when", null);
-  const [showing, setShowing] = usePageState<Showing>("active-teachers:free-showing", "free");
+  const [freeWhen, setFreeWhen] = usePageState<FreeWindow | null>("active-teachers:free-on", null);
+  const [kept, setShowing] = usePageState<Showing>("active-teachers:free-showing", "free");
+  // The pile of those not teaching that day only exists while the question asks about it.
+  const showing: Showing = kept === "notTeaching" && !freeWhen?.teachingThatDay ? "free" : kept;
   const availability = useTeacherAvailability({
     window: freeWhen,
     teachers: active.data ?? NO_TEACHERS,
@@ -238,7 +246,7 @@ export function ActiveTeachers({ onOpenTeacher }: { onOpenTeacher?: (teacher: Te
   const asking = freeWhen !== null;
   const answered = asking && !availability.loading;
   const counts = useMemo(() => {
-    const held: Record<AvailabilityState, number> = { free: 0, busy: 0, unknown: 0 };
+    const held: Record<AvailabilityState, number> = { free: 0, notTeaching: 0, busy: 0, unknown: 0 };
     for (const answer of availability.byId.values()) held[answer.state] += 1;
     return held;
   }, [availability.byId]);
@@ -343,8 +351,8 @@ export function ActiveTeachers({ onOpenTeacher }: { onOpenTeacher?: (teacher: Te
           {availability.failed} Whoever it concerns is counted as unknown, not free.
         </p>
       ) : null}
-      {answered && availability.breaks.length ? (
-        <p className="mb-2 text-xs text-[#667085]">{breakWords(availability.breaks)}</p>
+      {answered && availability.breakWeek ? (
+        <p className="mb-2 text-xs text-[#667085]">{breakWords(availability.breakWeek)}</p>
       ) : null}
 
       {active.isLoading ? (
@@ -396,7 +404,13 @@ export function ActiveTeachers({ onOpenTeacher }: { onOpenTeacher?: (teacher: Te
               {!asking ? null : availability.loading ? (
                 <span className="text-sm text-[#667085]">Reading the portal&apos;s timetable…</span>
               ) : (
-                <AvailabilityTabs counts={counts} total={rows.length} showing={showing} onShow={setShowing} />
+                <AvailabilityTabs
+                  counts={counts}
+                  total={rows.length}
+                  teachingThatDay={Boolean(freeWhen?.teachingThatDay)}
+                  showing={showing}
+                  onShow={setShowing}
+                />
               )}
             </>
           }

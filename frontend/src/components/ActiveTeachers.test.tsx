@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ActiveTeachers } from "@/components/ActiveTeachers";
@@ -407,15 +407,14 @@ describe("who is free in a window of time", () => {
     }));
   });
 
-  async function ask({ from, to = from, start, end, weekdays = [] }: { from: string; to?: string; start: string; end: string; weekdays?: string[] }) {
+  async function ask({ date, start, end, teaching = false }: { date: string; start: string; end: string; teaching?: boolean }) {
     show();
     await screen.findByText("Grace Younes");
     fireEvent.click(screen.getByRole("button", { name: "Who is free" }));
-    fireEvent.change(await screen.findByLabelText("First day"), { target: { value: from } });
-    fireEvent.change(screen.getByLabelText("Last day"), { target: { value: to } });
+    fireEvent.change(await screen.findByLabelText("Day"), { target: { value: date } });
     fireEvent.change(screen.getByLabelText("Starts at"), { target: { value: start } });
     fireEvent.change(screen.getByLabelText("Ends at"), { target: { value: end } });
-    for (const day of weekdays) fireEvent.click(screen.getByRole("button", { name: day }));
+    if (teaching) fireEvent.click(screen.getByLabelText(/Only teachers who have a class that day/));
     fireEvent.click(screen.getByRole("button", { name: "Show who is free" }));
     // The answer is in once the piles are counted.
     await screen.findByRole("group", { name: "Show" });
@@ -424,31 +423,36 @@ describe("who is free in a window of time", () => {
   const rowOf = (name: string) => screen.getByText(name).closest("tr") as HTMLElement;
 
   it("narrows the list to who is free, and says how many of how many", async () => {
-    await ask({ from: "2026-10-01", start: "14:00", end: "16:00" });
+    await ask({ date: "2026-10-01", start: "14:00", end: "16:00" });
 
     expect(screen.getByText("1 free of 3 teachers")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Free 1" }).getAttribute("aria-pressed")).toBe("true");
     expect(screen.getByRole("button", { name: "Busy 1" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Unknown 1" })).toBeTruthy();
-    expect(within(rowOf("Grace Younes")).getByText("Free")).toBeTruthy();
+    // Only asked about when the question asks about it.
+    expect(screen.queryByRole("button", { name: /Not teaching that day/ })).toBeNull();
+    const grace = rowOf("Grace Younes");
+    expect(within(grace).getByText("Free")).toBeTruthy();
+    // Her morning class is said: she is in that day.
+    expect(within(grace).getByText("That day: MATH-101 · CRN 22003 · 08:30–10:00")).toBeTruthy();
     expect(screen.queryByText("Ahlem Trabelsi")).toBeNull();
     // The button says what is being asked, because the rows underneath do not.
-    expect(screen.getByRole("button", { name: /Who is free: Thu 1 Oct · 14:00–16:00/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Who is free: Thu 1 Oct · 14:00–16:00" })).toBeTruthy();
   });
 
   it("says what a busy teacher has in the window", async () => {
-    await ask({ from: "2026-10-01", start: "14:00", end: "16:00" });
+    await ask({ date: "2026-10-01", start: "14:00", end: "16:00" });
 
     fireEvent.click(screen.getByRole("button", { name: "Busy 1" }));
 
     const row = rowOf("Ahlem Trabelsi");
     expect(within(row).getByText("Busy")).toBeTruthy();
-    expect(within(row).getByText("ECON-101 · CRN 22001 · Thu 1 Oct 14:00–16:00")).toBeTruthy();
+    expect(within(row).getByText("ECON-101 · CRN 22001 · 14:00–16:00")).toBeTruthy();
     expect(screen.getByText("1 busy of 3 teachers")).toBeTruthy();
   });
 
   it("never calls somebody free whose classes are not known", async () => {
-    await ask({ from: "2026-10-01", start: "14:00", end: "16:00" });
+    await ask({ date: "2026-10-01", start: "14:00", end: "16:00" });
 
     fireEvent.click(screen.getByRole("button", { name: "Unknown 1" }));
 
@@ -464,7 +468,7 @@ describe("who is free in a window of time", () => {
       pulledAt: "",
       sections: crns.map((crn) => (crn === "22003" ? { ...sweep[crn], state: "unchecked" as const, meetings: [] } : sweep[crn])),
     }));
-    await ask({ from: "2026-10-01", start: "14:00", end: "16:00" });
+    await ask({ date: "2026-10-01", start: "14:00", end: "16:00" });
 
     expect(screen.getByRole("button", { name: "Free 0" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Unknown 2" }));
@@ -478,25 +482,54 @@ describe("who is free in a window of time", () => {
         coverTeacherId: "", coverTeacherName: "", note: "", authorEmail: "", authorName: "", createdAt: "", updatedAt: "",
       },
     ]);
-    await ask({ from: "2026-10-01", start: "14:00", end: "16:00" });
+    await ask({ date: "2026-10-01", start: "14:00", end: "16:00" });
 
     expect(screen.getByText("2 free of 3 teachers")).toBeTruthy();
     expect(within(rowOf("Ahlem Trabelsi")).getByText("ECON-101 cancelled")).toBeTruthy();
   });
 
-  it("answers for a weekday over several weeks, and says the week without classes", async () => {
-    await ask({ from: "2026-10-05", to: "2026-10-23", start: "10:00", end: "12:00", weekdays: ["Tue"] });
+  it("with the tick, keeps Free for somebody already teaching that day, and lists the rest apart", async () => {
+    // Tuesday afternoon: Ahlem has her tutorial that morning; Grace teaches nothing that day.
+    await ask({ date: "2026-10-06", start: "14:00", end: "16:00", teaching: true });
 
-    fireEvent.click(screen.getByRole("button", { name: "Busy 1" }));
+    expect(screen.getByRole("button", { name: "Who is free: Tue 6 Oct · 14:00–16:00 · teaching that day" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Free 1" })).toBeTruthy();
+    expect(within(rowOf("Ahlem Trabelsi")).getByText("That day: ECON-101 · CRN 22002 · 10:00–12:00")).toBeTruthy();
+    expect(screen.queryByText("Grace Younes")).toBeNull();
 
-    // The tutorial is on one of the three Tuesdays: busy, and by how much.
-    expect(within(rowOf("Ahlem Trabelsi")).getByText("ECON-101 · CRN 22002 · Tue 6 Oct 10:00–12:00 · 1 of 3 days")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Not teaching that day 1" }));
+
+    expect(within(rowOf("Grace Younes")).getByText("Not teaching that day")).toBeTruthy();
+    expect(screen.getByText("1 not teaching that day, of 3 teachers")).toBeTruthy();
+    // Unknown stays unknown: whether Carla teaches that day is exactly what nobody can say.
+    expect(screen.getByRole("button", { name: "Unknown 1" })).toBeTruthy();
+  });
+
+  it("without the tick, calls the same teacher simply free", async () => {
+    await ask({ date: "2026-10-06", start: "14:00", end: "16:00" });
+
+    expect(screen.getByText("2 free of 3 teachers")).toBeTruthy();
+    expect(within(rowOf("Grace Younes")).getByText("Free")).toBeTruthy();
+  });
+
+  it("keeps the tick with the question, across a step away from the page", async () => {
+    await ask({ date: "2026-10-06", start: "14:00", end: "16:00", teaching: true });
+    cleanup();
+    show();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Who is free: Tue 6 Oct · 14:00–16:00 · teaching that day" }));
+
+    expect((await screen.findByLabelText(/Only teachers who have a class that day/) as HTMLInputElement).checked).toBe(true);
+  });
+
+  it("says when the day is in a week without classes", async () => {
+    await ask({ date: "2026-10-14", start: "10:00", end: "12:00" });
+
     expect(screen.getByText("The week of 12 Oct has no classes (Settings → Semesters).")).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Who is free: Tuesdays · 10:00–12:00 · 5 Oct – 23 Oct/ })).toBeTruthy();
   });
 
   it("shows everybody again, without the column, when the question is put away", async () => {
-    await ask({ from: "2026-10-01", start: "14:00", end: "16:00" });
+    await ask({ date: "2026-10-01", start: "14:00", end: "16:00" });
     expect(screen.getByRole("button", { name: "Sort by Availability" })).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Stop asking who is free" }));

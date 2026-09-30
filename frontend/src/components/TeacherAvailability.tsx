@@ -13,8 +13,8 @@ import { useState } from "react";
 import { StatePill } from "@/components/ListGrid";
 import {
   STATE_WORDS,
-  clashShort,
-  clashWords,
+  classShort,
+  classWords,
   describeWindow,
   freedWords,
   unknownShort,
@@ -22,29 +22,22 @@ import {
   windowProblem,
   type Availability,
   type AvailabilityState,
+  type Freed,
   type FreeWindow,
 } from "@/services/teacherAvailability";
-import { DAY_NAMES, isoToday } from "@/services/weekSchedule";
+import { isoToday } from "@/services/weekSchedule";
 
 /** Which answer the list is narrowed to, or everybody. */
 export type Showing = AvailabilityState | "all";
 
 /** A first question to start from: today, late morning. */
 function freshWindow(): FreeWindow {
-  const today = isoToday();
-  return { from: today, to: today, start: "10:00", end: "12:00", weekdays: [] };
+  return { date: isoToday(), start: "10:00", end: "12:00", teachingThatDay: false };
 }
 
-/** Monday to Saturday, the days anything is taught on. */
-const WEEKDAYS = [1, 2, 3, 4, 5, 6];
-
 /**
- * The window, as one control in the list's toolbar.
- *
- * Two dates, two times, and — over more than one day — the weekdays that count. The same
- * control answers "this Thursday at two" and "Tuesday mornings until the break", so there
- * is no second mode to find: a one-off is simply a range that starts and ends on one day,
- * and the To date follows the From date until it is moved on its own.
+ * The window, as one control in the list's toolbar: a day, the hours on it, and whether
+ * only somebody already teaching that day will do.
  *
  * Asked on a button press rather than as the fields change: a half-typed time is not a
  * question, and every change of window means reading nothing new but redrawing every row.
@@ -53,7 +46,6 @@ export function FreeWhenPicker({ window, onChange }: { window: FreeWindow | null
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<FreeWindow>(() => window ?? freshWindow());
   const problem = windowProblem(draft);
-  const ranged = Boolean(draft.from && draft.to && draft.to > draft.from);
   const field = "mt-1 w-full min-w-0 rounded-md border border-[#cbd5e1] px-2 py-1.5 text-sm text-[#344054]";
   const label = "block text-xs font-semibold text-[#667085]";
 
@@ -81,42 +73,26 @@ export function FreeWhenPicker({ window, onChange }: { window: FreeWindow | null
           </button>
         </Popover.Trigger>
         <Popover.Portal>
-          <Popover.Content align="start" sideOffset={6} collisionPadding={12} className="z-[100] w-80 rounded-md border border-[#d9dee7] bg-white p-3 shadow-lg">
+          <Popover.Content align="start" sideOffset={6} collisionPadding={12} className="z-[100] w-72 rounded-md border border-[#d9dee7] bg-white p-3 shadow-lg">
             <form
               aria-label="Who is free"
               onSubmit={(event) => {
                 event.preventDefault();
                 if (problem) return;
-                // A single day is its own weekday; ticks left over from a range would only mislead.
-                onChange(ranged ? draft : { ...draft, weekdays: [] });
+                onChange(draft);
                 setOpen(false);
               }}
             >
               <p className="text-sm font-semibold text-[#171717]">Who has no class</p>
-              <p className="mt-0.5 text-xs text-[#98a2b3]">One day, or a run of days — the same date twice for a one-off.</p>
-              <p className={`${label} mt-3`}>Days</p>
-              <div className="flex items-center gap-2">
+              <label className={`${label} mt-3`}>
+                Day
                 <input
                   type="date"
-                  aria-label="First day"
-                  value={draft.from}
-                  onChange={(event) => {
-                    const from = event.target.value;
-                    // The last day follows the first until somebody sets it on its own.
-                    setDraft((current) => ({ ...current, from, to: current.to === current.from || current.to < from ? from : current.to }));
-                  }}
+                  value={draft.date}
+                  onChange={(event) => setDraft((current) => ({ ...current, date: event.target.value }))}
                   className={field}
                 />
-                <span className="mt-1 text-xs text-[#98a2b3]">to</span>
-                <input
-                  type="date"
-                  aria-label="Last day"
-                  value={draft.to}
-                  min={draft.from}
-                  onChange={(event) => setDraft((current) => ({ ...current, to: event.target.value }))}
-                  className={field}
-                />
-              </div>
+              </label>
               <p className={`${label} mt-2`}>Hours</p>
               <div className="flex items-center gap-2">
                 <input
@@ -137,37 +113,18 @@ export function FreeWhenPicker({ window, onChange }: { window: FreeWindow | null
                   className={field}
                 />
               </div>
-              {ranged ? (
-                <div className="mt-2">
-                  <p className={label}>On</p>
-                  <span role="group" aria-label="Weekdays" className="mt-1 inline-flex overflow-hidden rounded-md border border-[#d9dee7]">
-                    {WEEKDAYS.map((day) => {
-                      const on = draft.weekdays.includes(day);
-                      return (
-                        <button
-                          key={day}
-                          type="button"
-                          aria-pressed={on}
-                          onClick={() =>
-                            setDraft((current) => ({
-                              ...current,
-                              weekdays: on ? current.weekdays.filter((kept) => kept !== day) : [...current.weekdays, day],
-                            }))
-                          }
-                          className={`h-7 border-l border-[#d9dee7] px-2 text-xs font-semibold first:border-l-0 ${
-                            on ? "bg-[#1f4e79] text-white" : "bg-white text-[#344054] hover:bg-[#f8fafc]"
-                          }`}
-                        >
-                          {DAY_NAMES[day]}
-                        </button>
-                      );
-                    })}
-                  </span>
-                  <p className="mt-1 text-xs text-[#98a2b3]">
-                    {draft.weekdays.length ? "Only those days count." : "None ticked: every day counts."}
-                  </p>
-                </div>
-              ) : null}
+              <label className="mt-3 flex items-start gap-2 text-sm text-[#344054]">
+                <input
+                  type="checkbox"
+                  checked={draft.teachingThatDay}
+                  onChange={(event) => setDraft((current) => ({ ...current, teachingThatDay: event.target.checked }))}
+                  className="mt-0.5"
+                />
+                <span>
+                  Only teachers who have a class that day
+                  <span className="block text-xs text-[#98a2b3]">Anybody with no class that day is listed apart, not as free.</span>
+                </span>
+              </label>
               {problem ? <p className="mt-2 text-xs text-[#a6292f]">{problem}</p> : null}
               <div className="mt-3 flex justify-end">
                 <button
@@ -197,45 +154,45 @@ export function FreeWhenPicker({ window, onChange }: { window: FreeWindow | null
   );
 }
 
-const TABS: { value: Showing; label: string }[] = [
-  { value: "free", label: "Free" },
-  { value: "busy", label: "Busy" },
-  { value: "unknown", label: "Unknown" },
-  { value: "all", label: "Everyone" },
-];
+const TABS: Showing[] = ["free", "notTeaching", "busy", "unknown", "all"];
 
 /**
- * The answer's three piles, each a press away, with how many are in each — the counts are
- * the first thing wanted ("twelve of them are free") and the list is the second.
+ * The answer's piles, each a press away, with how many are in each — the counts are the
+ * first thing wanted ("twelve of them are free") and the list is the second. Those not
+ * teaching that day are a pile of their own only when the question asks about it, so the
+ * people it leaves out of Free are one press away rather than nowhere.
  */
 export function AvailabilityTabs({
   counts,
   total,
+  teachingThatDay,
   showing,
   onShow,
 }: {
   counts: Record<AvailabilityState, number>;
   total: number;
+  teachingThatDay: boolean;
   showing: Showing;
   onShow: (showing: Showing) => void;
 }) {
   return (
     <span role="group" aria-label="Show" className="inline-flex overflow-hidden rounded-md border border-[#d9dee7]">
-      {TABS.map((tab) => {
-        const on = tab.value === showing;
-        const count = tab.value === "all" ? total : counts[tab.value];
+      {TABS.filter((tab) => tab !== "notTeaching" || teachingThatDay).map((tab) => {
+        const on = tab === showing;
         return (
           <button
-            key={tab.value}
+            key={tab}
             type="button"
             aria-pressed={on}
-            onClick={() => onShow(tab.value)}
+            onClick={() => onShow(tab)}
             className={`inline-flex h-9 items-center gap-1.5 border-l border-[#d9dee7] px-2.5 text-sm font-semibold first:border-l-0 ${
               on ? "bg-[#1f4e79] text-white" : "bg-white text-[#344054] hover:bg-[#f8fafc]"
             }`}
           >
-            {tab.label}
-            <span className={`tabular-nums text-xs font-normal ${on ? "text-[#dbe6f1]" : "text-[#98a2b3]"}`}>{count}</span>
+            {tab === "all" ? "Everyone" : STATE_WORDS[tab]}{" "}
+            <span className={`tabular-nums text-xs font-normal ${on ? "text-[#dbe6f1]" : "text-[#98a2b3]"}`}>
+              {tab === "all" ? total : counts[tab]}
+            </span>
           </button>
         );
       })}
@@ -243,33 +200,38 @@ export function AvailabilityTabs({
   );
 }
 
-const TONE: Record<AvailabilityState, "good" | "bad" | "muted"> = { free: "good", busy: "bad", unknown: "muted" };
+const TONE: Record<AvailabilityState, "good" | "bad" | "muted" | "accent"> = {
+  free: "good",
+  notTeaching: "accent",
+  busy: "bad",
+  unknown: "muted",
+};
+
+/** "ECON-101 cancelled", "ECON-101 covered by Grace Younes". */
+function freedShort(freed: Freed): string {
+  return `${freed.code || `CRN ${freed.crn}`} ${freed.kind === "cancelled" ? "cancelled" : `covered by ${freed.coverName || "somebody else"}`}`;
+}
 
 /** What the cell says beside the pill: the first reason, and how many more there are. */
 function shortWords(answer: Availability): string {
   const more = (count: number) => (count > 1 ? ` +${count - 1} more` : "");
-  if (answer.state === "busy") {
-    const share = answer.days > 1 ? ` · ${answer.busyDays} of ${answer.days} days` : "";
-    return `${clashShort(answer.clashes[0])}${share}${more(answer.clashes.length)}`;
-  }
+  if (answer.state === "busy") return `${classShort(answer.clashes[0])}${more(answer.clashes.length)}`;
   if (answer.state === "unknown") return `${unknownShort(answer.unknown[0])}${more(answer.unknown.length)}`;
-  if (answer.freed.length === 1) {
-    const [freed] = answer.freed;
-    return `${freed.code || `CRN ${freed.crn}`} ${freed.kind === "cancelled" ? "cancelled" : `covered by ${freed.coverName || "somebody else"}`}`;
-  }
-  return answer.freed.length ? `${answer.freed.length} classes cancelled or covered` : "";
+  // Free because a note took the class off them: that is the thing to say.
+  const inWindow = answer.freed.filter((freed) => freed.inWindow);
+  if (answer.state === "free" && inWindow.length) return `${freedShort(inWindow[0])}${more(inWindow.length)}`;
+  if (answer.state === "free" && answer.sameDay.length) return `That day: ${classShort(answer.sameDay[0])}${more(answer.sameDay.length)}`;
+  return answer.freed.length ? `${freedShort(answer.freed[0])}${more(answer.freed.length)}` : "";
 }
 
 /** Everything behind the answer, for the hover. */
 function fullWords(answer: Availability): { heading: string; lines: string[] }[] {
   const said: { heading: string; lines: string[] }[] = [];
-  if (answer.state === "busy") {
-    said.push({
-      heading: answer.days > 1 ? `A class on ${answer.busyDays} of the ${answer.days} days` : "A class in the window",
-      lines: answer.clashes.map(clashWords),
-    });
-  } else if (answer.state === "free") {
-    said.push({ heading: "No class of theirs in the window", lines: [] });
+  if (answer.state === "busy") said.push({ heading: "A class in the window", lines: answer.clashes.map(classWords) });
+  if (answer.state === "free") said.push({ heading: "No class of theirs in the window", lines: [] });
+  if (answer.state === "notTeaching") said.push({ heading: "No class of theirs that day", lines: [] });
+  if (answer.sameDay.length && answer.state !== "unknown") {
+    said.push({ heading: "Their other classes that day", lines: answer.sameDay.map(classWords) });
   }
   if (answer.freed.length) said.push({ heading: "Taken off them by a note", lines: answer.freed.map(freedWords) });
   if (answer.unknown.length) {
