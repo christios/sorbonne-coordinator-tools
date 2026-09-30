@@ -48,7 +48,7 @@ export type CapacityRow = {
    * A group whose programmes are taught different things has a row per class here: L1's
    * CM is the lectures all 109 attend, MATH-113 for the 91 mathematicians and PHYS-118
    * for the 18 physicists. Three rows, one group of 109 in 120 seats — which is what the
-   * page draws and counts, from these.
+   * page counts, from these.
    */
   groupKey: string;
   groupLabel: string;
@@ -56,6 +56,8 @@ export type CapacityRow = {
   groupEnrolled: number;
   /** The programme part this row's class is for — "Physics" — when the group has parts; "" otherwise. */
   part: string;
+  /** Every part of the group, with its own seats and students; empty for a group not in parts. */
+  parts: { name: string; seats: number; enrolled: number }[];
 };
 
 export type CapacityStatus = "Over" | "Full" | "Room" | "Empty" | "No capacity set";
@@ -155,6 +157,10 @@ export function capacityRows(
                   }
                 : { groupCapacity: capacity, groupEnrolled: enrolled }),
               part: seat.part,
+              parts:
+                (group.majors ?? []).length >= 2
+                  ? (group.majors ?? []).map((major) => ({ name: shortProgram(major.program), seats: major.seats, enrolled: major.assigned }))
+                  : [],
             });
           }
         }
@@ -247,11 +253,16 @@ export type GroupCapacity = {
   status: CapacityStatus;
   sections: CapacityRow[];
   /**
-   * A group's programme parts, each with its own seats: "Mathematics 91 of 100", "Physics
-   * 18 of 20". Empty for a group that is not in parts. A part can be full while the group
-   * is not, and the part is the room that will not hold them.
+   * The programme this line is, for a group split by programme — "Mathematics" — or ""
+   * for a line that is the whole group. Such a group is a line per programme: each has
+   * its own planned seats and its own course, and the lectures they share are listed
+   * under both.
    */
-  parts: { name: string; capacity: number; enrolled: number; free: number; status: CapacityStatus }[];
+  part: string;
+  /** The group the line belongs to, and the group's own seats and students, for the totals. */
+  groupKey: string;
+  groupCapacity: number;
+  groupEnrolled: number;
 };
 
 /**
@@ -278,35 +289,46 @@ export type GroupCapacity = {
  */
 export function capacityByGroup(rows: CapacityRow[]): GroupCapacity[] {
   const held = new Map<string, GroupCapacity>();
-  for (const row of rows) {
-    /*
-     * One line per group, not per class. L1's CM is drawn once — 109 in 120 — with every
-     * lecture under it and its parts beside them, not as three bars that each look like a
-     * group of their own.
-     */
-    let seen = held.get(row.groupKey);
+  const line = (row: CapacityRow, part: CapacityRow["parts"][number] | null): GroupCapacity => {
+    const key = part ? `${row.groupKey}|${part.name}` : row.groupKey;
+    let seen = held.get(key);
     if (!seen) {
+      const capacity = part ? part.seats : row.groupCapacity;
+      const enrolled = part ? part.enrolled : row.groupEnrolled;
       seen = {
-        key: row.groupKey,
+        key,
         cohortId: row.cohortId,
         cohortName: row.cohortName,
         cohortNames: [row.cohortName],
         termName: row.termName,
         set: row.set,
         shared: row.shared,
-        group: row.groupLabel,
-        capacity: row.groupCapacity,
-        enrolled: row.groupEnrolled,
-        free: row.groupCapacity ? row.groupCapacity - row.groupEnrolled : 0,
-        status: statusOf(row.groupCapacity, row.groupEnrolled),
+        group: part ? `${row.groupLabel} · ${part.name}` : row.groupLabel,
+        capacity,
+        enrolled,
+        free: capacity ? capacity - enrolled : 0,
+        status: statusOf(capacity, enrolled),
         sections: [],
-        parts: [],
+        part: part?.name ?? "",
+        groupKey: row.groupKey,
+        groupCapacity: row.groupCapacity,
+        groupEnrolled: row.groupEnrolled,
       };
-      held.set(row.groupKey, seen);
+      held.set(key, seen);
     }
-    seen.sections.push(row);
-    if (row.part && !seen.parts.some((part) => part.name === row.part)) {
-      seen.parts.push({ name: row.part, capacity: row.capacity, enrolled: row.enrolled, free: row.free, status: row.status });
+    return seen;
+  };
+  for (const row of rows) {
+    /*
+     * A line per group — and for a group split by programme, a line per programme. Its own
+     * class goes on its own line; a class the programmes share goes on each of them.
+     */
+    if (!row.parts.length) {
+      line(row, null).sections.push(row);
+      continue;
+    }
+    for (const part of row.parts) {
+      if (!row.part || row.part === part.name) line(row, part).sections.push(row);
     }
   }
   return foldShared([...held.values()]).sort(
@@ -338,6 +360,7 @@ function foldShared(groups: GroupCapacity[]): GroupCapacity[] {
     }
     if (!seen.cohortNames.includes(group.cohortName)) seen.cohortNames.push(group.cohortName);
     seen.enrolled += group.enrolled;
+    seen.groupEnrolled += group.groupEnrolled;
     seen.free = seen.capacity ? seen.capacity - seen.enrolled : 0;
     seen.status = statusOf(seen.capacity, seen.enrolled);
   }
@@ -348,7 +371,10 @@ function foldShared(groups: GroupCapacity[]): GroupCapacity[] {
 export type SetCapacity = {
   code: string;
   shared: boolean;
+  /** A line each: one per group, or one per programme of a group split by programme. */
   groups: GroupCapacity[];
+  /** How many groups those lines are, each counted once. */
+  groupCount: number;
   capacity: number;
   enrolled: number;
   over: number;
@@ -361,20 +387,18 @@ export function capacityBySet(groups: GroupCapacity[]): SetCapacity[] {
   for (const group of groups) held.set(group.set, [...(held.get(group.set) ?? []), group]);
   return [...held.entries()]
     .map(([code, own]) => {
+      // Each group once, however many programme lines it is drawn as.
+      const real = [...new Map(own.map((group) => [group.groupKey, group] as const)).values()];
       return {
         code,
         shared: own.some((group) => group.shared),
         groups: own,
+        groupCount: real.length,
         // Seats only where a capacity is stated: adding zeroes would claim room there is
         // no word on.
-        capacity: own.reduce((total, group) => total + group.capacity, 0),
-        enrolled: own.reduce((total, group) => total + group.enrolled, 0),
-        // A group over its seats, and a part over its own, each count.
-        over: own.reduce(
-          (total, group) =>
-            total + Number(group.status === "Over") + group.parts.filter((part) => part.status === "Over").length,
-          0,
-        ),
+        capacity: real.reduce((total, group) => total + group.groupCapacity, 0),
+        enrolled: real.reduce((total, group) => total + group.groupEnrolled, 0),
+        over: own.filter((group) => group.status === "Over").length,
         peak: Math.max(1, ...own.map((group) => Math.max(group.capacity, group.enrolled))),
       };
     })
@@ -408,8 +432,17 @@ export function capacityColumns(): GridColumn<CapacityRow>[] {
   ];
 }
 
-/** One room a line's classes meet in: what it seats, and how many sessions are booked there. */
-export type RoomUse = { name: string; seats: number | null; sessions: number };
+/**
+ * One room a line's classes meet in: what it seats, how many sessions are booked there,
+ * and which classes those are, on which days — so a room that turns up once can be told
+ * from the room the course lives in.
+ */
+export type RoomUse = {
+  name: string;
+  seats: number | null;
+  sessions: number;
+  classes: { course: string; dates: string[] }[];
+};
 
 /**
  * What a line is read against: the rooms its classes meet in, and our planned seats.
@@ -457,8 +490,14 @@ export function roomReading(
   const held = new Map<string, RoomUse>();
   for (const crn of new Set(crns.filter(Boolean))) {
     for (const room of roomsOf(crn) ?? []) {
-      const seen = held.get(room.name);
-      held.set(room.name, seen ? { ...seen, sessions: seen.sessions + room.sessions } : { ...room });
+      const seen = held.get(room.name) ?? { ...room, sessions: 0, classes: [] };
+      const classes = [...seen.classes];
+      for (const use of room.classes) {
+        const same = classes.findIndex((other) => other.course === use.course);
+        if (same < 0) classes.push({ course: use.course, dates: [...use.dates] });
+        else classes[same] = { course: use.course, dates: [...classes[same].dates, ...use.dates].sort() };
+      }
+      held.set(room.name, { ...seen, sessions: seen.sessions + room.sessions, classes });
     }
   }
   const rooms = [...held.values()].sort(
@@ -485,12 +524,13 @@ export function roomReading(
   };
 }
 
-/** The line's whole-group classes: the ones every student of it sits, which its room must hold. */
-export function groupCrns(group: GroupCapacity): string[] {
-  return group.sections.filter((section) => !section.part).map((section) => section.crn);
-}
-
-/** A part's own classes: the ones only that programme sits. */
-export function partCrns(group: GroupCapacity, part: string): string[] {
-  return group.sections.filter((section) => section.part === part).map((section) => section.crn);
+/**
+ * The classes a line is read against. A programme's line is read against its own course's
+ * room — MATH-113's for the mathematicians — since the lectures it shares are everybody's
+ * and are checked against everybody on their own chips; a whole group, against all of its
+ * classes.
+ */
+export function lineCrns(group: GroupCapacity): string[] {
+  const own = group.part ? group.sections.filter((section) => section.part === group.part) : group.sections;
+  return (own.length ? own : group.sections).map((section) => section.crn);
 }

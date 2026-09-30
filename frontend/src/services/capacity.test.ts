@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { capacityByGroup, capacityBySet, capacityRows, groupTotals, roomReading, statusOf, type RoomUse } from "@/services/capacity";
+import { capacityByGroup, capacityBySet, capacityRows, groupTotals, lineCrns, roomReading, statusOf, type RoomUse } from "@/services/capacity";
 import { EMPTY_REQUEST, EMPTY_SECTION, type CohortCatalogue } from "@/services/studentDatabase";
 
 const section = (crn: string, over: Partial<typeof EMPTY_SECTION> = {}) => ({ ...EMPTY_SECTION, crn, ...over });
@@ -439,38 +439,46 @@ describe("a group whose programmes are taught different lectures", () => {
   };
   const rows = capacityRows([L1], () => "Semester 1");
 
-  it("draws the group once, with every lecture under it and its parts beside them", () => {
-    const [line] = capacityByGroup(rows);
+  it("draws a line per programme, each with its own seats, its own course and the lectures they share", () => {
+    const lines = capacityByGroup(rows);
 
-    expect([line.group, line.enrolled, line.capacity]).toEqual(["1", 109, 120]);
-    expect(line.sections.map((section) => [section.crn, section.part])).toEqual([
-      ["22134", ""],
-      ["23307", "Mathematics"],
-      ["22150", "Physics"],
+    expect(lines.map((line) => [line.group, line.part, line.enrolled, line.capacity])).toEqual([
+      ["1 · Mathematics", "Mathematics", 91, 100],
+      ["1 · Physics", "Physics", 18, 20],
     ]);
-    expect(line.parts.map((part) => [part.name, part.enrolled, part.capacity])).toEqual([
-      ["Mathematics", 91, 100],
-      ["Physics", 18, 20],
+    // The shared lecture is on both; each programme's own course on its own line only.
+    expect(lines.map((line) => line.sections.map((section) => section.crn))).toEqual([
+      ["22134", "23307"],
+      ["22134", "22150"],
     ]);
+  });
+
+  it("reads a programme's line against its own course's room", () => {
+    const [maths, physics] = capacityByGroup(rows);
+
+    expect(lineCrns(maths)).toEqual(["23307"]);
+    expect(lineCrns(physics)).toEqual(["22150"]);
   });
 
   it("counts the set as the one group it is", () => {
     const [cm] = capacityBySet(capacityByGroup(rows));
 
-    expect(cm).toMatchObject({ enrolled: 109, capacity: 120, over: 0 });
-    expect(cm.groups).toHaveLength(1);
+    expect(cm).toMatchObject({ groupCount: 1, enrolled: 109, capacity: 120, over: 0 });
+    expect(cm.groups).toHaveLength(2);
   });
 
-  it("counts a part over its own seats, though the group has room", () => {
-    // 22 physicists on 20 seats, in a group of 113 on 120: the Physics part is what is over.
+  it("counts a programme over its own seats, though the group has room", () => {
+    // 22 physicists on 20 seats, in a group of 113 on 120: the Physics line is what is over.
     const crowded: CohortCatalogue = JSON.parse(JSON.stringify(L1));
     const cm = crowded.scopes[0].groups[0] as unknown as { assigned: number; majors: { assigned: number }[] };
     cm.assigned = 113;
     cm.majors[1].assigned = 22;
     const [set] = capacityBySet(capacityByGroup(capacityRows([crowded], () => "Semester 1")));
 
-    expect(set.groups[0].status).toBe("Room");
-    expect(set.groups[0].parts[1]).toMatchObject({ name: "Physics", status: "Over" });
+    expect(set.groups.map((line) => [line.group, line.status])).toEqual([
+      ["1 · Mathematics", "Room"],
+      ["1 · Physics", "Over"],
+    ]);
     expect(set.over).toBe(1);
   });
 
@@ -480,11 +488,15 @@ describe("a group whose programmes are taught different lectures", () => {
 });
 
 describe("reading a line against its rooms", () => {
+  const use = (name: string, seats: number | null, course: string, dates: string[]): RoomUse => ({
+    name, seats, sessions: dates.length, classes: [{ course, dates }],
+  });
+  const days = (count: number) => Array.from({ length: count }, (_, index) => `2026-10-${String(index + 1).padStart(2, "0")}`);
   const rooms: Record<string, RoomUse[]> = {
-    "22134": [{ name: "Roberto Sorbonne", seats: 154, sessions: 28 }],
-    "22135": [{ name: "Roberto Sorbonne", seats: 154, sessions: 20 }, { name: "5.104", seats: 16, sessions: 1 }],
-    "23639": [{ name: "5.104", seats: 16, sessions: 12 }],
-    "24999": [{ name: "9.999", seats: null, sessions: 4 }],
+    "22134": [use("Roberto Sorbonne", 154, "MATH-100", days(28))],
+    "22135": [use("Roberto Sorbonne", 154, "PHYS-125", days(20)), use("5.104", 16, "PHYS-125", ["2026-11-03"])],
+    "23639": [use("5.104", 16, "PHYS-125 TP", days(12))],
+    "24999": [use("9.999", null, "SCEN-900", days(4))],
   };
   const roomsOf = (crn: string) => rooms[crn];
 
@@ -503,9 +515,15 @@ describe("reading a line against its rooms", () => {
     // L1's CM: the lectures in Roberto Sorbonne, one session moved to a room of 16.
     const reading = roomReading(["22134", "22135"], roomsOf, 120, 109);
 
-    expect(reading.rooms).toEqual([
-      { name: "Roberto Sorbonne", seats: 154, sessions: 48 },
-      { name: "5.104", seats: 16, sessions: 1 },
+    expect(reading.rooms.map((room) => [room.name, room.seats, room.sessions])).toEqual([
+      ["Roberto Sorbonne", 154, 48],
+      ["5.104", 16, 1],
+    ]);
+    // Which class each room is for, and when: the room of 16 is one PHYS-125 on 3 November.
+    expect(reading.rooms[1].classes).toEqual([{ course: "PHYS-125", dates: ["2026-11-03"] }]);
+    expect(reading.rooms[0].classes.map((held) => [held.course, held.dates.length])).toEqual([
+      ["MATH-100", 28],
+      ["PHYS-125", 20],
     ]);
     // Not eighty-five over because of one session elsewhere: 109 in 154.
     expect(reading).toMatchObject({ seats: 154, overRoom: 0, free: 45, status: "Room" });
@@ -518,6 +536,6 @@ describe("reading a line against its rooms", () => {
     const reading = roomReading(["24999", "00000"], roomsOf, 20, 18);
 
     expect(reading).toMatchObject({ seats: null, against: 20, byRoom: false, free: 2, overRoom: 0, status: "Room" });
-    expect(reading.rooms).toEqual([{ name: "9.999", seats: null, sessions: 4 }]);
+    expect(reading.rooms.map((room) => [room.name, room.seats, room.sessions])).toEqual([["9.999", null, 4]]);
   });
 });

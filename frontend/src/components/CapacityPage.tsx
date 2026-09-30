@@ -13,9 +13,8 @@ import {
   capacityByGroup,
   capacityBySet,
   capacityRows,
-  groupCrns,
   groupTotals,
-  partCrns,
+  lineCrns,
   roomReading,
   type CapacityStatus,
   type GroupCapacity,
@@ -26,7 +25,7 @@ import { copyTable } from "@/services/copyCells";
 import { COHORT } from "@/services/remembered";
 import { type ActiveCrn, fetchActiveCourses, fetchActiveCrns, fetchActiveTeachers, fetchFacilitySections, fetchTermLinks } from "@/services/portalLists";
 import { useRooms } from "@/services/rooms";
-import { formatRoom } from "@/services/weekSchedule";
+import { formatDayAndMonth, formatRoom } from "@/services/weekSchedule";
 import { fetchCohorts, fetchCourseCards } from "@/services/studentDatabase";
 import { fetchTimetableTerms } from "@/services/timetables";
 
@@ -95,7 +94,28 @@ const sessions = (count: number) => `${count} session${count === 1 ? "" : "s"}`;
  * Every room a line meets in, on hover: what each seats and how many of its sessions are
  * booked there — the room it is read against first, and any too small for it marked.
  */
-function RoomsTip({ reading, children }: { reading: RoomReading; children: ReactNode }) {
+/**
+ * Which classes a room is for: the course and its days where there are few, as for a room
+ * a lecture was moved to once — "PHYS-125 · 3 Nov" — and the course with a count where it
+ * is the course's own room, whose thirty dates would say nothing.
+ */
+function roomClasses(room: RoomUse): string {
+  return room.classes
+    .map((held) =>
+      held.dates.length <= 4
+        ? `${held.course} · ${[...new Set(held.dates)]
+            .map((day) => {
+              // Two sessions the same day are one date, said twice over: "18 Sep ×2".
+              const times = held.dates.filter((other) => other === day).length;
+              return `${formatDayAndMonth(day)}${times > 1 ? ` ×${times}` : ""}`;
+            })
+            .join(", ")}`
+        : `${held.course} · ${sessions(held.dates.length)}`,
+    )
+    .join(" — ");
+}
+
+function RoomsTip({ reading, who, children }: { reading: RoomReading; who?: string; children: ReactNode }) {
   return (
     <Tooltip.Provider delayDuration={150}>
       <Tooltip.Root>
@@ -108,8 +128,10 @@ function RoomsTip({ reading, children }: { reading: RoomReading; children: React
             align="center"
             sideOffset={6}
             collisionPadding={12}
-            className="z-[130] max-w-sm rounded-md border border-[#d9dee7] bg-white px-3 py-2 text-xs leading-5 text-[#475467] shadow-lg"
+            className="z-[130] max-w-md rounded-md border border-[#d9dee7] bg-white px-3 py-2 text-xs leading-5 text-[#475467] shadow-lg"
           >
+            {/* Whose classes these are: the whole group's, or one programme's own. */}
+            {who ? <p className="mb-0.5 text-[11px] font-semibold uppercase tracking-wide text-[#8a94a4]">{who}</p> : null}
             <p className="font-semibold text-[#344054]">
               {reading.main
                 ? `${reading.enrolled} in ${reading.main.name}, ${reading.main.seats} seats`
@@ -121,15 +143,18 @@ function RoomsTip({ reading, children }: { reading: RoomReading; children: React
                 {reading.rooms.map((room) => {
                   const small = reading.tooSmall.includes(room);
                   return (
-                    <li key={room.name} className={`flex justify-between gap-4 ${small ? "text-[#a6292f]" : ""}`}>
-                      <span>
-                        {room.name}
-                        {room === reading.main ? <span className="text-[#98a2b3]"> · most sessions</span> : null}
-                        {small ? " · too small" : ""}
+                    <li key={room.name} className={small ? "text-[#a6292f]" : ""}>
+                      <span className="flex justify-between gap-4">
+                        <span>
+                          {room.name}
+                          {room === reading.main ? <span className="text-[#98a2b3]"> · most sessions</span> : null}
+                          {small ? " · too small" : ""}
+                        </span>
+                        <span className="tabular-nums">
+                          {room.seats !== null ? `${room.seats} seats` : "seats not known"} · {sessions(room.sessions)}
+                        </span>
                       </span>
-                      <span className="tabular-nums">
-                        {room.seats !== null ? `${room.seats} seats` : "seats not known"} · {sessions(room.sessions)}
-                      </span>
+                      <span className={`block text-[11px] ${small ? "text-[#c0666b]" : "text-[#98a2b3]"}`}>{roomClasses(room)}</span>
                     </li>
                   );
                 })}
@@ -150,7 +175,6 @@ function GroupBar({
   onOpenCrn,
   roomFor,
   reading,
-  partReading,
 }: {
   group: GroupCapacity;
   peak: number;
@@ -158,7 +182,6 @@ function GroupBar({
   roomFor?: (crn: string) => UsualRoom | null;
   /** The line against its room, with our plan beside it — see RoomReading. */
   reading: RoomReading;
-  partReading: (part: string) => RoomReading;
 }) {
   const against = reading.against;
   const stated = against > 0;
@@ -170,7 +193,7 @@ function GroupBar({
   return (
     <div className="py-1.5">
       <div className="flex w-full items-center gap-3 text-left">
-        <span className="w-24 shrink-0 truncate text-sm font-medium text-[#344054]">{group.group}</span>
+        <span className="w-32 shrink-0 truncate text-sm font-medium text-[#344054]" title={group.group}>{group.group}</span>
 
         <span className="relative h-3.5 min-w-0 flex-1">
           {/* The seats: the whole track, whatever the group holds. */}
@@ -200,7 +223,7 @@ function GroupBar({
           * the one most of its sessions are in; the others, and what each seats, are a hover
           * away — and said here when there are several, or when one is too small for them.
           */}
-        <RoomsTip reading={reading}>
+        <RoomsTip reading={reading} who={group.part ? `${group.part} only` : `Group ${group.group}'s classes`}>
           <span className="block w-36 shrink-0 text-right leading-tight">
             <span className="text-sm tabular-nums text-[#344054]">
               {group.enrolled}
@@ -241,44 +264,12 @@ function GroupBar({
         * nothing, because there is nothing to open.
         */}
       {group.sections.length ? (
-        <ul className="ml-[6.5rem] mt-1 flex flex-wrap gap-1">
+        <ul className="ml-[8.5rem] mt-1 flex flex-wrap gap-1">
           {/*
             * A shared class is one room that four years sit in, and its record is kept by
             * each of them. How full it is reads differently once you know the students in
             * it are not all one cohort's.
             */}
-          {/*
-            * A group in programme parts says how full each part is: the group can have room
-            * while one part is full, and the part is what a student is placed into.
-            */}
-          {group.parts.map((part) => {
-            // A part against the room of its own classes — MATH-113's for the mathematicians.
-            const read = partReading(part.name);
-            const partOver = read.status === "Over";
-            const partOverPlan = !partOver && read.byRoom && read.overPlan > 0;
-            return (
-              <li key={`part|${part.name}`}>
-                <RoomsTip reading={read}>
-                  <span
-                    className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${
-                      partOver
-                        ? "bg-[#fdf3f3] text-[#a6292f]"
-                        : partOverPlan
-                          ? "bg-[#fdf6e7] text-[#8a6116]"
-                          : "bg-[#eef1f5] text-[#344054]"
-                    }`}
-                  >
-                    {part.name}
-                    <span className="tabular-nums font-normal">
-                      {part.enrolled} / {read.against || "—"}
-                      {read.byRoom ? ` · plan ${read.planned || "—"}` : ""}
-                      {partOver ? ` · ${part.enrolled - read.against} over` : partOverPlan ? ` · ${read.overPlan} over plan` : ""}
-                    </span>
-                  </span>
-                </RoomsTip>
-              </li>
-            );
-          })}
           {group.cohortNames.length > 1 ? (
             <li>
               <span
@@ -290,9 +281,14 @@ function GroupBar({
             </li>
           ) : null}
           {group.sections.map((section) => {
-            // A class one part of the group takes says whose it is: "PHYS-118 CM · Physics".
+            /*
+             * On a programme's line, a lecture it shares says with whom, and how many sit in it
+             * — the room has to hold all of them, not this line's share.
+             */
+            const sharedWith =
+              group.part && !section.part ? section.parts.map((part) => part.name).filter((name) => name !== group.part) : [];
             const said = `${section.courseCode}${section.component ? ` ${section.component}` : ""}${
-              section.part ? ` · ${section.part}` : ""
+              sharedWith.length ? ` · with ${sharedWith.join(" and ")}` : ""
             } · ${section.teacher || "no teacher yet"}`;
             /*
              * The room it is booked in, beside the group's seats: a group of 30 seats timetabled
@@ -320,6 +316,7 @@ function GroupBar({
                       <span className={`shrink-0 tabular-nums ${small ? "font-semibold text-[#a6292f]" : "text-[#98a2b3]"}`}>
                         {room.name}
                         {room.seats !== null ? ` · ${room.seats} seats` : ""}
+                        {sharedWith.length ? ` · ${section.enrolled} in it` : ""}
                       </span>
                     ) : null}
                   </button>
@@ -436,12 +433,17 @@ export function CapacityPage() {
     for (const read of sweeps) {
       for (const section of read.data?.sections ?? []) {
         const counts = new Map<string, RoomUse>();
+        const course = section.courseCode || section.crn;
         for (const meeting of section.meetings) {
           if (!meeting.room) continue;
           const known = roomOf(meeting.room);
           const name = known?.code ?? formatRoom(meeting.room);
-          const seen = counts.get(name);
-          counts.set(name, seen ? { ...seen, sessions: seen.sessions + 1 } : { name, seats: known?.seats ?? null, sessions: 1 });
+          const seen = counts.get(name) ?? { name, seats: known?.seats ?? null, sessions: 0, classes: [{ course, dates: [] }] };
+          counts.set(name, {
+            ...seen,
+            sessions: seen.sessions + 1,
+            classes: [{ course, dates: [...seen.classes[0].dates, meeting.meetsOn].sort() }],
+          });
         }
         const uses = [...counts.values()].sort((left, right) => right.sessions - left.sessions);
         if (!uses.length) continue;
@@ -454,26 +456,14 @@ export function CapacityPage() {
   }, [roomOf, sweeps.map((read) => read.dataUpdatedAt).join(",")]);
   const roomFor = (crn: string) => usual.get(crn) ?? null;
   const roomsOf = (crn: string) => roomsByCrn.get(crn);
-  const readingOf = (group: GroupCapacity) => roomReading(groupCrns(group), roomsOf, group.capacity, group.enrolled);
-  const partReadingOf = (group: GroupCapacity, name: string) => {
-    const part = group.parts.find((candidate) => candidate.name === name);
-    return roomReading(partCrns(group, name), roomsOf, part?.capacity ?? 0, part?.enrolled ?? 0);
-  };
+  const readingOf = (group: GroupCapacity) => roomReading(lineCrns(group), roomsOf, group.capacity, group.enrolled);
   /*
    * What is over, now that a line is read against its room: every group or part with more
    * students than its room seats (or than our plan, where no room is known), and apart
    * from them, those the room holds but our plan does not.
    */
   const lines = (groups: GroupCapacity[]) =>
-    groups.flatMap((group) => [
-      { key: group.key, set: group.set, label: group.group, reading: readingOf(group) },
-      ...group.parts.map((part) => ({
-        key: `${group.key}|${part.name}`,
-        set: group.set,
-        label: `${group.group} · ${part.name}`,
-        reading: partReadingOf(group, part.name),
-      })),
-    ]);
+    groups.map((group) => ({ key: group.key, set: group.set, label: group.group, reading: readingOf(group) }));
   const mineLines = lines(capacityByGroup(mine));
   const over = mineLines.filter((line) => line.reading.status === "Over");
   const overPlanOnly = mineLines.filter((line) => line.reading.status !== "Over" && line.reading.byRoom && line.reading.overPlan > 0);
@@ -578,7 +568,13 @@ export function CapacityPage() {
                 </span>
               ) : null}
               <p className="text-xs text-[#667085]">
-                {set.groups.length} group{set.groups.length === 1 ? "" : "s"} · {set.enrolled.toLocaleString()} in{" "}
+                {set.groupCount} group{set.groupCount === 1 ? "" : "s"}
+                {set.groups.length > set.groupCount
+                  ? set.groupCount === 1
+                    ? ` in ${set.groups.length} parts`
+                    : ` · ${set.groups.length} lines, split by programme`
+                  : ""}{" "}
+                · {set.enrolled.toLocaleString()} in{" "}
                 {set.capacity.toLocaleString()} planned seats
                 {(() => {
                   const overHere = lines(set.groups).filter((line) => line.reading.status === "Over").length;
@@ -595,7 +591,6 @@ export function CapacityPage() {
                   onOpenCrn={openCrn}
                   roomFor={roomFor}
                   reading={readingOf(group)}
-                  partReading={(name) => partReadingOf(group, name)}
                 />
               ))}
             </div>
