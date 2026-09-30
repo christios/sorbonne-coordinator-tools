@@ -160,6 +160,29 @@ function GroupBar({
             * each of them. How full it is reads differently once you know the students in
             * it are not all one cohort's.
             */}
+          {/*
+            * A group in programme parts says how full each part is: the group can have room
+            * while one part is full, and the part is what a student is placed into.
+            */}
+          {group.parts.map((part) => {
+            const partOver = part.status === "Over";
+            return (
+              <li key={`part|${part.name}`}>
+                <span
+                  title={`${part.name}: ${part.enrolled} in ${part.capacity || "no"} seats`}
+                  className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${
+                    partOver ? "bg-[#fdf3f3] text-[#a6292f]" : "bg-[#eef1f5] text-[#344054]"
+                  }`}
+                >
+                  {part.name}
+                  <span className="tabular-nums font-normal">
+                    {part.enrolled} / {part.capacity || "—"}
+                    {partOver ? ` · ${part.enrolled - part.capacity} over` : ""}
+                  </span>
+                </span>
+              </li>
+            );
+          })}
           {group.cohortNames.length > 1 ? (
             <li>
               <span
@@ -171,13 +194,17 @@ function GroupBar({
             </li>
           ) : null}
           {group.sections.map((section) => {
-            const said = `${section.courseCode}${section.component ? ` ${section.component}` : ""} · ${section.teacher || "no teacher yet"}`;
+            // A class one part of the group takes says whose it is: "PHYS-118 CM · Physics".
+            const said = `${section.courseCode}${section.component ? ` ${section.component}` : ""}${
+              section.part ? ` · ${section.part}` : ""
+            } · ${section.teacher || "no teacher yet"}`;
             /*
              * The room it is booked in, beside the group's seats: a group of 30 seats timetabled
              * into a room of 24 is full at 24, whatever the bar says.
              */
             const room = section.crn && roomFor ? roomFor(section.crn) : null;
-            const small = Boolean(room && room.seats !== null && group.capacity > room.seats);
+            // Against the seats of whoever takes this class — the part's, for a part's class.
+            const small = Boolean(room && room.seats !== null && section.capacity > room.seats);
             return (
               <li key={section.key}>
                 {section.crn ? (
@@ -185,7 +212,7 @@ function GroupBar({
                     type="button"
                     onClick={() => onOpenCrn(section.crn)}
                     title={`Open ${section.crn} — ${said}${
-                      room ? ` · ${room.name}${room.seats !== null ? `, ${room.seats} seats` : ", seats not known"}${small ? ` — fewer than the group's ${group.capacity}` : ""}` : ""
+                      room ? ` · ${room.name}${room.seats !== null ? `, ${room.seats} seats` : ", seats not known"}${small ? ` — fewer than the ${section.capacity} it seats` : ""}` : ""
                     }`}
                     className={`inline-flex max-w-full items-center gap-1.5 rounded-full border bg-white px-2 py-0.5 text-xs text-[#667085] hover:bg-[#f2f7fb] hover:text-[#1f4e79] ${
                       small ? "border-[#efc9cb] hover:border-[#e5a3a7]" : "border-[#e4e8ef] hover:border-[#b7cbe0]"
@@ -451,8 +478,7 @@ export function CapacityPage() {
                 </span>
               ) : null}
               <p className="text-xs text-[#667085]">
-                {set.groupCount} group{set.groupCount === 1 ? "" : "s"}
-                {set.groups.length > set.groupCount ? ` · ${set.groups.length} classes` : ""} · {set.enrolled.toLocaleString()} in{" "}
+                {set.groups.length} group{set.groups.length === 1 ? "" : "s"} · {set.enrolled.toLocaleString()} in{" "}
                 {set.capacity.toLocaleString()} seats
                 {set.over ? <span className="font-semibold text-[#a6292f]"> · {set.over} over</span> : null}
               </p>

@@ -439,21 +439,39 @@ describe("a group whose programmes are taught different lectures", () => {
   };
   const rows = capacityRows([L1], () => "Semester 1");
 
-  it("draws a bar per class, each with its own head-count", () => {
-    const bars = capacityByGroup(rows);
+  it("draws the group once, with every lecture under it and its parts beside them", () => {
+    const [line] = capacityByGroup(rows);
 
-    expect(bars.map((bar) => [bar.group, bar.enrolled, bar.capacity])).toEqual([
-      ["1", 109, 120],
-      ["1 · Mathematics", 91, 100],
-      ["1 · Physics", 18, 20],
+    expect([line.group, line.enrolled, line.capacity]).toEqual(["1", 109, 120]);
+    expect(line.sections.map((section) => [section.crn, section.part])).toEqual([
+      ["22134", ""],
+      ["23307", "Mathematics"],
+      ["22150", "Physics"],
+    ]);
+    expect(line.parts.map((part) => [part.name, part.enrolled, part.capacity])).toEqual([
+      ["Mathematics", 91, 100],
+      ["Physics", 18, 20],
     ]);
   });
 
   it("counts the set as the one group it is", () => {
     const [cm] = capacityBySet(capacityByGroup(rows));
 
-    expect(cm).toMatchObject({ groupCount: 1, enrolled: 109, capacity: 120 });
-    expect(cm.groups).toHaveLength(3);
+    expect(cm).toMatchObject({ enrolled: 109, capacity: 120, over: 0 });
+    expect(cm.groups).toHaveLength(1);
+  });
+
+  it("counts a part over its own seats, though the group has room", () => {
+    // 22 physicists on 20 seats, in a group of 113 on 120: the Physics part is what is over.
+    const crowded: CohortCatalogue = JSON.parse(JSON.stringify(L1));
+    const cm = crowded.scopes[0].groups[0] as unknown as { assigned: number; majors: { assigned: number }[] };
+    cm.assigned = 113;
+    cm.majors[1].assigned = 22;
+    const [set] = capacityBySet(capacityByGroup(capacityRows([crowded], () => "Semester 1")));
+
+    expect(set.groups[0].status).toBe("Room");
+    expect(set.groups[0].parts[1]).toMatchObject({ name: "Physics", status: "Over" });
+    expect(set.over).toBe(1);
   });
 
   it("counts it once in the totals too", () => {
