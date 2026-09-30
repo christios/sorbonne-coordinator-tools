@@ -407,3 +407,90 @@ export function capacityColumns(): GridColumn<CapacityRow>[] {
     },
   ];
 }
+
+/** One room a line's classes meet in: what it seats, and how many sessions are booked there. */
+export type RoomUse = { name: string; seats: number | null; sessions: number };
+
+/**
+ * What a line is read against: the rooms its classes meet in, and our planned seats.
+ *
+ * The planned seats are ours — what the department decided a group should hold. The room
+ * is the registrar's booking, and it is the one that runs out: a group planned for 14 in
+ * a room of 16 has two chairs to spare, and one planned for 120 in a lecture hall of 154
+ * has thirty-four. So the line is drawn against its room, and the plan is said beside it.
+ *
+ * Its room is the one most of its sessions are booked in, not the smallest it ever uses.
+ * Twenty-one lines on production meet in more than one room, most of them for a session
+ * or two: L1's CM has 51 sessions in Roberto Sorbonne and one in a room of 24, and read
+ * against the smallest it was a group of 109 eighty-five over. The others are named with
+ * their sessions, and those too small for the line are counted apart.
+ */
+export type RoomReading = {
+  /** Every room, the most used first. */
+  rooms: RoomUse[];
+  /** The room the line is read against — the most used one whose seats are known — or null. */
+  main: RoomUse | null;
+  /** The main room's seats, or null when no room's seats are known. */
+  seats: number | null;
+  planned: number;
+  enrolled: number;
+  /** What the bar and "x / y" read against: the room when its seats are known, else the plan. */
+  against: number;
+  byRoom: boolean;
+  status: CapacityStatus;
+  free: number;
+  /** Students beyond the main room's seats; nought when they fit or no room is known. */
+  overRoom: number;
+  /** Students beyond our planned seats, which the room may still hold. */
+  overPlan: number;
+  /** Rooms the line also meets in that seat fewer than it holds, and how many sessions that is. */
+  tooSmall: RoomUse[];
+  tooSmallSessions: number;
+};
+
+export function roomReading(
+  crns: string[],
+  roomsOf: (crn: string) => RoomUse[] | undefined,
+  planned: number,
+  enrolled: number,
+): RoomReading {
+  const held = new Map<string, RoomUse>();
+  for (const crn of new Set(crns.filter(Boolean))) {
+    for (const room of roomsOf(crn) ?? []) {
+      const seen = held.get(room.name);
+      held.set(room.name, seen ? { ...seen, sessions: seen.sessions + room.sessions } : { ...room });
+    }
+  }
+  const rooms = [...held.values()].sort(
+    (left, right) => right.sessions - left.sessions || left.name.localeCompare(right.name),
+  );
+  const main = rooms.find((room) => room.seats !== null) ?? null;
+  const seats = main?.seats ?? null;
+  const against = seats ?? planned;
+  const tooSmall = rooms.filter((room) => room !== main && room.seats !== null && room.seats < enrolled);
+  return {
+    rooms,
+    main,
+    seats,
+    planned,
+    enrolled,
+    against,
+    byRoom: seats !== null,
+    status: statusOf(against, enrolled),
+    free: against ? against - enrolled : 0,
+    overRoom: seats !== null ? Math.max(0, enrolled - seats) : 0,
+    overPlan: planned ? Math.max(0, enrolled - planned) : 0,
+    tooSmall,
+    tooSmallSessions: tooSmall.reduce((total, room) => total + room.sessions, 0),
+  };
+}
+
+/** The line's whole-group classes: the ones every student of it sits, which its room must hold. */
+export function groupCrns(group: GroupCapacity): string[] {
+  return group.sections.filter((section) => !section.part).map((section) => section.crn);
+}
+
+/** A part's own classes: the ones only that programme sits. */
+export function partCrns(group: GroupCapacity, part: string): string[] {
+  return group.sections.filter((section) => section.part === part).map((section) => section.crn);
+}

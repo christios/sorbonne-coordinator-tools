@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { capacityByGroup, capacityBySet, capacityRows, groupTotals, statusOf } from "@/services/capacity";
+import { capacityByGroup, capacityBySet, capacityRows, groupTotals, roomReading, statusOf, type RoomUse } from "@/services/capacity";
 import { EMPTY_REQUEST, EMPTY_SECTION, type CohortCatalogue } from "@/services/studentDatabase";
 
 const section = (crn: string, over: Partial<typeof EMPTY_SECTION> = {}) => ({ ...EMPTY_SECTION, crn, ...over });
@@ -476,5 +476,48 @@ describe("a group whose programmes are taught different lectures", () => {
 
   it("counts it once in the totals too", () => {
     expect(groupTotals(rows)).toMatchObject({ groups: 1, capacity: 120, placements: 109, over: 0 });
+  });
+});
+
+describe("reading a line against its rooms", () => {
+  const rooms: Record<string, RoomUse[]> = {
+    "22134": [{ name: "Roberto Sorbonne", seats: 154, sessions: 28 }],
+    "22135": [{ name: "Roberto Sorbonne", seats: 154, sessions: 20 }, { name: "5.104", seats: 16, sessions: 1 }],
+    "23639": [{ name: "5.104", seats: 16, sessions: 12 }],
+    "24999": [{ name: "9.999", seats: null, sessions: 4 }],
+  };
+  const roomsOf = (crn: string) => rooms[crn];
+
+  it("reads against the room, and says the plan beside it", () => {
+    // MTP 1A: planned for 14, in a room of 16, with 15 in it — over the plan, not the room.
+    const reading = roomReading(["23639"], roomsOf, 14, 15);
+
+    expect(reading).toMatchObject({ seats: 16, against: 16, byRoom: true, free: 1, overRoom: 0, overPlan: 1, status: "Room" });
+  });
+
+  it("is over when the room will not hold them", () => {
+    expect(roomReading(["23639"], roomsOf, 14, 19)).toMatchObject({ overRoom: 3, overPlan: 5, status: "Over" });
+  });
+
+  it("reads against the room most of its sessions are in, and names the others", () => {
+    // L1's CM: the lectures in Roberto Sorbonne, one session moved to a room of 16.
+    const reading = roomReading(["22134", "22135"], roomsOf, 120, 109);
+
+    expect(reading.rooms).toEqual([
+      { name: "Roberto Sorbonne", seats: 154, sessions: 48 },
+      { name: "5.104", seats: 16, sessions: 1 },
+    ]);
+    // Not eighty-five over because of one session elsewhere: 109 in 154.
+    expect(reading).toMatchObject({ seats: 154, overRoom: 0, free: 45, status: "Room" });
+    // But that session is said: a room too small for the line.
+    expect(reading.tooSmall.map((room) => room.name)).toEqual(["5.104"]);
+    expect(reading.tooSmallSessions).toBe(1);
+  });
+
+  it("falls back to the plan when no room's seats are known", () => {
+    const reading = roomReading(["24999", "00000"], roomsOf, 20, 18);
+
+    expect(reading).toMatchObject({ seats: null, against: 20, byRoom: false, free: 2, overRoom: 0, status: "Room" });
+    expect(reading.rooms).toEqual([{ name: "9.999", seats: null, sessions: 4 }]);
   });
 });
