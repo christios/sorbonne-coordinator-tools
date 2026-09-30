@@ -42,6 +42,17 @@ export type CapacityRow = {
   /** Negative when the group is over its seats, which is the number worth seeing. */
   free: number;
   status: CapacityStatus;
+  /**
+   * The group itself, whichever of its classes this row is — and its own seats and students.
+   *
+   * A group whose programmes are taught different things is drawn a bar per class: L1's CM
+   * is the lectures all 109 attend, MATH-113 for the 91 mathematicians and PHYS-118 for
+   * the 18 physicists. Three bars, one group. Totals added up bar by bar made that "3
+   * groups, 218 in 240 seats"; they are counted from these instead, once per group.
+   */
+  groupKey: string;
+  groupCapacity: number;
+  groupEnrolled: number;
 };
 
 export type CapacityStatus = "Over" | "Full" | "Room" | "Empty" | "No capacity set";
@@ -130,6 +141,9 @@ export function capacityRows(
               enrolled,
               free: capacity ? capacity - enrolled : 0,
               status: statusOf(capacity, enrolled),
+              groupKey: `${held.cohort.id}|${group.id}`,
+              groupCapacity: group.capacity || (group.majors ?? []).reduce((total, major) => total + major.seats, 0),
+              groupEnrolled: group.assigned,
             });
           }
         }
@@ -170,19 +184,24 @@ export function groupTotals(rows: CapacityRow[]): {
   over: number;
   withoutCapacity: number;
 } {
-  const seen = new Map<string, CapacityRow>();
+  // Each class once, for what is over its seats: a programme's part can be over while the
+  // group as a whole is not, and the part is the room that will not hold them.
+  const bars = new Map<string, CapacityRow>();
+  // Each group once, for everything counted: its own seats and its own students.
+  const real = new Map<string, CapacityRow>();
   for (const row of rows) {
-    const key = `${row.cohortId}|${row.set}|${row.group}`;
-    if (!seen.has(key)) seen.set(key, row);
+    const bar = `${row.cohortId}|${row.set}|${row.group}`;
+    if (!bars.has(bar)) bars.set(bar, row);
+    if (!real.has(row.groupKey)) real.set(row.groupKey, row);
   }
-  const groups = [...seen.values()];
-  const seated = groups.filter((row) => row.capacity);
+  const groups = [...real.values()];
+  const seated = groups.filter((row) => row.groupCapacity);
   return {
     groups: groups.length,
-    capacity: seated.reduce((total, row) => total + row.capacity, 0),
+    capacity: seated.reduce((total, row) => total + row.groupCapacity, 0),
     seated: seated.length,
-    placements: groups.reduce((total, row) => total + row.enrolled, 0),
-    over: groups.filter((row) => row.status === "Over").length,
+    placements: groups.reduce((total, row) => total + row.groupEnrolled, 0),
+    over: [...bars.values()].filter((row) => row.status === "Over").length,
     withoutCapacity: groups.length - seated.length,
   };
 }
@@ -216,6 +235,10 @@ export type GroupCapacity = {
   free: number;
   status: CapacityStatus;
   sections: CapacityRow[];
+  /** The group this class belongs to, with the group's own seats and students — see CapacityRow. */
+  groupKey: string;
+  groupCapacity: number;
+  groupEnrolled: number;
 };
 
 /**
@@ -263,6 +286,9 @@ export function capacityByGroup(rows: CapacityRow[]): GroupCapacity[] {
       free: row.free,
       status: row.status,
       sections: [row],
+      groupKey: row.groupKey,
+      groupCapacity: row.groupCapacity,
+      groupEnrolled: row.groupEnrolled,
     });
   }
   return foldShared([...held.values()]).sort(
@@ -294,6 +320,7 @@ function foldShared(groups: GroupCapacity[]): GroupCapacity[] {
     }
     if (!seen.cohortNames.includes(group.cohortName)) seen.cohortNames.push(group.cohortName);
     seen.enrolled += group.enrolled;
+    seen.groupEnrolled += group.groupEnrolled;
     seen.free = seen.capacity ? seen.capacity - seen.enrolled : 0;
     seen.status = statusOf(seen.capacity, seen.enrolled);
   }
@@ -304,7 +331,10 @@ function foldShared(groups: GroupCapacity[]): GroupCapacity[] {
 export type SetCapacity = {
   code: string;
   shared: boolean;
+  /** A bar each: one per group, or one per class of a group whose programmes are taught apart. */
   groups: GroupCapacity[];
+  /** How many groups those bars are, counted once each. */
+  groupCount: number;
   capacity: number;
   enrolled: number;
   over: number;
@@ -316,17 +346,22 @@ export function capacityBySet(groups: GroupCapacity[]): SetCapacity[] {
   const held = new Map<string, GroupCapacity[]>();
   for (const group of groups) held.set(group.set, [...(held.get(group.set) ?? []), group]);
   return [...held.entries()]
-    .map(([code, own]) => ({
-      code,
-      shared: own.some((group) => group.shared),
-      groups: own,
-      // Seats only where a capacity is stated: adding zeroes would claim room there is
-      // no word on.
-      capacity: own.reduce((total, group) => total + group.capacity, 0),
-      enrolled: own.reduce((total, group) => total + group.enrolled, 0),
-      over: own.filter((group) => group.status === "Over").length,
-      peak: Math.max(1, ...own.map((group) => Math.max(group.capacity, group.enrolled))),
-    }))
+    .map(([code, own]) => {
+      // Once per group, not per bar: a group drawn as three classes is still 109 in 120.
+      const real = [...new Map(own.map((group) => [group.groupKey, group] as const)).values()];
+      return {
+        code,
+        shared: own.some((group) => group.shared),
+        groups: own,
+        groupCount: real.length,
+        // Seats only where a capacity is stated: adding zeroes would claim room there is
+        // no word on.
+        capacity: real.reduce((total, group) => total + group.groupCapacity, 0),
+        enrolled: real.reduce((total, group) => total + group.groupEnrolled, 0),
+        over: own.filter((group) => group.status === "Over").length,
+        peak: Math.max(1, ...own.map((group) => Math.max(group.capacity, group.enrolled))),
+      };
+    })
     .sort((left, right) => Number(left.shared) - Number(right.shared) || left.code.localeCompare(right.code));
 }
 

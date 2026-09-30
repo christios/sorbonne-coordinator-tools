@@ -451,7 +451,8 @@ export function CapacityPage() {
                 </span>
               ) : null}
               <p className="text-xs text-[#667085]">
-                {set.groups.length} group{set.groups.length === 1 ? "" : "s"} · {set.enrolled.toLocaleString()} in{" "}
+                {set.groupCount} group{set.groupCount === 1 ? "" : "s"}
+                {set.groups.length > set.groupCount ? ` · ${set.groups.length} classes` : ""} · {set.enrolled.toLocaleString()} in{" "}
                 {set.capacity.toLocaleString()} seats
                 {set.over ? <span className="font-semibold text-[#a6292f]"> · {set.over} over</span> : null}
               </p>

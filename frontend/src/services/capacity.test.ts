@@ -399,3 +399,64 @@ describe("a group whose majors share some lectures", () => {
     ]);
   });
 });
+
+describe("a group whose programmes are taught different lectures", () => {
+  /*
+   * L1's CM: one group of 109 in 120 seats — 91 mathematicians on 100, 18 physicists on 20.
+   * All of them sit the shared lecture; MATH-113 is the mathematicians' and PHYS-118 the
+   * physicists'. Three bars, one group: the set said "3 groups · 218 in 240 seats".
+   */
+  const L1: CohortCatalogue = {
+    cohort: { id: "c-l1", name: "L1-S1", term: "2026-27" },
+    scopes: [
+      {
+        id: "s-cm", code: "CM", name: "Lectures", note: "", termId: "term-1", kind: "shared", parentScopeId: "",
+        openToAll: false,
+        courses: [
+          { id: "c-shared", code: "MATH-100", name: "Mathematics 1", component: "CM", request: EMPTY_REQUEST },
+          { id: "c-m113", code: "MATH-113", name: "Philosophy of AI", component: "CM", request: EMPTY_REQUEST },
+          { id: "c-p118", code: "PHYS-118", name: "Optics", component: "CM", request: EMPTY_REQUEST },
+        ],
+        groups: [
+          {
+            ...(group("cm-1", "1", 120, 109, {
+              "c-shared": section("22134"),
+              "c-m113": section("23307"),
+              "c-p118": section("22150"),
+            }) as object),
+            majors: [
+              { id: "m-math", program: "MATH - Mathematics", seats: 100, assigned: 91 },
+              { id: "m-phys", program: "PHYS - Physics", seats: 20, assigned: 18 },
+            ],
+            byMajor: {
+              "m-math": { "c-p118": { ...EMPTY_SECTION, notTaught: true } },
+              "m-phys": { "c-m113": { ...EMPTY_SECTION, notTaught: true } },
+            },
+          } as never,
+        ],
+      },
+    ],
+  };
+  const rows = capacityRows([L1], () => "Semester 1");
+
+  it("draws a bar per class, each with its own head-count", () => {
+    const bars = capacityByGroup(rows);
+
+    expect(bars.map((bar) => [bar.group, bar.enrolled, bar.capacity])).toEqual([
+      ["1", 109, 120],
+      ["1 · Mathematics", 91, 100],
+      ["1 · Physics", 18, 20],
+    ]);
+  });
+
+  it("counts the set as the one group it is", () => {
+    const [cm] = capacityBySet(capacityByGroup(rows));
+
+    expect(cm).toMatchObject({ groupCount: 1, enrolled: 109, capacity: 120 });
+    expect(cm.groups).toHaveLength(3);
+  });
+
+  it("counts it once in the totals too", () => {
+    expect(groupTotals(rows)).toMatchObject({ groups: 1, capacity: 120, placements: 109, over: 0 });
+  });
+});
