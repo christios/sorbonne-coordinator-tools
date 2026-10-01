@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { HourWindowPicker } from "@/components/HourWindowPicker";
 import { WHOLE_SEMESTER, windowForPeriod, windowForRange } from "@/services/hourWindow";
@@ -9,6 +9,16 @@ function open(window = WHOLE_SEMESTER, onChange = vi.fn()) {
   fireEvent.click(screen.getByRole("button", { name: "What to count" }));
   return onChange;
 }
+
+/*
+ * Mid-September, whatever today is. The calendar opens on the current month, and these
+ * tests press September's days — so they passed until 1 October and failed from then on.
+ */
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date(2026, 8, 15, 12));
+});
+afterEach(() => vi.useRealTimers());
 
 /** A day's square, which is labelled by its own date. */
 const square = (day: string) => screen.getByRole("button", { name: day });
