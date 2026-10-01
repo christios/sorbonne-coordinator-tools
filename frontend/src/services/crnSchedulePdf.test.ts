@@ -143,3 +143,27 @@ describe("several CRNs on one grid", () => {
     expect(new TextDecoder().decode(new Uint8Array(pdf).slice(0, 5))).toBe("%PDF-");
   });
 });
+
+describe("who teaches each box", () => {
+  /** Two sections of one course, an hour and a half each, with two teachers: a course's timetable. */
+  const section = (crn: string, teacher: string, startsAt: string, endsAt: string): ScheduleSection => ({
+    crn,
+    courseCode: "MATH-100",
+    title: "Mathematics 1",
+    teacher,
+    meetings: [{ meetsOn: "2026-09-14", startsAt, endsAt, room: "5.111" }],
+    notes: [],
+  });
+  const printed = async (input: ScheduleInput) => new TextDecoder("latin1").decode(new Uint8Array(await buildSchedulePdf(input)));
+
+  it("is printed in a short box when the page has more than one teacher", async () => {
+    const text = await printed({
+      semester: "Semester 1 2026-27",
+      weekOne: "2026-08-31",
+      sections: [section("24059", "Amina Menaa", "08:30", "10:00"), section("23636", "Gaurav Kucheriya", "10:30", "12:00")],
+    });
+
+    expect(text).toContain("Amina Menaa");
+    expect(text).toContain("Gaurav Kucheriya");
+  });
+});

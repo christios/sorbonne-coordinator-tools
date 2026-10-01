@@ -457,6 +457,13 @@ function drawSchedule(doc: JsPdf, input: ScheduleInput, after: boolean): void {
       doc.text(shortDay(day), x + columnWidth / 2, headTop + 24, { align: "center" });
     });
 
+    /*
+     * More than one teacher on the page — a course's sections, a group's week — and who
+     * teaches a box is worth more than its title: it moves up to just after the hours and
+     * the room. On one teacher's own week, or one section's, it is the same name in every
+     * box, and in the heading already.
+     */
+    const manyTeachers = new Set(week.classes.map((entry) => entry.teacher).filter(Boolean)).size > 1;
     for (const entry of week.classes) {
       const column = week.days.indexOf(entry.day);
       if (column < 0) continue;
@@ -519,13 +526,13 @@ function drawSchedule(doc: JsPdf, input: ScheduleInput, after: boolean): void {
        */
       const lines: BoxLine[] = [
         { text: classLabel(entry), size: 8.5, bold: true, ink: strong, strike: cancelled, keep: 0 },
-        { text: entry.title, size: 7.5, ink: ink(0.9), keep: 2 },
+        { text: entry.title, size: 7.5, ink: ink(0.9), keep: manyTeachers ? 3.5 : 2 },
         { text: `${entry.startsAt}–${entry.endsAt}`, size: 8, ink: ink(0.9), keep: 1 },
-        { text: formatRoom(entry.room), size: 8, icon: "pin" as const, ink: ink(0.85), keep: 3 },
+        { text: formatRoom(entry.room), size: 8, icon: "pin" as const, ink: ink(0.85), keep: manyTeachers ? 2 : 3 },
         { text: `CRN ${entry.crn}`, size: 7, ink: ink(0.8), keep: 5 },
         covered
           ? { text: entry.cover || "somebody else", size: 8, bold: true, icon: "cover" as const, ink: strong, keep: 3 }
-          : { text: entry.teacher, size: 8, icon: "person" as const, ink: ink(0.85), keep: 4 },
+          : { text: entry.teacher, size: 8, icon: "person" as const, ink: ink(0.85), keep: manyTeachers ? 3 : 4 },
         { text: entry.note, size: 7, ink: ink(0.85), keep: 6 },
       ].filter((line) => line.text);
       const kept = new Set<BoxLine>();

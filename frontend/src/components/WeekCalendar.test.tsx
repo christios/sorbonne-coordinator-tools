@@ -77,3 +77,39 @@ describe("a cancelled class", () => {
     expect(box().style.backgroundImage).toBe("");
   });
 });
+
+describe("who teaches a box", () => {
+  // An hour and a half: room for four lines, not five.
+  const at = (crn: string, start: string, end: string): PlacedSession => ({
+    crn, date: "2026-09-07", start, end, room: "4.128", clashes: false,
+  });
+  const other: CalendarCourse = { ...COURSE, crn: "23639", label: "PHYS-125", group: "TD 2", staff: "Omar Dakkak" };
+
+  it("is said before the group and CRN when the week has more than one teacher", () => {
+    render(
+      <WeekCalendar
+        weekStart={new Date(2026, 8, 7)}
+        sessions={[at("23638", "10:30", "12:00"), at("23639", "13:00", "14:30")]}
+        courses={new Map([["23638", COURSE], ["23639", other]])}
+        today="2026-09-07"
+      />,
+    );
+
+    expect(screen.getByText("Sara Khaled")).toBeTruthy();
+    expect(screen.getByText("Omar Dakkak")).toBeTruthy();
+  });
+
+  it("stays last on one teacher's week, where it is the same name in every box", () => {
+    render(
+      <WeekCalendar
+        weekStart={new Date(2026, 8, 7)}
+        sessions={[at("23638", "10:30", "12:00")]}
+        courses={new Map([["23638", COURSE]])}
+        today="2026-09-07"
+      />,
+    );
+
+    expect(screen.queryByText("Sara Khaled")).toBeNull();
+    expect(screen.getByText("TD 3 · CRN 23638")).toBeTruthy();
+  });
+});

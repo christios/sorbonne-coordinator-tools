@@ -84,6 +84,13 @@ export function WeekCalendar({
 }: WeekCalendarProps) {
   const days = weekDays(weekStart, sessions);
   const inWeek = sessionsInRange(sessions, days[0], days[days.length - 1]);
+  /*
+   * Whether this week has more than one teacher on it — a course's sections, a student's
+   * classes — when who teaches a box is worth a line before its group and CRN. On one
+   * teacher's own week, or one section's, it is the same name in every box and stays last.
+   */
+  const manyTeachers =
+    new Set(inWeek.map((session) => courses.get(session.crn)?.staff).filter((staff): staff is string => Boolean(staff))).size > 1;
   const { startMinute, endMinute } = hourBounds(sessions, atLeast);
   const pixelsPerMinute = hourHeight / 60;
   const height = (endMinute - startMinute) * pixelsPerMinute + TOP_PADDING * 2;
@@ -204,6 +211,7 @@ export function WeekCalendar({
               onPick={onPick}
               nowAt={day === today && nowMinute >= startMinute && nowMinute <= endMinute ? topOf(nowMinute) : null}
               seatsOf={seatsOf}
+              manyTeachers={manyTeachers}
             />
           ))}
         </div>
@@ -234,9 +242,25 @@ type DayColumnProps = {
   /** Where the current time falls in this column, when the column is today and the hour is on the grid. */
   nowAt: number | null;
   seatsOf?: (room: string) => number | null;
+  /** More than one teacher on the week: who teaches a box comes before its group and CRN. */
+  manyTeachers: boolean;
 };
 
-function DayColumn({ day, sessions, courses, height, hours, topOf, pixelsPerMinute, compact, stack, onPick, nowAt, seatsOf }: DayColumnProps) {
+function DayColumn({
+  day,
+  sessions,
+  courses,
+  height,
+  hours,
+  topOf,
+  pixelsPerMinute,
+  compact,
+  stack,
+  onPick,
+  nowAt,
+  seatsOf,
+  manyTeachers,
+}: DayColumnProps) {
   return (
     <div className="relative border-l border-[#e4e8ef]" style={{ height }}>
       {hours.slice(1, -1).map((minute) => (
@@ -377,7 +401,9 @@ function DayColumn({ day, sessions, courses, height, hours, topOf, pixelsPerMinu
                     <span className="truncate">{formatRoom(session.room)}</span>
                   </span>
                 ) : null}
-                {lines >= 4 ? <span className="block truncate text-[10px] tabular-nums opacity-80">{where}</span> : null}
+                {lines >= (manyTeachers && !covered && course?.staff ? 5 : 4) ? (
+                  <span className="block truncate text-[10px] tabular-nums opacity-80">{where}</span>
+                ) : null}
                 {/* Cover outranks the planned teacher for the line: it is who was in the room. */}
                 {covered && lines >= 3 ? (
                   <span className="flex items-center gap-1 truncate font-semibold">
@@ -387,7 +413,7 @@ function DayColumn({ day, sessions, courses, height, hours, topOf, pixelsPerMinu
                       {covered.standingIn ? `for ${covered.coverTeacherName}` : covered.coverTeacherName}
                     </span>
                   </span>
-                ) : lines >= 5 && course?.staff ? (
+                ) : lines >= (manyTeachers ? 4 : 5) && course?.staff ? (
                   <span className="flex items-center gap-1 truncate opacity-85">
                     <User size={9} className="shrink-0" aria-hidden="true" />
                     <span className="truncate">{course.staff}</span>
