@@ -27,6 +27,7 @@ function synced(at: number | null) {
     targets: [{ kind: "students", id: "view-1", label: "L1" }] as never,
     ready: true,
     syncedAt: at,
+    syncedBy: null,
   });
 }
 

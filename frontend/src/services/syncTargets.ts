@@ -29,6 +29,12 @@ export type SyncTargets = {
    * and thrown away, so it costs no request.
    */
   syncedAt: number | null;
+  /**
+   * Who synced that oldest list — the sync the age is about. Everybody reads the same
+   * lists, so "57 min ago" on a coordinator's button may be somebody else's sync, and
+   * without a name it read as one they had not run.
+   */
+  syncedBy: { email: string; name: string } | null;
 };
 
 export function useSyncTargets(): SyncTargets {
@@ -92,10 +98,13 @@ export function useSyncTargets(): SyncTargets {
     });
   }
 
-  const ages = [
-    ...((views.data ?? []) as { lastSyncedAt?: string }[]),
-    ...LISTS.flatMap((_, index) => (lists[index]?.data ?? []) as { lastSyncedAt?: string }[]),
-  ].map((row) => (row.lastSyncedAt ? Date.parse(row.lastSyncedAt) : Number.NaN));
+  type Synced = { lastSyncedAt?: string; lastSyncedBy?: string; lastSyncedByName?: string };
+  const synced = [
+    ...((views.data ?? []) as Synced[]),
+    ...LISTS.flatMap((_, index) => (lists[index]?.data ?? []) as Synced[]),
+  ];
+  const ages = synced.map((row) => (row.lastSyncedAt ? Date.parse(row.lastSyncedAt) : Number.NaN));
+  const oldest = ages.length && ages.every((at) => !Number.isNaN(at)) ? synced[ages.indexOf(Math.min(...ages))] : null;
 
   /*
    * Ready only once every question has its answer, failed or not.
@@ -113,6 +122,7 @@ export function useSyncTargets(): SyncTargets {
     // A list nobody has ever synced makes the whole answer "never", not "as old as the
     // others" — there is no age to report when part of the picture has no age at all.
     syncedAt: ages.length && ages.every((at) => !Number.isNaN(at)) ? Math.min(...ages) : null,
+    syncedBy: oldest?.lastSyncedBy ? { email: oldest.lastSyncedBy, name: oldest.lastSyncedByName || oldest.lastSyncedBy } : null,
   };
 }
 

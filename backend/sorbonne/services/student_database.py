@@ -444,7 +444,7 @@ class StudentDatabase:
             )
         return [_view(row) for row in rows]
 
-    def sync_view(self, view_id: str, student_ids: list[str]) -> dict[str, Any]:
+    def sync_view(self, view_id: str, student_ids: list[str], *, actor: str = "") -> dict[str, Any]:
         """Reconcile one view with what its own filter just returned.
 
         The filter cannot have changed since the view was made, so an id this view held and
@@ -500,8 +500,8 @@ class StudentDatabase:
                     {"ids": gone, "now": now},
                 )
             connection.execute(
-                text("UPDATE student_views SET last_synced_at = :now WHERE id = :view"),
-                {"now": now, "view": view_id},
+                text("UPDATE student_views SET last_synced_at = :now, last_synced_by = :by WHERE id = :view"),
+                {"now": now, "by": actor, "view": view_id},
             )
         return {
             "seen": len(found),
@@ -2961,6 +2961,9 @@ def _view(row) -> dict[str, Any]:
         "held": row["held"],
         "gone": row["gone"],
         "lastSyncedAt": row["last_synced_at"],
+        # Who ran that sync: everybody reads the same data, so its age alone says nothing
+        # about whose it was.
+        "lastSyncedBy": row["last_synced_by"],
         "createdAt": row["created_at"],
         "updatedBy": row["updated_by"],
     }

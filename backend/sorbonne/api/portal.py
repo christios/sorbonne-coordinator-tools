@@ -225,7 +225,13 @@ def _missing(what: str) -> HTTPException:
 def list_filters(kind: str, store: PortalListStore = Depends(get_store)) -> dict[str, Any]:
     if kind not in KINDS:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown list.")
-    return {"filters": store.list_filters(kind)}
+    return {"filters": [_synced_by(row) for row in store.list_filters(kind)]}
+
+
+def _synced_by(row: dict[str, Any]) -> dict[str, Any]:
+    """Who last synced it, by the name Settings gives them — the address is what was stored."""
+    email = row.get("lastSyncedBy", "")
+    return {**row, "lastSyncedByName": coordinator_directory.name_for(email, "") if email else ""}
 
 
 @router.post("/filters", status_code=status.HTTP_201_CREATED)
@@ -263,10 +269,10 @@ def delete_filter(filter_id: str, request: Request, store: PortalListStore = Dep
 
 @router.post("/filters/{filter_id}/sync/courses")
 def sync_courses(
-    filter_id: str, body: CoursesSyncInput, store: PortalListStore = Depends(get_store)
+    filter_id: str, body: CoursesSyncInput, request: Request, store: PortalListStore = Depends(get_store)
 ) -> dict[str, Any]:
     try:
-        return store.sync_courses(filter_id, [row.model_dump() for row in body.rows])
+        return store.sync_courses(filter_id, [row.model_dump() for row in body.rows], actor=_actor(request))
     except FilterNotFound as exc:
         raise _missing("filter") from exc
     except UnknownKind as exc:
@@ -277,10 +283,10 @@ def sync_courses(
 
 @router.post("/filters/{filter_id}/sync/teachers")
 def sync_teachers(
-    filter_id: str, body: TeachersSyncInput, store: PortalListStore = Depends(get_store)
+    filter_id: str, body: TeachersSyncInput, request: Request, store: PortalListStore = Depends(get_store)
 ) -> dict[str, Any]:
     try:
-        return store.sync_teachers(filter_id, [row.model_dump() for row in body.rows])
+        return store.sync_teachers(filter_id, [row.model_dump() for row in body.rows], actor=_actor(request))
     except FilterNotFound as exc:
         raise _missing("filter") from exc
     except UnknownKind as exc:
@@ -291,7 +297,7 @@ def sync_teachers(
 
 @router.post("/filters/{filter_id}/sync/registrations")
 def sync_registrations(
-    filter_id: str, body: RegistrationsSyncInput, store: PortalListStore = Depends(get_store)
+    filter_id: str, body: RegistrationsSyncInput, request: Request, store: PortalListStore = Depends(get_store)
 ) -> dict[str, Any]:
     try:
         return store.sync_registrations(
@@ -300,6 +306,7 @@ def sync_registrations(
             [row.model_dump() for row in body.rows],
             complete=body.complete,
             expected=body.expected,
+            actor=_actor(request),
         )
     except FilterNotFound as exc:
         raise _missing("filter") from exc

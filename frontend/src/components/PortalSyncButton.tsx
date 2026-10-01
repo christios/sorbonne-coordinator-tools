@@ -1,9 +1,10 @@
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Check, Loader2, RefreshCw, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { abandonRun, clearRun, getRun, isRunning, resumeRun, retryFailed, startRun, subscribe, type SyncRun, type SyncStep } from "@/services/syncRun";
 import { describeAge } from "@/services/rosterStore";
+import { fetchCurrentUser } from "@/services/auth";
 import { isExtensionInstalled } from "@/services/scenRosters";
 import { freshen, useSyncTargets } from "@/services/syncTargets";
 
@@ -49,7 +50,18 @@ export function PortalSyncButton() {
   const client = useQueryClient();
   const [run, setRun] = useState<SyncRun | null>(() => getRun());
   const [open, setOpen] = useState(false);
-  const { targets, ready, syncedAt } = useSyncTargets();
+  const { targets, ready, syncedAt, syncedBy } = useSyncTargets();
+  /*
+   * Whose sync the age is. Everybody reads the same lists, so the age on this button can be
+   * a colleague's sync — and an age with no name read as a sync this coordinator had not
+   * run. Their own reads "you"; anybody else's, the first name Settings gives them.
+   */
+  const me = useQuery({ queryKey: ["staff-user"], queryFn: fetchCurrentUser, retry: false });
+  const syncer = syncedBy
+    ? syncedBy.email.toLowerCase() === (me.data?.email ?? "").toLowerCase()
+      ? "you"
+      : syncedBy.name.split(/\s+/)[0] || syncedBy.email
+    : "";
   const box = useRef<HTMLDivElement>(null);
 
   // Anywhere else puts the report away — it is a report, not a dialog, and nothing in the
@@ -166,9 +178,12 @@ export function PortalSyncButton() {
               ? "Nothing to sync yet: no views or portal filters"
               : running
                 ? "See how the sync is going"
-                : steps.length
-                  ? "See what the last sync did"
-                  : "Ask the portal for every list"
+                : [
+                    steps.length ? "See what the last sync did" : "Ask the portal for every list",
+                    syncedAt && syncedBy ? `Last synced by ${syncer === "you" ? "you" : syncedBy.name}, ${describeAge(syncedAt, now)}` : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" — ")
           }
           className="inline-flex items-center gap-2 rounded-md border border-[#d9dee7] bg-white px-3 py-2 text-sm font-semibold text-[#1f4e79] shadow-sm hover:bg-[#f2f7fb] disabled:opacity-50"
         >
@@ -204,7 +219,10 @@ export function PortalSyncButton() {
                 * anything: everything on screen was read from a pull of that age.
                 */}
               {syncedAt ? (
-                <span className="hidden font-normal text-[11px] tabular-nums text-[#98a2b3] sm:inline">{describeAge(syncedAt, now)}</span>
+                <span className="hidden font-normal text-[11px] tabular-nums text-[#98a2b3] sm:inline">
+                  {syncer ? `${syncer} · ` : ""}
+                  {describeAge(syncedAt, now)}
+                </span>
               ) : null}
             </span>
           )}

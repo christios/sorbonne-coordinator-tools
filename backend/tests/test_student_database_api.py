@@ -436,6 +436,16 @@ def test_syncing_a_view_is_open_to_any_coordinator(client: TestClient, view_id: 
     ).status_code == status.HTTP_200_OK
 
 
+def test_a_sync_says_who_ran_it(client: TestClient, view_id: str, monkeypatch):
+    # Everybody reads the same data, so its age alone says nothing about whose sync it was.
+    _as_ordinary_coordinator(monkeypatch)
+    sync(client, view_id, STUDENTS)
+
+    held = next(row for row in views_of(client) if row["id"] == view_id)
+    assert held["lastSyncedBy"] == "colleague@sorbonne.ae"
+    assert held["lastSyncedByName"]
+
+
 def _as_ordinary_coordinator(monkeypatch: pytest.MonkeyPatch) -> None:
     """Sign the rest of the test in as somebody who is not an administrator."""
     monkeypatch.setattr(

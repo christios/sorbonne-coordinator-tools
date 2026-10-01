@@ -378,7 +378,13 @@ def _may_define_views(request: Request) -> None:
 
 @router.get("/views")
 def list_views(database: StudentDatabase = Depends(get_database)) -> dict[str, Any]:
-    return {"views": database.list_views()}
+    return {"views": [_synced_by(view) for view in database.list_views()]}
+
+
+def _synced_by(row: dict[str, Any]) -> dict[str, Any]:
+    """Who last synced it, by the name Settings gives them — the address is what was stored."""
+    email = row.get("lastSyncedBy", "")
+    return {**row, "lastSyncedByName": coordinator_directory.name_for(email, "") if email else ""}
 
 
 @router.post("/views", status_code=status.HTTP_201_CREATED)
@@ -408,9 +414,12 @@ def delete_view(view_id: str, request: Request, database: StudentDatabase = Depe
 
 
 @router.post("/views/{view_id}/sync")
-def sync_view(view_id: str, body: SyncInput, database: StudentDatabase = Depends(get_database)) -> dict[str, Any]:
+def sync_view(
+    view_id: str, body: SyncInput, request: Request, database: StudentDatabase = Depends(get_database)
+) -> dict[str, Any]:
+    staff = getattr(request.state, "staff_user", None)
     try:
-        return database.sync_view(view_id, body.student_ids)
+        return database.sync_view(view_id, body.student_ids, actor=getattr(staff, "email", "") or "")
     except FilterNotFound as exc:
         raise _missing(exc, "view") from exc
 

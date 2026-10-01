@@ -399,6 +399,7 @@ class PortalListStore:
             "held": held[0],
             "gone": held[1],
             "lastSyncedAt": row["last_synced_at"],
+            "lastSyncedBy": row["last_synced_by"],
             "createdAt": row["created_at"],
             "updatedBy": row["updated_by"],
         }
@@ -419,7 +420,7 @@ class PortalListStore:
 
     # ------------------------------------------------------------------ courses
 
-    def sync_courses(self, filter_id: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
+    def sync_courses(self, filter_id: str, rows: list[dict[str, Any]], *, actor: str = "") -> dict[str, Any]:
         """What this filter's question returned about courses today."""
         held_filter = self.get_filter(filter_id)
         if held_filter["kind"] != "courses":
@@ -481,7 +482,8 @@ class PortalListStore:
                     {"t": term_code, "c": crn},
                 )
             connection.execute(
-                text("UPDATE portal_filters SET last_synced_at = :now WHERE id = :f"), {"now": now, "f": filter_id}
+                text("UPDATE portal_filters SET last_synced_at = :now, last_synced_by = :by WHERE id = :f"),
+                {"now": now, "by": actor, "f": filter_id},
             )
             # In the same transaction, so a register renamed from a sync that failed halfway
             # cannot happen: the names move with the list they were read from, or not at all.
@@ -552,7 +554,7 @@ class PortalListStore:
 
     # ----------------------------------------------------------------- teachers
 
-    def sync_teachers(self, filter_id: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
+    def sync_teachers(self, filter_id: str, rows: list[dict[str, Any]], *, actor: str = "") -> dict[str, Any]:
         held_filter = self.get_filter(filter_id)
         if held_filter["kind"] != "teachers":
             raise UnknownKind(held_filter["kind"])
@@ -611,7 +613,8 @@ class PortalListStore:
                     {"ids": gone},
                 )
             connection.execute(
-                text("UPDATE portal_filters SET last_synced_at = :now WHERE id = :f"), {"now": now, "f": filter_id}
+                text("UPDATE portal_filters SET last_synced_at = :now, last_synced_by = :by WHERE id = :f"),
+                {"now": now, "by": actor, "f": filter_id},
             )
         return {
             "seen": len(found),
@@ -670,6 +673,7 @@ class PortalListStore:
         rows: list[dict[str, Any]],
         complete: bool = False,
         expected: int | None = None,
+        actor: str = "",
     ) -> dict[str, Any]:
         """What the portal says each student in the pull is registered in, this term.
 
@@ -764,7 +768,8 @@ class PortalListStore:
                     {"t": term, "ids": gone},
                 )
             connection.execute(
-                text("UPDATE portal_filters SET last_synced_at = :now WHERE id = :f"), {"now": now, "f": filter_id}
+                text("UPDATE portal_filters SET last_synced_at = :now, last_synced_by = :by WHERE id = :f"),
+                {"now": now, "by": actor, "f": filter_id},
             )
             connection.execute(
                 text("""INSERT INTO portal_registration_pulls

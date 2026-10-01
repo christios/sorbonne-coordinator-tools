@@ -145,6 +145,20 @@ def test_a_filter_refuses_a_sentence(client: TestClient):
 # -------------------------------------------------------------------- courses
 
 
+def test_a_filter_s_sync_says_who_ran_it(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    made = make_filter(client, "courses")
+    monkeypatch.setattr(
+        auth_gate,
+        "user_for_request",
+        lambda *_args, **_kwargs: StaffUser(email="patricia@sorbonne.ae", name="Patricia", is_admin=False),
+    )
+    client.post(f"{BASE}/filters/{made['id']}/sync/courses", json={"rows": [course("22151", "MATH-001")]})
+
+    (listed,) = client.get(f"{BASE}/filters", params={"kind": "courses"}).json()["filters"]
+    assert listed["lastSyncedBy"] == "patricia@sorbonne.ae"
+    assert listed["lastSyncedByName"]
+
+
 def test_courses_are_kept_and_a_dropped_one_is_marked_gone(client: TestClient):
     made = make_filter(client, "courses")
     first = client.post(

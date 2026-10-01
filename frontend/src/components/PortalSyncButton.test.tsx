@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PortalSyncButton } from "@/components/PortalSyncButton";
+import * as auth from "@/services/auth";
 import * as backup from "@/services/historyBackup";
 import * as lists from "@/services/portalLists";
 import { forgetHistory } from "@/services/pullHistory";
@@ -207,6 +208,32 @@ describe("how stale the lists are", () => {
     show();
 
     expect(await screen.findByText(/7 days ago/)).toBeTruthy();
+  });
+
+  it("says whose sync it was: a colleague by first name, and you as you", async () => {
+    // Everybody reads the same lists: an age with no name read as a sync you had not run.
+    const hour = new Date(Date.now() - 3600_000).toISOString();
+    vi.spyOn(auth, "fetchCurrentUser").mockResolvedValue({ email: "christian@sorbonne.ae", name: "Christian", isAdmin: true });
+    const by = { lastSyncedAt: hour, lastSyncedBy: "patricia@sorbonne.ae", lastSyncedByName: "Patricia Chahwane" };
+    vi.spyOn(database, "fetchViews").mockResolvedValue([{ ...VIEW, ...by }]);
+    vi.spyOn(lists, "fetchPortalFilters").mockImplementation(async (kind) => (kind === "courses" ? [{ ...COURSES, ...by }] : []));
+    show();
+
+    expect(await screen.findByText(/^Patricia ·/)).toBeTruthy();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /Portal sync/ }).getAttribute("title")).toMatch(/Last synced by Patricia Chahwane/),
+    );
+  });
+
+  it("says you when the last sync was yours", async () => {
+    const hour = new Date(Date.now() - 3600_000).toISOString();
+    vi.spyOn(auth, "fetchCurrentUser").mockResolvedValue({ email: "Christian@sorbonne.ae", name: "Christian", isAdmin: true });
+    const by = { lastSyncedAt: hour, lastSyncedBy: "christian@sorbonne.ae", lastSyncedByName: "Christian Khalil" };
+    vi.spyOn(database, "fetchViews").mockResolvedValue([{ ...VIEW, ...by }]);
+    vi.spyOn(lists, "fetchPortalFilters").mockImplementation(async (kind) => (kind === "courses" ? [{ ...COURSES, ...by }] : []));
+    show();
+
+    expect(await screen.findByText(/^you ·/)).toBeTruthy();
   });
 
   it("says nothing about age when nothing has ever been synced", async () => {

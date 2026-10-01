@@ -25,6 +25,9 @@ export type PortalFilter = {
   held: number;
   gone: number;
   lastSyncedAt: string;
+  /** Who ran that sync, by address, and by the name Settings gives them. */
+  lastSyncedBy?: string;
+  lastSyncedByName?: string;
   createdAt: string;
   updatedBy: string;
 };
