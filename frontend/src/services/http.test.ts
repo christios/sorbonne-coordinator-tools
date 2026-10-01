@@ -17,6 +17,16 @@ describe("every call to our own API", () => {
     expect(fetch).toHaveBeenCalledWith("/api/v1/anything", expect.objectContaining({ credentials: "include" }));
   });
 
+  it("asks the server every time, never the browser's cache", async () => {
+    // A Chrome that had kept a morning copy of the lists went on showing it through syncs
+    // and reloads, because the request was answered before it ever left the browser.
+    answering(200);
+
+    await apiFetch("/api/v1/student-database/views");
+
+    expect(fetch).toHaveBeenCalledWith("/api/v1/student-database/views", expect.objectContaining({ cache: "no-store" }));
+  });
+
   it("says so when the server no longer knows who is asking", async () => {
     answering(401);
     const heard = vi.fn();

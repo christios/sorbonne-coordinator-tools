@@ -22,8 +22,18 @@ export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localho
  */
 export const SIGNED_OUT = "sorbonne:signed-out";
 
+/*
+ * Never answered from the browser's cache, either.
+ *
+ * Every answer here is a picture of something people change all day, and a reload is
+ * supposed to mean "ask again". A coordinator's Chrome went on answering the lists from a
+ * copy it had kept that morning: a sync landed, a hard reload followed, and the page still
+ * said seven hours ago — because the request never left the browser. Incognito, with an
+ * empty cache, was right. The server says the same thing back (no-store on every answer);
+ * this side is what makes it true for a browser that already holds an old copy.
+ */
 export async function apiFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
-  const response = await fetch(input, { ...init, credentials: "include" });
+  const response = await fetch(input, { cache: "no-store", ...init, credentials: "include" });
   // 403 is a different thing — signed in, and not allowed this — and must not sign anybody
   // out. Only "we do not know who you are" ends a session.
   if (response.status === 401) window.dispatchEvent(new Event(SIGNED_OUT));

@@ -32,6 +32,7 @@ from sorbonne.api.workflow import router as workflow_router
 from sorbonne.config import config
 from sorbonne.services.auth_gate import StaffAuthGate
 from sorbonne.services.migrations import apply_schema_migrations
+from sorbonne.services.no_store import NoStore
 
 
 # Public pages the Google consent screen links to. They sit outside the sign-in
@@ -60,6 +61,8 @@ app.add_middleware(
     # arrives, and every export saves under whatever fallback the browser was handed.
     expose_headers=["Content-Disposition", "X-Teachers-Without-Requisitions"],
 )
+# Added last, so it wraps everything above: the gate's refusals are marked too.
+app.add_middleware(NoStore)
 
 app.include_router(auth_router, prefix="/api/v1")
 app.include_router(rosters_router, prefix="/api/v1")
