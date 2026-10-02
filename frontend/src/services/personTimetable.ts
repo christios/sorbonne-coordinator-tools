@@ -56,6 +56,26 @@ export function placementsOf(
 }
 
 /**
+ * The CRNs of the OTHER groups of a set a student is placed in, each with its group's label.
+ *
+ * Somebody moved from RDNS 9 to RDNS 10 stays registered in 9's section until the registrar
+ * moves them. That registration is about this set — the wrong group of it — and it was
+ * listed at the foot of the record as "no group of theirs", beside the sport and the
+ * languages, as though it had nothing to do with the group just above it.
+ */
+export function otherGroupsOf(placement: Placement): Map<string, string> {
+  const mine = new Set(placement.crns.map((cell) => cell.crn).filter(Boolean));
+  const found = new Map<string, string>();
+  for (const group of placement.scope.groups) {
+    const sections = [...Object.values(group.crns ?? {}), ...Object.values(group.byMajor ?? {}).flatMap((cells) => Object.values(cells))];
+    for (const part of sections.flatMap((section) => partsOf(section))) {
+      if (part.crn && !mine.has(part.crn) && !found.has(part.crn)) found.set(part.crn, group.label);
+    }
+  }
+  return found;
+}
+
+/**
  * A student's week: every section their groups stand for, and every one the registrar has
  * registered them in. Where the two agree the box is solid; a group's section they are not
  * registered for is dashed, and so is one of a course they are exempt from that the

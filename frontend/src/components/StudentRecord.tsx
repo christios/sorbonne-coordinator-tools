@@ -35,7 +35,7 @@ import {
   type ActiveCrn,
 } from "@/services/portalLists";
 import { fetchExemptionReasons } from "@/services/exemptionReasons";
-import { placementsOf, studentTimetable } from "@/services/personTimetable";
+import { otherGroupsOf, placementsOf, studentTimetable } from "@/services/personTimetable";
 import { fetchPublication } from "@/services/publication";
 import { clashesIn } from "@/services/publicationView";
 import { clashKey } from "@/services/groupFill";
@@ -429,7 +429,23 @@ export function StudentRecord({
    */
   const lines = reconcile(placements, registrations.data ?? []);
   // What the portal has them in that no group of theirs gives them.
-  const outside = lines.filter((line) => !line.ours && line.portal);
+  const notOurs = lines.filter((line) => !line.ours && line.portal);
+  /*
+   * Another group's section of a set they ARE in — placed in RDNS 10, registered in RDNS 9's.
+   * Read under that set, where the group it should be is, not at the foot among the
+   * electives: it is the registrar's half of a move, not a course from somewhere else.
+   */
+  const inOtherGroup = new Map(
+    placements.map((placement) => {
+      const others = otherGroupsOf(placement);
+      return [
+        placement.scope.id,
+        notOurs.filter((line) => others.has(line.crn)).map((line) => ({ line, group: others.get(line.crn) ?? "" })),
+      ] as const;
+    }),
+  );
+  const underASet = new Set([...inOtherGroup.values()].flatMap((found) => found.map(({ line }) => line.crn)));
+  const outside = notOurs.filter((line) => !underASet.has(line.crn));
   /*
    * Who teaches a CRN, as the portal has it: from their own registration in it, else from
    * the register's list of CRNs — a section they are not registered in still has a teacher.
@@ -444,7 +460,7 @@ export function StudentRecord({
   const approvalOf = (courseCode: string) =>
     (approvals.data ?? []).find((approval) => approval.courseCode.toUpperCase() === courseCode.toUpperCase()) ?? null;
   const approvedAlone = (approvals.data ?? []).filter(
-    (approval) => !outside.some((line) => line.courseCode.toUpperCase() === approval.courseCode.toUpperCase()),
+    (approval) => !notOurs.some((line) => line.courseCode.toUpperCase() === approval.courseCode.toUpperCase()),
   );
   const approvedSaid = (approval: NonNullable<ReturnType<typeof approvalOf>>, registeredToo: boolean) => (
     <span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
@@ -916,6 +932,25 @@ export function StudentRecord({
                           reasons={(reasons.data ?? []).map((entry) => entry.label)}
                           onExempt={(on, choice) =>
                             exempt.mutate({ courseCode: cell.courseCode, courseId: cell.courseId, on, whole: choice?.whole, reason: choice?.reason })
+                          }
+                        />
+                      ))}
+                      {(inOtherGroup.get(scope.id) ?? []).map(({ line, group: theirs }) => (
+                        <CrnRow
+                          key={`other|${line.crn}`}
+                          crn={line.crn}
+                          courseCode={line.courseCode}
+                          courseName={line.title}
+                          teacher={portalTeacher(line.crn)}
+                          state="outside"
+                          onOpen={inRegister(line.crn) ? () => setShowingCrn(inRegister(line.crn)) : undefined}
+                          outside={
+                            <span
+                              className="text-xs text-[#a6292f]"
+                              title={`The portal has them in ${scope.code} ${theirs}'s section; the planning has them in ${scope.code} ${group?.label ?? ""}. The registrar moves them.`}
+                            >
+                              registered in {scope.code} {theirs}
+                            </span>
                           }
                         />
                       ))}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { mergedTeacherTimetable, studentTimetable, type Placement } from "@/services/personTimetable";
+import { mergedTeacherTimetable, otherGroupsOf, studentTimetable, type Placement } from "@/services/personTimetable";
 import type { Registration } from "@/services/portalLists";
 import type { CatalogueScope } from "@/services/studentDatabase";
 
@@ -73,5 +73,29 @@ describe("several teachers' weeks on one grid", () => {
     ]);
 
     expect(merged).toEqual([expect.objectContaining({ crn: "24272", standingIn: true, onlyOn: ["2026-10-01", "2026-10-08"] })]);
+  });
+});
+
+describe("the other groups of a set", () => {
+  it("names the group each of the set's other CRNs belongs to, and leaves out their own", () => {
+    // Moved from RDNS 9 to RDNS 10: 9's section is still where the registrar has them.
+    const rdns = {
+      id: "scope-rdns",
+      code: "RDNS",
+      groups: [
+        { id: "g9", label: "9", crns: { readiness: { crn: "24006" } } },
+        { id: "g10", label: "10", crns: { readiness: { crn: "24007" } } },
+        { id: "g11", label: "11", crns: { readiness: { crn: "", parts: [{ crn: "24008" }, { crn: "24018" }] } } },
+      ],
+    } as unknown as CatalogueScope;
+
+    const others = otherGroupsOf({
+      scope: rdns,
+      group: rdns.groups[1],
+      major: null,
+      crns: [{ courseId: "readiness", courseCode: "SCEN-102", courseName: "Maths Readiness", crn: "24007" }],
+    });
+
+    expect([...others]).toEqual([["24006", "9"], ["24008", "11"], ["24018", "11"]]);
   });
 });

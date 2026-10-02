@@ -435,6 +435,35 @@ describe("the groups and their CRNs, against the portal", () => {
     ]);
   });
 
+  it("reads a registration in another group of their set under that set, not outside their groups", async () => {
+    // Moved from RDNS 9 to RDNS 10; the registrar still has them in 9's section.
+    vi.spyOn(database, "fetchCatalogue").mockResolvedValue({
+      scopes: [
+        {
+          id: "scope-rdns", code: "RDNS", name: "", note: "", termId: "term-1",
+          kind: "shared", parentScopeId: "", openToAll: false, courses: [{ id: "c-rdns", code: "SCEN-102", name: "Maths Readiness", component: "TD", request: EMPTY_REQUEST }],
+          groups: [
+            { id: "rdns-9", label: "9", capacity: 30, note: "", parentGroupId: "", assigned: 17, crns: { "c-rdns": { ...EMPTY_SECTION, crn: "24006", teacher: "" } } },
+            { id: "rdns-10", label: "10", capacity: 30, note: "", parentGroupId: "", assigned: 17, crns: { "c-rdns": { ...EMPTY_SECTION, crn: "24007", teacher: "" } } },
+          ],
+        },
+      ],
+    });
+    vi.spyOn(database, "fetchAssignments").mockResolvedValue({ A001: { "scope-rdns": "rdns-10" } });
+    vi.spyOn(lists, "fetchRegistrations").mockResolvedValue([
+      { crn: "24006", courseCode: "SCEN-102", title: "Maths Readiness G.9-TD", termCode: "262710", teacherName: "Amina Menaa", status: "in_portal" },
+    ] as never);
+
+    show();
+
+    const rdns = await screen.findByLabelText("RDNS 10");
+    expect(cells(within(rdns).getByText("24007").closest("tr") as HTMLElement)[3]).toContain("not registered");
+    expect(cells(within(rdns).getByText("24006").closest("tr") as HTMLElement).slice(0, 4)).toEqual([
+      "24006", "SCEN-102Maths Readiness G.9-TD", "Amina Menaa", "registered in RDNS 9",
+    ]);
+    expect(screen.queryByLabelText("Outside their groups")).toBeNull();
+  });
+
   it("names who teaches each CRN as the portal has it, whatever the group was planned with", async () => {
     vi.spyOn(database, "fetchCatalogue").mockResolvedValue({
       scopes: [
