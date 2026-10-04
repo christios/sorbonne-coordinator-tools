@@ -1501,6 +1501,34 @@ def test_the_extension_is_told_which_crns_to_ask_about_and_whose_they_are(client
     assert payload == {"ours": ["23425"], "registered": ["20581"]}
 
 
+def test_our_sections_nobody_is_registered_in_yet_are_asked_about_when_someone_depends_on_them(
+    client: TestClient, database: StudentDatabase
+):
+    """Maths Readiness G.10 had a teacher and 17 students in our planning, and nobody
+    registered in it yet: its hours were never asked for, so neither the teacher's week nor
+    the students' dashed classes could be drawn."""
+    build_cohort(database)  # TD 1 holds 23652; CM A holds 22151, which is not on this term's list
+    with PortalListStore(TEST_DATABASE_URL).engine.begin() as connection:
+        connection.execute(
+            text("""INSERT INTO portal_courses (term_code, crn, course_code, teacher_name, first_seen_at, last_seen_at)
+                    VALUES ('262710','24007','SCEN-102','Ahmed Menaa','now','now'),
+                           ('262710','24009','SCEN-102','','now','now'),
+                           ('262710','23652','MATH-011','','now','now'),
+                           ('262710','24099','SCEN-199','Somebody','now','now')"""),
+        )
+        connection.execute(
+            text("""INSERT INTO active_course_crns (id, term_code, crn, course_code, added_at, added_by)
+                    VALUES ('a1','262710','24007','SCEN-102','now',''),
+                           ('a2','262710','24009','SCEN-102','now','')"""),
+        )
+
+    payload = client.get("/api/v1/portal/terms/262710/timetable-targets").json()
+
+    # 24007 for its teacher, 23652 for its group. 24009 is a placeholder — ours, but with
+    # nobody teaching it and no group — and 24099 has a teacher but is not one of ours.
+    assert payload == {"ours": ["23652", "24007"], "registered": []}
+
+
 def test_a_timetable_pull_is_written_down_with_what_it_could_not_answer(client: TestClient):
     answer = client.post(
         "/api/v1/portal/facility-timetable",

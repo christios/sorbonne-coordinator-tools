@@ -888,6 +888,14 @@ class PortalListStore:
         Split rather than merged, because the two halves are answerable separately: asking
         the registrar about another department's rooms is a different question from asking
         about our own, and shipping with the second half switched off must stay possible.
+
+        Plus our own sections that nobody is registered in YET, where somebody already
+        depends on their hours: one with a teacher on the portal (among our Active CRNs), or
+        one a group of ours holds. Maths Readiness G.10 was opened, given a teacher and 17
+        students in our planning, and the registrations had not followed — so its hours
+        were never asked for, and neither its teacher's week nor the students' dashed classes
+        could be drawn. The term is the portal's course list's: a group's CRN carries none.
+        Our sections with neither a teacher nor a group — the placeholders — stay unasked.
         """
         with self.engine.connect() as connection:
             rows = connection.execute(
@@ -898,8 +906,19 @@ class PortalListStore:
                         WHERE r.term_code = :t AND r.status = 'in_portal' AND r.crn <> ''"""),
                 {"t": term_code},
             ).all()
-        ours = sorted(crn for crn, mine in rows if mine)
-        return {"ours": ours, "registered": sorted(crn for crn, mine in rows if not mine)}
+            awaited = connection.execute(
+                text("""SELECT DISTINCT c.crn
+                        FROM portal_courses c
+                        WHERE c.term_code = :t AND c.status = 'in_portal' AND c.crn <> ''
+                          AND ((c.teacher_name <> ''
+                                AND EXISTS (SELECT 1 FROM active_course_crns a
+                                             WHERE a.term_code = c.term_code AND a.crn = c.crn))
+                               OR EXISTS (SELECT 1 FROM group_crns g
+                                           WHERE g.crn = c.crn AND NOT g.retired))"""),
+                {"t": term_code},
+            ).scalars().all()
+        ours = {crn for crn, mine in rows if mine} | set(awaited)
+        return {"ours": sorted(ours), "registered": sorted(crn for crn, mine in rows if not mine and crn not in ours)}
 
     def pull_was_whole(self, term_code: str) -> bool:
         """Whether every registrations filter that covers this term brought all of it.
