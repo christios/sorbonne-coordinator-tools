@@ -193,6 +193,33 @@ def test_a_task_closed_by_hand_is_not_reopened(store: TeacherStore, tasks: Workf
     assert tasks.get_task(august["id"])["status"] == "COMPLETED"
 
 
+def test_a_task_deleted_by_hand_stays_deleted(store: TeacherStore, tasks: WorkflowStore, keeper: TimeSheetTasks):
+    """Deleting a period's task says no sheet is owed for it. It used to be written straight
+    back by the next read, so the delete looked like it had not worked."""
+    teacher = a_teacher(store)
+    store.create_requisition(teacher["id"], label="Physics TD", academic_year="2026-2027")
+    keeper.catch_up(today=date(2026, 9, 22))
+    august = task_id_for(teacher["id"], date(2026, 8, 15))
+
+    tasks.delete_task(august, actor="coordinator@sorbonne.ae")
+    keeper.catch_up(today=date(2026, 9, 22))
+
+    assert [task["title"] for task in mine(tasks, teacher["id"])] == ["Time sheet: 15 Sep – 14 Oct 2026"]
+
+
+def test_deleting_one_period_leaves_the_next_one_asked_for(
+    store: TeacherStore, tasks: WorkflowStore, keeper: TimeSheetTasks
+):
+    teacher = a_teacher(store)
+    store.create_requisition(teacher["id"], label="Physics TD", academic_year="2026-2027")
+    keeper.catch_up(today=date(2026, 9, 22))
+    tasks.delete_task(task_id_for(teacher["id"], date(2026, 8, 15)))
+
+    keeper.catch_up(today=date(2026, 10, 16))
+
+    assert [task["dueDate"] for task in mine(tasks, teacher["id"])] == ["2026-10-14", "2026-11-14"]
+
+
 def test_a_sheet_pushed_from_the_timesheets_app_closes_the_task_too(
     store: TeacherStore, tasks: WorkflowStore, keeper: TimeSheetTasks
 ):

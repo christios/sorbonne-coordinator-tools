@@ -9,6 +9,7 @@ from uuid import uuid4
 from sqlalchemy import Connection, Engine, text
 
 from sorbonne.services.engine import engine_for
+from sorbonne.services.time_sheet_tasks import TASK_PREFIX as TIME_SHEET_TASK_PREFIX
 
 
 class TaskNotFound(Exception):
@@ -387,9 +388,17 @@ class WorkflowStore:
             raise TaskNotFound
         return _task(row)
 
-    def delete_task(self, task_id: str) -> None:
+    def delete_task(self, task_id: str, *, actor: str = "") -> None:
         with self.engine.begin() as connection:
             result = connection.execute(text("DELETE FROM tasks WHERE id = :id"), {"id": task_id})
+            if result.rowcount == 1 and task_id.startswith(f"{TIME_SHEET_TASK_PREFIX}:"):
+                # The application makes these by itself and would write this one again on
+                # the next read. Deleting it says no sheet is owed: see time_sheet_tasks.
+                connection.execute(
+                    text("""INSERT INTO waived_time_sheet_tasks (task_id, waived_at, waived_by)
+                            VALUES (:id, :at, :by) ON CONFLICT (task_id) DO NOTHING"""),
+                    {"id": task_id, "at": _timestamp(), "by": actor},
+                )
         if result.rowcount != 1:
             raise TaskNotFound
 

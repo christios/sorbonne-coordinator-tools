@@ -232,9 +232,11 @@ def list_task_activity(
 
 
 @router.delete("/tasks/{task_id}", status_code=204)
-def delete_task(task_id: str, store: WorkflowStore = Depends(get_store)) -> Response:
+def delete_task(task_id: str, request: Request, store: WorkflowStore = Depends(get_store)) -> Response:
+    """Delete a task. A time-sheet task stays deleted: no sheet is owed for that period."""
+    staff = getattr(request.state, "staff_user", None)
     try:
-        store.delete_task(task_id)
+        store.delete_task(task_id, actor=getattr(staff, "email", "") or "")
     except TaskNotFound as exc:
         raise HTTPException(status_code=404, detail="Task not found.") from exc
     return Response(status_code=204)

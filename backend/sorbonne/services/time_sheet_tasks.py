@@ -22,6 +22,10 @@ it belongs to — August is nobody's semester and January is two. So where the s
 that have decided all agree, their day is used, and otherwise the department's usual one
 is, because a grid of tasks cannot be in two cycles at once.
 
+*Deleting one is a decision.* A coordinator who deletes a period's task is saying no sheet
+is owed for it, and that is remembered (`waived_time_sheet_tasks`) — this runs on every
+read, and without it the task came straight back.
+
 It runs when the tasks are read rather than on a clock. There is no scheduler here, and
 a task nobody has looked at yet has not been missed; by the time anybody can see the
 list, the list is right. Writing the same task twice is impossible because its name is
@@ -141,11 +145,15 @@ class TimeSheetTasks:
                     {"kind": TASK_RESOURCE_TYPE, "like": f"{TASK_PREFIX}:%"},
                 )
             }
+            # The ones somebody deleted: no sheet is owed for them, so none is asked for.
+            waived = {str(row[0]) for row in connection.execute(text("SELECT task_id FROM waived_time_sheet_tasks"))}
             starts = period_starts(year, opens_on_across(cycles), opened_by=day)
             for teacher_id in contracted:
                 for start in starts:
                     answered = (teacher_id, start.isoformat()) in filed
                     task_id = task_id_for(teacher_id, start)
+                    if task_id in waived:
+                        continue
                     if task_id not in held:
                         _insert(connection, teacher_id, start, answered=answered, now=now)
                         made += 1
