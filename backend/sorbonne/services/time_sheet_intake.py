@@ -186,10 +186,14 @@ def teacher_for(connection: Any, *, email: str, number: str) -> str:
         ).scalar()
         if found:
             return str(found)
+        # The Active teachers row's own address, or — where the row is linked to a portal
+        # profile — the portal's, which is the one the Active teachers page shows. Sara Khaled
+        # has only the portal's: the row's own was never written, and she was refused.
         found = connection.execute(
             text("""SELECT t.id FROM part_time_teachers t
                     JOIN active_teachers a ON a.part_time_teacher_id = t.id
-                    WHERE lower(a.email) = :e LIMIT 1"""),
+                    LEFT JOIN portal_teachers p ON p.teacher_id = a.portal_teacher_id
+                    WHERE lower(a.email) = :e OR lower(p.psuad_email) = :e LIMIT 1"""),
             {"e": email.casefold()},
         ).scalar()
         if found:

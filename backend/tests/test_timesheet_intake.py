@@ -248,6 +248,33 @@ def test_the_portals_address_finds_somebody_with_none_of_their_own(
     assert len(intake.for_teacher(teacher["id"])) == 1
 
 
+def test_the_address_on_their_portal_profile_finds_them_too(
+    client: TestClient, store: TeacherStore, intake: TimeSheetIntake
+):
+    """Sara Khaled's Active teachers row had no address of its own; the portal profile it is
+    linked to did, and that is the one the Active teachers page shows. She was refused."""
+    teacher = store.create_teacher(full_name=f"Dr Profile {uuid4()}")
+    portal_id = f"A{uuid4().hex[:8].upper()}"
+    address = f"{uuid4()}@sorbonne.ae"
+    with intake.engine.begin() as connection:
+        connection.execute(
+            text("""INSERT INTO portal_teachers (teacher_id, full_name, psuad_email, first_seen_at, last_seen_at)
+                    VALUES (:portal, :name, :email, 'now', 'now')"""),
+            {"portal": portal_id, "name": teacher["fullName"], "email": address.upper()},
+        )
+        connection.execute(
+            text("""INSERT INTO active_teachers
+                        (id, portal_teacher_id, part_time_teacher_id, full_name, email, added_at, added_by)
+                    VALUES (:id, :portal, :pt, :name, '', '2026-09-01', 'test')"""),
+            {"id": str(uuid4()), "portal": portal_id, "pt": teacher["id"], "name": teacher["fullName"]},
+        )
+
+    answer = client.post(PUSH, json=a_push(address, period_id=f"p{uuid4().hex[:8]}"), headers={"X-Timesheet-Key": KEY})
+
+    assert answer.status_code == 200
+    assert len(intake.for_teacher(teacher["id"])) == 1
+
+
 def test_the_staff_number_finds_them_when_no_address_does(
     client: TestClient, store: TeacherStore, intake: TimeSheetIntake
 ):
