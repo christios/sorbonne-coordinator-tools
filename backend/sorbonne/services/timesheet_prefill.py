@@ -10,7 +10,8 @@ A session is theirs three ways, the same three the teacher's week on their recor
 - our planning names them on the section (by their Active Teachers row, or — on a section
   that names nobody — the course's requested teacher, or the name typed on the section);
 - the portal staffs one of our Active CRNs with them, which catches what nobody has put on
-  a card yet. A section the portal gives two names gives both of them every session;
+  a card yet. A section the portal gives two names gives both of them every session — but
+  only where our planning names nobody: where it says who teaches, it is believed;
 - a coordinator recorded that they covered somebody else's class, on that date only.
 
 The dated meetings are the registrar's, as the last Portal sync left them, and they are
@@ -46,6 +47,8 @@ SCHEMA = "timesheet.prefill.v1"
 #: Every semester is paid from the 15th to the 14th; see the pages' payPeriods.
 PERIOD_STARTS_ON = 15
 DECEMBER = 12
+#: What a section's teacher field says when it says nobody: not a decision about who teaches.
+PLACEHOLDERS = frozenset({"tbd", "tba", "tbc", "n/a", "na", "-", "?", "—", "staff"})
 #: Whose clock decides what is past: the dates are Abu Dhabi wall-clock, never converted.
 LOCAL = ZoneInfo("Asia/Dubai")
 
@@ -191,11 +194,18 @@ class TimesheetPrefill:
                     WHERE gc.crn <> '' AND NOT gc.retired AND NOT gc.not_taught
                     ORDER BY s.code, g.position, g.label""")
         ).mappings()
+        # Sections our planning says who teaches. The portal's word stands only where ours is
+        # silent: it named "Sachin Valera, Ahmed Menaa" on two Maths Readiness groups the
+        # planning gives to Sachin alone, and both would have been sent every session.
+        decided: set[tuple[str, str]] = set()
         for row in planned:
             # The course names a teacher only for a section that names nobody at all; a name
             # typed on the section, even unconfirmed, is not silence. As the cards read it.
-            named = row["teacher_id"] or ("" if (row["teacher"] or "").strip() else row["course_teacher_id"])
-            mine = named in who["ids"] if named else (row["teacher"] or "").strip().lower() in who["lower"]
+            typed = (row["teacher"] or "").strip()
+            named = row["teacher_id"] or ("" if typed else row["course_teacher_id"])
+            if named or (typed and typed.lower() not in PLACEHOLDERS):
+                decided.add((row["term"], row["crn"]))
+            mine = named in who["ids"] if named else typed.lower() in who["lower"]
             if not mine:
                 continue
             key = (row["term"], row["crn"])
@@ -211,7 +221,8 @@ class TimesheetPrefill:
                 "scope": row["scope_code"],
                 "title": "",
             }
-        # The portal's own staffing of our Active CRNs, for what nobody has put on a card.
+        # The portal's own staffing of our Active CRNs, for what nobody has put on a card — or
+        # on a card that names nobody yet.
         registered = connection.execute(
             text("""SELECT a.term_code, a.crn, a.course_code,
                            COALESCE(p.teacher_name, '') AS listed, COALESCE(p.title, '') AS title,
@@ -223,7 +234,7 @@ class TimesheetPrefill:
         ).mappings()
         for row in registered:
             key = (row["term_code"], row["crn"])
-            if key in own:
+            if key in own or key in decided:
                 continue
             if names_them(row["listed"], who["words"]) or names_them(row["swept"], who["words"]):
                 own[key] = {

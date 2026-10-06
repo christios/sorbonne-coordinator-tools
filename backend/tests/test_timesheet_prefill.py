@@ -211,6 +211,44 @@ def test_a_section_only_the_portal_gives_them_counts_even_shared_with_another_na
     assert session["ref"]["crn"] == "23652"
 
 
+def the_portal_lists(crn: str, teachers: str) -> None:
+    """One of our Active CRNs, as the portal's course list staffs it."""
+    with StudentDatabase(TEST_DATABASE_URL).engine.begin() as connection:
+        connection.execute(
+            text("""INSERT INTO active_course_crns (id, term_code, crn, course_code, added_at, added_by)
+                    VALUES (:id, :t, :crn, 'SCEN-102', 'now', '')"""),
+            {"id": f"a-{crn}", "t": TERM, "crn": crn},
+        )
+        connection.execute(
+            text("""INSERT INTO portal_courses
+                        (term_code, crn, course_code, title, teacher_name, first_seen_at, last_seen_at)
+                    VALUES (:t, :crn, 'SCEN-102', 'Maths Readiness G.3-TD', :who, 'now', 'now')"""),
+            {"t": TERM, "crn": crn, "who": teachers},
+        )
+
+
+def test_where_the_planning_says_who_teaches_the_portals_second_name_adds_nothing(prefill: TimesheetPrefill):
+    """The portal named "Sachin Valera, Ahmed Menaa" on G.3; the planning gives it to Sachin."""
+    sachin = a_part_timer("Sachin Valera")
+    ahmed = a_part_timer("Ahmed Menaa")
+    a_section(crn="24000", teacher_id=sachin["activeId"], group="3")
+    the_portal_lists("24000", "Sachin Valera, Ahmed Menaa")
+    swept({"24000": [("2026-10-16", "13:15", "14:45")]})
+
+    assert prefill.sessions(period_start="2026-10-15", email=ahmed["email"], today=TODAY)["sessions"] == []
+    assert len(prefill.sessions(period_start="2026-10-15", email=sachin["email"], today=TODAY)["sessions"]) == 1
+
+
+def test_a_section_the_planning_leaves_to_be_decided_follows_the_portal(prefill: TimesheetPrefill):
+    ahmed = a_part_timer("Ahmed Menaa")
+    a_section(crn="24000", teacher="TBD", group="3")
+    the_portal_lists("24000", "Sachin Valera, Ahmed Menaa")
+    swept({"24000": [("2026-10-16", "13:15", "14:45")]})
+
+    [session] = prefill.sessions(period_start="2026-10-15", email=ahmed["email"], today=TODAY)["sessions"]
+    assert session["ref"]["crn"] == "24000"
+
+
 def test_somebody_elses_section_is_not_theirs(prefill: TimesheetPrefill):
     ahmed = a_part_timer("Ahmed Menaa")
     amina = a_part_timer("Amina Menaa")
