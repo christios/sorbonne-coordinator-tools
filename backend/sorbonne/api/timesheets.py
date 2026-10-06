@@ -12,10 +12,11 @@ in `services/auth_gate.py` checks it before this is reached.
 
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 
 from sorbonne.config import config
 from sorbonne.services.time_sheet_intake import SCHEMA, TeacherNotKnown, TimeSheetIntake, UnknownSchema
+from sorbonne.services.timesheet_prefill import PeriodNotKnown, TimesheetPrefill
 
 
 router = APIRouter(prefix="/timesheets", tags=["timesheets"])
@@ -23,6 +24,39 @@ router = APIRouter(prefix="/timesheets", tags=["timesheets"])
 
 def get_intake() -> TimeSheetIntake:
     return TimeSheetIntake(config.database_url)
+
+
+def get_prefill() -> TimesheetPrefill:
+    return TimesheetPrefill(config.database_url)
+
+
+@router.get("/prefill")
+def prefill(
+    period_start: str = Query("", alias="periodStart"),
+    email: str = Query(""),
+    sessions: TimesheetPrefill = Depends(get_prefill),
+) -> dict[str, Any]:
+    """One part-timer's scheduled sessions for one pay period, to pre-fill their draft.
+
+    The other direction from the push, and the same kind of caller: the timesheet app's
+    flow, once a day per part-timer, with the department's READ key (checked by the gate).
+    Its two refusals are ones the flow skips the person on, so each says what it was given.
+    """
+    try:
+        return sessions.sessions(period_start=period_start, email=email)
+    except PeriodNotKnown as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"{str(exc) or 'An empty periodStart'} does not start a pay period here: "
+                "they run from the 15th of one month to the 14th of the next."
+            ),
+        ) from exc
+    except TeacherNotKnown as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Nobody in the part-time teacher database has the address {exc.email or '(none given)'}.",
+        ) from exc
 
 
 @router.get("/submitted")

@@ -60,6 +60,26 @@ def pushing_a_timesheet(request: Request) -> bool:
     return bool(key) and compare_digest(key, given)
 
 
+#: Where the same app reads a part-timer's scheduled sessions to pre-fill a draft, and the
+#: header it proves itself with there. A second key, so the one that reads cannot post.
+TIMESHEET_PREFILL_PATH = "/api/v1/timesheets/prefill"
+TIMESHEET_READ_HEADER = "x-timesheet-read-key"
+
+
+def reading_a_prefill(request: Request) -> bool:
+    """A machine with the department's read key, asking for one person's sessions.
+
+    The push's rules, for the same reasons: answered before sign-in, and refused outright
+    when no key is configured. A signed-in coordinator is refused here too — this is the
+    flow's door, and the pages have their own ways to the same sessions.
+    """
+    if request.url.path.rstrip("/") != TIMESHEET_PREFILL_PATH or request.method != "GET":
+        return False
+    key = (config.timesheet_read_key or "").strip()
+    given = (request.headers.get(TIMESHEET_READ_HEADER) or "").strip()
+    return bool(key) and compare_digest(key, given)
+
+
 def is_public(path: str) -> bool:
     """The static app shell is public; the API and the handbook are not."""
     if path in PUBLIC_PATHS:
@@ -68,7 +88,7 @@ def is_public(path: str) -> bool:
 
 
 class StaffAuthGate(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
+    async def dispatch(self, request: Request, call_next):  # noqa: PLR0911 - one answer per door
         if request.method == "OPTIONS" or is_public(request.url.path):
             return await call_next(request)
 
@@ -76,6 +96,12 @@ class StaffAuthGate(BaseHTTPMiddleware):
             if not pushing_a_timesheet(request):
                 # The flow reads this as a failure and marks the period Failed in
                 # SharePoint, which is where whoever approved it will see it.
+                return JSONResponse(status_code=401, content={"detail": "That key is not this department's."})
+            return await call_next(request)
+
+        if request.url.path.rstrip("/") == TIMESHEET_PREFILL_PATH:
+            if not reading_a_prefill(request):
+                # The flow stops its run on this, so it shows in the flow's run history.
                 return JSONResponse(status_code=401, content={"detail": "That key is not this department's."})
             return await call_next(request)
 

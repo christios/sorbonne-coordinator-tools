@@ -64,7 +64,7 @@ class TimeSheetIntake:
         stamp = now or datetime.now(UTC).isoformat()
 
         with self.engine.begin() as connection:
-            teacher_id = _teacher_for(connection, email=email, number=number)
+            teacher_id = teacher_for(connection, email=email, number=number)
             if not teacher_id:
                 raise TeacherNotKnown(email, name)
             held = connection.execute(
@@ -166,7 +166,7 @@ _COLUMNS = """period_id, version, teacher_id, period_start, period_end, period_l
               approved_by, approved_by_email, approved_on, days, sent_at, received_at"""
 
 
-def _teacher_for(connection: Any, *, email: str, number: str) -> str:
+def teacher_for(connection: Any, *, email: str, number: str) -> str:
     """Three ways to the same person, in order of how much the answer can be trusted.
 
     The address first, because SharePoint takes it from the tenant's own directory and

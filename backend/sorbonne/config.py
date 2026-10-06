@@ -36,6 +36,9 @@ class Config(BaseSettings):
     # sign-in. Unset means the endpoint refuses everything: a push route with no key is
     # an open door, and a department that has not set one is not expecting a push.
     timesheet_push_key: str | None = None
+    # And reads each part-timer's scheduled sessions back, to pre-fill their draft. A key of
+    # its own, read-only: one that leaked could not post a sheet. Unset refuses every read.
+    timesheet_read_key: str | None = None
 
 
 config = Config()
