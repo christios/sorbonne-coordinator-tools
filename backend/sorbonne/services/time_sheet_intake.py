@@ -218,14 +218,24 @@ def _hours(value: Any) -> float:
         return 0.0
 
 
+#: What a line can say it was. The app sends one of these on every line from October 2026.
+KINDS = ("teaching", "admin")
+
+
 def _days(value: Any) -> list[dict[str, Any]]:
-    """The lines as sent, with only the fields the contract names."""
+    """The lines as sent, with only the fields the contract names.
+
+    `kind` was added to v1 additively, so a period pushed before it carries none. That is
+    kept as "" — not stated — rather than guessed as teaching: the app now sends "teaching"
+    for its own old lines, and a blank here means the sheet itself never said.
+    """
     if not isinstance(value, list):
         return []
     kept = []
     for line in value:
         if not isinstance(line, dict):
             continue
+        kind = str(line.get("kind") or "").strip().lower()
         kept.append(
             {
                 "day": str(line.get("day") or ""),
@@ -234,6 +244,7 @@ def _days(value: Any) -> list[dict[str, Any]]:
                 "to": str(line.get("to") or ""),
                 "hours": _hours(line.get("hours")),
                 "details": str(line.get("details") or ""),
+                "kind": kind if kind in KINDS else "",
             }
         )
     return kept

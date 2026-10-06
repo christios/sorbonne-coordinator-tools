@@ -118,6 +118,36 @@ def test_an_approved_sheet_is_kept_against_the_period_it_is_for(
     assert [line["date"] for line in held["days"]] == ["2026-08-17", "2026-08-18"]
 
 
+def test_each_line_keeps_whether_it_was_teaching_or_admin(
+    client: TestClient, store: TeacherStore, intake: TimeSheetIntake
+):
+    """Added to v1 additively in October 2026; the totals are the lines' sums, so only the
+    lines carry it."""
+    teacher = a_teacher(store)
+    push = a_push(teacher["email"], period_id=f"p{uuid4().hex[:8]}")
+    push["days"][0]["kind"] = "teaching"
+    push["days"][1]["kind"] = "Admin"
+    push["totals"].update({"teachingHours": 2, "adminHours": 1.5})
+
+    client.post(PUSH, json=push, headers={"X-Timesheet-Key": KEY})
+
+    [held] = intake.for_teacher(teacher["id"])
+    assert [line["kind"] for line in held["days"]] == ["teaching", "admin"]
+
+
+def test_a_line_from_before_the_kind_existed_says_nothing_rather_than_guessing(
+    client: TestClient, store: TeacherStore, intake: TimeSheetIntake
+):
+    teacher = a_teacher(store)
+    push = a_push(teacher["email"], period_id=f"p{uuid4().hex[:8]}")
+    push["days"][1]["kind"] = "lunch"
+
+    client.post(PUSH, json=push, headers={"X-Timesheet-Key": KEY})
+
+    [held] = intake.for_teacher(teacher["id"])
+    assert [line["kind"] for line in held["days"]] == ["", ""]
+
+
 def test_the_same_push_twice_is_one_sheet(client: TestClient, store: TeacherStore, intake: TimeSheetIntake):
     """The flow retries a failed push, and a retry must not make a second sheet."""
     teacher = a_teacher(store)

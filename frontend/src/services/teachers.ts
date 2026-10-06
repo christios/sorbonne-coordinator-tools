@@ -151,7 +151,8 @@ export type SubmittedTimeSheet = {
   approvedBy: string;
   approvedByEmail: string;
   approvedOn: string;
-  days: { day: string; date: string; from: string; to: string; hours: number; details: string }[];
+  /** `kind` from October 2026; "" on a line from before, when the sheet never said. */
+  days: { day: string; date: string; from: string; to: string; hours: number; details: string; kind?: "teaching" | "admin" | "" }[];
   sentAt: string;
   receivedAt: string;
 };
