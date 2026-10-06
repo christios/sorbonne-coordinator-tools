@@ -128,6 +128,22 @@ describe("a teacher's hours, CRN by CRN", () => {
     expect(september).toEqual(whole);
   });
 
+  it("over the whole semester, lists somebody whose only teaching was cover, with nothing planned", () => {
+    // Sachin Valera's groups went to Ahmed Menaa; the classes he had taught are his cover.
+    const held = busy();
+    held.notes = [
+      ...held.notes,
+      note({ crn: "23223", meetsOn: "2026-09-07", kind: "covered", coverTeacherId: "act-3", coverTeacherName: "Sachin Valera" }),
+    ];
+
+    const rows = hoursRowsFor(held, WHOLE, true);
+    const sachin = rows.find((entry) => entry.teacher === "Sachin Valera");
+
+    expect(sachin).toMatchObject({ total: 0, coverGiven: 2, crns: [] });
+    // Hani covered too, but has a plan of his own: one row, not two.
+    expect(rows.filter((entry) => entry.teacher === "Hani Sayes")).toHaveLength(1);
+  });
+
   it("over the whole semester, puts the plan beside what happened to it", () => {
     const [hani] = hoursRowsFor(busy(), WHOLE, true);
     const [own] = crnDistribution(busy(), hani, WHOLE, true);

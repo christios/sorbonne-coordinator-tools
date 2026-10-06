@@ -25,6 +25,7 @@ import {
   teacherLoads,
   UNNAMED,
   type LoadRow,
+  type TeacherLoad,
 } from "@/services/teacherLoad";
 import type { ActiveTeacher, FacilityHours, FacilitySection } from "@/services/portalLists";
 import type { RequestSheet } from "@/services/timetableExport";
@@ -267,6 +268,29 @@ export function crnDistribution(source: HoursSource, row: LoadRow, window: Windo
  * are laid out the same way on purpose, so the table does not change shape when the
  * question narrows.
  */
+/**
+ * Whoever stood in for somebody in the window and has nothing planned of their own.
+ *
+ * The semester's view lists the plan, and cover is no part of a plan — so Sachin Valera,
+ * once his two Maths Readiness groups went to Ahmed Menaa, had taught 26 classes as cover
+ * and had no row at all on the page's first view. A row of nothing planned, carrying the
+ * cover it was given, is what he actually did.
+ */
+function coverOnly(planned: LoadRow[], notes: SessionChange[], sheets: RequestSheet[]): TeacherLoad[] {
+  const listed = (id: string, name: string) =>
+    planned.some((row) => (id && (row.active?.id === id || row.teacherId === id)) || sameTeacher(row.teacher, name));
+  const found = new Map<string, TeacherLoad>();
+  for (const note of notes) {
+    const name = note.coverTeacherName?.trim() ?? "";
+    if (note.kind !== "covered" || !name || listed(note.coverTeacherId, name)) continue;
+    const key = note.coverTeacherId || name.toLowerCase();
+    if (!found.has(key)) {
+      found.set(key, { teacherId: note.coverTeacherId, teacher: name, bySheet: sheets.map(() => 0), byType: {}, total: 0, sections: 0 });
+    }
+  }
+  return [...found.values()];
+}
+
 export function hoursRowsFor(source: HoursSource, window: Window, whole: boolean): LoadRow[] {
   const { sheets, teachers, notes, sections, booked, owners, submitted, contracts, decided, threshold, today } = source;
   const planned = loadRows(teacherLoads(sheets), teachers, crnsByTeacher(sheets));
@@ -278,7 +302,7 @@ export function hoursRowsFor(source: HoursSource, window: Window, whole: boolean
     staffing: (crn) => owners.get(crn) ?? { id: "", name: "" },
   });
   const held = whole
-    ? planned
+    ? [...planned, ...loadRows(coverOnly(planned, notesHere, sheets), teachers, crnsByTeacher(sheets))]
     : loadRows(
         taughtLoads({
           hours,
