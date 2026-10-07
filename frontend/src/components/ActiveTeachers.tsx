@@ -1,6 +1,7 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, ArrowRight, Link2, Trash2, UserPlus } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { AlertTriangle, ArrowRight, EyeOff, Link2, RotateCcw, Trash2, UserPlus, X } from "lucide-react";
+import { useCallback, useMemo, useState } from "react";
+import { BringBackDialog, type DismissedGroup } from "@/components/BringBackDialog";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { ClassChangesBanner } from "@/components/ClassChanges";
@@ -31,13 +32,15 @@ import {
 } from "@/services/portalLists";
 import { removeEach, stillSelected } from "@/services/bulkRemove";
 import { buildCards } from "@/services/courseCards";
-import { fetchActiveCourses, fetchActiveCrns, splitCodes } from "@/services/portalLists";
+import { fetchActiveCourses, fetchActiveCrns, fetchFacilityHours, fetchTermLinks, splitCodes } from "@/services/portalLists";
+import { KIND_WORDS, plannedTeachers, portalScheduleWarnings, type ScheduleKind, type ScheduleWarning } from "@/services/portalSchedule";
 import type { GridColumn } from "@/services/studentColumns";
 import { fetchCourseCards } from "@/services/studentDatabase";
 import { STATE_WORDS, breakWords, type Availability, type AvailabilityState, type FreeWindow } from "@/services/teacherAvailability";
 import { sectionsTaughtBy } from "@/services/teacherLoad";
 import { exportTeacherTimetables } from "@/services/timetableExports";
 import { fetchTimetableTerms } from "@/services/timetables";
+import { dismissalsByKey, fetchDismissals, setDismissal } from "@/services/warningDismissals";
 
 /**
  * An Active teacher with what the planning has them teaching: the kinds of class their
@@ -45,7 +48,16 @@ import { fetchTimetableTerms } from "@/services/timetables";
  * apart so each is a value of its own rather than a sentence to read. And, while somebody
  * is asking who is free, their answer.
  */
-type TeacherRow = ActiveTeacher & { teaches: string[]; cohorts: string[]; courseList: string[]; availability?: Availability };
+type TeacherRow = ActiveTeacher & {
+  teaches: string[];
+  cohorts: string[];
+  courseList: string[];
+  availability?: Availability;
+  /** Where their portal schedule disagrees with our planning; see services/portalSchedule. */
+  schedule: ScheduleWarning[];
+  /** Whether our planning gives them any live section with a CRN, so "Matches" means something. */
+  planned: boolean;
+};
 
 const COLUMNS: GridColumn<TeacherRow>[] = [
   { id: "fullName", displayName: "Name", type: "text", accessor: (row) => row.fullName, required: true, defaultWidth: 220 },
@@ -114,6 +126,25 @@ const COLUMNS: GridColumn<TeacherRow>[] = [
     defaultWidth: 90, source: "planning"
   },
   /*
+   * Whether their week on the portal is the week our planning gives them. The portal draws
+   * a teacher's schedule from the registrar's timetable, which names its own teacher on each
+   * section: Ahmed Menaa was given two Maths Readiness groups here and they were not on his
+   * portal schedule, because the timetable still had Sachin Valera on both.
+   */
+  {
+    id: "portalSchedule",
+    displayName: "Portal schedule",
+    type: "multiOption",
+    // What is still open, for the filter. A dismissed warning is a decision, not a problem.
+    accessor: (row) => {
+      const open = row.schedule.filter((warning) => !warning.dismissed).map((warning) => KIND_WORDS[warning.kind]);
+      // Dismissed is not the same as agreeing, so a row with only dismissed ones is neither.
+      return open.length ? open : row.schedule.length ? [] : row.planned ? ["Matches"] : [];
+    },
+    defaultWidth: 260,
+    source: "registrar",
+  },
+  /*
    * The portal gives these as one comma-separated string. Split, each code is a value the
    * table can filter by — "everyone who teaches SCEN-101" is a tick rather than a search.
    */
@@ -133,7 +164,7 @@ const COLUMNS: GridColumn<TeacherRow>[] = [
   { id: "addedAt", displayName: "Added", type: "date", accessor: (row) => row.addedAt, display: (row) => row.addedAt.slice(0, 10), defaultWidth: 110 },
   { id: "addedBy", displayName: "Added by", type: "text", accessor: (row) => row.addedBy, defaultWidth: 200 },
 ];
-const SHOWN = ["fullName", "email", "source", "type", "department", "teaches", "cohorts", "courses", "lastTerm"];
+const SHOWN = ["fullName", "email", "source", "type", "department", "teaches", "cohorts", "courses", "portalSchedule", "lastTerm"];
 
 const RANK: Record<AvailabilityState, number> = { free: 0, notTeaching: 1, busy: 2, unknown: 3 };
 
@@ -188,6 +219,75 @@ const renderCell = (row: TeacherRow, column: GridColumn<TeacherRow>) => {
   return undefined;
 };
 
+/** Red for a section the portal lacks, amber for one it has wrongly, grey for one not timetabled at all. */
+const SCHEDULE_TONES: Record<ScheduleKind, string> = {
+  not_on_portal: "bg-[#fdf3f3] text-[#a6292f]",
+  portal_only: "bg-[#fdf6e3] text-[#8a6116]",
+  not_timetabled: "bg-[#f2f4f7] text-[#667085]",
+};
+
+/** What a coordinator does about each: all three are the registrar's to put right. */
+const SCHEDULE_REMEDIES: Record<ScheduleKind, string> = {
+  not_on_portal: "Ask the registrar to put them on these sections in the timetable.",
+  portal_only: "Ask the registrar to take them off these sections in the timetable.",
+  not_timetabled: "The registrar has not timetabled these yet. The next Portal sync picks the times up once they have.",
+};
+
+/**
+ * The Portal schedule cell: "Matches", or a pill per disagreement, each dismissible for
+ * everybody until the sections or the names on them change — as on Teacher hours.
+ */
+function ScheduleCell({
+  row,
+  showDismissed,
+  onDecide,
+}: {
+  row: TeacherRow;
+  showDismissed: boolean;
+  onDecide: (key: string, dismissed: boolean) => void;
+}) {
+  const shown = row.schedule.filter((warning) => showDismissed || !warning.dismissed);
+  if (!shown.length) {
+    // A dismissed disagreement is still a disagreement: it is not "Matches".
+    if (row.schedule.length) return <span className="text-xs text-[#98a2b3]">dismissed</span>;
+    return row.planned ? <span className="text-xs text-[#2f6b3d]">Matches</span> : <span className="text-[#d5dce4]">—</span>;
+  }
+  return (
+    <span className="flex flex-wrap gap-1">
+      {shown.map((warning) => (
+        <span
+          key={warning.key}
+          title={
+            warning.dismissed
+              ? `${warning.sentence} — dismissed by ${warning.dismissedBy || "somebody"}`
+              : `${warning.sentence}\n${SCHEDULE_REMEDIES[warning.kind]}`
+          }
+          className={`inline-flex max-w-full items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${
+            warning.dismissed ? "bg-[#f2f4f7] text-[#98a2b3]" : SCHEDULE_TONES[warning.kind]
+          }`}
+        >
+          <span className="min-w-0 truncate">{warning.label}</span>
+          {warning.dismissed && warning.dismissedBy ? (
+            <span className="min-w-0 shrink truncate font-normal">· {warning.dismissedBy}</span>
+          ) : null}
+          <button
+            type="button"
+            aria-label={`${warning.dismissed ? "Restore" : "Dismiss"}: ${warning.sentence}`}
+            title={warning.dismissed ? "Bring this warning back for everybody" : "Dismiss for everybody, until these sections or their names change"}
+            onClick={(event) => {
+              event.stopPropagation();
+              onDecide(warning.key, !warning.dismissed);
+            }}
+            className="-mr-1 shrink-0 rounded-full p-0.5 hover:bg-white/70"
+          >
+            {warning.dismissed ? <RotateCcw size={10} aria-hidden="true" /> : <X size={10} aria-hidden="true" />}
+          </button>
+        </span>
+      ))}
+    </span>
+  );
+}
+
 /**
  * The department's own list of teachers.
  *
@@ -209,9 +309,45 @@ export function ActiveTeachers({ onOpenTeacher }: { onOpenTeacher?: (teacher: Te
     const parentOf = new Map((registered.data ?? []).filter((row) => row.parentCrn).map((row) => [row.crn, row.parentCrn]));
     return buildCards(catalogues.data ?? [], termName, courses.data ?? [], parentOf);
   }, [catalogues.data, terms.data, courses.data, registered.data]);
+  /*
+   * The registrar's timetable, for the Portal schedule column: who it staffs each section
+   * with, semester by semester. Only the terms that answered are compared — a term still
+   * loading, or one that failed, says nothing rather than calling everything untimetabled.
+   */
+  const links = useQuery({ queryKey: ["term-links"], queryFn: fetchTermLinks, retry: false });
+  const termCodes = useMemo(() => [...new Set(Object.values(links.data ?? {}).filter(Boolean))].sort(), [links.data]);
+  const booked = useQueries({
+    queries: termCodes.map((termCode) => ({
+      queryKey: ["facility-hours", termCode],
+      queryFn: () => fetchFacilityHours(termCode),
+      retry: false,
+    })),
+  });
+  // One value that moves when any term's answer does: the list of reads grows as terms link.
+  const bookedAt = booked.map((read) => read.dataUpdatedAt).join("|");
+  const registrar = useMemo(
+    () => Object.fromEntries(termCodes.flatMap((termCode, index) => (booked[index]?.data ? [[termCode, booked[index].data]] : []))),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the answers, read through bookedAt
+    [termCodes, bookedAt],
+  );
+  // Dismissed warnings are the department's, and the same list Cohorts and Teacher hours use.
+  const dismissals = useQuery({ queryKey: ["warning-dismissals"], queryFn: fetchDismissals, retry: false });
+  const decided = useMemo(() => dismissalsByKey(dismissals.data ?? []), [dismissals.data]);
+  const decide = useMutation({
+    mutationFn: async ({ keys, dismissed }: { keys: string[]; dismissed: boolean }) => {
+      await Promise.all(keys.map((key) => setDismissal(key, dismissed)));
+    },
+    onSuccess: () => void client.invalidateQueries({ queryKey: ["warning-dismissals"] }),
+  });
+  const [showDismissed, setShowDismissed] = usePageState("active-teachers:show-dismissed", false);
+  const [bringingBack, setBringingBack] = useState(false);
+
   const rows = useMemo<TeacherRow[]>(() => {
     const order = ["CM", "TD", "TP"];
-    return (active.data ?? []).map((teacher) => {
+    const teachers = active.data ?? [];
+    const nameOf = new Map(teachers.map((teacher) => [teacher.id, teacher.fullName]));
+    const planned = plannedTeachers(cards, links.data ?? {}, (id) => nameOf.get(id) ?? "");
+    return teachers.map((teacher) => {
       const live = sectionsTaughtBy(cards, teacher.id, teacher.fullName).filter((section) => !section.retired);
       const kinds = new Set(live.map((section) => section.component.toUpperCase()));
       const cohorts = new Set(live.map((section) => section.cohortName).filter(Boolean));
@@ -220,9 +356,49 @@ export function ActiveTeachers({ onOpenTeacher }: { onOpenTeacher?: (teacher: Te
         teaches: [...kinds].sort((a, b) => (order.indexOf(a) + 1 || 99) - (order.indexOf(b) + 1 || 99)),
         cohorts: [...cohorts].sort((left, right) => left.localeCompare(right)),
         courseList: splitCodes(teacher.courses),
+        schedule: portalScheduleWarnings({ teacher, cards, links: links.data ?? {}, registrar, planned, decided }),
+        planned: live.some((section) => section.crn),
       };
     });
-  }, [active.data, cards]);
+  }, [active.data, cards, links.data, registrar, decided]);
+
+  // The dismissed ones, teacher by teacher, for the count and the list "Bring back" opens.
+  const dismissedGroups = useMemo<DismissedGroup[]>(
+    () =>
+      rows
+        .map((row) => ({
+          id: row.id,
+          title: labelOf(row),
+          items: row.schedule
+            .filter((warning) => warning.dismissed)
+            .map((warning) => ({
+              key: warning.key,
+              label: warning.label,
+              detail: warning.sentence,
+              by: warning.dismissedBy,
+              at: warning.dismissedAt,
+              tone: SCHEDULE_TONES[warning.kind],
+            })),
+        }))
+        .filter((group) => group.items.length)
+        .sort((left, right) => left.title.localeCompare(right.title)),
+    [rows],
+  );
+  const dismissedCount = dismissedGroups.reduce((sum, group) => sum + group.items.length, 0);
+  const cell = useCallback(
+    (row: TeacherRow, column: GridColumn<TeacherRow>) =>
+      column.id === "portalSchedule" ? (
+        <ScheduleCell
+          row={row}
+          showDismissed={showDismissed}
+          onDecide={(key, dismissed) => decide.mutate({ keys: [key], dismissed })}
+        />
+      ) : (
+        renderCell(row, column)
+      ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mutate is stable
+    [showDismissed],
+  );
 
   /*
    * Who is free in a window of time, asked from the toolbar.
@@ -373,7 +549,7 @@ export function ActiveTeachers({ onOpenTeacher }: { onOpenTeacher?: (teacher: Te
           noun={noun}
           selected={selected}
           onSelectedChange={setSelected}
-          renderCell={renderCell}
+          renderCell={cell}
           onRowClick={onOpenTeacher}
           empty="Nobody yet. Choose teachers on the Teachers page, or add them from the part-time database."
           toolbar={
@@ -401,6 +577,33 @@ export function ActiveTeachers({ onOpenTeacher }: { onOpenTeacher?: (teacher: Te
                   if (next) setShowing("free");
                 }}
               />
+              {/* The dismissed warnings, as on Cohorts and Teacher hours: seen when asked for, brought back from a list. */}
+              {dismissedCount ? (
+                <div role="group" aria-label="Dismissed warnings" className="inline-flex gap-1 rounded-md border border-[#d3d9e2] bg-white p-1">
+                  <button
+                    type="button"
+                    aria-pressed={showDismissed}
+                    onClick={() => setShowDismissed((current) => !current)}
+                    className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-semibold transition-colors ${
+                      showDismissed ? "bg-[#1f4e79] text-white" : "text-[#667085] hover:bg-[#f6f8fb]"
+                    }`}
+                  >
+                    <EyeOff size={12} aria-hidden="true" />
+                    Dismissed
+                    <span className={`tabular-nums font-normal ${showDismissed ? "text-white/75" : "text-[#98a2b3]"}`}>{dismissedCount}</span>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={decide.isPending}
+                    title={`Choose which of the ${dismissedCount} dismissed warning${dismissedCount === 1 ? "" : "s"} to bring back`}
+                    onClick={() => setBringingBack(true)}
+                    className="inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-semibold text-[#667085] transition-colors hover:bg-[#f6f8fb] disabled:opacity-50"
+                  >
+                    <RotateCcw size={12} aria-hidden="true" />
+                    Bring back
+                  </button>
+                </div>
+              ) : null}
               {!asking ? null : availability.loading ? (
                 <span className="text-sm text-[#667085]">Reading the portal&apos;s timetable…</span>
               ) : (
@@ -416,6 +619,15 @@ export function ActiveTeachers({ onOpenTeacher }: { onOpenTeacher?: (teacher: Te
           }
         />
       )}
+
+      {bringingBack ? (
+        <BringBackDialog
+          groups={dismissedGroups}
+          busy={decide.isPending}
+          onClose={() => setBringingBack(false)}
+          onBringBack={(keys) => decide.mutate({ keys, dismissed: false }, { onSuccess: () => setBringingBack(false) })}
+        />
+      ) : null}
 
       {/* The same bar the other lists float over their tables, for the one thing done to several. */}
       <SelectionBar count={selected.size} onClear={() => setSelected(new Set())}>
