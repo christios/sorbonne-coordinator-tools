@@ -850,7 +850,16 @@ export async function fetchChangedClasses(termCode: string): Promise<ChangedClas
 }
 
 /** The registrar's booked hours per section, and whom the portal staffs it with. */
-export type FacilityHours = Record<string, { courseCode: string; teacherName: string; hours: number }>;
+export type FacilityHours = Record<
+  string,
+  {
+    courseCode: string;
+    teacherName: string;
+    hours: number;
+    /** Who the classes still to come name, and how many each. Blank names: synced before 1.10. */
+    ahead?: { teacherName: string; sessions: number }[];
+  }
+>;
 
 export async function fetchFacilityHours(termCode: string): Promise<FacilityHours> {
   return (await request<{ sections: FacilityHours }>(`/facility-timetable/${encodeURIComponent(termCode)}/hours`)).sections;

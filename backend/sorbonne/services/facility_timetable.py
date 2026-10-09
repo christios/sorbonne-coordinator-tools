@@ -17,6 +17,8 @@ import uuid
 from dataclasses import dataclass
 from hashlib import sha256
 from datetime import date as dt_date
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from typing import Any
 
 from sqlalchemy import text
@@ -223,8 +225,8 @@ class FacilityTimetableStore:
             seen.add(key)
             connection.execute(
                 text("""INSERT INTO facility_meetings
-                            (id, term_code, crn, meets_on, starts_at, ends_at, room)
-                        VALUES (:id, :t, :crn, :on, :start, :end, :room)"""),
+                            (id, term_code, crn, meets_on, starts_at, ends_at, room, teacher_name)
+                        VALUES (:id, :t, :crn, :on, :start, :end, :room, :teacher)"""),
                 {
                     "id": str(uuid.uuid4()),
                     "t": term_code,
@@ -233,6 +235,7 @@ class FacilityTimetableStore:
                     "start": meeting["startsAt"],
                     "end": meeting["endsAt"],
                     "room": meeting.get("room", ""),
+                    "teacher": " ".join(str(meeting.get("teacherName") or "").split()),
                 },
             )
         if known:
@@ -594,7 +597,7 @@ class FacilityTimetableStore:
             }
             meetings = (
                 connection.execute(
-                    text("""SELECT m.crn, m.meets_on, m.starts_at, m.ends_at, m.room
+                    text("""SELECT m.crn, m.meets_on, m.starts_at, m.ends_at, m.room, m.teacher_name
                             FROM facility_meetings m
                             JOIN facility_sections s ON s.term_code = m.term_code AND s.crn = m.crn
                             WHERE m.term_code = :t AND m.crn = ANY(:crns) AND s.schedule_state <> 'gone'
@@ -615,6 +618,7 @@ class FacilityTimetableStore:
                     "startsAt": row["starts_at"],
                     "endsAt": row["ends_at"],
                     "room": row["room"] or "",
+                    "teacherName": row["teacher_name"] or "",
                 }
             )
         return {
@@ -633,16 +637,23 @@ class FacilityTimetableStore:
             "pulledAt": pulled or "",
         }
 
-    def hours_for(self, term_code: str) -> dict[str, dict[str, Any]]:
-        """`crn -> {courseCode, teacherName, hours}`: what the registrar has booked, added up.
+    def hours_for(self, term_code: str, *, today: dt_date | None = None) -> dict[str, dict[str, Any]]:
+        """`crn -> {courseCode, teacherName, hours, ahead}`: what the registrar has booked.
 
         The registrar's own count of a section's teaching, for reading beside the hours our
         planning asks for. Added up from the dated meetings rather than taken from anywhere
         else, so a cancelled week or a half-semester handover is already in the number. A
         `gone` section contributes nothing, as everywhere.
+
+        `ahead` is who the registrar names on the classes still to come — today's and later,
+        Abu Dhabi's day — as `[{teacherName, sessions}]`. A hand-over leaves the section's
+        classes naming two people, and the one that matters to somebody's week from now on
+        is whoever the coming classes name. Blank names are classes stored before the
+        extension sent them (1.10).
         """
         if not term_code:
             return {}
+        day = (today or datetime.now(ZoneInfo("Asia/Dubai")).date()).isoformat()
         with self.engine.connect() as connection:
             rows = connection.execute(
                 text("""SELECT s.crn, s.course_code, s.teacher_name,
@@ -653,8 +664,22 @@ class FacilityTimetableStore:
                         GROUP BY s.crn, s.course_code, s.teacher_name"""),
                 {"t": term_code},
             ).all()
+            coming = connection.execute(
+                text("""SELECT crn, teacher_name, count(*) FROM facility_meetings
+                        WHERE term_code = :t AND meets_on >= :day
+                        GROUP BY crn, teacher_name ORDER BY crn, teacher_name"""),
+                {"t": term_code, "day": day},
+            ).all()
+        ahead: dict[str, list[dict[str, Any]]] = {}
+        for crn, name, sessions in coming:
+            ahead.setdefault(crn, []).append({"teacherName": name or "", "sessions": int(sessions)})
         return {
-            row[0]: {"courseCode": row[1] or "", "teacherName": row[2] or "", "hours": round(float(row[3]), 2)}
+            row[0]: {
+                "courseCode": row[1] or "",
+                "teacherName": row[2] or "",
+                "hours": round(float(row[3]), 2),
+                "ahead": ahead.get(row[0], []),
+            }
             for row in rows
         }
 

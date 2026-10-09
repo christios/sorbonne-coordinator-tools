@@ -23,6 +23,9 @@ const STAMP = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/;
  */
 export function collapse(rows) {
   const meetings = new Map();
+  /* Every name the registrar gives each meeting. A co-taught class may come back as one
+     row per teacher, so a meeting can hold more than one. */
+  const named = new Map();
   let malformed = 0;
   let section = null;
   for (const row of rows) {
@@ -38,6 +41,11 @@ export function collapse(rows) {
     const startsAt = start.slice(11, 16);
     const endsAt = end.slice(11, 16);
     const key = meetsOn + ' ' + startsAt + ' ' + endsAt;
+    const teacher = String(row.TEACHER_NAME || '').trim();
+    if (teacher) {
+      if (!named.has(key)) named.set(key, new Set());
+      named.get(key).add(teacher);
+    }
     const held = meetings.get(key);
     if (held) {
       held.seen += 1;
@@ -56,11 +64,30 @@ export function collapse(rows) {
       section = {
         courseCode: String(row.COURSE_CODE || '').trim(),
         title: String(row.COURSE_TITLE || '').trim(),
-        teacherName: String(row.TEACHER_NAME || '').trim(),
+        teacherName: '',
       };
     }
   }
-  return { meetings: [...meetings.values()], malformed, section };
+  /*
+   * The registrar names a teacher on each MEETING, not on the section, and a hand-over
+   * leaves one section naming two people: Maths Readiness G.3's September classes said
+   * Sachin Valera and the later ones Ahmed Menaa. Each meeting now carries its own name,
+   * and the section's is the one on its LAST named meeting — whoever teaches it from here
+   * on. It used to be the first row's, which is whichever meeting the service happened to
+   * list first, so two syncs of an unchanged timetable could name different people.
+   */
+  const out = [...meetings.entries()].map(([key, meeting]) => ({
+    ...meeting,
+    teacherName: [...(named.get(key) || [])].sort().join(', '),
+  }));
+  if (section) {
+    const last = out
+      .filter((meeting) => meeting.teacherName)
+      .sort((a, b) => (a.meetsOn + a.startsAt).localeCompare(b.meetsOn + b.startsAt))
+      .pop();
+    section.teacherName = last ? last.teacherName : '';
+  }
+  return { meetings: out, malformed, section };
 }
 
 /*

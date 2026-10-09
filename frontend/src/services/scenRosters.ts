@@ -379,7 +379,8 @@ export type FacilitySection = {
    * count derived from it is 1 for every section in the term — measured, on 110 of them.
    * Enrolment comes from `portal_courses.registered`, which is the registrar's own count.
    */
-  meetings: { meetsOn: string; startsAt: string; endsAt: string; room: string }[];
+  /** Each with the teacher the registrar names on it, from extension 1.10. */
+  meetings: { meetsOn: string; startsAt: string; endsAt: string; room: string; teacherName?: string }[];
 };
 
 /** One sweep of the registrar's timetable, exactly as the store on the far side takes it. */

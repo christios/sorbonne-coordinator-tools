@@ -732,6 +732,8 @@ class FacilityMeeting(BaseModel):
     startsAt: str = Field(min_length=4, max_length=8)
     endsAt: str = Field(min_length=4, max_length=8)
     room: str = Field(default="", max_length=120)
+    # Who the registrar names on this class. Blank from an extension older than 1.10.
+    teacherName: str = Field(default="", max_length=160)
 
 
 class FacilitySection(BaseModel):

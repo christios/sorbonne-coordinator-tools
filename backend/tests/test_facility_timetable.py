@@ -7,6 +7,8 @@ store that does not keep the difference, and each of them would retire real teac
 
 from __future__ import annotations
 
+from datetime import date
+
 import pytest
 from sqlalchemy import text
 
@@ -269,6 +271,8 @@ def test_a_calendar_read_answers_for_every_section_asked_about_and_says_which_it
     assert first["teacherName"] == "Cecile Paillot"
     assert first["meetings"][0] == {
         "meetsOn": "2026-09-07", "startsAt": "08:30", "endsAt": "10:00", "room": "5.101/.103",
+        # Sent by the extension from 1.10; this pull, like any older one, named nobody.
+        "teacherName": "",
     }
     assert read["pulledAt"]
 
@@ -307,10 +311,38 @@ def test_the_registrar_s_hours_are_added_up_from_the_dated_meetings(store: Facil
     for _ in range(2):
         store.record_pull(term_code=TERM, asked=["24311"], sections=[], silent=["24311"], failed=[], complete=True)
 
-    hours = store.hours_for(TERM)
+    hours = store.hours_for(TERM, today=date(2026, 10, 1))
 
-    assert hours == {"23436": {"courseCode": "MATH-001", "teacherName": "Cecile Paillot", "hours": 5.0}}
+    assert hours == {"23436": {"courseCode": "MATH-001", "teacherName": "Cecile Paillot", "hours": 5.0, "ahead": []}}
     assert store.hours_for("") == {}
+
+
+def test_each_class_keeps_the_teacher_the_registrar_names_on_it(store: FacilityTimetableStore):
+    """A hand-over: G.3's September classes named Sachin Valera, the later ones Ahmed Menaa.
+    One name per section — whichever class came first — made the comparison with our planning
+    come and go between syncs."""
+    later = [("2026-10-12", "13:15", "14:45"), ("2026-10-14", "13:15", "14:45")]
+    handed = section("24000", meetings=[MONDAY, TUESDAY, *later])
+    for meeting in handed["meetings"]:
+        meeting["teacherName"] = "Sachin Valera" if meeting["meetsOn"] < "2026-10-05" else "Ahmed Menaa"
+    store.record_pull(term_code=TERM, asked=["24000"], sections=[handed], silent=[], failed=[], complete=True)
+
+    [read] = store.timetable_for(TERM, ["24000"])["sections"]
+    hours = store.hours_for(TERM, today=date(2026, 10, 12))
+
+    assert [(m["meetsOn"], m["teacherName"]) for m in read["meetings"]] == [
+        ("2026-09-07", "Sachin Valera"),
+        ("2026-09-08", "Sachin Valera"),
+        ("2026-10-12", "Ahmed Menaa"),
+        ("2026-10-14", "Ahmed Menaa"),
+    ]
+
+    assert hours["24000"]["ahead"] == [{"teacherName": "Ahmed Menaa", "sessions": 2}]
+    # Today's class counts as still to come; the September ones do not.
+    assert store.hours_for(TERM, today=date(2026, 9, 8))["24000"]["ahead"] == [
+        {"teacherName": "Ahmed Menaa", "sessions": 2},
+        {"teacherName": "Sachin Valera", "sessions": 1},
+    ]
 
 
 # ------------------------------------------- what a sweep took away

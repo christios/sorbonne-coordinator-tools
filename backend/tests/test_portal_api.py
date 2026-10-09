@@ -2634,7 +2634,7 @@ def test_a_calendar_asks_for_its_sections_by_crn_and_is_told_which_are_unchecked
 
     assert [(row["crn"], row["state"]) for row in read["sections"]] == [("23436", "published"), ("99999", "unchecked")]
     assert read["sections"][0]["meetings"] == [
-        {"meetsOn": "2026-09-07", "startsAt": "08:30", "endsAt": "10:00", "room": "5.101"}
+        {"meetsOn": "2026-09-07", "startsAt": "08:30", "endsAt": "10:00", "room": "5.101", "teacherName": ""}
     ]
     assert read["sections"][0]["teacherName"] == "Grace Younes"
 

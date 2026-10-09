@@ -46,7 +46,8 @@ describe("a teacher's portal schedule against our planning", () => {
     const ahmed = read("ahmed");
 
     expect(ahmed.map((warning) => [warning.kind, warning.label])).toEqual([
-      ["not_on_portal", "2 not on portal"],
+      // Synced before classes carried a name: the section's one name stands in, by section.
+      ["not_on_portal", "2 sections not on portal"],
       ["not_timetabled", "1 not timetabled"],
     ]);
     expect(ahmed[0].sentence).toContain("SCEN-102 RDNS 3 (24000): Sachin Valera");
@@ -57,7 +58,7 @@ describe("a teacher's portal schedule against our planning", () => {
     const [sachin] = read("sachin");
 
     expect(sachin.kind).toBe("portal_only");
-    expect(sachin.label).toBe("2 on portal, not ours");
+    expect(sachin.label).toBe("2 sections on portal, not ours");
     expect(sachin.sentence).toContain("ours is Ahmed Menaa");
   });
 
@@ -83,6 +84,46 @@ describe("a teacher's portal schedule against our planning", () => {
 
     // The registrar moves G.6 to Ahmed: the warning is about one section now, and asks again.
     const moved = { "262710": { ...TIMETABLE["262710"], "24003": { courseCode: "SCEN-102", teacherName: "Ahmed Menaa", hours: 36 } } };
-    expect(read("ahmed", moved, decided)[0]).toMatchObject({ label: "1 not on portal", dismissed: false });
+    expect(read("ahmed", moved, decided)[0]).toMatchObject({ label: "1 section not on portal", dismissed: false });
+  });
+});
+
+describe("read class by class, once the classes carry the registrar's names", () => {
+  /** A hand-over: the classes to come in G.3 name Ahmed; in G.6, two still name Sachin. */
+  const handedOver: Record<string, FacilityHours> = {
+    "262710": {
+      "24000": { courseCode: "SCEN-102", teacherName: "Sachin Valera", hours: 36, ahead: [{ teacherName: "Ahmed Menaa", sessions: 6 }] },
+      "24003": {
+        courseCode: "SCEN-102",
+        teacherName: "Ahmed Menaa",
+        hours: 36,
+        ahead: [
+          { teacherName: "Ahmed Menaa", sessions: 4 },
+          { teacherName: "Sachin Valera", sessions: 2 },
+        ],
+      },
+      "24006": { courseCode: "SCEN-102", teacherName: "Amina Menaa", hours: 36, ahead: [{ teacherName: "Amina Menaa", sessions: 6 }] },
+      "24007": { courseCode: "SCEN-102", teacherName: "Ahmed Menaa", hours: 30, ahead: [{ teacherName: "Ahmed Menaa", sessions: 5 }] },
+    },
+  };
+
+  it("counts only the classes to come that name somebody else, whatever the section's one name says", () => {
+    const [warning] = read("ahmed", handedOver);
+
+    // G.3's one name is Sachin's, but every class to come is Ahmed's: nothing to say there.
+    expect(warning.label).toBe("2 classes not on portal");
+    expect(warning.lines.map((line) => line.crn)).toEqual(["24003"]);
+    expect(warning.sentence).toContain("2 classes to come with Sachin Valera");
+  });
+
+  it("and the other side counts the same classes", () => {
+    expect(read("sachin", handedOver).map((warning) => warning.label)).toEqual(["2 classes on portal, not ours"]);
+  });
+
+  it("says nothing about a section with no classes left to come", () => {
+    const over = { "262710": { ...handedOver["262710"], "24003": { ...handedOver["262710"]["24003"], ahead: [] } } };
+
+    expect(read("ahmed", over)).toEqual([]);
+    expect(read("sachin", over)).toEqual([]);
   });
 });

@@ -32,7 +32,7 @@ test("one row per student and meeting becomes one row per meeting", () => {
   assert.equal(meetings.length, 1);
   assert.deepEqual(
     { ...meetings[0], seen: undefined },
-    { meetsOn: "2026-10-26", startsAt: "08:15", endsAt: "10:15", room: "5.111", seen: undefined },
+    { meetsOn: "2026-10-26", startsAt: "08:15", endsAt: "10:15", room: "5.111", teacherName: "Omar El Dakkak", seen: undefined },
   );
 });
 
@@ -124,4 +124,32 @@ test("the section is described from the first readable row", () => {
   const { section } = collapse([row({ COURSE_CODE: "MATH-351", TEACHER_NAME: "Omar El Dakkak" })]);
 
   assert.deepEqual(section, { courseCode: "MATH-351", title: "Analysis", teacherName: "Omar El Dakkak" });
+});
+
+test("each meeting keeps the teacher the registrar names on it", () => {
+  // A hand-over: the earlier class names one teacher, the later one another.
+  const { meetings } = collapse([
+    row({ EVEN_START: "2026-10-26 08:15:00", EVENT_END: "2026-10-26 10:15:00", TEACHER_NAME: "Sachin Valera" }),
+    row({ EVEN_START: "2026-11-02 08:15:00", EVENT_END: "2026-11-02 10:15:00", TEACHER_NAME: "Ahmed Menaa" }),
+  ]);
+
+  assert.deepEqual(meetings.map((meeting) => [meeting.meetsOn, meeting.teacherName]), [
+    ["2026-10-26", "Sachin Valera"],
+    ["2026-11-02", "Ahmed Menaa"],
+  ]);
+});
+
+test("the section is named after its last meeting, whatever order the rows come in", () => {
+  const earlier = row({ EVEN_START: "2026-10-26 08:15:00", EVENT_END: "2026-10-26 10:15:00", TEACHER_NAME: "Sachin Valera" });
+  const later = row({ EVEN_START: "2026-11-02 08:15:00", EVENT_END: "2026-11-02 10:15:00", TEACHER_NAME: "Ahmed Menaa" });
+
+  // It used to be the first row's name, so the same timetable read twice could disagree.
+  assert.equal(collapse([earlier, later]).section.teacherName, "Ahmed Menaa");
+  assert.equal(collapse([later, earlier]).section.teacherName, "Ahmed Menaa");
+});
+
+test("a meeting two teachers share names both, in one order", () => {
+  const { meetings } = collapse([row({ TEACHER_NAME: "Sara Khaled" }), row({ TEACHER_NAME: "Diaa Mereib" }), row({ TEACHER_NAME: "Sara Khaled" })]);
+
+  assert.equal(meetings[0].teacherName, "Diaa Mereib, Sara Khaled");
 });
