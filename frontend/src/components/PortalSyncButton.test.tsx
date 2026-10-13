@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PortalSyncButton } from "@/components/PortalSyncButton";
@@ -10,6 +10,7 @@ import { forgetHistory } from "@/services/pullHistory";
 import { forgetRosters } from "@/services/rosterStore";
 import * as rosters from "@/services/scenRosters";
 import * as database from "@/services/studentDatabase";
+import { askWhatToSync } from "@/services/syncRun";
 import * as timetables from "@/services/timetables";
 
 const VIEW: database.StudentView = {
@@ -46,16 +47,39 @@ function show() {
   );
 }
 
-/** Waited out to the end: the run is module state shared by every test in this file. */
-async function sync() {
+/** The press that opens the checklist, and the one that starts what is ticked in it. */
+async function start(pick = "Sync everything") {
   const button = await screen.findByRole("button", { name: /portal sync/i });
   await waitFor(() => expect(button).toHaveProperty("disabled", false));
   fireEvent.click(button);
+  fireEvent.click(await screen.findByRole("button", { name: pick }));
+}
+
+/** Waited out to the end: the run is module state shared by every test in this file. */
+async function sync() {
+  await start();
   await screen.findByText(/^Synced/);
 }
 
+/** The department's pace, as our server answers it; everything else goes where it went. */
+let paceSeconds = 4;
+let paceSaves: number[] = [];
+
 beforeEach(() => {
   window.localStorage.clear();
+  paceSeconds = 4;
+  paceSaves = [];
+  const real = globalThis.fetch;
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    if (!String(input).includes("/portal-pace")) return real(input, init);
+    if (init?.method === "PUT") {
+      paceSeconds = (JSON.parse(String(init.body)) as { secondsApart: number }).secondsApart;
+      paceSaves.push(paceSeconds);
+    }
+    const body = { secondsApart: paceSeconds, updatedAt: "", updatedBy: "", updatedByName: "" };
+    return new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
+  });
+  vi.spyOn(lists, "fetchLastSweeps").mockResolvedValue({});
   // The pre-flight. Asked once before a run rather than discovered by six lists each
   // waiting out the sixty seconds of silence a missing extension announces itself with.
   vi.spyOn(rosters, "isExtensionInstalled").mockResolvedValue(true);
@@ -70,6 +94,7 @@ beforeEach(() => {
 
 afterEach(async () => {
   vi.restoreAllMocks();
+  rosters.portalPace.apart = 4_000;
   await forgetRosters();
   await forgetHistory();
   window.localStorage.clear();
@@ -257,9 +282,7 @@ describe("before anything is asked for", () => {
     const pull = vi.spyOn(rosters, "pullFilter");
 
     show();
-    const button = await screen.findByRole("button", { name: /portal sync/i });
-    await waitFor(() => expect(button).toHaveProperty("disabled", false));
-    fireEvent.click(button);
+    await start();
 
     expect(await screen.findByRole("alert")).toHaveProperty(
       "textContent",
@@ -393,13 +416,11 @@ describe("a step that is many requests, not one", () => {
     });
 
     show();
-    const button = await screen.findByRole("button", { name: /portal sync/i });
-    await waitFor(() => expect(button).toHaveProperty("disabled", false));
-    fireEvent.click(button);
+    await start();
 
     expect(await screen.findByText(/1 of 2,/)).toBeTruthy();
-    // And the footer stops claiming there is nothing to count.
-    expect(screen.getByText(/one request per section, a second apart/)).toBeTruthy();
+    // And the footer stops claiming there is nothing to count, at the department's pace.
+    expect(screen.getByText(/one request per section, 4 seconds apart/)).toBeTruthy();
 
     finish({
       termCode: "262710", asked: ["22151", "23652"], sections: [], silent: [],
@@ -455,6 +476,8 @@ describe("reading what the last sync said", () => {
     const pulls = vi.mocked(rosters.pullFilter).mock.calls.length;
 
     fireEvent.click(screen.getByRole("button", { name: "Sync again" }));
+    // Into the checklist first, like every other way into a sync.
+    fireEvent.click(await screen.findByRole("button", { name: "Sync everything" }));
 
     await waitFor(() => expect(vi.mocked(rosters.pullFilter).mock.calls.length).toBeGreaterThan(pulls));
     // Waited out. The run is module state shared by every test in this file, so leaving
@@ -463,14 +486,115 @@ describe("reading what the last sync said", () => {
     await screen.findByText(/of 2 synced/);
   });
 
-  it("still syncs on the first click when there is nothing to show", async () => {
-    // The very first press of a session must not need two clicks to do anything.
+  it("opens the checklist on the first click when there is nothing to show", async () => {
+    // The very first press of a session does something at once: it shows what can be asked.
     show();
     const button = await screen.findByRole("button", { name: /portal sync/i });
     await waitFor(() => expect(button).toHaveProperty("disabled", false));
 
     fireEvent.click(button);
 
-    expect(await screen.findByText(/^Synced/)).toBeTruthy();
+    expect(await screen.findByText("What to ask the portal for")).toBeTruthy();
+    expect(vi.mocked(rosters.pullFilter)).not.toHaveBeenCalled();
+  });
+});
+
+describe("choosing what to pull", () => {
+  it("ticks everything, says how old each list is, and asks only for what stays ticked", async () => {
+    vi.spyOn(database, "fetchViews").mockResolvedValue([{ ...VIEW, lastSyncedAt: new Date(Date.now() - 3 * 3_600_000).toISOString() }]);
+    show();
+    const button = await screen.findByRole("button", { name: /portal sync/i });
+    await waitFor(() => expect(button).toHaveProperty("disabled", false));
+    fireEvent.click(button);
+
+    const students = (await screen.findByText("Foundation Year")).closest("label")!;
+    const courses = screen.getByText("SCEN Courses").closest("label")!;
+    expect(students.querySelector("input")!.checked).toBe(true);
+    expect(courses.querySelector("input")!.checked).toBe(true);
+    expect(students.textContent).toMatch(/3 hours ago/);
+    expect(courses.textContent).toMatch(/never/);
+
+    // The students were asked this morning: left out this time.
+    fireEvent.click(students.querySelector("input")!);
+    fireEvent.click(screen.getByRole("button", { name: "Sync 1 of 2" }));
+    await screen.findByText(/^Synced/);
+
+    expect(vi.mocked(rosters.pullFilter).mock.calls.map(([, meta]) => meta?.kind)).toEqual(["courses"]);
+    expect(database.syncView).not.toHaveBeenCalled();
+    expect(screen.getByText(/1 of 1 synced/)).toBeTruthy();
+  });
+
+  it("starts nothing with nothing ticked, and nothing at all when cancelled", async () => {
+    show();
+    const button = await screen.findByRole("button", { name: /portal sync/i });
+    await waitFor(() => expect(button).toHaveProperty("disabled", false));
+    fireEvent.click(button);
+
+    fireEvent.click(await screen.findByRole("button", { name: "None" }));
+    expect(screen.getByRole("button", { name: "Sync 0 of 2" })).toHaveProperty("disabled", true);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(screen.queryByText("What to ask the portal for")).toBeNull();
+    expect(vi.mocked(rosters.pullFilter)).not.toHaveBeenCalled();
+  });
+
+  it("opens when the warning about old data asks it to", async () => {
+    show();
+    await waitFor(() => expect(screen.getByRole("button", { name: /portal sync/i })).toHaveProperty("disabled", false));
+
+    act(() => askWhatToSync());
+
+    expect(await screen.findByText("What to ask the portal for")).toBeTruthy();
+  });
+});
+
+describe("the pace the registrar's timetable is asked at", () => {
+  beforeEach(() => {
+    vi.spyOn(lists, "fetchTermLinks").mockResolvedValue({ "term-1": "262710" });
+    vi.spyOn(timetables, "fetchTimetableTerms").mockResolvedValue([
+      { id: "term-1", name: "Semester 1" } as unknown as timetables.TimetableTerm,
+    ]);
+  });
+
+  it("is set in the checklist, for everybody, and kept from the next request on", async () => {
+    show();
+    const button = await screen.findByRole("button", { name: /portal sync/i });
+    await waitFor(() => expect(button).toHaveProperty("disabled", false));
+    fireEvent.click(button);
+
+    const field = (await screen.findByRole("spinbutton", { name: "Seconds between timetable requests" })) as HTMLInputElement;
+    await waitFor(() => expect(field.value).toBe("4"));
+    fireEvent.change(field, { target: { value: "7" } });
+    // Enter, then leaving the field: one change, one save.
+    fireEvent.keyDown(field, { key: "Enter" });
+    fireEvent.blur(field);
+
+    await waitFor(() => expect(paceSaves).toEqual([7]));
+    expect(rosters.portalPace.apart).toBe(7_000);
+  });
+
+  it("refuses a pace faster than a second apart, in words, and saves nothing", async () => {
+    show();
+    const button = await screen.findByRole("button", { name: /portal sync/i });
+    await waitFor(() => expect(button).toHaveProperty("disabled", false));
+    fireEvent.click(button);
+
+    const field = await screen.findByRole("spinbutton", { name: "Seconds between timetable requests" });
+    fireEvent.change(field, { target: { value: "0" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+
+    expect(await screen.findByText(/between 1 and 60 seconds/)).toBeTruthy();
+    expect(paceSaves).toEqual([]);
+  });
+
+  it("is not offered when no semester has a timetable to sweep", async () => {
+    vi.spyOn(lists, "fetchTermLinks").mockResolvedValue({});
+    show();
+    const button = await screen.findByRole("button", { name: /portal sync/i });
+    await waitFor(() => expect(button).toHaveProperty("disabled", false));
+    fireEvent.click(button);
+
+    await screen.findByText("What to ask the portal for");
+    expect(screen.queryByRole("spinbutton")).toBeNull();
   });
 });

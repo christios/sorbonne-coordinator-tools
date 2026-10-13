@@ -238,6 +238,24 @@ def test_a_term_never_swept_reads_as_nothing_asked_rather_than_as_an_empty_timet
     assert store.terms() == []
 
 
+def test_each_term_says_when_and_by_whom_it_was_last_swept(store: FacilityTimetableStore):
+    """What the Sync pop-up shows beside the timetable, so a sweep done this morning can be left out."""
+    assert store.last_sweeps() == {}
+
+    store.record_pull(term_code=TERM, asked=["23425"], sections=[section("23425", meetings=[MONDAY])],
+                      silent=[], failed=[], complete=True,
+                      actor="patricia@sorbonne.ae", now="2026-10-12T04:14:46+00:00")
+    store.record_pull(term_code=TERM, asked=["23425"], sections=[], silent=[], failed=["23425"],
+                      complete=False, actor="christian@sorbonne.ae", now="2026-10-13T04:50:00+00:00")
+    store.record_pull(term_code="262720", asked=["30001"], sections=[], silent=["30001"], failed=[],
+                      complete=True, actor="patricia@sorbonne.ae", now="2026-10-12T04:15:00+00:00")
+
+    assert store.last_sweeps() == {
+        TERM: {"at": "2026-10-13T04:50:00+00:00", "by": "christian@sorbonne.ae", "complete": False},
+        "262720": {"at": "2026-10-12T04:15:00+00:00", "by": "patricia@sorbonne.ae", "complete": True},
+    }
+
+
 def test_a_calendar_read_answers_for_every_section_asked_about_and_says_which_it_cannot_see(
     store: FacilityTimetableStore,
 ):

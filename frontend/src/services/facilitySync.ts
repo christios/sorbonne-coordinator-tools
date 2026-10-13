@@ -6,8 +6,9 @@
  * electives — the asking is the extension's, because only a coordinator's own portal
  * session may ask, and the answer goes back to our server, which is never told a name.
  *
- * Slow by construction. One section at a time, a second apart, and a term is a hundred
- * and sixty sections: about three minutes. Pushed harder the portal answers an empty list
+ * Slow by construction. One section at a time, four seconds apart unless the department
+ * has set another pace, and a term is a hundred and sixty sections: about ten minutes.
+ * Pushed harder the portal answers an empty list
  * for about one call in seven, and an empty list is exactly what a section with nothing
  * booked looks like — so a sweep that hurried would report a term's teaching as cancelled.
  * And the portal is the registrar's working system, not ours to hurry.

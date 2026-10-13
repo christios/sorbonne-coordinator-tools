@@ -52,14 +52,17 @@ const PING_TIMEOUT_MS = 1_500;
  * On the morning of 29 September 2026 a sync asked the registrar's timetable about 167
  * sections in about nine seconds — two at a time, each the moment the last came back —
  * and the registrar's system was in trouble that morning. Nothing a sync does is urgent
- * enough to be worth that: a second apart, the sweep is three minutes. So every request
- * that reaches the portal waits its turn here, whichever step it belongs to.
+ * enough to be worth that, so every request that reaches the portal waits its turn here,
+ * whichever step it belongs to.
+ *
+ * A second apart from then; four since the portal was reported out on 12 October, and
+ * from then on the department's to set — see syncPace, which keeps `apart` in step with it.
  *
  * The clock is here with the pace so a test can keep time itself; nothing else replaces it.
  */
 export const portalPace = {
   /** From the start of one request to the start of the next. */
-  apart: 1_000,
+  apart: 4_000,
   /** After a whole list has landed, before the portal is asked anything else. */
   afterList: 5_000,
   now: () => Date.now(),

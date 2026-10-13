@@ -20,16 +20,16 @@
  * while the portal is out.
  */
 
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { Modal } from "@/components/Modal";
 import { fetchChecks } from "@/services/portalLists";
 import { isExtensionInstalled } from "@/services/scenRosters";
-import { isRunning, getRun, startRun } from "@/services/syncRun";
+import { askWhatToSync, isRunning, getRun } from "@/services/syncRun";
 import { ageInWords, isStale, STALE_AFTER } from "@/services/syncFreshness";
-import { freshen, useSyncTargets } from "@/services/syncTargets";
+import { useSyncTargets } from "@/services/syncTargets";
 
 /** Answered once a session, in this tab: closing it is an answer, not a postponement. */
 const ANSWERED = "scen-sync-warning-answered";
@@ -52,7 +52,6 @@ function remember(): void {
 }
 
 export function StaleSyncWarning() {
-  const client = useQueryClient();
   const { targets, syncedAt } = useSyncTargets();
   const checks = useQuery({ queryKey: ["checks", ""], queryFn: () => fetchChecks(""), retry: false });
   const check = checks.data?.find((one) => one.name === "portal_sync_age");
@@ -96,7 +95,10 @@ export function StaleSyncWarning() {
       return;
     }
     close();
-    await startRun(targets, () => freshen(client));
+    // To the Sync pop-up, where what is asked for is ticked: the whole university's lists
+    // are heavy for the portal, and the one that is old may not be the one that matters.
+    askWhatToSync();
+    setStarting(false);
   };
 
   return (
@@ -129,8 +131,8 @@ export function StaleSyncWarning() {
       <p className="flex items-start gap-2 text-sm leading-6 text-[#667085]">
         <AlertTriangle size={18} className="mt-0.5 shrink-0 text-[#c9a227]" aria-hidden="true" />
         <span>
-          A sync asks the portal for every list again and takes a few minutes. Until then the pages answer the question
-          the portal was asked {ageInWords(syncedAt, now)} ago.
+          A sync asks the portal again for the lists you tick, and takes a few minutes. Until then the pages answer the
+          question the portal was asked {ageInWords(syncedAt, now)} ago.
         </span>
       </p>
       {missing ? (

@@ -108,16 +108,21 @@ describe("data too old to work from", () => {
     expect(screen.queryByText(/portal data is/)).toBeNull();
   });
 
-  it("starts the sync from the warning itself", async () => {
+  it("opens the Sync pop-up from the warning itself, where what to pull is ticked", async () => {
     synced(hoursAgo(21));
     const begin = vi.spyOn(run, "startRun").mockResolvedValue(undefined);
+    const asked = vi.fn();
+    window.addEventListener(run.CHOOSE_WHAT_TO_SYNC, asked);
     show();
 
     fireEvent.click(await screen.findByRole("button", { name: /Sync now/ }));
 
-    await waitFor(() => expect(begin).toHaveBeenCalled());
-    // And gets out of the way: the run's own report is what says what happens next.
+    await waitFor(() => expect(asked).toHaveBeenCalled());
+    // Nothing is asked of the portal until somebody has chosen what.
+    expect(begin).not.toHaveBeenCalled();
+    // And gets out of the way: the pop-up is what says what happens next.
     await waitFor(() => expect(screen.queryByText(/portal data is/)).toBeNull());
+    window.removeEventListener(run.CHOOSE_WHAT_TO_SYNC, asked);
   });
 
   it("says what to do when the registrar extension is not there to ask", async () => {

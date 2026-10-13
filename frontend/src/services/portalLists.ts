@@ -841,6 +841,13 @@ export async function fetchSweptTerms(): Promise<string[]> {
   return (await request<{ terms: string[] }>("/facility-timetable")).terms;
 }
 
+/** Each term's latest timetable sweep: when, by whom, and whether it reached the end of its list. */
+export type LastSweep = { at: string; by: string; complete: boolean };
+
+export async function fetchLastSweeps(): Promise<Record<string, LastSweep>> {
+  return (await request<{ sweeps?: Record<string, LastSweep> }>("/facility-timetable")).sweeps ?? {};
+}
+
 /** Sections this term whose classes the registrar has deleted or added. */
 export async function fetchChangedClasses(termCode: string): Promise<ChangedClasses[]> {
   const answer = await request<{ sections: ChangedClasses[] }>(

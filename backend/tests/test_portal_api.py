@@ -2597,7 +2597,9 @@ def test_the_swept_timetable_can_be_read_back_in_the_shape_it_was_written(client
     }
     client.post(f"{BASE}/facility-timetable", json=pull)
 
-    assert client.get(f"{BASE}/facility-timetable").json() == {"terms": [TERM]}
+    swept = client.get(f"{BASE}/facility-timetable").json()
+    assert swept["terms"] == [TERM]
+    assert swept["sweeps"][TERM]["complete"] is True
     read = client.get(f"{BASE}/facility-timetable/{TERM}").json()
 
     assert read == pull

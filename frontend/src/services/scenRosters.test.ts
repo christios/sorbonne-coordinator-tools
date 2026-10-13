@@ -111,7 +111,7 @@ describe("the portal's pace", () => {
     return { module, slept, pass: (ms: number) => (clock += ms) };
   }
 
-  it("asks one thing at a time, a second apart", async () => {
+  it("asks one thing at a time, four seconds apart unless the department says otherwise", async () => {
     const { module, slept } = await paced();
     const order: string[] = [];
     const ask = (name: string) => module.portalTurn(0, async () => {
@@ -124,14 +124,26 @@ describe("the portal's pace", () => {
 
     // Never two at once, whoever asked first.
     expect(order).toEqual(["start a", "end a", "start b", "end b", "start c", "end c"]);
-    // The first goes at once; each after it waits out the second since the one before began.
-    expect(slept).toEqual([1_000, 1_000]);
+    // The first goes at once; each after it waits out the four seconds since the one before began.
+    expect(slept).toEqual([4_000, 4_000]);
+  });
+
+  it("keeps a pace changed in the middle of a sweep from the next request on", async () => {
+    const { module, slept } = await paced();
+
+    await module.portalTurn(0, async () => undefined);
+    module.portalPace.apart = 7_000;
+    await module.portalTurn(0, async () => undefined);
+    await module.portalTurn(0, async () => undefined);
+
+    // The gap already promised is kept; the new one applies after it.
+    expect(slept).toEqual([4_000, 7_000]);
   });
 
   it("does not wait again for time an answer already took", async () => {
     const { module, slept, pass } = await paced();
 
-    await module.portalTurn(0, async () => void pass(1_500));
+    await module.portalTurn(0, async () => void pass(4_500));
     await module.portalTurn(0, async () => undefined);
 
     expect(slept).toEqual([]);
@@ -152,7 +164,7 @@ describe("the portal's pace", () => {
     await expect(module.portalTurn(0, async () => Promise.reject(new Error("portal down")))).rejects.toThrow("portal down");
     await module.portalTurn(0, async () => undefined);
 
-    expect(slept).toEqual([1_000]);
+    expect(slept).toEqual([4_000]);
   });
 });
 

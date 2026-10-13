@@ -1,6 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 
+import { useSyncPace } from "@/services/syncPace";
 import { getRun, isRunning, resumeRun, subscribe, type SyncRun } from "@/services/syncRun";
 import { freshen, useSyncTargets } from "@/services/syncTargets";
 
@@ -21,6 +22,9 @@ import { freshen, useSyncTargets } from "@/services/syncTargets";
 export function SyncRunDriver() {
   const client = useQueryClient();
   const { targets, ready } = useSyncTargets();
+  // Whichever page drives the run keeps the department's pace, including one that took a
+  // run over after a reload and never had the pop-up open.
+  useSyncPace();
   // The newest list of what there is to sync, whenever the run is finally taken over.
   const latest = useRef(targets);
   latest.current = targets;

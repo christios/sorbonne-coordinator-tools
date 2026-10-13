@@ -49,6 +49,8 @@ export type SyncTarget = {
   id: string;
   name: string;
   filter: Record<string, string[]>;
+  /** When anybody last synced it, if ever: shown beside it when choosing what to pull. */
+  lastSyncedAt?: string;
 };
 
 export type SyncOutcome = {

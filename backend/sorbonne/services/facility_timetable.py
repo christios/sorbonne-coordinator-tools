@@ -790,6 +790,18 @@ class FacilityTimetableStore:
                 )
             ]
 
+    def last_sweeps(self) -> dict[str, dict[str, Any]]:
+        """`term -> {at, by, complete}`: each term's latest sweep, so a sync can say how old it is."""
+        with self.engine.connect() as connection:
+            rows = connection.execute(
+                text("""SELECT DISTINCT ON (term_code) term_code, pulled_at, pulled_by, complete
+                        FROM facility_pulls ORDER BY term_code, pulled_at DESC""")
+            ).mappings()
+            return {
+                row["term_code"]: {"at": row["pulled_at"], "by": row["pulled_by"], "complete": bool(row["complete"])}
+                for row in rows
+            }
+
 
 def _now() -> str:
     from datetime import datetime, timezone  # noqa: PLC0415 - one caller, and it is here

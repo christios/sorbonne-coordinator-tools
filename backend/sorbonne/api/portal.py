@@ -821,8 +821,8 @@ def record_facility_pull(
 
 @router.get("/facility-timetable")
 def list_facility_terms(facilities: FacilityTimetableStore = Depends(get_facilities)) -> dict[str, Any]:
-    """Which terms the registrar's timetable has been swept for."""
-    return {"terms": facilities.terms()}
+    """Which terms the registrar's timetable has been swept for, and when each was last."""
+    return {"terms": facilities.terms(), "sweeps": facilities.last_sweeps()}
 
 
 @router.get("/facility-timetable/{term_code}")

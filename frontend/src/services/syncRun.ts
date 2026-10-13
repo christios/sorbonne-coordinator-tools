@@ -144,6 +144,18 @@ export function subscribe(listener: (run: SyncRun | null) => void): () => void {
 
 export const isRunning = (run: SyncRun | null): run is SyncRun => Boolean(run && run.finishedAt === null);
 
+/**
+ * Heard by the Portal sync button, which opens the pop-up that chooses what to pull.
+ *
+ * Every way into a sync goes through that pop-up — the button, "Sync again", the warning
+ * that the data is old — so nothing asks the portal for a list nobody ticked.
+ */
+export const CHOOSE_WHAT_TO_SYNC = "scen-sync-choose";
+
+export function askWhatToSync(): void {
+  window.dispatchEvent(new Event(CHOOSE_WHAT_TO_SYNC));
+}
+
 /** A run nobody is driving any more: this tab may pick it up. */
 export function isAbandoned(run: SyncRun | null, now = Date.now()): boolean {
   return isRunning(run) && run.owner !== TAB && now - run.beatAt > ABANDONED_MS;

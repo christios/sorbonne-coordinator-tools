@@ -10,7 +10,7 @@
 
 import { useQueries, type QueryClient } from "@tanstack/react-query";
 
-import { fetchPortalFilters, fetchTermLinks, type ListKind } from "@/services/portalLists";
+import { fetchLastSweeps, fetchPortalFilters, fetchTermLinks, type ListKind } from "@/services/portalLists";
 import type { SyncTarget } from "@/services/portalSync";
 import { fetchViews } from "@/services/studentDatabase";
 import { fetchTimetableTerms } from "@/services/timetables";
@@ -51,28 +51,33 @@ export function useSyncTargets(): SyncTargets {
    * step whose absence costs the others nothing, and a Student Hub that is down must not
    * stop a coordinator syncing their students.
    */
-  const [links, terms] = useQueries({
+  const [links, terms, sweeps] = useQueries({
     queries: [
       { queryKey: ["term-links"], queryFn: fetchTermLinks, retry: false },
       { queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, retry: false },
+      // Only how old each sweep is, for the pop-up that chooses what to pull. Not waited for.
+      { queryKey: ["facility-sweeps"], queryFn: fetchLastSweeps, retry: false },
     ],
   });
 
   // The students first: the cohorts, the rules and the registration check are all read
   // against them, so a run that did the others first would check yesterday's population.
+  type Held = { id: string; name: string; filter: Record<string, string[]>; lastSyncedAt?: string };
   const targets: SyncTarget[] = [
-    ...((views.data ?? []) as { id: string; name: string; filter: Record<string, string[]> }[]).map((view) => ({
+    ...((views.data ?? []) as Held[]).map((view) => ({
       kind: "students" as const,
       id: view.id,
       name: view.name,
       filter: view.filter,
+      lastSyncedAt: view.lastSyncedAt || undefined,
     })),
     ...LISTS.flatMap((kind, index) =>
-      ((lists[index]?.data ?? []) as { id: string; name: string; filter: Record<string, string[]> }[]).map((filter) => ({
+      ((lists[index]?.data ?? []) as Held[]).map((filter) => ({
         kind,
         id: filter.id,
         name: filter.name,
         filter: filter.filter,
+        lastSyncedAt: filter.lastSyncedAt || undefined,
       })),
     ),
   ];
@@ -82,7 +87,7 @@ export function useSyncTargets(): SyncTargets {
    *
    * Which sections to ask about comes from the registrations we hold, so a sweep run
    * before them would ask about last week's list. It is also much the longest step — one
-   * call per section, two at a time, minutes rather than the minute the rest take — so
+   * call per section, seconds apart, minutes rather than the minute the rest take — so
    * ending on it means everything else is already in by the time the waiting starts.
    *
    * One per linked semester. A semester with no portal term cannot be asked about at all.
@@ -95,6 +100,7 @@ export function useSyncTargets(): SyncTargets {
       id: portalTermCode,
       name: named ? `${named} timetable` : `Timetable ${portalTermCode}`,
       filter: {},
+      lastSyncedAt: sweeps.data?.[portalTermCode]?.at || undefined,
     });
   }
 
@@ -142,6 +148,7 @@ export function freshen(client: QueryClient): void {
     // date-aware expectation that is inert until one has landed.
     "term-clashes",
     "facility-coverage",
+    "facility-sweeps",
   ]) {
     client.invalidateQueries({ queryKey: [key] });
   }

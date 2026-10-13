@@ -422,7 +422,7 @@ describe("a reload in the middle of a run", () => {
     expect(held().steps[0].notBefore).toBeUndefined();
   });
 
-  it("waits only a second for a timetable, which lost one section at most", async () => {
+  it("waits only the gap between two sections for a timetable, which lost one section at most", async () => {
     vi.useFakeTimers();
     window.localStorage.setItem(
       KEY,
@@ -434,7 +434,7 @@ describe("a reload in the middle of a run", () => {
     const run = await load();
 
     const resumed = run.resumeRun([{ kind: "timetable", id: "262710", name: "S1", filter: {} }]);
-    await vi.advanceTimersByTimeAsync(1_100);
+    await vi.advanceTimersByTimeAsync(4_100);
 
     expect(await resumed).toBe(true);
     expect(syncTarget).toHaveBeenCalledTimes(1);
