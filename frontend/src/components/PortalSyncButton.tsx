@@ -42,6 +42,9 @@ function since(at: number, now: number): string {
 
 const keyOf = (target: SyncTarget) => `${target.kind}:${target.id}`;
 
+/** How long a sync that went wrong keeps its report in front of the checklist. */
+const REPORT_IS_NEWS_FOR_MS = 12 * 60 * 60 * 1000;
+
 /**
  * How far apart the registrar's timetable is asked about two sections, where it can be
  * changed: in the pop-up that chooses what to pull, and in the report while a sweep is
@@ -227,6 +230,8 @@ export function PortalSyncButton() {
   const codes = new Set(failed.map((step) => step.errorCode ?? ""));
   const oneReason = failed.length > 1 && codes.size === 1 && [...codes][0] ? failed[0].error : "";
   const troubled = failed.length || steps.some((step) => step.warning);
+  // A finished run's report is opened first only while it is news.
+  const recent = Boolean(run?.finishedAt && Date.now() - run.finishedAt < REPORT_IS_NEWS_FOR_MS);
   /*
    * Asked once, before the run, instead of discovered N times during it.
    *
@@ -295,7 +300,14 @@ export function PortalSyncButton() {
              */
             if (running || !ready) return setOpen((was) => !was);
             if (open) return setOpen(false);
-            if (steps.length && !choosing) return setOpen(true);
+            /*
+             * The checklist, unless the last sync went wrong lately — then what it said
+             * first, so a warning can still be read by clicking the icon that shows it.
+             * A report kept from days ago is not news: it stays one link away in the
+             * checklist, and opening on it hid the checklist from anybody who had ever
+             * synced before.
+             */
+            if (steps.length && troubled && recent && !choosing) return setOpen(true);
             choose();
           }}
           disabled={!ready && !running}
@@ -374,6 +386,11 @@ export function PortalSyncButton() {
             What is left out stays as it was last synced. The whole-university lists and the timetable are the heavy ones
             for the portal.
           </p>
+          {steps.length ? (
+            <button type="button" onClick={() => setChoosing(false)} className="mb-2 text-[11px] text-[#1f4e79] underline">
+              See what the last sync did
+            </button>
+          ) : null}
           <ul className="space-y-1">
             {ORDER.flatMap((kind) =>
               targets

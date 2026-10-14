@@ -499,6 +499,38 @@ describe("reading what the last sync said", () => {
   });
 });
 
+describe("what the button opens once something has been synced", () => {
+  it("opens the checklist after a sync that went well, with its report one link away", async () => {
+    show();
+    await sync();
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    fireEvent.click(screen.getByRole("button", { name: /portal sync/i }));
+
+    expect(await screen.findByText("What to ask the portal for")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "See what the last sync did" }));
+    expect(await screen.findByText(/2 of 2 synced/)).toBeTruthy();
+  });
+
+  it("no longer puts a report from days ago in front of the checklist, even one with trouble", async () => {
+    const long = Date.now() - 3 * 24 * 3_600_000;
+    window.localStorage.setItem(
+      "scen-sync-run:v1",
+      JSON.stringify({
+        id: "run-old", startedAt: long, finishedAt: long, owner: "gone", beatAt: long,
+        steps: [{ key: "students:view-1", kind: "students", id: "view-1", name: "Foundation Year", state: "failed", error: "The portal session has expired." }],
+      }),
+    );
+    show();
+    const button = await screen.findByRole("button", { name: /portal sync/i });
+    await waitFor(() => expect(button).toHaveProperty("disabled", false));
+
+    fireEvent.click(button);
+
+    expect(await screen.findByText("What to ask the portal for")).toBeTruthy();
+  });
+});
+
 describe("choosing what to pull", () => {
   it("ticks everything, says how old each list is, and asks only for what stays ticked", async () => {
     vi.spyOn(database, "fetchViews").mockResolvedValue([{ ...VIEW, lastSyncedAt: new Date(Date.now() - 3 * 3_600_000).toISOString() }]);
