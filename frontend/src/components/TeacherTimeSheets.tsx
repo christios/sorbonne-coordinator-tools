@@ -785,8 +785,9 @@ function SubmittedSheet({
         </p>
       ) : null}
       {/*
-        * Lines the teacher changed after the pre-fill: the sheet each went on is the timetable's
-        * type, and a TD retyped as a lecture or as office hours is worth a look before HR.
+        * Lines that no longer match the timetable they were pre-filled from: the sheet each went
+        * on is the timetable's type, and a TD retyped as a lecture or as office hours — or a
+        * class claimed after it was cancelled — is worth a look before HR.
         */}
       {editedLines(sheet) ? (
         <p className="mb-3 rounded-md border border-[#e8d9ac] bg-[#fdf9ee] px-3 py-2 text-sm text-[#8a6116]">
@@ -856,7 +857,7 @@ function Days({ sheet }: { sheet: SubmittedTimeSheet }) {
                 {day.kind === "admin" ? " (admin)" : ""}
                 {day.changed ? (
                   <span
-                    title="Changed by the teacher after the pre-fill"
+                    title="Differs from the timetable: edited by the teacher, or the class changed since"
                     className="ml-1.5 rounded bg-[#fdf9ee] px-1 py-0.5 text-[11px] font-semibold text-[#8a6116]"
                   >
                     Edited

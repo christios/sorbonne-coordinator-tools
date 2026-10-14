@@ -105,7 +105,7 @@ describe("sheets that would go out with a rate left blank", () => {
 });
 
 describe("edited lines, across the ticked teachers", () => {
-  it("names whose sheets have lines edited after the pre-fill", async () => {
+  it("names whose sheets have lines that differ from the timetable", async () => {
     const line = { day: "Mon", date: "2026-09-16", from: "08:30", to: "10:00", hours: 1.5, details: "Office hours", kind: "teaching" as const };
     vi.spyOn(teachers, "listEverySubmittedTimeSheet").mockResolvedValue([
       approved("41", "t1", "2026-09-15", { days: [{ ...line, changed: true }, { ...line, changed: true }] }),
@@ -116,7 +116,7 @@ describe("edited lines, across the ticked teachers", () => {
     fireEvent.click(screen.getByRole("button", { name: /Part Time Sheets/ }));
     const dialog = await screen.findByRole("dialog");
 
-    const note = await within(dialog).findByText(/2 lines were edited by the teacher after the pre-fill/);
+    const note = await within(dialog).findByText(/2 lines differ from the timetable they were pre-filled from/);
     expect(note.closest("li")?.textContent).toMatch(/^Amina:/);
     expect(within(dialog).queryByText(/^Bilal:/)).toBeNull();
   });

@@ -178,7 +178,10 @@ export type SubmittedTimeSheet = {
     kind?: "teaching" | "admin" | "";
     component?: string;
     sheet?: PartTimeSheetType;
-    /** The teacher changed this pre-filled line: its time, its words, or made it admin. */
+    /**
+     * This pre-filled line no longer matches the timetable: the teacher changed its time or
+     * words or made it admin, or the class has since been cancelled, covered or removed.
+     */
     changed?: boolean;
   }[];
   /** The Part Time Sheets the period makes: one per rate it has lines for. */
@@ -209,14 +212,14 @@ export type SheetPay = {
 /** What each Part Time Sheet is called on screen. */
 export const SHEET_WORDS: Record<PartTimeSheetType, string> = { CM: "CM", "TD-TP": "TD/TP", OTHER: "Other work" };
 
-/** How many of its lines the teacher changed after the pre-fill. */
+/** How many of its lines no longer match the timetable they were pre-filled from. */
 export function editedLines(sheet: SubmittedTimeSheet): number {
   return sheet.days.filter((day) => day.changed).length;
 }
 
-/** "2 lines were edited by the teacher after the pre-fill." */
+/** "2 lines differ from the timetable they were pre-filled from." */
 export function editedSaid(count: number): string {
-  return `${count} line${count === 1 ? " was" : "s were"} edited by the teacher after the pre-fill.`;
+  return `${count} line${count === 1 ? " differs" : "s differ"} from the timetable ${count === 1 ? "it was" : "they were"} pre-filled from — edited by the teacher, or the class was cancelled, covered or removed since.`;
 }
 
 /** Every approved period the Part-Time Timesheets app has pushed, for a page judging all of them. */

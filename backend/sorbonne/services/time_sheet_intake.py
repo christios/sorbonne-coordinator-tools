@@ -273,8 +273,9 @@ def _days(value: Any) -> list[dict[str, Any]]:
                 "details": str(line.get("details") or ""),
                 "kind": kind if kind in KINDS else "",
                 "component": component if component in COMPONENTS else "",
-                # The teacher changed a pre-filled line — its time, its words, or made it admin —
-                # so the sheet its `component` puts it on is worth a look before it goes to HR.
+                # A pre-filled line that no longer matches the timetable — the teacher changed its
+                # time or words or made it admin, or the class was cancelled, covered or removed
+                # since — so the sheet its `component` puts it on is worth a look before HR.
                 "changed": line.get("changed") is True,
             }
         )

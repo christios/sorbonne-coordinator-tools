@@ -348,7 +348,7 @@ describe("what each sheet is paid at", () => {
   });
 });
 
-describe("lines the teacher edited after the pre-fill", () => {
+describe("lines that no longer match the timetable", () => {
   it("marks each one and asks for the sheet it went on to be checked", async () => {
     vi.spyOn(teachers, "listTeacherTimeSheets").mockResolvedValue([]);
     vi.spyOn(teachers, "listSubmittedTimeSheets").mockResolvedValue([
@@ -364,7 +364,7 @@ describe("lines the teacher edited after the pre-fill", () => {
     fireEvent.click(await screen.findByRole("button", { name: /Submitted 1.5 h/ }));
     const dialog = await screen.findByRole("dialog");
 
-    expect(within(dialog).getByText(/1 line was edited by the teacher after the pre-fill/)).toBeTruthy();
+    expect(within(dialog).getByText(/1 line differs from the timetable it was pre-filled from/)).toBeTruthy();
     expect(within(dialog).getAllByText("Edited")).toHaveLength(1);
   });
 });
