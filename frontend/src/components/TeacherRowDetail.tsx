@@ -13,7 +13,7 @@
  */
 
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Download, ExternalLink, FileCheck, FileClock, FilePlus, FileX } from "lucide-react";
+import { Download, FileCheck, FileClock, FilePlus, FileX } from "lucide-react";
 import { useEffect, useId, useState } from "react";
 
 import { Modal } from "@/components/Modal";
@@ -27,7 +27,6 @@ import {
   createTeacherRequisition,
   downloadTeacherRequisitions,
   listTeacherRequisitions,
-  listTeacherTimeSheets,
 } from "@/services/teachers";
 
 /** The year a new requisition or time sheet is for unless somebody says otherwise. */
@@ -127,8 +126,10 @@ export function TeacherPaperwork({ summary, loading }: { summary?: TeacherSummar
 
 
 /**
- * The three jobs that used to need the profile: open a time sheet, take away one or more
- * requisitions, and start a new one.
+ * The jobs that used to need the profile: take away one or more requisitions, and start a
+ * new one. Opening a linked time sheet used to be here too; the time sheets now come from
+ * the Timesheets app and are read on the profile's Time sheets tab, so the row no longer
+ * offers a link to a workbook.
  *
  * Each button that has to choose between several things opens a dialog rather than a
  * pop-up panel, and the lists behind those dialogs are only fetched when one is opened.
@@ -147,14 +148,9 @@ export function TeacherRowActions({
   onChanged: () => void;
 }) {
   const held = summary ?? NOTHING;
-  const [picking, setPicking] = useState<"time sheets" | "requisitions" | "new" | null>(null);
+  const [picking, setPicking] = useState<"requisitions" | "new" | null>(null);
   const [chosen, setChosen] = useState<string[]>([]);
 
-  const sheets = useQuery({
-    queryKey: ["teacher-time-sheets", teacher.id],
-    queryFn: () => listTeacherTimeSheets(teacher.id),
-    enabled: picking === "time sheets",
-  });
   // For the download dialog, and for the new one's "start as a copy of".
   const requisitions = useQuery({
     queryKey: ["teacher-requisitions", teacher.id],
@@ -174,9 +170,6 @@ export function TeacherRowActions({
     },
   });
 
-  const only = held.newestTimeSheet;
-  const oneSheet = held.timeSheets === 1 && only;
-
   return (
     <>
       {/*
@@ -185,33 +178,6 @@ export function TeacherRowActions({
         * was "New requisition" sixty-two times with nothing to tell them apart.
         */}
       <span className="flex flex-nowrap items-center gap-1">
-        {/*
-          * With one sheet the button is the link itself, because a dialog to choose
-          * between one thing is a dialog that should not exist.
-          */}
-        {oneSheet ? (
-          <a
-            href={only.url}
-            target="_blank"
-            rel="noreferrer"
-            title={only.label}
-            aria-label={`Open ${teacher.fullName}'s time sheet`}
-            className="inline-flex items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-2 py-1 text-xs font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]"
-          >
-            <ExternalLink size={13} /> Time sheet
-          </a>
-        ) : (
-          <button
-            type="button"
-            disabled={held.timeSheets === 0}
-            onClick={() => setPicking("time sheets")}
-            title={held.timeSheets === 0 ? "No time sheet linked yet" : `Choose one of ${held.timeSheets}`}
-            aria-label={`Time sheets for ${teacher.fullName}`}
-            className="inline-flex items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-2 py-1 text-xs font-semibold text-[#1f4e79] hover:bg-[#f2f7fb] disabled:border-[#e4e8ef] disabled:text-[#c8d0da] disabled:hover:bg-white"
-          >
-            <ExternalLink size={13} /> Time sheet{held.timeSheets > 1 ? ` (${held.timeSheets})` : ""}
-          </button>
-        )}
         <button
           type="button"
           disabled={held.requisitions === 0}
@@ -239,35 +205,6 @@ export function TeacherRowActions({
           <FilePlus size={14} aria-hidden="true" />
         </button>
       </span>
-
-      <Modal
-        open={picking === "time sheets"}
-        title={`${teacher.fullName} — time sheets`}
-        onClose={() => setPicking(null)}
-      >
-        {sheets.isLoading ? <p className="text-sm text-[#667085]">Reading the time sheets…</p> : null}
-        <ul className="grid gap-2" aria-label="Time sheets to open">
-          {(sheets.data ?? []).map((sheet) => (
-            <li key={sheet.id}>
-              <a
-                href={sheet.url}
-                target="_blank"
-                rel="noreferrer"
-                onClick={() => setPicking(null)}
-                className="flex items-center justify-between gap-3 rounded-lg border border-[#d9dee7] px-4 py-3 hover:border-[#b9d0e5] hover:bg-[#f8fafc]"
-              >
-                <span className="min-w-0">
-                  <span className="block truncate font-semibold text-[#1f4e79]">{sheet.label}</span>
-                  <span className="mt-0.5 block text-sm text-[#667085]">
-                    {shortPeriodLabel(sheet.periodStart) || "no period said"}
-                  </span>
-                </span>
-                <ExternalLink size={15} className="shrink-0 text-[#667085]" aria-hidden="true" />
-              </a>
-            </li>
-          ))}
-        </ul>
-      </Modal>
 
       <Modal
         open={picking === "requisitions"}

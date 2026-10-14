@@ -112,6 +112,23 @@ const listed = () =>
     .getAllByRole("listitem")
     .map((row) => within(row).getByRole("img").getAttribute("aria-label")?.replace("Profile photo placeholder for ", ""));
 
+describe("a teacher's row", () => {
+  it("offers the requisitions, and no link to a time sheet workbook", async () => {
+    // Time sheets come from the Timesheets app now and are read on the profile's tab.
+    vi.spyOn(teachers, "fetchTeacherSummary").mockResolvedValue({
+      "t-marie": {
+        requisitions: 1, contractedHours: 24, adminHours: 6, byYear: {}, timeSheets: 1, hasDocuments: false,
+        newestTimeSheet: { id: "s1", teacherId: "t-marie", label: "AugSept", academicYear: "2026-2027", url: "https://example.edu/sheet", periodStart: "2026-08-15", createdAt: "", updatedAt: "" },
+      },
+    } as unknown as Awaited<ReturnType<typeof teachers.fetchTeacherSummary>>);
+    renderWith(<TeacherDatabase />);
+
+    expect(await screen.findByRole("button", { name: "Download requisitions for Marie Curie" })).toBeTruthy();
+    expect(screen.queryByRole("link", { name: /Marie Curie's time sheet/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Time sheets for Marie Curie" })).toBeNull();
+  });
+});
+
 describe("the list's top bar", () => {
   it("narrows the list to one folder, or to the teachers in none", async () => {
     renderWith(<TeacherDatabase />);
