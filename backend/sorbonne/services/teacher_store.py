@@ -68,6 +68,9 @@ DEFAULT_PERIOD_OPENS_ON = 15
 #: Said to update_teacher for a field it should leave as it is.
 KEEP = object()
 
+#: The degrees the department's pay rates are set by, highest first.
+DEGREES = ("phd", "masters", "bachelors")
+
 #: The last day a period may open on. Later than this and some months would have no
 #: period at all, February first among them.
 LAST_DAY_A_PERIOD_MAY_OPEN_ON = 28
@@ -124,9 +127,7 @@ class TeacherStore:
             "email": email or "",
             "phone": phone or "",
             "notes": notes,
-            "hourlyRate": None,
-            "cmHourlyRate": None,
-            "otherHourlyRate": None,
+            "highestDegree": "",
             "archivedAt": None,
             "createdAt": now,
             "updatedAt": now,
@@ -136,11 +137,11 @@ class TeacherStore:
                 text(
                     """
                     INSERT INTO part_time_teachers (
-                        id, folder_id, full_name, email, phone, notes, hourly_rate, cm_hourly_rate,
-                        other_hourly_rate, archived_at, created_at, updated_at
+                        id, folder_id, full_name, email, phone, notes, highest_degree,
+                        archived_at, created_at, updated_at
                     ) VALUES (
-                        :id, :folder_id, :full_name, :email, :phone, :notes, :hourly_rate, :cm_hourly_rate,
-                        :other_hourly_rate, :archived_at, :created_at, :updated_at
+                        :id, :folder_id, :full_name, :email, :phone, :notes, :highest_degree,
+                        :archived_at, :created_at, :updated_at
                     )
                     """
                 ),
@@ -193,7 +194,7 @@ class TeacherStore:
                     text(
                         f"""
                         SELECT id, folder_id, full_name, email, phone, notes,
-                               hourly_rate, cm_hourly_rate, other_hourly_rate,
+                               highest_degree,
                                archived_at, created_at, updated_at
                         FROM part_time_teachers {where}
                         ORDER BY full_name ASC, updated_at DESC
@@ -214,7 +215,7 @@ class TeacherStore:
                     text(
                         """
                         SELECT id, folder_id, full_name, email, phone, notes,
-                               hourly_rate, cm_hourly_rate, other_hourly_rate,
+                               highest_degree,
                                archived_at, created_at, updated_at
                         FROM part_time_teachers WHERE id = :id
                         """
@@ -239,7 +240,7 @@ class TeacherStore:
                     text(
                         """
                     SELECT id, folder_id, full_name, email, phone, notes,
-                           hourly_rate, cm_hourly_rate, other_hourly_rate,
+                           highest_degree,
                            archived_at, created_at, updated_at
                     FROM part_time_teachers
                     WHERE archived_at IS NULL AND LOWER(email) = :email
@@ -261,14 +262,9 @@ class TeacherStore:
         email: str,
         phone: str,
         notes: str,
-        hourly_rate: float | None | object = KEEP,
-        cm_hourly_rate: float | None | object = KEEP,
-        other_hourly_rate: float | None | object = KEEP,
+        highest_degree: str | object = KEEP,
     ) -> dict[str, Any]:
-        """Change the profile. Each rate is kept as it was unless one is given — None clears it.
-
-        `hourly_rate` is the TD/TP one; CM and other work (office hours, admin) have their own.
-        """
+        """Change the profile. The degree is kept as it was unless one is given; "" clears it."""
         current = self.get_teacher(teacher_id)
         updated = {
             **current,
@@ -278,21 +274,17 @@ class TeacherStore:
             "notes": notes,
             "updatedAt": _timestamp(),
         }
-        for key, rate in (
-            ("hourlyRate", hourly_rate),
-            ("cmHourlyRate", cm_hourly_rate),
-            ("otherHourlyRate", other_hourly_rate),
-        ):
-            if rate is not KEEP:
-                updated[key] = rate
+        if highest_degree is not KEEP:
+            if highest_degree not in ("", *DEGREES):
+                raise ValueError(f"{highest_degree!r} is not a degree: say phd, masters or bachelors.")
+            updated["highestDegree"] = highest_degree
         with self.engine.begin() as connection:
             connection.execute(
                 text(
                     """
                     UPDATE part_time_teachers
                     SET full_name = :full_name, email = :email, phone = :phone, notes = :notes,
-                        hourly_rate = :hourly_rate, cm_hourly_rate = :cm_hourly_rate,
-                        other_hourly_rate = :other_hourly_rate, updated_at = :updated_at
+                        highest_degree = :highest_degree, updated_at = :updated_at
                     WHERE id = :id
                     """
                 ),
@@ -894,19 +886,12 @@ def _teacher_from_row(row: Any) -> dict[str, Any]:
         "email": row["email"],
         "phone": row["phone"],
         "notes": row["notes"],
-        # What they are paid an hour for TD/TP, for CM, and for other work (office hours, admin),
-        # each on its own Part Time Sheet; None until somebody enters it.
-        "hourlyRate": _rate(row["hourly_rate"]),
-        "cmHourlyRate": _rate(row["cm_hourly_rate"]),
-        "otherHourlyRate": _rate(row["other_hourly_rate"]),
+        # Which of the department's rates they are paid at; "" until somebody says.
+        "highestDegree": row["highest_degree"] or "",
         "archivedAt": row["archived_at"],
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],
     }
-
-
-def _rate(value: Any) -> float | None:
-    return float(value) if value is not None else None
 
 
 def _teacher_params(teacher: dict[str, Any]) -> dict[str, Any]:
@@ -917,9 +902,7 @@ def _teacher_params(teacher: dict[str, Any]) -> dict[str, Any]:
         "email": teacher["email"],
         "phone": teacher["phone"],
         "notes": teacher["notes"],
-        "hourly_rate": teacher.get("hourlyRate"),
-        "cm_hourly_rate": teacher.get("cmHourlyRate"),
-        "other_hourly_rate": teacher.get("otherHourlyRate"),
+        "highest_degree": teacher.get("highestDegree") or "",
         "archived_at": teacher["archivedAt"],
         "created_at": teacher["createdAt"],
         "updated_at": teacher["updatedAt"],

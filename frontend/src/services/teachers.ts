@@ -8,13 +8,8 @@ export type Teacher = {
   email: string;
   phone: string;
   notes: string;
-  /**
-   * What they are paid an hour, each on its own Part Time Sheet: TD/TP (`hourlyRate`), CM,
-   * and other work such as office hours and admin. Null until somebody enters it.
-   */
-  hourlyRate?: number | null;
-  cmHourlyRate?: number | null;
-  otherHourlyRate?: number | null;
+  /** Which of the department's pay rates they are paid at; "" until somebody says. */
+  highestDegree?: Degree | "";
   archivedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -25,11 +20,11 @@ export type TeacherRequisitionSummary = { id: string; teacherId: string; label: 
 export type TeacherRequisition = TeacherRequisitionSummary & { content: RequisitionContent };
 export type TeacherInput = Pick<Teacher, "fullName" | "email" | "phone" | "notes"> & {
   taskTemplateIds?: string[];
-  /** Left out, a rate stays as it was; null clears it. */
-  hourlyRate?: number | null;
-  cmHourlyRate?: number | null;
-  otherHourlyRate?: number | null;
+  /** Left out, the degree stays as it was; "" clears it. */
+  highestDegree?: Degree | "";
 };
+
+export type Degree = "phd" | "masters" | "bachelors";
 export type RequisitionInput = { label: string; academicYear: string; sourceRequisitionId?: string };
 export type CourseCatalogueEntry = {
   id: string;
@@ -186,11 +181,28 @@ export type SubmittedTimeSheet = {
   }[];
   /** The Part Time Sheets the period makes: one per rate it has lines for. */
   partTimeSheets?: { type: PartTimeSheetType; lines: number; hours: number }[];
+  /** What each of those sheets is paid at, from the department's rates, and what is missing. */
+  pay?: SheetPay;
   sentAt: string;
   receivedAt: string;
 };
 
 export type PartTimeSheetType = "CM" | "TD-TP" | "OTHER";
+
+/** Why a sheet goes out with no rate. */
+export type PayIssue =
+  | { kind: "no_degree" }
+  | { kind: "no_rates"; year: string }
+  | { kind: "not_paid"; sheet: PartTimeSheetType; degree: Degree };
+
+export type SheetPay = {
+  degree: Degree | "";
+  /** The academic year the period is paid in: "2026-2027". */
+  year: string;
+  /** Each sheet's rate; null where it goes out blank. */
+  rates: Partial<Record<PartTimeSheetType, number | null>>;
+  issues: PayIssue[];
+};
 
 /** What each Part Time Sheet is called on screen. */
 export const SHEET_WORDS: Record<PartTimeSheetType, string> = { CM: "CM", "TD-TP": "TD/TP", OTHER: "Other work" };

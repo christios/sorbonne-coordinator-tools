@@ -11,6 +11,7 @@ import {
   TeacherAvatar,
   TeacherRequisitionEditor,
 } from "./TeacherDatabase";
+import * as payRates from "@/services/payRates";
 
 const teacherService = vi.hoisted(() => ({
   getTeacherRequisition: vi.fn(),
@@ -80,8 +81,6 @@ describe("ProfileOverview", () => {
     fireEvent.change(screen.getByRole("textbox", { name: "Full name" }), {
       target: { value: "Marie Skłodowska-Curie" },
     });
-    fireEvent.change(screen.getByRole("spinbutton", { name: "TD/TP rate (AED)" }), { target: { value: "175.5" } });
-    fireEvent.change(screen.getByRole("spinbutton", { name: "CM rate (AED)" }), { target: { value: "250" } });
     fireEvent.click(screen.getByRole("button", { name: "Save profile" }));
 
     await waitFor(() =>
@@ -90,14 +89,15 @@ describe("ProfileOverview", () => {
         email: "marie@example.edu",
         phone: "+33 1 23 45 67 89",
         notes: "Available for physics modules.",
-        hourlyRate: 175.5,
-        cmHourlyRate: 250,
-        otherHourlyRate: null,
+        highestDegree: "",
       }),
     );
   });
 
-  it("keeps the rates the Part Time Sheets are paid at, and refuses one that is not a number of dirhams", async () => {
+  it("says the degree they are paid by, and their degree's rates for the year from Settings", async () => {
+    vi.spyOn(payRates, "fetchPayRates").mockResolvedValue({
+      [payRates.academicYearOf(new Date())]: { bachelors: { "TD-TP": 150, OTHER: 100 } },
+    });
     const onSave = vi.fn().mockResolvedValue(undefined);
     render(
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
@@ -109,7 +109,7 @@ describe("ProfileOverview", () => {
             email: "marie@example.edu",
             phone: "",
             notes: "",
-            hourlyRate: 150,
+            highestDegree: "bachelors",
             archivedAt: null,
             createdAt: "2026-01-01T00:00:00Z",
             updatedAt: "2026-01-01T00:00:00Z",
@@ -119,20 +119,15 @@ describe("ProfileOverview", () => {
       </QueryClientProvider>,
     );
 
-    expect(screen.getByText("150 AED / h")).toBeTruthy();
-    // A lecture is paid at its own rate, which nobody has entered here.
-    expect(screen.getAllByText(/Not entered/)).toHaveLength(2);
+    expect(screen.getByText("Bachelors")).toBeTruthy();
+    // A Bachelors gives no lectures: the table has no CM rate for them.
+    expect(await screen.findByText("CM not paid · TD/TP 150 · Other work 100 AED / h")).toBeTruthy();
+
     fireEvent.click(screen.getByRole("button", { name: "Edit profile" }));
-    const rate = screen.getByRole("spinbutton", { name: "TD/TP rate (AED)" });
-    fireEvent.change(rate, { target: { value: "-5" } });
-
-    expect(screen.getByText(/A rate is a number of dirhams/)).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Save profile" })).toHaveProperty("disabled", true);
-
-    // Emptied, it is no rate at all: the sheet's cell is left for somebody to fill.
-    fireEvent.change(rate, { target: { value: "" } });
+    fireEvent.click(screen.getByRole("combobox", { name: "Highest degree" }));
+    fireEvent.click(await screen.findByRole("option", { name: "PhD" }));
     fireEvent.click(screen.getByRole("button", { name: "Save profile" }));
-    await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ hourlyRate: null })));
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ highestDegree: "phd" })));
   });
 });
 

@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 from sorbonne.config import config
 from sorbonne.services import coordinator_directory
 from sorbonne.services.engine import engine_for
+from sorbonne.services.pay_rates import with_pay
 from sorbonne.services.time_sheet_tasks import TimeSheetTasks
 from sorbonne.services.time_sheet_intake import SCHEMA, TeacherNotKnown, TimeSheetIntake, UnknownSchema
 from sorbonne.services.time_sheet_workbooks import SheetNotFound, TimeSheetWorkbooks, Workbook
@@ -89,8 +90,8 @@ def prefill(
 
 @router.get("/submitted")
 def list_submitted(intake: TimeSheetIntake = Depends(get_intake)) -> dict[str, Any]:
-    """Every approved period the app has pushed. Behind the sign-in, unlike the push."""
-    return {"items": intake.everyone()}
+    """Every approved period the app has pushed, with what each sheet is paid at. Behind the sign-in."""
+    return {"items": with_pay(intake.engine, intake.everyone())}
 
 
 @router.get("/submitted/{period_id}/workbook")

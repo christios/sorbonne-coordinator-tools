@@ -1,7 +1,8 @@
 """Approved periods as the university's Part Time Sheet: one workbook, or a zip of them.
 
 Everything the sheet needs comes from somewhere already: the days and the approval from
-the Timesheets app, the rates from the teacher's record, the ID from the registrar's portal
+the Timesheets app, the rate from the department's table for the teacher's degree and the
+period's year, the ID from the registrar's portal
 (a staff number the app sends wins, but it has never sent one), and the Head of
 Department from Settings.
 
@@ -22,6 +23,7 @@ from sqlalchemy.engine import Engine
 
 from sorbonne.services.department_roles import DepartmentRoles
 from sorbonne.services.part_time_sheet import SHEET_WORDS, FilledSheet, days_of, fill, gulf_day, month_label, split
+from sorbonne.services.pay_rates import PayRates, Table, pay_for
 
 
 class SheetNotFound(LookupError):
@@ -43,7 +45,7 @@ class Workbook:
 
 _SHEETS = """SELECT s.period_id, s.teacher_id, s.period_start, s.period_end, s.staff_name, s.staff_number,
                     s.department, s.position, s.approved_on, s.submitted_on, s.days,
-                    t.full_name AS part_time_name, t.hourly_rate, t.cm_hourly_rate, t.other_hourly_rate,
+                    t.full_name AS part_time_name, t.highest_degree,
                     (SELECT a.portal_teacher_id FROM active_teachers a
                      WHERE a.part_time_teacher_id = s.teacher_id AND coalesce(a.portal_teacher_id, '') <> ''
                      ORDER BY a.id LIMIT 1) AS portal_id
@@ -62,9 +64,6 @@ def filename_for(name: str, month: str, kind: str = "") -> str:
     return f"{stem} - {SHEET_WORDS[kind]}.xlsx" if kind else f"{stem}.xlsx"
 
 
-#: Which rate on the teacher's record each sheet is paid at.
-RATE_OF = {"CM": "cm_hourly_rate", "TD-TP": "hourly_rate", "OTHER": "other_hourly_rate"}
-
 
 class TimeSheetWorkbooks:
     def __init__(self, engine: Engine) -> None:
@@ -74,17 +73,20 @@ class TimeSheetWorkbooks:
         with self.engine.connect() as connection:
             return list(connection.execute(text(_SHEETS), {"ids": list(period_ids)}).mappings().all())
 
-    def _files(self, row: Any, head: dict[str, Any]) -> tuple[list[tuple[str, bytes]], int, str, str]:
+    def _files(self, row: Any, head: dict[str, Any], table: Table) -> tuple[list[tuple[str, bytes]], int, str, str]:
         """One period as its sheets — one per kind of line it has — named, filled, and how many lines were lost."""
         name = (row["staff_name"] or row["part_time_name"] or "").strip()
         month = month_label(row["period_start"], row["period_end"])
         groups = split(list(row["days"] or [])) or {"TD-TP": []}
+        pay = pay_for(
+            table, degree=row["highest_degree"] or "", period_start=row["period_start"], lines=list(row["days"] or [])
+        )
         files: list[tuple[str, bytes]] = []
         lost = 0
         for kind, lines in groups.items():
             days, unplaced = days_of(lines, row["period_start"], row["period_end"])
             lost += len(unplaced)
-            rate = row[RATE_OF[kind]]
+            rate = pay["rates"].get(kind)
             sheet = FilledSheet(
                 name=name,
                 id_number=(row["staff_number"] or row["portal_id"] or "").strip(),
@@ -106,7 +108,8 @@ class TimeSheetWorkbooks:
         rows = self._rows([period_id])
         if not rows:
             raise SheetNotFound(period_id)
-        files, lost, name, month = self._files(rows[0], DepartmentRoles(self.engine).head())
+        head, table = DepartmentRoles(self.engine).head(), PayRates(self.engine).table()
+        files, lost, name, month = self._files(rows[0], head, table)
         if len(files) == 1:
             return Workbook(files[0][0], files[0][1], lost)
         out = io.BytesIO()
@@ -122,13 +125,14 @@ class TimeSheetWorkbooks:
         if not rows:
             raise SheetNotFound(", ".join(period_ids))
         head = DepartmentRoles(self.engine).head()
+        table = PayRates(self.engine).table()
         out = io.BytesIO()
         taken: set[str] = set()
         months: set[str] = set()
         unplaced = 0
         with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as written:
             for row in sorted(rows, key=lambda one: ((one["staff_name"] or "").casefold(), one["period_start"])):
-                files, lost, _, month = self._files(row, head)
+                files, lost, _, month = self._files(row, head, table)
                 unplaced += lost
                 months.add(month)
                 for filename, data in files:

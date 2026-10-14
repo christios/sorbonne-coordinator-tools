@@ -29,6 +29,7 @@ import { TimetablesButton } from "@/components/TimetablesButton";
 import { fetchActiveTeachers } from "@/services/portalLists";
 import { exportTeacherTimetables } from "@/services/timetableExports";
 import { localDay, periodLabel } from "@/services/payPeriods";
+import { payIssueSaid } from "@/services/payRates";
 import {
   type Teacher,
   type TeacherTimeSheet,
@@ -411,6 +412,18 @@ function PartTimeSheets({
               </tbody>
             </table>
           </div>
+          {/* Whose sheets will go out with a rate left blank, and why, before anything is sent. */}
+          {sheets.some((sheet) => sheet.pay?.issues.length) ? (
+            <ul className="mt-3 grid gap-1 rounded-md border border-[#e8d9ac] bg-[#fdf9ee] px-3 py-2 text-xs text-[#8a6116]">
+              {sheets.flatMap((sheet) =>
+                (sheet.pay?.issues ?? []).map((issue, index) => (
+                  <li key={`${sheet.periodId}-${index}`}>
+                    <span className="font-semibold">{nameOf(sheet.teacherId)}:</span> {payIssueSaid(issue)}
+                  </li>
+                )),
+              )}
+            </ul>
+          ) : null}
           {without.length ? (
             <p className="mt-3 flex items-start gap-1.5 rounded-md border border-[#e8d9ac] bg-[#fdf9ee] px-3 py-2 text-xs text-[#8a6116]">
               <X size={12} className="mt-0.5 shrink-0" aria-hidden="true" />

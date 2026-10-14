@@ -7,6 +7,7 @@ import { ExemptionReasonsPanel } from "@/components/ExemptionReasonsPanel";
 import { ProgrammeCodesPanel } from "@/components/ProgrammeCodesPanel";
 import { TermWeeksPanel } from "@/components/TermWeeksPanel";
 import { HeadOfDepartmentPanel } from "@/components/HeadOfDepartmentPanel";
+import { PayRatesPanel } from "@/components/PayRatesPanel";
 import { ThisBrowser } from "@/components/ThisBrowser";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { InfoTip } from "@/components/InfoTip";
@@ -202,6 +203,13 @@ function AppDepartment() {
         approved period, dated the day the sheet was approved.
       </PageHeading>
       <HeadOfDepartmentPanel canChange={Boolean(user?.isAdmin)} />
+      <div className="mt-8">
+        <PageHeading title="Pay rates for part-timers" about="How the pay rates are used">
+          Every Part Time Sheet is paid at the rate for its teacher&apos;s highest degree, in the academic year its period
+          opens in. Lectures (CM), tutorials and practicals (TD/TP), and other work each go on a sheet of their own.
+        </PageHeading>
+        <PayRatesPanel canChange={Boolean(user?.isAdmin)} />
+      </div>
     </section>
   );
 }

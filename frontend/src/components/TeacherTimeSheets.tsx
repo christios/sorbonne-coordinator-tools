@@ -34,7 +34,9 @@ import { fetchCourseCards } from "@/services/studentDatabase";
 import { sectionsTaughtBy } from "@/services/teacherLoad";
 import { fetchPayCycles, fetchTeacherSummary } from "@/services/teachers";
 import { fetchTimetableTerms } from "@/services/timetables";
+import { DEGREE_WORDS, payIssueSaid } from "@/services/payRates";
 import {
+  type PartTimeSheetType,
   type SubmittedTimeSheet,
   type TeacherTimeSheet,
   createTeacherTimeSheet,
@@ -772,12 +774,31 @@ function SubmittedSheet({
       {parts.length > 1 ? (
         <p className="mb-3 rounded-md border border-[#d7e5f3] bg-[#f2f7fb] px-3 py-2 text-sm text-[#344054]">
           Paid at {parts.length} rates, so it goes to HR as {parts.length} Part Time Sheets:{" "}
-          {parts.map((part) => `${SHEET_WORDS[part.type]} ${part.hours} h`).join(" · ")}.
+          {parts.map((part) => `${SHEET_WORDS[part.type]} ${part.hours} h${rateSaid(sheet, part.type)}`).join(" · ")}.
         </p>
+      ) : parts.length === 1 && sheet.pay?.rates[parts[0].type] != null ? (
+        <p className="mb-3 text-sm text-[#667085]">
+          Paid at {sheet.pay.rates[parts[0].type]} AED / h
+          {sheet.pay.degree ? ` (${DEGREE_WORDS[sheet.pay.degree]}, ${sheet.pay.year})` : ""}.
+        </p>
+      ) : null}
+      {/* What leaves a rate blank, said before the sheet goes to HR rather than after. */}
+      {sheet.pay?.issues.length ? (
+        <ul className="mb-3 grid gap-1 rounded-md border border-[#e8d9ac] bg-[#fdf9ee] px-3 py-2 text-sm text-[#8a6116]">
+          {sheet.pay.issues.map((issue, index) => (
+            <li key={index}>{payIssueSaid(issue)}</li>
+          ))}
+        </ul>
       ) : null}
       <Days sheet={sheet} />
     </Modal>
   );
+}
+
+/** " at 350", where the sheet has a rate; nothing where it goes out blank. */
+function rateSaid(sheet: SubmittedTimeSheet, type: PartTimeSheetType): string {
+  const rate = sheet.pay?.rates[type];
+  return rate == null ? "" : ` at ${rate}`;
 }
 
 /**

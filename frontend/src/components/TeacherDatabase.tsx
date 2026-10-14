@@ -67,6 +67,8 @@ import {
   totalTeachingHours,
 } from "@/services/requisitions";
 import {
+  type Degree,
+  SHEET_WORDS,
   type RequisitionInput,
   Teacher,
   TeacherFolder,
@@ -96,6 +98,7 @@ import {
   updateTeacher,
   updateTeacherRequisition,
 } from "@/services/teachers";
+import { academicYearOf, DEGREE_WORDS, DEGREES, fetchPayRates, RATE_SHEETS } from "@/services/payRates";
 import {
   ScopedTask,
   TaskTemplate,
@@ -1684,36 +1687,16 @@ function TeacherDocumentsSection({ teacherId }: { teacherId: string }) {
   );
 }
 
-/** The three rates a Part Time Sheet can be paid at, and what each is called. */
-const RATES = [
-  { key: "hourlyRate", label: "TD/TP rate", hint: "tutorials and practicals" },
-  { key: "cmHourlyRate", label: "CM rate", hint: "lectures" },
-  { key: "otherHourlyRate", label: "Other work rate", hint: "office hours, admin" },
-] as const;
-type RateKey = (typeof RATES)[number]["key"];
-
-/** What the profile form saves. Each rate is a number, or null for none entered. */
-type ProfileInput = Pick<Teacher, "fullName" | "email" | "phone" | "notes"> & Record<RateKey, number | null>;
-/** What the form holds while it is typed in: the rates as typed. */
-type ProfileFields = Pick<Teacher, "fullName" | "email" | "phone" | "notes"> & Record<RateKey, string>;
-const typedRate = (rate: number | null | undefined) => (rate == null ? "" : String(rate));
+/** What the profile form saves and holds: the contact details, and the degree they are paid by. */
+type ProfileFields = Pick<Teacher, "fullName" | "email" | "phone" | "notes"> & { highestDegree: Degree | "" };
+type ProfileInput = ProfileFields;
 const profileFields = (teacher: Teacher): ProfileFields => ({
   fullName: teacher.fullName,
   email: teacher.email,
   phone: teacher.phone,
   notes: teacher.notes,
-  hourlyRate: typedRate(teacher.hourlyRate),
-  cmHourlyRate: typedRate(teacher.cmHourlyRate),
-  otherHourlyRate: typedRate(teacher.otherHourlyRate),
+  highestDegree: teacher.highestDegree ?? "",
 });
-
-/** The rate as typed, as a number; null for blank, undefined for something that is not a rate. */
-function rateOf(typed: string): number | null | undefined {
-  const text = typed.trim().replace(",", ".");
-  if (!text) return null;
-  const rate = Number(text);
-  return Number.isFinite(rate) && rate >= 0 ? rate : undefined;
-}
 
 /**
  * How to reach them and what to know, as two sections of the profile's rail, with the
@@ -1746,16 +1729,15 @@ export function ProfileOverview({
   useEffect(() => {
     setDraft(profileFields(teacher));
   }, [teacher]);
-  const rates = Object.fromEntries(RATES.map(({ key }) => [key, rateOf(draft[key])])) as Record<
-    RateKey,
-    number | null | undefined
-  >;
-  const badRate = RATES.some(({ key }) => rates[key] === undefined);
+  // What their degree is paid this academic year, from the department's table in Settings.
+  const payRates = useQuery({ queryKey: ["pay-rates"], queryFn: fetchPayRates, retry: false });
+  const thisYear = academicYearOf(new Date());
+  const theirs = teacher.highestDegree ? payRates.data?.[thisYear]?.[teacher.highestDegree] : undefined;
   async function submit(event?: FormEvent) {
     event?.preventDefault();
-    if (!draft.fullName.trim() || saving || badRate) return;
+    if (!draft.fullName.trim() || saving) return;
     try {
-      await onSave({ ...draft, ...(rates as Record<RateKey, number | null>) });
+      await onSave(draft);
       setEditing(false);
     } catch {
       // The failure is said in the dialog, which stays open with what was typed.
@@ -1804,19 +1786,29 @@ export function ProfileOverview({
         </dl>
       </RailSection>
       {/*
-        * What each Part Time Sheet is paid at: its "Rate per hour", and so its total. A period
-        * of lectures and tutorials is sent as two sheets, so each kind has its own rate.
+        * What their Part Time Sheets are paid at: their degree's row of the department's
+        * rates for the year, set in Settings. The profile holds the degree, not the figures.
         */}
       <RailSection title="Pay">
         <dl className="grid gap-3">
-          {RATES.map(({ key, label, hint }) => (
+          <ProfileDetail
+            label="Highest degree"
+            value={teacher.highestDegree ? DEGREE_WORDS[teacher.highestDegree] : ""}
+            emptyLabel="Not entered — their Part Time Sheets leave the rate blank"
+          />
+          {teacher.highestDegree ? (
             <ProfileDetail
-              key={key}
-              label={`${label} (${hint})`}
-              value={teacher[key] == null ? "" : `${(teacher[key] as number).toLocaleString("en-GB")} AED / h`}
-              emptyLabel="Not entered — its Part Time Sheet leaves the rate blank"
+              label={`Rates ${thisYear}`}
+              value={
+                theirs
+                  ? RATE_SHEETS.map((sheet) =>
+                      theirs[sheet] === undefined ? `${SHEET_WORDS[sheet]} not paid` : `${SHEET_WORDS[sheet]} ${theirs[sheet]}`,
+                    ).join(" · ") + " AED / h"
+                  : ""
+              }
+              emptyLabel={`No rates for ${thisYear} in Settings → Department`}
             />
-          ))}
+          ) : null}
         </dl>
       </RailSection>
       <RailSection title="Notes">
@@ -1834,7 +1826,7 @@ export function ProfileOverview({
           <DialogFooter
             onCancel={cancel}
             onConfirm={() => void submit()}
-            disabled={saving || !draft.fullName.trim() || badRate}
+            disabled={saving || !draft.fullName.trim()}
             label={saving ? "Saving…" : "Save profile"}
           />
         }
@@ -1862,22 +1854,13 @@ export function ProfileOverview({
             value={draft.phone}
             onChange={(phone) => setDraft({ ...draft, phone })}
           />
-          <div className="grid gap-3 sm:col-span-2 sm:grid-cols-3">
-            {RATES.map(({ key, label }) => (
-              <div key={key} className="grid gap-1">
-                <InputField
-                  label={`${label} (AED)`}
-                  fieldKey={key}
-                  type="number"
-                  value={draft[key]}
-                  onChange={(typed) => setDraft({ ...draft, [key]: typed })}
-                />
-                {rates[key] === undefined ? (
-                  <span className="text-xs text-[#8f1f25]">A rate is a number of dirhams, 0 or more.</span>
-                ) : null}
-              </div>
-            ))}
-          </div>
+          <SelectField
+            label="Highest degree"
+            fieldKey="highestDegree"
+            value={draft.highestDegree}
+            onChange={(highestDegree) => setDraft({ ...draft, highestDegree: highestDegree as Degree | "" })}
+            options={[{ value: "", label: "Not said" }, ...DEGREES.map((degree) => ({ value: degree, label: DEGREE_WORDS[degree] }))]}
+          />
           <label className={`${DIALOG_FIELD} sm:col-span-2`}>
             <FormFieldLabel fieldKey="notes">Notes</FormFieldLabel>
             <AutoResizeTextarea

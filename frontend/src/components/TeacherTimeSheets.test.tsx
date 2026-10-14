@@ -309,3 +309,42 @@ describe("the approved sheet in its pop-up", () => {
   });
 });
 
+describe("what each sheet is paid at", () => {
+  it("says the rate, and why a sheet will go out with none", async () => {
+    vi.spyOn(teachers, "listTeacherTimeSheets").mockResolvedValue([]);
+    vi.spyOn(teachers, "listSubmittedTimeSheets").mockResolvedValue([
+      submitted({
+        partTimeSheets: [
+          { type: "CM", lines: 1, hours: 1.5 },
+          { type: "TD-TP", lines: 2, hours: 3 },
+        ],
+        pay: {
+          degree: "bachelors",
+          year: "2026-2027",
+          rates: { CM: null, "TD-TP": 150 },
+          issues: [{ kind: "not_paid", sheet: "CM", degree: "bachelors" }],
+        },
+      }),
+    ]);
+
+    show();
+    fireEvent.click(await screen.findByRole("button", { name: /Submitted 1.5 h/ }));
+    const dialog = await screen.findByRole("dialog");
+
+    expect(within(dialog).getByText(/CM 1.5 h · TD\/TP 3 h at 150/)).toBeTruthy();
+    expect(within(dialog).getByText(/CM hours, which a Bachelors teacher is not paid for/)).toBeTruthy();
+  });
+
+  it("says a missing degree plainly", async () => {
+    vi.spyOn(teachers, "listTeacherTimeSheets").mockResolvedValue([]);
+    vi.spyOn(teachers, "listSubmittedTimeSheets").mockResolvedValue([
+      submitted({ pay: { degree: "", year: "2026-2027", rates: { "TD-TP": null }, issues: [{ kind: "no_degree" }] } }),
+    ]);
+
+    show();
+    fireEvent.click(await screen.findByRole("button", { name: /Submitted 1.5 h/ }));
+
+    expect(within(await screen.findByRole("dialog")).getByText(/No highest degree on their profile/)).toBeTruthy();
+  });
+});
+

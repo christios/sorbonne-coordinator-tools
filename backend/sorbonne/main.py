@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 
 from sorbonne.api.auth import router as auth_router
 from sorbonne.api.department_roles import router as department_roles_router
+from sorbonne.api.pay_rates import router as pay_rates_router
 from sorbonne.api.bibliography_lookup import router as bibliography_lookup_router
 from sorbonne.api.dev_tools import is_local as dev_is_local
 from sorbonne.api.dev_tools import router as dev_router
@@ -89,6 +90,7 @@ app.include_router(exemption_reasons_router, prefix="/api/v1")
 app.include_router(rooms_router, prefix="/api/v1")
 app.include_router(term_weeks_router, prefix="/api/v1")
 app.include_router(department_roles_router, prefix="/api/v1")
+app.include_router(pay_rates_router, prefix="/api/v1")
 
 # Developer conveniences, mounted ONLY when the database is on this machine — so in
 # production they are a 404 rather than a guarded 403. A guard inside a mounted route is

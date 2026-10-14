@@ -21,6 +21,7 @@ from sorbonne.api.timesheets import get_intake
 from sorbonne.services import coordinator_directory
 from sorbonne.services.time_sheet_intake import TimeSheetIntake
 from sorbonne.services.requisition_export import build_requisition_docx
+from sorbonne.services.pay_rates import with_pay
 from sorbonne.services.teacher_store import (
     KEEP,
     CommentNotFound,
@@ -48,11 +49,9 @@ class TeacherInput(BaseModel):
     phone: str = Field(default="", max_length=80)
     notes: str = Field(default="", max_length=5000)
     taskTemplateIds: list[str] = Field(default_factory=list, max_length=20)
-    # What they are paid an hour, for the Part Time Sheets: TD/TP, CM, and other work (office
-    # hours, admin). Left out, a rate is left as it was; null clears it.
-    hourlyRate: float | None = Field(default=None, ge=0, le=100_000)
-    cmHourlyRate: float | None = Field(default=None, ge=0, le=100_000)
-    otherHourlyRate: float | None = Field(default=None, ge=0, le=100_000)
+    # "phd", "masters" or "bachelors": which of the department's pay rates they are paid at.
+    # Left out, it is left as it was; "" clears it.
+    highestDegree: str = Field(default="", max_length=20)
 
 
 class CreateFolderRequest(BaseModel):
@@ -338,12 +337,14 @@ def update_teacher(teacher_id: str, request: TeacherInput, store: TeacherStore =
             email=request.email.strip(),
             phone=request.phone.strip(),
             notes=request.notes.strip(),
-            hourly_rate=request.hourlyRate if "hourlyRate" in request.model_fields_set else KEEP,
-            cm_hourly_rate=request.cmHourlyRate if "cmHourlyRate" in request.model_fields_set else KEEP,
-            other_hourly_rate=request.otherHourlyRate if "otherHourlyRate" in request.model_fields_set else KEEP,
+            highest_degree=(
+                request.highestDegree.strip().lower() if "highestDegree" in request.model_fields_set else KEEP
+            ),
         )
     except TeacherNotFound as exc:
         raise HTTPException(status_code=404, detail="Teacher not found.") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.post("/{teacher_id}/archive")
@@ -422,9 +423,10 @@ def list_submitted_time_sheets(
 
     A different thing from the sheets above, which are links to workbooks somebody typed
     in. These arrived whole — the hours claimed, the days worked, who approved them — and
-    the record shows them against the period they are for.
+    the record shows them against the period they are for, with what each of its Part Time
+    Sheets is paid at.
     """
-    return {"items": intake.for_teacher(teacher_id)}
+    return {"items": with_pay(intake.engine, intake.for_teacher(teacher_id))}
 
 
 @router.get("/{teacher_id}/time-sheets")

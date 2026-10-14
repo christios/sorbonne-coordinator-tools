@@ -83,3 +83,24 @@ describe("a teacher whose period is paid at two rates", () => {
   });
 });
 
+describe("sheets that would go out with a rate left blank", () => {
+  it("names whose and why, before anything is downloaded", async () => {
+    vi.spyOn(teachers, "listEverySubmittedTimeSheet").mockResolvedValue([
+      approved("41", "t1", "2026-09-15", {
+        pay: { degree: "", year: "2026-2027", rates: { "TD-TP": null }, issues: [{ kind: "no_degree" }] },
+      }),
+      approved("42", "t2", "2026-09-15", {
+        pay: { degree: "bachelors", year: "2026-2027", rates: { "TD-TP": 150 }, issues: [] },
+      }),
+    ]);
+
+    show(["t1", "t2"]);
+    fireEvent.click(screen.getByRole("button", { name: /Part Time Sheets/ }));
+    const dialog = await screen.findByRole("dialog");
+
+    const warning = await within(dialog).findByText(/No highest degree on their profile/);
+    expect(warning.closest("li")?.textContent).toMatch(/^Amina:/);
+    expect(within(dialog).queryByText(/^Bilal:/)).toBeNull();
+  });
+});
+

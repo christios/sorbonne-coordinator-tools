@@ -14,12 +14,14 @@ from fastapi.testclient import TestClient
 from sqlalchemy import text
 
 from sorbonne.api import department_roles as roles_api
+from sorbonne.api import pay_rates as rates_api
 from sorbonne.api import teachers as teachers_api
 from sorbonne.api import timesheets as timesheets_api
 from sorbonne.main import app
 from sorbonne.services import auth_gate
 from sorbonne.services.department_roles import DepartmentRoles
 from sorbonne.services.engine import engine_for
+from sorbonne.services.pay_rates import PayRates
 from sorbonne.services.staff_auth import StaffUser
 from sorbonne.services.teacher_store import TeacherStore
 from sorbonne.services.time_sheet_intake import TimeSheetIntake
@@ -28,6 +30,22 @@ from tests.conftest import TEST_DATABASE_URL
 
 TIMESHEETS = "/api/v1/timesheets"
 HEAD = "/api/v1/department-roles/head-of-department"
+RATES = "/api/v1/pay-rates"
+
+#: The department's rates for 2026-2027, as Christian gave them. Bachelors are not paid CM.
+YEAR = {
+    "phd": {"CM": 500, "TD-TP": 350, "OTHER": 100},
+    "masters": {"CM": 350, "TD-TP": 350, "OTHER": 100},
+    "bachelors": {"TD-TP": 150, "OTHER": 100},
+}
+
+#: A period of lectures, a tutorial and office hours: three sheets at three rates.
+MIXED = [
+    {"date": "2026-09-16", "from": "08:30", "to": "10:00", "hours": 1.5, "details": "MATH-001 CM"},
+    {"date": "2026-09-16", "from": "10:15", "to": "11:45", "hours": 1.5, "details": "MATH-001 TD G2"},
+    {"date": "2026-09-17", "from": "13:00", "to": "14:00", "hours": 1, "details": "Office hours"},
+    {"date": "2026-09-18", "from": "08:30", "to": "10:00", "hours": 1.5, "details": "MATH-001", "component": "CM"},
+]
 
 
 @pytest.fixture(autouse=True)
@@ -36,7 +54,10 @@ def engine():
     held = engine_for(TEST_DATABASE_URL)
     with held.begin() as connection:
         connection.execute(text("DELETE FROM department_roles"))
+        connection.execute(text("DELETE FROM pay_rates"))
+    PayRates(held).set_year("2026-2027", YEAR, actor="admin@sorbonne.ae")
     app.dependency_overrides[timesheets_api.get_workbooks] = lambda: TimeSheetWorkbooks(held)
+    app.dependency_overrides[rates_api.get_rates] = lambda: PayRates(held)
     app.dependency_overrides[roles_api.get_roles] = lambda: DepartmentRoles(held)
     app.dependency_overrides[teachers_api.get_store] = lambda: TeacherStore(TEST_DATABASE_URL)
     app.dependency_overrides[timesheets_api.get_intake] = lambda: TimeSheetIntake(TEST_DATABASE_URL)
@@ -48,6 +69,7 @@ def engine():
             roles_api.get_roles,
             teachers_api.get_store,
             timesheets_api.get_intake,
+            rates_api.get_rates,
         ):
             app.dependency_overrides.pop(dependency, None)
 
@@ -71,12 +93,10 @@ def an_active_teacher(engine, *, name: str, portal_id: str = "", part_time_id: s
 
 def an_approved_period(
     *,
-    rate: float | None = 150.0,
+    degree: str = "bachelors",
     portal_id: str = "",
     submitted: str = "",
     days: list[dict] | None = None,
-    cm_rate: float | None = None,
-    other_rate: float | None = None,
 ) -> tuple[str, str]:
     """A part-time teacher with a period approved; the period's id and the teacher's name."""
     store = TeacherStore(TEST_DATABASE_URL)
@@ -88,9 +108,7 @@ def an_approved_period(
         email=teacher["email"],
         phone="",
         notes="",
-        hourly_rate=rate,
-        cm_hourly_rate=cm_rate,
-        other_hourly_rate=other_rate,
+        highest_degree=degree,
     )
     if portal_id:
         an_active_teacher(store.engine, name=name, portal_id=portal_id, part_time_id=teacher["id"])
@@ -144,7 +162,7 @@ def test_one_period_downloads_as_the_filled_template(engine):
 
 
 def test_what_nobody_has_said_yet_is_left_blank_for_somebody_to_fill(engine):
-    period_id, _ = an_approved_period(rate=None)
+    period_id, _ = an_approved_period(degree="")
 
     sheet = cells(TestClient(app).get(f"{TIMESHEETS}/submitted/{period_id}/workbook").content)
 
@@ -207,32 +225,9 @@ def test_only_an_administrator_names_the_head_of_department(engine, monkeypatch)
     assert client.put(HEAD, json={"activeTeacherId": head}).status_code == status.HTTP_403_FORBIDDEN
 
 
-def test_a_teachers_rate_is_kept_until_it_is_changed_and_null_clears_it():
-    store = TeacherStore(TEST_DATABASE_URL)
-    teacher = store.create_teacher(full_name=f"Dr Rate {uuid4()}")
-    client = TestClient(app)
-    base = {"fullName": teacher["fullName"], "email": "", "phone": "", "notes": ""}
-
-    profile = f"/api/v1/teachers/{teacher['id']}"
-
-    assert client.patch(profile, json={**base, "hourlyRate": 175.5}).json()["hourlyRate"] == 175.5
-    # A save that does not mention the rate leaves it alone.
-    assert client.patch(profile, json={**base, "notes": "x"}).json()["hourlyRate"] == 175.5
-    assert client.patch(profile, json={**base, "hourlyRate": None}).json()["hourlyRate"] is None
-    assert client.patch(profile, json={**base, "hourlyRate": -1}).status_code == 422
-
-
-MIXED = [
-    {"date": "2026-09-16", "from": "08:30", "to": "10:00", "hours": 1.5, "details": "MATH-001 CM"},
-    {"date": "2026-09-16", "from": "10:15", "to": "11:45", "hours": 1.5, "details": "MATH-001 TD G2"},
-    {"date": "2026-09-17", "from": "13:00", "to": "14:00", "hours": 1, "details": "Office hours"},
-    {"date": "2026-09-18", "from": "08:30", "to": "10:00", "hours": 1.5, "details": "MATH-001", "component": "CM"},
-]
-
-
 def test_a_period_of_lectures_and_tutorials_is_a_sheet_per_rate():
     """CM and TD/TP are paid differently, and office hours at a rate of their own."""
-    period_id, name = an_approved_period(days=MIXED, rate=150.0, cm_rate=250.0, other_rate=100.0)
+    period_id, name = an_approved_period(days=MIXED, degree="phd")
 
     answer = TestClient(app).get(f"{TIMESHEETS}/submitted/{period_id}/workbook")
 
@@ -244,9 +239,9 @@ def test_a_period_of_lectures_and_tutorials_is_a_sheet_per_rate():
     assert held.namelist() == [f"{stem} - CM.xlsx", f"{stem} - TD-TP.xlsx", f"{stem} - Other.xlsx"]
     cm, tutorials, other = (cells(held.read(part)) for part in held.namelist())
     # Each sheet its own lines, its own total and its own rate.
-    assert (cm["D18"].value is not None, cm["D20"].value is not None, cm["F49"].value) == (True, True, 250.0)
+    assert (cm["D18"].value is not None, cm["D20"].value is not None, cm["F49"].value) == (True, True, 500.0)
     assert cm["G18"].value == "MATH-001 CM"
-    assert (tutorials["G18"].value, tutorials["F49"].value) == ("MATH-001 TD G2", 150.0)
+    assert (tutorials["G18"].value, tutorials["F49"].value) == ("MATH-001 TD G2", 350.0)
     assert tutorials["D19"].value is None
     assert (other["G19"].value, other["F49"].value) == ("Office hours", 100.0)
 
@@ -278,16 +273,95 @@ def test_the_zip_for_several_teachers_holds_every_sheet_of_every_one():
     assert f"Part Time Sheet - {mixed_name} - Sep-26 and Oct-26 - CM.xlsx" in names
 
 
-def test_each_rate_is_kept_until_it_is_changed():
+def listed(period_id: str) -> dict:
+    items = TestClient(app).get(f"{TIMESHEETS}/submitted").json()["items"]
+    return next(one for one in items if one["periodId"] == period_id)
+
+
+def test_each_sheet_is_paid_at_the_degrees_rate_for_the_periods_year():
+    period_id, _ = an_approved_period(days=MIXED, degree="masters")
+
+    assert listed(period_id)["pay"] == {
+        "degree": "masters",
+        "year": "2026-2027",
+        "rates": {"CM": 350.0, "TD-TP": 350.0, "OTHER": 100.0},
+        "issues": [],
+    }
+
+
+def test_a_bachelors_lectures_go_out_unpaid_and_say_so():
+    """A Bachelors is not paid CM: the sheet is made, with its hours and no rate, and a warning."""
+    period_id, _ = an_approved_period(days=MIXED, degree="bachelors")
+
+    pay = listed(period_id)["pay"]
+    assert pay["rates"] == {"CM": None, "TD-TP": 150.0, "OTHER": 100.0}
+    assert pay["issues"] == [{"kind": "not_paid", "sheet": "CM", "degree": "bachelors"}]
+    answer = TestClient(app).get(f"{TIMESHEETS}/submitted/{period_id}/workbook")
+    held = zipfile.ZipFile(io.BytesIO(answer.content))
+    cm = cells(held.read(held.namelist()[0]))
+    assert (cm["F49"].value, cm["G18"].value) == (None, "MATH-001 CM")
+
+
+def test_no_degree_and_no_rates_for_the_year_are_said_too(engine):
+    period_id, _ = an_approved_period(degree="")
+    assert listed(period_id)["pay"]["issues"] == [{"kind": "no_degree"}]
+
+    PayRates(engine).set_year("2026-2027", {}, actor="admin@sorbonne.ae")
+    other, _ = an_approved_period(degree="phd")
+    assert listed(other)["pay"]["issues"] == [{"kind": "no_rates", "year": "2026-2027"}]
+
+
+def test_a_period_opening_in_august_is_paid_at_that_academic_years_rates(engine):
+    """Rates change by year, and a sheet keeps its own: August 2027 is 2027-2028."""
+    PayRates(engine).set_year("2027-2028", {"bachelors": {"TD-TP": 175}}, actor="admin@sorbonne.ae")
     store = TeacherStore(TEST_DATABASE_URL)
-    teacher = store.create_teacher(full_name=f"Dr Rates {uuid4()}")
+    teacher = store.create_teacher(full_name=f"Dr Next {uuid4().hex[:6]}", email=f"{uuid4()}@sorbonne.ae")
+    store.update_teacher(teacher["id"], full_name=teacher["fullName"], email=teacher["email"], phone="", notes="",
+                         highest_degree="bachelors")
+    period_id = f"p{uuid4().hex[:8]}"
+    TimeSheetIntake(TEST_DATABASE_URL).receive({
+        "schema": "timesheet.period.v1", "periodId": period_id, "version": 1,
+        "periodStart": "2027-08-15", "periodEnd": "2027-09-14",
+        "staff": {"name": teacher["fullName"], "email": teacher["email"]},
+        "days": [{"date": "2027-08-16", "from": "08:30", "to": "10:00", "hours": 1.5, "details": "SCEN-102 TD"}],
+    })
+
+    assert listed(period_id)["pay"]["rates"] == {"TD-TP": 175.0}
+    assert cells(TestClient(app).get(f"{TIMESHEETS}/submitted/{period_id}/workbook").content)["F49"].value == 175.0
+
+
+def test_an_administrator_sets_a_years_rates_and_anybody_reads_them(monkeypatch):
+    client = TestClient(app)
+
+    saved = client.put(f"{RATES}/2027-2028", json={"rates": {"phd": {"CM": 520, "TD-TP": 360, "OTHER": None}}})
+
+    assert saved.status_code == 200, saved.text
+    assert client.get(RATES).json()["years"]["2027-2028"] == {"phd": {"CM": 520.0, "TD-TP": 360.0}}
+    for refused in (
+        client.put(f"{RATES}/2027", json={"rates": {}}),
+        client.put(f"{RATES}/2027-2028", json={"rates": {"diploma": {"CM": 1}}}),
+        client.put(f"{RATES}/2027-2028", json={"rates": {"phd": {"Lab": 1}}}),
+        client.put(f"{RATES}/2027-2028", json={"rates": {"phd": {"CM": -5}}}),
+    ):
+        assert refused.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY, refused.text
+    monkeypatch.setattr(
+        auth_gate,
+        "user_for_request",
+        lambda *_args, **_kwargs: StaffUser(email="coordinator@sorbonne.ae", name="Coordinator", is_admin=False),
+    )
+    assert client.get(RATES).status_code == status.HTTP_200_OK
+    assert client.put(f"{RATES}/2027-2028", json={"rates": {}}).status_code == status.HTTP_403_FORBIDDEN
+
+
+def test_a_teachers_degree_is_kept_until_it_is_changed():
+    teacher = TeacherStore(TEST_DATABASE_URL).create_teacher(full_name=f"Dr Degree {uuid4()}")
     client = TestClient(app)
     base = {"fullName": teacher["fullName"], "email": "", "phone": "", "notes": ""}
     profile = f"/api/v1/teachers/{teacher['id']}"
 
-    rates = {"hourlyRate": 150, "cmHourlyRate": 250, "otherHourlyRate": 100}
-    saved = client.patch(profile, json={**base, **rates}).json()
-    assert (saved["hourlyRate"], saved["cmHourlyRate"], saved["otherHourlyRate"]) == (150, 250, 100)
-    kept = client.patch(profile, json={**base, "cmHourlyRate": None}).json()
-    assert (kept["hourlyRate"], kept["cmHourlyRate"], kept["otherHourlyRate"]) == (150, None, 100)
+    assert client.patch(profile, json={**base, "highestDegree": "PhD"}).json()["highestDegree"] == "phd"
+    # A save that does not mention the degree leaves it alone.
+    assert client.patch(profile, json={**base, "notes": "x"}).json()["highestDegree"] == "phd"
+    assert client.patch(profile, json={**base, "highestDegree": ""}).json()["highestDegree"] == ""
+    assert client.patch(profile, json={**base, "highestDegree": "diploma"}).status_code == 422
 
