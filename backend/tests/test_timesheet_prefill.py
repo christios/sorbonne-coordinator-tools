@@ -18,6 +18,7 @@ from sorbonne.main import app
 from sorbonne.services.facility_timetable import FacilityTimetableStore
 from sorbonne.services.session_changes import SessionChangeStore
 from sorbonne.services.student_database import StudentDatabase
+from sorbonne.services.pay_rates import PayRates
 from sorbonne.services.teacher_store import TeacherStore
 from sorbonne.services.timesheet_prefill import TimesheetPrefill, names_them, period_of
 from tests.conftest import TEST_DATABASE_URL
@@ -45,6 +46,7 @@ def empty_tables() -> None:
             "term_links",
             "teacher_requisitions",
             "part_time_teachers",
+            "pay_rates",
         ):
             connection.execute(text(f"DELETE FROM {table}"))  # noqa: S608
 
@@ -362,3 +364,47 @@ def test_the_flow_gets_the_contract_and_it_is_never_kept(client: TestClient):
     assert answer.status_code == 200
     assert answer.json()["schema"] == "timesheet.prefill.v1"
     assert answer.headers["cache-control"] == "no-store"
+
+
+# ------------------------------------------------------------------ what they are paid
+
+
+def degree(teacher: dict, highest: str) -> None:
+    TeacherStore(TEST_DATABASE_URL).update_teacher(
+        teacher["id"], full_name=teacher["fullName"], email=teacher["email"], phone="", notes="",
+        highest_degree=highest,
+    )
+
+
+def test_the_answer_says_what_they_are_paid_an_hour_for_each_kind_of_work(prefill: TimesheetPrefill):
+    """So the teacher, the coordinators and the Head of Department see the rate in the app."""
+    PayRates(StudentDatabase(TEST_DATABASE_URL).engine).set_year(
+        "2026-2027",
+        {"phd": {"CM": 500, "TD-TP": 350, "OTHER": 100}, "bachelors": {"TD-TP": 150, "OTHER": 100}},
+    )
+    doctor, graduate = a_part_timer("Dr Rate"), a_part_timer("Ms Rate")
+    degree(doctor, "phd")
+    degree(graduate, "bachelors")
+
+    assert prefill.sessions(period_start="2026-10-15", email=doctor["email"], today=TODAY)["pay"] == {
+        "degree": "phd",
+        "year": "2026-2027",
+        "rates": {"CM": 500.0, "TD-TP": 350.0, "OTHER": 100.0},
+        "issues": [],
+    }
+    # A Bachelors gives no lectures: no CM rate, and nothing wrong about that.
+    paid = prefill.sessions(period_start="2026-10-15", email=graduate["email"], today=TODAY)["pay"]
+    assert (paid["rates"], paid["issues"]) == ({"CM": None, "TD-TP": 150.0, "OTHER": 100.0}, [])
+
+
+def test_a_rate_nobody_can_say_yet_says_why(prefill: TimesheetPrefill):
+    teacher = a_part_timer("Dr Unknown")
+
+    assert prefill.sessions(period_start="2026-10-15", email=teacher["email"], today=TODAY)["pay"]["issues"] == [
+        {"kind": "no_degree"}
+    ]
+    degree(teacher, "masters")
+    pay = prefill.sessions(period_start="2026-10-15", email=teacher["email"], today=TODAY)["pay"]
+    assert pay["issues"] == [{"kind": "no_rates", "year": "2026-2027"}]
+    assert pay["rates"] == {"CM": None, "TD-TP": None, "OTHER": None}
+

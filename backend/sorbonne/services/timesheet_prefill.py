@@ -41,6 +41,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import Engine, text
 
 from sorbonne.services.engine import engine_for
+from sorbonne.services.pay_rates import PayRates, rates_of
 from sorbonne.services.time_sheet_intake import TeacherNotKnown, teacher_for
 
 SCHEMA = "timesheet.prefill.v1"
@@ -109,6 +110,9 @@ class TimesheetPrefill:
                 {term for (term, _crn), held in meetings.items() if any(first <= day <= last for day, _s, _e in held)}
             )
             synced_at, complete = self._last_sync(connection, terms)
+            degree = connection.execute(
+                text("SELECT highest_degree FROM part_time_teachers WHERE id = :id"), {"id": teacher_id}
+            ).scalar()
 
         sessions: list[dict[str, Any]] = []
         # Their own sections: every meeting in the period, with what a coordinator said of it.
@@ -153,6 +157,9 @@ class TimesheetPrefill:
             "teacherName": who["name"],
             "scheduleSyncedAt": synced_at,
             "complete": complete,
+            # What they are paid an hour for the period, by kind of work, so the teacher, the
+            # coordinators and the Head of Department all see the rate the sheet will carry.
+            "pay": rates_of(PayRates(self.engine).table(), degree=degree or "", period_start=first.isoformat()),
             "sessions": sessions,
         }
 

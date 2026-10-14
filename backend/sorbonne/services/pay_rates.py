@@ -117,6 +117,24 @@ def pay_for(table: Table, *, degree: str, period_start: str, lines: list[dict]) 
     }
 
 
+def rates_of(table: Table, *, degree: str, period_start: str) -> dict[str, Any]:
+    """All three of a teacher's rates for a period's year, for the Timesheets app to show.
+
+    A rate of None with no issue is work their degree is not paid for; with an issue, it is
+    one nobody can say yet — no degree on their profile, or no table for the year.
+    """
+    year = year_of(period_start)
+    held = table.get(year, {})
+    cells = held.get(degree, {}) if degree else {}
+    issues = [{"kind": "no_degree"}] if not degree else [] if held else [{"kind": "no_rates", "year": year}]
+    return {
+        "degree": degree,
+        "year": year,
+        "rates": {kind: cells.get(kind) for kind in SHEET_TYPES},
+        "issues": issues,
+    }
+
+
 def with_pay(engine: Engine, sheets: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Approved sheets, each with what its Part Time Sheets are paid at — for the pages."""
     if not sheets:
