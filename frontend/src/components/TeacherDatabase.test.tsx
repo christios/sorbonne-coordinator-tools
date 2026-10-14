@@ -80,7 +80,8 @@ describe("ProfileOverview", () => {
     fireEvent.change(screen.getByRole("textbox", { name: "Full name" }), {
       target: { value: "Marie Skłodowska-Curie" },
     });
-    fireEvent.change(screen.getByRole("spinbutton", { name: "Rate per hour (AED)" }), { target: { value: "175.5" } });
+    fireEvent.change(screen.getByRole("spinbutton", { name: "TD/TP rate (AED)" }), { target: { value: "175.5" } });
+    fireEvent.change(screen.getByRole("spinbutton", { name: "CM rate (AED)" }), { target: { value: "250" } });
     fireEvent.click(screen.getByRole("button", { name: "Save profile" }));
 
     await waitFor(() =>
@@ -90,11 +91,13 @@ describe("ProfileOverview", () => {
         phone: "+33 1 23 45 67 89",
         notes: "Available for physics modules.",
         hourlyRate: 175.5,
+        cmHourlyRate: 250,
+        otherHourlyRate: null,
       }),
     );
   });
 
-  it("keeps the rate the Part Time Sheet is paid at, and refuses one that is not a number of dirhams", async () => {
+  it("keeps the rates the Part Time Sheets are paid at, and refuses one that is not a number of dirhams", async () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
     render(
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
@@ -116,9 +119,11 @@ describe("ProfileOverview", () => {
       </QueryClientProvider>,
     );
 
-    expect(screen.getByText("150 AED")).toBeTruthy();
+    expect(screen.getByText("150 AED / h")).toBeTruthy();
+    // A lecture is paid at its own rate, which nobody has entered here.
+    expect(screen.getAllByText(/Not entered/)).toHaveLength(2);
     fireEvent.click(screen.getByRole("button", { name: "Edit profile" }));
-    const rate = screen.getByRole("spinbutton", { name: "Rate per hour (AED)" });
+    const rate = screen.getByRole("spinbutton", { name: "TD/TP rate (AED)" });
     fireEvent.change(rate, { target: { value: "-5" } });
 
     expect(screen.getByText(/A rate is a number of dirhams/)).toBeTruthy();

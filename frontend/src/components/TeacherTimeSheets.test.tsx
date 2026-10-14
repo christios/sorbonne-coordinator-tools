@@ -237,7 +237,8 @@ describe("the approved sheet in its pop-up", () => {
     vi.spyOn(teachers, "listTeacherTimeSheets").mockResolvedValue([]);
     vi.spyOn(teachers, "listSubmittedTimeSheets").mockResolvedValue([
       submitted({
-        days: [{ day: "Mon", date: "2026-10-19", from: "08:30", to: "10:00", hours: 1.5, details: "PHYS-101 TD", kind: "teaching" }],
+        days: [{ day: "Mon", date: "2026-10-19", from: "08:30", to: "10:00", hours: 1.5, details: "PHYS-101 TD", kind: "teaching", sheet: "TD-TP" }],
+        partTimeSheets: [{ type: "TD-TP", lines: 1, hours: 1.5 }],
       }),
     ]);
 
@@ -246,7 +247,34 @@ describe("the approved sheet in its pop-up", () => {
 
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByText("PHYS-101 TD")).toBeTruthy();
-    expect(within(dialog).getByText("Teaching")).toBeTruthy();
+    expect(within(dialog).getByText("TD/TP")).toBeTruthy();
+    // One rate, one sheet: nothing to explain.
+    expect(within(dialog).queryByText(/Paid at/)).toBeNull();
+    expect(within(dialog).getByRole("button", { name: "Download Excel" })).toBeTruthy();
+  });
+
+  it("says when lectures and tutorials make it two sheets, at two rates", async () => {
+    vi.spyOn(teachers, "listTeacherTimeSheets").mockResolvedValue([]);
+    vi.spyOn(teachers, "listSubmittedTimeSheets").mockResolvedValue([
+      submitted({
+        days: [
+          { day: "Mon", date: "2026-10-19", from: "08:30", to: "10:00", hours: 1.5, details: "MATH-001 CM", kind: "teaching", sheet: "CM" },
+          { day: "Mon", date: "2026-10-19", from: "13:00", to: "14:00", hours: 1, details: "Exam board", kind: "admin", sheet: "OTHER" },
+        ],
+        partTimeSheets: [
+          { type: "CM", lines: 1, hours: 1.5 },
+          { type: "OTHER", lines: 1, hours: 1 },
+        ],
+      }),
+    ]);
+
+    show();
+    fireEvent.click(await screen.findByRole("button", { name: /Submitted 1.5 h/ }));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText(/goes to HR as 2 Part Time Sheets: CM 1.5 h · Other work 1 h/)).toBeTruthy();
+    expect(within(dialog).getByText("Other work (admin)")).toBeTruthy();
+    expect(within(dialog).getByRole("button", { name: "Download 2 sheets (.zip)" })).toBeTruthy();
   });
 
   it("downloads HR's Part Time Sheet, then offers to mark it as gone to HR", async () => {

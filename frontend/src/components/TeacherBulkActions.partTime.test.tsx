@@ -66,3 +66,20 @@ describe("Part Time Sheets for the ticked teachers", () => {
     expect(await screen.findByText(/has a period approved in the Timesheets app yet/)).toBeTruthy();
   });
 });
+
+describe("a teacher whose period is paid at two rates", () => {
+  it("counts their sheets, not their period, in what the zip will hold", async () => {
+    vi.spyOn(teachers, "listEverySubmittedTimeSheet").mockResolvedValue([
+      approved("41", "t1", "2026-09-15", { partTimeSheets: [{ type: "CM", lines: 3, hours: 4.5 }, { type: "TD-TP", lines: 7, hours: 10.5 }] }),
+      approved("42", "t2", "2026-09-15", { partTimeSheets: [{ type: "TD-TP", lines: 8, hours: 12 }] }),
+    ]);
+
+    show(["t1", "t2"]);
+    fireEvent.click(screen.getByRole("button", { name: /Part Time Sheets/ }));
+    const dialog = await screen.findByRole("dialog");
+
+    expect(await within(dialog).findByText("CM 4.5 h · TD/TP 10.5 h")).toBeTruthy();
+    expect(within(dialog).getByRole("button", { name: "Download 3 sheets (.zip)" })).toBeTruthy();
+  });
+});
+

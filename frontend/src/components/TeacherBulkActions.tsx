@@ -37,6 +37,7 @@ import {
   listEverySubmittedTimeSheet,
   listTeacherTimeSheets,
   markSubmittedToHr,
+  SHEET_WORDS,
 } from "@/services/teachers";
 
 /** A row of the list a time-sheet download comes to. */
@@ -285,6 +286,8 @@ function PartTimeSheets({
     .filter((sheet) => sheet.periodStart === period)
     .sort((left, right) => nameOf(left.teacherId).localeCompare(nameOf(right.teacherId)));
   const without = chosen.filter((id) => !sheets.some((sheet) => sheet.teacherId === id));
+  // Files, not periods: a teacher who gave lectures and tutorials is a sheet at each rate.
+  const files = sheets.reduce((sum, sheet) => sum + Math.max(1, sheet.partTimeSheets?.length ?? 1), 0);
   // What the last download held, so the offer to mark them is about exactly those.
   const [made, setMade] = useState<{ ids: string[]; notPlaced: number } | null>(null);
   const download = useMutation({
@@ -319,7 +322,7 @@ function PartTimeSheets({
             <span className="mr-auto text-sm text-[#667085]">
               {made.notPlaced
                 ? `Downloaded, but ${made.notPlaced} line${made.notPlaced === 1 ? " has" : "s have"} no row on the template — check before sending.`
-                : `Downloaded ${made.ids.length} sheet${made.ids.length === 1 ? "" : "s"}.`}
+                : `Downloaded the sheets of ${made.ids.length} teacher${made.ids.length === 1 ? "" : "s"}.`}
             </span>
           ) : null}
           <button type="button" onClick={onClose} className="text-sm font-semibold text-[#667085]">
@@ -333,7 +336,9 @@ function PartTimeSheets({
               className="inline-flex items-center gap-1.5 rounded-md bg-[#1f6b47] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
             >
               <Send size={14} aria-hidden="true" />
-              {mark.isPending ? "Marking…" : `Mark these ${made.ids.length} as submitted to HR`}
+              {mark.isPending
+                ? "Marking…"
+                : `Mark ${made.ids.length === 1 ? "it" : `these ${made.ids.length}`} as submitted to HR`}
             </button>
           ) : null}
           <button
@@ -345,9 +350,9 @@ function PartTimeSheets({
             <Download size={14} aria-hidden="true" />
             {download.isPending
               ? "Preparing…"
-              : sheets.length === 1
+              : files === 1
                 ? "Download the sheet"
-                : `Download ${sheets.length || ""} sheets (.zip)`}
+                : `Download ${files || ""} sheets (.zip)`}
           </button>
         </div>
       }
@@ -375,6 +380,7 @@ function PartTimeSheets({
                 <tr className="border-b border-[#e4e8ef] text-[11px] font-semibold uppercase tracking-wide text-[#8a94a4]">
                   <th scope="col" className="px-3 py-2 text-left">Teacher</th>
                   <th scope="col" className="px-3 py-2 text-right">Hours</th>
+                  <th scope="col" className="px-3 py-2 text-left">Sheets</th>
                   <th scope="col" className="px-3 py-2 text-left">Approved</th>
                   <th scope="col" className="px-3 py-2 text-left">HR</th>
                 </tr>
@@ -384,6 +390,10 @@ function PartTimeSheets({
                   <tr key={sheet.periodId} className="border-b border-[#f2f4f7] last:border-0">
                     <td className="px-3 py-2 text-[#344054]">{nameOf(sheet.teacherId)}</td>
                     <td className="px-3 py-2 text-right tabular-nums text-[#344054]">{sheet.claimedHours}</td>
+                    <td className="px-3 py-2 text-xs text-[#667085]">
+                      {(sheet.partTimeSheets ?? []).map((part) => `${SHEET_WORDS[part.type]} ${part.hours} h`).join(" · ") ||
+                        "—"}
+                    </td>
                     <td className="px-3 py-2 text-[#667085]">
                       {[sheet.approvedBy, sheet.approvedOn ? localDay(sheet.approvedOn) : ""].filter(Boolean).join(", ") || "—"}
                     </td>

@@ -308,3 +308,15 @@ def test_the_day_the_teacher_submitted_is_kept_when_the_app_sends_it(
     assert intake.for_teacher(teacher["id"])[0]["submittedOn"] == "2026-09-15T10:00:00Z"
     assert intake.for_teacher(other["id"])[0]["submittedOn"] == ""
 
+
+def test_a_lines_type_is_kept_when_the_app_says_it(client: TestClient, store: TeacherStore, intake: TimeSheetIntake):
+    """CM or TD/TP decides the rate; anything else the app might send is not a type."""
+    teacher = a_teacher(store)
+    body = a_push(teacher["email"], period_id=f"p{uuid4().hex[:8]}")
+    body["days"][0]["component"] = "cm"
+    body["days"][1]["component"] = "seminar"
+    client.post(PUSH, json=body, headers={"X-Timesheet-Key": KEY})
+
+    days = intake.for_teacher(teacher["id"])[0]["days"]
+    assert [day["component"] for day in days] == ["CM", ""]
+

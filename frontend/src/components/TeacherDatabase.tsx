@@ -1678,16 +1678,27 @@ function TeacherDocumentsSection({ teacherId }: { teacherId: string }) {
   );
 }
 
-/** What the profile form saves. The rate is a number, or null for none entered. */
-type ProfileInput = Pick<Teacher, "fullName" | "email" | "phone" | "notes"> & { hourlyRate: number | null };
-/** What the form holds while it is typed in: the rate as typed. */
-type ProfileFields = Omit<ProfileInput, "hourlyRate"> & { hourlyRate: string };
+/** The three rates a Part Time Sheet can be paid at, and what each is called. */
+const RATES = [
+  { key: "hourlyRate", label: "TD/TP rate", hint: "tutorials and practicals" },
+  { key: "cmHourlyRate", label: "CM rate", hint: "lectures" },
+  { key: "otherHourlyRate", label: "Other work rate", hint: "office hours, admin" },
+] as const;
+type RateKey = (typeof RATES)[number]["key"];
+
+/** What the profile form saves. Each rate is a number, or null for none entered. */
+type ProfileInput = Pick<Teacher, "fullName" | "email" | "phone" | "notes"> & Record<RateKey, number | null>;
+/** What the form holds while it is typed in: the rates as typed. */
+type ProfileFields = Pick<Teacher, "fullName" | "email" | "phone" | "notes"> & Record<RateKey, string>;
+const typedRate = (rate: number | null | undefined) => (rate == null ? "" : String(rate));
 const profileFields = (teacher: Teacher): ProfileFields => ({
   fullName: teacher.fullName,
   email: teacher.email,
   phone: teacher.phone,
   notes: teacher.notes,
-  hourlyRate: teacher.hourlyRate == null ? "" : String(teacher.hourlyRate),
+  hourlyRate: typedRate(teacher.hourlyRate),
+  cmHourlyRate: typedRate(teacher.cmHourlyRate),
+  otherHourlyRate: typedRate(teacher.otherHourlyRate),
 });
 
 /** The rate as typed, as a number; null for blank, undefined for something that is not a rate. */
@@ -1729,12 +1740,16 @@ export function ProfileOverview({
   useEffect(() => {
     setDraft(profileFields(teacher));
   }, [teacher]);
-  const rate = rateOf(draft.hourlyRate);
+  const rates = Object.fromEntries(RATES.map(({ key }) => [key, rateOf(draft[key])])) as Record<
+    RateKey,
+    number | null | undefined
+  >;
+  const badRate = RATES.some(({ key }) => rates[key] === undefined);
   async function submit(event?: FormEvent) {
     event?.preventDefault();
-    if (!draft.fullName.trim() || saving || rate === undefined) return;
+    if (!draft.fullName.trim() || saving || badRate) return;
     try {
-      await onSave({ ...draft, hourlyRate: rate });
+      await onSave({ ...draft, ...(rates as Record<RateKey, number | null>) });
       setEditing(false);
     } catch {
       // The failure is said in the dialog, which stays open with what was typed.
@@ -1782,14 +1797,20 @@ export function ProfileOverview({
           />
         </dl>
       </RailSection>
-      {/* What the Part Time Sheet is paid at: its "Rate per hour", and so its total. */}
+      {/*
+        * What each Part Time Sheet is paid at: its "Rate per hour", and so its total. A period
+        * of lectures and tutorials is sent as two sheets, so each kind has its own rate.
+        */}
       <RailSection title="Pay">
         <dl className="grid gap-3">
-          <ProfileDetail
-            label="Rate per hour"
-            value={teacher.hourlyRate == null ? "" : `${teacher.hourlyRate.toLocaleString("en-GB")} AED`}
-            emptyLabel="No rate entered — the Part Time Sheet leaves it blank"
-          />
+          {RATES.map(({ key, label, hint }) => (
+            <ProfileDetail
+              key={key}
+              label={`${label} (${hint})`}
+              value={teacher[key] == null ? "" : `${(teacher[key] as number).toLocaleString("en-GB")} AED / h`}
+              emptyLabel="Not entered — its Part Time Sheet leaves the rate blank"
+            />
+          ))}
         </dl>
       </RailSection>
       <RailSection title="Notes">
@@ -1807,7 +1828,7 @@ export function ProfileOverview({
           <DialogFooter
             onCancel={cancel}
             onConfirm={() => void submit()}
-            disabled={saving || !draft.fullName.trim() || rate === undefined}
+            disabled={saving || !draft.fullName.trim() || badRate}
             label={saving ? "Saving…" : "Save profile"}
           />
         }
@@ -1835,17 +1856,21 @@ export function ProfileOverview({
             value={draft.phone}
             onChange={(phone) => setDraft({ ...draft, phone })}
           />
-          <div className="grid gap-1">
-            <InputField
-              label="Rate per hour (AED)"
-              fieldKey="hourlyRate"
-              type="number"
-              value={draft.hourlyRate}
-              onChange={(hourlyRate) => setDraft({ ...draft, hourlyRate })}
-            />
-            {rate === undefined ? (
-              <span className="text-xs text-[#8f1f25]">A rate is a number of dirhams, 0 or more.</span>
-            ) : null}
+          <div className="grid gap-3 sm:col-span-2 sm:grid-cols-3">
+            {RATES.map(({ key, label }) => (
+              <div key={key} className="grid gap-1">
+                <InputField
+                  label={`${label} (AED)`}
+                  fieldKey={key}
+                  type="number"
+                  value={draft[key]}
+                  onChange={(typed) => setDraft({ ...draft, [key]: typed })}
+                />
+                {rates[key] === undefined ? (
+                  <span className="text-xs text-[#8f1f25]">A rate is a number of dirhams, 0 or more.</span>
+                ) : null}
+              </div>
+            ))}
           </div>
           <label className={`${DIALOG_FIELD} sm:col-span-2`}>
             <FormFieldLabel fieldKey="notes">Notes</FormFieldLabel>

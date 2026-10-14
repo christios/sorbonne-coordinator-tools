@@ -45,15 +45,12 @@ class WorkbooksInput(BaseModel):
     periodIds: list[str] = Field(min_length=1, max_length=300)
 
 
-XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-
-
-def _download(book: Workbook, media_type: str) -> Response:
+def _download(book: Workbook) -> Response:
     """The file, named for a person reading a Downloads folder, and how many lines it could not place."""
     ascii_name = book.filename.encode("ascii", "replace").decode().replace("?", "_")
     return Response(
         content=book.data,
-        media_type=media_type,
+        media_type=book.media_type,
         headers={
             "Content-Disposition": f'attachment; filename="{ascii_name}"; filename*=UTF-8\'\'{quote(book.filename)}',
             "X-Lines-Not-Placed": str(book.unplaced),
@@ -98,9 +95,9 @@ def list_submitted(intake: TimeSheetIntake = Depends(get_intake)) -> dict[str, A
 
 @router.get("/submitted/{period_id}/workbook")
 def one_workbook(period_id: str, workbooks: TimeSheetWorkbooks = Depends(get_workbooks)) -> Response:
-    """One approved period as the university's Part Time Sheet."""
+    """One approved period as the university's Part Time Sheet — or a zip of them, one per rate."""
     try:
-        return _download(workbooks.workbook(period_id), XLSX)
+        return _download(workbooks.workbook(period_id))
     except SheetNotFound as exc:
         raise HTTPException(status_code=404, detail="That time sheet is not here any more.") from exc
 
@@ -109,7 +106,7 @@ def one_workbook(period_id: str, workbooks: TimeSheetWorkbooks = Depends(get_wor
 def many_workbooks(body: WorkbooksInput, workbooks: TimeSheetWorkbooks = Depends(get_workbooks)) -> Response:
     """Several approved periods, a Part Time Sheet each, in one zip."""
     try:
-        return _download(workbooks.bundle(body.periodIds), "application/zip")
+        return _download(workbooks.bundle(body.periodIds))
     except SheetNotFound as exc:
         raise HTTPException(status_code=404, detail="None of those time sheets is here any more.") from exc
 

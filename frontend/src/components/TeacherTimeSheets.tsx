@@ -41,6 +41,7 @@ import {
   deleteTeacherTimeSheet,
   downloadPartTimeSheets,
   markSubmittedToHr,
+  SHEET_WORDS,
   listSubmittedTimeSheets,
   listTeacherTimeSheets,
   updateTeacherTimeSheet,
@@ -714,6 +715,8 @@ function SubmittedSheet({
     },
   });
   const failed = (download.error ?? mark.error) as Error | null;
+  // One sheet per rate the period has lines for: lectures, tutorials, other work.
+  const parts = sheet.partTimeSheets ?? [];
   return (
     <Modal
       open={open}
@@ -746,7 +749,7 @@ function SubmittedSheet({
             className="inline-flex items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-3 py-1.5 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc] disabled:opacity-50"
           >
             <Download size={15} aria-hidden="true" />
-            {download.isPending ? "Preparing…" : "Download Excel"}
+            {download.isPending ? "Preparing…" : parts.length > 1 ? `Download ${parts.length} sheets (.zip)` : "Download Excel"}
           </button>
           {sheet.hrSubmittedAt ? (
             <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-[#1f6b47]">
@@ -766,6 +769,12 @@ function SubmittedSheet({
         </div>
       }
     >
+      {parts.length > 1 ? (
+        <p className="mb-3 rounded-md border border-[#d7e5f3] bg-[#f2f7fb] px-3 py-2 text-sm text-[#344054]">
+          Paid at {parts.length} rates, so it goes to HR as {parts.length} Part Time Sheets:{" "}
+          {parts.map((part) => `${SHEET_WORDS[part.type]} ${part.hours} h`).join(" · ")}.
+        </p>
+      ) : null}
       <Days sheet={sheet} />
     </Modal>
   );
@@ -795,7 +804,7 @@ function Days({ sheet }: { sheet: SubmittedTimeSheet }) {
             <th scope="col" className="px-3 py-2 font-medium">Day</th>
             <th scope="col" className="px-3 py-2 font-medium">Time</th>
             <th scope="col" className="px-3 py-2 text-right font-medium">Hours</th>
-            <th scope="col" className="px-3 py-2 font-medium">Kind</th>
+            <th scope="col" className="px-3 py-2 font-medium">Sheet</th>
             <th scope="col" className="px-3 py-2 font-medium">Details</th>
           </tr>
         </thead>
@@ -809,8 +818,9 @@ function Days({ sheet }: { sheet: SubmittedTimeSheet }) {
                 {day.from && day.to ? `${day.from}–${day.to}` : "—"}
               </td>
               <td className="px-3 py-1.5 text-right align-top tabular-nums text-[#344054]">{day.hours}</td>
-              <td className="px-3 py-1.5 align-top text-[#667085]">
-                {day.kind === "admin" ? "Admin" : day.kind === "teaching" ? "Teaching" : "—"}
+              <td className="whitespace-nowrap px-3 py-1.5 align-top text-[#667085]">
+                {day.sheet ? SHEET_WORDS[day.sheet] : "—"}
+                {day.kind === "admin" ? " (admin)" : ""}
               </td>
               <td className="px-3 py-1.5 align-top text-[#344054]">{day.details || <span className="text-[#98a2b3]">—</span>}</td>
             </tr>

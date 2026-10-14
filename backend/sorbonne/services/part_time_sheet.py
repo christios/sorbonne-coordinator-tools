@@ -13,6 +13,12 @@ day's total later, so the sheet's own formula gives the hours that were approved
 details column says which slots they were. On the first approved period one teacher had
 eleven such days: eleven rows whose times are not the times they were in a room, and the
 details are what says so.
+
+And one sheet per rate. A lecture (CM) is paid differently from a tutorial or practical
+(TD/TP), and work that is neither — office hours, admin — at a rate of its own, so a period
+with more than one kind of line is sent to HR as more than one sheet. Which kind a line is
+comes from the app when it says (`component`), and otherwise from its details, which the
+pre-fill writes as "SCEN-102 TD RDNS 3"; a line that names no type, or two, is other work.
 """
 
 from __future__ import annotations
@@ -45,6 +51,11 @@ LINE_HEIGHT = 11.25
 ROW_HEIGHT = 15.75
 
 GULF = ZoneInfo("Asia/Dubai")
+
+#: The sheets a period is split into, one per rate, in the order they are listed.
+SHEET_TYPES = ("CM", "TD-TP", "OTHER")
+#: What each is called in a file name and on screen.
+SHEET_WORDS = {"CM": "CM", "TD-TP": "TD-TP", "OTHER": "Other"}
 MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 
 
@@ -176,6 +187,31 @@ def days_of(lines: list[dict], period_start: str, period_end: str) -> tuple[list
             )
         days.append(SheetDay(on=on, starts=first, hours=hours, details=details))
     return days, unplaced
+
+
+def sheet_type(line: dict) -> str:
+    """Which Part Time Sheet — and so which rate — a line belongs on."""
+    if str(line.get("kind") or "") == "admin":
+        return "OTHER"
+    said = str(line.get("component") or "").strip().upper()
+    if said == "CM":
+        return "CM"
+    if said in ("TD", "TP"):
+        return "TD-TP"
+    found = set(re.findall(r"\b(CM|TD|TP)\b", str(line.get("details") or "")))
+    if found == {"CM"}:
+        return "CM"
+    if found and found <= {"TD", "TP"}:
+        return "TD-TP"
+    return "OTHER"
+
+
+def split(lines: list[dict]) -> dict[str, list[dict]]:
+    """The lines by the sheet each goes on, only the sheets that have any, in SHEET_TYPES order."""
+    held: dict[str, list[dict]] = {}
+    for line in lines:
+        held.setdefault(sheet_type(line), []).append(line)
+    return {kind: held[kind] for kind in SHEET_TYPES if kind in held}
 
 
 def _excel_day(iso: str) -> int:

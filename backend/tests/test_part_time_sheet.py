@@ -18,6 +18,8 @@ from sorbonne.services.part_time_sheet import (
     gulf_day,
     month_label,
     row_for,
+    sheet_type,
+    split,
 )
 
 START, END = "2026-09-15", "2026-10-14"
@@ -178,3 +180,36 @@ def test_text_that_looks_like_markup_is_written_as_text():
     cells = opened(fill(sheet(name="O'Brien & <Sons>")))
 
     assert cells["D9"].value == "O'Brien & <Sons>"
+
+
+@pytest.mark.parametrize(
+    ("line_", "kind"),
+    [
+        (line("2026-09-16", "08:30", "10:00", 1.5, "SCEN-102 TD RDNS 3"), "TD-TP"),
+        (line("2026-09-16", "08:30", "10:00", 1.5, "PHYS-101 TP G2"), "TD-TP"),
+        (line("2026-09-16", "08:30", "10:00", 1.5, "MATH-001 CM"), "CM"),
+        # The app's own word wins over whatever the description says.
+        ({**line("2026-09-16", "08:30", "10:00", 1.5, "MATH-001 TD"), "component": "CM"}, "CM"),
+        ({**line("2026-09-16", "08:30", "10:00", 1.5, "Lecture"), "component": "tp"}, "TD-TP"),
+        # Neither a lecture nor a tutorial: office hours, admin, or a line naming both.
+        (line("2026-09-16", "08:30", "10:00", 1.5, "Office hours"), "OTHER"),
+        (line("2026-09-16", "08:30", "10:00", 1.5, "SCEN-102 TD RDNS 3", kind="admin"), "OTHER"),
+        (line("2026-09-16", "08:30", "10:00", 1.5, "CM then TD"), "OTHER"),
+        # A word that merely contains the letters is not a type.
+        (line("2026-09-16", "08:30", "10:00", 1.5, "TDA meeting"), "OTHER"),
+    ],
+)
+def test_each_line_goes_on_the_sheet_of_its_rate(line_: dict, kind: str):
+    assert sheet_type(line_) == kind
+
+
+def test_a_period_splits_into_only_the_sheets_it_has_lines_for_in_a_fixed_order():
+    lines = [
+        line("2026-09-16", "13:15", "14:45", 1.5, "Office hours"),
+        line("2026-09-17", "08:30", "10:00", 1.5, "SCEN-102 TD RDNS 3"),
+        line("2026-09-18", "08:30", "10:00", 1.5, "MATH-001 CM"),
+    ]
+
+    assert list(split(lines)) == ["CM", "TD-TP", "OTHER"]
+    assert list(split(lines[1:2])) == ["TD-TP"]
+

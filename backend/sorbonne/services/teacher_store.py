@@ -125,6 +125,8 @@ class TeacherStore:
             "phone": phone or "",
             "notes": notes,
             "hourlyRate": None,
+            "cmHourlyRate": None,
+            "otherHourlyRate": None,
             "archivedAt": None,
             "createdAt": now,
             "updatedAt": now,
@@ -134,10 +136,11 @@ class TeacherStore:
                 text(
                     """
                     INSERT INTO part_time_teachers (
-                        id, folder_id, full_name, email, phone, notes, hourly_rate, archived_at, created_at, updated_at
+                        id, folder_id, full_name, email, phone, notes, hourly_rate, cm_hourly_rate,
+                        other_hourly_rate, archived_at, created_at, updated_at
                     ) VALUES (
-                        :id, :folder_id, :full_name, :email, :phone, :notes, :hourly_rate, :archived_at,
-                        :created_at, :updated_at
+                        :id, :folder_id, :full_name, :email, :phone, :notes, :hourly_rate, :cm_hourly_rate,
+                        :other_hourly_rate, :archived_at, :created_at, :updated_at
                     )
                     """
                 ),
@@ -189,7 +192,8 @@ class TeacherStore:
                 connection.execute(
                     text(
                         f"""
-                        SELECT id, folder_id, full_name, email, phone, notes, hourly_rate,
+                        SELECT id, folder_id, full_name, email, phone, notes,
+                               hourly_rate, cm_hourly_rate, other_hourly_rate,
                                archived_at, created_at, updated_at
                         FROM part_time_teachers {where}
                         ORDER BY full_name ASC, updated_at DESC
@@ -209,7 +213,8 @@ class TeacherStore:
                 connection.execute(
                     text(
                         """
-                        SELECT id, folder_id, full_name, email, phone, notes, hourly_rate,
+                        SELECT id, folder_id, full_name, email, phone, notes,
+                               hourly_rate, cm_hourly_rate, other_hourly_rate,
                                archived_at, created_at, updated_at
                         FROM part_time_teachers WHERE id = :id
                         """
@@ -233,7 +238,8 @@ class TeacherStore:
                 connection.execute(
                     text(
                         """
-                    SELECT id, folder_id, full_name, email, phone, notes, hourly_rate,
+                    SELECT id, folder_id, full_name, email, phone, notes,
+                           hourly_rate, cm_hourly_rate, other_hourly_rate,
                            archived_at, created_at, updated_at
                     FROM part_time_teachers
                     WHERE archived_at IS NULL AND LOWER(email) = :email
@@ -256,8 +262,13 @@ class TeacherStore:
         phone: str,
         notes: str,
         hourly_rate: float | None | object = KEEP,
+        cm_hourly_rate: float | None | object = KEEP,
+        other_hourly_rate: float | None | object = KEEP,
     ) -> dict[str, Any]:
-        """Change the profile. The rate is kept as it was unless one is given — None clears it."""
+        """Change the profile. Each rate is kept as it was unless one is given — None clears it.
+
+        `hourly_rate` is the TD/TP one; CM and other work (office hours, admin) have their own.
+        """
         current = self.get_teacher(teacher_id)
         updated = {
             **current,
@@ -267,15 +278,21 @@ class TeacherStore:
             "notes": notes,
             "updatedAt": _timestamp(),
         }
-        if hourly_rate is not KEEP:
-            updated["hourlyRate"] = hourly_rate
+        for key, rate in (
+            ("hourlyRate", hourly_rate),
+            ("cmHourlyRate", cm_hourly_rate),
+            ("otherHourlyRate", other_hourly_rate),
+        ):
+            if rate is not KEEP:
+                updated[key] = rate
         with self.engine.begin() as connection:
             connection.execute(
                 text(
                     """
                     UPDATE part_time_teachers
                     SET full_name = :full_name, email = :email, phone = :phone, notes = :notes,
-                        hourly_rate = :hourly_rate, updated_at = :updated_at
+                        hourly_rate = :hourly_rate, cm_hourly_rate = :cm_hourly_rate,
+                        other_hourly_rate = :other_hourly_rate, updated_at = :updated_at
                     WHERE id = :id
                     """
                 ),
@@ -877,12 +894,19 @@ def _teacher_from_row(row: Any) -> dict[str, Any]:
         "email": row["email"],
         "phone": row["phone"],
         "notes": row["notes"],
-        # What they are paid an hour, for the Part Time Sheet; None until somebody enters it.
-        "hourlyRate": float(row["hourly_rate"]) if row["hourly_rate"] is not None else None,
+        # What they are paid an hour for TD/TP, for CM, and for other work (office hours, admin),
+        # each on its own Part Time Sheet; None until somebody enters it.
+        "hourlyRate": _rate(row["hourly_rate"]),
+        "cmHourlyRate": _rate(row["cm_hourly_rate"]),
+        "otherHourlyRate": _rate(row["other_hourly_rate"]),
         "archivedAt": row["archived_at"],
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],
     }
+
+
+def _rate(value: Any) -> float | None:
+    return float(value) if value is not None else None
 
 
 def _teacher_params(teacher: dict[str, Any]) -> dict[str, Any]:
@@ -894,6 +918,8 @@ def _teacher_params(teacher: dict[str, Any]) -> dict[str, Any]:
         "phone": teacher["phone"],
         "notes": teacher["notes"],
         "hourly_rate": teacher.get("hourlyRate"),
+        "cm_hourly_rate": teacher.get("cmHourlyRate"),
+        "other_hourly_rate": teacher.get("otherHourlyRate"),
         "archived_at": teacher["archivedAt"],
         "created_at": teacher["createdAt"],
         "updated_at": teacher["updatedAt"],

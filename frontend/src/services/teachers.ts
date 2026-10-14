@@ -8,8 +8,13 @@ export type Teacher = {
   email: string;
   phone: string;
   notes: string;
-  /** What they are paid an hour, for the Part Time Sheet; null until somebody enters it. */
+  /**
+   * What they are paid an hour, each on its own Part Time Sheet: TD/TP (`hourlyRate`), CM,
+   * and other work such as office hours and admin. Null until somebody enters it.
+   */
   hourlyRate?: number | null;
+  cmHourlyRate?: number | null;
+  otherHourlyRate?: number | null;
   archivedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -20,8 +25,10 @@ export type TeacherRequisitionSummary = { id: string; teacherId: string; label: 
 export type TeacherRequisition = TeacherRequisitionSummary & { content: RequisitionContent };
 export type TeacherInput = Pick<Teacher, "fullName" | "email" | "phone" | "notes"> & {
   taskTemplateIds?: string[];
-  /** Left out, the rate stays as it was; null clears it. */
+  /** Left out, a rate stays as it was; null clears it. */
   hourlyRate?: number | null;
+  cmHourlyRate?: number | null;
+  otherHourlyRate?: number | null;
 };
 export type RequisitionInput = { label: string; academicYear: string; sourceRequisitionId?: string };
 export type CourseCatalogueEntry = {
@@ -161,11 +168,32 @@ export type SubmittedTimeSheet = {
   submittedOn?: string;
   /** When its "Submitted to HR" task was ticked; "" while it is open. */
   hrSubmittedAt?: string;
-  /** `kind` from October 2026; "" on a line from before, when the sheet never said. */
-  days: { day: string; date: string; from: string; to: string; hours: number; details: string; kind?: "teaching" | "admin" | "" }[];
+  /**
+   * `kind` from October 2026; "" on a line from before, when the sheet never said.
+   * `component` is the class's type when the app says it, and `sheet` which Part Time Sheet —
+   * and so which rate — the line goes on.
+   */
+  days: {
+    day: string;
+    date: string;
+    from: string;
+    to: string;
+    hours: number;
+    details: string;
+    kind?: "teaching" | "admin" | "";
+    component?: string;
+    sheet?: PartTimeSheetType;
+  }[];
+  /** The Part Time Sheets the period makes: one per rate it has lines for. */
+  partTimeSheets?: { type: PartTimeSheetType; lines: number; hours: number }[];
   sentAt: string;
   receivedAt: string;
 };
+
+export type PartTimeSheetType = "CM" | "TD-TP" | "OTHER";
+
+/** What each Part Time Sheet is called on screen. */
+export const SHEET_WORDS: Record<PartTimeSheetType, string> = { CM: "CM", "TD-TP": "TD/TP", OTHER: "Other work" };
 
 /** Every approved period the Part-Time Timesheets app has pushed, for a page judging all of them. */
 export async function listEverySubmittedTimeSheet(): Promise<SubmittedTimeSheet[]> {

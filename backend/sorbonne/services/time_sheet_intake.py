@@ -29,6 +29,7 @@ from typing import Any
 from sqlalchemy import Engine, text
 
 from sorbonne.services.engine import engine_for
+from sorbonne.services.part_time_sheet import sheet_type, split
 from sorbonne.services.time_sheet_tasks import HR_TASK_PREFIX, reopen_hr_task
 
 #: The only body shape this understands. The app sends its name so a later one can differ.
@@ -241,6 +242,9 @@ def _hours(value: Any) -> float:
 #: What a line can say it was. The app sends one of these on every line from October 2026.
 KINDS = ("teaching", "admin")
 
+#: The type of class a teaching line can say it was.
+COMPONENTS = ("CM", "TD", "TP")
+
 
 def _days(value: Any) -> list[dict[str, Any]]:
     """The lines as sent, with only the fields the contract names.
@@ -256,6 +260,9 @@ def _days(value: Any) -> list[dict[str, Any]]:
         if not isinstance(line, dict):
             continue
         kind = str(line.get("kind") or "").strip().lower()
+        # The class's type when the app says it (additive, from October 2026): it decides which
+        # Part Time Sheet, and so which rate, the line goes on.
+        component = str(line.get("component") or "").strip().upper()
         kept.append(
             {
                 "day": str(line.get("day") or ""),
@@ -265,6 +272,7 @@ def _days(value: Any) -> list[dict[str, Any]]:
                 "hours": _hours(line.get("hours")),
                 "details": str(line.get("details") or ""),
                 "kind": kind if kind in KINDS else "",
+                "component": component if component in COMPONENTS else "",
             }
         )
     return kept
@@ -292,7 +300,13 @@ def _sheet(row: Any) -> dict[str, Any]:
         "submittedOn": row["submitted_on"],
         # When its "Submitted to HR" task was ticked; "" while it is open.
         "hrSubmittedAt": row["hr_submitted_at"] or "",
-        "days": row["days"] or [],
+        # Each line says which Part Time Sheet it goes on, and the period which sheets it makes:
+        # a period of CM and TD/TP lines is two sheets, at two rates.
+        "days": [{**line, "sheet": sheet_type(line)} for line in (row["days"] or [])],
+        "partTimeSheets": [
+            {"type": kind, "lines": len(lines), "hours": round(sum(float(line.get("hours") or 0) for line in lines), 2)}
+            for kind, lines in split(list(row["days"] or [])).items()
+        ],
         "sentAt": row["sent_at"],
         "receivedAt": row["received_at"],
     }
