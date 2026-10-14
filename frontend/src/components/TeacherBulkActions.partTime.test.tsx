@@ -104,3 +104,21 @@ describe("sheets that would go out with a rate left blank", () => {
   });
 });
 
+describe("edited lines, across the ticked teachers", () => {
+  it("names whose sheets have lines edited after the pre-fill", async () => {
+    const line = { day: "Mon", date: "2026-09-16", from: "08:30", to: "10:00", hours: 1.5, details: "Office hours", kind: "teaching" as const };
+    vi.spyOn(teachers, "listEverySubmittedTimeSheet").mockResolvedValue([
+      approved("41", "t1", "2026-09-15", { days: [{ ...line, changed: true }, { ...line, changed: true }] }),
+      approved("42", "t2", "2026-09-15", { days: [line] }),
+    ]);
+
+    show(["t1", "t2"]);
+    fireEvent.click(screen.getByRole("button", { name: /Part Time Sheets/ }));
+    const dialog = await screen.findByRole("dialog");
+
+    const note = await within(dialog).findByText(/2 lines were edited by the teacher after the pre-fill/);
+    expect(note.closest("li")?.textContent).toMatch(/^Amina:/);
+    expect(within(dialog).queryByText(/^Bilal:/)).toBeNull();
+  });
+});
+

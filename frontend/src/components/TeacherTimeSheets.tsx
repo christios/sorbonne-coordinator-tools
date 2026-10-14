@@ -42,6 +42,8 @@ import {
   createTeacherTimeSheet,
   deleteTeacherTimeSheet,
   downloadPartTimeSheets,
+  editedLines,
+  editedSaid,
   markSubmittedToHr,
   SHEET_WORDS,
   listSubmittedTimeSheets,
@@ -782,6 +784,16 @@ function SubmittedSheet({
           {sheet.pay.degree ? ` (${DEGREE_WORDS[sheet.pay.degree]}, ${sheet.pay.year})` : ""}.
         </p>
       ) : null}
+      {/*
+        * Lines the teacher changed after the pre-fill: the sheet each went on is the timetable's
+        * type, and a TD retyped as a lecture or as office hours is worth a look before HR.
+        */}
+      {editedLines(sheet) ? (
+        <p className="mb-3 rounded-md border border-[#e8d9ac] bg-[#fdf9ee] px-3 py-2 text-sm text-[#8a6116]">
+          {editedSaid(editedLines(sheet))} Check the sheet each went on: it follows the timetable&apos;s type, not the
+          wording.
+        </p>
+      ) : null}
       {/* What leaves a rate blank, said before the sheet goes to HR rather than after. */}
       {sheet.pay?.issues.length ? (
         <ul className="mb-3 grid gap-1 rounded-md border border-[#e8d9ac] bg-[#fdf9ee] px-3 py-2 text-sm text-[#8a6116]">
@@ -842,6 +854,14 @@ function Days({ sheet }: { sheet: SubmittedTimeSheet }) {
               <td className="whitespace-nowrap px-3 py-1.5 align-top text-[#667085]">
                 {day.sheet ? SHEET_WORDS[day.sheet] : "—"}
                 {day.kind === "admin" ? " (admin)" : ""}
+                {day.changed ? (
+                  <span
+                    title="Changed by the teacher after the pre-fill"
+                    className="ml-1.5 rounded bg-[#fdf9ee] px-1 py-0.5 text-[11px] font-semibold text-[#8a6116]"
+                  >
+                    Edited
+                  </span>
+                ) : null}
               </td>
               <td className="px-3 py-1.5 align-top text-[#344054]">{day.details || <span className="text-[#98a2b3]">—</span>}</td>
             </tr>

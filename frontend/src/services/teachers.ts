@@ -178,6 +178,8 @@ export type SubmittedTimeSheet = {
     kind?: "teaching" | "admin" | "";
     component?: string;
     sheet?: PartTimeSheetType;
+    /** The teacher changed this pre-filled line: its time, its words, or made it admin. */
+    changed?: boolean;
   }[];
   /** The Part Time Sheets the period makes: one per rate it has lines for. */
   partTimeSheets?: { type: PartTimeSheetType; lines: number; hours: number }[];
@@ -206,6 +208,16 @@ export type SheetPay = {
 
 /** What each Part Time Sheet is called on screen. */
 export const SHEET_WORDS: Record<PartTimeSheetType, string> = { CM: "CM", "TD-TP": "TD/TP", OTHER: "Other work" };
+
+/** How many of its lines the teacher changed after the pre-fill. */
+export function editedLines(sheet: SubmittedTimeSheet): number {
+  return sheet.days.filter((day) => day.changed).length;
+}
+
+/** "2 lines were edited by the teacher after the pre-fill." */
+export function editedSaid(count: number): string {
+  return `${count} line${count === 1 ? " was" : "s were"} edited by the teacher after the pre-fill.`;
+}
 
 /** Every approved period the Part-Time Timesheets app has pushed, for a page judging all of them. */
 export async function listEverySubmittedTimeSheet(): Promise<SubmittedTimeSheet[]> {

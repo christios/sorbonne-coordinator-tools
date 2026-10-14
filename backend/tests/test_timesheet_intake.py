@@ -320,3 +320,16 @@ def test_a_lines_type_is_kept_when_the_app_says_it(client: TestClient, store: Te
     days = intake.for_teacher(teacher["id"])[0]["days"]
     assert [day["component"] for day in days] == ["CM", ""]
 
+
+def test_a_line_the_teacher_changed_after_the_pre_fill_says_so(
+    client: TestClient, store: TeacherStore, intake: TimeSheetIntake
+):
+    """Only a real true counts: a line that does not say is a line that was not changed."""
+    teacher = a_teacher(store)
+    body = a_push(teacher["email"], period_id=f"p{uuid4().hex[:8]}")
+    body["days"][0]["changed"] = True
+    body["days"][1]["changed"] = "yes"
+    client.post(PUSH, json=body, headers={"X-Timesheet-Key": KEY})
+
+    assert [day["changed"] for day in intake.for_teacher(teacher["id"])[0]["days"]] == [True, False]
+

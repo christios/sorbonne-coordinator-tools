@@ -36,6 +36,8 @@ import {
   downloadPartTimeSheets,
   downloadTeachersRequisitions,
   listEverySubmittedTimeSheet,
+  editedLines,
+  editedSaid,
   listTeacherTimeSheets,
   markSubmittedToHr,
   SHEET_WORDS,
@@ -412,16 +414,27 @@ function PartTimeSheets({
               </tbody>
             </table>
           </div>
-          {/* Whose sheets will go out with a rate left blank, and why, before anything is sent. */}
-          {sheets.some((sheet) => sheet.pay?.issues.length) ? (
+          {/*
+            * Whose sheets will go out with a rate left blank, and why, and whose lines were
+            * edited after the pre-fill — before anything is sent.
+            */}
+          {sheets.some((sheet) => sheet.pay?.issues.length || editedLines(sheet)) ? (
             <ul className="mt-3 grid gap-1 rounded-md border border-[#e8d9ac] bg-[#fdf9ee] px-3 py-2 text-xs text-[#8a6116]">
-              {sheets.flatMap((sheet) =>
-                (sheet.pay?.issues ?? []).map((issue, index) => (
+              {sheets.flatMap((sheet) => [
+                ...(sheet.pay?.issues ?? []).map((issue, index) => (
                   <li key={`${sheet.periodId}-${index}`}>
                     <span className="font-semibold">{nameOf(sheet.teacherId)}:</span> {payIssueSaid(issue)}
                   </li>
                 )),
-              )}
+                ...(editedLines(sheet)
+                  ? [
+                      <li key={`${sheet.periodId}-edited`}>
+                        <span className="font-semibold">{nameOf(sheet.teacherId)}:</span> {editedSaid(editedLines(sheet))}{" "}
+                        Check which sheet each went on.
+                      </li>,
+                    ]
+                  : []),
+              ])}
             </ul>
           ) : null}
           {without.length ? (

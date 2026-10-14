@@ -348,3 +348,24 @@ describe("what each sheet is paid at", () => {
   });
 });
 
+describe("lines the teacher edited after the pre-fill", () => {
+  it("marks each one and asks for the sheet it went on to be checked", async () => {
+    vi.spyOn(teachers, "listTeacherTimeSheets").mockResolvedValue([]);
+    vi.spyOn(teachers, "listSubmittedTimeSheets").mockResolvedValue([
+      submitted({
+        days: [
+          { day: "Mon", date: "2026-10-19", from: "08:30", to: "10:00", hours: 1.5, details: "Lecture on limits", kind: "teaching", component: "TD", sheet: "TD-TP", changed: true },
+          { day: "Tue", date: "2026-10-20", from: "08:30", to: "10:00", hours: 1.5, details: "MATH-001 TD", kind: "teaching", component: "TD", sheet: "TD-TP" },
+        ],
+      }),
+    ]);
+
+    show();
+    fireEvent.click(await screen.findByRole("button", { name: /Submitted 1.5 h/ }));
+    const dialog = await screen.findByRole("dialog");
+
+    expect(within(dialog).getByText(/1 line was edited by the teacher after the pre-fill/)).toBeTruthy();
+    expect(within(dialog).getAllByText("Edited")).toHaveLength(1);
+  });
+});
+
