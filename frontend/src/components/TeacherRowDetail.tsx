@@ -13,12 +13,11 @@
  */
 
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Download, FileCheck, FileClock, FilePlus, FileX } from "lucide-react";
+import { Download, FilePlus } from "lucide-react";
 import { useEffect, useId, useState } from "react";
 
 import { Modal } from "@/components/Modal";
 import { SelectMenu } from "@/components/SelectMenu";
-import { periodsBehind, shortPeriodLabel } from "@/services/payPeriods";
 import {
   type RequisitionInput,
   type Teacher,
@@ -82,48 +81,6 @@ export function TeacherHoursFigures({ summary, loading }: { summary?: TeacherSum
     </span>
   );
 }
-
-/**
- * The paperwork, as marks that say themselves: the newest time sheet, the documents.
- *
- * Only a gap is coloured, so the thing worth spotting is still the thing that stands out.
- * It does NOT say "overdue": a teacher not teaching this period is not late, so a sheet
- * for an earlier period is quiet rather than red.
- */
-export function TeacherPaperwork({ summary, loading }: { summary?: TeacherSummary; loading: boolean }) {
-  if (loading && !summary) return null;
-  const held = summary ?? NOTHING;
-  const sheet = held.newestTimeSheet;
-  const behind = sheet ? periodsBehind(sheet.periodStart) : null;
-  const pill = "inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium";
-  const gap = `${pill} bg-[#fdf9ee] text-[#8a6116]`;
-  return (
-    <span className="flex items-center gap-1.5">
-      {!sheet ? (
-        <span className={gap}>
-          <FileClock size={12} aria-hidden="true" /> No time sheet
-        </span>
-      ) : (
-        <span
-          className={`${pill} ${behind !== null && behind > 0 ? "bg-[#f2f4f7] text-[#667085]" : "bg-[#eaf1f8] text-[#1f4e79]"}`}
-          title={sheet.periodStart ? `Newest time sheet: ${sheet.label}` : "The newest time sheet says no period"}
-        >
-          <FileClock size={12} aria-hidden="true" /> {sheet.periodStart ? shortPeriodLabel(sheet.periodStart) : "No period"}
-        </span>
-      )}
-      {held.hasDocuments ? (
-        <span className={`${pill} bg-[#f4fbf5] text-[#256237]`}>
-          <FileCheck size={12} aria-hidden="true" /> Docs
-        </span>
-      ) : (
-        <span className={gap}>
-          <FileX size={12} aria-hidden="true" /> No docs
-        </span>
-      )}
-    </span>
-  );
-}
-
 
 /**
  * The jobs that used to need the profile: take away one or more requisitions, and start a

@@ -43,7 +43,6 @@ import { TableFilterBar } from "@/components/TableFilterBar";
 import {
   NewRequisitionDialog,
   TeacherHoursFigures,
-  TeacherPaperwork,
   TeacherRowActions,
 } from "@/components/TeacherRowDetail";
 import { TimeSheetsCard } from "@/components/TeacherTimeSheets";
@@ -573,13 +572,13 @@ export function TeacherLibrary({
               <div role="list" aria-label="Teachers" className="min-h-0 flex-1 lg:overflow-y-auto">
                 {/*
                   * Columns that line up down the list, under a quiet heading: who, what
-                  * the requisitions pay for, the paperwork, and what can be done.
+                  * the requisitions pay for, their tasks, and what can be done.
                   */}
                 <div aria-hidden="true" className={`${ROW_GRID} sticky top-0 z-10 hidden border-b border-[#e5e7eb] bg-[#f8fafc] py-1.5 text-[11px] font-semibold uppercase tracking-wide text-[#98a2b3] sm:grid`}>
                   <span />
                   <span>Teacher</span>
                   <span>Requisitions</span>
-                  <span>Paperwork</span>
+                  <span>Tasks</span>
                   <span />
                 </div>
                 {visible.map((teacher) => {
@@ -637,8 +636,8 @@ export function TeacherLibrary({
                         </span>
                       </button>
                       <TeacherHoursFigures summary={summary.data?.[teacher.id]} loading={summary.isLoading} />
-                      <span className="flex min-w-0 flex-wrap items-center gap-1.5">
-                        <TeacherPaperwork summary={summary.data?.[teacher.id]} loading={summary.isLoading} />
+                      {/* The tasks only, one above the other: how many are done, and whether any is late. */}
+                      <span className="flex min-w-0 flex-col items-start gap-1">
                         {theirTasks.length ? <TaskProgressBadge tasks={theirTasks} /> : null}
                         <TeacherTaskWarning tasks={theirTasks} />
                       </span>
