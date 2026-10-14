@@ -718,9 +718,16 @@ export function TeacherLibrary({
   );
 }
 
-/** The list's columns, shared by its heading and every row so they line up. */
+/**
+ * The list's columns, shared by its heading and every row so they line up.
+ *
+ * Every column has a width that does not depend on what is in it. The buttons' column was
+ * `auto` — 104px on a row, nothing on the heading, which has no buttons — and since each row
+ * is its own grid, the heading's columns came out wider and every title sat to the right
+ * of what it named.
+ */
 const ROW_GRID =
-  "gap-x-5 gap-y-2 px-4 sm:grid-cols-[1rem_minmax(11rem,1fr)_9.5rem_minmax(0,1.1fr)_auto] sm:items-center";
+  "gap-x-5 gap-y-2 px-4 sm:grid-cols-[1rem_minmax(11rem,1fr)_9.5rem_minmax(0,1.1fr)_6.5rem] sm:items-center";
 
 function TeacherTaskWarning({ tasks }: { tasks: ScopedTask[] }) {
   const overdue = tasks.some((task) => taskUrgency(task) === "OVERDUE");
