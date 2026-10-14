@@ -22,6 +22,7 @@ from sorbonne.services import coordinator_directory
 from sorbonne.services.time_sheet_intake import TimeSheetIntake
 from sorbonne.services.requisition_export import build_requisition_docx
 from sorbonne.services.teacher_store import (
+    KEEP,
     CommentNotFound,
     NotTheAuthor,
     FolderNameConflict,
@@ -47,6 +48,9 @@ class TeacherInput(BaseModel):
     phone: str = Field(default="", max_length=80)
     notes: str = Field(default="", max_length=5000)
     taskTemplateIds: list[str] = Field(default_factory=list, max_length=20)
+    # What they are paid an hour, for the Part Time Sheet. Left out, it is left as it was;
+    # null clears it.
+    hourlyRate: float | None = Field(default=None, ge=0, le=100_000)
 
 
 class CreateFolderRequest(BaseModel):
@@ -332,6 +336,7 @@ def update_teacher(teacher_id: str, request: TeacherInput, store: TeacherStore =
             email=request.email.strip(),
             phone=request.phone.strip(),
             notes=request.notes.strip(),
+            hourly_rate=request.hourlyRate if "hourlyRate" in request.model_fields_set else KEEP,
         )
     except TeacherNotFound as exc:
         raise HTTPException(status_code=404, detail="Teacher not found.") from exc

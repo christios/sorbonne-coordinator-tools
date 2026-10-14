@@ -1041,9 +1041,7 @@ export function TeacherProfile({
     onChanged();
   };
   const save = useMutation({
-    mutationFn: (
-      input: Pick<Teacher, "fullName" | "email" | "phone" | "notes">,
-    ) => updateTeacher(teacherId, input),
+    mutationFn: (input: ProfileInput) => updateTeacher(teacherId, input),
     onSuccess: refresh,
   });
   const archive = useMutation({
@@ -1680,13 +1678,25 @@ function TeacherDocumentsSection({ teacherId }: { teacherId: string }) {
   );
 }
 
-type ProfileFields = Pick<Teacher, "fullName" | "email" | "phone" | "notes">;
+/** What the profile form saves. The rate is a number, or null for none entered. */
+type ProfileInput = Pick<Teacher, "fullName" | "email" | "phone" | "notes"> & { hourlyRate: number | null };
+/** What the form holds while it is typed in: the rate as typed. */
+type ProfileFields = Omit<ProfileInput, "hourlyRate"> & { hourlyRate: string };
 const profileFields = (teacher: Teacher): ProfileFields => ({
   fullName: teacher.fullName,
   email: teacher.email,
   phone: teacher.phone,
   notes: teacher.notes,
+  hourlyRate: teacher.hourlyRate == null ? "" : String(teacher.hourlyRate),
 });
+
+/** The rate as typed, as a number; null for blank, undefined for something that is not a rate. */
+function rateOf(typed: string): number | null | undefined {
+  const text = typed.trim().replace(",", ".");
+  if (!text) return null;
+  const rate = Number(text);
+  return Number.isFinite(rate) && rate >= 0 ? rate : undefined;
+}
 
 /**
  * How to reach them and what to know, as two sections of the profile's rail, with the
@@ -1705,7 +1715,7 @@ export function ProfileOverview({
   onEditingChange,
 }: {
   teacher: Teacher;
-  onSave: (input: ProfileFields) => Promise<unknown>;
+  onSave: (input: ProfileInput) => Promise<unknown>;
   saving?: boolean;
   error?: string | null;
   editing?: boolean;
@@ -1719,11 +1729,12 @@ export function ProfileOverview({
   useEffect(() => {
     setDraft(profileFields(teacher));
   }, [teacher]);
+  const rate = rateOf(draft.hourlyRate);
   async function submit(event?: FormEvent) {
     event?.preventDefault();
-    if (!draft.fullName.trim() || saving) return;
+    if (!draft.fullName.trim() || saving || rate === undefined) return;
     try {
-      await onSave(draft);
+      await onSave({ ...draft, hourlyRate: rate });
       setEditing(false);
     } catch {
       // The failure is said in the dialog, which stays open with what was typed.
@@ -1771,6 +1782,16 @@ export function ProfileOverview({
           />
         </dl>
       </RailSection>
+      {/* What the Part Time Sheet is paid at: its "Rate per hour", and so its total. */}
+      <RailSection title="Pay">
+        <dl className="grid gap-3">
+          <ProfileDetail
+            label="Rate per hour"
+            value={teacher.hourlyRate == null ? "" : `${teacher.hourlyRate.toLocaleString("en-GB")} AED`}
+            emptyLabel="No rate entered — the Part Time Sheet leaves it blank"
+          />
+        </dl>
+      </RailSection>
       <RailSection title="Notes">
         <p
           className={`whitespace-pre-wrap text-sm ${teacher.notes ? "text-[#171717]" : "text-[#667085]"}`}
@@ -1786,7 +1807,7 @@ export function ProfileOverview({
           <DialogFooter
             onCancel={cancel}
             onConfirm={() => void submit()}
-            disabled={saving || !draft.fullName.trim()}
+            disabled={saving || !draft.fullName.trim() || rate === undefined}
             label={saving ? "Saving…" : "Save profile"}
           />
         }
@@ -1814,6 +1835,18 @@ export function ProfileOverview({
             value={draft.phone}
             onChange={(phone) => setDraft({ ...draft, phone })}
           />
+          <div className="grid gap-1">
+            <InputField
+              label="Rate per hour (AED)"
+              fieldKey="hourlyRate"
+              type="number"
+              value={draft.hourlyRate}
+              onChange={(hourlyRate) => setDraft({ ...draft, hourlyRate })}
+            />
+            {rate === undefined ? (
+              <span className="text-xs text-[#8f1f25]">A rate is a number of dirhams, 0 or more.</span>
+            ) : null}
+          </div>
           <label className={`${DIALOG_FIELD} sm:col-span-2`}>
             <FormFieldLabel fieldKey="notes">Notes</FormFieldLabel>
             <AutoResizeTextarea

@@ -12,6 +12,8 @@ dist/
 .vite/
 coverage/
 *.xlsx
+# HR's blank Part Time Sheet, which the app fills: a form, with nobody's data in it.
+!backend/sorbonne/assets/part_time_sheet_template.xlsx
 *.sqlite3
 backend/.env
 backend/.venv/

@@ -80,6 +80,7 @@ describe("ProfileOverview", () => {
     fireEvent.change(screen.getByRole("textbox", { name: "Full name" }), {
       target: { value: "Marie Skłodowska-Curie" },
     });
+    fireEvent.change(screen.getByRole("spinbutton", { name: "Rate per hour (AED)" }), { target: { value: "175.5" } });
     fireEvent.click(screen.getByRole("button", { name: "Save profile" }));
 
     await waitFor(() =>
@@ -88,8 +89,45 @@ describe("ProfileOverview", () => {
         email: "marie@example.edu",
         phone: "+33 1 23 45 67 89",
         notes: "Available for physics modules.",
+        hourlyRate: 175.5,
       }),
     );
+  });
+
+  it("keeps the rate the Part Time Sheet is paid at, and refuses one that is not a number of dirhams", async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <ProfileOverview
+          teacher={{
+            id: "teacher-private-id",
+            folderId: null,
+            fullName: "Marie Curie",
+            email: "marie@example.edu",
+            phone: "",
+            notes: "",
+            hourlyRate: 150,
+            archivedAt: null,
+            createdAt: "2026-01-01T00:00:00Z",
+            updatedAt: "2026-01-01T00:00:00Z",
+          }}
+          onSave={onSave}
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByText("150 AED")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Edit profile" }));
+    const rate = screen.getByRole("spinbutton", { name: "Rate per hour (AED)" });
+    fireEvent.change(rate, { target: { value: "-5" } });
+
+    expect(screen.getByText(/A rate is a number of dirhams/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Save profile" })).toHaveProperty("disabled", true);
+
+    // Emptied, it is no rate at all: the sheet's cell is left for somebody to fill.
+    fireEvent.change(rate, { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save profile" }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ hourlyRate: null })));
   });
 });
 

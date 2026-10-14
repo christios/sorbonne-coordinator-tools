@@ -29,6 +29,7 @@ from typing import Any
 from sqlalchemy import Engine, text
 
 from sorbonne.services.engine import engine_for
+from sorbonne.services.time_sheet_tasks import HR_TASK_PREFIX, reopen_hr_task
 
 #: The only body shape this understands. The app sends its name so a later one can differ.
 SCHEMA = "timesheet.period.v1"
@@ -79,12 +80,12 @@ class TimeSheetIntake:
                             period_id, version, teacher_id, period_start, period_end, period_label,
                             staff_name, staff_number, staff_email, department, position,
                             claimed_hours, approved_by, approved_by_email, approved_on,
-                            days, sent_at, received_at
+                            submitted_on, days, sent_at, received_at
                         ) VALUES (
                             :period_id, :version, :teacher_id, :period_start, :period_end, :period_label,
                             :staff_name, :staff_number, :staff_email, :department, :position,
                             :claimed_hours, :approved_by, :approved_by_email, :approved_on,
-                            CAST(:days AS JSONB), :sent_at, :received_at
+                            :submitted_on, CAST(:days AS JSONB), :sent_at, :received_at
                         )
                         ON CONFLICT (period_id) DO UPDATE SET
                             version = excluded.version, teacher_id = excluded.teacher_id,
@@ -94,6 +95,7 @@ class TimeSheetIntake:
                             department = excluded.department, position = excluded.position,
                             claimed_hours = excluded.claimed_hours, approved_by = excluded.approved_by,
                             approved_by_email = excluded.approved_by_email, approved_on = excluded.approved_on,
+                            submitted_on = excluded.submitted_on,
                             days = excluded.days, sent_at = excluded.sent_at,
                             received_at = excluded.received_at"""),
                 {
@@ -112,11 +114,22 @@ class TimeSheetIntake:
                     "approved_by": str((body.get("approval") or {}).get("approvedBy") or "").strip(),
                     "approved_by_email": str((body.get("approval") or {}).get("approvedByEmail") or "").strip(),
                     "approved_on": str((body.get("approval") or {}).get("approvedOn") or "").strip(),
+                    # When the teacher submitted the period, for the employee's line of the
+                    # Part Time Sheet. Additive to v1: blank from an app that does not send it.
+                    "submitted_on": str(body.get("submittedOn") or "").strip(),
                     "days": json.dumps(_days(body.get("days"))),
                     "sent_at": str(body.get("sentAt") or "").strip(),
                     "received_at": stamp,
                 },
             )
+            if held is not None and version > int(held):
+                # A correction approved after the sheet may already have gone to HR.
+                reopen_hr_task(
+                    connection,
+                    teacher_id,
+                    _day(body.get("periodStart")),
+                    approved_on=str((body.get("approval") or {}).get("approvedOn") or ""),
+                )
         return {
             "stored": True,
             "reason": "replaced" if held is not None else "new",
@@ -161,9 +174,12 @@ class TimeSheetIntake:
             }
 
 
-_COLUMNS = """period_id, version, teacher_id, period_start, period_end, period_label,
+_COLUMNS = f"""period_id, version, teacher_id, period_start, period_end, period_label,
               staff_name, staff_number, staff_email, department, position, claimed_hours,
-              approved_by, approved_by_email, approved_on, days, sent_at, received_at"""
+              approved_by, approved_by_email, approved_on, submitted_on, days, sent_at, received_at,
+              (SELECT t.completed_at FROM tasks t
+               WHERE t.id = '{HR_TASK_PREFIX}:' || teacher_id || ':' || period_start
+                 AND t.status = 'COMPLETED') AS hr_submitted_at"""
 
 
 def teacher_for(connection: Any, *, email: str, number: str) -> str:
@@ -273,6 +289,9 @@ def _sheet(row: Any) -> dict[str, Any]:
         "approvedBy": row["approved_by"],
         "approvedByEmail": row["approved_by_email"],
         "approvedOn": row["approved_on"],
+        "submittedOn": row["submitted_on"],
+        # When its "Submitted to HR" task was ticked; "" while it is open.
+        "hrSubmittedAt": row["hr_submitted_at"] or "",
         "days": row["days"] or [],
         "sentAt": row["sent_at"],
         "receivedAt": row["received_at"],

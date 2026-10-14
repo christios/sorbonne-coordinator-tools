@@ -9,6 +9,7 @@ from uuid import uuid4
 from sqlalchemy import Connection, Engine, text
 
 from sorbonne.services.engine import engine_for
+from sorbonne.services.time_sheet_tasks import HR_TASK_PREFIX
 from sorbonne.services.time_sheet_tasks import TASK_PREFIX as TIME_SHEET_TASK_PREFIX
 
 
@@ -391,7 +392,7 @@ class WorkflowStore:
     def delete_task(self, task_id: str, *, actor: str = "") -> None:
         with self.engine.begin() as connection:
             result = connection.execute(text("DELETE FROM tasks WHERE id = :id"), {"id": task_id})
-            if result.rowcount == 1 and task_id.startswith(f"{TIME_SHEET_TASK_PREFIX}:"):
+            if result.rowcount == 1 and task_id.startswith((f"{TIME_SHEET_TASK_PREFIX}:", f"{HR_TASK_PREFIX}:")):
                 # The application makes these by itself and would write this one again on
                 # the next read. Deleting it says no sheet is owed: see time_sheet_tasks.
                 connection.execute(

@@ -19,11 +19,12 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, ChevronDown, ExternalLink, FileSpreadsheet, Pencil, Plus, Trash2, X } from "lucide-react";
+import { CheckCircle2, Download, ExternalLink, FileSpreadsheet, Pencil, Plus, Send, Trash2, X } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { InfoTip } from "@/components/InfoTip";
+import { Modal } from "@/components/Modal";
 import { SelectMenu } from "@/components/SelectMenu";
 import { buildCards } from "@/services/courseCards";
 import { asHours, hoursTaught, minutesByTeacher } from "@/services/hoursInPeriod";
@@ -38,11 +39,14 @@ import {
   type TeacherTimeSheet,
   createTeacherTimeSheet,
   deleteTeacherTimeSheet,
+  downloadPartTimeSheets,
+  markSubmittedToHr,
   listSubmittedTimeSheets,
   listTeacherTimeSheets,
   updateTeacherTimeSheet,
 } from "@/services/teachers";
 import {
+  localDay,
   opensOnFor,
   periodChoices,
   periodContaining,
@@ -469,7 +473,7 @@ export function TimeSheetsCard({
                       <ExternalLink size={13} className="shrink-0" aria-hidden="true" />
                     </a>
                   ) : period.submitted ? (
-                    <Submitted sheet={period.submitted} taught={asHours(period.minutes)} />
+                    <Submitted sheet={period.submitted} taught={asHours(period.minutes)} teacherId={teacherId} />
                   ) : (
                     <span className="text-sm text-[#a6292f]">No sheet filed</span>
                   )}
@@ -616,55 +620,154 @@ function Field({
 }
 
 /**
- * A period the Part-Time Timesheets app has had approved.
+ * A period the Part-Time Timesheets app has had approved, as the row shows it: the claim
+ * beside what the registrar's timetable says was taught, and whether it has gone to HR.
  *
- * The claim and what the registrar's timetable says was taught, side by side. They will
- * not always agree and a difference is not a fault — a class swapped with a colleague,
- * an hour of something the timetable does not hold — but it is the one thing worth
- * reading here, and nobody was going to compare them by hand.
+ * The days behind the claim open in a pop-up rather than under the row. They used to drop
+ * open inside this column, a third of the card wide, where a sheet of twenty-eight lines
+ * with their details was a column of wrapped fragments. The pop-up is also where the
+ * sheet becomes HR's Part Time Sheet and is marked as sent.
  *
  * Nothing to edit. The sheet is theirs, it lives in their app, and a correction made here
  * would be overwritten by the next push of the same period.
  */
-function Submitted({ sheet, taught }: { sheet: SubmittedTimeSheet; taught: number }) {
+function Submitted({ sheet, taught, teacherId }: { sheet: SubmittedTimeSheet; taught: number; teacherId: string }) {
   const [open, setOpen] = useState(false);
   const apart = Math.round((sheet.claimedHours - taught) * 100) / 100;
+  // A column a quarter of the card wide holds the figure and the state, nothing more;
+  // the sentence behind the figure is the pop-up's.
   return (
-    <span className="mt-1 block text-sm">
-      {/*
-        * The summary opens the sheet. What arrived is the days somebody worked, and a
-        * total with no way to see the days behind it is a number to be taken on trust —
-        * which is the opposite of why the claim and the timetable are shown together.
-        */}
+    <span className="mt-1 grid justify-items-start gap-1 text-sm">
       <button
         type="button"
-        onClick={() => setOpen((showing) => !showing)}
-        aria-expanded={open}
-        className="flex flex-wrap items-baseline gap-x-2 rounded text-left hover:underline"
+        onClick={() => setOpen(true)}
+        className="inline-flex items-center gap-1.5 whitespace-nowrap rounded font-semibold text-[#1f6b47] hover:underline"
       >
-        <span className="inline-flex items-center gap-1.5 font-semibold text-[#1f6b47]">
-          <CheckCircle2 size={14} className="shrink-0" aria-hidden="true" />
-          Submitted {sheet.claimedHours} h
-        </span>
-        {apart ? (
-          <span className="text-[#8a6116]">
-            {apart > 0 ? `${apart} h more than` : `${Math.abs(apart)} h less than`} the timetable has
-          </span>
-        ) : (
-          <span className="text-[#667085]">matching the timetable</span>
-        )}
-        <ChevronDown
-          size={14}
-          aria-hidden="true"
-          className={`shrink-0 text-[#98a2b3] transition-transform ${open ? "rotate-180" : ""}`}
-        />
+        <CheckCircle2 size={14} className="shrink-0" aria-hidden="true" />
+        Submitted {sheet.claimedHours} h
       </button>
-      <span className="mt-0.5 block text-xs text-[#98a2b3]">
-        {sheet.days.length} day{sheet.days.length === 1 ? "" : "s"}
-        {sheet.approvedBy ? ` · approved by ${sheet.approvedBy}` : ""}
+      <span
+        title={apart ? `${apartSaid(apart)} the timetable has (${taught} h)` : "The same as the timetable has"}
+        className={`whitespace-nowrap text-xs ${apart ? "text-[#8a6116]" : "text-[#667085]"}`}
+      >
+        {apart ? `${apart > 0 ? "+" : "−"}${Math.abs(apart)} h vs timetable` : "matches timetable"}
       </span>
-      {open ? <Days sheet={sheet} /> : null}
+      <HrMark sheet={sheet} />
+      <SubmittedSheet sheet={sheet} taught={taught} teacherId={teacherId} open={open} onClose={() => setOpen(false)} />
     </span>
+  );
+}
+
+/** "2.5 h more than", "45.5 h less than". */
+function apartSaid(apart: number): string {
+  return apart > 0 ? `${apart} h more than` : `${Math.abs(apart)} h less than`;
+}
+
+/** Whether the sheet has gone to HR: the "Submitted to HR" task, read off the sheet. */
+function HrMark({ sheet }: { sheet: SubmittedTimeSheet }) {
+  return sheet.hrSubmittedAt ? (
+    <span className="whitespace-nowrap rounded bg-[#e8f5ee] px-1.5 py-0.5 text-xs font-semibold text-[#1f6b47]">
+      Sent to HR {dayLabel(localDay(sheet.hrSubmittedAt))}
+    </span>
+  ) : (
+    <span className="whitespace-nowrap rounded bg-[#f2f4f7] px-1.5 py-0.5 text-xs font-semibold text-[#667085]">
+      Not sent to HR
+    </span>
+  );
+}
+
+/**
+ * One approved sheet, whole: every line as it was entered, the Part Time Sheet to download,
+ * and the one click that records it has gone to HR.
+ */
+function SubmittedSheet({
+  sheet,
+  taught,
+  teacherId,
+  open,
+  onClose,
+}: {
+  sheet: SubmittedTimeSheet;
+  taught: number;
+  teacherId: string;
+  open: boolean;
+  onClose: () => void;
+}) {
+  const client = useQueryClient();
+  const [said, setSaid] = useState("");
+  const download = useMutation({
+    mutationFn: () => downloadPartTimeSheets([sheet.periodId]),
+    onSuccess: ({ notPlaced }) =>
+      setSaid(
+        notPlaced
+          ? `Downloaded, but ${notPlaced} line${notPlaced === 1 ? " has" : "s have"} no row on the template — check the sheet before sending it.`
+          : "Downloaded. Once it has gone to HR, mark it here.",
+      ),
+  });
+  const mark = useMutation({
+    mutationFn: () => markSubmittedToHr([sheet.periodId]),
+    onSuccess: () => {
+      setSaid("");
+      void client.invalidateQueries({ queryKey: ["submitted-time-sheets"] });
+      void client.invalidateQueries({ queryKey: ["tasks", "teacher"] });
+      void client.invalidateQueries({ queryKey: ["teacher-time-sheets", teacherId] });
+    },
+  });
+  const failed = (download.error ?? mark.error) as Error | null;
+  return (
+    <Modal
+      open={open}
+      size="wide"
+      onClose={onClose}
+      title={`${sheet.staff.name || "Time sheet"} · ${periodLabel(sheet.periodStart) || sheet.periodLabel}`}
+      description={[
+        `Submitted ${sheet.claimedHours} h — ${
+          sheet.claimedHours === taught ? "matching the timetable" : `${apartSaid(Math.round((sheet.claimedHours - taught) * 100) / 100)} the timetable has (${taught} h)`
+        }.`,
+        sheet.approvedBy
+          ? `Approved by ${sheet.approvedBy}${sheet.approvedOn ? ` on ${dayLabel(localDay(sheet.approvedOn))}` : ""}.`
+          : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      footer={
+        <div className="flex w-full flex-wrap items-center justify-end gap-2">
+          {failed ? (
+            <span role="alert" className="mr-auto text-sm text-[#a6292f]">
+              {failed.message}
+            </span>
+          ) : said ? (
+            <span className="mr-auto text-sm text-[#667085]">{said}</span>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => download.mutate()}
+            disabled={download.isPending}
+            className="inline-flex items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-3 py-1.5 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc] disabled:opacity-50"
+          >
+            <Download size={15} aria-hidden="true" />
+            {download.isPending ? "Preparing…" : "Download Excel"}
+          </button>
+          {sheet.hrSubmittedAt ? (
+            <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-[#1f6b47]">
+              <CheckCircle2 size={15} aria-hidden="true" /> Sent to HR {dayLabel(localDay(sheet.hrSubmittedAt))}
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={() => mark.mutate()}
+              disabled={mark.isPending}
+              className="inline-flex items-center gap-1.5 rounded-md bg-[#1f4e79] px-3 py-1.5 text-sm font-semibold text-white hover:bg-[#1a4368] disabled:opacity-50"
+            >
+              <Send size={15} aria-hidden="true" />
+              {mark.isPending ? "Marking…" : "Mark as submitted to HR"}
+            </button>
+          )}
+        </div>
+      }
+    >
+      <Days sheet={sheet} />
+    </Modal>
   );
 }
 
@@ -679,41 +782,47 @@ function Days({ sheet }: { sheet: SubmittedTimeSheet }) {
   const added = Math.round(sheet.days.reduce((sum, day) => sum + (Number(day.hours) || 0), 0) * 100) / 100;
   if (!sheet.days.length) {
     return (
-      <span className="mt-2 block rounded-md border border-dashed border-[#d0d5dd] px-3 py-2 text-xs text-[#667085]">
+      <p className="rounded-md border border-dashed border-[#d0d5dd] px-3 py-2 text-sm text-[#667085]">
         The sheet came through with no days on it. The total above is what it claimed.
-      </span>
+      </p>
     );
   }
   return (
-    <span className="mt-2 block overflow-hidden rounded-md border border-[#e4e8ef]">
-      <table className="w-full text-left text-xs">
-        <thead className="bg-[#f8f9fb] text-[#667085]">
+    <div className="overflow-x-auto rounded-md border border-[#e4e8ef]">
+      <table className="w-full text-left text-sm">
+        <thead className="bg-[#f8f9fb] text-xs text-[#667085]">
           <tr>
-            <th scope="col" className="px-2 py-1 font-medium">Day</th>
-            <th scope="col" className="px-2 py-1 font-medium">Time</th>
-            <th scope="col" className="px-2 py-1 text-right font-medium">Hours</th>
+            <th scope="col" className="px-3 py-2 font-medium">Day</th>
+            <th scope="col" className="px-3 py-2 font-medium">Time</th>
+            <th scope="col" className="px-3 py-2 text-right font-medium">Hours</th>
+            <th scope="col" className="px-3 py-2 font-medium">Kind</th>
+            <th scope="col" className="px-3 py-2 font-medium">Details</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-[#f2f4f7]">
           {sheet.days.map((day, index) => (
             <tr key={`${day.date}-${day.from}-${index}`}>
-              <td className="px-2 py-1 align-top text-[#344054]">
-                <span className="font-medium">{dayLabel(day.date) || day.day}</span>
-                {day.details ? <span className="block text-[#98a2b3]">{day.details}</span> : null}
+              <td className="whitespace-nowrap px-3 py-1.5 align-top font-medium text-[#344054]">
+                {dayLabel(day.date) || day.day}
               </td>
-              <td className="px-2 py-1 align-top tabular-nums text-[#667085]">
+              <td className="whitespace-nowrap px-3 py-1.5 align-top tabular-nums text-[#667085]">
                 {day.from && day.to ? `${day.from}–${day.to}` : "—"}
               </td>
-              <td className="px-2 py-1 text-right align-top tabular-nums text-[#344054]">{day.hours}</td>
+              <td className="px-3 py-1.5 text-right align-top tabular-nums text-[#344054]">{day.hours}</td>
+              <td className="px-3 py-1.5 align-top text-[#667085]">
+                {day.kind === "admin" ? "Admin" : day.kind === "teaching" ? "Teaching" : "—"}
+              </td>
+              <td className="px-3 py-1.5 align-top text-[#344054]">{day.details || <span className="text-[#98a2b3]">—</span>}</td>
             </tr>
           ))}
         </tbody>
         <tfoot className="border-t border-[#e4e8ef] bg-[#f8f9fb]">
           <tr>
-            <td className="px-2 py-1 font-medium text-[#667085]" colSpan={2}>
-              {sheet.approvedOn ? `Approved ${dayLabel(sheet.approvedOn.slice(0, 10))}` : "These days"}
+            <td className="px-3 py-1.5 font-medium text-[#667085]" colSpan={2}>
+              {sheet.days.length} line{sheet.days.length === 1 ? "" : "s"}
             </td>
-            <td className="px-2 py-1 text-right font-semibold tabular-nums text-[#344054]">{added}</td>
+            <td className="px-3 py-1.5 text-right font-semibold tabular-nums text-[#344054]">{added}</td>
+            <td colSpan={2} />
           </tr>
           {/*
             * The total the app sent, when the days do not come to it. Printing the claim
@@ -722,14 +831,14 @@ function Days({ sheet }: { sheet: SubmittedTimeSheet }) {
             */}
           {added === sheet.claimedHours ? null : (
             <tr>
-              <td className="px-2 py-1 text-[#8a6116]" colSpan={3}>
+              <td className="px-3 py-1.5 text-[#8a6116]" colSpan={5}>
                 The app sent a total of {sheet.claimedHours} h, which these days do not come to.
               </td>
             </tr>
           )}
         </tfoot>
       </table>
-    </span>
+    </div>
   );
 }
 

@@ -12,23 +12,31 @@
  * you can keep, and a way to open every sheet at once — and says plainly that it is the
  * links rather than the workbooks. Pretending otherwise would give somebody a zip full of
  * sign-in pages at the end of a payroll run.
+ *
+ * A period approved in the Timesheets app is different: it is here, whole, so HR's own Part
+ * Time Sheet can be filled from it — one per teacher, in one zip — and the press that
+ * produced them can record that they went to HR.
  */
 
-import { useMutation, useQueries, useQueryClient } from "@tanstack/react-query";
-import { Download, ExternalLink, FileSpreadsheet, X } from "lucide-react";
-import { useState } from "react";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { CheckCircle2, Download, ExternalLink, FileSpreadsheet, Send, X } from "lucide-react";
+import { useMemo, useState } from "react";
 
 import { Modal } from "@/components/Modal";
+import { SelectMenu } from "@/components/SelectMenu";
 import { SelectionBar } from "@/components/SelectionActions";
 import { TimetablesButton } from "@/components/TimetablesButton";
 import { fetchActiveTeachers } from "@/services/portalLists";
 import { exportTeacherTimetables } from "@/services/timetableExports";
-import { periodLabel } from "@/services/payPeriods";
+import { localDay, periodLabel } from "@/services/payPeriods";
 import {
   type Teacher,
   type TeacherTimeSheet,
+  downloadPartTimeSheets,
   downloadTeachersRequisitions,
+  listEverySubmittedTimeSheet,
   listTeacherTimeSheets,
+  markSubmittedToHr,
 } from "@/services/teachers";
 
 /** A row of the list a time-sheet download comes to. */
@@ -70,6 +78,7 @@ export function TeacherBulkActions({
 }) {
   const client = useQueryClient();
   const [showingSheets, setShowingSheets] = useState(false);
+  const [showingPartTime, setShowingPartTime] = useState(false);
   const [said, setSaid] = useState("");
   const nameOf = (id: string) => teachers.find((teacher) => teacher.id === id)?.fullName ?? id;
 
@@ -124,6 +133,16 @@ export function TeacherBulkActions({
           className="inline-flex items-center gap-2 rounded-md border border-[#b7bec8] bg-white px-3 py-1.5 font-semibold text-[#344054]"
         >
           <FileSpreadsheet size={15} aria-hidden="true" /> Time sheets…
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setSaid("");
+            setShowingPartTime(true);
+          }}
+          className="inline-flex items-center gap-2 rounded-md border border-[#b7bec8] bg-white px-3 py-1.5 font-semibold text-[#344054]"
+        >
+          <FileSpreadsheet size={15} aria-hidden="true" /> Part Time Sheets…
         </button>
         {/* Their teaching, found through the department's list they are linked to, or by name. */}
         <TimetablesButton
@@ -228,6 +247,170 @@ export function TeacherBulkActions({
           </p>
         ) : null}
       </Modal>
+
+      {showingPartTime ? (
+        <PartTimeSheets chosen={chosen} nameOf={nameOf} onClose={() => setShowingPartTime(false)} />
+      ) : null}
     </>
+  );
+}
+
+/**
+ * The approved periods of the ticked teachers as HR's Part Time Sheets: one period at a
+ * time, because a sheet is a period and HR is sent a period's worth together.
+ *
+ * Downloading is not sending, so nothing is marked by it. What it does is offer, once the
+ * file is made, to mark exactly the sheets in it as submitted to HR — one press for the
+ * batch, rather than twenty ticks on twenty profiles.
+ */
+function PartTimeSheets({
+  chosen,
+  nameOf,
+  onClose,
+}: {
+  chosen: string[];
+  nameOf: (id: string) => string;
+  onClose: () => void;
+}) {
+  const client = useQueryClient();
+  const all = useQuery({ queryKey: ["submitted-time-sheets", "all"], queryFn: listEverySubmittedTimeSheet, retry: false });
+  const mine = useMemo(
+    () => (all.data ?? []).filter((sheet) => chosen.includes(sheet.teacherId)),
+    [all.data, chosen],
+  );
+  const periods = useMemo(() => [...new Set(mine.map((sheet) => sheet.periodStart))].sort().reverse(), [mine]);
+  const [picked, setPicked] = useState("");
+  const period = picked || periods[0] || "";
+  const sheets = mine
+    .filter((sheet) => sheet.periodStart === period)
+    .sort((left, right) => nameOf(left.teacherId).localeCompare(nameOf(right.teacherId)));
+  const without = chosen.filter((id) => !sheets.some((sheet) => sheet.teacherId === id));
+  // What the last download held, so the offer to mark them is about exactly those.
+  const [made, setMade] = useState<{ ids: string[]; notPlaced: number } | null>(null);
+  const download = useMutation({
+    mutationFn: (ids: string[]) => downloadPartTimeSheets(ids).then(({ notPlaced }) => ({ ids, notPlaced })),
+    onSuccess: setMade,
+  });
+  const mark = useMutation({
+    mutationFn: (ids: string[]) => markSubmittedToHr(ids),
+    onSuccess: () => {
+      setMade(null);
+      void client.invalidateQueries({ queryKey: ["submitted-time-sheets"] });
+      void client.invalidateQueries({ queryKey: ["tasks", "teacher"] });
+    },
+  });
+  const failed = (download.error ?? mark.error ?? all.error) as Error | null;
+  const unsent = made ? made.ids.filter((id) => !sheets.find((sheet) => sheet.periodId === id)?.hrSubmittedAt) : [];
+
+  return (
+    <Modal
+      open
+      size="wide"
+      title={`Part Time Sheets for ${chosen.length} teacher${chosen.length === 1 ? "" : "s"}`}
+      description="Filled from the periods approved in the Timesheets app: one workbook per teacher, in one zip."
+      onClose={onClose}
+      footer={
+        <div className="flex w-full flex-wrap items-center justify-end gap-2">
+          {failed ? (
+            <span role="alert" className="mr-auto text-sm text-[#a6292f]">
+              {failed.message}
+            </span>
+          ) : made ? (
+            <span className="mr-auto text-sm text-[#667085]">
+              {made.notPlaced
+                ? `Downloaded, but ${made.notPlaced} line${made.notPlaced === 1 ? " has" : "s have"} no row on the template — check before sending.`
+                : `Downloaded ${made.ids.length} sheet${made.ids.length === 1 ? "" : "s"}.`}
+            </span>
+          ) : null}
+          <button type="button" onClick={onClose} className="text-sm font-semibold text-[#667085]">
+            Close
+          </button>
+          {made && unsent.length ? (
+            <button
+              type="button"
+              onClick={() => mark.mutate(made.ids)}
+              disabled={mark.isPending}
+              className="inline-flex items-center gap-1.5 rounded-md bg-[#1f6b47] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+            >
+              <Send size={14} aria-hidden="true" />
+              {mark.isPending ? "Marking…" : `Mark these ${made.ids.length} as submitted to HR`}
+            </button>
+          ) : null}
+          <button
+            type="button"
+            disabled={!sheets.length || download.isPending}
+            onClick={() => download.mutate(sheets.map((sheet) => sheet.periodId))}
+            className="inline-flex items-center gap-1.5 rounded-md bg-[#1f4e79] px-4 py-2 text-sm font-semibold text-white disabled:bg-[#9ba8b5]"
+          >
+            <Download size={14} aria-hidden="true" />
+            {download.isPending
+              ? "Preparing…"
+              : sheets.length === 1
+                ? "Download the sheet"
+                : `Download ${sheets.length || ""} sheets (.zip)`}
+          </button>
+        </div>
+      }
+    >
+      {all.isPending ? <p className="text-sm text-[#667085]">Reading the approved sheets…</p> : null}
+      {!all.isPending && !periods.length ? (
+        <p className="text-sm text-[#667085]">None of the teachers you chose has a period approved in the Timesheets app yet.</p>
+      ) : null}
+      {periods.length ? (
+        <>
+          <div className="mb-3 w-64">
+            <SelectMenu
+              label="Period"
+              value={period}
+              onChange={(value) => {
+                setPicked(value);
+                setMade(null);
+              }}
+              options={periods.map((start) => ({ value: start, label: periodLabel(start) || start }))}
+            />
+          </div>
+          <div className="overflow-x-auto rounded-lg border border-[#d9dee7]">
+            <table className="w-full min-w-[34rem] border-collapse text-sm">
+              <thead>
+                <tr className="border-b border-[#e4e8ef] text-[11px] font-semibold uppercase tracking-wide text-[#8a94a4]">
+                  <th scope="col" className="px-3 py-2 text-left">Teacher</th>
+                  <th scope="col" className="px-3 py-2 text-right">Hours</th>
+                  <th scope="col" className="px-3 py-2 text-left">Approved</th>
+                  <th scope="col" className="px-3 py-2 text-left">HR</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sheets.map((sheet) => (
+                  <tr key={sheet.periodId} className="border-b border-[#f2f4f7] last:border-0">
+                    <td className="px-3 py-2 text-[#344054]">{nameOf(sheet.teacherId)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-[#344054]">{sheet.claimedHours}</td>
+                    <td className="px-3 py-2 text-[#667085]">
+                      {[sheet.approvedBy, sheet.approvedOn ? localDay(sheet.approvedOn) : ""].filter(Boolean).join(", ") || "—"}
+                    </td>
+                    <td className="px-3 py-2">
+                      {sheet.hrSubmittedAt ? (
+                        <span className="inline-flex items-center gap-1 text-xs font-semibold text-[#1f6b47]">
+                          <CheckCircle2 size={13} aria-hidden="true" /> Sent {localDay(sheet.hrSubmittedAt)}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-[#667085]">Not sent</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {without.length ? (
+            <p className="mt-3 flex items-start gap-1.5 rounded-md border border-[#e8d9ac] bg-[#fdf9ee] px-3 py-2 text-xs text-[#8a6116]">
+              <X size={12} className="mt-0.5 shrink-0" aria-hidden="true" />
+              <span>
+                No approved sheet for {periodLabel(period) || period} from {without.map(nameOf).join(", ")}.
+              </span>
+            </p>
+          ) : null}
+        </>
+      ) : null}
+    </Modal>
   );
 }

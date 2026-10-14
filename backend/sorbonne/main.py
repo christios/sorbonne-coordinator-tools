@@ -7,6 +7,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from sorbonne.api.auth import router as auth_router
+from sorbonne.api.department_roles import router as department_roles_router
 from sorbonne.api.bibliography_lookup import router as bibliography_lookup_router
 from sorbonne.api.dev_tools import is_local as dev_is_local
 from sorbonne.api.dev_tools import router as dev_router
@@ -60,7 +61,7 @@ app.add_middleware(
     # A browser can only read the headers it is told it may read, and the page and the API
     # are different origins here. Without this the name the server gives a download never
     # arrives, and every export saves under whatever fallback the browser was handed.
-    expose_headers=["Content-Disposition", "X-Teachers-Without-Requisitions"],
+    expose_headers=["Content-Disposition", "X-Teachers-Without-Requisitions", "X-Lines-Not-Placed"],
 )
 # Added last, so it wraps everything above: the gate's refusals are marked too.
 app.add_middleware(NoStore)
@@ -87,6 +88,7 @@ app.include_router(programme_codes_router, prefix="/api/v1")
 app.include_router(exemption_reasons_router, prefix="/api/v1")
 app.include_router(rooms_router, prefix="/api/v1")
 app.include_router(term_weeks_router, prefix="/api/v1")
+app.include_router(department_roles_router, prefix="/api/v1")
 
 # Developer conveniences, mounted ONLY when the database is on this machine — so in
 # production they are a 404 rather than a guarded 403. A guard inside a mounted route is

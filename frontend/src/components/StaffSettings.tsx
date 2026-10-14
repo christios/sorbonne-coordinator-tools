@@ -6,6 +6,7 @@ import { ChecksPanel } from "@/components/ChecksPanel";
 import { ExemptionReasonsPanel } from "@/components/ExemptionReasonsPanel";
 import { ProgrammeCodesPanel } from "@/components/ProgrammeCodesPanel";
 import { TermWeeksPanel } from "@/components/TermWeeksPanel";
+import { HeadOfDepartmentPanel } from "@/components/HeadOfDepartmentPanel";
 import { ThisBrowser } from "@/components/ThisBrowser";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { InfoTip } from "@/components/InfoTip";
@@ -94,6 +95,8 @@ export function StaffSettings() {
         <AppExemptionReasons />
       ) : page === "semesters" ? (
         <AppSemesters />
+      ) : page === "department" ? (
+        <AppDepartment />
       ) : page === "this-browser" ? (
         <ThisBrowser />
       ) : (
@@ -182,6 +185,23 @@ function AppSemesters() {
         them. Any day of that week will do.
       </PageHeading>
       <TermWeeksPanel canChange={Boolean(user?.isAdmin)} />
+    </section>
+  );
+}
+
+/**
+ * Who signs for the department: the Head of Department, whose name and the day of approval
+ * go on every Part Time Sheet downloaded from an approved period. An administrator's to set.
+ */
+function AppDepartment() {
+  const user = useStaffUser();
+  return (
+    <section className="mt-6 max-w-2xl">
+      <PageHeading title="Head of Department" about="Where the Head of Department is used">
+        Their name is written in the Head of Department signature line of every Part Time Sheet downloaded from an
+        approved period, dated the day the sheet was approved.
+      </PageHeading>
+      <HeadOfDepartmentPanel canChange={Boolean(user?.isAdmin)} />
     </section>
   );
 }

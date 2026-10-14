@@ -293,3 +293,18 @@ def test_the_staff_number_finds_them_when_no_address_does(
     client.post(PUSH, json=body, headers={"X-Timesheet-Key": KEY})
 
     assert len(intake.for_teacher(teacher["id"])) == 1
+
+
+def test_the_day_the_teacher_submitted_is_kept_when_the_app_sends_it(
+    client: TestClient, store: TeacherStore, intake: TimeSheetIntake
+):
+    """For the employee's line of the Part Time Sheet. An app that does not send it leaves it blank."""
+    teacher = a_teacher(store)
+    body = a_push(teacher["email"], period_id=f"p{uuid4().hex[:8]}")
+    client.post(PUSH, json={**body, "submittedOn": "2026-09-15T10:00:00Z"}, headers={"X-Timesheet-Key": KEY})
+    other = a_teacher(store)
+    client.post(PUSH, json=a_push(other["email"], period_id=f"p{uuid4().hex[:8]}"), headers={"X-Timesheet-Key": KEY})
+
+    assert intake.for_teacher(teacher["id"])[0]["submittedOn"] == "2026-09-15T10:00:00Z"
+    assert intake.for_teacher(other["id"])[0]["submittedOn"] == ""
+

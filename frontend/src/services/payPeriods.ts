@@ -128,3 +128,11 @@ export function cycleLabel(opensOn: number): string {
   const suffix = tens >= 11 && tens <= 13 ? "th" : ["th", "st", "nd", "rd"][opensOn % 10] ?? "th";
   return `the ${opensOn}${suffix}`;
 }
+
+/** The day an instant fell on here, not in Greenwich: "2026-10-14T21:30:00Z" is the 15th in Abu Dhabi. */
+export function localDay(instant: string): string {
+  const when = new Date(instant);
+  if (!instant || Number.isNaN(when.getTime())) return (instant || "").slice(0, 10);
+  const two = (value: number) => String(value).padStart(2, "0");
+  return `${when.getFullYear()}-${two(when.getMonth() + 1)}-${two(when.getDate())}`;
+}

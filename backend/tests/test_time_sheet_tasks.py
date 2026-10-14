@@ -13,6 +13,7 @@ from sorbonne.services.time_sheet_tasks import (
     period_end,
     period_label,
     period_starts,
+    hr_task_id_for,
     task_id_for,
 )
 from sorbonne.services.time_sheet_intake import TimeSheetIntake
@@ -130,7 +131,7 @@ def test_running_it_again_writes_nothing_new(store: TeacherStore, tasks: Workflo
 
     again = keeper.catch_up(today=date(2026, 9, 22))
 
-    assert again == {"created": 0, "closed": 0, "periods": 2}
+    assert again == {"created": 0, "closed": 0, "periods": 2, "toHr": 0}
     assert len(mine(tasks, teacher["id"])) == 2
 
 
@@ -248,3 +249,101 @@ def test_a_sheet_pushed_from_the_timesheets_app_closes_the_task_too(
 
 def test_the_task_is_named_after_its_teacher_and_its_period():
     assert task_id_for("abc", date(2026, 8, 15)) == "time-sheet:abc:2026-08-15"
+
+
+# ------------------------------------------------------- and then, to HR
+
+
+def approve(store: TeacherStore, *, version: int = 1, teacher: dict | None = None) -> tuple[dict, str]:
+    """A sheet approved in the Timesheets app for August's period; the teacher and the period's id."""
+    teacher = teacher or a_teacher(store)
+    period_id = f"hr-{teacher['id'][:8]}"
+    TimeSheetIntake(TEST_DATABASE_URL).receive(
+        {
+            "schema": "timesheet.period.v1",
+            "periodId": period_id,
+            "version": version,
+            "periodStart": "2026-08-15",
+            "periodEnd": "2026-09-14",
+            "staff": {"email": teacher["email"], "name": teacher["fullName"]},
+            "totals": {"hours": 6},
+            "approval": {"approvedOn": f"2026-09-1{5 + version}T08:00:00Z"},
+            "days": [],
+        }
+    )
+    return teacher, period_id
+
+
+def to_hr(tasks: WorkflowStore, teacher_id: str) -> list[dict]:
+    return [task for task in tasks.list_tasks("teacher", teacher_id) if task["id"].startswith("time-sheet-to-hr:")]
+
+
+def test_an_approved_sheet_asks_for_it_to_be_sent_to_hr(
+    store: TeacherStore, tasks: WorkflowStore, keeper: TimeSheetTasks
+):
+    """Whether or not they hold a requisition: the sheet is approved, so it is owed to HR."""
+    teacher, _ = approve(store)
+
+    keeper.catch_up(today=date(2026, 9, 22))
+
+    [task] = to_hr(tasks, teacher["id"])
+    assert task["id"] == hr_task_id_for(teacher["id"], "2026-08-15")
+    assert task["title"] == "Submitted to HR: 15 Aug – 14 Sep 2026"
+    assert (task["status"], task["dueDate"]) == ("NOT_STARTED", None)
+
+
+def test_the_download_ticks_exactly_the_sheets_it_made_and_says_who(
+    store: TeacherStore, tasks: WorkflowStore, keeper: TimeSheetTasks
+):
+    sent, sent_id = approve(store)
+    kept, _ = approve(store)
+
+    assert keeper.mark_submitted_to_hr([sent_id], by="Christian") == 1
+
+    [done] = to_hr(tasks, sent["id"])
+    assert done["status"] == "COMPLETED"
+    assert done["description"].startswith("Submitted to HR — marked by Christian on ")
+    assert [task["status"] for task in to_hr(tasks, kept["id"])] == ["NOT_STARTED"]
+    # The approved sheet says when it went, for the Time sheets tab.
+    assert TimeSheetIntake(TEST_DATABASE_URL).for_teacher(sent["id"])[0]["hrSubmittedAt"]
+    assert TimeSheetIntake(TEST_DATABASE_URL).for_teacher(kept["id"])[0]["hrSubmittedAt"] == ""
+    # Ticking it twice is once.
+    assert keeper.mark_submitted_to_hr([sent_id], by="Christian") == 0
+
+
+def test_a_correction_approved_after_it_went_to_hr_opens_it_again(
+    store: TeacherStore, tasks: WorkflowStore, keeper: TimeSheetTasks
+):
+    teacher, period_id = approve(store)
+    keeper.mark_submitted_to_hr([period_id], by="Christian")
+
+    approve(store, version=2, teacher=teacher)
+
+    [task] = to_hr(tasks, teacher["id"])
+    assert task["status"] == "NOT_STARTED"
+    assert "corrected version was approved on 2026-09-17" in task["description"]
+
+
+def test_the_same_version_arriving_again_does_not_open_it(
+    store: TeacherStore, tasks: WorkflowStore, keeper: TimeSheetTasks
+):
+    """A retry of the flow is not a correction."""
+    teacher, period_id = approve(store)
+    keeper.mark_submitted_to_hr([period_id], by="Christian")
+
+    approve(store, teacher=teacher)
+
+    assert [task["status"] for task in to_hr(tasks, teacher["id"])] == ["COMPLETED"]
+
+
+def test_a_submitted_to_hr_task_deleted_by_hand_stays_deleted(
+    store: TeacherStore, tasks: WorkflowStore, keeper: TimeSheetTasks
+):
+    teacher, _ = approve(store)
+    keeper.catch_up(today=date(2026, 9, 22))
+
+    tasks.delete_task(hr_task_id_for(teacher["id"], "2026-08-15"), actor="c@sorbonne.ae")
+    keeper.catch_up(today=date(2026, 9, 22))
+
+    assert to_hr(tasks, teacher["id"]) == []
+

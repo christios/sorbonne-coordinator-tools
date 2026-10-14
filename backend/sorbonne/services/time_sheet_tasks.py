@@ -26,6 +26,13 @@ is, because a grid of tasks cannot be in two cycles at once.
 is owed for it, and that is remembered (`waived_time_sheet_tasks`) — this runs on every
 read, and without it the task came straight back.
 
+*Then the other half: sending it on.* An approved sheet still has to reach HR, and nothing
+said whether it had. So each approved sheet also makes a "Submitted to HR" task for its
+teacher and period. Nothing ticks it by itself — downloading a sheet is not sending it —
+but the download pop-up offers to tick exactly the sheets it just produced, which makes a
+batch one click. A corrected version approved later reopens it: what HR holds is then the
+old one. It has no due date.
+
 It runs when the tasks are read rather than on a clock. There is no scheduler here, and
 a task nobody has looked at yet has not been missed; by the time anybody can see the
 list, the list is right. Writing the same task twice is impossible because its name is
@@ -53,6 +60,14 @@ TASK_RESOURCE_TYPE = "teacher"
 
 #: What every task this makes is named after, so its own can be told from anybody else's.
 TASK_PREFIX = "time-sheet"
+
+#: The task that says an approved sheet has gone to HR.
+HR_TASK_PREFIX = "time-sheet-to-hr"
+
+HR_DESCRIPTION = (
+    "Tick once this period's Part Time Sheet has gone to HR. "
+    "The download on the Time sheets tab and on the teachers list can tick a batch at once."
+)
 
 
 def academic_year_of(today: date) -> str:
@@ -101,6 +116,11 @@ def task_id_for(teacher_id: str, start: date) -> str:
     return f"{TASK_PREFIX}:{teacher_id}:{start.isoformat()}"
 
 
+def hr_task_id_for(teacher_id: str, period_start: str) -> str:
+    """The "Submitted to HR" task of one approved sheet: its teacher and its period."""
+    return f"{HR_TASK_PREFIX}:{teacher_id}:{period_start}"
+
+
 class TimeSheetTasks:
     """Keeps the time-sheet tasks level with the periods that have opened."""
 
@@ -114,6 +134,7 @@ class TimeSheetTasks:
         now = datetime.now(UTC).isoformat()
         made = closed = 0
         with self.engine.begin() as connection:
+            to_hr = _catch_up_hr(connection, now)
             contracted = [
                 str(row[0])
                 for row in connection.execute(
@@ -123,7 +144,7 @@ class TimeSheetTasks:
                 )
             ]
             if not contracted:
-                return {"created": 0, "closed": 0, "periods": 0}
+                return {"created": 0, "closed": 0, "periods": 0, "toHr": to_hr}
             # Both ways a period can be answered: a link somebody typed in, and a sheet
             # the Part-Time Timesheets app pushed here once it was approved.
             filed = {
@@ -160,7 +181,109 @@ class TimeSheetTasks:
                     elif answered and held[task_id] != "COMPLETED":
                         _close(connection, task_id, now)
                         closed += 1
-        return {"created": made, "closed": closed, "periods": len(starts)}
+        return {"created": made, "closed": closed, "periods": len(starts), "toHr": to_hr}
+
+
+    def mark_submitted_to_hr(self, period_ids: list[str], *, by: str = "") -> int:
+        """Tick the "Submitted to HR" task of each of these approved sheets; how many were ticked now.
+
+        Said on the task who did it and when, because the task list keeps only when.
+        """
+        now = datetime.now(UTC).isoformat()
+        day = now[:10]
+        marked = 0
+        with self.engine.begin() as connection:
+            _catch_up_hr(connection, now)
+            for row in connection.execute(
+                text("SELECT teacher_id, period_start FROM pushed_time_sheets WHERE period_id = ANY(:ids)"),
+                {"ids": list(period_ids)},
+            ):
+                task_id = hr_task_id_for(str(row[0]), str(row[1]))
+                done = connection.execute(
+                    text("""UPDATE tasks SET status = 'COMPLETED', completed_at = :now,
+                                 description = :description, revision = revision + 1, updated_at = :now
+                             WHERE id = :id AND status <> 'COMPLETED'"""),
+                    {
+                        "id": task_id,
+                        "now": now,
+                        "description": f"Submitted to HR — marked by {by or 'a coordinator'} on {day}.",
+                    },
+                )
+                if done.rowcount:
+                    _activity(connection, task_id, "COMPLETED", now)
+                    marked += 1
+        return marked
+
+
+def _catch_up_hr(connection: Any, now: str) -> int:
+    """One "Submitted to HR" task per approved sheet, made the first time it is seen."""
+    held = {
+        str(row[0])
+        for row in connection.execute(
+            text("SELECT id FROM tasks WHERE resource_type = :kind AND id LIKE :like"),
+            {"kind": TASK_RESOURCE_TYPE, "like": f"{HR_TASK_PREFIX}:%"},
+        )
+    }
+    waived = {str(row[0]) for row in connection.execute(text("SELECT task_id FROM waived_time_sheet_tasks"))}
+    made = 0
+    for teacher_id, period_start in connection.execute(
+        text("SELECT teacher_id, period_start FROM pushed_time_sheets ORDER BY period_start, teacher_id")
+    ).all():
+        task_id = hr_task_id_for(str(teacher_id), str(period_start))
+        if task_id in held or task_id in waived:
+            continue
+        try:
+            title = f"Submitted to HR: {period_label(date.fromisoformat(str(period_start)))}"
+        except ValueError:
+            title = f"Submitted to HR: {period_start}"
+        connection.execute(
+            text("""INSERT INTO tasks (
+                        id, resource_type, resource_id, template_item_id, title, description, due_date,
+                        status, completed_at, revision, created_at, updated_at
+                    ) VALUES (
+                        :id, :kind, :teacher_id, NULL, :title, :description, NULL,
+                        'NOT_STARTED', NULL, 1, :now, :now
+                    )"""),
+            {
+                "id": task_id,
+                "kind": TASK_RESOURCE_TYPE,
+                "teacher_id": str(teacher_id),
+                "title": title,
+                "description": HR_DESCRIPTION,
+                "now": now,
+            },
+        )
+        made += 1
+    return made
+
+
+def reopen_hr_task(connection: Any, teacher_id: str, period_start: str, *, approved_on: str = "") -> bool:
+    """A corrected version was approved: what HR holds is the old one, so the task is open again."""
+    now = datetime.now(UTC).isoformat()
+    task_id = hr_task_id_for(teacher_id, period_start)
+    when = f" on {approved_on[:10]}" if approved_on else ""
+    reopened = connection.execute(
+        text("""UPDATE tasks SET status = 'NOT_STARTED', completed_at = NULL,
+                     description = :description, revision = revision + 1, updated_at = :now
+                 WHERE id = :id AND status = 'COMPLETED'"""),
+        {
+            "id": task_id,
+            "now": now,
+            "description": f"A corrected version was approved{when}, after the last one went to HR. "
+            + HR_DESCRIPTION,
+        },
+    )
+    if reopened.rowcount:
+        _activity(connection, task_id, "REOPENED", now)
+    return bool(reopened.rowcount)
+
+
+def _activity(connection: Any, task_id: str, kind: str, now: str) -> None:
+    connection.execute(
+        text("""INSERT INTO task_activity (id, task_id, kind, occurred_at)
+                VALUES (:id, :task_id, :kind, :now)"""),
+        {"id": str(uuid4()), "task_id": task_id, "kind": kind, "now": now},
+    )
 
 
 def _insert(connection: Any, teacher_id: str, start: date, *, answered: bool, now: str) -> None:

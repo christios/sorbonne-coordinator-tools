@@ -53,6 +53,7 @@ describe("StaffMenu", () => {
       "Programme codes",
       "Exemption reasons",
       "Semesters",
+      "Department",
       "This browser",
       "Sign out",
     ]);

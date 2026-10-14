@@ -11,11 +11,18 @@ in `services/auth_gate.py` checks it before this is reached.
 """
 
 from typing import Any
+from urllib.parse import quote
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
+from fastapi.responses import Response
+from pydantic import BaseModel, Field
 
 from sorbonne.config import config
+from sorbonne.services import coordinator_directory
+from sorbonne.services.engine import engine_for
+from sorbonne.services.time_sheet_tasks import TimeSheetTasks
 from sorbonne.services.time_sheet_intake import SCHEMA, TeacherNotKnown, TimeSheetIntake, UnknownSchema
+from sorbonne.services.time_sheet_workbooks import SheetNotFound, TimeSheetWorkbooks, Workbook
 from sorbonne.services.timesheet_prefill import PeriodNotKnown, TimesheetPrefill
 
 
@@ -28,6 +35,30 @@ def get_intake() -> TimeSheetIntake:
 
 def get_prefill() -> TimesheetPrefill:
     return TimesheetPrefill(config.database_url)
+
+
+def get_workbooks() -> TimeSheetWorkbooks:
+    return TimeSheetWorkbooks(engine_for(config.database_url))
+
+
+class WorkbooksInput(BaseModel):
+    periodIds: list[str] = Field(min_length=1, max_length=300)
+
+
+XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+def _download(book: Workbook, media_type: str) -> Response:
+    """The file, named for a person reading a Downloads folder, and how many lines it could not place."""
+    ascii_name = book.filename.encode("ascii", "replace").decode().replace("?", "_")
+    return Response(
+        content=book.data,
+        media_type=media_type,
+        headers={
+            "Content-Disposition": f'attachment; filename="{ascii_name}"; filename*=UTF-8\'\'{quote(book.filename)}',
+            "X-Lines-Not-Placed": str(book.unplaced),
+        },
+    )
 
 
 @router.get("/prefill")
@@ -63,6 +94,39 @@ def prefill(
 def list_submitted(intake: TimeSheetIntake = Depends(get_intake)) -> dict[str, Any]:
     """Every approved period the app has pushed. Behind the sign-in, unlike the push."""
     return {"items": intake.everyone()}
+
+
+@router.get("/submitted/{period_id}/workbook")
+def one_workbook(period_id: str, workbooks: TimeSheetWorkbooks = Depends(get_workbooks)) -> Response:
+    """One approved period as the university's Part Time Sheet."""
+    try:
+        return _download(workbooks.workbook(period_id), XLSX)
+    except SheetNotFound as exc:
+        raise HTTPException(status_code=404, detail="That time sheet is not here any more.") from exc
+
+
+@router.post("/workbooks")
+def many_workbooks(body: WorkbooksInput, workbooks: TimeSheetWorkbooks = Depends(get_workbooks)) -> Response:
+    """Several approved periods, a Part Time Sheet each, in one zip."""
+    try:
+        return _download(workbooks.bundle(body.periodIds), "application/zip")
+    except SheetNotFound as exc:
+        raise HTTPException(status_code=404, detail="None of those time sheets is here any more.") from exc
+
+
+def get_tasks() -> TimeSheetTasks:
+    return TimeSheetTasks(config.database_url)
+
+
+@router.post("/submitted-to-hr")
+def mark_submitted_to_hr(
+    body: WorkbooksInput, request: Request, tasks: TimeSheetTasks = Depends(get_tasks)
+) -> dict[str, Any]:
+    """Tick the "Submitted to HR" task of each of these sheets — the download pop-up's one click."""
+    staff = getattr(request.state, "staff_user", None)
+    email = str(getattr(staff, "email", "") or "")
+    by = coordinator_directory.name_for(email, str(getattr(staff, "name", "") or "")) if email else ""
+    return {"marked": tasks.mark_submitted_to_hr(body.periodIds, by=by)}
 
 
 @router.post("")

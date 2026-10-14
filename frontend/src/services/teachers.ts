@@ -8,6 +8,8 @@ export type Teacher = {
   email: string;
   phone: string;
   notes: string;
+  /** What they are paid an hour, for the Part Time Sheet; null until somebody enters it. */
+  hourlyRate?: number | null;
   archivedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -16,7 +18,11 @@ export type Teacher = {
 export type TeacherFolder = { id: string; name: string; parentId: string | null; createdAt: string; updatedAt: string };
 export type TeacherRequisitionSummary = { id: string; teacherId: string; label: string; academicYear: string; revision: number; createdAt: string; updatedAt: string };
 export type TeacherRequisition = TeacherRequisitionSummary & { content: RequisitionContent };
-export type TeacherInput = Pick<Teacher, "fullName" | "email" | "phone" | "notes"> & { taskTemplateIds?: string[] };
+export type TeacherInput = Pick<Teacher, "fullName" | "email" | "phone" | "notes"> & {
+  taskTemplateIds?: string[];
+  /** Left out, the rate stays as it was; null clears it. */
+  hourlyRate?: number | null;
+};
 export type RequisitionInput = { label: string; academicYear: string; sourceRequisitionId?: string };
 export type CourseCatalogueEntry = {
   id: string;
@@ -151,6 +157,10 @@ export type SubmittedTimeSheet = {
   approvedBy: string;
   approvedByEmail: string;
   approvedOn: string;
+  /** When the teacher submitted it, if the app said; "" otherwise. */
+  submittedOn?: string;
+  /** When its "Submitted to HR" task was ticked; "" while it is open. */
+  hrSubmittedAt?: string;
   /** `kind` from October 2026; "" on a line from before, when the sheet never said. */
   days: { day: string; date: string; from: string; to: string; hours: number; details: string; kind?: "teaching" | "admin" | "" }[];
   sentAt: string;
@@ -248,9 +258,58 @@ export async function downloadTeacherRequisitionExport(id: string): Promise<void
   await saveResponse(response, "recruitment-request.docx");
 }
 
+/**
+ * An approved period as the university's Part Time Sheet — or several, a workbook each, in
+ * one zip. Says how many approved lines the template had no row for (a date outside the
+ * period, or no start time), which is none on any sheet so far but must never be silent.
+ */
+export async function downloadPartTimeSheets(periodIds: string[]): Promise<{ notPlaced: number }> {
+  const one = periodIds.length === 1;
+  const response = await apiFetch(
+    one
+      ? `${API_BASE_URL}/api/v1/timesheets/submitted/${encodeURIComponent(periodIds[0])}/workbook`
+      : `${API_BASE_URL}/api/v1/timesheets/workbooks`,
+    one
+      ? {}
+      : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ periodIds }) },
+  );
+  if (!response.ok) {
+    const body = (await response.json().catch(() => ({}))) as { detail?: string };
+    throw new Error(body.detail ?? `Download failed with status ${response.status}`);
+  }
+  const notPlaced = Number(response.headers.get("X-Lines-Not-Placed") ?? 0);
+  await saveResponse(response, one ? "Part Time Sheet.xlsx" : "Part Time Sheets.zip");
+  return { notPlaced };
+}
+
+/** Tick the "Submitted to HR" task of each of these approved sheets; how many were ticked now. */
+export async function markSubmittedToHr(periodIds: string[]): Promise<{ marked: number }> {
+  return request<{ marked: number }>("/timesheets/submitted-to-hr", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ periodIds }),
+  });
+}
+
+/**
+ * The name a download was given: the UTF-8 one where the server sent it, so a name with an
+ * accent is not saved with underscores in it.
+ */
+export function downloadName(disposition: string, fallbackName: string): string {
+  const encoded = /filename\*=UTF-8''([^;]+)/i.exec(disposition)?.[1];
+  if (encoded) {
+    try {
+      return decodeURIComponent(encoded);
+    } catch {
+      // A malformed one falls through to the plain name.
+    }
+  }
+  return /filename="?([^";]+)"?/.exec(disposition)?.[1] ?? fallbackName;
+}
+
 /** Hand a downloaded response to the browser under the name the server gave it. */
 async function saveResponse(response: Response, fallbackName: string): Promise<void> {
-  const filename = /filename="?([^";]+)"?/.exec(response.headers.get("content-disposition") ?? "")?.[1] ?? fallbackName;
+  const filename = downloadName(response.headers.get("content-disposition") ?? "", fallbackName);
   const url = URL.createObjectURL(await response.blob());
   const link = document.createElement("a");
   link.href = url;

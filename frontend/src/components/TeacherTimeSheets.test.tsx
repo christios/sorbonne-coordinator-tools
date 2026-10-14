@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TimeSheetsCard } from "@/components/TeacherTimeSheets";
@@ -144,8 +144,10 @@ describe("a period the Part-Time Timesheets app has had approved", () => {
     show();
 
     expect(await screen.findByText("Submitted 1.5 h")).toBeTruthy();
-    expect(screen.getByText(/approved by Christian Khairallah/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "File a sheet for 15 Oct – 14 Nov 2026" })).toBeNull();
+    // Who approved it is in the pop-up, where there is room to say it.
+    fireEvent.click(screen.getByRole("button", { name: /Submitted 1.5 h/ }));
+    expect(within(await screen.findByRole("dialog")).getByText(/Approved by Christian Khairallah/)).toBeTruthy();
   });
 
   it("says how far the claim is from what the timetable has, which nobody would check by hand", async () => {
@@ -154,7 +156,10 @@ describe("a period the Part-Time Timesheets app has had approved", () => {
 
     show();
 
-    expect(await screen.findByText("2.5 h more than the timetable has")).toBeTruthy();
+    // On the row, the figure; in the pop-up, the sentence.
+    expect(await screen.findByText("+2.5 h vs timetable")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Submitted 4 h/ }));
+    expect(within(await screen.findByRole("dialog")).getByText(/2.5 h more than the timetable has \(1.5 h\)/)).toBeTruthy();
   });
 
   it("says so plainly when the two agree", async () => {
@@ -163,7 +168,7 @@ describe("a period the Part-Time Timesheets app has had approved", () => {
 
     show();
 
-    expect(await screen.findByText("matching the timetable")).toBeTruthy();
+    expect(await screen.findByText("matches timetable")).toBeTruthy();
   });
 });
 
@@ -226,3 +231,53 @@ describe("opening a submitted sheet", () => {
     expect(screen.getByText(/The app sent a total of 58 h, which these days do not come to/)).toBeTruthy();
   });
 });
+
+describe("the approved sheet in its pop-up", () => {
+  it("opens as a pop-up the width of the page, not inside the column", async () => {
+    vi.spyOn(teachers, "listTeacherTimeSheets").mockResolvedValue([]);
+    vi.spyOn(teachers, "listSubmittedTimeSheets").mockResolvedValue([
+      submitted({
+        days: [{ day: "Mon", date: "2026-10-19", from: "08:30", to: "10:00", hours: 1.5, details: "PHYS-101 TD", kind: "teaching" }],
+      }),
+    ]);
+
+    show();
+    fireEvent.click(await screen.findByRole("button", { name: /Submitted 1.5 h/ }));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("PHYS-101 TD")).toBeTruthy();
+    expect(within(dialog).getByText("Teaching")).toBeTruthy();
+  });
+
+  it("downloads HR's Part Time Sheet, then offers to mark it as gone to HR", async () => {
+    vi.spyOn(teachers, "listTeacherTimeSheets").mockResolvedValue([]);
+    vi.spyOn(teachers, "listSubmittedTimeSheets").mockResolvedValue([submitted()]);
+    const download = vi.spyOn(teachers, "downloadPartTimeSheets").mockResolvedValue({ notPlaced: 0 });
+    const mark = vi.spyOn(teachers, "markSubmittedToHr").mockResolvedValue({ marked: 1 });
+
+    show();
+    expect(await screen.findByText("Not sent to HR")).toBeTruthy();
+    fireEvent.click(await screen.findByRole("button", { name: /Submitted 1.5 h/ }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Download Excel" }));
+
+    expect(await within(dialog).findByText(/Once it has gone to HR, mark it here/)).toBeTruthy();
+    expect(download).toHaveBeenCalledWith(["41"]);
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Mark as submitted to HR" }));
+    await waitFor(() => expect(mark).toHaveBeenCalledWith(["41"]));
+  });
+
+  it("says when it went to HR, on the row and in the pop-up", async () => {
+    vi.spyOn(teachers, "listTeacherTimeSheets").mockResolvedValue([]);
+    vi.spyOn(teachers, "listSubmittedTimeSheets").mockResolvedValue([submitted({ hrSubmittedAt: "2026-10-15T07:00:00Z" })]);
+
+    show();
+
+    expect(await screen.findByText("Sent to HR Thu 15 Oct")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Submitted 1.5 h/ }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).queryByRole("button", { name: "Mark as submitted to HR" })).toBeNull();
+  });
+});
+
