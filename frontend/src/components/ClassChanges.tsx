@@ -31,7 +31,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, Check, CheckCircle2 } from "lucide-react";
 import { Tooltip } from "radix-ui";
-import { useMemo, type ReactNode } from "react";
+import { useMemo, type CSSProperties, type ReactNode } from "react";
 
 import { locationFor } from "@/routes/toolRoute";
 import { hoursIn, minutesOf, monthsOfDiff, stillToLookAt, unexpected, type DiffDay, type Meeting } from "@/services/classDiff";
@@ -187,19 +187,26 @@ export function SectionDiff({
       </div>
       <div className="min-w-0 lg:order-1">
         {/*
-          * The months two to a row in their half of the card, every section laid against the
+          * The semester's months side by side on one row, small, every section laid against the
           * same ones, so a course that stopped in November reads the same on every card: the
-          * squares that are left, against the months around them.
+          * squares that are left, against the months around them. A phone keeps two to a row.
           */}
-        <div className="grid grid-cols-2 gap-4">
+        <div
+          className="grid grid-cols-2 gap-3 sm:grid-cols-(--months)"
+          style={{ "--months": `repeat(${months.length}, minmax(0, 1fr))` } as CSSProperties}
+        >
           {months.map((month) => (
             <div key={month.label} className="min-w-0">
-              <p className="text-sm font-semibold text-[#344054]">{month.label}</p>
-              <div className="mt-2 grid grid-cols-7 gap-[3px]">
+              <p className="truncate text-xs font-semibold text-[#344054]">{month.label}</p>
+              <div className="mt-1.5 grid grid-cols-7 gap-[2px]">
                 {WEEKDAYS.map((day) => (
-                  <span key={day} className="truncate text-center text-[10px] font-medium text-[#98a2b3]">
-                    {day}
-                  </span>
+                  <abbr
+                    key={day}
+                    title={day}
+                    className="text-center text-[9px] font-medium text-[#98a2b3] no-underline"
+                  >
+                    {day.slice(0, 1)}
+                  </abbr>
                 ))}
                 {month.days.map((day, index) => (
                   <Square key={day?.day ?? `blank-${index}`} day={day} section={section} />
@@ -346,7 +353,7 @@ function Square({ day, section }: { day: DiffDay | null; section: ChangedClasses
     <span
       tabIndex={said.length ? 0 : undefined}
       aria-label={said.length ? `${day.day}: ${said.join(", ")}` : day.day}
-      className={`flex aspect-square w-full items-center justify-center rounded-sm text-[11px] font-medium outline-none focus-visible:ring-2 focus-visible:ring-[#1f4e79] ${paint}${also} ${gone && !arrived ? "line-through" : ""}`}
+      className={`flex aspect-square w-full items-center justify-center rounded-[3px] text-[10px] font-medium tabular-nums outline-none focus-visible:ring-2 focus-visible:ring-[#1f4e79] ${paint}${also} ${gone && !arrived ? "line-through" : ""}`}
     >
       {day.dayOfMonth}
     </span>
