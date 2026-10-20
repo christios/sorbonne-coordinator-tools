@@ -233,7 +233,7 @@ function ChangeLists({
     notes.find((one) => one.side === side && keyOf(one.class) === keyOf(cls));
 
   return (
-    <div className="mt-4 border-t border-[#eef1f5] pt-3">
+    <div className="mt-3 border-t border-[#eef1f5] pt-3">
       {linking ? (
         <p className="mb-2 flex flex-wrap items-center gap-2 rounded-md bg-[#f2f7fb] px-3 py-2 text-sm text-[#1f4e79]">
           <Link2 size={15} aria-hidden="true" /> Choose the class that {slotSaid(linking)} was rescheduled into.
@@ -242,7 +242,7 @@ function ChangeLists({
           </button>
         </p>
       ) : null}
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid gap-4">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-wide text-[#842029]">Went ({section.removed.length})</p>
           <ul className="mt-1 grid gap-1.5">

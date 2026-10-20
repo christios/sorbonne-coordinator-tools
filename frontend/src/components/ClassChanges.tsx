@@ -150,83 +150,87 @@ export function SectionDiff({
     `${section.kept.length} unchanged (${left} h)`,
   ].filter(Boolean);
   return (
-    <section className="rounded-lg border border-[#d9dee7] bg-white p-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h4 className="text-base font-semibold text-[#344054]">
-            {section.courseCode || section.crn} · CRN {section.crn}
-          </h4>
-          <p className="mt-0.5 text-sm text-[#667085]">
-            {section.teacherName || "Nobody named"} · {said.join(", ")}
-          </p>
-        </div>
-        {approval ? (
-          <span className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-[#e8f5ee] px-3 py-1.5 text-sm font-semibold text-[#1f6b47]">
-            <CheckCircle2 size={16} aria-hidden="true" /> Approved by {approval.byName || approval.byEmail}, {shortDay(approval.at)}
-          </span>
-        ) : onApprove ? (
-          <button
-            type="button"
-            onClick={onApprove}
-            disabled={approving}
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-3 py-1.5 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb] disabled:opacity-60"
-          >
-            <Check size={16} /> Approve
-          </button>
-        ) : null}
-      </div>
-      {/*
-        * Every month the section touches on one row, however many there are. A semester
-        * read as a strip is the whole point of drawing it — three squares left across
-        * September, October and November is a course that stopped, and that only shows
-        * when the months are side by side. Wrapped, the last month dropped under the
-        * first and the shape went with it. So the columns share the width and the days
-        * shrink to fit rather than the row breaking.
-        *
-        * A month is never wider than a quarter of the row, though: a section that touches
-        * one month drew it the whole width across, squares the size of buttons, and two
-        * sections one under the other stopped looking like the same kind of thing.
-        */}
-      <div className="mt-4 grid auto-cols-[minmax(9rem,calc((100%-3rem)/4))] grid-flow-col gap-4 overflow-x-auto pb-1">
-        {months.map((month) => (
-          <div key={month.label} className="min-w-0">
-            <p className="text-sm font-semibold text-[#344054]">{month.label}</p>
-            <div className="mt-2 grid grid-cols-7 gap-[3px]">
-              {WEEKDAYS.map((day) => (
-                <span key={day} className="truncate text-center text-[10px] font-medium text-[#98a2b3]">
-                  {day}
-                </span>
-              ))}
-              {month.days.map((day, index) => (
-                <Square key={day?.day ?? `blank-${index}`} day={day} section={section} />
-              ))}
-            </div>
+    /*
+     * Two columns: the months on the left, and on the right what the section is and what
+     * the department makes of it — the approval, and the classes that went and arrived
+     * with their links and notes. The months are read and the lists are worked through
+     * side by side, so neither has to be scrolled away to use the other. On a narrow
+     * screen the right-hand half comes first, since it says what the months are of.
+     */
+    <section className="grid gap-5 rounded-lg border border-[#d9dee7] bg-white p-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
+      <div className="min-w-0 lg:order-2">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h4 className="text-base font-semibold text-[#344054]">
+              {section.courseCode || section.crn} · CRN {section.crn}
+            </h4>
+            <p className="mt-0.5 text-sm text-[#667085]">
+              {section.teacherName || "Nobody named"} · {said.join(", ")}
+            </p>
           </div>
-        ))}
+          {approval ? (
+            <span className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-[#e8f5ee] px-3 py-1.5 text-sm font-semibold text-[#1f6b47]">
+              <CheckCircle2 size={16} aria-hidden="true" /> Approved by {approval.byName || approval.byEmail}, {shortDay(approval.at)}
+            </span>
+          ) : onApprove ? (
+            <button
+              type="button"
+              onClick={onApprove}
+              disabled={approving}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-3 py-1.5 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb] disabled:opacity-60"
+            >
+              <Check size={16} /> Approve
+            </button>
+          ) : null}
+        </div>
+        {children}
       </div>
-      <p className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-sm text-[#667085]">
-        <span className="inline-flex items-center gap-1.5">
-          <span className="inline-block h-3 w-3 rounded-sm bg-[#cfe2ff]" /> unchanged
-        </span>
-        <span className="inline-flex items-center gap-1.5">
-          <span className="inline-block h-3 w-3 rounded-sm bg-[#f8d7da]" /> removed
-        </span>
-        <span className="inline-flex items-center gap-1.5">
-          <span className="inline-block h-3 w-3 rounded-sm bg-[#d1e7dd]" /> added
-        </span>
-        {both ? (
+      <div className="min-w-0 lg:order-1">
+        {/*
+          * The months two to a row in their half of the card, every section laid against the
+          * same ones, so a course that stopped in November reads the same on every card: the
+          * squares that are left, against the months around them.
+          */}
+        <div className="grid grid-cols-2 gap-4">
+          {months.map((month) => (
+            <div key={month.label} className="min-w-0">
+              <p className="text-sm font-semibold text-[#344054]">{month.label}</p>
+              <div className="mt-2 grid grid-cols-7 gap-[3px]">
+                {WEEKDAYS.map((day) => (
+                  <span key={day} className="truncate text-center text-[10px] font-medium text-[#98a2b3]">
+                    {day}
+                  </span>
+                ))}
+                {month.days.map((day, index) => (
+                  <Square key={day?.day ?? `blank-${index}`} day={day} section={section} />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+        <p className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-sm text-[#667085]">
           <span className="inline-flex items-center gap-1.5">
-            <span className="inline-block h-3 w-3 rounded-sm bg-[#d1e7dd] ring-2 ring-inset ring-[#e07c84]" /> arrived
-            where one was removed the same day
+            <span className="inline-block h-3 w-3 rounded-sm bg-[#cfe2ff]" /> unchanged
           </span>
-        ) : null}
-        {known ? (
           <span className="inline-flex items-center gap-1.5">
-            <span className="inline-block h-3 w-3 rounded-sm bg-[#e9ecef]" /> you had cancelled it
+            <span className="inline-block h-3 w-3 rounded-sm bg-[#f8d7da]" /> removed
           </span>
-        ) : null}
-      </p>
-      {children}
+          <span className="inline-flex items-center gap-1.5">
+            <span className="inline-block h-3 w-3 rounded-sm bg-[#d1e7dd]" /> added
+          </span>
+          {both ? (
+            <span className="inline-flex items-center gap-1.5">
+              <span className="inline-block h-3 w-3 rounded-sm bg-[#d1e7dd] ring-2 ring-inset ring-[#e07c84]" /> arrived
+              where one was removed the same day
+            </span>
+          ) : null}
+          {known ? (
+            <span className="inline-flex items-center gap-1.5">
+              <span className="inline-block h-3 w-3 rounded-sm bg-[#e9ecef]" /> you had cancelled it
+            </span>
+          ) : null}
+        </p>
+      </div>
     </section>
   );
 }
