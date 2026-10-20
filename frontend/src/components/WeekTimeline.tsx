@@ -1,8 +1,9 @@
-import { MapPin, Repeat, User } from "lucide-react";
+import { CalendarClock, MapPin, Repeat, User } from "lucide-react";
 import { useLayoutEffect, useRef, useState } from "react";
 
 import { fittedRowHeight } from "@/services/timelineFit";
 import {
+  movedFromSaid,
   DAY_NAMES,
   type CalendarCourse,
   type PlacedSession,
@@ -460,6 +461,7 @@ function Class({
         crowded ? `${registered} registered for ${seats} seats` : "",
         cancelled ? "CANCELLED" : "",
         covered ? `covered by ${covered.coverTeacherName}` : "",
+        movedFromSaid(session),
         session.change?.note ?? "",
         session.clashes ? clash : "",
       ].filter(Boolean),
@@ -495,6 +497,8 @@ function Class({
     >
       <span className={`flex min-w-0 items-center gap-1.5 ${fits.tall ? "w-full" : ""}`}>
         {covered ? <Repeat size={9} className="shrink-0" aria-hidden="true" /> : null}
+        {/* Moved here from another day, as a coordinator linked it on Class changes. */}
+        {session.rescheduledFrom ? <CalendarClock size={9} className="shrink-0" aria-label="Rescheduled" /> : null}
         {/* Never dropped: a box with no name on it says nothing at all. */}
         <b className={`min-w-0 shrink-0 truncate font-semibold ${cancelled ? "line-through" : ""}`}>{label}</b>
         {/* Never dropped either: a room too small is the thing to see at a glance. */}

@@ -113,3 +113,20 @@ describe("who teaches a box", () => {
     expect(screen.getByText("TD 3 · CRN 23638")).toBeTruthy();
   });
 });
+
+describe("a class a coordinator linked as rescheduled", () => {
+  it("says it moved, and from when", () => {
+    week({ ...classAt(), rescheduledFrom: { date: "2026-09-01", start: "08:30", end: "10:00" } });
+
+    expect(screen.getByText("Moved")).toBeTruthy();
+    expect(box().getAttribute("title")).toContain("rescheduled from Tue 1 Sep, 08:30–10:00");
+  });
+
+  it("says nothing of the kind on a class that was always there", () => {
+    week(classAt());
+
+    expect(screen.queryByText("Moved")).toBeNull();
+    expect(box().getAttribute("title")).not.toContain("rescheduled");
+  });
+});
+

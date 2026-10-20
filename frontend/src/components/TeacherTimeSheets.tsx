@@ -28,7 +28,7 @@ import { Modal } from "@/components/Modal";
 import { SelectMenu } from "@/components/SelectMenu";
 import { buildCards } from "@/services/courseCards";
 import { asHours, hoursTaught, minutesByTeacher } from "@/services/hoursInPeriod";
-import { fetchActiveTeachers, fetchFacilitySections, fetchTermLinks } from "@/services/portalLists";
+import { fetchActiveTeachers, fetchClassNotes, fetchFacilitySections, fetchTermLinks } from "@/services/portalLists";
 import { fetchSessionChanges } from "@/services/sessionChanges";
 import { fetchCourseCards } from "@/services/studentDatabase";
 import { sectionsTaughtBy } from "@/services/teacherLoad";
@@ -173,6 +173,13 @@ export function TimeSheetsCard({
     enabled: Boolean(termCode) && crns.length > 0,
     retry: false,
   });
+  // Their classes a coordinator linked as rescheduled, on the Class changes page.
+  const classNotes = useQuery({
+    queryKey: ["class-notes", termCode],
+    queryFn: () => fetchClassNotes(termCode),
+    enabled: Boolean(termCode),
+    retry: false,
+  });
 
   const refresh = () => {
     void client.invalidateQueries({ queryKey: ["teacher-time-sheets", teacherId] });
@@ -228,11 +235,21 @@ export function TimeSheetsCard({
           classes: ours.length,
           covered: ours.filter((hour) => hour.covered).length,
           stranded: stranded.length,
+          // A class of theirs that went this period, or arrived in it, linked as rescheduled.
+          moved: (classNotes.data?.links ?? [])
+            .filter((link) => link.matches && crns.includes(link.crn))
+            .filter((link) => [link.from.meetsOn, link.to.meetsOn].some((day) => day >= start && day <= periodEnd(start)))
+            .map((link) => ({
+              id: link.id,
+              course: (met.data?.sections ?? []).find((section) => section.crn === link.crn)?.courseCode || `CRN ${link.crn}`,
+              from: link.from.meetsOn,
+              to: link.to.meetsOn,
+            })),
           sheet: rows.find((sheet) => sheet.periodStart === start) ?? null,
           submitted: (submitted.data ?? []).find((sheet) => sheet.periodStart === start) ?? null,
         };
       });
-  }, [met.data, notes.data, rows, submitted.data, opensOn, mine?.id, mine?.fullName]);
+  }, [met.data, notes.data, rows, submitted.data, opensOn, mine?.id, mine?.fullName, classNotes.data, crns]);
 
   /** Sheets against no period, or a period nothing else knows about. Nothing disappears. */
   const loose = rows.filter((sheet) => !periods.some((period) => period.sheet?.id === sheet.id));
@@ -456,6 +473,11 @@ export function TimeSheetsCard({
                       {period.stranded} note{period.stranded === 1 ? "" : "s"} about an hour the portal has moved
                     </span>
                   ) : null}
+                  {period.moved.map((move) => (
+                    <span key={move.id} className="mt-0.5 block text-xs text-[#1f4e79]">
+                      {move.course}: {dayLabel(move.from)} rescheduled to {dayLabel(move.to)}
+                    </span>
+                  ))}
                 </div>
                 <span className="hidden text-right text-sm font-semibold tabular-nums text-[#1f4e79] sm:block">
                   {asHours(period.minutes)} h

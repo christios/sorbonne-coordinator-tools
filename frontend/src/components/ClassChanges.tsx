@@ -28,17 +28,17 @@
  * in a way that "6 h against 26 h" never did.
  */
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Check } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { AlertTriangle, Check, CheckCircle2 } from "lucide-react";
 import { Tooltip } from "radix-ui";
-import { useMemo, useState } from "react";
+import { useMemo, type ReactNode } from "react";
 
-import { Modal } from "@/components/Modal";
+import { locationFor } from "@/routes/toolRoute";
 import { hoursIn, minutesOf, monthsOfDiff, stillToLookAt, unexpected, type DiffDay, type Meeting } from "@/services/classDiff";
 import { formatRoom } from "@/services/weekSchedule";
 import { useRooms } from "@/services/rooms";
 import { fetchChangedClasses, fetchSweptTerms, type ChangedClasses } from "@/services/portalLists";
-import { dismissalsByKey, fetchDismissals, setDismissal } from "@/services/warningDismissals";
+import { dismissalsByKey, fetchDismissals, type Dismissal } from "@/services/warningDismissals";
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
@@ -51,9 +51,11 @@ function saidIn(lost: number, gained: number): string {
   return said.join(", ");
 }
 
+/**
+ * The count, on the pages where the people it happens to are listed; the looking, linking
+ * and approving happen on the Class changes page, which this opens.
+ */
 export function ClassChangesBanner({ className = "" }: { className?: string }) {
-  const client = useQueryClient();
-  const [open, setOpen] = useState(false);
   const terms = useQuery({ queryKey: ["swept-terms"], queryFn: fetchSweptTerms, retry: false });
   const termCode = terms.data?.[0] ?? "";
   const changed = useQuery({
@@ -68,21 +70,6 @@ export function ClassChangesBanner({ className = "" }: { className?: string }) {
     () => stillToLookAt(changed.data ?? [], approved),
     [changed.data, approved],
   );
-  /*
-   * The semester the months are drawn across: from the first class any listed section
-   * has to the last. Every section is laid against the same months, the empty ones
-   * included. Not from Week 1 as Settings has it: that is the week before teaching starts
-   * — 24 August — and it drew an August nobody taught in.
-   */
-  const span = useMemo(() => {
-    const dates = waiting.flatMap((section) => [...section.kept, ...section.removed, ...section.added].map((meeting) => meeting.meetsOn)).sort();
-    return dates.length ? { from: dates[0], to: dates[dates.length - 1] } : undefined;
-  }, [waiting]);
-  const approve = useMutation({
-    mutationFn: (key: string) => setDismissal(key, true),
-    onSuccess: () => void client.invalidateQueries({ queryKey: ["warning-dismissals"] }),
-  });
-
   if (waiting.length === 0) return null;
 
   // Only what the department did not already know: a coordinator's own cancellations
@@ -104,48 +91,44 @@ export function ClassChangesBanner({ className = "" }: { className?: string }) {
             — {saidIn(lost, gained)} since the department last looked.
           </span>
         </p>
-        <button
-          type="button"
-          onClick={() => setOpen(true)}
+        <a
+          href={`#${locationFor("database", "class-changes")}`}
           className="shrink-0 rounded-md border border-[#c9a227] bg-white px-3 py-1.5 text-sm font-semibold text-[#7a5d00] hover:bg-[#fffaf0]"
         >
           Show what changed
-        </button>
+        </a>
       </div>
-      <Modal
-        open={open}
-        onClose={() => setOpen(false)}
-        title="Classes the portal has changed"
-        description="Each month of the semester, with what still meets, what has gone and what has arrived. Approving one keeps it out of the banner until something else about it changes."
-        size="wide"
-      >
-        <div className="grid grid-cols-[minmax(0,1fr)] gap-6">
-          {waiting.map((section) => (
-            <SectionDiff
-              key={section.key}
-              section={section}
-              span={span}
-              onApprove={() => approve.mutate(section.key)}
-              approving={approve.isPending && approve.variables === section.key}
-            />
-          ))}
-        </div>
-      </Modal>
     </>
   );
 }
 
-function SectionDiff({
+/** "20 Oct", for when something was approved. */
+function shortDay(iso: string): string {
+  const when = new Date(iso);
+  if (Number.isNaN(when.getTime())) return iso.slice(0, 10);
+  return `${when.getDate()} ${["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][when.getMonth()]}`;
+}
+
+/**
+ * One section's changed classes across the semester's months: what still meets, what went,
+ * what arrived — with its approval, and whatever the page wants to show under it.
+ */
+export function SectionDiff({
   section,
   span,
   onApprove,
-  approving,
+  approving = false,
+  approval,
+  children,
 }: {
   section: ChangedClasses;
   /** The semester's months, so a section with nothing in September still shows September. */
   span?: { from: string; to: string };
-  onApprove: () => void;
-  approving: boolean;
+  onApprove?: () => void;
+  approving?: boolean;
+  /** Who approved this change, and when — said in place of the button. */
+  approval?: Dismissal;
+  children?: ReactNode;
 }) {
   const months = useMemo(
     () => monthsOfDiff(section.kept, section.removed, section.added, span),
@@ -177,14 +160,20 @@ function SectionDiff({
             {section.teacherName || "Nobody named"} · {said.join(", ")}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={onApprove}
-          disabled={approving}
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-3 py-1.5 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb] disabled:opacity-60"
-        >
-          <Check size={16} /> Approve
-        </button>
+        {approval ? (
+          <span className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-[#e8f5ee] px-3 py-1.5 text-sm font-semibold text-[#1f6b47]">
+            <CheckCircle2 size={16} aria-hidden="true" /> Approved by {approval.byName || approval.byEmail}, {shortDay(approval.at)}
+          </span>
+        ) : onApprove ? (
+          <button
+            type="button"
+            onClick={onApprove}
+            disabled={approving}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-3 py-1.5 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb] disabled:opacity-60"
+          >
+            <Check size={16} /> Approve
+          </button>
+        ) : null}
       </div>
       {/*
         * Every month the section touches on one row, however many there are. A semester
@@ -237,6 +226,7 @@ function SectionDiff({
           </span>
         ) : null}
       </p>
+      {children}
     </section>
   );
 }

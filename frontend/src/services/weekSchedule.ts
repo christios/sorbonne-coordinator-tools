@@ -39,6 +39,8 @@ export type Session = {
   room: string;
   /** Cancelled, or covered by somebody else — said on the CRN's calendar. */
   change?: SessionNote;
+  /** The class a coordinator said this one was rescheduled from, on the Class changes page. */
+  rescheduledFrom?: { date: string; start: string; end: string };
 };
 
 export type PlacedSession = Session & {
@@ -314,3 +316,20 @@ export function formatShortDateTime(iso: string, start: string, end: string): st
   const day = `${DAY_NAMES[date.getDay()]} ${date.getDate()} ${MONTH_NAMES[date.getMonth()]}`;
   return end ? `${day} · ${start.slice(0, 5)}–${end.slice(0, 5)}` : `${day} · ${start.slice(0, 5)}`;
 }
+
+const SHORT_DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const SHORT_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/**
+ * "rescheduled from Tue 1 Sep, 08:30–10:00" for a class a coordinator linked on Class
+ * changes, and "" for one that was always there — said the same on every calendar.
+ */
+export function movedFromSaid(session: Session): string {
+  const from = session.rescheduledFrom;
+  if (!from) return "";
+  const [year, month, day] = from.date.split("-").map(Number);
+  const made = new Date(year, month - 1, day);
+  const when = Number.isNaN(made.getTime()) ? from.date : `${SHORT_DAYS[made.getDay()]} ${day} ${SHORT_MONTHS[month - 1]}`;
+  return `rescheduled from ${when}, ${from.start}–${from.end}`;
+}
+

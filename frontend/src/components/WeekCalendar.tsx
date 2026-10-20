@@ -2,6 +2,7 @@ import { MapPin, Repeat, User } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import {
+  movedFromSaid,
   DAY_NAMES,
   formatDayAndMonth,
   formatLongDate,
@@ -324,6 +325,7 @@ function DayColumn({
               // below, and naming them twice reads as two people.
               covered?.standingIn ? "" : course?.staff,
               cancelled ? "CANCELLED" : "",
+              movedFromSaid(session),
               covered ? (covered.standingIn ? `covering for ${covered.coverTeacherName}` : `covered by ${covered.coverTeacherName}`) : "",
               session.change?.note ?? "",
               outline ? "in their group, not registered" : "",
@@ -377,6 +379,15 @@ function DayColumn({
                   <span className={`truncate ${cancelled ? "line-through" : ""}`}>{label}</span>
                   {cancelled ? (
                     <span className="shrink-0 rounded bg-white/25 px-1 text-[9px] font-bold uppercase tracking-wide">Cancelled</span>
+                  ) : session.rescheduledFrom ? (
+                    // Moved here from another day, as a coordinator linked it on Class changes.
+                    <span
+                      className={`shrink-0 rounded px-1 text-[9px] font-bold uppercase tracking-wide ${
+                        outline ? "bg-current/15" : "bg-white/30"
+                      }`}
+                    >
+                      Moved
+                    </span>
                   ) : covered ? (
                     // Whose class it is decides the word: they are standing in, or theirs was taken.
                     <span

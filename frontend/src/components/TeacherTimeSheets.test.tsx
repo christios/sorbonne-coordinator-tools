@@ -369,3 +369,32 @@ describe("lines that no longer match the timetable", () => {
   });
 });
 
+describe("a class of theirs that was rescheduled", () => {
+  it("is said under the period it went or arrived in", async () => {
+    vi.spyOn(teachers, "listTeacherTimeSheets").mockResolvedValue([]);
+    vi.spyOn(lists, "fetchClassNotes").mockResolvedValue({
+      links: [
+        {
+          id: "l1", termCode: "262710", crn: "23644",
+          from: { meetsOn: "2026-10-20", startsAt: "08:30", endsAt: "10:00" },
+          to: { meetsOn: "2026-10-21", startsAt: "08:30", endsAt: "10:00" },
+          note: "", byEmail: "", byName: "Patricia", at: "", matches: true,
+        },
+        // Somebody else's section: not theirs to show.
+        {
+          id: "l2", termCode: "262710", crn: "99999",
+          from: { meetsOn: "2026-10-20", startsAt: "08:30", endsAt: "10:00" },
+          to: { meetsOn: "2026-10-22", startsAt: "08:30", endsAt: "10:00" },
+          note: "", byEmail: "", byName: "Patricia", at: "", matches: true,
+        },
+      ],
+      notes: [],
+    });
+
+    show();
+
+    expect(await screen.findByText("MATH-100: Tue 20 Oct rescheduled to Wed 21 Oct")).toBeTruthy();
+    expect(screen.queryByText(/rescheduled to Thu 22 Oct/)).toBeNull();
+  });
+});
+

@@ -3,8 +3,10 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ClassChangesBanner } from "@/components/ClassChanges";
+import { ClassChangesPage } from "@/components/ClassChangesPage";
 import { stillToLookAt } from "@/services/classDiff";
 import * as lists from "@/services/portalLists";
+import * as timetables from "@/services/timetables";
 import * as dismissals from "@/services/warningDismissals";
 
 const PHYSICS: lists.ChangedClasses = {
@@ -32,9 +34,22 @@ function show() {
   );
 }
 
+/** The Class changes page, where the months, the approvals and the links are. */
+function page() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={client}>
+      <ClassChangesPage />
+    </QueryClientProvider>,
+  );
+}
+
 beforeEach(() => {
   vi.spyOn(lists, "fetchSweptTerms").mockResolvedValue(["262710"]);
   vi.spyOn(lists, "fetchChangedClasses").mockResolvedValue([PHYSICS]);
+  vi.spyOn(lists, "fetchClassNotes").mockResolvedValue({ links: [], notes: [] });
+  vi.spyOn(lists, "fetchTermLinks").mockResolvedValue({});
+  vi.spyOn(timetables, "fetchTimetableTerms").mockResolvedValue([]);
   vi.spyOn(dismissals, "fetchDismissals").mockResolvedValue([]);
 });
 
@@ -64,10 +79,16 @@ describe("the banner", () => {
     expect(screen.queryByText(/1 section/)).toBeNull();
   });
 
-  it("opens on the months, with what is gone beside what still meets", async () => {
+  it("opens the Class changes page", async () => {
     show();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Show what changed" }));
+    expect((await screen.findByRole("link", { name: "Show what changed" })).getAttribute("href")).toBe(
+      "#/database/class-changes",
+    );
+  });
+
+  it("the page draws the months, with what is gone beside what still meets", async () => {
+    page();
 
     expect(await screen.findByText("September 2026")).toBeTruthy();
     expect(screen.getByText(/PHYS-125/)).toBeTruthy();
@@ -89,9 +110,7 @@ describe("the banner", () => {
       PHYSICS,
       { ...PHYSICS, crn: "24246", key: "k2", kept: [], removed: [], added: [{ meetsOn: "2026-11-05", startsAt: "08:30", endsAt: "10:30", room: "5.110" }] },
     ]);
-    show();
-
-    fireEvent.click(await screen.findByRole("button", { name: "Show what changed" }));
+    page();
 
     // September to November for both: the late one shows its empty September and October.
     await screen.findAllByText("September 2026");
@@ -102,9 +121,8 @@ describe("the banner", () => {
 
   it("approves against the changed classes themselves, not the section", async () => {
     const approve = vi.spyOn(dismissals, "setDismissal").mockResolvedValue(null);
-    show();
+    page();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Show what changed" }));
     fireEvent.click(await screen.findByRole("button", { name: "Approve" }));
 
     await waitFor(() => expect(approve).toHaveBeenCalledWith(PHYSICS.key, true));
@@ -143,11 +161,9 @@ describe("a class the registrar has added", () => {
 
   it("gets its own colour in the month, apart from the classes that were always there", async () => {
     vi.spyOn(lists, "fetchChangedClasses").mockResolvedValue([ARRIVED]);
-    show();
+    page();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Show what changed" }));
-
-    expect(screen.getByText(/1 arrived \(2 h\), 1 unchanged \(2 h\)/)).toBeTruthy();
+    expect(await screen.findByText(/1 arrived \(2 h\), 1 unchanged \(2 h\)/)).toBeTruthy();
     expect(screen.getByLabelText("2026-09-28: 1 added")).toBeTruthy();
     expect(screen.getByLabelText("2026-09-07: still meets")).toBeTruthy();
     expect(screen.getByText("added")).toBeTruthy();
@@ -165,19 +181,18 @@ describe("a class the registrar has added", () => {
 
     expect(await screen.findByText(/2 h removed, 2 h added/)).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Show what changed" }));
+    page();
 
-    expect(screen.getByLabelText("2026-09-14: 1 class removed, 1 added")).toBeTruthy();
+    expect(await screen.findByLabelText("2026-09-14: 1 class removed, 1 added")).toBeTruthy();
     // And the ring around that square says so in the legend, rather than only on hover.
     expect(screen.getByText(/arrived where one was removed the same day/)).toBeTruthy();
   });
 
   it("does not explain the ring on a report that has no day like that", async () => {
     vi.spyOn(lists, "fetchChangedClasses").mockResolvedValue([ARRIVED]);
-    show();
+    page();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Show what changed" }));
-
+    await screen.findByText(/1 arrived/);
     expect(screen.queryByText(/arrived where one was removed the same day/)).toBeNull();
   });
 });
@@ -198,10 +213,11 @@ describe("a class the department had already cancelled", () => {
     // Two hours gone, not four: the one we cancelled is not an hour lost on us.
     expect(await screen.findByText(/2 h removed/)).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Show what changed" }));
+    page();
 
-    expect(screen.getByText(/1 class gone \(2 h\), 1 you had cancelled/)).toBeTruthy();
+    expect(await screen.findByText(/1 class gone \(2 h\), 1 you had cancelled/)).toBeTruthy();
     expect(screen.getByLabelText("2026-09-14: 1 class removed, which you had cancelled")).toBeTruthy();
-    expect(screen.getByText("you had cancelled it")).toBeTruthy();
+    // In the legend, and beside the class in the list of what went.
+    expect(screen.getAllByText("you had cancelled it").length).toBeGreaterThanOrEqual(2);
   });
 });

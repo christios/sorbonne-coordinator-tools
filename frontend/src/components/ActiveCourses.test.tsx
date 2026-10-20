@@ -245,20 +245,18 @@ describe("classes the registrar has changed", () => {
     key: "registrar-classes-changed:262710:23638:abc123",
   };
 
-  it("warns here too, and approving it here is the same approval", async () => {
+  it("warns here too, and sends the looking to the Class changes page", async () => {
     vi.spyOn(lists, "fetchRegisterCheck").mockResolvedValue(EMPTY);
     vi.spyOn(lists, "fetchSweptTerms").mockResolvedValue(["262710"]);
     vi.spyOn(lists, "fetchChangedClasses").mockResolvedValue([GONE]);
-    const approve = vi.spyOn(dismissals, "setDismissal").mockResolvedValue(undefined as never);
 
     show();
 
     expect(await screen.findByText(/has changed the classes in/)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /Show what changed/ }));
-    fireEvent.click(await screen.findByRole("button", { name: /Approve/ }));
-
-    // The key names the missing classes, not the page it was answered on.
-    await waitFor(() => expect(approve).toHaveBeenCalledWith(GONE.key, true));
+    // Approving, linking and the approved history all live on that page now.
+    expect(screen.getByRole("link", { name: /Show what changed/ }).getAttribute("href")).toBe(
+      "#/database/class-changes",
+    );
   });
 
   it("stays quiet once somebody has approved it, wherever they did that", async () => {

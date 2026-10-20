@@ -7,7 +7,14 @@ import { Modal } from "@/components/Modal";
 import { SelectMenu } from "@/components/SelectMenu";
 import { WeekCalendar } from "@/components/WeekCalendar";
 import { WeekTimeline } from "@/components/WeekTimeline";
-import { fetchFacilitySections, fetchTermLinks, type FacilitySection } from "@/services/portalLists";
+import {
+  classKey,
+  fetchClassNotes,
+  fetchFacilitySections,
+  fetchTermLinks,
+  type ClassLink,
+  type FacilitySection,
+} from "@/services/portalLists";
 import { useRooms } from "@/services/rooms";
 import { fetchTermWeeks, weekOneOf } from "@/services/termWeeks";
 import { fetchSessionChanges, slotKey, type SessionChange } from "@/services/sessionChanges";
@@ -254,10 +261,19 @@ function Timetable({
     })),
     combine: (reads) => ({ notes: reads.flatMap((read) => read.data ?? []) }),
   });
+  // Classes a coordinator linked as rescheduled on the Class changes page, by term.
+  const { moves } = useQueries({
+    queries: byTerm.map(({ termCode }) => ({
+      queryKey: ["class-notes", termCode],
+      queryFn: () => fetchClassNotes(termCode),
+      retry: false,
+    })),
+    combine: (reads) => ({ moves: reads.flatMap((read) => read.data?.links ?? []) }),
+  });
 
   const { sessions, courses, unasked, gone, unbooked, unlinked } = useMemo(
-    () => assemble(entries, sections, notes, onPickSession ? () => true : openable, sessionFilter),
-    [entries, sections, notes, openable, onPickSession, sessionFilter],
+    () => assemble(entries, sections, notes, onPickSession ? () => true : openable, sessionFilter, moves),
+    [entries, sections, notes, openable, onPickSession, sessionFilter, moves],
   );
 
   const [weekStart, setWeekStart] = useState<Date | null>(null);
@@ -500,8 +516,11 @@ function assemble(
   notes: SessionChange[],
   openable?: (crn: string) => boolean,
   sessionFilter?: TimetableProps["sessionFilter"],
+  moves: ClassLink[] = [],
 ): Assembled {
   const said = new Map(notes.map((note) => [slotKey(note), note]));
+  // An arrived class a coordinator linked to the one it replaced says where it came from.
+  const movedFrom = new Map(moves.map((link) => [classKey(link.termCode, link.crn, link.to), link.from]));
   const wanted = new Map<string, TimetableEntry>();
   for (const entry of entries) if (entry.crn) wanted.set(`${entry.termCode}|${entry.crn}`, entry);
   const colors = assignColors([...wanted.values()].map(keyOf));
@@ -550,6 +569,7 @@ function assemble(
         continue;
       }
       const note = said.get(slotKey({ termCode: section.termCode, crn: section.crn, meetsOn: meeting.meetsOn, startsAt: meeting.startsAt }));
+      const cameFrom = movedFrom.get(classKey(section.termCode, section.crn, meeting));
       sessions.push({
         crn: section.crn,
         termCode: section.termCode,
@@ -557,6 +577,9 @@ function assemble(
         start: meeting.startsAt.slice(0, 5),
         end: meeting.endsAt.slice(0, 5),
         room: meeting.room,
+        rescheduledFrom: cameFrom
+          ? { date: cameFrom.meetsOn, start: cameFrom.startsAt.slice(0, 5), end: cameFrom.endsAt.slice(0, 5) }
+          : undefined,
         /*
          * On a stand-in's week the same note reads the other way round: the box says whose
          * class it was, not who took it, since who took it is the person reading.

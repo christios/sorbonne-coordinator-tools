@@ -856,6 +856,80 @@ export async function fetchChangedClasses(termCode: string): Promise<ChangedClas
   return answer.sections;
 }
 
+/** One class of a section, by its slot: the day, and when it starts and ends. */
+export type ClassSlot = { meetsOn: string; startsAt: string; endsAt: string };
+
+/**
+ * A class the registrar removed, linked by a coordinator to the one it was rescheduled
+ * into. `matches` is false once the registrar has undone either half: kept, not lost.
+ */
+export type ClassLink = {
+  id: string;
+  termCode: string;
+  crn: string;
+  from: ClassSlot;
+  to: ClassSlot;
+  note: string;
+  byEmail: string;
+  byName: string;
+  at: string;
+  matches: boolean;
+};
+
+/** A note on one class that went (`removed`) or arrived (`added`). */
+export type ClassNote = {
+  id: string;
+  termCode: string;
+  crn: string;
+  side: "removed" | "added";
+  class: ClassSlot;
+  note: string;
+  byEmail: string;
+  byName: string;
+  at: string;
+  matches: boolean;
+};
+
+export async function fetchClassNotes(termCode: string): Promise<{ links: ClassLink[]; notes: ClassNote[] }> {
+  const answer = await request<{ links: ClassLink[]; notes: ClassNote[] }>(
+    `/facility-timetable/${encodeURIComponent(termCode)}/class-notes`,
+  );
+  return { links: answer.links, notes: answer.notes };
+}
+
+/** This class that went was rescheduled into that one that arrived. */
+export function linkClasses(
+  termCode: string,
+  input: { crn: string; gone: ClassSlot; arrived: ClassSlot; note?: string },
+): Promise<ClassLink> {
+  return request<ClassLink>(`/facility-timetable/${encodeURIComponent(termCode)}/class-links`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ note: "", ...input }),
+  });
+}
+
+export async function unlinkClasses(linkId: string): Promise<void> {
+  await request<void>(`/class-links/${encodeURIComponent(linkId)}`, { method: "DELETE" });
+}
+
+/** A note on one class; an empty note takes it away. */
+export async function noteClass(
+  termCode: string,
+  input: { crn: string; side: "removed" | "added"; cls: ClassSlot; note: string },
+): Promise<ClassNote | null> {
+  const answer = await request<{ note: ClassNote | null }>(
+    `/facility-timetable/${encodeURIComponent(termCode)}/class-notes`,
+    { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) },
+  );
+  return answer.note;
+}
+
+/** "term|crn|day|start|end": how a class is found again among the links and notes. */
+export function classKey(termCode: string, crn: string, cls: ClassSlot): string {
+  return `${termCode}|${crn}|${cls.meetsOn}|${cls.startsAt.slice(0, 5)}|${cls.endsAt.slice(0, 5)}`;
+}
+
 /** The registrar's booked hours per section, and whom the portal staffs it with. */
 export type FacilityHours = Record<
   string,

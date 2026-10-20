@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Blocks, BookMarked, BookOpen, CalendarDays, CalendarRange, Clock3, DoorOpen, Contact, GaugeCircle, GraduationCap, ListChecks, ListTree, Megaphone, UserCheck, Users } from "lucide-react";
+import { Blocks, BookMarked, BookOpen, CalendarClock, CalendarDays, CalendarRange, Clock3, DoorOpen, Contact, GaugeCircle, GraduationCap, ListChecks, ListTree, Megaphone, UserCheck, Users } from "lucide-react";
 import { Globe } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
@@ -21,6 +21,7 @@ import { PortalTeachers } from "@/components/PortalTeachers";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { SemesterList } from "@/components/SemesterList";
 import { SemesterTimetable } from "@/components/SemesterTimetable";
+import { ClassChangesPage } from "@/components/ClassChangesPage";
 import { StaffMenu } from "@/components/StaffMenu";
 import { StudentRoster } from "@/components/StudentRoster";
 import { SidePane } from "@/components/SidePane";
@@ -65,6 +66,9 @@ const PAGES = [
   { id: "timetable", name: "Semester Timetable", icon: CalendarRange, group: "Timetables", parent: "semesters" },
   // The same week with the rooms down the side: what is in a room, and when it is free.
   { id: "rooms", name: "Rooms", icon: DoorOpen, group: "Timetables", parent: "semesters" },
+  // What the registrar changed inside our sections: what went, what arrived, and what the
+  // department makes of it — linked as rescheduled, noted, approved.
+  { id: "class-changes", name: "Class changes", icon: CalendarClock, group: "Timetables", parent: "semesters" },
   // The timetable request itself: the sections a semester is taught in, and how full they
   // are. It is what the semester above it publishes, not a check against the registrar.
   { id: "groups", name: "Groups & CRNs", icon: ListTree, group: "Timetables" },
@@ -163,6 +167,10 @@ const TITLES: Record<PageId, { title: string; blurb?: string }> = {
   },
   timetable: { title: "Semester Timetable" },
   rooms: { title: "Rooms" },
+  "class-changes": {
+    title: "Class changes",
+    blurb: "Classes the registrar has taken out of our sections or put into them. Link a class that went to the one it was rescheduled into, note what happened, and approve the change once someone has looked.",
+  },
   announcements: {
     title: "Announcements",
     blurb: "The notice strip above the students' timetable.",
@@ -474,6 +482,7 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: (section:
             <SemesterTimetable layout={page === "rooms" ? "rooms" : "days"} termId={detail} onPickTerm={openDetail} />
           ) : null}
           {page === "announcements" && status.data?.configured ? <AnnouncementEditor /> : null}
+          {page === "class-changes" ? <ClassChangesPage /> : null}
         </div>
       </div>
     </div>

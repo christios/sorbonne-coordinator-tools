@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  movedFromSaid,
   assignColors,
   defaultWeekStart,
   hourBounds,
@@ -117,3 +118,14 @@ describe("a semester with weeks it has no classes in", () => {
     expect(weekWords(parseIsoDate("2026-08-26"), calendar)).toBe("");
   });
 });
+
+describe("a class moved from another day", () => {
+  it("says from when, and nothing for a class that was always there", () => {
+    const always = { crn: "1", date: "2026-11-05", start: "13:15", end: "14:45", room: "" };
+    expect(movedFromSaid({ ...always, rescheduledFrom: { date: "2026-11-03", start: "08:30", end: "10:00" } })).toBe(
+      "rescheduled from Tue 3 Nov, 08:30–10:00",
+    );
+    expect(movedFromSaid(always)).toBe("");
+  });
+});
+

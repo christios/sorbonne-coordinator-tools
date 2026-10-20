@@ -268,3 +268,33 @@ describe("the week number on a record's calendar", () => {
     expect(screen.queryByRole("combobox", { name: "Teaching week" })).toBeNull();
   });
 });
+
+describe("a class a coordinator linked as rescheduled", () => {
+  it("says where it came from, on whichever page draws it", async () => {
+    vi.spyOn(lists, "fetchFacilitySections").mockResolvedValue({
+      termCode: "262710",
+      pulledAt: "2026-09-01T00:00:00+00:00",
+      sections: [
+        { crn: "23436", courseCode: "MATH-351", title: "Algebra", teacherName: "Grace Younes", state: "published", meetings: [MONDAY, TUESDAY] },
+      ],
+    });
+    vi.spyOn(lists, "fetchClassNotes").mockResolvedValue({
+      links: [
+        {
+          id: "l1", termCode: "262710", crn: "23436",
+          from: { meetsOn: "2026-09-04", startsAt: "08:30", endsAt: "10:00" },
+          to: { meetsOn: TUESDAY.meetsOn, startsAt: TUESDAY.startsAt, endsAt: TUESDAY.endsAt },
+          note: "", byEmail: "", byName: "Patricia", at: "", matches: true,
+        },
+      ],
+      notes: [],
+    });
+
+    show([{ termCode: "262710", crn: "23436", code: "MATH-351", title: "Algebra" }]);
+
+    const boxes = await screen.findAllByLabelText(/CRN 23436/);
+    const said = boxes.map((box) => box.getAttribute("aria-label") ?? box.getAttribute("title") ?? "");
+    expect(said.filter((text) => text.includes("rescheduled from Fri 4 Sep, 08:30–10:00"))).toHaveLength(1);
+  });
+});
+
