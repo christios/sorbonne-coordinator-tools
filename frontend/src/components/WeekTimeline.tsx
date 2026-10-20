@@ -1,4 +1,4 @@
-import { CalendarClock, MapPin, Repeat, User } from "lucide-react";
+import { CalendarClock, MapPin, Plus, Repeat, User } from "lucide-react";
 import { useLayoutEffect, useRef, useState } from "react";
 
 import { fittedRowHeight } from "@/services/timelineFit";
@@ -310,7 +310,9 @@ export function WeekTimeline({
                 // By room, what the room seats: the question a room's row is asked. Its
                 // count of classes this week is on the hover.
                 const seats = byRoom && line.title && seatsOf ? seatsOf(line.title) : null;
-                const classes = `${line.sessions.length} class${line.sessions.length === 1 ? "" : "es"} this week`;
+                // The classes that meet: one the registrar took out is drawn, but not counted.
+                const meets = line.sessions.filter((session) => session.registrar !== "removed").length;
+                const classes = `${meets} class${meets === 1 ? "" : "es"} this week`;
                 return (
                   <span
                     className="block shrink-0 text-[11px] font-normal leading-4 tabular-nums text-[#98a2b3]"
@@ -319,10 +321,10 @@ export function WeekTimeline({
                     {byRoom
                       ? seats !== null
                         ? `${seats} seats`
-                        : line.sessions.length || "—"
-                      : line.sessions.length === 0
+                        : meets || "—"
+                      : meets === 0
                         ? "—"
-                        : `${line.sessions.length} class${line.sessions.length === 1 ? "" : "es"}`}
+                        : `${meets} class${meets === 1 ? "" : "es"}`}
                   </span>
                 );
               })()}
@@ -442,12 +444,15 @@ function Class({
   registered?: number | null;
 }) {
   const color = course?.color ?? "#1f4e79";
-  const outline = course?.tone === "outline";
+  // A class the registrar took out is drawn hollow: on the week as a hole, not somewhere to be.
+  const removed = session.registrar === "removed";
+  const added = session.registrar === "added";
+  const outline = course?.tone === "outline" || removed;
   const label = course?.label || course?.code || session.crn;
   const cancelled = session.change?.kind === "cancelled";
   const covered = session.change?.kind === "covered" ? session.change : null;
-  // More registered than the room seats: the students standing at the back.
-  const crowded = seats !== null && registered !== null && registered > seats;
+  // More registered than the room seats: the students standing at the back — of a class that still meets.
+  const crowded = !removed && seats !== null && registered !== null && registered > seats;
   const details = [
     ...new Set(
       [
@@ -463,12 +468,14 @@ function Class({
         cancelled ? "Planning: CANCELLED" : "",
         covered ? `Planning: covered by ${covered.coverTeacherName}` : "",
         movedFromSaid(session) ? `Planning: ${movedFromSaid(session)}` : "",
+        removed ? "Portal: REMOVED by the registrar" : added ? "Portal: added by the registrar" : "",
         session.change?.note ?? "",
         session.clashes ? clash : "",
       ].filter(Boolean),
     ),
   ].join(" · ");
-  const opens = Boolean(onPick && course?.openable);
+  // Nothing to open or note on a class that no longer meets.
+  const opens = Boolean(onPick && course?.openable) && !removed;
   const Box = opens ? "button" : "article";
   const room = formatRoom(session.room);
   const fits = fieldsFor(boxWidth, height);
@@ -483,7 +490,7 @@ function Class({
         fits.tall ? "flex-col justify-center gap-0.5 py-0.5" : "items-center gap-1.5"
       } ${
         outline ? "border-2 border-dashed bg-white" : "text-white"
-      } ${cancelled ? "opacity-55" : ""} ${session.clashes ? "outline-2 -outline-offset-2 outline-[#d9a441]" : ""} ${
+      } ${cancelled || removed ? "opacity-55" : ""} ${session.clashes ? "outline-2 -outline-offset-2 outline-[#d9a441]" : ""} ${
         opens ? "cursor-pointer hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#1f4e79]" : ""
       }`}
       style={{
@@ -500,8 +507,10 @@ function Class({
         {covered ? <Repeat size={9} className="shrink-0" aria-hidden="true" /> : null}
         {/* Moved here from another day, as a coordinator linked it on Class changes. */}
         {session.rescheduledFrom ? <CalendarClock size={9} className="shrink-0" aria-label="Rescheduled" /> : null}
+        {/* Put in by the registrar after the section was first seen. */}
+        {added && !session.rescheduledFrom ? <Plus size={9} strokeWidth={3} className="shrink-0" aria-label="Added" /> : null}
         {/* Never dropped: a box with no name on it says nothing at all. */}
-        <b className={`min-w-0 shrink-0 truncate font-semibold ${cancelled ? "line-through" : ""}`}>{label}</b>
+        <b className={`min-w-0 shrink-0 truncate font-semibold ${cancelled || removed ? "line-through" : ""}`}>{label}</b>
         {/* Never dropped either: a room too small is the thing to see at a glance. */}
         {crowded ? (
           <span className="shrink-0 rounded bg-[#a6292f] px-1 py-px text-[10px] font-semibold tabular-nums text-white">

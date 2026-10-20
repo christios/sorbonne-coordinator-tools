@@ -35,6 +35,13 @@ export type ScheduleSection = {
   outline?: boolean;
   meetings: ScheduleMeeting[];
   notes: ScheduleNote[];
+  /**
+   * What the registrar changed since the section was first seen, where the export was
+   * asked to show it: the classes it took out, drawn hollow and struck through on their
+   * old days, and which of `meetings` it put in, marked ADDED.
+   */
+  removed?: ScheduleMeeting[];
+  added?: ScheduleMeeting[];
 };
 
 export type ScheduleInput = {
@@ -68,6 +75,8 @@ export type ScheduleClass = {
   endsAt: string;
   room: string;
   state: "" | "cancelled" | "covered";
+  /** What the registrar did to it since the section was first seen, where the export shows that. */
+  registrar: "" | "removed" | "added";
   /** Who covered it, for a covered class. */
   cover: string;
   note: string;
@@ -148,11 +157,19 @@ function laidSideBySide(classes: Omit<ScheduleClass, "lane" | "lanes">[]): Sched
  */
 export function scheduleWeeks(input: ScheduleInput): ScheduleWeek[] {
   const byWeek = new Map<string, Omit<ScheduleClass, "lane" | "lanes">[]>();
+  const slot = (meeting: ScheduleMeeting) => `${meeting.meetsOn}|${meeting.startsAt.slice(0, 5)}|${meeting.endsAt.slice(0, 5)}`;
   for (const section of input.sections) {
     const noteOn = new Map(section.notes.map((note) => [`${note.meetsOn}|${note.startsAt}`, note]));
-    for (const meeting of section.meetings) {
+    const added = new Set((section.added ?? []).map(slot));
+    // The classes the registrar took out go on their old days with the ones that meet.
+    const drawn = [
+      ...section.meetings.map((meeting) => ({ meeting, registrar: added.has(slot(meeting)) ? ("added" as const) : ("" as const) })),
+      ...(section.removed ?? []).map((meeting) => ({ meeting, registrar: "removed" as const })),
+    ];
+    for (const { meeting, registrar } of drawn) {
       const monday = toIsoDate(mondayOf(parseIsoDate(meeting.meetsOn)));
-      const note = noteOn.get(`${meeting.meetsOn}|${meeting.startsAt}`);
+      // A class that no longer meets carries nothing the department noted on its hour.
+      const note = registrar === "removed" ? undefined : noteOn.get(`${meeting.meetsOn}|${meeting.startsAt}`);
       byWeek.set(monday, [
         ...(byWeek.get(monday) ?? []),
         {
@@ -167,6 +184,7 @@ export function scheduleWeeks(input: ScheduleInput): ScheduleWeek[] {
           endsAt: meeting.endsAt,
           room: meeting.room,
           state: note?.kind ?? "",
+          registrar,
           cover: note?.kind === "covered" ? note.coverTeacherName.trim() : "",
           note: note?.note.trim() ?? "",
         },
@@ -198,7 +216,7 @@ export function scheduleWeeks(input: ScheduleInput): ScheduleWeek[] {
 export function hourRange(input: ScheduleInput): [number, number] {
   let first = 8;
   let last = 18;
-  for (const meeting of input.sections.flatMap((section) => section.meetings)) {
+  for (const meeting of input.sections.flatMap((section) => [...section.meetings, ...(section.removed ?? [])])) {
     first = Math.min(first, Math.floor(minutesOf(meeting.startsAt) / 60));
     last = Math.max(last, Math.ceil(minutesOf(meeting.endsAt) / 60));
   }
@@ -477,20 +495,23 @@ function drawSchedule(doc: JsPdf, input: ScheduleInput, after: boolean): void {
       const color = colorOf.get(entry.crn) ?? rgbOf(COURSE_COLORS[0]);
       const cancelled = entry.state === "cancelled";
       const covered = entry.state === "covered";
+      // Taken out by the registrar: hollow, faded and struck through, as the calendar draws it.
+      const removed = entry.registrar === "removed";
       // Faded as the calendar fades it: the box at a little over half its colour.
       const fill = cancelled ? towardsWhite(color, 0.45) : color;
       /*
        * Empty with a dashed edge, as the calendar draws it, for a class expected and not
        * registered, or registered and exempt from: the words go in the course's colour.
        */
-      const outline = entry.outline;
-      const strong: Rgb = outline ? color : [255, 255, 255];
+      const outline = entry.outline || removed;
+      const edge = removed ? towardsWhite(color, 0.45) : color;
+      const strong: Rgb = outline ? edge : [255, 255, 255];
       const ink = (opacity: number): Rgb =>
-        outline ? towardsWhite(color, 0.2) : cancelled ? [255, 255, 255] : towardsWhite(fill, opacity);
+        outline ? towardsWhite(edge, 0.2) : cancelled ? [255, 255, 255] : towardsWhite(fill, opacity);
       if (outline) {
         doc.setFillColor(255, 255, 255);
         doc.roundedRect(box.x, box.y, box.w, box.h, 3, 3, "F");
-        doc.setDrawColor(...color);
+        doc.setDrawColor(...edge);
         doc.setLineWidth(1.2);
         doc.setLineDashPattern([3, 2], 0);
         doc.roundedRect(box.x + 0.6, box.y + 0.6, box.w - 1.2, box.h - 1.2, 2.6, 2.6, "S");
@@ -525,7 +546,7 @@ function drawSchedule(doc: JsPdf, input: ScheduleInput, after: boolean): void {
        * nowhere else to put. A line that does not fit is dropped rather than cut in half.
        */
       const lines: BoxLine[] = [
-        { text: classLabel(entry), size: 8.5, bold: true, ink: strong, strike: cancelled, keep: 0 },
+        { text: classLabel(entry), size: 8.5, bold: true, ink: strong, strike: cancelled || removed, keep: 0 },
         { text: entry.title, size: 7.5, ink: ink(0.9), keep: manyTeachers ? 3.5 : 2 },
         { text: `${entry.startsAt}–${entry.endsAt}`, size: 8, ink: ink(0.9), keep: 1 },
         { text: formatRoom(entry.room), size: 8, icon: "pin" as const, ink: ink(0.85), keep: manyTeachers ? 2 : 3 },
@@ -543,11 +564,25 @@ function drawSchedule(doc: JsPdf, input: ScheduleInput, after: boolean): void {
         used += line.size + 3;
       }
 
-      // The top line carries its word on the right: CANCELLED or COVERED, or the hour when it stands alone.
-      const flag = cancelled ? "CANCELLED" : covered ? "COVERED" : kept.size === 1 ? entry.startsAt : "";
+      /*
+       * The top line carries its word on the right: CANCELLED or COVERED, REMOVED or ADDED by
+       * the registrar, or the hour when it stands alone.
+       */
+      const flag = cancelled
+        ? "CANCELLED"
+        : covered
+          ? "COVERED"
+          : removed
+            ? "REMOVED"
+            : entry.registrar === "added"
+              ? "ADDED"
+              : kept.size === 1
+                ? entry.startsAt
+                : "";
+      const pilled = Boolean(entry.state || entry.registrar);
       doc.setFont("helvetica", "bold");
       doc.setFontSize(6);
-      const flagWidth = flag ? doc.getTextWidth(flag) + (entry.state ? 5 : 0) : 0;
+      const flagWidth = flag ? doc.getTextWidth(flag) + (pilled ? 5 : 0) : 0;
       let y = box.y + 4;
       for (const line of lines.filter((held) => kept.has(held))) {
         y += line.size;
@@ -565,12 +600,14 @@ function drawSchedule(doc: JsPdf, input: ScheduleInput, after: boolean): void {
           doc.line(box.x + 4.5, y - line.size * 0.3, box.x + 4.5 + doc.getTextWidth(text), y - line.size * 0.3);
         }
         if (line.keep === 0 && flag) {
-          if (entry.state) {
+          if (pilled) {
             doc.setFont("helvetica", "bold");
             doc.setFontSize(6);
-            doc.setFillColor(...towardsWhite(fill, 0.28));
+            // On a hollow box the pill is a tint of its edge, and its word in the edge's colour.
+            doc.setFillColor(...(outline ? towardsWhite(edge, 0.8) : towardsWhite(fill, 0.28)));
             doc.roundedRect(box.x + box.w - 4.5 - flagWidth, y - 6.5, flagWidth, 8, 1.5, 1.5, "F");
-            doc.setTextColor(255);
+            if (outline) doc.setTextColor(...edge);
+            else doc.setTextColor(255);
             doc.text(flag, box.x + box.w - 4.5 - flagWidth / 2, y - 0.6, { align: "center" });
           } else {
             doc.setFont("helvetica", "normal");

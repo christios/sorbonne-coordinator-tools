@@ -1,8 +1,9 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SectionTimetable, type TimetableEntry } from "@/components/SectionTimetable";
+import { setPortalChangesShown } from "@/services/portalChangesShown";
 import * as lists from "@/services/portalLists";
 import * as notes from "@/services/sessionChanges";
 import * as termWeeks from "@/services/termWeeks";
@@ -27,6 +28,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
+  setPortalChangesShown(true);
 });
 
 describe("a handful of sections, as the registrar has them", () => {
@@ -298,10 +300,11 @@ describe("a class a coordinator linked as rescheduled", () => {
   });
 });
 
-describe("what the registrar changed, on a CRN's or a course's record", () => {
+describe("what the registrar changed, behind the Portal changes switch", () => {
   const GONE = { meetsOn: "2026-09-08", startsAt: "09:00", endsAt: "11:00", room: "5.202" };
 
   beforeEach(() => {
+    setPortalChangesShown(true);
     vi.spyOn(lists, "fetchFacilitySections").mockResolvedValue({
       termCode: "262710",
       pulledAt: "2026-09-01T00:00:00+00:00",
@@ -325,12 +328,11 @@ describe("what the registrar changed, on a CRN's or a course's record", () => {
     ]);
   });
 
-  function record(registrarChanges: boolean, onPickSession = vi.fn()) {
+  function record(onPickSession = vi.fn()) {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
       <QueryClientProvider client={client}>
         <SectionTimetable
-          registrarChanges={registrarChanges}
           onPickSession={onPickSession}
           entries={[{ termCode: "262710", crn: "23436", code: "MATH-351", title: "Algebra" }]}
         />
@@ -339,7 +341,7 @@ describe("what the registrar changed, on a CRN's or a course's record", () => {
   }
 
   it("keeps a removed class on its old day, and marks the one that arrived", async () => {
-    record(true);
+    record();
 
     expect(await screen.findByText("Removed")).toBeTruthy();
     expect(screen.getByText("Added")).toBeTruthy();
@@ -351,7 +353,7 @@ describe("what the registrar changed, on a CRN's or a course's record", () => {
   });
 
   it("has nothing to note on a removed class: it no longer meets", async () => {
-    record(true);
+    record();
     await screen.findByText("Removed");
 
     const pressable = screen.getAllByRole("button", { name: /CRN 23436/ }).map((box) => box.getAttribute("aria-label") ?? "");
@@ -359,12 +361,27 @@ describe("what the registrar changed, on a CRN's or a course's record", () => {
     expect(pressable.some((text) => text.includes("13:30–15:00"))).toBe(true);
   });
 
-  it("draws only what meets where the record has not asked", async () => {
-    record(false);
+  it("draws only what meets once the switch is off, and every calendar follows it", async () => {
+    record();
+    expect(await screen.findByText("Removed")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Portal changes" }));
+
+    await waitFor(() => expect(screen.queryByText("Removed")).toBeNull());
+    expect(screen.queryByText("Added")).toBeNull();
+    expect(screen.getAllByLabelText(/CRN 23436/)).toHaveLength(2);
+    // The week stays where it was.
+    expect(screen.getByText("7 Sep 2026 – 11 Sep 2026")).toBeTruthy();
+    expect(window.localStorage.getItem("scen-portal-changes-shown:v1")).toBe("off");
+  });
+
+  it("does not ask the portal's changes at all while the switch is off", async () => {
+    setPortalChangesShown(false);
+    record();
 
     await screen.findAllByLabelText(/CRN 23436/);
     expect(screen.queryByText("Removed")).toBeNull();
-    expect(screen.queryByText("Added")).toBeNull();
+    expect((screen.getByRole("checkbox", { name: "Portal changes" }) as HTMLInputElement).checked).toBe(false);
     expect(lists.fetchChangedClasses).not.toHaveBeenCalled();
   });
 });

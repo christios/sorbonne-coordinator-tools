@@ -167,3 +167,36 @@ describe("who teaches each box", () => {
     expect(text).toContain("Gaurav Kucheriya");
   });
 });
+
+describe("what the registrar changed, where the export was asked to show it", () => {
+  const CHANGED: ScheduleSection = {
+    ...CM,
+    meetings: [...CM.meetings, { meetsOn: "2026-09-19", startsAt: "10:30", endsAt: "12:00", room: "5.111" }],
+    removed: [{ meetsOn: "2026-09-16", startsAt: "07:00", endsAt: "09:00", room: "5.111" }],
+    added: [{ meetsOn: "2026-09-19", startsAt: "10:30", endsAt: "12:00", room: "5.111" }],
+  };
+
+  it("keeps a removed class on its old day and marks the one the registrar put in", () => {
+    const [week] = scheduleWeeks({ semester: "", sections: [CHANGED] });
+
+    expect(week.classes.map((entry) => [entry.day, entry.startsAt, entry.registrar])).toEqual([
+      ["2026-09-16", "07:00", "removed"],
+      ["2026-09-17", "09:00", ""],
+      ["2026-09-18", "13:30", ""],
+      ["2026-09-19", "10:30", "added"],
+    ]);
+    // The hours reach back for the removed class too, so it is on the page.
+    expect(hourRange({ semester: "", sections: [CHANGED] })[0]).toBe(7);
+  });
+
+  it("draws only what meets when the export was not asked", () => {
+    const [week] = scheduleWeeks({ semester: "", sections: [CM] });
+    expect(week.classes.every((entry) => entry.registrar === "")).toBe(true);
+  });
+
+  it("makes the file with them in it", async () => {
+    const bytes = new Uint8Array(await buildSchedulePdf({ semester: "", sections: [CHANGED] }));
+    expect(new TextDecoder("latin1").decode(bytes).startsWith("%PDF")).toBe(true);
+  });
+});
+

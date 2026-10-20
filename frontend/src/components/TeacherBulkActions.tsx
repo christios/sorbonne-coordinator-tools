@@ -150,11 +150,12 @@ export function TeacherBulkActions({
         </button>
         {/* Their teaching, found through the department's list they are linked to, or by name. */}
         <TimetablesButton
-          make={async () => {
+          make={async (choice) => {
             const active = await client.fetchQuery({ queryKey: ["active-teachers"], queryFn: fetchActiveTeachers });
             return exportTeacherTimetables(
               client,
               chosen.map((id) => ({ id: active.find((row) => row.partTimeTeacherId === id)?.id ?? "", fullName: nameOf(id) })),
+              choice,
             );
           }}
         />

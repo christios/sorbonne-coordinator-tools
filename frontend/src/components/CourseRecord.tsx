@@ -218,12 +218,17 @@ export function CourseRecord({
               <TimetablesButton
                 small
                 label="Export timetable"
-                make={() =>
-                  exportCrnTimetable(client, held, {
-                    title: [code, course?.title || held[0]?.courseTitle || held[0]?.portalTitle || ""].filter(Boolean).join(" · "),
-                    subtitle: "Course",
-                    filename: `${code.replace(/[^A-Za-z0-9-]+/g, "-")}-timetable.pdf`,
-                  })
+                make={(choice) =>
+                  exportCrnTimetable(
+                    client,
+                    held,
+                    {
+                      title: [code, course?.title || held[0]?.courseTitle || held[0]?.portalTitle || ""].filter(Boolean).join(" · "),
+                      subtitle: "Course",
+                      filename: `${code.replace(/[^A-Za-z0-9-]+/g, "-")}-timetable.pdf`,
+                    },
+                    choice,
+                  )
                 }
               />
             ) : null
@@ -232,7 +237,6 @@ export function CourseRecord({
           <SectionTimetable
             entries={timetable}
             compact
-            registrarChanges
             title={`${code} — timetable`}
             openable={(crn) => held.some((row) => row.crn === crn)}
             onOpenCrn={(crn) => setShowingCrn(held.find((row) => row.crn === crn) ?? null)}

@@ -114,6 +114,8 @@ type Klass = {
   end: string;
   room: string;
   state: "" | "cancelled" | "covered";
+  /** What the registrar did to it since the section was first seen, where the export shows that. */
+  registrar: "" | "removed" | "added";
   cover: string;
   note: string;
   /** Its room's seats and its registered students, where known — a class too big for its room says so. */
@@ -213,12 +215,24 @@ const time = (minute: number) => `${String(Math.floor(minute / 60)).padStart(2, 
 const roomOf = (klass: { room: string }) => formatRoom(klass.room).trim();
 const count = (classes: number) => (classes === 0 ? "—" : `${classes} class${classes === 1 ? "" : "es"}`);
 
-/** Every class of the semester, with what the department has said about it. */
+/**
+ * Every class of the semester, with what the department has said about it — and, where the
+ * export was asked to show Portal changes, the classes the registrar took out, on their old
+ * days, and which of the rest it put in.
+ */
 function classesOf(input: SemesterExportInput): Klass[] {
+  const slot = (meeting: { meetsOn: string; startsAt: string; endsAt: string }) =>
+    `${meeting.meetsOn}|${meeting.startsAt.slice(0, 5)}|${meeting.endsAt.slice(0, 5)}`;
   return input.sections.flatMap((section) => {
     const noteOn = new Map(section.notes.map((note) => [`${note.meetsOn}|${note.startsAt.slice(0, 5)}`, note]));
-    return section.meetings.map((meeting) => {
-      const note = noteOn.get(`${meeting.meetsOn}|${meeting.startsAt.slice(0, 5)}`);
+    const added = new Set((section.added ?? []).map(slot));
+    const drawn = [
+      ...section.meetings.map((meeting) => ({ meeting, registrar: added.has(slot(meeting)) ? ("added" as const) : ("" as const) })),
+      ...(section.removed ?? []).map((meeting) => ({ meeting, registrar: "removed" as const })),
+    ];
+    return drawn.map(({ meeting, registrar }) => {
+      // A class that no longer meets carries nothing the department noted on its hour.
+      const note = registrar === "removed" ? undefined : noteOn.get(`${meeting.meetsOn}|${meeting.startsAt.slice(0, 5)}`);
       return {
         crn: section.crn,
         courseCode: section.courseCode,
@@ -229,6 +243,7 @@ function classesOf(input: SemesterExportInput): Klass[] {
         end: meeting.endsAt.slice(0, 5),
         room: meeting.room,
         state: note?.kind ?? "",
+        registrar,
         cover: note?.kind === "covered" ? note.coverTeacherName.trim() : "",
         note: note?.note.trim() ?? "",
         seats: input.roomSeats?.[meeting.room] ?? null,
@@ -253,7 +268,11 @@ function hoursOf(classes: Klass[]): [number, number] {
 function stacked(classes: Klass[], bands: (string | null)[]) {
   const boxes = bands.flatMap((band, index) =>
     laneOut(
-      (band === null ? classes : classes.filter((klass) => klass.date === band)).map((klass) => ({ ...klass, klass })),
+      (band === null ? classes : classes.filter((klass) => klass.date === band)).map((klass) => ({
+        ...klass,
+        registrar: klass.registrar || undefined,
+        klass,
+      })),
     ).map(({ session, lane }) => ({ klass: session.klass, lane, band: index })),
   );
   return { boxes, lanes: Math.max(1, boxes.reduce((most, { lane }) => Math.max(most, lane + 1), 0)) };
@@ -291,7 +310,9 @@ export function semesterUnits(input: SemesterExportInput): Unit[] {
         bands: [null],
         rows: days.map((day) => {
           const here = inWeek.filter((klass) => klass.date === day);
-          return { label: dayName(day), sub: count(here.length), ...stacked(here, [null]) };
+          // Counted as they meet: a class the registrar took out is drawn, not counted.
+          const meets = here.filter((klass) => klass.registrar !== "removed").length;
+          return { label: dayName(day), sub: count(meets), ...stacked(here, [null]) };
         }),
       });
     } else if (input.layout === "rooms-week") {
@@ -622,21 +643,26 @@ type Word = { text: string; bold: boolean; ink: Rgb; icon?: "pin" | "person" | "
  * gives it: the course and its group, the hours, the room, who teaches it, the CRN — and
  * what happened to it, where something did. Split into words so a narrow box can wrap it.
  */
-function wordsOf(klass: Klass, fill: Rgb): Word[] {
-  const white: Rgb = [255, 255, 255];
-  const soft = towardsWhite(fill, 0.85);
+function wordsOf(klass: Klass, fill: Rgb, hollow = false): Word[] {
+  // On a hollow box — a class the registrar took out — the words are in its faded colour.
+  const white: Rgb = hollow ? fill : [255, 255, 255];
+  const soft = hollow ? towardsWhite(fill, 0.2) : towardsWhite(fill, 0.85);
   const cancelled = klass.state === "cancelled";
+  const removed = klass.registrar === "removed";
   // Only names and notes wrap inside themselves; "CRN 24234", an hour or a room kept whole.
   const fields: { text: string; bold?: boolean; ink: Rgb; icon?: Word["icon"]; strike?: boolean; wraps?: boolean }[] = [
-    { text: klass.courseCode || klass.crn, bold: true, ink: white, strike: cancelled },
+    { text: klass.courseCode || klass.crn, bold: true, ink: white, strike: cancelled || removed },
     { text: klass.group, bold: true, ink: soft },
     // More registered than the room seats, said beside the course, where it is seen first.
     {
-      text: klass.seats !== null && klass.registered !== null && klass.registered > klass.seats ? `${klass.registered} for ${klass.seats} seats` : "",
+      text:
+        !removed && klass.seats !== null && klass.registered !== null && klass.registered > klass.seats
+          ? `${klass.registered} for ${klass.seats} seats`
+          : "",
       bold: true,
       ink: white,
     },
-    { text: cancelled ? "CANCELLED" : "", bold: true, ink: white },
+    { text: cancelled ? "CANCELLED" : removed ? "REMOVED" : klass.registrar === "added" ? "ADDED" : "", bold: true, ink: white },
     { text: `${klass.start}–${klass.end}`, ink: soft },
     { text: formatRoom(klass.room), ink: soft, icon: "pin" },
     { text: klass.teacher, ink: soft, icon: "person", wraps: true },
@@ -710,9 +736,21 @@ function drawBox(doc: JsPdf, box: PageBox) {
   const color = rgbOf(box.color);
   const cancelled = box.klass.state === "cancelled";
   const covered = box.klass.state === "covered";
-  const fill = cancelled ? towardsWhite(color, 0.45) : color;
-  doc.setFillColor(...fill);
-  doc.roundedRect(box.x, box.y, box.w, box.h, 1.5, 1.5, "F");
+  // Taken out by the registrar: hollow, with a faded dashed edge, as the calendar draws it.
+  const removed = box.klass.registrar === "removed";
+  const fill = cancelled || removed ? towardsWhite(color, 0.45) : color;
+  if (removed) {
+    doc.setFillColor(255, 255, 255);
+    doc.roundedRect(box.x, box.y, box.w, box.h, 1.5, 1.5, "F");
+    doc.setDrawColor(...fill);
+    doc.setLineWidth(0.8);
+    doc.setLineDashPattern([2.5, 1.5], 0);
+    doc.roundedRect(box.x + 0.4, box.y + 0.4, box.w - 0.8, box.h - 0.8, 1.2, 1.2, "S");
+    doc.setLineDashPattern([], 0);
+  } else {
+    doc.setFillColor(...fill);
+    doc.roundedRect(box.x, box.y, box.w, box.h, 1.5, 1.5, "F");
+  }
   if (covered) {
     doc.setDrawColor(...towardsWhite(color, 0.7));
     doc.setLineWidth(0.8);
@@ -724,7 +762,7 @@ function drawBox(doc: JsPdf, box: PageBox) {
   const width = box.w - padX * 2;
   const height = box.h - padY * 2;
   if (width < 2 || height < TINIEST_TYPE) return;
-  const words = wordsOf(box.klass, fill);
+  const words = wordsOf(box.klass, fill, removed);
   // The largest type from 8 points down that says everything.
   let size = 8;
   let placed: Placed[] | null = null;

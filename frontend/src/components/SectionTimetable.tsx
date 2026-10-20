@@ -18,6 +18,7 @@ import {
   type ClassLink,
   type FacilitySection,
 } from "@/services/portalLists";
+import { usePortalChangesShown } from "@/services/portalChangesShown";
 import { useRooms } from "@/services/rooms";
 import { fetchTermWeeks, weekOneOf } from "@/services/termWeeks";
 import { fetchSessionChanges, slotKey, type SessionChange } from "@/services/sessionChanges";
@@ -44,6 +45,9 @@ import {
   type PlacedSession,
   type Session,
 } from "@/services/weekSchedule";
+
+/** Nothing changed, the same nothing every render, while the switch is off. */
+const NO_CHANGES: (ChangedClasses & { termCode: string })[] = [];
 
 /** One section a calendar should show, and how to name and paint it. */
 export type TimetableEntry = {
@@ -150,13 +154,6 @@ type TimetableProps = {
    */
   weekOne?: TeachingCalendar | string;
   /**
-   * Show what the registrar changed since each section was first seen: a class it took
-   * out stays on its old day, faded and struck through, and a class it put in is marked
-   * Added. For a CRN's and a course's own record, where a section is checked; everywhere
-   * else the week is what meets.
-   */
-  registrarChanges?: boolean;
-  /**
    * A name to keep the week being looked at under, for this browser tab. Coming back to
    * the page lands on the week you left rather than on this one; a new tab starts on this.
    */
@@ -205,7 +202,6 @@ function Timetable({
   keepWeekAs,
   sessionFilter,
   registeredOf,
-  registrarChanges = false,
   onExpand,
 }: TimetableProps & { onExpand?: () => void }) {
   const today = isoToday();
@@ -282,12 +278,17 @@ function Timetable({
     combine: (reads) => ({ moves: reads.flatMap((read) => read.data?.links ?? []) }),
   });
 
-  // What the registrar changed in each section, where the record asked to be shown it.
+  /*
+   * What the registrar changed in each section since it was first seen, while the switch
+   * beside the week says to show it: a class it took out stays on its old day, hollow and
+   * struck through, and a class it put in is marked Added. One switch for every calendar.
+   */
+  const [portalChanges, setPortalChanges] = usePortalChangesShown();
   const { changed } = useQueries({
     queries: byTerm.map(({ termCode }) => ({
       queryKey: ["changed-classes", termCode],
       queryFn: () => fetchChangedClasses(termCode),
-      enabled: registrarChanges,
+      enabled: portalChanges,
       retry: false,
     })),
     combine: (reads) => ({
@@ -296,14 +297,17 @@ function Timetable({
       ),
     }),
   });
+  const shownChanges = portalChanges ? changed : NO_CHANGES;
 
   const { sessions, courses, unasked, gone, unbooked, unlinked } = useMemo(
-    () => assemble(entries, sections, notes, onPickSession ? () => true : openable, sessionFilter, moves, changed),
-    [entries, sections, notes, openable, onPickSession, sessionFilter, moves, changed],
+    () => assemble(entries, sections, notes, onPickSession ? () => true : openable, sessionFilter, moves, shownChanges),
+    [entries, sections, notes, openable, onPickSession, sessionFilter, moves, shownChanges],
   );
 
   const [weekStart, setWeekStart] = useState<Date | null>(null);
-  const firstSession = sessions[0] ? `${sessions[0].date}|${sessions.length}` : "";
+  // Keyed on the classes that meet, so flipping Portal changes leaves the week where it is.
+  const meeting = sessions.filter((session) => session.registrar !== "removed");
+  const firstSession = meeting[0] ? `${meeting[0].date}|${meeting.length}` : "";
   // The week this tab was last looking at, when the caller asked for one to be kept.
   const keptWeek = (): Date | null => {
     if (!keepWeekAs) return null;
@@ -432,13 +436,27 @@ function Timetable({
             ) : (
               <span className={`font-semibold text-[#344054] ${small}`}>{weekLabel(shown, sessions)}</span>
             )}
+            <label
+              className={`inline-flex cursor-pointer select-none items-center gap-1 rounded-md border border-[#d9dee7] bg-white font-semibold text-[#344054] hover:bg-[#f8fafc] ${
+                compact ? "h-6 px-1.5" : "h-7 px-2"
+              } ${small} ${onExpand ? "" : "ml-auto"}`}
+              title="Show the classes the registrar removed (hollow, struck through) and mark the ones it added"
+            >
+              <input
+                type="checkbox"
+                checked={portalChanges}
+                onChange={(event) => setPortalChanges(event.target.checked)}
+                className="size-3 accent-[#1f4e79]"
+              />
+              Portal changes
+            </label>
             {onExpand ? (
               <button
                 type="button"
                 aria-label="Open the timetable full size"
                 title="Open full size"
                 onClick={onExpand}
-                className={`${nav(compact)} ml-auto`}
+                className={nav(compact)}
               >
                 <Maximize2 size={12} aria-hidden="true" />
               </button>

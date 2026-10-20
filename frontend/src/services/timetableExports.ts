@@ -18,6 +18,7 @@ import { mergedTeacherTimetable, placementsOf, studentTimetable, teacherTimetabl
 import {
   fetchActiveCourses,
   fetchActiveCrns,
+  fetchChangedClasses,
   fetchFacilitySections,
   fetchRegistrations,
   fetchTermLinks,
@@ -35,9 +36,15 @@ import {
 import { fetchTermWeeks } from "@/services/termWeeks";
 import { fetchTimetableTerms } from "@/services/timetables";
 
+/** What the export button asked: whether the PDF shows what the registrar changed. */
+export type ExportChoice = { portalChanges: boolean };
+
 /** What a schedule is read from, through the cache the pages share. */
-export function scheduleReads(client: QueryClient): ScheduleReads {
+export function scheduleReads(client: QueryClient, choice: ExportChoice = { portalChanges: false }): ScheduleReads {
   return {
+    changes: choice.portalChanges
+      ? (termCode) => client.fetchQuery({ queryKey: ["changed-classes", termCode], queryFn: () => fetchChangedClasses(termCode) })
+      : undefined,
     sections: (termCode, crns) => fetchFacilitySections(termCode, crns),
     notes: (termCode) => client.fetchQuery({ queryKey: ["session-changes", termCode], queryFn: () => fetchSessionChanges(termCode) }),
     links: () => client.fetchQuery({ queryKey: ["term-links"], queryFn: fetchTermLinks }),
@@ -76,8 +83,9 @@ export async function exportCrnTimetable(
   client: QueryClient,
   rows: ActiveCrn[],
   heading?: { title: string; subtitle?: string; filename?: string },
+  choice?: ExportChoice,
 ): Promise<ExportOutcome> {
-  const input = await scheduleInputFor(rows, scheduleReads(client));
+  const input = await scheduleInputFor(rows, scheduleReads(client, choice));
   const withoutClasses = input.sections.filter((section) => section.meetings.length === 0).map((section) => section.crn);
   if (withoutClasses.length === input.sections.length) {
     throw new Error("The portal has booked no classes for these CRNs — run a portal sync if that is new.");
@@ -99,8 +107,12 @@ export type TeacherWanted = { id: string; fullName: string };
  * they covered — each box naming whose class it is. One teacher is their own week, as
  * their record draws it.
  */
-export async function exportTeacherTimetables(client: QueryClient, teachers: TeacherWanted[]): Promise<ExportOutcome> {
-  const read = scheduleReads(client);
+export async function exportTeacherTimetables(
+  client: QueryClient,
+  teachers: TeacherWanted[],
+  choice?: ExportChoice,
+): Promise<ExportOutcome> {
+  const read = scheduleReads(client, choice);
   const [catalogues, terms, courses, registered, links] = await Promise.all([
     client.fetchQuery({ queryKey: ["course-cards"], queryFn: fetchCourseCards }),
     client.fetchQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms }).catch(() => []),
@@ -143,8 +155,12 @@ export async function exportTeacherTimetables(client: QueryClient, teachers: Tea
 export type StudentWanted = { studentId: string; name: string; cohortId: string | null; cohortName?: string };
 
 /** Each student's week — their groups' sections, and whatever else the registrar has them in. */
-export async function exportStudentTimetables(client: QueryClient, students: StudentWanted[]): Promise<ExportOutcome> {
-  const read = scheduleReads(client);
+export async function exportStudentTimetables(
+  client: QueryClient,
+  students: StudentWanted[],
+  choice?: ExportChoice,
+): Promise<ExportOutcome> {
+  const read = scheduleReads(client, choice);
   const links = await read.links().catch(() => ({}) as Record<string, string>);
   const cohortIds = [...new Set(students.map((student) => student.cohortId).filter((id): id is string => Boolean(id)))];
   const cohorts = new Map(

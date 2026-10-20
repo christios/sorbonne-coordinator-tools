@@ -1,8 +1,10 @@
 import { ChevronLeft, ChevronRight, Download } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 
+import { SourceMark } from "@/components/DataTable";
 import { Modal } from "@/components/Modal";
 import { usePageState } from "@/components/usePageState";
+import { usePortalChangesShown } from "@/services/portalChangesShown";
 import {
   MAX_PAGES,
   PAPER,
@@ -29,7 +31,7 @@ const START: ExportZoom = { paper: "a4", maxPages: 1 };
 export function SemesterExport({
   open,
   onClose,
-  input,
+  input: given,
   shown,
 }: {
   open: boolean;
@@ -40,6 +42,21 @@ export function SemesterExport({
 }) {
   const [kept, setZoom] = usePageState<ExportZoom>("semester-export:zoom:v4", START);
   const zoom = { ...START, ...kept };
+  /*
+   * Whether the file shows what the registrar changed — the classes it took out, hollow
+   * and struck through, and the ones it put in, marked ADDED. Asked here as the calendars'
+   * switch asks it, starting from how the calendars are set.
+   */
+  const [shownOnCalendars] = usePortalChangesShown();
+  const [asked, setPortalChanges] = useState<boolean | null>(null);
+  const portalChanges = asked ?? shownOnCalendars;
+  const input = useMemo(
+    () =>
+      portalChanges
+        ? given
+        : { ...given, sections: given.sections.map((section) => ({ ...section, removed: undefined, added: undefined })) },
+    [given, portalChanges],
+  );
   const units = useMemo(() => (open ? semesterUnits(input) : []), [open, input]);
   const pages = useMemo(() => (open ? semesterPages(input, zoom, units) : []), [open, input, zoom, units]);
   // The unit to preview: the one that takes the most pages, unless one has been chosen.
@@ -124,6 +141,16 @@ export function SemesterExport({
           ]}
           onChange={(pages) => setZoom({ ...zoom, maxPages: pages ? Number(pages) : null })}
         />
+        <Choice
+          label="Portal changes"
+          mark={<SourceMark source="portal" />}
+          value={portalChanges ? "with" : "without"}
+          options={[
+            { value: "with", label: "Removed and added shown" },
+            { value: "without", label: "Only what meets" },
+          ]}
+          onChange={(value) => setPortalChanges(value === "with")}
+        />
       </div>
 
       <p className="mt-4 text-sm text-[#344054]" aria-live="polite">
@@ -192,18 +219,24 @@ export function SemesterExport({
 /** A row of buttons standing for one choice. */
 function Choice({
   label,
+  mark,
   value,
   options,
   onChange,
 }: {
   label: string;
+  /** Whose word the choice is about, beside its label. */
+  mark?: ReactNode;
   value: string;
   options: { value: string; label: string }[];
   onChange: (value: string) => void;
 }) {
   return (
     <div>
-      <span className="mb-1 block text-xs font-semibold text-[#667085]">{label}</span>
+      <span className="mb-1 block text-xs font-semibold text-[#667085]">
+        {label}
+        {mark}
+      </span>
       <span role="group" aria-label={label} className="inline-flex overflow-hidden rounded-md border border-[#d3d9e2]">
         {options.map((option) => (
           <button
@@ -283,8 +316,10 @@ function PagePreview({ page, layout, paper }: { page: SemesterPage; layout: Seme
           width={box.w}
           height={box.h}
           rx={1.5}
-          fill={box.color}
-          opacity={box.klass.state === "cancelled" ? 0.5 : 1}
+          fill={box.klass.registrar === "removed" ? "white" : box.color}
+          stroke={box.klass.registrar === "removed" ? box.color : undefined}
+          strokeDasharray={box.klass.registrar === "removed" ? "2.5 1.5" : undefined}
+          opacity={box.klass.state === "cancelled" || box.klass.registrar === "removed" ? 0.5 : 1}
         />
       ))}
       <rect

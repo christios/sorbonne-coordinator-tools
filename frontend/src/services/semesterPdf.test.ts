@@ -177,3 +177,27 @@ describe("the semester's pages", () => {
     expect(text.match(/\/Type \/Page\b/g)?.length).toBe(semesterPages(input(), zoom).length);
   });
 });
+
+describe("what the registrar changed, in the semester's file", () => {
+  const changed = [
+    {
+      ...section("23436", "MATH-351", [meeting("2026-09-07"), meeting("2026-09-08")], "TD 1"),
+      removed: [meeting("2026-09-07", "13:00", "14:30")],
+      added: [meeting("2026-09-08")],
+    },
+  ];
+
+  it("draws a removed class on its old day without counting it, and marks the added one", () => {
+    const [week] = semesterUnits(input("days", changed));
+
+    expect(week.rows[0]).toMatchObject({ label: "Mon 7", sub: "1 class" });
+    expect(week.rows[0].boxes.map((box) => box.klass.registrar).sort()).toEqual(["", "removed"]);
+    expect(week.rows[1].boxes.map((box) => box.klass.registrar)).toEqual(["added"]);
+  });
+
+  it("makes the file with them in it", async () => {
+    const bytes = new Uint8Array(await buildSemesterPdf(input("days", changed), { maxPages: null }));
+    expect(new TextDecoder("latin1").decode(bytes).startsWith("%PDF")).toBe(true);
+  });
+});
+

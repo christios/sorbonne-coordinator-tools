@@ -66,3 +66,34 @@ describe("what a joint schedule is drawn from", () => {
     expect(input.sections[0].group).toBe("");
   });
 });
+
+describe("what the registrar changed, for an export asked to show it", () => {
+  const changed = {
+    crn: "24059",
+    courseCode: "MATH-100",
+    title: "",
+    teacherName: "",
+    scheduleState: "published",
+    removed: [{ meetsOn: "2026-09-15", startsAt: "08:15", endsAt: "10:15", room: "5.111", weCancelled: true }],
+    added: [meeting],
+    kept: [],
+    noticedAt: "",
+    key: "k",
+  };
+
+  it("hands each section its removed and added classes", async () => {
+    const input = await scheduleInputFor([row("24059", "MATH-100"), row("23436", "MATH-351")], reads({ changes: async () => [changed] }));
+
+    const [first, second] = input.sections;
+    expect(first.crn).toBe("24059");
+    expect(first.removed).toEqual([{ meetsOn: "2026-09-15", startsAt: "08:15", endsAt: "10:15", room: "5.111" }]);
+    expect(first.added).toEqual([meeting]);
+    expect(second.removed).toBeUndefined();
+  });
+
+  it("hands none when the export was not asked", async () => {
+    const input = await scheduleInputFor([row("24059", "MATH-100")], reads());
+    expect(input.sections[0].removed).toBeUndefined();
+  });
+});
+

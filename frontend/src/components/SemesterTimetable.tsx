@@ -13,7 +13,8 @@ import { TableFilterBar } from "@/components/TableFilterBar";
 import { usePageState } from "@/components/usePageState";
 import { useRemembered } from "@/components/useRemembered";
 import { buildCards, rowsPerPart, subRowLabel, teaches } from "@/services/courseCards";
-import { fetchActiveCrns, fetchFacilitySections, fetchTermCrns, type ActiveCrn } from "@/services/portalLists";
+import { changesOf } from "@/services/crnScheduleInput";
+import { fetchActiveCrns, fetchChangedClasses, fetchFacilitySections, fetchTermCrns, type ActiveCrn } from "@/services/portalLists";
 import { optionsFor, type GridColumn } from "@/services/studentColumns";
 import { applyFilters, type FilterColumn, type FilterModel } from "@/services/tableFilter";
 import { DAY_NAMES, formatRoom, parseIsoDate } from "@/services/weekSchedule";
@@ -330,6 +331,13 @@ function SemesterWeek({ layout, term, picker }: { layout: Layout; term: Timetabl
     enabled: exporting && Boolean(termCode),
     retry: false,
   });
+  // What the registrar changed, for an export asked to show it; the dialog decides whether it does.
+  const changed = useQuery({
+    queryKey: ["changed-classes", termCode],
+    queryFn: () => fetchChangedClasses(termCode),
+    enabled: exporting && Boolean(termCode),
+    retry: false,
+  });
   const exportInput = useMemo<SemesterExportInput>(() => {
     const swept = new Map((meetings.data?.sections ?? []).map((section) => [section.crn, section]));
     const roomSeats: Record<string, number> = {};
@@ -347,6 +355,7 @@ function SemesterWeek({ layout, term, picker }: { layout: Layout; term: Timetabl
       sweptAt: meetings.data?.pulledAt,
       sections: shown.map((row) => {
         const section = swept.get(row.crn);
+        const theirs = changesOf(changed.data ?? [], row.crn);
         return {
           crn: row.crn,
           registered: registeredBy.get(row.crn),
@@ -368,10 +377,15 @@ function SemesterWeek({ layout, term, picker }: { layout: Layout; term: Timetabl
               coverTeacherName: note.coverTeacherName,
               note: note.note,
             })),
+          // Under the page's filters too: a removed class in another room is not this room's.
+          removed: (theirs.removed ?? []).filter(
+            (meeting) => !sessionFilter || sessionFilter({ date: meeting.meetsOn, room: meeting.room }),
+          ),
+          added: theirs.added,
         };
       }),
     };
-  }, [meetings.data, notes.data, rooms, sessionFilter, shown, span, term.id, term.name, weeks.data, roomOf, registeredBy]);
+  }, [changed.data, meetings.data, notes.data, rooms, sessionFilter, shown, span, term.id, term.name, weeks.data, roomOf, registeredBy]);
 
   return (
     /*

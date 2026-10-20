@@ -696,7 +696,7 @@ export function StudentRoster({
      */
     extra: (
       <TimetablesButton
-        make={() =>
+        make={(choice) =>
           exportStudentTimetables(
             client,
             rows
@@ -707,6 +707,7 @@ export function StudentRoster({
                 cohortId: row.cohortId,
                 cohortName: cohorts.find((candidate) => candidate.id === row.cohortId)?.name,
               })),
+            choice,
           )
         }
       />

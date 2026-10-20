@@ -334,7 +334,7 @@ export function ActiveCourses({ onShowStudents }: { onShowStudents?: (ids: strin
             {/* The ticked CRNs' schedule, as one PDF: every one of them on the same week grid, a page a week. */}
             <TimetablesButton
               label="Export schedule"
-              make={() => exportCrnTimetable(client, held.filter((row) => selected.has(row.id)))}
+              make={(choice) => exportCrnTimetable(client, held.filter((row) => selected.has(row.id)), undefined, choice)}
             />
           </SelectionBar>
 

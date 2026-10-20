@@ -8,7 +8,7 @@
  */
 
 import type { ScheduleInput } from "@/services/crnSchedulePdf";
-import type { ActiveCrn, FacilityTimetable } from "@/services/portalLists";
+import type { ActiveCrn, ChangedClasses, FacilityTimetable } from "@/services/portalLists";
 import type { SessionChange } from "@/services/sessionChanges";
 import { semesterOf, type TermCalendars } from "@/services/termWeeks";
 
@@ -23,7 +23,23 @@ export type ScheduleReads = {
   semesterNames: () => Promise<Record<string, string>>;
   /** CRN → the group of ours it teaches, off the course cards: "CM Mathematics". */
   groups: () => Promise<Map<string, string>>;
+  /**
+   * What the registrar changed in a term's sections since each was first seen — given only
+   * where the export was asked to show Portal changes.
+   */
+  changes?: (termCode: string) => Promise<ChangedClasses[]>;
 };
+
+/** A section's removed and added classes, for the PDF, out of what the registrar changed. */
+export function changesOf(changed: ChangedClasses[], crn: string, onlyOn?: string[]) {
+  const section = changed.find((entry) => entry.crn === crn);
+  if (!section) return {};
+  const kept = (meeting: { meetsOn: string }) => !onlyOn || onlyOn.includes(meeting.meetsOn);
+  return {
+    removed: section.removed.filter(kept).map(({ meetsOn, startsAt, endsAt, room }) => ({ meetsOn, startsAt, endsAt, room })),
+    added: section.added.filter(kept),
+  };
+}
 
 /**
  * One grid's worth of sections for these CRNs, in course order.
@@ -48,8 +64,12 @@ export async function scheduleInputFor(rows: ActiveCrn[], read: ScheduleReads): 
     await Promise.all(
       termCodes.map(async (termCode) => {
         const crns = ordered.filter((row) => row.termCode === termCode).map((row) => row.crn);
-        const [sweep, notes] = await Promise.all([read.sections(termCode, crns), read.notes(termCode).catch(() => [])]);
-        return [termCode, { sweep, notes }] as const;
+        const [sweep, notes, changed] = await Promise.all([
+          read.sections(termCode, crns),
+          read.notes(termCode).catch(() => []),
+          read.changes ? read.changes(termCode).catch(() => []) : Promise.resolve([]),
+        ]);
+        return [termCode, { sweep, notes, changed }] as const;
       }),
     ),
   );
@@ -73,6 +93,7 @@ export async function scheduleInputFor(rows: ActiveCrn[], read: ScheduleReads): 
         group: groups.get(row.crn) ?? "",
         meetings: section?.meetings ?? [],
         notes: (held?.notes ?? []).filter((note) => note.crn === row.crn),
+        ...changesOf(held?.changed ?? [], row.crn),
       };
     }),
   };

@@ -277,7 +277,7 @@ export function CrnRecord({
           action={
             section?.meetings.length ? (
               // Its schedule as a PDF: this week grid for every teaching week, a page each.
-              <TimetablesButton small label="Export schedule" make={() => exportCrnTimetable(client, [row])} />
+              <TimetablesButton small label="Export schedule" make={(choice) => exportCrnTimetable(client, [row], undefined, choice)} />
             ) : null
           }
         >
@@ -310,7 +310,6 @@ export function CrnRecord({
               <div className="mt-3">
                 <SectionTimetable
                   compact
-                  registrarChanges
                   title={`CRN ${row.crn} — timetable`}
                   onPickSession={setNoting}
                   entries={[

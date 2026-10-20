@@ -646,10 +646,11 @@ export function ActiveTeachers({ onOpenTeacher }: { onOpenTeacher?: (teacher: Te
       {/* The same bar the other lists float over their tables, for the one thing done to several. */}
       <SelectionBar count={selected.size} onClear={() => setSelected(new Set())}>
         <TimetablesButton
-          make={() =>
+          make={(choice) =>
             exportTeacherTimetables(
               client,
               (active.data ?? []).filter((row) => selected.has(row.id)).map((row) => ({ id: row.id, fullName: row.fullName })),
+              choice,
             )
           }
         />
