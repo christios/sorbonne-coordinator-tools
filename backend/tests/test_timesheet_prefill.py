@@ -294,6 +294,31 @@ def test_cancelled_and_covered_sessions_are_returned_and_said_so(prefill: Timesh
     assert cover["status"] == "cover"
     assert cover["sessionId"] == "262710:24007:2026-10-23:1"
     assert cover["label"] == "SCEN-102 TD RDNS 10 (cover for Ahmed Menaa)"
+    assert "portalRemoved" not in cover
+
+
+def test_a_cover_the_portal_has_since_removed_is_kept_and_flagged(prefill: TimesheetPrefill):
+    """Whether it is still paid is for whoever approves the sheet; it is not dropped quietly."""
+    ahmed = a_part_timer("Ahmed Menaa")
+    sara = a_part_timer("Sara Khaled")
+    a_section(crn="24007", teacher_id=ahmed["activeId"])
+    swept({"24007": [("2026-10-16", "15:00", "16:30")]})
+    SessionChangeStore(TEST_DATABASE_URL).set_change(
+        term_code=TERM,
+        crn="24007",
+        meets_on="2026-10-23",
+        starts_at="15:00",
+        ends_at="16:30",
+        kind="covered",
+        cover_teacher_id=sara["activeId"],
+        cover_teacher_name="Sara Khaled",
+    )
+
+    [cover] = prefill.sessions(period_start="2026-10-15", email=sara["email"], today=TODAY)["sessions"]
+
+    assert cover["status"] == "cover"
+    assert cover["portalRemoved"] is True
+    assert cover["label"] == "SCEN-102 TD RDNS 10 (cover for Ahmed Menaa) (the portal has since removed this class)"
 
 
 # --------------------------------------------------------------- the sync it is read from

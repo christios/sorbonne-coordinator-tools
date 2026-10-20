@@ -500,6 +500,55 @@ def we_cancelled(store: FacilityTimetableStore, meeting) -> None:
         )
 
 
+def we_covered(store: FacilityTimetableStore, meeting, who: str = "Sara Khaled") -> None:
+    """A class somebody else stood in for, as a coordinator recorded it."""
+    on, start, end = meeting
+    with store.engine.begin() as connection:
+        connection.execute(
+            text("""INSERT INTO session_changes
+                        (id, term_code, crn, meets_on, starts_at, ends_at, kind, cover_teacher_name,
+                         created_at, updated_at)
+                    VALUES (gen_random_uuid()::text, :t, '23425', :on, :s, :e, 'covered', :who, 'now', 'now')"""),
+            {"t": TERM, "on": on, "s": start, "e": end, "who": who},
+        )
+
+
+def test_a_class_we_had_covered_is_known_too(store: FacilityTimetableStore):
+    """Somebody stood in, and the registrar has since tidied the class away: not news either."""
+    swept(store, [MONDAY, TUESDAY])
+    we_covered(store, TUESDAY)
+    swept(store, [MONDAY])
+
+    assert store.classes_changed(TERM) == []
+
+
+def test_a_calendar_can_still_ask_for_what_we_already_knew(store: FacilityTimetableStore):
+    """To draw the gap with what we said of it — marked as no news, so nobody is asked to approve it."""
+    swept(store, [MONDAY, TUESDAY])
+    we_covered(store, TUESDAY)
+    swept(store, [MONDAY])
+
+    [known] = store.classes_changed(TERM, with_known=True)
+
+    assert known["news"] is False
+    assert [(m["meetsOn"], m["weCovered"]) for m in known["removed"]] == [("2026-09-08", True)]
+
+
+def test_a_covered_class_among_others_says_who_covered_it(store: FacilityTimetableStore):
+    swept(store, [MONDAY, TUESDAY, WEDNESDAY])
+    we_covered(store, TUESDAY)
+    swept(store, [MONDAY])
+
+    [gone] = store.classes_changed(TERM)
+
+    assert [(m["meetsOn"], m["weCancelled"], m["weCovered"], m["coveredBy"]) for m in gone["removed"]] == [
+        ("2026-09-08", False, True, "Sara Khaled"),
+        ("2026-09-09", False, False, ""),
+    ]
+    # Named after what is news: the covered class is not.
+    assert gone["key"] == change_key(TERM, "23425", removed=[WEDNESDAY], added=[])
+
+
 def test_a_class_we_cancelled_ourselves_is_not_news(store: FacilityTimetableStore):
     """The registrar agreeing with us is not a warning. It is the system working."""
     swept(store, [MONDAY, TUESDAY])

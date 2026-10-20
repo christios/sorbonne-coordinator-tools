@@ -392,7 +392,7 @@ class FacilityTimetableStore:
             held.setdefault(crn, set()).add(weekday)
         return {crn: sorted(days, key=_WEEKDAYS.index) for crn, days in held.items()}
 
-    def classes_changed(self, term_code: str) -> list[dict[str, Any]]:
+    def classes_changed(self, term_code: str, *, with_known: bool = False) -> list[dict[str, Any]]:
         """Sections whose classes the registrar has changed, and the shape they are in now.
 
         Three things, because three things can be true of a class: it has gone, it is
@@ -449,16 +449,17 @@ class FacilityTimetableStore:
                     {"t": term_code, "crns": crns},
                 ).mappings()
             }
-            # Our own cancellations for these sections. A class we said would not happen
-            # and the registrar has now deleted is the registrar agreeing with us, not
-            # news — but it is still a gap in the month, so it is shown and marked. There
-            # is no answering half for arrivals: the department's own record knows how to
-            # cancel a class and how to have it covered, and nothing else.
-            cancelled = {
-                (str(row[0]), str(row[1]), str(row[2]))
+            # What we had already said of these sections' classes: cancelled, or covered by
+            # somebody else. A class we said would not happen, or had somebody stand in
+            # for, that the registrar has now deleted is the registrar catching up with what
+            # we knew, not news — but it is still a gap in the month, so it is shown and
+            # marked. There is no answering half for arrivals: the department's own record
+            # knows how to cancel a class and how to have it covered, and nothing else.
+            noted = {
+                (str(row[0]), str(row[1]), str(row[2])): (str(row[3]), str(row[4] or ""))
                 for row in connection.execute(
-                    text("""SELECT crn, meets_on, starts_at FROM session_changes
-                            WHERE term_code = :t AND crn = ANY(:crns) AND kind = 'cancelled'"""),
+                    text("""SELECT crn, meets_on, starts_at, kind, cover_teacher_name FROM session_changes
+                            WHERE term_code = :t AND crn = ANY(:crns) AND kind IN ('cancelled', 'covered')"""),
                     {"t": term_code, "crns": crns},
                 )
             }
@@ -503,14 +504,18 @@ class FacilityTimetableStore:
             news: list[tuple[str, str, str]] = []
             for slot in sorted(change["removed"]):
                 row = change["removed"][slot]
-                known = (crn, slot[0], slot[1]) in cancelled
+                kind, cover = noted.get((crn, slot[0], slot[1]), ("", ""))
+                known = bool(kind)
                 lost.append(
                     {
                         "meetsOn": row["meets_on"],
                         "startsAt": row["starts_at"],
                         "endsAt": row["ends_at"],
                         "room": row["room"] or "",
-                        "weCancelled": known,
+                        "weCancelled": kind == "cancelled",
+                        # Covered by somebody else, as a coordinator recorded it: known too.
+                        "weCovered": kind == "covered",
+                        "coveredBy": cover if kind == "covered" else "",
                     }
                 )
                 if not known:
@@ -524,11 +529,13 @@ class FacilityTimetableStore:
                 }
                 for slot in sorted(change["added"])
             ]
-            # Every removal already ours and nothing new arrived. The section keeps its
+            # Every removal already ours — cancelled or covered — and nothing new arrived.
+            # A calendar still wants it (`with_known`), to draw the gap with what we had
+            # said of it; it is marked `news: False`, and asks nobody for an approval. The section keeps its
             # place in nobody's warning: a coordinator who cancels classes regularly would
             # otherwise be shown their own work back, which is how people learn to ignore
             # a banner.
-            if not news and not arrived:
+            if not news and not arrived and not with_known:
                 continue
             noticed = max(
                 [change["removed"][slot]["noticed_at"] for slot in news]
@@ -555,6 +562,7 @@ class FacilityTimetableStore:
                         if (meeting["meetsOn"], meeting["startsAt"], meeting["endsAt"]) not in change["added"]
                     ],
                     "noticedAt": noticed,
+                    "news": bool(news or arrived),
                     # Named after what is news. A class we cancelled ourselves joining the
                     # list later must not reopen a warning somebody has already answered.
                     "key": change_key(term_code, crn, removed=news, added=sorted(change["added"])),

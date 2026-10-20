@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { hoursIn, monthsOfDiff, type Meeting } from "@/services/classDiff";
+import { hoursIn, monthsOfDiff, oursSaid, unexpected, type Meeting } from "@/services/classDiff";
 
 const meeting = (meetsOn: string, startsAt = "08:30", endsAt = "10:00"): Meeting => ({
   meetsOn,
@@ -90,3 +90,20 @@ describe("hoursIn", () => {
     expect(hoursIn([meeting("2026-09-07", "", "10:00")])).toBe(0);
   });
 });
+
+describe("what the department already knew", () => {
+  const at = { meetsOn: "2026-09-14", startsAt: "08:30", endsAt: "10:00", room: "5.101" };
+
+  it("leaves a class it had cancelled or had covered out of what is news", () => {
+    const cancelled = { ...at, weCancelled: true };
+    const covered = { ...at, startsAt: "10:15", weCovered: true, coveredBy: "Sara Khaled" };
+    expect(unexpected([cancelled, covered, at])).toEqual([at]);
+  });
+
+  it("says what it had said of each", () => {
+    expect(oursSaid({ ...at, weCancelled: true })).toBe("you had cancelled it");
+    expect(oursSaid({ ...at, weCovered: true, coveredBy: "Sara Khaled" })).toBe("it was covered by Sara Khaled");
+    expect(oursSaid(at)).toBe("");
+  });
+});
+

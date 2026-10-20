@@ -23,7 +23,7 @@ import { useMemo, useState } from "react";
 import { SectionDiff } from "@/components/ClassChanges";
 import { SourceMark } from "@/components/DataTable";
 import { SelectMenu } from "@/components/SelectMenu";
-import { minutesOf } from "@/services/classDiff";
+import { minutesOf, oursSaid } from "@/services/classDiff";
 import {
   classKey,
   fetchChangedClasses,
@@ -234,9 +234,10 @@ export function ClassChangesPage({ place = "", onLeavePlace }: { place?: string;
  * being looked at — including one approved long ago, which the banner no longer mentions.
  */
 export function PortalChanges({ termCode, crn }: { termCode: string; crn: string }) {
+  // With the changes we already knew of, so a gap we had cancelled or had covered is shown here too.
   const changed = useQuery({
-    queryKey: ["changed-classes", termCode],
-    queryFn: () => fetchChangedClasses(termCode),
+    queryKey: ["changed-classes", termCode, "known"],
+    queryFn: () => fetchChangedClasses(termCode, { known: true }),
     enabled: Boolean(termCode),
     retry: false,
   });
@@ -267,15 +268,23 @@ export function PortalChanges({ termCode, crn }: { termCode: string; crn: string
       </p>
     );
   }
+  // Only classes we had already cancelled or had covered: nothing for anybody to approve.
+  const news = section.news !== false;
   return (
     <SectionDiff
       plain
       section={section}
       span={span}
-      approval={approvals.get(section.key)}
-      onApprove={() => approve.mutate(section.key)}
+      approval={news ? approvals.get(section.key) : undefined}
+      onApprove={news ? () => approve.mutate(section.key) : undefined}
       approving={approve.isPending}
     >
+      {news ? null : (
+        <p className="mt-2 rounded-md bg-[#f2f4f7] px-3 py-1.5 text-xs text-[#475467]">
+          <SourceMark source="planning" className="mr-1.5" />
+          Nothing to approve: every class the registrar removed, you had already cancelled or had covered.
+        </p>
+      )}
       <ChangeLists
         termCode={termCode}
         section={section}
@@ -334,8 +343,9 @@ function ChangeLists({
           </button>
         </p>
       ) : null}
-      <div className="grid gap-4">
-        <div>
+      {/* What went beside what arrived, so a class and the one it became sit level with each other. */}
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="min-w-0">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-[#842029]">
             Went ({section.removed.length})
             <SourceMark source="portal" />
@@ -348,7 +358,7 @@ function ChangeLists({
                   key={keyOf(cls)}
                   cls={cls}
                   tone="text-[#842029]"
-                  aside={cls.weCancelled ? "you had cancelled it" : ""}
+                  aside={oursSaid(cls)}
                   note={noteOn("removed", cls)}
                   onNote={(words) => noteClass(termCode, { crn: section.crn, side: "removed", cls, note: words })}
                   onNoted={refresh}
@@ -372,7 +382,14 @@ function ChangeLists({
                       type="button"
                       onClick={() => setLinking(linking && keyOf(linking) === keyOf(cls) ? null : cls)}
                       aria-pressed={Boolean(linking && keyOf(linking) === keyOf(cls))}
-                      className="inline-flex items-center gap-1 rounded border border-[#b7bec8] px-1.5 py-0.5 text-xs font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]"
+                      /*
+                       * Shown when the class is pointed at, or while it is the one being
+                       * linked: four of them on every card were noise. Where nothing can
+                       * hover — a phone — it stays shown.
+                       */
+                      className={`inline-flex items-center gap-1 rounded border border-[#b7bec8] px-1.5 py-0.5 text-xs font-semibold text-[#1f4e79] hover:bg-[#f2f7fb] focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100 ${
+                        linking && keyOf(linking) === keyOf(cls) ? "" : "[@media(hover:hover)]:opacity-0"
+                      }`}
                     >
                       <Link2 size={12} aria-hidden="true" /> Rescheduled to…
                     </button>
@@ -382,7 +399,7 @@ function ChangeLists({
             })}
           </ul>
         </div>
-        <div>
+        <div className="min-w-0">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-[#0f5132]">
             Arrived ({section.added.length})
             <SourceMark source="portal" />
@@ -461,7 +478,7 @@ function ClassRow({
   });
   const hours = Math.round((minutesOf({ ...cls, room: cls.room ?? "" }) / 60) * 100) / 100;
   return (
-    <li className="rounded-md border border-[#eef1f5] px-2.5 py-1.5 text-sm">
+    <li className="group rounded-md border border-[#eef1f5] px-2.5 py-1.5 text-sm">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <span className={`font-semibold tabular-nums ${tone}`}>{slotSaid(cls)}</span>
         <span className="tabular-nums text-[#667085]">{hours} h</span>

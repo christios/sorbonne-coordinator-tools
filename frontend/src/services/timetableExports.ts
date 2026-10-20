@@ -44,7 +44,11 @@ export type ExportChoice = { portalChanges: boolean };
 export function scheduleReads(client: QueryClient, choice: ExportChoice = { portalChanges: false }): ScheduleReads {
   return {
     changes: choice.portalChanges
-      ? (termCode) => client.fetchQuery({ queryKey: ["changed-classes", termCode], queryFn: () => fetchChangedClasses(termCode) })
+      ? (termCode) =>
+          client.fetchQuery({
+            queryKey: ["changed-classes", termCode, "known"],
+            queryFn: () => fetchChangedClasses(termCode, { known: true }),
+          })
       : undefined,
     // A moved class says where it came from on every timetable, the switch or not, as on screen.
     moves: async (termCode) =>

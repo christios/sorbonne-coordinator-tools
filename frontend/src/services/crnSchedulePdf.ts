@@ -83,6 +83,8 @@ export type ScheduleClass = {
   registrar: "" | "removed" | "added";
   /** Where a linked class went or came from — "to Thu 5 Nov 13:15", "from Tue 3 Nov 08:30" — else "". */
   moved: string;
+  /** What the department had said of a removed class — "you had cancelled it", "was covered by …" — else "". */
+  ours: string;
   /** Who covered it, for a covered class. */
   cover: string;
   note: string;
@@ -192,8 +194,15 @@ export function scheduleWeeks(input: ScheduleInput): ScheduleWeek[] {
     ];
     for (const { meeting, registrar } of drawn) {
       const monday = toIsoDate(mondayOf(parseIsoDate(meeting.meetsOn)));
-      // A class that no longer meets carries nothing the department noted on its hour.
-      const note = registrar === "removed" ? undefined : noteOn.get(`${meeting.meetsOn}|${meeting.startsAt}`);
+      const said = noteOn.get(`${meeting.meetsOn}|${meeting.startsAt}`);
+      // A class that no longer meets is not cancelled or covered on the page; what we had said of it is a line of its own.
+      const note = registrar === "removed" ? undefined : said;
+      const ours =
+        registrar !== "removed" || !said
+          ? ""
+          : said.kind === "cancelled"
+            ? "you had cancelled it"
+            : `was covered by ${said.coverTeacherName.trim() || "somebody else"}`;
       byWeek.set(monday, [
         ...(byWeek.get(monday) ?? []),
         {
@@ -210,6 +219,7 @@ export function scheduleWeeks(input: ScheduleInput): ScheduleWeek[] {
           state: note?.kind ?? "",
           registrar,
           moved: movedOf(meeting),
+          ours,
           cover: note?.kind === "covered" ? note.coverTeacherName.trim() : "",
           note: note?.note.trim() ?? "",
         },
@@ -517,7 +527,8 @@ function drawSchedule(doc: JsPdf, input: ScheduleInput, after: boolean): void {
         w: laneWidth - 5,
         h: Math.max(14, yOf(entry.endsAt) - yOf(entry.startsAt) - 2),
       };
-      const color = colorOf.get(entry.crn) ?? rgbOf(COURSE_COLORS[0]);
+      // Grey for a removed class the department had already cancelled or had covered, as on screen.
+      const color: Rgb = entry.ours ? [152, 162, 179] : (colorOf.get(entry.crn) ?? rgbOf(COURSE_COLORS[0]));
       const cancelled = entry.state === "cancelled";
       const covered = entry.state === "covered";
       // Taken out by the registrar: hollow, faded and struck through, as the calendar draws it.
@@ -576,6 +587,7 @@ function drawSchedule(doc: JsPdf, input: ScheduleInput, after: boolean): void {
         { text: `${entry.startsAt}–${entry.endsAt}`, size: 8, ink: ink(0.9), keep: 1 },
         // Where a moved class went, or came from: the half of the move this box cannot show.
         { text: entry.moved, size: 7.5, bold: true, ink: strong, keep: 1.5 },
+        { text: entry.ours, size: 7.5, ink: strong, keep: 1.6 },
         { text: formatRoom(entry.room), size: 8, icon: "pin" as const, ink: ink(0.85), keep: manyTeachers ? 2 : 3 },
         { text: `CRN ${entry.crn}`, size: 7, ink: ink(0.8), keep: 5 },
         covered

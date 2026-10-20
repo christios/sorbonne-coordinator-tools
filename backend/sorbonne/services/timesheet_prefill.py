@@ -28,6 +28,9 @@ meeting is. A class moved to another day arrives as one session gone and one new
 *What is gone is absent.* The whole period is returned every time, cancelled and covered
 sessions included, so a session missing from an answer is one the registrar no longer has —
 unless the last sync failed partway, when `complete` is false and the flow removes nothing.
+The one exception is a class somebody covered that the registrar has since removed: the
+cover was recorded, so it stays, said in its label and marked `portalRemoved`, for whoever
+approves the sheet to decide.
 """
 
 from __future__ import annotations
@@ -144,6 +147,9 @@ class TimesheetPrefill:
             ends_at, n = numbered.get((day, starts_at), (note["ends_at"], 0))
             if not ends_at:
                 continue  # Neither the registrar nor the note says when it ended.
+            # The portal no longer has the class they covered. Whether it is still paid is
+            # not this service's to decide: it is kept, and said, for whoever approves it.
+            gone = not n
             if not n:
                 n = 1 + sum(1 for d, s, _, _ in _numbered(held) if d == day and s < starts_at)
             section = names.get(
@@ -152,7 +158,14 @@ class TimesheetPrefill:
             owner = _people(section["teacher"])[0] if section["teacher"] else ""
             said = f"(cover for {owner})" if owner else "(cover)"
             cover = {**section, "label": " ".join(part for part in (_label(section), said) if part)}
-            sessions.append(_session(term, crn, day, starts_at, ends_at, n, cover, "cover"))
+            session = _session(term, crn, day, starts_at, ends_at, n, cover, "cover")
+            if gone:
+                session = {
+                    **session,
+                    "label": f"{session['label']} (the portal has since removed this class)",
+                    "portalRemoved": True,
+                }
+            sessions.append(session)
 
         sessions.sort(key=lambda row: (row["date"], row["from"], row["sessionId"]))
         return {

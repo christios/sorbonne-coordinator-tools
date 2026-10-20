@@ -35,7 +35,17 @@ import { useMemo, type CSSProperties, type ReactNode } from "react";
 
 import { SourceMark } from "@/components/DataTable";
 import { locationFor } from "@/routes/toolRoute";
-import { hoursIn, minutesOf, monthsOfDiff, stillToLookAt, unexpected, type DiffDay, type Meeting } from "@/services/classDiff";
+import {
+  hoursIn,
+  known,
+  minutesOf,
+  monthsOfDiff,
+  oursSaid,
+  stillToLookAt,
+  unexpected,
+  type DiffDay,
+  type Meeting,
+} from "@/services/classDiff";
 import { formatRoom } from "@/services/weekSchedule";
 import { useRooms } from "@/services/rooms";
 import { fetchChangedClasses, fetchSweptTerms, type ChangedClasses } from "@/services/portalLists";
@@ -145,14 +155,17 @@ export function SectionDiff({
   const lost = hoursIn(news);
   const gained = hoursIn(section.added);
   const left = hoursIn(section.kept);
-  const known = section.removed.length - news.length;
+  const cancelledByUs = section.removed.filter((meeting) => meeting.weCancelled).length;
+  const coveredByUs = section.removed.filter((meeting) => meeting.weCovered).length;
+  const knownCount = cancelledByUs + coveredByUs;
   // Whether any day here is two things at once, which is the only thing the ring says.
   const both = months.some((month) =>
     month.days.some((day) => day && day.removed.length > 0 && day.added.length > 0),
   );
   const said = [
     news.length ? `${news.length} class${news.length === 1 ? "" : "es"} gone (${lost} h)` : "",
-    known ? `${known} you had cancelled` : "",
+    cancelledByUs ? `${cancelledByUs} you had cancelled` : "",
+    coveredByUs ? `${coveredByUs} you had covered` : "",
     section.added.length ? `${section.added.length} arrived (${gained} h)` : "",
     `${section.kept.length} unchanged (${left} h)`,
   ].filter(Boolean);
@@ -249,9 +262,10 @@ export function SectionDiff({
               where one was removed the same day
             </span>
           ) : null}
-          {known ? (
+          {knownCount ? (
             <span className="inline-flex items-center gap-1.5">
-              <span className="inline-block h-3 w-3 rounded-sm bg-[#e9ecef]" /> you had cancelled it
+              <span className="inline-block h-3 w-3 rounded-sm bg-[#e9ecef]" />{" "}
+              {coveredByUs === 0 ? "you had cancelled it" : cancelledByUs === 0 ? "you had covered it" : "you had cancelled or covered it"}
             </span>
           ) : null}
         </p>
@@ -325,7 +339,7 @@ function DayCard({ day, section }: { day: DiffDay; section: ChangedClasses }) {
                   key={`${meeting.startsAt}|${meeting.room}`}
                   meeting={meeting}
                   tone={group.tone}
-                  note={meeting.weCancelled ? "you had cancelled it" : undefined}
+                  note={oursSaid(meeting) || undefined}
                 />
               ))}
             </ul>
@@ -345,7 +359,7 @@ function Square({ day, section }: { day: DiffDay | null; section: ChangedClasses
   const meets = day.kept.length > 0;
   // Grey where the department cancelled it: a gap it already knew about, drawn so the
   // month still reads as a month, but not in the colour that means "look at this".
-  const ours = gone && day.removed.every((meeting) => meeting.weCancelled);
+  const ours = gone && day.removed.every(known);
   // A day can be two things at once — one class deleted, another put in its place. The
   // arrival takes the square, because it is the half a reader would otherwise never see,
   // and the loss keeps a ring around it rather than being argued down to nothing.
@@ -363,7 +377,7 @@ function Square({ day, section }: { day: DiffDay | null; section: ChangedClasses
   const also = arrived && gone ? " ring-2 ring-inset ring-[#e07c84]" : "";
   const said = [
     gone ? `${day.removed.length} class${day.removed.length === 1 ? "" : "es"} removed` : "",
-    ours ? "which you had cancelled" : "",
+    ours ? (day.removed.every((meeting) => meeting.weCancelled) ? "which you had cancelled" : "which you had cancelled or covered") : "",
     arrived ? `${day.added.length} added` : "",
     meets ? "still meets" : "",
   ].filter(Boolean);

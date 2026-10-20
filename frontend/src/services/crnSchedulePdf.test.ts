@@ -202,6 +202,17 @@ describe("what the registrar changed, where the export was asked to show it", ()
     ]);
   });
 
+  it("says on a removed class what the department had said of it", () => {
+    const noted: ScheduleSection = {
+      ...CHANGED,
+      notes: [{ meetsOn: "2026-09-16", startsAt: "07:00", kind: "covered", coverTeacherName: "Sara Khaled", note: "" }],
+    };
+    const [week] = scheduleWeeks({ semester: "", sections: [noted] });
+
+    const [gone] = week.classes.filter((entry) => entry.registrar === "removed");
+    expect([gone.state, gone.ours]).toEqual(["", "was covered by Sara Khaled"]);
+  });
+
   it("draws only what meets when the export was not asked", () => {
     const [week] = scheduleWeeks({ semester: "", sections: [CM] });
     expect(week.classes.every((entry) => entry.registrar === "")).toBe(true);

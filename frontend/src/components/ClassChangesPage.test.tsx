@@ -184,6 +184,17 @@ describe("one CRN's changes", () => {
     await waitFor(() => expect(approve).toHaveBeenCalledWith(MOVED.key, true));
   });
 
+  it("show a change we already knew of, with nothing to approve", async () => {
+    vi.spyOn(lists, "fetchChangedClasses").mockResolvedValue([
+      { ...MOVED, added: [], removed: [{ ...MOVED.removed[0], weCancelled: true }], news: false },
+    ]);
+    record("24007");
+
+    expect(await screen.findByText(/Nothing to approve/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Approve/ })).toBeNull();
+    expect(lists.fetchChangedClasses).toHaveBeenCalledWith("262710", { known: true });
+  });
+
   it("say so when the registrar has left the CRN alone", async () => {
     record("99999");
 

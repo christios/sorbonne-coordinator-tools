@@ -118,6 +118,8 @@ type Klass = {
   registrar: "" | "removed" | "added";
   /** Where a linked class went or came from — "to Thu 5 Nov 13:15" — else "". */
   moved: string;
+  /** What the department had said of a removed class — "you had cancelled it", "was covered by …" — else "". */
+  ours: string;
   cover: string;
   note: string;
   /** Its room's seats and its registered students, where known — a class too big for its room says so. */
@@ -234,8 +236,15 @@ function classesOf(input: SemesterExportInput): Klass[] {
       ...(section.removed ?? []).map((meeting) => ({ meeting, registrar: "removed" as const })),
     ];
     return drawn.map(({ meeting, registrar }) => {
-      // A class that no longer meets carries nothing the department noted on its hour.
-      const note = registrar === "removed" ? undefined : noteOn.get(`${meeting.meetsOn}|${meeting.startsAt.slice(0, 5)}`);
+      const said = noteOn.get(`${meeting.meetsOn}|${meeting.startsAt.slice(0, 5)}`);
+      // A class that no longer meets is not cancelled or covered on the page; what we had said of it is a line of its own.
+      const note = registrar === "removed" ? undefined : said;
+      const ours =
+        registrar !== "removed" || !said
+          ? ""
+          : said.kind === "cancelled"
+            ? "you had cancelled it"
+            : `was covered by ${said.coverTeacherName.trim() || "somebody else"}`;
       return {
         crn: section.crn,
         courseCode: section.courseCode,
@@ -248,6 +257,7 @@ function classesOf(input: SemesterExportInput): Klass[] {
         state: note?.kind ?? "",
         registrar,
         moved: movedOf(meeting),
+        ours,
         cover: note?.kind === "covered" ? note.coverTeacherName.trim() : "",
         note: note?.note.trim() ?? "",
         seats: input.roomSeats?.[meeting.room] ?? null,
@@ -673,6 +683,7 @@ function wordsOf(klass: Klass, fill: Rgb, hollow = false): Word[] {
     },
     // Where a moved class went, or came from: the half of the move this box cannot show.
     { text: klass.moved, bold: true, ink: white, wraps: true },
+    { text: klass.ours, ink: white, wraps: true },
     { text: `${klass.start}–${klass.end}`, ink: soft },
     { text: formatRoom(klass.room), ink: soft, icon: "pin" },
     { text: klass.teacher, ink: soft, icon: "person", wraps: true },
@@ -743,7 +754,8 @@ function linesFor(words: Word[], size: number, width: number): number {
  * hours, the room, the teacher.
  */
 function drawBox(doc: JsPdf, box: PageBox) {
-  const color = rgbOf(box.color);
+  // Grey for a removed class the department had already cancelled or had covered, as on screen.
+  const color: Rgb = box.klass.ours ? [152, 162, 179] : rgbOf(box.color);
   const cancelled = box.klass.state === "cancelled";
   const covered = box.klass.state === "covered";
   // Taken out by the registrar: hollow, with a faded dashed edge, as the calendar draws it.

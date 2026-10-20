@@ -6,6 +6,7 @@ import {
   moved,
   movedFromSaid,
   movedToSaid,
+  oursOnRemoved,
   DAY_NAMES,
   type CalendarCourse,
   type PlacedSession,
@@ -445,14 +446,17 @@ function Class({
   seats?: number | null;
   registered?: number | null;
 }) {
-  const color = course?.color ?? "#1f4e79";
   // A class the registrar took out is drawn hollow: on the week as a hole, not somewhere to be.
   const removed = session.registrar === "removed";
   const added = session.registrar === "added";
+  // One the department had already cancelled or had covered says so, in grey, as the months on Class changes do.
+  const ours = oursOnRemoved(session);
+  const color = ours ? "#98a2b3" : (course?.color ?? "#1f4e79");
   const outline = course?.tone === "outline" || removed;
   const label = course?.label || course?.code || session.crn;
-  const cancelled = session.change?.kind === "cancelled";
-  const covered = session.change?.kind === "covered" ? session.change : null;
+  // On a class that still meets, what the department said of it is drawn on it.
+  const cancelled = !removed && session.change?.kind === "cancelled";
+  const covered = !removed && session.change?.kind === "covered" ? session.change : null;
   // More registered than the room seats: the students standing at the back — of a class that still meets.
   const crowded = !removed && seats !== null && registered !== null && registered > seats;
   const details = [
@@ -471,6 +475,7 @@ function Class({
         covered ? `Planning: covered by ${covered.coverTeacherName}` : "",
         movedFromSaid(session) ? `Planning: ${movedFromSaid(session)}` : "",
         movedToSaid(session) ? `Planning: ${movedToSaid(session)}` : "",
+        ours ? `Planning: ${ours}` : "",
         removed ? "Portal: REMOVED by the registrar" : added ? "Portal: added by the registrar" : "",
         session.change?.note ?? "",
         session.clashes ? clash : "",
@@ -515,6 +520,8 @@ function Class({
         {added && !moved(session) ? <Plus size={9} strokeWidth={3} className="shrink-0" aria-label="Added" /> : null}
         {/* Never dropped: a box with no name on it says nothing at all. */}
         <b className={`min-w-0 shrink-0 truncate font-semibold ${cancelled || removed ? "line-through" : ""}`}>{label}</b>
+        {/* What the department had said of a removed class, short: the hover has the rest. */}
+        {ours ? <span className="shrink-0 text-[10px] italic">{session.change?.kind === "cancelled" ? "cancelled" : "covered"}</span> : null}
         {/* Never dropped either: a room too small is the thing to see at a glance. */}
         {crowded ? (
           <span className="shrink-0 rounded bg-[#a6292f] px-1 py-px text-[10px] font-semibold tabular-nums text-white">

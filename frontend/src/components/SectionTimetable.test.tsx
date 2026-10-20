@@ -374,6 +374,23 @@ describe("what the registrar changed, behind the Portal changes switch", () => {
     expect(said.filter((text) => text.includes("Planning: rescheduled from Tue 8 Sep, 09:00–11:00"))).toHaveLength(1);
   });
 
+  it("says on a removed class what the department had said of it, in grey", async () => {
+    vi.spyOn(notes, "fetchSessionChanges").mockResolvedValue([
+      {
+        id: "n1", termCode: "262710", crn: "23436", meetsOn: GONE.meetsOn, startsAt: GONE.startsAt, endsAt: GONE.endsAt,
+        kind: "cancelled", coverTeacherId: "", coverTeacherName: "", note: "", authorEmail: "", authorName: "", createdAt: "", updatedAt: "",
+      } as never,
+    ]);
+    record();
+
+    expect(await screen.findByText("you had cancelled it")).toBeTruthy();
+    const said = screen.getAllByLabelText(/CRN 23436/).map((box) => box.getAttribute("aria-label") ?? "");
+    expect(said.filter((text) => text.includes("09:00–11:00") && text.includes("Planning: you had cancelled it"))).toHaveLength(1);
+    // Still a removed class, not one cancelled on the week.
+    expect(screen.getByText("Removed")).toBeTruthy();
+    expect(screen.queryByText("Cancelled")).toBeNull();
+  });
+
   it("has nothing to note on a removed class: it no longer meets", async () => {
     record();
     await screen.findByText("Removed");

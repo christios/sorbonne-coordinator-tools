@@ -286,8 +286,8 @@ function Timetable({
   const [portalChanges, setPortalChanges] = usePortalChangesShown();
   const { changed } = useQueries({
     queries: byTerm.map(({ termCode }) => ({
-      queryKey: ["changed-classes", termCode],
-      queryFn: () => fetchChangedClasses(termCode),
+      queryKey: ["changed-classes", termCode, "known"],
+      queryFn: () => fetchChangedClasses(termCode, { known: true }),
       enabled: portalChanges,
       retry: false,
     })),
@@ -638,6 +638,8 @@ function assemble(
     for (const cls of changedIn.get(`${section.termCode}|${section.crn}`)?.removed ?? []) {
       if (!drawn(cls)) continue;
       const wentTo = movedTo.get(classKey(section.termCode, section.crn, cls));
+      // What the department had said of it — cancelled, or covered — said on its box.
+      const ours = said.get(slotKey({ termCode: section.termCode, crn: section.crn, meetsOn: cls.meetsOn, startsAt: cls.startsAt }));
       sessions.push({
         crn: section.crn,
         termCode: section.termCode,
@@ -646,6 +648,7 @@ function assemble(
         end: cls.endsAt.slice(0, 5),
         room: cls.room,
         registrar: "removed",
+        change: ours ? { kind: ours.kind, coverTeacherName: ours.coverTeacherName, note: ours.note } : undefined,
         rescheduledTo: wentTo
           ? { date: wentTo.meetsOn, start: wentTo.startsAt.slice(0, 5), end: wentTo.endsAt.slice(0, 5) }
           : undefined,

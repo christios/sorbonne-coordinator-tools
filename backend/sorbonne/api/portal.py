@@ -855,7 +855,9 @@ def read_facility_hours(
 
 @router.get("/facility-timetable/{term_code}/changed-classes")
 def read_changed_classes(
-    term_code: str, facilities: FacilityTimetableStore = Depends(get_facilities)
+    term_code: str,
+    known: bool = False,
+    facilities: FacilityTimetableStore = Depends(get_facilities),
 ) -> dict[str, Any]:
     """Sections the registrar has taken dated classes out of, or put new ones into.
 
@@ -863,8 +865,12 @@ def read_changed_classes(
     is already protected; a section still answered, with its classes quietly deleted from
     inside it, read as a section that never had them — and a class quietly added to one
     read as a class that had always been there.
+
+    `known` adds the sections whose only change is classes we had already cancelled or had
+    covered, marked `news: false` — for the calendars and the CRN record, which draw the
+    gap with what we said of it, not for the warning.
     """
-    return {"termCode": term_code, "sections": facilities.classes_changed(term_code)}
+    return {"termCode": term_code, "sections": facilities.classes_changed(term_code, with_known=known)}
 
 
 def get_class_notes() -> ClassChangeNotes:

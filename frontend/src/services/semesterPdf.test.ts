@@ -195,6 +195,15 @@ describe("what the registrar changed, in the semester's file", () => {
     expect(week.rows[1].boxes.map((box) => box.klass.registrar)).toEqual(["added"]);
   });
 
+  it("says on a removed class what the department had said of it", () => {
+    const noted = [
+      { ...changed[0], notes: [{ meetsOn: "2026-09-07", startsAt: "13:00", kind: "cancelled" as const, coverTeacherName: "", note: "" }] },
+    ];
+    const [week] = semesterUnits(input("days", noted));
+
+    expect(week.rows[0].boxes.map((box) => box.klass.ours).sort()).toEqual(["", "you had cancelled it"]);
+  });
+
   it("says where a linked class went and came from", () => {
     const linked = [
       {

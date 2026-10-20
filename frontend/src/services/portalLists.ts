@@ -815,11 +815,20 @@ export type ChangedClasses = {
   /**
    * The classes a sweep held and the next one did not, oldest first.
    *
-   * `weCancelled` marks one the department had already said would not happen: the
-   * registrar agreeing with us rather than news. It is still a gap in the month, so it
-   * is drawn, but it is not what the warning is about.
+   * `weCancelled` marks one the department had already said would not happen, and
+   * `weCovered` one somebody else stood in for (`coveredBy`): the registrar catching up
+   * with what we knew rather than news. It is still a gap in the month, so it is drawn,
+   * but it is not what the warning is about.
    */
-  removed: { meetsOn: string; startsAt: string; endsAt: string; room: string; weCancelled?: boolean }[];
+  removed: {
+    meetsOn: string;
+    startsAt: string;
+    endsAt: string;
+    room: string;
+    weCancelled?: boolean;
+    weCovered?: boolean;
+    coveredBy?: string;
+  }[];
   /**
    * The classes that were not there when we met the section and are there now.
    *
@@ -832,6 +841,8 @@ export type ChangedClasses = {
   kept: { meetsOn: string; startsAt: string; endsAt: string; room: string }[];
   /** When the sweep that changed them ran. */
   noticedAt: string;
+  /** False for a section whose only change we already knew of, asked for with `known`; nothing to approve. */
+  news?: boolean;
   /** Holds still while the same classes have changed, so an approval lasts exactly as long. */
   key: string;
 };
@@ -849,9 +860,14 @@ export async function fetchLastSweeps(): Promise<Record<string, LastSweep>> {
 }
 
 /** Sections this term whose classes the registrar has deleted or added. */
-export async function fetchChangedClasses(termCode: string): Promise<ChangedClasses[]> {
+/**
+ * The sections whose classes the registrar has changed. `known` adds those whose only change
+ * is classes we had already cancelled or had covered (`news: false`) — for a calendar,
+ * which draws the gap with what we said of it, never for the warning.
+ */
+export async function fetchChangedClasses(termCode: string, { known = false } = {}): Promise<ChangedClasses[]> {
   const answer = await request<{ sections: ChangedClasses[] }>(
-    `/facility-timetable/${encodeURIComponent(termCode)}/changed-classes`,
+    `/facility-timetable/${encodeURIComponent(termCode)}/changed-classes${known ? "?known=true" : ""}`,
   );
   return answer.sections;
 }

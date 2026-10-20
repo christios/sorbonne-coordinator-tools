@@ -340,8 +340,8 @@ function SemesterWeek({ layout, term, picker }: { layout: Layout; term: Timetabl
   });
   // What the registrar changed, for an export asked to show it; the dialog decides whether it does.
   const changed = useQuery({
-    queryKey: ["changed-classes", termCode],
-    queryFn: () => fetchChangedClasses(termCode),
+    queryKey: ["changed-classes", termCode, "known"],
+    queryFn: () => fetchChangedClasses(termCode, { known: true }),
     enabled: exporting && Boolean(termCode),
     retry: false,
   });

@@ -347,6 +347,16 @@ export function movedToSaid(session: Session): string {
   return to ? `rescheduled to ${slotSaid(to)}` : "";
 }
 
+/**
+ * What the department had said of a class the registrar removed: "you had cancelled it",
+ * "was covered by Sara Khaled". "" for a class that still meets, whose note says itself.
+ */
+export function oursOnRemoved(session: Session): string {
+  if (session.registrar !== "removed" || !session.change) return "";
+  if (session.change.kind === "cancelled") return "you had cancelled it";
+  return session.change.coverTeacherName ? `was covered by ${session.change.coverTeacherName}` : "was covered";
+}
+
 /** Whether a coordinator has linked this class to another as rescheduled, either way. */
 export function moved(session: Session): boolean {
   return Boolean(session.rescheduledFrom || session.rescheduledTo);

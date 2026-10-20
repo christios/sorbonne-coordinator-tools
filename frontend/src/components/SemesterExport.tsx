@@ -317,7 +317,7 @@ function PagePreview({ page, layout, paper }: { page: SemesterPage; layout: Seme
           height={box.h}
           rx={1.5}
           fill={box.klass.registrar === "removed" ? "white" : box.color}
-          stroke={box.klass.registrar === "removed" ? box.color : undefined}
+          stroke={box.klass.registrar === "removed" ? (box.klass.ours ? "#98a2b3" : box.color) : undefined}
           strokeDasharray={box.klass.registrar === "removed" ? "2.5 1.5" : undefined}
           opacity={box.klass.state === "cancelled" || box.klass.registrar === "removed" ? 0.5 : 1}
         />

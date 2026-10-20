@@ -220,4 +220,25 @@ describe("a class the department had already cancelled", () => {
     // In the legend, and beside the class in the list of what went.
     expect(screen.getAllByText("you had cancelled it").length).toBeGreaterThanOrEqual(2);
   });
+
+  it("counts a class somebody covered as known too, saying who covered it", async () => {
+    vi.spyOn(lists, "fetchChangedClasses").mockResolvedValue([
+      {
+        ...PHYSICS,
+        removed: [
+          { ...PHYSICS.removed[0], weCovered: true, coveredBy: "Sara Khaled" },
+          { ...PHYSICS.removed[1] },
+        ],
+      },
+    ]);
+    show();
+
+    expect(await screen.findByText(/2 h removed/)).toBeTruthy();
+
+    page();
+
+    expect(await screen.findByText(/1 class gone \(2 h\), 1 you had covered/)).toBeTruthy();
+    expect(screen.getByText("it was covered by Sara Khaled")).toBeTruthy();
+    expect(screen.getByText("you had covered it")).toBeTruthy();
+  });
 });

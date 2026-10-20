@@ -5,6 +5,7 @@ import {
   moved,
   movedFromSaid,
   movedToSaid,
+  oursOnRemoved,
   DAY_NAMES,
   formatDayAndMonth,
   formatLongDate,
@@ -292,16 +293,19 @@ function DayColumn({
         const boxHeight = stack
           ? Math.max(compact ? 8 : 14, span / lanes - 2)
           : Math.max(compact ? 12 : 22, span - 2);
-        const color = course?.color ?? "#1f4e79";
         // A class the registrar took out is drawn hollow, like one they are not registered
         // for: it is on the week as a hole, not as somewhere to be.
         const removed = session.registrar === "removed";
         const added = session.registrar === "added";
+        // One the department had already cancelled or had covered says so, in grey, as the months on Class changes do.
+        const ours = oursOnRemoved(session);
+        const color = ours ? "#98a2b3" : (course?.color ?? "#1f4e79");
         const unregistered = course?.tone === "outline";
         const outline = unregistered || removed;
         const label = course?.label || course?.code || session.crn;
-        const cancelled = session.change?.kind === "cancelled";
-        const covered = session.change?.kind === "covered" ? session.change : null;
+        // On a class that still meets, what the department said of it is drawn on it.
+        const cancelled = !removed && session.change?.kind === "cancelled";
+        const covered = !removed && session.change?.kind === "covered" ? session.change : null;
         /*
          * A cover is drawn, not annotated.
          *
@@ -338,6 +342,7 @@ function DayColumn({
               covered
                 ? `Planning: ${covered.standingIn ? `covering for ${covered.coverTeacherName}` : `covered by ${covered.coverTeacherName}`}`
                 : "",
+              ours ? `Planning: ${ours}` : "",
               session.change?.note ?? "",
               unregistered ? "in their group, not registered" : "",
               removed ? "Portal: REMOVED by the registrar" : added ? "Portal: added by the registrar" : "",
@@ -439,6 +444,7 @@ function DayColumn({
                     {session.start}–{session.end}
                   </span>
                 ) : null}
+                {ours && lines >= 2 ? <span className="block truncate text-[10px] italic">{ours}</span> : null}
                 {lines >= 3 && session.room ? (
                   <span className="mt-0.5 flex items-center gap-1 truncate opacity-85">
                     <MapPin size={9} className="shrink-0" aria-hidden="true" />

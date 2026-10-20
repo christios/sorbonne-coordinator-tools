@@ -16,7 +16,16 @@
  * Pure. The dates come from the registrar and the grid is the part that has to be right.
  */
 
-export type Meeting = { meetsOn: string; startsAt: string; endsAt: string; room: string; weCancelled?: boolean };
+export type Meeting = {
+  meetsOn: string;
+  startsAt: string;
+  endsAt: string;
+  room: string;
+  weCancelled?: boolean;
+  /** Covered by somebody else, as a coordinator recorded it — and by whom. */
+  weCovered?: boolean;
+  coveredBy?: string;
+};
 
 /**
  * The changes nobody has approved yet, which is what the banner counts.
@@ -83,9 +92,21 @@ export function minutesOf(meeting: Meeting): number {
   return Math.max(0, end - start);
 }
 
-/** The ones that are news: what the department had not already cancelled itself. */
+/** Whether the department had already said this class would not happen as planned: cancelled, or covered. */
+export function known(meeting: Meeting): boolean {
+  return Boolean(meeting.weCancelled || meeting.weCovered);
+}
+
+/** The ones that are news: what the department had not already cancelled or had covered itself. */
 export function unexpected(meetings: Meeting[]): Meeting[] {
-  return meetings.filter((meeting) => !meeting.weCancelled);
+  return meetings.filter((meeting) => !known(meeting));
+}
+
+/** What the department had said of a removed class: "you had cancelled it", "it was covered by Sara Khaled", or "". */
+export function oursSaid(meeting: Meeting): string {
+  if (meeting.weCancelled) return "you had cancelled it";
+  if (meeting.weCovered) return meeting.coveredBy ? `it was covered by ${meeting.coveredBy}` : "it was covered";
+  return "";
 }
 
 /** Hours in a set of classes, to the quarter — the unit a time sheet is read in. */
