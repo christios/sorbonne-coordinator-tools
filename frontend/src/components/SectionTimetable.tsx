@@ -9,9 +9,11 @@ import { WeekCalendar } from "@/components/WeekCalendar";
 import { WeekTimeline } from "@/components/WeekTimeline";
 import {
   classKey,
+  fetchChangedClasses,
   fetchClassNotes,
   fetchFacilitySections,
   fetchTermLinks,
+  type ChangedClasses,
   type ClassLink,
   type FacilitySection,
 } from "@/services/portalLists";
@@ -147,6 +149,13 @@ type TimetableProps = {
    */
   weekOne?: TeachingCalendar | string;
   /**
+   * Show what the registrar changed since each section was first seen: a class it took
+   * out stays on its old day, faded and struck through, and a class it put in is marked
+   * Added. For a CRN's and a course's own record, where a section is checked; everywhere
+   * else the week is what meets.
+   */
+  registrarChanges?: boolean;
+  /**
    * A name to keep the week being looked at under, for this browser tab. Coming back to
    * the page lands on the week you left rather than on this one; a new tab starts on this.
    */
@@ -195,6 +204,7 @@ function Timetable({
   keepWeekAs,
   sessionFilter,
   registeredOf,
+  registrarChanges = false,
   onExpand,
 }: TimetableProps & { onExpand?: () => void }) {
   const today = isoToday();
@@ -271,9 +281,24 @@ function Timetable({
     combine: (reads) => ({ moves: reads.flatMap((read) => read.data?.links ?? []) }),
   });
 
+  // What the registrar changed in each section, where the record asked to be shown it.
+  const { changed } = useQueries({
+    queries: byTerm.map(({ termCode }) => ({
+      queryKey: ["changed-classes", termCode],
+      queryFn: () => fetchChangedClasses(termCode),
+      enabled: registrarChanges,
+      retry: false,
+    })),
+    combine: (reads) => ({
+      changed: reads.flatMap((read, index) =>
+        (read.data ?? []).map((section) => ({ ...section, termCode: byTerm[index]?.termCode ?? "" })),
+      ),
+    }),
+  });
+
   const { sessions, courses, unasked, gone, unbooked, unlinked } = useMemo(
-    () => assemble(entries, sections, notes, onPickSession ? () => true : openable, sessionFilter, moves),
-    [entries, sections, notes, openable, onPickSession, sessionFilter, moves],
+    () => assemble(entries, sections, notes, onPickSession ? () => true : openable, sessionFilter, moves, changed),
+    [entries, sections, notes, openable, onPickSession, sessionFilter, moves, changed],
   );
 
   const [weekStart, setWeekStart] = useState<Date | null>(null);
@@ -479,6 +504,11 @@ function Timetable({
             <p className={`mt-1 text-[#98a2b3] ${small}`}>Dashed: in a group of theirs and not registered for it, or registered for a course they are exempt from.</p>
           ) : null}
           {/* Only where there is one to read. A key to a mark nobody can see is clutter. */}
+          {!fills && sessions.some((session) => session.registrar) ? (
+            <p className={`mt-1 text-[#98a2b3] ${small}`}>
+              Faded and struck through: a class the registrar removed. Added: one it put in since the section was first seen.
+            </p>
+          ) : null}
           {!fills && sessions.some((session) => session.change?.kind === "covered") ? (
             <p className={`mt-1 text-[#98a2b3] ${small}`}>Striped: somebody other than the usual teacher was in the room.</p>
           ) : null}
@@ -517,10 +547,16 @@ function assemble(
   openable?: (crn: string) => boolean,
   sessionFilter?: TimetableProps["sessionFilter"],
   moves: ClassLink[] = [],
+  changed: (ChangedClasses & { termCode: string })[] = [],
 ): Assembled {
   const said = new Map(notes.map((note) => [slotKey(note), note]));
   // An arrived class a coordinator linked to the one it replaced says where it came from.
   const movedFrom = new Map(moves.map((link) => [classKey(link.termCode, link.crn, link.to), link.from]));
+  // The registrar's own changes, by section: what it put in, and what it took out.
+  const changedIn = new Map(changed.map((section) => [`${section.termCode}|${section.crn}`, section]));
+  const added = new Set(
+    changed.flatMap((section) => section.added.map((cls) => classKey(section.termCode, section.crn, cls))),
+  );
   const wanted = new Map<string, TimetableEntry>();
   for (const entry of entries) if (entry.crn) wanted.set(`${entry.termCode}|${entry.crn}`, entry);
   const colors = assignColors([...wanted.values()].map(keyOf));
@@ -553,10 +589,11 @@ function assemble(
     else if (section.state === "gone") gone.push(section.crn);
     // Never booked — asked, and never a class under it — is the same fact as no classes.
     else if (section.meetings.length === 0) unbooked.push(section.crn);
-    for (const meeting of section.meetings) {
+    /** Whether a class of this section is one the caller wants drawn. */
+    const drawn = (meeting: { meetsOn: string; startsAt: string; endsAt: string; room: string }) =>
       // A section the caller asked for by date is drawn on those days and no others.
-      if (entry.onlyOn && !entry.onlyOn.includes(meeting.meetsOn)) continue;
-      if (
+      !(entry.onlyOn && !entry.onlyOn.includes(meeting.meetsOn)) &&
+      !(
         sessionFilter &&
         !sessionFilter({
           crn: section.crn,
@@ -565,9 +602,22 @@ function assemble(
           end: meeting.endsAt.slice(0, 5),
           room: meeting.room,
         })
-      ) {
-        continue;
-      }
+      );
+    // The classes the registrar took out, on their old days, beside whatever replaced them.
+    for (const cls of changedIn.get(`${section.termCode}|${section.crn}`)?.removed ?? []) {
+      if (!drawn(cls)) continue;
+      sessions.push({
+        crn: section.crn,
+        termCode: section.termCode,
+        date: cls.meetsOn,
+        start: cls.startsAt.slice(0, 5),
+        end: cls.endsAt.slice(0, 5),
+        room: cls.room,
+        registrar: "removed",
+      });
+    }
+    for (const meeting of section.meetings) {
+      if (!drawn(meeting)) continue;
       const note = said.get(slotKey({ termCode: section.termCode, crn: section.crn, meetsOn: meeting.meetsOn, startsAt: meeting.startsAt }));
       const cameFrom = movedFrom.get(classKey(section.termCode, section.crn, meeting));
       sessions.push({
@@ -580,6 +630,7 @@ function assemble(
         rescheduledFrom: cameFrom
           ? { date: cameFrom.meetsOn, start: cameFrom.startsAt.slice(0, 5), end: cameFrom.endsAt.slice(0, 5) }
           : undefined,
+        registrar: added.has(classKey(section.termCode, section.crn, meeting)) ? "added" : undefined,
         /*
          * On a stand-in's week the same note reads the other way round: the box says whose
          * class it was, not who took it, since who took it is the person reading.

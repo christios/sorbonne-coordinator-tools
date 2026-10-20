@@ -58,15 +58,50 @@ function slotSaid(cls: ClassSlot): string {
   return `${dayOf(cls.meetsOn)}, ${cls.startsAt.slice(0, 5)}–${cls.endsAt.slice(0, 5)}`;
 }
 
-export function ClassChangesPage() {
+/** Every section of a term laid against the same months, so a gap reads as a gap. */
+function spanOf(sections: ChangedClasses[]): { from: string; to: string } | undefined {
+  const dates = sections
+    .flatMap((section) => [...section.kept, ...section.removed, ...section.added].map((meeting) => meeting.meetsOn))
+    .sort();
+  return dates.length ? { from: dates[0], to: dates[dates.length - 1] } : undefined;
+}
+
+/** Who approved which change, and the press that approves one. */
+function useApprovals() {
   const client = useQueryClient();
+  const dismissals = useQuery({ queryKey: ["warning-dismissals"], queryFn: fetchDismissals, retry: false });
+  const approvals = useMemo(() => dismissalsByKey(dismissals.data ?? []), [dismissals.data]);
+  const approve = useMutation({
+    mutationFn: (key: string) => setDismissal(key, true),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ["warning-dismissals"] }),
+  });
+  return { approvals, approve };
+}
+
+export function ClassChangesPage({ place = "", onLeavePlace }: { place?: string; onLeavePlace?: () => void }) {
+  // Opened from a CRN's record, at "<term>:<crn>": its term, and that CRN alone, approved or not.
+  const [placeTerm, placeCrn] = place.includes(":") ? place.split(":") : ["", ""];
   const swept = useQuery({ queryKey: ["swept-terms"], queryFn: fetchSweptTerms, retry: false });
   const links = useQuery({ queryKey: ["term-links"], queryFn: fetchTermLinks, retry: false });
   const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, retry: false });
-  const [picked, setPicked] = useState("");
+  const [picked, setPicked] = useState(placeTerm);
   const termCode = picked || swept.data?.[0] || "";
-  const [show, setShow] = useState<Show>("waiting");
-  const [search, setSearch] = useState("");
+  const [show, setShow] = useState<Show>(placeCrn ? "all" : "waiting");
+  const [search, setSearch] = useState(placeCrn);
+  // Another CRN's record linking here while the page is open shows that CRN instead.
+  const [shownPlace, setShownPlace] = useState(place);
+  if (place !== shownPlace) {
+    setShownPlace(place);
+    if (placeCrn) {
+      setPicked(placeTerm);
+      setShow("all");
+      setSearch(placeCrn);
+    }
+  }
+  // Looking at anything else forgets the CRN, so the sidebar's Class changes is the whole page again.
+  const leave = () => {
+    if (place) onLeavePlace?.();
+  };
 
   const changed = useQuery({
     queryKey: ["changed-classes", termCode],
@@ -80,12 +115,7 @@ export function ClassChangesPage() {
     enabled: Boolean(termCode),
     retry: false,
   });
-  const dismissals = useQuery({ queryKey: ["warning-dismissals"], queryFn: fetchDismissals, retry: false });
-  const approvals = useMemo(() => dismissalsByKey(dismissals.data ?? []), [dismissals.data]);
-  const approve = useMutation({
-    mutationFn: (key: string) => setDismissal(key, true),
-    onSuccess: () => void client.invalidateQueries({ queryKey: ["warning-dismissals"] }),
-  });
+  const { approvals, approve } = useApprovals();
 
   /** A semester's name, where the portal term is linked to one. */
   const termName = (code: string) => {
@@ -105,13 +135,7 @@ export function ClassChangesPage() {
         (field || "").toLowerCase().includes(words),
       ),
   );
-  // Every section is laid against the same months, so a gap reads as a gap.
-  const span = useMemo(() => {
-    const dates = sections
-      .flatMap((section) => [...section.kept, ...section.removed, ...section.added].map((meeting) => meeting.meetsOn))
-      .sort();
-    return dates.length ? { from: dates[0], to: dates[dates.length - 1] } : undefined;
-  }, [sections]);
+  const span = useMemo(() => spanOf(sections), [sections]);
   const linksOf = (crn: string) => (notes.data?.links ?? []).filter((link) => link.crn === crn && link.matches);
   const notesOf = (crn: string) => (notes.data?.notes ?? []).filter((note) => note.crn === crn && note.matches);
   const stale = [
@@ -121,7 +145,10 @@ export function ClassChangesPage() {
   const tab = (value: Show, label: string, count: number) => (
     <button
       type="button"
-      onClick={() => setShow(value)}
+      onClick={() => {
+        leave();
+        setShow(value);
+      }}
       aria-pressed={show === value}
       className={`rounded-md px-3 py-1.5 text-sm font-semibold ${
         show === value ? "bg-[#1f4e79] text-white" : "text-[#344054] hover:bg-[#f2f7fb]"
@@ -138,7 +165,10 @@ export function ClassChangesPage() {
           <SelectMenu
             label="Semester"
             value={termCode}
-            onChange={setPicked}
+            onChange={(code) => {
+              leave();
+              setPicked(code);
+            }}
             options={(swept.data ?? []).map((code) => ({ value: code, label: termName(code) }))}
             placeholder={swept.isPending ? "Reading…" : "No semester swept yet"}
           />
@@ -152,7 +182,10 @@ export function ClassChangesPage() {
           <Search size={15} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#98a2b3]" aria-hidden="true" />
           <input
             value={search}
-            onChange={(event) => setSearch(event.target.value)}
+            onChange={(event) => {
+              leave();
+              setSearch(event.target.value);
+            }}
             placeholder="Course, CRN or teacher"
             aria-label="Find a section"
             className="h-9 w-64 rounded-md border border-[#d0d5dd] pl-8 pr-3 text-sm"
@@ -191,6 +224,64 @@ export function ClassChangesPage() {
 
       {stale.length ? <NoLongerMatching termCode={termCode} items={stale} /> : null}
     </div>
+  );
+}
+
+/**
+ * One CRN's changes on the portal, for its record: the same months, lists, links, notes
+ * and approval as on the page, so a change can be read and dealt with where the CRN is
+ * being looked at — including one approved long ago, which the banner no longer mentions.
+ */
+export function PortalChanges({ termCode, crn }: { termCode: string; crn: string }) {
+  const changed = useQuery({
+    queryKey: ["changed-classes", termCode],
+    queryFn: () => fetchChangedClasses(termCode),
+    enabled: Boolean(termCode),
+    retry: false,
+  });
+  const notes = useQuery({
+    queryKey: ["class-notes", termCode],
+    queryFn: () => fetchClassNotes(termCode),
+    enabled: Boolean(termCode),
+    retry: false,
+  });
+  const { approvals, approve } = useApprovals();
+  const sections = useMemo(() => changed.data ?? [], [changed.data]);
+  const span = useMemo(() => spanOf(sections), [sections]);
+  const section = sections.find((one) => one.crn === crn);
+
+  if (!termCode) return <p className="text-sm text-[#667085]">No portal term, so the portal has not been asked.</p>;
+  if (changed.isPending) return <p className="text-sm text-[#667085]">Reading the changes…</p>;
+  if (changed.error) {
+    return (
+      <p role="alert" className="text-sm text-[#a6292f]">
+        {(changed.error as Error).message}
+      </p>
+    );
+  }
+  if (!section) {
+    return (
+      <p className="text-sm text-[#667085]">
+        Nothing changed. Every class is where the portal had it when this CRN was first seen.
+      </p>
+    );
+  }
+  return (
+    <SectionDiff
+      plain
+      section={section}
+      span={span}
+      approval={approvals.get(section.key)}
+      onApprove={() => approve.mutate(section.key)}
+      approving={approve.isPending}
+    >
+      <ChangeLists
+        termCode={termCode}
+        section={section}
+        links={(notes.data?.links ?? []).filter((link) => link.crn === crn && link.matches)}
+        notes={(notes.data?.notes ?? []).filter((note) => note.crn === crn && note.matches)}
+      />
+    </SectionDiff>
   );
 }
 

@@ -482,7 +482,7 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: (section:
             <SemesterTimetable layout={page === "rooms" ? "rooms" : "days"} termId={detail} onPickTerm={openDetail} />
           ) : null}
           {page === "announcements" && status.data?.configured ? <AnnouncementEditor /> : null}
-          {page === "class-changes" ? <ClassChangesPage /> : null}
+          {page === "class-changes" ? <ClassChangesPage place={detail} onLeavePlace={() => openDetail("")} /> : null}
         </div>
       </div>
     </div>

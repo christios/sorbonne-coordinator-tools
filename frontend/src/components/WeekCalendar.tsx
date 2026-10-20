@@ -1,4 +1,4 @@
-import { MapPin, Repeat, User } from "lucide-react";
+import { MapPin, Plus, Repeat, User } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import {
@@ -291,7 +291,12 @@ function DayColumn({
           ? Math.max(compact ? 8 : 14, span / lanes - 2)
           : Math.max(compact ? 12 : 22, span - 2);
         const color = course?.color ?? "#1f4e79";
-        const outline = course?.tone === "outline";
+        // A class the registrar took out is drawn hollow, like one they are not registered
+        // for: it is on the week as a hole, not as somewhere to be.
+        const removed = session.registrar === "removed";
+        const added = session.registrar === "added";
+        const unregistered = course?.tone === "outline";
+        const outline = unregistered || removed;
         const label = course?.label || course?.code || session.crn;
         const cancelled = session.change?.kind === "cancelled";
         const covered = session.change?.kind === "covered" ? session.change : null;
@@ -328,13 +333,15 @@ function DayColumn({
               movedFromSaid(session),
               covered ? (covered.standingIn ? `covering for ${covered.coverTeacherName}` : `covered by ${covered.coverTeacherName}`) : "",
               session.change?.note ?? "",
-              outline ? "in their group, not registered" : "",
+              unregistered ? "in their group, not registered" : "",
+              removed ? "REMOVED by the registrar" : added ? "added by the registrar" : "",
               session.clashes ? "overlaps another class" : "",
             ].filter(Boolean),
           ),
         ].join(" · ");
         const widthPercent = 100 / lanes;
-        const opens = Boolean(onPick && course?.openable);
+        // Nothing to open or note on a class that no longer meets.
+        const opens = Boolean(onPick && course?.openable) && !removed;
         const Box = opens ? "button" : "article";
 
         /*
@@ -354,7 +361,7 @@ function DayColumn({
             aria-label={opens ? `Open CRN ${session.crn}: ${details}` : details}
             className={`absolute flex flex-col overflow-hidden rounded-md text-left leading-tight ${
               compact ? "px-1 py-px text-[8.5px]" : "px-1.5 py-1 text-[11px]"
-            } ${outline ? "border-2 border-dashed bg-white" : "text-white"} ${cancelled ? "opacity-55" : ""} ${
+            } ${outline ? "border-2 border-dashed bg-white" : "text-white"} ${cancelled || removed ? "opacity-55" : ""} ${
               session.clashes ? "outline-2 -outline-offset-2 outline-[#d9a441]" : ""
             } ${covered && !outline ? "ring-2 ring-inset ring-white/70" : ""} ${opens ? "cursor-pointer hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#1f4e79]" : ""}`}
             style={{
@@ -369,16 +376,19 @@ function DayColumn({
             }}
           >
             {compact ? (
-              <b className={`flex items-center gap-0.5 font-semibold ${cancelled ? "line-through" : ""}`}>
+              <b className={`flex items-center gap-0.5 font-semibold ${cancelled || removed ? "line-through" : ""}`}>
                 {covered ? <Repeat size={8} className="shrink-0" aria-hidden="true" /> : null}
+                {added ? <Plus size={8} strokeWidth={3} className="shrink-0" aria-hidden="true" /> : null}
                 <span className="truncate">{label}</span>
               </b>
             ) : (
               <>
                 <b className="flex items-baseline justify-between gap-1 font-semibold">
-                  <span className={`truncate ${cancelled ? "line-through" : ""}`}>{label}</span>
+                  <span className={`truncate ${cancelled || removed ? "line-through" : ""}`}>{label}</span>
                   {cancelled ? (
                     <span className="shrink-0 rounded bg-white/25 px-1 text-[9px] font-bold uppercase tracking-wide">Cancelled</span>
+                  ) : removed ? (
+                    <span className="shrink-0 rounded bg-current/15 px-1 text-[9px] font-bold uppercase tracking-wide">Removed</span>
                   ) : session.rescheduledFrom ? (
                     // Moved here from another day, as a coordinator linked it on Class changes.
                     <span
@@ -396,6 +406,15 @@ function DayColumn({
                       }`}
                     >
                       {covered.standingIn ? "Standing in" : "Covered"}
+                    </span>
+                  ) : added ? (
+                    // Put in by the registrar after the section was first seen; not linked to one that went.
+                    <span
+                      className={`shrink-0 rounded px-1 text-[9px] font-bold uppercase tracking-wide ${
+                        outline ? "bg-current/15" : "bg-white/30"
+                      }`}
+                    >
+                      Added
                     </span>
                   ) : lines === 1 ? (
                     <span className="shrink-0 text-[10px] font-normal tabular-nums opacity-85">{session.start}</span>

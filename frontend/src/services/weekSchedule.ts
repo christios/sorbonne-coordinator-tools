@@ -41,6 +41,12 @@ export type Session = {
   change?: SessionNote;
   /** The class a coordinator said this one was rescheduled from, on the Class changes page. */
   rescheduledFrom?: { date: string; start: string; end: string };
+  /**
+   * What the registrar did to it since the section was first seen: put it in, or took it
+   * out. A removed class is drawn only where a record asks for the changes, and never
+   * meets — it is the hole, kept on the week so the arrival beside it reads as a change.
+   */
+  registrar?: "added" | "removed";
 };
 
 export type PlacedSession = Session & {
@@ -129,9 +135,13 @@ function overlaps(a: Session, b: Session): boolean {
 /** Sort by day and time, and mark every session that runs into another one. */
 export function placeSessions(sessions: Session[]): PlacedSession[] {
   const ordered = [...sessions].sort((a, b) => a.date.localeCompare(b.date) || minutesOf(a.start) - minutesOf(b.start));
+  // A class the registrar took out no longer meets, so it clashes with nothing.
+  const meets = (session: Session) => session.registrar !== "removed";
   return ordered.map((session, index) => ({
     ...session,
-    clashes: ordered.some((other, otherIndex) => otherIndex !== index && overlaps(session, other)),
+    clashes:
+      meets(session) &&
+      ordered.some((other, otherIndex) => otherIndex !== index && meets(other) && overlaps(session, other)),
   }));
 }
 

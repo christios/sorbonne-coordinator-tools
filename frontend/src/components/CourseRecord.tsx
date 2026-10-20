@@ -229,6 +229,7 @@ export function CourseRecord({
           <SectionTimetable
             entries={timetable}
             compact
+            registrarChanges
             title={`${code} — timetable`}
             openable={(crn) => held.some((row) => row.crn === crn)}
             onOpenCrn={(crn) => setShowingCrn(held.find((row) => row.crn === crn) ?? null)}

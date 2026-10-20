@@ -2,12 +2,14 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
 
 import { CrnDialog } from "@/components/ActiveCourses";
+import { PortalChanges } from "@/components/ClassChangesPage";
 import { InfoTip } from "@/components/InfoTip";
 import { Modal } from "@/components/Modal";
 import { SectionTimetable } from "@/components/SectionTimetable";
 import { SessionChangeDialog } from "@/components/SessionChangeDialog";
 import { SessionChangeList } from "@/components/SessionChangeList";
 import { TimetablesButton } from "@/components/TimetablesButton";
+import { locationFor } from "@/routes/toolRoute";
 import { fetchSessionChanges, noteOn, slotKey } from "@/services/sessionChanges";
 import { useRooms } from "@/services/rooms";
 import { formatRoom } from "@/services/weekSchedule";
@@ -305,6 +307,7 @@ export function CrnRecord({
               <div className="mt-3">
                 <SectionTimetable
                   compact
+                  registrarChanges
                   title={`CRN ${row.crn} — timetable`}
                   onPickSession={setNoting}
                   entries={[
@@ -357,6 +360,28 @@ export function CrnRecord({
             />
           </Card>
         </div>
+        {/*
+          * What the registrar changed, as against what the portal had when the CRN was first
+          * seen — not the same thing as the card above, which is what the department noted.
+          * Approved changes stay here, saying who approved them; the banner forgets them.
+          */}
+        <Card
+          className="lg:col-span-2"
+          title="What changed on Portal"
+          note="Classes the registrar removed or added since this CRN was first seen. Link a removed class to the one it was rescheduled into, note either, and approve the change."
+          action={
+            row.termCode ? (
+              <a
+                href={`#${locationFor("database", "class-changes", `${row.termCode}:${row.crn}`)}`}
+                className="shrink-0 text-xs font-semibold text-[#1f4e79] hover:underline"
+              >
+                Open in Class changes
+              </a>
+            ) : null
+          }
+        >
+          <PortalChanges termCode={row.termCode} crn={row.crn} />
+        </Card>
         <Card
           className="lg:col-span-2"
           title={`Registered in it${inIt.data ? ` · ${inIt.data.length}` : ""}`}

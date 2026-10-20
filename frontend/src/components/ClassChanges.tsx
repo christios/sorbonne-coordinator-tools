@@ -119,6 +119,7 @@ export function SectionDiff({
   onApprove,
   approving = false,
   approval,
+  plain = false,
   children,
 }: {
   section: ChangedClasses;
@@ -128,6 +129,11 @@ export function SectionDiff({
   approving?: boolean;
   /** Who approved this change, and when — said in place of the button. */
   approval?: Dismissal;
+  /**
+   * Inside a card of its own — the CRN record's — which already has the border and says
+   * which section it is: drawn without either.
+   */
+  plain?: boolean;
   children?: ReactNode;
 }) {
   const months = useMemo(
@@ -157,14 +163,20 @@ export function SectionDiff({
      * side by side, so neither has to be scrolled away to use the other. On a narrow
      * screen the right-hand half comes first, since it says what the months are of.
      */
-    <section className="grid gap-5 rounded-lg border border-[#d9dee7] bg-white p-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
+    <section
+      className={`grid gap-5 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] ${
+        plain ? "" : "rounded-lg border border-[#d9dee7] bg-white p-4"
+      }`}
+    >
       <div className="min-w-0 lg:order-2">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
-            <h4 className="text-base font-semibold text-[#344054]">
-              {section.courseCode || section.crn} · CRN {section.crn}
-            </h4>
-            <p className="mt-0.5 text-sm text-[#667085]">
+            {plain ? null : (
+              <h4 className="text-base font-semibold text-[#344054]">
+                {section.courseCode || section.crn} · CRN {section.crn}
+              </h4>
+            )}
+            <p className={`text-sm text-[#667085] ${plain ? "" : "mt-0.5"}`}>
               {section.teacherName || "Nobody named"} · {said.join(", ")}
             </p>
           </div>

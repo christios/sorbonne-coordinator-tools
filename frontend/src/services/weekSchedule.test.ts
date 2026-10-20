@@ -70,6 +70,14 @@ describe("marking clashes and colours", () => {
     expect(placed.map((session) => [session.crn, session.clashes])).toEqual([["a", true], ["b", true], ["c", false]]);
   });
 
+  it("never marks a class the registrar removed, nor the one that took its hour", () => {
+    const placed = placeSessions([
+      { ...at("a", "d", "09:00", "11:00"), registrar: "removed" },
+      { ...at("a", "d", "08:15", "10:15"), registrar: "added" },
+    ]);
+    expect(placed.map((session) => session.clashes)).toEqual([false, false]);
+  });
+
   it("gives the same keys the same colours, whatever else is around them", () => {
     expect(assignColors(["MATH-001", "PHYS-101", "MATH-001"]).get("PHYS-101")).toBe(assignColors(["MATH-001", "PHYS-101"]).get("PHYS-101"));
     expect(assignColors(["MATH-001", "PHYS-101"]).size).toBe(2);

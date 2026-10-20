@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ClassChangesPage } from "@/components/ClassChangesPage";
+import { ClassChangesPage, PortalChanges } from "@/components/ClassChangesPage";
 import * as lists from "@/services/portalLists";
 import * as timetables from "@/services/timetables";
 import * as dismissals from "@/services/warningDismissals";
@@ -25,11 +25,11 @@ const OTHER: lists.ChangedClasses = { ...MOVED, crn: "23638", courseCode: "PHYS-
 const TUESDAY = { meetsOn: "2026-11-03", startsAt: "08:30", endsAt: "10:00" };
 const THURSDAY = { meetsOn: "2026-11-05", startsAt: "13:15", endsAt: "14:45" };
 
-function page() {
+function page(props: { place?: string; onLeavePlace?: () => void } = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
-      <ClassChangesPage />
+      <ClassChangesPage {...props} />
     </QueryClientProvider>,
   );
 }
@@ -150,5 +150,56 @@ describe("the Class changes page", () => {
 
     expect(await screen.findByText("No longer matching the timetable")).toBeTruthy();
     expect(screen.getByText(/CRN 24007: Tue 27 Oct, 08:30–10:00 → Thu 5 Nov, 13:15–14:45 · Old move/)).toBeTruthy();
+  });
+});
+
+describe("one CRN's changes", () => {
+  function record(crn: string) {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <PortalChanges termCode="262710" crn={crn} />
+      </QueryClientProvider>,
+    );
+  }
+
+  it("are on its record, approved ones included, with who approved them", async () => {
+    record("23638");
+
+    expect(await screen.findByText(/Approved by Patricia, 20 Oct/)).toBeTruthy();
+    expect(screen.getByText("Went (1)")).toBeTruthy();
+    expect(screen.getByText("Arrived (1)")).toBeTruthy();
+    // The record already says which CRN it is.
+    expect(screen.queryByText(/PHYS-125 · CRN 23638/)).toBeNull();
+  });
+
+  it("can be approved from the record", async () => {
+    const approve = vi.spyOn(dismissals, "setDismissal").mockResolvedValue(null);
+    record("24007");
+
+    fireEvent.click(await screen.findByRole("button", { name: /Approve/ }));
+
+    await waitFor(() => expect(approve).toHaveBeenCalledWith(MOVED.key, true));
+  });
+
+  it("say so when the registrar has left the CRN alone", async () => {
+    record("99999");
+
+    expect(await screen.findByText(/Nothing changed/)).toBeTruthy();
+  });
+
+  it("open on the page at that CRN, approved or not, until somebody looks at anything else", async () => {
+    const leave = vi.fn();
+    page({ place: "262710:23638", onLeavePlace: leave });
+
+    expect(await screen.findByText(/PHYS-125 · CRN 23638/)).toBeTruthy();
+    expect(screen.queryByText(/SCEN-102 · CRN 24007/)).toBeNull();
+    expect((screen.getByLabelText("Find a section") as HTMLInputElement).value).toBe("23638");
+    expect(leave).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByLabelText("Find a section"), { target: { value: "" } });
+
+    expect(leave).toHaveBeenCalled();
+    expect(await screen.findByText(/SCEN-102 · CRN 24007/)).toBeTruthy();
   });
 });
