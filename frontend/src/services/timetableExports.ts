@@ -19,6 +19,7 @@ import {
   fetchActiveCourses,
   fetchActiveCrns,
   fetchChangedClasses,
+  fetchClassNotes,
   fetchFacilitySections,
   fetchRegistrations,
   fetchTermLinks,
@@ -45,6 +46,9 @@ export function scheduleReads(client: QueryClient, choice: ExportChoice = { port
     changes: choice.portalChanges
       ? (termCode) => client.fetchQuery({ queryKey: ["changed-classes", termCode], queryFn: () => fetchChangedClasses(termCode) })
       : undefined,
+    // A moved class says where it came from on every timetable, the switch or not, as on screen.
+    moves: async (termCode) =>
+      (await client.fetchQuery({ queryKey: ["class-notes", termCode], queryFn: () => fetchClassNotes(termCode) })).links,
     sections: (termCode, crns) => fetchFacilitySections(termCode, crns),
     notes: (termCode) => client.fetchQuery({ queryKey: ["session-changes", termCode], queryFn: () => fetchSessionChanges(termCode) }),
     links: () => client.fetchQuery({ queryKey: ["term-links"], queryFn: fetchTermLinks }),

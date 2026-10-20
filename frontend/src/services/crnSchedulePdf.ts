@@ -18,6 +18,8 @@ import type { jsPDF as JsPdf } from "jspdf";
 import { COURSE_COLORS, MONTH_NAMES, formatRoom, minutesOf, mondayOf, parseIsoDate, toIsoDate, weekNumber, type TeachingCalendar } from "@/services/weekSchedule";
 
 export type ScheduleMeeting = { meetsOn: string; startsAt: string; endsAt: string; room: string };
+/** A class by its slot alone: its day, and when it starts and ends. */
+export type ScheduleSlot = { meetsOn: string; startsAt: string; endsAt: string };
 export type ScheduleNote = { meetsOn: string; startsAt: string; kind: "cancelled" | "covered"; coverTeacherName: string; note: string };
 
 /** One CRN: what it is, who teaches it, and every meeting the portal has for it. */
@@ -42,6 +44,8 @@ export type ScheduleSection = {
    */
   removed?: ScheduleMeeting[];
   added?: ScheduleMeeting[];
+  /** A removed class a coordinator linked, on Class changes, to the class it was rescheduled into. */
+  moves?: { from: ScheduleSlot; to: ScheduleSlot }[];
 };
 
 export type ScheduleInput = {
@@ -77,6 +81,8 @@ export type ScheduleClass = {
   state: "" | "cancelled" | "covered";
   /** What the registrar did to it since the section was first seen, where the export shows that. */
   registrar: "" | "removed" | "added";
+  /** Where a linked class went or came from — "to Thu 5 Nov 13:15", "from Tue 3 Nov 08:30" — else "". */
+  moved: string;
   /** Who covered it, for a covered class. */
   cover: string;
   note: string;
@@ -103,6 +109,23 @@ const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 export function dayWords(iso: string): string {
   const day = parseIsoDate(iso);
   return `${DAYS[day.getDay()]} ${day.getDate()} ${MONTH_NAMES[day.getMonth()]} ${day.getFullYear()}`;
+}
+
+/** "Thu 5 Nov 13:15": the other end of a move, said in a box. */
+export function slotWords(slot: ScheduleSlot): string {
+  const day = parseIsoDate(slot.meetsOn);
+  return `${DAYS[day.getDay()]} ${day.getDate()} ${MONTH_NAMES[day.getMonth()]} ${slot.startsAt.slice(0, 5)}`;
+}
+
+/** Where each linked class of a section went, and where each came from, as a box says it. */
+export function movesSaid(section: Pick<ScheduleSection, "moves">): (slot: ScheduleSlot) => string {
+  const key = (slot: ScheduleSlot) => `${slot.meetsOn}|${slot.startsAt.slice(0, 5)}|${slot.endsAt.slice(0, 5)}`;
+  const said = new Map<string, string>();
+  for (const { from, to } of section.moves ?? []) {
+    said.set(key(from), `to ${slotWords(to)}`);
+    said.set(key(to), `from ${slotWords(from)}`);
+  }
+  return (slot) => said.get(key(slot)) ?? "";
 }
 
 /** "31 Aug". */
@@ -161,6 +184,7 @@ export function scheduleWeeks(input: ScheduleInput): ScheduleWeek[] {
   for (const section of input.sections) {
     const noteOn = new Map(section.notes.map((note) => [`${note.meetsOn}|${note.startsAt}`, note]));
     const added = new Set((section.added ?? []).map(slot));
+    const movedOf = movesSaid(section);
     // The classes the registrar took out go on their old days with the ones that meet.
     const drawn = [
       ...section.meetings.map((meeting) => ({ meeting, registrar: added.has(slot(meeting)) ? ("added" as const) : ("" as const) })),
@@ -185,6 +209,7 @@ export function scheduleWeeks(input: ScheduleInput): ScheduleWeek[] {
           room: meeting.room,
           state: note?.kind ?? "",
           registrar,
+          moved: movedOf(meeting),
           cover: note?.kind === "covered" ? note.coverTeacherName.trim() : "",
           note: note?.note.trim() ?? "",
         },
@@ -549,6 +574,8 @@ function drawSchedule(doc: JsPdf, input: ScheduleInput, after: boolean): void {
         { text: classLabel(entry), size: 8.5, bold: true, ink: strong, strike: cancelled || removed, keep: 0 },
         { text: entry.title, size: 7.5, ink: ink(0.9), keep: manyTeachers ? 3.5 : 2 },
         { text: `${entry.startsAt}–${entry.endsAt}`, size: 8, ink: ink(0.9), keep: 1 },
+        // Where a moved class went, or came from: the half of the move this box cannot show.
+        { text: entry.moved, size: 7.5, bold: true, ink: strong, keep: 1.5 },
         { text: formatRoom(entry.room), size: 8, icon: "pin" as const, ink: ink(0.85), keep: manyTeachers ? 2 : 3 },
         { text: `CRN ${entry.crn}`, size: 7, ink: ink(0.8), keep: 5 },
         covered
@@ -572,14 +599,16 @@ function drawSchedule(doc: JsPdf, input: ScheduleInput, after: boolean): void {
         ? "CANCELLED"
         : covered
           ? "COVERED"
-          : removed
-            ? "REMOVED"
+          : entry.moved
+            ? "MOVED"
+            : removed
+              ? "REMOVED"
             : entry.registrar === "added"
               ? "ADDED"
               : kept.size === 1
                 ? entry.startsAt
                 : "";
-      const pilled = Boolean(entry.state || entry.registrar);
+      const pilled = Boolean(entry.state || entry.registrar || entry.moved);
       doc.setFont("helvetica", "bold");
       doc.setFontSize(6);
       const flagWidth = flag ? doc.getTextWidth(flag) + (pilled ? 5 : 0) : 0;

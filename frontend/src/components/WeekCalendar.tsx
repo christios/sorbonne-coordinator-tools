@@ -1,8 +1,10 @@
-import { MapPin, Plus, Repeat, User } from "lucide-react";
+import { ArrowRight, MapPin, Plus, Repeat, User } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import {
+  moved,
   movedFromSaid,
+  movedToSaid,
   DAY_NAMES,
   formatDayAndMonth,
   formatLongDate,
@@ -332,6 +334,7 @@ function DayColumn({
               // Whose word each mark is: the department's planning, or the portal's timetable.
               cancelled ? "Planning: CANCELLED" : "",
               movedFromSaid(session) ? `Planning: ${movedFromSaid(session)}` : "",
+              movedToSaid(session) ? `Planning: ${movedToSaid(session)}` : "",
               covered
                 ? `Planning: ${covered.standingIn ? `covering for ${covered.coverTeacherName}` : `covered by ${covered.coverTeacherName}`}`
                 : "",
@@ -381,7 +384,12 @@ function DayColumn({
             {compact ? (
               <b className={`flex items-center gap-0.5 font-semibold ${cancelled || removed ? "line-through" : ""}`}>
                 {covered ? <Repeat size={8} className="shrink-0" aria-hidden="true" /> : null}
-                {added ? <Plus size={8} strokeWidth={3} className="shrink-0" aria-hidden="true" /> : null}
+                {/* Moved, either way, as a coordinator linked it; else put in by the registrar. */}
+                {moved(session) ? (
+                  <ArrowRight size={8} strokeWidth={3} className="shrink-0" aria-hidden="true" />
+                ) : added ? (
+                  <Plus size={8} strokeWidth={3} className="shrink-0" aria-hidden="true" />
+                ) : null}
                 <span className="truncate">{label}</span>
               </b>
             ) : (
@@ -391,7 +399,10 @@ function DayColumn({
                   {cancelled ? (
                     <span className="shrink-0 rounded bg-white/25 px-1 text-[9px] font-bold uppercase tracking-wide">Cancelled</span>
                   ) : removed ? (
-                    <span className="shrink-0 rounded bg-current/15 px-1 text-[9px] font-bold uppercase tracking-wide">Removed</span>
+                    // Gone from here; Moved where a coordinator linked it to the class it became.
+                    <span className="shrink-0 rounded bg-current/15 px-1 text-[9px] font-bold uppercase tracking-wide">
+                      {session.rescheduledTo ? "Moved" : "Removed"}
+                    </span>
                   ) : session.rescheduledFrom ? (
                     // Moved here from another day, as a coordinator linked it on Class changes.
                     <span

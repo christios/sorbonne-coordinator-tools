@@ -19,7 +19,7 @@
 
 import type { jsPDF as JsPdf } from "jspdf";
 
-import { drawIcon, fitted, rgbOf, towardsWhite, type Rgb, type ScheduleSection } from "@/services/crnSchedulePdf";
+import { drawIcon, fitted, movesSaid, rgbOf, towardsWhite, type Rgb, type ScheduleSection } from "@/services/crnSchedulePdf";
 import { textWidth } from "@/services/textWidth";
 import {
   DAY_NAMES,
@@ -116,6 +116,8 @@ type Klass = {
   state: "" | "cancelled" | "covered";
   /** What the registrar did to it since the section was first seen, where the export shows that. */
   registrar: "" | "removed" | "added";
+  /** Where a linked class went or came from — "to Thu 5 Nov 13:15" — else "". */
+  moved: string;
   cover: string;
   note: string;
   /** Its room's seats and its registered students, where known — a class too big for its room says so. */
@@ -226,6 +228,7 @@ function classesOf(input: SemesterExportInput): Klass[] {
   return input.sections.flatMap((section) => {
     const noteOn = new Map(section.notes.map((note) => [`${note.meetsOn}|${note.startsAt.slice(0, 5)}`, note]));
     const added = new Set((section.added ?? []).map(slot));
+    const movedOf = movesSaid(section);
     const drawn = [
       ...section.meetings.map((meeting) => ({ meeting, registrar: added.has(slot(meeting)) ? ("added" as const) : ("" as const) })),
       ...(section.removed ?? []).map((meeting) => ({ meeting, registrar: "removed" as const })),
@@ -244,6 +247,7 @@ function classesOf(input: SemesterExportInput): Klass[] {
         room: meeting.room,
         state: note?.kind ?? "",
         registrar,
+        moved: movedOf(meeting),
         cover: note?.kind === "covered" ? note.coverTeacherName.trim() : "",
         note: note?.note.trim() ?? "",
         seats: input.roomSeats?.[meeting.room] ?? null,
@@ -662,7 +666,13 @@ function wordsOf(klass: Klass, fill: Rgb, hollow = false): Word[] {
       bold: true,
       ink: white,
     },
-    { text: cancelled ? "CANCELLED" : removed ? "REMOVED" : klass.registrar === "added" ? "ADDED" : "", bold: true, ink: white },
+    {
+      text: cancelled ? "CANCELLED" : klass.moved ? "MOVED" : removed ? "REMOVED" : klass.registrar === "added" ? "ADDED" : "",
+      bold: true,
+      ink: white,
+    },
+    // Where a moved class went, or came from: the half of the move this box cannot show.
+    { text: klass.moved, bold: true, ink: white, wraps: true },
     { text: `${klass.start}–${klass.end}`, ink: soft },
     { text: formatRoom(klass.room), ink: soft, icon: "pin" },
     { text: klass.teacher, ink: soft, icon: "person", wraps: true },

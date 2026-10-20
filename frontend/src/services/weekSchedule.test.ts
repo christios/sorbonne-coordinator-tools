@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   movedFromSaid,
+  movedToSaid,
   assignColors,
   defaultWeekStart,
   hourBounds,
@@ -134,6 +135,10 @@ describe("a class moved from another day", () => {
       "rescheduled from Tue 3 Nov, 08:30–10:00",
     );
     expect(movedFromSaid(always)).toBe("");
+    expect(movedToSaid({ ...always, rescheduledTo: { date: "2026-11-05", start: "13:15", end: "14:45" } })).toBe(
+      "rescheduled to Thu 5 Nov, 13:15–14:45",
+    );
+    expect(movedToSaid(always)).toBe("");
   });
 });
 

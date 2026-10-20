@@ -41,6 +41,8 @@ export type Session = {
   change?: SessionNote;
   /** The class a coordinator said this one was rescheduled from, on the Class changes page. */
   rescheduledFrom?: { date: string; start: string; end: string };
+  /** For a class the registrar removed: the one a coordinator said it was rescheduled into. */
+  rescheduledTo?: { date: string; start: string; end: string };
   /**
    * What the registrar did to it since the section was first seen: put it in, or took it
    * out. A removed class is drawn only where a record asks for the changes, and never
@@ -336,10 +338,25 @@ const SHORT_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "S
  */
 export function movedFromSaid(session: Session): string {
   const from = session.rescheduledFrom;
-  if (!from) return "";
-  const [year, month, day] = from.date.split("-").map(Number);
+  return from ? `rescheduled from ${slotSaid(from)}` : "";
+}
+
+/** "rescheduled to Thu 5 Nov, 13:15–14:45" for a removed class linked to where it went; "" otherwise. */
+export function movedToSaid(session: Session): string {
+  const to = session.rescheduledTo;
+  return to ? `rescheduled to ${slotSaid(to)}` : "";
+}
+
+/** Whether a coordinator has linked this class to another as rescheduled, either way. */
+export function moved(session: Session): boolean {
+  return Boolean(session.rescheduledFrom || session.rescheduledTo);
+}
+
+/** "Tue 1 Sep, 08:30–10:00". */
+function slotSaid(slot: { date: string; start: string; end: string }): string {
+  const [year, month, day] = slot.date.split("-").map(Number);
   const made = new Date(year, month - 1, day);
-  const when = Number.isNaN(made.getTime()) ? from.date : `${SHORT_DAYS[made.getDay()]} ${day} ${SHORT_MONTHS[month - 1]}`;
-  return `rescheduled from ${when}, ${from.start}–${from.end}`;
+  const when = Number.isNaN(made.getTime()) ? slot.date : `${SHORT_DAYS[made.getDay()]} ${day} ${SHORT_MONTHS[month - 1]}`;
+  return `${when}, ${slot.start}–${slot.end}`;
 }
 

@@ -352,6 +352,28 @@ describe("what the registrar changed, behind the Portal changes switch", () => {
     expect(screen.getByText(/Faded and struck through: a class the registrar removed/)).toBeTruthy();
   });
 
+  it("says Moved on both of a linked pair, each naming the other", async () => {
+    vi.spyOn(lists, "fetchClassNotes").mockResolvedValue({
+      links: [
+        {
+          id: "l1", termCode: "262710", crn: "23436",
+          from: { meetsOn: GONE.meetsOn, startsAt: GONE.startsAt, endsAt: GONE.endsAt },
+          to: { meetsOn: TUESDAY.meetsOn, startsAt: TUESDAY.startsAt, endsAt: TUESDAY.endsAt },
+          note: "", byEmail: "", byName: "Patricia", at: "", matches: true,
+        },
+      ],
+      notes: [],
+    });
+    record();
+
+    await waitFor(() => expect(screen.getAllByText("Moved")).toHaveLength(2));
+    expect(screen.queryByText("Removed")).toBeNull();
+    expect(screen.queryByText("Added")).toBeNull();
+    const said = screen.getAllByLabelText(/CRN 23436/).map((box) => box.getAttribute("aria-label") ?? "");
+    expect(said.filter((text) => text.includes("Planning: rescheduled to Tue 8 Sep, 13:30–15:00"))).toHaveLength(1);
+    expect(said.filter((text) => text.includes("Planning: rescheduled from Tue 8 Sep, 09:00–11:00"))).toHaveLength(1);
+  });
+
   it("has nothing to note on a removed class: it no longer meets", async () => {
     record();
     await screen.findByText("Removed");

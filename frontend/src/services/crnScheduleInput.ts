@@ -8,7 +8,7 @@
  */
 
 import type { ScheduleInput } from "@/services/crnSchedulePdf";
-import type { ActiveCrn, ChangedClasses, FacilityTimetable } from "@/services/portalLists";
+import type { ActiveCrn, ChangedClasses, ClassLink, FacilityTimetable } from "@/services/portalLists";
 import type { SessionChange } from "@/services/sessionChanges";
 import { semesterOf, type TermCalendars } from "@/services/termWeeks";
 
@@ -28,7 +28,15 @@ export type ScheduleReads = {
    * where the export was asked to show Portal changes.
    */
   changes?: (termCode: string) => Promise<ChangedClasses[]>;
+  /** The removed classes coordinators linked to the classes they were rescheduled into. */
+  moves?: (termCode: string) => Promise<ClassLink[]>;
 };
+
+/** A section's links, as the PDF says them: only those that still match the timetable. */
+export function movesOf(links: ClassLink[], crn: string) {
+  const mine = links.filter((link) => link.crn === crn && link.matches);
+  return mine.length ? { moves: mine.map(({ from, to }) => ({ from, to })) } : {};
+}
 
 /** A section's removed and added classes, for the PDF, out of what the registrar changed. */
 export function changesOf(changed: ChangedClasses[], crn: string, onlyOn?: string[]) {
@@ -64,12 +72,13 @@ export async function scheduleInputFor(rows: ActiveCrn[], read: ScheduleReads): 
     await Promise.all(
       termCodes.map(async (termCode) => {
         const crns = ordered.filter((row) => row.termCode === termCode).map((row) => row.crn);
-        const [sweep, notes, changed] = await Promise.all([
+        const [sweep, notes, changed, moves] = await Promise.all([
           read.sections(termCode, crns),
           read.notes(termCode).catch(() => []),
           read.changes ? read.changes(termCode).catch(() => []) : Promise.resolve([]),
+          read.moves ? read.moves(termCode).catch(() => []) : Promise.resolve([]),
         ]);
-        return [termCode, { sweep, notes, changed }] as const;
+        return [termCode, { sweep, notes, changed, moves }] as const;
       }),
     ),
   );
@@ -94,6 +103,7 @@ export async function scheduleInputFor(rows: ActiveCrn[], read: ScheduleReads): 
         meetings: section?.meetings ?? [],
         notes: (held?.notes ?? []).filter((note) => note.crn === row.crn),
         ...changesOf(held?.changed ?? [], row.crn),
+        ...movesOf(held?.moves ?? [], row.crn),
       };
     }),
   };

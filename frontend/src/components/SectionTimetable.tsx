@@ -538,7 +538,7 @@ function Timetable({
           {!fills && sessions.some((session) => session.change?.kind === "cancelled" || session.rescheduledFrom) ? (
             <p className={`mt-1 text-[#98a2b3] ${small}`}>
               <SourceMark source="planning" className="mr-1" />
-              Cancelled and Moved: what the department noted, or linked on Class changes.
+              Cancelled and Moved: what the department noted, or linked on Class changes — a moved class says where it went or came from.
             </p>
           ) : null}
           {fills ? null : onPickSession ? (
@@ -579,8 +579,10 @@ function assemble(
   changed: (ChangedClasses & { termCode: string })[] = [],
 ): Assembled {
   const said = new Map(notes.map((note) => [slotKey(note), note]));
-  // An arrived class a coordinator linked to the one it replaced says where it came from.
+  // An arrived class a coordinator linked to the one it replaced says where it came from,
+  // and the removed one, where it went.
   const movedFrom = new Map(moves.map((link) => [classKey(link.termCode, link.crn, link.to), link.from]));
+  const movedTo = new Map(moves.map((link) => [classKey(link.termCode, link.crn, link.from), link.to]));
   // The registrar's own changes, by section: what it put in, and what it took out.
   const changedIn = new Map(changed.map((section) => [`${section.termCode}|${section.crn}`, section]));
   const added = new Set(
@@ -635,6 +637,7 @@ function assemble(
     // The classes the registrar took out, on their old days, beside whatever replaced them.
     for (const cls of changedIn.get(`${section.termCode}|${section.crn}`)?.removed ?? []) {
       if (!drawn(cls)) continue;
+      const wentTo = movedTo.get(classKey(section.termCode, section.crn, cls));
       sessions.push({
         crn: section.crn,
         termCode: section.termCode,
@@ -643,6 +646,9 @@ function assemble(
         end: cls.endsAt.slice(0, 5),
         room: cls.room,
         registrar: "removed",
+        rescheduledTo: wentTo
+          ? { date: wentTo.meetsOn, start: wentTo.startsAt.slice(0, 5), end: wentTo.endsAt.slice(0, 5) }
+          : undefined,
       });
     }
     for (const meeting of section.meetings) {

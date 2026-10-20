@@ -11,7 +11,7 @@
 
 import type { TimetableEntry } from "@/components/SectionTimetable";
 import type { ScheduleInput, ScheduleNote, ScheduleSection } from "@/services/crnSchedulePdf";
-import { changesOf, type ScheduleReads } from "@/services/crnScheduleInput";
+import { changesOf, movesOf, type ScheduleReads } from "@/services/crnScheduleInput";
 import { semesterOf, type TermCalendars } from "@/services/termWeeks";
 
 /** What a heading says: whose timetable, and what they are. */
@@ -28,7 +28,7 @@ export type ScheduleHeading = { title: string; subtitle?: string };
 export async function scheduleFromEntries(
   entries: TimetableEntry[],
   heading: ScheduleHeading,
-  read: Pick<ScheduleReads, "sections" | "notes" | "links" | "weeks" | "semesterNames" | "changes">,
+  read: Pick<ScheduleReads, "sections" | "notes" | "links" | "weeks" | "semesterNames" | "changes" | "moves">,
   standIn = "",
 ): Promise<ScheduleInput> {
   const wanted = entries.filter((entry) => entry.crn && entry.termCode);
@@ -42,12 +42,13 @@ export async function scheduleFromEntries(
     await Promise.all(
       termCodes.map(async (termCode) => {
         const crns = [...new Set(wanted.filter((entry) => entry.termCode === termCode).map((entry) => entry.crn))].sort();
-        const [sweep, notes, changed] = await Promise.all([
+        const [sweep, notes, changed, moves] = await Promise.all([
           read.sections(termCode, crns),
           read.notes(termCode).catch(() => []),
           read.changes ? read.changes(termCode).catch(() => []) : Promise.resolve([]),
+          read.moves ? read.moves(termCode).catch(() => []) : Promise.resolve([]),
         ]);
-        return [termCode, { sweep, notes, changed }] as const;
+        return [termCode, { sweep, notes, changed, moves }] as const;
       }),
     ),
   );
@@ -95,6 +96,7 @@ export async function scheduleFromEntries(
       notes,
       // A class somebody stood in for is drawn on the dates they took it, and nothing else of it.
       ...(entry.standingIn ? {} : changesOf(held?.changed ?? [], entry.crn, entry.onlyOn)),
+      ...movesOf(held?.moves ?? [], entry.crn),
     });
   }
   return {

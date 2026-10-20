@@ -195,6 +195,19 @@ describe("what the registrar changed, in the semester's file", () => {
     expect(week.rows[1].boxes.map((box) => box.klass.registrar)).toEqual(["added"]);
   });
 
+  it("says where a linked class went and came from", () => {
+    const linked = [
+      {
+        ...changed[0],
+        moves: [{ from: { meetsOn: "2026-09-07", startsAt: "13:00", endsAt: "14:30" }, to: { meetsOn: "2026-09-08", startsAt: "08:30", endsAt: "10:00" } }],
+      },
+    ];
+    const [week] = semesterUnits(input("days", linked));
+
+    expect(week.rows[0].boxes.map((box) => box.klass.moved).sort()).toEqual(["", "to Tue 8 Sep 08:30"]);
+    expect(week.rows[1].boxes.map((box) => box.klass.moved)).toEqual(["from Mon 7 Sep 13:00"]);
+  });
+
   it("makes the file with them in it", async () => {
     const bytes = new Uint8Array(await buildSemesterPdf(input("days", changed), { maxPages: null }));
     expect(new TextDecoder("latin1").decode(bytes).startsWith("%PDF")).toBe(true);

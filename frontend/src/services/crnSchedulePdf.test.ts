@@ -189,6 +189,19 @@ describe("what the registrar changed, where the export was asked to show it", ()
     expect(hourRange({ semester: "", sections: [CHANGED] })[0]).toBe(7);
   });
 
+  it("says MOVED on both of a linked pair, each box naming the other's day", () => {
+    const linked: ScheduleSection = {
+      ...CHANGED,
+      moves: [{ from: { meetsOn: "2026-09-16", startsAt: "07:00", endsAt: "09:00" }, to: { meetsOn: "2026-09-19", startsAt: "10:30", endsAt: "12:00" } }],
+    };
+    const [week] = scheduleWeeks({ semester: "", sections: [linked] });
+
+    expect(week.classes.filter((entry) => entry.moved).map((entry) => [entry.day, entry.registrar, entry.moved])).toEqual([
+      ["2026-09-16", "removed", "to Sat 19 Sep 10:30"],
+      ["2026-09-19", "added", "from Wed 16 Sep 07:00"],
+    ]);
+  });
+
   it("draws only what meets when the export was not asked", () => {
     const [week] = scheduleWeeks({ semester: "", sections: [CM] });
     expect(week.classes.every((entry) => entry.registrar === "")).toBe(true);

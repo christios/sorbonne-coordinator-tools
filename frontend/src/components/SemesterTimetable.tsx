@@ -13,8 +13,15 @@ import { TableFilterBar } from "@/components/TableFilterBar";
 import { usePageState } from "@/components/usePageState";
 import { useRemembered } from "@/components/useRemembered";
 import { buildCards, rowsPerPart, subRowLabel, teaches } from "@/services/courseCards";
-import { changesOf } from "@/services/crnScheduleInput";
-import { fetchActiveCrns, fetchChangedClasses, fetchFacilitySections, fetchTermCrns, type ActiveCrn } from "@/services/portalLists";
+import { changesOf, movesOf } from "@/services/crnScheduleInput";
+import {
+  fetchActiveCrns,
+  fetchChangedClasses,
+  fetchClassNotes,
+  fetchFacilitySections,
+  fetchTermCrns,
+  type ActiveCrn,
+} from "@/services/portalLists";
 import { optionsFor, type GridColumn } from "@/services/studentColumns";
 import { applyFilters, type FilterColumn, type FilterModel } from "@/services/tableFilter";
 import { DAY_NAMES, formatRoom, parseIsoDate } from "@/services/weekSchedule";
@@ -338,6 +345,13 @@ function SemesterWeek({ layout, term, picker }: { layout: Layout; term: Timetabl
     enabled: exporting && Boolean(termCode),
     retry: false,
   });
+  // The classes coordinators linked as rescheduled, which the file says either side of.
+  const classNotes = useQuery({
+    queryKey: ["class-notes", termCode],
+    queryFn: () => fetchClassNotes(termCode),
+    enabled: exporting && Boolean(termCode),
+    retry: false,
+  });
   const exportInput = useMemo<SemesterExportInput>(() => {
     const swept = new Map((meetings.data?.sections ?? []).map((section) => [section.crn, section]));
     const roomSeats: Record<string, number> = {};
@@ -382,10 +396,11 @@ function SemesterWeek({ layout, term, picker }: { layout: Layout; term: Timetabl
             (meeting) => !sessionFilter || sessionFilter({ date: meeting.meetsOn, room: meeting.room }),
           ),
           added: theirs.added,
+          ...movesOf(classNotes.data?.links ?? [], row.crn),
         };
       }),
     };
-  }, [changed.data, meetings.data, notes.data, rooms, sessionFilter, shown, span, term.id, term.name, weeks.data, roomOf, registeredBy]);
+  }, [changed.data, classNotes.data, meetings.data, notes.data, rooms, sessionFilter, shown, span, term.id, term.name, weeks.data, roomOf, registeredBy]);
 
   return (
     /*
