@@ -298,6 +298,11 @@ export function PortalChanges({ termCode, crn }: { termCode: string; crn: string
 /**
  * The classes that went and the classes that arrived, side by side: where a class is
  * linked to the one it was rescheduled into, and where each can carry a note.
+ *
+ * Each list keeps to a few rows and scrolls past them, so a section with thirty classes
+ * gone does not push every other section a screen further down. A row's actions — link it,
+ * note it — sit at the end of its first line and show when the row is pointed at, so they
+ * never cost a line of their own.
  */
 function ChangeLists({
   termCode,
@@ -332,6 +337,7 @@ function ChangeLists({
   const linkTo = new Map(links.map((one) => [keyOf(one.to), one]));
   const noteOn = (side: "removed" | "added", cls: ClassSlot) =>
     notes.find((one) => one.side === side && keyOf(one.class) === keyOf(cls));
+  const isLinking = (cls: ClassSlot) => Boolean(linking && keyOf(linking) === keyOf(cls));
 
   return (
     <div className="mt-3 border-t border-[#eef1f5] pt-3">
@@ -346,90 +352,48 @@ function ChangeLists({
       {/* What went beside what arrived, so a class and the one it became sit level with each other. */}
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="min-w-0">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-[#842029]">
-            Went ({section.removed.length})
-            <SourceMark source="portal" />
-          </p>
-          <ul className="mt-1 grid gap-1.5">
-            {section.removed.map((cls) => {
-              const linked = linkFrom.get(keyOf(cls));
-              return (
-                <ClassRow
-                  key={keyOf(cls)}
-                  cls={cls}
-                  tone="text-[#842029]"
-                  aside={oursSaid(cls)}
-                  note={noteOn("removed", cls)}
-                  onNote={(words) => noteClass(termCode, { crn: section.crn, side: "removed", cls, note: words })}
-                  onNoted={refresh}
-                >
-                  {linked ? (
-                    <span className="inline-flex items-center gap-1 rounded bg-[#eaf1f8] px-1.5 py-0.5 text-xs font-semibold text-[#1f4e79]">
-                      <SourceMark source="planning" className="" />
-                      <ArrowRight size={12} aria-hidden="true" /> {slotSaid(linked.to)}
-                      <button
-                        type="button"
-                        onClick={() => unlink.mutate(linked.id)}
-                        aria-label={`Unlink ${slotSaid(cls)} from ${slotSaid(linked.to)}`}
-                        title={`Linked by ${linked.byName || linked.byEmail}. Unlink`}
-                        className="ml-0.5 rounded p-0.5 hover:bg-white"
-                      >
-                        <Unlink size={11} />
-                      </button>
-                    </span>
-                  ) : section.added.length ? (
-                    <button
-                      type="button"
-                      onClick={() => setLinking(linking && keyOf(linking) === keyOf(cls) ? null : cls)}
-                      aria-pressed={Boolean(linking && keyOf(linking) === keyOf(cls))}
-                      /*
-                       * Shown when the class is pointed at, or while it is the one being
-                       * linked: four of them on every card were noise. Where nothing can
-                       * hover — a phone — it stays shown.
-                       */
-                      className={`inline-flex items-center gap-1 rounded border border-[#b7bec8] px-1.5 py-0.5 text-xs font-semibold text-[#1f4e79] hover:bg-[#f2f7fb] focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100 ${
-                        linking && keyOf(linking) === keyOf(cls) ? "" : "[@media(hover:hover)]:opacity-0"
-                      }`}
-                    >
-                      <Link2 size={12} aria-hidden="true" /> Rescheduled to…
-                    </button>
-                  ) : null}
-                </ClassRow>
-              );
-            })}
-          </ul>
-        </div>
-        <div className="min-w-0">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-[#0f5132]">
-            Arrived ({section.added.length})
-            <SourceMark source="portal" />
-          </p>
-          {section.added.length ? (
-            <ul className="mt-1 grid gap-1.5">
-              {section.added.map((cls) => {
-                const linked = linkTo.get(keyOf(cls));
+          <ListHeading tone="text-[#842029]">Went ({section.removed.length})</ListHeading>
+          {section.removed.length ? (
+            <ul className={LIST}>
+              {section.removed.map((cls) => {
+                const linked = linkFrom.get(keyOf(cls));
                 return (
                   <ClassRow
                     key={keyOf(cls)}
                     cls={cls}
-                    tone="text-[#0f5132]"
-                    note={noteOn("added", cls)}
-                    onNote={(words) => noteClass(termCode, { crn: section.crn, side: "added", cls, note: words })}
+                    tone="text-[#842029]"
+                    aside={oursSaid(cls)}
+                    picked={isLinking(cls)}
+                    note={noteOn("removed", cls)}
+                    onNote={(words) => noteClass(termCode, { crn: section.crn, side: "removed", cls, note: words })}
                     onNoted={refresh}
+                    actions={
+                      !linked && section.added.length ? (
+                        <RowAction
+                          label="Rescheduled to…"
+                          title="Rescheduled to… — link it to the class it became"
+                          pressed={isLinking(cls)}
+                          onClick={() => setLinking(isLinking(cls) ? null : cls)}
+                        >
+                          <Link2 size={14} />
+                        </RowAction>
+                      ) : null
+                    }
                   >
-                    {linking ? (
-                      <button
-                        type="button"
-                        onClick={() => link.mutate(cls)}
-                        disabled={link.isPending}
-                        className="inline-flex items-center gap-1 rounded bg-[#1f4e79] px-1.5 py-0.5 text-xs font-semibold text-white disabled:opacity-60"
-                      >
-                        Rescheduled into this
-                      </button>
-                    ) : linked ? (
-                      <span className="inline-flex items-center gap-1 rounded bg-[#eaf1f8] px-1.5 py-0.5 text-xs font-semibold text-[#1f4e79]">
+                    {linked ? (
+                      <span className="inline-flex max-w-full items-center gap-1 rounded bg-[#eaf1f8] px-1.5 py-0.5 text-xs font-semibold text-[#1f4e79]">
                         <SourceMark source="planning" className="" />
-                        from {slotSaid(linked.from)}
+                        <ArrowRight size={12} className="shrink-0" aria-hidden="true" />
+                        <span className="truncate">{slotSaid(linked.to)}</span>
+                        <button
+                          type="button"
+                          onClick={() => unlink.mutate(linked.id)}
+                          aria-label={`Unlink ${slotSaid(cls)} from ${slotSaid(linked.to)}`}
+                          title={`Linked by ${linked.byName || linked.byEmail}. Unlink`}
+                          className="ml-0.5 shrink-0 rounded p-0.5 hover:bg-white"
+                        >
+                          <Unlink size={11} />
+                        </button>
                       </span>
                     ) : null}
                   </ClassRow>
@@ -437,7 +401,51 @@ function ChangeLists({
               })}
             </ul>
           ) : (
-            <p className="mt-1 text-sm text-[#98a2b3]">Nothing arrived.</p>
+            <Nothing>Nothing went.</Nothing>
+          )}
+        </div>
+        <div className="min-w-0">
+          <ListHeading tone="text-[#0f5132]">Arrived ({section.added.length})</ListHeading>
+          {section.added.length ? (
+            <ul className={LIST}>
+              {section.added.map((cls) => {
+                const linked = linkTo.get(keyOf(cls));
+                return (
+                  <ClassRow
+                    key={keyOf(cls)}
+                    cls={cls}
+                    tone="text-[#0f5132]"
+                    // While a class that went is being linked, every arrival is somewhere it could go.
+                    target={Boolean(linking)}
+                    note={noteOn("added", cls)}
+                    onNote={(words) => noteClass(termCode, { crn: section.crn, side: "added", cls, note: words })}
+                    onNoted={refresh}
+                    actions={
+                      linking ? (
+                        <button
+                          type="button"
+                          onClick={() => link.mutate(cls)}
+                          disabled={link.isPending}
+                          aria-label="Rescheduled into this"
+                          className="rounded bg-[#1f4e79] px-2 py-0.5 text-xs font-semibold text-white hover:bg-[#1a4368] disabled:opacity-60"
+                        >
+                          Into this
+                        </button>
+                      ) : null
+                    }
+                  >
+                    {linked ? (
+                      <span className="inline-flex max-w-full items-center gap-1 rounded bg-[#eaf1f8] px-1.5 py-0.5 text-xs font-semibold text-[#1f4e79]">
+                        <SourceMark source="planning" className="" />
+                        <span className="truncate">from {slotSaid(linked.from)}</span>
+                      </span>
+                    ) : null}
+                  </ClassRow>
+                );
+              })}
+            </ul>
+          ) : (
+            <Nothing>Nothing arrived.</Nothing>
           )}
         </div>
       </div>
@@ -450,22 +458,84 @@ function ChangeLists({
   );
 }
 
-/** One class that went or arrived: when, how long, where, its link, and its note. */
+/** A few rows of a list, then it scrolls — about five classes' worth. */
+const LIST = "mt-1 grid max-h-72 gap-1.5 overflow-y-auto overscroll-contain pr-1";
+
+function ListHeading({ tone, children }: { tone: string; children: React.ReactNode }) {
+  return (
+    <p className={`text-[11px] font-semibold uppercase tracking-wide ${tone}`}>
+      {children}
+      <SourceMark source="portal" />
+    </p>
+  );
+}
+
+function Nothing({ children }: { children: React.ReactNode }) {
+  return <p className="mt-1 rounded-md border border-dashed border-[#e4e8ef] px-2.5 py-2 text-sm text-[#98a2b3]">{children}</p>;
+}
+
+/**
+ * A row's small icon button. Shown while its row is pointed at or focused, or while it is
+ * pressed; where nothing can hover — a phone — always.
+ */
+function RowAction({
+  label,
+  title,
+  pressed,
+  onClick,
+  children,
+}: {
+  label: string;
+  title: string;
+  pressed?: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      aria-pressed={pressed}
+      title={title}
+      className={`rounded p-1 focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100 ${
+        pressed ? "bg-[#1f4e79] text-white" : "text-[#667085] hover:bg-[#f2f4f7] [@media(hover:hover)]:opacity-0"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+/**
+ * One class that went or arrived. Its first line says when, with its actions at the end;
+ * its second, how long, where, and what the department had already said of it; then its
+ * link and its note, where it has them.
+ */
 function ClassRow({
   cls,
   tone,
   aside = "",
+  picked = false,
+  target = false,
   note,
   onNote,
   onNoted,
+  actions,
   children,
 }: {
   cls: ClassSlot & { room?: string };
   tone: string;
   aside?: string;
+  /** The class that went, while somebody chooses where it was rescheduled into. */
+  picked?: boolean;
+  /** An arrival that class could be linked to. */
+  target?: boolean;
   note?: ClassNote;
   onNote: (words: string) => Promise<unknown>;
   onNoted: () => void;
+  actions?: React.ReactNode;
+  /** Its link, on a line of its own. */
   children?: React.ReactNode;
 }) {
   const [writing, setWriting] = useState<string | null>(null);
@@ -477,26 +547,41 @@ function ClassRow({
     },
   });
   const hours = Math.round((minutesOf({ ...cls, room: cls.room ?? "" }) / 60) * 100) / 100;
+  const look = picked
+    ? "border-[#1f4e79] bg-[#f2f7fb]"
+    : target
+      ? "border-dashed border-[#8fb3d6] bg-white"
+      : "border-[#eef1f5] bg-white hover:border-[#d9dee7]";
   return (
-    <li className="group rounded-md border border-[#eef1f5] px-2.5 py-1.5 text-sm">
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        <span className={`font-semibold tabular-nums ${tone}`}>{slotSaid(cls)}</span>
-        <span className="tabular-nums text-[#667085]">{hours} h</span>
-        {cls.room ? <span className="text-[#344054]">{formatRoom(cls.room)}</span> : null}
-        {aside ? <span className="text-xs text-[#98a2b3]">{aside}</span> : null}
-        <span className="ml-auto flex items-center gap-1.5">
-          {children}
-          <button
-            type="button"
-            onClick={() => setWriting(writing === null ? (note?.note ?? "") : null)}
-            aria-label={`${note ? "Edit the note on" : "Add a note to"} ${slotSaid(cls)}`}
-            title={note ? "Edit the note" : "Add a note"}
-            className="rounded p-1 text-[#667085] hover:bg-[#f2f4f7]"
-          >
-            <MessageSquare size={14} />
-          </button>
-        </span>
+    <li className={`group rounded-md border px-2.5 py-1.5 text-sm ${look}`}>
+      <div className="flex items-start gap-2">
+        <div className="min-w-0 flex-1">
+          <p className={`truncate font-semibold tabular-nums ${tone}`}>{slotSaid(cls)}</p>
+          <p className="text-xs text-[#667085]">
+            <span className="tabular-nums">{hours} h</span>
+            {cls.room ? <span> · {formatRoom(cls.room)}</span> : null}
+            {aside ? (
+              <>
+                {" · "}
+                <span className="text-[#98a2b3]">{aside}</span>
+              </>
+            ) : null}
+          </p>
+        </div>
+        <div className="-mr-1 flex shrink-0 items-center gap-0.5">
+          {actions}
+          {writing === null ? (
+            <RowAction
+              label={`${note ? "Edit the note on" : "Add a note to"} ${slotSaid(cls)}`}
+              title={note ? "Edit the note" : "Add a note"}
+              onClick={() => setWriting(note?.note ?? "")}
+            >
+              <MessageSquare size={14} />
+            </RowAction>
+          ) : null}
+        </div>
       </div>
+      {children ? <div className="mt-1 flex min-w-0">{children}</div> : null}
       {note && writing === null ? (
         <p className="mt-1 text-xs text-[#475467]">
           <SourceMark source="planning" className="mr-1.5" />
@@ -516,6 +601,9 @@ function ClassRow({
             value={writing}
             maxLength={400}
             onChange={(event) => setWriting(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") setWriting(null);
+            }}
             placeholder="What happened to this class"
             aria-label={`Note on ${slotSaid(cls)}`}
             className="h-8 min-w-0 flex-1 rounded-md border border-[#d0d5dd] px-2 text-sm"
