@@ -40,6 +40,7 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy import Engine, text
 
+from sorbonne.services.class_change_notes import rescheduled_into
 from sorbonne.services.engine import engine_for
 from sorbonne.services.pay_rates import PayRates, rates_of
 from sorbonne.services.time_sheet_intake import TeacherNotKnown, teacher_for
@@ -110,6 +111,8 @@ class TimesheetPrefill:
                 {term for (term, _crn), held in meetings.items() if any(first <= day <= last for day, _s, _e in held)}
             )
             synced_at, complete = self._last_sync(connection, terms)
+            # Classes a coordinator linked as rescheduled: the arrived one says where it came from.
+            moved = rescheduled_into(connection, sorted({term for term, _ in own}))
             degree = connection.execute(
                 text("SELECT highest_degree FROM part_time_teachers WHERE id = :id"), {"id": teacher_id}
             ).scalar()
@@ -127,7 +130,10 @@ class TimesheetPrefill:
                     status = "covered"
                 else:
                     status = "met" if day < today else "scheduled"
-                sessions.append(_session(term, crn, day, starts_at, ends_at, n, section, status))
+                came_from = moved.get(term, {}).get((crn, day.isoformat(), starts_at, ends_at))
+                sessions.append(
+                    _rescheduled(_session(term, crn, day, starts_at, ends_at, n, section, status), came_from)
+                )
         # Somebody else's class they stood in for, on the dates they did.
         for (term, crn, day_text, starts_at), note in sorted(notes.items()):
             if (term, crn) in own or note["kind"] != "covered" or not _is_them(note, who):
@@ -359,6 +365,35 @@ def _is_them(note: dict[str, Any], who: dict[str, Any]) -> bool:
     if note.get("cover_teacher_id"):
         return note["cover_teacher_id"] in who["ids"]
     return names_them(note.get("cover_teacher_name") or "", who["words"])
+
+
+def _rescheduled(session: dict[str, Any], came_from: dict[str, str] | None) -> dict[str, Any]:
+    """A class a coordinator linked as rescheduled says so in its label, and says from what.
+
+    In the label because that is what the part-timer reads, and a label the flow has not
+    seen edited is replaced by the new one; the slot itself travels too, for the screens
+    that want to draw it.
+    """
+    if not came_from:
+        return session
+    return {
+        **session,
+        "label": f"{session['label']} (rescheduled from {_day_said(came_from['meetsOn'])})",
+        "rescheduledFrom": {"date": came_from["meetsOn"], "from": came_from["startsAt"], "to": came_from["endsAt"]},
+    }
+
+
+DAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+
+
+def _day_said(iso: str) -> str:
+    """"Tue 6 Nov"."""
+    try:
+        day = date.fromisoformat(iso)
+    except ValueError:
+        return iso
+    return f"{DAYS[day.weekday()]} {day.day} {MONTHS[day.month - 1]}"
 
 
 def _label(section: dict[str, str]) -> str:

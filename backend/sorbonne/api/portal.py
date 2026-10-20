@@ -23,6 +23,7 @@ from pydantic import BaseModel, Field
 from sorbonne.api.timetables import require_client
 from sorbonne.config import config
 from sorbonne.api.deps import optional_client
+from sorbonne.services.class_change_notes import AnnotationRefused, ClassChangeNotes
 from sorbonne.services.facility_timetable import ContradictoryPull, FacilityTimetableStore
 from sorbonne.services import coordinator_directory
 from sorbonne.services.session_changes import ChangeNotFound, NoCoverTeacher, SessionChangeStore
@@ -864,6 +865,88 @@ def read_changed_classes(
     read as a class that had always been there.
     """
     return {"termCode": term_code, "sections": facilities.classes_changed(term_code)}
+
+
+def get_class_notes() -> ClassChangeNotes:
+    facilities = FacilityTimetableStore(config.database_url)
+    return ClassChangeNotes(facilities.engine, facilities)
+
+
+class ClassSlot(BaseModel):
+    meetsOn: str = Field(min_length=8, max_length=10)
+    startsAt: str = Field(min_length=4, max_length=8)
+    endsAt: str = Field(min_length=4, max_length=8)
+
+
+class ClassLinkInput(BaseModel):
+    crn: str = Field(min_length=1, max_length=20)
+    # The class that went, and the class it was rescheduled into.
+    gone: ClassSlot
+    arrived: ClassSlot
+    note: str = Field(default="", max_length=400)
+
+
+class ClassNoteInput(BaseModel):
+    crn: str = Field(min_length=1, max_length=20)
+    side: str = Field(pattern="^(removed|added)$")
+    cls: ClassSlot
+    # Empty takes the note away.
+    note: str = Field(default="", max_length=400)
+
+
+def _signed_by(request: Request) -> tuple[str, str]:
+    staff = getattr(request.state, "staff_user", None)
+    email = getattr(staff, "email", "") or ""
+    return email, coordinator_directory.name_for(email, getattr(staff, "name", "") or "") if email else ""
+
+
+@router.get("/facility-timetable/{term_code}/class-notes")
+def read_class_notes(term_code: str, notes: ClassChangeNotes = Depends(get_class_notes)) -> dict[str, Any]:
+    """What coordinators said about the changed classes: links between a class that went and
+    the one it was rescheduled into, and notes on single classes — each saying whether it
+    still matches the change as it stands."""
+    return {"termCode": term_code, **notes.for_term(term_code)}
+
+
+@router.put("/facility-timetable/{term_code}/class-links")
+def link_classes(
+    term_code: str, body: ClassLinkInput, request: Request, notes: ClassChangeNotes = Depends(get_class_notes)
+) -> dict[str, Any]:
+    """This class that went was rescheduled into that one that arrived."""
+    email, name = _signed_by(request)
+    try:
+        return notes.link(
+            term_code,
+            body.crn,
+            body.gone.model_dump(),
+            body.arrived.model_dump(),
+            note=body.note,
+            author_email=email,
+            author_name=name,
+        )
+    except AnnotationRefused as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+
+
+@router.delete("/class-links/{link_id}", status_code=status.HTTP_204_NO_CONTENT)
+def unlink_classes(link_id: str, notes: ClassChangeNotes = Depends(get_class_notes)) -> None:
+    if not notes.unlink(link_id):
+        raise _missing("link")
+
+
+@router.put("/facility-timetable/{term_code}/class-notes")
+def note_class(
+    term_code: str, body: ClassNoteInput, request: Request, notes: ClassChangeNotes = Depends(get_class_notes)
+) -> dict[str, Any]:
+    """A note on one class that went or arrived; an empty note takes it away."""
+    email, name = _signed_by(request)
+    try:
+        saved = notes.note(
+            term_code, body.crn, body.side, body.cls.model_dump(), body.note, author_email=email, author_name=name
+        )
+    except AnnotationRefused as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+    return {"note": saved}
 
 
 @router.get("/facility-timetable/{term_code}/sections")

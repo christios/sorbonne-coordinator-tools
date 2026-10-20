@@ -18,6 +18,7 @@ from sorbonne.main import app
 from sorbonne.services.facility_timetable import FacilityTimetableStore
 from sorbonne.services.session_changes import SessionChangeStore
 from sorbonne.services.student_database import StudentDatabase
+from sorbonne.services.class_change_notes import ClassChangeNotes
 from sorbonne.services.pay_rates import PayRates
 from sorbonne.services.teacher_store import TeacherStore
 from sorbonne.services.timesheet_prefill import TimesheetPrefill, names_them, period_of
@@ -47,6 +48,8 @@ def empty_tables() -> None:
             "teacher_requisitions",
             "part_time_teachers",
             "pay_rates",
+            "class_change_links",
+            "facility_meeting_changes",
         ):
             connection.execute(text(f"DELETE FROM {table}"))  # noqa: S608
 
@@ -407,4 +410,27 @@ def test_a_rate_nobody_can_say_yet_says_why(prefill: TimesheetPrefill):
     pay = prefill.sessions(period_start="2026-10-15", email=teacher["email"], today=TODAY)["pay"]
     assert pay["issues"] == [{"kind": "no_rates", "year": "2026-2027"}]
     assert pay["rates"] == {"CM": None, "TD-TP": None, "OTHER": None}
+
+
+def test_a_class_linked_as_rescheduled_says_where_it_came_from(prefill: TimesheetPrefill):
+    """In its label, which the part-timer reads, and as the slot it replaced."""
+    ahmed = a_part_timer("Ahmed Menaa")
+    a_section(crn="24007", teacher_id=ahmed["activeId"])
+    swept({"24007": [("2026-11-03", "08:30", "10:00"), ("2026-11-06", "08:30", "10:00")]})
+    swept({"24007": [("2026-11-05", "13:15", "14:45"), ("2026-11-06", "08:30", "10:00")]})
+    facilities = FacilityTimetableStore(TEST_DATABASE_URL)
+    ClassChangeNotes(facilities.engine, facilities).link(
+        TERM,
+        "24007",
+        {"meetsOn": "2026-11-03", "startsAt": "08:30", "endsAt": "10:00"},
+        {"meetsOn": "2026-11-05", "startsAt": "13:15", "endsAt": "14:45"},
+    )
+
+    sessions = prefill.sessions(period_start="2026-10-15", email=ahmed["email"], today=TODAY)["sessions"]
+
+    thursday, friday = sessions
+    assert thursday["label"].endswith("(rescheduled from Tue 3 Nov)")
+    assert thursday["rescheduledFrom"] == {"date": "2026-11-03", "from": "08:30", "to": "10:00"}
+    assert "rescheduledFrom" not in friday
+    assert "rescheduled" not in friday["label"]
 
