@@ -459,9 +459,10 @@ function Class({
         course?.staff,
         course?.group,
         crowded ? `${registered} registered for ${seats} seats` : "",
-        cancelled ? "CANCELLED" : "",
-        covered ? `covered by ${covered.coverTeacherName}` : "",
-        movedFromSaid(session),
+        // Whose word each mark is: the department's planning.
+        cancelled ? "Planning: CANCELLED" : "",
+        covered ? `Planning: covered by ${covered.coverTeacherName}` : "",
+        movedFromSaid(session) ? `Planning: ${movedFromSaid(session)}` : "",
         session.change?.note ?? "",
         session.clashes ? clash : "",
       ].filter(Boolean),

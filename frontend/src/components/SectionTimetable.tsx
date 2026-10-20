@@ -3,6 +3,7 @@ import { ChevronLeft, ChevronRight, Maximize2 } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
+import { SourceMark } from "@/components/DataTable";
 import { Modal } from "@/components/Modal";
 import { SelectMenu } from "@/components/SelectMenu";
 import { WeekCalendar } from "@/components/WeekCalendar";
@@ -506,11 +507,21 @@ function Timetable({
           {/* Only where there is one to read. A key to a mark nobody can see is clutter. */}
           {!fills && sessions.some((session) => session.registrar) ? (
             <p className={`mt-1 text-[#98a2b3] ${small}`}>
+              <SourceMark source="portal" className="mr-1" />
               Faded and struck through: a class the registrar removed. Added: one it put in since the section was first seen.
             </p>
           ) : null}
           {!fills && sessions.some((session) => session.change?.kind === "covered") ? (
-            <p className={`mt-1 text-[#98a2b3] ${small}`}>Striped: somebody other than the usual teacher was in the room.</p>
+            <p className={`mt-1 text-[#98a2b3] ${small}`}>
+              <SourceMark source="planning" className="mr-1" />
+              Striped: somebody other than the usual teacher was in the room.
+            </p>
+          ) : null}
+          {!fills && sessions.some((session) => session.change?.kind === "cancelled" || session.rescheduledFrom) ? (
+            <p className={`mt-1 text-[#98a2b3] ${small}`}>
+              <SourceMark source="planning" className="mr-1" />
+              Cancelled and Moved: what the department noted, or linked on Class changes.
+            </p>
           ) : null}
           {fills ? null : onPickSession ? (
             <p className={`mt-1 text-[#98a2b3] ${small}`}>Press a class to say it was cancelled or covered by somebody else.</p>

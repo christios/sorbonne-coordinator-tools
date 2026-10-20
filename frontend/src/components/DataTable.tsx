@@ -756,7 +756,7 @@ export function WindowMark({ window }: { window: string }) {
 }
 
 /** A small word after a heading saying whose fact this is. */
-export function SourceMark({ source }: { source: ColumnSource }) {
+export function SourceMark({ source, className = "ml-1.5" }: { source: ColumnSource; className?: string }) {
   // One pill for the portal, whichever of its lists or its timetable the fact came from.
   const look =
     source === "portal" || source === "registrar"
@@ -767,9 +767,9 @@ export function SourceMark({ source }: { source: ColumnSource }) {
   return (
     <span
       title={`From ${SOURCE_WORDS[source]}`}
-      className={`ml-1.5 inline-block rounded px-1 py-px align-middle text-[9px] font-semibold uppercase tracking-wide ${look}`}
+      className={`${className} inline-block rounded px-1 py-px align-middle text-[9px] font-semibold uppercase tracking-wide ${look}`}
     >
-      {source === "planning" ? "plan" : source === "part-time" ? "REQ" : "portal"}
+      {source === "planning" ? "planning" : source === "part-time" ? "REQ" : "portal"}
     </span>
   );
 }

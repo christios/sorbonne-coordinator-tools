@@ -21,6 +21,7 @@ import { ArrowRight, Link2, MessageSquare, Search, Unlink, X } from "lucide-reac
 import { useMemo, useState } from "react";
 
 import { SectionDiff } from "@/components/ClassChanges";
+import { SourceMark } from "@/components/DataTable";
 import { SelectMenu } from "@/components/SelectMenu";
 import { minutesOf } from "@/services/classDiff";
 import {
@@ -335,7 +336,10 @@ function ChangeLists({
       ) : null}
       <div className="grid gap-4">
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-[#842029]">Went ({section.removed.length})</p>
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-[#842029]">
+            Went ({section.removed.length})
+            <SourceMark source="portal" />
+          </p>
           <ul className="mt-1 grid gap-1.5">
             {section.removed.map((cls) => {
               const linked = linkFrom.get(keyOf(cls));
@@ -351,6 +355,7 @@ function ChangeLists({
                 >
                   {linked ? (
                     <span className="inline-flex items-center gap-1 rounded bg-[#eaf1f8] px-1.5 py-0.5 text-xs font-semibold text-[#1f4e79]">
+                      <SourceMark source="planning" className="" />
                       <ArrowRight size={12} aria-hidden="true" /> {slotSaid(linked.to)}
                       <button
                         type="button"
@@ -378,7 +383,10 @@ function ChangeLists({
           </ul>
         </div>
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-[#0f5132]">Arrived ({section.added.length})</p>
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-[#0f5132]">
+            Arrived ({section.added.length})
+            <SourceMark source="portal" />
+          </p>
           {section.added.length ? (
             <ul className="mt-1 grid gap-1.5">
               {section.added.map((cls) => {
@@ -403,6 +411,7 @@ function ChangeLists({
                       </button>
                     ) : linked ? (
                       <span className="inline-flex items-center gap-1 rounded bg-[#eaf1f8] px-1.5 py-0.5 text-xs font-semibold text-[#1f4e79]">
+                        <SourceMark source="planning" className="" />
                         from {slotSaid(linked.from)}
                       </span>
                     ) : null}
@@ -473,6 +482,7 @@ function ClassRow({
       </div>
       {note && writing === null ? (
         <p className="mt-1 text-xs text-[#475467]">
+          <SourceMark source="planning" className="mr-1.5" />
           {note.note} <span className="text-[#98a2b3]">— {note.byName || note.byEmail}</span>
         </p>
       ) : null}
@@ -528,7 +538,10 @@ function NoLongerMatching({ termCode, items }: { termCode: string; items: (Class
   });
   return (
     <section className="rounded-lg border border-[#e4e8ef] bg-[#f8fafc] p-4">
-      <h4 className="text-sm font-semibold text-[#344054]">No longer matching the timetable</h4>
+      <h4 className="text-sm font-semibold text-[#344054]">
+        No longer matching the timetable
+        <SourceMark source="planning" />
+      </h4>
       <p className="mt-0.5 text-xs text-[#667085]">
         The registrar has since put back a class that went, or taken away one that arrived. Kept so nothing anybody wrote
         is lost.

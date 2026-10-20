@@ -329,12 +329,15 @@ function DayColumn({
               // On a stand-in's week the section's own teacher IS the "covering for" line
               // below, and naming them twice reads as two people.
               covered?.standingIn ? "" : course?.staff,
-              cancelled ? "CANCELLED" : "",
-              movedFromSaid(session),
-              covered ? (covered.standingIn ? `covering for ${covered.coverTeacherName}` : `covered by ${covered.coverTeacherName}`) : "",
+              // Whose word each mark is: the department's planning, or the portal's timetable.
+              cancelled ? "Planning: CANCELLED" : "",
+              movedFromSaid(session) ? `Planning: ${movedFromSaid(session)}` : "",
+              covered
+                ? `Planning: ${covered.standingIn ? `covering for ${covered.coverTeacherName}` : `covered by ${covered.coverTeacherName}`}`
+                : "",
               session.change?.note ?? "",
               unregistered ? "in their group, not registered" : "",
-              removed ? "REMOVED by the registrar" : added ? "added by the registrar" : "",
+              removed ? "Portal: REMOVED by the registrar" : added ? "Portal: added by the registrar" : "",
               session.clashes ? "overlaps another class" : "",
             ].filter(Boolean),
           ),

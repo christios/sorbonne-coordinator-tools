@@ -167,8 +167,10 @@ describe("one CRN's changes", () => {
     record("23638");
 
     expect(await screen.findByText(/Approved by Patricia, 20 Oct/)).toBeTruthy();
-    expect(screen.getByText("Went (1)")).toBeTruthy();
-    expect(screen.getByText("Arrived (1)")).toBeTruthy();
+    // What the portal says, and what the department made of it, each tagged with whose word it is.
+    expect(within(screen.getByText("Went (1)")).getByText("portal")).toBeTruthy();
+    expect(within(screen.getByText("Arrived (1)")).getByText("portal")).toBeTruthy();
+    expect(within(screen.getByText(/Approved by Patricia/).parentElement as HTMLElement).getByText("planning")).toBeTruthy();
     // The record already says which CRN it is.
     expect(screen.queryByText(/PHYS-125 · CRN 23638/)).toBeNull();
   });

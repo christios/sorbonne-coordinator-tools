@@ -3,6 +3,7 @@ import { useState, type ReactNode } from "react";
 
 import { CrnDialog } from "@/components/ActiveCourses";
 import { PortalChanges } from "@/components/ClassChangesPage";
+import { SourceMark } from "@/components/DataTable";
 import { InfoTip } from "@/components/InfoTip";
 import { Modal } from "@/components/Modal";
 import { SectionTimetable } from "@/components/SectionTimetable";
@@ -31,6 +32,7 @@ import { exportCrnTimetable } from "@/services/timetableExports";
 import { warningsByCrn, WORDS } from "@/services/registerWarnings";
 import { CopyButton } from "@/components/CopyButton";
 import { asMailList, emailsFor } from "@/services/studentEmails";
+import type { ColumnSource } from "@/services/studentColumns";
 import { fetchCourseCards } from "@/services/studentDatabase";
 import { fetchTimetableTerms } from "@/services/timetables";
 
@@ -214,7 +216,7 @@ export function CrnRecord({
        * tall as each other — two columns stacked on their own ended wherever they happened to.
        */}
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-        <Card title="Who teaches it" note="The group of ours this CRN stands for, and what the timetabler was asked for.">
+        <Card title="Who teaches it" sources={["planning"]} note="The group of ours this CRN stands for, and what the timetabler was asked for.">
           {taught.length === 0 ? (
             <Empty>On no course card. Nothing of ours teaches under it.</Empty>
           ) : (
@@ -244,7 +246,7 @@ export function CrnRecord({
             </ul>
           )}
         </Card>
-        <Card title="What is wrong with it">
+        <Card title="What is wrong with it" sources={["portal", "planning"]}>
           {check.isLoading ? (
             <Empty>Reading the register…</Empty>
           ) : warnings.length === 0 && tooSmall.length === 0 ? (
@@ -271,6 +273,7 @@ export function CrnRecord({
         </Card>
         <Card
           title="When the portal has it"
+          sources={["portal"]}
           action={
             section?.meetings.length ? (
               // Its schedule as a PDF: this week grid for every teaching week, a page each.
@@ -329,12 +332,13 @@ export function CrnRecord({
             * The one thing on a CRN that is ours to change, kept where the CRN is looked at
             * rather than behind a second press somewhere else.
             */}
-          <Card title="What it hangs from" note="The parent CRN the register holds it under — the one thing here that is the CRN's own.">
+          <Card title="What it hangs from" sources={["planning"]} note="The parent CRN the register holds it under — the one thing here that is the CRN's own.">
             <CrnDialog row={row} course={course} siblings={siblings} onClose={onClose} onSaved={onSaved} inline />
           </Card>
           <Card
             className="flex-1"
             title="Changes to its classes"
+            sources={["planning"]}
             note="Classes cancelled, or covered by somebody else. Press a date to change what is noted about that class; Teacher hours read these."
           >
             <SessionChangeList
@@ -368,6 +372,7 @@ export function CrnRecord({
         <Card
           className="lg:col-span-2"
           title="What changed on Portal"
+          sources={["portal"]}
           note="Classes the registrar removed or added since this CRN was first seen. Link a removed class to the one it was rescheduled into, note either, and approve the change."
           action={
             row.termCode ? (
@@ -385,6 +390,7 @@ export function CrnRecord({
         <Card
           className="lg:col-span-2"
           title={`Registered in it${inIt.data ? ` · ${inIt.data.length}` : ""}`}
+          sources={["portal", "planning"]}
           note="Who the portal has in this section, and the group of ours it stands for. Names are this browser's."
           action={
             addresses.found.length ? (
@@ -476,12 +482,15 @@ export function CrnRecord({
 
 function Card({
   title,
+  sources = [],
   note,
   action,
   className = "",
   children,
 }: {
   title: string;
+  /** Whose facts these are — the portal's, our planning's, or both where it compares them. */
+  sources?: ColumnSource[];
   note?: string;
   /** Something the card as a whole does, beside its heading. */
   action?: ReactNode;
@@ -498,7 +507,12 @@ function Card({
         */}
       <div className="mb-2 flex items-start justify-between gap-2">
         <div className="flex items-center gap-1.5">
-          <h3 className="text-sm font-semibold text-[#171717]">{title}</h3>
+          <h3 className="text-sm font-semibold text-[#171717]">
+            {title}
+            {sources.map((source) => (
+              <SourceMark key={source} source={source} />
+            ))}
+          </h3>
           {note ? <InfoTip label={`About ${title.charAt(0).toLowerCase()}${title.slice(1)}`}>{note}</InfoTip> : null}
         </div>
         {action}

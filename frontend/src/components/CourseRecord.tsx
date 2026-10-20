@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
 
 import { CrnRecord } from "@/components/CrnRecord";
+import { SourceMark } from "@/components/DataTable";
 import { InfoTip } from "@/components/InfoTip";
 import { Modal } from "@/components/Modal";
 import { SelectMenu } from "@/components/SelectMenu";
@@ -20,6 +21,7 @@ import {
   type ActiveCrn,
   type Mutualized,
 } from "@/services/portalLists";
+import type { ColumnSource } from "@/services/studentColumns";
 import { fetchCourseCards } from "@/services/studentDatabase";
 import { fetchTimetableTerms } from "@/services/timetables";
 import { exportCrnTimetable } from "@/services/timetableExports";
@@ -153,7 +155,7 @@ export function CourseRecord({
           * untrue about what they are, and left the course, which is the thing they
           * describe, with nowhere to say them.
           */}
-        <Card title="What we say about it" note="The course's own facts, the same on every CRN of it.">
+        <Card title="What we say about it" sources={["planning"]} note="The course's own facts, the same on every CRN of it.">
           {course ? (
             <CourseFacts
               key={course.id}
@@ -167,7 +169,7 @@ export function CourseRecord({
             <Empty>Not in the register, so there is nothing to say about it yet.</Empty>
           )}
         </Card>
-        <Card title="Where we teach it" note="Every group of every set that holds a section of this course.">
+        <Card title="Where we teach it" sources={["planning"]} note="Every group of every set that holds a section of this course.">
           {cards.length === 0 ? (
             <Empty>On no course card yet. Add it to a set on Group schema.</Empty>
           ) : (
@@ -179,7 +181,7 @@ export function CourseRecord({
           )}
         </Card>
         <div className="flex flex-col gap-3">
-          <Card title="In the register" note="The CRNs the department answers for, and what the portal says about each.">
+          <Card title="In the register" sources={["planning", "portal"]} note="The CRNs the department answers for, and what the portal says about each.">
             {held.length === 0 ? (
               <Empty>Not in the register. Take the course in on Active CRNs and its CRNs come with it.</Empty>
             ) : (
@@ -190,7 +192,7 @@ export function CourseRecord({
               </ul>
             )}
           </Card>
-          <Card title="What is wrong with it" note="The differences that name this course, and nothing else's." className="flex-1">
+          <Card title="What is wrong with it" sources={["portal", "planning"]} note="The differences that name this course, and nothing else's." className="flex-1">
             {check.isLoading ? (
               <Empty>Reading the register…</Empty>
             ) : differences.length === 0 ? (
@@ -206,6 +208,7 @@ export function CourseRecord({
         </div>
         <Card
           title="When it meets"
+          sources={["portal"]}
           action={
             held.length ? (
               /*
@@ -367,12 +370,15 @@ function TaughtIn({ card, nameOf }: { card: CourseCard; nameOf: (teacherId: stri
 
 function Card({
   title,
+  sources = [],
   note,
   action,
   className = "",
   children,
 }: {
   title: string;
+  /** Whose facts these are — the portal's, our planning's, or both where it compares them. */
+  sources?: ColumnSource[];
   note?: string;
   action?: ReactNode;
   /** `flex-1` for the last card of a column, so it reaches the foot of its row. */
@@ -384,7 +390,12 @@ function Card({
       {/* What the card is for sits on an ⓘ by its title: read once, not paid for on every opening. */}
       <div className="mb-2 flex items-start justify-between gap-2">
         <div className="flex items-center gap-1.5">
-          <h3 className="text-sm font-semibold text-[#171717]">{title}</h3>
+          <h3 className="text-sm font-semibold text-[#171717]">
+            {title}
+            {sources.map((source) => (
+              <SourceMark key={source} source={source} />
+            ))}
+          </h3>
           {note ? <InfoTip label={`About ${title.charAt(0).toLowerCase()}${title.slice(1)}`}>{note}</InfoTip> : null}
         </div>
         {action}

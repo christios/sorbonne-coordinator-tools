@@ -33,6 +33,7 @@ import { AlertTriangle, Check, CheckCircle2 } from "lucide-react";
 import { Tooltip } from "radix-ui";
 import { useMemo, type CSSProperties, type ReactNode } from "react";
 
+import { SourceMark } from "@/components/DataTable";
 import { locationFor } from "@/routes/toolRoute";
 import { hoursIn, minutesOf, monthsOfDiff, stillToLookAt, unexpected, type DiffDay, type Meeting } from "@/services/classDiff";
 import { formatRoom } from "@/services/weekSchedule";
@@ -181,8 +182,11 @@ export function SectionDiff({
             </p>
           </div>
           {approval ? (
-            <span className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-[#e8f5ee] px-3 py-1.5 text-sm font-semibold text-[#1f6b47]">
-              <CheckCircle2 size={16} aria-hidden="true" /> Approved by {approval.byName || approval.byEmail}, {shortDay(approval.at)}
+            <span className="inline-flex shrink-0 items-center">
+              <span className="inline-flex items-center gap-1.5 rounded-md bg-[#e8f5ee] px-3 py-1.5 text-sm font-semibold text-[#1f6b47]">
+                <CheckCircle2 size={16} aria-hidden="true" /> Approved by {approval.byName || approval.byEmail}, {shortDay(approval.at)}
+              </span>
+              <SourceMark source="planning" />
             </span>
           ) : onApprove ? (
             <button
@@ -227,7 +231,9 @@ export function SectionDiff({
             </div>
           ))}
         </div>
-        <p className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-sm text-[#667085]">
+        <p className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-[#667085]">
+          {/* The months are the portal's: what it had when the section was first seen, and what it has now. */}
+          <SourceMark source="portal" className="" />
           <span className="inline-flex items-center gap-1.5">
             <span className="inline-block h-3 w-3 rounded-sm bg-[#cfe2ff]" /> unchanged
           </span>

@@ -190,8 +190,8 @@ describe("what the coordinators have said about the classes", () => {
 
     show([{ termCode: "262710", crn: "23436", code: "MATH-351", title: "Algebra" }]);
 
-    expect(await screen.findByLabelText(/CANCELLED.*storm/)).toBeTruthy();
-    expect(screen.getByLabelText(/covered by Sudarshan Shinde/)).toBeTruthy();
+    expect(await screen.findByLabelText(/Planning: CANCELLED.*storm/)).toBeTruthy();
+    expect(screen.getByLabelText(/Planning: covered by Sudarshan Shinde/)).toBeTruthy();
   });
 
   it("hands the pressed class to whoever wants to say what happened to it", async () => {
@@ -344,8 +344,8 @@ describe("what the registrar changed, on a CRN's or a course's record", () => {
     expect(await screen.findByText("Removed")).toBeTruthy();
     expect(screen.getByText("Added")).toBeTruthy();
     const said = screen.getAllByLabelText(/CRN 23436/).map((box) => box.getAttribute("aria-label") ?? "");
-    expect(said.filter((text) => text.includes("09:00–11:00") && text.includes("REMOVED by the registrar"))).toHaveLength(1);
-    expect(said.filter((text) => text.includes("13:30–15:00") && text.includes("added by the registrar"))).toHaveLength(1);
+    expect(said.filter((text) => text.includes("09:00–11:00") && text.includes("Portal: REMOVED by the registrar"))).toHaveLength(1);
+    expect(said.filter((text) => text.includes("13:30–15:00") && text.includes("Portal: added by the registrar"))).toHaveLength(1);
     expect(said.filter((text) => text.includes("08:30–10:00") && text.includes("registrar"))).toHaveLength(0);
     expect(screen.getByText(/Faded and struck through: a class the registrar removed/)).toBeTruthy();
   });
