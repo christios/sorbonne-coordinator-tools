@@ -39,6 +39,10 @@ class Config(BaseSettings):
     # And reads each part-timer's scheduled sessions back, to pre-fill their draft. A key of
     # its own, read-only: one that leaked could not post a sheet. Unset refuses every read.
     timesheet_read_key: str | None = None
+    # SCEN Requests (Power Apps over SharePoint) copies every teacher's classes from here,
+    # so a professor ticks the classes a request is about rather than typing them. A key of
+    # its own and read-only, like the pre-fill's; unset refuses every read.
+    requests_read_key: str | None = None
 
 
 config = Config()

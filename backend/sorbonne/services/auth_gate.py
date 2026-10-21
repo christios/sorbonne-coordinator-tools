@@ -80,6 +80,25 @@ def reading_a_prefill(request: Request) -> bool:
     return bool(key) and compare_digest(key, given)
 
 
+#: Where the SCEN Requests app reads every teacher's classes, and the header it proves
+#: itself with. A third key: neither timesheet key opens it, and it opens nothing else.
+REQUESTS_CLASSES_PATH = "/api/v1/requests/classes"
+REQUESTS_READ_HEADER = "x-requests-read-key"
+
+
+def reading_classes(request: Request) -> bool:
+    """A machine with the department's requests key, reading every teacher's classes.
+
+    The pre-fill's rules: answered before sign-in, read-only, and refused outright when no
+    key is configured.
+    """
+    if request.url.path.rstrip("/") != REQUESTS_CLASSES_PATH or request.method != "GET":
+        return False
+    key = (config.requests_read_key or "").strip()
+    given = (request.headers.get(REQUESTS_READ_HEADER) or "").strip()
+    return bool(key) and compare_digest(key, given)
+
+
 def is_public(path: str) -> bool:
     """The static app shell is public; the API and the handbook are not."""
     if path in PUBLIC_PATHS:
@@ -102,6 +121,11 @@ class StaffAuthGate(BaseHTTPMiddleware):
         if request.url.path.rstrip("/") == TIMESHEET_PREFILL_PATH:
             if not reading_a_prefill(request):
                 # The flow stops its run on this, so it shows in the flow's run history.
+                return JSONResponse(status_code=401, content={"detail": "That key is not this department's."})
+            return await call_next(request)
+
+        if request.url.path.rstrip("/") == REQUESTS_CLASSES_PATH:
+            if not reading_classes(request):
                 return JSONResponse(status_code=401, content={"detail": "That key is not this department's."})
             return await call_next(request)
 
