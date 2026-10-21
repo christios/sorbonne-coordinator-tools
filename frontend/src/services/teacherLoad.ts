@@ -314,11 +314,15 @@ export function loadRows(loads: TeacherLoad[], active: ActiveTeacher[], crnsOf: 
 }
 
 /**
- * The registrar's hours for one teacher: every section the portal staffs with them, added up.
+ * The registrar's hours for one teacher: every class the portal names them on, added up.
  *
  * Theirs by the portal's own staffing, not by our planning — that is what makes the number
  * worth reading beside ours. Where the registrar has given a section to somebody else, the
  * two columns part company on both rows, and that is the whole point of having both.
+ *
+ * Class by class, not section by section: a section's one name is whoever its classes name
+ * now, and counting the whole section under it put Sachin Valera's September classes of
+ * Maths Readiness G.3 and G.6 on Ahmed Menaa, who took them over in October.
  */
 export function registrarHoursFor(
   hours: FacilityHours,
@@ -326,10 +330,32 @@ export function registrarHoursFor(
   same: (left: string, right: string) => boolean,
 ): number {
   if (!teacher) return 0;
-  const total = Object.values(hours)
-    .filter((section) => section.teacherName && same(section.teacherName, teacher))
-    .reduce((sum, section) => sum + section.hours, 0);
+  const total = Object.values(hours).reduce((sum, section) => sum + portalShareOf(section, teacher, same), 0);
   return Math.round(total * 100) / 100;
+}
+
+/** The people a portal teacher field names — "Diaa Mereib, Sara Khaled" is two. */
+export function peopleNamed(field: string): string[] {
+  return (field || "").split(/\s*(?:,|;|\/|&|\band\b)\s*/).filter((part) => part.trim());
+}
+
+/** Whether a portal teacher field names this teacher, alone or beside somebody. */
+export function portalNames(field: string, teacher: string, same: (left: string, right: string) => boolean = sameTeacher): boolean {
+  return Boolean(teacher) && peopleNamed(field).some((person) => same(person, teacher));
+}
+
+/**
+ * The hours of one section the portal books under this teacher: the classes that name
+ * them. A class naming two people is each one's; an answer from before the split counts
+ * the section whole under its one name, as it always did.
+ */
+export function portalShareOf(
+  section: FacilityHours[string],
+  teacher: string,
+  same: (left: string, right: string) => boolean = sameTeacher,
+): number {
+  if (!section.byTeacher) return portalNames(section.teacherName, teacher, same) ? section.hours : 0;
+  return section.byTeacher.filter((entry) => portalNames(entry.teacherName, teacher, same)).reduce((sum, entry) => sum + entry.hours, 0);
 }
 
 /** The registrar's hours per section, `term|crn -> hours`, and which terms have answered at all. */
@@ -526,16 +552,17 @@ export function sameTeacher(left: string, right: string): boolean {
  * total; this is the same question asked of a narrower pair of dates.
  */
 export function bookedInWindow(
-  sections: { teacherName: string; meetings: { meetsOn: string; startsAt: string; endsAt: string }[] }[],
+  sections: { teacherName: string; meetings: { meetsOn: string; startsAt: string; endsAt: string; teacherName?: string }[] }[],
   teacher: string,
   window: { from: string; to: string },
 ): number {
   if (!teacher) return 0;
   let minutes = 0;
   for (const section of sections) {
-    if (!sameTeacher(section.teacherName, teacher)) continue;
     for (const meeting of section.meetings) {
       if (meeting.meetsOn < window.from || meeting.meetsOn > window.to) continue;
+      // Whoever the class names; the section's name for a class that names nobody.
+      if (!portalNames(meeting.teacherName?.trim() || section.teacherName, teacher)) continue;
       minutes += Math.max(0, clockMinutes(meeting.endsAt) - clockMinutes(meeting.startsAt));
     }
   }

@@ -151,4 +151,34 @@ describe("a teacher's hours, CRN by CRN", () => {
     expect(own).toMatchObject({ crn: "23223", planned: 40, booked: 6, cancelled: 2, sections: ["Mechanics TD"], cohorts: ["BSc-L1-S1"] });
     expect(own.planned).toBe(hani.total);
   });
+
+  it("counts the portal's figure on the classes that name them, on the row and on its lines alike", () => {
+    // The section is Hani's now, but the portal names Sachin Valera on its first class.
+    const held = busy();
+    held.sections = held.sections.map((section) =>
+      section.crn === "23223"
+        ? { ...section, meetings: section.meetings.map((meeting, index) => (index === 0 ? { ...meeting, teacherName: "Sachin Valera" } : meeting)) }
+        : section,
+    );
+    held.booked = {
+      "23223": {
+        courseCode: "PHYS-101",
+        teacherName: "Hani Sayes",
+        hours: 6,
+        byTeacher: [
+          { teacherName: "Hani Sayes", hours: 4 },
+          { teacherName: "Sachin Valera", hours: 2 },
+        ],
+      },
+    };
+    const september = { from: "2026-09-01", to: "2026-09-30" };
+
+    const [whole] = hoursRowsFor(held, WHOLE, true);
+    expect(whole.registrarHours).toBe(4);
+    expect(crnDistribution(held, whole, WHOLE, true)[0].booked).toBe(4);
+
+    const [hani] = hoursRowsFor(held, september, false);
+    expect(hani.registrarHours).toBe(2);
+    expect(crnDistribution(held, hani, september, false)[0].booked).toBe(2);
+  });
 });

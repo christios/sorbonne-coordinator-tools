@@ -793,7 +793,8 @@ export type FacilitySection = {
    * answering; `never` when they have been asked and have never had a class under it.
    */
   state: "published" | "silent" | "gone" | "never" | "unchecked";
-  meetings: { meetsOn: string; startsAt: string; endsAt: string; room: string }[];
+  /** `teacherName`: whom the registrar names on that class; blank when stored before 1.10. */
+  meetings: { meetsOn: string; startsAt: string; endsAt: string; room: string; teacherName?: string }[];
 };
 
 export type FacilityTimetable = { termCode: string; sections: FacilitySection[]; pulledAt: string };
@@ -863,6 +864,11 @@ export type FacilityHours = Record<
     courseCode: string;
     teacherName: string;
     hours: number;
+    /**
+     * The same hours by whom each class names; a class with no name of its own counts under
+     * the section's. Missing from an answer older than the split.
+     */
+    byTeacher?: { teacherName: string; hours: number }[];
     /** Who the classes still to come name, and how many each. Blank names: synced before 1.10. */
     ahead?: { teacherName: string; sessions: number }[];
   }

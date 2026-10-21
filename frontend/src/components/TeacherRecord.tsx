@@ -15,7 +15,7 @@ import { requisitionCheck } from "@/services/requisitionCheck";
 import { teacherTimetable } from "@/services/personTimetable";
 import { requisitionHours, totalAdminHours } from "@/services/requisitions";
 import type { ColumnSource } from "@/services/studentColumns";
-import { type BookedHours, bookedHoursOf, registrarHoursFor, sameTeacher, sectionsTaughtBy } from "@/services/teacherLoad";
+import { type BookedHours, bookedHoursOf, portalShareOf, registrarHoursFor, sameTeacher, sectionsTaughtBy } from "@/services/teacherLoad";
 import { getTeacherRequisition, listTeacherRequisitions } from "@/services/teachers";
 import { fetchCourseCards } from "@/services/studentDatabase";
 import { fetchTimetableTerms } from "@/services/timetables";
@@ -185,14 +185,16 @@ export function TeacherRecord({
     combine: (reads) => ({
       registrarHours: reads.reduce((sum, read) => sum + registrarHoursFor(read.data ?? {}, teacher.fullName, sameTeacher), 0),
       /*
-       * And per section, for the table: `term|crn -> hours`, with the terms that have
+       * And per section, for the table: `term|crn -> their hours on it`, with the terms that have
        * answered at all, so a section the registrar has no timetable for can be told from
        * one whose answer has not arrived.
        */
       booked: {
         hours: new Map(
           reads.flatMap((read, index) =>
-            Object.entries(read.data ?? {}).map(([crn, section]) => [`${termCodes[index]}|${crn}`, section.hours] as const),
+            Object.entries(read.data ?? {}).map(
+              ([crn, section]) => [`${termCodes[index]}|${crn}`, portalShareOf(section, teacher.fullName, sameTeacher)] as const,
+            ),
           ),
         ),
         answered: new Set(termCodes.filter((_, index) => reads[index]?.data)),
@@ -378,7 +380,7 @@ export function TeacherRecord({
                 <th
                   scope="col"
                   className="whitespace-nowrap px-3 py-2 text-right"
-                  title="What the portal's timetable books for the CRN over the whole semester"
+                  title="What the portal's timetable books for the CRN over the whole semester, on the classes that name them"
                 >
                   Hours <SourceMark source="registrar" />
                 </th>

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { buildCards } from "@/services/courseCards";
-import { asTaught, bookedHoursOf, hoursColumn, hoursColumns, taughtLoads, loadRows, loadTotals, registrarHoursFor, sameTeacher, sectionsTaughtBy, shownHoursColumns, teacherLoads } from "@/services/teacherLoad";
+import { asTaught, bookedHoursOf, bookedInWindow, hoursColumn, hoursColumns, taughtLoads, loadRows, loadTotals, portalShareOf, registrarHoursFor, sameTeacher, sectionsTaughtBy, shownHoursColumns, teacherLoads } from "@/services/teacherLoad";
 import type { ActiveTeacher } from "@/services/portalLists";
 import { sortByColumn } from "@/services/studentColumns";
 import { EMPTY_REQUEST, EMPTY_SECTION, type CohortCatalogue } from "@/services/studentDatabase";
@@ -281,6 +281,66 @@ describe("the registrar's hours beside ours", () => {
     };
     expect(registrarHoursFor(booked, "Grace Younes", sameTeacher)).toBe(52.5);
     expect(registrarHoursFor(booked, "", sameTeacher)).toBe(0);
+  });
+
+  /*
+   * Maths Readiness G.3 and G.6 were Sachin Valera's until 5 October and Ahmed Menaa's after;
+   * G.10 was Ahmed's from its first class. Each section's one name is Ahmed's now, and
+   * counting a section whole under it gave him 129 hours and Sachin none.
+   */
+  const handedOver = {
+    "24000": {
+      courseCode: "MATH-001",
+      teacherName: "Ahmed Menaa",
+      hours: 49.5,
+      byTeacher: [
+        { teacherName: "Ahmed Menaa", hours: 30 },
+        { teacherName: "Sachin Valera", hours: 19.5 },
+      ],
+    },
+    "24003": {
+      courseCode: "MATH-001",
+      teacherName: "Ahmed Menaa",
+      hours: 49.5,
+      byTeacher: [
+        { teacherName: "Ahmed Menaa", hours: 30 },
+        { teacherName: "Sachin Valera", hours: 19.5 },
+      ],
+    },
+    "24007": { courseCode: "MATH-001", teacherName: "Ahmed Menaa", hours: 30, byTeacher: [{ teacherName: "Ahmed Menaa", hours: 30 }] },
+  };
+
+  it("counts each class under whoever the portal names on it, not the section's one name", () => {
+    expect(registrarHoursFor(handedOver, "Ahmed Menaa", sameTeacher)).toBe(90);
+    expect(registrarHoursFor(handedOver, "Sachin Valera", sameTeacher)).toBe(39);
+    expect(portalShareOf(handedOver["24000"], "Sachin Valera")).toBe(19.5);
+    expect(portalShareOf(handedOver["24007"], "Sachin Valera")).toBe(0);
+  });
+
+  it("gives a class naming two people to each of them", () => {
+    const shared = {
+      "24311": { courseCode: "PHYS-101", teacherName: "Sara Khaled", hours: 6, byTeacher: [{ teacherName: "Diaa Mereib, Sara Khaled", hours: 6 }] },
+    };
+    expect(registrarHoursFor(shared, "Diaa Mereib", sameTeacher)).toBe(6);
+    expect(registrarHoursFor(shared, "Sara Khaled", sameTeacher)).toBe(6);
+  });
+
+  it("over a window, reads the name on each class, and the section's on a class with none", () => {
+    const sections = [
+      {
+        teacherName: "Ahmed Menaa",
+        meetings: [
+          { meetsOn: "2026-09-07", startsAt: "13:15", endsAt: "14:45", teacherName: "Sachin Valera" },
+          { meetsOn: "2026-09-09", startsAt: "13:15", endsAt: "14:45", teacherName: "" },
+          { meetsOn: "2026-10-12", startsAt: "13:15", endsAt: "14:45", teacherName: "Ahmed Menaa" },
+          { meetsOn: "2026-10-14", startsAt: "13:15", endsAt: "14:45" },
+        ],
+      },
+    ];
+    const september = { from: "2026-09-01", to: "2026-09-30" };
+    expect(bookedInWindow(sections, "Sachin Valera", september)).toBe(1.5);
+    expect(bookedInWindow(sections, "Ahmed Menaa", september)).toBe(1.5);
+    expect(bookedInWindow(sections, "Ahmed Menaa", { from: "2026-10-01", to: "2026-10-31" })).toBe(3);
   });
 });
 

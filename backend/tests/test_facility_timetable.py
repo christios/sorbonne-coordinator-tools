@@ -331,7 +331,16 @@ def test_the_registrar_s_hours_are_added_up_from_the_dated_meetings(store: Facil
 
     hours = store.hours_for(TERM, today=date(2026, 10, 1))
 
-    assert hours == {"23436": {"courseCode": "MATH-001", "teacherName": "Cecile Paillot", "hours": 5.0, "ahead": []}}
+    assert hours == {
+        "23436": {
+            "courseCode": "MATH-001",
+            "teacherName": "Cecile Paillot",
+            "hours": 5.0,
+            # Classes stored with no name of their own count under the section's.
+            "byTeacher": [{"teacherName": "Cecile Paillot", "hours": 5.0}],
+            "ahead": [],
+        }
+    }
     assert store.hours_for("") == {}
 
 
@@ -356,10 +365,33 @@ def test_each_class_keeps_the_teacher_the_registrar_names_on_it(store: FacilityT
     ]
 
     assert hours["24000"]["ahead"] == [{"teacherName": "Ahmed Menaa", "sessions": 2}]
+    # The hours go to whoever each class names, whatever the section's one name says.
+    assert hours["24000"]["hours"] == 6.0
+    assert hours["24000"]["byTeacher"] == [
+        {"teacherName": "Ahmed Menaa", "hours": 3.0},
+        {"teacherName": "Sachin Valera", "hours": 3.0},
+    ]
     # Today's class counts as still to come; the September ones do not.
     assert store.hours_for(TERM, today=date(2026, 9, 8))["24000"]["ahead"] == [
         {"teacherName": "Ahmed Menaa", "sessions": 2},
         {"teacherName": "Sachin Valera", "sessions": 1},
+    ]
+
+
+def test_a_class_with_no_name_of_its_own_counts_under_the_section_s(store: FacilityTimetableStore):
+    """A sweep half from before 1.10, or a class the portal names nobody on: the section's
+    name stands in for that class alone, and the named classes keep their own."""
+    mixed = section("24003", meetings=[MONDAY, TUESDAY, ("2026-10-12", "13:15", "14:45")])
+    mixed["teacherName"] = "Ahmed Menaa"
+    mixed["meetings"][0]["teacherName"] = "Sachin Valera"
+    mixed["meetings"][1]["teacherName"] = "  "
+    store.record_pull(term_code=TERM, asked=["24003"], sections=[mixed], silent=[], failed=[], complete=True)
+
+    hours = store.hours_for(TERM, today=date(2026, 10, 1))
+
+    assert hours["24003"]["byTeacher"] == [
+        {"teacherName": "Ahmed Menaa", "hours": 3.0},
+        {"teacherName": "Sachin Valera", "hours": 1.5},
     ]
 
 

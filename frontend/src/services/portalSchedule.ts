@@ -24,7 +24,7 @@
 import { rowsPerPart, type Card } from "@/services/courseCards";
 import { filled } from "@/services/courseRequest";
 import type { FacilityHours } from "@/services/portalLists";
-import { sameTeacher, sectionsTaughtBy } from "@/services/teacherLoad";
+import { portalNames, sameTeacher, sectionsTaughtBy } from "@/services/teacherLoad";
 import type { Dismissal } from "@/services/warningDismissals";
 
 export type ScheduleKind = "not_on_portal" | "portal_only" | "not_timetabled";
@@ -63,14 +63,6 @@ export const KIND_WORDS: Record<ScheduleKind, string> = {
 /** A section's teacher field that names nobody. */
 const NOBODY = /^(tbd|tba|tbc|n\/?a|-|—|\?|staff)?$/i;
 
-/** The people a portal teacher field names — "Diaa Mereib, Sara Khaled" is two. */
-function people(field: string): string[] {
-  return (field || "").split(/\s*(?:,|;|\/|&|\band\b)\s*/).filter((part) => part.trim());
-}
-
-function names(field: string, teacher: string): boolean {
-  return people(field).some((person) => sameTeacher(person, teacher));
-}
 
 /**
  * Who our planning gives each section to: `"<portal term>|<crn>"` → their names.
@@ -159,7 +151,7 @@ export function portalScheduleWarnings(input: {
       found.not_timetabled.push({ termCode, crn: section.crn, where, other: "", sessions: null });
       continue;
     }
-    const others = coming(booked).filter((entry) => !names(entry.name, teacher.fullName));
+    const others = coming(booked).filter((entry) => !portalNames(entry.name, teacher.fullName));
     if (others.length) {
       const who = [...new Set(others.map((entry) => entry.name || "nobody"))].sort().join(", ");
       found.not_on_portal.push({ termCode, crn: section.crn, where, other: who, sessions: counted(others) });
@@ -170,7 +162,7 @@ export function portalScheduleWarnings(input: {
     for (const [crn, booked] of Object.entries(sections)) {
       const key = `${termCode}|${crn}`;
       if (mine.has(key) || !booked.hours) continue;
-      const theirs = coming(booked).filter((entry) => entry.name && names(entry.name, teacher.fullName));
+      const theirs = coming(booked).filter((entry) => entry.name && portalNames(entry.name, teacher.fullName));
       if (!theirs.length) continue;
       // Only a section our planning has decided: one nobody in it is named on, or that is
       // another department's, is the portal's to staff.

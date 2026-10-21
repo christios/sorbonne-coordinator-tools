@@ -19,6 +19,8 @@ import {
   crnsByTeacher,
   loadRows,
   placeByCrn,
+  portalNames,
+  portalShareOf,
   registrarHoursFor,
   sameTeacher,
   taughtLoads,
@@ -80,7 +82,7 @@ export function hoursBetween(source: HoursSource, row: LoadRow, between: Window)
 export type CrnWindowHours = {
   crn: string;
   courseCode: string;
-  /** Everything the portal booked under it in the window, cancelled or not. */
+  /** What the portal booked under it in the window on the classes that name them, cancelled or not. */
   booked: number;
   /** What they were in the room for: the meetings less the cancelled and the covered, or the ones they covered. */
   taught: number;
@@ -134,7 +136,12 @@ export function crnHoursBetween(input: {
     out.push({
       crn: section.crn,
       courseCode: section.courseCode,
-      booked: asHours(meetings.reduce((sum, meeting) => sum + minutes(meeting.startsAt, meeting.endsAt), 0)),
+      // As the row's Portal figure counts it: the classes that name them, the section's name standing in for none.
+      booked: asHours(
+        meetings
+          .filter((meeting) => portalNames(meeting.teacherName?.trim() || section.teacherName, teacher.name))
+          .reduce((sum, meeting) => sum + minutes(meeting.startsAt, meeting.endsAt), 0),
+      ),
       taught: asHours(taught),
       cancelled: mineHere
         ? asHours(
@@ -168,7 +175,7 @@ export type CrnLine = {
   cohorts: string[];
   /** The plan: what the sections under it are down for. Nought for a class they covered. */
   planned: number;
-  /** What the portal booked under it — over the window, or the semester's booked total. */
+  /** What the portal booked under it on the classes that name them — over the window, or the semester. */
   booked: number;
   cancelled: number;
   coveredByOthers: number;
@@ -230,7 +237,7 @@ export function crnDistribution(source: HoursSource, row: LoadRow, window: Windo
       sections: held.sections,
       cohorts: held.cohorts,
       planned: round(held.planned),
-      booked: whole ? round(source.booked[crn]?.hours ?? 0) : (met?.booked ?? 0),
+      booked: whole ? round(source.booked[crn] ? portalShareOf(source.booked[crn], row.teacher) : 0) : (met?.booked ?? 0),
       cancelled: met?.cancelled ?? 0,
       coveredByOthers: met?.coveredByOthers ?? 0,
       taught: met?.taught ?? 0,

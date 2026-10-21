@@ -638,12 +638,20 @@ class FacilityTimetableStore:
         }
 
     def hours_for(self, term_code: str, *, today: dt_date | None = None) -> dict[str, dict[str, Any]]:
-        """`crn -> {courseCode, teacherName, hours, ahead}`: what the registrar has booked.
+        """`crn -> {courseCode, teacherName, hours, byTeacher, ahead}`: what the registrar has booked.
 
         The registrar's own count of a section's teaching, for reading beside the hours our
         planning asks for. Added up from the dated meetings rather than taken from anywhere
         else, so a cancelled week or a half-semester handover is already in the number. A
         `gone` section contributes nothing, as everywhere.
+
+        `byTeacher` is the same hours split by whom the registrar names on each class, as
+        `[{teacherName, hours}]`. A section's one name is whoever its classes name now, so
+        counting the whole section under it put Sachin Valera's September classes of Maths
+        Readiness G.3 and G.6 under Ahmed Menaa, who took them over on 5 October — 39 hours
+        of somebody else's teaching on his count, and none on Sachin's. A class with no
+        name of its own — stored before the extension sent one (1.10), or one the portal
+        names nobody on — counts under the section's name, as every class did before.
 
         `ahead` is who the registrar names on the classes still to come — today's and later,
         Abu Dhabi's day — as `[{teacherName, sessions}]`. A hand-over leaves the section's
@@ -664,12 +672,24 @@ class FacilityTimetableStore:
                         GROUP BY s.crn, s.course_code, s.teacher_name"""),
                 {"t": term_code},
             ).all()
+            split = connection.execute(
+                text("""SELECT s.crn, coalesce(nullif(trim(m.teacher_name), ''), s.teacher_name, '') AS named,
+                               sum(EXTRACT(EPOCH FROM (m.ends_at::time - m.starts_at::time)) / 3600.0)
+                        FROM facility_sections s
+                        JOIN facility_meetings m ON m.term_code = s.term_code AND m.crn = s.crn
+                        WHERE s.term_code = :t AND s.schedule_state <> 'gone'
+                        GROUP BY s.crn, named ORDER BY s.crn, named"""),
+                {"t": term_code},
+            ).all()
             coming = connection.execute(
                 text("""SELECT crn, teacher_name, count(*) FROM facility_meetings
                         WHERE term_code = :t AND meets_on >= :day
                         GROUP BY crn, teacher_name ORDER BY crn, teacher_name"""),
                 {"t": term_code, "day": day},
             ).all()
+        by_teacher: dict[str, list[dict[str, Any]]] = {}
+        for crn, name, hours in split:
+            by_teacher.setdefault(crn, []).append({"teacherName": name or "", "hours": round(float(hours), 2)})
         ahead: dict[str, list[dict[str, Any]]] = {}
         for crn, name, sessions in coming:
             ahead.setdefault(crn, []).append({"teacherName": name or "", "sessions": int(sessions)})
@@ -678,6 +698,7 @@ class FacilityTimetableStore:
                 "courseCode": row[1] or "",
                 "teacherName": row[2] or "",
                 "hours": round(float(row[3]), 2),
+                "byTeacher": by_teacher.get(row[0], []),
                 "ahead": ahead.get(row[0], []),
             }
             for row in rows
