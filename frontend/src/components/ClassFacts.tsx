@@ -43,7 +43,8 @@ export function ClassFacts({
   return (
     <div
       data-facts
-      className={`flex shrink-0 flex-wrap content-start items-center gap-x-1.5 ${
+      // Anything too long for a narrow box breaks onto the next line rather than off its edge.
+      className={`flex shrink-0 flex-wrap content-start items-center gap-x-1.5 [overflow-wrap:anywhere] ${
         small ? "gap-y-0 text-[8.5px] leading-[1.25]" : "gap-y-px text-[11px] leading-tight"
       }`}
     >
@@ -55,8 +56,9 @@ export function ClassFacts({
         <span className={mark}>{covered.standingIn ? "Standing in" : "Covered"}</span>
       ) : null}
       {aside}
-      <span className="whitespace-nowrap tabular-nums opacity-90">
-        {session.start}–{session.end}
+      <span className="tabular-nums opacity-90">
+        {session.start}–<wbr />
+        {session.end}
       </span>
       {room ? (
         <span className="inline-flex items-center gap-0.5 opacity-90">
@@ -77,7 +79,7 @@ export function ClassFacts({
           <span>{covered.standingIn ? `for ${covered.coverTeacherName}` : `by ${covered.coverTeacherName}`}</span>
         </span>
       ) : null}
-      <span className="whitespace-nowrap tabular-nums opacity-80">CRN {session.crn}</span>
+      <span className="tabular-nums opacity-80">CRN {session.crn}</span>
     </div>
   );
 }

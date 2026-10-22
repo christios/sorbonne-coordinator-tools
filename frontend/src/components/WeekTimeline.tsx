@@ -27,6 +27,12 @@ import {
  * quiet room is one class high rather than two lines of label high.
  */
 const LABEL = { day: { width: 92, height: 44 }, room: { width: 136, height: 28 } };
+/**
+ * How wide the shortest class is drawn, at least. Every box says everything (see
+ * ClassFacts) and wraps it to its width; narrower than this, on a phone or a room's whole
+ * week, it wrapped a letter a line. Past it the week scrolls sideways, as it does zoomed.
+ */
+const NARROWEST_CLASS = 96;
 /** The hours across the top, and the days above them when the week is side by side. */
 const HOURS_HEIGHT = 26;
 const DAYS_HEIGHT = 20;
@@ -199,7 +205,9 @@ export function WeekTimeline({
   const minutes = Math.max(1, endMinute - startMinute);
   // Unmeasured — the first paint, or a test — gets a workable scale rather than none.
   const screenFit = room.width > 0 ? (room.width - LABEL_WIDTH) / (minutes * bands.length) : 1.6;
-  const perMinute = screenFit * Math.max(1, widthZoom);
+  // The semester's shortest class, as the hours are the semester's: the scale holds still week to week.
+  const shortest = Math.max(30, Math.min(120, ...sessions.map((session) => minutesOf(session.end) - minutesOf(session.start))));
+  const perMinute = Math.max(screenFit * Math.max(1, widthZoom), NARROWEST_CLASS / shortest);
   const bandWidth = minutes * perMinute;
   const width = bandWidth * bands.length;
   const headerHeight = HOURS_HEIGHT + (bands.length > 1 ? DAYS_HEIGHT : 0);
@@ -217,14 +225,23 @@ export function WeekTimeline({
   useLayoutEffect(() => {
     const element = box.current;
     if (!element) return;
-    const found: number[] = [];
-    for (const drawn of element.querySelectorAll<HTMLElement>("[data-line]")) {
-      const at = Number(drawn.dataset.line);
-      // The 3px is the gap between one stacked class and the next.
-      found[at] = Math.max(found[at] ?? 0, Math.ceil(heightNeeded(drawn)) + 3);
-    }
-    const next = laid.map((_, index) => found[index] ?? 0);
-    setNeeds((held) => (held.length === next.length && held.every((value, index) => value === next[index]) ? held : next));
+    const rows = laid.length;
+    const measure = () => {
+      const found: number[] = [];
+      for (const drawn of element.querySelectorAll<HTMLElement>("[data-line]")) {
+        const at = Number(drawn.dataset.line);
+        // The 3px is the gap between one stacked class and the next.
+        found[at] = Math.max(found[at] ?? 0, Math.ceil(heightNeeded(drawn)) + 3);
+      }
+      const next = Array.from({ length: rows }, (_, index) => found[index] ?? 0);
+      setNeeds((held) => (held.length === next.length && held.every((value, index) => value === next[index]) ? held : next));
+    };
+    measure();
+    // And again whenever the words change size on their own, as when the page's font arrives.
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    for (const facts of element.querySelectorAll("[data-facts]")) observer.observe(facts);
+    return () => observer.disconnect();
     // What the boxes say and how wide they are; their height is the answer.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shownKey, room.width, widthZoom, sessions, courses]);

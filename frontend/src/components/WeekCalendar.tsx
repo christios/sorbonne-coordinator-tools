@@ -22,7 +22,21 @@ import {
 
 /** Narrower than this, the week is shown one day at a time behind a row of day buttons. */
 const ONE_DAY_BELOW = 520;
+/**
+ * And the small calendar on a record, narrower than this: a phone. Five days across a
+ * phone are five slivers, and once every box said everything (see ClassFacts) a sliver
+ * said it a word a line, a class as tall as the screen. A record's card on a computer is
+ * wider than this and keeps its week.
+ */
+const SMALL_ONE_DAY_BELOW = 420;
 const TOP_PADDING = 10;
+/**
+ * How narrow a class drawn beside others at its hour may be. Every box says everything
+ * (see ClassFacts); a course's six groups at nine o'clock in one small day column were six
+ * slivers a letter wide, each as tall as the screen. A day with more at once is widened to
+ * hold them, and the week scrolls sideways.
+ */
+const NARROWEST_BESIDE = { small: 64, full: 96 };
 
 type WeekCalendarProps = {
   weekStart: Date;
@@ -99,7 +113,6 @@ export function WeekCalendar({
   for (let minute = startMinute; minute <= endMinute; minute += 60) hours.push(minute);
   const topOf = (minute: number) => (minute - startMinute) * pixelsPerMinute + TOP_PADDING;
   const gutter = compact ? 30 : 44;
-  const narrowestDay = dayWidth ?? (compact ? 56 : 88);
 
   const box = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
@@ -113,7 +126,7 @@ export function WeekCalendar({
     return () => observer.disconnect();
   }, []);
   // Unmeasured — the first paint, or a test — is drawn as a week, which is the honest default.
-  const oneDayAtATime = !compact && width > 0 && width < ONE_DAY_BELOW;
+  const oneDayAtATime = width > 0 && width < (compact ? SMALL_ONE_DAY_BELOW : ONE_DAY_BELOW);
 
   // Where the day has got to, for the line across today's column. Read each minute.
   const [nowMinute, setNowMinute] = useState(() => minuteOfDay(new Date()));
@@ -131,18 +144,32 @@ export function WeekCalendar({
   }, [weekKey]);
   const shownDay = days.includes(focusedDay) ? focusedDay : preferredDay(days, sessions, today);
   const visibleDays = oneDayAtATime ? [shownDay] : days;
+  // Wide enough for the most classes side by side on any day shown.
+  const mostBeside = stack
+    ? 1
+    : Math.max(1, ...visibleDays.flatMap((day) => laneOut(sessionsOnDay(inWeek, day)).map(({ lanes }) => lanes)));
+  const narrowestDay = Math.max(dayWidth ?? (compact ? 56 : 88), mostBeside * NARROWEST_BESIDE[compact ? "small" : "full"]);
   useLayoutEffect(() => {
     const element = box.current;
     if (!element) return;
-    let most = 0;
-    for (const drawn of element.querySelectorAll<HTMLElement>("[data-class-minutes]")) {
-      const minutes = Number(drawn.dataset.classMinutes) || 0;
-      const needed = heightNeeded(drawn);
-      // The 2px is the gap a box leaves under itself.
-      if (minutes > 0 && needed > 0) most = Math.max(most, (needed + 2) / minutes);
-    }
-    const next = Math.ceil(most * 100) / 100;
-    setFit((held) => (Math.abs(held - next) < 0.01 ? held : next));
+    const measure = () => {
+      let most = 0;
+      for (const drawn of element.querySelectorAll<HTMLElement>("[data-class-minutes]")) {
+        const minutes = Number(drawn.dataset.classMinutes) || 0;
+        const needed = heightNeeded(drawn);
+        // The 2px is the gap a box leaves under itself.
+        if (minutes > 0 && needed > 0) most = Math.max(most, (needed + 2) / minutes);
+      }
+      const next = Math.ceil(most * 100) / 100;
+      setFit((held) => (Math.abs(held - next) < 0.01 ? held : next));
+    };
+    measure();
+    // And again whenever the words change size without anything here changing: the page's
+    // font arriving after the first layout set every line a little wider than measured.
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    for (const facts of element.querySelectorAll("[data-facts]")) observer.observe(facts);
+    return () => observer.disconnect();
     // Whatever changes what the boxes say or how wide they are; their height is the answer.
   }, [width, weekKey, shownDay, oneDayAtATime, sessions, courses, compact, stack]);
 
@@ -176,12 +203,12 @@ export function WeekCalendar({
         </div>
       ) : null}
 
-      <div className={oneDayAtATime ? "" : "overflow-x-auto pb-1"}>
+      <div className="overflow-x-auto pb-1">
         <div
           className="grid overflow-hidden rounded-lg border border-[#d9dee7] bg-white"
           style={{
             gridTemplateColumns: `${gutter}px repeat(${visibleDays.length}, minmax(0, 1fr))`,
-            minWidth: oneDayAtATime ? undefined : gutter + visibleDays.length * narrowestDay,
+            minWidth: gutter + visibleDays.length * narrowestDay,
           }}
         >
           <div className="border-b border-[#e4e8ef] bg-[#fbfcfe]" />
