@@ -20,6 +20,7 @@ import {
   mondayOf,
   parseIsoDate,
   placeSessions,
+  legendOf,
   preferredDay,
   shiftWeek,
   toIsoDate,
@@ -311,7 +312,7 @@ function Timetable({
     );
   }
 
-  const legend = [...new Map([...courses.values()].map((course) => [course.colorKey, course])).values()];
+  const legend = legendOf(courses.values());
   const shown = weekStart ?? defaultWeekStart(sessions, today);
   const small = compact ? "text-[10px]" : "text-xs";
   const oneDay = daysDown && byRoom === "day";
@@ -438,17 +439,18 @@ function Timetable({
               onPick={onPickSession ?? (onOpenCrn ? (session) => onOpenCrn(session.crn) : undefined)}
             />
           )}
-          {legend.length > 1 && !fills ? (
+          {/* One colour of several sections is worth a line too: it says which groups they are. */}
+          {(legend.length > 1 || legend[0]?.sections > 1) && !fills ? (
             <ul className={`mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[#667085] ${small}`} aria-label="Legend">
-              {legend.map((course) => (
-                <li key={course.colorKey} className="inline-flex items-center gap-1.5">
+              {legend.map((line) => (
+                <li key={line.colorKey} className="inline-flex min-w-0 items-center gap-1.5">
                   <span
                     aria-hidden
-                    className={`inline-block size-2.5 rounded-sm ${course.tone === "outline" ? "border-2 border-dashed" : ""}`}
-                    style={course.tone === "outline" ? { borderColor: course.color } : { backgroundColor: course.color }}
+                    className={`inline-block size-2.5 shrink-0 rounded-sm ${line.tone === "outline" ? "border-2 border-dashed" : ""}`}
+                    style={line.tone === "outline" ? { borderColor: line.color } : { backgroundColor: line.color }}
                   />
-                  <span className="font-medium text-[#344054]">{course.label || course.code}</span>
-                  {course.title && course.title !== course.label ? <span className="truncate">{course.title}</span> : null}
+                  <span className="shrink-0 font-medium text-[#344054]">{line.label}</span>
+                  {line.said ? <span className="truncate" title={line.said}>{line.said}</span> : null}
                 </li>
               ))}
             </ul>

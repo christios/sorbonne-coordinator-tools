@@ -1,6 +1,7 @@
-import { MapPin, Repeat, User } from "lucide-react";
 import { useLayoutEffect, useRef, useState } from "react";
 
+import { ClassFacts } from "@/components/ClassFacts";
+import { heightNeeded } from "@/services/boxFit";
 import { fittedRowHeight } from "@/services/timelineFit";
 import {
   DAY_NAMES,
@@ -206,11 +207,34 @@ export function WeekTimeline({
   const available = room.height - headerHeight;
   const lane = fills ? fittedRowHeight(available, laid.map(({ rows }) => rows), rowHeight, LABEL_HEIGHT) : rowHeight;
   /*
+   * And taller wherever a row's classes need it to say everything (see ClassFacts). Row by
+   * row, so one half-hour class on a Thursday makes Thursday taller and not the week: a
+   * box's facts wrap to its width, which is its length in time, so the short ones decide.
+   * Measured after each layout and before it is painted.
+   */
+  const [needs, setNeeds] = useState<number[]>([]);
+  const laneOf = (index: number) => Math.max(lane, needs[index] ?? 0);
+  useLayoutEffect(() => {
+    const element = box.current;
+    if (!element) return;
+    const found: number[] = [];
+    for (const drawn of element.querySelectorAll<HTMLElement>("[data-line]")) {
+      const at = Number(drawn.dataset.line);
+      // The 3px is the gap between one stacked class and the next.
+      found[at] = Math.max(found[at] ?? 0, Math.ceil(heightNeeded(drawn)) + 3);
+    }
+    const next = laid.map((_, index) => found[index] ?? 0);
+    setNeeds((held) => (held.length === next.length && held.every((value, index) => value === next[index]) ? held : next));
+    // What the boxes say and how wide they are; their height is the answer.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shownKey, room.width, widthZoom, sessions, courses]);
+  /*
    * What a whole-pixel class height leaves at the foot, shared among the rows so the week
    * ends where the screen does. A few pixels a row, but thirty rows of rounding down was a
    * visible strip of white under Friday.
    */
-  const used = laid.reduce((total, { rows }) => total + Math.max(LABEL_HEIGHT, rows * lane + 6), 0) + Math.max(0, laid.length - 1);
+  const used =
+    laid.reduce((total, { rows }, index) => total + Math.max(LABEL_HEIGHT, rows * laneOf(index) + 6), 0) + Math.max(0, laid.length - 1);
   const spare = fills && room.height > 0 && used < available && laid.length ? (available - used) / laid.length : 0;
 
   const hours: number[] = [];
@@ -294,7 +318,7 @@ export function WeekTimeline({
           </div>
         </div>
 
-        {laid.map(({ line, boxes, rows }) => (
+        {laid.map(({ line, boxes, rows }, index) => (
           <div key={line.key} className={`flex border-b border-[#e4e8ef] last:border-0 ${line.today ? "bg-[#fbfdff]" : ""}`}>
             <div
               className={`sticky left-0 z-10 shrink-0 border-r border-[#e4e8ef] px-2 py-1.5 text-xs font-semibold leading-4 text-[#344054] ${
@@ -326,7 +350,7 @@ export function WeekTimeline({
                 );
               })()}
             </div>
-            <div className="relative" style={{ width, height: Math.max(LABEL_HEIGHT, rows * lane + 6) + spare }}>
+            <div className="relative" style={{ width, height: Math.max(LABEL_HEIGHT, rows * laneOf(index) + 6) + spare }}>
               {bands.map((band, index) => (
                 <div key={band ?? "grid"}>
                   {quarters.map((minute) => (
@@ -349,7 +373,7 @@ export function WeekTimeline({
                 * wide week without drifting into the one above it.
                 */}
               {Array.from({ length: rows - 1 }, (_, row) => (
-                <div key={`r${row}`} className="absolute inset-x-0 border-t border-[#e4e8ef]" style={{ top: (row + 1) * lane + 3 + spare / 2 }} />
+                <div key={`r${row}`} className="absolute inset-x-0 border-t border-[#e4e8ef]" style={{ top: (row + 1) * laneOf(index) + 3 + spare / 2 }} />
               ))}
               {boxes.map(({ session, lane: at, lanes, band }) => (
                 <Class
@@ -359,8 +383,9 @@ export function WeekTimeline({
                   course={courses.get(session.crn)}
                   left={leftOf(minutesOf(session.start), band)}
                   boxWidth={Math.max(18, (minutesOf(session.end) - minutesOf(session.start)) * perMinute - 3)}
-                  top={at * lane + 3 + spare / 2}
-                  height={lane - 3}
+                  top={at * laneOf(index) + 3 + spare / 2}
+                  height={laneOf(index) - 3}
+                  line={index}
                   onPick={onPick}
                   clash={byRoom ? "booked into this room at the same time as another class" : "overlaps another class"}
                   seats={session.room && seatsOf ? seatsOf(session.room) : null}
@@ -377,43 +402,12 @@ export function WeekTimeline({
 }
 
 /**
- * What a box can say at the width it has, decided rather than clipped.
+ * One class, on its side, saying what every class's box says (see ClassFacts). Its row is
+ * made tall enough for that; the sentence is on the tooltip as well, as everywhere else.
  *
- * Letting the overflow rule it looked the same at a glance and read much worse: a box
- * clipped mid-field shows "5.1" for a room and half a surname, which is not less
- * information but wrong information. So the fields are ranked and a box takes as many as
- * it can hold whole.
- *
- * The order is the coordinator's, and the notable thing about it is what is NOT in it. The
- * HOUR is not a field here. On this grid the hour is the box's position — that is the whole
- * point of turning the week on its side — so printing it inside the box spends the scarcest
- * thing on the page to repeat what the page has already said. What you cannot read off the
- * position is which group of ours the class is, and that is second.
- *
- *   course · group · room · teacher
- *
- * The widths are what the fields actually take, added up: a course code runs about 62px, a
- * group label 56, a room 52, a name 90, with a 6px gap between each and 12px of padding
- * round the lot. A first attempt guessed them low, and the box admitted fields it had no
- * space for and paid for them out of the course code, which came out as "MATH-…".
- */
-function fieldsFor(width: number, height: number): { group: boolean; room: boolean; staff: boolean; tall: boolean } {
-  /*
-   * Height buys a second line, and a second line is a fresh width to spend.
-   *
-   * Without it the height slider bought nothing but white space: the box grew and went on
-   * saying the same one field, so dragging it did not answer the question it looked like
-   * it was answering. Tall enough for two lines, the course and the group take the first
-   * and the room and the teacher take the second.
-   */
-  const tall = height >= 30;
-  if (tall) return { group: width >= 124, room: width >= 70, staff: width >= 128, tall };
-  return { group: width >= 124, room: width >= 182, staff: width >= 278, tall };
-}
-
-/**
- * One class, on its side. The whole sentence is on the tooltip whatever the width, as it
- * is everywhere else here.
+ * It used to rank its fields by width and leave out the hour, which the box's place on
+ * the page already says. The department asked for one box everywhere instead, the same
+ * on the Semester Timetable as on a teacher's week and on a phone, and the hour with it.
  */
 function Class({
   session,
@@ -426,6 +420,7 @@ function Class({
   clash = "overlaps another class",
   seats = null,
   registered = null,
+  line,
 }: {
   session: PlacedSession;
   course?: CalendarCourse;
@@ -438,6 +433,8 @@ function Class({
   clash?: string;
   /** How many its room seats, and how many the registrar has in it, where known. */
   seats?: number | null;
+  /** Which row it is on, for the row's height. */
+  line: number;
   registered?: number | null;
 }) {
   const color = course?.color ?? "#1f4e79";
@@ -467,8 +464,6 @@ function Class({
   ].join(" · ");
   const opens = Boolean(onPick && course?.openable);
   const Box = opens ? "button" : "article";
-  const room = formatRoom(session.room);
-  const fits = fieldsFor(boxWidth, height);
 
   return (
     <Box
@@ -476,9 +471,8 @@ function Class({
       onClick={opens ? () => onPick?.(session) : undefined}
       title={details}
       aria-label={opens ? `Open CRN ${session.crn}: ${details}` : details}
-      className={`absolute flex overflow-hidden rounded-md px-1.5 text-left text-[11px] leading-none ${
-        fits.tall ? "flex-col justify-center gap-0.5 py-0.5" : "items-center gap-1.5"
-      } ${
+      data-line={line}
+      className={`absolute flex flex-col justify-center overflow-hidden rounded-md px-1.5 py-0.5 text-left ${
         outline ? "border-2 border-dashed bg-white" : "text-white"
       } ${cancelled ? "opacity-55" : ""} ${session.clashes ? "outline-2 -outline-offset-2 outline-[#d9a441]" : ""} ${
         opens ? "cursor-pointer hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#1f4e79]" : ""
@@ -493,48 +487,18 @@ function Class({
         color: outline ? color : undefined,
       }}
     >
-      <span className={`flex min-w-0 items-center gap-1.5 ${fits.tall ? "w-full" : ""}`}>
-        {covered ? <Repeat size={9} className="shrink-0" aria-hidden="true" /> : null}
-        {/* Never dropped: a box with no name on it says nothing at all. */}
-        <b className={`min-w-0 shrink-0 truncate font-semibold ${cancelled ? "line-through" : ""}`}>{label}</b>
-        {/* Never dropped either: a room too small is the thing to see at a glance. */}
-        {crowded ? (
-          <span className="shrink-0 rounded bg-[#a6292f] px-1 py-px text-[10px] font-semibold tabular-nums text-white">
-            {registered}/{seats}
-          </span>
-        ) : null}
-        {fits.group && course?.group ? (
-          <span className="shrink-0 rounded bg-white/25 px-1 font-medium">{course.group}</span>
-        ) : null}
-        {!fits.tall && fits.room && room ? (
-          <span className="inline-flex shrink-0 items-center gap-0.5 opacity-85">
-            <MapPin size={9} aria-hidden="true" />
-            {room}
-          </span>
-        ) : null}
-        {!fits.tall && fits.staff && course?.staff ? (
-          <span className="inline-flex min-w-0 items-center gap-0.5 opacity-85">
-            <User size={9} className="shrink-0" aria-hidden="true" />
-            <span className="truncate">{course.staff}</span>
-          </span>
-        ) : null}
-      </span>
-      {fits.tall && ((fits.room && room) || (fits.staff && course?.staff)) ? (
-        <span className="flex w-full min-w-0 items-center gap-1.5 opacity-85">
-          {fits.room && room ? (
-            <span className="inline-flex shrink-0 items-center gap-0.5">
-              <MapPin size={9} aria-hidden="true" />
-              {room}
+      <ClassFacts
+        session={session}
+        course={course}
+        aside={
+          // Never dropped: a room too small is the thing to see at a glance.
+          crowded ? (
+            <span className="shrink-0 rounded bg-[#a6292f] px-1 py-px text-[10px] font-semibold tabular-nums text-white">
+              {registered}/{seats}
             </span>
-          ) : null}
-          {fits.staff && course?.staff ? (
-            <span className="inline-flex min-w-0 items-center gap-0.5">
-              <User size={9} className="shrink-0" aria-hidden="true" />
-              <span className="truncate">{course.staff}</span>
-            </span>
-          ) : null}
-        </span>
-      ) : null}
+          ) : null
+        }
+      />
     </Box>
   );
 }

@@ -64,6 +64,68 @@ export type CalendarCourse = {
   openable: boolean;
 };
 
+/** One line of a calendar's legend: a colour, and everything drawn in it. */
+export type LegendLine = {
+  colorKey: string;
+  color: string;
+  tone: CalendarCourse["tone"];
+  /** The bold words, as in the boxes: the course code, mostly. */
+  label: string;
+  /** Every section of that colour, said once: "Pre-Calculus 1 G.1-TD, G.4-TD". */
+  said: string;
+  /** How many sections the colour stands for. */
+  sections: number;
+};
+
+/**
+ * The legend, a line per colour.
+ *
+ * A course's groups share its colour so the week reads as one course, and the legend used
+ * to keep one of them per colour — Samar Ghantous's MATH-001 said G.4-TD and nothing else,
+ * though she teaches G.1 on Fridays. Each line now names every section in its colour.
+ */
+export function legendOf(courses: Iterable<CalendarCourse & { colorKey: string }>): LegendLine[] {
+  const held = new Map<string, { first: CalendarCourse & { colorKey: string }; titles: string[]; groups: string[]; sections: number }>();
+  for (const course of courses) {
+    const line = held.get(course.colorKey) ?? { first: course, titles: [], groups: [], sections: 0 };
+    line.sections += 1;
+    const title = course.title.trim();
+    if (title && !line.titles.includes(title)) line.titles.push(title);
+    const group = course.group.trim();
+    if (group && !line.groups.includes(group)) line.groups.push(group);
+    held.set(course.colorKey, line);
+  }
+  return [...held.values()].map(({ first, titles, groups, sections }) => {
+    const label = first.label || first.code;
+    const named = titlesSaid(titles.filter((title) => title !== label));
+    // Sections whose titles do not tell them apart are told apart by their groups.
+    const said = titles.length > 1 || groups.length < 2 ? named : [named, byNumber(groups).join(", ")].filter(Boolean).join(" · ");
+    return { colorKey: first.colorKey, color: first.color, tone: first.tone, label, said, sections };
+  });
+}
+
+/**
+ * Several titles as one phrase, the words they share said once: "Pre-Calculus 1 G.1-TD"
+ * and "Pre-Calculus 1 G.4-TD" are "Pre-Calculus 1 G.1-TD, G.4-TD". Titles with nothing in
+ * common are listed whole.
+ */
+export function titlesSaid(titles: string[]): string {
+  const sorted = byNumber([...new Set(titles.map((title) => title.trim()).filter(Boolean))]);
+  if (sorted.length < 2) return sorted[0] ?? "";
+  const words = sorted.map((title) => title.split(/\s+/));
+  // Shared words, short of the whole of any title: each keeps at least a word of its own.
+  let shared = 0;
+  while (shared < Math.min(...words.map((each) => each.length)) - 1 && words.every((each) => each[shared] === words[0][shared])) {
+    shared += 1;
+  }
+  if (!shared) return sorted.join(" · ");
+  return `${words[0].slice(0, shared).join(" ")} ${words.map((each) => each.slice(shared).join(" ")).join(", ")}`;
+}
+
+function byNumber(values: string[]): string[] {
+  return [...values].sort((left, right) => left.localeCompare(right, undefined, { numeric: true }));
+}
+
 /**
  * Colours that stay apart from each other and from the page's own reds and ambers, which
  * mean something. Ten is more than a week of one person's classes ever needs; a course

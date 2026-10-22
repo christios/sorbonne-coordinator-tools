@@ -267,8 +267,9 @@ describe("a semester's whole week", () => {
       expect(await screen.findByRole("heading", { name: "Rooms" })).toBeTruthy();
       // The clock says Wednesday 9 September; Monday is a press away.
       fireEvent.click(await screen.findByRole("button", { name: "Mon 7" }));
-      expect(screen.getByText("4.124")).toBeTruthy();
-      expect(screen.getByText("5.101")).toBeTruthy();
+      // A row per room, each named down the side (the boxes say their room too).
+      expect(document.querySelector('[title="4.124"]')).toBeTruthy();
+      expect(document.querySelector('[title="5.101"]')).toBeTruthy();
       // Monday's two classes in 5.101, and they are booked into it at the same time.
       expect(document.querySelectorAll('[title*="same time as another class"]').length).toBe(2);
       // Tuesday's class is not Monday's.

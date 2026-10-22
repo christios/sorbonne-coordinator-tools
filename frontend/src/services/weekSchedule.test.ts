@@ -4,6 +4,7 @@ import {
   assignColors,
   defaultWeekStart,
   hourBounds,
+  legendOf,
   laneOut,
   placeSessions,
   toIsoDate,
@@ -13,6 +14,7 @@ import {
   weekStartOf,
   weekWords,
   parseIsoDate,
+  titlesSaid,
 } from "@/services/weekSchedule";
 
 const at = (crn: string, date: string, start: string, end: string): Session => ({ crn, date, start, end, room: "" });
@@ -115,5 +117,52 @@ describe("a semester with weeks it has no classes in", () => {
     expect(weekWords(parseIsoDate("2026-10-13"), calendar)).toBe("No classes");
     expect(weekWords(parseIsoDate("2026-10-20"), calendar)).toBe("Week 7");
     expect(weekWords(parseIsoDate("2026-08-26"), calendar)).toBe("");
+  });
+});
+
+describe("the legend", () => {
+  const section = (crn: string, title: string, group = "", colorKey = "MATH-001") => ({
+    crn, code: "MATH-001", title, label: "MATH-001", group, staff: "Samar Ghantous",
+    tone: "solid" as const, color: "#1f4e79", openable: false, colorKey,
+  });
+
+  it("names every group a colour stands for, not whichever came last", () => {
+    const [line] = legendOf([section("24310", "Pre-Calculus 1 G.4-TD"), section("24307", "Pre-Calculus 1 G.1-TD")]);
+
+    expect(line).toMatchObject({ label: "MATH-001", said: "Pre-Calculus 1 G.1-TD, G.4-TD", sections: 2 });
+  });
+
+  it("tells sections with one title apart by their groups", () => {
+    const [line] = legendOf([section("1", "Pre-Calculus 1", "TD 4"), section("2", "Pre-Calculus 1", "TD 1")]);
+
+    expect(line.said).toBe("Pre-Calculus 1 · TD 1, TD 4");
+  });
+
+  it("keeps a line per colour, in the order the colours came", () => {
+    const lines = legendOf([
+      section("1", "Pre-Calculus 1 G.4-TD"),
+      { ...section("2", "Intro to Lin Algebra G.1-TD", "", "MATH-009"), code: "MATH-009", label: "MATH-009" },
+    ]);
+
+    expect(lines.map((line) => [line.label, line.said])).toEqual([
+      ["MATH-001", "Pre-Calculus 1 G.4-TD"],
+      ["MATH-009", "Intro to Lin Algebra G.1-TD"],
+    ]);
+  });
+});
+
+describe("several titles as one phrase", () => {
+  it("says the shared words once, and lists the rest in number order", () => {
+    expect(titlesSaid(["Pre-Calculus 1 G.10-TD", "Pre-Calculus 1 G.2-TD", "Pre-Calculus 1 G.1-TD"])).toBe(
+      "Pre-Calculus 1 G.1-TD, G.2-TD, G.10-TD",
+    );
+  });
+
+  it("lists titles with nothing in common whole", () => {
+    expect(titlesSaid(["Mechanics", "Algebra"])).toBe("Algebra · Mechanics");
+  });
+
+  it("lists titles whole when one is nothing but the shared words", () => {
+    expect(titlesSaid(["Algebra", "Algebra 2"])).toBe("Algebra · Algebra 2");
   });
 });

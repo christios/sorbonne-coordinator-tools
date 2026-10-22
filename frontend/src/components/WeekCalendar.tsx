@@ -1,6 +1,7 @@
-import { MapPin, Repeat, User } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
+import { ClassFacts } from "@/components/ClassFacts";
+import { heightNeeded } from "@/services/boxFit";
 import {
   DAY_NAMES,
   formatDayAndMonth,
@@ -84,15 +85,15 @@ export function WeekCalendar({
 }: WeekCalendarProps) {
   const days = weekDays(weekStart, sessions);
   const inWeek = sessionsInRange(sessions, days[0], days[days.length - 1]);
-  /*
-   * Whether this week has more than one teacher on it — a course's sections, a student's
-   * classes — when who teaches a box is worth a line before its group and CRN. On one
-   * teacher's own week, or one section's, it is the same name in every box and stays last.
-   */
-  const manyTeachers =
-    new Set(inWeek.map((session) => courses.get(session.crn)?.staff).filter((staff): staff is string => Boolean(staff))).size > 1;
   const { startMinute, endMinute } = hourBounds(sessions, atLeast);
-  const pixelsPerMinute = hourHeight / 60;
+  /*
+   * Tall enough for every box to say everything (see ClassFacts): `hourHeight` is the least
+   * an hour is given, and the shortest class's facts decide how much more. Measured after
+   * each layout and before it is painted; a box's facts wrap to its width, which the hour's
+   * height does not change, so one measurement is the answer and not a step towards it.
+   */
+  const [fit, setFit] = useState(0);
+  const pixelsPerMinute = Math.max(hourHeight / 60, fit);
   const height = (endMinute - startMinute) * pixelsPerMinute + TOP_PADDING * 2;
   const hours: number[] = [];
   for (let minute = startMinute; minute <= endMinute; minute += 60) hours.push(minute);
@@ -130,6 +131,20 @@ export function WeekCalendar({
   }, [weekKey]);
   const shownDay = days.includes(focusedDay) ? focusedDay : preferredDay(days, sessions, today);
   const visibleDays = oneDayAtATime ? [shownDay] : days;
+  useLayoutEffect(() => {
+    const element = box.current;
+    if (!element) return;
+    let most = 0;
+    for (const drawn of element.querySelectorAll<HTMLElement>("[data-class-minutes]")) {
+      const minutes = Number(drawn.dataset.classMinutes) || 0;
+      const needed = heightNeeded(drawn);
+      // The 2px is the gap a box leaves under itself.
+      if (minutes > 0 && needed > 0) most = Math.max(most, (needed + 2) / minutes);
+    }
+    const next = Math.ceil(most * 100) / 100;
+    setFit((held) => (Math.abs(held - next) < 0.01 ? held : next));
+    // Whatever changes what the boxes say or how wide they are; their height is the answer.
+  }, [width, weekKey, shownDay, oneDayAtATime, sessions, courses, compact, stack]);
 
   return (
     <div ref={box}>
@@ -211,7 +226,6 @@ export function WeekCalendar({
               onPick={onPick}
               nowAt={day === today && nowMinute >= startMinute && nowMinute <= endMinute ? topOf(nowMinute) : null}
               seatsOf={seatsOf}
-              manyTeachers={manyTeachers}
             />
           ))}
         </div>
@@ -242,8 +256,6 @@ type DayColumnProps = {
   /** Where the current time falls in this column, when the column is today and the hour is on the grid. */
   nowAt: number | null;
   seatsOf?: (room: string) => number | null;
-  /** More than one teacher on the week: who teaches a box comes before its group and CRN. */
-  manyTeachers: boolean;
 };
 
 function DayColumn({
@@ -259,7 +271,6 @@ function DayColumn({
   onPick,
   nowAt,
   seatsOf,
-  manyTeachers,
 }: DayColumnProps) {
   return (
     <div className="relative border-l border-[#e4e8ef]" style={{ height }}>
@@ -312,6 +323,7 @@ function DayColumn({
           ...new Set(
             [
               label,
+              course?.group,
               course?.title,
               course?.code,
               `CRN ${session.crn}`,
@@ -335,14 +347,6 @@ function DayColumn({
         const opens = Boolean(onPick && course?.openable);
         const Box = opens ? "button" : "article";
 
-        /*
-         * What fits, by height, from the top down: the name, the hour, the room, the
-         * teacher. A box too short for a line drops the line rather than clipping it
-         * halfway, and the whole story is always in the tooltip.
-         */
-        const lines = compact ? 0 : boxHeight >= 80 ? 5 : boxHeight >= 66 ? 4 : boxHeight >= 50 ? 3 : boxHeight >= 34 ? 2 : 1;
-        const where = [course?.group, `CRN ${session.crn}`].filter(Boolean).join(" · ");
-
         return (
           <Box
             key={`${day}-${session.crn}-${session.start}-${lane}`}
@@ -350,8 +354,10 @@ function DayColumn({
             onClick={opens ? () => onPick?.(session) : undefined}
             title={details}
             aria-label={opens ? `Open CRN ${session.crn}: ${details}` : details}
-            className={`absolute flex flex-col overflow-hidden rounded-md text-left leading-tight ${
-              compact ? "px-1 py-px text-[8.5px]" : "px-1.5 py-1 text-[11px]"
+            // What the hour's height is worked out from: this box's share of its class's minutes.
+            data-class-minutes={stack ? minutes / lanes : minutes}
+            className={`absolute flex flex-col overflow-hidden rounded-md text-left ${
+              compact ? "px-1 py-px" : "px-1.5 py-1"
             } ${outline ? "border-2 border-dashed bg-white" : "text-white"} ${cancelled ? "opacity-55" : ""} ${
               session.clashes ? "outline-2 -outline-offset-2 outline-[#d9a441]" : ""
             } ${covered && !outline ? "ring-2 ring-inset ring-white/70" : ""} ${opens ? "cursor-pointer hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#1f4e79]" : ""}`}
@@ -366,61 +372,7 @@ function DayColumn({
               color: outline ? color : undefined,
             }}
           >
-            {compact ? (
-              <b className={`flex items-center gap-0.5 font-semibold ${cancelled ? "line-through" : ""}`}>
-                {covered ? <Repeat size={8} className="shrink-0" aria-hidden="true" /> : null}
-                <span className="truncate">{label}</span>
-              </b>
-            ) : (
-              <>
-                <b className="flex items-baseline justify-between gap-1 font-semibold">
-                  <span className={`truncate ${cancelled ? "line-through" : ""}`}>{label}</span>
-                  {cancelled ? (
-                    <span className="shrink-0 rounded bg-white/25 px-1 text-[9px] font-bold uppercase tracking-wide">Cancelled</span>
-                  ) : covered ? (
-                    // Whose class it is decides the word: they are standing in, or theirs was taken.
-                    <span
-                      className={`shrink-0 rounded px-1 text-[9px] font-bold uppercase tracking-wide ${
-                        outline ? "bg-current/15" : "bg-white/30"
-                      }`}
-                    >
-                      {covered.standingIn ? "Standing in" : "Covered"}
-                    </span>
-                  ) : lines === 1 ? (
-                    <span className="shrink-0 text-[10px] font-normal tabular-nums opacity-85">{session.start}</span>
-                  ) : null}
-                </b>
-                {lines >= 2 ? (
-                  <span className="block tabular-nums opacity-90">
-                    {session.start}–{session.end}
-                  </span>
-                ) : null}
-                {lines >= 3 && session.room ? (
-                  <span className="mt-0.5 flex items-center gap-1 truncate opacity-85">
-                    <MapPin size={9} className="shrink-0" aria-hidden="true" />
-                    <span className="truncate">{formatRoom(session.room)}</span>
-                  </span>
-                ) : null}
-                {lines >= (manyTeachers && !covered && course?.staff ? 5 : 4) ? (
-                  <span className="block truncate text-[10px] tabular-nums opacity-80">{where}</span>
-                ) : null}
-                {/* Cover outranks the planned teacher for the line: it is who was in the room. */}
-                {covered && lines >= 3 ? (
-                  <span className="flex items-center gap-1 truncate font-semibold">
-                    <Repeat size={9} className="shrink-0" aria-hidden="true" />
-                    {/* Whose class it is, on the stand-in's week; who took it, on the other's. */}
-                    <span className="truncate">
-                      {covered.standingIn ? `for ${covered.coverTeacherName}` : covered.coverTeacherName}
-                    </span>
-                  </span>
-                ) : lines >= (manyTeachers ? 4 : 5) && course?.staff ? (
-                  <span className="flex items-center gap-1 truncate opacity-85">
-                    <User size={9} className="shrink-0" aria-hidden="true" />
-                    <span className="truncate">{course.staff}</span>
-                  </span>
-                ) : null}
-              </>
-            )}
+            <ClassFacts session={session} course={course} small={compact} />
           </Box>
         );
       })}
