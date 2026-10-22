@@ -21,6 +21,7 @@ from sorbonne.api.rosters import router as rosters_router
 from sorbonne.api.portal import router as portal_router
 from sorbonne.api.portal_pace import router as portal_pace_router
 from sorbonne.api.publication import router as publication_router
+from sorbonne.api.requests_app import router as requests_app_router
 from sorbonne.api.student_database import router as student_database_router
 from sorbonne.api.syllabus_catalogues import router as syllabus_catalogues_router
 from sorbonne.api.syllabi import router as syllabi_router
@@ -91,6 +92,7 @@ app.include_router(rooms_router, prefix="/api/v1")
 app.include_router(term_weeks_router, prefix="/api/v1")
 app.include_router(department_roles_router, prefix="/api/v1")
 app.include_router(pay_rates_router, prefix="/api/v1")
+app.include_router(requests_app_router, prefix="/api/v1")
 
 # Developer conveniences, mounted ONLY when the database is on this machine — so in
 # production they are a 404 rather than a guarded 403. A guard inside a mounted route is
