@@ -18,6 +18,7 @@ the dates a coordinator recorded somebody covering. Read-only, behind a key of i
 
 from __future__ import annotations
 
+import json
 from datetime import date, datetime, timedelta
 from typing import Any
 
@@ -145,7 +146,8 @@ class TeacherClasses(TimesheetPrefill):
     # ------------------------------------------------------------------ the registrar's
 
     def _held_from(self, connection: Any, first: date) -> dict[tuple[str, str], list[tuple[date, str, str, str]]]:
-        """Every dated meeting from `first` on, with its room."""
+        """Every dated meeting from `first` on, with its room as the department's rooms list names it."""
+        names = _room_names(connection)
         held: dict[tuple[str, str], list[tuple[date, str, str, str]]] = {}
         rows = connection.execute(
             text("""SELECT term_code, crn, meets_on, starts_at, ends_at, coalesce(room, '') FROM facility_meetings
@@ -157,8 +159,29 @@ class TeacherClasses(TimesheetPrefill):
                 day = date.fromisoformat(meets_on)
             except ValueError:
                 continue
-            held.setdefault((term, crn), []).append((day, starts_at, ends_at, room))
+            held.setdefault((term, crn), []).append((day, starts_at, ends_at, _named(room, names)))
         return held
+
+
+def _room_names(connection: Any) -> dict[str, str]:
+    """Each room's code on the Rooms page, under its code and every other name the portal uses for it."""
+    names: dict[str, str] = {}
+    for code, aliases in connection.execute(text("SELECT code, coalesce(aliases, '[]') FROM rooms")):
+        for name in [code, *json.loads(aliases)]:
+            names.setdefault(" ".join(str(name).split()).casefold(), code)
+    return names
+
+
+def _named(room: str, names: dict[str, str]) -> str:
+    """The rooms list's code for a portal room.
+
+    The portal keeps ten characters of a room's name, so "5.104(Physics Lab)" arrives as
+    "5.104(Phys": that is the room whose code comes before the bracket. Anything else is
+    kept as the portal says it.
+    """
+    words = " ".join(room.split())
+    head = words.split("(", 1)[0].strip()
+    return names.get(words.casefold()) or (names.get(head.casefold()) if head != words else None) or room
 
 
 def _numbered_with_rooms(meetings: list[tuple[date, str, str, str]]) -> list[tuple[date, str, str, int, str]]:

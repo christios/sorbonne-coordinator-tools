@@ -79,6 +79,48 @@ def test_their_classes_run_from_two_weeks_back(service: TeacherClasses):
     assert first["status"] == "scheduled"
 
 
+@pytest.fixture
+def rooms_list():
+    """Two rooms on the Rooms page: a lab, and the amphitheatre the portal calls by a shortened name."""
+    engine = StudentDatabase(TEST_DATABASE_URL).engine
+    with engine.begin() as connection:
+        connection.execute(text("DELETE FROM rooms"))
+        for code, aliases in (("5.104", "[]"), ("Richelieu", '["B5.Richeli"]')):
+            connection.execute(
+                text("""INSERT INTO rooms (id, code, name, building, kind, seats, aliases, updated_at, updated_by)
+                        VALUES (:id, :code, '', '', '', NULL, :aliases, 'now', 'tests')"""),
+                {"id": uuid4().hex, "code": code, "aliases": aliases},
+            )
+    yield
+    with engine.begin() as connection:
+        connection.execute(text("DELETE FROM rooms"))
+
+
+def test_a_room_is_named_as_the_rooms_list_names_it(service: TeacherClasses, rooms_list):
+    ahmed = a_part_timer("Ahmed Slimani")
+    a_section(crn="24008", teacher_id=ahmed["activeId"])
+    swept(
+        {
+            "24008": [
+                ("2026-10-08", "08:15", "10:15"),
+                ("2026-10-09", "08:15", "10:15"),
+                ("2026-10-12", "08:15", "10:15"),
+            ]
+        }
+    )
+    with StudentDatabase(TEST_DATABASE_URL).engine.begin() as connection:
+        for day, room in (("2026-10-08", "5.104(Phys"), ("2026-10-09", "B5.Richeli"), ("2026-10-12", "5.105/.107")):
+            connection.execute(
+                text("UPDATE facility_meetings SET room = :room WHERE crn = '24008' AND meets_on = :day"),
+                {"room": room, "day": day},
+            )
+
+    rooms = [c["room"] for c in by_email(service.classes(today=TODAY), ahmed["email"])["classes"]]
+
+    # cut by the portal to ten characters, another name on the list, and a room the list does not know
+    assert rooms == ["5.104", "Richelieu", "5.105/.107"]
+
+
 def test_everybody_is_listed_with_their_department_even_without_a_class(service: TeacherClasses):
     an_active_teacher("Nadia Farouk", "Nadia.Farouk@sorbonne.ae")
 
