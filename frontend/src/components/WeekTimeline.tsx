@@ -498,8 +498,9 @@ export function WeekTimeline({
 /**
  * One class, on its side, saying what every class's box says (see ClassFacts). At the top of
  * the height zoom its row is made tall enough for that; lower down it says the whole lines
- * it has room for, in the same order, and with room for less than two, the course and group
- * on one line in type that fits. The sentence is on the tooltip, as everywhere else.
+ * it has room for, in the same order, and with room for less than two, all of it on one
+ * line in type that fits, as far as the box is long. The sentence is on the tooltip, as
+ * everywhere else.
  *
  * It used to rank its fields by width and leave out the hour, which the box's place on
  * the page already says. The department asked for one box everywhere instead, the same
@@ -570,6 +571,16 @@ function Class({
   const lines = linesIn(inside - 4);
   // One line, the course and group, rather than the first of several: unless one is all it says.
   const oneLine = lines < 2 && !(whole > 0 && whole <= height);
+  // And after them on that line, the rest in the same order, as far as the box is long.
+  const rest = [
+    cancelled ? "Cancelled" : covered ? (covered.standingIn ? "Standing in" : "Covered") : "",
+    crowded ? `${registered}/${seats}` : "",
+    `${session.start}–${session.end}`,
+    formatRoom(session.room),
+    covered?.standingIn ? "" : course?.staff,
+    covered ? `${covered.standingIn ? "for" : "by"} ${covered.coverTeacherName}` : "",
+    `CRN ${session.crn}`,
+  ].filter(Boolean);
 
   return (
     <Box
@@ -618,12 +629,13 @@ function Class({
       </div>
       {/* Below a readable size there are no words, only the colour; the hover still has them all. */}
       {oneLine && height >= 7 ? (
-        <span
-          className={`absolute inset-x-1 top-0 block truncate font-semibold ${cancelled ? "line-through" : ""}`}
-          style={{ fontSize: Math.min(11, inside - 2), lineHeight: `${inside}px` }}
-        >
-          {[label, course?.group].filter(Boolean).join(" · ")}
-          {crowded ? ` · ${registered}/${seats}` : ""}
+        <span className="absolute inset-x-1 top-0 block truncate" style={{ fontSize: Math.min(11, inside - 2), lineHeight: `${inside}px` }}>
+          <b className={`font-semibold ${cancelled ? "line-through" : ""}`}>{[label, course?.group].filter(Boolean).join(" · ")}</b>
+          {rest.map((part, index) => (
+            <span key={index} className="ml-1.5 tabular-nums opacity-90">
+              {part}
+            </span>
+          ))}
         </span>
       ) : null}
     </Box>
