@@ -35,6 +35,10 @@ import { fetchTimetableTerms, type TimetableTerm } from "@/services/timetables";
  */
 const WIDTH = { min: 1, max: 6, step: 0.1, start: 1 };
 /*
+ * At the lowest notch of either, that axis is squeezed rather than zoomed: the whole week on
+ * the screen with nothing to scroll, the boxes cut down to what fits (see `WeekTimeline`).
+ */
+/*
  * On a phone a week one screen wide is a column of slivers — "MATH-" and "SCEN" — so it
  * opens three and a half screens wide there, readable, and scrolls sideways under the
  * days, which stay put. Only where this browser has not chosen a width of its own.
@@ -494,6 +498,7 @@ function SemesterWeek({ layout, term, picker }: { layout: Layout; term: Timetabl
           navInto={navSlot}
           widthZoom={widthZoom}
           rowHeight={rowHeight}
+          squeeze={{ width: widthZoom <= WIDTH.min, height: rowHeight <= HEIGHT.min }}
           weekOne={weeks.data?.[term.id]}
           keepWeekAs={`semester:${term.id}`}
           title={term.name}

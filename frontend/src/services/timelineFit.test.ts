@@ -27,4 +27,13 @@ describe("how tall a class grows to fill the screen", () => {
     expect(fittedRowHeight(58, [1, 1], 22, 28)).toBe(22);
     expect(fittedRowHeight(80, [1, 1], 22, 28)).toBe(33);
   });
+
+  it("squeezed, goes as small as it takes for a busy week to fit without scrolling", () => {
+    // A real Tuesday has 23 classes stacked; the whole week is about seventy rows of classes.
+    const lanes = [10, 23, 18, 9, 6];
+    const height = fittedRowHeight(620, lanes, 2, 14, 2);
+    expect(height).toBeLessThan(14);
+    expect(lanes.reduce((total, rows) => total + Math.max(14, rows * height + 2) + 1, 0)).toBeLessThanOrEqual(620);
+    expect(lanes.reduce((total, rows) => total + Math.max(14, rows * (height + 1) + 2) + 1, 0)).toBeGreaterThan(620);
+  });
 });

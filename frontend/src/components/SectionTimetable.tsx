@@ -95,6 +95,8 @@ type TimetableProps = {
   /** How many screens wide the week is drawn; 1 fills it exactly. */
   widthZoom?: number;
   rowHeight?: number;
+  /** Each zoom at its lowest: the whole week on the screen, squeezed — see `WeekTimeline`. */
+  squeeze?: { width: boolean; height: boolean };
   /** Take the height given and scroll the grid inside it, rather than growing the page. */
   fills?: boolean;
   /**
@@ -180,6 +182,7 @@ function Timetable({
   byRoom,
   widthZoom = 1,
   rowHeight = 22,
+  squeeze,
   fills = false,
   onCoverage,
   navInto,
@@ -421,6 +424,7 @@ function Timetable({
               today={today}
               widthZoom={widthZoom}
               rowHeight={rowHeight}
+              squeeze={squeeze}
               rowsBy={byRoom ? "room" : "day"}
               day={oneDay ? shownDay : undefined}
               seatsOf={seatsOf}

@@ -28,6 +28,15 @@ import {
  */
 const LABEL = { day: { width: 92, height: 44 }, room: { width: 136, height: 28 } };
 /**
+ * The same, squeezed: one short line ("Tue 29 · 54"), so a quiet row is never held taller
+ * than its classes need when the whole week has to fit the screen.
+ */
+const SQUEEZED_LABEL = { day: { width: 76, height: 14 }, room: { width: 96, height: 10 } };
+/** A squeezed box shorter than this says one line — the course and group — and the rest on hover. */
+const ONE_LINE_BELOW = 30;
+/** Half the width of an hour's label across the top, "18:00" at its size. */
+const HALF_A_TIME = 21;
+/**
  * How wide the shortest class is drawn, at least. Every box says everything (see
  * ClassFacts) and wraps it to its width; narrower than this, on a phone or a room's whole
  * week, it wrapped a letter a line. Past it the week scrolls sideways, as it does zoomed.
@@ -81,6 +90,17 @@ type WeekTimelineProps = {
   seatsOf?: (room: string) => number | null;
   /** How many the registrar has in a section, for a class too big for its room. */
   registeredOf?: (crn: string) => number | null;
+  /**
+   * The lowest notch of each zoom: the whole week inside the box, however small it takes.
+   *
+   * Everywhere else a box says everything (see ClassFacts) and its row grows to hold it,
+   * and the shortest class is never narrower than a readable box — so at the lowest
+   * zooms a busy semester still scrolled both ways, and the lowest notch of a slider did
+   * not do what a lowest notch is for. Squeezed, the week is exactly as wide as the screen
+   * and its rows exactly as tall, a short box says one line in smaller type, and the rest
+   * is on the hover, as it always is.
+   */
+  squeeze?: { width: boolean; height: boolean };
 };
 
 /** One row of the grid: a day, or a room, and the classes on it. */
@@ -122,13 +142,20 @@ export function WeekTimeline({
   day,
   seatsOf,
   registeredOf,
+  squeeze,
 }: WeekTimelineProps) {
   const days = weekDays(weekStart, sessions);
   const inWeek = sessionsInRange(sessions, days[0], days[days.length - 1]);
   // The whole semester's hours, so the scale holds still as the weeks go by.
   const { startMinute, endMinute } = hourBounds(sessions, atLeast);
   const byRoom = rowsBy === "room";
-  const { width: LABEL_WIDTH, height: LABEL_HEIGHT } = LABEL[rowsBy];
+  // Height can only be squeezed into a height the grid is given.
+  const narrow = Boolean(squeeze?.width);
+  const short = Boolean(squeeze?.height) && fills;
+  const LABEL_WIDTH = (narrow ? SQUEEZED_LABEL : LABEL)[rowsBy].width;
+  const LABEL_HEIGHT = (short ? SQUEEZED_LABEL : LABEL)[rowsBy].height;
+  // Between one stacked class and the next, and at a row's top and foot.
+  const GAP = short ? 1 : 3;
   // The stretches of time across the page: one span of hours, or one per day of the week.
   const bands: (string | null)[] = byRoom ? (day ? [day] : days) : [null];
   const drawn = byRoom && day ? sessionsOnDay(inWeek, day) : inWeek;
@@ -207,13 +234,21 @@ export function WeekTimeline({
   const screenFit = room.width > 0 ? (room.width - LABEL_WIDTH) / (minutes * bands.length) : 1.6;
   // The semester's shortest class, as the hours are the semester's: the scale holds still week to week.
   const shortest = Math.max(30, Math.min(120, ...sessions.map((session) => minutesOf(session.end) - minutesOf(session.start))));
-  const perMinute = Math.max(screenFit * Math.max(1, widthZoom), NARROWEST_CLASS / shortest);
+  const perMinute =
+    narrow && room.width > 0 ? screenFit : Math.max(screenFit * Math.max(1, widthZoom), NARROWEST_CLASS / shortest);
   const bandWidth = minutes * perMinute;
   const width = bandWidth * bands.length;
   const headerHeight = HOURS_HEIGHT + (bands.length > 1 ? DAYS_HEIGHT : 0);
   // The header's own border is inside its height; each row but the last has one line under it.
   const available = room.height - headerHeight;
-  const lane = fills ? fittedRowHeight(available, laid.map(({ rows }) => rows), rowHeight, LABEL_HEIGHT) : rowHeight;
+  const stacked = laid.map(({ rows }) => rows);
+  // Not an empty week, whose rows would push its "No classes" line off the screen.
+  const stretch = fills && drawn.length > 0;
+  const lane = !stretch
+    ? rowHeight
+    : short
+      ? fittedRowHeight(available, stacked, 2, LABEL_HEIGHT, 2 * GAP)
+      : fittedRowHeight(available, stacked, rowHeight, LABEL_HEIGHT);
   /*
    * And taller wherever a row's classes need it to say everything (see ClassFacts). Row by
    * row, so one half-hour class on a Thursday makes Thursday taller and not the week: a
@@ -221,7 +256,8 @@ export function WeekTimeline({
    * Measured after each layout and before it is painted.
    */
   const [needs, setNeeds] = useState<number[]>([]);
-  const laneOf = (index: number) => Math.max(lane, needs[index] ?? 0);
+  // Squeezed, a row is never grown past the screen for its words: they go one line instead.
+  const laneOf = (index: number) => (short ? lane : Math.max(lane, needs[index] ?? 0));
   useLayoutEffect(() => {
     const element = box.current;
     if (!element) return;
@@ -230,8 +266,8 @@ export function WeekTimeline({
       const found: number[] = [];
       for (const drawn of element.querySelectorAll<HTMLElement>("[data-line]")) {
         const at = Number(drawn.dataset.line);
-        // The 3px is the gap between one stacked class and the next.
-        found[at] = Math.max(found[at] ?? 0, Math.ceil(heightNeeded(drawn)) + 3);
+        // Plus the gap between one stacked class and the next.
+        found[at] = Math.max(found[at] ?? 0, Math.ceil(heightNeeded(drawn)) + GAP);
       }
       const next = Array.from({ length: rows }, (_, index) => found[index] ?? 0);
       setNeeds((held) => (held.length === next.length && held.every((value, index) => value === next[index]) ? held : next));
@@ -251,8 +287,9 @@ export function WeekTimeline({
    * visible strip of white under Friday.
    */
   const used =
-    laid.reduce((total, { rows }, index) => total + Math.max(LABEL_HEIGHT, rows * laneOf(index) + 6), 0) + Math.max(0, laid.length - 1);
-  const spare = fills && room.height > 0 && used < available && laid.length ? (available - used) / laid.length : 0;
+    laid.reduce((total, { rows }, index) => total + Math.max(LABEL_HEIGHT, rows * laneOf(index) + 2 * GAP), 0) +
+    Math.max(0, laid.length - 1);
+  const spare = stretch && room.height > 0 && used < available && laid.length ? (available - used) / laid.length : 0;
 
   const hours: number[] = [];
   for (let minute = Math.ceil(startMinute / 60) * 60; minute <= endMinute; minute += 60) hours.push(minute);
@@ -276,6 +313,9 @@ export function WeekTimeline({
   );
   const time = (minute: number) =>
     `${String(Math.floor(minute / 60)).padStart(2, "0")}:${String(minute % 60).padStart(2, "0")}`;
+  // Centred on its line, except near the two ends, where half of it would hang off the grid.
+  const anchored = (at: number) =>
+    at < HALF_A_TIME ? "" : at > width - HALF_A_TIME ? "-translate-x-full" : "-translate-x-1/2";
   const nothing = byRoom && day ? "No classes this day." : "No classes this week.";
 
   return (
@@ -314,7 +354,7 @@ export function WeekTimeline({
                       .map((minute) => (
                         <span
                           key={`h${minute}`}
-                          className="absolute top-0 -translate-x-1/2 px-1 py-1 text-[10px] tabular-nums text-[#c8d0da]"
+                          className={`absolute top-0 ${anchored(leftOf(minute, index))} px-1 py-1 text-[10px] tabular-nums text-[#c8d0da]`}
                           style={{ left: leftOf(minute, index) }}
                         >
                           {time(minute)}
@@ -324,7 +364,7 @@ export function WeekTimeline({
                 {labelled.map((minute) => (
                   <span
                     key={minute}
-                    className="absolute top-0 -translate-x-1/2 px-1 py-1 text-[11px] font-semibold tabular-nums text-[#667085]"
+                    className={`absolute top-0 ${anchored(leftOf(minute, index))} px-1 py-1 text-[11px] font-semibold tabular-nums text-[#667085]`}
                     style={{ left: leftOf(minute, index) }}
                   >
                     {time(minute)}
@@ -338,9 +378,11 @@ export function WeekTimeline({
         {laid.map(({ line, boxes, rows }, index) => (
           <div key={line.key} className={`flex border-b border-[#e4e8ef] last:border-0 ${line.today ? "bg-[#fbfdff]" : ""}`}>
             <div
-              className={`sticky left-0 z-10 shrink-0 border-r border-[#e4e8ef] px-2 py-1.5 text-xs font-semibold leading-4 text-[#344054] ${
-                line.today ? "bg-[#fbfdff]" : "bg-white"
-              } ${byRoom ? "flex items-start justify-between gap-1.5" : ""}`}
+              className={`sticky left-0 z-10 shrink-0 border-r border-[#e4e8ef] font-semibold text-[#344054] ${
+                short ? "px-1.5 py-0 text-[10px] leading-[12px]" : "px-2 py-1.5 text-xs leading-4"
+              } ${line.today ? "bg-[#fbfdff]" : "bg-white"} ${
+                byRoom || short ? "flex items-start justify-between gap-1.5" : ""
+              }`}
               style={{ width: LABEL_WIDTH }}
             >
               <span className="block min-w-0 truncate" title={line.title}>
@@ -353,7 +395,9 @@ export function WeekTimeline({
                 const classes = `${line.sessions.length} class${line.sessions.length === 1 ? "" : "es"} this week`;
                 return (
                   <span
-                    className="block shrink-0 text-[11px] font-normal leading-4 tabular-nums text-[#98a2b3]"
+                    className={`block shrink-0 font-normal tabular-nums text-[#98a2b3] ${
+                      short ? "text-[10px] leading-[12px]" : "text-[11px] leading-4"
+                    }`}
                     title={byRoom ? (seats !== null ? `${seats} seats · ${classes}` : `Seats not known · ${classes}`) : undefined}
                   >
                     {byRoom
@@ -362,12 +406,14 @@ export function WeekTimeline({
                         : line.sessions.length || "—"
                       : line.sessions.length === 0
                         ? "—"
-                        : `${line.sessions.length} class${line.sessions.length === 1 ? "" : "es"}`}
+                        : short || narrow
+                          ? line.sessions.length
+                          : `${line.sessions.length} class${line.sessions.length === 1 ? "" : "es"}`}
                   </span>
                 );
               })()}
             </div>
-            <div className="relative" style={{ width, height: Math.max(LABEL_HEIGHT, rows * laneOf(index) + 6) + spare }}>
+            <div className="relative" style={{ width, height: Math.max(LABEL_HEIGHT, rows * laneOf(index) + 2 * GAP) + spare }}>
               {bands.map((band, index) => (
                 <div key={band ?? "grid"}>
                   {quarters.map((minute) => (
@@ -376,9 +422,12 @@ export function WeekTimeline({
                   {halves.map((minute) => (
                     <div key={`h${minute}`} className="absolute inset-y-0 border-l border-[#d5dbe4]" style={{ left: leftOf(minute, index) }} />
                   ))}
-                  {hours.map((minute) => (
-                    <div key={minute} className="absolute inset-y-0 border-l border-[#aeb8c6]" style={{ left: leftOf(minute, index) }} />
-                  ))}
+                  {/* Not the closing hour: that line is the grid's edge, or the next day's first. */}
+                  {hours
+                    .filter((minute) => minute < endMinute)
+                    .map((minute) => (
+                      <div key={minute} className="absolute inset-y-0 border-l border-[#aeb8c6]" style={{ left: leftOf(minute, index) }} />
+                    ))}
                   {/* Where one day of the week ends and the next begins. */}
                   {index > 0 ? (
                     <div className="absolute inset-y-0 border-l-2 border-[#8a96a8]" style={{ left: index * bandWidth - 1 }} />
@@ -390,7 +439,7 @@ export function WeekTimeline({
                 * wide week without drifting into the one above it.
                 */}
               {Array.from({ length: rows - 1 }, (_, row) => (
-                <div key={`r${row}`} className="absolute inset-x-0 border-t border-[#e4e8ef]" style={{ top: (row + 1) * laneOf(index) + 3 + spare / 2 }} />
+                <div key={`r${row}`} className="absolute inset-x-0 border-t border-[#e4e8ef]" style={{ top: (row + 1) * laneOf(index) + GAP + spare / 2 }} />
               ))}
               {boxes.map(({ session, lane: at, lanes, band }) => (
                 <Class
@@ -400,9 +449,10 @@ export function WeekTimeline({
                   course={courses.get(session.crn)}
                   left={leftOf(minutesOf(session.start), band)}
                   boxWidth={Math.max(18, (minutesOf(session.end) - minutesOf(session.start)) * perMinute - 3)}
-                  top={at * laneOf(index) + 3 + spare / 2}
-                  height={laneOf(index) - 3}
+                  top={at * laneOf(index) + GAP + spare / 2}
+                  height={laneOf(index) - GAP}
                   line={index}
+                  oneLine={short && laneOf(index) - GAP < ONE_LINE_BELOW}
                   onPick={onPick}
                   clash={byRoom ? "booked into this room at the same time as another class" : "overlaps another class"}
                   seats={session.room && seatsOf ? seatsOf(session.room) : null}
@@ -438,6 +488,7 @@ function Class({
   seats = null,
   registered = null,
   line,
+  oneLine = false,
 }: {
   session: PlacedSession;
   course?: CalendarCourse;
@@ -453,6 +504,8 @@ function Class({
   /** Which row it is on, for the row's height. */
   line: number;
   registered?: number | null;
+  /** Squeezed too short for everything: the course and group on one line, in type that fits. */
+  oneLine?: boolean;
 }) {
   const color = course?.color ?? "#1f4e79";
   const outline = course?.tone === "outline";
@@ -489,7 +542,9 @@ function Class({
       title={details}
       aria-label={opens ? `Open CRN ${session.crn}: ${details}` : details}
       data-line={line}
-      className={`absolute flex flex-col justify-center overflow-hidden rounded-md px-1.5 py-0.5 text-left ${
+      className={`absolute flex flex-col justify-center overflow-hidden text-left ${
+        oneLine ? "rounded-sm px-1 py-0" : "rounded-md px-1.5 py-0.5"
+      } ${
         outline ? "border-2 border-dashed bg-white" : "text-white"
       } ${cancelled ? "opacity-55" : ""} ${session.clashes ? "outline-2 -outline-offset-2 outline-[#d9a441]" : ""} ${
         opens ? "cursor-pointer hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#1f4e79]" : ""
@@ -504,18 +559,32 @@ function Class({
         color: outline ? color : undefined,
       }}
     >
-      <ClassFacts
-        session={session}
-        course={course}
-        aside={
-          // Never dropped: a room too small is the thing to see at a glance.
-          crowded ? (
-            <span className="shrink-0 rounded bg-[#a6292f] px-1 py-px text-[10px] font-semibold tabular-nums text-white">
-              {registered}/{seats}
-            </span>
-          ) : null
-        }
-      />
+      {oneLine ? (
+        // Below a readable size there are no words, only the colour; the hover still has them all.
+        height >= 7 ? (
+          <span
+            data-facts
+            className={`block truncate font-semibold ${cancelled ? "line-through" : ""}`}
+            style={{ fontSize: Math.min(11, height - 2), lineHeight: `${height}px` }}
+          >
+            {[label, course?.group].filter(Boolean).join(" · ")}
+            {crowded ? ` · ${registered}/${seats}` : ""}
+          </span>
+        ) : null
+      ) : (
+        <ClassFacts
+          session={session}
+          course={course}
+          aside={
+            // Never dropped: a room too small is the thing to see at a glance.
+            crowded ? (
+              <span className="shrink-0 rounded bg-[#a6292f] px-1 py-px text-[10px] font-semibold tabular-nums text-white">
+                {registered}/{seats}
+              </span>
+            ) : null
+          }
+        />
+      )}
     </Box>
   );
 }
