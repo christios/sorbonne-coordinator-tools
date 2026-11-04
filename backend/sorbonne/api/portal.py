@@ -863,7 +863,20 @@ def read_changed_classes(
     inside it, read as a section that never had them — and a class quietly added to one
     read as a class that had always been there.
     """
-    return {"termCode": term_code, "sections": facilities.classes_changed(term_code)}
+    return {"termCode": term_code, "sections": facilities.classes_changed(term_code, since_approval=True)}
+
+
+@router.get("/facility-timetable/{term_code}/changed-classes/history")
+def read_changed_classes_history(
+    term_code: str,
+    facilities: FacilityTimetableStore = Depends(get_facilities),
+) -> dict[str, Any]:
+    """Every change the registrar has made to our sections' classes, and every approval.
+
+    The banner only asks about what changed since a section was last approved; this is
+    where what was answered stays readable.
+    """
+    return {"termCode": term_code, "sections": facilities.classes_history(term_code)}
 
 
 @router.get("/facility-timetable/{term_code}/sections")

@@ -17,7 +17,7 @@ import uuid
 from dataclasses import dataclass
 from hashlib import sha256
 from datetime import date as dt_date
-from datetime import datetime
+from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 from typing import Any
 
@@ -61,6 +61,10 @@ class Coverage:
         return sorted([*self.gone, *self.unchecked])
 
 
+#: What an approval of a section's changed classes is stored under, before the term and CRN.
+_APPROVED = "registrar-classes-changed"
+
+
 def _said(slots: list[tuple[str, str, str]]) -> str:
     return "|".join(f"{on}T{start}-{end}" for on, start, end in sorted(slots))
 
@@ -83,7 +87,92 @@ def change_key(
     the other.
     """
     said = f"removed:{_said(removed)}|added:{_said(added)}"
-    return f"registrar-classes-changed:{term_code}:{crn}:{sha256(said.encode()).hexdigest()[:12]}"
+    return f"{_APPROVED}:{term_code}:{crn}:{sha256(said.encode()).hexdigest()[:12]}"
+
+
+def _when(stamp: str) -> datetime:
+    """A stored moment, comparable with any other: a sweep's seconds with an approval's microseconds."""
+    moment = datetime.fromisoformat(stamp)
+    return moment if moment.tzinfo else moment.replace(tzinfo=UTC)
+
+
+def _had_class(history: list[Any], at: datetime | None) -> bool:
+    """Whether a slot had a class at `at`, or when the section was first seen if `at` is None.
+
+    A slot's first change says what it was to begin with: a removal means it had one.
+    """
+    before = [] if at is None else [row for row in history if _when(row["noticed_at"]) <= at]
+    return before[-1]["kind"] == "added" if before else history[0]["kind"] == "removed"
+
+
+def _diff(
+    slots: dict[tuple[str, str, str], list[Any]],
+    since: datetime | None,
+    until: datetime | None = None,
+) -> dict[str, dict[tuple[str, str, str], Any]]:
+    """The slots whose class is there at `until` (now, if None) and was not at `since`, or the reverse.
+
+    Each comes with the change that made it so, which carries the room it had.
+    """
+    found: dict[str, dict[tuple[str, str, str], Any]] = {"removed": {}, "added": {}}
+    for slot, history in slots.items():
+        upto = history if until is None else [row for row in history if _when(row["noticed_at"]) <= until]
+        if not upto:
+            continue
+        now = upto[-1]["kind"] == "added"
+        if _had_class(history, since) != now:
+            found["added" if now else "removed"][slot] = upto[-1]
+    return found
+
+
+def _key_of(term_code: str, crn: str, diff: dict[str, dict[tuple[str, str, str], Any]], known: set) -> str:
+    return change_key(
+        term_code, crn, removed=sorted(slot for slot in diff["removed"] if slot not in known), added=sorted(diff["added"])
+    )
+
+
+def _answered_up_to(
+    term_code: str,
+    crn: str,
+    slots: dict[tuple[str, str, str], list[Any]],
+    known: set,
+    approvals: list[tuple[datetime, str]],
+) -> datetime | None:
+    """The moment this section was last answered for: what its latest approval was given on.
+
+    Not simply when the approval was clicked. A sweep can land while a coordinator has the
+    page open, and an approval stamped after it was still given for what they were looking
+    at — so each approval is matched to the sweep whose picture carries the key it names,
+    and only then believed to cover it. Approvals given before a section was measured from
+    its last one name the whole record since it was first seen, and are matched that way
+    too. One that matches nothing (what we said we had cancelled has changed since) covers
+    what had been noticed by the time it was given, which is the best that can be said.
+
+    None when nothing has been approved: measured from when the section was first seen.
+    """
+    since: datetime | None = None
+    stamps = sorted({_when(row["noticed_at"]) for history in slots.values() for row in history})
+    for at, key in approvals:
+        for cut in reversed([stamp for stamp in stamps if stamp <= at and (since is None or stamp > since)]):
+            if key in (_key_of(term_code, crn, _diff(slots, since, cut), known), _key_of(term_code, crn, _diff(slots, None, cut), known)):
+                since = cut
+                break
+        else:
+            since = at if since is None or at > since else since
+    return since
+
+
+def _approvals(connection: Any, term_code: str) -> dict[str, list[tuple[datetime, str]]]:
+    """Each section's approvals of its changed classes, oldest first."""
+    found: dict[str, list[tuple[datetime, str]]] = {}
+    for key, at in connection.execute(
+        text("SELECT key, dismissed_at FROM warning_dismissals WHERE key LIKE :named"),
+        {"named": f"{_APPROVED}:{term_code}:%"},
+    ):
+        parts = str(key).split(":")
+        if len(parts) == 4:
+            found.setdefault(parts[2], []).append((_when(str(at)), str(key)))
+    return {crn: sorted(held) for crn, held in found.items()}
 
 
 class FacilityTimetableStore:
@@ -392,7 +481,7 @@ class FacilityTimetableStore:
             held.setdefault(crn, set()).add(weekday)
         return {crn: sorted(days, key=_WEEKDAYS.index) for crn, days in held.items()}
 
-    def classes_changed(self, term_code: str) -> list[dict[str, Any]]:
+    def classes_changed(self, term_code: str, *, since_approval: bool = False) -> list[dict[str, Any]]:
         """Sections whose classes the registrar has changed, and the shape they are in now.
 
         Three things, because three things can be true of a class: it has gone, it is
@@ -422,6 +511,13 @@ class FacilityTimetableStore:
         naming their teacher in a warning on our teachers' page is how a banner earns the
         right to be ignored. The changes are still recorded for everything swept, so a
         section that becomes ours arrives with its history already kept.
+
+        `since_approval` measures each section from its last approval instead of from when it
+        was first seen, which is what the banner asks about. A section approved and then
+        changed again is news for the class that changed, not for everything it ever did:
+        shown its whole record a second time, a coordinator re-reads what they already
+        answered and cannot tell which square is the new one. The whole record is still
+        kept, and read back by `classes_history`.
         """
         with self.engine.connect() as connection:
             changes = (
@@ -477,27 +573,25 @@ class FacilityTimetableStore:
                         "room": row["room"] or "",
                     }
                 )
+            approvals = _approvals(connection, term_code) if since_approval else {}
 
-        # What each slot was when we met it, and what it is now. The pair is the whole
-        # diff: same word twice is a change that stands, two different words is a slot
-        # that has come back to where it began and is nobody's news.
-        began: dict[tuple[str, tuple[str, str, str]], str] = {}
-        ended: dict[tuple[str, tuple[str, str, str]], Any] = {}
+        # Each slot's changes in the order the sweeps noticed them. Its first says what it was
+        # when we met it, its last what it is now; a slot whose state is the same at both
+        # ends of the comparison has come back to where it was and is nobody's news.
+        held: dict[str, dict[tuple[str, str, str], list[Any]]] = {}
         for row in changes:
-            named = (row["crn"], (row["meets_on"], row["starts_at"], row["ends_at"]))
-            began.setdefault(named, row["kind"])
-            ended[named] = row
+            held.setdefault(row["crn"], {}).setdefault((row["meets_on"], row["starts_at"], row["ends_at"]), []).append(row)
 
         net: dict[str, dict[str, dict[tuple[str, str, str], Any]]] = {}
-        for (crn, slot), row in ended.items():
-            if began[(crn, slot)] != row["kind"]:
-                continue
-            net.setdefault(crn, {"removed": {}, "added": {}})[row["kind"]][slot] = row
+        for crn, slots in held.items():
+            ours = {slot for slot in slots if (crn, slot[0], slot[1]) in cancelled}
+            since = _answered_up_to(term_code, crn, slots, ours, approvals.get(crn, []))
+            net[crn] = _diff(slots, since)
 
         found = []
         for crn in crns:
-            change = net.get(crn)
-            if not change:
+            change = net[crn]
+            if not change["removed"] and not change["added"]:
                 continue
             lost = []
             news: list[tuple[str, str, str]] = []
@@ -564,6 +658,95 @@ class FacilityTimetableStore:
             found,
             key=lambda section: (-(len(section["removed"]) + len(section["added"])), section["crn"]),
         )
+
+    def classes_history(self, term_code: str) -> list[dict[str, Any]]:
+        """Everything the registrar has changed in our sections, sweep by sweep, with every approval.
+
+        The banner shows what has changed since a section was last approved, which is what a
+        coordinator has to answer. This is what they have answered: the record nothing
+        prunes, in the order it happened, with who approved it and when between the sweeps,
+        so a class that went in October can still be found in December. Raw, not netted: a
+        class taken away and put back is two entries here, because both happened.
+
+        Newest section first, each section's entries oldest first.
+        """
+        with self.engine.connect() as connection:
+            changes = (
+                connection.execute(
+                    text("""SELECT c.crn, c.noticed_at, c.kind, c.meets_on,
+                                   c.starts_at, c.ends_at, c.room
+                            FROM facility_meeting_changes c
+                            JOIN facility_sections s
+                              ON s.term_code = c.term_code AND s.crn = c.crn AND s.ours
+                            WHERE c.term_code = :t
+                            ORDER BY c.noticed_at, c.kind DESC, c.meets_on, c.starts_at"""),
+                    {"t": term_code},
+                )
+                .mappings()
+                .all()
+            )
+            if not changes:
+                return []
+            crns = sorted({row["crn"] for row in changes})
+            sections = {
+                row["crn"]: row
+                for row in connection.execute(
+                    text("""SELECT crn, course_code, title, teacher_name
+                            FROM facility_sections WHERE term_code = :t AND crn = ANY(:crns)"""),
+                    {"t": term_code, "crns": crns},
+                ).mappings()
+            }
+            cancelled = {
+                (str(row[0]), str(row[1]), str(row[2]))
+                for row in connection.execute(
+                    text("""SELECT crn, meets_on, starts_at FROM session_changes
+                            WHERE term_code = :t AND crn = ANY(:crns) AND kind = 'cancelled'"""),
+                    {"t": term_code, "crns": crns},
+                )
+            }
+            approvals = connection.execute(
+                text("""SELECT key, dismissed_by_name, dismissed_by_email, dismissed_at
+                        FROM warning_dismissals WHERE key LIKE :named"""),
+                {"named": f"{_APPROVED}:{term_code}:%"},
+            ).all()
+
+        entries: dict[str, list[dict[str, Any]]] = {}
+        swept: dict[tuple[str, str], dict[str, Any]] = {}
+        for row in changes:
+            sweep = swept.get((row["crn"], row["noticed_at"]))
+            if sweep is None:
+                sweep = {"kind": "changed", "at": row["noticed_at"], "removed": [], "added": []}
+                swept[(row["crn"], row["noticed_at"])] = sweep
+                entries.setdefault(row["crn"], []).append(sweep)
+            meeting = {
+                "meetsOn": row["meets_on"],
+                "startsAt": row["starts_at"],
+                "endsAt": row["ends_at"],
+                "room": row["room"] or "",
+            }
+            if row["kind"] == "removed":
+                meeting["weCancelled"] = (row["crn"], row["meets_on"], row["starts_at"]) in cancelled
+            sweep[row["kind"]].append(meeting)
+        for key, name, email, at in approvals:
+            parts = str(key).split(":")
+            if len(parts) == 4 and parts[2] in entries:
+                entries[parts[2]].append({"kind": "approved", "at": str(at), "by": str(name or email or "")})
+
+        found = []
+        for crn, said in entries.items():
+            said.sort(key=lambda entry: _when(entry["at"]))
+            section = sections.get(crn) or {}
+            found.append(
+                {
+                    "crn": crn,
+                    "courseCode": section.get("course_code", ""),
+                    "title": section.get("title", ""),
+                    "teacherName": section.get("teacher_name", ""),
+                    "entries": said,
+                    "lastAt": said[-1]["at"],
+                }
+            )
+        return sorted(found, key=lambda section: (-_when(section["lastAt"]).timestamp(), section["crn"]))
 
     def timetable_for(self, term_code: str, crns: list[str]) -> dict[str, Any]:
         """These sections' meetings, with rooms and the state each section is in, for a calendar.

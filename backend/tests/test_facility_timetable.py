@@ -23,6 +23,7 @@ def store() -> FacilityTimetableStore:
     held = FacilityTimetableStore(TEST_DATABASE_URL)
     with held.engine.begin() as connection:
         connection.execute(text("DELETE FROM facility_meeting_changes"))
+        connection.execute(text("DELETE FROM warning_dismissals WHERE key LIKE 'registrar-classes-changed:%'"))
         connection.execute(text("DELETE FROM session_changes WHERE term_code = :t"), {"t": TERM})
         connection.execute(text("DELETE FROM facility_meetings"))
         connection.execute(text("DELETE FROM facility_sections"))
@@ -610,3 +611,158 @@ def test_the_key_holds_across_sweeps_so_an_approval_lasts(store: FacilityTimetab
     swept(store, [MONDAY])
 
     assert store.classes_changed(TERM)[0]["key"] == approved
+
+
+# --------------------------------------------------------------- since the last approval
+
+
+def swept_at(store: FacilityTimetableStore, at: str, meetings) -> None:
+    store.record_pull(term_code=TERM, asked=["23425"], sections=[section("23425", meetings=meetings)],
+                      silent=[], failed=[], complete=True, now=f"2026-11-0{at}+00:00")
+
+
+def approved(store: FacilityTimetableStore, key: str, at: str) -> None:
+    with store.engine.begin() as connection:
+        connection.execute(
+            text("""INSERT INTO warning_dismissals (key, dismissed_by_email, dismissed_by_name, dismissed_at)
+                    VALUES (:key, 'christian@example.org', 'Christian', :at)
+                    ON CONFLICT (key) DO UPDATE SET dismissed_at = excluded.dismissed_at"""),
+            {"key": key, "at": f"2026-11-0{at}.123456+00:00"},
+        )
+
+
+def latest(store: FacilityTimetableStore) -> list[dict]:
+    return store.classes_changed(TERM, since_approval=True)
+
+
+def test_an_approved_section_that_changes_again_shows_only_the_new_change(store: FacilityTimetableStore):
+    """The banner asks about what changed since it was answered, not about the whole term again."""
+    swept_at(store, "1T08:00:00", [MONDAY, TUESDAY, WEDNESDAY])
+    swept_at(store, "2T08:00:00", [MONDAY, WEDNESDAY])
+    approved(store, latest(store)[0]["key"], "2T09:00:00")
+
+    swept_at(store, "3T08:00:00", [MONDAY])
+
+    [change] = latest(store)
+    assert [m["meetsOn"] for m in change["removed"]] == ["2026-09-09"]
+    assert change["noticedAt"] == "2026-11-03T08:00:00+00:00"
+    # The whole record is still there for whoever asks for it.
+    assert [m["meetsOn"] for m in store.classes_changed(TERM)[0]["removed"]] == ["2026-09-08", "2026-09-09"]
+
+
+def test_an_approved_section_with_nothing_new_is_not_listed(store: FacilityTimetableStore):
+    swept_at(store, "1T08:00:00", [MONDAY, TUESDAY])
+    swept_at(store, "2T08:00:00", [MONDAY])
+    approved(store, latest(store)[0]["key"], "2T09:00:00")
+
+    swept_at(store, "3T08:00:00", [MONDAY])
+
+    assert latest(store) == []
+
+
+def test_an_approval_given_as_a_sweep_landed_covers_what_was_on_the_page(store: FacilityTimetableStore):
+    """Clicked after the sweep, given for the picture before it: the new class is still news."""
+    swept_at(store, "1T08:00:00", [MONDAY, TUESDAY, WEDNESDAY])
+    swept_at(store, "2T08:00:00", [MONDAY, WEDNESDAY])
+    on_the_page = latest(store)[0]["key"]
+    swept_at(store, "2T08:30:00", [MONDAY])
+
+    approved(store, on_the_page, "2T08:31:00")
+
+    [change] = latest(store)
+    assert [m["meetsOn"] for m in change["removed"]] == ["2026-09-09"]
+
+
+def test_approvals_given_for_the_whole_record_are_still_honoured(store: FacilityTimetableStore):
+    """Before this, every approval named the whole record since the section was first seen."""
+    swept_at(store, "1T08:00:00", [MONDAY, TUESDAY, WEDNESDAY])
+    swept_at(store, "2T08:00:00", [MONDAY, WEDNESDAY])
+    approved(store, change_key(TERM, "23425", removed=[TUESDAY], added=[]), "2T09:00:00")
+    swept_at(store, "3T08:00:00", [MONDAY])
+    approved(store, change_key(TERM, "23425", removed=[TUESDAY, WEDNESDAY], added=[]), "3T09:00:00")
+
+    swept_at(store, "4T08:00:00", [])
+
+    [change] = latest(store)
+    assert [m["meetsOn"] for m in change["removed"]] == ["2026-09-07"]
+
+
+def test_a_class_put_back_after_its_removal_was_approved_is_news(store: FacilityTimetableStore):
+    """Back where it began against the start of term, but not against what was approved."""
+    swept_at(store, "1T08:00:00", [MONDAY, TUESDAY])
+    swept_at(store, "2T08:00:00", [MONDAY])
+    approved(store, latest(store)[0]["key"], "2T09:00:00")
+
+    swept_at(store, "3T08:00:00", [MONDAY, TUESDAY])
+
+    [change] = latest(store)
+    assert change["removed"] == []
+    assert [m["meetsOn"] for m in change["added"]] == ["2026-09-08"]
+    assert store.classes_changed(TERM) == []
+
+
+def test_withdrawing_an_approval_brings_the_change_back(store: FacilityTimetableStore):
+    swept_at(store, "1T08:00:00", [MONDAY, TUESDAY])
+    swept_at(store, "2T08:00:00", [MONDAY])
+    key = latest(store)[0]["key"]
+    approved(store, key, "2T09:00:00")
+    with store.engine.begin() as connection:
+        connection.execute(text("DELETE FROM warning_dismissals WHERE key = :key"), {"key": key})
+
+    [change] = latest(store)
+    assert [m["meetsOn"] for m in change["removed"]] == ["2026-09-08"]
+
+
+def test_an_approval_that_names_nothing_still_covers_what_had_been_noticed(store: FacilityTimetableStore):
+    """What we said we had cancelled can change after an approval; it still answered something."""
+    swept_at(store, "1T08:00:00", [MONDAY, TUESDAY])
+    swept_at(store, "2T08:00:00", [MONDAY])
+    approved(store, f"registrar-classes-changed:{TERM}:23425:000000000000", "2T09:00:00")
+    assert latest(store) == []
+
+    swept_at(store, "3T08:00:00", [])
+
+    [change] = latest(store)
+    assert [m["meetsOn"] for m in change["removed"]] == ["2026-09-07"]
+
+
+def test_another_section_s_approval_answers_nothing_here(store: FacilityTimetableStore):
+    swept_at(store, "1T08:00:00", [MONDAY, TUESDAY])
+    swept_at(store, "2T08:00:00", [MONDAY])
+    approved(store, f"registrar-classes-changed:{TERM}:99999:000000000000", "2T09:00:00")
+
+    assert [m["meetsOn"] for m in latest(store)[0]["removed"]] == ["2026-09-08"]
+
+
+def test_the_history_keeps_every_sweep_and_every_approval_in_order(store: FacilityTimetableStore):
+    """Raw, not netted: a class taken away and put back is two entries, because both happened."""
+    swept_at(store, "1T08:00:00", [MONDAY, TUESDAY])
+    swept_at(store, "2T08:00:00", [MONDAY])
+    approved(store, latest(store)[0]["key"], "2T09:00:00")
+    swept_at(store, "3T08:00:00", [MONDAY, TUESDAY, WEDNESDAY])
+
+    [record] = store.classes_history(TERM)
+
+    assert record["crn"] == "23425"
+    assert record["courseCode"] == "MATH-001"
+    assert [(entry["kind"], entry["at"][:16]) for entry in record["entries"]] == [
+        ("changed", "2026-11-02T08:00"),
+        ("approved", "2026-11-02T09:00"),
+        ("changed", "2026-11-03T08:00"),
+    ]
+    removal, approval, arrival = record["entries"]
+    assert [(m["meetsOn"], m["weCancelled"]) for m in removal["removed"]] == [("2026-09-08", False)]
+    assert approval["by"] == "Christian"
+    assert [m["meetsOn"] for m in arrival["added"]] == ["2026-09-08", "2026-09-09"]
+    assert record["lastAt"] == "2026-11-03T08:00:00+00:00"
+
+
+def test_the_history_leaves_out_other_departments_sections(store: FacilityTimetableStore):
+    def elsewhere(at: str, meetings) -> None:
+        store.record_pull(term_code=TERM, asked=["20598"], sections=[section("20598", meetings=meetings, ours=False)],
+                          silent=[], failed=[], complete=True, now=f"2026-11-0{at}+00:00")
+
+    elsewhere("1T08:00:00", [MONDAY, TUESDAY])
+    elsewhere("2T08:00:00", [MONDAY])
+
+    assert store.classes_history(TERM) == []

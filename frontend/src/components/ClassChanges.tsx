@@ -22,6 +22,9 @@
  * same change stays approved, one more class going or arriving stops the approval
  * matching and asks again — and because the approval names the classes rather than the
  * page it was given on, answering it on Active CRNs answers it on Active teachers too.
+ * What comes back after an approval is only what has changed since it: the section is
+ * measured from the approval, not from the start of term again. What was answered stays
+ * readable in the history, which is always one click away, banner or not.
  *
  * Opening it draws the months. A count cannot show this and a calendar can — three
  * squares left across three months is not a course being taught, and it reads at a glance
@@ -29,7 +32,7 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Check } from "lucide-react";
+import { AlertTriangle, Check, History } from "lucide-react";
 import { Tooltip } from "radix-ui";
 import { useMemo, useState } from "react";
 
@@ -37,7 +40,13 @@ import { Modal } from "@/components/Modal";
 import { hoursIn, minutesOf, monthsOfDiff, stillToLookAt, unexpected, type DiffDay, type Meeting } from "@/services/classDiff";
 import { formatRoom } from "@/services/weekSchedule";
 import { useRooms } from "@/services/rooms";
-import { fetchChangedClasses, fetchSweptTerms, type ChangedClasses } from "@/services/portalLists";
+import {
+  fetchChangeHistory,
+  fetchChangedClasses,
+  fetchSweptTerms,
+  type ChangeHistory,
+  type ChangedClasses,
+} from "@/services/portalLists";
 import { dismissalsByKey, fetchDismissals, setDismissal } from "@/services/warningDismissals";
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -54,6 +63,8 @@ function saidIn(lost: number, gained: number): string {
 export function ClassChangesBanner({ className = "" }: { className?: string }) {
   const client = useQueryClient();
   const [open, setOpen] = useState(false);
+  // The history, for every section or for the one whose History was asked for.
+  const [history, setHistory] = useState<{ crn?: string } | null>(null);
   const terms = useQuery({ queryKey: ["swept-terms"], queryFn: fetchSweptTerms, retry: false });
   const termCode = terms.data?.[0] ?? "";
   const changed = useQuery({
@@ -80,10 +91,38 @@ export function ClassChangesBanner({ className = "" }: { className?: string }) {
   }, [waiting]);
   const approve = useMutation({
     mutationFn: (key: string) => setDismissal(key, true),
-    onSuccess: () => void client.invalidateQueries({ queryKey: ["warning-dismissals"] }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ["warning-dismissals"] });
+      void client.invalidateQueries({ queryKey: ["changed-classes-history"] });
+    },
   });
+  const historyDialog = (
+    <ChangeHistoryDialog
+      termCode={termCode}
+      crn={history?.crn}
+      open={history !== null}
+      onClose={() => setHistory(null)}
+    />
+  );
 
-  if (waiting.length === 0) return null;
+  // Nothing waiting: no banner, but what was answered is still there to read.
+  if (waiting.length === 0) {
+    if (!termCode) return null;
+    return (
+      <>
+        <div className={`${className} flex justify-end`}>
+          <button
+            type="button"
+            onClick={() => setHistory({})}
+            className="inline-flex items-center gap-1.5 text-sm font-medium text-[#1f4e79] hover:underline"
+          >
+            <History size={15} /> Class change history
+          </button>
+        </div>
+        {historyDialog}
+      </>
+    );
+  }
 
   // Only what the department did not already know: a coordinator's own cancellations
   // are not hours that went missing on them.
@@ -104,19 +143,28 @@ export function ClassChangesBanner({ className = "" }: { className?: string }) {
             — {saidIn(lost, gained)} since the department last looked.
           </span>
         </p>
-        <button
-          type="button"
-          onClick={() => setOpen(true)}
-          className="shrink-0 rounded-md border border-[#c9a227] bg-white px-3 py-1.5 text-sm font-semibold text-[#7a5d00] hover:bg-[#fffaf0]"
-        >
-          Show what changed
-        </button>
+        <div className="flex shrink-0 items-center gap-3">
+          <button
+            type="button"
+            onClick={() => setHistory({})}
+            className="inline-flex items-center gap-1.5 text-sm font-medium text-[#7a5d00] hover:underline"
+          >
+            <History size={15} /> History
+          </button>
+          <button
+            type="button"
+            onClick={() => setOpen(true)}
+            className="rounded-md border border-[#c9a227] bg-white px-3 py-1.5 text-sm font-semibold text-[#7a5d00] hover:bg-[#fffaf0]"
+          >
+            Show what changed
+          </button>
+        </div>
       </div>
       <Modal
         open={open}
         onClose={() => setOpen(false)}
         title="Classes the portal has changed"
-        description="Each month of the semester, with what still meets, what has gone and what has arrived. Approving one keeps it out of the banner until something else about it changes."
+        description="What has changed since each section was last approved, across the months of the semester: what still meets, what has gone and what has arrived. Approving one keeps it out of the banner until something else about it changes, and then only that new change is shown."
         size="wide"
       >
         <div className="grid grid-cols-[minmax(0,1fr)] gap-6">
@@ -127,10 +175,12 @@ export function ClassChangesBanner({ className = "" }: { className?: string }) {
               span={span}
               onApprove={() => approve.mutate(section.key)}
               approving={approve.isPending && approve.variables === section.key}
+              onHistory={() => setHistory({ crn: section.crn })}
             />
           ))}
         </div>
       </Modal>
+      {historyDialog}
     </>
   );
 }
@@ -140,12 +190,15 @@ function SectionDiff({
   span,
   onApprove,
   approving,
+  onHistory,
 }: {
   section: ChangedClasses;
   /** The semester's months, so a section with nothing in September still shows September. */
   span?: { from: string; to: string };
   onApprove: () => void;
   approving: boolean;
+  /** Everything that ever changed in this section, and who approved what. */
+  onHistory: () => void;
 }) {
   const months = useMemo(
     () => monthsOfDiff(section.kept, section.removed, section.added, span),
@@ -177,14 +230,23 @@ function SectionDiff({
             {section.teacherName || "Nobody named"} · {said.join(", ")}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={onApprove}
-          disabled={approving}
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-3 py-1.5 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb] disabled:opacity-60"
-        >
-          <Check size={16} /> Approve
-        </button>
+        <div className="flex shrink-0 items-center gap-3">
+          <button
+            type="button"
+            onClick={onHistory}
+            className="inline-flex items-center gap-1.5 text-sm font-medium text-[#1f4e79] hover:underline"
+          >
+            <History size={15} /> History
+          </button>
+          <button
+            type="button"
+            onClick={onApprove}
+            disabled={approving}
+            className="inline-flex items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-3 py-1.5 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb] disabled:opacity-60"
+          >
+            <Check size={16} /> Approve
+          </button>
+        </div>
       </div>
       {/*
         * Every month the section touches on one row, however many there are. A semester
@@ -375,5 +437,126 @@ function Square({ day, section }: { day: DiffDay | null; section: ChangedClasses
         </Tooltip.Portal>
       </Tooltip.Root>
     </Tooltip.Provider>
+  );
+}
+
+const SHORT_DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const SHORT_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** "Mon 9 Nov", for the day a class was or is on. */
+function classDay(iso: string): string {
+  const [year, month, date] = iso.split("-").map(Number);
+  const made = new Date(year, month - 1, date);
+  return Number.isNaN(made.getTime()) ? iso : `${SHORT_DAYS[made.getDay()]} ${date} ${SHORT_MONTHS[month - 1]}`;
+}
+
+/** "4 Nov 2026, 09:03", in the reader's own time, for when something was noticed or approved. */
+function moment(iso: string): string {
+  const when = new Date(iso);
+  if (Number.isNaN(when.getTime())) return iso;
+  const time = `${String(when.getHours()).padStart(2, "0")}:${String(when.getMinutes()).padStart(2, "0")}`;
+  return `${when.getDate()} ${SHORT_MONTHS[when.getMonth()]} ${when.getFullYear()}, ${time}`;
+}
+
+/**
+ * What was answered, kept readable. The banner only asks about what changed since a
+ * section's last approval, so this is where a class that went in October is still found in
+ * December — each sweep that changed something, and each approval, newest first.
+ */
+function ChangeHistoryDialog({
+  termCode,
+  crn,
+  open,
+  onClose,
+}: {
+  termCode: string;
+  /** One section's history, opened from its card; every section's when left out. */
+  crn?: string;
+  open: boolean;
+  onClose: () => void;
+}) {
+  const history = useQuery({
+    queryKey: ["changed-classes-history", termCode],
+    queryFn: () => fetchChangeHistory(termCode),
+    enabled: open && Boolean(termCode),
+    retry: false,
+  });
+  const shown = (history.data ?? []).filter((section) => !crn || section.crn === crn);
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={crn ? `Change history · CRN ${crn}` : "Class change history"}
+      description="Every change the portal has made to these classes this term, newest first, with who approved it and when."
+      size="wide"
+    >
+      {history.isLoading ? (
+        <p className="text-sm text-[#667085]">Loading the history…</p>
+      ) : history.isError ? (
+        <p className="text-sm text-[#842029]">The history could not be loaded.</p>
+      ) : shown.length === 0 ? (
+        <p className="text-sm text-[#667085]">The portal has not changed any of our classes this term.</p>
+      ) : (
+        <div className="grid gap-3">
+          {shown.map((section) => (
+            <SectionHistory key={section.crn} section={section} opened={Boolean(crn)} />
+          ))}
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+function SectionHistory({ section, opened }: { section: ChangeHistory; opened: boolean }) {
+  const newest = [...section.entries].reverse();
+  return (
+    <details open={opened} className="group rounded-lg border border-[#d9dee7] bg-white px-4 py-3">
+      <summary className="cursor-pointer list-none">
+        <span className="font-semibold text-[#344054]">
+          {section.courseCode || section.crn} · CRN {section.crn}
+        </span>
+        <span className="text-sm text-[#667085]">
+          {" "}
+          · {section.teacherName || "Nobody named"} · last {moment(section.lastAt)}
+        </span>
+      </summary>
+      <ol className="mt-3 space-y-3 border-l-2 border-[#e4e7ec] pl-4">
+        {newest.map((entry, index) =>
+          entry.kind === "approved" ? (
+            <li key={`a${index}`} className="text-sm text-[#0f5132]">
+              <span className="font-semibold">{moment(entry.at)}</span> · approved
+              {entry.by ? ` by ${entry.by}` : ""}
+            </li>
+          ) : (
+            <li key={`c${index}`} className="text-sm">
+              <p className="font-semibold text-[#344054]">{moment(entry.at)} · the portal changed</p>
+              <ul className="mt-1 space-y-0.5">
+                {entry.removed.map((meeting) => (
+                  <HistoryLine key={`r${meeting.meetsOn}${meeting.startsAt}`} gone meeting={meeting} />
+                ))}
+                {entry.added.map((meeting) => (
+                  <HistoryLine key={`a${meeting.meetsOn}${meeting.startsAt}`} gone={false} meeting={meeting} />
+                ))}
+              </ul>
+            </li>
+          ),
+        )}
+      </ol>
+    </details>
+  );
+}
+
+function HistoryLine({ meeting, gone }: { meeting: Meeting; gone: boolean }) {
+  return (
+    <li className="flex flex-wrap gap-x-2 text-[#475467]">
+      <span className={`w-16 shrink-0 font-semibold ${gone ? "text-[#842029]" : "text-[#0f5132]"}`}>
+        {gone ? "Removed" : "Added"}
+      </span>
+      <span className="tabular-nums">
+        {classDay(meeting.meetsOn)} · {meeting.startsAt}–{meeting.endsAt}
+      </span>
+      {meeting.room ? <span>room {formatRoom(meeting.room)}</span> : null}
+      {meeting.weCancelled ? <span className="text-[#98a2b3]">you had cancelled it</span> : null}
+    </li>
   );
 }

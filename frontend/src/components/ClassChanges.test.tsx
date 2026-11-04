@@ -111,6 +111,62 @@ describe("the banner", () => {
   });
 });
 
+const HISTORY: lists.ChangeHistory = {
+  crn: PHYSICS.crn,
+  courseCode: PHYSICS.courseCode,
+  title: PHYSICS.title,
+  teacherName: PHYSICS.teacherName,
+  entries: [
+    {
+      kind: "changed",
+      at: "2026-09-15T10:41:18+00:00",
+      removed: [{ meetsOn: "2026-09-14", startsAt: "10:30", endsAt: "12:30", room: "4.128" }],
+      added: [],
+    },
+    { kind: "approved", at: "2026-09-16T08:00:00+00:00", by: "Christian" },
+    {
+      kind: "changed",
+      at: "2026-09-22T10:41:18+00:00",
+      removed: [{ meetsOn: "2026-09-21", startsAt: "10:30", endsAt: "12:30", room: "4.128" }],
+      added: [{ meetsOn: "2026-09-24", startsAt: "13:00", endsAt: "15:00", room: "5.110" }],
+    },
+  ],
+  lastAt: "2026-09-22T10:41:18+00:00",
+};
+
+describe("the history", () => {
+  beforeEach(() => {
+    vi.spyOn(lists, "fetchChangeHistory").mockResolvedValue([HISTORY]);
+  });
+
+  it("is still one click away when nothing is waiting", async () => {
+    vi.spyOn(lists, "fetchChangedClasses").mockResolvedValue([]);
+    show();
+
+    fireEvent.click(await screen.findByRole("button", { name: /Class change history/ }));
+
+    expect(await screen.findByText(/PHYS-125 · CRN 23638/)).toBeTruthy();
+    expect(lists.fetchChangeHistory).toHaveBeenCalledWith("262710");
+  });
+
+  it("opens on one section from its card, newest first, with who approved what", async () => {
+    show();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Show what changed" }));
+    const [, fromTheCard] = await screen.findAllByRole("button", { name: /History/ });
+    fireEvent.click(fromTheCard);
+
+    expect(await screen.findByText("Change history · CRN 23638")).toBeTruthy();
+    const lines = (await screen.findAllByText(/· the portal changed|· approved/)).map((line) => line.textContent ?? "");
+    expect(lines).toHaveLength(3);
+    expect(lines[0]).toMatch(/22 Sep 2026/);
+    expect(lines[1]).toMatch(/approved by Christian/);
+    expect(screen.getAllByText("Removed")).toHaveLength(2);
+    expect(screen.getByText("Added")).toBeTruthy();
+    expect(screen.getByText(/Thu 24 Sep · 13:00–15:00/)).toBeTruthy();
+  });
+});
+
 describe("stillToLookAt", () => {
   it("keeps a section whose approval was for a different set of changed classes", () => {
     const approved = new Map([

@@ -806,7 +806,12 @@ export function fetchFacilitySections(termCode: string, crns: string[]): Promise
   return request<FacilityTimetable>(`/facility-timetable/${encodeURIComponent(termCode)}/sections?${query.toString()}`);
 }
 
-/** A section whose classes the registrar has changed, and the shape it is in now. */
+/**
+ * A section whose classes the registrar has changed, and the shape it is in now.
+ *
+ * Measured from the section's last approval, or from when it was first seen if it has never
+ * had one: what has changed since somebody last answered for it, not the whole term again.
+ */
 export type ChangedClasses = {
   crn: string;
   courseCode: string;
@@ -853,6 +858,38 @@ export async function fetchLastSweeps(): Promise<Record<string, LastSweep>> {
 export async function fetchChangedClasses(termCode: string): Promise<ChangedClasses[]> {
   const answer = await request<{ sections: ChangedClasses[] }>(
     `/facility-timetable/${encodeURIComponent(termCode)}/changed-classes`,
+  );
+  return answer.sections;
+}
+
+/** One thing that happened to a section's classes: a sweep that changed them, or an approval. */
+export type ChangeHistoryEntry =
+  | {
+      kind: "changed";
+      /** When the sweep that noticed it ran. */
+      at: string;
+      removed: { meetsOn: string; startsAt: string; endsAt: string; room: string; weCancelled?: boolean }[];
+      added: { meetsOn: string; startsAt: string; endsAt: string; room: string }[];
+    }
+  | { kind: "approved"; at: string; by: string };
+
+/**
+ * Everything the registrar has changed in one section this term, and every approval, oldest
+ * first. Raw rather than netted: a class taken away and put back is two entries.
+ */
+export type ChangeHistory = {
+  crn: string;
+  courseCode: string;
+  title: string;
+  teacherName: string;
+  entries: ChangeHistoryEntry[];
+  lastAt: string;
+};
+
+/** Every section with a change this term, the most recently touched first. */
+export async function fetchChangeHistory(termCode: string): Promise<ChangeHistory[]> {
+  const answer = await request<{ sections: ChangeHistory[] }>(
+    `/facility-timetable/${encodeURIComponent(termCode)}/changed-classes/history`,
   );
   return answer.sections;
 }
