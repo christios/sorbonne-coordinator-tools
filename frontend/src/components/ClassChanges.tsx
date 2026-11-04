@@ -24,7 +24,8 @@
  * page it was given on, answering it on Active CRNs answers it on Active teachers too.
  * What comes back after an approval is only what has changed since it: the section is
  * measured from the approval, not from the start of term again. What was answered stays
- * readable in the history, which is always one click away, banner or not.
+ * readable in the history, which is always one click away, banner or not, and on each
+ * CRN's own record.
  *
  * Opening it draws the months. A count cannot show this and a calendar can — three
  * squares left across three months is not a course being taught, and it reads at a glance
@@ -45,6 +46,7 @@ import {
   fetchChangedClasses,
   fetchSweptTerms,
   type ChangeHistory,
+  type ChangeHistoryEntry,
   type ChangedClasses,
 } from "@/services/portalLists";
 import { dismissalsByKey, fetchDismissals, setDismissal } from "@/services/warningDismissals";
@@ -508,7 +510,6 @@ function ChangeHistoryDialog({
 }
 
 function SectionHistory({ section, opened }: { section: ChangeHistory; opened: boolean }) {
-  const newest = [...section.entries].reverse();
   return (
     <details open={opened} className="group rounded-lg border border-[#d9dee7] bg-white px-4 py-3">
       <summary className="cursor-pointer list-none">
@@ -520,29 +521,40 @@ function SectionHistory({ section, opened }: { section: ChangeHistory; opened: b
           · {section.teacherName || "Nobody named"} · last {moment(section.lastAt)}
         </span>
       </summary>
-      <ol className="mt-3 space-y-3 border-l-2 border-[#e4e7ec] pl-4">
-        {newest.map((entry, index) =>
-          entry.kind === "approved" ? (
-            <li key={`a${index}`} className="text-sm text-[#0f5132]">
-              <span className="font-semibold">{moment(entry.at)}</span> · approved
-              {entry.by ? ` by ${entry.by}` : ""}
-            </li>
-          ) : (
-            <li key={`c${index}`} className="text-sm">
-              <p className="font-semibold text-[#344054]">{moment(entry.at)} · the portal changed</p>
-              <ul className="mt-1 space-y-0.5">
-                {entry.removed.map((meeting) => (
-                  <HistoryLine key={`r${meeting.meetsOn}${meeting.startsAt}`} gone meeting={meeting} />
-                ))}
-                {entry.added.map((meeting) => (
-                  <HistoryLine key={`a${meeting.meetsOn}${meeting.startsAt}`} gone={false} meeting={meeting} />
-                ))}
-              </ul>
-            </li>
-          ),
-        )}
-      </ol>
+      <ChangeHistoryEntries entries={section.entries} className="mt-3" />
     </details>
+  );
+}
+
+/**
+ * One section's history, newest first: each sweep that changed its classes, and each
+ * approval. The CRN record shows it too, since the banner is gone once nothing waits.
+ */
+export function ChangeHistoryEntries({ entries, className = "" }: { entries: ChangeHistoryEntry[]; className?: string }) {
+  const newest = [...entries].reverse();
+  return (
+    <ol className={`space-y-3 border-l-2 border-[#e4e7ec] pl-4 ${className}`}>
+      {newest.map((entry, index) =>
+        entry.kind === "approved" ? (
+          <li key={`a${index}`} className="text-sm text-[#0f5132]">
+            <span className="font-semibold">{moment(entry.at)}</span> · approved
+            {entry.by ? ` by ${entry.by}` : ""}
+          </li>
+        ) : (
+          <li key={`c${index}`} className="text-sm">
+            <p className="font-semibold text-[#344054]">{moment(entry.at)} · the portal changed</p>
+            <ul className="mt-1 space-y-0.5">
+              {entry.removed.map((meeting) => (
+                <HistoryLine key={`r${meeting.meetsOn}${meeting.startsAt}`} gone meeting={meeting} />
+              ))}
+              {entry.added.map((meeting) => (
+                <HistoryLine key={`a${meeting.meetsOn}${meeting.startsAt}`} gone={false} meeting={meeting} />
+              ))}
+            </ul>
+          </li>
+        ),
+      )}
+    </ol>
   );
 }
 

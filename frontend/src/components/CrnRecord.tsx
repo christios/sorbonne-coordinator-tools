@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
 
 import { CrnDialog } from "@/components/ActiveCourses";
+import { ChangeHistoryEntries } from "@/components/ClassChanges";
 import { InfoTip } from "@/components/InfoTip";
 import { Modal } from "@/components/Modal";
 import { SectionTimetable } from "@/components/SectionTimetable";
@@ -18,6 +19,7 @@ import { filled } from "@/services/courseRequest";
 import {
   fetchActiveCourses,
   fetchActiveTeachers,
+  fetchChangeHistory,
   fetchCrnStudents,
   fetchFacilitySections,
   fetchRegisterCheck,
@@ -152,6 +154,18 @@ export function CrnRecord({
   }));
   const tooSmall = roomsUsed.filter(({ room }) => room && room.seats !== null && row.registered > room.seats);
   /*
+   * What the portal has changed in its classes, and who approved it. The banner on Active
+   * CRNs shows a section only while a change waits for approval; this is where the rest
+   * is read. Same key as the banner's history, so an approval there shows here.
+   */
+  const history = useQuery({
+    queryKey: ["changed-classes-history", row.termCode],
+    queryFn: () => fetchChangeHistory(row.termCode),
+    enabled: open && Boolean(row.termCode),
+    retry: false,
+  });
+  const portalChanges = (history.data ?? []).find((entry) => entry.crn === row.crn)?.entries ?? [];
+  /*
    * Who the registrar has in it. Ids from the server; names from this browser, which is
    * the only place they are. Beside each, the group of ours the CRN stands for — blank is
    * the line worth reading, a student in a section none of their groups gives them.
@@ -207,9 +221,10 @@ export function CrnRecord({
     >
       {/*
        * In rows, so the cards line up across the page: who teaches it beside what is wrong
-       * with it; when the portal has it beside the parent it hangs from and the changes to
-       * its classes; then who is registered in it, across the width. Each row's cards are as
-       * tall as each other — two columns stacked on their own ended wherever they happened to.
+       * with it; when the portal has it, and what it changed, beside the parent it hangs from
+       * and the changes to its classes; then who is registered in it, across the width. Each
+       * row's cards are as tall as each other — two columns stacked on their own ended
+       * wherever they happened to.
        */}
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
         <Card title="Who teaches it" note="The group of ours this CRN stands for, and what the timetabler was asked for.">
@@ -267,60 +282,80 @@ export function CrnRecord({
             </ul>
           )}
         </Card>
-        <Card
-          title="When the portal has it"
-          action={
-            section?.meetings.length ? (
-              // Its schedule as a PDF: this week grid for every teaching week, a page each.
-              <TimetablesButton small label="Export schedule" make={() => exportCrnTimetable(client, [row])} />
-            ) : null
-          }
-        >
-          {days.isLoading ? (
-            <Empty>Reading the sweep…</Empty>
-          ) : !days.data ? (
-            <Empty>No semester is linked to a portal term, so the portal has not been asked.</Empty>
-          ) : !asked ? (
-            <Empty>Nobody has asked the portal about this CRN. Run a portal sync.</Empty>
-          ) : meets.length === 0 ? (
-            <Empty>The portal&apos;s timetable has no classes booked for it.</Empty>
-          ) : (
-            <>
-              <p className="text-sm text-[#344054]">{meets.join(" · ")}</p>
-              {roomsUsed.length ? (
-                <p className="mt-1 text-xs text-[#667085]" aria-label="Rooms">
-                  {roomsUsed.map(({ name, room, classes }, index) => (
-                    <span key={name}>
-                      {index ? " · " : ""}
-                      <span className={room && room.seats !== null && row.registered > room.seats ? "font-semibold text-[#a6292f]" : "text-[#344054]"}>
-                        {name}
-                      </span>{" "}
-                      {room && room.seats !== null ? `${room.seats} seats` : "seats not known"}
-                      {roomsUsed.length > 1 ? `, ${classes} class${classes === 1 ? "" : "es"}` : ""}
-                    </span>
-                  ))}
-                </p>
-              ) : null}
-              {/* The dates under those weekdays: a handover, a moved room, a week off. */}
-              <div className="mt-3">
-                <SectionTimetable
-                  compact
-                  title={`CRN ${row.crn} — timetable`}
-                  onPickSession={setNoting}
-                  entries={[
-                    {
-                      termCode: row.termCode,
-                      crn: row.crn,
-                      code: row.courseCode,
-                      title: row.courseTitle || row.portalTitle,
-                      staff: row.teacherName,
-                    },
-                  ]}
-                />
-              </div>
-            </>
-          )}
-        </Card>
+        <div className="flex flex-col gap-3">
+          <Card
+            title="When the portal has it"
+            action={
+              section?.meetings.length ? (
+                // Its schedule as a PDF: this week grid for every teaching week, a page each.
+                <TimetablesButton small label="Export schedule" make={() => exportCrnTimetable(client, [row])} />
+              ) : null
+            }
+          >
+            {days.isLoading ? (
+              <Empty>Reading the sweep…</Empty>
+            ) : !days.data ? (
+              <Empty>No semester is linked to a portal term, so the portal has not been asked.</Empty>
+            ) : !asked ? (
+              <Empty>Nobody has asked the portal about this CRN. Run a portal sync.</Empty>
+            ) : meets.length === 0 ? (
+              <Empty>The portal&apos;s timetable has no classes booked for it.</Empty>
+            ) : (
+              <>
+                <p className="text-sm text-[#344054]">{meets.join(" · ")}</p>
+                {roomsUsed.length ? (
+                  <p className="mt-1 text-xs text-[#667085]" aria-label="Rooms">
+                    {roomsUsed.map(({ name, room, classes }, index) => (
+                      <span key={name}>
+                        {index ? " · " : ""}
+                        <span className={room && room.seats !== null && row.registered > room.seats ? "font-semibold text-[#a6292f]" : "text-[#344054]"}>
+                          {name}
+                        </span>{" "}
+                        {room && room.seats !== null ? `${room.seats} seats` : "seats not known"}
+                        {roomsUsed.length > 1 ? `, ${classes} class${classes === 1 ? "" : "es"}` : ""}
+                      </span>
+                    ))}
+                  </p>
+                ) : null}
+                {/* The dates under those weekdays: a handover, a moved room, a week off. */}
+                <div className="mt-3">
+                  <SectionTimetable
+                    compact
+                    title={`CRN ${row.crn} — timetable`}
+                    onPickSession={setNoting}
+                    entries={[
+                      {
+                        termCode: row.termCode,
+                        crn: row.crn,
+                        code: row.courseCode,
+                        title: row.courseTitle || row.portalTitle,
+                        staff: row.teacherName,
+                      },
+                    ]}
+                  />
+                </div>
+              </>
+            )}
+          </Card>
+          <Card
+            className="flex-1"
+            title="What the portal changed"
+            note="Every class the portal has removed from it or added to it this term, newest first, and who approved each change and when. Approved changes leave the banner but stay here."
+          >
+            {!row.termCode ? (
+              <Empty>No portal term, so the portal cannot be asked.</Empty>
+            ) : history.isLoading ? (
+              <Empty>Reading the history…</Empty>
+            ) : history.error ? (
+              <p className="text-sm text-[#a6292f]">The history could not be loaded.</p>
+            ) : portalChanges.length === 0 ? (
+              <Empty>Nothing. The portal has not changed its classes this term.</Empty>
+            ) : (
+              // A box of its own only on a wide screen, as the students below.
+              <ChangeHistoryEntries entries={portalChanges} className="lg:max-h-72 lg:overflow-y-auto" />
+            )}
+          </Card>
+        </div>
         <div className="flex flex-col gap-3">
           {/*
             * The one thing on a CRN that is ours to change, kept where the CRN is looked at

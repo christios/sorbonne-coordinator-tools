@@ -35,6 +35,7 @@ beforeEach(() => {
   vi.spyOn(lists, "fetchActiveCourses").mockResolvedValue([]);
   vi.spyOn(lists, "fetchActiveTeachers").mockResolvedValue([]);
   vi.spyOn(lists, "fetchCrnStudents").mockResolvedValue(IN_IT);
+  vi.spyOn(lists, "fetchChangeHistory").mockResolvedValue([]);
   vi.spyOn(lists, "fetchFacilitySections").mockResolvedValue({ termCode: "262710", sections: [], pulledAt: "" });
   vi.spyOn(changes, "fetchSessionChanges").mockResolvedValue([]);
   vi.spyOn(database, "fetchCourseCards").mockResolvedValue([]);
@@ -71,5 +72,42 @@ describe("the e-mails of a section", () => {
 
     expect(await screen.findByText(/holds no e-mail for anybody in this section/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Copy the/ })).toBeNull();
+  });
+});
+
+describe("what the portal changed", () => {
+  const meeting = (meetsOn: string) => ({ meetsOn, startsAt: "10:00", endsAt: "12:00", room: "5.104" });
+
+  it("lists its changes and approvals, newest first, with no banner needed", async () => {
+    vi.spyOn(lists, "fetchChangeHistory").mockResolvedValue([
+      {
+        crn: "23638", courseCode: "PHYS-125", title: "Mechanics", teacherName: "Sara Khaled", lastAt: "2026-11-02T09:00:00Z",
+        entries: [
+          { kind: "changed", at: "2026-10-12T09:00:00Z", removed: [meeting("2026-10-20")], added: [] },
+          { kind: "approved", at: "2026-10-13T09:00:00Z", by: "Patricia Chahwane" },
+          { kind: "changed", at: "2026-11-02T09:00:00Z", removed: [], added: [meeting("2026-11-10")] },
+        ],
+      },
+      {
+        crn: "99999", courseCode: "MATH-101", title: "", teacherName: "", lastAt: "2026-11-01T09:00:00Z",
+        entries: [{ kind: "approved", at: "2026-11-01T09:00:00Z", by: "Somebody Else" }],
+      },
+    ]);
+    open();
+
+    const approved = await screen.findByText(/approved by Patricia Chahwane/);
+    const steps = approved.closest("ol")!.querySelectorAll(":scope > li");
+    expect([...steps].map((step) => step.textContent)).toEqual([
+      expect.stringMatching(/the portal changed.*Added.*Tue 10 Nov/),
+      expect.stringMatching(/approved by Patricia Chahwane/),
+      expect.stringMatching(/the portal changed.*Removed.*Tue 20 Oct/),
+    ]);
+    expect(screen.queryByText(/Somebody Else/)).toBeNull();
+  });
+
+  it("says so when the portal has not touched it", async () => {
+    open();
+
+    expect(await screen.findByText(/The portal has not changed its classes this term/)).toBeTruthy();
   });
 });
