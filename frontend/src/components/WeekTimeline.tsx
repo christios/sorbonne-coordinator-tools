@@ -571,14 +571,17 @@ function Class({
   const lines = linesIn(inside - 4);
   // One line, the course and group, rather than the first of several: unless one is all it says.
   const oneLine = lines < 2 && !(whole > 0 && whole <= height);
-  // And after them on that line, the rest in the same order, as far as the box is long.
+  /*
+   * And after them on that line the rest, as far as the box is long: the room and the
+   * teacher before the hours, which the box's place under the hours already says.
+   */
   const rest = [
     cancelled ? "Cancelled" : covered ? (covered.standingIn ? "Standing in" : "Covered") : "",
     crowded ? `${registered}/${seats}` : "",
-    `${session.start}–${session.end}`,
     formatRoom(session.room),
     covered?.standingIn ? "" : course?.staff,
     covered ? `${covered.standingIn ? "for" : "by"} ${covered.coverTeacherName}` : "",
+    `${session.start}–${session.end}`,
     `CRN ${session.crn}`,
   ].filter(Boolean);
 
