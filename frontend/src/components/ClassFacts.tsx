@@ -1,6 +1,7 @@
 import { MapPin, Repeat, User } from "lucide-react";
 import type { ReactNode } from "react";
 
+import { FACTS_LINE } from "@/services/boxFit";
 import { formatRoom, type CalendarCourse, type PlacedSession } from "@/services/weekSchedule";
 
 /**
@@ -16,13 +17,16 @@ import { formatRoom, type CalendarCourse, type PlacedSession } from "@/services/
  *
  * Every field is always printed, in that order, as text that wraps: a wide box says it in
  * a line or two, a narrow one in more. The calendars measure what this takes and make
- * their hours (or rows) tall enough for it — `data-facts` is what they measure.
+ * their hours (or rows) tall enough for it — `data-facts` is what they measure. Only the
+ * Semester Timetable's height zoom draws a box shorter than that, and then it shows the
+ * whole lines that fit (`lines`), never half of one.
  */
 export function ClassFacts({
   session,
   course,
   small = false,
   aside,
+  lines,
 }: {
   session: PlacedSession;
   course?: CalendarCourse;
@@ -30,6 +34,8 @@ export function ClassFacts({
   small?: boolean;
   /** Said beside the name and never dropped: a room too small for its class, on the Semester Timetable. */
   aside?: ReactNode;
+  /** As many lines as the box has room for, full size and evenly spaced; the rest are cut off whole. */
+  lines?: number;
 }) {
   const label = course?.label || course?.code || session.crn;
   const outline = course?.tone === "outline";
@@ -45,8 +51,9 @@ export function ClassFacts({
       data-facts
       // Anything too long for a narrow box breaks onto the next line rather than off its edge.
       className={`flex shrink-0 flex-wrap content-start items-center gap-x-1.5 [overflow-wrap:anywhere] ${
-        small ? "gap-y-0 text-[8.5px] leading-[1.25]" : "gap-y-px text-[11px] leading-tight"
+        small ? "gap-y-0 text-[8.5px] leading-[1.25]" : lines === undefined ? "gap-y-px text-[11px] leading-tight" : "text-[11px] leading-tight"
       }`}
+      style={lines === undefined ? undefined : { maxHeight: lines * FACTS_LINE, overflow: "hidden" }}
     >
       <b className={`font-semibold ${cancelled ? "line-through" : ""}`}>{[label, course?.group].filter(Boolean).join(" · ")}</b>
       {cancelled ? (

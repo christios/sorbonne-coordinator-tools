@@ -30,8 +30,12 @@ import { fetchTimetableTerms, type TimetableTerm } from "@/services/timetables";
  * Width is in SCREENS: at 1 the week is exactly as wide as the room it has, and every
  * notch above that is a wider week you scroll. Expressed in pixels per minute instead, the
  * bottom half of the slider did nothing on a wide monitor, because anything narrower than
- * the screen was drawn at screen width anyway. Height is one class's own height, which is
- * what decides how many of a busy day's classes you see without scrolling.
+ * the screen was drawn at screen width anyway.
+ *
+ * Height is a share of the way from the whole week on the screen (0) to every box saying
+ * everything (1), so every notch makes the classes taller (see `WeekTimeline`). It was a
+ * class's height in pixels, and on a narrow week nearly all of the slider did nothing; a
+ * height kept from then is past the top, and opens there, as the boxes did.
  */
 const WIDTH = { min: 1, max: 6, step: 0.1, start: 1 };
 /*
@@ -44,7 +48,7 @@ const WIDTH = { min: 1, max: 6, step: 0.1, start: 1 };
  * days, which stay put. Only where this browser has not chosen a width of its own.
  */
 const widthStart = () => (typeof window !== "undefined" && window.innerWidth < 640 ? 3.5 : WIDTH.start);
-const HEIGHT = { min: 14, max: 56, step: 1, start: 22 };
+const HEIGHT = { min: 0, max: 1, step: 0.02, start: 1 };
 
 /** A section as the filters read it: the entry, and what its cohort, set and classes are. */
 type SectionRow = TimetableEntry & { cohort: string; subject: string; set: string; rooms: string[]; days: string[] };
@@ -163,7 +167,7 @@ function SemesterWeek({ layout, term, picker }: { layout: Layout; term: Timetabl
   // A room's whole week along one line, or one day with room to read every box.
   const [span, setSpan] = usePageState<"day" | "week">("rooms:span", "day");
   const [widthZoom, setWidthZoom] = useKeptNumber("semester-timetable:width", { ...WIDTH, start: widthStart() });
-  const [rowHeight, setRowHeight] = useKeptNumber("semester-timetable:height", HEIGHT);
+  const [heightZoom, setHeightZoom] = useKeptNumber("semester-timetable:height", HEIGHT);
   const [showingCrn, setShowingCrn] = useState<ActiveCrn | null>(null);
   // Where the week's arrows and dates go, so they cost no row of their own.
   const [navSlot, setNavSlot] = useState<HTMLDivElement | null>(null);
@@ -427,7 +431,7 @@ function SemesterWeek({ layout, term, picker }: { layout: Layout; term: Timetabl
             </span>
           ) : null}
           <Zoom label="Width" value={widthZoom} {...WIDTH} onChange={setWidthZoom} />
-          <Zoom label="Height" value={rowHeight} {...HEIGHT} onChange={setRowHeight} />
+          <Zoom label="Height" value={heightZoom} {...HEIGHT} onChange={setHeightZoom} />
           <button
             type="button"
             onClick={() => setExporting(true)}
@@ -497,8 +501,8 @@ function SemesterWeek({ layout, term, picker }: { layout: Layout; term: Timetabl
           onCoverage={setMissing}
           navInto={navSlot}
           widthZoom={widthZoom}
-          rowHeight={rowHeight}
-          squeeze={{ width: widthZoom <= WIDTH.min, height: rowHeight <= HEIGHT.min }}
+          heightZoom={heightZoom}
+          squeeze={{ width: widthZoom <= WIDTH.min }}
           weekOne={weeks.data?.[term.id]}
           keepWeekAs={`semester:${term.id}`}
           title={term.name}

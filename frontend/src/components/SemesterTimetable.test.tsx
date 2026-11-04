@@ -127,13 +127,13 @@ describe("a semester's whole week", () => {
     await screen.findByText("3 of 3");
     await filterOn("Subject", "MATH");
     expect(await screen.findByText("2 of 3")).toBeTruthy();
-    fireEvent.change(screen.getByLabelText("Height of a class"), { target: { value: "40" } });
+    fireEvent.change(screen.getByLabelText("Height of a class"), { target: { value: "0.4" } });
     first.unmount();
 
     show();
 
     expect(await screen.findByText("2 of 3")).toBeTruthy();
-    expect((screen.getByLabelText("Height of a class") as HTMLInputElement).value).toBe("40");
+    expect((screen.getByLabelText("Height of a class") as HTMLInputElement).value).toBe("0.4");
   });
 
   it("numbers the week from the semester's Week 1, and jumps to any week", async () => {

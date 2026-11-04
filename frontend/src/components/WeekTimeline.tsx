@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, useState } from "react";
 
 import { ClassFacts } from "@/components/ClassFacts";
-import { heightNeeded } from "@/services/boxFit";
+import { heightNeeded, linesIn } from "@/services/boxFit";
 import { fittedRowHeight } from "@/services/timelineFit";
 import {
   DAY_NAMES,
@@ -29,11 +29,12 @@ import {
 const LABEL = { day: { width: 92, height: 44 }, room: { width: 136, height: 28 } };
 /**
  * The same, squeezed: one short line ("Tue 29 · 54"), so a quiet row is never held taller
- * than its classes need when the whole week has to fit the screen.
+ * than its classes need when the whole week has to fit the screen. A row shorter than its
+ * full label says this one, at whatever height the zoom has it.
  */
 const SQUEEZED_LABEL = { day: { width: 76, height: 14 }, room: { width: 96, height: 10 } };
-/** A squeezed box shorter than this says one line — the course and group — and the rest on hover. */
-const ONE_LINE_BELOW = 30;
+/** How tall a class is drawn before the grid has been measured: a first paint, or a test. */
+const UNMEASURED_LANE = 22;
 /** Half the width of an hour's label across the top, "18:00" at its size. */
 const HALF_A_TIME = 21;
 /**
@@ -69,10 +70,16 @@ type WeekTimelineProps = {
    */
   widthZoom: number;
   /**
-   * How tall one class is at least: the height zoom. A filling grid grows its classes past
-   * it until the rows take the whole screen.
+   * The height zoom, from 0 to 1: how far each row goes from the whole week on the screen
+   * towards its classes saying everything (see ClassFacts). A filling grid grows its classes
+   * past that until the rows take the whole screen; a grid that does not fill is always at 1.
+   *
+   * It was a class's height in pixels, and a row grew past that to say everything. Below
+   * what the words needed — on a narrow week, nearly all of the slider — a notch changed
+   * nothing; and from the lowest notch, the week on one screen, the next one jumped
+   * straight to every row at full height. A share of the way moves every notch.
    */
-  rowHeight: number;
+  heightZoom: number;
   atLeast?: { startMinute: number; endMinute: number };
   onPick?: (session: PlacedSession) => void;
   /** Take the height given and scroll inside it, rather than growing to fit the week. */
@@ -91,16 +98,15 @@ type WeekTimelineProps = {
   /** How many the registrar has in a section, for a class too big for its room. */
   registeredOf?: (crn: string) => number | null;
   /**
-   * The lowest notch of each zoom: the whole week inside the box, however small it takes.
+   * The lowest notch of the width zoom: the whole week across the box, however narrow it takes.
    *
-   * Everywhere else a box says everything (see ClassFacts) and its row grows to hold it,
-   * and the shortest class is never narrower than a readable box — so at the lowest
-   * zooms a busy semester still scrolled both ways, and the lowest notch of a slider did
-   * not do what a lowest notch is for. Squeezed, the week is exactly as wide as the screen
-   * and its rows exactly as tall, a short box says one line in smaller type, and the rest
-   * is on the hover, as it always is.
+   * Everywhere else the shortest class is never narrower than a readable box, so at the
+   * lowest zoom a busy semester still scrolled sideways, and the lowest notch of a slider
+   * did not do what a lowest notch is for. Squeezed, the week is exactly as wide as the
+   * screen, and what a box has no room to say is on the hover, as it always is. The height
+   * zoom's lowest notch, 0, does the same down the page.
    */
-  squeeze?: { width: boolean; height: boolean };
+  squeeze?: { width: boolean };
 };
 
 /** One row of the grid: a day, or a room, and the classes on it. */
@@ -134,7 +140,7 @@ export function WeekTimeline({
   courses,
   today,
   widthZoom,
-  rowHeight,
+  heightZoom,
   atLeast,
   onPick,
   fills = false,
@@ -149,13 +155,15 @@ export function WeekTimeline({
   // The whole semester's hours, so the scale holds still as the weeks go by.
   const { startMinute, endMinute } = hourBounds(sessions, atLeast);
   const byRoom = rowsBy === "room";
-  // Height can only be squeezed into a height the grid is given.
   const narrow = Boolean(squeeze?.width);
-  const short = Boolean(squeeze?.height) && fills;
+  // Height can only be squeezed into a height the grid is given.
+  const detail = fills ? Math.min(1, Math.max(0, heightZoom)) : 1;
+  // From the squeezed size to the full one with the zoom, so that no notch is a jump.
+  const between = (squeezed: number, full: number) => squeezed + (full - squeezed) * detail;
   const LABEL_WIDTH = (narrow ? SQUEEZED_LABEL : LABEL)[rowsBy].width;
-  const LABEL_HEIGHT = (short ? SQUEEZED_LABEL : LABEL)[rowsBy].height;
+  const LABEL_HEIGHT = between(SQUEEZED_LABEL[rowsBy].height, LABEL[rowsBy].height);
   // Between one stacked class and the next, and at a row's top and foot.
-  const GAP = short ? 1 : 3;
+  const GAP = between(1, 3);
   // The stretches of time across the page: one span of hours, or one per day of the week.
   const bands: (string | null)[] = byRoom ? (day ? [day] : days) : [null];
   const drawn = byRoom && day ? sessionsOnDay(inWeek, day) : inWeek;
@@ -244,33 +252,47 @@ export function WeekTimeline({
   const stacked = laid.map(({ rows }) => rows);
   // Not an empty week, whose rows would push its "No classes" line off the screen.
   const stretch = fills && drawn.length > 0;
-  const lane = !stretch
-    ? rowHeight
-    : short
-      ? fittedRowHeight(available, stacked, 2, LABEL_HEIGHT, 2 * GAP)
-      : fittedRowHeight(available, stacked, rowHeight, LABEL_HEIGHT);
   /*
-   * And taller wherever a row's classes need it to say everything (see ClassFacts). Row by
-   * row, so one half-hour class on a Thursday makes Thursday taller and not the week: a
-   * box's facts wrap to its width, which is its length in time, so the short ones decide.
-   * Measured after each layout and before it is painted.
+   * The tallest a class can be with the whole week on the screen, squeezed: where the zoom
+   * starts. Always the squeezed one, even as the labels and edges grow with the zoom — fitted
+   * to those instead, it shrank as they grew, and a notch up made the classes shorter.
+   */
+  const lane = !stretch
+    ? 0
+    : room.height > 0
+      ? fittedRowHeight(available, stacked, 2, SQUEEZED_LABEL[rowsBy].height, 2)
+      : UNMEASURED_LANE;
+  /*
+   * And from there, the zoom's share of the way to what a row's classes need to say
+   * everything (see ClassFacts): all of it at the top of the slider. Row by row, so one
+   * half-hour class on a Thursday makes Thursday taller and not the week: a box's facts
+   * wrap to its width, which is its length in time, so the short ones decide. Measured
+   * after each layout and before it is painted, whatever the box has room to show.
    */
   const [needs, setNeeds] = useState<number[]>([]);
-  // Squeezed, a row is never grown past the screen for its words: they go one line instead.
-  const laneOf = (index: number) => (short ? lane : Math.max(lane, needs[index] ?? 0));
+  // And each box's own, by its key: a box with room for all of it says all of it.
+  const [wholes, setWholes] = useState<Record<string, number>>({});
+  // Plus the gap between one stacked class and the next.
+  const laneOf = (index: number) => Math.round(lane + Math.max(0, (needs[index] ?? 0) + GAP - lane) * detail);
   useLayoutEffect(() => {
     const element = box.current;
     if (!element) return;
     const rows = laid.length;
     const measure = () => {
       const found: number[] = [];
+      const each: Record<string, number> = {};
       for (const drawn of element.querySelectorAll<HTMLElement>("[data-line]")) {
         const at = Number(drawn.dataset.line);
-        // Plus the gap between one stacked class and the next.
-        found[at] = Math.max(found[at] ?? 0, Math.ceil(heightNeeded(drawn)) + GAP);
+        const need = Math.ceil(heightNeeded(drawn));
+        found[at] = Math.max(found[at] ?? 0, need);
+        each[drawn.dataset.box ?? ""] = need;
       }
       const next = Array.from({ length: rows }, (_, index) => found[index] ?? 0);
       setNeeds((held) => (held.length === next.length && held.every((value, index) => value === next[index]) ? held : next));
+      setWholes((held) => {
+        const keys = Object.keys(each);
+        return keys.length === Object.keys(held).length && keys.every((key) => held[key] === each[key]) ? held : each;
+      });
     };
     measure();
     // And again whenever the words change size on their own, as when the page's font arrives.
@@ -286,10 +308,11 @@ export function WeekTimeline({
    * ends where the screen does. A few pixels a row, but thirty rows of rounding down was a
    * visible strip of white under Friday.
    */
-  const used =
-    laid.reduce((total, { rows }, index) => total + Math.max(LABEL_HEIGHT, rows * laneOf(index) + 2 * GAP), 0) +
-    Math.max(0, laid.length - 1);
+  const heightOf = (index: number) => Math.max(LABEL_HEIGHT, laid[index].rows * laneOf(index) + 2 * GAP);
+  const used = laid.reduce((total, _, index) => total + heightOf(index), 0) + Math.max(0, laid.length - 1);
   const spare = stretch && room.height > 0 && used < available && laid.length ? (available - used) / laid.length : 0;
+  // A row too short for its label's two lines says it in one.
+  const tight = (index: number) => heightOf(index) + spare < LABEL[rowsBy].height;
 
   const hours: number[] = [];
   for (let minute = Math.ceil(startMinute / 60) * 60; minute <= endMinute; minute += 60) hours.push(minute);
@@ -379,9 +402,9 @@ export function WeekTimeline({
           <div key={line.key} className={`flex border-b border-[#e4e8ef] last:border-0 ${line.today ? "bg-[#fbfdff]" : ""}`}>
             <div
               className={`sticky left-0 z-10 shrink-0 border-r border-[#e4e8ef] font-semibold text-[#344054] ${
-                short ? "px-1.5 py-0 text-[10px] leading-[12px]" : "px-2 py-1.5 text-xs leading-4"
+                tight(index) ? "px-1.5 py-0 text-[10px] leading-[12px]" : "px-2 py-1.5 text-xs leading-4"
               } ${line.today ? "bg-[#fbfdff]" : "bg-white"} ${
-                byRoom || short ? "flex items-start justify-between gap-1.5" : ""
+                byRoom || tight(index) ? "flex items-start justify-between gap-1.5" : ""
               }`}
               style={{ width: LABEL_WIDTH }}
             >
@@ -396,7 +419,7 @@ export function WeekTimeline({
                 return (
                   <span
                     className={`block shrink-0 font-normal tabular-nums text-[#98a2b3] ${
-                      short ? "text-[10px] leading-[12px]" : "text-[11px] leading-4"
+                      tight(index) ? "text-[10px] leading-[12px]" : "text-[11px] leading-4"
                     }`}
                     title={byRoom ? (seats !== null ? `${seats} seats · ${classes}` : `Seats not known · ${classes}`) : undefined}
                   >
@@ -406,14 +429,14 @@ export function WeekTimeline({
                         : line.sessions.length || "—"
                       : line.sessions.length === 0
                         ? "—"
-                        : short || narrow
+                        : tight(index) || narrow
                           ? line.sessions.length
                           : `${line.sessions.length} class${line.sessions.length === 1 ? "" : "es"}`}
                   </span>
                 );
               })()}
             </div>
-            <div className="relative" style={{ width, height: Math.max(LABEL_HEIGHT, rows * laneOf(index) + 2 * GAP) + spare }}>
+            <div className="relative" style={{ width, height: heightOf(index) + spare }}>
               {bands.map((band, index) => (
                 <div key={band ?? "grid"}>
                   {quarters.map((minute) => (
@@ -441,24 +464,28 @@ export function WeekTimeline({
               {Array.from({ length: rows - 1 }, (_, row) => (
                 <div key={`r${row}`} className="absolute inset-x-0 border-t border-[#e4e8ef]" style={{ top: (row + 1) * laneOf(index) + GAP + spare / 2 }} />
               ))}
-              {boxes.map(({ session, lane: at, lanes, band }) => (
-                <Class
-                  key={`${line.key}-${session.date}-${session.crn}-${session.start}-${at}`}
-                  // On a room's row an overlap is two classes booked into one room at once.
-                  session={byRoom ? { ...session, clashes: lanes > 1 } : session}
-                  course={courses.get(session.crn)}
-                  left={leftOf(minutesOf(session.start), band)}
-                  boxWidth={Math.max(18, (minutesOf(session.end) - minutesOf(session.start)) * perMinute - 3)}
-                  top={at * laneOf(index) + GAP + spare / 2}
-                  height={laneOf(index) - GAP}
-                  line={index}
-                  oneLine={short && laneOf(index) - GAP < ONE_LINE_BELOW}
-                  onPick={onPick}
-                  clash={byRoom ? "booked into this room at the same time as another class" : "overlaps another class"}
-                  seats={session.room && seatsOf ? seatsOf(session.room) : null}
-                  registered={registeredOf ? registeredOf(session.crn) : null}
-                />
-              ))}
+              {boxes.map(({ session, lane: at, lanes, band }) => {
+                const name = `${line.key}-${session.date}-${session.crn}-${session.start}-${at}`;
+                return (
+                  <Class
+                    key={name}
+                    name={name}
+                    whole={wholes[name] ?? 0}
+                    // On a room's row an overlap is two classes booked into one room at once.
+                    session={byRoom ? { ...session, clashes: lanes > 1 } : session}
+                    course={courses.get(session.crn)}
+                    left={leftOf(minutesOf(session.start), band)}
+                    boxWidth={Math.max(18, (minutesOf(session.end) - minutesOf(session.start)) * perMinute - 3)}
+                    top={at * laneOf(index) + GAP + spare / 2}
+                    height={laneOf(index) - GAP}
+                    line={index}
+                    onPick={onPick}
+                    clash={byRoom ? "booked into this room at the same time as another class" : "overlaps another class"}
+                    seats={session.room && seatsOf ? seatsOf(session.room) : null}
+                    registered={registeredOf ? registeredOf(session.crn) : null}
+                  />
+                );
+              })}
             </div>
           </div>
         ))}
@@ -469,8 +496,10 @@ export function WeekTimeline({
 }
 
 /**
- * One class, on its side, saying what every class's box says (see ClassFacts). Its row is
- * made tall enough for that; the sentence is on the tooltip as well, as everywhere else.
+ * One class, on its side, saying what every class's box says (see ClassFacts). At the top of
+ * the height zoom its row is made tall enough for that; lower down it says the whole lines
+ * it has room for, in the same order, and with room for less than two, the course and group
+ * on one line in type that fits. The sentence is on the tooltip, as everywhere else.
  *
  * It used to rank its fields by width and leave out the hour, which the box's place on
  * the page already says. The department asked for one box everywhere instead, the same
@@ -488,7 +517,8 @@ function Class({
   seats = null,
   registered = null,
   line,
-  oneLine = false,
+  name,
+  whole,
 }: {
   session: PlacedSession;
   course?: CalendarCourse;
@@ -503,9 +533,10 @@ function Class({
   seats?: number | null;
   /** Which row it is on, for the row's height. */
   line: number;
+  /** Which box it is, and how tall all of what it says is, measured: nought until it has been. */
+  name: string;
+  whole: number;
   registered?: number | null;
-  /** Squeezed too short for everything: the course and group on one line, in type that fits. */
-  oneLine?: boolean;
 }) {
   const color = course?.color ?? "#1f4e79";
   const outline = course?.tone === "outline";
@@ -534,6 +565,11 @@ function Class({
   ].join(" · ");
   const opens = Boolean(onPick && course?.openable);
   const Box = opens ? "button" : "article";
+  // Inside its border, and then its padding: what the facts have to be drawn in.
+  const inside = height - (outline ? 4 : 0);
+  const lines = linesIn(inside - 4);
+  // One line, the course and group, rather than the first of several: unless one is all it says.
+  const oneLine = lines < 2 && !(whole > 0 && whole <= height);
 
   return (
     <Box
@@ -542,8 +578,9 @@ function Class({
       title={details}
       aria-label={opens ? `Open CRN ${session.crn}: ${details}` : details}
       data-line={line}
-      className={`absolute flex flex-col justify-center overflow-hidden text-left ${
-        oneLine ? "rounded-sm px-1 py-0" : "rounded-md px-1.5 py-0.5"
+      data-box={name}
+      className={`absolute flex flex-col justify-center overflow-hidden px-1.5 py-0.5 text-left ${
+        oneLine ? "rounded-sm" : "rounded-md"
       } ${
         outline ? "border-2 border-dashed bg-white" : "text-white"
       } ${cancelled ? "opacity-55" : ""} ${session.clashes ? "outline-2 -outline-offset-2 outline-[#d9a441]" : ""} ${
@@ -559,22 +596,16 @@ function Class({
         color: outline ? color : undefined,
       }}
     >
-      {oneLine ? (
-        // Below a readable size there are no words, only the colour; the hover still has them all.
-        height >= 7 ? (
-          <span
-            data-facts
-            className={`block truncate font-semibold ${cancelled ? "line-through" : ""}`}
-            style={{ fontSize: Math.min(11, height - 2), lineHeight: `${height}px` }}
-          >
-            {[label, course?.group].filter(Boolean).join(" · ")}
-            {crowded ? ` · ${registered}/${seats}` : ""}
-          </span>
-        ) : null
-      ) : (
+      {/*
+        * Drawn whole even when it is hidden, since what it would take is what the row is
+        * measured for: the zoom's next notch up has to know.
+        */}
+      <div className={oneLine ? "invisible" : "contents"}>
         <ClassFacts
           session={session}
           course={course}
+          // Spaced the same whether shown or not, so it measures the same.
+          lines={lines}
           aside={
             // Never dropped: a room too small is the thing to see at a glance.
             crowded ? (
@@ -584,7 +615,17 @@ function Class({
             ) : null
           }
         />
-      )}
+      </div>
+      {/* Below a readable size there are no words, only the colour; the hover still has them all. */}
+      {oneLine && height >= 7 ? (
+        <span
+          className={`absolute inset-x-1 top-0 block truncate font-semibold ${cancelled ? "line-through" : ""}`}
+          style={{ fontSize: Math.min(11, inside - 2), lineHeight: `${inside}px` }}
+        >
+          {[label, course?.group].filter(Boolean).join(" · ")}
+          {crowded ? ` · ${registered}/${seats}` : ""}
+        </span>
+      ) : null}
     </Box>
   );
 }

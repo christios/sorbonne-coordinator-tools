@@ -83,7 +83,7 @@ type TimetableProps = {
    * Days down the side and hours across the page, instead of the other way round.
    *
    * For the department's whole week, where the ordinary way round has nothing left to
-   * divide — see `WeekTimeline`. `widthZoom` and `rowHeight` are its two zooms and are
+   * divide — see `WeekTimeline`. `widthZoom` and `heightZoom` are its two zooms and are
    * ignored by the ordinary calendar.
    */
   daysDown?: boolean;
@@ -94,9 +94,10 @@ type TimetableProps = {
   byRoom?: "week" | "day";
   /** How many screens wide the week is drawn; 1 fills it exactly. */
   widthZoom?: number;
-  rowHeight?: number;
-  /** Each zoom at its lowest: the whole week on the screen, squeezed — see `WeekTimeline`. */
-  squeeze?: { width: boolean; height: boolean };
+  /** From 0, the whole week on the screen, to 1, every box saying everything — see `WeekTimeline`. */
+  heightZoom?: number;
+  /** The width zoom at its lowest: the whole week across the screen, squeezed — see `WeekTimeline`. */
+  squeeze?: { width: boolean };
   /** Take the height given and scroll the grid inside it, rather than growing the page. */
   fills?: boolean;
   /**
@@ -181,7 +182,7 @@ function Timetable({
   daysDown = false,
   byRoom,
   widthZoom = 1,
-  rowHeight = 22,
+  heightZoom = 1,
   squeeze,
   fills = false,
   onCoverage,
@@ -423,7 +424,7 @@ function Timetable({
               courses={courses}
               today={today}
               widthZoom={widthZoom}
-              rowHeight={rowHeight}
+              heightZoom={heightZoom}
               squeeze={squeeze}
               rowsBy={byRoom ? "room" : "day"}
               day={oneDay ? shownDay : undefined}
